@@ -6382,6 +6382,11 @@ limited-crafting/unlocked-recipe client gating, recipe-book discovery state,
 arbitrary container return flags and exact native close/flush timing remain open.
 These corrections do not close the overall Phase 5 inventory parity gate.
 
+Incremental recipe replacements now retire obsolete station and multi-recipe
+views. Station inputs outside the supported slot counts, or with quantities
+other than one, are explicitly counted and skipped. Support for those broader
+station shapes remains incomplete.
+
 ### Zeqa regression follow-up (incomplete visual/performance acceptance)
 
 Nametag phase traversal, omitted catalog plane backs, active player appearance

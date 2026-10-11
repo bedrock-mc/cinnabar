@@ -18,9 +18,19 @@ fn carrier_v4_preflight_accepts_optional_cube_bind_pose_rotation() {
 }
 
 #[test]
-#[ignore = "requires CINNABAR_ENTITY_CARRIER pointing to a rebuilt runtime carrier"]
 fn rebuilt_entity_carrier_preserves_cube_bind_poses() {
-    let path = std::env::var_os("CINNABAR_ENTITY_CARRIER").expect("entity carrier path");
+    let Some(path) = std::env::var_os("CINNABAR_ENTITY_CARRIER").map(std::path::PathBuf::from)
+    else {
+        eprintln!("skipping missing fixture: CINNABAR_ENTITY_CARRIER is not set");
+        return;
+    };
+    if !path.exists() {
+        eprintln!(
+            "skipping missing fixture: CINNABAR_ENTITY_CARRIER at {}",
+            path.display()
+        );
+        return;
+    }
     let encoded = std::fs::read(path).expect("read existing entity carrier");
     let runtime = RuntimeEntityAssets::decode(&encoded).expect("decode rebuilt entity carrier");
     let bind_poses = runtime

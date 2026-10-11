@@ -13,7 +13,6 @@ const FLYING_MODIFIER: f32 = 1.1;
 const BOW_FULL_DRAW_SECONDS: f32 = 1.0;
 const BOW_MAX_ZOOM: f32 = 0.15;
 const SMOOTHING_PER_TICK: f32 = 0.5;
-const TICKS_PER_SECOND: f32 = 20.0;
 const MIN_MODIFIER: f32 = 0.05;
 const MAX_MODIFIER: f32 = 2.0;
 const DEATH_CAMERA_BASE_FOV: f32 = 60.0;
@@ -137,7 +136,8 @@ impl CameraFovState {
     pub fn advance(&mut self, target: f32, delta_seconds: f32) -> f32 {
         let target = if target.is_finite() { target } else { 1.0 };
         if delta_seconds.is_finite() && delta_seconds > 0.0 {
-            let keep = SMOOTHING_PER_TICK.powf((delta_seconds * TICKS_PER_SECOND).min(1000.0));
+            let keep = SMOOTHING_PER_TICK
+                .powf((delta_seconds * world::TICKS_PER_SECOND as f32).min(1000.0));
             self.modifier += (target - self.modifier) * (1.0 - keep);
         }
         self.modifier = self.modifier.clamp(MIN_MODIFIER, MAX_MODIFIER);
@@ -285,10 +285,10 @@ mod tests {
     #[test]
     fn smoothing_halves_the_gap_per_tick_regardless_of_frame_rate() {
         let mut one = CameraFovState::default();
-        one.advance(0.1, 0.05);
+        one.advance(0.1, world::TICK_DURATION.as_secs_f32());
         let mut many = CameraFovState::default();
         for _ in 0..5 {
-            many.advance(0.1, 0.01);
+            many.advance(0.1, world::TICK_DURATION.as_secs_f32() / 5.0);
         }
         assert!((one.modifier() - 0.55).abs() < 1e-5);
         assert!((one.modifier() - many.modifier()).abs() < 1e-5);

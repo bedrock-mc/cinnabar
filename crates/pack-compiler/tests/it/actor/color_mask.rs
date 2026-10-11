@@ -10,10 +10,19 @@ fn a_custom_sheep_material_does_not_unlock_unverified_fractional_alpha() {
 
 #[test]
 fn pinned_sheep_rasters_and_all_geometry_bindings_retain_native_color_mask_alpha() {
-    let Some(root) = std::env::var_os("CINNABAR_VANILLA_ACTOR_ROOT") else {
-        eprintln!("missing fixture: CINNABAR_VANILLA_ACTOR_ROOT (pinned vanilla sheep pack)");
+    let Some(root) = std::env::var_os("CINNABAR_VANILLA_ACTOR_ROOT").map(std::path::PathBuf::from)
+    else {
+        eprintln!("skipping missing fixture: CINNABAR_VANILLA_ACTOR_ROOT is not set");
         return;
     };
+    if !root.exists() {
+        eprintln!(
+            "skipping missing fixture: CINNABAR_VANILLA_ACTOR_ROOT at {}",
+            root.display()
+        );
+        return;
+    }
+
     let root = Path::new(&root);
     if !root.join("entity/sheep.entity.json").is_file() {
         eprintln!(

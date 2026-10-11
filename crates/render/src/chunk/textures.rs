@@ -74,7 +74,7 @@ pub fn texture_asset_needs_rebuild(
     current != Some(next)
 }
 
-pub(in crate::chunk) const ANIMATION_TICKS_PER_SECOND: f64 = 20.0;
+pub(in crate::chunk) const ANIMATION_TICKS_PER_SECOND: f64 = world::TICKS_PER_SECOND as f64;
 pub(in crate::chunk) const ANIMATION_TICK_MODULUS: f64 = u32::MAX as f64 + 1.0;
 
 /// Global Bedrock flipbook clock. Only this 16-byte value changes per frame;

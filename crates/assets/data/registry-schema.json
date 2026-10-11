@@ -1,0 +1,217 @@
+{
+  "magic": "BREG1003",
+  "legacy_protocol": 1001,
+  "limits": [
+    {"rust_name": "MAX_REGISTRY_RECORDS", "go_name": "maxRecordCount", "value": 65536},
+    {"rust_name": "MAX_REGISTRY_STATE_BYTES", "go_name": "maxStateBytes", "value": 1048576},
+    {"rust_name": "MAX_COLLISION_BOXES", "go_name": "maxCollisionBoxesPerRecord", "value": 7},
+    {"rust_name": null, "go_name": "maxNameBytes", "value": 65535}
+  ],
+  "enums": [
+    {
+      "name": "ModelFamily",
+      "default": "Unknown",
+      "go_prefix": "ModelFamily",
+      "go_max": "maxModelFamily",
+      "values": [
+        {"name": "Unknown", "value": 0},
+        {"name": "Air", "value": 1},
+        {"name": "Cube", "value": 2},
+        {"name": "Leaves", "value": 3},
+        {"name": "Cross", "value": 4},
+        {"name": "Crop", "value": 5},
+        {"name": "Liquid", "value": 6},
+        {"name": "Slab", "value": 7},
+        {"name": "Stair", "value": 8},
+        {"name": "Door", "value": 9},
+        {"name": "Trapdoor", "value": 10},
+        {"name": "Pane", "value": 11},
+        {"name": "Fence", "value": 12},
+        {"name": "Gate", "value": 13},
+        {"name": "Chest", "value": 14},
+        {"name": "Sign", "value": 15},
+        {"name": "Wall", "value": 16},
+        {"name": "Bed", "value": 17},
+        {"name": "Rail", "value": 18},
+        {"name": "Torch", "value": 19},
+        {"name": "Button", "value": 20},
+        {"name": "PressurePlate", "value": 21},
+        {"name": "Carpet", "value": 22},
+        {"name": "Layer", "value": 23},
+        {"name": "Decorative", "value": 24},
+        {"name": "Statue", "value": 25},
+        {"name": "Cuboid", "value": 26},
+        {"name": "Aquatic", "value": 27},
+        {"name": "Cocoa", "value": 28},
+        {"name": "Lever", "value": 29},
+        {"name": "Invisible", "value": 30},
+        {"name": "FlowerBed", "value": 31},
+        {"name": "Vine", "value": 32},
+        {"name": "GlowLichen", "value": 33},
+        {"name": "SculkVein", "value": 34},
+        {"name": "ChiseledBookshelf", "value": 35},
+        {"name": "ResinClump", "value": 36}
+      ],
+      "read": true,
+      "read_visibility": "pub(super)"
+    },
+    {
+      "name": "ContributorRole",
+      "default": "Primary",
+      "go_prefix": "Contributor",
+      "go_max": "maxContributorRole",
+      "values": [
+        {"name": "Primary", "value": 0},
+        {"name": "LiquidAdditional", "value": 1},
+        {"name": "Air", "value": 2}
+      ],
+      "read": true,
+      "read_visibility": "pub(crate)"
+    },
+    {
+      "name": "ModelStateField",
+      "default": null,
+      "go_prefix": "ModelState",
+      "go_max": "maxModelStateField",
+      "values": [
+        {"name": "Orientation", "value": 1},
+        {"name": "Half", "value": 2},
+        {"name": "Open", "value": 3},
+        {"name": "Hinge", "value": 4},
+        {"name": "Connections", "value": 5},
+        {"name": "Growth", "value": 6},
+        {"name": "LiquidDepth", "value": 7},
+        {"name": "Flags", "value": 8}
+      ],
+      "read": false,
+      "read_visibility": "pub(super)"
+    },
+    {
+      "name": "CollisionConfidence",
+      "default": "None",
+      "go_prefix": "CollisionConfidence",
+      "go_max": "maxCollisionConfidence",
+      "values": [
+        {"name": "None", "value": 0},
+        {"name": "CollisionOnly", "value": 1},
+        {"name": "ReviewedVisibleBounds", "value": 2}
+      ],
+      "read": true,
+      "read_visibility": "pub(super)"
+    }
+  ],
+  "flags": [
+    {
+      "name": "BlockFlags",
+      "go_all": "allBlockFlags",
+      "values": [
+        {"name": "AIR", "bit": 0, "go_name": "flagAir", "source": true, "doc": null},
+        {"name": "CUBE_GEOMETRY", "bit": 1, "go_name": "flagCubeGeometry", "source": true, "doc": null},
+        {"name": "OCCLUDES_FULL_FACE", "bit": 2, "go_name": "flagOccludesFullFace", "source": true, "doc": null},
+        {"name": "LEAF_MODEL", "bit": 3, "go_name": "flagLeafModel", "source": true, "doc": null},
+        {"name": "SEASONAL_REPLACEABLE", "bit": 4, "go_name": null, "source": false, "doc": "Replaceable-block admission used by the seasonal scan; independent of geometry and collision."},
+        {"name": "FIRE_FLAMMABLE", "bit": 5, "go_name": null, "source": false, "doc": "Effective catch chance is nonzero."},
+        {"name": "FIRE_TOP_SUPPORT", "bit": 6, "go_name": null, "source": false, "doc": "The support component accepts full support on the top face."}
+      ],
+      "doc": "Geometry, occlusion and seasonal shelter facts."
+    },
+    {
+      "name": "RegistryProvenance",
+      "go_all": "allProvenance",
+      "values": [
+        {"name": "PMMP", "bit": 0, "go_name": "ProvenancePMMP", "source": true},
+        {"name": "DRAGONFLY", "bit": 1, "go_name": "ProvenanceDragonfly", "source": true},
+        {"name": "PRISMARINE", "bit": 2, "go_name": "ProvenancePrismarine", "source": true},
+        {"name": "VALENTINE", "bit": 3, "go_name": "ProvenanceValentine", "source": true}
+      ],
+      "doc": "Pinned sources that proved the identity of a canonical state."
+    }
+  ],
+  "structs": [
+    {
+      "rust_name": "ModelState",
+      "go_name": "ModelState",
+      "derive": "Debug, Clone, Copy, Default, PartialEq, Eq, Hash",
+      "fields": [
+        {"rust_name": "mask", "go_name": "Mask", "rust_type": "u8", "go_type": "uint8", "public": false},
+        {"rust_name": "values", "go_name": "Values", "rust_type": "[u32; 8]", "go_type": "[8]uint32", "public": false}
+      ],
+      "doc": "Presence-tagged model-state fields."
+    },
+    {
+      "rust_name": "CollisionBox",
+      "go_name": "CollisionBox",
+      "derive": "Debug, Clone, Copy, Default, PartialEq, Eq, Hash",
+      "fields": [
+        {"rust_name": "min_x", "go_name": "MinX", "rust_type": "i32", "go_type": "int32", "public": true},
+        {"rust_name": "min_y", "go_name": "MinY", "rust_type": "i32", "go_type": "int32", "public": true},
+        {"rust_name": "min_z", "go_name": "MinZ", "rust_type": "i32", "go_type": "int32", "public": true},
+        {"rust_name": "max_x", "go_name": "MaxX", "rust_type": "i32", "go_type": "int32", "public": true},
+        {"rust_name": "max_y", "go_name": "MaxY", "rust_type": "i32", "go_type": "int32", "public": true},
+        {"rust_name": "max_z", "go_name": "MaxZ", "rust_type": "i32", "go_type": "int32", "public": true}
+      ],
+      "doc": "Signed 1/100,000,000-block coordinates from the pinned collision-shape source."
+    },
+    {
+      "rust_name": "CollisionSeed",
+      "go_name": "CollisionSeed",
+      "derive": "Debug, Clone, Default, PartialEq, Eq",
+      "fields": [
+        {"rust_name": "shape_id", "go_name": "ShapeID", "rust_type": "u16", "go_type": "uint16", "public": true},
+        {"rust_name": "confidence", "go_name": "Confidence", "rust_type": "CollisionConfidence", "go_type": "CollisionConfidence", "public": true},
+        {"rust_name": "boxes", "go_name": "Boxes", "rust_type": "Box<[CollisionBox]>", "go_type": "[]CollisionBox", "public": true}
+      ],
+      "doc": "A carrier-local collision shape; compare boxes when checking geometry."
+    },
+    {
+      "rust_name": "RegistryRecord",
+      "go_name": "Record",
+      "derive": "Debug, Clone, PartialEq, Eq",
+      "fields": [
+        {"rust_name": "sequential_id", "go_name": "SequentialID", "rust_type": "u32", "go_type": "uint32", "public": true},
+        {"rust_name": "network_hash", "go_name": "NetworkHash", "rust_type": "u32", "go_type": "uint32", "public": true},
+        {"rust_name": "name", "go_name": "Name", "rust_type": "Box<str>", "go_type": "string", "public": true},
+        {"rust_name": "canonical_state", "go_name": "StateJSON", "rust_type": "Box<str>", "go_type": "[]byte", "public": true},
+        {"rust_name": "flags", "go_name": "Flags", "rust_type": "BlockFlags", "go_type": "uint8", "public": true},
+        {"rust_name": "model_family", "go_name": "ModelFamily", "rust_type": "ModelFamily", "go_type": "ModelFamily", "public": true},
+        {"rust_name": "contributor_role", "go_name": "ContributorRole", "rust_type": "ContributorRole", "go_type": "ContributorRole", "public": true},
+        {"rust_name": "model_state", "go_name": "ModelState", "rust_type": "ModelState", "go_type": "ModelState", "public": true},
+        {"rust_name": "face_coverage", "go_name": "FaceCoverage", "rust_type": "u8", "go_type": "uint8", "public": true},
+        {"rust_name": "collision_seed", "go_name": "CollisionSeed", "rust_type": "CollisionSeed", "go_type": "CollisionSeed", "public": true},
+        {"rust_name": "provenance", "go_name": "Provenance", "rust_type": "RegistryProvenance", "go_type": "uint8", "public": true}
+      ],
+      "doc": "One canonical state from the deterministic block registry."
+    },
+    {
+      "rust_name": "RegistryMetadata",
+      "go_name": "RegistryMetadata",
+      "derive": "Debug, Clone, Copy",
+      "fields": [
+        {"rust_name": "protocol", "go_name": "Protocol", "rust_type": "u32", "go_type": "uint32", "public": true},
+        {"rust_name": "canonical_names", "go_name": "CanonicalNames", "rust_type": "u32", "go_type": "uint32", "public": true},
+        {"rust_name": "canonical_states", "go_name": "CanonicalStates", "rust_type": "u32", "go_type": "uint32", "public": true},
+        {"rust_name": "valentine_names", "go_name": "ValentineNames", "rust_type": "u32", "go_type": "uint32", "public": true},
+        {"rust_name": "valentine_states", "go_name": "ValentineStates", "rust_type": "u32", "go_type": "uint32", "public": true},
+        {"rust_name": "valentine_gap_names", "go_name": "ValentineGapNames", "rust_type": "u32", "go_type": "uint32", "public": true},
+        {"rust_name": "valentine_gap_states", "go_name": "ValentineGapStates", "rust_type": "u32", "go_type": "uint32", "public": true}
+      ],
+      "doc": "Counts and protocol in the block-registry header."
+    }
+  ],
+  "record_header": [
+    {"name": "sequential_id", "type": "u32", "go_value": "record.SequentialID"},
+    {"name": "network_hash", "type": "u32", "go_value": "record.NetworkHash"},
+    {"name": "raw_flags", "type": "u8", "go_value": "record.Flags"},
+    {"name": "model_family", "type": "u8", "go_value": "uint8(record.ModelFamily)"},
+    {"name": "contributor_role", "type": "u8", "go_value": "uint8(record.ContributorRole)"},
+    {"name": "model_mask", "type": "u8", "go_value": "record.ModelState.Mask"},
+    {"name": "face_coverage", "type": "u8", "go_value": "record.FaceCoverage"},
+    {"name": "confidence", "type": "u8", "go_value": "uint8(record.CollisionSeed.Confidence)"},
+    {"name": "raw_provenance", "type": "u8", "go_value": "record.Provenance"},
+    {"name": "box_count", "type": "u8", "go_value": "uint8(len(record.CollisionSeed.Boxes))"},
+    {"name": "shape_id", "type": "u16", "go_value": "record.CollisionSeed.ShapeID"},
+    {"name": "name_len", "type": "u16", "go_value": "uint16(len(record.Name))"},
+    {"name": "state_len", "type": "u32", "go_value": "uint32(len(record.StateJSON))"},
+    {"name": "values", "type": "u32[8]", "go_value": "record.ModelState.Values"}
+  ]
+}

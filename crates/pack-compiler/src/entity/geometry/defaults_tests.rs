@@ -25,11 +25,20 @@ fn computed_cube_pivot_remains_bounded() {
 }
 
 #[test]
-#[ignore = "requires CINNABAR_VANILLA_QUADRUPED_MODELS pointing to downloaded model sources"]
 fn downloaded_quadruped_models_preserve_native_rotation_pivots() {
-    let root = std::path::PathBuf::from(
-        std::env::var_os("CINNABAR_VANILLA_QUADRUPED_MODELS").expect("model source directory"),
-    );
+    let Some(root) =
+        std::env::var_os("CINNABAR_VANILLA_QUADRUPED_MODELS").map(std::path::PathBuf::from)
+    else {
+        eprintln!("skipping missing fixture: CINNABAR_VANILLA_QUADRUPED_MODELS is not set");
+        return;
+    };
+    if !root.exists() {
+        eprintln!(
+            "skipping missing fixture: CINNABAR_VANILLA_QUADRUPED_MODELS at {}",
+            root.display()
+        );
+        return;
+    }
     for (file, identifier, expected_body_pivot) in [
         ("pig.v3.geo.json", "geometry.pig.v3", [0.0, 10.0, -1.0]),
         ("cow.v2.geo.json", "geometry.cow.v2", [0.0, 18.0, 20.0]),
