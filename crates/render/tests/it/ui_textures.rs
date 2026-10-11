@@ -107,7 +107,27 @@ fn art_pages_follow_the_small_dynamic_pages_within_their_own_cap() {
     ));
     assert!(UiTextureCatalog::new(pages.clone(), 0).is_ok());
     pages.push(art);
-    assert!(UiTextureCatalog::new(pages, 0).is_err());
+    assert!(UiTextureCatalog::new(pages.clone(), 0).is_ok());
+    pages.extend(std::iter::repeat_n(
+        small.clone(),
+        render_model::MAX_UI_NATIVE_SHEET_PAGES - 1,
+    ));
+    let catalog = UiTextureCatalog::new(pages.clone(), 0).unwrap();
+    assert_eq!(
+        catalog.pages().len(),
+        render_model::UI_NATIVE_SHEET_PAGE_OFFSET + render_model::MAX_UI_NATIVE_SHEET_PAGES
+    );
+    pages.push(small.clone());
+    assert_eq!(
+        UiTextureCatalog::new(pages, 0),
+        Err(UiRenderRejectReason::InvalidTextureExtent)
+    );
+    let mut oversized_art = reserved_dynamic_pages();
+    oversized_art.push(rgba_page([MAX_UI_TEXTURE_SIDE; 2], 0));
+    assert_eq!(
+        UiTextureCatalog::new(oversized_art, 0),
+        Err(UiRenderRejectReason::InvalidTextureExtent)
+    );
     let odd = rgba_page([UI_MODEL_ATLAS_SIDE; 2], 0);
     assert!(UiTextureCatalog::new(vec![odd, small], 0).is_err());
 }

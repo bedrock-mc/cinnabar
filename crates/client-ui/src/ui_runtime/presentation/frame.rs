@@ -56,6 +56,7 @@ impl UiPresentationRuntime {
         if self.menu_artwork_loader.poll() {
             self.rebuild_dynamic_textures();
         }
+        self.poll_server_ui_images();
         self.menu_seconds = now_millis as f64 / 1_000.0;
         self.configure_oreui_motion();
         if let Some(view) = &self.menu_view {

@@ -108,7 +108,7 @@ material/shader linkage remain open.
 | Field | Evidence |
 |---|---|
 | Owning plan/task | `plan.md`: Compact font carriers and glyph residency; broader UI parity remains open. |
-| Deterministic tests | Font schema, bounded decode, frame residency, atlas churn, and retained allocation regressions cover compact carriers. |
+| Deterministic tests | Font schema, bounded decode, frame residency, atlas churn, and retained allocation regressions cover compact carriers. Original large-sheet UV, loop, reload and independent residency-budget regressions cover tiled UI images. |
 | Review commit | Not started |
 | Live/native witness | Exact coverage/SDF GPU pixels and mixed-script offline frames; native Bedrock UI parity remains open. |
 | Performance/resource witness | Font storage is bounded and development-profile first-menu startup is measured; release hitch and hardware-tier qualification remain open. |

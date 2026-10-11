@@ -159,6 +159,15 @@ impl<'a> PackLayer<'a> {
         self.pack.read_file(path)
     }
 
+    /// The indexed entry size without a read; changes still invalidate the subscriber.
+    #[must_use]
+    pub fn file_size(&self, path: &str) -> Option<u64> {
+        if let Some(dependencies) = self.dependencies {
+            dependencies.file(path, MAX_FILE_BYTES);
+        }
+        self.pack.file_size(path)
+    }
+
     /// Records a bounded layer read, including missing or oversized overrides.
     pub fn read_file_with_limit(
         &self,

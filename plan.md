@@ -605,11 +605,32 @@ these changes do not close the movement, camera, or actor parity gates.
 - Local player shadows now follow the actor frame's drawn bodies, suppressing
   the caster in first person and retaining it in third person.
 - Animated loading strips wait for settled artwork instead of drawing a
-  downsampled preview. Large custom strips retain the existing size-cap
-  approximation; exact large-image animation parity remains incomplete.
+  downsampled preview. Oversized images use the original-resolution path
+  described under Original UI image animation.
 - The integrated Rust client and Go core builds pass. Incomplete acceptance:
   regressions are authored but unrun at the owner's request; live inspection
   is still pending.
+
+## Original UI image animation
+
+- Oversized resource-pack UI images retain original source pixels in immutable
+  tiles. Authored UV animations can cross tile boundaries without downscaling
+  their frame cells or changing the frame clock.
+- UI images use the existing 64 MiB admitted-file envelope. Original tiles are
+  bounded to 96 MiB across eight pages, decoded once on a shared worker and
+  released on pack replacement. Large archive entries inflate and decrypt on a
+  bounded worker, as do newly admitted large installed-pack images, with a
+  shared 96 MiB encoded-source residency cap. Source metadata refreshes retained
+  screen layouts and measurements without restarting bindings
+  or animation clocks. Failed
+  original-image decodes reveal valid carrier or icon artwork. Images beyond
+  the resource limits remain unsupported.
+  Consumers limited to one sprite retain fitted artwork for images spanning
+  multiple tiles; exact multi-page icon rendering remains incomplete.
+- Original pixel, loop, reload and residency-budget regressions pass. The retained
+  pack inventory renders moving frames and repeats two loops in offline snapshots.
+  Full-client server acceptance and hardware upload/frame budgets remain open;
+  broader UI parity is incomplete.
 
 ## NetherNet server trust
 

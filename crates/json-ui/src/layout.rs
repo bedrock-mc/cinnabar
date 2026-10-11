@@ -112,6 +112,11 @@ pub trait TextMeasure {
 pub trait TextureSource {
     fn texture(&self, path: &str) -> Option<TextureMeta>;
 
+    /// Changes when metadata or its source namespace changes; immutable providers may keep zero.
+    fn metadata_revision(&self) -> u64 {
+        0
+    }
+
     /// An aseprite sheet's frames, for `aseprite_flip_book`.
     fn aseprite_frames(
         &self,

@@ -1,4 +1,4 @@
-//! Presents a server form through the clean-room JSON-UI engine: the vanilla
+//! Presents a server form through the JSON-UI engine: the vanilla
 //! `ui/*.json` templates resolve against the compiled carrier's catalog, lay out
 //! in virtual UI pixels, and their draw nodes become retained UI nodes over the
 //! carrier's atlas pages. One virtual pixel is one GUI pixel of the HUD's scale
@@ -40,6 +40,7 @@ pub(super) use pack_catalog::layer_pack_catalog;
 mod death_reason_tests;
 pub(super) mod host_edit;
 mod screen_cache;
+mod sprites;
 mod text_paint;
 use super::server_pack::{ServerAtlas, ServerUiPack};
 use super::textures::{TextureSet, Textures};
@@ -65,6 +66,7 @@ pub struct FormEngine {
     pub(super) textures: TextureSet,
     /// The atlas page images last handed to the dynamic pages.
     pub(super) server_pages: Vec<render_model::UiTexturePage>,
+    pub(super) server_sheet_pages: Vec<render_model::UiTexturePage>,
     /// The runtime pack last applied, compared by identity.
     server_source: Option<Arc<ServerUiPack>>,
     menu_title_source: menu_title::TitleSource,
@@ -97,6 +99,7 @@ struct LaidForm {
     px: f32,
     text: [usize; 3],
     font: assets::FontCatalogIdentity,
+    texture_metadata: u64,
     render: FormRender,
 }
 
@@ -140,6 +143,7 @@ impl FormEngine {
             context,
             menu_title_source,
             server_pages: Vec::new(),
+            server_sheet_pages: Vec::new(),
             server_source: None,
             cache: None,
             passes: [0; 2],
@@ -196,6 +200,16 @@ impl FormEngine {
     /// Install a server texture atlas whose pages start at texture page `first`.
     pub(super) fn set_server_atlas(&mut self, atlas: ServerAtlas, first: u16) {
         self.textures.set_atlas(atlas, first);
+        if let Some(cache) = &mut self.cache {
+            cache.laid = None;
+        }
+        self.screens.invalidate_layouts();
+    }
+
+    /// Polls original-image readiness even when the current menu needs no repaint.
+    pub(super) fn poll_native_images(&mut self) -> bool {
+        let atlas = self.textures.atlas_mut();
+        atlas.poll_native_images() | atlas.take_metadata_changed()
     }
 
     /// The atlas page images when they changed since the last call.
@@ -205,6 +219,7 @@ impl FormEngine {
             return None;
         }
         self.server_pages = atlas.images().to_vec();
+        self.server_sheet_pages = atlas.native_pages().to_vec();
         Some(&self.server_pages)
     }
 
@@ -259,6 +274,10 @@ impl FormEngine {
         self.catalog = catalog;
         self.cache = None;
         self.screens = screen_cache::ScreenCache::default();
+        *self
+            .animator
+            .get_mut()
+            .unwrap_or_else(|poison| poison.into_inner()) = json_ui::Animator::new();
     }
 
     /// Render `model`; `Ok(None)` without its template. Layout holds until model or scroll change.
@@ -290,6 +309,7 @@ impl FormEngine {
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let text = inputs.language;
         let font = inputs.font.identity();
+        let texture_metadata = self.textures.metadata_revision();
         let art = Art {
             assets: &self.assets,
             set: &self.textures,
@@ -317,6 +337,7 @@ impl FormEngine {
                     laid.view.same_layout(view)
                         && (laid.root, laid.px, laid.text) == (root, px, text)
                         && laid.font == font
+                        && laid.texture_metadata == texture_metadata
                 });
                 if !fresh {
                     let bound = cache.bound.clone()?;
@@ -329,6 +350,7 @@ impl FormEngine {
                         px,
                         text,
                         font,
+                        texture_metadata,
                         render,
                     });
                 }
@@ -420,6 +442,7 @@ impl FormEngine {
         art.view = Some(view);
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let text = inputs.language;
+        let texture_metadata = self.textures.metadata_revision();
         render_with(self.art(), inputs, out, art, None, |env, root| {
             let key = screen_cache::ScreenKey {
                 reference,
@@ -430,6 +453,7 @@ impl FormEngine {
                 root,
                 px,
                 text,
+                texture_metadata,
             };
             self.screens.render(key, env)
         })
@@ -786,55 +810,6 @@ impl Painter<'_> {
         }
     }
 
-    /// A sprite of the texture at `path` (server pack first, then the carrier),
-    /// sampling the normalised `uv`; `None` when neither holds it.
-    /// Maps source edges onto their atlas page without rounding fractional slice boundaries.
-    fn sprite(
-        &self,
-        path: &str,
-        uv: json_ui::UvRect,
-        color: [u8; 4],
-        filter: json_ui::SpriteFilter,
-    ) -> Option<UiVisual> {
-        let Some((page, [x, y, w, h])) = self.textures.sprite(path) else {
-            // An unresolved texture draws vanilla's default white texture.
-            return self.textures.missing(path).then_some(UiVisual::Solid {
-                texture_page: self.solid_page,
-                color,
-            });
-        };
-        let pixel = |base: f32, span: f32, t: f32| {
-            let value = base + span * t;
-            if value.is_nan() {
-                0.0
-            } else {
-                value.clamp(0.0, f32::from(u16::MAX))
-            }
-        };
-        let uv = [
-            pixel(x, w, uv.u0),
-            pixel(y, h, uv.v0),
-            pixel(x, w, uv.u1),
-            pixel(y, h, uv.v1),
-        ];
-        let style = (u8::from(filter.grayscale) * ui::UI_STYLE_GRAYSCALE)
-            | (u8::from(filter.bilinear) * ui::UI_STYLE_BILINEAR);
-        Some(if style == 0 && uv.iter().all(|edge| edge.fract() == 0.0) {
-            UiVisual::Sprite {
-                texture_page: page,
-                uv: uv.map(|edge| edge as u16),
-                color,
-            }
-        } else {
-            UiVisual::StyledSprite {
-                texture_page: page,
-                uv,
-                color,
-                style,
-            }
-        })
-    }
-
     /// Push `visual` at `bounds` into the current clip group.
     fn push(&mut self, visual: UiVisual, bounds: [f32; 4]) -> Result<(), UiPresentationError> {
         let Some((clip, parent)) = self.clip else {
@@ -880,7 +855,7 @@ impl Painter<'_> {
                         )
                     })
                 })
-            && self.textures.animation_sprite(texture).is_none()
+            && !self.textures.animation_ready(texture)
         {
             return Ok(());
         }
@@ -964,6 +939,9 @@ impl Painter<'_> {
             } => {
                 let uv = drawn.uv.unwrap_or(*uv);
                 let color = drawn.color.unwrap_or(*color);
+                if self.paint_native_sprite(texture, uv, alpha(color), *filter, dest)? {
+                    return Ok(());
+                }
                 let Some(visual) = self.sprite(texture, uv, alpha(color), *filter) else {
                     return Ok(());
                 };

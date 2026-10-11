@@ -286,3 +286,130 @@ fn vanilla_fallback_rejects_parent_paths_and_symlink_escapes() {
     }
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn large_local_images_publish_metadata_without_reading_on_the_requesting_thread() {
+    let root = std::env::temp_dir().join(format!("cinnabar-local-source-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("textures/ui")).unwrap();
+    let key = "textures/ui/large_local";
+    let mut encoded = png(2, 3);
+    encoded.resize(MAX_PACK_TEXTURE_BYTES as usize + 1, 0);
+    std::fs::write(root.join(format!("{key}.png")), &encoded).unwrap();
+    let mut atlas = ServerAtlas::new(&[], None, 1).with_fallbacks(Some(root.clone()), None);
+    LOCAL_READS.with(|reads| reads.borrow_mut().clear());
+    assert_eq!(
+        atlas.fallback_size(key),
+        None,
+        "a cold large source waits for worker metadata"
+    );
+    assert!(LOCAL_READS.with(|reads| reads.borrow().is_empty()));
+    test_time::eventually("local metadata and pixels are published", || {
+        atlas.require([key]);
+        atlas.fallback_size(key) == Some([2.0, 3.0]) && atlas.placement(key).is_some()
+    });
+    assert!(atlas.metadata_revision() > 0);
+    assert!(atlas.take_metadata_changed());
+    let (_, allocations) = crate::allocation_count::count(|| {
+        for _ in 0..3 {
+            atlas.require([key]);
+            assert_eq!(atlas.fallback_size(key), Some([2.0, 3.0]));
+        }
+    });
+    assert_eq!(
+        allocations, 0,
+        "resident local sources reuse metadata and pixels"
+    );
+    assert!(LOCAL_READS.with(|reads| reads.borrow().is_empty()));
+    assert!(!atlas.take_metadata_changed());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn ui_images_larger_than_the_small_texture_limit_remain_readable() {
+    let mut pixels = image::RgbaImage::new(1536, 1024);
+    let mut noise = 0x8a35_7d21u32;
+    for pixel in pixels.pixels_mut() {
+        let mut bytes = [0; 4];
+        for byte in &mut bytes {
+            noise ^= noise << 13;
+            noise ^= noise >> 17;
+            noise ^= noise << 5;
+            *byte = noise as u8;
+        }
+        *pixel = image::Rgba(bytes);
+    }
+    let mut encoded = Cursor::new(Vec::new());
+    pixels
+        .write_to(&mut encoded, image::ImageFormat::Png)
+        .unwrap();
+    let encoded = encoded.into_inner();
+    assert!(encoded.len() as u64 > resource_pack::MAX_PACK_TEXTURE_BYTES);
+    let key = "textures/ui/original_noise";
+    let expected = pixels.get_pixel(0, 0).0;
+    let view = super::external_paths_tests::view(&[(format!("{key}.png"), encoded)]);
+    let atlas = ServerAtlas::new(&[], Some(view.clone()), 1).with_native_sheets(true);
+    PACK_READS.with(|reads| reads.borrow_mut().clear());
+    atlas.image_size(key);
+    assert!(
+        PACK_READS.with(|reads| reads.borrow().is_empty()),
+        "large archive entries must not inflate on the requesting presentation thread",
+    );
+    let mut atlas = atlas;
+    test_time::eventually(
+        "large original image pixels arrive from their workers",
+        || {
+            atlas.require([key]);
+            atlas.poll_native_images();
+            atlas
+                .native_pages()
+                .iter()
+                .any(|page| page.dimensions() == [1536, 1024] && page.pixels()[..4] == expected)
+        },
+    );
+    assert_eq!(atlas.image_size(key), Some([1536.0, 1024.0]));
+    assert!(PACK_READS.with(|reads| reads.borrow().is_empty()));
+
+    let departing = ServerAtlas::new(&[], Some(view), 1).with_native_sheets(true);
+    departing.image_size(key);
+    drop(departing);
+    let replacement = [190, 40, 90, 255];
+    pixels.put_pixel(0, 0, image::Rgba(replacement));
+    let mut encoded = Cursor::new(Vec::new());
+    pixels
+        .write_to(&mut encoded, image::ImageFormat::Png)
+        .unwrap();
+    let view = super::external_paths_tests::view(&[(format!("{key}.png"), encoded.into_inner())]);
+    let mut reloaded = ServerAtlas::new(&[], Some(view), 1).with_native_sheets(true);
+    test_time::eventually(
+        "replacement image never publishes the departing pack's source",
+        || {
+            reloaded.require([key]);
+            reloaded.poll_native_images();
+            reloaded
+                .native_pages()
+                .iter()
+                .any(|page| page.pixels()[..4] == replacement)
+        },
+    );
+    assert!(PACK_READS.with(|reads| reads.borrow().is_empty()));
+}
+
+#[test]
+fn small_winning_source_remains_readable_above_large_lower_layers_at_the_budget_boundary() {
+    let mut large = png(1, 1);
+    large.resize(MAX_PACK_TEXTURE_BYTES as usize + 1, 0);
+    let source = source(Arc::from(large.clone())).unwrap();
+    let key = "textures/ui/winning";
+    let lower = [(format!("{key}.png"), large)];
+    let higher = [(format!("{key}.png"), png(2, 3))];
+    let pack = PackTextures::index(super::external_paths_tests::layered_view(&[
+        &lower, &higher,
+    ]));
+    pack.loaded
+        .borrow_mut()
+        .extend((0..23).map(|i| (format!("resident_{i}"), Some(source.clone()))));
+    test_time::eventually("small winning pixels survive a large shadowed copy", || {
+        pack.collect();
+        pack.image(key).is_some_and(|source| source.size == [2, 3])
+    });
+}

@@ -51,6 +51,8 @@ pub mod model;
 pub mod motion_blur_setting;
 pub mod npc;
 pub mod oreui;
+#[cfg(test)]
+mod retained_image_tests;
 mod retained_menu;
 mod skybox_setting;
 pub mod smaa_setting;
@@ -271,6 +273,9 @@ impl UiPresentationRuntime {
         // A texture-only pack may retain the catalog while changing sprite
         // dimensions, UV metadata, or nine-slice borders used during layout.
         self.form_presentation.hud.invalidate_textures();
+        if let Some(cache) = &mut self.form_presentation.container_cache {
+            cache.invalidate_textures();
+        }
         if let Some(settings) = pack
             .screen_settings
             .as_ref()
@@ -304,6 +309,23 @@ impl UiPresentationRuntime {
             .collect();
         if let Some(engine) = self.form_presentation.engine.as_mut() {
             engine.textures.set_full_res(full_res);
+        }
+    }
+
+    /// Publishes completed original images before a saved menu frame can be reused.
+    pub(super) fn poll_server_ui_images(&mut self) {
+        if self
+            .form_presentation
+            .engine
+            .as_mut()
+            .is_some_and(|engine| engine.poll_native_images())
+        {
+            self.retained_menu = None;
+            self.form_presentation.hud.invalidate_textures();
+            if let Some(cache) = &mut self.form_presentation.container_cache {
+                cache.invalidate_textures();
+            }
+            self.sync_server_ui_pages();
         }
     }
 
@@ -401,6 +423,14 @@ impl UiPresentationRuntime {
             .engine
             .as_ref()
             .map_or(&[], |engine| &engine.server_pages)
+    }
+
+    /// Immutable original-image tiles owned by the active resource-pack namespace.
+    pub(super) fn server_ui_sheet_pages(&self) -> &[render_model::UiTexturePage] {
+        self.form_presentation
+            .engine
+            .as_ref()
+            .map_or(&[], |engine| &engine.server_sheet_pages)
     }
 
     /// Applies the runtime's server UI pack when it changes identity.

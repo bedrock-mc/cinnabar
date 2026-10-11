@@ -296,7 +296,7 @@ impl Source {
     }
 }
 
-const WHOLE_PAGE: u32 = render_model::UI_ART_PAGE_SIDE - GUTTER * 2;
+pub(super) const WHOLE_PAGE: u32 = render_model::UI_ART_PAGE_SIDE - GUTTER * 2;
 
 impl DecodeCache {
     fn missing(&self, set: &ArtworkSet) -> Vec<Source> {
