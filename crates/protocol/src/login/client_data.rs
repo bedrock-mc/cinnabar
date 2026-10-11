@@ -96,7 +96,7 @@ pub(crate) fn login_client_data(
         "ClientRandomId": client_random_id.get(),
         "ClientEditorConnectionIntent": NON_EDITOR_CONNECTION_INTENT,
         "ClientIsEditorCapable": false,
-        "CompatibleWithClientSideChunkGen": true,
+        "CompatibleWithClientSideChunkGen": false,
         "CurrentInputMode": input_mode_value(settings.input_mode),
         "GameVersion": GAME_VERSION,
         "GraphicsMode": 0,
@@ -195,9 +195,9 @@ mod tests {
             .expect("valid base64")
     }
 
-    /// The uploaded skin, cape and geometry reach the claims byte for byte.
+    /// Session serialization explicitly declines chunk generation and retains player data.
     #[test]
-    fn claims_carry_the_supplied_skin() {
+    fn session_claims_decline_chunk_generation_and_preserve_player_data() {
         let skin = ClientSkin {
             rgba8: vec![7; 64 * 32 * 4],
             width: 64,
@@ -215,11 +215,39 @@ mod tests {
                 engine_version: "1.26.50".into(),
             }),
         };
-        let claims = login_client_data(
-            "Steve",
-            ClientRandomId::new(-7).unwrap(),
-            Some(&skin),
-            &LoginSettings::default(),
+        let settings = LoginSettings {
+            language_code: "de_DE".into(),
+            input_mode: PlayerInputMode::GamePad,
+            gui_scale_offset: -1,
+            ..Default::default()
+        };
+        let request = crate::session_wire::ConnectRequest {
+            protocol: crate::PROTOCOL_VERSION,
+            target: None,
+            client_cache: false,
+            client_data: login_client_data(
+                "Steve",
+                ClientRandomId::new(-7).unwrap(),
+                Some(&skin),
+                &settings,
+            ),
+        };
+        let encoded = crate::session_wire::encode_connect(&request).unwrap();
+        let received = crate::session_wire::decode_connect(&encoded).unwrap();
+        assert_eq!(received, request);
+        let claims = received.client_data;
+        assert_eq!(
+            claims["CompatibleWithClientSideChunkGen"].as_bool(),
+            Some(false)
+        );
+        assert_eq!(claims["ClientRandomId"].as_i64(), Some(-7));
+        assert_eq!(claims["ThirdPartyName"], "Steve");
+        assert_eq!(claims["GameVersion"], GAME_VERSION);
+        assert_eq!(claims["LanguageCode"], settings.language_code);
+        assert_eq!(claims["GuiScale"], settings.gui_scale_offset);
+        assert_eq!(
+            claims["CurrentInputMode"],
+            input_mode_value(settings.input_mode)
         );
         assert_eq!(decoded(&claims, "SkinData"), skin.rgba8);
         assert_eq!(
@@ -253,6 +281,10 @@ mod tests {
             ClientRandomId::new(-7).unwrap(),
             None,
             &LoginSettings::default(),
+        );
+        assert_eq!(
+            claims["CompatibleWithClientSideChunkGen"].as_bool(),
+            Some(false)
         );
         assert_eq!(decoded(&claims, "SkinData").len(), 64 * 64 * 4);
         let patch: Value = serde_json::from_slice(&decoded(&claims, "SkinResourcePatch")).unwrap();

@@ -15,6 +15,12 @@ platforms. These limits and the unresolved server-routing behavior remain open g
 - Authentication-state reuse transitions and full platform device lifecycle parity remain
   incomplete. Skin, account and device claims retain their existing owners.
 
+## Client-side chunk generation
+
+- Login claims explicitly decline client-side chunk generation. The client relies on
+  server-supplied terrain; FeatureRegistry consumption and client-side terrain generation
+  remain unsupported and incomplete. Server-routing parity remains open.
+
 ## Totem activation
 
 - Local totem activation retains the equipped item before later inventory or equipment updates
