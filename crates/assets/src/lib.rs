@@ -167,10 +167,8 @@ pub use equipment::{
     encode_equipment_catalog_with_textures,
 };
 pub use error::AssetError;
-pub use fire::{
-    FIRE_ATTACHMENT_MASK_COUNT, FIRE_SUPPORTED_QUAD_COUNT, FIRE_TEMPLATE_COUNT,
-    fire_attachment_template_offset, fire_template_quad_count,
-};
+pub use fire::{FIRE_ATTACHMENT_MASK_COUNT, FIRE_SUPPORTED_QUAD_COUNT, FIRE_TEMPLATE_COUNT};
+pub use fire::{fire_attachment_template_offset, fire_template_quad_count};
 pub use fog_layers::resolve_fog_layers;
 pub use fog_transition::FogTransition;
 pub use font::{
@@ -189,10 +187,9 @@ pub use hud::{
     HudCatalogError, HudTexture, HudTextureRole, MAX_HUD_TEXTURE_BYTES, RuntimeHudCatalog,
     encode_hud_catalog,
 };
-pub use hud_extras::{
-    HUD_EXTRA_SIDE, HUD_EXTRAS_MAGIC, HUD_EXTRAS_VERSION, HudExtraRole, HudExtras, HudExtrasError,
-    MAX_HUD_EXTRAS_BYTES, decode_hud_extras, encode_hud_extras,
-};
+pub use hud_extras::{HUD_EXTRA_SIDE, HUD_EXTRAS_MAGIC, HUD_EXTRAS_VERSION, MAX_HUD_EXTRAS_BYTES};
+pub use hud_extras::{HudExtraRole, HudExtras, HudExtrasError};
+pub use hud_extras::{decode_hud_extras, encode_hud_extras};
 pub use icon::{
     BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE, ICON_CARRIER_MAGIC,
     ICON_CARRIER_VERSION, IconBlockModel, IconBlockSheet, IconEntry, IconSprite,
