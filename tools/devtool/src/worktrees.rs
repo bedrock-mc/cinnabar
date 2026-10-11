@@ -192,12 +192,14 @@ pub(crate) fn run(options: &Options) -> Result<(), DevtoolError> {
     Ok(())
 }
 
-/// Allows force to override changes and unpublished commits, never process or protection checks.
+/// Allows force to override changes, unpublished commits, and open PRs, never process or
+/// protection checks.
 fn eligible(state: &State, force: bool) -> bool {
     state.processes == Processes::Idle
         && (force
             || (!state.dirty
                 && !state.unpushed
+                && state.pr.as_deref() != Some("OPEN")
                 && (state.retired || state.pushed_age.is_some_and(|age| age > 7 * 86400))))
 }
 
@@ -507,6 +509,23 @@ mod tests {
         assert!(!eligible(&state, false));
         state.pushed_age = Some(8 * 86400);
         assert!(eligible(&state, false));
+    }
+
+    #[test]
+    fn aged_open_pr_is_kept_without_force() {
+        let state = State {
+            branch: Some("topic".into()),
+            head: "0".repeat(40),
+            dirty: false,
+            unpushed: false,
+            pr: Some("OPEN".into()),
+            retired: false,
+            pushed_age: Some(30 * 86400),
+            age: Some(30 * 86400),
+            processes: Processes::Idle,
+        };
+        assert!(!eligible(&state, false));
+        assert!(eligible(&state, true));
     }
     #[test]
     fn temp_repo_inventory_preserves_paths_and_locked_worktrees() {
