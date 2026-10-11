@@ -385,7 +385,9 @@ fn slot(
         slot: slot.slot,
     };
     let (container_name, wire_slot, dynamic_id) = match slot.container {
-        C::PlayerInventory if slot.slot < 9 => (Name::Hotbarcontainer, slot.slot, None),
+        C::PlayerInventory if slot.slot < crate::HOTBAR_SLOT_COUNT => {
+            (Name::Hotbarcontainer, slot.slot, None)
+        }
         C::PlayerInventory if slot.slot < PLAYER_INVENTORY_SLOTS => {
             (Name::Inventorycontainer, slot.slot, None)
         }
