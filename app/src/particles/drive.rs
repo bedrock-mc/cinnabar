@@ -402,7 +402,7 @@ fn drive_particles(
         inbox.events.retain(|event| event.dimension == identity.1);
     }
     let mode = stream.network_id_mode();
-    let world = StreamParticleWorld::new(stream, collisions.registry(mode));
+    let world = StreamParticleWorld::new(stream, collisions.registry(mode), Some(&collisions));
     let routing = Routing {
         world: &world,
         stream,

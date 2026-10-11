@@ -97,8 +97,9 @@ pub enum Motion {
         rotation_drag: Program,
     },
     Parametric {
-        position: [Program; 3],
-        rotation: Program,
+        position: Option<[Program; 3]>,
+        direction: Option<[Program; 3]>,
+        rotation: Option<Program>,
     },
 }
 
@@ -194,7 +195,8 @@ pub struct Curve {
 }
 
 pub struct ParticleDef {
-    pub max_lifetime: Program,
+    pub max_lifetime: Option<Program>,
+    pub expiration: Option<Program>,
     pub kill_plane: Option<[f32; 4]>,
     pub initial_speed: Option<Program>,
     pub initial_velocity: Option<[Program; 3]>,
@@ -206,8 +208,8 @@ pub struct ParticleDef {
     pub billboard: Billboard,
     pub tint: Tint,
     pub lit: bool,
-    pub expire_if_not_in: Vec<Box<str>>,
-    pub expire_if_in: Vec<Box<str>>,
+    pub expire_if_not_in: crate::world::BlockList,
+    pub expire_if_in: crate::world::BlockList,
     pub creation_events: Vec<Box<str>>,
     pub expiration_events: Vec<Box<str>>,
     /// Sorted by time in seconds.
@@ -668,6 +670,19 @@ fn parse_travel(value: Option<&Value>) -> Vec<(f32, Box<str>)> {
     out
 }
 
+/// Preserves absent vectors and rejects malformed authored three-component expressions.
+fn optional_vector(value: Option<&Value>, it: &mut Interner) -> Option<Option<[Program; 3]>> {
+    match value {
+        Some(Value::Array(values)) if values.len() == 3 => Some(Some([
+            program(&values[0], it)?,
+            program(&values[1], it)?,
+            program(&values[2], it)?,
+        ])),
+        None => Some(None),
+        _ => None,
+    }
+}
+
 fn parse_particle(
     components: &serde_json::Map<String, Value>,
     it: &mut Interner,
@@ -696,8 +711,12 @@ fn parse_particle(
         }
     } else if let Some(c) = get("minecraft:particle_motion_parametric") {
         Motion::Parametric {
-            position: vector(c.get("relative_position"), [0.0; 3], it),
-            rotation: program_or(c.get("rotation"), 0.0, it),
+            position: optional_vector(c.get("relative_position"), it)?,
+            direction: optional_vector(c.get("direction"), it)?,
+            rotation: match c.get("rotation") {
+                Some(value) => Some(program(value, it)?),
+                None => None,
+            },
         }
     } else {
         Motion::None
@@ -739,7 +758,14 @@ fn parse_particle(
             None => (Vec::new(), Vec::new(), Vec::new()),
         };
     Some(ParticleDef {
-        max_lifetime: program_or(lifetime.get("max_lifetime"), 1.0, it),
+        max_lifetime: match lifetime.get("max_lifetime") {
+            Some(value) => Some(program(value, it)?),
+            None => None,
+        },
+        expiration: match lifetime.get("expiration_expression") {
+            Some(value) => Some(program(value, it)?),
+            None => None,
+        },
         kill_plane: get("minecraft:particle_kill_plane")
             .and_then(Value::as_array)
             .filter(|plane| plane.len() >= 4)
@@ -762,8 +788,12 @@ fn parse_particle(
         tint: get("minecraft:particle_appearance_tinting")
             .map_or(Tint::White, |c| parse_tint(c, it)),
         lit: get("minecraft:particle_appearance_lighting").is_some(),
-        expire_if_not_in: string_list(get("minecraft:particle_expire_if_not_in_blocks")),
-        expire_if_in: string_list(get("minecraft:particle_expire_if_in_blocks")),
+        expire_if_not_in: crate::world::BlockList::new(string_list(get(
+            "minecraft:particle_expire_if_not_in_blocks",
+        ))),
+        expire_if_in: crate::world::BlockList::new(string_list(get(
+            "minecraft:particle_expire_if_in_blocks",
+        ))),
         creation_events,
         expiration_events,
         timeline,
@@ -924,5 +954,34 @@ mod tests {
     fn rejects_documents_without_lifetime_or_billboard() {
         let bad = br#"{"particle_effect":{"description":{"identifier":"a","basic_render_parameters":{"texture":"t"}},"components":{}}}"#;
         assert!(parse_effect(bad).is_none());
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_admission_tests {
+    use super::*;
+
+    #[test]
+    fn malformed_authored_lifecycle_fields_are_rejected() {
+        for field in [
+            serde_json::json!({"minecraft:particle_lifetime_expression": {"expiration_expression": {}}}),
+            serde_json::json!({"minecraft:particle_lifetime_expression": {"max_lifetime": {}}}),
+            serde_json::json!({"minecraft:particle_motion_parametric": {"direction": [0, 1]}}),
+            serde_json::json!({"minecraft:particle_motion_parametric": {"direction": [0, {}, 1]}}),
+        ] {
+            let mut components = serde_json::json!({
+                "minecraft:particle_lifetime_expression": {"max_lifetime": 1},
+                "minecraft:particle_appearance_billboard": {"size": [0.1, 0.1]}
+            });
+            components
+                .as_object_mut()
+                .unwrap()
+                .extend(field.as_object().unwrap().clone());
+            let effect = serde_json::json!({"particle_effect": {
+                "description": {"identifier": "fixture:admission", "basic_render_parameters": {"material": "particles_alpha", "texture": "fixture"}},
+                "components": components
+            }});
+            assert!(parse_effect(&serde_json::to_vec(&effect).unwrap()).is_none());
+        }
     }
 }
