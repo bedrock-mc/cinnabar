@@ -33,7 +33,7 @@ func (c *Cache) Reference(pack *resource.Pack) (path string, checksum [32]byte, 
 	processMu.Lock()
 	recorded := c.index[name]
 	processMu.Unlock()
-	if !recorded.verified || recorded.checksum != pack.Checksum() {
+	if recorded.invalid || !recorded.verified || recorded.checksum != pack.Checksum() {
 		return "", checksum, nil, errors.New("packcache: cached archive differs from selected pack or is not verified")
 	}
 	checksum = recorded.checksum

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
@@ -1851,6 +1852,11 @@ func TestJoinReportsStagesAndClientCancelAbortsTheDownload(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the CDN request outlived the cancelled join")
 	}
+	testwait.Eventually(t, testwait.DefaultTimeout, "the final join progress stage", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(stages) != 0 && stages[len(stages)-1] == ""
+	})
 	mu.Lock()
 	defer mu.Unlock()
 	if want := []ConnectStage{ConnectStageRealm, ConnectStageConnecting, ConnectStagePacks, ""}; !slices.Equal(stages, want) {

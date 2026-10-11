@@ -79,7 +79,7 @@ func TestSessionHandoffUsesCachedArchive(t *testing.T) {
 func TestSessionCacheMissesKeepTheByteStream(t *testing.T) {
 	first := testAdmissionPack(t)
 	second := admissionPackWithUUID(t, "11223344-5566-7788-99aa-bbccddeeff00")
-	for _, mode := range []string{"disabled", "missing", "mixed"} {
+	for _, mode := range []string{"disabled", "missing", "mixed", "corrupt-pinned"} {
 		t.Run(mode, func(t *testing.T) {
 			var cache minecraft.ResourcePackCache
 			if mode != "disabled" {
@@ -89,10 +89,31 @@ func TestSessionCacheMissesKeepTheByteStream(t *testing.T) {
 				}
 				defer disk.Close()
 				cache = disk
-				if mode == "mixed" {
+				if mode == "mixed" || mode == "corrupt-pinned" {
 					key := minecraft.ResourcePackCacheKey{UUID: first.UUID(), Version: first.Version(), Size: uint64(first.Size())}
 					if err := disk.Store(t.Context(), key, first); err != nil {
 						t.Fatal(err)
+					}
+					if mode == "corrupt-pinned" {
+						path, _, release, err := disk.Reference(first)
+						if err != nil {
+							t.Fatal(err)
+						}
+						defer release()
+						data, err := os.ReadFile(path)
+						if err != nil {
+							t.Fatal(err)
+						}
+						data[len(data)-1] ^= 1
+						if err := os.WriteFile(path, data, 0o600); err != nil {
+							t.Fatal(err)
+						}
+						if loaded, err := disk.Load(t.Context(), key); err != nil || loaded != nil {
+							t.Fatal("corrupt archive was loaded")
+						}
+						if err := disk.Store(t.Context(), key, first); err == nil {
+							t.Fatal("pinned archive was repaired before release")
+						}
 					}
 				}
 			}

@@ -181,9 +181,70 @@ func TestReferenceRetainsRecordedHashAfterDiskCorruption(t *testing.T) {
 	if err := cache.Store(t.Context(), key, pack); err == nil {
 		t.Fatal("store replaced a pinned corrupt archive")
 	}
+	if _, _, done, err := cache.Reference(pack); err == nil {
+		done()
+		t.Fatal("referenced an archive after verification failed")
+	}
 	release()
 	if err := cache.Store(t.Context(), key, pack); err != nil {
 		t.Fatal(err)
+	}
+	_, repaired, done, err := cache.Reference(pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done()
+	if repaired != checksum {
+		t.Fatal("repaired archive lost its verified checksum")
+	}
+}
+
+// A checksum mismatch stays a miss on later loads, even when the changed ZIP still parses.
+func TestPinnedChecksumMismatchStaysUnreferenceable(t *testing.T) {
+	cache := newTestCache(t, 1<<20)
+	_, key, data := testPack(t, uuid.New(), "1.0.0", "payload")
+	// The single-byte ZIP comment can change without invalidating the pack's metadata.
+	data = append(data, 'a')
+	data[len(data)-3] = 1
+	pack, err := resource.ReadBytes(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key.Size = uint64(len(data))
+	if err := cache.Store(t.Context(), key, pack); err != nil {
+		t.Fatal(err)
+	}
+	path, _, release, err := cache.Reference(pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	changed := bytes.Clone(data)
+	changed[len(changed)-1] = 'b'
+	modified, err := resource.ReadBytes(changed)
+	if err != nil || !key.Matches(modified) || modified.Checksum() == pack.Checksum() {
+		t.Fatal("invalid same-key corruption fixture")
+	}
+	if err := os.WriteFile(path, changed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if loaded, err := cache.Load(t.Context(), key); err != nil || loaded != nil {
+			t.Fatal("load accepted an archive with a rejected checksum")
+		}
+		for _, selected := range []*resource.Pack{pack, modified} {
+			if _, _, done, err := cache.Reference(selected); err == nil {
+				done()
+				t.Fatal("referenced an archive with a rejected checksum")
+			}
+		}
+	}
+	release()
+	if err := cache.Store(t.Context(), key, pack); err != nil {
+		t.Fatal(err)
+	}
+	if loaded, err := cache.Load(t.Context(), key); err != nil || loaded == nil || loaded.Checksum() != pack.Checksum() {
+		t.Fatal("load did not return the repaired archive")
 	}
 }
 

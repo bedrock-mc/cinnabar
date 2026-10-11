@@ -71,6 +71,7 @@ type entry struct {
 	used     time.Time
 	checksum [32]byte
 	verified bool // scanned objects acquire their checksum on the first verified load or store
+	invalid  bool // rejected pinned objects stay ineligible until repaired or removed
 }
 
 type config struct{ quota uint64 }
@@ -232,7 +233,7 @@ func (c *Cache) Load(ctx context.Context, key minecraft.ResourcePackCacheKey) (*
 	processMu.Lock()
 	defer processMu.Unlock()
 	recorded := c.index[name]
-	if !ok || (recorded.verified && recorded.checksum != pack.Checksum()) {
+	if recorded.invalid || !ok || (recorded.verified && recorded.checksum != pack.Checksum()) {
 		c.drop(name, path)
 		return nil, nil
 	}
@@ -458,9 +459,13 @@ func (c *Cache) evict(incoming uint64) error {
 	return nil
 }
 
-// drop removes an invalid object only when no session holds its bytes.
+// drop rejects an invalid object and removes it only when no session holds its bytes.
 func (c *Cache) drop(name, path string) {
 	if c.pins[name] != 0 {
+		if recorded, ok := c.index[name]; ok {
+			recorded.invalid = true
+			c.index[name] = recorded
+		}
 		return
 	}
 	c.forget(name)
