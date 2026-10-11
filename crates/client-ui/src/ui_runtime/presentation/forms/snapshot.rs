@@ -233,7 +233,7 @@ pub fn write(input: &UiRenderInput, name: &str) {
 }
 
 /// Saves an already checked raster only when the local snapshot directory is configured.
-pub(super) fn write_image(image: &RgbaImage, name: &str) {
+pub(in crate::ui_runtime::presentation) fn write_image(image: &RgbaImage, name: &str) {
     let Ok(dir) = std::env::var(SNAPSHOT_ENV) else {
         return;
     };

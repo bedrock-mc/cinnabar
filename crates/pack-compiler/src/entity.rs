@@ -26,6 +26,7 @@ mod item_bindings;
 mod json;
 mod legacy_block_geometry;
 mod legacy_icons;
+mod materials;
 mod molang;
 mod native_bind_pose;
 mod native_dragon_geometry;

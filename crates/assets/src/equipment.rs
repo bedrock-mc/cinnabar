@@ -24,7 +24,8 @@ pub use attack::{
 mod texture_tests;
 
 pub const EQUIPMENT_CARRIER_MAGIC: [u8; 8] = *b"MCBEEQP1";
-pub const EQUIPMENT_CARRIER_VERSION: u32 = 2;
+/// Includes the resolved material dye capability; older carriers must be rebuilt.
+pub const EQUIPMENT_CARRIER_VERSION: u32 = 3;
 pub const MAX_EQUIPMENT_BINDINGS: usize = 1024;
 pub const MAX_EQUIPMENT_IDENTIFIER_BYTES: usize = 256;
 pub const MAX_EQUIPMENT_TEXTURES: usize = 256;
@@ -38,6 +39,15 @@ pub const MAX_EQUIPMENT_CARRIER_BYTES: usize =
 const HEADER_BYTES: usize = 20;
 const HASH_BYTES: usize = 32;
 
+/// Material capability used by stack dye presentation.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EquipmentColorMask {
+    NoMask,
+    Dye,
+    Unresolved,
+}
+
 /// One item's attachable binding into the entity catalog.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -48,6 +58,8 @@ pub struct EquipmentBinding {
     pub geometry: EquipmentReference,
     pub texture: EquipmentReference,
     pub material: Box<str>,
+    /// Dye support resolved at compilation, with unknown material ancestry retained explicitly.
+    pub color_mask: EquipmentColorMask,
     pub render_controller: Box<str>,
     pub first_person: EquipmentTransform,
     pub third_person: EquipmentTransform,
@@ -83,13 +95,11 @@ impl EquipmentBinding {
         self.poses.iter().find(|pose| pose.key.as_ref() == key)
     }
 
-    /// Returns the stack dye or undyed-leather RGB only for color-mask leather materials.
-    /// Other materials keep their authored texture regardless of the stack dye.
+    /// Returns the stack dye or the existing undyed RGB for a compiled dye mask.
+    /// Unsupported and unresolved masks keep their authored texture.
     #[must_use]
     pub fn color_mask_rgb(&self, dye: Option<u32>) -> Option<u32> {
-        self.material
-            .contains("leather")
-            .then(|| dye.unwrap_or(DEFAULT_LEATHER_RGB))
+        (self.color_mask == EquipmentColorMask::Dye).then(|| dye.unwrap_or(DEFAULT_LEATHER_RGB))
     }
 }
 
@@ -207,7 +217,9 @@ impl RuntimeEquipmentCatalog {
         if bytes[..8] != EQUIPMENT_CARRIER_MAGIC
             || u32::from_le_bytes(field::<4>(bytes, 8)?) != EQUIPMENT_CARRIER_VERSION
         {
-            return Err(invalid("unsupported equipment carrier header"));
+            return Err(invalid(
+                "unsupported equipment carrier header; rebuild with make assets",
+            ));
         }
         let payload_bytes = usize::try_from(u64::from_le_bytes(field::<8>(bytes, 12)?))
             .map_err(|_| invalid("equipment payload size exceeds platform"))?;
@@ -658,6 +670,7 @@ mod tests {
                     resolution: EntityDependencyResolution::Catalog,
                 },
                 material: "armor".into(),
+                color_mask: EquipmentColorMask::NoMask,
                 render_controller: "controller.render.armor".into(),
                 first_person: EquipmentTransform::NeedsMeasurement,
                 third_person: EquipmentTransform::NeedsMeasurement,
@@ -676,6 +689,7 @@ mod tests {
                     resolution: EntityDependencyResolution::Catalog,
                 },
                 material: "entity_alphatest".into(),
+                color_mask: EquipmentColorMask::NoMask,
                 render_controller: "controller.render.item_default".into(),
                 first_person: EquipmentTransform::Literal {
                     transform: transform([-7.0, -3.0, -2.0], [152.0, -9.0, 25.0]),
@@ -702,6 +716,25 @@ mod tests {
             -7.0
         );
         assert!(catalog.binding("minecraft:absent").is_none());
+    }
+
+    #[test]
+    fn mask_capabilities_round_trip_and_old_equipment_headers_require_a_rebuild() {
+        for mask in [
+            EquipmentColorMask::Dye,
+            EquipmentColorMask::NoMask,
+            EquipmentColorMask::Unresolved,
+        ] {
+            let mut bindings = sample();
+            bindings[0].color_mask = mask;
+            let bytes = encode_equipment_catalog([1; 32], [2; 32], &bindings).unwrap();
+            let catalog = RuntimeEquipmentCatalog::decode(&bytes).unwrap();
+            assert_eq!(catalog.bindings()[0].color_mask, mask);
+            let mut stale = bytes;
+            stale[8..12].copy_from_slice(&(EQUIPMENT_CARRIER_VERSION - 1).to_le_bytes());
+            let error = RuntimeEquipmentCatalog::decode(&stale).unwrap_err();
+            assert!(error.to_string().contains("rebuild with make assets"));
+        }
     }
 
     #[test]
@@ -823,6 +856,7 @@ mod from_parts_tests {
             geometry: reference("geometry.a"),
             texture: reference("textures/entity/a"),
             material: "entity".into(),
+            color_mask: EquipmentColorMask::NoMask,
             render_controller: "controller.render.a".into(),
             first_person: EquipmentTransform::NeedsMeasurement,
             third_person: EquipmentTransform::NeedsMeasurement,
@@ -853,22 +887,29 @@ mod from_parts_tests {
         );
     }
 
-    // A team dye on diamond armor leaves the diamond texture untinted; leather takes it.
     #[test]
-    fn only_leather_materials_apply_a_stack_dye() {
-        let worn = |material: &str| EquipmentBinding {
-            material: material.into(),
-            ..binding("minecraft:chestplate")
-        };
+    fn compiled_mask_capability_applies_dye_without_inspecting_the_material_name() {
         let red = Some(0x00b0_2e26);
-        assert_eq!(worn("armor").color_mask_rgb(red), None);
-        assert_eq!(worn("armor").color_mask_rgb(None), None);
-        assert_eq!(worn("armor_enchanted").color_mask_rgb(red), None);
-        assert_eq!(worn("entity_alphatest").color_mask_rgb(red), None);
-        assert_eq!(worn("armor_leather").color_mask_rgb(red), red);
+        let worn = |material: &str, color_mask| EquipmentBinding {
+            material: material.into(),
+            color_mask,
+            ..binding("custom:chestplate")
+        };
         assert_eq!(
-            worn("armor_leather_enchanted").color_mask_rgb(None),
+            worn("renamed", EquipmentColorMask::Dye).color_mask_rgb(red),
+            red
+        );
+        assert_eq!(
+            worn("renamed", EquipmentColorMask::Dye).color_mask_rgb(None),
             Some(DEFAULT_LEATHER_RGB)
+        );
+        assert_eq!(
+            worn("leather_decoy", EquipmentColorMask::NoMask).color_mask_rgb(red),
+            None
+        );
+        assert_eq!(
+            worn("unknown", EquipmentColorMask::Unresolved).color_mask_rgb(red),
+            None
         );
     }
 }
