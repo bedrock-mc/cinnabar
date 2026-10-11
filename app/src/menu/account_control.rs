@@ -5,10 +5,7 @@
 use super::MenuRuntime;
 #[cfg(test)]
 use launcher::menu::view::{JoinStage, ServerDetails, ServerTrustPrompt};
-use launcher::menu::{
-    auth::AuthState,
-    view::{MenuHome, MenuProfile},
-};
+use launcher::menu::view::{MenuHome, MenuProfile};
 
 use launcher_host::account_control::{AccountControl, AccountEvent};
 
@@ -237,6 +234,7 @@ fn ping_targets<'a>(addresses: impl IntoIterator<Item = &'a str>) -> Vec<String>
 #[cfg(test)]
 mod tests {
     use launcher::menu::MenuAction;
+    use launcher_host::account_control::method;
     use {
         super::*,
         launcher::menu::auth::AuthState,

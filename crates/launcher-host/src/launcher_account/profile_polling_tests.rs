@@ -1,11 +1,11 @@
 //! Local control sockets reproduce missing and stalled Profile feeds without an account.
 
+use super::*;
 use std::{
     io::{Read, Write},
     os::unix::net::{UnixListener, UnixStream},
     sync::atomic::{AtomicBool, Ordering},
 };
-use {super::*, launcher::menu::auth::AuthState};
 
 /// Answers Profile and auth, withholding Home so the old serial worker never reaches Profile.
 fn respond(mut stream: UnixStream, held: &mut Vec<UnixStream>, fail: bool) {

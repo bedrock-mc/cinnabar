@@ -425,7 +425,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::thread_budget::ThreadBudget::configure_global_rayon();
     // Declared first so it drops last: every spawned child is gone before `run` returns or unwinds.
     let _children = launcher_host::lifecycle::children::StopOnDrop;
-    launcher_host::lifecycle::children::install_exit_hooks(diagnostics::console::flush_before_exit);
+    launcher_host::lifecycle::children::install_exit_hooks(|| {
+        diagnostics::console::flush_before_exit();
+    });
     UiRuntime::configure_crafting_observation(args.address.as_deref());
     render::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;

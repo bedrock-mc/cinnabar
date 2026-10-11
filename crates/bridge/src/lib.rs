@@ -12,7 +12,7 @@ mod worlds;
 mod xbox_presence;
 pub use xbox_presence::{XboxPresenceState, report_xbox_presence};
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub use account::{
     Account, Artwork, AuthState, ConnectProgress, ConnectStage, ConnectTarget, Events,

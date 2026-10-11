@@ -528,22 +528,6 @@ fn windows_path_shapes_round_trip_through_the_guard() {
     assert!(!Path::new(&directory).exists());
 }
 
-fn development_layout_in(root: &Path) -> launcher::install_layout::InstallLayout {
-    launcher::install_layout::InstallLayout::resolve(
-        launcher::install_layout::Platform::Linux,
-        &launcher::install_layout::InstallEnvironment {
-            executable: root.join("target/debug/bedrock-client"),
-            user_root: None,
-            home: Some(root.join("home")),
-            local_app_data: None,
-            xdg_config_home: None,
-            xdg_data_home: None,
-            xdg_runtime_dir: None,
-        },
-    )
-    .expect("temp development layout")
-}
-
 #[test]
 fn reclamation_never_follows_a_seeded_link_shaped_session_name() {
     // A grammar-named entry that is really a symlink or Windows junction is

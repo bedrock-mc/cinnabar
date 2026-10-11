@@ -5,7 +5,7 @@ use crate::{
     session_cleanup::SessionDirectoryGuard,
 };
 use anyhow::{Context, Result, anyhow};
-use bridge::{ConnectTarget, bridge_endpoint_exists};
+use bridge::ConnectTarget;
 use launcher::{install_layout::InstallLayout, menu::DEFAULT_PORT};
 use std::{
     path::{Path, PathBuf},

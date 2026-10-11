@@ -14,7 +14,9 @@ pub fn before_run(assets_overridden: bool) -> Result<bool> {
         return Ok(true);
     }
     core_health::capture_client_stderr(&layout);
-    crash::install_panic_hook(&layout, diagnostics::console::flush_before_exit);
+    crash::install_panic_hook(&layout, || {
+        diagnostics::console::flush_before_exit();
+    });
     crash::prune_reports(&layout);
     if !assets_overridden && first_run::ensure_prepared(&layout)? == first_run::Outcome::Quit {
         return Ok(false);

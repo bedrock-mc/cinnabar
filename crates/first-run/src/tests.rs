@@ -1,6 +1,6 @@
 use std::{
     cell::{Cell, RefCell},
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 use launcher::install_layout::{InstallEnvironment, Platform};
