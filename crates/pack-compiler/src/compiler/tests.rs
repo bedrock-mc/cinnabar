@@ -20,6 +20,8 @@ mod isotropic;
 mod lantern;
 #[path = "tests/shelf_cake.rs"]
 mod shelf_cake;
+#[path = "tests/candle_cake.rs"]
+mod candle_cake;
 
 fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
     let path = path.as_ref();

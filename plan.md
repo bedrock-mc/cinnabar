@@ -4259,6 +4259,14 @@ Scope: block registry + block-state → model/texture mapping (generated export 
         and 6 native viewpoints in Cinnabar and require two consecutive exact
         GPU-completed model-stream witnesses with stable generation/ref counts
         and zero contamination counters.
+    - [x] Candle-cake composite implementation: all seventeen colors and both
+      typed `lit:byte` states retain an unbitten cake, centered six-pixel candle,
+      and crossed wick. The corresponding candle block supplies its color and
+      lit texture, including static texture aliases. Carrier regressions cover
+      sequential/hash lookup and reject malformed selectors or collision data.
+      - [ ] Full presentation parity: ambient flame particles and matching native
+        world captures remain unverified; isolated GPU model captures establish
+        the composite geometry and texture routing only.
     - [x] Exact farmland family implementation: all eight canonical
       `minecraft:farmland` states now require the
       complete exact `moisturized_amount:int 0..7` product and unique identities

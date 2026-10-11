@@ -205,19 +205,34 @@ impl TerrainTextureMap {
 
     /// Path `variant` of an untinted key, clamped to its last variant as vanilla's icon lookup is.
     pub(crate) fn get_clamped_untinted(&self, key: &str, variant: usize) -> Option<&str> {
+        self.get_clamped_untinted_variant(key, variant)
+            .map(|(path, _)| path)
+    }
+
+    /// Returns an untinted path and its actual terrain index after clamping.
+    pub(crate) fn get_clamped_untinted_variant(
+        &self,
+        key: &str,
+        variant: usize,
+    ) -> Option<(&str, u32)> {
         match self.entries.get(key)? {
             TerrainPaths::Static {
                 path,
                 requires_tint: false,
                 has_extra_metadata: false,
                 ..
-            } => Some(path),
+            } => Some((path, 0)),
             TerrainPaths::Variants {
                 paths,
                 requires_tint: false,
                 has_extra_metadata: false,
                 ..
-            } => paths.get(variant.min(paths.len() - 1)).map(AsRef::as_ref),
+            } => {
+                let selected = variant.min(paths.len() - 1);
+                paths
+                    .get(selected)
+                    .map(|path| (path.as_ref(), selected as u32))
+            }
             TerrainPaths::Static { .. } | TerrainPaths::Variants { .. } => None,
         }
     }
