@@ -944,6 +944,11 @@ A local-only pose refresh handles frames without a tick, preserves simulation
 and animation time, and invalidates bone conversion caches. Two synthetic
 regressions cover tick and between-tick switches; Windows verification is pending.
 
+Third-person locomotion retains both tick poses when camera-sensitive clips are
+inactive, allowing walking and jumping to interpolate between ticks. Active camera
+clips still sample presentation input. Full native motion-query sampling and
+interpolation of ordinary channels mixed with active camera clips remain incomplete.
+
 2026-10-04 user-requested custom emotes — **Incomplete native/Lunar parity**:
 the native four-slot JSON-UI wheel and remappable emote control select an original,
 local-only Twerk dance with a faster user-requested loop. The owned clip preserves skin
@@ -1679,6 +1684,15 @@ appends the sheared base head's cubes. Vanilla geometry parsing appends cubes un
 merge fix and adult face/snout live acceptance remain in progress. Native sheep
 dye palette, complete gamma/lighting/overlay order and arbitrary RGBA zero-sentinel
 handling remain incomplete.
+The stock wolf state textures now use the bounded dye-mask artwork route. Tamed
+rasters retain their fractional mask alpha, and adult/baby variant selection keeps
+the controller's chosen texture instead of falling back to another variant.
+Stock raster admission is content-pinned; custom art retains its existing material
+limits. Tamed wolves inherit their byte color index through the shared dye palette;
+wild wolves stay neutral, and live dye updates reach tick and frame layers.
+Wet shading, arbitrary custom wolf materials, and exact target-version stock
+material/shader linkage remain incomplete. These repairs do not close the full
+wolf parity gate.
 The creeper drew blue: one alpha-8 texel outside every face of `creeper.png` failed
 the binary-alpha actor-art filter, and the body route then fell through to the
 `query.is_powered` armor overlay's `creeper_armor.png`. Fractional alpha is now
@@ -4993,7 +5007,10 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   and bounded tick-keyed correction replay. Unknown runtime IDs, unloaded chunks, invalid
   collision shapes, and failed replay queries stop prediction instead of guessing.
   Collision scans floor their inclusive upper bounds so fractional queries do not suspend
-  movement over an extra, unavailable cell. Required missing collision data still stops
+  movement over an extra, unavailable cell. Resolved collision faces survive rounded
+  center updates and replay, so stacked column faces cannot fabricate support or
+  block a jump; pose changes retain horizontal contact and relocations rebuild it.
+  Required missing collision data still stops
   prediction; full unloaded-boundary behavior remains incomplete.
   A generator pinned to bedsim v0.1.3 records a checksum-bound JSONL trace, and the Rust conformance test
   matches it at `1e-12` epsilon. App integration is tracked separately in 3.3. Remaining bedsim
@@ -6406,6 +6423,10 @@ one-texel borders through the atlas at GUI scales 3 and 6. Exact-version authore
 frontend comparison and the broader UI visual parity gate remain incomplete.
 
 ## Go core simplification (2026-10-02)
+
+Client login claims use a supported memory tier and explicitly report editor capability
+and connection intent for normal gameplay, so PowerNukkitX accepts valid skins.
+The core-session and JWT login builders share the desktop-tier and editor-intent values.
 
 The core's packet-decoding diagnostic observers for cache boundaries, loading order,
 and form schemas are removed. The proxy still forwards packet batches and retains

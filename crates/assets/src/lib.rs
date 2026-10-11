@@ -14,6 +14,7 @@ pub mod block_entity_geometry;
 mod block_names;
 pub mod carriers;
 mod compiled;
+pub mod dye;
 mod encoding;
 mod entity;
 mod environment_settings;

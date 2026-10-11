@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 mod aim_assist;
 mod appearance_preparation;
+pub(crate) mod color;
 mod effect_members;
 #[cfg(test)]
 pub(crate) use appearance_preparation::MAX_APPEARANCES_PUBLISHED_PER_FRAME;
@@ -52,6 +53,7 @@ pub(crate) const ACTOR_FLAG_IMMOBILE: u32 = 16;
 const ACTOR_FLAG_GLIDING: u32 = 32;
 pub(crate) const ACTOR_FLAG_CRAWLING: u32 = 114;
 pub(crate) const ACTOR_FLAG_SITTING: u32 = 24;
+pub(crate) const ACTOR_FLAG_TAMED: u32 = 28;
 const ACTOR_FLAG_HAS_GRAVITY: u32 = 49;
 const ACTOR_FLAG_USES_UNIFORM_AIR_DRAG: u32 = 128;
 

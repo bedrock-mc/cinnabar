@@ -27,10 +27,9 @@ fn collision_flags_use_the_native_float_epsilon_boundary() {
     ] {
         let motion = super::collision::resolve_motion(
             &Wall,
-            Vec3::new(0.0, 1.0, 0.0),
+            Aabb::player_at(Vec3::new(0.0, 1.0, 0.0)),
             Vec3::new(f64::from(speed), 0.0, 0.0),
             false,
-            1.8,
         )
         .unwrap();
         assert_eq!(motion.resolved.x, 0.0);

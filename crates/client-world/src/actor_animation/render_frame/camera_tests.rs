@@ -233,6 +233,353 @@ fn unchanged_camera_and_frame_input_retains_completed_geometry_poses_without_res
     }
 }
 
+/// Provides moving body/layer clips alongside a dormant camera-sensitive weapon clip.
+fn inactive_camera_compiled() -> assets::CompiledEntityAssets {
+    let mut compiled = camera_compiled();
+    let mut symbols = compiled.molang_symbols.into_vec();
+    symbols.insert(
+        1,
+        MolangSymbol {
+            kind: MolangSymbolKind::Query,
+            identifier: "query.modified_distance_moved".into(),
+        },
+    );
+    compiled.molang_symbols = symbols.into_boxed_slice();
+    let mut ops = compiled.molang_ops.into_vec();
+    for op in &mut ops {
+        if let MolangOp::CallQuery(call) = op {
+            call.symbol = 2;
+        }
+    }
+    ops.extend([
+        MolangOp::LoadQuery(1),
+        MolangOp::Push(EntityGeometryScalar::new(0.0).unwrap()),
+    ]);
+    compiled.molang_ops = ops.into_boxed_slice();
+    let mut expressions = compiled.molang_expressions.into_vec();
+    expressions.extend([4, 5].map(|first_op| CompiledMolangExpression {
+        first_op,
+        op_count: 1,
+        max_stack: 1,
+    }));
+    compiled.molang_expressions = expressions.into_boxed_slice();
+    let camera_keyframe = compiled.animation_keyframes[0].clone();
+    for keyframe in &mut compiled.animation_keyframes {
+        keyframe.expressions = [Some(2), None, None];
+    }
+    let mut keyframes = compiled.animation_keyframes.into_vec();
+    let first_keyframe = keyframes.len() as u32;
+    keyframes.push(camera_keyframe);
+    compiled.animation_keyframes = keyframes.into_boxed_slice();
+    let mut channels = compiled.animation_channels.into_vec();
+    let first_channel = channels.len() as u32;
+    channels.push(EntityAnimationChannel {
+        first_keyframe,
+        keyframe_count: 1,
+        ..channels[0].clone()
+    });
+    compiled.animation_channels = channels.into_boxed_slice();
+    let mut symbols = compiled.symbols.into_vec();
+    let symbol = 4;
+    symbols.insert(
+        4,
+        EntityAssetSymbol {
+            kind: EntityAssetKind::Animation,
+            identifier: "animation.zz_camera".into(),
+            source_index: 0,
+            dependencies: Box::new([]),
+        },
+    );
+    compiled.symbols = symbols.into_boxed_slice();
+    compiled.rig_bindings[0].render_controller += 1;
+    let mut clips = compiled.animation_clips.into_vec();
+    let clip = clips.len() as u32;
+    clips.push(EntityAnimationClip {
+        symbol,
+        first_channel,
+        ..clips[0]
+    });
+    compiled.animation_clips = clips.into_boxed_slice();
+    let mut bindings = compiled.rig_animations.into_vec();
+    bindings.push(assets::EntityRigAnimationBinding {
+        name: 0,
+        clip,
+        weight: Some(3),
+        order: 1,
+    });
+    compiled.rig_animations = bindings.into_boxed_slice();
+    compiled.rig_geometries[0].animation_count = 2;
+    compiled
+}
+
+/// Advances a moving actor one tick so ordinary pose endpoints differ.
+fn walking_fixture(compiled: assets::CompiledEntityAssets) -> crate::actor_store::ActorStore {
+    let mut store = fixture_with_assets(Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+    ));
+    store.apply(
+        1,
+        2,
+        protocol::ActorEvent::Move(protocol::ActorMoveEvent {
+            dimension: 0,
+            runtime_id: 1,
+            position: [Some(0.6), None, None],
+            position_origin: protocol::ActorPositionOrigin::Feet,
+            pitch: None,
+            yaw: None,
+            head_yaw: None,
+            on_ground: Some(true),
+            teleported: false,
+            player_mode: None,
+            source_tick: None,
+            interpolation: Default::default(),
+        }),
+    );
+    store.advance_interpolation_ticks(1);
+    store
+}
+
+#[test]
+fn inactive_camera_animation_preserves_walking_pose_interpolation() {
+    let mut store = walking_fixture(inactive_camera_compiled());
+    let completed = store.actor_rig(1).unwrap().render.to_vec();
+    assert_ne!(completed[1].previous_pose, completed[1].pose);
+    store.set_camera_position([4.0, 3.0, 0.0]);
+    for alpha in [0.25, 0.75] {
+        let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
+        for (layer, completed) in layers.iter().zip(&completed).skip(1) {
+            assert_eq!(layer.previous_pose, completed.previous_pose);
+            assert_eq!(layer.pose, completed.pose);
+        }
+    }
+}
+
+#[test]
+fn interpolated_walking_retains_channel_writes_for_render_colors() {
+    let mut compiled = inactive_camera_compiled();
+    let mut symbols = compiled.molang_symbols.into_vec();
+    symbols.push(MolangSymbol {
+        kind: MolangSymbolKind::Variable,
+        identifier: "variable.movement_tint".into(),
+    });
+    compiled.molang_symbols = symbols.into_boxed_slice();
+    let mut ops = compiled.molang_ops[..4].to_vec();
+    ops.extend([
+        MolangOp::LoadQuery(1),
+        MolangOp::StoreVariable(3),
+        MolangOp::LoadQuery(1),
+        MolangOp::Push(EntityGeometryScalar::new(0.0).unwrap()),
+        MolangOp::LoadVariable(3),
+    ]);
+    compiled.molang_ops = ops.into_boxed_slice();
+    compiled.molang_expressions[2].op_count = 3;
+    compiled.molang_expressions[3].first_op = 7;
+    let mut expressions = compiled.molang_expressions.into_vec();
+    expressions.push(CompiledMolangExpression {
+        first_op: 8,
+        op_count: 1,
+        max_stack: 1,
+    });
+    compiled.molang_expressions = expressions.into_boxed_slice();
+    for layer in &mut compiled.render.layers {
+        layer.color = Some([4; 4]);
+    }
+    let store = walking_fixture(compiled);
+    let completed = store.actor_rig(1).unwrap().render.to_vec();
+    assert!(completed[0].color[0] > 0.0);
+    for alpha in [0.25, 0.75] {
+        let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
+        for (layer, completed) in layers.iter().zip(&completed) {
+            assert_eq!(layer.color, completed.color);
+            assert_eq!(layer.previous_pose, completed.previous_pose);
+            assert_eq!(layer.pose, completed.pose);
+        }
+    }
+}
+
+#[test]
+fn camera_animation_mapped_only_to_selected_geometry_samples_between_ticks() {
+    let mut compiled = inactive_camera_compiled();
+    let channel = &compiled.animation_channels[1];
+    compiled.animation_keyframes[channel.first_keyframe as usize].expressions =
+        [Some(0), Some(1), None];
+    let mut store = fixture_with_assets(Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+    ));
+    let completed_tick = store.actor_rig(1).unwrap().completed_tick;
+    store.set_camera_position([4.0, 3.0, 0.0]);
+    for alpha in [0.25, 0.75] {
+        let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
+        let expected = pose::quat_from_euler([3.0_f32.atan2(4.0).to_degrees(), 90.0, 0.0]);
+        for layer in &layers[1..] {
+            assert_rotation(layer.pose[1].rotation, expected);
+            assert_rotation(layer.pose[0].rotation, expected);
+        }
+    }
+    assert_eq!(store.actor_rig(1).unwrap().completed_tick, completed_tick);
+}
+
+#[test]
+fn unused_camera_geometry_preserves_body_walking_endpoints() {
+    for disabled_layer in [false, true] {
+        let mut compiled = inactive_camera_compiled();
+        let channel = &compiled.animation_channels[1];
+        compiled.animation_keyframes[channel.first_keyframe as usize].expressions =
+            [Some(0), Some(1), None];
+        if disabled_layer {
+            for layer in &mut compiled.render.layers[1..] {
+                layer.condition = Some(3);
+            }
+        } else {
+            for choice in &mut compiled.render.geometries {
+                choice.condition = Some(3);
+            }
+        }
+        let store = walking_fixture(compiled);
+        let rig = store.actor_rig(1).unwrap();
+        let previous = rig.previous[0];
+        let current = rig.current[0];
+        assert_ne!(previous, current);
+        for alpha in [0.25, 0.75] {
+            let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
+            for layer in &layers {
+                assert_eq!(layer.geometry, None);
+                assert_eq!(*layer.previous_pose.first().unwrap_or(&previous), previous);
+                assert_eq!(*layer.pose.first().unwrap_or(&current), current);
+            }
+        }
+    }
+}
+
+#[test]
+fn frame_geometry_selection_samples_new_pose_and_preserves_existing_endpoints() {
+    for dormant_camera in [false, true] {
+        let mut compiled = inactive_camera_compiled();
+        if !dormant_camera {
+            compiled.rig_geometries[0].animation_count = 1;
+            compiled.rig_animations = compiled.rig_animations[..1].to_vec().into_boxed_slice();
+        }
+        let mut symbols = compiled.molang_symbols.into_vec();
+        symbols.insert(
+            1,
+            MolangSymbol {
+                kind: MolangSymbolKind::Query,
+                identifier: "query.frame_alpha".into(),
+            },
+        );
+        compiled.molang_symbols = symbols.into_boxed_slice();
+        let mut ops = compiled.molang_ops.into_vec();
+        for op in &mut ops {
+            match op {
+                MolangOp::LoadQuery(symbol) => *symbol += 1,
+                MolangOp::CallQuery(call) => call.symbol += 1,
+                _ => {}
+            }
+        }
+        let first_op = ops.len() as u32;
+        ops.push(MolangOp::LoadQuery(1));
+        compiled.molang_ops = ops.into_boxed_slice();
+        let mut expressions = compiled.molang_expressions.into_vec();
+        expressions.push(CompiledMolangExpression {
+            first_op,
+            op_count: 1,
+            max_stack: 1,
+        });
+        compiled.molang_expressions = expressions.into_boxed_slice();
+        for choice in &mut compiled.render.geometries {
+            choice.condition = Some(4);
+        }
+        compiled.render.layers[1].color = Some([4; 4]);
+        let store = walking_fixture(compiled);
+        let rig = store.actor_rig(1).unwrap();
+        let previous = rig.previous[0];
+        let current = rig.current[0];
+        assert!(rig.render.iter().all(|layer| layer.geometry.is_none()));
+        for alpha in [0.25, 0.75] {
+            let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
+            assert_eq!(
+                *layers[0].previous_pose.first().unwrap_or(&previous),
+                previous
+            );
+            assert_eq!(*layers[0].pose.first().unwrap_or(&current), current);
+            assert_eq!(layers[1].color, [alpha; 4]);
+            for layer in &layers[1..] {
+                assert_eq!(layer.geometry, Some(1));
+                assert_eq!(layer.pose[1], current);
+                assert_eq!(layer.previous_pose, layer.pose);
+            }
+        }
+    }
+}
+
+#[test]
+fn server_camera_animation_outside_rig_bindings_samples_between_ticks() {
+    let mut compiled = inactive_camera_compiled();
+    let mut symbols = compiled.symbols.into_vec();
+    symbols.insert(
+        5,
+        EntityAssetSymbol {
+            kind: EntityAssetKind::Animation,
+            identifier: "animation.zz_server_camera".into(),
+            source_index: 0,
+            dependencies: Box::new([]),
+        },
+    );
+    compiled.symbols = symbols.into_boxed_slice();
+    compiled.rig_bindings[0].render_controller += 1;
+    let mut keyframes = compiled.animation_keyframes.into_vec();
+    let first_keyframe = keyframes.len() as u32;
+    keyframes.push(keyframes[compiled.animation_channels[2].first_keyframe as usize]);
+    compiled.animation_keyframes = keyframes.into_boxed_slice();
+    let mut channels = compiled.animation_channels.into_vec();
+    let first_channel = channels.len() as u32;
+    channels.push(EntityAnimationChannel {
+        first_keyframe,
+        ..channels[2].clone()
+    });
+    compiled.animation_channels = channels.into_boxed_slice();
+    let mut clips = compiled.animation_clips.into_vec();
+    clips.push(EntityAnimationClip {
+        symbol: 5,
+        first_channel,
+        override_previous: true,
+        ..clips[2]
+    });
+    compiled.animation_clips = clips.into_boxed_slice();
+    let mut store = fixture_with_assets(Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+    ));
+    store.apply_item_actor(
+        1,
+        2,
+        protocol::ItemActorEvent::Action(protocol::ActorActionEvent {
+            actor_runtime_ids: Arc::from([1]),
+            kind: protocol::ActorActionKind::Custom {
+                animation: "animation.zz_server_camera".into(),
+                controller: "fixture.server".into(),
+                next_state: "".into(),
+                stop_expression: "".into(),
+                stop_expression_version: 0,
+            },
+            data: 0.0,
+            swing_source: None,
+        }),
+    );
+    store.advance_interpolation_ticks(1);
+    let completed_tick = store.actor_rig(1).unwrap().completed_tick;
+    let completed_pose = store.actor_rig(1).unwrap().current[0];
+    store.set_camera_position([4.0, 3.0, 0.0]);
+    for alpha in [0.25, 0.75] {
+        let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
+        let actual = layers[0].pose.first().unwrap_or(&completed_pose);
+        assert_rotation(
+            actual.rotation,
+            pose::quat_from_euler([3.0_f32.atan2(4.0).to_degrees(), 90.0, 0.0]),
+        );
+    }
+    assert_eq!(store.actor_rig(1).unwrap().completed_tick, completed_tick);
+}
+
 #[test]
 fn camera_distance_pre_animation_updates_channel_variables_between_ticks() {
     let mut compiled = camera_compiled();
@@ -648,3 +995,5 @@ fn local_swing_frame_preserves_the_authored_item_rotation_factor() {
         pose::quat_from_euler([-0.4375, 0.0, 0.0]),
     );
 }
+
+mod dependency_tests;
