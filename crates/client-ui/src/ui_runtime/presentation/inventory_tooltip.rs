@@ -85,14 +85,14 @@ pub(super) fn name_line(
     let mut name = custom_name
         .map(str::to_owned)
         .or_else(|| identifier.map(|id| runtime.localized_item_name(id)))?;
-    let formatting = identifier
-        .and_then(|id| runtime.item_components(id))
-        .and_then(crate::ui_runtime::item_facts::name_format);
-    let color = formatting.map_or(NAME_COLOR, |(_, [r, g, b])| [r, g, b, 255]);
-    if let Some((code, _)) = formatting {
+    let formatting = identifier.and_then(|id| runtime.item_name_color(id));
+    let color = formatting
+        .and_then(ui::BedrockColor::rgb)
+        .map_or(NAME_COLOR, |[r, g, b]| [r, g, b, 255]);
+    if let Some(descriptor) = formatting.and_then(ui::BedrockColor::descriptor) {
         // Keep the item's already-resolved native format code, rather than
         // reverse-mapping a duplicated component RGB palette in the UI bridge.
-        name.insert(0, code);
+        name.insert(0, descriptor.code);
         name.insert(0, '§');
     }
     if custom_name.is_some() {

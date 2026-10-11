@@ -482,6 +482,11 @@ impl UiRuntime {
         self.session_items.as_ref()?.get(identifier)
     }
 
+    /// The semantic item-name colour resolved when session components were admitted.
+    pub fn item_name_color(&self, identifier: &str) -> Option<ui::BedrockColor> {
+        self.session_items.as_ref()?.name_color(identifier)
+    }
+
     pub fn item_glint(&self, stack: &protocol::NetworkItemStack, identifier: &str) -> bool {
         super::item_facts::is_glint(stack, identifier, self.item_components(identifier))
     }

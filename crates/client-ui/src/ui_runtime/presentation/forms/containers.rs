@@ -670,31 +670,18 @@ fn screen_data(
 pub(super) fn tooltip_text(
     lines: &[crate::ui_runtime::presentation::hud_layout::TooltipLine],
 ) -> Option<String> {
-    // Decode the shared UI formatting palette once; do not duplicate its RGB
-    // constants or the parser's extended material-color mapping here.
-    static PALETTE: std::sync::OnceLock<Vec<(char, [u8; 3])>> = std::sync::OnceLock::new();
-    let palette = PALETTE.get_or_init(|| {
-        ('0'..='9')
-            .chain('a'..='v')
-            .filter_map(|code| {
-                let sample = format!("§{code}x");
-                let spans = ui::parse_bedrock_text(&sample, sample.len()).ok()?;
-                let style = spans.first()?.style;
-                (!style.bold && !style.italic && !style.obfuscated && code != 'r')
-                    .then(|| (code, style.color.rgb().unwrap_or([255; 3])))
-            })
-            .collect()
-    });
     (!lines.is_empty()).then(|| {
         lines
             .iter()
             .map(|line| {
                 let rgb = [line.color[0], line.color[1], line.color[2]];
-                let code = palette.iter().find(|(_, color)| *color == rgb);
+                let descriptor = ui::FORMATTING_COLORS
+                    .iter()
+                    .find(|entry| entry.name.is_some() && entry.fallback_rgb == rgb);
                 // Each TooltipLine was independently styled. Reset before its
                 // prefix so a custom name's bold/italic/color cannot leak.
-                match code {
-                    Some((code, _)) => format!("§r§{code}{}", line.text),
+                match descriptor {
+                    Some(entry) => format!("§r§{}{}", entry.code, line.text),
                     None => format!("§r{}", line.text),
                 }
             })
