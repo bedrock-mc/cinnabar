@@ -4,6 +4,8 @@ use assets::{
     AudioAlternative, AudioDefinition, RuntimeAudioCatalog, SoundBankIndex, SoundEventTables,
 };
 
+mod weather;
+
 fn definition(name: &str, category: &str) -> AudioDefinition {
     AudioDefinition {
         identifier: name.into(),
