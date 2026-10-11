@@ -6,8 +6,8 @@
   the current admitted item atlas, including texture replacements, reloads and removals.
 - Client time includes the partial tick and bounds elapsed time during stalls. Screen overlays
   stay above the effect; HUD safe-area insets do not move the camera animation.
-- Deterministic activation regressions and full-client default/custom recordings pass. Final
-  updated-runtime acceptance, review and integration are pending; broader item action,
+- Deterministic activation regressions and full-client default/custom recordings pass,
+  including main-hand fallback, retriggering and remote/empty exclusions. Broader item action,
   particle emission and performance gates remain open.
 
 ## Xbox Minecraft activity
