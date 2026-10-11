@@ -16,10 +16,6 @@ pub(super) const EFFECT_BLINK_TICKS: u64 = 200;
 pub(super) const MAX_HEART_ROWS: u16 = 6;
 /// The reference caps mount hearts at 30.
 pub(super) const MAX_MOUNT_HEARTS: u16 = 30;
-/// Pinned harmful effect ids (Bedrock ids; poison family, wither, darkness,
-/// slowness, mining fatigue, instant damage, nausea, blindness, hunger,
-/// weakness, levitation, bad omen). Everything else sits on the beneficial row.
-pub(super) const HARMFUL_EFFECT_IDS: [i32; 13] = [2, 4, 7, 9, 15, 17, 18, 19, 20, 24, 25, 28, 30];
 /// Boss bar tint per authoritative color. The carried track sprites are the
 /// official Bedrock progress textures; these multipliers are a recorded
 /// approximation of the reference bar hues pending the native gallery
@@ -35,41 +31,10 @@ pub const BOSS_TINTS: [(ui::BossColor, [u8; 4]); 8] = [
     (ui::BossColor::White, [255, 255, 255, 255]),
 ];
 
-/// Bedrock effect id -> carried icon role, pinned to the id table verified
-/// against gophertunnel (1-27) and PocketMine (28-30). Fatal poison presents
-/// with poison's icon as in the vanilla client. Unknown ids return `None` and
-/// the effect entry is skipped rather than guessed.
+/// Resolves the shared effect registry's carried icon, without guessing unknown IDs.
 #[must_use]
 pub fn effect_icon_role(effect_id: i32) -> Option<HudTextureRole> {
-    Some(match effect_id {
-        1 => HudTextureRole::EffectIconSpeed,
-        2 => HudTextureRole::EffectIconSlowness,
-        3 => HudTextureRole::EffectIconHaste,
-        4 => HudTextureRole::EffectIconMiningFatigue,
-        5 => HudTextureRole::EffectIconStrength,
-        8 => HudTextureRole::EffectIconJumpBoost,
-        9 => HudTextureRole::EffectIconNausea,
-        10 => HudTextureRole::EffectIconRegeneration,
-        11 => HudTextureRole::EffectIconResistance,
-        12 => HudTextureRole::EffectIconFireResistance,
-        13 => HudTextureRole::EffectIconWaterBreathing,
-        14 => HudTextureRole::EffectIconInvisibility,
-        15 => HudTextureRole::EffectIconBlindness,
-        16 => HudTextureRole::EffectIconNightVision,
-        17 => HudTextureRole::EffectIconHunger,
-        18 => HudTextureRole::EffectIconWeakness,
-        19 | 25 => HudTextureRole::EffectIconPoison,
-        20 => HudTextureRole::EffectIconWither,
-        21 => HudTextureRole::EffectIconHealthBoost,
-        22 => HudTextureRole::EffectIconAbsorption,
-        24 => HudTextureRole::EffectIconLevitation,
-        26 => HudTextureRole::EffectIconConduitPower,
-        27 => HudTextureRole::EffectIconSlowFalling,
-        28 => HudTextureRole::EffectIconBadOmen,
-        29 => HudTextureRole::EffectIconVillageHero,
-        30 => HudTextureRole::EffectIconDarkness,
-        _ => return None,
-    })
+    assets::effect_descriptor(effect_id).and_then(|descriptor| descriptor.icon)
 }
 
 pub(super) fn heart_role(

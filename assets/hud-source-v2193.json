@@ -95,6 +95,13 @@
     { "path": "textures/ui/slow_falling_effect.png", "bytes": 410, "sha256": "59c40e663e3a8ad6dac3e66b77d07627bec7922012768b28877c387fc596691d", "width": 18, "height": 18 },
     { "path": "textures/ui/bad_omen_effect.png", "bytes": 220, "sha256": "5b9875ac4ae397a5ceecd0c51197b66783fc8a9f8eb1051307799b6d488a2971", "width": 18, "height": 18 },
     { "path": "textures/ui/village_hero_effect.png", "bytes": 389, "sha256": "6804c499675f3a935d3468baa57a7e57086e4c162c133f155728885f4ab72dc2", "width": 18, "height": 18 },
-    { "path": "textures/ui/darkness_effect.png", "bytes": 210, "sha256": "509e860a6df7d2f35da4565f63a7855b4ee596254a8efc8d102bc0bbcb113104", "width": 18, "height": 18 }
+    { "path": "textures/ui/darkness_effect.png", "bytes": 210, "sha256": "509e860a6df7d2f35da4565f63a7855b4ee596254a8efc8d102bc0bbcb113104", "width": 18, "height": 18 },
+    {"path": "textures/ui/trial_omen_effect.png", "bytes": 228, "sha256": "6de4961462dd57b48d528ac128ad45680aa60362554f0b48281334f5027137e3", "width": 18, "height": 18},
+    {"path": "textures/ui/wind_charged_effect.png", "bytes": 253, "sha256": "f0f057f8f7c94223a984da1f8b0b5b61eeb16b02df241537f1984ac7dd6c8e12", "width": 18, "height": 18},
+    {"path": "textures/ui/weaving_effect.png", "bytes": 290, "sha256": "7911913437cedac9da80d8f3e47f071a3eebd6b66cb277776aaefa35404979ec", "width": 18, "height": 18},
+    {"path": "textures/ui/oozing_effect.png", "bytes": 222, "sha256": "d6b63592ea9df728c636ed2569dcea5beac40464b46427ecd1185a813488b238", "width": 18, "height": 18},
+    {"path": "textures/ui/infested_effect.png", "bytes": 293, "sha256": "01752beae8dc933ae8ad96d7bf241e28ef36476110defdf5bc845bc619ce5191", "width": 18, "height": 18},
+    {"path": "textures/ui/raid_omen_effect.png", "bytes": 375, "sha256": "d3e0ce680dac5d69d547d52d738a7b9b574b64442c40f3c71dfa8024a7ddeb5d", "width": 18, "height": 18},
+    {"path": "textures/ui/breath_of_the_nautilus_effect.png", "bytes": 309, "sha256": "6ae442eee73177d3ccb0c590c51956c85f50698137652f6b167cb9bacedbd772", "width": 18, "height": 18}
   ]
 }

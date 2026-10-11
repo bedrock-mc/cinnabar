@@ -8,7 +8,7 @@ use protocol::{
     CanonicalCell, EquipmentEvent, InventoryEvent, NetworkItemStack, project_container_cell,
 };
 
-pub const MAX_HUD_EFFECTS: usize = 32;
+pub const MAX_HUD_EFFECTS: usize = assets::EFFECT_DESCRIPTORS.len();
 
 /// Pinned protocol-1001 SetEntityData keys consumed by the HUD.
 /// (`MetadataDictionaryItemKey::{Air, MaxAirdataMaxAir, FreezingEffectStrength}`.)
@@ -24,11 +24,12 @@ const EFFECT_ID_POISON: i32 = 19;
 const EFFECT_ID_WITHER: i32 = 20;
 const EFFECT_ID_FATAL_POISON: i32 = 25;
 
-/// Pinned vanilla protocol-1001 effect ids the HUD can present. Instant
-/// effects (6, 7, 23) have no HUD surface; the presentation icon table pins
-/// exactly this set, witnessed for equivalence in the layout tests.
+/// Whether the shared registry admits a persistent HUD icon for this effect.
 pub const fn is_renderable_effect_id(effect_id: i32) -> bool {
-    matches!(effect_id, 1..=5 | 8..=22 | 24..=30)
+    match assets::effect_descriptor(effect_id) {
+        Some(descriptor) => descriptor.icon.is_some(),
+        None => false,
+    }
 }
 
 /// One retained authoritative status effect.
