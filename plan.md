@@ -5349,6 +5349,13 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   and retained dry swimming uses ordinary travel. Prediction and correction replay retain
   the native swim blend and previous pose flag, with blend updates before swim triggers and
   transition jump suppression. Standing-space probes use the native box inset.
+  Dry low-space entry now selects crawling from standing when neither standing
+  nor sneaking fits; water contact selects a fitting swimming pose. Teleport
+  recovery previews the destination pose before probing overlap, preserving a
+  fitting low-space feet anchor. Controller tests
+  cover crawl travel, eye height, start/stop input edges and correction replay.
+  Headless fixture captures confirm trapdoor closure, crawl travel, exit, and
+  actual pearl relocation; broader crawl and correction parity gates stay open.
   Liquid prediction now derives current vectors from palette liquid depths and native
   material/face facts, including lower-neighbor gradients and falling-water pull. It
   uses native cell order, float normalization and water/lava impulses before jump and
