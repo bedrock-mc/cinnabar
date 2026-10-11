@@ -2,6 +2,7 @@ use assets::{MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MolangSymbolKind
 
 use {super::*, world::TICK_DURATION as ACTOR_TICK_DURATION};
 
+mod input_reads;
 mod owner_variables;
 
 /// Runtime values retain the attachable's owning actor reference without numeric coercion.
@@ -38,6 +39,8 @@ pub(super) struct VariableLayout {
     temp_base: usize,
     temp_count: usize,
     clip_reads: Vec<Box<[u32]>>,
+    clip_camera: Vec<bool>,
+    controller_camera: Vec<bool>,
     pub(super) engine: EngineSlots,
 }
 
@@ -122,46 +125,8 @@ impl VariableLayout {
 
     pub(super) fn new(assets: &RuntimeEntityAssets) -> Self {
         let mut layout = Self::from_symbols(assets.molang_symbols());
-        layout.clip_reads = assets
-            .animation_clips()
-            .iter()
-            .map(|clip| {
-                let mut reads = std::collections::BTreeSet::new();
-                let first = clip.first_channel as usize;
-                for channel in
-                    &assets.animation_channels()[first..first + clip.channel_count as usize]
-                {
-                    let first = channel.first_keyframe as usize;
-                    for keyframe in &assets.animation_keyframes()
-                        [first..first + channel.keyframe_count as usize]
-                    {
-                        for &expression in keyframe.expressions.iter().flatten() {
-                            let expression = &assets.molang_expressions()[expression as usize];
-                            let first = expression.first_op as usize;
-                            for op in &assets.molang_ops()
-                                [first..first + usize::from(expression.op_count)]
-                            {
-                                let symbol = match op {
-                                    MolangOp::LoadVariable(symbol)
-                                    | MolangOp::LoadQuery(symbol) => *symbol,
-                                    MolangOp::CallQuery(call) => call.symbol,
-                                    MolangOp::Coalesce(branch) => branch.symbol,
-                                    _ => continue,
-                                };
-                                reads.insert(symbol);
-                            }
-                        }
-                    }
-                }
-                reads.into_iter().collect::<Vec<_>>().into_boxed_slice()
-            })
-            .collect();
+        layout.bind_input_reads(assets);
         layout
-    }
-
-    /// Unique authored variable and query reads, bound once with this asset catalog.
-    pub(super) fn clip_reads(&self, clip: usize) -> &[u32] {
-        self.clip_reads.get(clip).map_or(&[], Box::as_ref)
     }
 
     pub(super) fn from_symbols(symbols: &[assets::MolangSymbol]) -> Self {
@@ -183,6 +148,8 @@ impl VariableLayout {
             temp_base,
             temp_count,
             clip_reads: Vec::new(),
+            clip_camera: Vec::new(),
+            controller_camera: Vec::new(),
             engine: EngineSlots {
                 seeded: SEEDED_VARIABLES
                     .iter()

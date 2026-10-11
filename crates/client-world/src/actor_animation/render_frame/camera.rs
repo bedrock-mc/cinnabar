@@ -13,26 +13,33 @@ pub(in crate::actor_animation) fn needs_camera_sampling(
         geometry_binding,
         controllers,
         false,
-        None,
+        true,
     )
 }
 
 /// Contributing body clips sample presentation input; layer variants follow render selection.
 pub(in crate::actor_animation) fn needs_active_camera_sampling(
-    assets: &RuntimeEntityAssets,
-    rig_binding: usize,
-    geometry_binding: usize,
+    layout: &VariableLayout,
+    expressions: bool,
     controllers: &[ControllerState],
     clips: &[tick::WeightedClip],
 ) -> bool {
-    needs_pose_sampling(
-        assets,
-        rig_binding,
-        geometry_binding,
-        controllers,
-        false,
-        Some(clips),
-    )
+    expressions
+        || controllers
+            .iter()
+            .any(|controller| layout.controller_samples_camera(controller.controller))
+        || clips
+            .iter()
+            .any(|active| layout.clip_samples_camera(active.clip))
+}
+
+/// Binds rig-level camera inputs without traversing animation channels each actor tick.
+pub(in crate::actor_animation) fn needs_camera_expressions(
+    assets: &RuntimeEntityAssets,
+    rig_binding: usize,
+    geometry_binding: usize,
+) -> bool {
+    needs_pose_sampling(assets, rig_binding, geometry_binding, &[], false, false)
 }
 
 /// Attack-time expressions sample the local swing at the physical frame fraction.
@@ -48,7 +55,7 @@ pub(in crate::actor_animation) fn needs_swing_sampling(
         geometry_binding,
         controllers,
         true,
-        None,
+        true,
     )
 }
 
@@ -59,18 +66,10 @@ fn needs_pose_sampling(
     geometry_binding: usize,
     controllers: &[ControllerState],
     swing: bool,
-    active_clips: Option<&[tick::WeightedClip]>,
+    include_clips: bool,
 ) -> bool {
-    if active_clips.is_some_and(|clips| {
-        clips
-            .iter()
-            .any(|active| camera_clip(assets, active.clip, swing))
-    }) {
-        return true;
-    }
-    let samples_clip = |clip: usize| {
-        active_clips.is_none() && camera_clip_with_layers(assets, rig_binding, clip, swing)
-    };
+    let samples_clip =
+        |clip: usize| include_clips && camera_clip_with_layers(assets, rig_binding, clip, swing);
     if swing
         && super::sampling::render_expressions(assets, rig_binding)
             .into_iter()
@@ -261,7 +260,11 @@ fn camera_clip(assets: &RuntimeEntityAssets, index: usize, swing: bool) -> bool 
 }
 
 /// Checks a compiled expression for the selected presentation input.
-fn camera_expression(assets: &RuntimeEntityAssets, index: usize, swing: bool) -> bool {
+pub(in crate::actor_animation) fn camera_expression(
+    assets: &RuntimeEntityAssets,
+    index: usize,
+    swing: bool,
+) -> bool {
     let Some(expression) = assets.molang_expressions().get(index) else {
         return false;
     };
@@ -284,7 +287,11 @@ fn camera_op(assets: &RuntimeEntityAssets, op: &MolangOp, swing: bool) -> bool {
 }
 
 /// Identifies a cached presentation read without revisiting its instruction stream.
-fn camera_symbol(assets: &RuntimeEntityAssets, symbol: u32, swing: bool) -> bool {
+pub(in crate::actor_animation) fn camera_symbol(
+    assets: &RuntimeEntityAssets,
+    symbol: u32,
+    swing: bool,
+) -> bool {
     assets
         .molang_symbols()
         .get(symbol as usize)

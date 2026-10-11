@@ -545,9 +545,8 @@ pub(super) fn evaluate_state(
     if let Some(frame) = render_frame.as_mut() {
         frame.samples_camera_poses = state.samples_camera_poses
             && super::render_frame::camera::needs_active_camera_sampling(
-                assets,
-                state.rig_binding,
-                state.geometry_binding,
+                layout,
+                state.samples_camera_expressions,
                 &controllers,
                 &weighted_clips,
             );

@@ -271,6 +271,7 @@ struct ActorRigState {
     complete_spear_variables: bool,
     samples_render_frames: bool,
     samples_camera_poses: bool,
+    samples_camera_expressions: bool,
     samples_swing_poses: bool,
     /// Actor kind admits swelling independently of its initially bound clips.
     creeper: bool,
