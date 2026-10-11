@@ -612,7 +612,7 @@ these changes do not close the movement, camera, or actor parity gates.
   released on pack replacement. Large archive entries inflate and decrypt on a
   bounded worker, as do newly admitted large installed-pack images, with a
   shared 96 MiB encoded-source residency cap. Source metadata refreshes retained
-  HUD, form and inventory layouts and measurements without restarting bindings
+  screen layouts and measurements without restarting bindings
   or animation clocks. Failed
   original-image decodes reveal valid carrier or icon artwork. Images beyond
   the resource limits remain unsupported.

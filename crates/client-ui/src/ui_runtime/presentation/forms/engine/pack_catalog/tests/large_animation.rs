@@ -78,6 +78,57 @@ fn assert_frame(input: &render_model::UiRenderInput, color: [u8; 4]) {
 }
 
 #[test]
+fn emote_source_readiness_rebuilds_static_crop_coordinates() {
+    let mut pack = animated_sheet_pack();
+    let mut root: serde_json::Value = serde_json::from_slice(&pack.ui_layers[0][2].1).unwrap();
+    root["namespace"] = serde_json::json!("persona_emote");
+    let mut screen = root["hud_screen"].take();
+    screen["controls"][0]["sheet"]["uv"] = serde_json::json!([0, 4064]);
+    root["emote_wheel_screen"] = screen;
+    pack.ui_layers[0][2].1 = serde_json::to_vec(&root).unwrap();
+    pack.catalog = Some(Arc::new(
+        json_ui::Catalog::from_files(
+            pack.ui_layers[0]
+                .iter()
+                .map(|(p, b)| (p.as_str(), b.as_slice())),
+        )
+        .unwrap(),
+    ));
+    pack.textures[0]
+        .1
+        .resize(resource_pack::MAX_PACK_TEXTURE_BYTES as usize + 1, 0);
+    pack.view =
+        Some(super::super::super::super::server_pack::external_paths_tests::view(&pack.textures));
+    pack.textures.clear();
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = crate::test_support::inventory_session(&mut player);
+    runtime.set_server_ui(Some(Arc::new(pack)));
+    runtime.emotes_mut().open();
+    let mut presentation = crate::test_support::mini_engine_presentation();
+    presentation.gui_scale_preference = Some(1);
+    let build = |presentation: &mut crate::ui_runtime::presentation::UiPresentationRuntime| {
+        presentation
+            .build(
+                &player,
+                &runtime,
+                0,
+                [200, 128],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap()
+    };
+    build(&mut presentation);
+    assert!(presentation.emote_frame().is_some());
+    test_time::eventually("emote original pixels finish loading", || {
+        build(&mut presentation);
+        !presentation.server_ui_sheet_pages().is_empty()
+    });
+    let input = build(&mut presentation);
+    snapshot::write(&input, "emote-static-crop-ready");
+    assert_frame(&input, BLUE);
+}
+
+#[test]
 fn inventory_source_readiness_rebuilds_static_crop_coordinates() {
     let mut pack = animated_sheet_pack();
     let mut root: serde_json::Value = serde_json::from_slice(&pack.ui_layers[0][2].1).unwrap();

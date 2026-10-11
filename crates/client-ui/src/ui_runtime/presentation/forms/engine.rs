@@ -309,7 +309,7 @@ impl FormEngine {
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let text = inputs.language;
         let font = inputs.font.identity();
-        let texture_metadata = self.textures.lock().metadata_revision();
+        let texture_metadata = self.textures.metadata_revision();
         let art = Art {
             assets: &self.assets,
             set: &self.textures,
@@ -442,7 +442,7 @@ impl FormEngine {
         art.view = Some(view);
         let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let text = inputs.language;
-        let texture_metadata = self.textures.lock().metadata_revision();
+        let texture_metadata = self.textures.metadata_revision();
         render_with(self.art(), inputs, out, art, None, |env, root| {
             let key = screen_cache::ScreenKey {
                 reference,

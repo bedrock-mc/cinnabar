@@ -24,6 +24,8 @@ use ui::IconRef;
 pub(super) struct TextureSet {
     /// A lock only because renders borrow the engine shared.
     atlas: Mutex<ServerAtlas>,
+    /// Preserves metadata revision changes across atlas replacement.
+    metadata_base: u64,
     /// Item icon atlas sprites by lowercase item texture path.
     icons: HashMap<String, IconRef>,
     /// Texture page of carrier atlas page 0.
@@ -83,6 +85,7 @@ impl TextureSet {
             .with_carrier(self.carrier.clone());
         Self {
             atlas: Mutex::new(atlas),
+            metadata_base: self.metadata_revision().wrapping_add(1),
             icons: self.icons.clone(),
             first_page: self.first_page,
             server_page: page,
@@ -100,6 +103,7 @@ impl TextureSet {
 
     /// Install a server atlas, wired to the vanilla and remote fallbacks.
     pub(super) fn set_atlas(&mut self, atlas: ServerAtlas, server_page: u16) {
+        self.metadata_base = self.metadata_revision().wrapping_add(1);
         let atlas = atlas
             .with_native_sheets(!self.confined)
             .with_fallbacks(self.vanilla.clone(), Some(self.remote.clone()))
@@ -107,6 +111,12 @@ impl TextureSet {
         self.atlas = Mutex::new(atlas);
         self.server_page = server_page;
         self.full_res.clear();
+    }
+
+    /// The current source metadata epoch, including atlas replacements.
+    pub(super) fn metadata_revision(&self) -> u64 {
+        self.metadata_base
+            .wrapping_add(self.lock().metadata_revision())
     }
 
     /// Item icons by texture path and the local vanilla pack; the atlas
@@ -292,6 +302,13 @@ impl<'a> Textures<'a> {
 }
 
 impl TextureSource for Textures<'_> {
+    /// Lets every retained screen observe asynchronous dimensions and source replacement.
+    fn metadata_revision(&self) -> u64 {
+        self.set
+            .metadata_base
+            .wrapping_add(self.atlas.metadata_revision())
+    }
+
     fn aseprite_frames(&self, path: &str) -> Option<Arc<[json_ui::AsepriteFrame]>> {
         self.admits(path).then_some(())?;
         self.atlas.aseprite_frames(&self.canonical(path))
