@@ -1,5 +1,7 @@
 use super::*;
+use crate::runtime::network::resource_packs::PackApplication;
 use bevy::ecs::schedule::{IntoSystemSet, NodeId, ScheduleGraph, Schedules, SystemSet};
+use client_runtime::network::NetworkHandle;
 use server_experience::{
     manifest::{Offer, Scope},
     negotiation::{Grant, VerifiedOffer},
@@ -71,7 +73,7 @@ fn join_app(state: State) -> App {
             1,
         )))
         .insert_resource(client_ui::test_support::mini_engine_presentation())
-        .insert_resource(NetworkHandle::disconnected())
+        .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .init_resource::<ClientWorld>()
         .init_resource::<Time<Real>>()
         .init_resource::<ButtonInput<KeyCode>>()
@@ -317,7 +319,7 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
         .insert_resource(runtime)
         .insert_resource(player_runtime.clone())
         .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
-        .insert_resource(NetworkHandle::disconnected())
+        .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .insert_resource(ClientWorld {
             stream: Some(stream),
             ..Default::default()
@@ -385,7 +387,7 @@ fn unadvertised_experience_preserves_input_and_rendered_menu() {
         .insert_resource(runtime)
         .insert_resource(player_runtime.clone())
         .insert_resource(presentation)
-        .insert_resource(NetworkHandle::disconnected())
+        .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .init_resource::<ClientWorld>()
         .init_resource::<Time<Real>>()
         .init_resource::<ButtonInput<KeyCode>>()

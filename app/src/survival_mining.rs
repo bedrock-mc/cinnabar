@@ -6,11 +6,13 @@
 //! as vanilla's local destroy does; inbound block updates stay authoritative and
 //! replace the prediction. Unknown blocks keep cracking until the server breaks them.
 
+use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
     ecs::system::SystemParam,
     prelude::{Query, Real, Res, ResMut, Resource, Time, Window, With},
     window::PrimaryWindow,
 };
+use client_runtime::network::NetworkHandle;
 use semantic_input::Action;
 use sim::{DestroyConditions, HeldTool, PaletteWorld};
 
@@ -25,7 +27,7 @@ use {
             LocalMovementEffectTimeline, LocalPhysicsController, MovementTicker,
             PhysicsCollisionRegistries,
         },
-        runtime::{network::NetworkHandle, world::ClientWorld},
+        runtime::world::ClientWorld,
     },
     client_presentation::local_player::InteractionOriginSnapshot,
     client_state::SemanticInputSnapshot,
@@ -70,7 +72,7 @@ pub(crate) struct SurvivalMiningContext<'w, 's> {
     effects: Res<'w, LocalMovementEffectTimeline>,
     physics: Option<Res<'w, LocalPhysicsController>>,
     melee: Res<'w, MeleeRuntime>,
-    network: Res<'w, NetworkHandle>,
+    network: Res<'w, NetworkHandle<PackApplication>>,
     time: Res<'w, Time<Real>>,
     block_cues: bevy::prelude::MessageWriter<'w, client_audio::audio::LocalBlockCue>,
 }

@@ -1,5 +1,7 @@
 use super::*;
 use crate::environment::{self, WeatherState, WorldClock};
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 
 #[test]
 fn configured_time_changer_is_visual_only_offline() {
@@ -30,7 +32,7 @@ fn configured_time_changer_is_visual_only_offline() {
         return;
     }
     assert_eq!(label, Some("Time: Server"));
-    let (network, mut packets) = crate::runtime::network::NetworkHandle::stub_capturing_packets();
+    let (network, mut packets) = NetworkHandle::<PackApplication>::stub_capturing_packets();
     app.insert_resource(network);
     let mut clock = WorldClock::default();
     environment::replace_session(

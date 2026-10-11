@@ -1,3 +1,5 @@
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 use std::path::PathBuf;
 
 #[cfg(test)]
@@ -15,10 +17,7 @@ use server_experience::{
 };
 
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
-use {
-    crate::{menu::MenuRuntime, runtime::network::NetworkHandle},
-    client_state::ClientFrameSet,
-};
+use {crate::menu::MenuRuntime, client_state::ClientFrameSet};
 
 #[derive(Resource)]
 pub(super) struct ExperienceService {
@@ -62,7 +61,7 @@ fn drive(
     mut service: ResMut<ExperienceService>,
     mut runtime: ResMut<UiRuntime>,
     mut presentation: ResMut<UiPresentationRuntime>,
-    network: Res<NetworkHandle>,
+    network: Res<NetworkHandle<PackApplication>>,
     world: Res<crate::runtime::world::ClientWorld>,
     windows: Query<&Window, With<PrimaryWindow>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -390,7 +389,7 @@ fn persist_trust(
 fn advance_runtime(
     service: &mut ExperienceService,
     extension: &mut client_ui::experience_session::ExperienceSession,
-    network: &NetworkHandle,
+    network: &NetworkHandle<PackApplication>,
     generation: u64,
     now_ms: u64,
 ) -> anyhow::Result<()> {

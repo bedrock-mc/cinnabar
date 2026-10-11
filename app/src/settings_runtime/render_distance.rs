@@ -1,7 +1,9 @@
 //! Live view-radius requests; the server response updates residency and atmosphere distance.
 
-use crate::runtime::{network::NetworkHandle, world::ClientWorld};
+use crate::runtime::network::resource_packs::PackApplication;
+use crate::runtime::world::ClientWorld;
 use bevy::prelude::{Local, Res};
+use client_runtime::network::NetworkHandle;
 use client_state::RuntimeSettings;
 use client_ui::ui_runtime::UiRuntime;
 
@@ -10,7 +12,7 @@ pub(crate) fn apply_render_distance(
     settings: Res<RuntimeSettings>,
     ui: Option<Res<UiRuntime>>,
     world: Option<Res<ClientWorld>>,
-    network: Option<Res<NetworkHandle>>,
+    network: Option<Res<NetworkHandle<PackApplication>>>,
     mut sent: Local<Option<(u64, u8)>>,
 ) {
     let (Some(ui), Some(world), Some(network)) = (ui, world, network) else {

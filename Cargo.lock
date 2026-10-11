@@ -681,6 +681,7 @@ dependencies = [
  "chunk-pipeline",
  "client-audio",
  "client-presentation",
+ "client-runtime",
  "client-session",
  "client-state",
  "client-ui",
@@ -2307,6 +2308,30 @@ dependencies = [
  "ui",
  "world",
  "zip",
+]
+
+[[package]]
+name = "client-runtime"
+version = "0.1.12"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "bridge",
+ "chunk-pipeline",
+ "client-session",
+ "client-state",
+ "client-ui",
+ "client-world",
+ "diagnostics",
+ "launcher",
+ "launcher-host",
+ "meshing",
+ "pack-runtime",
+ "protocol",
+ "render",
+ "render-api",
+ "rich-presence",
+ "tokio",
 ]
 
 [[package]]

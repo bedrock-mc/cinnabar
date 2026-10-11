@@ -1,5 +1,7 @@
 //! Opt-in component spike. The default client registers no extension runtime.
 
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 #[cfg(feature = "local-mods")]
 pub(crate) mod font;
 
@@ -321,7 +323,7 @@ fn configure_systems(app: &mut App, watching: bool) {
 /// Where a mod's network, camera and cue output lands.
 #[cfg(feature = "local-mods")]
 type ModOutputs<'w> = (
-    Option<Res<'w, crate::runtime::network::NetworkHandle>>,
+    Option<Res<'w, NetworkHandle<PackApplication>>>,
     Option<ResMut<'w, client_presentation::camera::CameraSettingsAuthority>>,
     Option<ResMut<'w, ModCueFeed>>,
     Option<ResMut<'w, crate::item_use::ModItemUsePolicy>>,
@@ -522,7 +524,7 @@ fn drive_mod(
 /// Granted commands travel the session-fenced UI packet lane as vanilla command requests.
 #[cfg(feature = "local-mods")]
 fn send_commands(
-    network: Option<&crate::runtime::network::NetworkHandle>,
+    network: Option<&NetworkHandle<PackApplication>>,
     session: u64,
     commands: Vec<String>,
 ) {

@@ -5,51 +5,17 @@
 use std::time::{Duration, Instant};
 
 use bevy::{
-    app::{App, MainScheduleOrder},
-    ecs::schedule::ScheduleLabel,
-    prelude::{Res, ResMut, Resource},
+    app::App,
+    prelude::{Res, ResMut},
 };
-use chunk_pipeline::WorldStreamService;
-use render::{ChunkUploadBudget, FrameStart, RuntimeStage, RuntimeStageProfiler};
+use render::{ChunkUploadBudget, RuntimeStage, RuntimeStageProfiler};
 
 use super::{ClientWorld, WorldStreamFramePoll};
 use client_presentation::local_player::LocalViewPose;
+use client_runtime::world_service::{WorldServiceLaunch, WorldServiceReclaim, WorldServiceSlot};
 
-/// Runs after every other main schedule; nothing later in the frame reads the stream.
-#[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct WorldServiceLaunch;
-
-/// Runs before `First`; every frame system finds the stream where it left it.
-#[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct WorldServiceReclaim;
-
-/// The production client's service. Without it the stream never leaves the frame thread.
-#[derive(Resource)]
-pub(crate) struct WorldServiceSlot {
-    service: WorldStreamService,
-}
-
-impl WorldServiceSlot {
-    /// Starts the service unless `RUST_MCBE_WORLD_SERVICE=0` keeps polling on the frame thread.
-    pub(crate) fn from_environment() -> std::io::Result<Option<Self>> {
-        if std::env::var_os(diagnostics::markers::WORLD_SERVICE).is_some_and(|value| value == "0") {
-            return Ok(None);
-        }
-        Ok(Some(Self {
-            service: WorldStreamService::spawn()?,
-        }))
-    }
-}
-
-/// Orders the hand-off schedules: launch after `after`, which must be the frame's final
-/// schedule, and reclaim after frame timing starts but before `First`.
-pub(crate) fn configure_world_service(app: &mut App, after: impl ScheduleLabel) {
-    FrameStart::install(app);
-    app.init_schedule(WorldServiceLaunch)
-        .init_schedule(WorldServiceReclaim);
-    let mut order = app.world_mut().resource_mut::<MainScheduleOrder>();
-    order.insert_after(after, WorldServiceLaunch);
-    order.insert_after(FrameStart, WorldServiceReclaim);
+/// Registers the adapters that lend app-owned world and camera state to the service.
+pub(crate) fn configure_world_service(app: &mut App) {
     app.add_systems(WorldServiceLaunch, launch_world_service)
         .add_systems(WorldServiceReclaim, reclaim_world_service);
 }

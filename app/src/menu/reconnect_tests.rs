@@ -1,3 +1,5 @@
+use crate::runtime::network::resource_packs::PackApplication;
+use client_runtime::network::NetworkHandle;
 use {
     super::MenuRuntime,
     launcher::menu::{MenuAction, MenuScreen},
@@ -193,20 +195,20 @@ fn dismiss_and_escape_return_to_the_origin_without_a_stale_retry() {
 
 #[test]
 fn reconnect_drives_two_fresh_production_attempts_and_retires_old_controls() {
-    use crate::runtime::{
-        network::{NetworkHandle, ResourcePackAdmissionState},
-        world::ClientWorld,
-    };
     use crate::session::{SessionController, drive_session};
     use bevy::prelude::{App, AppExit, Update};
     use client_ui::ui_runtime::UiRuntime;
+    use {
+        crate::runtime::world::ClientWorld,
+        client_runtime::pack_admission::ResourcePackAdmissionState,
+    };
 
     let mut menu = MenuRuntime::new(true, 2, "Player".into());
     menu.catalog_started = true;
     menu.layout.core_executable = menu.layout.user_data_root.join("missing-test-core");
     menu.activate(MenuAction::Navigate(MenuScreen::Servers));
     menu.request_connect("127.0.0.1:19132".into());
-    let mut network = NetworkHandle::disconnected();
+    let mut network = NetworkHandle::<PackApplication>::disconnected();
     let (old_controls, receiver) = tokio::sync::mpsc::channel(1);
     *network.control_events_mut() = receiver;
     let mut app = App::new();
@@ -214,7 +216,7 @@ fn reconnect_drives_two_fresh_production_attempts_and_retires_old_controls() {
         .insert_resource(menu)
         .insert_resource(SessionController::default())
         .insert_resource(network)
-        .insert_resource(crate::app::ClientBlobCacheOwner::default())
+        .insert_resource(client_runtime::blob_cache::ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
         .insert_resource(UiRuntime::new(1))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(

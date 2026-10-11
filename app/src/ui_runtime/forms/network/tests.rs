@@ -1,5 +1,7 @@
 use super::*;
+use crate::runtime::network::resource_packs::PackApplication;
 use bevy::prelude::{App, Update};
+use client_runtime::network::NetworkHandle;
 use client_ui::ui_runtime::SequencedUiEvent;
 use protocol::{BossAction, BossColor, BossEvent, BossOverlay, BossStyle, UiEvent};
 
@@ -36,7 +38,7 @@ fn boss_reply_drain_observes_the_transport_session_fence_during_credits() {
         runtime.flush_boss_responses(|_| Err(FormTransportError::Full)),
         Err(FormTransportError::Full)
     );
-    let (network, _queue_guard) = NetworkHandle::with_command_capacity(2);
+    let (network, _queue_guard) = NetworkHandle::<PackApplication>::with_command_capacity(2);
     let mut app = App::new();
     app.insert_resource(player)
         .insert_resource(runtime)

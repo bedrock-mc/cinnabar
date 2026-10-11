@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use render_api::PublicationServiceConfig;
 
-use crate::runtime::publication::{PublicationController, PublicationFrameWork};
+use {crate::publication::PublicationController, crate::publication::PublicationFrameWork};
 
 #[test]
 fn draining_backlog_stops_collapsing_caps_before_the_one_operation_trap() {

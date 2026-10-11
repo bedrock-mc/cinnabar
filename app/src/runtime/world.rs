@@ -1,7 +1,9 @@
+use crate::runtime::network::resource_packs::PackApplication;
 #[cfg(feature = "acceptance")]
 use crate::runtime::visibility::AppMetrics;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
+use client_runtime::network::NetworkHandle;
 #[cfg(feature = "acceptance")]
 use {
     crate::runtime::phase3_evidence::Phase3EvidenceEmitter,
@@ -23,9 +25,8 @@ pub(crate) use dimension::advance_dimension_transfer;
 #[cfg(test)]
 mod player_list_tests;
 mod service;
-mod shutdown_watchdog;
 mod sub_chunk_requests;
-pub(crate) use service::{WorldServiceSlot, configure_world_service};
+pub(crate) use service::configure_world_service;
 pub(crate) use sub_chunk_requests::flush_sub_chunk_requests;
 
 #[cfg(feature = "acceptance")]
@@ -33,10 +34,6 @@ use acceptance::committed_control::{
     model_gallery_camera_committed_marker, refresh_mutation_anchor_from_committed_control,
 };
 pub(crate) use control_apply::apply_committed_control;
-pub(crate) use shutdown_watchdog::{
-    SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, TeardownWatchdog, app_exit_code,
-    arm_shutdown_watchdog, begin_bounded_shutdown,
-};
 
 use std::sync::Arc;
 
@@ -72,8 +69,6 @@ use {
             MovementTicker, PhysicsCollisionRegistries,
         },
         runtime::{
-            network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
-            publication::{PublicationController, PublicationFrameWork},
             shutdown::record_fatal_error,
             visibility::{CaveVisibilityCache, DiagnosticQuads},
         },
@@ -84,6 +79,10 @@ use {
             InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalPlayerFrameReset,
             LocalViewPose,
         },
+    },
+    client_runtime::{
+        ingress::OUTBOUND_SEND_BUDGET_PER_FRAME,
+        publication::{PublicationController, PublicationFrameWork},
     },
 };
 
@@ -304,7 +303,7 @@ pub(crate) fn mesh_change_has_publication_permit(change: &WorldMeshChange) -> bo
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn reconcile_world_stream_before_physics(
     state: AppWorldState,
-    network: Option<Res<NetworkHandle>>,
+    network: Option<Res<NetworkHandle<PackApplication>>>,
     #[cfg(feature = "acceptance")] mut acceptance: ResMut<AcceptanceRun>,
     upload_budget: Res<ChunkUploadBudget>,
     #[cfg(feature = "acceptance")] model_witness_source: Res<ModelWitnessFileSource>,
@@ -575,7 +574,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_world_stream(
-    network: Res<NetworkHandle>,
+    network: Res<NetworkHandle<PackApplication>>,
     state: AppWorldState,
     #[cfg(feature = "acceptance")] mut acceptance: ResMut<AcceptanceRun>,
     #[cfg(feature = "acceptance")] mut metrics: ResMut<AppMetrics>,
