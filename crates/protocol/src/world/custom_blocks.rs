@@ -403,7 +403,7 @@ impl CustomBlocks {
             admitted
         });
         for block in &blocks {
-            block.hashed_states();
+            let _ = block.hashed_states();
         }
         Self {
             blocks: blocks.into(),
