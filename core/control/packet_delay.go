@@ -5,13 +5,29 @@ import (
 	"encoding/json"
 	"io"
 	"net"
-
-	"github.com/hashimthearab/rust-mcbe/core/proxy"
+	"time"
 )
 
 const methodPacketDelay = "packet_delay.v1"
 
-func (server *Server) SetPacketDelay(delay *proxy.PacketDelay) {
+// PacketDelay is the relay's leased packet delay behind packet_delay.v1.
+type PacketDelay interface {
+	// SetWithPosition refreshes the lease; it fails for a delay above the relay's limit.
+	SetWithPosition(delayMS uint32, showPosition bool) error
+	// PositionSnapshot returns the relay session and, while shown, the last forwarded position.
+	PositionSnapshot() (session uint64, position *Position)
+	// Lease is how long one request keeps the delay.
+	Lease() time.Duration
+}
+
+// Position is the last player position the delayed relay forwarded.
+type Position struct {
+	X float32 `json:"x"`
+	Y float32 `json:"y"`
+	Z float32 `json:"z"`
+}
+
+func (server *Server) SetPacketDelay(delay PacketDelay) {
 	server.mu.Lock()
 	server.packetDelay = delay
 	server.mu.Unlock()
@@ -35,10 +51,10 @@ func (server *Server) servePacketDelay(conn net.Conn, id uint64, raw json.RawMes
 	}
 	session, position := delay.PositionSnapshot()
 	return server.writeResponse(conn, response{JSONRPC: "2.0", ID: id, Result: struct {
-		DelayMS       uint32                   `json:"delay_ms"`
-		LeaseMS       int64                    `json:"lease_ms"`
-		SchemaVersion uint32                   `json:"schema_version"`
-		SessionID     uint64                   `json:"session_id"`
-		Position      *proxy.ForwardedPosition `json:"position,omitempty"`
-	}{*params.DelayMS, proxy.PacketDelayLease.Milliseconds(), 1, session, position}})
+		DelayMS       uint32    `json:"delay_ms"`
+		LeaseMS       int64     `json:"lease_ms"`
+		SchemaVersion uint32    `json:"schema_version"`
+		SessionID     uint64    `json:"session_id"`
+		Position      *Position `json:"position,omitempty"`
+	}{*params.DelayMS, delay.Lease().Milliseconds(), 1, session, position}})
 }

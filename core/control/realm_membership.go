@@ -6,8 +6,6 @@ import (
 	"errors"
 	"net"
 	"time"
-
-	"github.com/hashimthearab/rust-mcbe/core/catalog"
 )
 
 const methodRealmMembership = "realm_membership.v1"
@@ -16,7 +14,9 @@ var errMembershipUnavailable = errors.New("control: Realm membership unavailable
 
 // RealmMembershipServices separates invitation preview from explicit membership acceptance.
 type RealmMembershipServices interface {
-	RealmMembership(context.Context, string, bool) (catalog.Realm, error)
+	// RealmInviteCode extracts the opaque code from an invitation link or code.
+	RealmInviteCode(input string) (string, error)
+	RealmMembership(ctx context.Context, code string, accept bool) (Realm, error)
 }
 
 // serveRealmMembership cancels the request when its one-shot control connection closes.
@@ -28,13 +28,13 @@ func (server *Server) serveRealmMembership(conn net.Conn, raw json.RawMessage, s
 	if !decodeParams(raw, &params) || params.Code == nil || params.Accept == nil {
 		return nil, errInvalidParams
 	}
-	code, err := catalog.RealmInviteCode(*params.Code)
-	if err != nil {
-		return nil, ErrInvalidTarget
-	}
 	membership, ok := services.(RealmMembershipServices)
 	if !ok {
 		return nil, errMembershipUnavailable
+	}
+	code, err := membership.RealmInviteCode(*params.Code)
+	if err != nil {
+		return nil, ErrInvalidTarget
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), serviceCallTimeout)
 	defer cancel()
@@ -54,8 +54,8 @@ func (server *Server) serveRealmMembership(conn net.Conn, raw json.RawMessage, s
 		return nil, err
 	}
 	return struct {
-		SchemaVersion uint32        `json:"schema_version"`
-		Code          string        `json:"code"`
-		Realm         catalog.Realm `json:"realm"`
+		SchemaVersion uint32 `json:"schema_version"`
+		Code          string `json:"code"`
+		Realm         Realm  `json:"realm"`
 	}{SchemaVersion: 1, Code: code, Realm: realm}, nil
 }

@@ -7,9 +7,6 @@ import (
 	"errors"
 	"net"
 	"time"
-
-	"github.com/hashimthearab/rust-mcbe/core/catalog"
-	"github.com/hashimthearab/rust-mcbe/core/proxy"
 )
 
 const (
@@ -56,12 +53,38 @@ var (
 
 // Services is the launcher backend behind the account, catalog and connect methods.
 type Services interface {
-	Realms(ctx context.Context) ([]catalog.Realm, error)
-	Friends(ctx context.Context) ([]catalog.Friend, error)
+	Realms(ctx context.Context) ([]Realm, error)
+	Friends(ctx context.Context) ([]Friend, error)
 	// Connect selects the upstream for the next client connection.
 	Connect(ctx context.Context, kind, value string) error
 	// SignOut deletes the cached Microsoft tokens.
 	SignOut() error
+}
+
+// Realm is one Realm on the realms grid; the details are optional.
+type Realm struct {
+	Name          string `json:"name"`
+	State         string `json:"state"`
+	Target        string `json:"target"`
+	Owner         string `json:"owner,omitempty"`
+	MOTD          string `json:"motd,omitempty"`
+	WorldType     string `json:"world_type,omitempty"`
+	OnlinePlayers int    `json:"online_players"`
+	MaxPlayers    int    `json:"max_players,omitempty"`
+	DaysLeft      int    `json:"days_left,omitempty"`
+	Expired       bool   `json:"expired,omitempty"`
+	Member        bool   `json:"member,omitempty"` // joined, not owned
+}
+
+// Friend is one Xbox friend's joinable world.
+type Friend struct {
+	Gamertag   string `json:"gamertag"`
+	XUID       string `json:"xuid"`
+	WorldName  string `json:"world_name"`
+	Members    int    `json:"members"`
+	MaxMembers int    `json:"max_members"`
+	HandleID   string `json:"handle_id,omitempty"`
+	Address    string `json:"address,omitempty"`
 }
 
 // AuthV1 is the sign-in state; secrets and raw errors never appear in it.
@@ -87,9 +110,24 @@ type EventsV1 struct {
 	Disconnect    *DisconnectV1 `json:"disconnect,omitempty"`
 	Transfer      *TransferV1   `json:"transfer,omitempty"`
 	// Connect is the join's live stage while the core prepares it.
-	Connect *proxy.ConnectProgress `json:"connect,omitempty"`
+	Connect *ConnectProgress `json:"connect,omitempty"`
 	// ServerTrust is the join's pending question whether to trust a NetherNet server.
-	ServerTrust *proxy.ServerTrustPrompt `json:"server_trust,omitempty"`
+	ServerTrust *ServerTrustPrompt `json:"server_trust,omitempty"`
+}
+
+// ConnectProgress is the preparing join's stage; an empty Stage means no join is being prepared.
+type ConnectProgress struct {
+	Stage         string `json:"stage"`
+	PacksDone     uint32 `json:"packs_done,omitempty"`
+	PacksTotal    uint32 `json:"packs_total,omitempty"`
+	ReceivedBytes uint64 `json:"received_bytes,omitempty"`
+	TotalBytes    uint64 `json:"total_bytes,omitempty"`
+}
+
+// ServerTrustPrompt asks whether to trust the NetherNet server at URL before joining it.
+type ServerTrustPrompt struct {
+	ID  uint64 `json:"id"`
+	URL string `json:"url"`
 }
 
 type accountResultV1 struct {
@@ -98,13 +136,13 @@ type accountResultV1 struct {
 }
 
 type realmsResultV1 struct {
-	SchemaVersion uint32          `json:"schema_version"`
-	Realms        []catalog.Realm `json:"realms"`
+	SchemaVersion uint32  `json:"schema_version"`
+	Realms        []Realm `json:"realms"`
 }
 
 type friendsResultV1 struct {
-	SchemaVersion uint32           `json:"schema_version"`
-	Friends       []catalog.Friend `json:"friends"`
+	SchemaVersion uint32   `json:"schema_version"`
+	Friends       []Friend `json:"friends"`
 }
 
 type emptyResultV1 struct {
@@ -134,10 +172,10 @@ func (store *Store) Auth() AuthV1 {
 }
 
 // ObserveDisconnect records the server's disconnect reason until the next admission attempt begins.
-func (store *Store) ObserveDisconnect(info proxy.DisconnectInfo) {
+func (store *Store) ObserveDisconnect(reason int32, message string) {
 	store.mu.Lock()
 	store.disconnects++
-	store.disconnect = &DisconnectV1{Reason: info.Reason, Message: info.Message, Sequence: store.disconnects}
+	store.disconnect = &DisconnectV1{Reason: reason, Message: message, Sequence: store.disconnects}
 	store.mu.Unlock()
 }
 
@@ -166,7 +204,7 @@ func (store *Store) Events() EventsV1 {
 }
 
 // ObserveServerTrust publishes a pending trust prompt, or withdraws it once it is no longer pending.
-func (store *Store) ObserveServerTrust(prompt proxy.ServerTrustPrompt, pending bool) {
+func (store *Store) ObserveServerTrust(prompt ServerTrustPrompt, pending bool) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	switch {
@@ -260,7 +298,7 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 			return failService(err)
 		}
 		if realms == nil {
-			realms = []catalog.Realm{}
+			realms = []Realm{}
 		}
 		return reply.ok(realmsResultV1{SchemaVersion: 1, Realms: realms})
 	case methodFriendsList:
@@ -272,7 +310,7 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 			return failService(err)
 		}
 		if friends == nil {
-			friends = []catalog.Friend{}
+			friends = []Friend{}
 		}
 		return reply.ok(friendsResultV1{SchemaVersion: 1, Friends: friends})
 	case methodFriendsPeople:

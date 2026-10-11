@@ -10,37 +10,36 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/hashimthearab/rust-mcbe/core/store"
 	"github.com/sandertv/gophertunnel/minecraft/service/marketplace"
 )
 
 type stubMarket struct {
-	page     store.Page
-	purchase store.PurchaseRequest
-	result   store.PurchaseResult
+	page     StorePage
+	purchase StorePurchaseRequest
+	result   StorePurchaseResult
 	err      error
 	homeArg  string
 	calls    int
 }
 
-func (m *stubMarket) Home(_ context.Context, page string) (store.Page, error) {
+func (m *stubMarket) Home(_ context.Context, page string) (StorePage, error) {
 	m.homeArg = page
 	return m.page, m.err
 }
-func (m *stubMarket) Search(context.Context, store.SearchQuery) (store.SearchResults, error) {
-	return store.SearchResults{}, m.err
+func (m *stubMarket) Search(context.Context, StoreSearchQuery) (StoreSearchResults, error) {
+	return StoreSearchResults{}, m.err
 }
-func (m *stubMarket) Offer(context.Context, string) (store.OfferDetail, error) {
-	return store.OfferDetail{}, m.err
+func (m *stubMarket) Offer(context.Context, string) (StoreOfferDetail, error) {
+	return StoreOfferDetail{}, m.err
 }
-func (m *stubMarket) Balances(context.Context) ([]store.Balance, error) { return nil, m.err }
-func (m *stubMarket) MoreOffers(context.Context, string) (store.RowMore, error) {
-	return store.RowMore{}, m.err
+func (m *stubMarket) Balances(context.Context) ([]StoreBalance, error) { return nil, m.err }
+func (m *stubMarket) MoreOffers(context.Context, string) (StoreRowMore, error) {
+	return StoreRowMore{}, m.err
 }
-func (m *stubMarket) Entitlements(context.Context, int, int, bool) (store.Entitlements, error) {
-	return store.Entitlements{Owned: []string{"a"}, Total: 1}, m.err
+func (m *stubMarket) Entitlements(context.Context, int, int, bool) (StoreEntitlements, error) {
+	return StoreEntitlements{Owned: []string{"a"}, Total: 1}, m.err
 }
-func (m *stubMarket) Purchase(_ context.Context, r store.PurchaseRequest) (store.PurchaseResult, error) {
+func (m *stubMarket) Purchase(_ context.Context, r StorePurchaseRequest) (StorePurchaseResult, error) {
 	m.calls++
 	m.purchase = r
 	return m.result, m.err
@@ -70,7 +69,7 @@ func TestStoreMethodsWithoutMarketplaceAreRejected(t *testing.T) {
 }
 
 func TestStoreHomeDefaultsPageAndEncodesEmptyRows(t *testing.T) {
-	m := &stubMarket{page: store.Page{ID: "store"}}
+	m := &stubMarket{page: StorePage{ID: "store"}}
 	dir := startMarket(t, m)
 	raw := string(call(t, dir, methodStoreHome, ""))
 	if m.homeArg != marketplace.PageStoreRoot || !strings.Contains(raw, `"rows":[]`) {
@@ -82,7 +81,7 @@ func TestStoreHomeDefaultsPageAndEncodesEmptyRows(t *testing.T) {
 }
 
 func TestStorePurchaseRequiresExplicitConfirmation(t *testing.T) {
-	m := &stubMarket{result: store.PurchaseResult{Status: store.PurchaseOK, CorrelationID: "c"}}
+	m := &stubMarket{result: StorePurchaseResult{Status: "purchased", CorrelationID: "c"}}
 	dir := startMarket(t, m)
 	for _, params := range []string{
 		``, `{}`,
@@ -100,7 +99,7 @@ func TestStorePurchaseRequiresExplicitConfirmation(t *testing.T) {
 	}
 	var result storePurchaseResultV1
 	reply := rpc(t, dir, methodStorePurchase, validPurchase)
-	if reply.Error != nil || json.Unmarshal(reply.Result, &result) != nil || result.Status != store.PurchaseOK ||
+	if reply.Error != nil || json.Unmarshal(reply.Result, &result) != nil || result.Status != "purchased" ||
 		result.SchemaVersion != 1 || m.purchase.Amount != "320" || !m.purchase.Confirmed {
 		t.Fatalf("purchase = %+v / %+v", result, reply.Error)
 	}
@@ -112,9 +111,9 @@ func TestStoreErrorsAreSanitized(t *testing.T) {
 		code int
 	}{
 		{ErrSignedOut, codeSignedOut},
-		{store.ErrInvalidRequest, -32602},
-		{store.ErrPurchaseBusy, codePurchaseBusy},
-		{store.ErrPurchaseReused, codePurchaseReused},
+		{ErrStoreInvalidRequest, -32602},
+		{ErrPurchaseBusy, codePurchaseBusy},
+		{ErrPurchaseReused, codePurchaseReused},
 		{marketplace.ErrUnknownPage, codeStoreNotFound},
 		{errors.New(`Post https://x/y?token=SECRET: dial tcp`), codeServiceFailed},
 	} {
@@ -127,11 +126,11 @@ func TestStoreErrorsAreSanitized(t *testing.T) {
 }
 
 func TestFitPageKeepsResponsesInsideOneFrame(t *testing.T) {
-	page := store.Page{ID: "store"}
+	page := StorePage{ID: "store"}
 	for r := 0; r < 40; r++ {
-		row := store.Row{ID: "r"}
+		row := StoreRow{ID: "r"}
 		for o := 0; o < 40; o++ {
-			row.Offers = append(row.Offers, store.Offer{ID: "id", Title: strings.Repeat("t", 250), Creator: strings.Repeat("c", 250)})
+			row.Offers = append(row.Offers, StoreOffer{ID: "id", Title: strings.Repeat("t", 250), Creator: strings.Repeat("c", 250)})
 		}
 		page.Rows = append(page.Rows, row)
 	}
