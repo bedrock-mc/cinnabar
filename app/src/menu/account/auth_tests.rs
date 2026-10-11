@@ -1,5 +1,5 @@
 use launcher::menu::auth::AuthState;
-use launcher_host::auth::test_support::{event_child_holding, supervisor};
+use launcher_host::auth::test_support::{cancellation_requested, event_child_holding, supervisor};
 use std::fs;
 
 #[test]
@@ -81,7 +81,7 @@ fn cancelled_cache_validation_cannot_offer_another_device_code() {
     menu.sign_in_cancelled = true;
     menu.poll_catalog(true);
     let supervisor = menu.auth_process.as_ref().unwrap();
-    assert!(supervisor.test_cancel_requested());
+    assert!(cancellation_requested(supervisor));
     assert_eq!(supervisor.state(), &AuthState::SignedOut);
     assert!(!menu.view().popup_open());
     drop(menu);
@@ -124,7 +124,7 @@ fn profile_sign_in_focus_outranks_stale_control_auth() {
             menu.focused = 1;
             menu.activate_focused();
             let supervisor = menu.auth_process.as_ref().unwrap();
-            assert!(supervisor.test_cancel_requested());
+            assert!(cancellation_requested(supervisor));
             assert_eq!(supervisor.state(), &AuthState::SignedOut);
             assert!(!menu.auth_restart_requested);
             drop(menu);
@@ -147,7 +147,7 @@ fn profile_sign_in_focus_outranks_stale_control_auth_and_resets_transition() {
     menu.start_sign_in();
     assert_eq!(menu.focused, 0);
     assert!(menu.auth_restart_requested);
-    assert!(menu.auth_process.as_ref().unwrap().test_cancel_requested());
+    assert!(cancellation_requested(menu.auth_process.as_ref().unwrap()));
     drop(menu);
     fs::remove_dir_all(directory).unwrap();
 }

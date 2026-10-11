@@ -77,11 +77,9 @@ pub fn supervisor(child: Child, state: AuthState, terminal: bool) -> AuthSupervi
     supervisor.terminal = terminal;
     supervisor
 }
-impl AuthSupervisor {
-    /// Reports whether a menu action requested cancellation of its fixture helper.
-    pub fn test_cancel_requested(&self) -> bool {
-        self.cancel_requested
-    }
+/// Reports whether a menu action requested cancellation of its fixture helper.
+pub fn cancellation_requested(supervisor: &AuthSupervisor) -> bool {
+    supervisor.cancel_requested
 }
 
 /// Attaches the normal event reader to a scripted child in its initial checking state.

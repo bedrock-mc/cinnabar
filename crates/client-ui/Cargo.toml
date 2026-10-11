@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [features]
-test-support = ["launcher-host/test-support"]
+test-support = []
 tracy = []
 
 [dependencies]
