@@ -148,6 +148,8 @@ pub(crate) fn validate_archive_parts(
     }
     let mut physical = HashMap::with_capacity(zip.len());
     let mut folded_seen = HashSet::with_capacity(zip.len());
+    // An unreadable index must retain its rejection instead of enabling plaintext fallback.
+    let mut contents_paths = HashSet::new();
     let (mut declared, mut skipped) = (0u64, 0usize);
     for archive_index in 0..zip.len() {
         let file = zip
@@ -158,6 +160,11 @@ pub(crate) fn validate_archive_parts(
             .filter(|total| *total <= MAX_DECLARED_BYTES_PER_PACK)
             .ok_or(AdmissionError::DeclaredSizeTooLarge)?;
         let path = canonical_path(file.name_raw());
+        if let Some(path) = &path
+            && path.rsplit('/').next() == Some("contents.json")
+        {
+            contents_paths.insert(path.clone());
+        }
         let usable = !file.is_dir()
             && is_regular_file(file.unix_mode())
             && !file.encrypted()
@@ -185,8 +192,10 @@ pub(crate) fn validate_archive_parts(
         .collect();
     let archive_bytes = bytes.len();
     let keys = match key {
-        Some(pack_key) => attach_file_keys(&zip, &mut rooted, &pack_key)?,
-        None => Box::default(),
+        Some(pack_key) if contents_paths.contains(format!("{root}contents.json").as_str()) => {
+            attach_file_keys(&zip, &mut rooted, &pack_key)?
+        }
+        _ => Box::default(),
     };
     let manifest_path = MANIFEST_NAMES
         .into_iter()
@@ -258,6 +267,7 @@ fn pack_root(physical: &HashMap<Box<str>, EntryIndex>) -> String {
     roots.into_iter().next().unwrap_or_default()
 }
 
+/// Reads a present, bounded contents index and attaches keys only to listed files.
 fn attach_file_keys(
     zip: &crate::pack::PackZip,
     rooted: &mut HashMap<Box<str>, EntryIndex>,

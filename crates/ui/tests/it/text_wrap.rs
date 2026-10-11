@@ -20,7 +20,7 @@ fn font() -> CompiledFontCatalog {
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: 32,
         height: 8,
-        pixels: FontPixels::Rgba8(rgba8),
+        pixels: FontPixels::Rgba8(rgba8.into()),
     };
     let glyphs: Vec<GlyphMetrics> = [' ', '-', '.', 'W', 'a', 'b', 'c', 'd', '\u{fffd}']
         .into_iter()

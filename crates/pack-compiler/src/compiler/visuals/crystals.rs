@@ -48,9 +48,6 @@ pub(in crate::compiler) fn compile_rule(
 
 /// 0..=5 for up, down, north, south, east, west: the direction the tip points.
 fn crystal_facing(record: &RegistryRecord) -> Option<u8> {
-    if record.name.ends_with("_coral_fan") {
-        return Some(UP);
-    }
     Some(
         match canonical_state_str(&record.canonical_state, "minecraft:block_face")?.as_ref() {
             "up" => UP,

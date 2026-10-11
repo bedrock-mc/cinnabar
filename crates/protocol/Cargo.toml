@@ -5,6 +5,14 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+platform-specific = ["windows"]
+reads = [
+    "assets/block-data-sources.json",
+    "tools/localserver/experience/testdata/protocol/limits.json",
+    "tools/protocol-normalize/manifest.json",
+]
+
 [features]
 # Re-exports the vendored wire crates to downstream tests that encode real packets.
 wire-test-support = []

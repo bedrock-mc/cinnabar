@@ -220,7 +220,7 @@ fn synthetic_font_blob_with_manifest(seed: u8, manifest_sha256: [u8; 32]) -> Box
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: 1,
         height: 1,
-        pixels: FontPixels::Rgba8(rgba8),
+        pixels: FontPixels::Rgba8(rgba8.into()),
     };
     let glyphs = [GlyphMetrics {
         codepoint: '\u{fffd}',

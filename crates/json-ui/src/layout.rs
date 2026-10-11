@@ -30,7 +30,7 @@ mod size;
 mod stack;
 mod style;
 
-pub(crate) use grid::TEMPLATE_KEY as GRID_TEMPLATE_KEY;
+pub(crate) use grid::{PLACEHOLDER_KEY as GRID_PLACEHOLDER_KEY, TEMPLATE_KEY as GRID_TEMPLATE_KEY};
 pub use measure::MeasureCache;
 pub(crate) use reuse::Output;
 
@@ -347,14 +347,22 @@ fn collection_index(control: &ResolvedControl) -> Option<u64> {
         .and_then(Value::as_u64)
 }
 
-/// Counts siblings by name and collection index for [`child_key`]'s repeat.
+/// Counts siblings by name and collection index for [`child_key`]'s repeat, keyed by a hash of
+/// both so counting a long list allocates nothing.
 #[derive(Default)]
-pub(crate) struct SiblingKeys(std::collections::HashMap<(String, Option<u64>), usize>);
+pub(crate) struct SiblingKeys(crate::bind::KeyMap<usize>);
 
 impl SiblingKeys {
     /// Earlier siblings sharing `name` and `index`.
     pub(crate) fn repeat(&mut self, name: &str, index: Option<u64>) -> usize {
-        let count = self.0.entry((name.to_owned(), index)).or_default();
+        let named = crate::bind::key_hash(crate::bind::KEY_ROOT, name.as_bytes());
+        let key = match index {
+            Some(index) => {
+                crate::bind::key_hash(crate::bind::key_hash(named, &[1]), &index.to_le_bytes())
+            }
+            None => crate::bind::key_hash(named, &[0]),
+        };
+        let count = self.0.entry(key).or_default();
         *count += 1;
         *count - 1
     }
@@ -539,7 +547,8 @@ fn place_subtree<'a>(
     let priority = stack::hidden_by_priority(control, rect, ctx.env);
     let packs = stack::orientation(control).is_some() || grid::is_grid(control);
     let mut children = Vec::with_capacity(placed.len());
-    let repeats = if control.children.len() > 1 {
+    // A templated grid's cells carry distinct indices, so none of them repeats.
+    let repeats = if control.children.len() > 1 && !grid::has_template(control) {
         let mut siblings = SiblingKeys::default();
         control
             .children
@@ -564,6 +573,11 @@ fn place_subtree<'a>(
     if let Some(reuse) = ctx.reuse.as_mut().filter(|_| inspects) {
         reuse.inspected += 1;
     }
+    // A grid standing in placeholders reports which cells it shows, for its next bind to build.
+    let placeholders = grid::is_grid(control)
+        .then(|| control.children.iter().find_map(grid::placeholder_of))
+        .flatten();
+    let mut in_view: Option<std::ops::Range<usize>> = None;
     for (child, mut child_rect) in placed {
         let child_shown = !ctx.hidden_names.contains(&child.name)
             && !priority
@@ -600,14 +614,16 @@ fn place_subtree<'a>(
             .get(measure::child_index(control, child))
             .copied()
             .unwrap_or(0);
-        let next_key = child_key(&key, child, repeat);
+        // Keyed once placed: a long list culls most of its children.
+        let mut next_key = None;
         // Stack items and grid cells have no offset delta term.
         if !packs {
             if place::follows_pointer(child) {
                 ctx.report.tracks_pointer = true;
                 ctx.taint();
             }
-            let dragged = ctx.state.drags.get(&next_key).copied();
+            let keyed = next_key.insert(child_key(&key, child, repeat));
+            let dragged = ctx.state.drags.get(keyed.as_str()).copied();
             if let Some(moved) =
                 place::offset_delta(child, child_rect, rect, ctx.state.pointer, dragged)
             {
@@ -619,6 +635,26 @@ fn place_subtree<'a>(
             && frame.names[0].as_deref() == Some(child.name.as_str())
         {
             child_rect = frame.place_box(child_rect);
+        }
+        // A cell within a view's extent of the view counts as shown, so content it draws past
+        // its rect, as a selection frame or a shifted label, reaches in from a built cell.
+        if placeholders.is_some()
+            && child_shown
+            && !disjoint(
+                child_rect,
+                Rect {
+                    x: clip_for_child.x - clip_for_child.w,
+                    y: clip_for_child.y - clip_for_child.h,
+                    w: clip_for_child.w * 3.0,
+                    h: clip_for_child.h * 3.0,
+                },
+            )
+            && let Some(index) =
+                collection_index(child).and_then(|index| usize::try_from(index).ok())
+        {
+            in_view = Some(in_view.map_or(index..index + 1, |seen| {
+                seen.start.min(index)..seen.end.max(index + 1)
+            }));
         }
         // Scroll content wholly outside its viewport neither draws nor takes input.
         if ctx.cull
@@ -639,6 +675,7 @@ fn place_subtree<'a>(
             reuse.hits = std::sync::Arc::clone(hits);
             reuse.emitting = *emitting;
         }
+        let next_key = next_key.unwrap_or_else(|| child_key(&key, child, repeat));
         let mut laid = place_subtree(
             child,
             next_key,
@@ -656,6 +693,11 @@ fn place_subtree<'a>(
             }
         }
         children.push(laid);
+    }
+    if let Some(grid) = placeholders {
+        ctx.report
+            .grid_cells
+            .insert(grid, in_view.unwrap_or_default());
     }
     if let (Some(reuse), Some((_, _, (hits, emitting)))) = (ctx.reuse.as_mut(), inherit_reuse) {
         reuse.hits = hits;

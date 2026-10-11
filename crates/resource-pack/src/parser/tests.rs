@@ -236,6 +236,41 @@ fn skips_zip_encrypted_and_unsupported_codec_entries() {
 }
 
 #[test]
+fn plaintext_archives_with_advertised_keys_keep_root_and_wrapped_resources() {
+    const PACK_KEY: &[u8; 32] = b"0123456789abcdefghijklmnopqrstuv";
+    for format in [1, 2] {
+        let manifest = manifest("").replace(
+            "\"format_version\": 2",
+            &format!("\"format_version\": {format}"),
+        );
+        for prefix in ["", "wrapped/", "./wrapped\\"] {
+            let manifest_path = format!("{prefix}manifest.json");
+            let asset_path = format!("{prefix}texts/en_US.lang");
+            let archive = zip_files(&[
+                (&manifest_path, manifest.as_bytes()),
+                (&asset_path, b"fixture.name=Plain resource"),
+                ("../outside.txt", b"outside"),
+            ]);
+            let (pack, _) = validate_archive_parts(
+                PACK_ID,
+                "1.2.3",
+                "",
+                archive,
+                ContentKey::new(PACK_KEY),
+                None,
+            )
+            .expect("plaintext resource pack with an advertised key");
+            assert_eq!(
+                pack.read_file("texts/en_US.lang").unwrap().as_deref(),
+                Some(b"fixture.name=Plain resource".as_slice()),
+            );
+            assert!(pack.read_file("outside.txt").unwrap().is_none());
+            assert_eq!(pack.skipped_entries(), 1);
+        }
+    }
+}
+
+#[test]
 fn encrypted_pack_decrypts_listed_files_and_keeps_plaintext_despite_key() {
     const PACK_KEY: &[u8; 32] = b"0123456789abcdefghijklmnopqrstuv";
     const FILE_KEY: &str = "abcdefghijklmnopqrstuvwxyz012345";
@@ -276,18 +311,157 @@ fn encrypted_pack_decrypts_listed_files_and_keeps_plaintext_despite_key() {
         validate_archive_parts(PACK_ID, "1.2.3", "", archive, wrong, None).unwrap_err(),
         AdmissionError::MalformedContentsIndex
     );
-    let unindexed = zip_files(&[("manifest.json", manifest.as_bytes())]);
+}
+
+#[test]
+fn local_plaintext_archive_with_advertised_key_reads_stored_resources() {
+    let Some(path) = std::env::var_os("CINNABAR_PLAINTEXT_PACK_FIXTURE") else {
+        eprintln!(
+            "skipping local_plaintext_archive_with_advertised_key_reads_stored_resources: missing CINNABAR_PLAINTEXT_PACK_FIXTURE archive"
+        );
+        return;
+    };
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "skipping local_plaintext_archive_with_advertised_key_reads_stored_resources: missing CINNABAR_PLAINTEXT_PACK_FIXTURE archive"
+            );
+            return;
+        }
+        Err(error) => panic!("read plaintext archive fixture: {error}"),
+    };
+    let mut zip = ZipArchive::new(Cursor::new(&bytes)).expect("fixture ZIP");
+    let manifest_index = (0..zip.len())
+        .find(|index| {
+            let file = zip.by_index(*index).unwrap();
+            canonical_path(file.name_raw())
+                .is_some_and(|path| MANIFEST_NAMES.contains(&path.rsplit('/').next().unwrap()))
+        })
+        .expect("fixture manifest");
+    let manifest_path = canonical_path(zip.by_index(manifest_index).unwrap().name_raw()).unwrap();
+    let root = manifest_path
+        .rsplit_once('/')
+        .map_or("", |(prefix, _)| &manifest_path[..prefix.len() + 1]);
+    let manifest: serde_json::Value =
+        serde_json::from_reader(zip.by_index(manifest_index).unwrap()).unwrap();
+    let id = manifest["header"]["uuid"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let version = crate::manifest::Version::from_value(&manifest["header"]["version"])
+        .unwrap()
+        .0
+        .map(|part| part.to_string())
+        .join(".");
+    let (pack, _) = validate_archive_parts(
+        id,
+        &version,
+        "",
+        bytes.clone(),
+        ContentKey::new(b"0123456789abcdefghijklmnopqrstuv"),
+        None,
+    )
+    .expect("keyed plaintext fixture admission");
+    let mut compared = 0;
+    for index in 0..zip.len() {
+        let mut file = zip.by_index(index).unwrap();
+        if file.is_dir() {
+            continue;
+        }
+        let Some(path) = canonical_path(file.name_raw()) else {
+            continue;
+        };
+        let Some(logical) = path.strip_prefix(root) else {
+            continue;
+        };
+        assert_ne!(
+            logical, "contents.json",
+            "fixture must have no encryption index"
+        );
+        let Some(actual) = pack.read_file(logical).unwrap() else {
+            continue;
+        };
+        let mut stored = Vec::new();
+        std::io::Read::read_to_end(&mut file, &mut stored).unwrap();
+        assert!(
+            actual.as_ref() == stored.as_slice(),
+            "fixture resource differs from stored bytes"
+        );
+        compared += 1;
+    }
+    assert!(
+        compared > 1,
+        "fixture must contain resources beyond its manifest"
+    );
+}
+
+#[test]
+fn advertised_key_does_not_bypass_bad_indexes_or_manifests() {
+    const PACK_KEY: &[u8; 32] = b"0123456789abcdefghijklmnopqrstuv";
+    let manifest = manifest("");
+    for prefix in ["", "wrapped/"] {
+        let manifest_path = format!("{prefix}manifest.json");
+        let contents_path = format!("{prefix}contents.json");
+        let archive = zip_files(&[
+            (&manifest_path, manifest.as_bytes()),
+            (&contents_path, b"not an index"),
+        ]);
+        assert_eq!(
+            validate_archive_parts(
+                PACK_ID,
+                "1.2.3",
+                "",
+                archive,
+                ContentKey::new(PACK_KEY),
+                None
+            )
+            .unwrap_err(),
+            AdmissionError::MalformedContentsIndex,
+        );
+        let archive = zip_files(&[(&manifest_path, b"not a manifest")]);
+        assert_eq!(
+            validate_archive_parts(
+                PACK_ID,
+                "1.2.3",
+                "",
+                archive,
+                ContentKey::new(PACK_KEY),
+                None
+            )
+            .unwrap_err(),
+            AdmissionError::MalformedManifest,
+        );
+    }
+}
+
+#[test]
+fn unusable_contents_index_is_not_treated_as_plaintext() {
+    let manifest = manifest("");
+    let mut archive = zip_files(&[
+        ("wrapped/manifest.json", manifest.as_bytes()),
+        ("./wrapped\\contents.json", b"{}"),
+    ]);
+    let central = archive
+        .windows(4)
+        .enumerate()
+        .filter(|(_, window)| *window == b"PK\x01\x02")
+        .nth(1)
+        .unwrap()
+        .0;
+    archive[central + 8..central + 10].copy_from_slice(&1u16.to_le_bytes());
     assert_eq!(
         validate_archive_parts(
             PACK_ID,
             "1.2.3",
             "",
-            unindexed,
-            ContentKey::new(PACK_KEY),
+            archive,
+            ContentKey::new(b"0123456789abcdefghijklmnopqrstuv"),
             None
         )
         .unwrap_err(),
-        AdmissionError::MissingContentsIndex
+        AdmissionError::MissingContentsIndex,
     );
 }
 

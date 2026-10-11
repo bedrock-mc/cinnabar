@@ -244,6 +244,7 @@ impl UiPresentationRuntime {
         let Some(engine) = self.form_presentation.engine.as_mut() else {
             return;
         };
+        engine.server_ui = pack.ui_layers.iter().any(|layer| !layer.is_empty());
         if let Some(catalog) = &pack.catalog {
             engine.install_pack_catalog(catalog.clone(), pack.chat_catalog.clone());
         } else {

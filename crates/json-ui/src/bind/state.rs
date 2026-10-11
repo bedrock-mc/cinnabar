@@ -4,6 +4,8 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::{BuildHasherDefault, Hasher};
+use std::ops::Range;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
@@ -13,14 +15,14 @@ use crate::state::LayoutReport;
 use crate::tree::ResolvedControl;
 
 /// FNV-1a over a layout key, streamed so a child extends its parent's hash.
-pub(super) fn key_hash(seed: u64, bytes: &[u8]) -> u64 {
+pub(crate) fn key_hash(seed: u64, bytes: &[u8]) -> u64 {
     bytes.iter().fold(seed, |hash, byte| {
         (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
     })
 }
 
 /// The hash of the empty key, where every layout key starts.
-pub(super) const KEY_ROOT: u64 = 0xcbf2_9ce4_8422_2325;
+pub(crate) const KEY_ROOT: u64 = 0xcbf2_9ce4_8422_2325;
 
 /// Properties that scroll layout publishes back into binding bags.
 pub(super) const SCROLL_PROPERTIES: [&str; 3] = [
@@ -31,7 +33,7 @@ pub(super) const SCROLL_PROPERTIES: [&str; 3] = [
 
 /// Hashes a map key that already is a key hash.
 #[derive(Default)]
-pub(super) struct Prehashed(u64);
+pub(crate) struct Prehashed(u64);
 
 impl Hasher for Prehashed {
     fn finish(&self) -> u64 {
@@ -47,7 +49,7 @@ impl Hasher for Prehashed {
     }
 }
 
-pub(super) type KeyMap<V> = HashMap<u64, V, BuildHasherDefault<Prehashed>>;
+pub(crate) type KeyMap<V> = HashMap<u64, V, BuildHasherDefault<Prehashed>>;
 
 /// A screen's live binding state, kept by the caller across binds of the same
 /// screen and dropped when the screen changes.
@@ -75,6 +77,14 @@ pub struct BindState {
     pub(super) views_settled: bool,
     /// View notifications the last bind ran.
     pub(super) views_run: usize,
+    /// Collections whose large grids build only the cells around those layout shows.
+    pub(super) virtual_grids: BTreeSet<String>,
+    /// The cells each virtualized grid builds, by its key; the rest bind as placeholders.
+    pub(super) grid_windows: KeyMap<Range<usize>>,
+    /// Grids whose built cells moved since the last bind, which it rebuilds.
+    pub(super) moved_windows: Vec<u64>,
+    /// Each grid's cell template with its placeholder, so standing placeholders are reused.
+    pub(super) placeholders: Vec<(u64, Arc<ResolvedControl>, Arc<ResolvedControl>)>,
 }
 
 /// Allocate an opaque lifetime identity only when a custom control is created.
@@ -158,6 +168,45 @@ impl BindState {
             }
         }
         changed
+    }
+
+    /// Lets a large grid listing `collection` build only the cells around those in view, binding
+    /// the rest as empty placeholders of its cell template's size. After each layout, pass its
+    /// report to [`Self::show_grid_cells`] and bind and lay out again while that returns `true`.
+    ///
+    /// Only for a grid whose cells have a literal pixel size, draw less than a view's extent past
+    /// their rect, and read through `once` bindings only what stays fixed per index: a cell built
+    /// late must match one built with the grid.
+    pub fn virtualize_grid(&mut self, collection: &str) {
+        self.virtual_grids.insert(collection.to_owned());
+    }
+
+    /// Whether grids listing `collection` build only the cells around those in view.
+    pub(super) fn virtualizes(&self, collection: Option<&str>) -> bool {
+        collection.is_some_and(|name| self.virtual_grids.contains(name))
+    }
+
+    /// Moves each virtualized grid's built cells over the cells `report` laid out in view, with
+    /// a quarter view of margin on either side; `true` when a grid must bind and lay out again.
+    pub fn show_grid_cells(&mut self, report: &LayoutReport) -> bool {
+        let mut moved = false;
+        for (grid, view) in &report.grid_cells {
+            if view.is_empty() {
+                continue;
+            }
+            // A range left far wider than the view, as after a longer tab, shrinks back.
+            if self.grid_windows.get(grid).is_some_and(|built| {
+                built.start <= view.start && view.end <= built.end && built.len() <= 4 * view.len()
+            }) {
+                continue;
+            }
+            let margin = view.len() / 4 + 1;
+            self.grid_windows
+                .insert(*grid, view.start.saturating_sub(margin)..view.end + margin);
+            self.moved_windows.push(*grid);
+            moved = true;
+        }
+        moved
     }
 
     /// Whether scroll feedback can affect a bound property or view.

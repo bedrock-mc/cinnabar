@@ -425,6 +425,12 @@ fn production_module_remapping_cannot_hide_authority_aliases() {
 #[test]
 fn production_console_satisfies_module_boundary_policy() {
     let temp = fixture();
+    // The copied console has Windows code, which the crate must declare.
+    set_dependencies(
+        temp.path(),
+        "diagnostics",
+        "[package.metadata.cinnabar]\nplatform-specific=['windows']",
+    );
     write(
         &temp.path().join("crates/diagnostics/src/console.rs"),
         include_str!("../../../../crates/diagnostics/src/console.rs"),

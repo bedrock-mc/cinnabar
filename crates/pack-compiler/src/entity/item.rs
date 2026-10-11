@@ -281,7 +281,7 @@ pub(super) fn compile(
     let facts_source = *source_indices
         .get(assets::item::armour::ITEM_ARMOUR_SOURCE_PATH)
         .ok_or_else(|| invalid("compiled item facts source is absent"))?;
-    let retail = std::str::from_utf8(item_bindings::RETAIL_ITEMS)
+    let retail = std::str::from_utf8(assets::item::retail::SOURCE_BYTES)
         .map_err(|_| invalid("retail item list is not UTF-8"))?;
     for identifier in retail.lines().filter_map(|line| line.split('\t').nth(1)) {
         definitions

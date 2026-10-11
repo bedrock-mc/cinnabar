@@ -33,9 +33,7 @@ pub(super) fn entry(properties: &Properties) -> Rc<Entry> {
         if let Some(entry) = cache.get(&key) {
             return Rc::clone(entry);
         }
-        if cache.len() >= MAX_INPUT_MAPS {
-            cache.retain(|entry| entry.owner.strong_count() != 0);
-        }
+        cache.prune_dead(|entry| entry.owner.strong_count() != 0);
         let entry = Rc::new(Entry {
             owner: properties.weak(),
             input: OnceCell::new(),

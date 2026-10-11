@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+platform-specific = ["macos", "windows"]
+
 [features]
 developer-control = ["dep:developer-control"]
 test-support = ["launcher/test-support", "launcher-host/test-support"]

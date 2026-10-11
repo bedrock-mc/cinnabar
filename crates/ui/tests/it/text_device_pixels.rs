@@ -32,7 +32,7 @@ fn font() -> CompiledFontCatalog {
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: 128,
         height: 16,
-        pixels: FontPixels::Rgba8(rgba8),
+        pixels: FontPixels::Rgba8(rgba8.into()),
     };
     let mut x = 0;
     let glyphs: Vec<GlyphMetrics> = GLYPHS

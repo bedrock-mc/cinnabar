@@ -59,9 +59,7 @@ pub(super) fn get(src: &Src) -> Arc<Declaration> {
             diagnostics,
         });
         let mut cache = cache.borrow_mut();
-        if cache.len() >= MAX_DECLARATIONS {
-            cache.retain(|entry| entry.owner.strong_count() != 0);
-        }
+        cache.prune_dead(|entry| entry.owner.strong_count() != 0);
         cache.insert(
             key,
             Entry {

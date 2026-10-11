@@ -1,5 +1,7 @@
 use std::path::{Component, Path, PathBuf};
 
+use workspace_declarations::wildcard_match;
+
 use crate::{ArchitectureError, paths::relative_slash, policy::Policy, read};
 
 pub(super) fn check_artifacts(
@@ -18,37 +20,13 @@ pub(super) fn check_artifacts(
             continue;
         }
         for pattern in &policy.forbidden_artifacts {
-            if wildcard_match(pattern.as_bytes(), relative.as_bytes()) {
+            if wildcard_match(pattern, &relative) {
                 diagnostics.push(format!(
                     "{relative}: matches forbidden artifact pattern `{pattern}`"
                 ));
             }
         }
     }
-}
-
-fn wildcard_match(pattern: &[u8], value: &[u8]) -> bool {
-    let (mut pattern_index, mut value_index) = (0, 0);
-    let (mut star_index, mut star_value_index) = (None, 0);
-    while value_index < value.len() {
-        if pattern_index < pattern.len() && pattern[pattern_index] == value[value_index] {
-            pattern_index += 1;
-            value_index += 1;
-        } else if pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
-            while pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
-                pattern_index += 1;
-            }
-            star_index = Some(pattern_index);
-            star_value_index = value_index;
-        } else if let Some(after_star) = star_index {
-            star_value_index += 1;
-            value_index = star_value_index;
-            pattern_index = after_star;
-        } else {
-            return false;
-        }
-    }
-    pattern[pattern_index..].iter().all(|byte| *byte == b'*')
 }
 
 pub(super) fn check_sources(

@@ -40,6 +40,7 @@ fn texture_refresh_remeasures_inventory_and_preserves_once_bindings() {
         ScreenCache::render(
             cache,
             &catalog,
+            false,
             "chest.small_chest_screen",
             &context,
             data,

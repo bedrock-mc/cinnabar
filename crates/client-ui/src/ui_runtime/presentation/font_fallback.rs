@@ -104,7 +104,7 @@ mod tests {
             pixels_sha256: hash,
             width: side,
             height: side,
-            pixels: FontPixels::Rgba8(pixels),
+            pixels: FontPixels::Rgba8(pixels.into()),
         };
         let glyph = GlyphMetrics {
             codepoint: ch,

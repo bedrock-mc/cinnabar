@@ -171,7 +171,7 @@ fn fixture_font_with_page_count(page_count: usize) -> Arc<RuntimeFontCatalog> {
                 pixels_sha256: Sha256::digest(&pixels).into(),
                 width: 1,
                 height: 1,
-                pixels: FontPixels::Rgba8(pixels),
+                pixels: FontPixels::Rgba8(pixels.into()),
             }
         })
         .collect::<Vec<_>>();

@@ -81,7 +81,7 @@ fn stroke_font() -> Arc<RuntimeFontCatalog> {
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: width as u32,
         height: height as u32,
-        pixels: FontPixels::Rgba8(rgba8),
+        pixels: FontPixels::Rgba8(rgba8.into()),
     };
     let manifest = [6; 32];
     let bytes = encode_font_catalog(manifest, &glyphs, &[page]).unwrap();

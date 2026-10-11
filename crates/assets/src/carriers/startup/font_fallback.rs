@@ -15,7 +15,7 @@ pub(super) fn diagnostic_font_assets(path: PathBuf) -> Result<LoadedFontAssets, 
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: 1,
         height: 1,
-        pixels: FontPixels::Rgba8(rgba8),
+        pixels: FontPixels::Rgba8(rgba8.into()),
     };
     let glyph = GlyphMetrics {
         codepoint: '\u{fffd}',

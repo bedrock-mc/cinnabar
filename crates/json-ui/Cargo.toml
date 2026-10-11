@@ -4,6 +4,12 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[package.metadata.cinnabar]
+reads = [
+    "assets/java-hud",
+    "assets/vanilla-source.json",
+]
+
 [lib]
 name = "json_ui"
 path = "src/lib.rs"

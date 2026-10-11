@@ -12,6 +12,10 @@ use crate::expr::{Length, Unit};
 /// grid: measured for the grid's rules, never placed.
 pub const TEMPLATE_KEY: &str = "grid_template_node";
 
+/// Marks a cell the binder left unbuilt out of view, naming its grid's bind key: an empty
+/// panel of the cell template's size that draws nothing and takes no input.
+pub const PLACEHOLDER_KEY: &str = "grid_placeholder_of";
+
 #[derive(Clone, Copy, PartialEq)]
 enum Direction {
     Horizontal,
@@ -43,6 +47,11 @@ pub(super) fn has_template(control: &ResolvedControl) -> bool {
 
 pub(crate) fn is_template_node(control: &ResolvedControl) -> bool {
     control.properties.get(TEMPLATE_KEY) == Some(&Value::Bool(true))
+}
+
+/// The bind key of the grid a placeholder cell stands in for.
+pub(super) fn placeholder_of(control: &ResolvedControl) -> Option<u64> {
+    control.properties.get(PLACEHOLDER_KEY)?.as_u64()
 }
 
 /// The retained template among a grid's children, else its first cell (an

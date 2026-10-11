@@ -5,6 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+reads = [
+    "tools/jsonui-editor/examples",
+]
+
 [[bin]]
 name = "jsonui-mcp"
 path = "src/main.rs"

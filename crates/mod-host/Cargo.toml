@@ -5,6 +5,16 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+platform-specific = ["windows"]
+reads = [
+    "crates/experience-sdk/wit/client",
+    "crates/experience-sdk/wit/session",
+    "crates/mod-api/wit",
+    "crates/server-experience/src/media/testdata/fixture.webm",
+    "examples/mods/screen-probe",
+]
+
 [features]
 default = ["execution"]
 # The Wasmtime component host (local mods and the server helper); clients spawning helpers opt out.

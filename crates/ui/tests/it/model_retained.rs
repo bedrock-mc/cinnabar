@@ -34,7 +34,7 @@ fn font() -> CompiledFontCatalog {
             pixels_sha256: Sha256::digest(&pixels).into(),
             width: 1,
             height: 1,
-            pixels: FontPixels::Rgba8(pixels),
+            pixels: FontPixels::Rgba8(pixels.into()),
         }
     };
     let glyph = |codepoint, page| GlyphMetrics {

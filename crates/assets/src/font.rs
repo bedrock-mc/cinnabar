@@ -60,8 +60,8 @@ pub struct FontTexturePage {
 /// A page's texels: RGBA8, or one coverage byte per texel when every visible texel is white.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FontPixels {
-    Rgba8(Box<[u8]>),
-    Coverage(Box<[u8]>),
+    Rgba8(Arc<[u8]>),
+    Coverage(Arc<[u8]>),
 }
 
 impl FontPixels {

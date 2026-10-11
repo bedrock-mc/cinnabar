@@ -10,6 +10,7 @@ pub(in crate::compiler) mod carpets;
 pub(in crate::compiler) mod chains;
 pub(in crate::compiler) mod container_geometry;
 pub(in crate::compiler) mod context;
+pub(in crate::compiler) mod coral;
 pub(in crate::compiler) mod cross;
 pub(in crate::compiler) mod crystals;
 pub(in crate::compiler) mod cube;

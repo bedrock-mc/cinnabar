@@ -166,6 +166,60 @@ fn nonempty_production_handoff_preserves_selected_metadata() {
 }
 
 #[test]
+fn required_plaintext_stack_with_advertised_keys_applies_every_layer() {
+    let top = Uuid::from_u128(2);
+    let archives =
+        [(PACK_ID, b"lower".as_slice()), (top, b"upper".as_slice())].map(|(id, text)| {
+            ResourcePackArchive::with_content_key(
+                id,
+                "1.2.3".into(),
+                String::new(),
+                pack_zip(id, &[("texts/en_US.lang", text)]),
+                b"0123456789abcdefghijklmnopqrstuv".to_vec(),
+            )
+        });
+    let handoff = handoff(archives.into()).with_required(true);
+    assert!(handoff.required());
+    let stack = validate_handoff(handoff);
+    assert!(stack.rejections().is_empty(), "{:?}", stack.rejections());
+    assert_eq!(stack.packs().len(), 2);
+    let view = LayeredPackView::new(stack);
+    assert_eq!(
+        view.read_layers("texts/en_US.lang")
+            .iter()
+            .map(AsRef::as_ref)
+            .collect::<Vec<_>>(),
+        [b"lower".as_slice(), b"upper".as_slice()]
+    );
+    assert_eq!(
+        view.read("texts/en_US.lang").as_deref(),
+        Some(b"upper".as_slice())
+    );
+}
+
+#[test]
+fn plaintext_key_advertisement_still_rejects_invalid_key_lengths() {
+    let stack = validate_handoff(
+        handoff(vec![ResourcePackArchive::with_content_key(
+            PACK_ID,
+            "1.2.3".into(),
+            String::new(),
+            pack_zip(PACK_ID, &[]),
+            b"short".to_vec(),
+        )])
+        .with_required(true),
+    );
+    assert!(stack.packs().is_empty());
+    assert_eq!(
+        stack.rejections(),
+        [PackRejection {
+            stack_index: 0,
+            reason: AdmissionError::InvalidContentKey
+        }]
+    );
+}
+
+#[test]
 fn required_stack_with_undeclared_subpack_labels_keeps_root_layers() {
     let upper = Uuid::from_u128(2);
     let archives = [

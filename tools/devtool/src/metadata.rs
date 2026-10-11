@@ -1,6 +1,7 @@
 use std::{collections::BTreeSet, path::PathBuf};
 
 use serde::Deserialize;
+use workspace_declarations::{PLATFORM_SPECIFIC, READS, TABLE};
 
 use crate::{DevtoolError, GoModule, Package, selection::normalize};
 
@@ -18,6 +19,21 @@ struct MetadataPackage {
     manifest_path: PathBuf,
     dependencies: Vec<MetadataDependency>,
     targets: Vec<MetadataTarget>,
+    #[serde(default)]
+    metadata: serde_json::Value,
+}
+
+/// Reads the declaration array `key` from a package's `[package.metadata.cinnabar]`.
+fn declarations(metadata: &serde_json::Value, key: &str) -> Vec<String> {
+    metadata
+        .get(TABLE)
+        .and_then(|table| table.get(key))
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .collect()
 }
 
 #[derive(Deserialize)]
@@ -64,13 +80,17 @@ pub fn packages_from_metadata(json: &str) -> Result<Vec<Package>, DevtoolError> 
                 })
                 .map(|dependency| dependency.name)
                 .collect();
+            let platforms = declarations(&package.metadata, PLATFORM_SPECIFIC);
+            let reads = declarations(&package.metadata, READS);
             Ok(Package::from_owned(
                 package.id,
                 package.name,
                 root.to_string_lossy().replace('\\', "/"),
                 dependencies,
                 package.targets.iter().any(|target| target.doctest),
-            ))
+            )
+            .with_platforms(platforms)
+            .with_reads(reads))
         })
         .collect()
 }
@@ -203,6 +223,23 @@ mod tests {
                 expected.into_iter().map(str::to_owned).collect::<Vec<_>>()
             );
         }
+    }
+
+    #[test]
+    fn platform_and_read_declarations_come_from_package_metadata() {
+        let metadata = serde_json::json!({
+            "workspace_root": "/repo",
+            "workspace_members": ["portable", "native"],
+            "packages": [
+                {"id": "portable", "name": "portable", "manifest_path": "/repo/portable/Cargo.toml", "dependencies": [], "targets": [], "metadata": null},
+                {"id": "native", "name": "native", "manifest_path": "/repo/native/Cargo.toml", "dependencies": [], "targets": [],
+                 "metadata": {"cinnabar": {"platform-specific": ["macos", "windows"], "reads": ["crates/portable/data/*"]}, "other": {}}},
+            ],
+        });
+        let packages = packages_from_metadata(&metadata.to_string()).unwrap();
+        assert!(packages[0].platforms.is_empty());
+        assert_eq!(packages[1].platforms, ["macos", "windows"]);
+        assert_eq!(packages[1].reads, ["crates/portable/data/*"]);
     }
 
     #[test]

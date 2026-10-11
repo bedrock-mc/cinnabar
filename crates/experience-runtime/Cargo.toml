@@ -5,6 +5,13 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+platform-specific = ["windows"]
+reads = [
+    "crates/experience-sdk/wit/server",
+    "tools/localserver/experience/testdata/protocol",
+]
+
 [dependencies]
 anyhow.workspace = true
 serde = { version = "1", features = ["derive"] }

@@ -10,7 +10,7 @@ fn fixture() -> Box<[u8]> {
         pixels_sha256: Sha256::digest(&pixels).into(),
         width: 128,
         height: 128,
-        pixels: FontPixels::Coverage(pixels),
+        pixels: FontPixels::Coverage(pixels.into()),
     };
     let glyph = GlyphMetrics {
         codepoint: 'A',
