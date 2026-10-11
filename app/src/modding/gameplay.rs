@@ -213,26 +213,73 @@ impl GameplayContext<'_> {
     }
 }
 
+/// Selects at most K borrowed actors before constructing any guest-owned payloads.
+fn nearest_actors<'a>(
+    actors: impl Iterator<Item = &'a client_world::ActorSnapshot>,
+    eye: Vec3,
+    limit: usize,
+) -> Vec<&'a client_world::ActorSnapshot> {
+    let mut nearest = std::collections::BinaryHeap::with_capacity(limit);
+    for actor in actors {
+        let candidate = Candidate {
+            actor,
+            distance: Vec3::from_array(actor.position).distance_squared(eye),
+        };
+        if nearest.len() < limit {
+            nearest.push(candidate);
+        } else if nearest.peek().is_some_and(|furthest| candidate < *furthest) {
+            *nearest.peek_mut().unwrap() = candidate;
+        }
+    }
+    nearest
+        .into_sorted_vec()
+        .into_iter()
+        .map(|candidate| candidate.actor)
+        .collect()
+}
+
+struct Candidate<'a> {
+    actor: &'a client_world::ActorSnapshot,
+    distance: f32,
+}
+
+impl PartialEq for Candidate<'_> {
+    /// Compares the same distance and identity order used for deterministic selection.
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other).is_eq()
+    }
+}
+impl Eq for Candidate<'_> {}
+impl PartialOrd for Candidate<'_> {
+    /// Uses the total ordering even when distance arithmetic overflows to infinity.
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for Candidate<'_> {
+    /// Keeps the furthest candidate at the heap root, breaking ties by runtime ID.
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.distance
+            .total_cmp(&other.distance)
+            .then(self.actor.runtime_id.cmp(&other.actor.runtime_id))
+    }
+}
+
 /// Reports protocol-classified remote players, never named mobs or list-only users.
 fn nearest_players<'a>(
     actors: impl Iterator<Item = &'a client_world::ActorSnapshot>,
     eye: Vec3,
 ) -> Vec<GameplayPlayer> {
-    let mut players: Vec<_> = actors
+    let eligible = actors
         .filter(|actor| matches!(actor.kind, protocol::ActorKind::Player { .. }))
-        .filter(|actor| actor.runtime_id != 0 && Vec3::from_array(actor.position).is_finite())
+        .filter(|actor| actor.runtime_id != 0 && Vec3::from_array(actor.position).is_finite());
+    nearest_actors(eligible, eye, mod_api::MAX_GAMEPLAY_PLAYERS)
+        .into_iter()
         .map(|actor| GameplayPlayer {
             runtime_id: actor.runtime_id,
             position: vector(Vec3::from_array(actor.position)),
         })
-        .collect();
-    players.sort_by(|a, b| {
-        distance_squared(a, eye)
-            .total_cmp(&distance_squared(b, eye))
-            .then_with(|| a.runtime_id.cmp(&b.runtime_id))
-    });
-    players.truncate(mod_api::MAX_GAMEPLAY_PLAYERS);
-    players
+        .collect()
 }
 
 /// Non-player actors within the published range, nearest first; health is the replicated attribute.
@@ -241,48 +288,41 @@ fn nearest_mobs<'a>(
     eye: Vec3,
 ) -> Vec<GameplayMob> {
     let range = mod_api::MAX_MOB_RANGE_BLOCKS * mod_api::MAX_MOB_RANGE_BLOCKS;
-    let mut mobs: Vec<_> = actors
-        .filter_map(|actor| {
+    let eligible = actors.filter(|actor| {
+        let protocol::ActorKind::Entity { identifier } = &actor.kind else {
+            return false;
+        };
+        let position = Vec3::from_array(actor.position);
+        if actor.runtime_id == 0
+            || !position.is_finite()
+            || position.distance_squared(eye) > range
+            || identifier.is_empty()
+            || identifier.len() > mod_api::MAX_MOB_TYPE_BYTES
+        {
+            return false;
+        }
+        true
+    });
+    nearest_actors(eligible, eye, mod_api::MAX_GAMEPLAY_MOBS)
+        .into_iter()
+        .map(|actor| {
             let protocol::ActorKind::Entity { identifier } = &actor.kind else {
-                return None;
+                unreachable!()
             };
-            let position = Vec3::from_array(actor.position);
-            if actor.runtime_id == 0
-                || !position.is_finite()
-                || position.distance_squared(eye) > range
-                || identifier.is_empty()
-                || identifier.len() > mod_api::MAX_MOB_TYPE_BYTES
-            {
-                return None;
-            }
             let health = actor
                 .attributes
                 .get("minecraft:health")
                 .filter(|health| health.current.is_finite() && health.max.is_finite());
-            Some(GameplayMob {
+            GameplayMob {
                 runtime_id: actor.runtime_id,
                 unique_id: actor.unique_id,
                 type_id: identifier.to_string(),
-                position: vector(position),
+                position: vector(Vec3::from_array(actor.position)),
                 health: health.map(|health| health.current),
                 max_health: health.map(|health| health.max),
-            })
+            }
         })
-        .collect();
-    let distance = |mob: &GameplayMob| {
-        Vec3::new(mob.position.x, mob.position.y, mob.position.z).distance_squared(eye)
-    };
-    mobs.sort_by(|a, b| {
-        distance(a)
-            .total_cmp(&distance(b))
-            .then_with(|| a.runtime_id.cmp(&b.runtime_id))
-    });
-    mobs.truncate(mod_api::MAX_GAMEPLAY_MOBS);
-    mobs
-}
-
-fn distance_squared(player: &GameplayPlayer, eye: Vec3) -> f32 {
-    Vec3::new(player.position.x, player.position.y, player.position.z).distance_squared(eye)
+        .collect()
 }
 
 fn vector(value: Vec3) -> GameplayVector3 {

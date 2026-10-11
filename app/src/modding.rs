@@ -412,7 +412,10 @@ fn drive_mod(
     let previous_cues = cues.as_ref().map_or_else(Vec::new, |feed| feed.0.clone());
     let registration = extension.registration_request.clone();
     let player_state = gameplay.player_state(
-        (0..extension.host_count()).any(|index| extension.host(index).grants().player_state),
+        (0..extension.host_count()).any(|index| {
+            let host = extension.host(index);
+            host.is_active() && host.grants().player_state
+        }),
         &player_runtime,
         &ui,
     );
