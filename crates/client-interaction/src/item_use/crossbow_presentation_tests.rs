@@ -1,4 +1,5 @@
 use super::selection::{loading_projectile, selected_air_use};
+use crate::block_use::verified_use_selection;
 use protocol::{
     ContainerIdentity, InventoryEvent, InventorySlotEvent, ItemRegistryEntry, ItemRegistryEvent,
     ItemRegistryVersion, SlotIdentity,
