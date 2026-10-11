@@ -10,6 +10,7 @@ mod admitted_titles;
 mod effects;
 mod large_animation;
 mod nested_titles;
+mod native_precedence;
 mod retained_titles;
 mod sliced_frames;
 mod title_layout;

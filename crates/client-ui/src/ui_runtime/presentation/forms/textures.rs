@@ -260,10 +260,13 @@ impl Textures<'_> {
 
     /// Original images bypass fitted previews while their worker prepares exact texels.
     pub(super) fn native_sheet(&self, path: &str) -> bool {
+        let key = self.canonical(path);
         !self.set.confined
             && self.image(path).is_none()
             && self.admits(path)
-            && self.atlas.is_native_sheet(&self.canonical(path))
+            && (self.atlas.has_image(&key)
+                || (self.assets.texture(&key).is_none() && self.icon(&key).is_none()))
+            && self.atlas.is_native_sheet(&key)
     }
 
     /// The original-image slots rebased into this presentation's logical catalog.
