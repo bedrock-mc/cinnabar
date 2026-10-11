@@ -5,7 +5,7 @@ use protocol::{ActorKind, ActorMetadataValue};
 
 use super::super::ActorStore;
 use super::actor_with_metadata;
-use crate::actor_animation::{AnimatedActor, test_support};
+use actor_animation::{AnimatedActor, test_support};
 
 #[test]
 fn sleeping_player_metadata_does_not_spoof_sneaking() {
@@ -128,7 +128,7 @@ fn thrown_potion_variant_retains_normalized_add_actor_and_metadata_updates() {
         DataItemShortPayload, EnumsDataItemType, SynchedActorDataCopyableDataList,
     };
     // The potion's auxiliary-value key, which its variant query reads.
-    const AUX: u32 = crate::actor_animation::test_support::POTION_AUX_VALUE_METADATA_KEY;
+    const AUX: u32 = actor_animation::test_support::POTION_AUX_VALUE_METADATA_KEY;
     let packet = AddActorPacket {
         target_actor_id: ActorUniqueId {
             actor_unique_id: -7,
@@ -207,8 +207,8 @@ fn local_flight_freezes_cape_walk_phase_but_keeps_chase_and_resumes_walking() {
         main_hand_metadata: 0,
         main_hand_stack_id: None,
         main_hand_slot: 0,
-        bedrock_swing_ticks: crate::ACTOR_SWING_TICKS,
-        java_swing_ticks: crate::ACTOR_SWING_TICKS,
+        bedrock_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
+        java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
         teleported: false,
         first_person: false,
         view_bobbing: true,

@@ -285,7 +285,7 @@ pub(crate) fn prepare_actor_render_frame(
             .filter_map(|(tick, mut progress)| {
                 let sample = physics.sample_at(tick)?;
                 progress.frame_alpha = Some(alpha);
-                Some(client_world::LocalSwingMotionSample {
+                Some(actor_animation::LocalSwingMotionSample {
                     tick,
                     delta: sample.movement,
                     yaw: sample.yaw,

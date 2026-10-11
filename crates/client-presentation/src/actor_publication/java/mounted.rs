@@ -28,5 +28,5 @@ pub(super) fn body_yaw(
 
 pub(super) fn frame_body_yaw(body: [f32; 2], head_yaw: f32, alpha: f32) -> f32 {
     let body_yaw = lerp_degrees(body[0], body[1], alpha);
-    client_world::java_mounted_body_yaw(body_yaw, head_yaw)
+    actor_animation::java_mounted_body_yaw(body_yaw, head_yaw)
 }

@@ -3,8 +3,8 @@ use std::sync::Arc;
 use assets::RuntimeEntityAssets;
 use protocol::ActorKind;
 
-use crate::actor_animation::AnimatedActor;
 use crate::actor_store::ActorStore;
+use actor_animation::AnimatedActor;
 
 fn dragon_store(assets: Option<Arc<RuntimeEntityAssets>>) -> ActorStore {
     let mut store = assets.map_or_else(

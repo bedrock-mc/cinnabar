@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::*;
-use crate::actor_animation::{
+use actor_animation::{
     ActorAnimationStore, ActorTickContext, MAX_MOLANG_OPS_PER_RENDER_FRAME,
     test_support::total_scale,
 };

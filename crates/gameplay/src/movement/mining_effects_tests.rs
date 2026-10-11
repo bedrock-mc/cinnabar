@@ -601,7 +601,7 @@ fn committed_swing_samples_preserve_initial_idle_catchup_after_authority_reset()
         assert!(
             samples
                 .iter()
-                .all(|(_, progress)| *progress == client_world::LocalSwingProgress::default())
+                .all(|(_, progress)| *progress == actor_animation::LocalSwingProgress::default())
         );
     }
 }

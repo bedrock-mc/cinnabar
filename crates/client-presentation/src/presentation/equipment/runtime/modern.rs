@@ -1,9 +1,10 @@
 //! Data-driven held attachables, sharing the entity Molang/animation/controller pipeline.
 
-use bevy::math::{Quat, Vec3, Vec4};
-use client_world::{
-    ActorRigSnapshot, ActorSnapshot, AttachableAnimationInput, AttachableBoneParent, BoneTransform,
+use actor_animation::{
+    ActorRigSnapshot, AttachableAnimationInput, AttachableBoneParent, BoneTransform,
 };
+use bevy::math::{Quat, Vec3, Vec4};
+use client_world::ActorSnapshot;
 
 use super::*;
 

@@ -121,7 +121,7 @@ impl FirstPersonArms {
 #[derive(Clone, Copy)]
 pub struct EquipmentAnimation<'a> {
     pub owner: &'a client_world::ActorSnapshot,
-    pub rig: &'a client_world::ActorRigSnapshot<'a>,
+    pub rig: &'a actor_animation::ActorRigSnapshot<'a>,
     pub frame_alpha: f32,
     pub delta_seconds: f32,
 }

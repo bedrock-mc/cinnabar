@@ -136,7 +136,7 @@ fn final_publication_preserves_authored_swing_ticks_without_attack_input() {
         );
         assert_eq!(
             rig.java.swing,
-            counters.map(|counter| counter / client_world::ACTOR_SWING_TICKS as f32),
+            counters.map(|counter| counter / actor_animation::ACTOR_SWING_TICKS as f32),
             "the independent Java denominator remains effect-based"
         );
     }

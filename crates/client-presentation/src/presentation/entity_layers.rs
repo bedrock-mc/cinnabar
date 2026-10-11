@@ -3,8 +3,8 @@
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
 #[cfg(any(test, feature = "test-support"))]
-use client_world::ActorRigSnapshot;
-use client_world::{BoneTransform, RenderTextureLayer};
+use actor_animation::ActorRigSnapshot;
+use actor_animation::{BoneTransform, RenderTextureLayer};
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigSubmission,
     pack_actor_light_without_lightmap, pack_overlay_rgba8,

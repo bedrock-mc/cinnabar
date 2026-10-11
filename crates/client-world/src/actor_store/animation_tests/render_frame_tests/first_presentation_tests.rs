@@ -4,7 +4,8 @@ use std::sync::Arc;
 use assets::RuntimeEntityAssets;
 use protocol::ActorMetadataValue;
 
-use crate::{actor_animation::test_support, actor_store::ActorStore};
+use crate::actor_store::ActorStore;
+use actor_animation::test_support;
 
 /// Loads the initialized pose and visibility fixture.
 fn assets() -> Arc<RuntimeEntityAssets> {

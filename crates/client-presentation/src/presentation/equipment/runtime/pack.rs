@@ -18,7 +18,7 @@ pub struct PackEquipment {
     catalog: Arc<RuntimeEquipmentCatalog>,
     texture_locations: BTreeMap<Box<str>, ActorArtworkLocation>,
     armor_geometry: BTreeMap<Box<str>, Option<Arc<ArmorGeometry>>>,
-    pub(super) attachables: client_world::AttachablesRuntime,
+    pub(super) attachables: actor_animation::AttachablesRuntime,
 }
 
 impl EquipmentRuntime {
@@ -94,7 +94,7 @@ impl EquipmentRuntime {
         self.armor_maps
             .retain(|(_, geometry), _| !geometry.starts_with(ARMOR_CACHE_PREFIX));
         self.pack = layer.map(|(assets, catalog, locations)| PackEquipment {
-            attachables: client_world::AttachablesRuntime::new(Arc::clone(&assets)),
+            attachables: actor_animation::AttachablesRuntime::new(Arc::clone(&assets)),
             texture_locations: catalog
                 .textures()
                 .iter()

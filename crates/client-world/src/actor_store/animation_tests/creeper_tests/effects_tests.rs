@@ -1,5 +1,5 @@
 use super::*;
-use crate::actor_animation::test_support::total_scale;
+use actor_animation::test_support::total_scale;
 
 #[test]
 fn swell_conditional_return_controls_later_assignments_at_the_frame_fraction() {

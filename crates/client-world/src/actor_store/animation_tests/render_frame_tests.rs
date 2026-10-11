@@ -3,10 +3,8 @@ use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
 use assets::{EntityAssetKind, RuntimeEntityAssets};
 
-use crate::{
-    actor_animation::{MAX_MOLANG_OPS_PER_RENDER_FRAME, test_support},
-    actor_store::ActorStore,
-};
+use crate::actor_store::ActorStore;
+use actor_animation::{MAX_MOLANG_OPS_PER_RENDER_FRAME, test_support};
 
 mod camera_tests;
 mod first_presentation_tests;

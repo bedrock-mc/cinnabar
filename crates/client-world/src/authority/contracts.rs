@@ -256,7 +256,7 @@ pub struct CommittedAudioEvent {
     pub dimension: i32,
     pub dimension_epoch: u64,
     /// Already-committed sound released by this actor's fixed-tick synchronization.
-    pub actor_synchronization: Option<crate::ActorLifetimeId>,
+    pub actor_synchronization: Option<actor_animation::ActorLifetimeId>,
     pub event: AudioEvent,
 }
 

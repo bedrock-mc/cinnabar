@@ -131,6 +131,11 @@ material/shader linkage remain open.
 | Performance/resource witness | Not started |
 | Final status | Open |
 
+Actor rigs, Molang evaluation, controllers and poses live in Bevy-free
+`actor-animation`, which reads actors through its `AnimatedActor` seam.
+Tests that drive actor authority stay in `client-world`. Compilation and
+execution of this move are unverified, and it adds no parity evidence.
+
 ## P4.5-ITEM-ACTIONS
 
 | Field | Evidence |

@@ -104,8 +104,8 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                     renders_game: true,
                     hide_hand: false,
                     custom_emote: match case {
-                        BodyCase::Emote => Some((client_world::CustomEmote::Twerk, 0.1)),
-                        BodyCase::InvalidEmote => Some((client_world::CustomEmote::Twerk, -1.0)),
+                        BodyCase::Emote => Some((actor_animation::CustomEmote::Twerk, 0.1)),
+                        BodyCase::InvalidEmote => Some((actor_animation::CustomEmote::Twerk, -1.0)),
                         _ => None,
                     },
                 },
@@ -119,7 +119,7 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 .as_mut()
                 .unwrap()
                 .partial_tick = actor_alpha;
-            let swing = client_world::LocalSwingProgress {
+            let swing = actor_animation::LocalSwingProgress {
                 bedrock: [1.0 / duration, 2.0 / duration],
                 java: [1.0 / duration, 2.0 / duration],
                 frame_alpha: Some(physics_alpha),
@@ -154,9 +154,9 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 .unwrap()
                 .clone();
             if case == BodyCase::Emote {
-                let pose = client_world::sample_custom_emote(
+                let pose = actor_animation::sample_custom_emote(
                     &rig,
-                    client_world::CustomEmote::Twerk,
+                    actor_animation::CustomEmote::Twerk,
                     0.1,
                     0.1,
                 )
@@ -212,7 +212,7 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 let origin = Vec3::from_slice(&parent.translation_scale[..3])
                     + rotation
                         * (-Vec3::Y
-                            * client_world::MODEL_PART_ORIGIN_Y
+                            * actor_animation::MODEL_PART_ORIGIN_Y
                             * assets::gui_item::SHIELD_MODEL_UNIT);
                 let mut equipment = world
                     .resource::<super::super::PreparedActorPublication>()

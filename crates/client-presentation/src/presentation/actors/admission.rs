@@ -23,11 +23,11 @@ pub(crate) fn actor_within_render_distance(
 
 /// Rejects distance-ineligible rigs before invoking their authored scale sampler.
 pub(crate) fn sample_candidate_scale<'a>(
-    rig: client_world::ActorRigSnapshot<'a>,
+    rig: actor_animation::ActorRigSnapshot<'a>,
     actor: &client_world::ActorSnapshot,
     partial_tick: f32,
     view: Option<render::ActorCullView>,
-    sample: impl FnOnce(client_world::ActorRigSnapshot<'a>) -> client_world::ActorRigSnapshot<'a>,
-) -> Option<client_world::ActorRigSnapshot<'a>> {
+    sample: impl FnOnce(actor_animation::ActorRigSnapshot<'a>) -> actor_animation::ActorRigSnapshot<'a>,
+) -> Option<actor_animation::ActorRigSnapshot<'a>> {
     actor_within_render_distance(actor, partial_tick, view).then(|| sample(rig))
 }

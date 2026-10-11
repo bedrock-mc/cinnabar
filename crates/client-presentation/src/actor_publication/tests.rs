@@ -38,7 +38,7 @@ fn the_animation_view_admits_everything_the_render_cull_draws() {
     assert!(drawn > 100 && held > 100, "drawn={drawn} held={held}");
 }
 
-use client_world::HandPhase;
+use actor_animation::HandPhase;
 
 // The swing wraps forward from its last tick to rest, and an eat use counts from its first
 // using tick only while the rig reports the use.

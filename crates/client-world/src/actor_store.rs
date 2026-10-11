@@ -17,9 +17,9 @@ use protocol::{
 
 use crate::{
     action::{ActorSourceTick, MAX_ACTION_EVENTS_PER_TICK, RemoteActionStore},
-    actor_animation::{ActorAnimationStore, ActorLifetimeId, MAX_ANIMATED_ACTORS},
     item::ItemStateStore,
 };
+use actor_animation::{ActorAnimationStore, ActorLifetimeId, MAX_ANIMATED_ACTORS};
 
 /// Every tracked actor keeps an animation rig.
 pub(crate) const MAX_TRACKED_ACTORS: usize = MAX_ANIMATED_ACTORS;
@@ -778,7 +778,7 @@ pub(crate) struct ActorStore {
     /// View world position, sampled into each animation tick.
     camera_position: [f32; 3],
     /// Rigs outside this view hold their pose instead of animating.
-    animation_view: Option<crate::actor_animation::ActorAnimationView>,
+    animation_view: Option<actor_animation::ActorAnimationView>,
     /// Seat layouts for mounts whose riders stream no seat offset.
     seat_defaults: std::sync::Arc<SeatDefaults>,
     property_registry: properties::PropertyRegistry,

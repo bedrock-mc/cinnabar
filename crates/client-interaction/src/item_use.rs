@@ -40,7 +40,7 @@ impl ItemUseRuntime {
         ui: &UiRuntime,
         tick: u64,
         frame_alpha: f32,
-    ) -> client_world::AttachableAnimationInput<'static> {
+    ) -> actor_animation::AttachableAnimationInput<'static> {
         let max_use_ticks = self.active_timing().map_or_else(
             // A crossbow's maximum use duration remains its charge duration
             // when loaded; Instant describes the next action, not that query.
@@ -86,7 +86,7 @@ impl ItemUseRuntime {
                 max_use_ticks,
             )
         };
-        client_world::AttachableAnimationInput {
+        actor_animation::AttachableAnimationInput {
             first_person: true,
             is_local_player: true,
             frame_alpha,

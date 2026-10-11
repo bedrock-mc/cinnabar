@@ -1,7 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
+use actor_animation::ActorRigSnapshot;
 use assets::EntityRigFallback;
-use client_world::{ActorRigSnapshot, ActorSnapshot, PlayerProfile};
+use client_world::{ActorSnapshot, PlayerProfile};
 use protocol::{ActorKind, PlayerSkin};
 use render::{
     ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorRenderFrame, ActorRenderIdentity,
@@ -72,7 +73,7 @@ pub fn rig_may_be_visible(
     actor: &ActorSnapshot,
     partial_tick: f32,
     view: Option<ActorCullView>,
-    frame: Option<&mut client_world::ActorRenderFrame<'_>>,
+    frame: Option<&mut actor_animation::ActorRenderFrame<'_>>,
     occluded: impl Fn([f32; 3], [f32; 3]) -> bool,
 ) -> bool {
     if !actor_within_render_distance(actor, partial_tick, view) {

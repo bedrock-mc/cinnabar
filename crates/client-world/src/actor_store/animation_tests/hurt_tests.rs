@@ -6,7 +6,7 @@ fn store() -> ActorStore {
     let mut store = ActorStore::new_with_entity_assets(
         1,
         0,
-        crate::actor_animation::test_support::counting_random_assets(),
+        actor_animation::test_support::counting_random_assets(),
     );
     let actor = super::actor_with_metadata(Default::default());
     store.apply(

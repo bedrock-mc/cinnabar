@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use client_world::ActorRigSnapshot;
+use actor_animation::ActorRigSnapshot;
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigRoute, ActorRigSubmission,
     EquipmentRaster,

@@ -1,10 +1,8 @@
 //! Installed XP orb colour sampled between and after culled ticks.
 use std::sync::Arc;
 
-use crate::{
-    actor_animation::{ActorAnimationView, test_support},
-    actor_store::ActorStore,
-};
+use crate::actor_store::ActorStore;
+use actor_animation::{ActorAnimationView, test_support};
 
 fn installed_orb() -> Option<ActorStore> {
     let assets = test_support::installed_entity_assets("XP animation")?;

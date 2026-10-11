@@ -4,7 +4,7 @@ use std::{collections::HashMap, sync::Arc};
 use protocol::{ActorAttribute, ActorKind, ActorMetadataValue, GameModeUpdate};
 
 use super::{ActorSnapshot, HURT_OVERLAY_ALPHA, creeper::SWELL_FULL_TICKS, dragon_animation};
-use crate::actor_animation::AnimatedActor;
+use actor_animation::AnimatedActor;
 
 impl AnimatedActor for ActorSnapshot {
     fn runtime_id(&self) -> u64 {

@@ -2,9 +2,10 @@
 //! in the skin layer payload.
 use std::sync::{Arc, Mutex};
 
+use actor_animation::ActorRigSnapshot;
 use assets::{CAPE_GEOMETRY_IDENTIFIER, RuntimeEntityAssets};
 use bevy::math::{EulerRot, Quat, Vec3};
-use client_world::{ActorRigSnapshot, PlayerProfile};
+use client_world::PlayerProfile;
 use protocol::PlayerSkin;
 use render::{ACTOR_LAYER_BODY, ActorRigRoute, ActorRigSubmission};
 use render_api::SkinRgba8;
@@ -122,7 +123,7 @@ pub fn cape_layer(width: u32, height: u32, rgba8: &[u8]) -> Option<Arc<[u8]>> {
 fn cape_pose(
     cape: &CapeRig,
     body_names: &[Box<str>],
-    body_rest: &[client_world::BoneTransform],
+    body_rest: &[actor_animation::BoneTransform],
     body: &[RenderBoneTransform],
 ) -> Arc<[RenderBoneTransform]> {
     cape.bone_names
@@ -195,7 +196,10 @@ fn cape_pose(
         .collect()
 }
 
-fn rest_pose(bones: &[client_world::BoneTransform], index: usize) -> Option<RenderBoneTransform> {
+fn rest_pose(
+    bones: &[actor_animation::BoneTransform],
+    index: usize,
+) -> Option<RenderBoneTransform> {
     let bone = bones.get(index)?;
     RenderBoneTransform::from_model_space_scaled(
         bone.rotation,
@@ -221,7 +225,7 @@ fn total_scale(pose: &RenderBoneTransform) -> Vec3 {
 fn java_cape_pose(
     cape: &CapeRig,
     body_names: &[Box<str>],
-    body_rest: &[client_world::BoneTransform],
+    body_rest: &[actor_animation::BoneTransform],
     body: &[RenderBoneTransform],
     input: &JavaCapeInput,
 ) -> Arc<[RenderBoneTransform]> {
@@ -482,10 +486,12 @@ mod tests {
         }
     }
 
-    fn rest_bones(poses: &[render_model::RenderBoneTransform]) -> Vec<client_world::BoneTransform> {
+    fn rest_bones(
+        poses: &[render_model::RenderBoneTransform],
+    ) -> Vec<actor_animation::BoneTransform> {
         poses
             .iter()
-            .map(|pose| client_world::BoneTransform {
+            .map(|pose| actor_animation::BoneTransform {
                 rotation: pose.rotation,
                 translation_scale: [
                     pose.translation_scale[0] * 16.0,

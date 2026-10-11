@@ -1,6 +1,6 @@
 //! Worn wings use the pack's controller, movement queries and body attachment.
 
-use client_world::AttachableAnimationInput;
+use actor_animation::AttachableAnimationInput;
 
 use super::*;
 

@@ -3,11 +3,11 @@ use std::{collections::HashMap, sync::Arc};
 use assets::{EntityAssetKind, RuntimeEntityAssets};
 use protocol::{ActorActionEvent, ActorActionKind, ActorEvent, ActorSpawnEvent, ItemActorEvent};
 
-use crate::actor_animation::{ActorAnimationStore, ActorTickContext};
 use crate::actor_store::{ActorApplyResult, ActorStore};
+use actor_animation::{ActorAnimationStore, ActorTickContext};
 
 fn compiled() -> assets::CompiledEntityAssets {
-    let mut compiled = crate::actor_animation::test_support::compiled_fixture();
+    let mut compiled = actor_animation::test_support::compiled_fixture();
     compiled.sources[1].path = "entity/display.json".into();
     compiled.symbols[4].kind = EntityAssetKind::Entity;
     compiled.symbols[4].identifier = "minecraft:test".into();

@@ -1,11 +1,9 @@
 use std::sync::Arc;
 
+use actor_animation::{ActorLifetimeId, ActorRigSnapshot, BoneTransform, EntityRigId};
 use assets::EntityRigFallback;
 use bevy::math::{Mat4, Quat, Vec3};
-use client_world::{
-    ActorLifetimeId, ActorPose, ActorRigSnapshot, ActorSnapshot, BoneTransform, EntityRigId,
-    PlayerProfile,
-};
+use client_world::{ActorPose, ActorSnapshot, PlayerProfile};
 use protocol::{ActorKind, PlayerSkin};
 use render::{
     ActorCullView, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput, ActorRigRoute,
@@ -129,8 +127,8 @@ fn rig<'a>(
         skin_mesh: None,
         skin_layers: &[],
         hand: Default::default(),
-        item_animation: [client_world::ItemAnimationState::default(); 2],
-        off_hand_animation: [client_world::ItemAnimationState::default(); 2],
+        item_animation: [actor_animation::ItemAnimationState::default(); 2],
+        off_hand_animation: [actor_animation::ItemAnimationState::default(); 2],
         animation_variables: Default::default(),
         java: Default::default(),
         java_equipped: None,

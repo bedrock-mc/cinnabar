@@ -24,7 +24,7 @@ fn unevaluated_animated_pose_is_not_published() {
     let mut poses = PoseConversions::default();
     for off_screen_tick in [false, true] {
         if off_screen_tick {
-            world.set_actor_animation_view(Some(client_world::ActorAnimationView {
+            world.set_actor_animation_view(Some(actor_animation::ActorAnimationView {
                 planes: [[-1.0, 0.0, 0.0, -10.0]; 6],
                 camera: [0.0, 64.0, 0.0],
                 player_distance: 100.0,
@@ -35,7 +35,7 @@ fn unevaluated_animated_pose_is_not_published() {
         let rig = world.actor_rig(MOB).unwrap();
         let actor = world.actor(MOB).unwrap();
         assert!(entity_rig_presentation(&rig, actor, &artwork, 0.0).is_none());
-        let geometry_only = client_world::ActorRigSnapshot {
+        let geometry_only = actor_animation::ActorRigSnapshot {
             fallback: assets::EntityRigFallback::GeometryOnly,
             ..rig
         };
@@ -80,7 +80,7 @@ fn first_zero_tick_pose_produces_a_renderable_submission() {
 #[test]
 fn unchanged_off_screen_initial_rigs_allocate_nothing_between_ticks() {
     let mut world = world();
-    world.set_actor_animation_view(Some(client_world::ActorAnimationView {
+    world.set_actor_animation_view(Some(actor_animation::ActorAnimationView {
         planes: [[-1.0, 0.0, 0.0, -10.0]; 6],
         camera: [0.0, 64.0, 0.0],
         player_distance: 100.0,

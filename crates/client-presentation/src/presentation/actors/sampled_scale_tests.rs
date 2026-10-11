@@ -229,7 +229,7 @@ fn frame_selected_always_depth_layers_survive_terrain_occlusion() {
         ) * glam::camera::rh::view::look_to_mat4(camera, -Vec3::Z, Vec3::Y),
         max_distance: 100.0,
     });
-    let through_wall = |layers: &[client_world::RenderTextureLayer]| {
+    let through_wall = |layers: &[actor_animation::RenderTextureLayer]| {
         layers
             .iter()
             .any(|layer| layer.material_state.is_some_and(|state| state.depth_always))
@@ -280,7 +280,7 @@ fn assert_sampled_admission(cull_completed_tick: bool) {
     ] {
         let mut world = world(expression, axis, feet);
         if cull_completed_tick {
-            let view = client_world::ActorAnimationView {
+            let view = actor_animation::ActorAnimationView {
                 planes: [[0.0, 0.0, 0.0, -1.0]; 6],
                 camera: [0.0; 3],
                 player_distance: 100.0,
@@ -288,7 +288,7 @@ fn assert_sampled_admission(cull_completed_tick: bool) {
             };
             world.set_actor_animation_view(Some(view));
             world.advance_actor_interpolation_ticks(1);
-            world.set_actor_animation_view(Some(client_world::ActorAnimationView {
+            world.set_actor_animation_view(Some(actor_animation::ActorAnimationView {
                 planes: [[0.0, 0.0, 0.0, 1.0]; 6],
                 ..view
             }));

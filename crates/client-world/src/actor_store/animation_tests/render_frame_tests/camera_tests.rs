@@ -8,12 +8,10 @@ use assets::{
 };
 use protocol::ActorKind;
 
-use crate::{
-    actor_animation::{
-        ActorAnimationStore, ActorTickContext, LocalSwingProgress, MAX_MOLANG_OPS_PER_RENDER_FRAME,
-        test_support,
-    },
-    actor_store::ActorStore,
+use crate::actor_store::ActorStore;
+use actor_animation::{
+    ActorAnimationStore, ActorTickContext, LocalSwingProgress, MAX_MOLANG_OPS_PER_RENDER_FRAME,
+    test_support,
 };
 
 mod selection_tests;

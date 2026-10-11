@@ -6,7 +6,7 @@ mod interpolation;
 impl ActorStore {
     pub(crate) fn set_server_animation_compiler(
         &mut self,
-        compiler: crate::actor_animation::ServerAnimationCompiler,
+        compiler: actor_animation::ServerAnimationCompiler,
     ) {
         self.animation.set_server_animation_compiler(compiler);
     }
@@ -46,7 +46,7 @@ impl ActorStore {
             max_actors,
             max_players,
             max_player_skin_bytes,
-            crate::actor_animation::ActorAnimationStore::diagnostic(),
+            actor_animation::ActorAnimationStore::diagnostic(),
         )
     }
     pub(crate) fn new_with_entity_assets(
@@ -60,7 +60,7 @@ impl ActorStore {
             MAX_TRACKED_ACTORS,
             MAX_TRACKED_PLAYERS,
             MAX_TRACKED_PLAYER_SKIN_BYTES,
-            crate::actor_animation::ActorAnimationStore::with_assets(std::sync::Arc::clone(
+            actor_animation::ActorAnimationStore::with_assets(std::sync::Arc::clone(
                 &entity_assets,
             )),
         );
@@ -75,7 +75,7 @@ impl ActorStore {
         max_actors: usize,
         max_players: usize,
         max_player_skin_bytes: usize,
-        animation: crate::actor_animation::ActorAnimationStore,
+        animation: actor_animation::ActorAnimationStore,
     ) -> Self {
         Self {
             session_id,
@@ -121,8 +121,8 @@ impl ActorStore {
             local_main_stack_id: None,
             local_main_slot: 0,
             local_item_use: LocalItemUse::Unpredicted,
-            local_bedrock_swing_ticks: crate::ACTOR_SWING_TICKS,
-            local_java_swing_ticks: crate::ACTOR_SWING_TICKS,
+            local_bedrock_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
+            local_java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
             camera_rotation: [0.0; 2],
             camera_position: [0.0; 3],
             animation_view: None,
@@ -875,10 +875,8 @@ impl ActorStore {
                         .actions
                         .apply(lifetime, rig, sequence, source_tick, &action);
                     if applied && matches!(action.kind, protocol::ActorActionKind::SwingArm) {
-                        self.animation.start_swing(
-                            lifetime.runtime_id,
-                            crate::actor_animation::ACTOR_SWING_TICKS,
-                        );
+                        self.animation
+                            .start_swing(lifetime.runtime_id, actor_animation::ACTOR_SWING_TICKS);
                     }
                     if applied && let Some(request) = prepared.as_ref() {
                         self.animation.start_server_animation(

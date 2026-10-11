@@ -3,7 +3,8 @@
 use std::collections::VecDeque;
 
 use super::{ActorSnapshot, ActorStore};
-use crate::{ActorLifetimeId, CommittedAudioEvent};
+use crate::CommittedAudioEvent;
+use actor_animation::ActorLifetimeId;
 
 const MAX_SOUNDS_PER_ACTOR: usize = 9;
 const FIRE_POSITION_DISTANCE_SQUARED: f32 = 0.25;
@@ -100,7 +101,7 @@ impl ActorStore {
             }
             if pending.countdown < 1 {
                 let mut event = queue.pending.remove(index).expect("queued sound").event;
-                event.actor_synchronization = Some(crate::ActorLifetimeId {
+                event.actor_synchronization = Some(actor_animation::ActorLifetimeId {
                     session_id: self.session_id,
                     dimension: self.dimension,
                     runtime_id: actor.runtime_id,

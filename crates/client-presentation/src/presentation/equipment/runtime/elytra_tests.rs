@@ -8,11 +8,11 @@ use crate::presentation::equipment::{
         WornItem,
     },
 };
-use assets::{EntityRenderMaterial, EntityRigFallback};
-use client_world::{
-    ActorAnimationVariables, ActorLifetimeId, ActorRigSnapshot, ActorSnapshot, HandPhase,
-    ItemAnimationState, WorldAuthority,
+use actor_animation::{
+    ActorAnimationVariables, ActorLifetimeId, ActorRigSnapshot, HandPhase, ItemAnimationState,
 };
+use assets::{EntityRenderMaterial, EntityRigFallback};
+use client_world::{ActorSnapshot, WorldAuthority};
 use protocol::{
     ActorEvent, ActorKind, ActorMetadataValue, ActorSpawnEvent, WorldBootstrap, WorldEvent,
 };
@@ -134,7 +134,7 @@ pub(super) fn owner_rig<'a>(
             runtime_id: owner.runtime_id,
             spawn_revision: owner.spawn_revision,
         },
-        rig: client_world::EntityRigId(0),
+        rig: actor_animation::EntityRigId(0),
         previous: &[],
         current: &[],
         rest: &[],

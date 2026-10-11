@@ -1,8 +1,8 @@
 //! Independently authored producer-to-adapter fixture; no trusted raw page constructor.
+use actor_animation::ActorRigSnapshot;
 use assets::{RuntimeActorCatalog, RuntimeAssets, RuntimeEntityAssets, encode_entity_blob};
 use chunk_pipeline::WorldStream;
 use client_presentation::presentation::actors::entity_rig_presentation;
-use client_world::ActorRigSnapshot;
 use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEvent};
 use render::{ActorArtworkPages, ActorRigRoute};
 use std::{fs, path::PathBuf, sync::Arc};

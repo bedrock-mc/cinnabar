@@ -65,7 +65,7 @@ fn native_wheel_and_equip_popup_render_four_hit_slices_and_unique_catalog_label(
             None,
             "native inner dead zone"
         );
-        let catalog_label = client_world::CustomEmote::ALL[0].label();
+        let catalog_label = actor_animation::CustomEmote::ALL[0].label();
         assert!(
             super::super::pack_harness::drawn_texts(&nodes)
                 .iter()

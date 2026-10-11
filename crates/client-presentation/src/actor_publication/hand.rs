@@ -80,7 +80,7 @@ pub(super) fn publish_hand_rig(
 /// pass interpolates it: the swing wraps forward past its end, and an eat or drink use of
 /// `consume_ticks` counts from its first using tick.
 pub(super) fn hand_progress(
-    hand: [client_world::HandPhase; 2],
+    hand: [actor_animation::HandPhase; 2],
     consume_ticks: Option<u32>,
     partial_tick: f32,
 ) -> FirstPersonHand {
@@ -171,7 +171,7 @@ pub(super) struct HandInputs<'a> {
     pub(super) equipment_input: &'a ActorEquipmentInput,
     pub(super) owner_equipment: &'a ActorEquipmentInput,
     pub(super) consume_ticks: Option<u32>,
-    pub(super) item_animation: Option<client_world::AttachableAnimationInput<'static>>,
+    pub(super) item_animation: Option<actor_animation::AttachableAnimationInput<'static>>,
     pub(super) alpha: f32,
     pub(super) artwork: &'a render::ActorArtworkPages,
     pub(super) motion: Mat4,
@@ -250,9 +250,9 @@ pub(super) fn vanilla_hand_source(
 pub(super) fn attachable_hand_input<'a>(
     rendered: &'a ActorEquipmentInput,
     owner: &'a ActorEquipmentInput,
-    timing: client_world::AttachableAnimationInput<'a>,
+    timing: actor_animation::AttachableAnimationInput<'a>,
     off_hand: bool,
-) -> client_world::AttachableAnimationInput<'a> {
+) -> actor_animation::AttachableAnimationInput<'a> {
     let selected = match (rendered.main.as_ref(), owner.main.as_ref()) {
         (Some(rendered), Some(owner)) => {
             rendered.identifier == owner.identifier
@@ -265,7 +265,7 @@ pub(super) fn attachable_hand_input<'a>(
     let timing = if off_hand || selected {
         timing
     } else {
-        client_world::AttachableAnimationInput {
+        actor_animation::AttachableAnimationInput {
             animation_frame: 0,
             use_elapsed_ticks: None,
             hand_charged: false,
@@ -354,13 +354,13 @@ type AnimationFrameKey = (u32, Option<u32>, u32, bool);
 /// Local hand source inputs whose changes require reselection after interaction admission.
 #[derive(PartialEq)]
 pub(super) struct SourceKey {
-    lifetime: client_world::ActorLifetimeId,
+    lifetime: actor_animation::ActorLifetimeId,
     bones: [(usize, usize); 2],
-    hand: [client_world::HandPhase; 2],
-    java: client_world::JavaMotion,
+    hand: [actor_animation::HandPhase; 2],
+    java: actor_animation::JavaMotion,
     sampled_swing: [f32; 2],
     sampled_body_yaw: f32,
-    equipped: Option<client_world::JavaHeldItem>,
+    equipped: Option<actor_animation::JavaHeldItem>,
     use_frame: (Option<u32>, Option<AnimationFrameKey>),
 }
 
@@ -368,7 +368,7 @@ pub(super) struct SourceKey {
 pub(super) fn source_key(
     stream: &WorldStream,
     consume: Option<u32>,
-    animation: Option<client_world::AttachableAnimationInput<'_>>,
+    animation: Option<actor_animation::AttachableAnimationInput<'_>>,
     alpha: f32,
 ) -> Option<SourceKey> {
     let rig = stream

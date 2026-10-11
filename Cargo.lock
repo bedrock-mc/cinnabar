@@ -116,6 +116,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "actor-animation"
+version = "0.1.12"
+dependencies = [
+ "assets",
+ "protocol",
+ "rayon",
+ "render-api",
+ "render-model",
+ "sha2",
+ "tracing",
+ "world",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -673,6 +687,7 @@ name = "bedrock-client"
 version = "0.1.12"
 dependencies = [
  "acceptance",
+ "actor-animation",
  "anyhow",
  "assets",
  "bevy",
@@ -2116,6 +2131,7 @@ dependencies = [
 name = "chunk-pipeline"
 version = "0.1.12"
 dependencies = [
+ "actor-animation",
  "assets",
  "bytes",
  "client-world",
@@ -2257,6 +2273,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 name = "client-audio"
 version = "0.1.12"
 dependencies = [
+ "actor-animation",
  "anyhow",
  "assets",
  "bevy",
@@ -2310,6 +2327,7 @@ dependencies = [
 name = "client-interaction"
 version = "0.1.12"
 dependencies = [
+ "actor-animation",
  "assets",
  "bevy",
  "chunk-pipeline",
@@ -2335,6 +2353,7 @@ dependencies = [
 name = "client-presentation"
 version = "0.1.12"
 dependencies = [
+ "actor-animation",
  "anyhow",
  "assets",
  "bevy",
@@ -2461,6 +2480,7 @@ dependencies = [
 name = "client-ui"
 version = "0.1.12"
 dependencies = [
+ "actor-animation",
  "anyhow",
  "arboard",
  "assets",
@@ -2502,13 +2522,12 @@ dependencies = [
 name = "client-world"
 version = "0.1.12"
 dependencies = [
+ "actor-animation",
  "assets",
  "bytes",
  "hashbrown 0.16.1",
  "protocol",
- "rayon",
  "render-api",
- "render-model",
  "sha2",
  "test-time",
  "thiserror 2.0.18",
@@ -3750,6 +3769,7 @@ dependencies = [
 name = "gameplay"
 version = "0.1.12"
 dependencies = [
+ "actor-animation",
  "assets",
  "block-transform",
  "client-world",

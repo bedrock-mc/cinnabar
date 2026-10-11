@@ -114,7 +114,7 @@ fn assert_billboards_follow_fresh_camera(cull_completed_tick: bool) {
         world.set_actor_camera_rotation(super::actor_camera_rotation(Quat::IDENTITY));
         world.advance_actor_interpolation_ticks(2);
         if cull_completed_tick {
-            let view = client_world::ActorAnimationView {
+            let view = actor_animation::ActorAnimationView {
                 planes: [[0.0, 0.0, 0.0, -1.0]; 6],
                 camera: [0.0; 3],
                 player_distance: 100.0,
@@ -122,7 +122,7 @@ fn assert_billboards_follow_fresh_camera(cull_completed_tick: bool) {
             };
             world.set_actor_animation_view(Some(view));
             world.advance_actor_interpolation_ticks(1);
-            world.set_actor_animation_view(Some(client_world::ActorAnimationView {
+            world.set_actor_animation_view(Some(actor_animation::ActorAnimationView {
                 planes: [[0.0, 0.0, 0.0, 1.0]; 6],
                 ..view
             }));
@@ -250,7 +250,7 @@ fn sampled_authored_rig_scales_reach_layer_placement_including_zero_axes() {
     let rig = world.actor_rig(1).unwrap();
     let actor = world.actor(1).unwrap();
     for scale in [[2.0, 3.0, 4.0, 5.0], [2.0, 3.0, 0.0, 5.0]] {
-        let sampled = client_world::ActorRigSnapshot {
+        let sampled = actor_animation::ActorRigSnapshot {
             scale: scale[0],
             axis_scale: [scale[1], scale[2], scale[3]],
             ..rig

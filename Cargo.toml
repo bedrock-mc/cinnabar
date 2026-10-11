@@ -2,6 +2,7 @@
 members = [
     "app",
     "crates/acceptance",
+    "crates/actor-animation",
     "crates/diagnostics",
     "crates/asset-compiler",
     "crates/assets",

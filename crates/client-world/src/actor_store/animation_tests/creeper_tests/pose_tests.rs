@@ -1,6 +1,6 @@
 use {
     super::*,
-    crate::actor_animation::test_support::{quat_from_euler, total_scale},
+    actor_animation::test_support::{quat_from_euler, total_scale},
     world::TICK_DURATION as ACTOR_TICK_DURATION,
 };
 

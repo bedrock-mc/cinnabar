@@ -13,7 +13,8 @@ use protocol::{
 };
 use sha2::{Digest, Sha256};
 
-use crate::{ActorEventIdentity, ActorLifetimeId, ActorSourceTick};
+use crate::{ActorEventIdentity, ActorSourceTick};
+use actor_animation::ActorLifetimeId;
 
 pub const MAX_ITEM_REGISTRY_RECORDS: usize = 16_384;
 pub const MAX_PENDING_ITEM_RESOLUTIONS: usize = 1_024;

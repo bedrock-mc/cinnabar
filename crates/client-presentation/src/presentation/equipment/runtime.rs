@@ -133,7 +133,7 @@ pub struct EquipmentRuntime {
     poses: PoseMemo,
     /// Reused output storage for one actor, bounded by held and worn layer counts.
     layers: Vec<EquipmentPresentation>,
-    attachables: client_world::AttachablesRuntime,
+    attachables: actor_animation::AttachablesRuntime,
     attachable_meshes: BTreeMap<AttachableMeshKey, EntityRigId>,
     /// Raster attachables' image-to-rig frame and rest pose under Java's hand, by mesh key.
     java_rasters: BTreeMap<AttachableMeshKey, Option<JavaRasterFrame>>,
@@ -277,7 +277,7 @@ impl EquipmentRuntime {
                 .collect(),
         );
         let runtime = Self {
-            attachables: client_world::AttachablesRuntime::new(Arc::clone(&assets)),
+            attachables: actor_animation::AttachablesRuntime::new(Arc::clone(&assets)),
             attachable_meshes: BTreeMap::new(),
             java_rasters: BTreeMap::new(),
             selected_geometries: Default::default(),
@@ -415,7 +415,7 @@ impl EquipmentRuntime {
                         item,
                         animation.owner,
                         animation.rig,
-                        input.attachable_input(client_world::AttachableAnimationInput {
+                        input.attachable_input(actor_animation::AttachableAnimationInput {
                             off_hand: layer == LAYER_OFF_HAND,
                             frame_alpha: animation.frame_alpha,
                             use_elapsed_ticks: elapsed,
@@ -564,7 +564,7 @@ impl EquipmentRuntime {
             }
         };
         let hand = hand.into();
-        let state = client_world::ItemAnimationState {
+        let state = actor_animation::ItemAnimationState {
             attack_time: hand.swing,
             arm_height: hand.equip,
         };

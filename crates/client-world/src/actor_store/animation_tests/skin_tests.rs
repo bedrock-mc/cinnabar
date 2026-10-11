@@ -3,8 +3,8 @@ use std::sync::Arc;
 use protocol::ActorKind;
 use render_api::SkinGeometrySource;
 
-use crate::actor_animation::test_support::{self, SKIN_MODEL, skin_source};
 use crate::actor_store::{ActorStore, MAX_APPEARANCES_PUBLISHED_PER_FRAME};
+use actor_animation::test_support::{self, SKIN_MODEL, skin_source};
 
 /// Lists and spawns one independently allocated, original custom-model appearance.
 fn profile_store(byte: u8) -> ActorStore {

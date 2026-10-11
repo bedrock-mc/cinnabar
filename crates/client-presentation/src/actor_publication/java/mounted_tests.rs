@@ -430,11 +430,11 @@ fn local_java_torso_phase_without_motion_retains_the_same_hand_source() {
     stream.prepare_actor_appearance_fixture();
     stream.advance_actor_interpolation_frame(1);
     stream.set_local_motion_authority(Some((1, 1)));
-    let sample = |alpha| client_world::LocalSwingMotionSample {
+    let sample = |alpha| actor_animation::LocalSwingMotionSample {
         tick: 1,
         delta: [0.0; 3],
         yaw: 0.0,
-        progress: client_world::LocalSwingProgress {
+        progress: actor_animation::LocalSwingProgress {
             frame_alpha: Some(alpha),
             ..Default::default()
         },

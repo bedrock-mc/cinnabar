@@ -72,7 +72,7 @@ fn physics(world: &mut World, millis: u64, yaw: f32) {
 #[test]
 fn production_java_torso_joins_physics_history_after_same_frame_admission() {
     for (effect, duration, final_heading) in [
-        (None, client_world::ACTOR_SWING_TICKS, 24.9579),
+        (None, actor_animation::ACTOR_SWING_TICKS, 24.9579),
         (Some((3, 1)), 4, 19.71),
         (Some((4, 0)), 8, 24.9579),
     ] {

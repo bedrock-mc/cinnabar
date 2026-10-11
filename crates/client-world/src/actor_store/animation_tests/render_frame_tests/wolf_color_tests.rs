@@ -6,10 +6,8 @@ use protocol::{
     ActorKind, ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue, ActorSpawnEvent,
 };
 
-use crate::{
-    actor_animation::{AttachableAnimationInput, AttachablesRuntime, test_support},
-    actor_store::ActorStore,
-};
+use crate::actor_store::ActorStore;
+use actor_animation::{AttachableAnimationInput, AttachablesRuntime, test_support};
 
 const WOLF_IDENTIFIER: &str = test_support::WOLF_IDENTIFIER;
 const COLOR_KEY: u32 = test_support::WOLF_COLOR_METADATA_KEY;

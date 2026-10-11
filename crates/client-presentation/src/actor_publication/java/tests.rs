@@ -54,8 +54,8 @@ pub(super) fn head_feed() -> client_world::LocalPlayerFeed {
         main_hand_metadata: 0,
         main_hand_slot: 0,
         main_hand_stack_id: None,
-        bedrock_swing_ticks: client_world::ACTOR_SWING_TICKS,
-        java_swing_ticks: client_world::ACTOR_SWING_TICKS,
+        bedrock_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
+        java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
         flying: false,
         gliding: false,
         fall_fly_ticks: 0,
@@ -128,7 +128,7 @@ fn third_person_keeps_authored_pack_poses_and_accepts_uploaded_skin_geometry() {
         .is_some()
     );
     let authored = ActorRigSnapshot {
-        rig: client_world::EntityRigId(assets::PACK_RIG_ID_BASE),
+        rig: actor_animation::EntityRigId(assets::PACK_RIG_ID_BASE),
         ..rig
     };
     assert!(
@@ -154,11 +154,11 @@ fn published_persona_layers_follow_the_sampled_local_emote_only() {
     assert_eq!(rig.skin_layers.len(), 1);
     let native_layer = &rig.skin_layers[0];
     let native_pose = native_layer.current.clone();
-    let emote = client_world::sample_custom_emote(
+    let emote = actor_animation::sample_custom_emote(
         &rig,
-        client_world::CustomEmote::Twerk,
+        actor_animation::CustomEmote::Twerk,
         0.0,
-        client_world::CustomEmote::Twerk.duration_seconds() / 4.0,
+        actor_animation::CustomEmote::Twerk.duration_seconds() / 4.0,
     )
     .unwrap();
     assert_ne!(emote.skin_layers[0].current, native_pose);
@@ -355,7 +355,7 @@ fn outgoing_main_use_is_idle_while_offhand_keeps_the_actual_owner_use() {
         main: Some(item(BOW)),
         ..owner.clone()
     };
-    let timing = client_world::AttachableAnimationInput {
+    let timing = actor_animation::AttachableAnimationInput {
         first_person: true,
         frame_alpha: 0.75,
         animation_frame: 3,
@@ -667,7 +667,7 @@ fn outgoing_metadata_variant_keeps_its_own_idle_use_clock() {
         main: Some(worn("minecraft:potion")),
         ..owner.clone()
     };
-    let timing = client_world::AttachableAnimationInput {
+    let timing = actor_animation::AttachableAnimationInput {
         animation_frame: 3,
         use_elapsed_ticks: Some(19),
         max_use_ticks: 32,
@@ -743,7 +743,7 @@ fn retained_java_poses_match_fresh_retargeting_across_ticks() {
                     1,
                     alpha,
                     |names, rest, targets| targets_into(names, rest, &pose, &parts, true, targets),
-                    &mut client_world::JavaRetargetCache::default(),
+                    &mut actor_animation::JavaRetargetCache::default(),
                 )
                 .unwrap();
             assert_eq!(

@@ -6,19 +6,19 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+actor-animation = { path = "../actor-animation" }
 render-api = { path = "../render-api" }
 assets = { path = "../assets" }
 bytes.workspace = true
 hashbrown = "0.16"
 protocol = { path = "../protocol" }
-rayon.workspace = true
-render-model = { path = "../render-model" }
 tracing.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 world = { path = "../world" }
 
 [dev-dependencies]
+actor-animation = { path = "../actor-animation", features = ["test-support"] }
 test-time = { path = "../test-time" }
 protocol = { path = "../protocol", features = ["wire-test-support"] }
 

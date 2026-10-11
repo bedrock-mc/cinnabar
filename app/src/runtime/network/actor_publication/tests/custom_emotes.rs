@@ -214,7 +214,7 @@ fn assert_unaffected(world: &World, plain: &World, id: u64) {
     );
 }
 
-fn native_pose(world: &World) -> (u64, Vec<client_world::BoneTransform>) {
+fn native_pose(world: &World) -> (u64, Vec<actor_animation::BoneTransform>) {
     let stream = world.resource::<ClientWorld>().stream.as_ref().unwrap();
     let rig = stream.authority().actor_rig(1).unwrap();
     (rig.completed_tick, rig.current.to_vec())
@@ -266,7 +266,7 @@ fn custom_emote_publication_advances_between_ticks_without_changing_native_hand_
         ui.emotes_mut().open();
         assert_eq!(
             ui.emotes_mut().activate_slot(0, 100),
-            Some(client_world::CustomEmote::Twerk)
+            Some(actor_animation::CustomEmote::Twerk)
         );
     }
     prepare(&mut world, 10);
@@ -418,23 +418,29 @@ fn production_actor_preparation_preserves_same_frame_swing_admission() {
     world.init_resource::<render::ActorRuntimeWitness>();
     let states = [
         (true, [0.0, 0.0]),
-        (false, [0.0, 1.0 / client_world::ACTOR_SWING_TICKS as f32]),
+        (
+            false,
+            [0.0, 1.0 / actor_animation::ACTOR_SWING_TICKS as f32],
+        ),
         (
             false,
             [
-                1.0 / client_world::ACTOR_SWING_TICKS as f32,
-                2.0 / client_world::ACTOR_SWING_TICKS as f32,
+                1.0 / actor_animation::ACTOR_SWING_TICKS as f32,
+                2.0 / actor_animation::ACTOR_SWING_TICKS as f32,
             ],
         ),
         (
             false,
             [
-                2.0 / client_world::ACTOR_SWING_TICKS as f32,
-                3.0 / client_world::ACTOR_SWING_TICKS as f32,
+                2.0 / actor_animation::ACTOR_SWING_TICKS as f32,
+                3.0 / actor_animation::ACTOR_SWING_TICKS as f32,
             ],
         ),
-        (true, [3.0 / client_world::ACTOR_SWING_TICKS as f32, 0.0]),
-        (false, [0.0, 1.0 / client_world::ACTOR_SWING_TICKS as f32]),
+        (true, [3.0 / actor_animation::ACTOR_SWING_TICKS as f32, 0.0]),
+        (
+            false,
+            [0.0, 1.0 / actor_animation::ACTOR_SWING_TICKS as f32],
+        ),
     ];
     for (index, (admitted, expected)) in states.into_iter().enumerate() {
         *world.resource_mut::<client_interaction::movement::MovementTicker>() = {

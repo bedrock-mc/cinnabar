@@ -61,10 +61,10 @@ pub struct ActorFrameInput {
     pub predicted_eye: Option<[f32; 3]>,
     pub predicted_feet: Option<[f32; 3]>,
     pub local_equipment: crate::presentation::equipment::ActorEquipmentInput,
-    pub swing_progress: Option<client_world::LocalSwingProgress>,
+    pub swing_progress: Option<actor_animation::LocalSwingProgress>,
     pub renders_game: bool,
     pub hide_hand: bool,
-    pub custom_emote: Option<(client_world::CustomEmote, f64)>,
+    pub custom_emote: Option<(actor_animation::CustomEmote, f64)>,
 }
 
 /// Presentation-owned resources that determine the avatar's current view.
@@ -210,7 +210,7 @@ pub struct ActorFramePublication<'w, 's> {
 /// Builds final actor and hand poses after admission, without advancing remote actor ticks.
 pub fn prepare_actor_render_frame(
     mut client_world: ActorWorld<'_>,
-    swing_progress: Option<client_world::LocalSwingProgress>,
+    swing_progress: Option<actor_animation::LocalSwingProgress>,
     hides_box: impl Fn(&WorldStream, [f32; 3], [f32; 3], [f32; 3]) -> bool,
     params: ActorFramePublication,
 ) {
@@ -304,7 +304,7 @@ pub fn prepare_actor_render_frame(
                 .authority()
                 .actor_rig(stream.local_player_runtime_id())?;
             let (emote, elapsed) = input.custom_emote?;
-            client_world::sample_custom_emote(&rig, emote, elapsed, elapsed)
+            actor_animation::sample_custom_emote(&rig, emote, elapsed, elapsed)
         })
         .flatten();
     let mut native_body_sampled = false;
@@ -851,7 +851,7 @@ fn actor_camera_rotation(rotation: bevy::math::Quat) -> [f32; 2] {
 fn animation_view(
     transform: &bevy::prelude::Transform,
     projection: &Projection,
-) -> Option<client_world::ActorAnimationView> {
+) -> Option<actor_animation::ActorAnimationView> {
     let Projection::Perspective(perspective) = projection else {
         return None;
     };
@@ -873,7 +873,7 @@ fn animation_view(
         .iter()
         .flatten()
         .all(|value| value.is_finite())
-        .then(|| client_world::ActorAnimationView {
+        .then(|| actor_animation::ActorAnimationView {
             planes,
             camera: transform.translation.to_array(),
             player_distance: MAX_ACTOR_RENDER_DISTANCE_BLOCKS,

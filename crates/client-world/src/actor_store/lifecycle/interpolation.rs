@@ -18,7 +18,7 @@ impl ActorStore {
         &mut self,
         runtime_id: u64,
         authority: (u64, u64),
-        samples: impl IntoIterator<Item = crate::LocalSwingMotionSample>,
+        samples: impl IntoIterator<Item = actor_animation::LocalSwingMotionSample>,
     ) {
         self.local_view_dirty |= self
             .animation
@@ -29,7 +29,7 @@ impl ActorStore {
     pub(crate) fn sync_local_swing(
         &mut self,
         runtime_id: u64,
-        progress: crate::LocalSwingProgress,
+        progress: actor_animation::LocalSwingProgress,
     ) {
         self.local_view_dirty |= self.animation.sync_local_swing(runtime_id, progress);
     }
@@ -263,7 +263,7 @@ impl ActorStore {
                     .get(&actor.unique_id)
                     .copied()
                     .unwrap_or_default();
-                crate::actor_animation::ActorTickContext {
+                actor_animation::ActorTickContext {
                     appearance_pending: !self.ready_appearances.admits(
                         actor, prepared, &self.players, &self.unlisted_players,
                     ),
@@ -289,7 +289,7 @@ impl ActorStore {
                     java_swing_ticks: if is_local {
                         local_java_swing_ticks
                     } else {
-                        crate::ACTOR_SWING_TICKS
+                        actor_animation::ACTOR_SWING_TICKS
                     },
                     main_hand_slot: if is_local {
                         local_main_slot
@@ -364,9 +364,9 @@ impl ActorStore {
 /// Worn stacks in helmet, chestplate, leggings, boots, body order.
 fn worn_armor(
     snapshot: Option<&crate::item::ActorArmorSnapshot>,
-) -> [Option<crate::actor_animation::WornArmor>; 5] {
+) -> [Option<actor_animation::WornArmor>; 5] {
     let piece = |piece: &crate::item::ActorArmorPiece| {
-        Some(crate::actor_animation::WornArmor {
+        Some(actor_animation::WornArmor {
             item: piece.item.identifier.clone()?,
             dye_rgb: piece.dye_rgb,
         })

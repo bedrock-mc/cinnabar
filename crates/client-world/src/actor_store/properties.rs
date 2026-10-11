@@ -4,7 +4,7 @@ use protocol::ActorPropertySyncEvent;
 use world::{BlockEntityNbt, NbtValue};
 
 use super::ActorStore;
-use crate::actor_animation::{PropertyDefinition, PropertyKind};
+use actor_animation::{PropertyDefinition, PropertyKind};
 
 /// Most entity types and properties per type retained from property syncs.
 const MAX_PROPERTY_TYPES: usize = 1_024;
