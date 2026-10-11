@@ -3,6 +3,7 @@
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bytes::BytesMut;
+use jolyne::auth::client::{NON_EDITOR_CONNECTION_INTENT, SUPER_HIGH_MEMORY_TIER};
 use serde_json::{Value, json};
 use uuid::Uuid;
 use valentine::bedrock::codec::{BedrockCodec, VarUInt};
@@ -69,15 +70,16 @@ pub(crate) fn login_client_data(
     // Two halves keep each `json!` expansion within the default recursion limit.
     let mut claims = json!({
         "ClientRandomId": (Uuid::new_v4().as_u64_pair().0 & 0x7fff_ffff_ffff_ffff) as i64,
+        "ClientEditorConnectionIntent": NON_EDITOR_CONNECTION_INTENT,
+        "ClientIsEditorCapable": false,
         "CompatibleWithClientSideChunkGen": true,
         "CurrentInputMode": input_mode_value(settings.input_mode),
         "GameVersion": GAME_VERSION,
         "GraphicsMode": 0,
         "GuiScale": settings.gui_scale_offset,
-        "IsEditorMode": false,
         "LanguageCode": settings.language_code,
         "MaxViewDistance": 32,
-        "MemoryTier": 5,
+        "MemoryTier": SUPER_HIGH_MEMORY_TIER,
         "PlatformOfflineId": "",
         "PlatformOnlineId": "",
         "PlatformType": 0,
@@ -198,6 +200,49 @@ mod tests {
         assert_eq!(patch["geometry"]["default"], "geometry.humanoid.custom");
         assert_eq!(claims["CapeData"], "");
         assert_eq!(claims["CapeOnClassicSkin"], false);
+    }
+
+    /// Login validation requires a supported memory tier and explicit gameplay editor claims.
+    #[test]
+    fn session_and_self_signed_logins_report_supported_client_capabilities() {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use jolyne::auth::client::generate_self_signed_chain;
+
+        let settings = LoginSettings::default();
+        let skin = ClientSkin {
+            rgba8: vec![255; 64 * 64 * 4],
+            width: 64,
+            height: 64,
+            arm_size: "wide".into(),
+            cape: None,
+            geometry: None,
+        };
+        let key = p384::SecretKey::random(&mut p384::elliptic_curve::rand_core::OsRng);
+        for skin in [None, Some(&skin)] {
+            let session_claims = login_client_data("Fixture", skin, &settings);
+            let (_, client_jwt) =
+                generate_self_signed_chain(&key, "Fixture", Uuid::new_v4(), skin).unwrap();
+            let jwt_claims: Value = serde_json::from_slice(
+                &URL_SAFE_NO_PAD
+                    .decode(client_jwt.split('.').nth(1).unwrap())
+                    .unwrap(),
+            )
+            .unwrap();
+            for claims in [session_claims, jwt_claims] {
+                let tier = claims["MemoryTier"]
+                    .as_u64()
+                    .expect("an unsigned enum value");
+                assert!(
+                    tier <= u64::from(SUPER_HIGH_MEMORY_TIER),
+                    "unsupported memory tier {tier} rejects otherwise valid login claims"
+                );
+                assert_eq!(claims["ClientIsEditorCapable"], false);
+                assert_eq!(
+                    claims["ClientEditorConnectionIntent"],
+                    NON_EDITOR_CONNECTION_INTENT
+                );
+            }
+        }
     }
 
     /// The claims carry the version, offline name and the player's own settings, and leave the
