@@ -12,7 +12,7 @@ use ui::BoundedStat;
 use super::{GameplayHudState, SequencedLocalAttributes, UiRuntime, UiRuntimeError, hud_adapter};
 
 /// Bedrock's fixed wire cadence: 20 server ticks per second.
-const MILLIS_PER_SERVER_TICK: u64 = 50;
+pub(super) const MILLIS_PER_SERVER_TICK: u64 = 50;
 
 /// The reference charges the mount jump bar from empty to full over half a
 /// second of held jump input; pinned in milliseconds as a bounded recorded
@@ -186,7 +186,21 @@ impl UiRuntime {
     /// queue would otherwise grow without a consumer until the Phase 5.5
     /// container store takes over this drain.
     pub fn drain_pending_inventory(&mut self, player_runtime: &mut player_state::PlayerState) {
-        while let Some(sequenced) = player_runtime.inventory.apply_next() {
+        self.drain_inventory_prefix(player_runtime, None);
+        player_runtime.inventory.finish_drain();
+        self.sample_crafting_observation(player_runtime);
+    }
+
+    /// Updates inventory presentation only through the transport prefix before an item event.
+    pub(super) fn drain_inventory_prefix(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+        before: Option<u64>,
+    ) {
+        while let Some(sequenced) = match before {
+            Some(sequence) => player_runtime.inventory.apply_next_before(sequence),
+            None => player_runtime.inventory.apply_next(),
+        } {
             let event = match sequenced.event {
                 inventory::InventoryAuthorityEvent::Inventory(event) => event,
                 inventory::InventoryAuthorityEvent::Registry(registry) => {
@@ -265,8 +279,6 @@ impl UiRuntime {
                 &inventory::InventoryAuthorityEvent::Inventory(event),
             );
         }
-        player_runtime.inventory.finish_drain();
-        self.sample_crafting_observation(player_runtime);
     }
 
     pub fn apply_local_attributes(

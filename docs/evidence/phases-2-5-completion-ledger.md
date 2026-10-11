@@ -96,8 +96,8 @@ material/shader linkage remain open.
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
-| Deterministic tests | Not started |
+| Owning plan/task | `plan.md`: Totem activation; broader item actions remain open. |
+| Deterministic tests | Local/remote event admission, equipped-item snapshot, consumption ordering, retrigger, expiry, session retirement and admitted texture sampling. |
 | Review commit | Not started |
 | Live/native witness | Not started |
 | Performance/resource witness | Not started |

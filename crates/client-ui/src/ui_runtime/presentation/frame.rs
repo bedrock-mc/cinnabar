@@ -310,6 +310,7 @@ impl UiPresentationRuntime {
             self.append_oreui_motion(&mut nodes, &mut next_id, content)?;
             self.end_animation_frame();
             self.apply_gui_models(&mut nodes);
+            self.append_item_activation(runtime, &mut nodes, &mut next_id, content, now_millis)?;
             let palette = self.formatting_palette().copied();
             let effects = TextEffects {
                 palette: palette.as_ref(),

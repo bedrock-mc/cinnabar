@@ -152,6 +152,14 @@ impl InventorySession {
         Some(sequenced)
     }
 
+    /// Apply one event preceding `sequence`, leaving later inventory updates queued.
+    pub fn apply_next_before(&mut self, sequence: u64) -> Option<SequencedInventoryEvent> {
+        if self.pending_inventory.front()?.fifo_sequence >= sequence {
+            return None;
+        }
+        self.apply_next()
+    }
+
     /// Advance crafting once after all FIFO events and their presentation effects have drained.
     pub fn finish_drain(&mut self) {
         self.crafting_authority.advance();

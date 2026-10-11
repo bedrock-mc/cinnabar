@@ -1,3 +1,12 @@
+## Totem activation
+
+- Local totem activation retains the equipped item before later inventory updates consume it.
+  Offhand takes precedence, retriggers replace the image, and a session change retires it.
+- The camera overlay spins and scales the flat item icon for forty client ticks. It samples
+  the current admitted item atlas, including texture replacements, reloads and removals.
+- Deterministic activation regressions pass. Full-client default/custom texture recordings,
+  final review and integration are pending; broader item action and performance gates remain open.
+
 ## Xbox Minecraft activity
 
 - The Rust client reports menus and the committed world default, Realm and experience
