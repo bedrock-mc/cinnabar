@@ -185,6 +185,25 @@ fn shadowless_actor_types_cast_nothing() {
     }
 }
 
+/// Cushion collision bounds never turn their thin seats into shadow casters.
+#[test]
+fn cushions_cast_no_shadow_with_streamed_collision_bounds() {
+    let mut store = ActorStore::new(1, 0);
+    for (index, width) in [0.25, 0.999, 2.0].into_iter().enumerate() {
+        let id = index as u64 + 1;
+        spawn(&mut store, id, "cushion", width);
+        set(
+            &mut store,
+            id,
+            BOUNDING_BOX_HEIGHT_METADATA_KEY,
+            ActorMetadataValue::Float(0.249),
+        );
+        assert_eq!(radius(&store, id), None, "cushion width {width}");
+    }
+    spawn(&mut store, 4, "cow", 0.9);
+    assert!(close(radius(&store, 4), 0.9));
+}
+
 #[test]
 fn burning_invisible_dead_and_submerged_actors_cast_nothing() {
     let mut store = ActorStore::new(1, 0);

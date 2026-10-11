@@ -10,6 +10,8 @@ use assets::{RegistryRecord, TILE_SIZE, VisualKind, VisualSupport};
 mod anvil;
 #[path = "tests/dragon_egg.rs"]
 mod dragon_egg;
+#[path = "tests/end_rod.rs"]
+mod end_rod;
 #[path = "tests/grass_side_mips.rs"]
 mod grass_side_mips;
 #[path = "tests/isotropic.rs"]
@@ -18,6 +20,8 @@ mod isotropic;
 mod lantern;
 #[path = "tests/shelf_cake.rs"]
 mod shelf_cake;
+#[path = "tests/candle_cake.rs"]
+mod candle_cake;
 
 fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
     let path = path.as_ref();
