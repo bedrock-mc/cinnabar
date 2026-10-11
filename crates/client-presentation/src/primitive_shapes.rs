@@ -57,3 +57,28 @@ impl PrimitiveShapePublisher {
         });
     }
 }
+
+/// Publishes attached shapes and their retained text using this frame's actor clock.
+#[allow(clippy::too_many_arguments)]
+pub fn drive_primitive_shapes(
+    stream: Option<&mut WorldStream>,
+    mut scene: bevy::prelude::ResMut<PrimitiveShapesScene>,
+    now: f32,
+    partial_tick: f32,
+    view: &crate::local_player::LocalViewPose,
+    mut presentation: bevy::prelude::ResMut<
+        client_ui::ui_runtime::presentation::UiPresentationRuntime,
+    >,
+    runtime: bevy::prelude::Res<client_ui::ui_runtime::UiRuntime>,
+    mut publisher: bevy::prelude::Local<PrimitiveShapePublisher>,
+) {
+    publisher.publish(
+        stream,
+        &mut scene,
+        now,
+        partial_tick,
+        Some(view.feet_translation().to_array()),
+    );
+    let mut store = scene.store.lock().expect("primitive store lock poisoned");
+    presentation.prepare_primitive_text(&mut store, &runtime);
+}

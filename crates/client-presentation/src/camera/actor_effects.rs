@@ -81,6 +81,19 @@ fn damage_rotation(
     rotation
 }
 
+/// Samples death time after actor ticking and clears it when the local actor leaves or recovers.
+pub fn collect_death_fov_inputs(
+    stream: Option<&chunk_pipeline::WorldStream>,
+    partial_tick: Option<bevy::prelude::Res<crate::actor_publication::ActorFramePartialTick>>,
+    mut inputs: bevy::prelude::ResMut<crate::camera::CameraFovInputs>,
+) {
+    let ticks = stream
+        .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
+        .filter(|actor| actor.status.dead)
+        .map(|actor| actor.status.native_death_ticks());
+    inputs.set_death_ticks(ticks, partial_tick.map_or(0.0, |tick| tick.0));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -6008,6 +6008,13 @@ once per pulling thread, with a current-thread priority fallback. Submission-tim
 resampling leaves the frame thread alone; capture playback keeps its existing
 scheduling. Windows scheduling and audible acceptance remain incomplete.
 
+**Audio ownership:** `client-audio` owns the sound engine, session admission,
+named playback, predicted cues, ambience and UI sounds. It borrows listener and
+particle inputs without depending on `client-presentation` or `render`.
+`client-presentation` owns camera publication checks and actor presentation.
+The existing sound and camera regressions remain in their owning crates and app
+integration tests. This move does not close audio parity or performance gates.
+
 **Sound-bank loading:** First-use lookups queue file descriptors; the existing
 workers read and decode the sounds. Loading queues up to four finite sounds each
 for UI, footsteps and interactions, with a 1 MiB input limit. Generation checks,

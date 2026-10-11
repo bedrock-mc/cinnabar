@@ -114,6 +114,11 @@ material/shader linkage remain open.
 | Performance/resource witness | Font storage is bounded and development-profile first-menu startup is measured; release hitch and hardware-tier qualification remain open. |
 | Final status | Open |
 
+Sound engine, session, named playback, local cue and UI sound tests belong to
+`client-audio`; camera publication and actor presentation belong to
+`client-presentation`. App integration tests retain the composed frame-order and
+camera-listener coverage. This ownership change adds no new parity evidence.
+
 ## P5.2-HUD
 
 | Field | Evidence |

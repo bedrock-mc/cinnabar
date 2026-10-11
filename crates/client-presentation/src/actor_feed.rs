@@ -67,3 +67,62 @@ pub fn build_local_player_feed(
         item_use,
     })
 }
+
+/// Builds the local actor feed with selected equipment and admitted gameplay timing.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_local_player_feed(
+    physics: &dyn crate::observations::PhysicsObservation,
+    view: &crate::local_player::LocalViewPose,
+    settings: &crate::camera::CameraSettingsAuthority,
+    equipment: &crate::presentation::equipment::ActorEquipmentInput,
+    player: &player_state::PlayerState,
+    use_held: bool,
+    local_use: impl FnOnce() -> LocalItemUse,
+    java_blocking: &mut bool,
+    local_uuid: [u8; 16],
+    skin: impl FnOnce() -> protocol::PlayerSkin,
+    prefer_client_skin: bool,
+    swing_ticks: (i32, i32),
+) -> Option<LocalPlayerFeed> {
+    // Java blocks with a sword while use is held; Bedrock never flags that use.
+    let java_sword = settings.feel().java_animations
+        && equipment
+            .main
+            .as_ref()
+            .is_some_and(|item| render_model::java_animation::is_java_sword(&item.identifier));
+    let blocking = java_sword && use_held;
+    let local_use = if blocking {
+        client_world::LocalItemUse::Using
+    } else {
+        local_use()
+    };
+    // Ending a block clears the use flag it raised, whatever the hand holds next.
+    let local_use =
+        if (java_sword || *java_blocking) && local_use == client_world::LocalItemUse::Unpredicted {
+            client_world::LocalItemUse::Idle
+        } else {
+            local_use
+        };
+    *java_blocking = blocking;
+    let mut local_feed = build_local_player_feed(
+        physics,
+        view.rotation(),
+        false,
+        settings.feel().view_bobbing,
+        local_uuid,
+        skin,
+        local_use,
+    );
+    if let Some(feed) = &mut local_feed {
+        feed.game_mode = player.facts.player_game_mode();
+        feed.prefer_client_skin = prefer_client_skin;
+        feed.main_hand_slot = player.selected_hotbar_slot().unwrap_or(0);
+        feed.main_hand_stack_id = player
+            .selected_stack()
+            .map(|stack| stack.stack_network_id)
+            .filter(|id| *id > 0);
+        feed.bedrock_swing_ticks = swing_ticks.0;
+        feed.java_swing_ticks = swing_ticks.1;
+    }
+    local_feed
+}
