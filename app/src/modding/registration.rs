@@ -3,8 +3,11 @@
 use sha2::Digest;
 use std::io::Read;
 use std::io::Write;
+mod presentation;
 #[cfg(test)]
 mod tests;
+
+use presentation::{clear_owned_state, clear_presentation, refresh_presentation};
 
 use std::{
     fs::{self, File, OpenOptions},
@@ -159,6 +162,7 @@ enum Message {
 #[derive(Serialize)]
 struct Status {
     version: u32,
+    independent_registration: bool,
     request_id: String,
     client_pid: u32,
     state: &'static str,
@@ -170,6 +174,7 @@ impl Status {
     fn new(request_id: String, state: &'static str, message: Option<String>) -> Self {
         Self {
             version: 1,
+            independent_registration: true,
             request_id,
             client_pid: std::process::id(),
             state,
@@ -410,7 +415,9 @@ fn install(world: &mut World, update: Update) {
             .get_resource_mut::<ModRuntime>()
             .is_some_and(|mut runtime| {
                 if runtime.registration_identity != Some(identity)
-                    || !runtime.hosts.host.is_active()
+                    || !runtime
+                        .registration_host
+                        .is_some_and(|index| runtime.hosts.host(index).is_active())
                     || runtime.suspended
                 {
                     return false;
@@ -437,8 +444,14 @@ fn install(world: &mut World, update: Update) {
     if let Ok(Action::Replace(candidate)) = &update.result
         && world.get_resource::<ModRuntime>().is_some_and(|previous| {
             candidate.host.settings_path().is_some()
-                && candidate.host.settings_path() == previous.hosts.host.settings_path()
-                && candidate.host.settings_seed() != previous.hosts.host.settings_snapshot()
+                && candidate.host.settings_path()
+                    == previous
+                        .registration_host
+                        .and_then(|index| previous.hosts.host(index).settings_path())
+                && candidate.host.settings_seed()
+                    != previous
+                        .registration_host
+                        .and_then(|index| previous.hosts.host(index).settings_snapshot())
         })
     {
         let watcher = world.resource::<Watcher>();
@@ -447,11 +460,11 @@ fn install(world: &mut World, update: Update) {
             return;
         }
         if let Ok(Action::Replace(candidate)) = update.result {
-            watcher.remember_settings(
-                world
-                    .get_resource::<ModRuntime>()
-                    .map(|runtime| &runtime.hosts.host),
-            );
+            watcher.remember_settings(world.get_resource::<ModRuntime>().and_then(|runtime| {
+                runtime
+                    .registration_host
+                    .map(|index| runtime.hosts.host(index))
+            }));
             watcher.send(Message::Reload {
                 generation: update.generation,
                 registration: candidate.registration,
@@ -463,7 +476,11 @@ fn install(world: &mut World, update: Update) {
     // A replacement may retire both the current host and a rejected candidate.
     let watcher = world.resource::<Watcher>();
     let required_slots = usize::from(matches!(&update.result, Ok(Action::Replace(_))))
-        + usize::from(world.contains_resource::<ModRuntime>());
+        + usize::from(
+            world
+                .get_resource::<ModRuntime>()
+                .is_some_and(|runtime| runtime.registration_host.is_some()),
+        );
     if watcher.retirement_used() + required_slots > watcher.retired.capacity().unwrap_or(0) {
         *watcher.pending.lock().expect("extension pending mutex") = Some(update);
         return;
@@ -471,38 +488,67 @@ fn install(world: &mut World, update: Update) {
     let mut previous = clear_owned_state(world);
     let (state, message, identity) = match update.result {
         Ok(Action::Replace(mut candidate)) => {
-            let installed = world
-                .get_resource_mut::<UiPresentationRuntime>()
-                .ok_or_else(|| "extension presentation is unavailable".to_owned())
-                .and_then(|mut presentation| {
-                    presentation
-                        .set_mod_panel_font(candidate.font.clone())
-                        .map_err(|error| error.to_string())?;
-                    presentation.set_mod_label(candidate.host.label())?;
-                    presentation.set_mod_hud(candidate.host.hud())?;
-                    presentation.set_mod_crosshair(candidate.host.crosshair())?;
-                    presentation.set_mod_panel(candidate.host.panel())?;
-                    presentation.set_mod_panel_open(false);
-                    Ok(())
+            let full = world
+                .get_resource::<ModRuntime>()
+                .is_some_and(|runtime| runtime.hosts.host_count() >= mod_api::MAX_LOADED_MODS);
+            let installed = (!full)
+                .then_some(())
+                .ok_or_else(|| "local extension limit reached".to_owned())
+                .and_then(|()| {
+                    world
+                        .get_resource_mut::<UiPresentationRuntime>()
+                        .ok_or_else(|| "extension presentation is unavailable".to_owned())
+                        .and_then(|mut presentation| {
+                            presentation
+                                .set_mod_panel_font(candidate.font.clone())
+                                .map_err(|error| error.to_string())?;
+                            presentation.set_mod_label(candidate.host.label())?;
+                            presentation.set_mod_hud(candidate.host.hud())?;
+                            presentation.set_mod_crosshair(candidate.host.crosshair())?;
+                            presentation.set_mod_panel(candidate.host.panel())?;
+                            presentation.set_mod_panel_open(false);
+                            Ok(())
+                        })
                 });
             match installed {
                 Ok(()) => {
                     candidate.host.activate_settings(previous.as_mut());
-                    world.insert_resource(VisualTimeOverride(candidate.host.time_override()));
-                    world.insert_resource(ModInteraction::default());
-                    world.insert_resource(ModRuntime {
-                        hosts: ModHosts::new(candidate.host, Vec::new()),
-                        render_sources: Vec::new(),
-                        render_merge: Default::default(),
-                        last_reload: Instant::now(),
-                        controls: mod_host::empty_controls(),
-                        reload_on_main: false,
-                        registration_identity: Some(candidate.identity),
-                        registration_request: Some((update.generation, update.request_id.clone())),
-                        suspended: false,
-                        hud_editor_owner: None,
-                        screens: Default::default(),
-                    });
+                    if !world.contains_resource::<ModRuntime>() {
+                        world.insert_resource(VisualTimeOverride(candidate.host.time_override()));
+                        world.insert_resource(ModInteraction::default());
+                    }
+                    if let Some(mut runtime) = world.get_resource_mut::<ModRuntime>() {
+                        runtime.render_sources.clear();
+                        let index = runtime.hosts.host_count();
+                        runtime.panel_fonts.push(candidate.font.clone());
+                        runtime.hosts.companions.push(
+                            client_extensions::modding::multi::Companion {
+                                host: candidate.host,
+                            },
+                        );
+                        runtime.registration_host = Some(index);
+                        runtime.registration_identity = Some(candidate.identity);
+                        runtime.registration_request =
+                            Some((update.generation, update.request_id.clone()));
+                    } else {
+                        world.insert_resource(ModRuntime {
+                            panel_fonts: vec![candidate.font.clone()],
+                            hosts: ModHosts::new(candidate.host, Vec::new()),
+                            render_sources: Vec::new(),
+                            render_merge: Default::default(),
+                            last_reload: Instant::now(),
+                            controls: mod_host::empty_controls(),
+                            registration_identity: Some(candidate.identity),
+                            registration_host: Some(0),
+                            registration_request: Some((
+                                update.generation,
+                                update.request_id.clone(),
+                            )),
+                            suspended: false,
+                            hud_editor_owner: None,
+                            screens: Default::default(),
+                        });
+                    }
                     ("loaded", None, Some(candidate.identity))
                 }
                 Err(error) => {
@@ -523,6 +569,7 @@ fn install(world: &mut World, update: Update) {
     {
         watcher.retire(previous);
     }
+    refresh_presentation(world);
     if let Some(watcher) = world.get_resource::<Watcher>() {
         watcher.acknowledge(
             update.generation,
@@ -537,11 +584,11 @@ fn sync_authority(world: &mut World) {
     let Some(watcher) = world.get_resource::<Watcher>() else {
         return;
     };
-    watcher.remember_settings(
-        world
-            .get_resource::<ModRuntime>()
-            .map(|runtime| &runtime.hosts.host),
-    );
+    watcher.remember_settings(world.get_resource::<ModRuntime>().and_then(|runtime| {
+        runtime
+            .registration_host
+            .map(|index| runtime.hosts.host(index))
+    }));
     let desired = watcher.desired.lock().expect("extension selection mutex");
     let identity = watcher
         .alive
@@ -569,6 +616,13 @@ fn sync_authority(world: &mut World) {
             if runtime.suspended {
                 return false;
             }
+            let Some(index) = runtime.registration_host else {
+                return false;
+            };
+            if index > 0 {
+                runtime.hosts.host_mut(index).quarantine();
+                return false;
+            }
             runtime.suspended = true;
             runtime.controls = mod_host::empty_controls();
             runtime.hosts.host.set_panel_open(false);
@@ -587,54 +641,16 @@ fn sync_authority(world: &mut World) {
         }
         clear_presentation(world);
     }
+    if world
+        .get_resource::<ModRuntime>()
+        .is_some_and(|runtime| !runtime.suspended)
+    {
+        refresh_presentation(world);
+    }
     if let Some((generation, status)) = acknowledgment
         && let Some(watcher) = world.get_resource::<Watcher>()
     {
         watcher.acknowledge(generation, status, None);
-    }
-}
-
-fn clear_owned_state(world: &mut World) -> Option<ModHost> {
-    let previous = world
-        .remove_resource::<ModRuntime>()
-        .map(|runtime| runtime.hosts.host);
-    world.remove_resource::<VisualTimeOverride>();
-    world.remove_resource::<ModInteraction>();
-    clear_presentation(world);
-    previous
-}
-
-fn clear_presentation(world: &mut World) {
-    if let Some(mut physics) =
-        world.get_resource_mut::<client_interaction::movement::LocalPhysicsController>()
-    {
-        physics.set_jump_pulse_scope(None);
-    }
-    if let Some(mut policy) = world.get_resource_mut::<crate::item_use::ModItemUsePolicy>() {
-        policy.scope = None;
-    }
-    if let Some(mut scene) = world.get_resource_mut::<render_scene::ModRenderScene>() {
-        scene.clear();
-    }
-    if let Some(mut cues) = world.get_resource_mut::<super::ModCueFeed>() {
-        cues.0.clear();
-    }
-    if let Some(mut camera) =
-        world.get_resource_mut::<client_presentation::camera::CameraSettingsAuthority>()
-    {
-        camera.set_rig(None);
-        camera.set_preserve_teleport_rotation(false);
-        camera.set_view_scale(1.0, 1.0);
-    }
-    if let Some(mut presentation) = world.get_resource_mut::<UiPresentationRuntime>() {
-        presentation.set_mod_panel_open(false);
-        let _ = presentation.set_mod_panel(None);
-        let _ = presentation.set_mod_label(None);
-        let _ = presentation.set_mod_hud(None);
-        let _ = presentation.set_mod_crosshair(None);
-        if let Err(error) = presentation.set_mod_panel_font(None) {
-            eprintln!("Personal-panel font could not be released: {error}");
-        }
     }
 }
 

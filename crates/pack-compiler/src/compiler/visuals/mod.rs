@@ -29,6 +29,7 @@ pub(in crate::compiler) mod flower_pot;
 pub(in crate::compiler) mod flowerbed;
 pub(in crate::compiler) mod gates;
 pub(in crate::compiler) mod geometry;
+pub(in crate::compiler) mod grindstone;
 pub(in crate::compiler) mod hollow_containers;
 pub(in crate::compiler) mod honey;
 pub(in crate::compiler) mod kelp;

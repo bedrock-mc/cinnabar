@@ -46,13 +46,14 @@ pub(crate) struct ModCueFeed(pub Vec<mod_host::ModCue>);
 #[derive(Resource)]
 struct ModRuntime {
     hosts: ModHosts,
+    panel_fonts: Vec<Option<std::sync::Arc<assets::RuntimeFontCatalog>>>,
     /// Per-mod render generations behind the last merged scene.
     render_sources: Vec<u64>,
     render_merge: mod_render::RenderMerge,
     last_reload: Instant,
     controls: mod_host::ControlFrame,
-    reload_on_main: bool,
     registration_identity: Option<[u8; 32]>,
+    registration_host: Option<usize>,
     registration_request: Option<(u64, String)>,
     suspended: bool,
     hud_editor_owner: Option<hud_editor::Owner>,
@@ -95,14 +96,21 @@ pub(crate) fn configure_from_environment(app: &mut App) {
         configure_package(app, Path::new(package));
     } else if let Some(path) = path.as_deref() {
         configure(app, Some(Path::new(path)));
-    } else {
+    }
+    #[cfg(feature = "local-mods")]
+    {
+        let configured = app.world().contains_resource::<ModRuntime>();
         match launcher::install_layout::InstallLayout::discover()
             .map_err(|error| error.to_string())
             .and_then(|layout| registration::Watcher::start(layout.user_config_root))
         {
             Ok(watcher) => {
                 app.insert_resource(watcher);
-                configure_systems(app, true);
+                if configured {
+                    configure_registration_systems(app);
+                } else {
+                    configure_systems(app, true);
+                }
             }
             Err(error) => eprintln!("Local extension watcher unavailable: {error}"),
         }
@@ -168,13 +176,14 @@ fn install(app: &mut App, hosts: Vec<ModHost>) {
             .any(|companion| companion.host.grants().controls);
     app.insert_resource(VisualTimeOverride(host.time_override()))
         .insert_resource(ModRuntime {
+            panel_fonts: vec![None; 1 + companions.len()],
             hosts: ModHosts::new(host, companions),
             render_sources: Vec::new(),
             render_merge: Default::default(),
             last_reload: Instant::now(),
             controls: mod_host::empty_controls(),
-            reload_on_main: true,
             registration_identity: None,
+            registration_host: None,
             registration_request: None,
             suspended: false,
             hud_editor_owner: None,
@@ -183,11 +192,18 @@ fn install(app: &mut App, hosts: Vec<ModHost>) {
         .init_resource::<interaction::ModInteraction>();
     if controls && let Some(path) = std::env::var_os(font::FONT_ENV) {
         match font::load(Path::new(&path)).and_then(|font| {
+            let font = std::sync::Arc::new(font);
             app.world_mut()
                 .get_resource_mut::<UiPresentationRuntime>()
                 .ok_or_else(|| "presentation is unavailable".to_owned())?
-                .set_mod_panel_font(Some(std::sync::Arc::new(font)))
-                .map_err(|error| error.to_string())
+                .set_mod_panel_font(Some(font.clone()))
+                .map_err(|error| error.to_string())?;
+            let font = Some(font);
+            app.world_mut()
+                .resource_mut::<ModRuntime>()
+                .panel_fonts
+                .fill(font);
+            Ok(())
         }) {
             Ok(()) => {}
             Err(error) => eprintln!("Optional personal-panel font unavailable: {error}"),
@@ -206,22 +222,12 @@ fn configure_systems(app: &mut App, watching: bool) {
         .add_plugins(::render::ModRenderPlugin)
         .add_systems(Update, render::grant_depth_sampling);
     if watching {
-        app.add_systems(
-            Update,
-            (
-                registration::install_pending,
-                ApplyDeferred,
-                input::prepare_mod_input,
-            )
-                .chain()
-                .before(ClientFrameSet::RawInput),
-        );
-    } else {
-        app.add_systems(
-            Update,
-            input::prepare_mod_input.before(ClientFrameSet::RawInput),
-        );
+        configure_registration_systems(app);
     }
+    app.add_systems(
+        Update,
+        input::prepare_mod_input.before(ClientFrameSet::RawInput),
+    );
     app.add_systems(
         Update,
         drive_mod
@@ -232,6 +238,17 @@ fn configure_systems(app: &mut App, watching: bool) {
     );
     app.init_resource::<packet_delay::RealPositionSnapshot>()
         .add_systems(Update, packet_delay::publish_packet_delay.after(drive_mod));
+}
+
+/// Flushes registration transitions before the shared physical-input router.
+#[cfg(feature = "local-mods")]
+fn configure_registration_systems(app: &mut App) {
+    app.add_systems(
+        Update,
+        (registration::install_pending, ApplyDeferred)
+            .chain()
+            .before(input::prepare_mod_input),
+    );
 }
 
 /// Runs the bounded guest and publishes only its validated presentation output.
@@ -304,8 +321,10 @@ fn drive_mod(
     let mut reloaded = false;
     if extension.last_reload.elapsed() >= RELOAD_INTERVAL {
         extension.last_reload = Instant::now();
-        let first = usize::from(!extension.reload_on_main);
-        for index in first..extension.hosts.host_count() {
+        for index in 0..extension.hosts.host_count() {
+            if extension.registration_host == Some(index) {
+                continue;
+            }
             match extension.hosts.host_mut(index).reload_if_changed() {
                 // A new instance never sees cues from before it existed.
                 Ok(true) => {
@@ -334,6 +353,7 @@ fn drive_mod(
     let (network, camera, cues, item_use) = outputs;
     let previous_cues = cues.as_ref().map_or_else(Vec::new, |feed| feed.0.clone());
     let registration = extension.registration_request.clone();
+    let registration_host = extension.registration_host;
     let player_state = gameplay.player_state(
         (0..extension.hosts.host_count()).any(|index| {
             let host = extension.hosts.host(index);
@@ -380,7 +400,7 @@ fn drive_mod(
         },
         |index, error| {
             callback_failed = true;
-            if index == 0
+            if Some(index) == registration_host
                 && let Some((generation, request_id)) = &registration
                 && let Some(watcher) = watcher.as_ref()
             {
@@ -391,7 +411,11 @@ fn drive_mod(
     );
     render::publish(render_scene, &mut extension);
     if let Some(watcher) = watcher.as_ref() {
-        watcher.remember_settings(Some(&extension.hosts.host));
+        watcher.remember_settings(
+            extension
+                .registration_host
+                .map(|index| extension.hosts.host(index)),
+        );
     }
     if callback_failed || merged.jump_cancel {
         gameplay.synchronize_jump_scope(false);
@@ -437,6 +461,9 @@ fn drive_mod(
         eprintln!("Cinnabar extension crosshair rejected: {error}");
     }
     let owner = extension.hosts.panel_owner();
+    if let Err(error) = presentation.set_mod_panel_font(extension.panel_fonts[owner].clone()) {
+        eprintln!("Cinnabar extension panel font rejected: {error}");
+    }
     if let Err(error) = presentation.set_mod_panel(extension.hosts.host(owner).panel()) {
         eprintln!("Cinnabar extension panel rejected: {error}");
         extension.hosts.host_mut(owner).set_panel_open(false);

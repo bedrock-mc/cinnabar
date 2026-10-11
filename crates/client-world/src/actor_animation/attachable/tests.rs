@@ -237,6 +237,7 @@ pub(super) fn owner_rig() -> ActorRigSnapshot<'static> {
         rest_reset_generation: 0,
         completed_tick: 20,
         reset_generation: 0,
+        pose_evaluated: true,
         fallback: EntityRigFallback::Skip,
         scale: 1.0,
         axis_scale: [1.0; 3],

@@ -58,6 +58,8 @@ pub struct ActorRigSnapshot<'a> {
     pub rest_reset_generation: u64,
     pub completed_tick: u64,
     pub reset_generation: u64,
+    /// Whether authored pose and render-controller evaluation has succeeded for this lifetime.
+    pub pose_evaluated: bool,
     pub fallback: EntityRigFallback,
     /// Authored uniform model scale about the feet origin.
     pub scale: f32,
@@ -211,10 +213,15 @@ struct PackCatalog {
 }
 
 #[derive(Debug)]
-struct PoseStep {
-    evaluate: bool,
-    reset_motion_history: bool,
-    refresh_view: bool,
+enum PoseStep {
+    Tick {
+        evaluate: bool,
+        reset_motion_history: bool,
+    },
+    Frame {
+        initialize_new: bool,
+        refresh_local: Option<u64>,
+    },
 }
 
 #[derive(Debug)]
@@ -255,6 +262,8 @@ struct ActorRigState {
     completed_tick: u64,
     fallback: EntityRigFallback,
     history: VecDeque<ActorTickInput>,
+    /// The sole history sample is provisional until a real motion tick observes it.
+    presentation_seeded: bool,
     /// Latest owner query inputs, retained even when its pose does not need frame sampling.
     query_context: ActorTickContext,
     /// Main-hand item the arm has finished equipping.
@@ -596,16 +605,16 @@ impl ActorAnimationStore {
             actors,
             view,
             exempt,
-            PoseStep {
+            PoseStep::Tick {
                 evaluate,
                 reset_motion_history,
-                refresh_view: false,
             },
             context,
         );
     }
 
     /// Changes the local draw context without advancing motion or clip time.
+    #[cfg(test)]
     pub(crate) fn refresh_local_view(
         &mut self,
         actors: &HashMap<u64, ActorSnapshot>,
@@ -616,10 +625,30 @@ impl ActorAnimationStore {
             actors,
             None,
             Some(runtime_id),
-            PoseStep {
-                evaluate: true,
-                reset_motion_history: false,
-                refresh_view: true,
+            PoseStep::Frame {
+                initialize_new: false,
+                refresh_local: Some(runtime_id),
+            },
+            context,
+        );
+    }
+
+    /// Prepares newly bound rigs and an optional changed local view without advancing simulation.
+    pub(crate) fn prepare_frame(
+        &mut self,
+        actors: &HashMap<u64, ActorSnapshot>,
+        view: Option<&ActorAnimationView>,
+        exempt: Option<u64>,
+        refresh_local: bool,
+        context: impl Fn(&ActorSnapshot) -> ActorTickContext,
+    ) {
+        self.evaluate_tick(
+            actors,
+            view,
+            exempt,
+            PoseStep::Frame {
+                initialize_new: true,
+                refresh_local: exempt.filter(|_| refresh_local),
             },
             context,
         );
@@ -672,6 +701,7 @@ impl ActorAnimationStore {
             rest_reset_generation: state.rest_reset_generation,
             completed_tick: state.completed_tick,
             reset_generation: state.reset_generation,
+            pose_evaluated: state.initialized,
             fallback: state.fallback,
             scale: state.scale.map_or_else(
                 || {

@@ -16,6 +16,8 @@ pub(crate) struct ActorTickContext {
     pub(crate) frame_alpha: f32,
     /// Full elapsed visual interval; absent for an explicit single-tick evaluation.
     pub(crate) animation_elapsed_ticks: Option<u32>,
+    /// A known first appearance is still awaiting its immutable model preparation.
+    pub(crate) appearance_pending: bool,
     pub(crate) is_riding: bool,
     /// Namespaced identifiers of the equipped main-hand and off-hand items.
     pub(crate) main_hand: Option<Arc<str>>,
@@ -108,6 +110,7 @@ pub(super) fn advance_motion(
     context: &ActorTickContext,
     reset_history: bool,
 ) {
+    state.presentation_seeded = false;
     if reset_history && state.reset_pending {
         state.history.clear();
     }
@@ -206,12 +209,7 @@ pub(super) fn advance_motion(
         held: &java_held,
         held_slot: context.main_hand_slot,
         riding: context.is_riding,
-        vanilla_posture: swim_amount > 0.0
-            || context.main_hand_is_spear
-            || query::actor_flag(actor, query::FLAG_GLIDING)
-            || query::actor_flag(actor, crate::actor_store::ACTOR_FLAG_CRAWLING)
-            || query::actor_flag(actor, query::FLAG_EMOTING)
-            || actor.is_sleeping(),
+        vanilla_posture: java_retains_native_posture(actor, context, swim_amount),
         position: actor.position,
         velocity: actor.native_velocity(),
         on_ground: actor.on_ground.unwrap_or(false),
@@ -247,6 +245,69 @@ pub(super) fn advance_motion(
         attack_time: motion.attack_time(),
     };
     state.history.push_back(input);
+}
+
+/// Seeds current snapshot inputs for a first draw without advancing any motion clock.
+pub(super) fn seed_presentation_input(
+    state: &mut ActorRigState,
+    actor: &ActorSnapshot,
+    context: &ActorTickContext,
+) {
+    let retained = state
+        .history
+        .back()
+        .copied()
+        .filter(|_| !state.presentation_seeded);
+    if retained.is_none() {
+        state.equipped_main.clone_from(&context.main_hand);
+    }
+    let counters = retained.unwrap_or_else(|| ActorTickInput {
+        swim_amount: f32::from(query::actor_flag(actor, query::FLAG_SWIMMING)),
+        arm_height: 1.0,
+        off_hand_arm_height: state.off_hand_animation[1].arm_height,
+        attack_time: state.motion.attack_time(),
+        ..Default::default()
+    });
+    let input = ActorTickInput {
+        position: actor.position,
+        velocity: actor.velocity,
+        on_ground: actor.on_ground.unwrap_or(false),
+        body_yaw: if query::is_arrow(actor) {
+            0.0
+        } else {
+            state.motion.body_yaw
+        },
+        yaw: actor.yaw,
+        head_yaw: actor.head_yaw,
+        pitch: actor.pitch,
+        is_riding: context.is_riding,
+        item_use_ticks: local_use_counter(actor, context).unwrap_or(counters.item_use_ticks),
+        ..counters
+    };
+    state.java.motion.riding = context.is_riding;
+    state.java.motion.vanilla_posture =
+        java_retains_native_posture(actor, context, input.swim_amount);
+    if let Some(previous) = state.history.back_mut() {
+        *previous = input;
+    } else {
+        state.history.push_back(input);
+    }
+    state.presentation_seeded = retained.is_none();
+}
+
+/// Keeps authored postures that the Java option does not replace.
+fn java_retains_native_posture(
+    actor: &ActorSnapshot,
+    context: &ActorTickContext,
+    swim_amount: f32,
+) -> bool {
+    swim_amount > 0.0
+        || query::actor_flag(actor, query::FLAG_SWIMMING)
+        || context.main_hand_is_spear
+        || query::actor_flag(actor, query::FLAG_GLIDING)
+        || query::actor_flag(actor, crate::actor_store::ACTOR_FLAG_CRAWLING)
+        || query::actor_flag(actor, query::FLAG_EMOTING)
+        || actor.is_sleeping()
 }
 
 /// Converts the local elapsed clock to the existing one-based hand and spear counter.
@@ -591,7 +652,7 @@ pub(super) fn evaluate_state(
         render_frame.as_mut().unwrap().retained_pose_effects = variables.finish_effects(capture);
     }
     let pose = state.compose(&local).ok_or(EvalError::Invalid)?;
-    // Render selection must not freeze the pose when it alone exceeds the budget.
+    // Initial publication needs a complete selection; later ticks can retain completed layers.
     let mut swell_layers = BTreeMap::new();
     let render = super::render::evaluate_render(
         &evaluator,
@@ -608,9 +669,8 @@ pub(super) fn evaluate_state(
         },
         budget,
     )
-    .ok()
-    .map(|mut layers| {
-        super::render::pose_layers(
+    .and_then(|mut layers| {
+        let posed = super::render::pose_layers(
             &evaluator,
             &variables,
             &state.layer_skeletons,
@@ -619,8 +679,16 @@ pub(super) fn evaluate_state(
             samples_swell.then_some(&mut swell_layers),
             budget,
         );
-        layers
+        if !state.initialized {
+            posed?;
+        }
+        Ok(layers)
     });
+    let render = match render {
+        Ok(layers) => Some(layers),
+        Err(error) if !state.initialized => return Err(error),
+        Err(_) => None,
+    };
     let skin_layers =
         super::skin_layers::evaluate(state, &evaluator, &variables, &local, render.as_deref());
     if samples_swell && let Some(frame) = render_frame.as_mut() {

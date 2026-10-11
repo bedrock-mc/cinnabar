@@ -141,6 +141,7 @@ pub(super) fn owner_rig<'a>(
         rest_completed_tick: tick,
         rest_reset_generation: 0,
         completed_tick: tick,
+        pose_evaluated: true,
         reset_generation: 0,
         fallback: EntityRigFallback::Skip,
         scale: 1.0,

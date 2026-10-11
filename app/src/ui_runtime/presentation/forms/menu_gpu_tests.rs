@@ -77,7 +77,7 @@ fn app() -> App {
         .world_mut()
         .resource_mut::<render_scene::PanoramaScene>();
     scene.set_game_visible(false);
-    scene.set_faces(panorama::built_in_faces().map(Arc::new));
+    scene.set_faces(synthetic_faces().map(Arc::new));
     scene.show(Some(panorama::launcher_view(
         0.0,
         SIZE[0] as f32 / SIZE[1] as f32,
@@ -86,6 +86,23 @@ fn app() -> App {
     app.finish();
     app.cleanup();
     app
+}
+
+/// Six distinct solid faces, so the panorama pass draws without a pack.
+fn synthetic_faces() -> Option<panorama::PanoramaFaces> {
+    const SIDE: u32 = 16;
+    let colours: [[u8; 4]; 6] = [
+        [170, 60, 60, 255],
+        [60, 170, 60, 255],
+        [60, 60, 170, 255],
+        [170, 170, 60, 255],
+        [60, 170, 170, 255],
+        [170, 60, 170, 255],
+    ];
+    panorama::PanoramaFaces::new(
+        SIDE,
+        colours.map(|rgba| rgba.repeat((SIDE * SIDE) as usize)),
+    )
 }
 
 /// A texture readback's RGBA8 rows without the padding that pads each one to wgpu's copy row

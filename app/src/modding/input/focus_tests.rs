@@ -89,13 +89,14 @@ fn unfocused_stop_and_toggle_keys_preserve_editor_and_do_not_replay_on_regain() 
         .insert_resource(ui)
         .insert_resource(presentation)
         .insert_resource(ModRuntime {
+            panel_fonts: vec![None],
             hosts: client_extensions::modding::multi::ModHosts::new(host, Vec::new()),
             render_sources: Vec::new(),
             render_merge: Default::default(),
             last_reload: std::time::Instant::now(),
             controls: mod_host::empty_controls(),
-            reload_on_main: false,
             registration_identity: None,
+            registration_host: None,
             registration_request: None,
             suspended: false,
             hud_editor_owner: None,
@@ -197,13 +198,14 @@ fn personal_panel_app(hud_editor: bool, capture_key: bool) -> (App, Entity) {
         .insert_resource(ui)
         .insert_resource(presentation)
         .insert_resource(ModRuntime {
+            panel_fonts: vec![None],
             hosts: client_extensions::modding::multi::ModHosts::new(host, Vec::new()),
             render_sources: Vec::new(),
             render_merge: Default::default(),
             last_reload: std::time::Instant::now(),
             controls: mod_host::empty_controls(),
-            reload_on_main: false,
             registration_identity: None,
+            registration_host: None,
             registration_request: None,
             suspended: false,
             hud_editor_owner: hud_editor.then_some(super::super::hud_editor::Owner {

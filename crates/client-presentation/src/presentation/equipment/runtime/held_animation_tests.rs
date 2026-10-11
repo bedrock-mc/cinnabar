@@ -69,6 +69,7 @@ fn owner_rig<'a>(
         rest_reset_generation: 0,
         completed_tick: 1,
         reset_generation: 0,
+        pose_evaluated: true,
         fallback: assets::EntityRigFallback::Skip,
         scale: 1.0,
         axis_scale: [1.0; 3],

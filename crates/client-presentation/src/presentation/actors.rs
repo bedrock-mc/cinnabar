@@ -136,12 +136,17 @@ pub fn entity_rig_presentation_cached(
         .flatten();
     let rest_mode =
         location.is_some_and(|location| location.pose_mode() == assets::ActorPoseMode::RestPose);
+    // Static artwork waits for a completed rest observation after admission or reset.
+    if rest_mode && rig.rest_completed_tick == 0 {
+        return None;
+    }
     let selected = if rest_mode {
         ActorRigSnapshot {
             previous: rig.rest,
             current: rig.rest,
             completed_tick: rig.rest_completed_tick,
             reset_generation: rig.rest_reset_generation,
+            pose_evaluated: true,
             ..*rig
         }
     } else {
@@ -243,8 +248,8 @@ fn tick_presentation(
         || rig.actor.session_id == 0
         || rig.actor.runtime_id == 0
         || rig.actor.spawn_revision == 0
-        || rig.completed_tick == 0
         || rig.reset_generation == 0
+        || (!rig.pose_evaluated && rig.fallback != assets::EntityRigFallback::GeometryOnly)
         || (!rejected_pose && (rig.previous.is_empty() || rig.previous.len() != rig.current.len()))
     {
         return None;
@@ -275,7 +280,8 @@ fn tick_presentation(
                         ingress_sequence: 0,
                         source_tick: None,
                         movement_revision: 0,
-                        pose_generation: rig.completed_tick,
+                        // Tick zero is a valid initial pose; identity generations reserve zero.
+                        pose_generation: rig.completed_tick.saturating_add(1),
                         layer: render_model::ACTOR_LAYER_BODY,
                     },
                     rig: EntityRigId(rig.rig.0),

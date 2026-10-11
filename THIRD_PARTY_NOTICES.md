@@ -6,7 +6,7 @@ under the ignored `.local/assets/block-data/` directory, and the verified
 download cache stays in the ignored sibling `.local/assets/block-data.downloads/`
 directory. This notice is checked in and is not rewritten by the acquisition script.
 
-## Launcher panorama
+## Setup window panorama
 
 - Files: `assets/panorama/` (`panorama_0.jpg` .. `panorama_5.jpg`)
 - Provenance: original, generated for Cinnabar; not Mojang content.

@@ -225,6 +225,39 @@ fn queued_appearance_does_not_publish_new_pixels_before_model_readiness() {
 }
 
 #[test]
+fn delayed_first_skin_uses_an_animated_pose_without_repeating_authored_effects() {
+    for pending_ticks in [0, 1] {
+        let mut store = player_store();
+        let mut skin = profile_skin(1);
+        if let protocol::PlayerSkin::Standard(skin) = &mut skin {
+            skin.geometry = Some(source(&MODEL.replace("\"body\"", "\"rightitem\"")));
+        }
+        add_player(&mut store, 1, skin);
+        store.advance_interpolation_frame(pending_ticks);
+        assert!(store.actor_rig(1).is_none());
+        store.finish_appearance_fixture_batch();
+        store.advance_interpolation_frame(0);
+        let rig = store.actor_rig(1).unwrap();
+        assert!(rig.skin_geometry.is_some());
+        assert!(rig.pose_evaluated);
+        assert_ne!(
+            rig.current, rig.rest,
+            "first prepared skin must be animated"
+        );
+        assert_eq!(rig.previous, rig.current);
+        assert_eq!(rig.completed_tick, u64::from(pending_ticks));
+        assert_eq!(rig.render[0].color[0], 1.0, "authored effect runs once");
+        let pose = rig.current.to_vec();
+        let layers = rig.render.to_vec();
+        store.advance_interpolation_frame(0);
+        assert_eq!(store.actor_rig(1).unwrap().current, pose);
+        assert_eq!(store.actor_rig(1).unwrap().render, layers);
+        store.advance_interpolation_frame(1);
+        assert_eq!(store.actor_rig(1).unwrap().render[0].color[0], 2.0);
+    }
+}
+
+#[test]
 fn queued_replacement_retains_the_complete_previous_appearance() {
     let mut store = profile_store(1);
     store.advance_interpolation_ticks(1);
