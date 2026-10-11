@@ -17,6 +17,7 @@ mod surface_tests;
 mod template;
 #[cfg(test)]
 mod tests;
+mod vector;
 mod widgets;
 
 use std::sync::Arc;
@@ -54,6 +55,7 @@ pub(super) struct ModPanel {
     pages: usize,
     rows: usize,
     drag: Option<usize>,
+    vector_drag: Option<String>,
     scroll_drag: Option<(String, f64)>,
     view: ViewState,
     data: Arc<DataSource>,
@@ -70,6 +72,7 @@ impl UiPresentationRuntime {
             panel.screen = CachedScreen::default();
             panel.frame = None;
             panel.drag = None;
+            panel.vector_drag = None;
             panel.scroll_drag = None;
             panel.pointer = None;
         }
@@ -92,6 +95,7 @@ impl UiPresentationRuntime {
                 current.catalog = None;
                 current.frame = None;
                 current.drag = None;
+                current.vector_drag = None;
                 current.scroll_drag = None;
                 if current.panel.sections != panel.sections
                     || current.panel.controls.len() != panel.controls.len()
@@ -120,6 +124,7 @@ impl UiPresentationRuntime {
                 pages: 1,
                 rows: 1,
                 drag: None,
+                vector_drag: None,
                 scroll_drag: None,
                 view: ViewState::default(),
                 data: Arc::new(control_data(panel)),
@@ -141,6 +146,7 @@ impl UiPresentationRuntime {
                 panel.cancel_edit();
                 panel.frame = None;
                 panel.drag = None;
+                panel.vector_drag = None;
                 panel.scroll_drag = None;
                 panel.view = ViewState::default();
                 panel.pointer = None;
@@ -239,6 +245,7 @@ impl UiPresentationRuntime {
             panel.frame = None;
             panel.open = false;
             panel.drag = None;
+            panel.vector_drag = None;
             panel.scroll_drag = None;
             panel.pointer = None;
             return;
@@ -255,6 +262,7 @@ impl UiPresentationRuntime {
             panel.catalog = None;
             panel.frame = None;
             panel.drag = None;
+            panel.vector_drag = None;
             panel.scroll_drag = None;
             panel.pointer = None;
         }

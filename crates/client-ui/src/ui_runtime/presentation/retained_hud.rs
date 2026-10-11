@@ -7,6 +7,15 @@ use ui::{DisplaySlot, ScoreOwner, ScoreRenderType, ScoreboardStore};
 
 use super::UiPresentationRuntime;
 
+/// Keeps server-provided observation fields bounded without invalidating UTF-8.
+fn bounded_observed_text(value: &str) -> String {
+    let mut end = value.len().min(ui::mod_hud::MAX_OBSERVED_TEXT_BYTES);
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value[..end].to_owned()
+}
+
 pub(super) const MAX_PRESENTED_SCOREBOARD_ROWS: usize = 15;
 pub(super) const MAX_PRESENTED_PLAYER_LIST_ROWS: usize = protocol::MAX_PLAYER_LIST_RECORDS;
 pub(super) const MAX_PRESENTED_BELOW_NAME_ROWS: usize = ui::MAX_SCORES;
@@ -98,6 +107,28 @@ pub(super) struct ScoreboardOwnerNameAuthority {
 }
 
 impl UiPresentationRuntime {
+    /// Resolved sidebar in the same order and ownership projection used by the ordinary HUD.
+    pub fn sidebar_snapshot(
+        &mut self,
+        runtime: &crate::ui_runtime::UiRuntime,
+    ) -> Option<(String, Vec<(String, i32)>)> {
+        let projection = runtime.scoreboards().projection_bounded(
+            DisplaySlot::Sidebar,
+            MAX_PRESENTED_SCOREBOARD_ROWS,
+            |owner| !matches!(owner, ScoreOwner::None),
+        )?;
+        let presented = self
+            .scoreboard
+            .refresh(runtime.scoreboards(), &self.scoreboard_owner_names)?;
+        let rows = presented
+            .rows
+            .iter()
+            .zip(projection.rows.iter())
+            .map(|(row, raw)| (bounded_observed_text(&row.label), raw.score))
+            .collect();
+        Some((bounded_observed_text(&presented.title), rows))
+    }
+
     pub fn set_scoreboard_owner_names(&mut self, names: impl IntoIterator<Item = (i64, Arc<str>)>) {
         self.scoreboard_owner_names.replace(names);
     }

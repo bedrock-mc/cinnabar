@@ -14,6 +14,7 @@ pub(super) struct ControlState {
     pub dirty_settings: Option<String>,
     settings: String,
     pending_panel: Option<Option<Panel>>,
+    pending_open: Option<bool>,
     pending_keys: Option<Vec<String>>,
     pending_settings: Option<String>,
     pub pending_interaction: InteractionOutput,
@@ -35,6 +36,7 @@ impl ControlState {
             dirty_settings: None,
             settings,
             pending_panel: None,
+            pending_open: None,
             pending_keys: None,
             pending_settings: None,
             pending_interaction: InteractionOutput::default(),
@@ -63,6 +65,9 @@ impl ControlState {
                 self.open = false;
             }
         }
+        if let Some(open) = self.pending_open.take() {
+            self.open = open && self.panel.is_some();
+        }
         if let Some(keys) = self.pending_keys.take() {
             self.keys = keys;
         }
@@ -78,6 +83,7 @@ impl ControlState {
         self.open = false;
         self.keys.clear();
         self.pending_panel = None;
+        self.pending_open = None;
         self.pending_keys = None;
         self.pending_settings = None;
         self.pending_interaction = InteractionOutput::default();
@@ -203,6 +209,22 @@ pub(super) fn reserve(state: &mut State, keys: Vec<String>) -> Result<Result<(),
 }
 
 impl cinnabar::extension::panel::Host for State {
+    fn set_open(&mut self, open: bool) -> Result<Result<(), String>> {
+        self.controls.budget(false)?;
+        if !self.grants.controls {
+            return Ok(Err("controls capability denied".into()));
+        }
+        let present = self
+            .controls
+            .pending_panel
+            .as_ref()
+            .map_or(self.controls.panel.is_some(), |p| p.is_some());
+        if open && !present {
+            return Ok(Err("opening requires a panel".into()));
+        }
+        self.controls.pending_open = Some(open);
+        Ok(Ok(()))
+    }
     fn set_content(&mut self, json: String) -> Result<Result<(), String>> {
         self.controls.budget(false)?;
         if !self.grants.controls {

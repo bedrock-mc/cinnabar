@@ -141,7 +141,12 @@ pub(super) fn set_content(state: &mut State, json: String) -> Result<Result<(), 
         if let Err(error) = hud.validate() {
             return Ok(Err(error));
         }
-        (!hud.cards.is_empty() || hud.hide_effect_icons).then_some(hud)
+        (!hud.cards.is_empty()
+            || hud.hide_effect_icons
+            || hud.hide_scoreboard
+            || !hud.world_labels.is_empty()
+            || !hud.chat_actions.is_empty())
+        .then_some(hud)
     };
     state.hud.pending_content = Some(content);
     Ok(Ok(()))

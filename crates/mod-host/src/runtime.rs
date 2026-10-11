@@ -293,6 +293,54 @@ impl Instance {
         })
     }
 
+    /// Validates presentation observations before they enter the callback sandbox.
+    pub(super) fn observe_presentation(
+        &mut self,
+        world: Option<crate::WorldObservation>,
+        fps: Option<f32>,
+        sidebar: Option<crate::SidebarSnapshot>,
+        chat: Vec<crate::ObservedChatMessage>,
+    ) -> Result<()> {
+        anyhow::ensure!(
+            world.as_ref().is_none_or(|w| w.session != 0
+                && !w.world.is_empty()
+                && w.world.len() <= mod_api::MAX_WORLD_IDENTITY_BYTES
+                && !w.world.chars().any(char::is_control)
+                && [w.position.0, w.position.1, w.position.2]
+                    .iter()
+                    .all(|v| v.is_finite())),
+            "invalid world observation"
+        );
+        anyhow::ensure!(
+            fps.is_none_or(|value| value.is_finite() && (0.0..=100000.0).contains(&value)),
+            "invalid frame observation"
+        );
+        anyhow::ensure!(
+            sidebar.as_ref().is_none_or(|s| s.rows.len() <= 15
+                && s.title.len() <= ui::mod_hud::MAX_OBSERVED_TEXT_BYTES
+                && s.rows
+                    .iter()
+                    .all(|r| r.label.len() <= ui::mod_hud::MAX_OBSERVED_TEXT_BYTES)),
+            "invalid sidebar observation"
+        );
+        anyhow::ensure!(
+            chat.len() <= ui::mod_hud::MAX_OBSERVED_CHAT_MESSAGES
+                && chat
+                    .iter()
+                    .all(|m| m.text.len() <= ui::mod_hud::MAX_OBSERVED_TEXT_BYTES)
+                && chat
+                    .windows(2)
+                    .all(|pair| pair[0].sequence < pair[1].sequence),
+            "invalid chat observation"
+        );
+        let state = self.store.data_mut();
+        state.player_state.world = world;
+        state.player_state.fps = fps;
+        state.player_state.sidebar = sidebar;
+        state.player_state.chat = chat;
+        Ok(())
+    }
+
     /// Restores the call budget and commits output only on successful return.
     pub(super) fn frame(
         &mut self,
@@ -349,6 +397,7 @@ impl Instance {
         let result = self.run(FRAME_FUEL, commit, |exports, store| exports.frame(store));
         self.store.data_mut().snapshot = None;
         self.store.data_mut().player_state.begin_frame();
+        self.store.data_mut().player_state.clear_presentation();
         self.store.data_mut().movement = None;
         self.store.data_mut().world.mobs = Vec::new();
         self.store.data_mut().world.incoming = Vec::new();
