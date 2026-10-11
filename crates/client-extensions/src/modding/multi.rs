@@ -11,14 +11,21 @@ use {
     },
 };
 
-use super::ModRuntime;
+/// Loaded personal components and their merged labels, in load order.
+pub struct ModHosts {
+    pub host: ModHost,
+    pub companions: Vec<Companion>,
+    label: Option<String>,
+    label_inputs: Vec<String>,
+    label_rebuilds: u64,
+}
 
 /// Selects an ordered set of components and packages, each with its own grants.
-pub(super) const SET_ENV: &str = "CINNABAR_MOD_SET";
+pub const SET_ENV: &str = "CINNABAR_MOD_SET";
 const MAX_SET_BYTES: usize = 16 * 1024;
 
 /// A mod after the first, loaded only from an explicit set.
-pub(super) struct Companion {
+pub struct Companion {
     pub host: ModHost,
 }
 
@@ -43,20 +50,22 @@ struct SetEntry {
 
 /// Where a set entry's mod comes from.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum ModSource {
+pub enum ModSource {
     Component(PathBuf),
     /// A package's permissions need both its manifest's ask and the entry's grant.
     Package(PathBuf),
 }
 
 impl ModSource {
-    pub(super) fn path(&self) -> &Path {
+    /// Returns the component or package path selected by this entry.
+    pub fn path(&self) -> &Path {
         match self {
             Self::Component(path) | Self::Package(path) => path,
         }
     }
 
-    pub(super) fn load(&self, grants: ModGrants) -> anyhow::Result<ModHost> {
+    /// Loads this entry with only its explicitly supplied grants.
+    pub fn load(&self, grants: ModGrants) -> anyhow::Result<ModHost> {
         match self {
             Self::Component(path) => ModHost::load_with_grants(path, grants),
             Self::Package(dir) => ModHost::load_package_with_grants(dir, grants),
@@ -65,7 +74,7 @@ impl ModSource {
 }
 
 /// Reads a bounded set file; its order is the load order.
-pub(super) fn read_set(path: &Path) -> Result<Vec<(ModSource, ModGrants)>, String> {
+pub fn read_set(path: &Path) -> Result<Vec<(ModSource, ModGrants)>, String> {
     let mut bytes = Vec::new();
     std::fs::File::open(path)
         .and_then(|file| {
@@ -103,20 +112,48 @@ pub(super) fn read_set(path: &Path) -> Result<Vec<(ModSource, ModGrants)>, Strin
         .collect()
 }
 
-impl ModRuntime {
-    pub(super) fn host_count(&self) -> usize {
+/// Loads valid entries in order and reports failures without discarding the other entries.
+pub fn load_entries(mods: Vec<(ModSource, ModGrants)>) -> Vec<ModHost> {
+    mods.into_iter()
+        .filter_map(|(source, grants)| {
+            source
+                .load(grants)
+                .inspect_err(|error| {
+                    let path = source.path().display();
+                    eprintln!("Cinnabar extension {path} disabled: {error:#}");
+                })
+                .ok()
+        })
+        .collect()
+}
+
+impl ModHosts {
+    /// Keeps the first host and its companions in their original load order.
+    pub fn new(host: ModHost, companions: Vec<Companion>) -> Self {
+        Self {
+            host,
+            companions,
+            label: None,
+            label_inputs: Vec::new(),
+            label_rebuilds: 0,
+        }
+    }
+
+    /// Counts the primary component and every companion.
+    pub fn host_count(&self) -> usize {
         1 + self.companions.len()
     }
 
     /// Index 0 is the first-loaded mod; companions follow in load order.
-    pub(super) fn host(&self, index: usize) -> &ModHost {
+    pub fn host(&self, index: usize) -> &ModHost {
         match index {
             0 => &self.host,
             _ => &self.companions[index - 1].host,
         }
     }
 
-    pub(super) fn host_mut(&mut self, index: usize) -> &mut ModHost {
+    /// Borrows a component in load order for one callback or host action.
+    pub fn host_mut(&mut self, index: usize) -> &mut ModHost {
         match index {
             0 => &mut self.host,
             _ => &mut self.companions[index - 1].host,
@@ -124,24 +161,24 @@ impl ModRuntime {
     }
 
     /// The first mod in load order that publishes a panel owns the panel and its events.
-    pub(super) fn panel_owner(&self) -> usize {
+    pub fn panel_owner(&self) -> usize {
         (0..self.host_count())
             .find(|&index| self.host(index).panel().is_some())
             .unwrap_or(0)
     }
 
     /// The earliest card publisher owns the retained card surface.
-    pub(super) fn hud_owner(&self) -> Option<usize> {
+    pub fn hud_owner(&self) -> Option<usize> {
         (0..self.host_count()).find(|&index| self.host(index).hud().is_some())
     }
 
     /// The earliest cursor publisher owns the retained cursor replacement.
-    pub(super) fn crosshair_owner(&self) -> Option<usize> {
+    pub fn crosshair_owner(&self) -> Option<usize> {
         (0..self.host_count()).find(|&index| self.host(index).crosshair().is_some())
     }
 
     /// The mod whose package draws beside the container screens and receives their input.
-    pub(super) fn screen_owner(&self) -> Option<usize> {
+    pub fn screen_owner(&self) -> Option<usize> {
         screen_owner((0..self.host_count()).map(|index| {
             let host = self.host(index);
             let screens = host.screens();
@@ -153,7 +190,7 @@ impl ModRuntime {
     }
 
     /// Every mod's label in load order, joined and cut to the plain-text limit.
-    pub(super) fn merged_label(&mut self) -> Option<&str> {
+    pub fn merged_label(&mut self) -> Option<&str> {
         if self.host_count() == 1 {
             return self.host.label();
         }
@@ -174,11 +211,12 @@ impl ModRuntime {
     }
 
     /// Every mod's render output with its generation, in load order.
-    pub(super) fn render_outputs(&self) -> impl Iterator<Item = (&mod_render::RenderOutput, u64)> {
+    pub fn render_outputs(&self) -> impl Iterator<Item = (&mod_render::RenderOutput, u64)> {
         (0..self.host_count()).map(|index| self.host(index).render())
     }
 
-    pub(super) fn reserved_keys(&self) -> Vec<String> {
+    /// Collects the distinct physical keys reserved by all loaded components.
+    pub fn reserved_keys(&self) -> Vec<String> {
         let mut keys: Vec<_> = (0..self.host_count())
             .flat_map(|index| self.host(index).reserved_keys().iter().cloned())
             .collect();
@@ -190,11 +228,7 @@ impl ModRuntime {
 
 /// The controls one mod sees: keys reserved by an earlier mod are withheld, and only the
 /// panel owner receives panel events.
-pub(super) fn claim_controls(
-    frame: &ControlFrame,
-    claimed: &[String],
-    panel_owner: bool,
-) -> ControlFrame {
+fn claim_controls(frame: &ControlFrame, claimed: &[String], panel_owner: bool) -> ControlFrame {
     let free = |keys: &[String]| -> Vec<String> {
         keys.iter()
             .filter(|key| !claimed.contains(key))
@@ -214,7 +248,7 @@ pub(super) fn claim_controls(
 }
 
 /// Host-owned input shared by every mod in one frame.
-pub(super) struct FrameInput<'a> {
+pub struct FrameInput<'a> {
     pub pressed: bool,
     pub controls: &'a ControlFrame,
     /// Every mod's committed cues from the previous frame.
@@ -225,8 +259,8 @@ pub(super) struct FrameInput<'a> {
 
 /// Runs each mod once in load order with its own grants and merges what they commit.
 /// A failing mod is reported and quarantined by its host; the others still run.
-pub(super) fn run_frame(
-    runtime: &mut ModRuntime,
+pub fn run_frame(
+    runtime: &mut ModHosts,
     input: FrameInput<'_>,
     mut world: impl FnMut(
         &ModGrants,
@@ -336,7 +370,7 @@ fn needs_gameplay(grants: &ModGrants) -> bool {
 
 /// One frame's combined output; for single-valued outputs the earliest mod wins.
 #[derive(Default)]
-pub(super) struct Merged {
+pub struct Merged {
     pub rig: Option<GameplayCameraRig>,
     pub preserve_teleport_rotation: bool,
     pub view_scale: Option<[f32; 2]>,

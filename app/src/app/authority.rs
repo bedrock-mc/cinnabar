@@ -53,18 +53,23 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             Update,
             (
                 crate::ui_runtime::scene_stack::close_scenes_on_player_hurt,
-                drive_sign_editor.run_if(crate::server_experiences::input::ordinary_input),
-                drive_server_form_input.run_if(crate::server_experiences::input::ordinary_input),
+                drive_sign_editor
+                    .run_if(client_extensions::server_experiences::input::ordinary_input),
+                drive_server_form_input
+                    .run_if(client_extensions::server_experiences::input::ordinary_input),
                 crate::ui_runtime::emotes::drive_emote_input,
-                drive_chat_ui_actions.run_if(crate::server_experiences::input::ordinary_input),
+                drive_chat_ui_actions
+                    .run_if(client_extensions::server_experiences::input::ordinary_input),
                 drain_inventory_authority,
-                drive_chat_keyboard_input.run_if(crate::server_experiences::input::ordinary_input),
+                drive_chat_keyboard_input
+                    .run_if(client_extensions::server_experiences::input::ordinary_input),
                 crate::fullscreen::toggle_fullscreen_hotkey,
                 drive_menu_input,
                 crate::fullscreen::apply_runtime_fullscreen_setting,
                 crate::ui_runtime::presentation::apply_gui_scale_setting,
                 crate::menu::persist_video_settings,
-                drive_inventory_ui_actions.run_if(crate::server_experiences::input::ordinary_input),
+                drive_inventory_ui_actions
+                    .run_if(client_extensions::server_experiences::input::ordinary_input),
                 drive_menu_services,
                 drive_session,
                 crate::settings_runtime::apply_window_settings,
@@ -75,7 +80,8 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
                     synchronize_semantic_input_authority,
                 )
                     .chain(),
-                drive_world_inventory_keys.run_if(crate::server_experiences::input::ordinary_input),
+                drive_world_inventory_keys
+                    .run_if(client_extensions::server_experiences::input::ordinary_input),
             )
                 .chain()
                 .in_set(ClientFrameSet::UiAuthority),

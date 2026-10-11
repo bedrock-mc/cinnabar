@@ -386,7 +386,7 @@ pub(crate) fn drive_menu_input(
     mut menu: ResMut<MenuRuntime>,
     runtime: Option<Res<client_ui::ui_runtime::UiRuntime>>,
     mut modifiers: Local<MenuModifiers>,
-    consent: Option<Res<crate::server_experiences::input::ConsentInput>>,
+    consent: Option<Res<client_state::ConsentInput>>,
     mouse_messages: Option<Res<Messages<MouseButtonInput>>>,
     mut gui_scale_drag: Local<GuiScaleDrag>,
 ) {

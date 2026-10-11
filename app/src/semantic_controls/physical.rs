@@ -64,7 +64,7 @@ pub(crate) fn route_semantic_input(
     mut pending: ResMut<PendingDeviceFrame>,
     mut runtime: ResMut<SemanticInputRuntime>,
     mut route: ResMut<SemanticRouteState>,
-    consent: Option<Res<crate::server_experiences::input::ConsentInput>>,
+    consent: Option<Res<client_state::ConsentInput>>,
 ) {
     if consent.is_some_and(|consent| consent.0) {
         pending.frame = Some(DeviceFrame {

@@ -7,14 +7,16 @@ use assets::{
 };
 use sha2::{Digest, Sha256};
 
-pub(super) const FONT_ENV: &str = "CINNABAR_MOD_FONT";
-pub(super) const MAX_SOURCE_BYTES: usize = 2 * 1024 * 1024;
+/// Optional font selected for the personal controls panel.
+pub const FONT_ENV: &str = "CINNABAR_MOD_FONT";
+/// Upper bound on the local font source read by the registration worker.
+pub const MAX_SOURCE_BYTES: usize = 2 * 1024 * 1024;
 const ATLAS_SIDE: u32 = render_model::UI_LOCAL_FONT_PAGE_SIDE;
 const FONT_EM: f32 = 18.0;
 const RASTER_SCALE: u32 = 2;
 
 /// Reads and rasterizes a bounded local source on the registration worker.
-pub(crate) fn load(path: &Path) -> Result<RuntimeFontCatalog, String> {
+pub fn load(path: &Path) -> Result<RuntimeFontCatalog, String> {
     let file = File::open(path).map_err(|error| format!("{}: {error}", path.display()))?;
     let mut bytes = Vec::new();
     file.take((MAX_SOURCE_BYTES + 1) as u64)
@@ -26,13 +28,15 @@ pub(crate) fn load(path: &Path) -> Result<RuntimeFontCatalog, String> {
     rasterize(&bytes)
 }
 
-pub(super) fn rasterize(bytes: &[u8]) -> Result<RuntimeFontCatalog, String> {
+/// Rasterizes a bounded in-memory font source at the panel density.
+pub fn rasterize(bytes: &[u8]) -> Result<RuntimeFontCatalog, String> {
     if bytes.len() > MAX_SOURCE_BYTES {
         return Err("font source exceeds local byte limit".into());
     }
     rasterize_at(bytes, RASTER_SCALE)
 }
 
+/// Builds a bounded atlas while preserving logical glyph sizes at the requested density.
 fn rasterize_at(bytes: &[u8], raster_scale: u32) -> Result<RuntimeFontCatalog, String> {
     let font = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
         .map_err(str::to_owned)?;

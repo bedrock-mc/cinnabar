@@ -21,7 +21,7 @@ fn configured_time_changer_is_visual_only_offline() {
         .insert_resource(ButtonInput::<KeyCode>::default());
     app.world_mut().spawn((Window::default(), PrimaryWindow));
     configure(&mut app, Some(Path::new(&path)));
-    let label = app.world().resource::<ModRuntime>().host.label();
+    let label = app.world().resource::<ModRuntime>().hosts.host.label();
     // The shared variable may select another sample; a time changer that loads wrong still fails.
     if label.is_some_and(|label| !label.starts_with("Time:")) {
         eprintln!(
@@ -59,10 +59,10 @@ fn configured_time_changer_is_visual_only_offline() {
             .press(DEMO_KEY);
         app.update();
         let runtime = app.world().resource::<ModRuntime>();
-        let label = runtime.host.label().unwrap().to_owned();
+        let label = runtime.hosts.host.label().unwrap().to_owned();
         assert_eq!(
             app.world().resource::<VisualTimeOverride>().0,
-            runtime.host.time_override()
+            runtime.hosts.host.time_override()
         );
         assert_eq!(*app.world().resource::<WorldClock>(), clock);
         assert!(packets.drain().is_empty());
@@ -71,7 +71,7 @@ fn configured_time_changer_is_visual_only_offline() {
                 .resource::<ButtonInput<KeyCode>>()
                 .just_pressed(DEMO_KEY)
         );
-        if runtime.host.time_override().is_none() {
+        if runtime.hosts.host.time_override().is_none() {
             assert_eq!(label, "Time: Server");
             break;
         }
