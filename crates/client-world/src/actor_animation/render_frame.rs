@@ -763,6 +763,14 @@ impl ActorAnimationStore {
                 };
                 Cow::Owned(skin)
             }
+            _ if sample_skin && !state.skin_layers.is_empty() => {
+                let Ok(skin) =
+                    skin_layers::refresh(state, &evaluator, &variables, &layers, &mut budget)
+                else {
+                    return Some(completed());
+                };
+                skin
+            }
             _ => Cow::Borrowed(state.skin_layers.as_slice()),
         };
         Some(ActorRenderLayers {
