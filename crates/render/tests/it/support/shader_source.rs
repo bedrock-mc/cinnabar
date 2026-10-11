@@ -171,7 +171,7 @@ fn compile(source: &str, definitions: &[&str], prune: bool) -> String {
             "struct Globals { time: f32, delta_time: f32, frame_count: u32 }".to_owned(),
         ),
         (
-            "bevy_core_pipeline::fullscreen_vertex_shader::fullscreen",
+            "bevy_core_pipeline::fullscreen_vertex_shader",
             FULLSCREEN.to_owned(),
         ),
         (
