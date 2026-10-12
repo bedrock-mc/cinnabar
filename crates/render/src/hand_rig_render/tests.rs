@@ -10,6 +10,37 @@ use {
     render_scene::HandRigScene,
 };
 
+#[test]
+fn reshaped_hand_glint_reuploads_shared_pixels_and_retains_unchanged_shapes() {
+    use bevy::ecs::system::RunSystemOnce;
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue::new(queue);
+    let mut world = World::new();
+    world.insert_resource(device.clone());
+    world.run_system_once(init_gpu).unwrap();
+    let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    let mut scene = HandRigScene::default();
+    assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 1));
+    let pixels: Arc<[u8]> = vec![255; 4 * 2 * 4].into();
+    let mut previous = None;
+    for (width, height) in [(4, 2), (2, 4), (2, 4)] {
+        scene.set_item_glint(Some(render_model::EquipmentRaster {
+            width,
+            height,
+            rgba8: Arc::clone(&pixels),
+        }));
+        upload_glint(&mut gpu, &device, &queue, scene.frame.as_ref().unwrap());
+        let texture = &gpu.glint.as_ref().unwrap()._texture;
+        let size = [texture.width(), texture.height()];
+        assert_eq!(size, [u32::from(width), u32::from(height)]);
+        if let Some((previous_size, id)) = previous {
+            assert_eq!(texture.id() == id, size == previous_size);
+        }
+        previous = Some((size, texture.id()));
+    }
+}
+
 fn single_instance_frame() -> ActorRigRenderFrame {
     ActorRigRenderFrame {
         frame_generation: 1,

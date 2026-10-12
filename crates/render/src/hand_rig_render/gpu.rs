@@ -453,7 +453,7 @@ pub(super) fn upload_atlas(
 }
 
 /// Uploads the frame's held-item glint, or a transparent texel without one, keeping the texture
-/// while its pixels are unchanged.
+/// while its dimensions and pixels are unchanged.
 pub(super) fn upload_glint(
     gpu: &mut HandRigGpu,
     device: &RenderDevice,
@@ -464,8 +464,12 @@ pub(super) fn upload_glint(
         u32::from(raster.width) <= device.limits().max_texture_dimension_2d
             && u32::from(raster.height) <= device.limits().max_texture_dimension_2d
     });
+    let size = raster.map_or([1, 1], |raster| {
+        [u32::from(raster.width), u32::from(raster.height)]
+    });
     let pixels = raster.map(|raster| Arc::clone(&raster.rgba8));
     if let Some(current) = &gpu.glint
+        && [current._texture.width(), current._texture.height()] == size
         && match (&current.pixels, &pixels) {
             (Some(current), Some(pixels)) => Arc::ptr_eq(current, pixels),
             (None, None) => true,
