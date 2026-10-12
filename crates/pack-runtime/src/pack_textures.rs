@@ -1,7 +1,8 @@
 //! Bounded source image and texture catalog preparation for pack subscribers.
 
 use image::{ImageFormat, ImageReader, Limits};
-use resource_pack::{LayeredPackView, normalize_jsonc};
+use pack_json::normalize_jsonc;
+use resource_pack::LayeredPackView;
 use serde_json::Value;
 use std::{collections::HashMap, io::Cursor};
 

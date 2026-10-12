@@ -471,6 +471,8 @@ pub fn rect(left: f32, top: f32, right: f32, bottom: f32) -> Result<UiRect, Pain
 /// hover tooltip and pointer (virtual px), transition clocks, artwork and edit feedback.
 #[derive(Clone, Copy, Default)]
 pub struct ScreenArt<'a> {
+    /// Keeps this screen's sprites on the shared nearest sampler, including pack overrides.
+    pub nearest_sampling: bool,
     /// Native replacements retain the pack's backdrop while omitting the replaced controls.
     pub omit_controls: &'a [&'a str],
     /// The interaction state gated nodes ([`json_ui::render_bound_gated`]) paint under.
@@ -655,10 +657,15 @@ impl Canvas<'_> {
     }
 
     /// Push `visual` at `bounds` into the current clip group.
-    pub fn push(&mut self, visual: UiVisual, bounds: [f32; 4]) -> Result<(), PaintError> {
+    pub fn push(&mut self, mut visual: UiVisual, bounds: [f32; 4]) -> Result<(), PaintError> {
         let Some((clip, parent)) = self.clip else {
             return Ok(());
         };
+        if self.art.nearest_sampling
+            && let UiVisual::StyledSprite { style, .. } = &mut visual
+        {
+            *style &= !ui::UI_STYLE_BILINEAR;
+        }
         let id = self.id();
         self.nodes.push(
             UiNode::new(

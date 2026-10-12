@@ -1,250 +1,490 @@
-//! Update availability check: fetches the signed release manifest, verifies it against the
-//! trusted keys baked into this build, and records the verdict at most daily.
+//! One background signed-release check and the launcher's explicit update decisions.
 
+mod handoff;
+#[cfg(test)]
+mod tests;
+mod worker;
+
+use launcher::{
+    install_layout::InstallLayout,
+    menu::{
+        settings_options::{SETTINGS_FILE, SettingsOptions},
+        updates::{Action, Preferences, Ready as Notice, View},
+    },
+};
 use std::{
-    fs,
-    path::{Path, PathBuf},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    path::PathBuf,
+    sync::{Mutex, OnceLock},
+    time::Duration,
 };
+use time::OffsetDateTime;
+use update_installer::startup;
+use update_manifest::channel::Channel;
 
-use serde::{Deserialize, Serialize};
-
-use launcher::install_layout::InstallLayout;
-
-const URL_ENV: &str = "CINNABAR_UPDATE_URL";
-const DISABLE_ENV: &str = "CINNABAR_UPDATE_CHECK";
 const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+const CHECK_POLL_INTERVAL: Duration = Duration::from_secs(60);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
-const CHANNEL: &str = "stable";
-/// `id:base64[,...]` public keys trusted for manifests, set at build time by `UPDATE_TRUSTED_KEYS`.
-const TRUSTED_KEYS: &str = match option_env!("UPDATE_TRUSTED_KEYS") {
-    Some(keys) => keys,
-    None => "",
-};
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+static LAYOUT: OnceLock<InstallLayout> = OnceLock::new();
+static STATE: Mutex<State> = Mutex::new(State::new());
+#[cfg(unix)]
+static STARTUP: OnceLock<update_installer::recovery::Startup> = OnceLock::new();
 
-use update_manifest::Verdict;
-
-#[derive(Deserialize, Serialize)]
-struct Stamp {
-    checked_at: u64,
-    #[serde(default)]
-    current: String,
+#[derive(Clone)]
+struct Ready {
+    expires: OffsetDateTime,
+    stage: PathBuf,
+    notice: Notice,
+    channel: Channel,
+    switch_now: bool,
+    /// Keeps the offered stage alive while a later download replaces the cache.
+    lease: Option<std::sync::Arc<std::fs::File>>,
 }
 
-/// Manifest platform key, matching the release pipeline's artifact names.
-pub fn platform_key(os: &str, arch: &str) -> Option<String> {
-    let arch = match arch {
-        "aarch64" => "arm64",
-        "x86_64" => "x86_64",
-        _ => return None,
-    };
-    matches!(os, "macos" | "windows" | "linux").then(|| format!("{os}-{arch}"))
-}
-
-/// A stamp from the future (clock moved back) counts as due rather than suppressing checks.
-fn due(last_checked: Option<u64>, now: u64) -> bool {
-    last_checked.is_none_or(|last| now < last || now - last >= CHECK_INTERVAL.as_secs())
-}
-
-fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_secs())
-}
-
-fn stamp_path(layout: &InstallLayout) -> PathBuf {
-    layout.user_data_root.join("update/last-check.json")
-}
-
-/// Last recorded verdict, if a newer build was found.
-pub fn available(layout: &InstallLayout) -> Option<Verdict> {
-    read_available(
-        &layout.user_data_root.join("update"),
-        env!("CARGO_PKG_VERSION"),
-    )
-}
-
-/// Reads a cached verdict only for the running client version.
-fn read_available(directory: &Path, current: &str) -> Option<Verdict> {
-    let bytes = fs::read(directory.join("available.json")).ok()?;
-    serde_json::from_slice::<Verdict>(&bytes)
-        .ok()
-        .filter(|notice| notice.available && notice.current == current)
-}
-
-fn manifest_url(layout: &InstallLayout) -> Option<String> {
-    std::env::var(URL_ENV)
-        .ok()
-        .or_else(|| fs::read_to_string(layout.resource_root.join("update-url")).ok())
-        .map(|url| url.trim().to_owned())
-        .filter(|url| !url.is_empty())
-}
-
-/// Starts a background check at most once a day; silent without a manifest URL or trusted keys.
-pub fn check_in_background(layout: &InstallLayout) {
-    if !layout.is_installed() || std::env::var(DISABLE_ENV).is_ok_and(|value| value == "0") {
-        return;
-    }
-    let Some(keys) = update_manifest::parse_keys(TRUSTED_KEYS)
-        .ok()
-        .filter(|keys| !keys.is_empty())
-    else {
-        return;
-    };
-    let Some(url) = manifest_url(layout).filter(|url| https(url)) else {
-        return;
-    };
-    let Some(platform) = platform_key(std::env::consts::OS, std::env::consts::ARCH) else {
-        return;
-    };
-    let stamp = stamp_path(layout);
-    let last = fs::read(&stamp)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Stamp>(&bytes).ok())
-        .filter(|stamp| stamp.current == env!("CARGO_PKG_VERSION"))
-        .map(|stamp| stamp.checked_at);
-    if !due(last, now_secs()) {
-        return;
-    }
-    let directory = layout.user_data_root.join("update");
-    std::thread::spawn(move || {
-        let verdict = fetch(&url).and_then(|body| {
-            update_manifest::check(&body, &keys, CHANNEL, &platform, env!("CARGO_PKG_VERSION")).ok()
-        });
-        if let Some(notice) = verdict {
-            record(&directory, &notice);
+impl Ready {
+    /// Presents the verified selection's version and expiry while retaining its own stage reader.
+    fn new(
+        stage: PathBuf,
+        reader: std::fs::File,
+        selected: update_installer::stage::Selection,
+        channel: Channel,
+        switch_now: bool,
+        writable: bool,
+    ) -> Self {
+        Self {
+            expires: selected.manifest.expires,
+            stage,
+            channel,
+            switch_now,
+            lease: Some(std::sync::Arc::new(reader)),
+            notice: Notice {
+                version: selected.manifest.version,
+                writable,
+                protocol_required: false,
+            },
         }
+    }
+}
+
+struct State {
+    updater: Option<update_installer::lease::Updater>,
+    last_poll: Option<u64>,
+    preferences: Preferences,
+    ready: Option<Ready>,
+    dismissed: bool,
+    requested: bool,
+    switch_now: bool,
+    switch_available: bool,
+    stable_available: bool,
+    protocol_required: bool,
+    message: Option<String>,
+    generation: u64,
+    running: bool,
+    startup: StartupPhase,
+}
+
+/// Good frames authorize confirmation; update checks begin once recovery has finished.
+#[derive(Eq, PartialEq)]
+enum StartupPhase {
+    Preparing,
+    Confirming,
+    Complete,
+}
+
+impl State {
+    /// Polls the persisted completion stamp; skipped polls never move the daily deadline.
+    fn tick(&mut self, root: &std::path::Path, now: u64) -> bool {
+        if self.running
+            || self.requested
+            || self
+                .last_poll
+                .is_some_and(|last| now >= last && now - last < CHECK_POLL_INTERVAL.as_secs())
+        {
+            return false;
+        }
+        self.last_poll = Some(now);
+        if self.updater.is_none() {
+            self.updater = std::fs::create_dir_all(root)
+                .and_then(|()| update_installer::lease::Updater::try_acquire(root))
+                .ok();
+            if self.updater.is_some() {
+                // Restore downloaded offers even when the next network check is not due.
+                return true;
+            }
+        }
+        self.updater.is_some()
+            && self.preferences.checks
+            && due(worker::last_check(root, self.preferences.channel), now)
+    }
+
+    /// Clears old channel consent and requests an immediate check when the selection changes.
+    fn configure(&mut self, preferences: Preferences) -> Option<bool> {
+        if self.requested || self.preferences == preferences {
+            return None;
+        }
+        let channel_changed = self.preferences.channel != preferences.channel;
+        if channel_changed {
+            self.ready = None;
+            self.dismissed = false;
+            self.switch_now = false;
+            self.switch_available = false;
+            self.message = None;
+        }
+        self.preferences = preferences;
+        self.generation += 1;
+        Some(channel_changed)
+    }
+
+    /// Requests one manual channel switch and replaces the switch offer with download progress.
+    fn request_switch(&mut self) -> bool {
+        if !self.switch_available || self.requested {
+            return false;
+        }
+        self.switch_now = true;
+        self.switch_available = false;
+        self.message = Some("Downloading this channel's update…".into());
+        self.dismissed = false;
+        self.generation += 1;
+        true
+    }
+
+    /// Ends a worker's progress on every outcome without clearing a newer action's message.
+    fn finish_check(&mut self, generation: u64, switch_now: bool, failed: bool) -> bool {
+        self.running = false;
+        if self.generation != generation {
+            return true;
+        }
+        if switch_now {
+            self.switch_now = false;
+            self.switch_available = failed;
+            self.message =
+                failed.then(|| "Could not download this channel's update. Try again.".into());
+        }
+        false
+    }
+
+    /// Replaces an offer only for the active worker and clears its completed progress message.
+    fn offer(&mut self, ready: Ready, generation: u64) {
+        if self.accepts_worker(generation) {
+            if ready.channel == Channel::Stable {
+                self.stable_available = true;
+            }
+            self.ready = Some(ready);
+            self.switch_available = false;
+            self.message = None;
+        }
+    }
+
+    /// Holds one session's preferences and consent, without a persisted transaction state.
+    const fn new() -> Self {
+        Self {
+            updater: None,
+            last_poll: None,
+            preferences: Preferences::DEFAULT,
+            ready: None,
+            dismissed: false,
+            requested: false,
+            switch_now: false,
+            switch_available: false,
+            stable_available: false,
+            protocol_required: false,
+            message: None,
+            generation: 0,
+            running: false,
+            startup: StartupPhase::Preparing,
+        }
+    }
+
+    /// An explicit Later choice suppresses the optional quit-time install for this session too.
+    fn applies_on_exit(&self, now: OffsetDateTime) -> bool {
+        self.ready
+            .as_ref()
+            .is_some_and(|ready| ready.notice.writable && ready.expires > now)
+            && (self.requested || (self.preferences.install_on_quit && !self.dismissed))
+    }
+
+    /// Freezes the offered stage and cancels background work before accepting shutdown.
+    fn request_restart(&mut self, now: OffsetDateTime) -> bool {
+        if !self
+            .ready
+            .as_ref()
+            .is_some_and(|ready| ready.notice.writable && ready.expires > now)
+        {
+            return false;
+        }
+        self.requested = true;
+        self.generation += 1;
+        true
+    }
+
+    /// Only the current worker may change stages, and accepted shutdown freezes its choice.
+    fn accepts_worker(&self, generation: u64) -> bool {
+        self.generation == generation && !self.requested
+    }
+
+    /// Hands an accepted Restart to the helper even if expiry changes during shutdown.
+    fn handoff_after_exit(&mut self, now: OffsetDateTime) -> Option<Ready> {
+        if self.requested {
+            self.ready
+                .as_ref()
+                .filter(|ready| ready.notice.writable)
+                .cloned()
+        } else if self.applies_on_exit(now) && self.request_restart(now) {
+            self.ready.clone()
+        } else {
+            None
+        }
+    }
+}
+
+/// Configures installed clients; stage and network checks begin after startup acknowledgement.
+pub fn check_in_background(layout: &InstallLayout) {
+    if !layout.is_installed() {
+        return;
+    }
+    let _ = LAYOUT.set(layout.clone());
+    tick(OffsetDateTime::now_utc());
+    #[cfg(unix)]
+    if let Ok(startup) =
+        handoff::installed_target().and_then(update_installer::recovery::Startup::observe)
+    {
+        let _ = STARTUP.set(startup);
+    }
+    configure(
+        SettingsOptions::load(&layout.user_config_root.join(SETTINGS_FILE)).update_preferences(),
+    );
+    worker::start(false);
+}
+
+/// Shares live preferences with the worker; channel changes always clear earlier consent.
+pub fn configure(mut preferences: Preferences) {
+    if std::env::var("CINNABAR_UPDATE_CHECK").is_ok_and(|value| value == "0") {
+        preferences.checks = false;
+    }
+    let force = STATE
+        .lock()
+        .ok()
+        .and_then(|mut state| state.configure(preferences));
+    if let Some(force) = force {
+        worker::start(force);
+    }
+}
+
+/// Presents a verified ready stage and channel availability through the launcher data contract.
+pub fn view() -> View {
+    let now = OffsetDateTime::now_utc();
+    tick(now);
+    let Ok(state) = STATE.lock() else {
+        return View {
+            active: false,
+            ..View::default()
+        };
+    };
+    if state.updater.is_none() {
+        return View {
+            active: false,
+            ..View::default()
+        };
+    }
+    View {
+        ready: state
+            .ready
+            .as_ref()
+            .filter(|ready| !state.dismissed && ready.expires > now)
+            .map(|ready| {
+                let mut notice = ready.notice.clone();
+                notice.protocol_required = state.protocol_required;
+                notice
+            }),
+        stable_available: state.stable_available,
+        switch_available: state.switch_available,
+        message: state.message.clone(),
+        ..View::default()
+    }
+}
+
+/// Raises the wording after a protocol refusal; it never changes update consent.
+pub fn protocol_required() {
+    if let Ok(mut state) = STATE.lock() {
+        state.protocol_required = true;
+    }
+}
+
+/// Returns true only when a verified, writable stage should trigger normal client shutdown.
+pub fn act(action: Action) -> bool {
+    let now = OffsetDateTime::now_utc();
+    let mut download = None;
+    let mut switch = false;
+    let quit = if let Ok(mut state) = STATE.lock() {
+        if state.updater.is_none() {
+            return false;
+        }
+        if state.requested {
+            return true;
+        }
+        match action {
+            Action::Restart => state.request_restart(now),
+            Action::Later => {
+                state.dismissed = true;
+                state.requested = false;
+                false
+            }
+            Action::Download => {
+                download = state.ready.clone();
+                false
+            }
+            Action::SwitchNow => {
+                switch = state.request_switch();
+                false
+            }
+            _ => false,
+        }
+    } else {
+        false
+    };
+    if let Some(ready) = download {
+        handoff::open_download(ready);
+    }
+    if switch {
+        worker::start(true);
+    }
+    quit
+}
+
+/// Starts the offline helper only for a click or the separately saved quit-time opt-in.
+pub fn apply_after_exit() {
+    let ready = STATE
+        .lock()
+        .ok()
+        .filter(|state| state.updater.is_some())
+        .and_then(|mut state| state.handoff_after_exit(OffsetDateTime::now_utc()));
+    if let (Some(layout), Some(ready)) = (LAYOUT.get(), ready)
+        && let Err(error) = handoff::spawn_or_restart(
+            || handoff::spawn(layout, &ready),
+            || {
+                handoff::installed_target().and_then(|target| {
+                    startup::Tree::spawn(&mut startup::client_command(&target))
+                        .map(drop)
+                        .map_err(Into::into)
+                })
+            },
+        )
+    {
+        tracing::warn!("could not start updater: {error:#}");
+    }
+}
+
+/// Signals a complete first frame to the waiting helper.
+pub fn acknowledge_startup() {
+    let Some(layout) = LAYOUT.get() else {
+        return;
+    };
+    let marker = startup_marker(layout);
+    if let Ok(mut state) = STATE.lock() {
+        state.startup = StartupPhase::Confirming;
+    }
+    #[cfg(unix)]
+    let update_dir = layout.update_dir();
+    std::thread::spawn(move || {
+        if let Some(marker) = marker {
+            let _ = std::fs::File::options()
+                .write(true)
+                .create_new(true)
+                .open(marker);
+        }
+        #[cfg(unix)]
+        if let Some(startup) = STARTUP.get() {
+            if let Err(error) = startup.confirm(&update_dir) {
+                tracing::debug!("update recovery: {error:#}");
+            }
+        }
+        if let Ok(mut state) = STATE.lock() {
+            state.startup = StartupPhase::Complete;
+        }
+        worker::start(false);
     });
 }
 
-/// Manifests are only ever fetched over HTTPS.
-fn https(url: &str) -> bool {
-    url::Url::parse(url).is_ok_and(|url| url.scheme() == "https" && url.host_str().is_some())
-}
-
-/// The served envelope, refused when it is not a 200 or exceeds the envelope bound.
-fn fetch(url: &str) -> Option<Vec<u8>> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .ok()?;
-    // Refuses plain HTTP, redirects included, so a downgrade cannot serve the manifest.
-    let client = reqwest::Client::builder()
-        .timeout(FETCH_TIMEOUT)
-        .https_only(true)
-        .build()
-        .ok()?;
-    runtime.block_on(async {
-        let mut response = client.get(url).send().await.ok()?;
-        if response.status() != reqwest::StatusCode::OK {
-            return None;
-        }
-        let mut body = Vec::new();
-        while let Some(chunk) = response.chunk().await.ok()? {
-            if body.len() + chunk.len() > update_manifest::MAX_ENVELOPE_BYTES {
-                return None;
+/// Lets a copied helper restore an orphaned replacement only after this failed client has exited.
+pub fn recover_after_failed_start() {
+    #[cfg(unix)]
+    if STATE
+        .lock()
+        .is_ok_and(|state| state.updater.is_some() && state.startup == StartupPhase::Preparing)
+    {
+        if let Some(layout) = LAYOUT.get() {
+            if let Ok(target) = handoff::installed_target() {
+                if update_installer::recovery::needs_rollback(&target, &layout.update_dir()) {
+                    if let Err(error) = handoff::spawn_recovery(layout, target) {
+                        tracing::warn!("could not start update recovery: {error:#}");
+                    }
+                }
             }
-            body.extend_from_slice(&chunk);
         }
-        Some(body)
-    })
+    }
 }
 
-fn record(directory: &Path, notice: &Verdict) {
-    let _ = fs::create_dir_all(directory);
-    if let Ok(bytes) = serde_json::to_vec(&Stamp {
-        checked_at: now_secs(),
-        current: notice.current.clone(),
-    }) {
-        let _ = fs::write(directory.join("last-check.json"), bytes);
-    }
-    let available = directory.join("available.json");
-    if notice.available {
-        if let Ok(bytes) = serde_json::to_vec(notice) {
-            let _ = fs::write(available, bytes);
+/// Runs `prepare`, relaying each change to its `progress` report to a waiting update helper;
+/// `awaiting_user` marks reports during which the helper must not time out.
+pub fn while_preparing<T>(
+    layout: &InstallLayout,
+    progress: &std::path::Path,
+    awaiting_user: fn(&[u8]) -> bool,
+    prepare: impl FnOnce() -> T,
+) -> T {
+    let Some(marker) = startup_marker(layout) else {
+        return prepare();
+    };
+    let mut relay = startup::Relay::start(marker, progress.to_owned(), awaiting_user);
+    let (stop, stopped) = std::sync::mpsc::channel::<()>();
+    let watcher = std::thread::spawn(move || {
+        while stopped.recv_timeout(startup::PROGRESS_POLL)
+            == Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        {
+            relay.poll();
         }
+        relay
+    });
+    let result = prepare();
+    drop(stop);
+    if let Ok(relay) = watcher.join() {
+        relay.finish();
+    }
+    result
+}
+
+/// Whether this process, or the client that started it, was launched by the update helper.
+pub fn launched_by_updater() -> bool {
+    std::env::var_os(startup::STARTUP_ENV).is_some()
+}
+
+/// The helper's marker, accepted only inside this install's update directory.
+fn startup_marker(layout: &InstallLayout) -> Option<PathBuf> {
+    let marker = PathBuf::from(std::env::var_os(startup::STARTUP_ENV)?);
+    (marker.starts_with(layout.update_dir())
+        && marker
+            .file_name()
+            .is_some_and(|name| name == startup::STARTED))
+    .then_some(marker)
+}
+
+/// A corrected clock cannot suppress the next daily check.
+fn due(last: Option<u64>, now: u64) -> bool {
+    last.is_none_or(|last| now < last || now - last >= CHECK_INTERVAL.as_secs())
+}
+
+/// Retries the lifetime updater role and starts a check only on this process's daily tick.
+fn tick(now: OffsetDateTime) {
+    let Some(layout) = LAYOUT.get() else {
+        return;
+    };
+    let now = now.unix_timestamp().max(0) as u64;
+    let run = if let Ok(mut state) = STATE.lock() {
+        state.tick(&layout.update_dir(), now)
     } else {
-        let _ = fs::remove_file(available);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn review_upgrading_invalidates_cached_update_notices() {
-        let dir = std::env::temp_dir().join(format!("cinnabar-old-update-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(
-            dir.join("available.json"),
-            br#"{"available":true,"current":"old","latest":"new"}"#,
-        )
-        .unwrap();
-        assert!(read_available(&dir, "old").is_some());
-        let notice = read_available(&dir, "new");
-        fs::remove_dir_all(dir).unwrap();
-        assert!(notice.is_none());
-    }
-
-    #[test]
-    fn platform_keys_match_the_release_artifact_names() {
-        assert_eq!(
-            platform_key("macos", "aarch64").as_deref(),
-            Some("macos-arm64")
-        );
-        assert_eq!(
-            platform_key("windows", "x86_64").as_deref(),
-            Some("windows-x86_64")
-        );
-        assert_eq!(
-            platform_key("linux", "x86_64").as_deref(),
-            Some("linux-x86_64")
-        );
-        assert_eq!(platform_key("linux", "riscv64"), None);
-        assert_eq!(platform_key("freebsd", "x86_64"), None);
-    }
-
-    #[test]
-    fn checks_run_at_most_once_per_interval() {
-        assert!(due(None, 10));
-        assert!(!due(Some(1_000), 1_000 + 3_600));
-        assert!(due(Some(1_000), 1_000 + 24 * 3_600));
-        assert!(due(Some(5_000), 100));
-    }
-
-    #[test]
-    fn recorded_verdicts_parse_with_and_without_an_artifact() {
-        let with = br#"{"available":true,"current":"0.1.0","latest":"0.2.0","artifact":{"url":"https://x/y","sha256":"ab","size":9}}"#;
-        let notice: Verdict = serde_json::from_slice(with).unwrap();
-        assert_eq!(notice.artifact.unwrap().size, 9);
-        let without = br#"{"available":false,"current":"0.2.0","latest":"0.2.0"}"#;
-        assert!(
-            !serde_json::from_slice::<Verdict>(without)
-                .unwrap()
-                .available
-        );
-        assert!(serde_json::from_slice::<Verdict>(b"nope").is_err());
-    }
-
-    #[test]
-    fn manifests_are_fetched_only_over_https() {
-        assert!(https("https://example.test/update-stable.json"));
-        for url in ["http://example.test/m", "file:///m", "not a url", ""] {
-            assert!(!https(url), "{url} accepted");
-        }
-    }
-
-    // The default redirect policy followed an HTTPS manifest URL down to plain HTTP.
-    #[test]
-    fn fetching_never_opens_plain_http() {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let url = format!(
-            "http://{}/update-stable.json",
-            listener.local_addr().unwrap()
-        );
-        assert!(fetch(&url).is_none());
-        listener.set_nonblocking(true).unwrap();
-        assert!(listener.accept().is_err(), "connected over plain HTTP");
+        false
+    };
+    if run {
+        worker::start(false);
     }
 }

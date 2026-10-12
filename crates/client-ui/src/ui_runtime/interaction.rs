@@ -108,6 +108,13 @@ impl InventoryKeys {
         self.control = self.modifier_sides[2] || self.modifier_sides[3];
     }
 
+    /// Releases every tracked modifier, for when key releases can no longer be observed.
+    pub fn release_modifiers(&mut self) {
+        self.modifier_sides = [false; 4];
+        self.shift = false;
+        self.control = false;
+    }
+
     pub fn press(&mut self, key: KeyboardKey) {
         if self.presses.len() < Self::MAX_PRESSES {
             self.presses.push(key);

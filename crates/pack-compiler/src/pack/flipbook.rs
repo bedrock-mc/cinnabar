@@ -67,7 +67,7 @@ pub(super) fn read_flipbooks(
     path: &Path,
     terrain: &TerrainTextureMap,
 ) -> Result<Box<[FlipbookSource]>, AssetError> {
-    let raw: BoundedSequence<RawFlipbook, MAX_FLIPBOOKS> = read_json(path, true)?;
+    let raw: BoundedSequence<RawFlipbook, MAX_FLIPBOOKS> = read_json(path)?;
     if raw.count > MAX_FLIPBOOKS {
         return Err(AssetError::TooManyFlipbooks {
             count: raw.count,

@@ -21,6 +21,8 @@ fn a_signed_manifest_verifies_with_the_artifact_digest() {
     run(
         &args(&[
             "sign",
+            "-build-number",
+            "42",
             "-version",
             "1.2.3",
             "--notes-url=https://example.test/n",
@@ -37,8 +39,9 @@ fn a_signed_manifest_verifies_with_the_artifact_digest() {
     let artifact = &manifest.artifacts["macos-arm64"];
     assert_eq!(
         (manifest.version.as_str(), manifest.channel.as_str()),
-        ("1.2.3", "stable")
+        ("1.2.3", update_manifest::channel::Channel::default().name())
     );
+    assert_eq!(manifest.build_number, 42);
     assert_eq!(manifest.notes_url, "https://example.test/n");
     assert_eq!(artifact.size, 7);
     assert_eq!(
@@ -46,13 +49,19 @@ fn a_signed_manifest_verifies_with_the_artifact_digest() {
         "239f59ed55e737c77147cf55ad0c1b030b6d7ee748a7426952f9b852d5a935e5"
     );
     assert!(manifest.expires > OffsetDateTime::now_utc() + Duration::days(29));
-    let verdict = update_manifest::evaluate(&manifest, "stable", "macos-arm64", "1.2.2").unwrap();
+    let verdict = update_manifest::select::evaluate(
+        &manifest,
+        update_manifest::channel::Channel::default().name(),
+        "macos-arm64",
+        "1.2.2",
+    )
+    .unwrap();
     assert!(verdict.available);
 }
 
 #[test]
 fn signing_requires_a_key_and_an_artifact() {
-    let sign = args(&["sign", "-version", "1.0.0"]);
+    let sign = args(&["sign", "-build-number", "42", "-version", "1.0.0"]);
     assert!(
         run(&sign, None, &mut Vec::new())
             .unwrap_err()
@@ -88,6 +97,17 @@ fn validity_accepts_hour_minute_second_lifetimes() {
 }
 
 #[test]
+fn signed_releases_require_a_positive_publication_number() {
+    let error = run(
+        &args(&["sign", "-build-number", "0", "-version", "1.0.0"]),
+        Some(&seed()),
+        &mut Vec::new(),
+    )
+    .unwrap_err();
+    assert!(error.contains("positive -build-number"));
+}
+
+#[test]
 fn keygen_prints_a_matching_key_pair() {
     let mut out = Vec::new();
     run(&args(&["keygen"]), None, &mut out).unwrap();
@@ -100,5 +120,55 @@ fn keygen_prints_a_matching_key_pair() {
     assert_eq!(
         update_manifest::public_key(&private).unwrap().as_slice(),
         public
+    );
+}
+
+#[test]
+fn archived_payload_names_retain_even_expired_downloads_without_installing_them() {
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join("manifest.json");
+    let name = format!(
+        "{}old-Cinnabar.dmg",
+        update_manifest::platforms::payload_prefix()
+    );
+    let artifact = Artifact {
+        url: format!("https://example.test/{name}"),
+        sha256: "a".repeat(64),
+        size: 1,
+    };
+    let manifest = Manifest {
+        schema: SCHEMA,
+        channel: "stable".into(),
+        version: "1.0.0".into(),
+        build_number: 1,
+        expires: OffsetDateTime::UNIX_EPOCH,
+        notes_url: String::new(),
+        artifacts: [
+            ("macos-arm64".into(), artifact.clone()),
+            ("macos-x86_64".into(), artifact),
+        ]
+        .into(),
+    };
+    std::fs::write(
+        &file,
+        update_manifest::sign(&manifest, "k1", &SEED).unwrap(),
+    )
+    .unwrap();
+    let mut out = Vec::new();
+    run(
+        &args(&["payload-names", file.to_str().unwrap()]),
+        None,
+        &mut out,
+    )
+    .unwrap();
+    assert_eq!(String::from_utf8(out).unwrap(), format!("{name}\n"));
+    std::fs::write(&file, "{}").unwrap();
+    assert!(
+        run(
+            &args(&["payload-names", file.to_str().unwrap()]),
+            None,
+            &mut Vec::new()
+        )
+        .is_err()
     );
 }

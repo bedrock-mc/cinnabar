@@ -107,6 +107,51 @@ fn missing_kit_is_reported_after_consent_and_recorded() {
     assert_eq!(fake.asked.get(), 1);
 }
 
+/// Records whether the progress report said "awaiting the user" at each prompt.
+struct Observer {
+    progress: PathBuf,
+    during_confirm: RefCell<Vec<bool>>,
+    after_consent: RefCell<Vec<bool>>,
+}
+
+impl Observer {
+    fn awaiting(&self) -> bool {
+        fs::read(&self.progress).is_ok_and(|report| awaiting_user(&report))
+    }
+}
+
+impl Prompter for Observer {
+    fn confirm(&self, _: &str, _: &str) -> Consent {
+        self.during_confirm.borrow_mut().push(self.awaiting());
+        Consent::Accepted
+    }
+    // Called once consent is resolved, before any preparation work.
+    fn info(&self, _: &str, _: &str) {
+        self.after_consent.borrow_mut().push(self.awaiting());
+    }
+    fn alert(&self, _: &str, _: &str) {}
+}
+
+#[test]
+fn only_an_open_consent_prompt_reports_awaiting_the_user() {
+    let data = Dir::new("awaiting-consent");
+    let layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/cinnabar");
+    let observer = Observer {
+        progress: progress_file(&layout),
+        during_confirm: RefCell::default(),
+        after_consent: RefCell::default(),
+    };
+    let _ = ensure_with(&layout, &observer, false);
+    assert_eq!(observer.during_confirm.borrow().as_slice(), [true]);
+    assert_eq!(observer.after_consent.borrow().first(), Some(&false));
+    // Already-recorded consent never reports a user wait.
+    let _ = fs::remove_file(progress_file(&layout));
+    observer.after_consent.borrow_mut().clear();
+    let _ = ensure_with(&layout, &observer, false);
+    assert_eq!(observer.during_confirm.borrow().len(), 1);
+    assert_eq!(observer.after_consent.borrow().first(), Some(&false));
+}
+
 #[derive(Default)]
 struct Recorder {
     no_prompt: bool,

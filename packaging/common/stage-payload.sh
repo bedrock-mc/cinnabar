@@ -69,8 +69,6 @@ stage_resources() {
     install -d "$resources/fonts"
     install -m 0644 "$font" "$resources/fonts/${font##*/}"
     stage_prep_kit "$resources/prep-kit" "$assetc"
-    # Optional endpoints, injected by CI; absent means the feature is off.
-    [[ -z "${CINNABAR_UPDATE_URL:-}" ]] || printf '%s\n' "$CINNABAR_UPDATE_URL" > "$resources/update-url"
 }
 
 # ui_font_path: the bundled Cinnangles Sans source; first-run draws with it.

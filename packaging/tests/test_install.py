@@ -174,7 +174,7 @@ esac
         data.write_bytes(b"game data")
         return image, data
 
-    def test_stable_install_resolves_one_tag_and_handles_quoted_paths(self):
+    def test_beta_install_resolves_one_tag_and_handles_quoted_paths(self):
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.requests(), [BASE + "/latest",
@@ -216,7 +216,7 @@ esac
         tampered = self.install("--version", "v1.2.3")
         self.assertIn("SHA-256 mismatch", tampered.stderr)
         no_release = self.install(FIXTURE_NO_RELEASE="1")
-        self.assertIn("No stable release is available", no_release.stderr)
+        self.assertIn("No Beta release is available", no_release.stderr)
 
     def test_curl_is_preferred_over_wget(self):
         self.add_tool("wget", f"#!{sys.executable}\n{DOWNLOADER}")
@@ -457,10 +457,18 @@ esac
         self.assertIn("install the DMG", result.stderr)
         self.assertEqual(self.requests(), [])
 
-    def test_no_stable_release_returns_useful_error(self):
+    def test_explicit_beta_uses_latest_and_unpublished_stable_is_rejected(self):
+        result = self.install("--channel", "stable")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.requests(), [])
+        result = self.install("--channel", "beta")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.requests()[0], BASE + "/latest")
+
+    def test_no_beta_release_returns_useful_error(self):
         result = self.install(FIXTURE_NO_RELEASE="1")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("No stable release is available", result.stderr)
+        self.assertIn("No Beta release is available", result.stderr)
         self.assertFalse(self.data.exists())
 
     def test_nightly_and_exact_tag_do_not_query_latest(self):

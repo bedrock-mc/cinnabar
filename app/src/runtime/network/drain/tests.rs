@@ -71,11 +71,22 @@ fn level_chunk(sequence: u64) -> WorldEvent {
 fn drain_frame(
     stream: &mut WorldStream,
     receiver: &mut tokio::sync::mpsc::Receiver<WorldIngress>,
+    pending: &mut Option<WorldIngress>,
 ) -> Vec<u64> {
     let now = Instant::now();
     let mut drain = frame_drain(now);
     let mut consumed = Vec::new();
-    while let Some(ingress) = drain.next(receiver, stream.remaining_admission_capacity(), now) {
+    while let Some(ingress) = drain.next(
+        receiver,
+        pending,
+        |ingress| {
+            let WorldIngress::Event(event) = ingress else {
+                panic!("expected an ordinary world event");
+            };
+            stream.can_admit(&event.event)
+        },
+        now,
+    ) {
         consumed.push(submit(stream, ingress));
     }
     consumed
@@ -122,14 +133,18 @@ fn world_ingress_rechecks_admission_after_consumer_fanout() {
     for sequence in retained + 1..=retained + count {
         sender.try_send(metadata(sequence as u64)).unwrap();
     }
-    let mut consumed = drain_frame(&mut stream, &mut receiver);
+    let mut pending = None;
+    let mut consumed = drain_frame(&mut stream, &mut receiver, &mut pending);
     assert_eq!(consumed.len(), retained);
-    assert_eq!(receiver.len(), count - retained);
+    assert_eq!(
+        receiver.len() + usize::from(pending.is_some()),
+        count - retained
+    );
     assert_eq!(stream.remaining_admission_capacity(), 0);
     assert_eq!(stream.take_committed_controls().len(), retained * 2);
     assert_eq!(stream.take_committed_ui().len(), retained * 2);
 
-    consumed.extend(drain_frame(&mut stream, &mut receiver));
+    consumed.extend(drain_frame(&mut stream, &mut receiver, &mut pending));
     assert_eq!(
         consumed,
         ((retained + 1) as u64..=(retained + count) as u64).collect::<Vec<_>>()
@@ -147,16 +162,21 @@ fn world_ingress_stops_at_its_time_budget_and_preserves_fifo() {
     }
     let start = Instant::now();
     let mut drain = frame_drain(start);
+    let mut pending = None;
     assert!(matches!(
-        drain.next(&mut receiver, 1, start),
+        drain.next(&mut receiver, &mut pending, |_| true, start),
         Some(WorldIngress::Event(event)) if event.sequence.get() == 1
     ));
     let spent = start + WORLD_INGRESS_DRAIN_BUDGET;
-    assert!(drain.next(&mut receiver, 1, spent).is_none());
+    assert!(
+        drain
+            .next(&mut receiver, &mut pending, |_| true, spent)
+            .is_none()
+    );
     assert_eq!(receiver.len(), 2);
     let mut next_frame = frame_drain(spent);
     assert!(matches!(
-        next_frame.next(&mut receiver, 1, spent),
+        next_frame.next(&mut receiver, &mut pending, |_| true, spent),
         Some(WorldIngress::Event(event)) if event.sequence.get() == 2
     ));
 }
@@ -176,7 +196,8 @@ fn light_ingress_keeps_committing_while_heavy_admission_is_full() {
     for sequence in heavy + 2..=heavy + 9 {
         sender.try_send(remote_move(sequence)).unwrap();
     }
-    let consumed = drain_frame(&mut stream, &mut receiver);
+    let mut pending = None;
+    let consumed = drain_frame(&mut stream, &mut receiver, &mut pending);
     assert_eq!(consumed, (heavy + 1..=heavy + 9).collect::<Vec<_>>());
     assert_eq!(
         stream.committed_sequence(),
@@ -195,7 +216,11 @@ fn two_hundred_queued_moves_commit_in_one_drain() {
     for sequence in 1..=MOVES {
         sender.try_send(remote_move(sequence)).unwrap();
     }
-    assert_eq!(drain_frame(&mut stream, &mut receiver).len() as u64, MOVES);
+    let mut pending = None;
+    assert_eq!(
+        drain_frame(&mut stream, &mut receiver, &mut pending).len() as u64,
+        MOVES
+    );
     assert_eq!(stream.committed_sequence(), MOVES);
 }
 
@@ -205,10 +230,15 @@ fn world_ingress_cursor_leaves_zero_admission_events_queued() {
     sender.try_send(metadata(1)).unwrap();
     let now = Instant::now();
     let mut drain = frame_drain(now);
-    assert!(drain.next(&mut receiver, 0, now).is_none());
-    assert_eq!(receiver.len(), 1);
+    let mut pending = None;
+    assert!(
+        drain
+            .next(&mut receiver, &mut pending, |_| false, now)
+            .is_none()
+    );
+    assert_eq!(receiver.len() + usize::from(pending.is_some()), 1);
     assert!(matches!(
-        drain.next(&mut receiver, 1, now),
+        drain.next(&mut receiver, &mut pending, |_| true, now),
         Some(WorldIngress::Event(event)) if event.sequence.get() == 1
     ));
 }
@@ -229,22 +259,29 @@ fn world_ingress_cursor_receives_without_allocating() {
     let spent = now + WORLD_INGRESS_DRAIN_BUDGET;
     let before = thread_allocations();
     let mut drain = frame_drain(now);
-    let blocked = drain.next(&mut receiver, 0, now).is_none();
+    let mut pending = None;
+    let blocked = drain
+        .next(&mut receiver, &mut pending, |_| false, now)
+        .is_none();
     let first = matches!(
-        drain.next(&mut receiver, 1, now),
+        drain.next(&mut receiver, &mut pending, |_| true, now),
         Some(WorldIngress::Event(event)) if event.sequence.get() == 1
     );
     let second = matches!(
-        drain.next(&mut receiver, 1, now),
+        drain.next(&mut receiver, &mut pending, |_| true, now),
         Some(WorldIngress::Event(event)) if event.sequence.get() == 2
     );
-    let capped = drain.next(&mut receiver, 1, spent).is_none();
+    let capped = drain
+        .next(&mut receiver, &mut pending, |_| true, spent)
+        .is_none();
     let mut next_frame = frame_drain(spent);
     let third = matches!(
-        next_frame.next(&mut receiver, 1, spent),
+        next_frame.next(&mut receiver, &mut pending, |_| true, spent),
         Some(WorldIngress::Event(event)) if event.sequence.get() == 3
     );
-    let empty = next_frame.next(&mut receiver, 1, spent).is_none();
+    let empty = next_frame
+        .next(&mut receiver, &mut pending, |_| true, spent)
+        .is_none();
     let allocated = thread_allocations() - before;
 
     assert_eq!(allocated, 0);

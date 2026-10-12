@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+reads = ["packaging/release-assets.json"]
+
 [lib]
 doctest = false
 
@@ -13,6 +16,7 @@ base64 = "0.22"
 ring = "0.17"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+semver = "1"
 thiserror.workspace = true
 time = { version = "0.3", default-features = false, features = ["std", "formatting", "parsing"] }
 url = "2"

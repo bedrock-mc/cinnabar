@@ -182,7 +182,12 @@ fn action_panel(
     } else {
         0.0
     };
-    let group_height = canvas.r(if compact { 30.0 } else { 24.0 });
+    let update_height = if view.updates.ready.is_some() {
+        12.8
+    } else {
+        0.0
+    };
+    let group_height = canvas.r((if compact { 30.0 } else { 24.0 }) + update_height);
     let content_height =
         (bounds[3] - bounds[1]).max(group_height + pad * 2.0 + canvas.r(event_height));
     let origin = bounds[1] - scroll.offset;
@@ -195,6 +200,14 @@ fn action_panel(
     if let Some(event) = &view.feeds.home.live_event {
         let b = [x, y - canvas.r(5.2), right, y - canvas.r(1.2)];
         live_event(canvas, view, b, event, translate)?;
+    }
+    if view.updates.ready.is_some() {
+        super::updates::notice(
+            canvas,
+            view,
+            [x, y, right, y + canvas.r(update_height - 1.2)],
+        )?;
+        y += canvas.r(update_height);
     }
     canvas.text_line("LET'S PLAY", [x, y], right - x, HEADER5, TEXT)?;
     y += canvas.r(HEADER5.line + 0.8);

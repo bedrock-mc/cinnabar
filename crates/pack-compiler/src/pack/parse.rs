@@ -5,7 +5,6 @@ use std::{
     io::Read,
     marker::PhantomData,
     path::{Component, Path},
-    str,
 };
 
 use assets::AssetError;
@@ -118,10 +117,8 @@ pub(super) fn validate_texture_path(path: &str) -> Result<(), AssetError> {
     Ok(())
 }
 
-pub(super) fn read_json<T: DeserializeOwned>(
-    path: &Path,
-    strip_comments: bool,
-) -> Result<T, AssetError> {
+/// Reads one bounded pack JSON document through the shared decoder.
+pub(super) fn read_json<T: DeserializeOwned>(path: &Path) -> Result<T, AssetError> {
     let file = File::open(path).map_err(|source| AssetError::Io {
         path: path.to_path_buf(),
         source,
@@ -141,34 +138,10 @@ pub(super) fn read_json<T: DeserializeOwned>(
         });
     }
 
-    let text = str::from_utf8(&bytes).map_err(|source| AssetError::InvalidJsonUtf8 {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    let text = if strip_comments {
-        strip_leading_comment_lines(text)
-    } else {
-        text
-    };
-    serde_json::from_str(text).map_err(|source| AssetError::Json {
+    pack_json::parse_jsonc(&bytes).map_err(|source| AssetError::Json {
         path: path.to_path_buf(),
         source,
     })
-}
-
-fn strip_leading_comment_lines(input: &str) -> &str {
-    let mut offset = 0;
-    for line in input.split_inclusive('\n') {
-        let body = line.strip_suffix('\n').unwrap_or(line);
-        let body = body.strip_suffix('\r').unwrap_or(body);
-        let trimmed = body.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with("//") {
-            offset += line.len();
-        } else {
-            break;
-        }
-    }
-    &input[offset..]
 }
 
 /// Retains only the bounded prefix while counting all entries without decoding the excess.

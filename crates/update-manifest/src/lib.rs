@@ -11,9 +11,14 @@ use ring::{
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
+pub mod build;
+pub mod channel;
+pub mod platforms;
+pub mod select;
 #[cfg(test)]
 mod tests;
 mod wire;
+pub use platforms::platform_key;
 
 /// Largest served envelope accepted.
 pub const MAX_ENVELOPE_BYTES: usize = 1 << 20;
@@ -91,6 +96,9 @@ pub struct Manifest {
     pub channel: String,
     #[serde(default)]
     pub version: String,
+    /// Monotonic publication number for builds with the same app version.
+    #[serde(default)]
+    pub build_number: u64,
     #[serde(with = "wire::rfc3339")]
     pub expires: OffsetDateTime,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -140,83 +148,12 @@ pub fn verify(
     Ok(manifest)
 }
 
-/// Verifies `envelope_json` against the clock and evaluates it for the running build.
-pub fn check(
-    envelope_json: &[u8],
-    keys: &TrustedKeys,
-    channel: &str,
-    platform: &str,
-    current: &str,
-) -> Result<Verdict, Error> {
-    let manifest = verify(envelope_json, keys, OffsetDateTime::now_utc())?;
-    evaluate(&manifest, channel, platform, current)
-}
-
-/// Compares a verified manifest with the running build; a missing platform is not an error.
-pub fn evaluate(
-    manifest: &Manifest,
-    channel: &str,
-    platform: &str,
-    current: &str,
-) -> Result<Verdict, Error> {
-    if manifest.channel != channel {
-        return Err(Error::Channel {
-            found: manifest.channel.clone(),
-            expected: channel.to_owned(),
-        });
-    }
-    let mut verdict = Verdict {
-        current: current.to_owned(),
-        latest: manifest.version.clone(),
-        notes_url: (!manifest.notes_url.is_empty()).then(|| manifest.notes_url.clone()),
-        ..Verdict::default()
-    };
-    if !newer(&manifest.version, current)? {
-        return Ok(verdict);
-    }
-    let Some(artifact) = manifest.artifacts.get(platform) else {
-        return Ok(verdict);
-    };
-    validate_artifact(artifact)?;
-    verdict.available = true;
-    verdict.artifact = Some(artifact.clone());
-    Ok(verdict)
-}
-
-/// Whether `candidate` is a higher dotted-numeric version than `current`; a pre-release sorts lower.
-pub fn newer(candidate: &str, current: &str) -> Result<bool, Error> {
-    let (candidate, current) = (Version::parse(candidate)?, Version::parse(current)?);
-    if candidate.parts != current.parts {
-        return Ok(candidate.parts > current.parts);
-    }
-    Ok(!current.pre.is_empty() && candidate.pre.is_empty())
-}
-
-struct Version<'a> {
-    parts: [u32; 3],
-    pre: &'a str,
-}
-
-impl<'a> Version<'a> {
-    /// `[v]MAJOR.MINOR.PATCH[-pre]` with plain decimal fields.
-    fn parse(raw: &'a str) -> Result<Self, Error> {
-        let invalid = || Error::Version(raw.to_owned());
-        let trimmed = raw.strip_prefix('v').unwrap_or(raw);
-        let (core, pre) = trimmed.split_once('-').unwrap_or((trimmed, ""));
-        let mut fields = core.split('.');
-        let mut parts = [0; 3];
-        for part in &mut parts {
-            let field = fields.next().ok_or_else(invalid)?;
-            if field.is_empty() || !field.bytes().all(|byte| byte.is_ascii_digit()) {
-                return Err(invalid());
-            }
-            *part = field.parse().map_err(|_| invalid())?;
-        }
-        if fields.next().is_some() {
-            return Err(invalid());
-        }
-        Ok(Self { parts, pre })
-    }
+/// Build number baked into packaged clients; old or developer builds have no publication number.
+pub fn build_number() -> u64 {
+    option_env!("CINNABAR_BUILD_NUMBER")
+        .or(option_env!("GITHUB_RUN_NUMBER"))
+        .and_then(|number| number.parse().ok())
+        .unwrap_or(0)
 }
 
 /// Rejects an artifact that is not an HTTPS download with a SHA-256 digest and a positive size.

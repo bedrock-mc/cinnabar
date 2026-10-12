@@ -115,6 +115,8 @@ impl Children {
         }
         #[cfg(unix)]
         seal_inherited_sockets();
+        #[cfg(all(windows, not(debug_assertions)))]
+        crate::desktop::windows::hide_console(command);
         let entry = Arc::new(Tracked {
             child: Mutex::new(command.spawn()?),
             grace,

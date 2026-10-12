@@ -19,8 +19,8 @@ use std::{
 
 use ::image::{ImageFormat, ImageReader, Limits};
 use assets::{
-    AssetError, RuntimeUiAssets, UiAtlasPage, UiFile, UiNineSlice, UiSidecar, UiTexturePlacement,
-    canonical_source_manifest_sha256, encode_ui_catalog,
+    AssetError, RuntimeUiAssets, SPLASH_RESOURCE_PATH, UiAtlasPage, UiFile, UiNineSlice, UiSidecar,
+    UiTexturePlacement, canonical_source_manifest_sha256, encode_ui_catalog,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -95,8 +95,8 @@ pub fn compile_ui_assets(
             .cloned(),
     );
     // Release packs carry the title splashes; preview packs have none.
-    if pack.join(SPLASHES).is_file() {
-        ui_paths.push(SPLASHES.to_owned());
+    if pack.join(SPLASH_RESOURCE_PATH).is_file() {
+        ui_paths.push(SPLASH_RESOURCE_PATH.to_owned());
     }
     ui_paths.extend(
         assets::UI_CREDITS_FILES
@@ -209,11 +209,7 @@ fn referenced_textures(files: &[UiFile]) -> BTreeSet<String> {
     }
     let mut paths = BTreeSet::new();
     for file in files.iter().filter(|file| file.path.starts_with("ui/")) {
-        let bytes = file
-            .bytes
-            .strip_prefix(b"\xef\xbb\xbf")
-            .unwrap_or(&file.bytes);
-        if let Ok(value) = serde_json::from_slice(&assets::strip_json_comments(bytes)) {
+        if let Ok(value) = pack_json::parse_jsonc(&file.bytes) {
             visit(&value, &mut paths);
         }
     }
@@ -383,7 +379,7 @@ fn read_sidecars(pack: &Path, sidecar_paths: &[String]) -> Result<SidecarSet, As
         let bytes = read_bounded(&path, MAX_UI_SIDECAR_BYTES)?;
         let Some(meta) = bytes
             .as_ref()
-            .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok())
+            .and_then(|bytes| pack_json::parse_jsonc::<Value>(bytes).ok())
             .as_ref()
             .and_then(parse_sidecar)
         else {
@@ -540,8 +536,6 @@ fn relative_posix(path: &Path, pack_root: &Path) -> Option<String> {
     }
     Some(out)
 }
-
-const SPLASHES: &str = "splashes.json";
 
 /// Both sets of six panorama faces and their overlay tint.
 fn is_panorama_file(logical: &str) -> bool {
@@ -807,11 +801,11 @@ mod tests {
     fn a_release_pack_carries_its_splashes() {
         let pack = synthetic_pack();
         let splashes = br#"{"splashes":["Haley loves Elan!"]}"#;
-        write(pack.path(), "splashes.json", splashes);
+        write(pack.path(), SPLASH_RESOURCE_PATH, splashes);
         let compiled = compile_ui_assets(pack.path(), MANIFEST).unwrap();
         let assets = decode_ui_carrier(&compiled.bytes).unwrap();
         assert_eq!(
-            assets.ui_file("splashes.json").unwrap(),
+            assets.ui_file(SPLASH_RESOURCE_PATH).unwrap(),
             splashes.as_slice()
         );
     }

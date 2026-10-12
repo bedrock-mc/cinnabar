@@ -524,10 +524,17 @@ pub fn drive_menu_input(
         // Gameplay/chat handled these messages already. In particular, do not
         // replay the Escape that opens pause as "back" on the following frame.
         *modifiers = MenuModifiers::default();
-        keyboard_messages.clear();
+        // An Escape held since a screen closed reaches `keys` as a fresh press on each OS repeat.
+        let (mut escape_pressed, mut escape_fresh) = (false, false);
+        for input in keyboard_messages.read() {
+            if input.key_code == KeyCode::Escape && input.state == ButtonState::Pressed {
+                escape_pressed = true;
+                escape_fresh |= !input.repeat;
+            }
+        }
         menu.hovered = None;
         menu.pointer_down = false;
-        if keys.just_pressed(KeyCode::Escape) {
+        if keys.just_pressed(KeyCode::Escape) && (escape_fresh || !escape_pressed) {
             modifiers.capture_pressed(&keys);
             menu.open_pause();
             crate::physical_input::release_cursor(&mut cursor);
@@ -918,6 +925,10 @@ pub fn drive_menu_input(
             continue;
         }
         match input.key_code {
+            // A held key's repeats keep moving focus and typing but never go back or activate.
+            KeyCode::Escape | KeyCode::Backspace | KeyCode::Enter | KeyCode::NumpadEnter
+                if input.repeat => {}
+            KeyCode::Space if input.repeat && !menu.has_focused_field() => {}
             KeyCode::Escape => menu.go_back_from_input(),
             KeyCode::Backspace if native_settings => menu.go_back_from_input(),
             KeyCode::ArrowUp => {

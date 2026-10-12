@@ -223,18 +223,7 @@ impl WorldStream {
         if let WorldEvent::ChangeDimension(change) = &event {
             self.ingress_dimension = change.dimension;
         }
-        // Submit-time preparation keeps wire order, so later terrain and definitions queue
-        // behind deferred terrain; session events commit past it.
-        let ordered_preparation = footprint.heavy
-            || footprint.barrier
-            || matches!(event, WorldEvent::SubChunkReplyAdmission(_));
-        let defer = ordered_preparation
-            && (!self.deferred_ingress.is_empty()
-                || (footprint.heavy
-                    && (self.order.heavy_capacity() == 0
-                        || (creates_request(&event)
-                            && self.requests.queue.len() >= OUTBOUND_REQUEST_CAPACITY))));
-        if defer {
+        if self.defers_preparation(&event, &footprint) {
             self.order.admit_deferred(
                 sequence,
                 footprint,
@@ -247,6 +236,36 @@ impl WorldStream {
         let retained_commits = self.authority.retained_commit_count();
         self.order.admit(sequence, footprint, retained_commits)?;
         self.prepare_admitted(sequence, event, level_chunk_payload)
+    }
+
+    /// Reports headroom for this event's lane, independently of unrelated full lanes.
+    pub fn can_admit(&self, event: &WorldEvent) -> bool {
+        if self.remaining_admission_capacity() > 0 {
+            return true;
+        }
+        let footprint = client_world::ingestion::classify(event, self.lane_context());
+        if footprint.heavy {
+            if self.defers_preparation(event, &footprint) {
+                self.order.deferred_capacity() > 0
+            } else {
+                self.order.heavy_capacity() > 0
+            }
+        } else {
+            self.light_admission_capacity() > 0
+        }
+    }
+
+    /// Keeps terrain and definitions in preparation order while session events may pass.
+    fn defers_preparation(&self, event: &WorldEvent, footprint: &Footprint) -> bool {
+        let ordered_preparation = footprint.heavy
+            || footprint.barrier
+            || matches!(event, WorldEvent::SubChunkReplyAdmission(_));
+        ordered_preparation
+            && (!self.deferred_ingress.is_empty()
+                || (footprint.heavy
+                    && (self.order.heavy_capacity() == 0
+                        || (creates_request(event)
+                            && self.requests.queue.len() >= OUTBOUND_REQUEST_CAPACITY))))
     }
 
     /// Prepares deferred terrain in wire order while decode and request capacity allow.

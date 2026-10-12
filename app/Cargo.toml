@@ -51,6 +51,7 @@ tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "dep:profiling", "chun
 reports = []
 
 [dependencies]
+pack-json = { path = "../crates/pack-json" }
 env-compat = { path = "../crates/env-compat" }
 simulation-clock = { path = "../crates/simulation-clock" }
 render-scene = { path = "../crates/render-scene" }
@@ -78,6 +79,7 @@ gameplay = { path = "../crates/gameplay" }
 client-session = { path = "../crates/client-session" }
 client-ui = { path = "../crates/client-ui" }
 launcher = { path = "../crates/launcher" }
+update-manifest = { path = "../crates/update-manifest" }
 rich-presence = { path = "../crates/rich-presence" }
 player-state = { path = "../crates/player-state" }
 inventory = { path = "../crates/inventory" }
@@ -125,7 +127,9 @@ world = { path = "../crates/world" }
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSResponder", "NSRunningApplication", "NSScreen", "NSView", "NSWindow"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSResponder", "NSRunningApplication", "NSScreen", "NSView", "NSWindow", "objc2-quartz-core"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSRunLoop", "NSString"] }
+objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CADisplayLink", "CAFrameRateRange"] }
 
 [target.'cfg(windows)'.dependencies]
 raw-window-handle = "0.6.2"

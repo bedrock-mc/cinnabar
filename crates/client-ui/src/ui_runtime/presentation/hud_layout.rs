@@ -108,6 +108,8 @@ pub struct HudFrame {
     pub holding_filled_map: bool,
     /// Lightning is falling: the bed screen talks of a thunderstorm.
     pub thunderstorm: bool,
+    /// The death screen is up: the gameplay HUD and crosshair stay hidden behind it.
+    pub death_screen: bool,
     /// The stream's current dimension, which picks the loading backdrop.
     pub dimension: i32,
     pub sleep: SleepTimeline,

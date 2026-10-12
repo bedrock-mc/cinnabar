@@ -227,7 +227,7 @@ fn decode_pcm(bytes: &[u8], path: &str) -> Option<Pcm> {
 }
 
 fn parse_music(bytes: &[u8]) -> HashMap<Box<str>, MusicEntry> {
-    let Ok(Value::Object(map)) = serde_json::from_slice::<Value>(bytes) else {
+    let Ok(Value::Object(map)) = pack_json::parse_jsonc::<Value>(bytes) else {
         return HashMap::new();
     };
     map.iter()
@@ -268,7 +268,7 @@ impl SoundBank {
         file.read_exact(&mut prefix[HEADER_READ_BYTES..])
             .map_err(|error| format!("read {}: {error}", path.display()))?;
         let index = SoundBankIndex::decode_prefix(&prefix).map_err(|error| error.to_string())?;
-        let json = |bytes: &[u8]| serde_json::from_slice::<Value>(bytes).unwrap_or(Value::Null);
+        let json = |bytes: &[u8]| pack_json::parse_jsonc::<Value>(bytes).unwrap_or(Value::Null);
         let tables =
             SoundEventTables::from_json(&json(index.sounds_json()), &json(index.materials_json()));
         Ok(Some(Self {

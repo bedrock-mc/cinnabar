@@ -5,8 +5,8 @@ use json_ui::{CollectionItem, DataSource, HitRegion, Scalar};
 use launcher::menu::{
     MenuAction, MenuView,
     settings_options::{
-        EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, KEY_BINDINGS, gamepad_icon,
-        key_name,
+        EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, KEY_BINDINGS,
+        custom_key_label, gamepad_icon, key_name,
     },
 };
 
@@ -39,11 +39,9 @@ pub(super) fn bind(view: &MenuView, data: &mut DataSource, translate: &dyn Fn(&s
             .enumerate()
             .map(|(index, label)| {
                 let index = offset + index;
-                let name = if *label == "key.freelook" {
-                    "Freelook".to_owned()
-                } else {
-                    translate(label)
-                };
+                let name = custom_key_label(label)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| translate(label));
                 let control = view.settings_options.key_control(index);
                 let capturing = view.key_remap == Some(index as u16);
                 let key = if capturing {

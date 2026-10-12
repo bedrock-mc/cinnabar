@@ -1,14 +1,23 @@
 use super::*;
 use world::BlockIds;
 
-/// Declares enough binary properties to exhaust the state budget after one admitted state.
-fn over_budget_definition() -> Vec<u8> {
+/// Declares enough binary properties to exceed the aggregate state budget.
+/// `axis_name_len` inflates the per-state identity estimate so the byte budget
+/// can reject a definition on its own: sixteen 200-character axes estimate
+/// hundreds of megabytes for one 65,536-state block, far above the 64 MiB bound
+/// under any struct layout.
+fn over_budget_definition_with_names(axis_name_len: usize) -> Vec<u8> {
     const AXES: u8 = 16;
+    assert!(
+        axis_name_len < 128,
+        "test names need single-byte varint lengths"
+    );
     let mut bytes = vec![10, 0, 9, 10];
     bytes.extend(b"properties");
     bytes.extend([10, AXES * 2]);
     for axis in 0..AXES {
-        let name = format!("test:axis_{axis}");
+        let stem = format!("test:axis_{axis}");
+        let name = format!("{stem:_<axis_name_len$}");
         bytes.extend([8, 4]);
         bytes.extend(b"name");
         bytes.push(name.len() as u8);
@@ -77,12 +86,17 @@ fn sequential_budget_rejection_keeps_admitted_visuals_overrides_and_wire_ids() {
     .unwrap();
     let mut names = ["test:first", "test:middle"];
     names.sort_by_key(|name| (protocol::block_name_sort_key(name), *name));
-    let large = over_budget_definition();
+    // The 65,536-state definition fits the aggregate state budget on its own,
+    // but its hundred-character axes estimate ~120 MiB of identities, so the
+    // 64 MiB byte bound leaves it unmaterialized without expanding states.
+    let large = over_budget_definition_with_names(100);
     let mut blocks = CustomBlocks::from_definitions([
         (names[0], [10, 0, 0].as_slice()),
         (names[1], large.as_slice()),
     ]);
     assert_eq!(blocks.skipped, 1);
+    assert!(!blocks.blocks[0].visual.materialization_disabled);
+    assert_eq!(blocks.blocks[0].state_count, 1);
     assert!(blocks.blocks[1].visual.materialization_disabled);
     blocks.vanilla_blocks = assets::server_defined_blocks()
         .iter()

@@ -639,27 +639,76 @@ fn aggregate_admission_retains_rejected_palette_runs_without_expanding_states() 
         parse_definition(&large).unwrap().state_count,
         super::MAX_STATES_PER_BLOCK as u32
     );
+    // Seventeen max-size definitions exceed the one-million-state aggregate
+    // budget, so the sorted tail stays unmaterialized while keeping its runs.
     let empty = [10, 0, 0];
-    let mut names = ["test:first", "test:middle", "test:last"];
-    names.sort_by_key(|name| (block_name_sort_key(name), *name));
-    let admitted = super::CustomBlocks::from_definitions([
-        (names[2], empty.as_slice()),
-        (names[1], large.as_slice()),
-        (names[0], empty.as_slice()),
-    ]);
-    assert_eq!(admitted.blocks.len(), 3);
-    assert_eq!(admitted.blocks[0].name.as_ref(), names[0]);
-    assert_eq!(admitted.blocks[0].state_count, 1);
-    assert_eq!(admitted.blocks[1].name.as_ref(), names[1]);
-    assert_eq!(
-        admitted.blocks[1].state_count,
-        super::MAX_STATES_PER_BLOCK as u32
-    );
-    assert_eq!(admitted.blocks[2].name.as_ref(), names[2]);
-    assert_eq!(admitted.blocks[2].state_count, 1);
-    for block in &admitted.blocks[1..] {
+    let mut names: Vec<String> = (0..17)
+        .map(|index| format!("test:large{index:02}"))
+        .collect();
+    names.push("test:first".to_owned());
+    names.push("test:last".to_owned());
+    let definitions: Vec<(&str, &[u8])> = names
+        .iter()
+        .map(|name| {
+            let nbt = if name.starts_with("test:large") {
+                large.as_slice()
+            } else {
+                empty.as_slice()
+            };
+            (name.as_str(), nbt)
+        })
+        .collect();
+    let admitted = super::CustomBlocks::from_definitions(definitions);
+    assert_eq!(admitted.blocks.len(), 19);
+    let first_rejected = admitted
+        .blocks
+        .iter()
+        .position(|block| block.visual.materialization_disabled)
+        .expect("the aggregate budget rejects the sorted tail");
+    assert!(first_rejected > 0);
+    for block in &admitted.blocks[..first_rejected] {
+        assert!(!block.visual.materialization_disabled);
+    }
+    // Rejected runs retain their names and counts without expanded states.
+    for block in &admitted.blocks[first_rejected..] {
+        assert!(block.visual.materialization_disabled);
         assert!(block.hashed_states().is_empty());
         assert!(block.state_physics.is_empty());
+        assert!(
+            block.state_count == 1 || block.state_count == super::MAX_STATES_PER_BLOCK as u32,
+            "{}",
+            block.name
+        );
     }
-    assert_eq!(admitted.skipped, 2);
+    assert_eq!(admitted.skipped, admitted.blocks.len() - first_rejected);
+    let admitted_states: u64 = admitted.blocks[..first_rejected]
+        .iter()
+        .map(|block| u64::from(block.state_count))
+        .sum();
+    assert!(admitted_states <= 1 << 20);
+}
+
+/// A large server stack of small blocks is admitted whole: the observed
+/// five-thousand-block server stack declares 136,909 states, which the old
+/// 65,536-state aggregate cut off mid-palette, leaving the tail absent from
+/// the world. Seventy thousand one-state definitions exceed the old bound
+/// while fitting the new one, so this fails before the fix and passes after.
+#[test]
+fn large_server_stacks_admit_every_state() {
+    let empty = [10, 0, 0];
+    let names: Vec<String> = (0..70_000)
+        .map(|index| format!("test:stack{index:05}"))
+        .collect();
+    let admitted = super::CustomBlocks::from_definitions(
+        names.iter().map(|name| (name.as_str(), empty.as_slice())),
+    );
+    assert_eq!(admitted.blocks.len(), 70_000);
+    assert_eq!(admitted.skipped, 0);
+    assert!(
+        admitted
+            .blocks
+            .iter()
+            .all(|block| !block.visual.materialization_disabled)
+    );
+    assert_eq!(admitted.total_states(), 70_000);
 }

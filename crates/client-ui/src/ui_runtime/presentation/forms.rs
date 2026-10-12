@@ -107,8 +107,9 @@ pub(super) struct ScreenStates {
     menu_sounds: Vec<(launcher::menu::MenuAction, json_ui::ControlSound)>,
     /// Where the installed catalog's title image draws from.
     menu_title: Option<menu_title::TitleSource>,
-    /// The title splash, picked once per launch.
+    /// The title splash, picked once per resource reload.
     splash: std::sync::OnceLock<Option<String>>,
+    splash_sources: Arc<[ui_screens::menu_renderers::splashes::SplashSource]>,
     /// The menu clock when the splash first drew, which its pulse runs from.
     splash_epoch: std::sync::OnceLock<f64>,
     /// The form whose render path was last logged, so each form logs once.
@@ -247,6 +248,11 @@ impl UiPresentationRuntime {
         let Some(engine) = self.engine.as_mut() else {
             return;
         };
+        if self.screens.splash_sources != pack.splashes {
+            self.screens.splash_sources = pack.splashes.clone();
+            self.screens.splash = std::sync::OnceLock::new();
+            self.screens.splash_epoch = std::sync::OnceLock::new();
+        }
         engine.server_ui = pack.ui_layers.iter().any(|layer| !layer.is_empty());
         if let Some(catalog) = &pack.catalog {
             engine.install_pack_catalog(catalog.clone(), pack.builtin_screen_catalog.clone());
