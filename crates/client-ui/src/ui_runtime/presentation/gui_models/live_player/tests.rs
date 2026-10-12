@@ -42,7 +42,7 @@ fn hud_local_emote_moves_vertices_and_equipment_without_replacing_geometry_or_na
         .unwrap()
         .to_vec();
     let mut presentation =
-        UiPresentationRuntime::new(super::super::super::tests::fixture_font()).unwrap();
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.capture_hud_player(Some(&stream), false);
     let rest = presentation.gui_models.live_player.vertices.clone();
     let geometry = presentation
@@ -152,7 +152,7 @@ fn player_stream(
 fn hud_uses_the_session_player_geometry_and_refreshes_between_catalogs() {
     let vanilla = player_catalog(8);
     let mut presentation =
-        UiPresentationRuntime::new(super::super::super::tests::fixture_font()).unwrap();
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     for size in [24, 32] {
         let stream = player_stream(Arc::clone(&vanilla), player_catalog(size));
         let rig = stream.authority().actor_rig(1).expect("pack player rig");
@@ -184,7 +184,7 @@ fn hud_fire_follows_authoritative_burning_metadata_and_clears_after_session_end(
     let catalog = player_catalog(8);
     let mut stream = player_stream(Arc::clone(&catalog), catalog);
     let mut presentation =
-        UiPresentationRuntime::new(super::super::super::tests::fixture_font()).unwrap();
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     for (sequence, flags, burning) in [(2, 1, true), (3, 2, false), (4, 1, true)] {
         stream
             .submit(
@@ -224,7 +224,7 @@ fn hud_fire_color_uses_completed_actor_ticks_and_fades_after_extinguishing() {
     let catalog = player_catalog(8);
     let mut stream = player_stream(Arc::clone(&catalog), catalog);
     let mut presentation =
-        UiPresentationRuntime::new(super::super::super::tests::fixture_font()).unwrap();
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let set_fire = |stream: &mut chunk_pipeline::WorldStream, sequence, flags| {
         stream
             .submit(

@@ -62,6 +62,10 @@ pub use app::run;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
 mod render_distance;
 mod shell_adapters;
 #[cfg(test)]

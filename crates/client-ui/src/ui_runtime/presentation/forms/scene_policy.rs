@@ -32,7 +32,8 @@ impl UiPresentationRuntime {
         runtime: &UiRuntime,
         menu: &dyn MenuScene,
     ) -> bool {
-        self.mod_panel_open() || self.base_absorbs_gameplay_input(player_runtime, runtime, menu)
+        self.screens.mod_ui.mod_panel_open()
+            || self.base_absorbs_gameplay_input(player_runtime, runtime, menu)
     }
 
     /// The ordinary scene policy before an optional personal panel takes focus.
@@ -44,7 +45,7 @@ impl UiPresentationRuntime {
     ) -> bool {
         runtime.ui_focused(player_runtime)
             || (menu.is_visible() && self.menu_settings(runtime, &menu.view()).absorbs_input)
-            || self.experience_modal_open()
+            || self.screens.mod_ui.experience_modal_open()
     }
 
     /// Every visible scene above the world must permit drawing the game behind it.
@@ -75,7 +76,7 @@ impl UiPresentationRuntime {
             return false;
         }
         if runtime.inventory_open()
-            && let Some(layout) = super::containers::ScreenLayout::of(player_runtime, runtime, None)
+            && let Some(layout) = super::containers::screen_layout(player_runtime, runtime, None)
             && !settings(layout.screen().0).render_game_behind
         {
             return false;

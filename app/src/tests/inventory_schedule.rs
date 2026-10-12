@@ -20,8 +20,8 @@ use protocol::{
 };
 use semantic_input::Action;
 
-use client_ui::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
 use ui::UiPoint;
+use ui_screens::container_actions::InventoryCellHit;
 use {
     crate::{
         app::{configure_client_frame_schedule, configure_client_production_frame_systems},
@@ -38,7 +38,7 @@ use {
     },
     client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
     client_state::{ClientFrameSet, RuntimeSettings, SemanticInputSnapshot},
-    client_ui::test_support::fixture_font,
+    ui_engine::test_support::fixture_font,
 };
 use {
     client_ui::ui_runtime::{UiRuntime, flush_inventory_send, presentation::UiPresentationRuntime},

@@ -57,6 +57,14 @@ impl CustomDraw<'_> {
     }
 }
 
+/// A language-key lookup in the active tables; `None` when no table has the key.
+pub type Translate<'a> = &'a dyn Fn(&str) -> Option<Arc<str>>;
+
+/// `key`'s translation, else `fallback`.
+pub fn translated(translate: Translate<'_>, key: &str, fallback: &str) -> String {
+    translate(key).map_or_else(|| fallback.to_owned(), |value| value.to_string())
+}
+
 /// What one paint borrows: painting resources, the viewport, localization, the caller's
 /// clock and output, and the custom renderers its screen supplies.
 pub struct PaintFrame<'a> {

@@ -15,13 +15,11 @@ use render_scene::{
     ChunkRenderQueue, ChunkUploadAcknowledgements, VisibilityDiagnostics,
     VisibilityDiagnosticsInput,
 };
-use ui::{DpiScale, SafeArea};
+use ui::{DpiScale, LoadingStage, SafeArea};
 
 #[cfg(test)]
 use client_ui::ui_runtime::presentation::{HudFrame, menu_artwork};
-use client_ui::ui_runtime::presentation::{
-    LoadingStage, UiPresentationError, UiPresentationRuntime,
-};
+use client_ui::ui_runtime::presentation::{UiPresentationError, UiPresentationRuntime};
 pub mod forms;
 pub mod publish;
 pub(crate) use forms::drive_menu_panorama;

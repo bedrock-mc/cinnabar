@@ -201,6 +201,19 @@ pub(super) fn validate_envelope(
     bytes: &[u8],
     expected_source_manifest_sha256: [u8; 32],
 ) -> Result<Envelope, FontCatalogError> {
+    let envelope = validate_layout(bytes, expected_source_manifest_sha256)?;
+    let actual_digest = Sha256::digest(&bytes[..envelope.hash_offset]);
+    if actual_digest.as_slice() != &bytes[envelope.hash_offset..] {
+        return Err(FontCatalogError::CarrierHashMismatch);
+    }
+    Ok(envelope)
+}
+
+/// Validates the envelope's framing without its seal, for bytes an enclosing digest already covers.
+pub(super) fn validate_layout(
+    bytes: &[u8],
+    expected_source_manifest_sha256: [u8; 32],
+) -> Result<Envelope, FontCatalogError> {
     if bytes.len() < HEADER_BYTES + HASH_BYTES || bytes.len() > MAX_FONT_CARRIER_BYTES {
         return Err(invalid_carrier("carrier byte length is outside its bound"));
     }
@@ -256,19 +269,16 @@ pub(super) fn validate_envelope(
     {
         return Err(invalid_carrier("carrier section offsets are noncanonical"));
     }
-    let actual_digest = Sha256::digest(&bytes[..envelope.hash_offset]);
-    if actual_digest.as_slice() != &bytes[envelope.hash_offset..] {
-        return Err(FontCatalogError::CarrierHashMismatch);
-    }
     Ok(envelope)
 }
 
-/// Returns a sealed carrier's page count and decoded page bytes without decompressing it.
+/// Returns a carrier's page count and decoded page bytes without decompressing or rehashing it;
+/// its bytes must already be covered by a verified digest.
 pub(super) fn decoded_extent(
     bytes: &[u8],
     expected_source_manifest_sha256: [u8; 32],
 ) -> Result<(usize, usize), FontCatalogError> {
-    let envelope = validate_envelope(bytes, expected_source_manifest_sha256)?;
+    let envelope = validate_layout(bytes, expected_source_manifest_sha256)?;
     validate_page_offsets(bytes, envelope)?;
     let mut total = 0usize;
     for index in 0..envelope.page_count {

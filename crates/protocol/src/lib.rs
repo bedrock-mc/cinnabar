@@ -255,7 +255,8 @@ pub use fast_transfer_action::FastTransferAction;
 pub mod test_support;
 
 #[cfg(test)]
-mod test_allocations;
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
 // Wire-layout tests live beside the codec so packet internals stay crate-private.
 #[cfg(test)]

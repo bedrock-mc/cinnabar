@@ -180,7 +180,7 @@ mod status_tests {
 
     #[test]
     fn status_paragraphs_measure_both_rows_and_omit_only_complete_rows() {
-        let font = crate::ui_runtime::presentation::tests::fixture_font();
+        let font = ui_engine::test_support::fixture_font();
         for gui in [1, 2, 3] {
             let metrics =
                 TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(gui));
@@ -220,7 +220,7 @@ mod status_tests {
 
     #[test]
     fn status_rows_keep_whole_words_and_bounded_ellipsis() {
-        let font = crate::ui_runtime::presentation::tests::fixture_font();
+        let font = ui_engine::test_support::fixture_font();
         let mut layouts = TextLayoutCache::new(128, 4 * 1024 * 1024);
         let metrics =
             TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));

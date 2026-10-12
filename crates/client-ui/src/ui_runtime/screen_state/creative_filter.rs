@@ -178,7 +178,7 @@ mod tests {
         };
         ledger.apply(&InventoryEvent::Creative(catalog.clone()));
         let mut state = ScreenState {
-            creative_tab: crate::ui_runtime::presentation::screens::SEARCH_TAB,
+            creative_tab: ui_screens::container_actions::SEARCH_TAB,
             search: "stone".into(),
             ..Default::default()
         };
@@ -190,9 +190,8 @@ mod tests {
         let retained = state.matching_creative_entries(&ledger, 0, name);
         assert_eq!(retained.len(), 1);
         for _ in 0..3 {
-            let (repeated, allocations) = crate::allocation_count::count(|| {
-                state.matching_creative_entries(&ledger, 0, name)
-            });
+            let (repeated, allocations) =
+                test_alloc::count(|| state.matching_creative_entries(&ledger, 0, name));
             assert_eq!(allocations, 0);
             assert_eq!(repeated.len(), 1);
             assert!(Arc::ptr_eq(
@@ -289,8 +288,7 @@ mod display_name_tests {
     fn custom_display_names_and_component_reload_change_search_results() {
         let ledger = catalog();
         let mut runtime = UiRuntime::new(1);
-        runtime.screen_state_mut().creative_tab =
-            crate::ui_runtime::presentation::screens::SEARCH_TAB;
+        runtime.screen_state_mut().creative_tab = ui_screens::container_actions::SEARCH_TAB;
         runtime.screen_state_mut().search = "crystal".into();
         display_name(&mut runtime, "Crystal Blade");
         assert_eq!(
@@ -301,8 +299,7 @@ mod display_name_tests {
                 .network_id,
             1
         );
-        let (_, allocations) =
-            crate::allocation_count::count(|| visible_creative_entries(&ledger, &runtime));
+        let (_, allocations) = test_alloc::count(|| visible_creative_entries(&ledger, &runtime));
         assert_eq!(allocations, 0);
         display_name(&mut runtime, "Ruby Blade");
         assert!(visible_creative_entries(&ledger, &runtime).is_empty());
@@ -314,8 +311,7 @@ mod display_name_tests {
     fn active_language_and_component_translation_invalidate_cached_names() {
         let ledger = catalog();
         let mut runtime = UiRuntime::new(1);
-        runtime.screen_state_mut().creative_tab =
-            crate::ui_runtime::presentation::screens::SEARCH_TAB;
+        runtime.screen_state_mut().creative_tab = ui_screens::container_actions::SEARCH_TAB;
         runtime.screen_state_mut().search = "pierre".into();
         runtime.set_active_language(Some(language("tile.stone.name", "Pierre")));
         assert_eq!(

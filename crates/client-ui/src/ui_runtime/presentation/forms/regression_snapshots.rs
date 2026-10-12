@@ -315,7 +315,7 @@ fn snapshot_custom_display_name_search() {
             ..Default::default()
         },
     )]))));
-    runtime.screen_state_mut().creative_tab = crate::ui_runtime::presentation::screens::SEARCH_TAB;
+    runtime.screen_state_mut().creative_tab = ui_screens::container_actions::SEARCH_TAB;
     runtime.screen_state_mut().search = "Crystal".into();
     runtime.screen_state_mut().search_focused = true;
     runtime.set_session_icons(Some(Arc::new(super::super::SessionIcons {

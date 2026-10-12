@@ -122,8 +122,11 @@ fn tiny_launcher_text_keeps_rendering_after_resize() {
 #[test]
 fn six_pixel_glyph_in_one_pixel_label_still_has_a_layout() {
     let font = fixture_font();
-    let metrics =
-        ui_engine::text_metrics::TextMetrics::for_viewport([254, 124], ui::DpiScale::new(1.0).unwrap(), None);
+    let metrics = ui_engine::text_metrics::TextMetrics::for_viewport(
+        [254, 124],
+        ui::DpiScale::new(1.0).unwrap(),
+        None,
+    );
     let mut cache = ui::TextLayoutCache::new(8, 64 * 1024);
     let layout = cache.layout(metrics.request("W", 64, &font)).unwrap();
     assert_eq!(layout.size_64()[0], 384);

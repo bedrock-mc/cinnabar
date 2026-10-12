@@ -1,17 +1,8 @@
-//! Video-section VSync toggle and the frame-rate limit caption.
+//! Video-section VSync toggle.
 
 use json_ui::{Catalog, DataSource, Scalar};
-use render_api::FrameRateLimit;
 
-use launcher::menu::{MenuView, settings_options::frame_rate_limit};
-
-/// The Max Framerate caption: a numeric cap or Unlimited.
-pub(super) fn frame_rate_label(value: i32, translate: &dyn Fn(&str) -> String) -> String {
-    match frame_rate_limit(value) {
-        FrameRateLimit::Unlimited => translate("options.framerateLimit.max"),
-        FrameRateLimit::Fixed(fps) => fps.to_string(),
-    }
-}
+use launcher::menu::MenuView;
 
 /// Places the toggle beside the frame-rate limit in the advanced video options.
 pub(super) fn install(catalog: &mut Catalog) {
@@ -48,7 +39,6 @@ const OVERLAY: &str = r##"{
 #[cfg(test)]
 mod tests {
     use crate::ui_runtime::presentation::forms::pack_harness;
-    use launcher::menu::settings_options::FRAME_RATE_UNLIMITED;
     use {super::*, launcher::menu::MenuView};
 
     fn has_text(control: &json_ui::ResolvedControl, text: &str) -> bool {
@@ -100,17 +90,5 @@ mod tests {
         locked.set_global("#vsync", Scalar::Bool(false));
         locked.set_global("#vsync_enabled", Scalar::Bool(false));
         assert_eq!(data, locked);
-    }
-
-    #[test]
-    fn frame_rate_caption_names_caps_and_unlimited() {
-        let translate = |key: &str| format!("<{key}>");
-        assert_eq!(frame_rate_label(144, &translate), "144");
-        for value in [-1, 0, FRAME_RATE_UNLIMITED, i32::MAX] {
-            assert_eq!(
-                frame_rate_label(value, &translate),
-                "<options.framerateLimit.max>"
-            );
-        }
     }
 }

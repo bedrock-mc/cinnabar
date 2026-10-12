@@ -82,11 +82,22 @@ fn backing(sequential_id: u32, network_hash: u32) -> BackingBlockIdentity {
     BackingBlockIdentity::from_runtime(network_hash, NetworkIdMode::Hashed, &runtime)
 }
 
+/// Decodes the synthetic identity through the same checked carrier boundary as runtime.
 fn runtime_with_block_identity(
     sequential_id: u32,
     network_hash: u32,
     kind: VisualKind,
 ) -> assets::RuntimeAssets {
+    let compiled = compiled_block_identity(sequential_id, network_hash, kind);
+    assets::RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap()
+}
+
+/// Builds bounded synthetic carrier data for block-entity route checks.
+fn compiled_block_identity(
+    sequential_id: u32,
+    network_hash: u32,
+    kind: VisualKind,
+) -> CompiledAssets {
     let flags = if kind == VisualKind::Cube {
         BlockFlags::CUBE_GEOMETRY
     } else {
@@ -118,7 +129,7 @@ fn runtime_with_block_identity(
         })
         .into();
     let count = sequential_id as usize + 1;
-    let blob = encode_blob(&CompiledAssets {
+    CompiledAssets {
         visuals: vec![visual; count].into_boxed_slice(),
         light_properties: vec![assets::LightProperties::default(); count].into_boxed_slice(),
         hashed: vec![(network_hash, sequential_id)].into_boxed_slice(),
@@ -155,9 +166,7 @@ fn runtime_with_block_identity(
         texture_pages: vec![TexturePage::new(TextureArray { layers: 1, mips })].into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
         provenance: FIXTURE_PROVENANCE,
-    })
-    .unwrap();
-    assets::RuntimeAssets::decode(&blob).unwrap()
+    }
 }
 
 #[test]
@@ -344,4 +353,115 @@ fn block_entity_visuals_route_digest_distinguishes_unresolved_hashed_states() {
     assert!(matches!(first, BlockEntityVisualRoute::Unknown { .. }));
     assert!(matches!(second, BlockEntityVisualRoute::Unknown { .. }));
     assert_ne!(first.route_digest(), second.route_digest());
+}
+
+/// Encodes full-cube model geometry for the adjudicator's retained barrel identities.
+fn compiled_barrels_with_retained_identities() -> (CompiledAssets, Vec<super::StaticBacking>) {
+    let records = super::STATIC_BACKINGS
+        .iter()
+        .filter(|r| r.source == super::StaticSource::Barrel)
+        .copied()
+        .collect::<Vec<_>>();
+    let last = records.last().unwrap();
+    let mut compiled = compiled_block_identity(last.sequential_id, last.hash, VisualKind::Model);
+    compiled.hashed = records.iter().map(|r| (r.hash, r.sequential_id)).collect();
+    compiled.hashed.sort_unstable();
+    for visual in &mut compiled.visuals {
+        visual.faces = [1; 6];
+        visual.flags = BlockFlags::OCCLUDES_FULL_FACE;
+    }
+    compiled.materials = vec![
+        Material::unvaried(),
+        Material {
+            texture: TextureRef::new(0, 1).unwrap(),
+            ..Material::unvaried()
+        },
+    ]
+    .into();
+    compiled.texture_pages[0].texture.layers = 2;
+    for mip in &mut compiled.texture_pages[0].texture.mips {
+        mip.rgba8 = mip.rgba8.repeat(2).into();
+    }
+    compiled.model_quads = assets::BlockFace::ALL
+        .into_iter()
+        .map(|face| {
+            let (corners, uvs) = assets::gui_item::cube_face(face);
+            let positions =
+                corners.map(|point| point.map(|coordinate| (coordinate * 256.0) as i16));
+            let first = (0..4).min_by_key(|&corner| positions[corner]).unwrap();
+            ModelQuad {
+                positions: std::array::from_fn(|corner| positions[(first + corner) % 4]),
+                uvs: std::array::from_fn(|corner| {
+                    uvs[(first + corner) % 4].map(|coordinate| (coordinate * 4096.0) as u16)
+                }),
+                material: 1,
+                flags: face.model_quad_face_id(),
+            }
+        })
+        .collect();
+    compiled.model_templates[0].quad_count = compiled.model_quads.len() as u32;
+    (compiled, records)
+}
+
+#[test]
+fn compiled_barrel_models_keep_existing_block_entity_routes() {
+    let (compiled, records) = compiled_barrels_with_retained_identities();
+    let runtime = assets::RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap();
+    let source = block_entity_nbt(Some("Barrel"), &[]);
+    let mut count = 0;
+    for record in records.iter() {
+        assert!(
+            assets::gui_item::full_cube_model_quads(
+                &runtime,
+                assets::BlockVisualId(record.sequential_id)
+            )
+            .is_some()
+        );
+        for (mode, value) in [
+            (NetworkIdMode::Sequential, record.sequential_id),
+            (NetworkIdMode::Hashed, record.hash),
+        ] {
+            let identity = BackingBlockIdentity::from_runtime(value, mode, &runtime);
+            assert!(
+                matches!(
+                    adjudicate_block_entity_visual(&source, identity),
+                    BlockEntityVisualRoute::ExistingBlockState {
+                        additional_refs: 0,
+                        ..
+                    }
+                ),
+                "compiled barrel models retain their backed NBT route"
+            );
+            assert!(matches!(
+                adjudicate_block_entity_visual(&block_entity_nbt(Some("Furnace"), &[]), identity),
+                BlockEntityVisualRoute::Unknown { .. }
+            ));
+        }
+        count += 1;
+    }
+    assert_eq!(count, 12);
+}
+
+#[test]
+fn barrel_backing_rejects_models_without_full_cube_geometry() {
+    let (mut compiled, records) = compiled_barrels_with_retained_identities();
+    let record = records.first().unwrap();
+    let template = compiled.model_templates
+        [compiled.visuals[record.sequential_id as usize].model_template as usize];
+    for point in &mut compiled.model_quads[template.quad_start as usize].positions {
+        point[0] = 16;
+    }
+    let runtime = assets::RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap();
+    for (mode, value) in [
+        (NetworkIdMode::Sequential, record.sequential_id),
+        (NetworkIdMode::Hashed, record.hash),
+    ] {
+        assert!(matches!(
+            adjudicate_block_entity_visual(
+                &block_entity_nbt(Some("Barrel"), &[]),
+                BackingBlockIdentity::from_runtime(value, mode, &runtime)
+            ),
+            BlockEntityVisualRoute::Unknown { .. }
+        ));
+    }
 }

@@ -80,9 +80,22 @@ fn compiler_emits_one_exact_cactus_template_and_three_cutout_materials() {
         4,
         "diagnostic plus three cactus materials"
     );
-    assert_eq!(compiled.model_templates.len(), 1);
-    assert_eq!(compiled.model_quads.len(), 6);
     let first = compiled.visuals[13_606];
+    assert_eq!(template_quads(&compiled, first.model_template).len(), 6);
+    let runtime = assets::RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap();
+    let potted = runtime
+        .potted_model_template(assets::NetworkIdMode::Sequential, records[0].sequential_id)
+        .expect("separate potted cactus geometry");
+    let potted_quads = template_quads(&compiled, potted);
+    assert_eq!(potted_quads.len(), 6);
+    assert!(
+        potted_quads
+            .iter()
+            .flat_map(|quad| quad.positions)
+            .all(|[x, y, z]| (96..=160).contains(&x)
+                && (64..=256).contains(&y)
+                && (96..=160).contains(&z))
+    );
     let [side_west, side_east, bottom, top, side_north, side_south] = first.faces;
     assert_eq!(side_west, side_east);
     assert_eq!(side_west, side_north);
@@ -349,6 +362,14 @@ fn compiler_real_pinned_pack_admits_all_exact_cactus_records() {
     assert!(records.iter().all(|record| {
         compiled.visuals[record.sequential_id as usize].kind == VisualKind::Model
     }));
-    assert_eq!(compiled.model_templates.len(), 1);
-    assert_eq!(compiled.model_quads.len(), 6);
+    for record in &records {
+        let visual = compiled.visuals[record.sequential_id as usize];
+        assert_eq!(template_quads(&compiled, visual.model_template).len(), 6);
+    }
+    let runtime = assets::RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap();
+    assert!(
+        runtime
+            .potted_model_template(assets::NetworkIdMode::Sequential, records[0].sequential_id)
+            .is_some()
+    );
 }

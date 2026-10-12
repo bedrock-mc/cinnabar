@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use assets::{RuntimeUiAssets, UiAtlasPage, encode_ui_catalog};
 use json_ui::{Catalog, Draw, DrawNode, FormRender, RectOut, ResolvedControl};
-use ui::{DpiScale, SafeArea, TextLayoutCache, UiNode, UiVisual};
+use ui::{DpiScale, SafeArea, TextLayoutCache, TextShadow, UiNode, UiVisual};
 
 use serde_json::Value;
 use ui::FONT_DESIGN_PIXEL_TEXELS;
@@ -17,7 +17,7 @@ use ui_engine::{
 };
 
 use super::super::screen_registry::registry;
-use crate::ui_runtime::presentation::tests::fixture_font;
+use ui_engine::test_support::fixture_font;
 
 /// Synthetic art, not a redistributed vanilla bitmap. The actual runtime pack
 /// determines the border texels and sidecar; this fixture verifies their path.
@@ -35,6 +35,7 @@ fn engine() -> FormEngine {
         2,
         registry(),
         crate::ui_runtime::presentation::forms::texture_sources::downloads(),
+        crate::ui_runtime::presentation::forms::texture_sources::image_work(),
     );
     let mut png = Vec::new();
     image::RgbaImage::from_pixel(16, 16, image::Rgba([22, 33, 44, 255]))

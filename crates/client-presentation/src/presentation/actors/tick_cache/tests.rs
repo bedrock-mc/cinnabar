@@ -88,9 +88,9 @@ fn unchanged_off_screen_initial_rigs_allocate_nothing_between_ticks() {
     }));
     world.advance_actor_interpolation_frame(1);
     world.advance_actor_interpolation_frame(0);
-    let before = crate::test_allocations::count();
+    let before = test_alloc::thread_allocations();
     world.advance_actor_interpolation_frame(0);
-    assert_eq!(crate::test_allocations::count(), before);
+    assert_eq!(test_alloc::thread_allocations(), before);
 }
 
 /// A player and a mob whose bodies swing every tick, so each tick has a new pose.

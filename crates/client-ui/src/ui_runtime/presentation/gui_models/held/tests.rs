@@ -123,8 +123,9 @@ fn banner_catalog() -> (RuntimeEntityAssets, RuntimeIconCatalog) {
 
 #[test]
 fn held_banner_block_route_without_cube_sheet_remains_available_in_both_preview_hands() {
-    use crate::test_support::{fixture_font, fixture_hud};
+    use crate::test_support::fixture_hud;
     use crate::ui_runtime::presentation::UiPresentationRuntime;
+    use ui_engine::test_support::fixture_font;
     let (entities, icons) = banner_catalog();
     assert!(icons.block_sheets().is_empty());
     let presentation =
@@ -195,9 +196,10 @@ fn held_banner_block_route_without_cube_sheet_remains_available_in_both_preview_
 
 #[test]
 fn installed_gui_carriers_reuse_sprite_pages_within_the_model_atlas_budget() {
-    use crate::test_support::{fixture_font, fixture_hud};
+    use crate::test_support::fixture_hud;
     use crate::ui_runtime::presentation::UiPresentationRuntime;
     use assets::carriers;
+    use ui_engine::test_support::fixture_font;
     let compiled = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .join(carriers::COMPILED_DIR);

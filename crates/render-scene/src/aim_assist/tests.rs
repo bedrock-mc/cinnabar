@@ -24,7 +24,7 @@ fn block_face_orientations_and_horizontal_ties_match() {
 
 #[test]
 fn actor_billboard_preserves_roll_and_unit_size_without_allocating() {
-    let before = crate::alloc_count::thread_allocations();
+    let before = test_alloc::thread_allocations();
     for _ in 0..100 {
         let quad = AimAssistHighlight::actor(Vec3::ONE, Vec3::Z, Vec3::X).unwrap();
         assert_eq!(quad.right, Vec3::NEG_Y);
@@ -32,7 +32,7 @@ fn actor_billboard_preserves_roll_and_unit_size_without_allocating() {
         assert_eq!(quad.texture, 1);
         assert_eq!(quad.record()[0..3], [1.; 3]);
     }
-    assert_eq!(crate::alloc_count::thread_allocations() - before, 0);
+    assert_eq!(test_alloc::thread_allocations() - before, 0);
     assert!(AimAssistHighlight::actor(Vec3::ZERO, Vec3::ZERO, Vec3::Y).is_none());
 }
 

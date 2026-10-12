@@ -17,6 +17,58 @@ fn item_world() -> World {
 }
 
 #[test]
+fn potted_block_artwork_keeps_its_resolution_and_alpha() {
+    let side = 64_u32;
+    let mut pixels = vec![90_u8; (side * side * 4) as usize];
+    for pixel in pixels.chunks_exact_mut(4) {
+        pixel[3] = 255;
+    }
+    let transparent = (2 * side as usize + 3) * 4;
+    pixels[transparent + 3] = 0;
+    let model = DroppedItemModel::Block(render_model::DroppedItemBlock {
+        materials: Arc::from([(
+            render_model::DroppedItemSprite {
+                width: side,
+                height: side,
+                rgba8: Arc::from(pixels.clone()),
+            },
+            render_model::OPAQUE_WHITE,
+        )]),
+        quads: Arc::from([assets::ModelQuad {
+            positions: [[36, 64, 36], [220, 64, 220], [220, 256, 220], [36, 256, 36]],
+            uvs: [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
+            material: 0,
+            flags: assets::MODEL_QUAD_FLAG_TWO_SIDED,
+        }]),
+        rotation: 0,
+    });
+    let mut world = item_world();
+    world
+        .resource_mut::<DroppedItemScene>()
+        .publish(1, Arc::from([model.clone()]), &[], &[], 1.0);
+    world.run_system_once(prepare_items).unwrap();
+    let gpu = world.resource::<ItemGpu>();
+    assert_eq!(gpu._atlas.as_ref().unwrap().width(), side);
+    assert_eq!(
+        gpu.ranges[0].len(),
+        6,
+        "high-resolution pot art must remain drawable"
+    );
+    let mut atlas = vec![255; (side * side * 4) as usize];
+    let mesh = build_model(&mut atlas, &model, side).unwrap();
+    assert_eq!(&atlas[(side * side * 4) as usize..], &pixels);
+    assert!(mesh.iter().any(|vertex| vertex.uv == [1.0, 1.0]));
+    assert_eq!(
+        atlas_side(&[DroppedItemModel::Sprite(render_model::DroppedItemSprite {
+            width: 16,
+            height: 16,
+            rgba8: Arc::from([255; 16 * 16 * 4])
+        })]),
+        MAX_ITEM_SPRITE_SIDE
+    );
+}
+
+#[test]
 fn hidden_item_catalog_is_prepared_before_visibility() {
     let mut world = item_world();
     let mut system = IntoSystem::into_system(prepare_items);
@@ -86,9 +138,9 @@ fn steady_uploads_empty_item_scene_allocates_and_uploads_nothing() {
         gpu.draws.push((0..3, 0));
         gpu.dynamic_count = 3;
     }
-    let allocated = crate::alloc_count::thread_allocations();
+    let allocated = test_alloc::thread_allocations();
     system.run((), &mut world).unwrap();
-    assert_eq!(crate::alloc_count::thread_allocations() - allocated, 0);
+    assert_eq!(test_alloc::thread_allocations() - allocated, 0);
     let gpu = world.resource::<ItemGpu>();
     assert!(gpu.draws.is_empty());
     assert_eq!(gpu.dynamic_count, 0);
@@ -116,9 +168,9 @@ fn steady_uploads_empty_item_scene_allocates_and_uploads_nothing() {
     assert_eq!(gpu.identity_instance, 0);
     assert_eq!(gpu.upload_calls, 3);
     world.resource_mut::<DroppedItemScene>().clear();
-    let allocated = crate::alloc_count::thread_allocations();
+    let allocated = test_alloc::thread_allocations();
     system.run((), &mut world).unwrap();
-    assert_eq!(crate::alloc_count::thread_allocations() - allocated, 0);
+    assert_eq!(test_alloc::thread_allocations() - allocated, 0);
     assert_eq!(world.resource::<ItemGpu>().upload_calls, 3);
     assert_eq!(world.resource::<ItemGpu>().dynamic_count, 0);
 }

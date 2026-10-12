@@ -383,6 +383,17 @@ impl RuntimeAssets {
     pub const fn model_templates(&self) -> &[ModelTemplate] {
         &self.model_templates
     }
+
+    /// Returns the separate pot-content model paired with this block's world model.
+    #[must_use]
+    pub fn potted_model_template(&self, mode: NetworkIdMode, id: u32) -> Option<u32> {
+        let block = self.resolve(mode, id);
+        let template = block.model_template()?.checked_sub(1)?;
+        (block.is_known()
+            && self.model_templates.get(template as usize)?.flags
+                == crate::MODEL_TEMPLATE_FLAG_POTTED_PLANT)
+            .then_some(template)
+    }
     #[must_use]
     pub const fn model_quads(&self) -> &[ModelQuad] {
         &self.model_quads

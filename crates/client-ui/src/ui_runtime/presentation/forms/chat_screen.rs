@@ -123,7 +123,7 @@ impl UiPresentationRuntime {
         let Some(renderer) = self.engine.as_deref() else {
             return Ok(false);
         };
-        let annotations = self.mod_chat_actions().to_vec();
+        let annotations = self.screens.mod_ui.mod_chat_actions().to_vec();
         let chat = &mut self.screens.chat;
         let messages = runtime.chat().messages().len();
         // The view jumps to the newest message on open and on every update.
@@ -494,7 +494,7 @@ mod review_tests {
     #[test]
     fn review_chat_settings_own_wheel_input() {
         let mut presentation =
-            UiPresentationRuntime::new(super::super::super::tests::fixture_font()).unwrap();
+            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
         presentation.screens.chat.scroll = Some((
             "history".to_owned(),
             ScrollMetrics {
@@ -513,7 +513,7 @@ mod review_tests {
     #[test]
     fn chat_link_confirmation_owns_wheel_input() {
         let mut presentation =
-            UiPresentationRuntime::new(super::super::super::tests::fixture_font()).unwrap();
+            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
         presentation.screens.chat.scroll = Some((
             "history".to_owned(),
             ScrollMetrics {

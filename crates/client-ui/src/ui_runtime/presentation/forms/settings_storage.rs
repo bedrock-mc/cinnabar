@@ -118,9 +118,9 @@ fn size_text(bytes: u64, translate: &dyn Fn(&str) -> String) -> String {
 pub(super) fn dialog_model(
     view: &MenuView,
     dialog: launcher::menu::MenuDialog,
-    translate: super::menu_screens::Translate<'_>,
+    translate: ui_engine::engine::screen::Translate<'_>,
 ) -> (json_ui::FormModel, MenuAction) {
-    use super::menu_screens::translated;
+    use ui_engine::engine::screen::translated;
     let words = |key, fallback| translated(translate, key, fallback);
     let (title, body, button1, confirm) = if dialog == launcher::menu::MenuDialog::StorageError {
         (

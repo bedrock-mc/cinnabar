@@ -539,8 +539,8 @@ mod tests {
         launcher::menu::{MenuAction, MenuView},
     };
     use {
-        crate::ui_runtime::presentation::tests::fixture_font,
         launcher::menu::{MenuScreen, auth::AuthState},
+        ui_engine::test_support::fixture_font,
     };
 
     #[test]

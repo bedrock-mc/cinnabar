@@ -183,15 +183,12 @@ fn worker_decodes_become_resident_and_keep_their_pixels() {
     };
     for key in &keys {
         let source = atlas.image(key).unwrap();
-        assert!(atlas.decodes.get(key, &source, false).is_none());
+        assert!(atlas.decodes.get(key, &source, DecodeOn::Worker).is_none());
     }
-    atlas.require(keys.iter().map(String::as_str));
-    let started = Instant::now();
-    while resident(&atlas) < keys.len() {
-        assert!(started.elapsed() < Duration::from_secs(10));
-        test_time::idle();
+    test_time::eventually("worker decodes become resident", || {
         atlas.require(keys.iter().map(String::as_str));
-    }
+        resident(&atlas) == keys.len()
+    });
     assert_eq!(atlas.decodes.pixels.len(), keys.len());
 }
 
@@ -239,7 +236,7 @@ fn large_local_images_publish_metadata_without_reading_on_the_requesting_thread(
     });
     assert!(atlas.metadata_revision() > 0);
     assert!(atlas.take_metadata_changed());
-    let (_, allocations) = crate::allocation_count::count(|| {
+    let (_, allocations) = test_alloc::count(|| {
         for _ in 0..3 {
             atlas.require([key]);
             assert_eq!(atlas.fallback_size(key), Some([2.0, 3.0]));
@@ -253,8 +250,8 @@ fn large_local_images_publish_metadata_without_reading_on_the_requesting_thread(
     assert!(!atlas.take_metadata_changed());
 }
 
-#[test]
-fn ui_images_larger_than_the_small_texture_limit_remain_readable() {
+/// Incompressible pixels whose PNG exceeds the small-texture read limit.
+fn large_noise() -> (image::RgbaImage, Vec<u8>) {
     let mut pixels = image::RgbaImage::new(1536, 1024);
     let mut noise = 0x8a35_7d21u32;
     for pixel in pixels.pixels_mut() {
@@ -273,6 +270,12 @@ fn ui_images_larger_than_the_small_texture_limit_remain_readable() {
         .unwrap();
     let encoded = encoded.into_inner();
     assert!(encoded.len() as u64 > resource_pack::MAX_PACK_TEXTURE_BYTES);
+    (pixels, encoded)
+}
+
+#[test]
+fn ui_images_larger_than_the_small_texture_limit_remain_readable() {
+    let (mut pixels, encoded) = large_noise();
     let key = "textures/ui/original_noise";
     let expected = pixels.get_pixel(0, 0).0;
     let pack = pack_view(&[(format!("{key}.png"), encoded)]);
@@ -339,4 +342,109 @@ fn small_winning_source_remains_readable_above_large_lower_layers_at_the_budget_
         pack.collect();
         pack.image(key).is_some_and(|source| source.size == [2, 3])
     });
+}
+
+/// Host image work whose clock reads `clock`, advancing it by `step` after every read.
+fn clocked(clock: test_time::ManualClock, step: Duration, workers: bool) -> ImageWork {
+    ImageWork {
+        clock: Some(Arc::new(move || {
+            let now = clock.elapsed();
+            clock.advance(step);
+            now
+        })),
+        workers,
+    }
+}
+
+// The inline decode budget is measured on the host's clock, never the engine's own.
+#[test]
+fn inline_decode_budget_follows_the_host_clock() {
+    let files: Vec<_> = (0..4)
+        .map(|index| (format!("textures/ui/c{index}.png"), png(16, 16)))
+        .collect();
+    let keys: Vec<_> = (0..4)
+        .map(|index| format!("textures/ui/c{index}"))
+        .collect();
+    let resident = |atlas: &ServerAtlas| keys.iter().all(|key| atlas.placement(key).is_some());
+    let placed = |atlas: &ServerAtlas| keys.iter().any(|key| atlas.placement(key).is_some());
+
+    let frozen = clocked(test_time::ManualClock::new(), Duration::ZERO, true);
+    let mut atlas = ServerAtlas::new(&files, None, 1).with_image_work(frozen);
+    atlas.require(keys.iter().map(String::as_str));
+    assert!(
+        resident(&atlas),
+        "a clock inside the budget decodes every miss inline"
+    );
+
+    let spent = clocked(test_time::ManualClock::new(), INLINE_DECODE_BUDGET, true);
+    let mut atlas = ServerAtlas::new(&files, None, 1).with_image_work(spent);
+    atlas.require(keys.iter().map(String::as_str));
+    assert!(
+        !placed(&atlas),
+        "a spent budget hands every miss to workers"
+    );
+    assert_eq!(atlas.decodes.pending.len(), keys.len());
+    test_time::eventually("worker decodes become resident", || {
+        atlas.require(keys.iter().map(String::as_str));
+        resident(&atlas)
+    });
+
+    let spent = clocked(test_time::ManualClock::new(), INLINE_DECODE_BUDGET, false);
+    let mut atlas = ServerAtlas::new(&files, None, 1).with_image_work(spent);
+    atlas.require(keys.iter().map(String::as_str));
+    assert!(
+        !placed(&atlas),
+        "without workers a spent budget defers misses"
+    );
+    assert!(atlas.decodes.pending.is_empty(), "and starts no thread");
+    let mut atlas = atlas.with_image_work(ImageWork::inline());
+    atlas.require(keys.iter().map(String::as_str));
+    assert!(
+        resident(&atlas),
+        "a later frame within its budget decodes them"
+    );
+}
+
+// A host without threads gets large archive reads, original sheets, large local reads and
+// large decodes within the frame that asks for them.
+#[test]
+fn a_host_without_workers_completes_large_images_inline() {
+    let (pixels, encoded) = large_noise();
+    let expected = pixels.get_pixel(0, 0).0;
+    let key = "textures/ui/original_noise";
+    let pack = pack_view(&[(format!("{key}.png"), encoded)]);
+    let mut atlas = ServerAtlas::new(&[], Some(pack), 1)
+        .with_native_sheets(true)
+        .with_image_work(ImageWork::inline());
+    PACK_READS.with(|reads| reads.borrow_mut().clear());
+    atlas.require([key]);
+    assert_eq!(PACK_READS.with(|reads| reads.borrow().clone()), [key]);
+    assert_eq!(atlas.image_size(key), Some([1536.0, 1024.0]));
+    assert!(atlas.native_sheet_ready(key));
+    assert!(
+        atlas
+            .native_pages()
+            .iter()
+            .any(|page| page.dimensions() == [1536, 1024] && page.pixels()[..4] == expected)
+    );
+
+    let root = Arc::new(MemoryPack::default());
+    let local = "textures/ui/large_local";
+    let mut encoded = png(2, 3);
+    encoded.resize(MAX_PACK_TEXTURE_BYTES as usize + 1, 0);
+    root.write(&format!("{local}.png"), encoded);
+    let mut atlas = ServerAtlas::new(&[], None, 1)
+        .with_fallbacks(Some(root), None)
+        .with_image_work(ImageWork::inline());
+    LOCAL_READS.with(|reads| reads.borrow_mut().clear());
+    atlas.require([local]);
+    assert_eq!(
+        LOCAL_READS.with(|reads| reads.borrow().clone()),
+        [format!("{local}.png")]
+    );
+    assert_eq!(atlas.fallback_size(local), Some([2.0, 3.0]));
+    assert!(
+        atlas.placement(local).is_some(),
+        "a large encoding decodes inline"
+    );
 }

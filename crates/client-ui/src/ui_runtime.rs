@@ -27,8 +27,6 @@ mod food;
 mod item_activation;
 pub mod item_facts;
 pub mod json_ui_assets;
-pub mod oreui_assets;
-pub mod oreui_fonts;
 pub mod platform_clipboard;
 pub mod presentation;
 pub mod raw_text_resolution;
@@ -41,7 +39,6 @@ pub mod session_data;
 pub mod sign_editor;
 pub mod use_on_identity_evidence;
 
-pub use bed::SleepStatus;
 pub use forms::{
     FormRespondError, FormTransportError, LocalFormAction, MAX_RETAINED_SERVER_FORMS,
     ServerFormEntry, ServerFormIdentity, ServerFormStore, flush_form_response,
@@ -164,7 +161,7 @@ pub struct UiRuntime {
     chat_usage_hint: Option<Arc<str>>,
     local_sleeping: bool,
     wake_requested: bool,
-    sleep_status: Option<bed::SleepStatus>,
+    sleep_status: Option<oreui::SleepStatus>,
     chat_tab_cycling: bool,
     chat_tab_start: Option<usize>,
     pending_chat_autocomplete_request: Option<ChatAutocompleteRequest>,

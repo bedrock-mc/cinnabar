@@ -1,7 +1,7 @@
 //! Validated first-person meshes and their texture data.
 use glam::{Mat4, Vec3};
 use std::sync::Arc;
-mod cube;
+pub(crate) mod cube;
 pub mod geometry;
 pub const VIEWMODEL_TEXTURE_SIDE: u32 = 64;
 

@@ -25,14 +25,14 @@ fn unchanged_authored_pose_sampling_allocates_nothing_and_keeps_matrix_identity(
                 Some(endpoints[endpoint])
             })
             .unwrap();
-        let allocated = crate::test_allocations::count();
+        let allocated = test_alloc::thread_allocations();
         let repeated = runtime
             .poses
             .sample_pair(&body, LAYER_MAIN_HAND, 1, |endpoint, _| {
                 Some(endpoints[endpoint])
             })
             .unwrap();
-        assert_eq!(crate::test_allocations::count() - allocated, 0);
+        assert_eq!(test_alloc::thread_allocations() - allocated, 0);
         assert!(Arc::ptr_eq(&pose[0], &repeated[0]));
         assert!(Arc::ptr_eq(&pose[1], &repeated[1]));
         assert_eq!(

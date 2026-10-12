@@ -407,6 +407,7 @@ pub(crate) fn update_block_entity_scene(
                 let (block_light, sky_light) = stream.light_level_at(center.to_array());
                 let context = FrameContext {
                     stream,
+                    collisions: &collisions,
                     eye,
                     delta_seconds: delta,
                     now_seconds,
@@ -499,6 +500,7 @@ pub(crate) fn update_block_entity_scene(
 
 struct FrameContext<'a> {
     stream: &'a chunk_pipeline::WorldStream,
+    collisions: &'a PhysicsCollisionRegistries,
     eye: Vec3,
     delta_seconds: f32,
     now_seconds: f64,
@@ -522,6 +524,7 @@ fn held_placement(
     StaticItemPlacement {
         identifier: Arc::clone(&item.identifier),
         metadata: item.metadata,
+        potted_block: None,
         world_from_item,
         light,
     }
@@ -531,7 +534,6 @@ fn held_placement(
 const CAMPFIRE_SLOTS: [[f32; 2]; 4] = [[-4.0, -4.0], [4.0, -4.0], [4.0, 4.0], [-4.0, 4.0]];
 const CAMPFIRE_ITEM_HEIGHT: f32 = 7.5;
 const CAMPFIRE_ITEM_SCALE: f32 = 0.375;
-const FLOWER_SCALE: f32 = 0.5;
 
 /// Seconds before an unanswered map request is repeated.
 const MAP_REQUEST_RETRY_SECONDS: f64 = 5.0;
@@ -682,14 +684,22 @@ fn resolve(
             Some(BlockEntityKind::ItemFrame(model))
         }
         Template::FlowerPot { plant } => {
-            // Two crossed sprites standing in the pot; the plant icon stands in for the model.
-            let base = render_model::block_matrix(position, [0.5, 0.32, 0.5], 0.0);
-            for yaw in [45.0_f32, 135.0] {
-                let pose = base
-                    * Mat4::from_rotation_y(yaw.to_radians())
-                    * Mat4::from_scale(Vec3::splat(FLOWER_SCALE * 16.0));
-                held.push(held_placement(plant, matrix_rows(pose), None));
-            }
+            let id = context.collisions.block_state_runtime_id(
+                assets::NetworkIdMode::Sequential,
+                &plant.identifier,
+                &plant.states,
+            )?;
+            held.push(StaticItemPlacement {
+                identifier: Arc::clone(&plant.identifier),
+                metadata: 0,
+                potted_block: Some(id),
+                world_from_item: render_model::dropped_item_transform(
+                    position.map(|axis| axis as f32 + 0.5),
+                    0.0,
+                    1.0,
+                ),
+                light: None,
+            });
             None
         }
         Template::Campfire { yaw_degrees, items } => {

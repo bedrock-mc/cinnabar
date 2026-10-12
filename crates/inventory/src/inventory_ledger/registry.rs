@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use protocol::{ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, NetworkItemStack};
 use sha2::{Digest, Sha256};
 
+use super::equipment::equipment_admission;
 use super::{Cell, PlayerInventoryLedger};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -64,6 +65,12 @@ impl PlayerInventoryLedger {
                     .map(|held| held.stack.network_id)
                     .any(|network_id| {
                         registry_identity_changed(previous, &next, network_id)
+                            || (pending.predicted.iter().any(|prediction| {
+                                matches!(prediction.cell, Cell::Armor(_) | Cell::Offhand)
+                            }) && (equipment_admission(previous.get(&network_id))
+                                != equipment_admission(next.get(&network_id))
+                                || previous.get(&network_id).and_then(entry_capacity)
+                                    != next.get(&network_id).and_then(entry_capacity)))
                             || (pending.registry_bound_merge
                                 && registry_merge_rule_changed(previous, &next, network_id))
                     })
@@ -227,7 +234,11 @@ pub(super) fn entry_capacity(entry: &ItemRegistryEntry) -> Option<u8> {
     {
         return Some(protocol::ITEM_DEFAULT_MAX_STACK_SIZE);
     }
-    vanilla.filter(|_| !entry.component_based && entry.canonical_empty_component_data)
+    vanilla.filter(|_| {
+        !entry.component_based
+            && (entry.canonical_empty_component_data
+                || entry.identifier.as_ref() == super::TOTEM_IDENTIFIER)
+    })
 }
 
 pub(super) fn plain_stack(stack: &NetworkItemStack) -> bool {

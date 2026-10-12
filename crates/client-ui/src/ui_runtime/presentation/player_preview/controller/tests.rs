@@ -72,7 +72,8 @@ fn dragging_right_turns_the_character_to_the_left() {
 #[test]
 fn dressing_room_character_fits_its_stage_through_rotation_head_look_and_idle() {
     use crate::ui_runtime::presentation::player_preview::geometry;
-    let mut presentation = UiPresentationRuntime::new(crate::test_support::fixture_font()).unwrap();
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.set_player_preview_skin(None, Default::default());
     presentation
         .menu_preview
@@ -209,7 +210,8 @@ fn head_tracking_is_bounded_and_reverses_yaw_when_facing_backwards() {
 
 #[test]
 fn a_scrolled_character_only_captures_visible_pixels_and_keeps_its_full_centre() {
-    let mut presentation = UiPresentationRuntime::new(crate::test_support::fixture_font()).unwrap();
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.set_player_preview_skin(None, Default::default());
     presentation
         .menu_preview
@@ -273,7 +275,7 @@ fn a_scrolled_character_only_captures_visible_pixels_and_keeps_its_full_centre()
 fn safe_area_and_dpi_keep_the_pointer_aligned_with_the_character_centre() {
     for dpi in [1.0, 2.0] {
         let mut presentation =
-            UiPresentationRuntime::new(crate::test_support::fixture_font()).unwrap();
+            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
         presentation.set_safe_area(ui::SafeArea::new(17.0, 19.0, 0.0, 0.0).unwrap());
         presentation.set_player_preview_skin(None, Default::default());
         presentation
@@ -318,7 +320,7 @@ fn fitted_dressing_room_look_origin_tracks_the_displayed_head_pivot() {
     };
     for dpi in [1.0, 2.0] {
         let mut presentation =
-            UiPresentationRuntime::new(crate::test_support::fixture_font()).unwrap();
+            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
         let safe_area = ui::SafeArea::new(17.0, 19.0, 0.0, 0.0).unwrap();
         presentation.set_safe_area(safe_area);
         presentation.set_player_preview_skin(None, Default::default());
@@ -432,7 +434,8 @@ fn an_attached_cape_stays_inside_the_fitted_stage_when_the_character_turns() {
             rgba8: vec![255; (width * height * 4) as usize].into(),
         }),
     };
-    let mut presentation = UiPresentationRuntime::new(crate::test_support::fixture_font()).unwrap();
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.set_player_preview_skin(None, Default::default());
     assert!(presentation.set_menu_preview_skin(&skin));
     presentation

@@ -22,7 +22,7 @@ const PHYSICAL: [u32; 2] = [1280, 720];
 
 fn fixture() -> (App, Entity) {
     let mut presentation =
-        UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap();
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.set_player_preview_skin(None, Default::default());
     let mut menu = MenuRuntime::new(true, 2, "Player".into());
     menu.activate(MenuAction::Navigate(MenuScreen::DressingRoom));

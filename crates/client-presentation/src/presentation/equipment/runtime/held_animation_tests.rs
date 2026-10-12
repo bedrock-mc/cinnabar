@@ -212,7 +212,7 @@ fn warm_static_held_publication_retains_pose_without_evaluation_allocations() {
         });
         assert_eq!(batch.submissions.len(), 2);
     }
-    let allocations = crate::test_allocations::count();
+    let allocations = test_alloc::thread_allocations();
     for tick in 3..13 {
         rig.completed_tick = tick;
         runtime.begin_frame();
@@ -234,7 +234,7 @@ fn warm_static_held_publication_retains_pose_without_evaluation_allocations() {
         assert_eq!(batch.artwork.len(), 1);
     }
     assert_eq!(
-        crate::test_allocations::count() - allocations,
+        test_alloc::thread_allocations() - allocations,
         0,
         "unchanged held publication must reuse evaluation, placement, and output storage"
     );
@@ -694,7 +694,7 @@ fn installed_shield_and_trident_warm_draws_reuse_output_storage() {
                 1
             );
         }
-        let allocations = crate::test_allocations::count();
+        let allocations = test_alloc::thread_allocations();
         for tick in 2..12 {
             rig.completed_tick = tick;
             runtime.begin_frame();
@@ -715,7 +715,7 @@ fn installed_shield_and_trident_warm_draws_reuse_output_storage() {
             );
         }
         assert_eq!(
-            crate::test_allocations::count() - allocations,
+            test_alloc::thread_allocations() - allocations,
             0,
             "unchanged {identifier} publication must retain evaluation and output storage"
         );

@@ -128,7 +128,7 @@ fn offhand_empty_provider_preserves_unknown_present_and_actual_authority_routes(
 fn cpu_hand_quad_is_retained_alongside_unchanged_held_items() {
     let player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
-    use client_ui::test_support::fixture_font;
+    use ui_engine::test_support::fixture_font;
     use {
         client_ui::ui_runtime::presentation::{UiPresentationRuntime, refresh_hud_frame},
         ui::IconRef,
@@ -184,8 +184,9 @@ fn cpu_hand_quad_is_retained_alongside_unchanged_held_items() {
 fn active_hand_rig_retires_the_cpu_hand_and_item_quads() {
     let player_runtime = PlayerRuntime(player_state::PlayerState::new(1));
 
-    use client_ui::test_support::{fixture_font, fixture_hud};
+    use client_ui::test_support::fixture_hud;
     use client_ui::ui_runtime::presentation::{UiPresentationRuntime, refresh_hud_frame};
+    use ui_engine::test_support::fixture_font;
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     presentation.set_player_preview_skin(Some(&vec![255; 64 * 64 * 4]), Default::default());
     let mut runtime = UiRuntime::new(1);

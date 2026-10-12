@@ -12,10 +12,7 @@ use protocol::{
 };
 
 use client_ui::ui_runtime::presentation::refresh_hud_frame;
-use {
-    super::*,
-    client_ui::test_support::{fixture_font, fixture_hud},
-};
+use {super::*, client_ui::test_support::fixture_hud, ui_engine::test_support::fixture_font};
 
 /// Reads an installed item fixture, skipping missing files and rejecting other read errors.
 fn local(name: &str) -> Option<Vec<u8>> {

@@ -1092,10 +1092,9 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
 #[test]
 fn output_click_crafts_the_unique_recipe_through_the_ledger() {
     use {
-        client_ui::ui_runtime::{
-            dispatch_inventory_click, presentation::inventory_pointer::InventoryCellHit,
-        },
+        client_ui::ui_runtime::dispatch_inventory_click,
         inventory::inventory_ledger::{CellGesture, PERSONAL_INVENTORY_WINDOW_TYPE},
+        ui_screens::container_actions::InventoryCellHit,
     };
     let mut app = app();
     registry_ingress(&mut app, 1, named_registry("minecraft:oak_log"));

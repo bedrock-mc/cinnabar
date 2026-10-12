@@ -132,7 +132,8 @@ pub fn enhanced_rendering_enabled() -> bool {
 }
 
 #[cfg(test)]
-mod alloc_count;
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 pub mod block_entity;
 pub mod celestial;
 pub mod hand;

@@ -9,6 +9,7 @@ use std::io::{Cursor, Read};
 use std::sync::Arc;
 
 use json_ui::Catalog;
+use ui_engine::textures::texture_key;
 
 const UI_DEFS: &str = "ui/_ui_defs.json";
 const GLOBALS: &str = "ui/_global_variables.json";
@@ -435,7 +436,7 @@ impl Workspace {
 
     /// The topmost sidecar json for texture `key`, if loaded.
     pub fn sidecar(&mut self, key: &str) -> Option<Arc<[u8]>> {
-        let stem = texture_stem(key);
+        let stem = texture_key(key);
         let candidates = [format!("{stem}.json")];
         for layer in (0..self.layers.len()).rev() {
             if let Some(path) = self.find_in(layer, &candidates) {
@@ -522,18 +523,9 @@ fn strip_root(path: &str, root: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn texture_stem(key: &str) -> &str {
-    for extension in [".png", ".jpg", ".jpeg", ".tga"] {
-        if let Some(stem) = key.strip_suffix(extension) {
-            return stem;
-        }
-    }
-    key
-}
-
 fn texture_candidates(key: &str) -> Vec<String> {
     let key = key.trim_start_matches('/');
-    let stem = texture_stem(key);
+    let stem = texture_key(key);
     let mut candidates = Vec::with_capacity(5);
     if stem != key {
         candidates.push(key.to_owned());
@@ -588,6 +580,31 @@ mod tests {
             workspace.texture_file("textures/ui/x"),
             Some(TextureFile::Wanted { path, .. }) if path == "textures/ui/x.png"
         ));
+    }
+
+    // A spelled extension still finds the file and its sidecar by the extensionless stem.
+    #[test]
+    fn spelled_texture_extensions_resolve_by_stem() {
+        let mut workspace = Workspace::default();
+        let layer = workspace.add_layer("pack");
+        workspace.add_files(
+            layer,
+            vec![
+                ("manifest.json".into(), b"{}".to_vec()),
+                (
+                    "textures/ui/x.json".into(),
+                    b"{\"base_size\":[2,2]}".to_vec(),
+                ),
+            ],
+            vec!["textures/ui/x.tga".into()],
+        );
+        for key in ["textures/ui/x.jpeg", "/textures/ui/x.png", "textures/ui/x"] {
+            assert!(matches!(
+                workspace.texture_file(key),
+                Some(TextureFile::Wanted { path, .. }) if path == "textures/ui/x.tga"
+            ));
+        }
+        assert!(workspace.sidecar("textures/ui/x.png").is_some());
     }
 
     #[test]

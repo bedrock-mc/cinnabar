@@ -106,4 +106,5 @@ pub fn pinned_block_presentation_states() -> &'static BlockPresentationStates {
 mod tests;
 
 #[cfg(test)]
-mod test_allocations;
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;

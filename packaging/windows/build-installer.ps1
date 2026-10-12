@@ -36,6 +36,7 @@ if (-not (Test-Path $font)) { throw "missing $font" }
 Copy-Item $font (Join-Path $resources "fonts")
 Copy-Item (Join-Path $root "assets/*.json") (Join-Path $kit "assets")
 Copy-Item (Join-Path $root "assets/fonts/*") (Join-Path $kit "assets/fonts")
+Copy-Item (Join-Path $root "assets/oreui-icons") (Join-Path $kit "assets") -Recurse
 foreach ($stem in "block-registry", "block-light-registry", "biome-registry", "block-physics-seed") { Copy-Item (Join-Path $root "crates/assets/data/$stem-v2193.*") (Join-Path $kit "data") }
 if ($env:CINNABAR_UPDATE_URL) { [System.IO.File]::WriteAllText((Join-Path $resources "update-url"), $env:CINNABAR_UPDATE_URL) }
 

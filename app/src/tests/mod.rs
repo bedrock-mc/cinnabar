@@ -306,7 +306,6 @@ fn binding_teleport_completion(
 pub(crate) mod actor_frame_allocations;
 mod actor_pack_publication;
 pub(crate) mod actor_rest_presentation;
-pub(crate) mod alloc_count;
 mod audio;
 mod audio_camera;
 mod camera;

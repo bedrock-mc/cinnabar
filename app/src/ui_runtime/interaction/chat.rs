@@ -1,7 +1,8 @@
 //! Mouse and gamepad input for the native chat screen and its settings popup.
 
 use super::*;
-use client_ui::ui_runtime::presentation::{BedHit, ChatHit};
+use client_ui::ui_runtime::presentation::ChatHit;
+use oreui::BedHit;
 
 /// Routes chat pointer actions while a settings modal owns its underlying controls.
 #[allow(clippy::too_many_arguments)]

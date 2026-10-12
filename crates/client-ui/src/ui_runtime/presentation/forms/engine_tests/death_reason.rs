@@ -200,7 +200,8 @@ fn death_quit_popup_retains_the_modern_overlay_underneath() {
     ].map(|(path,text)| UiFile { path: path.into(), bytes: text.as_bytes().into() });
     let bytes = encode_ui_catalog([1; 32], &[], &[], &[], &files).unwrap();
     let carrier = Arc::new(RuntimeUiAssets::decode(&bytes).unwrap());
-    let mut presentation = UiPresentationRuntime::new(crate::test_support::fixture_font()).unwrap();
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.enable_json_ui(carrier).unwrap();
     let mut view = MenuView::new(false, "Player".into());
     view.visible = true;

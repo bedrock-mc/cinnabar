@@ -11,8 +11,6 @@ use std::{
 type NetworkControlEvent = super::NetworkControlEvent<()>;
 type NetworkHandle = super::NetworkHandle<()>;
 
-#[path = "alloc_count.rs"]
-pub(super) mod alloc_count;
 mod forms;
 mod outbound;
 mod queues;

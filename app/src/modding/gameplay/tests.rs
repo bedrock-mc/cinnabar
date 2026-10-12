@@ -588,9 +588,9 @@ fn nearest_mob_selection_matches_full_order_for_a_large_scrambled_population() {
     });
     expected.truncate(mod_api::MAX_GAMEPLAY_MOBS);
     let expected: Vec<_> = expected.iter().map(|actor| actor.runtime_id).collect();
-    let before = crate::tests::alloc_count::thread_allocations();
+    let before = test_alloc::thread_allocations();
     let actual = nearest_mobs(stream.authority().remote_actors(), Vec3::ZERO);
-    let allocated = crate::tests::alloc_count::thread_allocations() - before;
+    let allocated = test_alloc::thread_allocations() - before;
     assert!(
         allocated <= mod_api::MAX_GAMEPLAY_MOBS as u64 + 3,
         "selected mobs allocated {allocated} times"

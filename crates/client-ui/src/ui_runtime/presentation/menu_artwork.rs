@@ -23,12 +23,11 @@ use ui_engine::pages::WHOLE_ART_PAGE;
 
 mod skin_previews;
 use skin_previews::SkinArtwork;
-pub(crate) use skin_previews::thumbnail_key;
 mod cape_previews;
 mod packing;
 mod request_cache;
 use cape_previews::CapeArtwork;
-pub(crate) use cape_previews::{cape_texture_key, cape_thumbnail_key};
+pub(crate) use cape_previews::cape_texture_key;
 use packing::pack;
 
 use launcher::accounts::MAX_ARTWORK_BYTES as MAX_SOURCE_BYTES;

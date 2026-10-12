@@ -64,10 +64,11 @@ mod tests {
             [2; 32],
             &[],
             &[],
-            &[],
-            &[],
-            std::slice::from_ref(&overlay),
-            std::slice::from_ref(&food),
+            crate::equipment::EquipmentItemFacts {
+                item_use_overlays: std::slice::from_ref(&overlay),
+                item_food: std::slice::from_ref(&food),
+                ..Default::default()
+            },
         )
         .unwrap();
         let catalog = RuntimeEquipmentCatalog::decode(&bytes).unwrap();
@@ -82,10 +83,10 @@ mod tests {
                 [2; 32],
                 &[],
                 &[],
-                &[],
-                &[],
-                &[],
-                &[bad]
+                crate::equipment::EquipmentItemFacts {
+                    item_food: &[bad],
+                    ..Default::default()
+                },
             )
             .is_err()
         );
@@ -95,10 +96,10 @@ mod tests {
                 [2; 32],
                 &[],
                 &[],
-                &[],
-                &[],
-                &[],
-                &[food.clone(), food]
+                crate::equipment::EquipmentItemFacts {
+                    item_food: &[food.clone(), food],
+                    ..Default::default()
+                },
             )
             .is_err()
         );

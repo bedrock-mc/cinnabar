@@ -317,9 +317,10 @@ mod tests {
     /// `ui.close-screen`, both of which clear its template) gives them back.
     #[test]
     fn menu_input_leak_client_part_modal_absorbs_gameplay_until_closed() {
-        use client_ui::test_support::fixture_font;
-        use client_ui::ui_runtime::presentation::{ExperienceModal, UiPresentationRuntime};
+        use client_ui::ui_runtime::presentation::UiPresentationRuntime;
+        use mod_ui::experience_modal::ExperienceModal;
         use server_experience::screen::{Files, Modal};
+        use ui_engine::test_support::fixture_font;
 
         let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
         let files = Arc::new(Files::default());

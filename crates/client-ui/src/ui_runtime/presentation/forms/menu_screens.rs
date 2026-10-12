@@ -4,63 +4,14 @@
 //! the vanilla screen controllers answer it), so each spec names the flags its
 //! layout needs on.
 
-use std::sync::Arc;
-
 use json_ui::{Context, DataSource, HitKind, HitRegion, Scalar};
 use serde_json::Value;
 
 use super::{menu_caret::with_caret, play_screen};
+use launcher::menu::settings_sections::SETTINGS_SECTIONS;
 use launcher::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuView, auth::AuthState};
+use ui_engine::engine::screen::{Translate, translated};
 
-/// Settings selector index vars as 1.26.50's settings screen assigns them.
-pub(super) const SETTINGS_SECTIONS: &[(&str, u8)] = &[
-    ("server_forced_index", 1),
-    ("accessibility_forced_index", 2),
-    ("how_to_play_index", 3),
-    ("game_forced_index", 4),
-    ("classroom_forced_index", 5),
-    ("edu_cloud_level_forced_index", 6),
-    ("multiplayer_forced_index", 7),
-    ("world_forced_index", 8),
-    ("members_forced_index", 9),
-    ("realms_saves_forced_index", 10),
-    ("subscription_forced_index", 11),
-    ("backup_forced_index", 12),
-    ("dev_options_forced_index", 13),
-    ("keyboard_and_mouse_forced_index", 14),
-    ("controller_and_switch_forced_index", 15),
-    ("touch_forced_index", 16),
-    ("party_forced_index", 17),
-    ("general_forced_index", 18),
-    ("account_forced_index", 19),
-    ("creator_forced_index", 20),
-    ("video_forced_index", 21),
-    ("view_subscriptions_forced_index", 22),
-    ("sound_forced_index", 23),
-    ("global_texture_pack_forced_index", 24),
-    (
-        "storage_management_forced_index",
-        launcher::menu::settings_storage::SECTION_INDEX,
-    ),
-    ("edu_cloud_storage_forced_index", 26),
-    ("language_forced_index", 27),
-    ("preview_forced_index", 28),
-    ("debug_forced_index", 29),
-    ("discovery_debug_forced_index", 30),
-    ("ui_debug_forced_index", 31),
-    ("edu_debug_forced_index", 32),
-    ("marketplace_debug_forced_index", 33),
-    ("flighting_debug_forced_index", 34),
-    ("realms_debug_forced_index", 35),
-    ("automation_forced_index", 36),
-    ("level_texture_pack_index", 37),
-    ("broadcast_forced_index", 38),
-    ("addon_index", 39),
-    ("invite_links_forced_index", 40),
-    ("general_invite_link_forced_index", 41),
-    ("advanced_invite_link_forced_index", 42),
-    ("realms_advanced_forced_index", 43),
-];
 /// The section the settings screen opens on before one is picked.
 const VIDEO_SECTION: &str = "video_forced_index";
 
@@ -103,14 +54,8 @@ pub(super) struct MenuScreenData {
     pub(super) overlay: Option<Box<MenuScreenData>>,
 }
 
-pub(super) type Translate<'a> = &'a dyn Fn(&str) -> Option<Arc<str>>;
-
 pub(super) fn text(value: impl Into<String>) -> Scalar {
     Scalar::Text(value.into())
-}
-
-pub(super) fn translated(translate: Translate<'_>, key: &str, fallback: &str) -> String {
-    translate(key).map_or_else(|| fallback.to_owned(), |value| value.to_string())
 }
 
 pub(super) fn flags(data: &mut DataSource, on: &[&str]) {
@@ -184,7 +129,7 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
             MenuScreen::Pause => {
                 data.set_global(
                     "#playername",
-                    text(super::accounts::current_name(view).to_owned()),
+                    text(launcher::menu::profile::current_name(view).to_owned()),
                 );
                 flags(&mut data, &["#playername_visible"]);
                 if view.hosting {
@@ -363,10 +308,10 @@ fn store_screen(
 }
 
 fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {
-    let gamertag = super::accounts::current_name(view).to_owned();
+    let gamertag = launcher::menu::profile::current_name(view).to_owned();
     data.set_global("#playername", text(gamertag.clone()));
     data.set_global("#gamertag_label", text(gamertag));
-    let portrait = super::accounts::current_picture(view).is_some()
+    let portrait = launcher::menu::profile::current_picture(view).is_some()
         || !view.feeds.home.persona_head.is_empty();
     data.set_global("#show_gamerpic", Scalar::Bool(portrait));
     flags(

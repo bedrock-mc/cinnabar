@@ -1,10 +1,10 @@
-//! The host's texture sources for the engine's atlas: the installed vanilla pack on disk and the
-//! remote image cache.
+//! The host's texture sources for the engine's atlas: the installed vanilla pack on disk, the
+//! remote image cache, and the clock and threads its image work runs on.
 
-use std::{io::Read, path::PathBuf, sync::Arc};
+use std::{io::Read, path::PathBuf, sync::Arc, time::Instant};
 
 use launcher_host::remote_images::{RemoteImages, RemoteState};
-use ui_engine::sources::{LocalPack, RemoteImage, RemoteSource};
+use ui_engine::sources::{ImageWork, LocalPack, RemoteImage, RemoteSource};
 
 /// The installed vanilla resource pack under its root directory.
 pub(super) struct VanillaPack(PathBuf);
@@ -47,6 +47,15 @@ impl RemoteSource for Downloads {
 /// A fresh remote image cache for one engine.
 pub(super) fn downloads() -> Arc<dyn RemoteSource> {
     Arc::new(Downloads(RemoteImages::default()))
+}
+
+/// Background workers, with inline decodes bounded on the monotonic clock.
+pub(super) fn image_work() -> ImageWork {
+    let origin = Instant::now();
+    ImageWork {
+        clock: Some(Arc::new(move || origin.elapsed())),
+        workers: true,
+    }
 }
 
 /// Resolves a pack-relative file while refusing parent components and linked escapes.

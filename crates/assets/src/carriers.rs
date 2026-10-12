@@ -16,6 +16,7 @@ pub const FONT_TEN_MANIFEST: &str = "assets/cinnangles-ten-source.json";
 pub const FONT_SEVEN_MANIFEST: &str = "assets/cinnangles-seven-source.json";
 pub const FONT_FIVE_MANIFEST: &str = "assets/cinnangles-five-source.json";
 pub const FONT_FIVE_BOLD_MANIFEST: &str = "assets/cinnangles-five-bold-source.json";
+pub const OREUI_ICONS_MANIFEST: &str = "assets/oreui-icons-source.json";
 
 mod fonts;
 pub use fonts::{AsciiBearing, FontFace};
@@ -56,6 +57,7 @@ pub enum Recipe {
     HudExtras,
     StarterSkins,
     AudioPcm,
+    OreUiIcons,
 }
 
 /// What a recipe reads besides the compiler itself; tracked paths are checkout-relative.
@@ -442,6 +444,18 @@ pub const STARTER_SKINS: Carrier = Carrier {
         false,
     )
 };
+/// Shipped original OreUI artwork; the manifest's per-file digests cover its PNG sources.
+pub const OREUI_ICONS: Carrier = Carrier {
+    inputs: &[Input::Manifest(OREUI_ICONS_MANIFEST)],
+    ..carrier(
+        "oreui-icons",
+        "Compiling OreUI icons",
+        Recipe::OreUiIcons,
+        "ui-oreui-icons-v1.mcbeoui",
+        None,
+        false,
+    )
+};
 /// Development-only finite predecode of one reviewed sample.
 pub const AUDIO_PCM: Carrier = Carrier {
     installed: false,
@@ -467,6 +481,7 @@ pub const CARRIERS: &[Carrier] = &[
     FONT_SEVEN,
     FONT_FIVE,
     FONT_FIVE_BOLD,
+    OREUI_ICONS,
     HUD,
     LANG,
     LANGUAGES,
@@ -621,6 +636,12 @@ mod tests {
             assert_eq!(carrier.recipe, Recipe::Font);
             assert!(!carrier.inputs.contains(&Input::Pack));
         }
+    }
+
+    #[test]
+    fn shipped_oreui_icons_are_optional_and_independent_of_the_game_pack() {
+        assert!(!OREUI_ICONS.required && OREUI_ICONS.installed);
+        assert_eq!(OREUI_ICONS.inputs, &[Input::Manifest(OREUI_ICONS_MANIFEST)]);
     }
 
     #[test]

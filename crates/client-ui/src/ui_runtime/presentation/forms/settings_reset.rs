@@ -1,8 +1,9 @@
 //! Host routing for the pack's three reset_settings buttons.
 
-use super::menu_screens::{SETTINGS_SECTIONS, Translate, translated};
 use json_ui::HitRegion;
+use launcher::menu::settings_sections::SETTINGS_SECTIONS;
 use launcher::menu::{MenuAction, MenuView, settings_options::SettingsGroup};
+use ui_engine::engine::screen::{Translate, translated};
 
 /// Uses the active section because HitRegion does not expose the reset_group property bag.
 pub(super) fn action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {

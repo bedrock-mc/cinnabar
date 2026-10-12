@@ -13,7 +13,7 @@ use {
         app::{configure_client_frame_schedule, configure_client_production_frame_systems},
         runtime::world::{ClientWorld, drain_committed_ui_before_authority},
     },
-    client_ui::test_support::fixture_font,
+    ui_engine::test_support::fixture_font,
 };
 
 /// Finds a real production system node in Bevy's unbuilt schedule graph.
@@ -133,6 +133,7 @@ fn join_offer_opens_the_trusted_popup_and_owns_input_without_a_menu() {
     assert!(
         app.world()
             .resource::<UiPresentationResource>()
+            .mod_ui()
             .experience_prompt_visible()
     );
 }
@@ -202,6 +203,7 @@ fn running_or_disabled_experiences_never_open_the_popup() {
         assert!(
             !app.world()
                 .resource::<UiPresentationResource>()
+                .mod_ui()
                 .experience_prompt_visible()
         );
     }

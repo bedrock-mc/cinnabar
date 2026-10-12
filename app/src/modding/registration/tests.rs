@@ -156,7 +156,7 @@ fn world() -> (World, Receiver<Message>, Receiver<ModHost>) {
         settings: Arc::new(Mutex::new(None)),
     });
     world.insert_resource(UiPresentationResource(
-        UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap(),
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap(),
     ));
     (world, receive_messages, receive_retired)
 }
@@ -302,6 +302,7 @@ fn id_only_reattachment_preserves_guest_state_panel_input_and_interaction() {
         .set_panel_open(true);
     world
         .resource_mut::<UiPresentationResource>()
+        .mod_ui_mut()
         .set_mod_panel_open(true);
     world.resource_mut::<ModInteraction>().attack_reach = Some(5.0);
     let identity = world
@@ -326,7 +327,12 @@ fn id_only_reattachment_preserves_guest_state_panel_input_and_interaction() {
         &runtime.hosts.host.panel().unwrap().controls[0],
         ui::mod_panel::Control::Toggle { value: true, .. }
     ));
-    assert!(world.resource::<UiPresentationResource>().mod_panel_open());
+    assert!(
+        world
+            .resource::<UiPresentationResource>()
+            .mod_ui()
+            .mod_panel_open()
+    );
     assert_eq!(world.resource::<ModInteraction>().attack_reach, Some(5.0));
     let Message::Acknowledge { status, .. } = messages.try_recv().unwrap() else {
         panic!("expected reuse acknowledgment")
@@ -460,6 +466,7 @@ fn disable_and_invalid_registration_revoke_all_owned_outputs() {
         world.resource_mut::<VisualTimeOverride>().0 = Some(18_000);
         world
             .resource_mut::<UiPresentationResource>()
+            .mod_ui_mut()
             .set_mod_panel_open(true);
         let mut scene = render_scene::ModRenderScene::default();
         scene.apply(&rendered_output(), 7);
@@ -486,7 +493,12 @@ fn disable_and_invalid_registration_revoke_all_owned_outputs() {
         assert!(!world.contains_resource::<ModRuntime>());
         assert!(!world.contains_resource::<ModInteraction>());
         assert!(!world.contains_resource::<VisualTimeOverride>());
-        assert!(!world.resource::<UiPresentationResource>().mod_panel_open());
+        assert!(
+            !world
+                .resource::<UiPresentationResource>()
+                .mod_ui()
+                .mod_panel_open()
+        );
         assert_eq!(retired.try_recv().unwrap().label(), Some("Hello"));
     }
 }
@@ -578,6 +590,7 @@ fn saturated_retirement_queue_releases_authority_before_waiting_for_disposal() {
         .set_panel_open(true);
     world
         .resource_mut::<UiPresentationResource>()
+        .mod_ui_mut()
         .set_mod_panel_open(true);
     world.resource_mut::<ModInteraction>().attack_reach = Some(6.0);
     world.resource_mut::<VisualTimeOverride>().0 = Some(18_000);
@@ -608,7 +621,12 @@ fn saturated_retirement_queue_releases_authority_before_waiting_for_disposal() {
     assert!(runtime.suspended);
     assert!(!runtime.hosts.host.panel_open());
     assert!(!runtime.controls.focused);
-    assert!(!world.resource::<UiPresentationResource>().mod_panel_open());
+    assert!(
+        !world
+            .resource::<UiPresentationResource>()
+            .mod_ui()
+            .mod_panel_open()
+    );
     assert_eq!(world.resource::<ModInteraction>().attack_reach, None);
     assert_eq!(world.resource::<VisualTimeOverride>().0, None);
     let Message::Acknowledge { status, .. } = messages.try_recv().unwrap() else {

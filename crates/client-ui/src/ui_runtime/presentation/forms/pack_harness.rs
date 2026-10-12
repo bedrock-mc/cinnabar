@@ -14,8 +14,8 @@ use ui::{DpiScale, UiNode, UiVisual};
 
 use super::super::UiPresentationRuntime;
 use super::ServerUiPack;
-use crate::test_support::fixture_font;
 use crate::ui_runtime::{SequencedUiEvent, UiRuntime};
+use ui_engine::test_support::fixture_font;
 use ui_engine::text_metrics::TextMetrics;
 
 const PACK_ENV: &str = "CINNABAR_FORM_PACK_DIR";
@@ -83,7 +83,7 @@ pub fn font() -> Arc<RuntimeFontCatalog> {
         .ok()
         .and_then(|bytes| RuntimeFontCatalog::decode(&bytes, manifest).ok())
         .map_or_else(fixture_font, |font| Arc::new(font.with_coverage_pages()));
-    crate::ui_runtime::oreui_fonts::install(base, &directory)
+    oreui::fonts::install(base, &directory)
 }
 
 /// Every file of an unpacked pack directory as `(pack-relative path, bytes)`.

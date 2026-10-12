@@ -7,6 +7,7 @@ use json_ui::{CollectionItem, DataSource, HitRegion, Scalar};
 
 use launcher::menu::{
     MenuAction, MenuRealmCard, MenuScreen, MenuServerCard, MenuView, PingInfo, pingable,
+    play_featured,
 };
 
 const FEATURED: &str = "third_party_server_network_worlds";
@@ -308,11 +309,6 @@ fn realms(view: &MenuView, data: &mut DataSource) {
     flag(data, "#joinable_realms_panel_visible", !friends.is_empty());
     data.set_collection(PERSONAL_REALMS, personal);
     data.set_collection(FRIEND_REALMS, friends);
-}
-
-/// Joining the featured-list entry at `index`.
-pub(super) fn play_featured(view: &MenuView, index: usize) -> Option<MenuAction> {
-    (index < view.featured.len()).then_some(MenuAction::PlayFeatured(index))
 }
 
 /// The action for a press on the Servers tab's featured list or info panel.

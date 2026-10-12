@@ -10,12 +10,12 @@ use ui::{UiNode, UiRect};
 
 use super::super::{UiPresentationError, UiPresentationRuntime, menu, rect};
 use super::{
-    menu_caret::TextSpot,
     menu_renderers::{MenuRenderer, PreviewRenderer},
     menu_screens,
 };
 use crate::ui_runtime::UiRuntime;
-use launcher::menu::{MenuAction, MenuView};
+use launcher::menu::{MenuAction, MenuField, MenuView};
+use ui_engine::caret::TextSpot;
 use ui_engine::engine::{self, screen::PaintFrame};
 use ui_engine::frame::EngineFrame;
 use ui_engine::scroll::ScrollArea;
@@ -297,7 +297,7 @@ impl UiPresentationRuntime {
                     .as_deref(),
                 // The gamerpic, else the rendered persona head.
                 portrait: [
-                    super::accounts::current_picture(view).unwrap_or_default(),
+                    launcher::menu::profile::current_picture(view).unwrap_or_default(),
                     &view.feeds.home.persona_head,
                 ]
                 .into_iter()
@@ -591,7 +591,7 @@ fn text_spot(
     action: MenuAction,
     bounds: UiRect,
     metrics: TextMetrics,
-) -> Option<TextSpot> {
+) -> Option<TextSpot<MenuField>> {
     let field = action.text_field()?;
     let text = frame
         .edit_texts

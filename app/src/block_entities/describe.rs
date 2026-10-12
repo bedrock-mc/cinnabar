@@ -25,6 +25,40 @@ pub(super) struct HeldItem {
     pub(super) metadata: u32,
 }
 
+/// A retained plant block with all typed state selectors used to resolve its world identity.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct PlantBlock {
+    pub(super) identifier: Arc<str>,
+    pub(super) states: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Reads only usable block-state tag types; malformed plants do not become inventory icons.
+fn plant_block(plant: &NbtCompound) -> Option<PlantBlock> {
+    let name = plant
+        .string("name")
+        .filter(|name| !name.is_empty() && *name != "minecraft:air")?;
+    let mut states = serde_json::Map::new();
+    if let Some(compound) = plant.compound("states") {
+        for (key, value) in compound.iter() {
+            let typed = match value {
+                world::NbtValue::Byte(value) => serde_json::json!({"type":"byte", "value":value}),
+                world::NbtValue::Int(value) => serde_json::json!({"type":"int", "value":value}),
+                world::NbtValue::String(value) => {
+                    serde_json::json!({"type":"string", "value":value})
+                }
+                _ => return None,
+            };
+            states.insert(key.to_owned(), typed);
+        }
+    } else if plant.get("states").is_some() {
+        return None;
+    }
+    Some(PlantBlock {
+        identifier: Arc::from(name),
+        states,
+    })
+}
+
 /// A block entity's drawing plan before per-frame animation and text resolution.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Template {
@@ -37,7 +71,7 @@ pub(super) enum Template {
         map_id: Option<i64>,
     },
     FlowerPot {
-        plant: HeldItem,
+        plant: PlantBlock,
     },
     Campfire {
         yaw_degrees: f32,
@@ -306,16 +340,10 @@ pub(super) fn describe(
                 rotation_degrees: frame_rotation(nbt),
             })
         }
-        "FlowerPot" => nbt
-            .compound("PlantBlock")
-            .and_then(|plant| plant.string("name"))
-            .filter(|name| !name.is_empty() && *name != "minecraft:air")
-            .map(|name| Template::FlowerPot {
-                plant: HeldItem {
-                    identifier: Arc::from(name),
-                    metadata: 0,
-                },
-            }),
+        "FlowerPot" => (block_name == "minecraft:flower_pot")
+            .then(|| nbt.compound("PlantBlock").and_then(plant_block))
+            .flatten()
+            .map(|plant| Template::FlowerPot { plant }),
         "Campfire" => Some(Template::Campfire {
             yaw_degrees: facing(state).unwrap_or(Facing::North).yaw_degrees(),
             items: std::array::from_fn(|slot| {
@@ -369,6 +397,85 @@ pub(super) fn describe(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A retained plant with typed NBT states, independent of inventory item metadata.
+    fn potted_nbt(name: &str, states: NbtCompound) -> NbtCompound {
+        let mut plant = NbtCompound::default();
+        plant.insert("name", world::NbtValue::String(name.into()));
+        plant.insert("states", world::NbtValue::Compound(states));
+        let mut root = NbtCompound::default();
+        root.insert("PlantBlock", world::NbtValue::Compound(plant));
+        root
+    }
+
+    #[test]
+    fn flower_pot_preserves_typed_plant_state_selectors() {
+        let mut states = NbtCompound::default();
+        states.insert("sapling_type", world::NbtValue::String("spruce".into()));
+        states.insert("age_bit", world::NbtValue::Byte(0));
+        states.insert("growth", world::NbtValue::Int(2));
+        let Some(Template::FlowerPot { plant }) = describe(
+            "FlowerPot",
+            "minecraft:flower_pot",
+            &BlockState::default(),
+            &potted_nbt("minecraft:sapling", states),
+            [0; 3],
+        ) else {
+            panic!("plant expected")
+        };
+        assert_eq!(plant.identifier.as_ref(), "minecraft:sapling");
+        assert_eq!(
+            plant.states["sapling_type"],
+            serde_json::json!({"type":"string", "value":"spruce"})
+        );
+        assert_eq!(
+            plant.states["age_bit"],
+            serde_json::json!({"type":"byte", "value":0})
+        );
+        assert_eq!(
+            plant.states["growth"],
+            serde_json::json!({"type":"int", "value":2})
+        );
+    }
+
+    #[test]
+    fn flower_pot_skips_empty_invalid_and_stale_contents() {
+        for name in ["", "minecraft:air"] {
+            assert!(
+                describe(
+                    "FlowerPot",
+                    "minecraft:flower_pot",
+                    &BlockState::default(),
+                    &potted_nbt(name, NbtCompound::default()),
+                    [0; 3]
+                )
+                .is_none()
+            );
+        }
+        let root = potted_nbt("minecraft:poppy", NbtCompound::default());
+        assert!(
+            describe(
+                "FlowerPot",
+                "minecraft:stone",
+                &BlockState::default(),
+                &root,
+                [0; 3]
+            )
+            .is_none()
+        );
+        let mut states = NbtCompound::default();
+        states.insert("growth", world::NbtValue::Float(2.0));
+        assert!(
+            describe(
+                "FlowerPot",
+                "minecraft:flower_pot",
+                &BlockState::default(),
+                &potted_nbt("minecraft:poppy", states),
+                [0; 3]
+            )
+            .is_none()
+        );
+    }
 
     fn nbt(build: impl FnOnce(&mut Vec<u8>)) -> NbtCompound {
         let mut bytes = vec![10, 0];

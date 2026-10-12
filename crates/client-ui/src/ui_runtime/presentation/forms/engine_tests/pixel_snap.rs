@@ -9,7 +9,7 @@ use ui_engine::atlas::ServerAtlas;
 use ui_engine::cached_screen::CachedScreen;
 use ui_engine::engine::{FormEngine, ScreenArt, screen::PaintFrame};
 use ui_engine::text_metrics::TextMetrics;
-use {crate::ui_runtime::presentation::tests::fixture_font, ui::FONT_DESIGN_PIXEL_TEXELS};
+use {ui::FONT_DESIGN_PIXEL_TEXELS, ui_engine::test_support::fixture_font};
 
 const PAINT_VIEWPORT: [u32; 2] = [1440, 813];
 
@@ -46,6 +46,7 @@ fn paint_texture(
         2,
         registry(),
         crate::ui_runtime::presentation::forms::texture_sources::downloads(),
+        crate::ui_runtime::presentation::forms::texture_sources::image_work(),
     );
     let mut png = Vec::new();
     image::RgbaImage::from_pixel(dimensions[0], dimensions[1], image::Rgba([22, 33, 44, 255]))

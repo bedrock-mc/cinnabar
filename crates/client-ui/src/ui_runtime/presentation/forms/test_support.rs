@@ -41,7 +41,7 @@ pub fn settings_view() -> MenuView {
 
 /// Resolves a settings selector using the production section map.
 pub fn settings_section_index(variable: &str) -> Option<u8> {
-    super::menu_screens::SETTINGS_SECTIONS
+    launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == variable).then_some(*index))
 }

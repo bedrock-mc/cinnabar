@@ -1,8 +1,9 @@
 //! Cached screens follow their text environment and resolution context.
 
 use super::*;
-use json_ui::{Context, ViewState};
+use json_ui::{Context, DataSource, ViewState};
 use std::borrow::Cow;
+use ui_engine::cached_screen::CachedScreen;
 
 struct Metrics(&'static str);
 

@@ -12,7 +12,7 @@ pub use bundle::{
 pub use carrier::encode_font_catalog;
 use carrier::{
     array_at, decode_glyphs, decode_pages, decoded_extent, invalid_catalog, validate_envelope,
-    validate_glyph_records, validate_page_offsets,
+    validate_glyph_records, validate_layout, validate_page_offsets,
 };
 mod fallback;
 #[cfg(test)]
@@ -158,6 +158,41 @@ impl CompiledFontCatalog {
             return Err(FontCatalogError::SourceManifestMismatch);
         }
         let envelope = validate_envelope(bytes, expected_source_manifest_sha256)?;
+        let carrier_sha256 = array_at(bytes, envelope.hash_offset)?;
+        Self::decode_sealed(
+            bytes,
+            expected_source_manifest_sha256,
+            envelope,
+            carrier_sha256,
+        )
+    }
+
+    /// Decodes a carrier whose bytes a verified enclosing digest already covers, without
+    /// rehashing them; `carrier_sha256` must be unique to those bytes.
+    fn decode_covered(
+        bytes: &[u8],
+        expected_source_manifest_sha256: [u8; 32],
+        carrier_sha256: [u8; 32],
+    ) -> Result<Self, FontCatalogError> {
+        if expected_source_manifest_sha256 == [0; 32] {
+            return Err(FontCatalogError::SourceManifestMismatch);
+        }
+        let envelope = validate_layout(bytes, expected_source_manifest_sha256)?;
+        Self::decode_sealed(
+            bytes,
+            expected_source_manifest_sha256,
+            envelope,
+            carrier_sha256,
+        )
+    }
+
+    /// Decodes an envelope whose seal the caller has verified, still checking every page hash.
+    fn decode_sealed(
+        bytes: &[u8],
+        expected_source_manifest_sha256: [u8; 32],
+        envelope: carrier::Envelope,
+        carrier_sha256: [u8; 32],
+    ) -> Result<Self, FontCatalogError> {
         validate_page_offsets(bytes, envelope)?;
         validate_glyph_records(bytes, envelope)?;
 
@@ -167,7 +202,7 @@ impl CompiledFontCatalog {
             identity: FontCatalogIdentity {
                 schema: FONT_CARRIER_SCHEMA,
                 source_manifest_sha256: expected_source_manifest_sha256,
-                carrier_sha256: array_at(bytes, envelope.hash_offset)?,
+                carrier_sha256,
             },
             glyphs: glyphs.into_boxed_slice(),
             pages: pages.into(),

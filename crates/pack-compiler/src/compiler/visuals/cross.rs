@@ -25,13 +25,16 @@ pub(in crate::compiler) fn compile_rule(
         )
     {
         let materials = [material_a, material_b];
-        let wheat_rows = record.name.as_ref() == "minecraft:wheat";
-        let key = (materials, wheat_rows);
+        let crop_rows = matches!(
+            record.name.as_ref(),
+            "minecraft:wheat" | "minecraft:carrots" | "minecraft:potatoes" | "minecraft:beetroot"
+        );
+        let key = (materials, crop_rows);
         let template = if let Some(&template) = templates.get(&key) {
             template
         } else {
-            let quads = if wheat_rows {
-                wheat_row_quads(material_a).to_vec()
+            let quads = if crop_rows {
+                crop_row_quads(material_a).to_vec()
             } else {
                 crossed_quads(materials).to_vec()
             };
@@ -47,9 +50,8 @@ pub(in crate::compiler) fn compile_rule(
     Ok(CompileRuleResult::Compiled(visual))
 }
 
-/// Vanilla crop rows: four full-width
-/// planes at X/Z 1/4 and 3/4, lowered 1/16 to meet farmland's surface.
-fn wheat_row_quads(material: u32) -> [ModelQuad; 4] {
+/// Emits four full-width crop rows, lowered 1/16 to meet farmland's surface.
+fn crop_row_quads(material: u32) -> [ModelQuad; 4] {
     let uvs = [[0, 0], [0, 4096], [4096, 4096], [4096, 0]];
     [
         [[64, 240, 0], [64, -16, 0], [64, -16, 256], [64, 240, 256]],

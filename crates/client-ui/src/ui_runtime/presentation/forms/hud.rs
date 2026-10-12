@@ -1,86 +1,33 @@
-//! The gameplay HUD through the JSON-UI engine: the frame's state becomes a
-//! [`HudModel`] bound to `hud.hud_screen` and the crosshair overlay over the
-//! session's pack stack (the built-in Java HUD pack at the bottom). The bound
-//! and laid-out screen is reused until the model, catalog, viewport, or scale
-//! changes; each frame only repaints it, evaluating fades and the native
-//! renderers against the live state.
+//! Projects the frame into the engine HUD: the [`HudModel`] the templates bind, the native
+//! renderers' captured paint, and the mod and preview renderers drawn ahead of the HUD's own.
 
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use json_ui::{
-    BossBar, CROSSHAIR_SCREEN, Catalog, DataSource, HUD_SCREEN, HudModel, HudSlot, HudTitle,
-    Sidebar, Timed, hud_clocks, hud_context, hud_data_source,
+    BossBar, CROSSHAIR_SCREEN, Catalog, HUD_SCREEN, HudModel, HudSlot, HudTitle, Sidebar, Timed,
+    hud_context,
 };
-use ui::{TimedText, UiNode};
+use mod_ui::crosshair::CrosshairRenderer;
+use ui::{IconRef, TimedText, UiNode};
 use ui_engine::{
-    cached_screen::CachedScreen,
-    engine::{
-        ScreenArt,
-        pack_catalog::CarrierRestore,
-        screen::{CustomRenderer, PaintFrame, ScreenRegistry},
-    },
+    engine::screen::{CustomRenderer, PaintFrame},
     text_metrics::TextMetrics,
 };
+use ui_screens::hud::HudInput;
 
-use super::{
-    hud_renderers::HudRenderer, item_renderer::ItemRenderer, menu_renderers::PreviewRenderer,
+use super::super::{
+    HudFrame, UiPresentationError, UiPresentationRuntime, bounded_visible_text, hud_layout,
+    resolve_chat_line,
 };
+use super::menu_renderers::PreviewRenderer;
 use crate::ui_runtime::UiRuntime;
-use {
-    super::super::{
-        HudFrame, UiPresentationError, UiPresentationRuntime, bounded_visible_text, hud_layout,
-        resolve_chat_line,
-    },
-    ui::{FONT_DESIGN_PIXEL_TEXELS, IconRef},
-};
 
-mod chat;
+#[cfg(test)]
+mod cooldown_tests;
+#[cfg(test)]
+mod crosshair_tests;
 #[cfg(test)]
 mod hunger_control_tests;
-pub(super) mod prepared;
-mod titles;
-#[cfg(test)]
-mod visibility_tests;
-
-/// The built-in Java-styled HUD pack: `(pack path, namespace, bytes)`, layered
-/// under every server pack.
-pub(super) const JAVA_HUD_PACK: [(&str, &str, &[u8]); 4] = [
-    (
-        "ui/_global_variables.json",
-        "",
-        include_bytes!("../../../../../../assets/java-hud/ui/_global_variables.json"),
-    ),
-    (
-        "ui/chat_screen.json",
-        "chat",
-        include_bytes!("../../../../../../assets/java-hud/ui/chat_screen.json"),
-    ),
-    (
-        "ui/hud_screen.json",
-        "hud",
-        include_bytes!("../../../../../../assets/java-hud/ui/hud_screen.json"),
-    ),
-    (
-        "ui/scoreboards.json",
-        "scoreboard",
-        include_bytes!("../../../../../../assets/java-hud/ui/scoreboards.json"),
-    ),
-];
-
-/// Layers the built-in Java HUD pack and the rules server HUD layers follow over it.
-pub(super) fn register(registry: &mut ScreenRegistry) {
-    let catalog = registry.catalog_mut();
-    catalog.layer_builtin(install_java_hud);
-    catalog.restore_before(CarrierRestore {
-        authored: titles::authored,
-        restore: titles::restore,
-    });
-    catalog.after_layers(chat::prefer_builtin);
-}
-
-fn install_java_hud(catalog: &mut Catalog) {
-    catalog.apply_pack(JAVA_HUD_PACK.iter().map(|(path, _, bytes)| (*path, *bytes)));
-}
 
 /// Java's per-line chat background opacity.
 const CHAT_BACKGROUND_OPACITY: f64 = 0.5;
@@ -94,33 +41,14 @@ const ITEM_NAME_MILLIS: u64 = 2_000;
 /// Display cap for stacked boss bars; the retained store holds more.
 const MAX_BOSS_BARS: usize = 8;
 
-/// The HUD and crosshair screens, carried across frames.
-#[derive(Default)]
-pub(super) struct HudScreens {
-    pub(super) hud: CachedScreen,
-    crosshair: CachedScreen,
-    /// The toast screen, drawn above everything in game.
-    pub(super) toast: CachedScreen,
-    /// Where the showing toast takes presses and what they open, when it opens anything.
-    pub(super) toast_press: Option<(ui::ToastPress, ui::UiRect)>,
-    /// The world-loading screen shown while joining.
-    pub(super) loading: CachedScreen,
-    /// This frame's fade clocks (title, action bar, item name).
-    clocks: std::collections::BTreeMap<String, f64>,
-    model: Option<HudModel>,
-    opacity: Option<i32>,
-    data: Arc<DataSource>,
-    hunger_animation: super::hud_renderers::HungerAnimation,
-}
-
-impl HudScreens {
-    /// Preserve bindings while relaying out screens for a changed texture pack.
-    pub(super) fn invalidate_textures(&mut self) {
-        self.hud.invalidate_textures();
-        self.crosshair.invalidate_textures();
-        self.toast.invalidate_textures();
-        self.loading.invalidate_textures();
-    }
+/// Resolves the HUD screens of `catalog` under both chat placements on the calling thread, and
+/// returns the textures their controls name.
+pub(super) fn prepare(catalog: &Arc<Catalog>) -> BTreeSet<String> {
+    let base = hud_context(&super::menu_screens::retail_context());
+    ui_screens::hud::prepared::prepare(
+        catalog,
+        [false, true].map(|top| super::chat_position::placed(base.clone(), top)),
+    )
 }
 
 impl UiPresentationRuntime {
@@ -162,14 +90,14 @@ impl UiPresentationRuntime {
         let mut frame = self.hud_frame.clone();
         frame.now_millis = now_millis;
         let mut icons = Vec::new();
-        let data = if crosshair {
-            Arc::default()
+        let model = if crosshair {
+            None
         } else {
             let sidebar = self
                 .scoreboard
                 .refresh(runtime.scoreboards(), &self.scoreboard_owner_names)
                 .map(sidebar_model);
-            let sidebar = if self.mod_scoreboard_hidden() {
+            let sidebar = if self.screens.mod_ui.mod_scoreboard_hidden() {
                 None
             } else {
                 sidebar
@@ -183,32 +111,17 @@ impl UiPresentationRuntime {
                 &mut icons,
                 options,
             );
-            if self.mod_effect_icons_hidden() {
+            if self.screens.mod_ui.mod_effect_icons_hidden() {
                 model.effects_visible = false;
             }
             super::settings_chat::apply_hud(options, &mut model);
-            let opacity = options.value("interface_opacity");
-            let hud = &mut self.screens.hud;
-            hud.clocks = hud_clocks(&model);
-            if hud.model.as_ref() != Some(&model) || hud.opacity != Some(opacity) {
-                let mut data = hud_data_source(&model);
-                data.set_global(
-                    "#hud_alpha",
-                    json_ui::Scalar::Num(f64::from(opacity) / 100.0),
-                );
-                data.set_global("#hud_propagate_alpha", json_ui::Scalar::Bool(true));
-                hud.data = Arc::new(data);
-                hud.opacity = Some(opacity);
-                hud.model = Some(model);
-            }
-            Arc::clone(&hud.data)
+            Some((model, options.value("interface_opacity")))
         };
-        self.screens.hud.clocks.extend(self.scene_clock.clone());
         let catalog = Arc::clone(renderer.catalog());
-        self.screens
+        let data = self
+            .screens
             .hud
-            .hunger_animation
-            .begin(runtime.session_id(), &catalog);
+            .begin(model, &self.scene_clock, runtime.session_id(), &catalog);
         let mut paint = hud_layout::capture_hud_paint(
             player_runtime,
             runtime,
@@ -216,7 +129,7 @@ impl UiPresentationRuntime {
             self.hud_textures.as_ref(),
             &self.screens.chat.settings.options,
         );
-        if let Some(style) = self.mod_hunger_overlay() {
+        if let Some(style) = self.screens.mod_ui.mod_hunger_overlay() {
             paint.hunger.set_overlay(
                 style,
                 runtime.gameplay_hud().saturation(),
@@ -233,43 +146,26 @@ impl UiPresentationRuntime {
             // Inverting the same pixels twice restores the world behind the cursor.
             paint.crosshair = None;
         }
-        if self.mod_effect_icons_hidden() {
+        if self.screens.mod_ui.mod_effect_icons_hidden() {
             paint.effects.clear();
         }
-        if self.mod_hud_visible(player_runtime, runtime) {
-            paint.custom_crosshair = self.screens.mod_crosshair.clone();
-        }
-        let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+        let crosshair_spec = if self.mod_hud_visible(player_runtime, runtime) {
+            self.screens.mod_ui.mod_crosshair().cloned()
+        } else {
+            None
+        };
         let translate = |key: &str| runtime.translation(key);
-        let screens = &mut self.screens.hud;
         let preview_view = std::cell::Cell::new(None);
-        let hunger_animation = std::cell::RefCell::new(&mut screens.hunger_animation);
-        let advance_hunger =
-            |key: &str, instance| hunger_animation.borrow_mut().advance(key, instance);
-        let art = ScreenArt {
-            clocks: Some(&screens.clocks),
-            ..ScreenArt::default()
-        };
-        let mut hud_renderer = HudRenderer {
-            hud: &paint,
-            hunger_update: Some(&advance_hunger),
-        };
-        let mut items = ItemRenderer {
-            icons: &icons,
-            id_aux: &[],
-        };
         let mut preview = PreviewRenderer {
             preview: frame.player_preview,
             view: Some(&preview_view),
             ..PreviewRenderer::default()
         };
-        let mut renderers: [&mut dyn CustomRenderer; 3] =
-            [&mut hud_renderer, &mut items, &mut preview];
-        let screen = if crosshair {
-            &mut screens.crosshair
-        } else {
-            &mut screens.hud
+        let mut custom_crosshair = CrosshairRenderer {
+            spec: crosshair_spec.as_ref(),
+            visible: paint.crosshair.is_some(),
         };
+        let mut renderers: [&mut dyn CustomRenderer; 2] = [&mut custom_crosshair, &mut preview];
         let mut paint_frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
@@ -284,16 +180,18 @@ impl UiPresentationRuntime {
             next: &mut *next,
             renderers: &mut renderers,
         };
-        renderer.draw(art, &mut paint_frame, |env, root| {
-            screen.render(
-                reference,
-                &catalog,
-                &context,
+        self.screens.hud.paint(
+            renderer,
+            HudInput {
+                crosshair,
+                catalog: &catalog,
+                context: &context,
                 data,
-                (root, px, runtime.text_generation()),
-                env,
-            )
-        })?;
+                paint: &paint,
+                icons: &icons,
+            },
+            &mut paint_frame,
+        )?;
         if let Some(view) = preview_view.get() {
             self.player_preview_view = view;
         }
@@ -573,7 +471,7 @@ impl UiPresentationRuntime {
     /// A draw node's fade multiplier at `now`, under this frame's clocks,
     /// sampled by a fresh animator so it runs from the node's creation clock.
     pub fn hud_fade(&self, node: &json_ui::DrawNode, now: f64) -> f32 {
-        let clocks = Some(&self.screens.hud.clocks);
+        let clocks = Some(self.screens.hud.clocks());
         let opacity = node
             .animate(&mut json_ui::Animator::new(), now, clocks, None)
             .opacity;

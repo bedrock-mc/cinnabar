@@ -1,5 +1,6 @@
 use super::*;
-use crate::ui_runtime::presentation::{rect, tests::fixture_font};
+use crate::ui_runtime::presentation::rect;
+use ui_engine::test_support::fixture_font;
 
 fn point(x: f32, y: f32) -> ui::UiPoint {
     ui::UiPoint::new(x, y).unwrap()

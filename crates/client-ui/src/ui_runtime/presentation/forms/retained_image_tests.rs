@@ -70,7 +70,7 @@ fn retained_menu_publishes_requested_original_image_pixels() {
         },
     );
     let ready = build(&mut presentation, 1000);
-    let (_, allocations) = crate::allocation_count::count(|| {
+    let (_, allocations) = test_alloc::count(|| {
         let unchanged = build(&mut presentation, 1000);
         assert_eq!(unchanged.revision, ready.revision);
         assert!(Arc::ptr_eq(&unchanged.vertices, &ready.vertices));

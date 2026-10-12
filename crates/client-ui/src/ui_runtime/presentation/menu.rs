@@ -41,7 +41,7 @@ pub(super) fn append_menu_nodes(
     width: f32,
     height: f32,
     safe_area: SafeArea,
-    scrolls: &mut super::menu_scroll::MenuScrolls,
+    scrolls: &mut ui_engine::menu_scroll::MenuScrolls<MenuAction>,
 ) -> Result<Vec<(MenuAction, UiRect)>, UiPresentationError> {
     if !view.visible {
         return Ok(Vec::new());
@@ -133,7 +133,7 @@ fn scroll_content(
     start: usize,
     hit_start: usize,
     area: ContentArea,
-    scrolls: &mut super::menu_scroll::MenuScrolls,
+    scrolls: &mut ui_engine::menu_scroll::MenuScrolls<MenuAction>,
     safe_area: SafeArea,
 ) -> Result<(), UiPresentationError> {
     let viewport = rect(
@@ -790,11 +790,11 @@ mod review_tests {
                 last_joined_unix: 0,
             })
             .collect();
-        let font = crate::ui_runtime::presentation::tests::fixture_font();
+        let font = ui_engine::test_support::fixture_font();
         let metrics =
             TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
-        let mut scrolls = super::super::menu_scroll::MenuScrolls::default();
-        let render = |scrolls: &mut super::super::menu_scroll::MenuScrolls| {
+        let mut scrolls = ui_engine::menu_scroll::MenuScrolls::<MenuAction>::default();
+        let render = |scrolls: &mut ui_engine::menu_scroll::MenuScrolls<MenuAction>| {
             let (mut nodes, mut next, mut layouts) =
                 (Vec::new(), 1, TextLayoutCache::new(128, 1024 * 1024));
             append_menu_nodes(

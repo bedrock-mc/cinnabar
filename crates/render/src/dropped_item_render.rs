@@ -200,8 +200,7 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
 }
 
 /// Appends one square-or-smaller RGBA tile as a new atlas layer and returns its index.
-fn push_layer(atlas: &mut Vec<u8>, width: usize, height: usize, rgba8: &[u8]) -> u32 {
-    let side = MAX_ITEM_SPRITE_SIDE as usize;
+fn push_layer(atlas: &mut Vec<u8>, side: usize, width: usize, height: usize, rgba8: &[u8]) -> u32 {
     let layer_bytes = side * side * 4;
     let layer = atlas.len() / layer_bytes;
     atlas.resize(atlas.len() + layer_bytes, 0);
@@ -215,8 +214,11 @@ fn push_layer(atlas: &mut Vec<u8>, width: usize, height: usize, rgba8: &[u8]) ->
 }
 
 /// Builds the mesh vertices for one model, appending its tiles to `atlas`; `None` if rejected.
-fn build_model(atlas: &mut Vec<u8>, model: &DroppedItemModel) -> Option<Vec<ItemMeshVertex>> {
-    let side = MAX_ITEM_SPRITE_SIDE;
+fn build_model(
+    atlas: &mut Vec<u8>,
+    model: &DroppedItemModel,
+    side: u32,
+) -> Option<Vec<ItemMeshVertex>> {
     let layers_used = atlas.len() / (side * side * 4) as usize;
     match model {
         DroppedItemModel::Vacant => None,
@@ -241,7 +243,7 @@ fn build_model(atlas: &mut Vec<u8>, model: &DroppedItemModel) -> Option<Vec<Item
                 side,
                 layers_used as u32,
             )?;
-            push_layer(atlas, width, height, &sprite.rgba8);
+            push_layer(atlas, side as usize, width, height, &sprite.rgba8);
             Some(mesh)
         }
         DroppedItemModel::Cube(cube) => {
@@ -253,8 +255,9 @@ fn build_model(atlas: &mut Vec<u8>, model: &DroppedItemModel) -> Option<Vec<Item
             {
                 return None;
             }
-            let layers: [u32; 6] =
-                std::array::from_fn(|face| push_layer(atlas, tile, tile, &cube.faces[face]));
+            let layers: [u32; 6] = std::array::from_fn(|face| {
+                push_layer(atlas, side as usize, tile, tile, &cube.faces[face])
+            });
             cube_mesh(layers, cube.tints, cube.tile, side)
         }
         DroppedItemModel::Block(block) => {
@@ -268,10 +271,11 @@ fn build_model(atlas: &mut Vec<u8>, model: &DroppedItemModel) -> Option<Vec<Item
                     return None;
                 }
             }
-            let vertices = block_mesh(block, layers_used as u32)?;
+            let vertices = block_mesh(block, layers_used as u32, side)?;
             for (sprite, _) in block.materials.iter() {
                 push_layer(
                     atlas,
+                    side as usize,
                     sprite.width as usize,
                     sprite.height as usize,
                     &sprite.rgba8,
@@ -282,13 +286,31 @@ fn build_model(atlas: &mut Vec<u8>, model: &DroppedItemModel) -> Option<Vec<Item
     }
 }
 
+/// Sizes the atlas to admitted block artwork while ordinary item sprites retain their size.
+fn atlas_side(models: &[DroppedItemModel]) -> u32 {
+    models
+        .iter()
+        .filter_map(|model| match model {
+            DroppedItemModel::Block(block) => block
+                .materials
+                .iter()
+                .map(|(sprite, _)| sprite.width.max(sprite.height))
+                .max(),
+            DroppedItemModel::Cube(cube) => Some(cube.tile),
+            _ => None,
+        })
+        .filter(|&side| side <= assets::MAX_TILE_SIZE)
+        .fold(MAX_ITEM_SPRITE_SIDE, u32::max)
+        .next_power_of_two()
+}
+
 fn rebuild_models(
     scene: &DroppedItemScene,
     device: &RenderDevice,
     queue: &RenderQueue,
     gpu: &mut ItemGpu,
 ) {
-    let side = MAX_ITEM_SPRITE_SIDE as usize;
+    let side = atlas_side(&scene.models) as usize;
     let layer_bytes = side * side * 4;
     // Layer 0 is opaque white for untextured geometry.
     let mut atlas = vec![255_u8; layer_bytes];
@@ -296,7 +318,7 @@ fn rebuild_models(
     let mut ranges = Vec::with_capacity(scene.models.len());
     for model in scene.models.iter() {
         let start = vertices.len() as u32;
-        if let Some(mesh) = build_model(&mut atlas, model) {
+        if let Some(mesh) = build_model(&mut atlas, model, side as u32) {
             vertices.extend(mesh);
         }
         ranges.push(start..vertices.len() as u32);
@@ -315,8 +337,8 @@ fn rebuild_models(
         &TextureDescriptor {
             label: Some("dropped item texture layers"),
             size: Extent3d {
-                width: MAX_ITEM_SPRITE_SIDE,
-                height: MAX_ITEM_SPRITE_SIDE,
+                width: side as u32,
+                height: side as u32,
                 depth_or_array_layers: layers as u32,
             },
             mip_level_count: 1,

@@ -1,6 +1,7 @@
 //! Assertions shared with app-owned installed-carrier integration tests.
 use super::*;
-use crate::test_support::{fixture_font, fixture_hud};
+use crate::test_support::fixture_hud;
+use ui_engine::test_support::fixture_font;
 
 /// Checks installed geometry admission and diagnostic fallback without owning asset paths.
 pub fn assert_installed_geometry(

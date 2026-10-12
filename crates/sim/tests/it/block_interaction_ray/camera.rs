@@ -10,13 +10,13 @@ fn camera_visibility_matches_interaction_geometry_without_allocations() {
         (Vec3::new(0.5, 0.5, 0.5), Vec3::new(1.0, 0.0, 0.0)),
         (Vec3::new(0.5, 1.0, 0.5), Vec3::new(0.0, -1.0, 0.0)),
     ] {
-        let (authority, before) = crate::allocation_count::measure(|| {
+        let (authority, before) = test_alloc::count(|| {
             world
                 .block_interaction_ray_current(origin, direction, 5.0)
                 .unwrap()
                 .unwrap()
         });
-        let (hit, after) = crate::allocation_count::measure(|| {
+        let (hit, after) = test_alloc::count(|| {
             world
                 .camera_visibility_ray(origin, direction, 5.0)
                 .unwrap()
@@ -59,7 +59,7 @@ fn camera_visibility_uses_paired_door_shape_without_allocations() {
         .block_interaction_ray_current(origin, direction, 3.0)
         .unwrap()
         .unwrap();
-    let (hit, allocations) = crate::allocation_count::measure(|| {
+    let (hit, allocations) = test_alloc::count(|| {
         world
             .camera_visibility_ray(origin, direction, 3.0)
             .unwrap()
@@ -98,7 +98,7 @@ fn aim_sampling_uses_cell_cubes_and_visibility_uses_outlines() {
     let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     let origin = Vec3::new(0.5, 0.75, -1.0);
     let end = Vec3::new(0.5, 0.75, 2.0);
-    let (sample, allocations) = crate::allocation_count::measure(|| {
+    let (sample, allocations) = test_alloc::count(|| {
         world
             .camera_aim_ray(origin, end, 3, false, false)
             .unwrap()
@@ -164,7 +164,7 @@ fn aim_liquids_use_full_outline_source_gating_and_extra_layer_priority() {
             .unwrap()
             .is_none()
     );
-    let (source, allocations) = crate::allocation_count::measure(|| {
+    let (source, allocations) = test_alloc::count(|| {
         world
             .camera_aim_ray(origin, end, 3, true, true)
             .unwrap()

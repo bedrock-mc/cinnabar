@@ -28,3 +28,7 @@ pub use stream::{PublicationFixtureIdentity, PublicationFixtureSnapshot};
 pub use stream::ResourceMeshSnapshot;
 
 use client_world::server_position;
+
+#[cfg(test)]
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;

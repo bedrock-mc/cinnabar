@@ -351,6 +351,7 @@ pub(crate) fn prepare_ui_runtime(
         .value("ingame_player_names")
         != 0;
     let tag_style = presentation
+        .mod_ui()
         .mod_actor_style()
         .and_then(|style| style.nametags.as_ref());
     let show_self_tag =

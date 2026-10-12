@@ -11,15 +11,27 @@ use render_model::VisibilityKeyDigest;
 /// destination still completes the matching loading-screen handshake promptly.
 #[test]
 fn dimension_loading_releases_local_terrain_without_distant_columns_or_a_timeout() {
-    release_local_terrain(false);
+    release_local_terrain(false, 8, true);
 }
 
 #[test]
 fn dimension_loading_holds_presented_local_terrain_until_actor_pipelines_are_ready() {
-    release_local_terrain(true);
+    release_local_terrain(true, 8, true);
 }
 
-fn release_local_terrain(wait_for_actor_pipelines: bool) {
+#[test]
+fn dimension_loading_keeps_initial_completion_pending_when_the_queue_is_full() {
+    // Start, switch acknowledgment and transfer End fill the queue. Session
+    // initialization still needs its own accepted readiness command.
+    release_local_terrain(false, 3, false);
+}
+
+/// Presents decoded destination terrain with a bounded, undrained command queue.
+fn release_local_terrain(
+    wait_for_actor_pipelines: bool,
+    command_capacity: usize,
+    completion_queued: bool,
+) {
     let dimension = protocol::NETHER_DIMENSION_ID;
     let position = [0.0, 64.0, 0.0];
     let mut stream = chunk_pipeline::WorldStream::new(WorldBootstrap {
@@ -73,15 +85,10 @@ fn release_local_terrain(wait_for_actor_pipelines: bool) {
             WorldEvent::SubChunks(SubChunkBatchEvent { dimension, entries }),
         )
         .unwrap();
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    while !stream.dimension_transfer_presentable(position) {
+    test_time::eventually("destination cells to decode", || {
         stream.poll(position, 128);
-        assert!(
-            std::time::Instant::now() < deadline,
-            "destination cells did not decode"
-        );
-        std::thread::yield_now();
-    }
+        stream.dimension_transfer_presentable(position)
+    });
     assert!(stream.dimension_transfer_ready(position));
     assert!(!stream.dimension_loading_columns_ready());
     let mut client_world = ClientWorld {
@@ -90,8 +97,9 @@ fn release_local_terrain(wait_for_actor_pipelines: bool) {
     };
     let runtime = UiRuntime::new(7);
     let mut presentation =
-        UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap();
-    let (network, _receiver) = NetworkHandle::<PackApplication>::with_command_capacity(8);
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    let (network, _receiver) =
+        NetworkHandle::<PackApplication>::with_command_capacity(command_capacity);
     client_world.dimension_transfer.begin(
         runtime.session_id(),
         sequence + 1,
@@ -148,6 +156,9 @@ fn release_local_terrain(wait_for_actor_pipelines: bool) {
                 .then_some(LoadingStage::ChangingDimension)
         );
     }
-    assert!(presentation.startup_mut().completion_queued);
+    assert_eq!(
+        presentation.startup_mut().completion_queued,
+        completion_queued
+    );
     assert!(client_world.fatal_error.is_none());
 }

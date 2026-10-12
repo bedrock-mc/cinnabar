@@ -188,12 +188,10 @@ mod tests {
         let small = catalog(0);
         let large = catalog(1_024);
         let context = Context::empty();
-        let (small, small_allocations) = crate::allocation_count::count(|| {
-            screen_settings("settings.screen", &small, &context).unwrap()
-        });
-        let (large, large_allocations) = crate::allocation_count::count(|| {
-            screen_settings("settings.screen", &large, &context).unwrap()
-        });
+        let (small, small_allocations) =
+            test_alloc::count(|| screen_settings("settings.screen", &small, &context).unwrap());
+        let (large, large_allocations) =
+            test_alloc::count(|| screen_settings("settings.screen", &large, &context).unwrap());
         assert_eq!(small, large);
         assert!(large.absorbs_input);
         assert!(!large.should_steal_mouse);

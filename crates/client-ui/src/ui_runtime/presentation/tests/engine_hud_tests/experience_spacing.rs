@@ -60,7 +60,7 @@ fn experience_level_glyphs_leave_a_gap_above_the_bar() {
     let font = if snapshots {
         super::super::super::forms::pack_harness::font()
     } else {
-        crate::test_support::fixture_font()
+        ui_engine::test_support::fixture_font()
     };
     let Some(carrier) = super::super::super::forms::pack_harness::carrier() else {
         eprintln!(

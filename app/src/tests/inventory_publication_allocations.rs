@@ -11,15 +11,15 @@ fn pre_send_publication_shares_cells_without_cloning_pending_ingress() {
             protocol::InventoryEvent::Authority(protocol::InventoryAuthority::Client),
         )
         .unwrap();
-    let before = super::alloc_count::thread_allocations();
+    let before = test_alloc::thread_allocations();
     let copied = live.inventory.clone();
-    let copied_allocations = super::alloc_count::thread_allocations() - before;
+    let copied_allocations = test_alloc::thread_allocations() - before;
     assert_eq!(copied.session_id(), 1);
-    let before = super::alloc_count::thread_allocations();
+    let before = test_alloc::thread_allocations();
     let captured = live.capture_ledger();
     ui.poll_inventory_timeout(&mut live, 0);
     let presented = live.present(captured);
-    let allocations = super::alloc_count::thread_allocations() - before;
+    let allocations = test_alloc::thread_allocations() - before;
     assert_eq!(presented.facts.session_id(), 1);
     assert_eq!(allocations, 0);
     println!(

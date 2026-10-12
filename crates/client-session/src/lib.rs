@@ -37,3 +37,7 @@ impl Default for SessionTrace {
         }
     }
 }
+
+#[cfg(test)]
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;

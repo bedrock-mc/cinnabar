@@ -6,8 +6,8 @@ use bevy::ecs::system::RunSystemOnce;
 )]
 mod render_test_support;
 
-#[path = "../src/alloc_count.rs"]
-mod alloc_count;
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
 #[path = "../src/device_poll.rs"]
 #[allow(

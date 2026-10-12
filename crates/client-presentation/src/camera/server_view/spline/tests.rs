@@ -108,7 +108,7 @@ fn repeated_sampling_keeps_prepared_geometry_and_tracks() {
         playback.progress.as_ptr(),
         playback.rotation.as_ptr(),
     );
-    let before = crate::test_allocations::count();
+    let before = test_alloc::thread_allocations();
     for _ in 0..1000 {
         playback.advance(0.001);
         assert!(playback.sample().translation.is_finite());
@@ -122,7 +122,7 @@ fn repeated_sampling_keeps_prepared_geometry_and_tracks() {
             )
         );
     }
-    assert_eq!(crate::test_allocations::count() - before, 0);
+    assert_eq!(test_alloc::thread_allocations() - before, 0);
 }
 
 #[test]

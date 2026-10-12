@@ -1,0 +1,25 @@
+[package]
+name = "ui-screens"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[package.metadata.cinnabar]
+reads = ["assets/java-hud/ui/*"]
+
+[features]
+test-support = []
+
+[dependencies]
+assets = { path = "../assets" }
+inventory = { path = "../inventory" }
+json-ui = { path = "../json-ui" }
+player-state = { path = "../player-state" }
+protocol = { path = "../protocol" }
+serde_json = "1"
+ui = { path = "../ui" }
+ui-engine = { path = "../ui-engine" }
+
+[lints]
+workspace = true

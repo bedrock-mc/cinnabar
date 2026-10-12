@@ -240,14 +240,14 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             .cloned()
             .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
     }));
-    let modal_pages = runtime.experience_modal_pages();
+    let modal_pages = runtime.screens.mod_ui.experience_modal_pages();
     dynamic.extend((0..MODAL_UI_PAGES).map(|offset| {
         modal_pages
             .get(offset)
             .cloned()
             .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
     }));
-    let mod_pages = runtime.mod_screen_pages();
+    let mod_pages = runtime.screens.mod_ui.mod_screen_pages();
     dynamic.extend((0..MOD_UI_PAGES).map(|offset| {
         mod_pages
             .get(offset)
@@ -324,7 +324,8 @@ mod tests {
 
     #[test]
     fn rejected_rebuild_keeps_pending_artwork_and_preview_for_retry() {
-        let mut runtime = UiPresentationRuntime::new(crate::test_support::fixture_font()).unwrap();
+        let mut runtime =
+            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
         let side = render_model::UI_ART_PAGE_SIDE;
         let pixels = vec![91; (side * side * 4) as usize];
         runtime.menu_artwork_loader.set_pending_fixture(

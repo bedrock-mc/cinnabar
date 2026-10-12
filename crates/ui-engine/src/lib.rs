@@ -7,6 +7,7 @@ pub mod cached_screen;
 pub mod caret;
 pub mod engine;
 pub mod frame;
+pub mod menu_scroll;
 pub mod pages;
 pub mod prepared;
 pub mod scroll;
@@ -14,5 +15,9 @@ pub mod sources;
 pub mod text_metrics;
 pub mod textures;
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
+
 #[cfg(test)]
-mod allocation_count;
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;

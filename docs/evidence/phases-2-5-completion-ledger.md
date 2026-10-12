@@ -10,6 +10,10 @@ End-rod terrain coverage now includes the six facing states, separate shaft/base
 mapping and an original-art GPU fixture. This bounded geometry correction leaves the
 exhaustive residual-family, world-join and hardware performance gates open.
 
+Common farmland crops now retain four lowered rows with stage-specific artwork.
+Compiler regressions cover all eight growth states and both network-ID modes;
+full crop presentation parity and the broader phase gates remain open.
+
 ## P2.5-NATIVE-BIOME
 
 | Field | Evidence |

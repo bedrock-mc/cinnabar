@@ -453,6 +453,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "test-alloc",
  "thiserror 2.0.18",
  "tracing",
  "windows-sys 0.61.2",
@@ -689,8 +690,10 @@ dependencies = [
  "mod-api",
  "mod-host",
  "mod-render",
+ "mod-ui",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
+ "oreui",
  "pack-compiler",
  "pack-runtime",
  "particles",
@@ -715,12 +718,14 @@ dependencies = [
  "sim",
  "simulation-clock",
  "tempfile",
+ "test-alloc",
  "test-time",
  "thiserror 2.0.18",
  "tokio",
  "tracing-tracy",
  "ui",
  "ui-engine",
+ "ui-screens",
  "url",
  "wgpu",
  "windows-sys 0.61.2",
@@ -2115,6 +2120,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "simulation-clock",
+ "test-alloc",
  "test-time",
  "thiserror 2.0.18",
  "tracing",
@@ -2262,6 +2268,7 @@ dependencies = [
  "sha2",
  "sim",
  "simulation-clock",
+ "test-alloc",
  "test-time",
  "windows-sys 0.61.2",
  "world",
@@ -2349,8 +2356,11 @@ dependencies = [
  "sha2",
  "sim",
  "simulation-clock",
+ "tempfile",
+ "test-alloc",
  "thiserror 2.0.18",
  "ui",
+ "ui-engine",
  "world",
  "zip",
 ]
@@ -2389,6 +2399,7 @@ dependencies = [
  "serde_json",
  "server-experience",
  "simulation-clock",
+ "test-alloc",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -2435,6 +2446,7 @@ dependencies = [
  "test-time",
  "tokio",
  "ui",
+ "ui-engine",
  "wgpu",
  "zip",
 ]
@@ -2469,6 +2481,8 @@ dependencies = [
  "launcher",
  "launcher-host",
  "mod-host",
+ "mod-ui",
+ "oreui",
  "pack-compiler",
  "player-state",
  "protocol",
@@ -2484,12 +2498,14 @@ dependencies = [
  "sha2",
  "simulation-clock",
  "tempfile",
+ "test-alloc",
  "test-time",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
  "ui",
  "ui-engine",
+ "ui-screens",
  "url",
  "world",
  "zip",
@@ -2507,6 +2523,7 @@ dependencies = [
  "render-api",
  "sha2",
  "simulation-clock",
+ "test-alloc",
  "test-time",
  "thiserror 2.0.18",
  "tracing",
@@ -4261,10 +4278,10 @@ dependencies = [
  "assets",
  "bytes",
  "protocol",
- "simulation-clock",
  "serde",
  "serde_json",
  "sha2",
+ "simulation-clock",
  "thiserror 2.0.18",
  "tracing",
 ]
@@ -4440,6 +4457,7 @@ version = "0.1.12"
 dependencies = [
  "serde",
  "serde_json",
+ "test-alloc",
  "thiserror 2.0.18",
 ]
 
@@ -4453,6 +4471,7 @@ dependencies = [
  "serde",
  "serde_json",
  "ui",
+ "ui-engine",
  "wasm-bindgen",
  "zip",
 ]
@@ -4915,6 +4934,21 @@ dependencies = [
  "bytemuck",
  "mod-api",
  "naga",
+]
+
+[[package]]
+name = "mod-ui"
+version = "0.1.12"
+dependencies = [
+ "assets",
+ "glam",
+ "json-ui",
+ "render-model",
+ "serde_json",
+ "server-experience",
+ "tracing",
+ "ui",
+ "ui-engine",
 ]
 
 [[package]]
@@ -5593,6 +5627,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "oreui"
+version = "0.1.12"
+dependencies = [
+ "assets",
+ "bridge",
+ "image",
+ "launcher",
+ "protocol",
+ "render-api",
+ "render-model",
+ "resource-pack",
+ "semantic-input",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "test-alloc",
+ "tracing",
+ "ui",
+ "ui-engine",
+]
+
+[[package]]
 name = "os_pipe"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5940,6 +5996,7 @@ dependencies = [
  "sha2",
  "simulation-clock",
  "tempfile",
+ "test-alloc",
  "test-time",
  "thiserror 2.0.18",
  "tokio",
@@ -6282,6 +6339,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "test-alloc",
  "test-time",
  "tracy-client",
  "wesl",
@@ -6312,6 +6370,7 @@ dependencies = [
  "sha2",
  "simulation-clock",
  "tempfile",
+ "test-alloc",
  "tracing",
  "world",
 ]
@@ -6342,6 +6401,7 @@ dependencies = [
  "sha2",
  "simulation-clock",
  "tempfile",
+ "test-alloc",
  "test-time",
  "tracy-client",
  "world",
@@ -6789,6 +6849,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "simulation-clock",
+ "test-alloc",
  "thiserror 2.0.18",
  "world",
 ]
@@ -7026,6 +7087,10 @@ checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
 dependencies = [
  "winapi-util",
 ]
+
+[[package]]
+name = "test-alloc"
+version = "0.1.12"
 
 [[package]]
 name = "test-time"
@@ -7580,9 +7645,24 @@ dependencies = [
  "resource-pack",
  "serde_json",
  "sha2",
+ "test-alloc",
  "test-time",
  "tracing",
  "ui",
+]
+
+[[package]]
+name = "ui-screens"
+version = "0.1.12"
+dependencies = [
+ "assets",
+ "inventory 0.1.12",
+ "json-ui",
+ "player-state",
+ "protocol",
+ "serde_json",
+ "ui",
+ "ui-engine",
 ]
 
 [[package]]
@@ -9287,6 +9367,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "test-alloc",
  "thiserror 2.0.18",
 ]
 

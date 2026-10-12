@@ -96,14 +96,14 @@ fn first_frame_uploads_only_requested_texels_and_warm_frames_allocate_and_upload
         .prepare(&input, |_, _, _, _| panic!("warm glyph uploaded twice"))
         .unwrap();
     fonts.commit_vertices();
-    let before = crate::alloc_count::thread_allocations();
+    let before = test_alloc::thread_allocations();
     for _ in 0..10 {
         fonts
             .prepare(&input, |_, _, _, _| panic!("warm glyph uploaded twice"))
             .unwrap();
         fonts.commit_vertices();
     }
-    assert_eq!(crate::alloc_count::thread_allocations() - before, 0);
+    assert_eq!(test_alloc::thread_allocations() - before, 0);
     fonts.clear();
     let mut replacement_writes = 0;
     fonts

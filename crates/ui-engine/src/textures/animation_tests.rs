@@ -16,7 +16,7 @@ fn strip(size: [u32; 2]) -> Vec<u8> {
 fn animation_strip_waits_for_original_texels_instead_of_a_resized_preview() {
     let path = "textures/ui/test_strip";
     let assets = test_carrier();
-    let mut set = TextureSet::new(0, Arc::new(NoDownloads));
+    let mut set = TextureSet::new(0, Arc::new(NoDownloads), ImageWork::default());
     let mut atlas = ServerAtlas::new(&[(format!("{path}.png"), strip([640, 8]))], None, 1);
     atlas.require([path]);
     let textures = Textures {
@@ -58,7 +58,7 @@ fn animation_strip_waits_for_original_texels_instead_of_a_resized_preview() {
 fn animation_with_native_atlas_pixels_does_not_wait_for_artwork() {
     let path = "textures/ui/test_strip";
     let assets = test_carrier();
-    let set = TextureSet::new(0, Arc::new(NoDownloads));
+    let set = TextureSet::new(0, Arc::new(NoDownloads), ImageWork::default());
     let mut atlas = ServerAtlas::new(&[(format!("{path}.png"), strip([32, 8]))], None, 1);
     atlas.require([path]);
     let textures = Textures {
@@ -75,7 +75,7 @@ fn animation_with_native_atlas_pixels_does_not_wait_for_artwork() {
 fn animation_larger_than_an_art_page_still_draws_its_settled_artwork() {
     let path = "textures/ui/test_strip";
     let assets = test_carrier();
-    let mut set = TextureSet::new(0, Arc::new(NoDownloads));
+    let mut set = TextureSet::new(0, Arc::new(NoDownloads), ImageWork::default());
     let mut atlas = ServerAtlas::new(&[(format!("{path}.png"), strip([2048, 8]))], None, 1);
     atlas.require([path]);
     set.set_full_res(HashMap::from([(

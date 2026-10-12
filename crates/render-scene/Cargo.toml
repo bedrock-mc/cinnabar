@@ -31,6 +31,7 @@ tracy-client = { version = "=0.19.0", default-features = false, features = ["ena
 sha2 = { workspace = true, features = ["asm"] }
 
 [dev-dependencies]
+test-alloc = { path = "../test-alloc" }
 pack-compiler = { path = "../pack-compiler" }
 tempfile = "3"
 test-time = { path = "../test-time" }

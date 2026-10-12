@@ -17,7 +17,8 @@ pub use aim_assist::AimAssistHighlightPlugin;
 mod actor;
 mod actor_render;
 #[cfg(test)]
-mod alloc_count;
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
 mod atmosphere_render;
 mod block_entity;

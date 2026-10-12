@@ -92,7 +92,7 @@ fn large_local_fallbacks_preserve_carrier_and_icon_pixels_below_server_overrides
     )
     .unwrap();
     let mut presentation = crate::ui_runtime::presentation::UiPresentationRuntime::new(
-        crate::test_support::fixture_font(),
+        ui_engine::test_support::fixture_font(),
     )
     .unwrap();
     presentation

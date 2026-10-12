@@ -6,8 +6,9 @@ use json_ui::{CollectionItem, Context, DataSource, HitKind, HitRegion, Scalar};
 use launcher::menu::invite::{Action, Friend, InviteState, Section};
 use serde_json::Value;
 
-use super::menu_screens::{Translate, flags, text, translated};
+use super::menu_screens::{flags, text};
 use launcher::menu::{MenuAction, MenuView};
+use ui_engine::engine::screen::{Translate, translated};
 
 /// One of vanilla's Xbox Live friend lists and the globals its category binds.
 struct List {

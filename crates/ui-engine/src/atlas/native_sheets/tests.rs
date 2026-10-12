@@ -54,7 +54,7 @@ fn resident_source_regions_preserve_coverage_without_heap_allocations() {
             15,
         ),
     ] {
-        let ((count, area), allocations) = crate::allocation_count::count(|| {
+        let ((count, area), allocations) = test_alloc::count(|| {
             sheet.quads(uv, [10.0, 20.0, 110.0, 100.0], 11).fold(
                 (0, 0.0f32),
                 |(count, area), quad| {
@@ -96,7 +96,7 @@ fn source_limit_regions_keep_clamped_and_constant_sampling_covered() {
             v1: 0.5,
         },
     ] {
-        let (area, allocations) = crate::allocation_count::count(|| {
+        let (area, allocations) = test_alloc::count(|| {
             sheet
                 .quads(uv, [0.0, 0.0, 100.0, 10.0], 0)
                 .map(|quad| (quad.dest[2] - quad.dest[0]) * (quad.dest[3] - quad.dest[1]))

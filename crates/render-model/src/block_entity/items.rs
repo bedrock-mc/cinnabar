@@ -10,6 +10,9 @@ use glam::Mat4;
 pub struct StaticItemPlacement {
     pub identifier: Arc<str>,
     pub metadata: u32,
+    /// A retained sequential block identity whose dedicated pot-content model is drawn.
+    /// `None` selects the item sprite used by frames and campfires.
+    pub potted_block: Option<u32>,
     /// Maps the unit item model into the world.
     pub world_from_item: [[f32; 4]; 3],
     /// Fixed light levels; `None` samples the world at the item.

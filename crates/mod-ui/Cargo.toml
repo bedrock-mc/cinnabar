@@ -1,0 +1,23 @@
+[package]
+name = "mod-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+test-support = []
+
+[dependencies]
+assets = { path = "../assets" }
+glam.workspace = true
+json-ui = { path = "../json-ui" }
+render-model = { path = "../render-model" }
+serde_json = "1"
+server-experience = { path = "../server-experience" }
+tracing.workspace = true
+ui = { path = "../ui" }
+ui-engine = { path = "../ui-engine" }
+
+[lints]
+workspace = true

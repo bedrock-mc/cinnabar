@@ -6,7 +6,7 @@ use super::{UiRuntime, presentation};
 #[cfg(any(test, feature = "test-support"))]
 use inventory::inventory_ledger::CellGesture;
 use inventory::inventory_ledger::{DropSource, InventoryGestureError};
-use presentation::inventory_pointer::InventoryCellHit;
+use ui_screens::container_actions::InventoryCellHit;
 
 /// Admits every ready inventory packet in queue order, stopping at the first
 /// transport refusal. Returns whether anything was admitted.
@@ -156,7 +156,7 @@ pub fn dispatch_inventory_key(
     {
         runtime
             .screen_state_mut()
-            .scroll_loom(rows, super::screen_recipes::LOOM_PATTERNS.len());
+            .scroll_loom(rows, ui_screens::container_actions::LOOM_PATTERNS.len());
         return None;
     }
     if drop && runtime.screen_state().text_focused() {

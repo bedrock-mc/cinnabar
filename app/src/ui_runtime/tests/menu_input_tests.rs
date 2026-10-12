@@ -17,8 +17,8 @@ use std::sync::{
 };
 use {
     client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
-    client_ui::test_support::fixture_font,
     launcher::menu::{MenuAction, MenuField, MenuScreen},
+    ui_engine::test_support::fixture_font,
 };
 
 fn menu_input_app(clipboard: MenuClipboard) -> (App, Entity) {
@@ -649,6 +649,7 @@ fn consent_approval_frame_cannot_activate_or_edit_the_underlying_menu() {
     // Approval has already replaced the prompt with its status indicator, but ownership persists.
     app.world_mut()
         .resource_mut::<UiPresentationResource>()
+        .mod_ui_mut()
         .set_experience_chrome(Some("Approved"), false)
         .unwrap();
     app.update();

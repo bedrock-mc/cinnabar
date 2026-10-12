@@ -1,6 +1,7 @@
 //! Immutable gallery thumbnails prepared on the artwork worker.
 
 use super::{ArtworkSet, UiPresentationRuntime};
+use launcher::dressing_room::{cape_thumbnail_key, thumbnail_key};
 use launcher::menu::{MenuScreen, MenuView};
 
 #[derive(Clone)]
@@ -52,10 +53,6 @@ impl SkinArtwork {
         player_preview::render_skin_thumbnail(&self.skin)
             .map(|pixels| (pixels, PREVIEW_WIDTH, PREVIEW_HEIGHT))
     }
-}
-
-pub(crate) fn thumbnail_key(id: &str) -> String {
-    format!("skin-thumbnail:{id}")
 }
 
 impl UiPresentationRuntime {
@@ -136,7 +133,7 @@ impl UiPresentationRuntime {
                     .into_iter()
                     .filter_map(|index| view.dressing_room.capes.get(index))
                     .map(|entry| super::CapeArtwork {
-                        key: super::cape_thumbnail_key(&entry.id),
+                        key: cape_thumbnail_key(&entry.id),
                         cape: entry.cape.clone(),
                         thumbnail: true,
                     }),
@@ -164,9 +161,8 @@ mod tests {
     #[test]
     fn unchanged_gallery_artwork_sync_allocates_nothing() {
         use launcher::dressing_room::{DressingRoomCape, DressingRoomSection};
-        let mut presentation =
-            UiPresentationRuntime::new(super::super::super::tests::fixture_font())
-                .expect("diagnostic presentation");
+        let mut presentation = UiPresentationRuntime::new(ui_engine::test_support::fixture_font())
+            .expect("diagnostic presentation");
         let cape = render_api::CapeImage {
             width: render_api::CAPE_DIMENSIONS[0].0,
             height: render_api::CAPE_DIMENSIONS[0].1,
@@ -216,7 +212,7 @@ mod tests {
             std::sync::Arc::make_mut(&mut view.dressing_room).section = section;
             presentation.sync_menu_artwork_view(&view);
             presentation.finish_menu_artwork();
-            let (_, allocations) = crate::allocation_count::count(|| {
+            let (_, allocations) = test_alloc::count(|| {
                 for _ in 0..8 {
                     presentation.sync_menu_artwork_view(&view);
                 }
@@ -227,9 +223,8 @@ mod tests {
 
     #[test]
     fn revealed_skin_after_the_atlas_limit_gets_requested() {
-        let mut presentation =
-            UiPresentationRuntime::new(super::super::super::tests::fixture_font())
-                .expect("diagnostic presentation");
+        let mut presentation = UiPresentationRuntime::new(ui_engine::test_support::fixture_font())
+            .expect("diagnostic presentation");
         let source = render_api::StandardSkin {
             width: 64,
             height: 64,
@@ -310,9 +305,8 @@ mod tests {
 
     #[test]
     fn explicit_artwork_request_does_not_leave_the_gallery_stale() {
-        let mut presentation =
-            UiPresentationRuntime::new(super::super::super::tests::fixture_font())
-                .expect("diagnostic presentation");
+        let mut presentation = UiPresentationRuntime::new(ui_engine::test_support::fixture_font())
+            .expect("diagnostic presentation");
         let mut view = MenuView::new(true, "Fixture".into());
         view.screen = MenuScreen::DressingRoom;
         view.dressing_room = std::sync::Arc::new(DressingRoomView {

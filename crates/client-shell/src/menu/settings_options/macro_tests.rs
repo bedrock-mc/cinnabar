@@ -90,7 +90,7 @@ fn mouse(app: &mut App, button: MouseButton, ordered: bool) {
 #[test]
 fn command_macro_space_types_arguments_in_native_settings() {
     let mut presentation =
-        UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap();
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation
         .enable_json_ui(client_ui::test_support::mini_carrier())
         .unwrap();
@@ -168,7 +168,7 @@ fn command_macro_invalid_draft_does_not_replace_the_saved_command() {
         ui::MAX_CHAT_INPUT_BYTES
     );
     assert_eq!(menu.settings_options.macro_command(0), "");
-    let presentation = UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap();
+    let presentation = UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let (mut app, window) =
         menu_input_app_with(crate::menu::MenuClipboard::default(), presentation);
     app.insert_resource(menu);

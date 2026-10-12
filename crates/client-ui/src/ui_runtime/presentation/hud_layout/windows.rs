@@ -10,12 +10,16 @@ use protocol::{NetworkItemStack, WindowKind};
 use ui::{TextLayoutRequest, TextStyle, UiNode, UiNodeId, UiVisual};
 
 use crate::ui_runtime::inventory_actions::visible_creative_entries;
-use crate::ui_runtime::presentation::inventory_pointer::{InventoryCellHit, InventoryScreen};
+use crate::ui_runtime::presentation::inventory_pointer::InventoryScreen;
 use crate::ui_runtime::presentation::screens::{
-    self, CREATIVE_PANEL, GRID_CELLS, GRID_COLUMNS, GRID_ROWS, PlacedSlot, SEARCH_TAB, SLOT_SIZE,
-    STONECUTTER_CELLS, TAB_COUNT, Widget, tab_origin, tab_size,
+    self, CREATIVE_PANEL, GRID_CELLS, GRID_COLUMNS, GRID_ROWS, PlacedSlot, SLOT_SIZE, tab_origin,
+    tab_size,
 };
 use inventory::inventory_ledger::InventoryTarget;
+use ui_screens::container_actions::{
+    BEACON_LEVEL_FOR, InventoryCellHit, LOOM_PATTERNS, SEARCH_TAB, STONECUTTER_CELLS, TAB_COUNT,
+    Widget,
+};
 use {
     super::{HudFrame, HudLayout, UiPresentationError, UiRuntime, rect},
     ui::IconRef,
@@ -563,7 +567,7 @@ impl HudLayout<'_> {
                     } else {
                         primary == id
                     };
-                    let unlocked = screens::BEACON_LEVEL_FOR
+                    let unlocked = BEACON_LEVEL_FOR
                         .iter()
                         .find(|(effect, _)| *effect == id)
                         .is_some_and(|(_, needed)| {
@@ -642,9 +646,7 @@ impl HudLayout<'_> {
                 }
                 Widget::LoomPattern(index) => {
                     let position = state.loom_row * screens::LOOM_COLUMNS + usize::from(index);
-                    let Some(pattern) =
-                        crate::ui_runtime::screen_recipes::LOOM_PATTERNS.get(position)
-                    else {
+                    let Some(pattern) = LOOM_PATTERNS.get(position) else {
                         continue;
                     };
                     let chosen = state.loom_pattern.as_deref() == Some(*pattern);

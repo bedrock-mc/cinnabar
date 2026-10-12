@@ -45,8 +45,12 @@ pub(super) fn refresh_presentation(world: &mut World) {
         };
         let owner = runtime.hosts.panel_owner();
         let _ = presentation.set_mod_panel_font(runtime.panel_fonts[owner].clone());
-        let _ = presentation.set_mod_panel(runtime.hosts.host(owner).panel());
-        presentation.set_mod_panel_open(runtime.hosts.host(owner).panel_open());
+        let _ = presentation
+            .mod_ui_mut()
+            .set_mod_panel(runtime.hosts.host(owner).panel());
+        presentation
+            .mod_ui_mut()
+            .set_mod_panel_open(runtime.hosts.host(owner).panel_open());
         let hud = runtime
             .hosts
             .hud_owner()
@@ -56,8 +60,10 @@ pub(super) fn refresh_presentation(world: &mut World) {
             .hosts
             .crosshair_owner()
             .and_then(|index| runtime.hosts.host(index).crosshair());
-        let _ = presentation.set_mod_crosshair(crosshair);
-        let _ = presentation.set_mod_label(runtime.hosts.merged_label());
+        let _ = presentation.mod_ui_mut().set_mod_crosshair(crosshair);
+        let _ = presentation
+            .mod_ui_mut()
+            .set_mod_label(runtime.hosts.merged_label());
     });
 }
 
@@ -90,11 +96,11 @@ pub(super) fn clear_presentation(world: &mut World) {
         camera.set_view_scale(1.0, 1.0);
     }
     if let Some(mut presentation) = world.get_resource_mut::<UiPresentationResource>() {
-        presentation.set_mod_panel_open(false);
-        let _ = presentation.set_mod_panel(None);
-        let _ = presentation.set_mod_label(None);
+        presentation.mod_ui_mut().set_mod_panel_open(false);
+        let _ = presentation.mod_ui_mut().set_mod_panel(None);
+        let _ = presentation.mod_ui_mut().set_mod_label(None);
         let _ = presentation.set_mod_hud(None);
-        let _ = presentation.set_mod_crosshair(None);
+        let _ = presentation.mod_ui_mut().set_mod_crosshair(None);
         if let Err(error) = presentation.set_mod_panel_font(None) {
             eprintln!("Personal-panel font could not be released: {error}");
         }

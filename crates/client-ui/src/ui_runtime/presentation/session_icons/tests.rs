@@ -42,7 +42,8 @@ fn metadata_variants_get_distinct_uvs_and_large_catalogs_grow_the_page() {
 #[test]
 fn block_sheet_items_draw_the_gui_cube_over_their_thumbnail() {
     use ui::{UiNode, UiNodeId, UiPoint, UiRect, UiVisual};
-    let mut presentation = UiPresentationRuntime::new(super::super::tests::fixture_font()).unwrap();
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.gui_models.enabled = true;
     let thumbnail = |identifier: &str| SessionIcon {
         identifier: Arc::from(identifier),
@@ -215,7 +216,8 @@ fn stack_icon_identity_retains_admitted_roles_and_local_frame_override() {
 // the same placements an inline pack makes once the page lands.
 #[test]
 fn a_large_icon_set_packs_off_the_frame() {
-    let mut presentation = UiPresentationRuntime::new(super::super::tests::fixture_font()).unwrap();
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let small = Arc::new(SessionIcons {
         icons: vec![sprite(0)],
         ..Default::default()

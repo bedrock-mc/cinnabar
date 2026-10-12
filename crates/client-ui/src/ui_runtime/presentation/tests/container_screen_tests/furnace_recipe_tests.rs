@@ -1,10 +1,8 @@
-use crate::ui_runtime::{
-    inventory_actions::recipe_book_entries, inventory_drag::PointerAction,
-    presentation::screens::Widget,
-};
+use crate::ui_runtime::{inventory_actions::recipe_book_entries, inventory_drag::PointerAction};
 use ::protocol::test_support::recipes::{
     CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture,
 };
+use ui_screens::container_actions::Widget;
 use {super::*, ui::IconRef};
 
 #[test]

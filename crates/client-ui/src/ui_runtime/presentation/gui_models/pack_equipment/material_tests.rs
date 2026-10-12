@@ -77,7 +77,8 @@ fn vanilla() -> Arc<RuntimeEquipmentCatalog> {
 
 /// A preview whose GUI model pages hold the base equipment art, as `set_gui_models` places it.
 fn presentation(base: &Arc<RuntimeEquipmentCatalog>) -> UiPresentationRuntime {
-    let mut presentation = UiPresentationRuntime::new(crate::test_support::fixture_font()).unwrap();
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let first = (presentation.textures.dynamic_start() + MODEL_PAGE) as u16;
     let mut atlas = atlas::Atlas::new(first, MODEL_PAGES);
     for texture in base.textures() {

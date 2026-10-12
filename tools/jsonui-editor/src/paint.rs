@@ -1,17 +1,18 @@
 //! Engine draw nodes to the client's retained [`UiNode`]s, then through `ui`'s
 //! own draw-list builder (glyph runs, `§` colours, shadows, clip batches) and
-//! the CPU rasterizer. The node conversion mirrors the client's form painter:
-//! a clip group opens whenever the clip changes, labels draw one node per
-//! source line, and lines past the label's height drop. `custom` renderers
-//! are not drawn.
+//! the CPU rasterizer. Placement follows the client's form painter: a clip
+//! group opens whenever the clip changes, destinations snap to whole physical
+//! pixels, and each label is one layout from `ui-engine`'s label request.
+//! `custom` renderers are not drawn; without a font carrier, text paints as bars.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use json_ui::{Draw, DrawNode, RectOut, TextAlign};
-use ui::{
-    SafeArea, TextShadow, UiDrawList, UiNode, UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual,
-};
+use ui::{SafeArea, TextShadow, UiDrawList, UiNode, UiNodeId, UiScale, UiTree, UiVisual};
+use ui_engine::engine::text_paint::{TextPaint, label_origin, localized, painted_label_request};
+use ui_engine::engine::{pixel_snap, rect};
+use ui_engine::text_metrics::TextMetrics;
 
 use crate::raster::{Canvas, Page};
 use crate::text::Fonts;
@@ -36,7 +37,7 @@ impl PageMap {
 pub struct PaintInput<'a> {
     pub nodes: &'a [DrawNode],
     /// Physical pixels per GUI pixel.
-    pub px: f32,
+    pub px: u32,
     pub size: [u32; 2],
     pub now: f64,
     pub clocks: &'a BTreeMap<String, f64>,
@@ -88,8 +89,10 @@ pub fn draw_list(
     textures: &Textures,
     pages: &PageMap,
 ) -> Result<UiDrawList, String> {
+    let metrics = crate::text::metrics(input.size, input.px);
     let mut painter = Painter {
-        px: input.px,
+        px: input.px as f32,
+        metrics,
         fonts,
         textures,
         pages,
@@ -105,18 +108,16 @@ pub fn draw_list(
     let error = |e: ui::UiError| e.to_string();
     let mut tree = UiTree::new(painter.nodes).map_err(error)?;
     let viewport =
-        rect(0.0, 0.0, input.size[0] as f32, input.size[1] as f32).ok_or("empty viewport")?;
+        rect(0.0, 0.0, input.size[0] as f32, input.size[1] as f32).map_err(|_| "empty viewport")?;
     tree.layout(viewport, UiScale::default(), SafeArea::ZERO)
         .map_err(error)?;
     tree.build_draw_list().map_err(error)
 }
 
-fn rect(x0: f32, y0: f32, x1: f32, y1: f32) -> Option<UiRect> {
-    UiRect::new(UiPoint::new(x0, y0).ok()?, UiPoint::new(x1, y1).ok()?).ok()
-}
-
 struct Painter<'a, 't> {
+    /// Logical (here physical) px per GUI px.
     px: f32,
+    metrics: TextMetrics,
     fonts: &'a Fonts,
     textures: &'a Textures<'t>,
     pages: &'a PageMap,
@@ -148,7 +149,7 @@ impl Painter<'_, '_> {
         {
             return Some(id);
         }
-        let bounds = rect(clip[0], clip[1], clip[2], clip[3])?;
+        let bounds = rect(clip[0], clip[1], clip[2], clip[3]).ok()?;
         let id = self.id();
         self.nodes
             .push(UiNode::new(id, None, bounds).with_clip_children(true));
@@ -160,7 +161,7 @@ impl Painter<'_, '_> {
         let Some((clip, parent)) = self.clip else {
             return;
         };
-        let Some(local) = rect(
+        let Ok(local) = rect(
             bounds[0] - clip[0],
             bounds[1] - clip[1],
             bounds[2] - clip[0],
@@ -182,7 +183,13 @@ impl Painter<'_, '_> {
     ) {
         let drawn = node.animate(animator, now, Some(clocks), None);
         let clip = self.logical(&drawn.clip);
-        let dest = self.logical(&drawn.dest);
+        let dest = [drawn.dest.x, drawn.dest.y, drawn.dest.w, drawn.dest.h];
+        // As the client places them: text moves to a whole physical pixel, images snap to one.
+        let dest = if matches!(node.draw, Draw::Text { .. }) {
+            pixel_snap::positioned(dest, self.metrics.gui_scale, self.px)
+        } else {
+            pixel_snap::snapped(dest, self.metrics.gui_scale, self.px)
+        };
         let opacity = drawn.opacity;
         if drawn.hidden
             || clip[2] <= clip[0]
@@ -205,16 +212,22 @@ impl Painter<'_, '_> {
                 align,
                 scale,
                 localize,
-                ..
+                options,
             } => {
                 let style = TextPaint {
                     color: alpha(*color),
-                    shadow: *shadow,
+                    edit: None,
+                    shadow: if *shadow {
+                        self.metrics.shadow()
+                    } else {
+                        TextShadow::None
+                    },
                     align: *align,
                     scale: *scale,
                     localize: *localize,
+                    options: options.clone(),
                 };
-                self.text(text, dest, clip, style);
+                self.text(text, dest, clip, &style);
             }
             Draw::Solid { color } => {
                 if self.group(clip).is_some() {
@@ -255,68 +268,49 @@ impl Painter<'_, '_> {
         }
     }
 
-    /// One node per source line so each aligns on its own; only whole lines
-    /// that fit the label's height draw (the first always does).
-    fn text(&mut self, text: &str, dest: [f32; 4], clip: [f32; 4], style: TextPaint) {
+    /// One layout per label, as the client paints it: lines past the label's
+    /// height drop and the last kept one ends in `...`.
+    fn text(&mut self, text: &str, dest: [f32; 4], clip: [f32; 4], style: &TextPaint) {
+        let fonts = self.fonts;
         let text = if style.localize {
-            self.fonts.localized(text)
+            localized(text, &|key: &str| fonts.translate(key))
         } else {
             Cow::Borrowed(text)
         };
-        if self.fonts.font().is_none() {
+        let Some(font) = fonts.font() else {
             return self.text_bars(&text, dest, clip, style);
+        };
+        if text.is_empty() {
+            return;
         }
-        let mut top = dest[1];
-        let mut carry = String::new();
-        for (index, line) in text.split('\n').enumerate() {
-            let source = format!("{carry}{line}");
-            carry = active_codes(&source);
-            if line.is_empty() {
-                continue;
-            }
-            let width = f64::from(dest[2] - dest[0]);
-            let Some(layout) = self.fonts.layout(&source, width, self.px, style.scale) else {
-                continue;
-            };
-            let [width, height] = layout.size_64().map(|size| size as f32 / 64.0);
-            let pitch = height / f32::from(layout.line_count().max(1));
-            let room = ((dest[3] - top) / pitch + 0.01).floor().max(0.0);
-            if index > 0 && room < 1.0 {
-                break;
-            }
-            let shown = room.clamp(1.0, f32::from(layout.line_count().max(1)));
-            let bottom = (top + shown * pitch).min(clip[3]);
-            let line_clip = [clip[0], clip[1], clip[2], bottom];
-            if line_clip[3] <= line_clip[1] {
-                break;
-            }
-            let slack = (dest[2] - dest[0] - width).max(0.0);
-            let shift = match style.align {
-                TextAlign::Left => 0.0,
-                TextAlign::Center => slack * 0.5,
-                TextAlign::Right => slack,
-            };
-            if self.group(line_clip).is_none() {
-                break;
-            }
-            let x = dest[0] + shift;
-            let shadow = if style.shadow {
-                self.fonts.shadow()
-            } else {
-                TextShadow::None
-            };
-            let visual = UiVisual::Text {
-                layout,
-                color: style.color,
-                shadow,
-            };
-            self.push(visual, [x, top, x + width.max(1.0), top + height]);
-            top += height;
+        let request = painted_label_request(
+            self.metrics,
+            &text,
+            dest,
+            font,
+            style.scale,
+            &style.options,
+            style.align,
+            self.px,
+        );
+        let Some(layout) = fonts.layout(request) else {
+            return;
+        };
+        let [width, height] = layout.size_64().map(|size| size as f32 / 64.0);
+        let [left, top] = label_origin(dest, font, &style.options, self.px);
+        if self.group(clip).is_none() {
+            return;
         }
+        let visual = UiVisual::Text {
+            layout,
+            color: style.color,
+            shadow: style.shadow,
+        };
+        self.push(visual, [left, top, left + width.max(1.0), top + height]);
     }
 
     /// Without a font carrier, each line paints as a bar of its measured width.
-    fn text_bars(&mut self, text: &str, dest: [f32; 4], clip: [f32; 4], style: TextPaint) {
+    fn text_bars(&mut self, text: &str, dest: [f32; 4], clip: [f32; 4], style: &TextPaint) {
         if self.group(clip).is_none() {
             return;
         }
@@ -341,35 +335,6 @@ impl Painter<'_, '_> {
             top += h;
         }
     }
-}
-
-#[derive(Clone, Copy)]
-struct TextPaint {
-    color: [u8; 4],
-    shadow: bool,
-    align: TextAlign,
-    scale: f32,
-    localize: bool,
-}
-
-/// The format codes in force at the end of `text`, to open the next line with.
-fn active_codes(text: &str) -> String {
-    let mut codes = String::new();
-    let mut characters = text.chars();
-    while let Some(character) = characters.next() {
-        if character != '§' {
-            continue;
-        }
-        match characters.next() {
-            Some('r') => codes.clear(),
-            Some(code @ ('0'..='9' | 'a'..='w')) => {
-                codes.push('§');
-                codes.push(code);
-            }
-            _ => {}
-        }
-    }
-    codes
 }
 
 #[cfg(test)]
@@ -449,8 +414,8 @@ mod tests {
         let clocks = BTreeMap::new();
         let input = PaintInput {
             nodes: &nodes,
-            px: 2.0,
-            size: [200, 200],
+            px: 2,
+            size: [800, 600],
             now: 0.0,
             clocks: &clocks,
         };

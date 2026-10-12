@@ -12,7 +12,7 @@ fn death_discards_a_same_frame_pause_settings_click() {
     let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = UiRuntime::new(1);
     let mut presentation =
-        UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap();
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.set_menu_view(Some(menu.view()));
     presentation
         .build(
@@ -123,7 +123,7 @@ fn death_controls_advance_on_real_time_while_simulation_is_paused() {
     .init_resource::<ButtonInput<MouseButton>>()
     .init_resource::<Touches>()
     .insert_resource(UiPresentationResource(
-        UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap(),
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap(),
     ))
     .insert_resource(MenuRuntime::new(false, 2, "Player".into()))
     .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
@@ -179,7 +179,7 @@ fn death_respawn_retains_explicit_cursor_return_until_recovery() {
     .init_resource::<ButtonInput<MouseButton>>()
     .init_resource::<Touches>()
     .insert_resource(UiPresentationResource(
-        UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap(),
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap(),
     ))
     .insert_resource(MenuRuntime::new(false, 2, "Player".into()))
     .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))

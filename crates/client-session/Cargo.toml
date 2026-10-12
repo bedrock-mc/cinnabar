@@ -22,6 +22,7 @@ tracing.workspace = true
 world = { path = "../world" }
 
 [dev-dependencies]
+test-alloc = { path = "../test-alloc" }
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 uuid.workspace = true
 

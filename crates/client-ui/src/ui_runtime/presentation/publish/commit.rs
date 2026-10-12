@@ -108,7 +108,7 @@ mod tests {
     #[test]
     fn switching_hotbar_icons_does_not_rasterize_or_replace_textures_under_the_hand_rig() {
         let mut presentation =
-            UiPresentationRuntime::new(super::super::super::tests::fixture_font()).unwrap();
+            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
         presentation.hud_frame.first_person = true;
         presentation.hud_frame.hand_rig_active = true;
         let textures = Arc::clone(&presentation.textures);
