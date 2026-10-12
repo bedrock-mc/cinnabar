@@ -48,7 +48,14 @@ pub fn extruded_sprite_vertices(
         (-half_depth, [0.0, 0.0, -1.0], mirrored, upright),
     ] {
         let corners = [[x0, y0, z], [x1, y0, z], [x1, y1, z], [x0, y1, z]];
-        push_quad(&mut vertices, corners, uvs, back_uvs, normal);
+        push_quad(
+            &mut vertices,
+            corners,
+            uvs,
+            back_uvs,
+            normal,
+            [uv_rect[0], uv_rect[1]],
+        );
     }
     for row in 0..height {
         for column in 0..width {
@@ -98,7 +105,14 @@ pub fn extruded_sprite_vertices(
                     [xs[1], ys[1], -half_depth],
                     [xs[1], ys[1], half_depth],
                 ];
-                push_quad(&mut vertices, corners, [uv; 4], [uv; 4], normal);
+                push_quad(
+                    &mut vertices,
+                    corners,
+                    [uv; 4],
+                    [uv; 4],
+                    normal,
+                    [uv_rect[0], uv_rect[1]],
+                );
             }
         }
     }
@@ -211,17 +225,19 @@ pub fn textured_cube_vertices(face_rects: [[f32; 4]; 6]) -> Vec<ActorRigVertex> 
             [rect[2], rect[3]],
             [rect[0], rect[3]],
         ];
-        push_quad(&mut vertices, corners, uvs, uvs, normal);
+        push_quad(&mut vertices, corners, uvs, uvs, normal, [rect[0], rect[1]]);
     }
     vertices
 }
 
+/// Emits a wound quad with the sprite or face origin shared by all its vertices.
 fn push_quad(
     vertices: &mut Vec<ActorRigVertex>,
     corners: [[f32; 3]; 4],
     uvs: [[f32; 2]; 4],
     back_uvs: [[f32; 2]; 4],
     normal: [f32; 3],
+    glint_origin: [f32; 2],
 ) {
     let edge_a = std::array::from_fn::<f32, 3, _>(|axis| corners[1][axis] - corners[0][axis]);
     let edge_b = std::array::from_fn::<f32, 3, _>(|axis| corners[2][axis] - corners[0][axis]);
@@ -244,6 +260,7 @@ fn push_quad(
             back_uv: back_uvs[index],
             bone_index: 0,
             surface: crate::ActorRigSurface::SINGLE_FACE,
+            glint_origin,
         });
     }
 }
@@ -299,6 +316,25 @@ mod tests {
         for vertex in extruded_sprite_vertices(4, 4, &opaque(4, 4), region).unwrap() {
             assert!((0.25..=0.5).contains(&vertex.uv[0]));
             assert!((0.5..=0.75).contains(&vertex.uv[1]));
+            assert_eq!(vertex.glint_origin, [region[0], region[1]]);
+        }
+    }
+
+    #[test]
+    fn held_sprite_glint_coordinates_are_independent_of_atlas_placement() {
+        let plain = held_sprite_vertices(4, 4, &opaque(4, 4), FULL).unwrap();
+        let placed = held_sprite_vertices(4, 4, &opaque(4, 4), [0.25, 0.5, 0.5, 0.625]).unwrap();
+        for (plain, placed) in plain.iter().zip(&placed) {
+            for (axis, span) in [0.25, 0.125].into_iter().enumerate() {
+                assert_eq!(
+                    (placed.uv[axis] - placed.glint_origin[axis]) / span,
+                    plain.uv[axis]
+                );
+                assert_eq!(
+                    (placed.back_uv[axis] - placed.glint_origin[axis]) / span,
+                    plain.back_uv[axis]
+                );
+            }
         }
     }
 

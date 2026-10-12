@@ -12,6 +12,45 @@ use {
 };
 
 #[test]
+fn held_block_faces_keep_local_glint_origins_after_atlas_placement() {
+    for authored in [false, true] {
+        let (mut runtime, _, item) = block_fixture();
+        let placement = runtime.placements[0].as_mut().unwrap();
+        placement.x = 64;
+        placement.y = 128;
+        let rect = placement.uv_rect();
+        let HeldKind::Block(visual) = item.kind else {
+            unreachable!()
+        };
+        if authored {
+            runtime.block_models.insert(
+                visual,
+                render_model::textured_cube_vertices(render_model::equipment::blocks::face_rects(
+                    [0.0, 0.0, 1.0, 1.0],
+                )),
+            );
+        }
+        runtime.held_mesh(&item, true).unwrap();
+        let geometry = runtime.take_pending_geometries().pop().unwrap();
+        for (face, rect) in geometry
+            .vertices
+            .as_chunks::<6>()
+            .0
+            .iter()
+            .zip(render_model::equipment::blocks::face_rects(rect))
+        {
+            for vertex in face {
+                assert_eq!(
+                    vertex.glint_origin,
+                    [rect[0], rect[1]],
+                    "authored {authored}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn unchanged_authored_pose_sampling_allocates_nothing_and_keeps_matrix_identity() {
     let (mut runtime, body, _) = block_fixture();
     let transform = body.input.current_bones[0];

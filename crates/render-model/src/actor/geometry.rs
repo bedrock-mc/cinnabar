@@ -172,6 +172,7 @@ fn append_cube_vertices(
             back_uv: uv[index],
             bone_index,
             surface: ActorRigSurface::SINGLE_FACE,
+            glint_origin: [0.0; 2],
         }));
     }
     Ok(())
@@ -337,6 +338,7 @@ pub(crate) fn cuboid_vertices(
                     back_uv: uv,
                     bone_index,
                     surface: ActorRigSurface::SINGLE_FACE,
+                    glint_origin: [0.0; 2],
                 }
             })
         })

@@ -36,7 +36,8 @@ struct BoneMatrix {
 
 struct VertexOutput {
     @builtin(position) @invariant position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
+    // xy samples the artwork; zw carries the item sprite or face origin.
+    @location(0) uv: vec4<f32>,
     // Texture layer, geometry validity and optional glint instance index.
     @location(1) @interpolate(flat) skin_info: vec3<u32>,
     @location(2) world_normal: vec3<f32>,
@@ -59,8 +60,8 @@ fn word_f32(index: u32) -> f32 {
 }
 
 // The two glint layers share sprite-normalized coordinates and the selected raster.
-fn glint_layers(uv: vec2<f32>, offsets: vec2<f32>, scale: vec2<f32>, item: bool) -> vec3<f32> {
-    let layers = glint_layer_uvs(uv, scale, offsets * scale.x, item);
+fn glint_layers(uv: vec2<f32>, origin: vec2<f32>, offsets: vec2<f32>, scale: vec2<f32>, item: bool) -> vec3<f32> {
+    let layers = glint_layer_uvs(uv, origin, scale, offsets * scale.x, item);
     if (item) {
         return tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, layers[0], 0.0)).rgb + tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, layers[1], 0.0)).rgb;
     }
@@ -129,7 +130,7 @@ fn actor_vertex(
     out.uv_wrap = select(0u, 1u, any(uv_offset != vec2(0.0)) || any(uv_scale != vec2(1.0)));
     if (vertex_index >= span.vertex_count) {
         out.position = vec4(2.0, 2.0, 2.0, 1.0);
-        out.uv = vec2(0.0);
+        out.uv = vec4(0.0);
         out.back_uv = vec2(0.0);
         out.skin_info.y = 0u;
         out.world_normal = vec3(0.0, 1.0, 0.0);
@@ -148,9 +149,13 @@ fn actor_vertex(
         bitcast<f32>(vertex_words[vertex_base + 4u]),
         bitcast<f32>(vertex_words[vertex_base + 5u]),
     );
-    out.uv = uv_offset + vec2(
+    out.uv.xy = uv_offset + vec2(
         bitcast<f32>(vertex_words[vertex_base + 6u]),
         bitcast<f32>(vertex_words[vertex_base + 7u]),
+    ) * uv_scale;
+    out.uv.zw = uv_offset + vec2(
+        bitcast<f32>(vertex_words[vertex_base + 12u]),
+        bitcast<f32>(vertex_words[vertex_base + 13u]),
     ) * uv_scale;
     let raw_back_uv = vec2(
         bitcast<f32>(vertex_words[vertex_base + 8u]),
@@ -240,7 +245,7 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     if (!front && one_sided_material && input.surface == 0u) {
         discard;
     }
-    var uv = select(input.back_uv, input.uv, front);
+    var uv = select(input.back_uv, input.uv.xy, front);
     @if(ALPHA_TO_COVERAGE)
     let uv_dx = dpdx(uv);
     @if(ALPHA_TO_COVERAGE)
@@ -309,7 +314,7 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
         let strength = word_f32(base + 32u);
         let glint_scale = vec2(word_f32(base + 33u), word_f32(base + 34u));
         let item = word_f32(base + 35u) != 0.0;
-        let foil_tex = glint_layers(uv, offsets, glint_scale, item);
+        let foil_tex = glint_layers(uv, input.uv.zw, offsets, glint_scale, item);
         let foil_light = select(vec3(1.0), actor_light_colour(input.light), (input.light & ACTOR_LIGHT_WORLD_FLAG) != 0u);
         let foil = foil_tex * vec3(0.38, 0.19, 0.608) * strength * foil_light;
         lit_gamma += foil * foil;
