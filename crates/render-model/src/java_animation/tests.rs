@@ -628,7 +628,7 @@ fn java_swing_samples(requests: &[u32], ticks: u32) -> Vec<f32> {
     let (mut counter, mut current) = (None::<i32>, 0.0_f32);
     let mut samples = Vec::new();
     for tick in 0..ticks {
-        if requests.contains(&tick) && counter.is_none_or(|c| c < 0 || c >= LENGTH / 2) {
+        if requests.contains(&tick) && counter.is_none_or(|c| !(0..LENGTH / 2).contains(&c)) {
             counter = Some(-1);
         }
         counter = counter.map(|c| c + 1).filter(|c| *c < LENGTH);
