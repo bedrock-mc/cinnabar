@@ -4,6 +4,11 @@ use super::*;
 
 /// Removes only the registered component; environment-loaded components retain their state.
 pub(super) fn clear_owned_state(world: &mut World) -> Option<ModHost> {
+    if let Some(mut presentation) = world.get_resource_mut::<UiPresentationResource>() {
+        presentation
+            .mod_ui_mut()
+            .set_prepared_panel_ui(mod_ui::PanelUiOwner::Registration, None);
+    }
     let Some(runtime) = world.get_resource::<ModRuntime>() else {
         clear_presentation(world);
         return None;
@@ -45,9 +50,10 @@ pub(super) fn refresh_presentation(world: &mut World) {
         };
         let owner = runtime.hosts.panel_owner();
         let _ = presentation.set_mod_panel_font(runtime.panel_fonts[owner].clone());
-        let _ = presentation
-            .mod_ui_mut()
-            .set_mod_panel(runtime.hosts.host(owner).panel());
+        let _ = presentation.mod_ui_mut().set_mod_panel(
+            runtime.panel_ui_owner(owner),
+            runtime.hosts.host(owner).panel(),
+        );
         presentation
             .mod_ui_mut()
             .set_mod_panel_open(runtime.hosts.host(owner).panel_open());
@@ -96,8 +102,12 @@ pub(super) fn clear_presentation(world: &mut World) {
         camera.set_view_scale(1.0, 1.0);
     }
     if let Some(mut presentation) = world.get_resource_mut::<UiPresentationResource>() {
-        presentation.mod_ui_mut().set_mod_panel_open(false);
-        let _ = presentation.mod_ui_mut().set_mod_panel(None);
+        presentation
+            .mod_ui_mut()
+            .set_prepared_panel_ui(mod_ui::PanelUiOwner::Registration, None);
+        let _ = presentation
+            .mod_ui_mut()
+            .set_mod_panel(mod_ui::PanelUiOwner::Registration, None);
         let _ = presentation.mod_ui_mut().set_mod_label(None);
         let _ = presentation.set_mod_hud(None);
         let _ = presentation.mod_ui_mut().set_mod_crosshair(None);

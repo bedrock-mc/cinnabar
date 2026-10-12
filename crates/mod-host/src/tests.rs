@@ -103,6 +103,31 @@ fn reload_is_transactional_and_recovers_quarantined_guests() {
     assert_eq!(host.label(), Some("Reloaded"));
 }
 
+/// Local catalogs retain their schema through reload and remain scoped to controls authority.
+#[test]
+fn prepared_panel_bundle_survives_reload_and_rejects_denied_hosts() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("panel.wat");
+    std::fs::write(&path, fixture("", "Hello")).unwrap();
+    let mut host = ModHost::load_with_grants(
+        &path,
+        ModGrants {
+            controls: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let bundle = serde_json::json!({"panel":{"title":"Local","toggle_key":"ShiftRight","dark":true,"controls":[]},"surfaces":{}}).to_string();
+    host.set_panel_bundle(&bundle).unwrap();
+    assert_eq!(host.panel().unwrap().title, "Local");
+    std::fs::write(&path, fixture("", "Reloaded")).unwrap();
+    assert!(host.reload_if_changed().unwrap());
+    assert_eq!(host.panel().unwrap().title, "Local");
+    let mut denied = ModHost::load(&path).unwrap();
+    assert!(denied.set_panel_bundle(&bundle).is_err());
+    assert!(denied.panel().is_none());
+}
+
 #[test]
 fn unknown_authority_and_oversized_packages_fail_admission() {
     let directory = tempfile::tempdir().unwrap();

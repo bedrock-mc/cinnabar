@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [features]
-test-support = []
+test-support = ["ui-engine/test-support"]
 
 [dependencies]
 assets = { path = "../assets" }
