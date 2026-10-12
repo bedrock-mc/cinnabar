@@ -93,7 +93,7 @@ pub fn run_setup_process() -> i32 {
 }
 
 fn built_in_faces() -> Option<render_model::PanoramaFaces> {
-    render_model::panorama::decode_faces(|face| Some(BUILT_IN_FACES[face].to_vec()))
+    render_model::panorama::decode_faces(|face| Some(BUILT_IN_FACES[face]))
 }
 
 fn decode_logo() -> Option<Image> {
