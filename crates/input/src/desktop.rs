@@ -122,7 +122,8 @@ pub enum KeyboardKey {
     ShiftRight,
     AltRight,
     SuperRight,
-    /// A key without a USB HID usage; text it produces still reaches edit boxes.
+    /// A key without a USB HID usage; text it produces still reaches edit boxes. Stays last, so
+    /// its discriminant counts the keyed variants.
     Unidentified,
 }
 
@@ -266,4 +267,26 @@ impl KeyboardKey {
 pub enum ScrollUnit {
     Line,
     Pixel,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every keyed variant has exactly one HID usage, and no two keys share a usage.
+    #[test]
+    fn every_keyed_variant_has_one_distinct_usage() {
+        let keyed = KeyboardKey::Unidentified as usize;
+        let mut variants: Vec<_> = KEYBOARD_USAGES
+            .iter()
+            .map(|(key, _)| *key as usize)
+            .collect();
+        variants.sort_unstable();
+        assert_eq!(variants, (0..keyed).collect::<Vec<_>>());
+        let mut usages: Vec<_> = KEYBOARD_USAGES.iter().map(|(_, usage)| *usage).collect();
+        usages.sort_unstable();
+        usages.dedup();
+        assert_eq!(usages.len(), keyed);
+        assert_eq!(KeyboardKey::Unidentified.usage(), None);
+    }
 }

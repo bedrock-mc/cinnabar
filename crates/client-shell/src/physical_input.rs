@@ -190,3 +190,24 @@ pub fn release_cursor(cursor: &mut Mut<CursorOptions>) {
         cursor.visible = true;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each Bevy key reports a distinct semantic key, and every keyed semantic variant has one.
+    #[test]
+    fn desktop_keys_cover_every_keyed_variant_once() {
+        let keyed = KeyboardKey::Unidentified as usize;
+        let mut variants: Vec<_> = DESKTOP_KEYS.iter().map(|(_, key)| *key as usize).collect();
+        variants.sort_unstable();
+        assert_eq!(variants, (0..keyed).collect::<Vec<_>>());
+        let codes: std::collections::HashSet<_> =
+            DESKTOP_KEYS.iter().map(|(code, _)| *code).collect();
+        assert_eq!(codes.len(), DESKTOP_KEYS.len());
+        for (code, key) in DESKTOP_KEYS {
+            assert_eq!(keyboard_key(*code), *key);
+            assert!(keyboard_usage(*code).is_some(), "{code:?}");
+        }
+    }
+}
