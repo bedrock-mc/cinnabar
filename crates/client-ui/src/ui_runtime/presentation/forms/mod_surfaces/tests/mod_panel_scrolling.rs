@@ -1,3 +1,4 @@
+use mod_ui::PanelUiOwner;
 use serde_json::json;
 use ui::mod_panel::{Control, Panel, Surface, SurfaceValue};
 
@@ -75,7 +76,7 @@ fn wheel_reaches_clipped_controls_and_content_resize_clamps_the_offset() {
     let mut panel = scroll_panel();
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&panel))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel))
         .unwrap();
     presentation.mod_ui_mut().set_mod_panel_open(true);
     let before = frame(&mut presentation, [1280, 720]);
@@ -108,7 +109,7 @@ fn wheel_reaches_clipped_controls_and_content_resize_clamps_the_offset() {
         .insert("#content_height".into(), SurfaceValue::Number(50.));
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&panel))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel))
         .unwrap();
     frame(&mut presentation, [1280, 720]);
     assert_eq!(offset(&presentation), 0.);
@@ -120,7 +121,7 @@ fn wheel_reaches_clipped_controls_and_content_resize_clamps_the_offset() {
         .insert("#content_height".into(), SurfaceValue::Number(200.));
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&panel))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel))
         .unwrap();
     frame(&mut presentation, [1280, 720]);
     assert_eq!(offset(&presentation), 0.);
@@ -137,7 +138,7 @@ fn scrollbar_drag_applies_release_position_and_focus_loss_cancels_capture() {
     let mut presentation = mini_engine_presentation();
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&scroll_panel()))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&scroll_panel()))
         .unwrap();
     presentation.mod_ui_mut().set_mod_panel_open(true);
     frame(&mut presentation, [1280, 720]);
@@ -180,7 +181,7 @@ fn pixel_wheels_and_track_presses_use_the_drawn_panel_geometry() {
     let mut presentation = mini_engine_presentation();
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&scroll_panel()))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&scroll_panel()))
         .unwrap();
     presentation.mod_ui_mut().set_mod_panel_open(true);
     frame(&mut presentation, [1280, 720]);

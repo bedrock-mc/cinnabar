@@ -39,6 +39,9 @@ pub struct ModPanelState<'a> {
     pub pages: usize,
     /// Bind and layout passes its cached screen ran.
     pub passes: usize,
+    /// Static root resolutions performed on the renderer's frame path.
+    #[cfg(feature = "test-support")]
+    pub resolves: usize,
 }
 
 /// A card's size in GUI units.
@@ -103,5 +106,6 @@ pub fn sample_panel() -> Panel {
         ],
         sections: Vec::new(),
         capture_key: false,
+        motion: false,
     }
 }

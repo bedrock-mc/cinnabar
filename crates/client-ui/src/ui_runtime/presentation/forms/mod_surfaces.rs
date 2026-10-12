@@ -22,7 +22,7 @@ macro_rules! paint_frame {
             content: $content,
             translate: $translate,
             language: $ui.text_generation(),
-            now: 0.0,
+            now: $runtime.menu_seconds,
             nodes: $nodes,
             next: $next,
             renderers: &mut [],

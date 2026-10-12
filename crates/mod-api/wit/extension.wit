@@ -141,6 +141,9 @@ interface panel {
     set-open: func(open: bool) -> result<_, string>;
     /// Bounded panel JSON; empty text removes the panel and releases its input.
     set-content: func(json: string) -> result<_, string>;
+    /// Applies a bounded sparse control patch and registered surface route atomically.
+    /// Omitting controls preserves them; bindings, when present, replace custom scalars.
+    update-content: func(json: string) -> result<_, string>;
 }
 
 /// Settings belong to the selected component's fixed companion file.
