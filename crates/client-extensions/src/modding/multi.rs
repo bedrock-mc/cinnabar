@@ -373,11 +373,7 @@ pub fn run_frame(
         } else {
             Vec::new()
         };
-        let movement = if grants.movement {
-            movement.clone()
-        } else {
-            None
-        };
+        let movement = if grants.movement { movement } else { None };
         let mut controls = claim_controls(input.controls, &claimed, index == owner);
         controls.panel_open = input.controls.panel_open && index == owner;
         controls.gameplay = snapshot.is_some() || movement.is_some();
