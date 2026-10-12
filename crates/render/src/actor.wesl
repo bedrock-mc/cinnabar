@@ -60,9 +60,9 @@ fn word_f32(index: u32) -> f32 {
 }
 
 // The two glint layers share sprite-normalized coordinates and the selected raster.
-fn glint_layers(uv: vec2<f32>, origin: vec2<f32>, offsets: vec2<f32>, scale: vec2<f32>, item: bool) -> vec3<f32> {
-    let layers = glint_layer_uvs(uv, origin, scale, offsets * scale.x, item);
-    if (item) {
+fn glint_layers(uv: vec2<f32>, origin: vec2<f32>, offsets: vec2<f32>, scale: vec2<f32>, item_extent: f32) -> vec3<f32> {
+    let layers = glint_layer_uvs(uv, origin, scale, offsets * scale.x, item_extent);
+    if (item_extent > 0.0) {
         return tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, layers[0], 0.0)).rgb + tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, layers[1], 0.0)).rgb;
     }
     return tint_to_gamma(textureSampleLevel(actor_glint, glint_sampler, layers[0], 0.0)).rgb + tint_to_gamma(textureSampleLevel(actor_glint, glint_sampler, layers[1], 0.0)).rgb;
@@ -154,8 +154,8 @@ fn actor_vertex(
         bitcast<f32>(vertex_words[vertex_base + 7u]),
     ) * uv_scale;
     out.uv.zw = uv_offset + vec2(
-        bitcast<f32>(vertex_words[vertex_base + 12u]),
-        bitcast<f32>(vertex_words[vertex_base + 13u]),
+        bitcast<f32>(vertex_words[vertex_base + ACTOR_RIG_VERTEX_WORDS - 2u]),
+        bitcast<f32>(vertex_words[vertex_base + ACTOR_RIG_VERTEX_WORDS - 1u]),
     ) * uv_scale;
     let raw_back_uv = vec2(
         bitcast<f32>(vertex_words[vertex_base + 8u]),
@@ -313,8 +313,8 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
         let offsets = vec2(word_f32(base + 30u), word_f32(base + 31u));
         let strength = word_f32(base + 32u);
         let glint_scale = vec2(word_f32(base + 33u), word_f32(base + 34u));
-        let item = word_f32(base + 35u) != 0.0;
-        let foil_tex = glint_layers(uv, input.uv.zw, offsets, glint_scale, item);
+        let item_extent = word_f32(base + 35u);
+        let foil_tex = glint_layers(uv, input.uv.zw, offsets, glint_scale, item_extent);
         let foil_light = select(vec3(1.0), actor_light_colour(input.light), (input.light & ACTOR_LIGHT_WORLD_FLAG) != 0u);
         let foil = foil_tex * vec3(0.38, 0.19, 0.608) * strength * foil_light;
         lit_gamma += foil * foil;

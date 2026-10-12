@@ -21,6 +21,8 @@ pub struct ActorGlint {
     pub speed: f32,
     /// `GLINT_UV_SCALE`: 1 for equipment; items use [`ITEM_GLINT_UV_SCALE`] over their sprite.
     pub uv_scale: [f32; 2],
+    /// Extent of the sprite-local item coordinates: one for attachables, half for atlas sprites.
+    pub uv_extent: f32,
     pub texture: GlintTexture,
 }
 
@@ -31,6 +33,7 @@ impl Default for ActorGlint {
             strength: 1.0,
             speed: 1.0,
             uv_scale: [1.0; 2],
+            uv_extent: 1.0,
             texture: GlintTexture::Actor,
         }
     }
@@ -51,6 +54,7 @@ impl ActorGlint {
                 }
             }),
             texture: GlintTexture::Item,
+            uv_extent: ITEM_GLINT_UV_SCALE,
             ..Default::default()
         }
     }
@@ -85,7 +89,7 @@ impl ActorGlint {
     }
 
     /// Native glint layer words: both scroll offsets divided by the UV scale (as vanilla
-    /// divides them before scaling), strength, the UV scale and the raster selector.
+    /// divides them before scaling), strength, the UV scale and item extent (zero for actors).
     pub fn parameters(self) -> [f32; 6] {
         let [first, second, strength] = self.scroll();
         let scale = self.uv_scale.map(|scale| {
@@ -103,7 +107,13 @@ impl ActorGlint {
             scale[1],
             match self.texture {
                 GlintTexture::Actor => 0.0,
-                GlintTexture::Item => 1.0,
+                GlintTexture::Item => {
+                    if self.uv_extent.is_finite() && self.uv_extent > 0.0 {
+                        self.uv_extent
+                    } else {
+                        1.0
+                    }
+                }
             },
         ]
     }
@@ -156,7 +166,16 @@ mod tests {
         assert_eq!(first, (3000 % 1375) as f32 / -1375.0 / 2.0);
         assert_eq!(second, 3000.0 / 3750.0 / 2.0);
         assert_eq!(strength, 1.0);
-        assert_eq!(texture, 1.0, "items sample the item glint raster");
+        assert_eq!(texture, ITEM_GLINT_UV_SCALE, "atlas item coordinate extent");
         assert_eq!(ActorGlint::item(0.0, [1.0; 2]).uv_scale, [0.5; 2]);
+        assert_eq!(
+            ActorGlint {
+                texture: GlintTexture::Item,
+                ..Default::default()
+            }
+            .parameters()[5],
+            1.0,
+            "attachable item coordinates retain unit extent"
+        );
     }
 }

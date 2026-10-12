@@ -108,7 +108,7 @@ fn item_foil(uv: vec2<f32>, origin: vec2<f32>, instance: u32, sample: u32) -> ve
     let offsets = vec2(word_f32(base + 30u), word_f32(base + 31u));
     let strength = word_f32(base + 32u);
     let scale = vec2(word_f32(base + 33u), word_f32(base + 34u));
-    let coordinates = glint_layer_uvs(uv, origin, scale, offsets * scale.x, true);
+    let coordinates = glint_layer_uvs(uv, origin, scale, offsets * scale.x, word_f32(base + 35u));
     let layers = tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, coordinates[0], 0.0)).rgb + tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, coordinates[1], 0.0)).rgb;
     let foil = layers * vec3(0.38, 0.19, 0.608) * strength * native_light_texel(sample);
     return foil * foil;
@@ -152,8 +152,8 @@ fn hand_vertex(
         bitcast<f32>(vertex_words[vertex_base + 7u]),
     );
     out.uv.zw = vec2(
-        bitcast<f32>(vertex_words[vertex_base + 12u]),
-        bitcast<f32>(vertex_words[vertex_base + 13u]),
+        bitcast<f32>(vertex_words[vertex_base + ACTOR_RIG_VERTEX_WORDS - 2u]),
+        bitcast<f32>(vertex_words[vertex_base + ACTOR_RIG_VERTEX_WORDS - 1u]),
     );
     out.back_uv = vec2(
         bitcast<f32>(vertex_words[vertex_base + 8u]),

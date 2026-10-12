@@ -76,7 +76,7 @@ fn item_vertex(input: VertexInput) -> VertexOutput {
 
 // Normalize each sprite before rotating its two layers, then add the unit-scale scrolls.
 fn item_foil(uv: vec2<f32>, scale: vec2<f32>, light: vec3<f32>) -> vec3<f32> {
-    let coordinates = glint_layer_uvs(uv, vec2(0.0), scale, environment.yz, true);
+    let coordinates = glint_layer_uvs(uv, vec2(0.0), scale, environment.yz, ITEM_GLINT_UV_SCALE);
     let layers = tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, coordinates[0], 0.0)).rgb + tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, coordinates[1], 0.0)).rgb;
     let foil = layers * vec3(0.38, 0.19, 0.608) * environment.w * light;
     return foil * foil;
