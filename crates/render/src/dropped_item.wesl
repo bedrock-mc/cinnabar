@@ -1,4 +1,5 @@
 import bevy_render::view::View;
+import render::glint::glint_layer_uvs;
 import render::lighting::{actor_light_colour, actor_distance_fog, tint_to_gamma, tint_to_linear};
 @if(ALPHA_TO_COVERAGE)
 import render::lighting::{CutoutSample, cutout_alpha_array};
@@ -73,14 +74,10 @@ fn item_vertex(input: VertexInput) -> VertexOutput {
     return out;
 }
 
-// Native item glint: two rotated layers scrolled by the unit-scale offsets divided by the
-// UV scale, then scaled, tinted and squared over the lit colour in gamma space.
+// Normalize each sprite before rotating its two layers, then add the unit-scale scrolls.
 fn item_foil(uv: vec2<f32>, scale: vec2<f32>, light: vec3<f32>) -> vec3<f32> {
-    let offsets = environment.yz / scale.x;
-    let centered_uv = uv - vec2(0.5);
-    let first_uv = (vec2(0.9396926 * centered_uv.x + 0.34202015 * centered_uv.y, -0.34202015 * centered_uv.x + 0.9396926 * centered_uv.y) + vec2(offsets.x + 0.5, 0.5)) * scale;
-    let second_uv = (vec2(0.17364818 * centered_uv.x - 0.9848077 * centered_uv.y, 0.9848077 * centered_uv.x + 0.17364818 * centered_uv.y) + vec2(offsets.y + 0.5, 0.5)) * scale;
-    let layers = tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, first_uv, 0.0)).rgb + tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, second_uv, 0.0)).rgb;
+    let coordinates = glint_layer_uvs(uv, scale, environment.yz, true);
+    let layers = tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, coordinates[0], 0.0)).rgb + tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, coordinates[1], 0.0)).rgb;
     let foil = layers * vec3(0.38, 0.19, 0.608) * environment.w * light;
     return foil * foil;
 }
