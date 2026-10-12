@@ -57,8 +57,7 @@ pub(super) fn publish_hand_rig(
     source: Option<HandSource>,
     fov_radians: Option<f32>,
     mut light: HandRigLight,
-    partial_tick: f32,
-    glint: Option<&render_scene::UiGlintSettings>,
+    (partial_tick, glint): (f32, Option<&render_scene::UiGlintSettings>),
 ) {
     let (Some(source), Some(fov)) = (source, fov_radians) else {
         scene.clear();

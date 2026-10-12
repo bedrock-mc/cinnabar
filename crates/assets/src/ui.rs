@@ -18,6 +18,7 @@ use crate::AssetError;
 
 pub const UI_CARRIER_MAGIC: [u8; 8] = *b"MCBEUI01";
 pub const UI_CARRIER_VERSION: u32 = 1;
+pub const SPLASH_RESOURCE_PATH: &str = "splashes.json";
 pub const MAX_UI_ATLAS_PAGES: usize = 16;
 /// Bound on an atlas page's width and height in pixels.
 pub const MAX_UI_ATLAS_SIDE: u32 = 4096;

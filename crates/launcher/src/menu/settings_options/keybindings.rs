@@ -31,10 +31,24 @@ pub const KEY_BINDINGS: &[(Action, &str)] = &[
     (Action::Hotbar9, "key.hotbar.9"),
     (Action::Freelook, "key.freelook"),
     (Action::InteractWithToast, OPEN_NOTIFICATION_KEY),
+    (Action::PlayerList, PLAYER_LIST_KEY),
 ];
+
+pub const DEBUG_OVERLAY_KEY: &str = "key.debugOverlay";
+pub const PLAYER_LIST_KEY: &str = "key.playerList";
 
 /// Vanilla's "Open Notification" binding name.
 pub const OPEN_NOTIFICATION_KEY: &str = "key.interactwithtoast";
+
+/// Labels for client controls that have no installed language-pack entry.
+pub fn custom_key_label(name: &str) -> Option<&'static str> {
+    match name {
+        "key.freelook" => Some("Freelook"),
+        DEBUG_OVERLAY_KEY => Some("Debug Overlay"),
+        PLAYER_LIST_KEY => Some("Player List"),
+        _ => None,
+    }
+}
 
 /// Actions added after layouts were saved; their default yields to a stored key already using it.
 const LATE_DEFAULTS: [Action; 2] = [Action::Freelook, Action::InteractWithToast];
@@ -303,6 +317,7 @@ pub fn key_name(control: PhysicalControl) -> String {
         }
         PhysicalControl::KeyboardUsage(code @ 0x1e..=0x26) => (code - 0x1d).to_string(),
         PhysicalControl::KeyboardUsage(0x27) => "0".to_owned(),
+        PhysicalControl::KeyboardUsage(0x2b) => "Tab".to_owned(),
         PhysicalControl::KeyboardUsage(0x2c) => "Space".to_owned(),
         PhysicalControl::KeyboardUsage(0xe0) => "Left Control".to_owned(),
         PhysicalControl::KeyboardUsage(0xe1) => "Left Shift".to_owned(),
@@ -332,12 +347,17 @@ pub fn key_name(control: PhysicalControl) -> String {
 }
 
 #[cfg(test)]
+#[path = "overlay_binding_tests.rs"]
+mod overlay_binding_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn additional_keyboard_usages_have_readable_names() {
         for (usage, expected) in [
+            (0x2b, "Tab"),
             (0x39, "Caps Lock"),
             (0x46, "Print Screen"),
             (0x47, "Scroll Lock"),

@@ -4,7 +4,9 @@
 
 use serde_json::{Map, Value};
 
-use crate::{LayeredPackView, normalize_jsonc};
+use pack_json::normalize_jsonc;
+
+use crate::LayeredPackView;
 
 pub const MAX_MERGED_ENTRIES: usize = 65_536;
 pub const MAX_WINNING_FILES: usize = 1024;

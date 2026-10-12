@@ -2,8 +2,6 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::packets::ItemRegistry as ItemRegistryPacket;
-
 use crate::nbt_tree::{Nbt, read_root};
 
 pub(super) const MAX_TEXT_BYTES: usize = 256;
@@ -148,20 +146,6 @@ fn food_properties(component: Option<&Nbt>) -> Option<FoodProperties> {
         nutrition: nutrition as u32,
         saturation_modifier_bits: modifier.to_bits(),
     })
-}
-
-/// Components for every StartGame registry item whose component data is non-empty.
-#[must_use]
-pub(crate) fn item_components(registry: &ItemRegistryPacket) -> Box<[(Arc<str>, ItemComponents)]> {
-    registry
-        .item_data
-        .iter()
-        .filter_map(|item| {
-            let bytes = super::encode_extra(&item.item_component_data).ok()?;
-            let components = parse_components(&bytes)?;
-            Some((Arc::from(item.item_name.to_string_lossy()), components))
-        })
-        .collect()
 }
 
 /// Keeps absent, malformed and finite flags distinct while retaining the current OR combination.

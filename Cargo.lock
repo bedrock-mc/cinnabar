@@ -696,8 +696,11 @@ dependencies = [
  "mod-ui",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "objc2-quartz-core 0.3.2",
  "oreui",
  "pack-compiler",
+ "pack-json",
  "pack-runtime",
  "particles",
  "player-state",
@@ -729,6 +732,7 @@ dependencies = [
  "ui",
  "ui-engine",
  "ui-screens",
+ "update-manifest",
  "url",
  "wgpu",
  "windows-sys 0.61.2",
@@ -756,6 +760,7 @@ dependencies = [
  "bridge",
  "bytes",
  "futures",
+ "pack-json",
  "protocol",
  "resource-pack",
  "serde",
@@ -2271,6 +2276,7 @@ dependencies = [
  "client-world",
  "crossbeam-queue",
  "inventory 0.1.16",
+ "pack-json",
  "particles",
  "player-state",
  "protocol",
@@ -2501,6 +2507,7 @@ dependencies = [
  "mod-ui",
  "oreui",
  "pack-compiler",
+ "pack-json",
  "player-state",
  "protocol",
  "rayon",
@@ -4478,6 +4485,7 @@ dependencies = [
 name = "json-ui"
 version = "0.1.16"
 dependencies = [
+ "pack-json",
  "serde",
  "serde_json",
  "test-alloc",
@@ -4543,6 +4551,7 @@ dependencies = [
  "sha2",
  "thiserror 2.0.18",
  "ui",
+ "update-manifest",
  "zip",
 ]
 
@@ -4568,8 +4577,10 @@ dependencies = [
  "tempfile",
  "test-time",
  "thiserror 2.0.18",
+ "time",
  "tokio",
  "tracing",
+ "update-installer",
  "update-manifest",
  "url",
  "windows-sys 0.61.2",
@@ -4947,6 +4958,7 @@ dependencies = [
  "ui",
  "wasmtime",
  "wat",
+ "windows-sys 0.61.2",
  "wit-component",
 ]
 
@@ -5274,6 +5286,7 @@ dependencies = [
  "objc2 0.6.4",
  "objc2-core-graphics",
  "objc2-foundation 0.3.2",
+ "objc2-quartz-core 0.3.2",
 ]
 
 [[package]]
@@ -5700,12 +5713,21 @@ dependencies = [
  "fontdue",
  "freetype-sys",
  "image",
+ "pack-json",
  "serde",
  "serde_json",
  "sha2",
  "simulation-clock",
  "tempfile",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "pack-json"
+version = "0.1.16"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -5717,6 +5739,7 @@ dependencies = [
  "image",
  "json-ui",
  "pack-compiler",
+ "pack-json",
  "protocol",
  "rayon",
  "resource-pack",
@@ -5774,6 +5797,7 @@ version = "0.1.16"
 dependencies = [
  "assets",
  "bytemuck",
+ "pack-json",
  "render-model",
  "serde_json",
 ]
@@ -6334,6 +6358,7 @@ name = "release-manifest"
 version = "0.1.16"
 dependencies = [
  "base64",
+ "serde_json",
  "sha2",
  "tempfile",
  "time",
@@ -6483,6 +6508,7 @@ name = "resource-pack"
 version = "0.1.16"
 dependencies = [
  "aes",
+ "pack-json",
  "protocol",
  "serde",
  "serde_json",
@@ -7667,6 +7693,7 @@ dependencies = [
  "crossbeam-channel",
  "image",
  "json-ui",
+ "pack-json",
  "rayon",
  "render-model",
  "resource-pack",
@@ -7742,6 +7769,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
+name = "update-installer"
+version = "0.1.16"
+dependencies = [
+ "anyhow",
+ "rustix 1.1.4",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "time",
+ "update-manifest",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "update-manifest"
 version = "0.1.16"
 dependencies = [
@@ -7749,6 +7790,7 @@ dependencies = [
  "ring",
  "serde",
  "serde_json",
+ "semver",
  "thiserror 2.0.18",
  "time",
  "url",

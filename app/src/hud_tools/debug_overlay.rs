@@ -3,6 +3,7 @@
 
 use crate::runtime::network::resource_packs::PackApplication;
 use client_runtime::network::NetworkHandle;
+mod bindings;
 mod details;
 mod entities;
 mod lines;
@@ -54,6 +55,7 @@ struct FrameTiming {
 
 #[derive(Resource, Default)]
 pub(super) struct DebugOverlayState {
+    bindings: bindings::DebugBindings,
     visible: bool,
     publication_present: bool,
     elapsed: Duration,
@@ -158,6 +160,8 @@ struct DebugContext<'w, 's> {
     movement: Option<Res<'w, MovementTicker>>,
     player: Option<Res<'w, PlayerRuntime>>,
     ui: Option<Res<'w, client_shell::ui_resources::UiRuntimeResource>>,
+    menu: Option<Res<'w, client_shell::menu::MenuRuntime>>,
+    mouse: Option<Res<'w, ButtonInput<MouseButton>>>,
     clock: Option<Res<'w, WorldClock>>,
     weather: Option<Res<'w, WeatherState>>,
     network: Option<Res<'w, NetworkHandle<PackApplication>>>,
@@ -183,7 +187,13 @@ fn publish_debug_overlay(
 ) {
     let timing_updated = state.sample_frame(time.delta());
     state.timing_pending |= timing_updated;
-    let toggled = keys.just_pressed(KeyCode::F3);
+    let menu = context.menu.as_deref();
+    let settings = menu.map(client_shell::menu::MenuRuntime::settings_snapshot);
+    state
+        .bindings
+        .update(settings.as_ref().map(|(settings, _)| settings));
+    let toggled = !menu.is_some_and(client_shell::menu::MenuRuntime::is_remapping_key)
+        && state.bindings.pressed(&keys, context.mouse.as_deref());
     if toggled {
         state.visible = !state.visible;
         if !state.visible {
@@ -255,7 +265,7 @@ fn publish_debug_overlay(
     context.append_client(&mut lines, &presentation, &state.ui_line);
     context.append_world(&mut lines, time.elapsed_secs_f64(), &mut state.block_states);
     lines.left.push("");
-    lines.left.push("F3: hide debug | F2: screenshot");
+    lines.left.push(state.bindings.hint());
     let mut published = Some(lines.finish());
     let first_publication = !state.publication_present;
     let changed = presentation

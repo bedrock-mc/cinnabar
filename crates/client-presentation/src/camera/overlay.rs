@@ -2,10 +2,8 @@
 //! Fire color and alpha and portal progress follow vanilla screen effects.
 
 use bevy::prelude::{Resource, Vec3};
+use render_scene::screen_overlay::{PUMPKIN_MASK_PATH, SPYGLASS_MASK_PATH};
 use sim::{Aabb, BlockPhysicsFlags, CollisionWorld, Vec3 as SimVec3};
-
-pub const PUMPKIN_BLUR_TEXTURE: &str = "textures/misc/pumpkinblur.png";
-pub const SPYGLASS_SCOPE_TEXTURE: &str = "textures/ui/spyglass_scope.png";
 pub const PORTAL_TEXTURE: &str = "textures/blocks/portal";
 
 // Progress follows fixed player ticks with presentation interpolation.
@@ -200,7 +198,7 @@ pub fn compute_overlays(inputs: &ScreenEffectInputs) -> Vec<OverlayLayer> {
                 kind: OverlayKind::PumpkinBlur,
                 alpha: 1.0,
                 rgb: [1.0; 3],
-                texture: Some(PUMPKIN_BLUR_TEXTURE),
+                texture: Some(PUMPKIN_MASK_PATH),
             });
         }
         if inputs.spyglass_scoping {
@@ -208,7 +206,7 @@ pub fn compute_overlays(inputs: &ScreenEffectInputs) -> Vec<OverlayLayer> {
                 kind: OverlayKind::SpyglassScope,
                 alpha: 1.0,
                 rgb: [1.0; 3],
-                texture: Some(SPYGLASS_SCOPE_TEXTURE),
+                texture: Some(SPYGLASS_MASK_PATH),
             });
         }
     }
@@ -454,8 +452,8 @@ mod tests {
                 OverlayKind::ServerFade,
             ]
         );
-        assert_eq!(layers[4].texture, Some(PUMPKIN_BLUR_TEXTURE));
-        assert_eq!(layers[5].texture, Some(SPYGLASS_SCOPE_TEXTURE));
+        assert_eq!(layers[4].texture, Some(PUMPKIN_MASK_PATH));
+        assert_eq!(layers[5].texture, Some(SPYGLASS_MASK_PATH));
     }
 
     #[test]

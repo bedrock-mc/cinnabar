@@ -100,8 +100,9 @@ async fn serve(
 ) -> Result<()> {
     let mut metadata = Vec::new();
     let mut archives = Vec::new();
-    for path in &options.packs {
-        let pack = read_pack(path)?;
+    for (index, path) in options.packs.iter().enumerate() {
+        let key = options.pack_keys.get(index).map_or("", String::as_str);
+        let pack = read_pack(path, key)?;
         metadata.push(pack.metadata);
         archives.push(pack.archive);
         report.packs.get_or_insert_default().push(pack.summary);

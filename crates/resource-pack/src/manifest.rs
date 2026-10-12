@@ -4,7 +4,9 @@
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::{AdmissionError, MAX_SUBPACKS, Subpack, normalize_jsonc};
+use pack_json::normalize_jsonc;
+
+use crate::{AdmissionError, MAX_SUBPACKS, Subpack};
 
 /// A `major.minor.patch` pack version.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

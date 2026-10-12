@@ -1,6 +1,10 @@
 //! Generates update signing keys and signs release manifests (CI only).
 
-use std::{collections::BTreeMap, io::Write, process::ExitCode};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    io::Write,
+    process::ExitCode,
+};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use sha2::{Digest, Sha256};
@@ -8,7 +12,7 @@ use time::{Duration, OffsetDateTime};
 use update_manifest::{Artifact, KEY_BYTES, Manifest, SCHEMA};
 
 const KEY_ENV: &str = "CINNABAR_UPDATE_SIGNING_KEY";
-const USAGE: &str = "usage: release-manifest keygen | sign [flags]";
+const USAGE: &str = "usage: release-manifest keygen | sign [flags] | payload-names ENVELOPE";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -27,9 +31,47 @@ fn run(args: &[String], seed: Option<&str>, out: &mut impl Write) -> Result<(), 
     match args.first().map(String::as_str) {
         Some("keygen") => keygen(out),
         Some("sign") => sign(&args[1..], seed, out),
+        Some("payload-names") => payload_names(&args[1..], out),
         Some(other) => Err(format!("unknown command {other:?}")),
         None => Err(USAGE.to_owned()),
     }
+}
+
+/// Reads an archived envelope only to retain downloads; it never authorizes installation.
+fn payload_names(args: &[String], out: &mut impl Write) -> Result<(), String> {
+    let [file] = args else {
+        return Err(USAGE.to_owned());
+    };
+    let bytes = std::fs::read(file).map_err(|error| format!("read {file}: {error}"))?;
+    if bytes.len() > update_manifest::MAX_ENVELOPE_BYTES {
+        return Err("archived manifest exceeds size limit".to_owned());
+    }
+    let envelope: update_manifest::Envelope =
+        serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+    let payload = STANDARD
+        .decode(envelope.manifest)
+        .map_err(|error| error.to_string())?;
+    let manifest: Manifest = serde_json::from_slice(&payload).map_err(|error| error.to_string())?;
+    if manifest.schema != SCHEMA || manifest.artifacts.is_empty() {
+        return Err("archived manifest has no supported payload list".to_owned());
+    }
+    let mut names = BTreeSet::new();
+    for artifact in manifest.artifacts.values() {
+        update_manifest::validate_artifact(artifact).map_err(|error| error.to_string())?;
+        let name = artifact.url.rsplit('/').next().unwrap_or_default();
+        if !name.starts_with(update_manifest::platforms::payload_prefix())
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        {
+            return Err("archived payload has an unsafe asset name".to_owned());
+        }
+        names.insert(name);
+    }
+    for name in names {
+        writeln!(out, "{name}").map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 fn keygen(out: &mut impl Write) -> Result<(), String> {
@@ -54,6 +96,7 @@ fn keygen(out: &mut impl Write) -> Result<(), String> {
 struct SignFlags {
     version: String,
     channel: String,
+    build: u64,
     key_id: String,
     notes_url: String,
     validity: Duration,
@@ -64,7 +107,10 @@ impl SignFlags {
     fn parse(args: &[String]) -> Result<Self, String> {
         let mut flags = Self {
             version: String::new(),
-            channel: "stable".to_owned(),
+            channel: update_manifest::channel::Channel::default()
+                .name()
+                .to_owned(),
+            build: update_manifest::build_number(),
             key_id: "k1".to_owned(),
             notes_url: String::new(),
             validity: Duration::days(30),
@@ -88,6 +134,9 @@ impl SignFlags {
             match name {
                 "version" => flags.version = value,
                 "channel" => flags.channel = value,
+                "build-number" => {
+                    flags.build = value.parse().map_err(|_| "invalid build number")?
+                }
                 "key-id" => flags.key_id = value,
                 "notes-url" => flags.notes_url = value,
                 "validity" => flags.validity = parse_duration(&value)?,
@@ -126,6 +175,9 @@ fn parse_duration(raw: &str) -> Result<Duration, String> {
 
 fn sign(args: &[String], seed: Option<&str>, out: &mut impl Write) -> Result<(), String> {
     let flags = SignFlags::parse(args)?;
+    if flags.build == 0 {
+        return Err("provide a positive -build-number".to_owned());
+    }
     let seed = seed
         .and_then(|seed| STANDARD.decode(seed).ok())
         .filter(|seed| seed.len() == KEY_BYTES)
@@ -142,6 +194,7 @@ fn sign(args: &[String], seed: Option<&str>, out: &mut impl Write) -> Result<(),
         schema: SCHEMA,
         channel: flags.channel,
         version: flags.version,
+        build_number: flags.build,
         expires: OffsetDateTime::now_utc() + flags.validity,
         notes_url: flags.notes_url,
         artifacts,

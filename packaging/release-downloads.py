@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shutil
 
 HERE = Path(__file__).resolve().parent
 
@@ -16,8 +17,14 @@ def manifest():
 def render_installer():
     config = manifest()
     template = (HERE / "install.sh.in").read_text()
+    tagged = next(name for name, release in config["update_channels"].items()
+                  if release["track"] == "tagged")
+    rolling, release = next((name, release) for name, release in config["update_channels"].items()
+                            if release["track"] == "rolling")
     values = {"REPOSITORY": config["repository"], "CHECKSUM_ASSET": config["checksums"],
-              "LINUX_X86_64_ASSET": config["assets"]["linux"]["x86_64"]}
+              "LINUX_X86_64_ASSET": config["assets"]["linux"]["x86_64"],
+              "TAGGED_CHANNEL": tagged, "TAGGED_CHANNEL_LABEL": tagged.capitalize(),
+              "ROLLING_CHANNEL": rolling, "ROLLING_TAG": release["tag"]}
     for key, value in values.items():
         template = template.replace(f"@{key}@", value)
     if re.search(r"@[A-Z_0-9]+@", template):
@@ -28,7 +35,7 @@ def render_installer():
 def checksum(directory):
     config = manifest()
     expected = [name for arches in config["assets"].values() for name in arches.values()]
-    expected.extend(config["additional_assets"])
+    expected.extend(name for arches in config["update_assets"].values() for name in arches.values())
     expected.append(config["install_script"])
     missing = [name for name in expected if not (directory / name).is_file()]
     if missing:
@@ -39,6 +46,24 @@ def checksum(directory):
         with p.open('rb') as source:
             lines.append(f"{hashlib.file_digest(source, 'sha256').hexdigest()}  {p.name}\n")
     (directory / config["checksums"]).write_text("".join(lines))
+
+
+def update_payloads(directory, out):
+    """Copies each platform's update artifact to a content-addressed name, so an upload never
+    replaces a payload that a published manifest still names."""
+    config = manifest()
+    out.mkdir(parents=True, exist_ok=True)
+    payloads = []
+    for platform, arches in config["assets"].items():
+        for arch, filename in arches.items():
+            filename = config["update_assets"].get(platform, {}).get(arch, filename)
+            source = directory / filename
+            with source.open("rb") as payload:
+                digest = hashlib.file_digest(payload, "sha256").hexdigest()
+            target = out / f'{config["update_payload_prefix"]}{digest[:16]}-{filename}'
+            shutil.copyfile(source, target)
+            payloads.append((f"{platform}-{arch}", target))
+    return payloads
 
 
 def main():
@@ -52,9 +77,12 @@ def main():
     environment = commands.add_parser("env")
     environment.add_argument("platform", nargs="?")
     environment.add_argument("arch", nargs="?")
-    update = commands.add_parser("update-artifacts")
+    environment.add_argument("--channel", help="also name this channel's signed manifest and its release")
+    environment.add_argument("--tag", help="version tag for a tagged release channel")
+    update = commands.add_parser("update-payloads")
     update.add_argument("base")
     update.add_argument("directory", type=Path)
+    update.add_argument("out", type=Path)
     checksums = commands.add_parser("checksums")
     checksums.add_argument("directory", type=Path)
     args = parser.parse_args()
@@ -62,17 +90,25 @@ def main():
         print(manifest()["assets"][args.platform][args.arch])
     elif args.command == "env":
         config = manifest()
-        for key, field in [("INSTALL_SCRIPT", "install_script"), ("UPDATE_MANIFEST", "update_manifest"),
-                           ("CHECKSUM_ASSET", "checksums")]:
+        for key, field in [("INSTALL_SCRIPT", "install_script"), ("CHECKSUM_ASSET", "checksums"),
+                           ("UPDATE_PAYLOAD_PREFIX", "update_payload_prefix")]:
             print(f"{key}={config[field]}")
+        if args.channel:
+            release = config["update_channels"].get(args.channel)
+            if release is None:
+                parser.error(f"channel {args.channel} is not published")
+            tag = args.tag if release["track"] == "tagged" else release["tag"]
+            if not tag:
+                parser.error("a tagged channel requires --tag")
+            print(f'UPDATE_MANIFEST={release["manifest"]}')
+            print(f'UPDATE_MANIFEST_TAG={tag}')
         if args.platform:
             print(f'RELEASE_ASSET={config["assets"][args.platform][args.arch]}')
             if args.platform == "windows":
-                print(f'AUXILIARY_ASSET={config["additional_assets"][0]}')
-    elif args.command == "update-artifacts":
-        for platform, arches in manifest()["assets"].items():
-            for arch, filename in arches.items():
-                print(f"{platform}-{arch}={args.base}/{filename}={args.directory / filename}")
+                print(f'AUXILIARY_ASSET={config["update_assets"][args.platform][args.arch]}')
+    elif args.command == "update-payloads":
+        for platform, path in update_payloads(args.directory, args.out):
+            print(f"{platform}={args.base}/{path.name}={path}")
     elif args.command == "install-script":
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(render_installer())

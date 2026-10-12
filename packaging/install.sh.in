@@ -7,7 +7,7 @@ set -eu
 repository='@REPOSITORY@'
 checksum_asset='@CHECKSUM_ASSET@'
 linux_x86_64_asset='@LINUX_X86_64_ASSET@'
-channel=stable
+channel='@TAGGED_CHANNEL@'
 version=
 work=
 stage=
@@ -19,10 +19,10 @@ lock_link=
 fail() { printf 'Cinnabar: %s\n' "$*" >&2; exit 1; }
 usage() {
     cat <<'EOF'
-Usage: install.sh [--channel stable|nightly] [--version TAG]
+Usage: install.sh [--channel @TAGGED_CHANNEL@|@ROLLING_CHANNEL@] [--version TAG]
 
 Installs Cinnabar for the current Linux user, with an application-menu entry.
-Defaults to the latest stable GitHub release. --version selects an exact tag.
+Defaults to the latest @TAGGED_CHANNEL_LABEL@ GitHub release. --version selects an exact tag.
 XDG_DATA_HOME controls the app/data directory; CINNABAR_BIN_DIR controls the
 launcher directory (default: ~/.local/bin). Existing game data is preserved.
 EOF
@@ -30,7 +30,7 @@ EOF
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --channel)
-            [ "$#" -gt 1 ] || fail '--channel needs stable or nightly'
+            [ "$#" -gt 1 ] || fail '--channel needs @TAGGED_CHANNEL@ or @ROLLING_CHANNEL@'
             channel=$2; shift 2 ;;
         --version)
             [ "$#" -gt 1 ] || fail '--version needs a release tag'
@@ -40,7 +40,7 @@ while [ "$#" -gt 0 ]; do
         *) fail "Unknown argument: $1 (use --help)" ;;
     esac
 done
-case "$channel" in stable|nightly) ;; *) fail "Unknown channel: $channel" ;; esac
+case "$channel" in @TAGGED_CHANNEL@|@ROLLING_CHANNEL@) ;; *) fail "Unknown channel: $channel" ;; esac
 case "$(uname -s)" in
     Linux) ;;
     Darwin) fail "On macOS, install the DMG from https://github.com/$repository/releases/latest" ;;
@@ -120,15 +120,15 @@ redirect_target() {
 }
 release_base="https://github.com/$repository/releases"
 if [ -z "$version" ]; then
-    if [ "$channel" = nightly ]; then
-        version=nightly
+    if [ "$channel" = @ROLLING_CHANNEL@ ]; then
+        version='@ROLLING_TAG@'
     else
-        printf 'Finding the latest stable Cinnabar release...\n'
+        printf 'Finding the latest @TAGGED_CHANNEL_LABEL@ Cinnabar release...\n'
         resolved=$(redirect_target "$release_base/latest") ||
-            fail 'No stable release is available, or GitHub could not be reached'
+            fail 'No @TAGGED_CHANNEL_LABEL@ release is available, or GitHub could not be reached'
         case "$resolved" in
             "$release_base/tag/"*) version=${resolved#"$release_base/tag/"} ;;
-            *) fail 'GitHub did not resolve a stable release tag' ;;
+            *) fail 'GitHub did not resolve a @TAGGED_CHANNEL_LABEL@ release tag' ;;
         esac
     fi
 fi

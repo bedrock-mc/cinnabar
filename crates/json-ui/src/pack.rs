@@ -22,7 +22,7 @@ impl Catalog {
     /// Pack-relative definition paths named by a comment-tolerant `ui/_ui_defs.json` index.
     /// The index, rather than a directory or extension, selects UI documents.
     pub fn declared_paths(bytes: &[u8]) -> Result<Vec<String>, LoadError> {
-        parse_ui_defs(Path::new(UI_DEFS), &String::from_utf8_lossy(bytes))
+        parse_ui_defs(Path::new(UI_DEFS), &pack_json::decode_text(bytes))
     }
 
     /// Load a base catalog from `(pack-relative path, bytes)` pairs, honouring the
@@ -35,7 +35,7 @@ impl Catalog {
             let bytes = files.get(path).ok_or_else(|| LoadError::Shape {
                 path: Path::new(path).to_path_buf(),
             })?;
-            Ok(String::from_utf8_lossy(bytes).into_owned())
+            Ok(pack_json::decode_text(bytes).into_owned())
         };
         let mut catalog = Catalog::default();
         catalog.load_globals_text(Path::new(GLOBALS), &text(GLOBALS)?)?;
@@ -43,7 +43,7 @@ impl Catalog {
         catalog.list(entries.iter().cloned());
         for entry in entries {
             match files.get(entry.as_str()) {
-                Some(bytes) => catalog.load_text(&entry, &String::from_utf8_lossy(bytes)),
+                Some(bytes) => catalog.load_text(&entry, &pack_json::decode_text(bytes)),
                 None => catalog.note(format!("{entry}: listed but absent")),
             }
         }
@@ -57,7 +57,7 @@ impl Catalog {
         let files: BTreeMap<&str, &[u8]> = files.into_iter().collect();
         if let Some(bytes) = files.get(GLOBALS)
             && let Err(error) =
-                self.load_globals_text(Path::new(GLOBALS), &String::from_utf8_lossy(bytes))
+                self.load_globals_text(Path::new(GLOBALS), &pack_json::decode_text(bytes))
         {
             self.note(format!("pack {GLOBALS}: {error}"));
         }
@@ -72,7 +72,7 @@ impl Catalog {
                 continue;
             }
             if self.lists(path) {
-                self.merge_overlay_file(path, &String::from_utf8_lossy(bytes));
+                self.merge_overlay_file(path, &pack_json::decode_text(bytes));
             } else {
                 self.note(format!(
                     "pack {path}: not listed in any _ui_defs.json; skipped"
@@ -129,7 +129,7 @@ impl Catalog {
             {
                 continue;
             }
-            let (value, error) = json5::parse_partial(&String::from_utf8_lossy(bytes));
+            let (value, error) = json5::parse_partial(&pack_json::decode_text(bytes));
             if error.is_some() && self.has_file(path) {
                 continue;
             }

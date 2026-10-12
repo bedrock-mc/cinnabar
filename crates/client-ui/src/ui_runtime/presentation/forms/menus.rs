@@ -295,6 +295,7 @@ impl UiPresentationRuntime {
                         ui_screens::menu_renderers::pick_splash(
                             renderer.assets(),
                             &translate,
+                            &self.screens.splash_sources,
                             splash_seed(),
                         )
                     })

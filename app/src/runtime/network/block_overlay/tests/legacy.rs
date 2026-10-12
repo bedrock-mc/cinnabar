@@ -14,6 +14,56 @@ const COLORS: [(&str, [u8; 4]); 9] = [
     ("other", [90, 0, 0, 255]),
 ];
 
+#[test]
+fn legacy_texture_bindings_apply_to_full_block_geometry_without_materials() {
+    // A block naming the built-in full-block geometry but declaring no
+    // `minecraft:material_instances` draws its textures from the pack's legacy
+    // `blocks.json`, matching vanilla: only explicit material instances
+    // override the binding. Without the fallback these blocks degrade to the
+    // diagnostic texture.
+    for geometry in [
+        None,
+        Some("minecraft:geometry.full_block"),
+        Some("minecraft:geometry.full_block_v1"),
+    ] {
+        let view = legacy_view(&[json!({"test:brick": {"textures": "brick"}})]);
+        let blocks = CustomBlocks {
+            blocks: vec![block(
+                "test:brick",
+                1,
+                CustomBlockVisuals {
+                    base: CustomVisualComponents {
+                        geometry: geometry.map(|identifier| identifier.into()),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )]
+            .into(),
+            ..Default::default()
+        };
+        let compiled = compile_block_overlay(&view, &blocks, false, None).unwrap();
+        assert_eq!(compiled.gaps.missing_textures, 0, "{geometry:?}");
+        assert_eq!(
+            compiled.overlay.visuals[0].kind,
+            VisualKind::Cube,
+            "{geometry:?}"
+        );
+        assert!(
+            compiled.overlay.visuals[0]
+                .faces
+                .into_iter()
+                .all(|face| face != 0),
+            "{geometry:?}"
+        );
+        assert_eq!(
+            face_color(&compiled.overlay, 0, BlockFace::Up),
+            COLORS[7].1,
+            "{geometry:?}"
+        );
+    }
+}
+
 fn legacy_view(layers: &[Value]) -> LayeredPackView {
     let archives = layers
         .iter()
@@ -205,6 +255,97 @@ fn legacy_texture_bindings_preserve_explicit_component_visuals() {
     let compiled = compile_block_overlay(&view, &blocks, false, None).unwrap();
     assert_eq!(compiled.overlay.visuals[0].kind, VisualKind::Model);
     assert_eq!(face_color(&compiled.overlay, 0, BlockFace::Up), COLORS[7].1);
+}
+
+/// The reported server blocks declare the built-in full-block geometry with no
+/// `minecraft:material_instances`, so their textures come from the pack's legacy
+/// `blocks.json`. This skips with a named missing-fixture message when the pack
+/// cache is absent, as the other admitted-pack fixture does.
+#[test]
+fn legacy_texture_bindings_resolve_reported_full_block_pack_blocks() {
+    let Some(dir) = std::env::var_os("CINNABAR_PACKCACHE_DIR") else {
+        eprintln!(
+            "skipping legacy_texture_bindings_resolve_reported_full_block_pack_blocks: fixture unavailable; requires CINNABAR_PACKCACHE_DIR containing offline cached packs"
+        );
+        return;
+    };
+    // Both blocks the report names: `simple_blocks_logic-main-v14_h0` drew the
+    // diagnostic texture, and `backrooms_wallpaper` was treated as air.
+    let names = [
+        "owlscubed_pob:simple_blocks_logic-main-v14_h0",
+        "owlscubed_pob:backrooms_wallpaper",
+    ];
+    let mut checked = std::collections::HashSet::new();
+    for entry in std::fs::read_dir(dir).expect("packcache dir").flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|extension| extension != "zip") {
+            continue;
+        }
+        let Some(view) = super::super::super::local_pack::local_pack_view_at(&path) else {
+            continue;
+        };
+        let admitted = names
+            .into_iter()
+            .filter(|name| {
+                view.merged_json_object("blocks.json", None)
+                    .get(*name)
+                    .and_then(|entry| entry.get("textures"))
+                    .is_some()
+            })
+            .collect::<Vec<_>>();
+        if admitted.is_empty() {
+            continue;
+        }
+        // Exactly the reported shape: the built-in full-block geometry, no
+        // `minecraft:material_instances`, and one palette state.
+        let blocks = CustomBlocks {
+            blocks: admitted
+                .iter()
+                .map(|name| {
+                    block(
+                        name,
+                        1,
+                        CustomBlockVisuals {
+                            base: CustomVisualComponents {
+                                geometry: Some("minecraft:geometry.full_block_v1".into()),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        },
+                    )
+                })
+                .collect::<Vec<_>>()
+                .into(),
+            ..Default::default()
+        };
+        for hashed in [false, true] {
+            let compiled = compile_block_overlay(&view, &blocks, hashed, None).unwrap();
+            assert_eq!(compiled.gaps.missing_textures, 0, "{admitted:?}");
+            for (index, block) in blocks.blocks.iter().enumerate() {
+                let visual = compiled.overlay.visuals[index];
+                assert_eq!(visual.kind, VisualKind::Cube, "{}", block.name);
+                assert!(
+                    visual.faces.into_iter().all(|face| face != 0),
+                    "{}",
+                    block.name
+                );
+                assert_eq!(
+                    compiled.overlay.hashes[index],
+                    Some(block.hashed_states()[0].hash)
+                );
+                checked.insert(block.name.to_string());
+            }
+        }
+    }
+    if checked.is_empty() {
+        eprintln!(
+            "skipping legacy_texture_bindings_resolve_reported_full_block_pack_blocks: fixture unavailable; no reported pack blocks in cached packs"
+        );
+        return;
+    }
+    for name in names {
+        assert!(checked.contains(name), "{name}");
+    }
 }
 
 #[test]

@@ -479,3 +479,18 @@ fn spatial_antialiasing_choices_bind_shared_labels_and_edit_the_saved_setting() 
         }
     }
 }
+
+#[test]
+fn automatic_update_binding_uses_the_persisted_opt_out() {
+    let mut shown = view(MenuScreen::Settings);
+    let index = launcher::menu::settings_options::SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == launcher::menu::settings_options::AUTO_UPDATE_OPTION.name)
+        .unwrap();
+    Arc::make_mut(&mut shown.settings_options).set(index, 0);
+    let mut data = json_ui::DataSource::default();
+    crate::settings_controls::bind(&shown, &mut data, &str::to_owned);
+    let mut expected = data.clone();
+    expected.set_global("#auto_update_enabled", json_ui::Scalar::Bool(false));
+    assert_eq!(data, expected);
+}

@@ -36,8 +36,16 @@ pub(crate) fn track(held: &mut ButtonInput<KeyCode>, input: &KeyboardInput) {
     }
 }
 
+/// Whether held modifiers turn a press into an edit shortcut rather than typed text.
+///
+/// Alt is excluded because AltGr and Option, alone or reported as Ctrl+Alt on Windows,
+/// are how many keyboard layouts produce characters such as `@`, `{` and `ą`.
 pub(super) fn text_modified(held: &ButtonInput<KeyCode>) -> bool {
-    MODIFIERS[..6].iter().any(|key| held.pressed(*key))
+    let held = held
+        .get_pressed()
+        .map(|key| keyboard_key(*key))
+        .collect::<Vec<_>>();
+    is_chat_edit_shortcut(&held)
 }
 
 /// Whether either physical Alt key is held, for vanilla's Alt+key command macros.
