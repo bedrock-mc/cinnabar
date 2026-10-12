@@ -1,7 +1,7 @@
 //! Item foil keeps the base material's alpha coverage through the production shader.
 
 use crate::{gpu_snapshot, shader_source};
-use gpu_snapshot::Gpu;
+use gpu_snapshot::{Draw, Gpu};
 use render as render_api;
 
 #[path = "support/actor_raster.rs"]
@@ -44,4 +44,69 @@ fn item_glint_keeps_visible_low_alpha_texels_and_discards_empty_texels() {
             );
         }
     }
+}
+
+#[test]
+fn item_glint_layers_keep_their_shape_across_rectangular_atlas_regions() {
+    let Some(gpu) =
+        Gpu::for_fixture("item_glint_layers_keep_their_shape_across_rectangular_atlas_regions")
+    else {
+        return;
+    };
+    let scroll = [0.125, -0.25];
+    let square = glint_coordinates(&gpu, [1.0; 2], scroll);
+    for span in [[0.5, 1.0], [1.0, 0.5], [0.25, 0.125]] {
+        assert_eq!(glint_coordinates(&gpu, span, scroll), square, "{span:?}");
+    }
+    assert_ne!(glint_coordinates(&gpu, [1.0; 2], [0.0; 2]), square);
+}
+
+/// Rasters both production foil coordinate layers over one full sprite region.
+fn glint_coordinates(gpu: &Gpu, span: [f32; 2], scroll: [f32; 2]) -> Vec<u8> {
+    let source = shader_source::standalone(
+        r#"
+import render::glint::glint_layer_uvs;
+struct Parameters { span: vec2<f32>, scale: vec2<f32>, scroll: vec2<f32>, padding: vec2<f32> }
+@group(0) @binding(0) var<uniform> parameters: Parameters;
+struct VertexOutput { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> }
+@vertex fn vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
+    var out: VertexOutput;
+    out.uv = vec2(f32((index << 1u) & 2u), f32(index & 2u));
+    out.position = vec4(out.uv * vec2(2.0, -2.0) + vec2(-1.0, 1.0), 0.0, 1.0);
+    return out;
+}
+@fragment fn fragment(input: VertexOutput) -> @location(0) vec4<f32> {
+    let layers = glint_layer_uvs(input.uv * parameters.span, parameters.scale, parameters.scroll, true);
+    return fract(vec4(layers[0], layers[1]));
+}
+"#,
+        &[],
+    );
+    let parameters = gpu.buffer(
+        &[
+            span[0],
+            span[1],
+            render_model::ITEM_GLINT_UV_SCALE / span[0],
+            render_model::ITEM_GLINT_UV_SCALE / span[1],
+            scroll[0],
+            scroll[1],
+            0.0,
+            0.0,
+        ],
+        wgpu::BufferUsages::UNIFORM,
+    );
+    gpu.render(
+        &source,
+        "vertex",
+        &[Draw {
+            fragment: "fragment",
+            vertices: 0..3,
+            bindings: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: parameters.as_entire_binding(),
+            }],
+            blend: None,
+            write_depth: false,
+        }],
+    )
 }

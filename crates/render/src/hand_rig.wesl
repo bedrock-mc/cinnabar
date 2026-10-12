@@ -1,4 +1,5 @@
 import render::lighting::{lit_colour, light_colour, native_light_texel, tint_to_gamma, tint_to_linear};
+import render::glint::glint_layer_uvs;
 
 // Near-camera first-person rig pass. It reuses the actor rig's packed storage layout
 // (Rust-strided instances and vertices, bones as 3x vec4 rows) so the
@@ -107,10 +108,8 @@ fn item_foil(uv: vec2<f32>, instance: u32, sample: u32) -> vec3<f32> {
     let offsets = vec2(word_f32(base + 30u), word_f32(base + 31u));
     let strength = word_f32(base + 32u);
     let scale = vec2(word_f32(base + 33u), word_f32(base + 34u));
-    let centered_uv = uv - vec2(0.5);
-    let first_uv = (vec2(0.9396926 * centered_uv.x + 0.34202015 * centered_uv.y, -0.34202015 * centered_uv.x + 0.9396926 * centered_uv.y) + vec2(offsets.x + 0.5, 0.5)) * scale;
-    let second_uv = (vec2(0.17364818 * centered_uv.x - 0.9848077 * centered_uv.y, 0.9848077 * centered_uv.x + 0.17364818 * centered_uv.y) + vec2(offsets.y + 0.5, 0.5)) * scale;
-    let layers = tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, first_uv, 0.0)).rgb + tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, second_uv, 0.0)).rgb;
+    let coordinates = glint_layer_uvs(uv, scale, offsets * scale.x, true);
+    let layers = tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, coordinates[0], 0.0)).rgb + tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, coordinates[1], 0.0)).rgb;
     let foil = layers * vec3(0.38, 0.19, 0.608) * strength * native_light_texel(sample);
     return foil * foil;
 }
