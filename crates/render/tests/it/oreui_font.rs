@@ -52,6 +52,10 @@ fn oreui_font_edges_use_native_coverage_gamma_sampling_and_sdf_scale() {
         mag_filter: wgpu::FilterMode::Linear,
         ..Default::default()
     });
+    let glint_view = texture.create_view(&wgpu::TextureViewDescriptor {
+        dimension: Some(wgpu::TextureViewDimension::D2),
+        ..Default::default()
+    });
     let bindings = [
         wgpu::BindGroupEntry {
             binding: 0,
@@ -72,6 +76,14 @@ fn oreui_font_edges_use_native_coverage_gamma_sampling_and_sdf_scale() {
         wgpu::BindGroupEntry {
             binding: 4,
             resource: format.as_entire_binding(),
+        },
+        wgpu::BindGroupEntry {
+            binding: 5,
+            resource: wgpu::BindingResource::TextureView(&glint_view),
+        },
+        wgpu::BindGroupEntry {
+            binding: 6,
+            resource: wgpu::BindingResource::Sampler(&linear),
         },
     ];
     for (color, exponent) in [

@@ -88,6 +88,10 @@ pub fn compile_ui_assets(
     let mut ui_paths = Vec::new();
     let mut ignored = Vec::new();
     walk(&ui_dir, pack, &mut ignored, &mut ui_paths, &mut budget)?;
+    let item_glint = format!("{}.png", assets::ITEM_GLINT_TEXTURE_PATH);
+    if pack.join(&item_glint).is_file() {
+        ui_paths.push(item_glint.clone());
+    }
     ui_paths.extend(
         png_paths
             .iter()
@@ -108,7 +112,8 @@ pub fn compile_ui_assets(
     let (mut files, mut ui_files_skipped) = read_ui_files(pack, &ui_paths)?;
     let referenced = referenced_textures(&files);
     png_paths.retain(|path| {
-        path.starts_with("textures/ui/") || referenced.contains(strip_extension(path))
+        path != &item_glint
+            && (path.starts_with("textures/ui/") || referenced.contains(strip_extension(path)))
     });
     sidecar_paths.retain(|path| {
         path.starts_with("textures/ui/") || referenced.contains(strip_extension(path))
@@ -619,6 +624,21 @@ mod tests {
         write(root, "ui/_global_variables.json", br#"{"$one":1}"#);
         write(root, "ui/hud_screen.json", br#"{"namespace":"hud"}"#);
         dir
+    }
+
+    #[test]
+    fn item_glint_raster_is_retained_without_a_json_ui_reference() {
+        let pack = synthetic_pack();
+        let mut bytes = Cursor::new(Vec::new());
+        ::image::RgbaImage::from_pixel(3, 2, ::image::Rgba([30, 90, 150, 255]))
+            .write_to(&mut bytes, ImageFormat::Png)
+            .unwrap();
+        let path = format!("{}.png", assets::ITEM_GLINT_TEXTURE_PATH);
+        write(pack.path(), &path, bytes.get_ref());
+        let compiled = compile_ui_assets(pack.path(), MANIFEST).unwrap();
+        let carrier = decode_ui_carrier(&compiled.bytes).unwrap();
+        assert_eq!(carrier.ui_file(&path), Some(bytes.get_ref().as_slice()));
+        assert!(carrier.texture(assets::ITEM_GLINT_TEXTURE_PATH).is_none());
     }
 
     #[test]

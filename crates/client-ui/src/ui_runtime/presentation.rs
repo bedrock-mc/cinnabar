@@ -25,6 +25,7 @@ pub mod hud_layout;
 pub mod inventory_pointer;
 pub mod inventory_tooltip;
 mod item_activation;
+pub(super) mod item_glint;
 pub mod item_gui;
 pub mod item_sprite;
 pub mod item_viewmodel;
@@ -113,6 +114,7 @@ pub struct UiPresentationRuntime {
     mod_panel_font: Option<mod_panel_font::InstalledFont>,
     textures: Arc<UiRenderTextureArray>,
     texture_session: Option<u64>,
+    item_glint: item_glint::ItemGlintTextures,
     blank_dynamic_page: render_model::UiTexturePage,
     solid_texture_page: u16,
     hud_textures: Option<HudTexturePages>,

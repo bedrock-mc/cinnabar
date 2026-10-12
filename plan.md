@@ -2386,6 +2386,11 @@ comparison of syntax tolerances across document families.
 Custom item icons and components follow the admitted registry, so an empty
 duplicate cannot replace a populated item's texture key. Missing custom icons
 report their identifier and requested atlas key during pack preparation.
+An offline regression follows the admitted registry and selected inventory stack
+through the first-person equipment path, its extruded sprite mesh and artwork
+atlas. Original synthetic art runs in CI; an explicitly supplied local pack can
+export the same native hand pose for comparison. Live server item payloads and
+native GPU output remain unverified.
 Provisional, incomplete: attachables without default geometry or texture aliases
 retain equipment bindings using their first compiled controller resources;
 dynamic controller selection still determines the resources drawn. Native static
@@ -3925,9 +3930,12 @@ order:
    server-authoritative acceptance before enabling outbound movement from `Physics`; keep
    `FreeCamera` network-silent. Incomplete after the rewind-timeline tranche: server flags
    only end swim/glide/crawl (never start them) and a held sneak button reasserts itself;
-   item-use slowdown assumes no `minecraft:use_modifiers` on the used item; swim stop
-   predicates, conditional vertical steering and Dolphin's Grace are unported; no
+   swim stop predicates, conditional vertical steering and Dolphin's Grace are unported; no
    client-predicted vehicles (vehicle corrections are ignored as for an unpredicted mount).
+   Item-use admission distinguishes an absent modifier component from a present component
+   without a movement value for both server and authored foods. Headless checks cover the
+   ordinary enchanted apple and a controlled custom food; the reported server apple's
+   acceptance remains incomplete.
 6. **Phase 5 UI:** implement the UI foundation, receive-only text/HUD, chat, scoreboard and
    boss bars, inventory/interaction, and forms in the numbered 5.1-5.7 order.
 7. **Deferred final Phase 2.6 authority pass:** return to leaf litter and other exact residual
@@ -6341,10 +6349,13 @@ Shape classification, stair orientation and GUI shading are unverified against
 the retail GUI tessellator.
 Server item components (StartGame registry) drive display names, rarity and
 hover colours, durability maxima, stack-merge capacity, held grip, wearable
-slots and use durations. Item glint (provisional): stacks vanilla
-marks as glinting (an `ench` list, the glint component, always-glinting vanilla items)
-draw a procedural scrolling purple overlay in HUD and JSON-UI item cells, not
-the retail glint texture; held items and the item viewmodel do not glint.
+slots and use durations. Item glint: stacks marked as glinting (an `ench` list,
+the glint component, always-glinting items) sample the active pack's item glint
+raster in HUD and JSON-UI item cells. Removing the pack restores the startup
+UI carrier's image. Startup rejects stale carriers and missing or invalid base
+glint artwork with the carrier path and `make assets` rebuild guidance.
+UV scale, blend and scrolling periods remain provisional
+pending rendered acceptance; held items and the item viewmodel do not glint.
 `minecraft:render_offsets` is not applied.
 Initial negotiated item-registry binding for world item visuals is also separate
 from the inventory-ledger bootstrap fix. The visual resolver still starts from
@@ -6725,10 +6736,10 @@ Safe Zone, glint defaults, world Experiments and several unsupported subsystem
 controls remain open. JSON-UI engine changes remain on the separate branch.
 
 Glint accessibility factors now reach the existing UI item renderer: strength scales
-its additive RGB, and speed scales elapsed time before the procedural phases.
-The procedural glint appearance
-and phase periods remain provisional; this adapter does not establish texture,
-world-item, or entity-glint parity. Current vanilla option defaults/ranges remain open.
+its additive RGB, and speed scales elapsed time before the texture scrolling phases.
+The sampled glint appearance and phase periods remain provisional; rendered
+item, world-item, and entity-glint parity remain incomplete. Current option
+defaults/ranges remain open.
 
 ## Terrain particle texture repair (2026-10-01)
 

@@ -21,6 +21,8 @@ const STYLE_RADIAL_GRADIENT: u32 = UI_STYLE_RADIAL_GRADIENT;
 @group(0) @binding(3) var ui_linear_sampler: sampler;
 // x is 1 when the bucket stores one coverage byte per texel of a white page.
 @group(0) @binding(4) var<uniform> ui_page_format: vec4<u32>;
+@group(0) @binding(5) var item_glint: texture_2d<f32>;
+@group(0) @binding(6) var item_glint_sampler: sampler;
 
 struct UiVertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -163,21 +165,22 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     let alpha = sample.a * straight_color.a;
     var premultiplied_rgb = model_rgb * sample.a * straight_color.a * input.model_light;
     if (input.style_flags & STYLE_GLINT) != 0u {
-        // Vanilla scales glint RGB without changing alpha.
-        premultiplied_rgb += glint(input.clip_position.xy) * viewport.glint_strength * alpha;
+        var shine = glint(input.clip_position.xy);
+        if direct { shine = srgb_to_linear(shine); }
+        premultiplied_rgb += shine * viewport.glint_strength * alpha;
     }
     return vec4<f32>(premultiplied_rgb, alpha);
 }
 
-// Two diagonal purple bands scrolling at different rates, added over opaque texels like the
-// item glint layers. Provisional: procedural, not the retail glint texture.
+// Keep the existing UI clock and scrolling rates while sampling pack artwork.
+// The UV scale and blend remain provisional until a rendered comparison.
 fn glint(pixel: vec2<f32>) -> vec3<f32> {
     let t = viewport.time_seconds;
-    let a = fract((pixel.x * 0.96 + pixel.y * 0.28) / 96.0 - t * 0.33);
-    let b = fract((pixel.x * 0.5 - pixel.y * 0.87) / 80.0 + t * 0.21);
-    return vec3<f32>(0.5, 0.25, 0.8) * (glint_band(a) + glint_band(b)) * 0.55;
-}
-
-fn glint_band(x: f32) -> f32 {
-    return smoothstep(0.0, 0.18, x) * (1.0 - smoothstep(0.18, 0.42, x));
+    let a = vec2<f32>(pixel.x * 0.96 + pixel.y * 0.28,
+        -pixel.x * 0.28 + pixel.y * 0.96) / 96.0 - vec2<f32>(t * 0.33, 0.0);
+    let b = vec2<f32>(pixel.x * 0.5 - pixel.y * 0.87,
+        pixel.x * 0.87 + pixel.y * 0.5) / 80.0 + vec2<f32>(t * 0.21, 0.0);
+    let first = textureSampleLevel(item_glint, item_glint_sampler, a, 0.0);
+    let second = textureSampleLevel(item_glint, item_glint_sampler, b, 0.0);
+    return (first.rgb * first.a + second.rgb * second.a) * GLINT_TINT_RGB * 0.55;
 }

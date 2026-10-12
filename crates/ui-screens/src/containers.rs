@@ -698,7 +698,11 @@ pub fn screen_data(
                 .map(|slot| {
                     let stack = ledger.target_stack(InventoryTarget::Armor(slot));
                     cells
-                        .cell(stack, frame.armor_icons[usize::from(slot)], None)
+                        .cell(
+                            stack,
+                            frame.armor_icons[usize::from(slot)],
+                            frame.armor_durability[usize::from(slot)],
+                        )
                         .with("#empty_armor_image_visible", Scalar::Bool(stack.is_none()))
                 })
                 .collect();

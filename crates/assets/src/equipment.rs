@@ -28,8 +28,9 @@ pub use use_profiles::CompiledItemUseOverlay;
 mod texture_tests;
 
 pub const EQUIPMENT_CARRIER_MAGIC: [u8; 8] = *b"MCBEEQP1";
-/// Includes authored use profiles, food nutrition and component-precision durations; older carriers need a rebuild.
-pub const EQUIPMENT_CARRIER_VERSION: u32 = 4;
+/// Includes authored use profiles, food nutrition, component durations and use-modifiers presence.
+/// Older carriers need a rebuild.
+pub const EQUIPMENT_CARRIER_VERSION: u32 = 5;
 pub const MAX_EQUIPMENT_BINDINGS: usize = 1024;
 pub const MAX_EQUIPMENT_IDENTIFIER_BYTES: usize = 256;
 pub const MAX_EQUIPMENT_TEXTURES: usize = 256;
