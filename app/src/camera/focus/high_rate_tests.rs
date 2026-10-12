@@ -93,18 +93,20 @@ fn warm(app: &mut App) {
 #[test]
 fn high_rate_motion_has_bounded_allocation_growth_and_one_sample_per_frame() {
     let (mut app, _) = input_app();
+    let (mut control, _) = input_app();
     app.update();
+    control.update();
     let cold = write_motion(&mut app, MAX_EVENTS_PER_FRAME, DELTA);
     // Message buffers grow geometrically rather than allocating once for each event.
     assert!(cold.calls <= 16, "cold message allocations: {cold:?}");
+    write_motion(&mut control, MAX_EVENTS_PER_FRAME, DELTA);
     warm(&mut app);
-    // Compare high-rate batches with an ordinary input frame on the same populated path.
-    assert_eq!(write_motion(&mut app, 1, DELTA), Allocations::default());
-    let baseline = measure(|| app.update()).1;
+    warm(&mut control);
     let initial_updates = app.world().resource::<Samples>().updates;
     let initial_input_passes = app.world().resource::<Samples>().input_passes;
     let mut events = 0;
     let mut total = Vec2::ZERO;
+    let mut frame_allocations_total = Allocations::default();
     for frame in 0..FRAMES_PER_SECOND {
         let count = (frame + 1) * EVENTS_PER_SECOND / FRAMES_PER_SECOND
             - frame * EVENTS_PER_SECOND / FRAMES_PER_SECOND;
@@ -117,8 +119,17 @@ fn high_rate_motion_has_bounded_allocation_growth_and_one_sample_per_frame() {
             assert_eq!(app.world().resource::<Samples>().updates, before);
             assert_eq!(app.world().resource::<Samples>().input_passes, input_before);
         }
+        // Match framework lifecycle work against the same frame of a low-rate app.
+        assert_eq!(write_motion(&mut control, 1, delta), Allocations::default());
+        let baseline = measure(|| control.update()).1;
         let frame_allocations = measure(|| app.update()).1;
-        assert_eq!(frame_allocations, baseline);
+        assert_eq!(frame_allocations, baseline, "frame {frame}, {count} events");
+        let control_samples = control.world().resource::<Samples>();
+        assert_eq!(control_samples.delta, delta);
+        assert_eq!(control_samples.updates, frame + 1);
+        assert_eq!(control_samples.input_passes, frame + 1);
+        frame_allocations_total.calls += frame_allocations.calls;
+        frame_allocations_total.bytes += frame_allocations.bytes;
         let samples = app.world().resource::<Samples>();
         assert_eq!(samples.updates, before + 1);
         assert_eq!(samples.input_passes, input_before + 1);
@@ -139,7 +150,7 @@ fn high_rate_motion_has_bounded_allocation_growth_and_one_sample_per_frame() {
     app.update();
     assert_eq!(app.world().resource::<Samples>().delta, Vec2::ZERO);
     eprintln!(
-        "mouse input: events={events}, frames={FRAMES_PER_SECOND}, cold={cold:?}, warmed event allocations=0, frame={baseline:?}"
+        "mouse input: events={events}, frames={FRAMES_PER_SECOND}, cold={cold:?}, warmed event allocations=0, frames={frame_allocations_total:?}"
     );
 }
 
