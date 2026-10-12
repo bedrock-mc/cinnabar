@@ -137,24 +137,22 @@ fn run(
         && read_cached(&stable_cache).is_some_and(|cached| {
             Selection::verify(&cached, &keys, stable, OffsetDateTime::now_utc()).is_ok()
         })
+        && let Ok(mut state) = STATE.lock()
+        && state.generation == generation
     {
-        if let Ok(mut state) = STATE.lock() {
-            if state.generation == generation {
-                state.stable_available = true;
-            }
-        }
+        state.stable_available = true;
     }
     let destination = root.join("ready");
     stage::recover(&destination, &keys, check, OffsetDateTime::now_utc())?;
     // A postponed stage stays offered while daily checks continue, and a newer release replaces it.
     let retained = STATE.lock().ok().and_then(|state| state.ready.clone());
     let mut staged = retained_manifest(retained.as_ref(), &keys, check, OffsetDateTime::now_utc());
-    if retained.is_some() && staged.is_none() {
-        if let Ok(mut state) = STATE.lock() {
-            if state.accepts_worker(generation) {
-                state.ready = None;
-            }
-        }
+    if retained.is_some()
+        && staged.is_none()
+        && let Ok(mut state) = STATE.lock()
+        && state.accepts_worker(generation)
+    {
+        state.ready = None;
     }
     if destination.exists() {
         match stage::verify(&destination, &keys, check, OffsetDateTime::now_utc()) {

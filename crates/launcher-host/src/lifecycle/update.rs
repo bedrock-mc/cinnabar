@@ -337,7 +337,6 @@ pub fn act(action: Action) -> bool {
                 switch = state.request_switch();
                 false
             }
-            _ => false,
         }
     } else {
         false
