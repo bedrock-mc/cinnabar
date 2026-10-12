@@ -292,10 +292,9 @@ pub use texture::{
     downsample_linear_premultiplied, legacy_terrain_mip, rebuild_legacy_terrain_mips,
 };
 pub use ui::{
-    ITEM_GLINT_TEXTURE_PATH, MAX_UI_ATLAS_PAGES, MAX_UI_ATLAS_SIDE, MAX_UI_CARRIER_BYTES,
-    MAX_UI_FILE_BYTES, MAX_UI_FILES, MAX_UI_KEY_BYTES, MAX_UI_SIDECARS, MAX_UI_TEXTURES,
-    RuntimeUiAssets, SPLASH_RESOURCE_PATH, UI_CARRIER_MAGIC, UI_CARRIER_VERSION, UI_CREDITS_FILES,
-    UiAtlasPage, UiFile, UiNineSlice, UiSidecar, UiSidecarEntry, UiTexturePlacement, UiTextureUv,
-    encode_ui_catalog,
+    MAX_UI_ATLAS_PAGES, MAX_UI_ATLAS_SIDE, MAX_UI_CARRIER_BYTES, MAX_UI_FILE_BYTES, MAX_UI_FILES,
+    MAX_UI_KEY_BYTES, MAX_UI_SIDECARS, MAX_UI_TEXTURES, RuntimeUiAssets, SPLASH_RESOURCE_PATH,
+    UI_CARRIER_MAGIC, UI_CARRIER_VERSION, UI_CREDITS_FILES, UiAtlasPage, UiFile, UiNineSlice,
+    UiSidecar, UiSidecarEntry, UiTexturePlacement, UiTextureUv, encode_ui_catalog,
 };
 pub use vanilla_refs::{MAX_VANILLA_REFS_BYTES, VanillaEntityRefs, VanillaGeometryFile};
