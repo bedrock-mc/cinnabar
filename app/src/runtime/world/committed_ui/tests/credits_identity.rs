@@ -51,7 +51,9 @@ fn committed_ui_uses_the_current_local_players_name_for_credits() {
             .sync_local_player_pose(&feed);
         schedule.run(app.world_mut());
         assert_eq!(
-            app.world().resource::<UiRuntime>().credits_player_name(),
+            app.world()
+                .resource::<UiRuntimeResource>()
+                .credits_player_name(),
             name,
             "the production drain must refresh identity even without a UI packet"
         );

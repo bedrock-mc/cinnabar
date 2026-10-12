@@ -59,7 +59,7 @@ fn chat_focus_clears_stale_gameplay_touch_targets() {
     let mut app = App::new();
     let mut targets = SemanticTouchTargets::default();
     targets.set(7, semantic_input::touch::JUMP);
-    app.insert_resource(runtime)
+    app.insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime.clone())
         .init_resource::<Touches>()
         .insert_resource(targets)

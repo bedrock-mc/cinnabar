@@ -1,6 +1,7 @@
 //! Existing world, simulation, queue and renderer counters shown by F3.
 
-use super::{DebugContext, Lines, UiPresentationRuntime};
+use super::{DebugContext, Lines};
+use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 use std::fmt::{self, Display, Write};
 
 impl DebugContext<'_, '_> {

@@ -5,8 +5,8 @@ use bevy::{
     prelude::{Res, ResMut},
 };
 
-use super::UiRuntime;
 use crate::semantic_controls::SemanticTouchTargets;
+use client_shell::ui_resources::UiRuntimeResource;
 
 /// Production has no version-matched native Bedrock touch geometry yet.
 ///
@@ -39,7 +39,7 @@ pub(crate) fn reconcile_gameplay_touch_targets(
 
 pub(crate) fn drive_gameplay_touch_targets(
     touches: Res<Touches>,
-    _ui: Res<UiRuntime>,
+    _ui: Res<UiRuntimeResource>,
     mut targets: ResMut<SemanticTouchTargets>,
 ) {
     targets.release_all();

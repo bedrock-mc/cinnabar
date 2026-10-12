@@ -68,11 +68,13 @@ fn join_app(state: State) -> App {
     runtime.experiences.session.state = state;
     let mut app = App::new();
     app.insert_resource(MenuRuntime::new(false, 2, "Test".into()))
-        .insert_resource(runtime)
+        .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))
-        .insert_resource(client_ui::test_support::mini_engine_presentation())
+        .insert_resource(UiPresentationResource(
+            client_ui::test_support::mini_engine_presentation(),
+        ))
         .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .init_resource::<ClientWorld>()
         .init_resource::<Time<Real>>()
@@ -105,11 +107,11 @@ fn join_app(state: State) -> App {
 /// Presents one frame, as the renderer does between controller updates.
 fn present(app: &mut App) {
     app.world_mut()
-        .resource_scope(|world, mut presentation: Mut<UiPresentationRuntime>| {
+        .resource_scope(|world, mut presentation: Mut<UiPresentationResource>| {
             presentation
                 .build(
                     world.resource::<client_state::PlayerRuntime>(),
-                    world.resource::<UiRuntime>(),
+                    world.resource::<UiRuntimeResource>(),
                     0,
                     [1280, 720],
                     ui::DpiScale::new(1.0).unwrap(),
@@ -130,7 +132,7 @@ fn join_offer_opens_the_trusted_popup_and_owns_input_without_a_menu() {
     present(&mut app);
     assert!(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .experience_prompt_visible()
     );
 }
@@ -152,7 +154,7 @@ fn popup_keys_answer_the_offer_and_then_release_input() {
         assert!(
             matches!(
                 app.world()
-                    .resource::<UiRuntime>()
+                    .resource::<UiRuntimeResource>()
                     .experiences
                     .session
                     .state,
@@ -199,7 +201,7 @@ fn running_or_disabled_experiences_never_open_the_popup() {
         assert!(!consent_owned(&app));
         assert!(
             !app.world()
-                .resource::<UiPresentationRuntime>()
+                .resource::<UiPresentationResource>()
                 .experience_prompt_visible()
         );
     }
@@ -316,9 +318,11 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
     runtime.experiences.session.state = State::Granted(grant.clone());
     let mut app = App::new();
     app.insert_resource(MenuRuntime::new(false, 2, "Test".into()))
-        .insert_resource(runtime)
+        .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime.clone())
-        .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
+        .insert_resource(UiPresentationResource(
+            UiPresentationRuntime::new(fixture_font()).unwrap(),
+        ))
         .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .insert_resource(ClientWorld {
             stream: Some(stream),
@@ -350,7 +354,7 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
         .unwrap(),
     );
     app.update();
-    let extension = &app.world().resource::<UiRuntime>().experiences;
+    let extension = &app.world().resource::<UiRuntimeResource>().experiences;
     assert_eq!(extension.epoch, new_epoch);
     assert!(matches!(extension.session.state, State::Disabled));
     assert!(!extension.active);
@@ -385,9 +389,9 @@ fn unadvertised_experience_preserves_input_and_rendered_menu() {
     snapshot::write(&before, "experience-unadvertised-before");
     let mut app = App::new();
     app.insert_resource(menu)
-        .insert_resource(runtime)
+        .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime.clone())
-        .insert_resource(presentation)
+        .insert_resource(UiPresentationResource(presentation))
         .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .init_resource::<ClientWorld>()
         .init_resource::<Time<Real>>()
@@ -420,10 +424,10 @@ fn unadvertised_experience_preserves_input_and_rendered_menu() {
     assert!(service.settings.is_none());
     assert!(service.download.is_none());
     assert!(service.live.is_none());
-    let runtime = app.world().resource::<UiRuntime>().clone();
+    let runtime = app.world().resource::<UiRuntimeResource>().clone();
     let after = app
         .world_mut()
-        .resource_mut::<UiPresentationRuntime>()
+        .resource_mut::<UiPresentationResource>()
         .build(
             &player_runtime,
             &runtime,
@@ -487,7 +491,7 @@ fn consent_answer_retains_capture_return_through_its_owned_frame() {
         assert!(consent_owned(&app));
         assert!(!matches!(
             app.world()
-                .resource::<UiRuntime>()
+                .resource::<UiRuntimeResource>()
                 .experiences
                 .session
                 .state,

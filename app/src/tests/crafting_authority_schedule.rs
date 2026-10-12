@@ -4,6 +4,7 @@ use crate::acceptance::AcceptanceRun;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
 use bevy::ecs::system::RunSystemOnce;
+use client_shell::ui_resources::UiRuntimeResource;
 use client_state::PlayerRuntime;
 #[path = "latency_fences.rs"]
 mod latency_fences;
@@ -82,7 +83,7 @@ fn app() -> App {
     .insert_resource(clock)
     .insert_resource(weather)
     .insert_resource(collisions)
-    .insert_resource(runtime)
+    .insert_resource(UiRuntimeResource(runtime))
     .insert_resource(player_runtime.clone())
     .insert_resource(AcceptanceRun::new(Some(900), None, false, false))
     .insert_resource(ModelWitnessFileSource::new(None))

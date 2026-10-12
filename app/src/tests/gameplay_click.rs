@@ -5,6 +5,7 @@ use bevy::{
     time::{Real, Time},
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
+use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use client_state::PlayerRuntime;
 use semantic_input::Action;
 
@@ -104,9 +105,11 @@ pub(crate) fn gameplay_app(menu_visible: bool) -> App {
         .init_resource::<client_presentation::local_player::LocalPlayerFrameCarrier>()
         .init_resource::<client_presentation::local_player::InteractionOriginSnapshot>()
         .add_message::<KeyboardInput>()
-        .insert_resource(runtime)
+        .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime.clone())
-        .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
+        .insert_resource(UiPresentationResource(
+            UiPresentationRuntime::new(fixture_font()).unwrap(),
+        ))
         .insert_resource(MenuRuntime::new(menu_visible, 2, "Tester".to_owned()));
     app.world_mut().spawn((
         Window {

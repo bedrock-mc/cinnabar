@@ -1,10 +1,5 @@
 use std::sync::Arc;
 
-use bevy::{
-    input::{gamepad::GamepadButton, mouse::AccumulatedMouseMotion},
-    prelude::{ButtonInput, KeyCode, MouseButton, Vec2},
-    window::{CursorGrabMode, CursorOptions},
-};
 use protocol::{
     BlockCrackAction, BlockCrackEvent, BossAction as ProtocolBossAction,
     BossColor as ProtocolBossColor, BossEvent, BossOverlay as ProtocolBossOverlay,
@@ -15,7 +10,9 @@ use protocol::{
     TitleEvent, UiEvent, WorldEvent, chat_text_packet, decode_batch, into_world_event,
     parse_raw_text,
 };
-use semantic_input::{Action, DeviceFrame, InputContext, KeyboardMouseFrame, SemanticInputRouter};
+use semantic_input::{
+    Action, DeviceFrame, InputContext, KeyboardKey, KeyboardMouseFrame, SemanticInputRouter,
+};
 use ui::{ChatClipboard, PointerPhase, UiAction, UiPoint};
 
 use super::*;

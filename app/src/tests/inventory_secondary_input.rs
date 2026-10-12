@@ -1,3 +1,4 @@
+use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use client_state::PlayerRuntime;
 use std::sync::Arc;
 
@@ -475,7 +476,7 @@ fn inventory_open_and_close_transitions_suppress_secondary_edges() {
         });
         app.update();
 
-        let runtime = app.world().resource::<UiRuntime>();
+        let runtime = app.world().resource::<UiRuntimeResource>();
         assert_eq!(runtime.inventory_open(), !initially_open);
         assert_eq!(
             app.world()
@@ -523,7 +524,7 @@ fn menu_and_focus_loss_preempt_secondary_inventory_dispatch() {
         press(&mut app, MouseButton::Right);
         app.update();
 
-        let runtime = app.world().resource::<UiRuntime>();
+        let runtime = app.world().resource::<UiRuntimeResource>();
         assert_eq!(runtime.inventory_open(), !menu_visible);
         assert_eq!(
             app.world()
@@ -599,9 +600,9 @@ fn pointer_app_with(
         .init_resource::<Touches>()
         .init_resource::<MenuClipboard>()
         .add_message::<KeyboardInput>()
-        .insert_resource(runtime)
+        .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime.clone())
-        .insert_resource(presentation)
+        .insert_resource(UiPresentationResource(presentation))
         .insert_resource(MenuRuntime::new(menu_visible, 2, "Tester".to_owned()))
         .add_systems(
             Update,
@@ -641,9 +642,9 @@ fn semantic_app(
         .init_resource::<SemanticTouchTargets>()
         .init_resource::<RuntimeSettings>()
         .add_message::<KeyboardInput>()
-        .insert_resource(runtime)
+        .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime.clone())
-        .insert_resource(presentation)
+        .insert_resource(UiPresentationResource(presentation))
         .insert_resource(MenuRuntime::new(false, 2, "Tester".to_owned()))
         .add_systems(Update, collect_raw_input.in_set(ClientFrameSet::RawInput))
         .add_systems(
@@ -1000,15 +1001,15 @@ fn review_remapped_drop_does_not_keep_q_active_in_inventory() {
         assert_eq!(
             menu.view().settings_options.named_key_control("key.drop"),
             Some(semantic_input::PhysicalControl::KeyboardUsage(
-                client_ui::physical_input::keyboard_usage(KeyCode::KeyR).unwrap()
+                client_shell::physical_input::keyboard_usage(KeyCode::KeyR).unwrap()
             ))
         );
         menu.set_visible(false);
-        app.insert_resource(personal_runtime(
+        app.insert_resource(UiRuntimeResource(personal_runtime(
             &mut player_runtime,
             Some(stack(9, 92)),
             None,
-        ));
+        )));
         app.insert_resource(player_runtime.clone());
         if control {
             press_key(&mut app, KeyCode::ControlLeft);

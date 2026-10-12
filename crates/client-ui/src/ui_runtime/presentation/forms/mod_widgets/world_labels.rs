@@ -84,7 +84,7 @@ pub(super) fn data(
     viewport: [f64; 2],
     projection: Option<[f32; 16]>,
 ) {
-    let matrix = projection.map(|p| bevy::math::Mat4::from_cols_array(&p));
+    let matrix = projection.map(|p| glam::Mat4::from_cols_array(&p));
     for (index, label) in hud.world_labels.iter().enumerate() {
         let offset = project(label, matrix, viewport);
         let visible = offset.is_some();
@@ -105,12 +105,8 @@ pub(super) fn data(
 }
 
 /// Screen-space center placement for one validated world anchor.
-fn project(
-    label: &WorldLabel,
-    matrix: Option<bevy::math::Mat4>,
-    viewport: [f64; 2],
-) -> Option<[f64; 2]> {
-    let point = matrix.map(|m| m * bevy::math::Vec3::from_array(label.position).extend(1.0));
+fn project(label: &WorldLabel, matrix: Option<glam::Mat4>, viewport: [f64; 2]) -> Option<[f64; 2]> {
+    let point = matrix.map(|m| m * glam::Vec3::from_array(label.position).extend(1.0));
     let visible = point.is_some_and(|p| {
         p.is_finite()
             && p.w > 0.001
@@ -168,12 +164,13 @@ mod tests {
             text: "Marker".into(),
             ..Default::default()
         });
-        let matrix = projection.map(|p| bevy::math::Mat4::from_cols_array(&p));
+        let matrix = projection.map(|p| glam::Mat4::from_cols_array(&p));
         project(&hud.world_labels[0], matrix, [640., 360.]).is_some()
     }
     #[test]
     fn labels_hide_without_camera_behind_it_and_outside_frustum() {
-        let matrix = bevy::math::proj::perspective(1.0, 16. / 9., 0.1, 1000.).to_cols_array();
+        let matrix =
+            glam::camera::rh::proj::directx::perspective(1.0, 16. / 9., 0.1, 1000.).to_cols_array();
         assert!(!visible([0., 0., -10.], None));
         assert!(visible([0., 0., -10.], Some(matrix)));
         assert!(!visible([0., 0., 10.], Some(matrix)));

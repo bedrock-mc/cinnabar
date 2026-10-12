@@ -3,10 +3,10 @@ use crate::runtime::network::resource_packs::PackApplication;
 use bevy::prelude::{Res, ResMut};
 use client_runtime::network::NetworkHandle;
 use client_session::PacketSendError;
-use client_ui::ui_runtime::UiRuntime;
+use client_shell::ui_resources::UiRuntimeResource;
 
 pub(crate) fn flush_server_form_network(
-    mut runtime: ResMut<UiRuntime>,
+    mut runtime: ResMut<UiRuntimeResource>,
     player: Res<client_state::PlayerRuntime>,
     network: Res<NetworkHandle<PackApplication>>,
     menu: Option<Res<client_shell::menu::MenuRuntime>>,

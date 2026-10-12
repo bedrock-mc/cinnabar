@@ -53,14 +53,10 @@ pub use interaction::FastTransferAction;
 pub use interaction::dispatch_inventory_click;
 pub use interaction::{ChatFlushError, flush_chat_sends, flush_inventory_send};
 #[cfg(test)]
-use interaction::{
-    dispatch_chat_ui_action, gamepad_chat_action, paste_chat_shortcut,
-    restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
-};
+use interaction::{dispatch_chat_ui_action, paste_chat_shortcut};
 
 use std::{collections::VecDeque, sync::Arc};
 
-use bevy::prelude::Resource;
 use protocol::{
     ActorAttribute, BlockCrackEvent, ChatAutocompleteCatalog, EquipmentEvent, InventoryAuthority,
     UiEvent,
@@ -139,7 +135,7 @@ impl UiAuthorityTransition {
     }
 }
 
-#[derive(Clone, Debug, Resource)]
+#[derive(Clone, Debug)]
 pub struct UiRuntime {
     pub experiences: crate::experience_session::ExperienceSession,
     session_id: u64,

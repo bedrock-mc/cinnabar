@@ -17,7 +17,7 @@ use client_runtime::network::NetworkHandle;
 use semantic_input::Action;
 use sim::{DestroyConditions, HeldTool, PaletteWorld};
 
-use client_ui::ui_runtime::UiRuntime;
+use client_shell::ui_resources::UiRuntimeResource;
 use client_world::game_mode_capabilities::GameModeCapabilities;
 use {
     crate::{interaction_authority::observe_block, runtime::world::ClientWorld},
@@ -48,7 +48,7 @@ use gameplay::survival_mining::{
 pub(crate) struct SurvivalMiningContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
     origin: Res<'w, InteractionOriginSnapshot>,
-    ui: Res<'w, UiRuntime>,
+    ui: Res<'w, UiRuntimeResource>,
     focus: Res<'w, client_state::ScreenFocus>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     client_world: ResMut<'w, ClientWorld>,

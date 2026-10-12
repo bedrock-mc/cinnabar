@@ -86,8 +86,8 @@ fn unfocused_stop_and_toggle_keys_preserve_editor_and_do_not_replay_on_regain() 
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .insert_resource(player)
-        .insert_resource(ui)
-        .insert_resource(presentation)
+        .insert_resource(UiRuntimeResource(ui))
+        .insert_resource(UiPresentationResource(presentation))
         .insert_resource(ModRuntime {
             panel_fonts: vec![None],
             hosts: client_extensions::modding::multi::ModHosts::new(host, Vec::new()),
@@ -128,7 +128,7 @@ fn unfocused_stop_and_toggle_keys_preserve_editor_and_do_not_replay_on_regain() 
     assert!(app.world().resource::<ModRuntime>().hosts.host.panel_open());
     assert!(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .mod_panel_editing()
     );
     assert!(
@@ -150,7 +150,7 @@ fn unfocused_stop_and_toggle_keys_preserve_editor_and_do_not_replay_on_regain() 
     );
     assert_eq!(
         app.world_mut()
-            .resource_mut::<UiPresentationRuntime>()
+            .resource_mut::<UiPresentationResource>()
             .mod_panel_key("Enter", None),
         vec![ui::mod_panel::Event {
             id: "strength".into(),
@@ -195,8 +195,8 @@ fn personal_panel_app(hud_editor: bool, capture_key: bool) -> (App, Entity) {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .insert_resource(player)
-        .insert_resource(ui)
-        .insert_resource(presentation)
+        .insert_resource(UiRuntimeResource(ui))
+        .insert_resource(UiPresentationResource(presentation))
         .insert_resource(ModRuntime {
             panel_fonts: vec![None],
             hosts: client_extensions::modding::multi::ModHosts::new(host, Vec::new()),
@@ -261,10 +261,10 @@ fn personal_panel_keyboard_capture_and_native_editor_do_not_open_or_replay_world
             }
             assert!(
                 app.world()
-                    .resource::<UiPresentationRuntime>()
+                    .resource::<UiPresentationResource>()
                     .mod_panel_open()
             );
-            let ui = app.world().resource::<UiRuntime>();
+            let ui = app.world().resource::<UiRuntimeResource>();
             assert!(!ui.chat_focused(), "personal-panel key opened chat");
             assert!(!ui.inventory_open(), "personal-panel key opened inventory");
             app.world_mut()
@@ -282,12 +282,12 @@ fn personal_panel_keyboard_capture_and_native_editor_do_not_open_or_replay_world
         }
         assert!(
             !app.world()
-                .resource::<UiPresentationRuntime>()
+                .resource::<UiPresentationResource>()
                 .mod_hud_editor_open(),
             "Enter still saves and closes the native HUD editor"
         );
         app.world_mut()
-            .resource_mut::<UiPresentationRuntime>()
+            .resource_mut::<UiPresentationResource>()
             .set_mod_panel_open(false);
         app.world_mut()
             .resource_mut::<ModRuntime>()
@@ -295,8 +295,8 @@ fn personal_panel_keyboard_capture_and_native_editor_do_not_open_or_replay_world
             .host
             .set_panel_open(false);
         app.update();
-        assert!(!app.world().resource::<UiRuntime>().chat_focused());
-        assert!(!app.world().resource::<UiRuntime>().inventory_open());
+        assert!(!app.world().resource::<UiRuntimeResource>().chat_focused());
+        assert!(!app.world().resource::<UiRuntimeResource>().inventory_open());
 
         // Fresh world input works after ownership ends; captured messages stay consumed.
         app.world_mut()
@@ -311,7 +311,7 @@ fn personal_panel_keyboard_capture_and_native_editor_do_not_open_or_replay_world
             window: entity,
         });
         app.update();
-        assert!(app.world().resource::<UiRuntime>().chat_focused());
+        assert!(app.world().resource::<UiRuntimeResource>().chat_focused());
     }
 }
 
@@ -342,7 +342,7 @@ fn hud_drag_released_outside_window_does_not_resume_on_pointer_reentry() {
         .unwrap()
         .set_cursor_position(Some(Vec2::new(1100., 640.)));
     app.update();
-    let mut presentation = app.world_mut().resource_mut::<UiPresentationRuntime>();
+    let mut presentation = app.world_mut().resource_mut::<UiPresentationResource>();
     presentation.mod_panel_key("Enter", None);
     let result = presentation.take_mod_hud_editor_result().unwrap();
     assert!(result.saved);
@@ -357,10 +357,12 @@ fn hud_editor_focus_and_session_loss_cancel_draft_and_release_world_input_owners
         if focus_loss {
             app.world_mut().get_mut::<Window>(entity).unwrap().focused = false;
         } else {
-            app.world_mut().resource_mut::<UiRuntime>().begin_session(2);
+            app.world_mut()
+                .resource_mut::<UiRuntimeResource>()
+                .begin_session(2);
         }
         app.update();
-        let p = app.world().resource::<UiPresentationRuntime>();
+        let p = app.world().resource::<UiPresentationResource>();
         assert!(!p.mod_hud_editor_open());
         assert!(!p.mod_panel_open());
         let runtime = app.world().resource::<ModRuntime>();
@@ -386,7 +388,7 @@ fn hud_editor_save_and_cancel_return_to_panel_without_replaying_gameplay_keys() 
             window: entity,
         });
         app.update();
-        let p = app.world().resource::<UiPresentationRuntime>();
+        let p = app.world().resource::<UiPresentationResource>();
         assert!(!p.mod_hud_editor_open());
         assert!(p.mod_panel_open());
         let runtime = app.world().resource::<ModRuntime>();
@@ -429,7 +431,7 @@ fn hud_editor_owner_switch_cancels_old_draft_without_keeping_input_capture() {
     app.update();
     assert!(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .mod_hud_editor_open()
     );
     let mut new_host = mod_host::ModHost::load_snapshot_with_grants(
@@ -447,12 +449,12 @@ fn hud_editor_owner_switch_cancels_old_draft_without_keeping_input_capture() {
     app.update();
     assert!(
         !app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .mod_hud_editor_open()
     );
     assert!(
         !app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .mod_panel_open()
     );
     let runtime = app.world().resource::<ModRuntime>();
@@ -473,12 +475,12 @@ fn incremental_hud_save_retains_component_owner_until_editor_finishes() {
         r#"{"autosave":true,"cards":[{"id":"equipment","position":[0.5,0.5],"rows":[{"label":"Helmet","value":"85%"}]}]}"#,
     ).unwrap();
     app.world_mut()
-        .resource_scope(|world, mut presentation: Mut<UiPresentationRuntime>| {
+        .resource_scope(|world, mut presentation: Mut<UiPresentationResource>| {
             presentation.open_mod_hud_editor(&preview).unwrap();
             render(
                 &mut presentation,
                 world.resource::<client_state::PlayerRuntime>(),
-                world.resource::<UiRuntime>(),
+                world.resource::<UiRuntimeResource>(),
             );
             presentation.mod_panel_events([640., 360.], true, false);
             presentation.mod_panel_key("ArrowRight", None);
@@ -511,7 +513,7 @@ fn autosave_editor_escape_closes_entire_panel_without_reopening_it() {
         r#"{"autosave":true,"cards":[{"id":"equipment","position":[0.5,0.5],"rows":[{"label":"Helmet","value":"85%"}]}]}"#,
     ).unwrap();
     app.world_mut()
-        .resource_mut::<UiPresentationRuntime>()
+        .resource_mut::<UiPresentationResource>()
         .open_mod_hud_editor(&preview)
         .unwrap();
     app.world_mut()
@@ -526,7 +528,7 @@ fn autosave_editor_escape_closes_entire_panel_without_reopening_it() {
         window: entity,
     });
     app.update();
-    let p = app.world().resource::<UiPresentationRuntime>();
+    let p = app.world().resource::<UiPresentationResource>();
     assert!(!p.mod_hud_editor_open());
     assert!(
         !p.mod_panel_open(),

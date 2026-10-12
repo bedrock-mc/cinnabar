@@ -10,7 +10,7 @@ impl UiPresentationRuntime {
     pub fn record_frame_failure(&mut self, error: &UiPresentationError) {
         self.rejected_frames = self.rejected_frames.saturating_add(1);
         if self.rejected_frames.is_power_of_two() {
-            bevy::log::warn!(
+            tracing::warn!(
                 rejected_frames = self.rejected_frames,
                 ?error,
                 "skipped invalid UI frame"

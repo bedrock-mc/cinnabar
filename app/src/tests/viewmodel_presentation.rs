@@ -1,3 +1,4 @@
+use client_shell::ui_resources::UiRuntimeResource;
 use client_state::PlayerRuntime;
 use protocol::{
     ActorHandedness, ContainerIdentity, EquipmentEvent, InventoryContentEvent, InventoryEvent,
@@ -415,7 +416,7 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
         },
     );
     let mut app = App::new();
-    app.insert_resource(runtime)
+    app.insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime.clone())
         .insert_resource(world)
         .insert_resource(render_scene::ViewmodelGeometryResource(geometry))
@@ -439,7 +440,7 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
     ));
     let observe = |mut hand: ViewmodelPublish,
                    player_runtime: Res<PlayerRuntime>,
-                   runtime: Res<UiRuntime>,
+                   runtime: Res<UiRuntimeResource>,
                    world: Res<ClientWorld>| {
         assert!(!hand.observe(&player_runtime, &runtime, &world, true, false, [640, 480]));
     };
@@ -492,7 +493,7 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
         .run_system_once(
             |mut hand: ViewmodelPublish,
              player_runtime: Res<PlayerRuntime>,
-             runtime: Res<UiRuntime>,
+             runtime: Res<UiRuntimeResource>,
              world: Res<ClientWorld>| {
                 assert!(!hand.observe(&player_runtime, &runtime, &world, false, false, [640, 480]));
             },
@@ -506,7 +507,7 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
         .run_system_once(
             |mut hand: ViewmodelPublish,
              player_runtime: Res<PlayerRuntime>,
-             runtime: Res<UiRuntime>,
+             runtime: Res<UiRuntimeResource>,
              world: Res<ClientWorld>| {
                 assert!(!hand.observe(&player_runtime, &runtime, &world, true, true, [640, 480]));
             },
@@ -517,7 +518,7 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
         .run_system_once(
             |mut hand: ViewmodelPublish,
              player_runtime: Res<PlayerRuntime>,
-             runtime: Res<UiRuntime>,
+             runtime: Res<UiRuntimeResource>,
              world: Res<ClientWorld>| {
                 assert!(!hand.observe(&player_runtime, &runtime, &world, true, false, [800, 480]));
             },
@@ -618,7 +619,7 @@ fn ui_only_headless_hand_adapter_keeps_the_cpu_path_without_gpu_resources() {
     use bevy::{ecs::system::RunSystemOnce, prelude::*};
     let (_pack, _geometry, entities) = hand_fixture();
     let mut app = App::new();
-    app.insert_resource(UiRuntime::new(1))
+    app.insert_resource(UiRuntimeResource(UiRuntime::new(1)))
         .insert_resource(PlayerRuntime(player_state::PlayerState::new(1)))
         .insert_resource(ClientWorld::new_with_entity_assets(
             std::sync::Arc::new(assets::RuntimeAssets::diagnostic()),
@@ -628,7 +629,7 @@ fn ui_only_headless_hand_adapter_keeps_the_cpu_path_without_gpu_resources() {
         .run_system_once(
             |mut hand: ViewmodelPublish,
              player_runtime: Res<PlayerRuntime>,
-             runtime: Res<UiRuntime>,
+             runtime: Res<UiRuntimeResource>,
              world: Res<ClientWorld>| {
                 assert!(!hand.observe(&player_runtime, &runtime, &world, true, false, [640, 480]));
                 hand.clear();

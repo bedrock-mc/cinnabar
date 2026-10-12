@@ -161,7 +161,7 @@ fn fixture() -> (World, client_session::CapturedPackets) {
     world.insert_resource(origin);
     world.insert_resource(LocalViewPose::new(eye, Quat::IDENTITY));
     world.insert_resource(input);
-    world.insert_resource(ui);
+    world.insert_resource(UiRuntimeResource(ui));
     world.insert_resource(client_shell::menu::MenuRuntime::new(
         false,
         2,
@@ -400,7 +400,7 @@ fn a_press_waiting_for_a_pick_is_not_resolved_as_item_use() {
                 .into(),
             })
     );
-    world.resource_scope(|world, mut ui: Mut<UiRuntime>| {
+    world.resource_scope(|world, mut ui: Mut<UiRuntimeResource>| {
         let mut player = world.resource_mut::<client_state::PlayerRuntime>();
         let extra_data: std::sync::Arc<[u8]> = std::sync::Arc::from([]);
         ui.inventory_ledger_mut(&mut player)
@@ -487,7 +487,7 @@ fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::Capture
             std::thread::yield_now();
         }
     }
-    world.resource_scope(|world, mut ui: Mut<UiRuntime>| {
+    world.resource_scope(|world, mut ui: Mut<UiRuntimeResource>| {
         let mut player = world.resource_mut::<client_state::PlayerRuntime>();
         let extra_data: std::sync::Arc<[u8]> = std::sync::Arc::from([]);
         ui.inventory_ledger_mut(&mut player)
@@ -790,7 +790,7 @@ fn hotbar_changes_preserve_the_held_line_intercept_and_repeat_deadline() {
         set_hotbar_stack(&mut world, 1, placeable.then_some("minecraft:dirt"));
         let selected = verified_use_selection(
             world.resource::<client_state::PlayerRuntime>(),
-            world.resource::<UiRuntime>(),
+            world.resource::<UiRuntimeResource>(),
         )
         .unwrap();
         let mut runtime = world.resource_mut::<BlockUseRuntime>();

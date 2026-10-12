@@ -1,6 +1,7 @@
 //! Binding capture consumes input before normal menu navigation can handle it.
 
 use crate::menu::MenuRuntime;
+use crate::physical_input::{TRANSLATED_GAMEPAD_BUTTONS, keyboard_usage, mouse_button_code};
 use bevy::{
     ecs::message::MessageReader,
     input::{
@@ -10,7 +11,6 @@ use bevy::{
     },
     prelude::{ButtonInput, KeyCode, MouseButton, Query},
 };
-use client_ui::physical_input::{TRANSLATED_GAMEPAD_BUTTONS, keyboard_usage, mouse_button_code};
 use launcher::menu::settings_options::{GAMEPAD_OFFSET, macro_row};
 use semantic_input::{AxisDirection, PhysicalControl};
 
@@ -114,13 +114,16 @@ mod tests {
             .settings_options
             .controls()
             .unwrap();
-        for &(key_code, usage) in [
+        let desktop = crate::physical_input::DESKTOP_KEYS
+            .iter()
+            .filter_map(|(key_code, key)| Some((*key_code, key.usage()?)));
+        for (key_code, usage) in [
             (KeyCode::CapsLock, 0x39),
             (KeyCode::NumLock, 0x53),
             (KeyCode::ScrollLock, 0x47),
         ]
-        .iter()
-        .chain(client_ui::physical_input::KEYBOARD_USAGES)
+        .into_iter()
+        .chain(desktop)
         {
             if key_code == KeyCode::Escape {
                 continue;

@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use assets::RuntimeFontCatalog;
-use bevy::{camera::Camera, math::Vec3, prelude::GlobalTransform};
 use client_world::ActorSnapshot;
+use glam::Vec3;
 use protocol::{ActorKind, ActorMetadataValue};
 use render_model::{MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NametagRecord, NametagScene};
 use ui::{FONT_DESIGN_PIXEL_TEXELS, TextLayoutCache};
@@ -163,14 +163,12 @@ pub fn extract_nametag(
 pub fn project_nametags(
     scoreboards: &ui::ScoreboardStore,
     stream: &chunk_pipeline::WorldStream,
-    _camera: &Camera,
-    camera_transform: &GlobalTransform,
+    eye: Vec3,
     _logical_size: [f32; 2],
     picked_actor: Option<u64>,
     partial_tick: f32,
     show_players: bool,
 ) -> Vec<NametagAnchor> {
-    let eye = camera_transform.translation();
     let mut anchors: Vec<_> = stream
         .authority()
         .remote_actors()

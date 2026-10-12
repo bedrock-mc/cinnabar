@@ -252,7 +252,7 @@ impl UiPresentationRuntime {
             nodes.truncate(rollback.0);
             *next = rollback.1;
             self.screens.mod_widgets = None;
-            bevy::log::warn!(%error, "personal HUD cards disabled after rendering failure");
+            tracing::warn!(%error, "personal HUD cards disabled after rendering failure");
         }
     }
 }

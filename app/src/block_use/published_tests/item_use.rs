@@ -28,7 +28,7 @@ pub(super) fn hold_snowball(world: &mut World) -> (u64, i32) {
             stream.authority().current_dimension(),
         )
     };
-    world.resource_scope(|world, mut ui: Mut<UiRuntime>| {
+    world.resource_scope(|world, mut ui: Mut<UiRuntimeResource>| {
         let mut player = world.resource_mut::<client_state::PlayerRuntime>();
         let extra_data: std::sync::Arc<[u8]> = std::sync::Arc::from([]);
         ui.inventory_ledger_mut(&mut player)
@@ -88,7 +88,7 @@ fn attack_and_throw_fixture(enabled: bool) -> (World, client_session::CapturedPa
         local_runtime_id: 42,
         selection: client_interaction::block_use::verified_use_selection(
             world.resource::<client_state::PlayerRuntime>(),
-            world.resource::<UiRuntime>(),
+            world.resource::<UiRuntimeResource>(),
         ),
         swing_duration: 6,
         item_attack: None,

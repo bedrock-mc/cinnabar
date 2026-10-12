@@ -40,7 +40,7 @@ pub(super) fn refresh_presentation(world: &mut World) {
         return;
     }
     world.resource_scope(|world, mut runtime: Mut<ModRuntime>| {
-        let Some(mut presentation) = world.get_resource_mut::<UiPresentationRuntime>() else {
+        let Some(mut presentation) = world.get_resource_mut::<UiPresentationResource>() else {
             return;
         };
         let owner = runtime.hosts.panel_owner();
@@ -89,7 +89,7 @@ pub(super) fn clear_presentation(world: &mut World) {
         camera.set_preserve_teleport_rotation(false);
         camera.set_view_scale(1.0, 1.0);
     }
-    if let Some(mut presentation) = world.get_resource_mut::<UiPresentationRuntime>() {
+    if let Some(mut presentation) = world.get_resource_mut::<UiPresentationResource>() {
         presentation.set_mod_panel_open(false);
         let _ = presentation.set_mod_panel(None);
         let _ = presentation.set_mod_label(None);

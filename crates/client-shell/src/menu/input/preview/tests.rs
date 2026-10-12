@@ -1,3 +1,4 @@
+use crate::ui_resources::UiPresentationResource;
 use bevy::{
     input::{
         ButtonState,
@@ -38,7 +39,7 @@ fn fixture() -> (App, Entity) {
             1,
         )))
         .insert_resource(menu)
-        .insert_resource(presentation)
+        .insert_resource(UiPresentationResource(presentation))
         .add_systems(PreUpdate, touch_screen_input_system)
         .add_systems(Update, drive_menu_input);
     let window = app
@@ -61,7 +62,7 @@ fn fixture() -> (App, Entity) {
 fn frame(app: &mut App) -> [f32; 4] {
     let view = app.world().resource::<MenuRuntime>().view();
     app.world_mut()
-        .resource_scope(|world, mut presentation: Mut<UiPresentationRuntime>| {
+        .resource_scope(|world, mut presentation: Mut<UiPresentationResource>| {
             presentation.set_menu_view(Some(view));
             presentation.set_player_preview_skin(None, Default::default());
             presentation
@@ -112,7 +113,7 @@ fn character_drag_owns_mouse_until_release_and_hover_only_moves_the_head() {
     let initial = frame(&mut app);
     let bounds = app
         .world()
-        .resource::<UiPresentationRuntime>()
+        .resource::<UiPresentationResource>()
         .menu_player_preview_bounds()
         .unwrap();
     let start = centre(bounds);
@@ -158,7 +159,7 @@ fn touch_character_drag_continues_outside_the_character_and_stops_on_release() {
     let initial = frame(&mut app);
     let start = centre(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .menu_player_preview_bounds()
             .unwrap(),
     );
@@ -183,7 +184,7 @@ fn pointer_hover_on_character_never_captures_a_later_drag_started_elsewhere() {
     let initial = frame(&mut app);
     let start = centre(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .menu_player_preview_bounds()
             .unwrap(),
     );
@@ -191,7 +192,7 @@ fn pointer_hover_on_character_never_captures_a_later_drag_started_elsewhere() {
     let outside = Vec2::new(PHYSICAL[0] as f32 - 2.0, PHYSICAL[1] as f32 - 2.0);
     assert_eq!(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .hit_test_menu(UiPoint::new(outside.x, outside.y).unwrap()),
         None
     );
@@ -206,7 +207,7 @@ fn a_modal_revokes_character_capture_after_the_background_repaints() {
     let (mut app, window) = fixture();
     let bounds = app
         .world()
-        .resource::<UiPresentationRuntime>()
+        .resource::<UiPresentationResource>()
         .menu_player_preview_bounds()
         .unwrap();
     app.world_mut()
@@ -215,7 +216,7 @@ fn a_modal_revokes_character_capture_after_the_background_repaints() {
     let initial = frame(&mut app);
     assert!(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .menu_player_preview_bounds()
             .is_none(),
         "the modal owns pointer presses over the background character"

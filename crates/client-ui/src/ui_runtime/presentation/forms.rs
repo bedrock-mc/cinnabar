@@ -288,7 +288,7 @@ impl UiPresentationRuntime {
                 .and_then(hud::prepared::take_textures)
                 .as_deref(),
         );
-        bevy::log::info!(
+        tracing::info!(
             layers = pack.ui_layers.len(),
             ui_files = pack.ui_layers.iter().map(Vec::len).sum::<usize>(),
             textures = pack.textures.len(),
@@ -729,7 +729,7 @@ fn log_path(
 ) {
     if *logged != Some(identity) {
         *logged = Some(identity);
-        bevy::log::info!(?identity, path, reason, "server form render path");
+        tracing::info!(?identity, path, reason, "server form render path");
     }
 }
 

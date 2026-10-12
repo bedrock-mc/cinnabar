@@ -27,7 +27,7 @@ use super::{
     sign_text,
     state::BlockState,
 };
-use client_ui::ui_runtime::UiRuntime;
+use client_shell::ui_resources::UiRuntimeResource;
 use {
     crate::runtime::world::ClientWorld,
     client_interaction::movement::PhysicsCollisionRegistries,
@@ -268,7 +268,7 @@ pub(crate) fn update_block_entity_scene(
     camera: Query<(&Transform, &Projection), With<client_presentation::camera::FlyCamera>>,
     collisions: Res<PhysicsCollisionRegistries>,
     view: Res<LocalViewPose>,
-    ui: Res<UiRuntime>,
+    ui: Res<UiRuntimeResource>,
     atmosphere: Res<AtmosphereFrame>,
     time: Res<Time<Real>>,
     font: Res<BlockEntityFont>,

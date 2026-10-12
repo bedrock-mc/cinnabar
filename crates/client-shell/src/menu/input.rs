@@ -28,6 +28,7 @@ use bevy::{
 };
 use ui::{ChatClipboard, ChatEditor, ToastPress, UiPoint};
 
+use crate::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use client_ui::ui_runtime::{PlatformClipboard, presentation::UiPresentationRuntime};
 use launcher::menu::view::MenuCaret;
 use {super::MenuRuntime, launcher::menu::MenuField};
@@ -365,10 +366,10 @@ pub fn drive_menu_input(
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     touches: Res<Touches>,
     gamepads: Query<&Gamepad>,
-    mut presentation: ResMut<UiPresentationRuntime>,
+    mut presentation: ResMut<UiPresentationResource>,
     mut clipboard: ResMut<MenuClipboard>,
     mut menu: ResMut<MenuRuntime>,
-    runtime: Option<Res<client_ui::ui_runtime::UiRuntime>>,
+    runtime: Option<Res<UiRuntimeResource>>,
     mut modifiers: Local<MenuModifiers>,
     consent: Option<Res<client_state::ConsentInput>>,
     mouse_messages: Option<Res<Messages<MouseButtonInput>>>,
@@ -433,7 +434,7 @@ pub fn drive_menu_input(
         })
         .unwrap_or_default();
     if gui_scale_drag.observe_death(
-        runtime.as_deref(),
+        runtime.as_deref().map(|runtime| &runtime.0),
         &mut menu,
         &mut presentation,
         &mut keyboard_messages,
@@ -441,7 +442,7 @@ pub fn drive_menu_input(
         *modifiers = MenuModifiers::default();
         keys.reset_all();
         mouse_buttons.reset_all();
-        client_ui::physical_input::release_cursor(&mut cursor);
+        crate::physical_input::release_cursor(&mut cursor);
         return;
     }
     if runtime.as_ref().is_some_and(|runtime| {
@@ -480,13 +481,13 @@ pub fn drive_menu_input(
             && menu.settings_options.value("pause_menu_on_focus_lost") != 0
             && !crate::screen_policy::absorbs_input(
                 &player_runtime,
-                runtime.as_deref(),
+                runtime.as_deref().map(|runtime| &runtime.0),
                 Some(&menu),
                 Some(&presentation),
             )
         {
             menu.open_pause();
-            client_ui::physical_input::release_cursor(&mut cursor);
+            crate::physical_input::release_cursor(&mut cursor);
         }
         *modifiers = MenuModifiers::default();
         keyboard_messages.clear();
@@ -529,7 +530,7 @@ pub fn drive_menu_input(
         if keys.just_pressed(KeyCode::Escape) {
             modifiers.capture_pressed(&keys);
             menu.open_pause();
-            client_ui::physical_input::release_cursor(&mut cursor);
+            crate::physical_input::release_cursor(&mut cursor);
             keys.reset_all();
         } else if cursor.grab_mode == CursorGrabMode::None
             && mouse_buttons.just_pressed(MouseButton::Left)
@@ -562,7 +563,7 @@ pub fn drive_menu_input(
     let gameplay_pending = menu.gameplay_return_pending();
     let respawn_pending = menu.death_loading;
     modifiers.capture_pressed(&keys);
-    client_ui::physical_input::release_cursor(&mut cursor);
+    crate::physical_input::release_cursor(&mut cursor);
     // The join request popup takes the keyboard from any box focused beneath it.
     if menu.join_request_prompted() {
         menu.field = None;

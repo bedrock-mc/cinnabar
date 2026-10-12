@@ -624,7 +624,7 @@ pub fn capture_hud_frame(
     frame.attack_indicator_charge = Some(1.0);
     let diagnostics = runtime.gameplay_hud().diagnostics();
     if diagnostics != presentation.last_hud_diagnostics {
-        bevy::log::debug!(
+        tracing::debug!(
             skipped_effect_actions = diagnostics.skipped_effect_actions,
             evicted_effects = diagnostics.evicted_effects,
             odd_metadata_values = diagnostics.odd_metadata_values,

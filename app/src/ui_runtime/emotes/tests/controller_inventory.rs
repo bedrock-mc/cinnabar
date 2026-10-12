@@ -23,7 +23,7 @@ fn inventory_harness(identifier: &str) -> Harness {
         .network_id;
     h.app
         .world_mut()
-        .resource_scope(|world, mut runtime: Mut<UiRuntime>| {
+        .resource_scope(|world, mut runtime: Mut<UiRuntimeResource>| {
             let mut player = world.resource_mut::<PlayerRuntime>();
             player
                 .facts
@@ -55,7 +55,7 @@ fn closing_emote_wheel_cannot_replay_controller_navigation_as_world_drop() {
         h.press(KeyCode::KeyB);
         h.app
             .world_mut()
-            .resource_mut::<UiRuntime>()
+            .resource_mut::<UiRuntimeResource>()
             .emotes_mut()
             .hover_slot(Some(0));
         {

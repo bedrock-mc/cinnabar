@@ -2,7 +2,7 @@
 use bevy::prelude::{Local, Res, ResMut, Time};
 use client_presentation::camera::facts::ItemUseClock;
 use client_presentation::camera::{CameraFovInputs, ScreenEffectFacts};
-use client_ui::ui_runtime::UiRuntime;
+use client_shell::ui_resources::UiRuntimeResource;
 use {
     crate::runtime::world::ClientWorld,
     client_interaction::{
@@ -18,7 +18,7 @@ pub(crate) fn collect_screen_effect_facts(
     player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     time: Res<bevy::prelude::Time>,
     item_use: Option<Res<ItemUseRuntime>>,
-    ui: Option<Res<UiRuntime>>,
+    ui: Option<Res<UiRuntimeResource>>,
     client_world: Option<Res<ClientWorld>>,
     clock: ResMut<ItemUseClock>,
     facts: ResMut<ScreenEffectFacts>,
@@ -30,7 +30,7 @@ pub(crate) fn collect_screen_effect_facts(
         item_use
             .as_deref()
             .map(|value| value as &dyn client_presentation::observations::ItemUseObservation),
-        ui.as_deref(),
+        ui.as_deref().map(|ui| &ui.0),
         client_world.as_deref().map(
             |world| client_presentation::observations::WorldObservation {
                 stream: world.stream.as_ref(),

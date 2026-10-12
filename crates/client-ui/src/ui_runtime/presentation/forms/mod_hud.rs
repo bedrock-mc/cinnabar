@@ -126,7 +126,7 @@ impl UiPresentationRuntime {
             nodes.truncate(rollback.0);
             *next = rollback.1;
             self.screens.mod_hud = None;
-            bevy::log::warn!(%error, "extension HUD disabled after rendering failure");
+            tracing::warn!(%error, "extension HUD disabled after rendering failure");
         }
     }
 }

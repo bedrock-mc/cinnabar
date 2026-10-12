@@ -86,7 +86,7 @@ impl CatalogPolicy {
             .iter()
             .skip(carrier.diagnostics().len())
         {
-            bevy::log::debug!(note, "server ui pack");
+            tracing::debug!(note, "server ui pack");
         }
         catalog
     }

@@ -46,7 +46,6 @@ use cache::{ModelCache, ModelKey};
 #[derive(SystemParam)]
 pub(super) struct DroppedItemPublisher<'w, 's> {
     scene: Option<ResMut<'w, DroppedItemScene>>,
-    icons: Option<Res<'w, UiPresentationRuntime>>,
     textures: Option<Res<'w, ChunkTextureAssets>>,
     placements: Option<Res<'w, render_scene::StaticItemPlacementsResource>>,
     cache: Local<'s, ModelCache>,
@@ -295,12 +294,13 @@ impl DroppedItemPublisher<'_, '_> {
 
     pub(super) fn publish(
         &mut self,
+        icons: Option<&UiPresentationRuntime>,
         stream: Option<&WorldStream>,
         collisions: Option<&dyn crate::observations::CollisionLookup>,
         camera: Option<([f32; 3], f32)>,
         partial_tick: f32,
     ) {
-        let (Some(scene), Some(icons)) = (self.scene.as_mut(), self.icons.as_ref()) else {
+        let (Some(scene), Some(icons)) = (self.scene.as_mut(), icons) else {
             return;
         };
         let Some(stream) = stream else {

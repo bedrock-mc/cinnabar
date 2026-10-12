@@ -2,7 +2,7 @@ use super::*;
 use crate::runtime::network::resource_packs::PackApplication;
 use bevy::prelude::{App, Update};
 use client_runtime::network::NetworkHandle;
-use client_ui::ui_runtime::SequencedUiEvent;
+use client_ui::ui_runtime::{SequencedUiEvent, UiRuntime};
 use protocol::{BossAction, BossColor, BossEvent, BossOverlay, BossStyle, UiEvent};
 
 #[test]
@@ -41,11 +41,11 @@ fn boss_reply_drain_observes_the_transport_session_fence_during_credits() {
     let (network, _queue_guard) = NetworkHandle::<PackApplication>::with_command_capacity(2);
     let mut app = App::new();
     app.insert_resource(player)
-        .insert_resource(runtime)
+        .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(network)
         .add_systems(Update, flush_server_form_network);
     app.update();
-    let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+    let mut runtime = app.world_mut().resource_mut::<UiRuntimeResource>();
     assert!(runtime.credits().owns_input());
     assert_eq!(
         runtime.flush_boss_responses(|_| panic!("closed session must retire its boss reply")),

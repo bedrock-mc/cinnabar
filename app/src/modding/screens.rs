@@ -336,7 +336,7 @@ fn key_events(
         .iter()
         .filter_map(|press| {
             client_ui::ui_runtime::forms::engine_input::typed_text(
-                press.key,
+                client_shell::physical_input::keyboard_key(press.key),
                 press.text.as_deref(),
                 press.modifiers.ctrl,
             )

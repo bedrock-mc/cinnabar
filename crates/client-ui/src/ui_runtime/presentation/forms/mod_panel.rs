@@ -273,7 +273,7 @@ impl UiPresentationRuntime {
                 }
                 Err(error) => {
                     panel.open = false;
-                    bevy::log::warn!(%error, "personal extension panel rejected");
+                    tracing::warn!(%error, "personal extension panel rejected");
                     return;
                 }
             }
@@ -321,7 +321,7 @@ impl UiPresentationRuntime {
             result => {
                 out_of_render(panel, nodes, next, rollback);
                 if let Err(error) = result {
-                    bevy::log::warn!(%error, "personal extension panel disabled after rendering failure");
+                    tracing::warn!(%error, "personal extension panel disabled after rendering failure");
                 }
             }
         }

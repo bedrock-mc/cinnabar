@@ -60,7 +60,7 @@ use render_scene::{
     VisibilityDiagnosticsInput,
 };
 
-use client_ui::ui_runtime::UiRuntime;
+use client_shell::ui_resources::UiRuntimeResource;
 use {
     crate::{
         environment::{self, WeatherState, WorldClock, apply_environment_control},
@@ -189,7 +189,7 @@ pub(crate) struct AppWorldState<'w> {
     pub(crate) movement_effects: ResMut<'w, LocalMovementEffectTimeline>,
     pub(crate) movement_speed: ResMut<'w, LocalMovementSpeedAuthority>,
     pub(crate) collisions: ResMut<'w, PhysicsCollisionRegistries>,
-    pub(crate) ui_runtime: ResMut<'w, UiRuntime>,
+    pub(crate) ui_runtime: ResMut<'w, UiRuntimeResource>,
     pub(crate) time: Res<'w, Time<Real>>,
 }
 

@@ -347,7 +347,7 @@ pub(crate) fn with_ui_player<T>(
     app.world_mut()
         .resource_scope(|world, mut player: bevy::prelude::Mut<PlayerRuntime>| {
             command(
-                &mut world.resource_mut::<client_ui::ui_runtime::UiRuntime>(),
+                &mut world.resource_mut::<client_shell::ui_resources::UiRuntimeResource>(),
                 &mut player,
             )
         })

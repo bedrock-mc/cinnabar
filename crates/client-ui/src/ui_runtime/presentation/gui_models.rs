@@ -234,7 +234,7 @@ impl UiPresentationRuntime {
                     .or_insert(*icon);
             }
         }
-        bevy::log::info!(
+        tracing::info!(
             models = models.len(),
             source_pages = pages.len(),
             "native GUI item geometry prepared"

@@ -328,7 +328,7 @@ impl SignEditor {
         let accepted = match edit.into_encoded_nbt() {
             Ok(nbt) => send(protocol::sign_edit_packet(position, &nbt)).is_ok(),
             Err(detail) => {
-                bevy::log::warn!("sign edit NBT was not encodable: {detail}");
+                tracing::warn!("sign edit NBT was not encodable: {detail}");
                 false
             }
         };

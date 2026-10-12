@@ -1,11 +1,12 @@
 //! Return navigation is exercised through the input system and painted controls.
 
+use crate::ui_resources::UiPresentationResource;
 use bevy::{
     input::keyboard::Key,
     prelude::*,
     window::{CursorOptions, PrimaryWindow},
 };
-use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use client_ui::ui_runtime::UiRuntime;
 use {
     crate::menu::{
         MenuRuntime,
@@ -18,7 +19,7 @@ use {
 fn draw(app: &mut App) {
     let view = app.world().resource::<MenuRuntime>().view();
     app.world_mut()
-        .resource_scope(|world, mut presentation: Mut<UiPresentationRuntime>| {
+        .resource_scope(|world, mut presentation: Mut<UiPresentationResource>| {
             presentation.set_menu_view(Some(view));
             presentation
                 .build(
@@ -50,7 +51,7 @@ fn fixture(test: &str) -> Option<(App, Entity)> {
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))
-        .insert_resource(presentation)
+        .insert_resource(UiPresentationResource(presentation))
         .add_systems(Update, drive_menu_input);
     let window = app
         .world_mut()
@@ -103,7 +104,7 @@ fn keyboard_back_restores_the_visible_home_control() {
         assert!(view.navigation_focus_visible);
         assert!(
             app.world()
-                .resource::<UiPresentationRuntime>()
+                .resource::<UiPresentationResource>()
                 .visible_menu_actions()
                 .any(|visible| Some(visible) == view.focused_action)
         );
@@ -217,7 +218,7 @@ fn first_settings_entry_keeps_its_painted_entry_focus() {
     ));
     assert!(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .visible_menu_actions()
             .any(|action| Some(action) == view.focused_action)
     );
@@ -250,7 +251,7 @@ fn changed_account_controls_and_modal_ownership_keep_focus_available() {
     assert_ne!(view.focused_action, Some(MenuAction::StartSignIn));
     assert!(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .visible_menu_actions()
             .any(|action| Some(action) == view.focused_action)
     );
@@ -278,7 +279,7 @@ fn home_entry_and_navigation_select_only_painted_enabled_controls() {
     );
     let actions: Vec<_> = app
         .world()
-        .resource::<UiPresentationRuntime>()
+        .resource::<UiPresentationResource>()
         .visible_menu_actions()
         .collect();
     for _ in 0..actions.len() * 2 {
@@ -297,7 +298,7 @@ fn newer_keyboard_navigation_survives_the_deferred_return_validation() {
     };
     let home_actions: Vec<_> = app
         .world()
-        .resource::<UiPresentationRuntime>()
+        .resource::<UiPresentationResource>()
         .visible_menu_actions()
         .collect();
     let settings_at = home_actions
@@ -330,7 +331,7 @@ fn newer_keyboard_navigation_survives_the_deferred_return_validation() {
     );
     assert!(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .visible_menu_actions()
             .any(|action| Some(action) == selected)
     );
@@ -392,7 +393,7 @@ fn event_fixture(test: &str) -> Option<(App, Entity, tempfile::TempDir)> {
         ..Default::default()
     });
     {
-        let mut presentation = app.world_mut().resource_mut::<UiPresentationRuntime>();
+        let mut presentation = app.world_mut().resource_mut::<UiPresentationResource>();
         presentation.sync_menu_artwork(vec![(badge, 512)]);
         presentation.finish_menu_artwork();
     }
@@ -400,7 +401,7 @@ fn event_fixture(test: &str) -> Option<(App, Entity, tempfile::TempDir)> {
     draw(&mut app);
     assert_eq!(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .visible_menu_actions()
             .filter(|action| *action == MenuAction::OpenLiveEvent)
             .count(),
@@ -427,7 +428,7 @@ fn a_loaded_event_badge_does_not_trap_keyboard_navigation() {
     assert_ne!(selected, Some(MenuAction::OpenLiveEvent));
     assert!(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .visible_menu_actions()
             .any(|action| Some(action) == selected)
     );
@@ -461,7 +462,7 @@ fn a_loaded_event_badge_does_not_trap_gamepad_navigation() {
     assert!(view.navigation_focus_visible && view.gamepad_input);
     assert!(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .visible_menu_actions()
             .any(|action| Some(action) == view.focused_action)
     );

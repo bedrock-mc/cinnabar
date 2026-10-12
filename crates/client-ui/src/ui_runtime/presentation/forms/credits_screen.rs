@@ -160,7 +160,7 @@ fn read_content(engine: &FormEngine) -> Arc<Content> {
             .or_else(|| engine.assets().ui_file(path).map(<[u8]>::to_vec))
     });
     if content.missing {
-        bevy::log::warn!(
+        tracing::warn!(
             "credits runtime files are missing from the UI carrier or pack; rebuild UI assets from a pack containing credits/end.txt, credits/credits.json and credits/quote.txt"
         );
     }

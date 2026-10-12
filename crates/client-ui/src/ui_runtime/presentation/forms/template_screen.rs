@@ -438,7 +438,7 @@ impl TemplateScreen {
             Err(error) => {
                 frame.nodes.truncate(rollback.0);
                 *frame.next = rollback.1;
-                bevy::log::warn!(%error, %owner, "package screen could not render");
+                tracing::warn!(%error, %owner, "package screen could not render");
                 false
             }
         }

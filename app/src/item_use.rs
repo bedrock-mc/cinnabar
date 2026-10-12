@@ -19,7 +19,7 @@ use client_runtime::network::NetworkHandle;
 use protocol::PlayerGameMode;
 use semantic_input::Action;
 
-use client_ui::ui_runtime::UiRuntime;
+use client_shell::ui_resources::UiRuntimeResource;
 use {
     crate::runtime::world::ClientWorld,
     client_interaction::{
@@ -46,7 +46,7 @@ pub(crate) struct ModItemUsePolicy {
 pub(crate) struct ItemUseContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
     delay_fix: Option<Res<'w, ModItemUsePolicy>>,
-    ui: Res<'w, UiRuntime>,
+    ui: Res<'w, UiRuntimeResource>,
     focus: Res<'w, client_state::ScreenFocus>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     client_world: Res<'w, ClientWorld>,

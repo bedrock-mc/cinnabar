@@ -91,7 +91,7 @@ fn cape_uses_a_separate_rectangular_texture_and_the_shared_depth_interval() {
 fn cape_follows_the_already_posed_torso_in_the_live_preview() {
     let source = super::super::cape::rest_vertices();
     let body = standard_biped_vertices();
-    let make = |parts: &[Option<bevy::math::Affine3A>; 6]| {
+    let make = |parts: &[Option<glam::Affine3A>; 6]| {
         mesh_with_cape(
             Some((&body, parts)),
             Default::default(),
@@ -110,9 +110,9 @@ fn cape_follows_the_already_posed_torso_in_the_live_preview() {
     };
     let rest = make(&[None; 6]);
     let mut parts = [None; 6];
-    parts[1] = Some(bevy::math::Affine3A::from_translation(
-        bevy::math::Vec3::new(0.0, 0.3, 0.0),
-    ));
+    parts[1] = Some(glam::Affine3A::from_translation(glam::Vec3::new(
+        0.0, 0.3, 0.0,
+    )));
     let raised = make(&parts);
     let start = rest.batches()[1].index_range.start as usize;
     for (rest, raised) in rest.vertices()[start..]

@@ -9,7 +9,7 @@ use bevy::{
 use client_runtime::network::NetworkHandle;
 use protocol::PlayerGameMode;
 
-use client_ui::ui_runtime::UiRuntime;
+use client_shell::ui_resources::UiRuntimeResource;
 use {
     crate::{interaction_authority::observe_block, runtime::world::ClientWorld},
     client_interaction::{
@@ -36,7 +36,7 @@ pub(crate) struct PickBlockContext<'w, 's> {
 pub(crate) fn produce_pick_block(
     player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     context: PickBlockContext,
-    ui: ResMut<UiRuntime>,
+    ui: ResMut<UiRuntimeResource>,
 ) {
     if !context.controls.pick_block_pressed
         || context.focus.absorbs_input

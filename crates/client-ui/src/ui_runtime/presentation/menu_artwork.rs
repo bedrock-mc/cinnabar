@@ -132,7 +132,7 @@ impl Default for ArtworkLoader {
             .name("menu-artwork".to_owned())
             .spawn(move || serve(&jobs, &done));
         if let Err(error) = spawned {
-            bevy::log::warn!("menu artwork worker unavailable: {error}");
+            tracing::warn!("menu artwork worker unavailable: {error}");
         }
         // The title is packed before the first frame so the pack's own never flashes.
         let title = pack(&ArtworkSet::default(), &DecodeCache::default(), 0, true);

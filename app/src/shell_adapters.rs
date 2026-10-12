@@ -2,11 +2,11 @@
 use crate::runtime::{network::resource_packs::PackApplication, world::ClientWorld};
 use bevy::prelude::*;
 use client_runtime::{blob_cache::ClientBlobCacheOwner, network::NetworkHandle};
+use client_shell::ui_resources::UiRuntimeResource;
 use client_shell::{
     menu::{LauncherCoreSlot, MenuRuntime, launcher_account},
     player_skin::LocalPlayerSkin,
 };
-use client_ui::ui_runtime::UiRuntime;
 /// Drives the launcher's own services: catalog, saves, settings, the account core and local worlds.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_menu_services(
@@ -15,7 +15,7 @@ pub(crate) fn drive_menu_services(
     client_blob_cache: Res<ClientBlobCacheOwner>,
     player_runtime: Res<client_state::PlayerRuntime>,
     mut client_world: ResMut<ClientWorld>,
-    mut runtime: ResMut<UiRuntime>,
+    mut runtime: ResMut<UiRuntimeResource>,
     launcher: Option<ResMut<LauncherCoreSlot>>,
     launcher_account: Option<ResMut<launcher_account::LauncherAccount>>,
     mut local_worlds: Option<ResMut<client_shell::local_worlds::LocalWorlds>>,

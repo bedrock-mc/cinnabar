@@ -1,5 +1,6 @@
 use super::*;
 use bevy::{ecs::system::RunSystemOnce, prelude::*};
+use client_ui::ui_runtime::UiRuntime;
 
 /// Publishes the shell observation from the fixture's current screen owners.
 fn publish(app: &mut App) -> ScreenFocus {
@@ -14,7 +15,7 @@ fn focus_tracks_menu_and_ui_changes_without_retaining_stale_ownership() {
     let mut app = App::new();
     app.init_resource::<ScreenFocus>()
         .insert_resource(PlayerRuntime(player_state::PlayerState::new(1)))
-        .insert_resource(UiRuntime::new(1))
+        .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
         .insert_resource(MenuRuntime::new(false, 2, "Focus".into()));
     assert!(!publish(&mut app).absorbs_input);
 
@@ -29,12 +30,16 @@ fn focus_tracks_menu_and_ui_changes_without_retaining_stale_ownership() {
         .set_visible(false);
     app.world_mut()
         .resource_scope(|world, mut player: Mut<PlayerRuntime>| {
-            world.resource_mut::<UiRuntime>().open_chat(&mut player);
+            world
+                .resource_mut::<UiRuntimeResource>()
+                .open_chat(&mut player);
         });
     let focus = publish(&mut app);
     assert!(!focus.menu_visible && focus.ui_focused && focus.absorbs_input);
 
-    app.world_mut().resource_mut::<UiRuntime>().close_chat();
+    app.world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .close_chat();
     let focus = publish(&mut app);
     assert!(!focus.menu_visible && !focus.ui_focused && !focus.absorbs_input);
 }

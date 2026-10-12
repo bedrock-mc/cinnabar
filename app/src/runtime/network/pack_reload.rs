@@ -6,7 +6,7 @@ use super::reload_environment::{
 use super::resource_packs::{self, PackApplication};
 use crate::runtime::world::ClientWorld;
 use bevy::prelude::{Query, Res, ResMut, Resource};
-use client_ui::ui_runtime::UiRuntime;
+use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use resource_pack::{PackAdmission, ValidatedPackStack};
 use std::{
     sync::{Arc, Mutex, mpsc},
@@ -273,9 +273,9 @@ impl PackReload {
 pub(crate) fn reload_resource_packs(
     mut reload: ResMut<PackReload>,
     mut world: ResMut<ClientWorld>,
-    mut ui: ResMut<UiRuntime>,
+    mut ui: ResMut<UiRuntimeResource>,
     mut textures: Option<ResMut<render_scene::ChunkTextureAssets>>,
-    presentation: Option<Res<client_ui::ui_runtime::presentation::UiPresentationRuntime>>,
+    presentation: Option<Res<UiPresentationResource>>,
     environment_base: Option<Res<EnvironmentBase>>,
     mut atmosphere: Option<ResMut<render_scene::AtmosphereTextureAssets>>,
     mut particles: Option<ResMut<render_scene::ParticleSimulation>>,

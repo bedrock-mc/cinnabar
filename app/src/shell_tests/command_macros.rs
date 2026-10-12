@@ -10,8 +10,8 @@ use bevy::{
 };
 use client_shell::menu::MenuRuntime;
 use client_shell::menu::test_support as menu_fixture;
+use client_shell::ui_resources::UiRuntimeResource;
 use client_state::SemanticInputSnapshot;
-use client_ui::ui_runtime::UiRuntime;
 use semantic_input::{Action, PhysicalControl};
 
 mod regression;
@@ -89,7 +89,7 @@ fn command_macro_consumes_only_its_keyboard_control_even_when_enqueue_fails() {
             loop {
                 let result = app
                     .world_mut()
-                    .resource_mut::<UiRuntime>()
+                    .resource_mut::<UiRuntimeResource>()
                     .queue_chat_message("/say seed", now);
                 match result {
                     Err(actual) if actual == error => break,
@@ -108,7 +108,7 @@ fn command_macro_consumes_only_its_keyboard_control_even_when_enqueue_fails() {
         }
         let before = app
             .world()
-            .resource::<UiRuntime>()
+            .resource::<UiRuntimeResource>()
             .pending_chat_sends()
             .len();
         key(&mut app, KeyCode::KeyW, ButtonState::Pressed, false);
@@ -146,7 +146,7 @@ fn command_macro_consumes_only_its_keyboard_control_even_when_enqueue_fails() {
         assert!(!snapshot.phase(Action::Jump).pressed);
         assert_eq!(
             app.world()
-                .resource::<UiRuntime>()
+                .resource::<UiRuntimeResource>()
                 .pending_chat_sends()
                 .len(),
             before + usize::from(rejection.is_none())
@@ -169,14 +169,14 @@ fn command_macro_mouse_press_is_dispatched_and_consumed_in_both_routes() {
         ] {
             let mut app = crate::tests::gameplay_click::gameplay_app(false);
             app.add_message::<WindowEvent>();
-            let code = client_ui::physical_input::mouse_button_code(button).unwrap();
+            let code = client_shell::physical_input::mouse_button_code(button).unwrap();
             arm(&mut app, PhysicalControl::MouseButton(code));
             app.update();
             key(&mut app, KeyCode::KeyW, ButtonState::Pressed, ordered);
             key(&mut app, KeyCode::AltLeft, ButtonState::Pressed, ordered);
             mouse(&mut app, button, ordered);
             app.update();
-            let runtime = app.world().resource::<UiRuntime>();
+            let runtime = app.world().resource::<UiRuntimeResource>();
             assert_eq!(
                 runtime
                     .pending_chat_sends()
@@ -227,7 +227,7 @@ fn command_macro_uses_alt_state_at_each_keyboard_and_mouse_event() {
             app.update();
             assert_eq!(
                 app.world()
-                    .resource::<UiRuntime>()
+                    .resource::<UiRuntimeResource>()
                     .pending_chat_sends()
                     .len(),
                 usize::from(alt_first),
@@ -271,7 +271,7 @@ fn command_macro_observes_alt_release_at_each_event() {
             app.update();
             assert_eq!(
                 app.world()
-                    .resource::<UiRuntime>()
+                    .resource::<UiRuntimeResource>()
                     .pending_chat_sends()
                     .len(),
                 usize::from(!release_first)
