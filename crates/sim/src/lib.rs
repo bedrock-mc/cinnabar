@@ -31,9 +31,10 @@ pub use simulator::{
 
 pub use world::{
     BLOCK_USE_SUPPORT_DEPTH, BLOCK_USE_SUPPORT_MAX_Y, BlockHit, BlockPhysicsFacts,
-    BlockPhysicsFlags, BlockPhysicsSample, CameraBlockHit, CollisionIdSpace, CollisionQuery,
-    CollisionRegistry, CollisionRegistryIdentity, CollisionSnapshot, CollisionWorld,
-    DEFAULT_SURFACE_FRICTION, DoorFacing, DoorState, FlowBlockFacts, LenientCollisionBoxes,
-    LenientSkipCounts, MAX_COLLISION_IDENTITY_CHUNKS, MAX_COLLISION_QUERY_EXTENT, PaletteWorld,
-    ProvenancedCollider, RegistryError, SurfaceResponse, WorldCollisionIdentity, WorldQueryError,
+    BlockPhysicsFlags, BlockPhysicsSample, CameraBlockHit, CameraShapeCache, CollisionIdSpace,
+    CollisionQuery, CollisionRegistry, CollisionRegistryIdentity, CollisionSnapshot,
+    CollisionWorld, DEFAULT_SURFACE_FRICTION, DoorFacing, DoorState, FlowBlockFacts,
+    LenientCollisionBoxes, LenientSkipCounts, MAX_COLLISION_IDENTITY_CHUNKS,
+    MAX_COLLISION_QUERY_EXTENT, PaletteWorld, ProvenancedCollider, RegistryError, SurfaceResponse,
+    WorldCollisionIdentity, WorldQueryError,
 };

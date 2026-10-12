@@ -1,5 +1,9 @@
 //! Camera collision scans borrow palette layers and keep lenient skip counts.
 
+use std::{collections::HashMap, sync::Arc};
+
+use world::SubChunk;
+
 use super::{
     Aabb, BlockPhysics, LenientSkipCounts, PaletteWorld, SubChunkKey, Vec3, WorldQueryError,
     raycast::{TraversalState, checked_offset, strictly_precedes},
@@ -19,11 +23,13 @@ impl PaletteWorld<'_> {
             return Ok(skipped);
         }
         let [min, max] = self.registry.query_bounds(query)?;
+        let mut section = SectionCache::default();
         for x in min[0]..=max[0] {
             for z in min[2]..=max[2] {
                 for y in min[1]..=max[1] {
                     self.visit_camera_block(
                         [x, y, z],
+                        &mut section,
                         &mut skipped,
                         &|shape| shape.intersects(query),
                         &mut |shape| visitor(shape),
@@ -48,14 +54,29 @@ impl PaletteWorld<'_> {
         let mut state = TraversalState::new(origin, delta)?;
         let mut skipped = LenientSkipCounts::default();
         let mut best: Option<f64> = None;
+        let mut section = SectionCache::default();
         loop {
-            self.inspect_camera_segment_halo(state.cell, origin, delta, &mut best, &mut skipped)?;
+            self.inspect_camera_segment_halo(
+                state.cell,
+                origin,
+                delta,
+                &mut best,
+                &mut section,
+                &mut skipped,
+            )?;
             let next = state.next_crossing();
             if next > 1.0 || best.is_some_and(|hit| strictly_precedes(hit, next)) {
                 return Ok((best, skipped));
             }
             for cell in state.advance(next)? {
-                self.inspect_camera_segment_halo(cell, origin, delta, &mut best, &mut skipped)?;
+                self.inspect_camera_segment_halo(
+                    cell,
+                    origin,
+                    delta,
+                    &mut best,
+                    &mut section,
+                    &mut skipped,
+                )?;
             }
         }
     }
@@ -66,6 +87,7 @@ impl PaletteWorld<'_> {
         origin: Vec3,
         delta: Vec3,
         best: &mut Option<f64>,
+        section: &mut SectionCache,
         skipped: &mut LenientSkipCounts,
     ) -> Result<(), WorldQueryError> {
         let halo = self.registry.collision_halo;
@@ -74,6 +96,7 @@ impl PaletteWorld<'_> {
                 for z in halo[2].0..=halo[2].1 {
                     self.visit_camera_block(
                         checked_offset(cell, [x, y, z])?,
+                        section,
                         skipped,
                         &|shape| shape.segment_entry(origin, delta).is_some(),
                         &mut |shape| {
@@ -92,17 +115,17 @@ impl PaletteWorld<'_> {
     fn visit_camera_block(
         &self,
         block: [i32; 3],
+        section: &mut SectionCache,
         skipped: &mut LenientSkipCounts,
         touches: &impl Fn(Aabb) -> bool,
         visitor: &mut impl FnMut(Aabb),
     ) -> Result<(), WorldQueryError> {
         let [x, y, z] = block;
         let key = SubChunkKey::new(self.dimension, x >> 4, y >> 4, z >> 4);
-        if !self.store.is_sub_chunk_loaded(key) {
+        let Some(chunk) = section.get(self, key) else {
             skipped.unloaded_chunk = skipped.unloaded_chunk.saturating_add(1);
             return Ok(());
-        }
-        let chunk = self.store.sub_chunk(key);
+        };
         let layers = chunk
             .as_ref()
             .map_or(1, |chunk| chunk.storages().len().max(1));
@@ -155,6 +178,95 @@ impl PaletteWorld<'_> {
             let shape = shape.translated(offset);
             if touches(shape) {
                 visitor(shape);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The sub-chunk a scan read last, so its cells look the section up once instead of once each.
+#[derive(Default)]
+pub(super) struct SectionCache {
+    key: Option<SubChunkKey>,
+    /// `None` when the section is unloaded; `Some(None)` when loaded with no palette storage.
+    section: Option<Option<Arc<SubChunk>>>,
+}
+
+impl SectionCache {
+    /// The loaded section at `key` (`Some(None)` for an all-air one), or `None` when unloaded.
+    fn get(
+        &mut self,
+        world: &PaletteWorld<'_>,
+        key: SubChunkKey,
+    ) -> Option<&Option<Arc<SubChunk>>> {
+        if self.key != Some(key) {
+            self.key = Some(key);
+            self.section = world
+                .store
+                .is_sub_chunk_loaded(key)
+                .then(|| world.store.sub_chunk(key));
+        }
+        self.section.as_ref()
+    }
+}
+
+/// Each block cell's camera shapes, read once and reused by later scans while the world is
+/// unchanged, as it is across one frame's particle collisions.
+#[derive(Default)]
+pub struct CameraShapeCache {
+    cells: HashMap<[i32; 3], (u32, u32)>,
+    shapes: Vec<Aabb>,
+    section: SectionCache,
+}
+
+impl PaletteWorld<'_> {
+    /// Visits the camera shapes `query` touches, as [`Self::visit_camera_colliders`] does, reading
+    /// each cell through `cache`; unreadable cells contribute nothing.
+    pub fn visit_camera_colliders_cached(
+        &self,
+        query: Aabb,
+        cache: &mut CameraShapeCache,
+        visitor: &mut dyn FnMut(Aabb),
+    ) -> Result<(), WorldQueryError> {
+        validate_collision_query(query)?;
+        if query.min == query.max {
+            return Ok(());
+        }
+        let [min, max] = self.registry.query_bounds(query)?;
+        let CameraShapeCache {
+            cells,
+            shapes,
+            section,
+        } = cache;
+        for x in min[0]..=max[0] {
+            for z in min[2]..=max[2] {
+                for y in min[1]..=max[1] {
+                    let cell = [x, y, z];
+                    let (start, end) = match cells.get(&cell) {
+                        Some(range) => *range,
+                        None => {
+                            let start = shapes.len() as u32;
+                            let mut skipped = LenientSkipCounts::default();
+                            self.visit_camera_block(
+                                cell,
+                                section,
+                                &mut skipped,
+                                &|_| true,
+                                &mut |shape| {
+                                    shapes.push(shape);
+                                },
+                            )?;
+                            let range = (start, shapes.len() as u32);
+                            cells.insert(cell, range);
+                            range
+                        }
+                    };
+                    for shape in &shapes[start as usize..end as usize] {
+                        if shape.intersects(query) {
+                            visitor(*shape);
+                        }
+                    }
+                }
             }
         }
         Ok(())
