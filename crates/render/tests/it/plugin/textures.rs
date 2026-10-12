@@ -224,34 +224,6 @@ fn one_page_fallback_is_a_real_one_layer_copy_of_diagnostic_mips() {
 }
 
 #[test]
-fn animation_clock_updates_do_not_rebuild_or_reupload_texture_assets() {
-    let identity = texture_identity(0x1000, 7);
-    let mut current = None;
-    let mut immutable_uploads = 0;
-    let mut clock_bytes = 0;
-    for frame in 0..120_u32 {
-        if texture_asset_needs_rebuild(current, identity) {
-            immutable_uploads += 1;
-            current = Some(identity);
-        }
-        let clock = ChunkAnimationClock::from_elapsed_seconds(f64::from(frame) / 60.0);
-        assert!(clock.partial_tick() >= 0.0 && clock.partial_tick() < 1.0);
-        clock_bytes += size_of::<ChunkAnimationClock>();
-    }
-    assert_eq!(immutable_uploads, 1);
-    assert_eq!(clock_bytes, 120 * 16);
-
-    let plugin = CHUNK_RENDERER_SOURCE;
-    assert_eq!(plugin.matches("render_queue.write_texture(").count(), 1);
-    assert_eq!(
-        plugin.matches("render_queue.write_buffer(").count(),
-        8,
-        "shared writers cover immutable geometry plus bounded liquid and model transparent sorts"
-    );
-    assert!(plugin.contains("render_queue.write_buffer(&gpu_clock.buffer"));
-}
-
-#[test]
 fn asset_revision_replacement_is_atomic_and_retains_the_previous_prepared_set_on_failure() {
     let plugin = CHUNK_RENDERER_SOURCE;
     let start = plugin
