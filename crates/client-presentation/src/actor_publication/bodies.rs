@@ -242,7 +242,7 @@ pub(super) fn place_local(
     visibility_snapshot: Option<FrozenLocalAvatarVisibility>,
     partial_tick: f32,
     skin_rigs: &mut SkinRigCache,
-    mut equipment: Option<&mut EquipmentRuntime>,
+    equipment: Option<&mut EquipmentRuntime>,
     new_geometries: &mut Vec<render_model::ActorRigGeometry>,
 ) -> (bool, Option<ActorRigPresentation>) {
     let local_runtime_id = bodies.local_runtime_id;
@@ -311,7 +311,7 @@ pub(super) fn place_local(
             emote_geometry::apply(
                 &pose.snapshot(rig),
                 skin_rigs,
-                equipment.as_deref_mut(),
+                equipment,
                 new_geometries,
                 &mut local.submission,
                 animated.submission,
