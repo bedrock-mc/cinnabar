@@ -88,7 +88,7 @@ pub fn compile_ui_assets(
     let mut ui_paths = Vec::new();
     let mut ignored = Vec::new();
     walk(&ui_dir, pack, &mut ignored, &mut ui_paths, &mut budget)?;
-    let item_glint = format!("{}.png", assets::ITEM_GLINT_TEXTURE_PATH);
+    let item_glint = format!("{}.png", assets::entity::ITEM_GLINT_TEXTURE_IDENTIFIER);
     if pack.join(&item_glint).is_file() {
         ui_paths.push(item_glint.clone());
     }
@@ -633,12 +633,16 @@ mod tests {
         ::image::RgbaImage::from_pixel(3, 2, ::image::Rgba([30, 90, 150, 255]))
             .write_to(&mut bytes, ImageFormat::Png)
             .unwrap();
-        let path = format!("{}.png", assets::ITEM_GLINT_TEXTURE_PATH);
+        let path = format!("{}.png", assets::entity::ITEM_GLINT_TEXTURE_IDENTIFIER);
         write(pack.path(), &path, bytes.get_ref());
         let compiled = compile_ui_assets(pack.path(), MANIFEST).unwrap();
         let carrier = decode_ui_carrier(&compiled.bytes).unwrap();
         assert_eq!(carrier.ui_file(&path), Some(bytes.get_ref().as_slice()));
-        assert!(carrier.texture(assets::ITEM_GLINT_TEXTURE_PATH).is_none());
+        assert!(
+            carrier
+                .texture(assets::entity::ITEM_GLINT_TEXTURE_IDENTIFIER)
+                .is_none()
+        );
     }
 
     #[test]

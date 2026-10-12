@@ -65,7 +65,7 @@ fn read_carrier(path: &Path) -> Result<LoadedUiAssets, String> {
         super::presentation::item_glint::carrier_texture(&assets).ok_or_else(|| {
             format!(
                 "missing or invalid required item glint raster {}.png",
-                assets::ITEM_GLINT_TEXTURE_PATH
+                assets::entity::ITEM_GLINT_TEXTURE_IDENTIFIER
             )
         })?;
     Ok(LoadedUiAssets {
@@ -93,7 +93,7 @@ mod tests {
         ];
         if let Some(bytes) = glint {
             files.push(assets::UiFile {
-                path: format!("{}.png", assets::ITEM_GLINT_TEXTURE_PATH).into(),
+                path: format!("{}.png", assets::entity::ITEM_GLINT_TEXTURE_IDENTIFIER).into(),
                 bytes: bytes.into(),
             });
         }
