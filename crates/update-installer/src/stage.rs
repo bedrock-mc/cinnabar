@@ -257,20 +257,20 @@ pub fn recover(
             continue;
         };
         workspaces.push(entry.path());
-        if !destination.exists() {
-            if let Ok(selected) = verify(&candidate, keys, check, now) {
-                let newer = recovered.as_ref().is_none_or(|(_, previous)| {
-                    update_manifest::select::newer_build(
-                        &selected.manifest.version,
-                        selected.manifest.build_number,
-                        &previous.version,
-                        previous.build_number,
-                    )
-                    .unwrap_or(false)
-                });
-                if newer {
-                    recovered = Some((candidate, selected.manifest));
-                }
+        if !destination.exists()
+            && let Ok(selected) = verify(&candidate, keys, check, now)
+        {
+            let newer = recovered.as_ref().is_none_or(|(_, previous)| {
+                update_manifest::select::newer_build(
+                    &selected.manifest.version,
+                    selected.manifest.build_number,
+                    &previous.version,
+                    previous.build_number,
+                )
+                .unwrap_or(false)
+            });
+            if newer {
+                recovered = Some((candidate, selected.manifest));
             }
         }
     }

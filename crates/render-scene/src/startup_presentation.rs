@@ -18,7 +18,7 @@ impl StartupPresentation {
     pub fn record_completed_frame(&self) {
         let _ = self
             .0
-            .fetch_update(Ordering::Release, Ordering::Relaxed, |frames| {
+            .try_update(Ordering::Release, Ordering::Relaxed, |frames| {
                 (frames < Self::REQUIRED_FRAMES).then_some(frames + 1)
             });
     }

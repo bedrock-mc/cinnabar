@@ -133,10 +133,10 @@ pub(super) fn open_download(ready: Ready) {
             package.lease.set_modified(SystemTime::now())?;
             Ok(())
         });
-        if let Err(error) = result {
-            if let Ok(mut state) = STATE.lock() {
-                state.message = Some(format!("Could not open update: {error:#}"));
-            }
+        if let Err(error) = result
+            && let Ok(mut state) = STATE.lock()
+        {
+            state.message = Some(format!("Could not open update: {error:#}"));
         }
     });
 }
