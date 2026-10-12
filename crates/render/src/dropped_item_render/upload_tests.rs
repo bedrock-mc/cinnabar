@@ -166,6 +166,7 @@ fn steady_uploads_empty_item_scene_allocates_and_uploads_nothing() {
         normal: [0.0, 1.0, 0.0],
         layer: 0,
         color: render_model::OPAQUE_WHITE,
+        glint_scale: [0.0; 2],
     };
     world.resource_mut::<DroppedItemScene>().dynamic = Arc::from([vertex; 3]);
     system.run((), &mut world).unwrap();
@@ -316,7 +317,14 @@ fn glinting_copies_carry_the_item_glint_scale_across_their_sprite() {
     world.run_system_once(prepare_items).unwrap();
     let gpu = world.resource::<ItemGpu>();
     // A 16-pixel sprite fills half of a 32-pixel layer, so 0.5 across it is 1 across the layer.
-    assert_eq!(gpu.glint_scales, [[1.0, 1.0]]);
+    let mut atlas = Vec::new();
+    let vertices = build_model(
+        &mut atlas,
+        &world.resource::<DroppedItemScene>().models[0],
+        32,
+    )
+    .unwrap();
+    assert!(vertices.iter().all(|vertex| vertex.glint_scale == [1.0; 2]));
     assert!(
         gpu.glint
             .as_ref()
@@ -333,11 +341,8 @@ fn glinting_copies_carry_the_item_glint_scale_across_their_sprite() {
         glint,
     };
     assert_eq!(
-        glint::pack_instance(&instance(true), &gpu.glint_scales).glint,
-        [1.0, 1.0, 0.0, 0.0]
+        glint::pack_instance(&instance(true)).glint,
+        [1.0, 0.0, 0.0, 0.0]
     );
-    assert_eq!(
-        glint::pack_instance(&instance(false), &gpu.glint_scales).glint,
-        [0.0; 4]
-    );
+    assert_eq!(glint::pack_instance(&instance(false)).glint, [0.0; 4]);
 }

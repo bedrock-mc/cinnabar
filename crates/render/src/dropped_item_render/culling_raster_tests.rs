@@ -8,13 +8,14 @@ use wgpu::util::DeviceExt;
 const VERTEX: &str = r#"
 @group(0) @binding(22) var<storage, read> mesh: array<u32>;
 @vertex fn fixture_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
-    let base = index * 10u;
+    let base = index * ITEM_MESH_VERTEX_WORDS;
     var input: VertexInput;
     input.position = vec3(bitcast<f32>(mesh[base]), bitcast<f32>(mesh[base+1u]), bitcast<f32>(mesh[base+2u]));
     input.uv = vec2(bitcast<f32>(mesh[base+3u]), bitcast<f32>(mesh[base+4u]));
     input.normal = vec3(bitcast<f32>(mesh[base+5u]), bitcast<f32>(mesh[base+6u]), bitcast<f32>(mesh[base+7u]));
     input.layer = mesh[base+8u];
     input.color = unpack4x8unorm(mesh[base+9u]);
+    input.glint_scale = vec2(bitcast<f32>(mesh[base+10u]), bitcast<f32>(mesh[base+11u]));
     input.row_0 = vec4(1.0,0.0,0.0,0.0);
     input.row_1 = vec4(0.0,1.0,0.0,0.0);
     input.row_2 = vec4(0.0,0.0,1.0,0.0);
@@ -142,7 +143,10 @@ fn raster(gpu: &Gpu, model: &DroppedItemModel, eye: Vec3, samples: u32, cull: bo
     .replace("@vertex\nfn item_vertex", "fn item_vertex")
     .replace("@group(1) @binding(0)", "@group(0) @binding(20)")
     .replace("@group(1) @binding(1)", "@group(0) @binding(21)");
-    source.push_str(VERTEX);
+    source.push_str(&VERTEX.replace(
+        "ITEM_MESH_VERTEX_WORDS",
+        &(ITEM_MESH_VERTEX_BYTES / size_of::<u32>()).to_string(),
+    ));
     gpu.render_srgb_with_state(
         &source,
         "fixture_vertex",

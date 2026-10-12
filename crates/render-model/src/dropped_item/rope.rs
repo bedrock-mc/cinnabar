@@ -64,6 +64,7 @@ pub fn rope_ribbon(
             normal: [0.0, 1.0, 0.0],
             layer: WHITE_LAYER,
             color,
+            glint_scale: [0.0; 2],
         });
     };
     for segment in 0..segments {

@@ -13,16 +13,12 @@ use bevy::{
         renderer::{RenderDevice, RenderQueue},
     },
 };
-use render_model::DroppedItemModel;
 use render_scene::DroppedItemScene;
 
 use super::{GpuItemInstance, ItemGpu};
 
-/// Packs one drawn copy, with its model's glint UV scale when the copy glints.
-pub(super) fn pack_instance(
-    instance: &render_model::DroppedItemInstance,
-    glint_scales: &[[f32; 2]],
-) -> GpuItemInstance {
+/// Packs one drawn copy, marking whether its per-vertex item glint scale applies.
+pub(super) fn pack_instance(instance: &render_model::DroppedItemInstance) -> GpuItemInstance {
     GpuItemInstance {
         rows: instance.world_from_item,
         meta: [
@@ -31,27 +27,7 @@ pub(super) fn pack_instance(
             instance.sky_level,
             instance.overlay_rgba8,
         ],
-        glint: match glint_scales.get(instance.model as usize) {
-            Some(&[u, v]) if instance.glint => [u, v, 0.0, 0.0],
-            _ => [0.0; 4],
-        },
-    }
-}
-
-/// The share of its texture layer that a model's art spans, which the item glint covers.
-pub(super) fn span(model: &DroppedItemModel, side: u32) -> [f32; 2] {
-    let side = side as f32;
-    match model {
-        DroppedItemModel::Sprite(sprite) | DroppedItemModel::NativeSprite(sprite) => {
-            [sprite.width as f32 / side, sprite.height as f32 / side]
-        }
-        DroppedItemModel::Cube(cube) => [cube.tile as f32 / side; 2],
-        DroppedItemModel::Block(block) => {
-            block.materials.first().map_or([1.0; 2], |(sprite, _)| {
-                [sprite.width as f32 / side, sprite.height as f32 / side]
-            })
-        }
-        DroppedItemModel::Vacant => [1.0; 2],
+        glint: [if instance.glint { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0],
     }
 }
 

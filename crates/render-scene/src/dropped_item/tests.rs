@@ -24,6 +24,7 @@ fn publish_caps_instances_and_keeps_models_until_the_revision_changes() {
     };
     let many = vec![instance; MAX_DROPPED_ITEM_INSTANCES + 5];
     let vertex = ItemMeshVertex {
+        glint_scale: [0.0; 2],
         position: [0.0; 3],
         uv: [0.0; 2],
         normal: [0.0, 1.0, 0.0],

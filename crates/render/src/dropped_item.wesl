@@ -25,8 +25,9 @@ struct VertexInput {
     @location(6) packed: vec4<u32>,
     @location(7) layer: u32,
     @location(8) color: vec4<f32>,
-    // xy = item glint UV scale across the model's sprite; zero without glint.
+    // x marks an enchanted copy; zero without glint.
     @location(9) glint: vec4<f32>,
+    @location(10) glint_scale: vec2<f32>,
 }
 
 struct VertexOutput {
@@ -68,7 +69,7 @@ fn item_vertex(input: VertexInput) -> VertexOutput {
     out.overlay = unpack4x8unorm(input.packed.w);
     out.shade = SHADE_BASE + SHADE_SLOPE * world_normal.y;
     out.levels = vec2(input.packed.y, input.packed.z);
-    out.glint_scale = input.glint.xy;
+    out.glint_scale = input.glint_scale * input.glint.x;
     return out;
 }
 

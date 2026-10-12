@@ -144,8 +144,6 @@ struct ItemGpu {
     dynamic_buffer: Buffer,
     /// Vertex range of each model's mesh; empty for rejected models.
     ranges: Vec<ItemMeshRange>,
-    /// Item glint UV scale of each model, across its sprite.
-    glint_scales: Vec<[f32; 2]>,
     glint_sampler: Sampler,
     /// The uploaded item glint and the pixels it holds (`None` for the transparent fallback).
     glint: Option<(Texture, TextureView, Option<Arc<[u8]>>)>,
@@ -229,7 +227,6 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
             mapped_at_creation: false,
         }),
         ranges: Vec::new(),
-        glint_scales: Vec::new(),
         glint_sampler: glint::sampler(&device),
         glint: None,
         _atlas: None,
@@ -373,13 +370,6 @@ fn rebuild_models(
             bounds: DroppedItemBounds::from_mesh(&vertices[start as usize..]),
         });
     }
-    gpu.glint_scales = scene
-        .models
-        .iter()
-        .map(|model| {
-            glint::span(model, side as u32).map(|span| render_model::ITEM_GLINT_UV_SCALE / span)
-        })
-        .collect();
     let layers = atlas.len() / layer_bytes;
     gpu.mesh_buffer = (!vertices.is_empty()).then(|| {
         device.create_buffer_with_data(&BufferInitDescriptor {
@@ -473,7 +463,7 @@ fn prepare_items(
                 .bounds
                 .and_then(|bounds| bounds.transformed(instance.world_from_item)),
         });
-        instances.push(glint::pack_instance(instance, &gpu.glint_scales));
+        instances.push(glint::pack_instance(instance));
     }
     gpu.identity_instance = instances.len() as u32;
     instances.push(GpuItemInstance {
@@ -639,6 +629,11 @@ fn item_pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPipeline
                             format: VertexFormat::Unorm8x4,
                             offset: 36,
                             shader_location: 8,
+                        },
+                        VertexAttribute {
+                            format: VertexFormat::Float32x2,
+                            offset: std::mem::offset_of!(ItemMeshVertex, glint_scale) as u64,
+                            shader_location: 10,
                         },
                     ],
                 },

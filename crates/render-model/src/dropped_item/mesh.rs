@@ -1,5 +1,5 @@
 use crate::{
-    ActorRigVertex, OPAQUE_WHITE, extruded_sprite_vertices, held_sprite_vertices,
+    ActorGlint, ActorRigVertex, OPAQUE_WHITE, extruded_sprite_vertices, held_sprite_vertices,
     textured_cube_vertices,
 };
 use bytemuck::{Pod, Zeroable};
@@ -15,10 +15,12 @@ pub struct ItemMeshVertex {
     pub layer: u32,
     /// Little-endian RGBA8 multiplier applied to the sampled texel.
     pub color: u32,
+    /// Item glint UV scale for the material sampled by this vertex.
+    pub glint_scale: [f32; 2],
 }
 
 pub const ITEM_MESH_VERTEX_BYTES: usize = std::mem::size_of::<ItemMeshVertex>();
-const _: () = assert!(ITEM_MESH_VERTEX_BYTES == 40);
+const _: () = assert!(ITEM_MESH_VERTEX_BYTES == 48);
 
 /// Builds a unit cube centred on the origin; face `i` samples `layers[i]` over a `tile`-texel
 /// square inside a `layer_side` layer and is multiplied by `colors[i]`.
@@ -34,6 +36,7 @@ pub fn cube_mesh(
     }
     let extent = tile as f32 / layer_side as f32;
     let vertices = textured_cube_vertices([[0.0, 0.0, extent, extent]; 6]);
+    let glint_scale = ActorGlint::item(0.0, [extent; 2]).uv_scale;
     // Six vertices per face, in face order.
     Some(
         vertices
@@ -42,7 +45,8 @@ pub fn cube_mesh(
             .iter()
             .zip(layers.into_iter().zip(colors))
             .flat_map(|(face, (layer, color))| {
-                face.iter().map(move |vertex| paint(vertex, layer, color))
+                face.iter()
+                    .map(move |vertex| paint(vertex, layer, color, glint_scale))
             })
             .collect(),
     )
@@ -64,22 +68,25 @@ pub fn extruded_sprite_mesh(
     }
     let side = layer_side as f32;
     let rect = [0.0, 0.0, width as f32 / side, height as f32 / side];
+    let glint_scale = ActorGlint::item(0.0, [rect[2], rect[3]]).uv_scale;
     let vertices = extruded_sprite_vertices(width as usize, height as usize, rgba8, rect)?;
     Some(
         vertices
             .iter()
-            .map(|vertex| paint(vertex, layer, OPAQUE_WHITE))
+            .map(|vertex| paint(vertex, layer, OPAQUE_WHITE, glint_scale))
             .collect(),
     )
 }
 
-fn paint(vertex: &ActorRigVertex, layer: u32, color: u32) -> ItemMeshVertex {
+/// Copies one source vertex with the texture, tint and glint scale of its material.
+fn paint(vertex: &ActorRigVertex, layer: u32, color: u32, glint_scale: [f32; 2]) -> ItemMeshVertex {
     ItemMeshVertex {
         position: vertex.position,
         uv: vertex.uv,
         normal: vertex.normal,
         layer,
         color,
+        glint_scale,
     }
 }
 
@@ -99,6 +106,7 @@ pub fn native_dropped_sprite_mesh(
     }
     let side = layer_side as f32;
     let rect = [0.0, 0.0, width as f32 / side, height as f32 / side];
+    let glint_scale = ActorGlint::item(0.0, [rect[2], rect[3]]).uv_scale;
     // Native tessellation excludes alpha 0 and 1; retain the original texture for sampling.
     let mut mask = rgba8.to_vec();
     for pixel in mask.as_chunks_mut::<4>().0 {
@@ -116,7 +124,7 @@ pub fn native_dropped_sprite_mesh(
     Some(
         vertices
             .iter()
-            .map(|vertex| paint(vertex, layer, OPAQUE_WHITE))
+            .map(|vertex| paint(vertex, layer, OPAQUE_WHITE, glint_scale))
             .collect(),
     )
 }
