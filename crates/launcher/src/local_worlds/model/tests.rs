@@ -1,7 +1,8 @@
-use bridge::{
-    Backend, Difficulty, GameMode, Generator, Prefs, Setup, SetupState, UnavailableReason, World,
-    WorldState, WorldStatus, WorldUpdate,
+use super::super::world::{
+    Difficulty, Generator, Prefs, Setup, SetupState, UnavailableReason, World, WorldStatus,
+    WorldUpdate,
 };
+use bridge::{Backend, GameMode, WorldState};
 
 use super::super::progress::Stage;
 use super::super::prompt::{DOCKER_URL, Prompt, PromptButton, PromptFor, PromptKind};

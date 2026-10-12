@@ -341,9 +341,9 @@ fn the_settings_panes_take_the_wheel() {
 fn snapshot_local_worlds() {
     let player_runtime = player_state::PlayerState::new(1);
 
-    use bridge::{
-        Backend, Difficulty, GameMode, Generator, Prefs, Setup, SetupState, UnavailableReason,
-        World, WorldState, WorldStatus,
+    use bridge::{Backend, GameMode, WorldState};
+    use launcher::local_worlds::world::{
+        Difficulty, Generator, Prefs, Setup, SetupState, UnavailableReason, World, WorldStatus,
     };
     use launcher::local_worlds::{Event, Input, PromptButton, Tab, WorldsMenu};
     let dir = std::env::temp_dir().join("cinnabar-play-flow-art");

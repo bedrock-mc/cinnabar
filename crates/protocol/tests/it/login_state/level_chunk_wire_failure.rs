@@ -38,7 +38,7 @@ async fn assert_level_chunk_wire_failure(cache_enabled: bool, script: CachePlayS
     let ProtocolError::Session(error) = error else {
         panic!("LevelChunk wire failure lost packet-aware session identity")
     };
-    match (script, error) {
+    match (script, error.0) {
         (
             CachePlayScript::MalformedLevelChunk,
             jolyne::error::JolyneError::PacketDecode { packet_id, .. },

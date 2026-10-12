@@ -1,10 +1,8 @@
 //! Local-player game-mode reduction shared by StartGame and runtime updates.
 
 use valentine::bedrock::version::v1_26_51::{
-    EnumsGameType, SetDefaultGameTypePacketDefaultGameType,
+    EnumsGameType, SetDefaultGameTypePacketDefaultGameType, StartGamePacket,
 };
-
-use jolyne::GameData;
 
 pub(super) fn targeted_update(
     packet: valentine::bedrock::version::v1_26_51::UpdatePlayerGameTypePacket,
@@ -98,9 +96,7 @@ pub enum PlayerGameMode {
 }
 
 impl PlayerGameMode {
-    #[must_use]
-    pub fn from_game_data(game_data: &GameData) -> Self {
-        let start_game = &game_data.start_game;
+    pub(crate) fn from_start_game(start_game: &StartGamePacket) -> Self {
         // The world default moved into StartGame's nested LevelSettings block
         // in 1.26.40; the personal mode stays on the packet itself.
         Self::from_game_modes(
@@ -131,33 +127,23 @@ impl PlayerGameMode {
         }
     }
 
-    /// Maps a runtime SetPlayerGameType value without a world-mode fallback.
-    ///
-    /// The level-default sentinel and unknown values return `None`: a runtime
-    /// change cannot be resolved against StartGame's world mode here, so the
-    /// caller keeps its current authoritative mode rather than guessing.
-    #[must_use]
-    pub fn from_explicit_game_mode(mode: EnumsGameType) -> Option<Self> {
-        Self::from_game_type(mode.into())
-    }
-
     /// StartGame's world default mode, retained so a later level-default
     /// sentinel (SetPlayerGameType 5) or SetDefaultGameType can resolve.
-    #[must_use]
-    pub fn world_default_update_from_game_data(game_data: &GameData) -> crate::GameModeUpdate {
-        Self::update_from_game_type(game_data.start_game.settings.game_type.into())
+    pub(crate) fn world_default_update_from_start_game(
+        start_game: &StartGamePacket,
+    ) -> crate::GameModeUpdate {
+        Self::update_from_game_type(start_game.settings.game_type.into())
     }
 
     /// Whether StartGame bound the player to the level default rather than an
     /// explicit personal mode.
-    #[must_use]
-    pub fn bootstrap_uses_world_default(game_data: &GameData) -> bool {
-        GameTypeValue::from(game_data.start_game.game_type) == GameTypeValue::Default
+    pub(crate) fn bootstrap_uses_world_default(start_game: &StartGamePacket) -> bool {
+        GameTypeValue::from(start_game.game_type) == GameTypeValue::Default
     }
 
     /// Typed wire value for a runtime SetPlayerGameType packet.
     #[must_use]
-    pub fn update_from_game_mode(mode: EnumsGameType) -> crate::GameModeUpdate {
+    pub(crate) fn update_from_game_mode(mode: EnumsGameType) -> crate::GameModeUpdate {
         Self::update_from_game_type(mode.into())
     }
 
@@ -167,7 +153,7 @@ impl PlayerGameMode {
     /// sibling of [`Self::update_from_game_mode`] rather than a second call
     /// into it.
     #[must_use]
-    pub fn update_from_default_game_mode(
+    pub(crate) fn update_from_default_game_mode(
         mode: SetDefaultGameTypePacketDefaultGameType,
     ) -> crate::GameModeUpdate {
         Self::update_from_game_type(mode.into())

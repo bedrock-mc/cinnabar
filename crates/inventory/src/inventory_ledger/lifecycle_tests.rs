@@ -55,9 +55,7 @@ fn inventory_request_batch_retries_atomically() {
     let mut attempts = Vec::new();
     assert_eq!(
         runtime.flush_inventory_send(10, |packet| {
-            attempts.push(
-                protocol::encode(&packet, &protocol::BedrockSession { shield_item_id: 0 }).unwrap(),
-            );
+            attempts.push(protocol::encode(&packet).unwrap());
             Err("full")
         }),
         Err("full")
@@ -72,10 +70,7 @@ fn inventory_request_batch_retries_atomically() {
     assert!(
         runtime
             .flush_inventory_send(20, |packet| {
-                attempts.push(
-                    protocol::encode(&packet, &protocol::BedrockSession { shield_item_id: 0 })
-                        .unwrap(),
-                );
+                attempts.push(protocol::encode(&packet).unwrap());
                 Ok::<_, &str>(())
             })
             .unwrap()
@@ -522,11 +517,15 @@ fn server_close_of_a_storage_window_is_confirmed_with_a_close() {
         .expect("a queued confirmation");
     assert_eq!(confirmation.window_id, 3);
     assert_eq!(confirmation.owner, PendingCloseOwner::Cleanup);
-    assert!(matches!(
-        ledger.pending_control_packet().unwrap().unwrap().data,
-        protocol::wire::valentine::bedrock::version::v1_26_51::McpePacketData::ContainerClosePacket(close)
-            if close.container_id == 3 && !close.server_initiated_close
-    ));
+    assert_eq!(
+        protocol::test_support::packets::container_close(
+            &ledger.pending_control_packet().unwrap().unwrap()
+        ),
+        Some(protocol::test_support::packets::ContainerCloseObservation {
+            container_id: 3,
+            server_initiated: false,
+        })
+    );
 
     // The server's answer to our own close needs no confirmation.
     assert!(ledger.mark_transport_enqueued(10));
@@ -862,7 +861,7 @@ fn flushed_packet_names(session: &mut InventorySession, now_millis: u64) -> Vec<
     let mut sent = Vec::new();
     session
         .flush_inventory_send(now_millis, |packet| {
-            sent.push(format!("{:?}", packet.header.id));
+            sent.push(format!("{:?}", packet.kind()));
             Ok::<_, ()>(())
         })
         .unwrap();

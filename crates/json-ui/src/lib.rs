@@ -120,6 +120,24 @@ pub fn resolve(catalog: &Catalog, reference: &str, context: &Context) -> Resolut
     resolve_in(catalog, reference, &context.root_env(catalog))
 }
 
+/// Resolves with a bounded caller-owned tree budget, retaining ordinary catalog semantics.
+pub fn resolve_with_limits(
+    catalog: &Catalog,
+    reference: &str,
+    context: &Context,
+    depth: usize,
+    nodes: usize,
+) -> Resolution {
+    let mut resolver = Resolver::new(catalog).with_limits(depth, nodes);
+    let control = reference.split_once('.').and_then(|(namespace, name)| {
+        resolver.resolve(namespace, name, &context.root_env(catalog))
+    });
+    Resolution {
+        control,
+        diagnostics: resolver.into_diagnostics(),
+    }
+}
+
 /// [`resolve`] in a root scope already built from a catalog and context.
 fn resolve_in(catalog: &Catalog, reference: &str, root: &env::Env) -> Resolution {
     let mut resolver = Resolver::new(catalog);

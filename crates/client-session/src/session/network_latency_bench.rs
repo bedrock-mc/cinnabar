@@ -4,8 +4,6 @@ use super::*;
 use bytes::Bytes;
 use std::sync::mpsc as blocking;
 
-const CODEC_SESSION: protocol::BedrockSession = protocol::BedrockSession { shield_item_id: 0 };
-
 struct Decoded {
     elapsed: Duration,
     allocations: u64,
@@ -26,7 +24,7 @@ struct ReplaySession {
 
 /// Decode and normalize one captured packet through the production owned codec.
 fn decode_event(wire: Bytes, dimension: i32) -> WorldEvent {
-    let mut packets = protocol::decode_batch(wire, &CODEC_SESSION).unwrap();
+    let mut packets = protocol::decode_batch(wire).unwrap();
     assert_eq!(packets.len(), 1);
     protocol::into_world_event(packets.pop().unwrap(), dimension)
         .unwrap()
@@ -43,7 +41,7 @@ impl NetworkSession for ReplaySession {
         Ok(PacketOutbound::new(move |packet| {
             let selected = Instant::now();
             let allocations = crate::session::tests::alloc_count::thread_allocations();
-            let wire = protocol::encode(&packet, &CODEC_SESSION).unwrap();
+            let wire = protocol::encode(&packet).unwrap();
             let completed = Instant::now();
             let allocations =
                 crate::session::tests::alloc_count::thread_allocations() - allocations;
@@ -164,7 +162,7 @@ fn run_case(name: &str, wire: Option<Bytes>, hold_world: bool) {
         let epoch = Instant::now();
         for tick in 1..=ticks {
             let packet = traced_movement_packets(tick).1;
-            let expected = protocol::encode(&packet, &CODEC_SESSION).unwrap();
+            let expected = protocol::encode(&packet).unwrap();
             let deadline = epoch + interval * (tick - 1) as u32;
             thread::sleep(deadline.saturating_duration_since(Instant::now()));
             let started = Instant::now();

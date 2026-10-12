@@ -1,6 +1,6 @@
 use protocol::{
-    BedrockSession, FormButtonImage, ModalFormResponseSelection, ServerFormModel, UiEvent,
-    WorldEvent, decode_batch, into_world_event, modal_form_submit_response,
+    FormButtonImage, ModalFormResponseSelection, ServerFormModel, UiEvent, WorldEvent,
+    decode_batch, into_world_event, modal_form_submit_response,
 };
 use valentine::bedrock::version::v1_26_51::{McpePacketData, ModalFormRequestPacket};
 
@@ -23,11 +23,10 @@ fn menus_above_256_preserve_every_button_image_and_last_wire_selection() {
             let mut form = serde_json::json!({"type":"form", "title":"Menu", "content":" "});
             form[representation] = serde_json::json!(buttons);
             let Some(WorldEvent::Ui(UiEvent::Form(event))) = into_world_event(
-                ModalFormRequestPacket {
+                protocol::Packet::new(ModalFormRequestPacket {
                     form_id: 7,
                     form_uijson: form.to_string(),
-                }
-                .into(),
+                }),
                 0,
             )
             .unwrap() else {
@@ -49,13 +48,12 @@ fn menus_above_256_preserve_every_button_image_and_last_wire_selection() {
                     matches!(image, Some(FormButtonImage::Url(url)) if url.as_ref() == format!("https://example.invalid/{index}"))
                 );
             }
-            let session = BedrockSession { shield_item_id: 0 };
             let packet = modal_form_submit_response(
                 event.form_id,
                 ModalFormResponseSelection::ButtonIndex((count - 1) as u32),
             );
-            let bytes = protocol::encode(&packet, &session).unwrap();
-            let decoded = decode_batch(bytes.to_vec().into(), &session).unwrap();
+            let bytes = protocol::encode(&packet).unwrap();
+            let decoded = decode_batch(bytes.to_vec().into()).unwrap();
             let McpePacketData::ModalFormResponsePacket(response) = &decoded[0].data else {
                 panic!("form response");
             };

@@ -227,7 +227,6 @@ impl InventorySession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use protocol::wire::valentine::bedrock::version::v1_26_51::McpePacketData;
     use protocol::{ContainerIdentity, InventoryAuthority, InventoryEvent, InventorySlotEvent};
 
     /// A slot whose stack still carries a predicted request id sends at once.
@@ -261,10 +260,9 @@ mod tests {
         session.queue_local_hotbar_selection(2, game_mode);
         let (slot, packet) = session.pending_hotbar_packet(game_mode).unwrap().unwrap();
         assert_eq!(slot, 2);
-        let McpePacketData::MobEquipmentPacket(packet) = packet.data else {
-            panic!("hotbar selection must build a MobEquipment packet");
-        };
-        assert_eq!(packet.item.stacksize, 3);
-        assert_eq!(packet.item.net_id_variant, None);
+        let packet = protocol::test_support::packets::equipment(&packet)
+            .expect("hotbar selection must build a MobEquipment packet");
+        assert_eq!(packet.count, 3);
+        assert_eq!(packet.stack_network_id, None);
     }
 }

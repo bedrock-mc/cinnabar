@@ -26,6 +26,7 @@ pub fn synthetic_entity_blob(seed: u8) -> Box<[u8]> {
             identifier: "minecraft:allay".into(),
             source_index: 0,
             dependencies: Box::new([]),
+            mount_equipment: crate::entity::mount::MountEquipment::Unresolved,
         }]
         .into(),
         geometries: Box::new([]),

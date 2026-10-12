@@ -477,3 +477,66 @@ fn bundle_insert_appends_to_the_dynamic_container() {
     assert_eq!((amount, destination.slot), (4, 1));
     assert!(ledger.cursor_stack().is_none());
 }
+
+#[test]
+fn quick_move_storage_filter_excludes_partial_and_empty_cells() {
+    let mut ledger = ledger_with(&[(0, stack(10, 3))]);
+    open(&mut ledger, 4, protocol::WINDOW_TYPE_HORSE);
+    ledger.apply(&content(
+        ContainerIdentity::window(4),
+        vec![
+            NetworkItemStack::empty(),
+            NetworkItemStack::empty(),
+            stack(11, 62),
+            stack(12, 63),
+            NetworkItemStack::empty(),
+        ],
+    ));
+    ledger
+        .begin_quick_move_with_storage_filter(InventoryTarget::Player(0), |slot| slot >= 3)
+        .unwrap();
+    assert!(ledger.displayed_stack(0).is_none());
+    assert_eq!(
+        ledger
+            .target_stack(InventoryTarget::Storage(2))
+            .unwrap()
+            .count,
+        62
+    );
+    assert_eq!(
+        ledger
+            .target_stack(InventoryTarget::Storage(3))
+            .unwrap()
+            .count,
+        64
+    );
+    assert_eq!(
+        ledger
+            .target_stack(InventoryTarget::Storage(4))
+            .unwrap()
+            .count,
+        2
+    );
+}
+
+#[test]
+fn quick_move_storage_filter_falls_back_to_player_inventory() {
+    let mut ledger = ledger_with(&[(0, stack(10, 3))]);
+    open(&mut ledger, 4, protocol::WINDOW_TYPE_HORSE);
+    ledger.apply(&content(
+        ContainerIdentity::window(4),
+        vec![NetworkItemStack::empty(); 5],
+    ));
+    ledger
+        .begin_quick_move_with_storage_filter(InventoryTarget::Player(0), |_| false)
+        .unwrap();
+    assert!(ledger.displayed_stack(0).is_none());
+    assert_eq!(ledger.displayed_stack(9).unwrap().count, 3);
+    for slot in 0..5 {
+        assert!(
+            ledger
+                .target_stack(InventoryTarget::Storage(slot))
+                .is_none()
+        );
+    }
+}

@@ -39,6 +39,8 @@ pub struct Cell {
     /// Tried before `texture` (hardcore hearts), when the pack holds it.
     pub preferred: Option<&'static str>,
     pub alpha: u8,
+    /// Straight RGB multiplier for cosmetic overlays; ordinary native cells are white.
+    pub tint: [u8; 3],
 }
 
 impl Cell {
@@ -49,6 +51,7 @@ impl Cell {
             texture,
             preferred: None,
             alpha: 255,
+            tint: [255; 3],
         }
     }
 }
@@ -313,7 +316,7 @@ fn paint_cell(
     {
         return;
     }
-    let color = alpha([255, 255, 255, cell.alpha]);
+    let color = alpha([cell.tint[0], cell.tint[1], cell.tint[2], cell.alpha]);
     let visual = cell
         .preferred
         .and_then(|path| canvas.sprite(path, json_ui::UvRect::full(), color, Default::default()))

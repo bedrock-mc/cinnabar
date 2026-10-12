@@ -280,20 +280,13 @@ fn pointer_action_is_bound_to_rendered_revision_and_keyboard_focus_selects_index
         Ok(())
     })
     .unwrap();
-    let wire = protocol::encode(
-        &response.unwrap(),
-        &protocol::BedrockSession { shield_item_id: 0 },
-    )
-    .unwrap();
+    let wire = protocol::encode(&response.unwrap()).unwrap();
     assert_eq!(
         wire,
-        protocol::encode(
-            &protocol::modal_form_submit_response(
-                7,
-                protocol::ModalFormResponseSelection::ButtonIndex(1)
-            ),
-            &protocol::BedrockSession { shield_item_id: 0 }
-        )
+        protocol::encode(&protocol::modal_form_submit_response(
+            7,
+            protocol::ModalFormResponseSelection::ButtonIndex(1)
+        ),)
         .unwrap()
     );
 }
@@ -481,16 +474,12 @@ fn clicking_an_engine_drawn_button_answers_its_index() {
         Ok(())
     })
     .unwrap();
-    let session = protocol::BedrockSession { shield_item_id: 0 };
     assert_eq!(
-        protocol::encode(&response.expect("the click answered"), &session).unwrap(),
-        protocol::encode(
-            &protocol::modal_form_submit_response(
-                3,
-                protocol::ModalFormResponseSelection::ButtonIndex(1)
-            ),
-            &session
-        )
+        protocol::encode(&response.expect("the click answered")).unwrap(),
+        protocol::encode(&protocol::modal_form_submit_response(
+            3,
+            protocol::ModalFormResponseSelection::ButtonIndex(1)
+        ),)
         .unwrap()
     );
 }

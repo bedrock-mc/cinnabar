@@ -150,16 +150,9 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         use sha2::Digest;
         sha2::Sha256::digest(&stack.extra_data).into()
     };
-    let session = protocol::BedrockSession { shield_item_id: 0 };
-    let wire = protocol::encode(
-        &protocol::select_hotbar_slot_packet(1, 0, &stack).unwrap(),
-        &session,
-    )
-    .unwrap();
-    let decoded = protocol::decode_batch(wire, &session)
-        .unwrap()
-        .pop()
-        .unwrap();
+    let wire =
+        protocol::encode(&protocol::select_hotbar_slot_packet(1, 0, &stack).unwrap()).unwrap();
+    let decoded = protocol::decode_batch(wire).unwrap().pop().unwrap();
     let Some(protocol::WorldEvent::Equipment(decoded)) =
         protocol::into_world_event(decoded, 0).unwrap()
     else {

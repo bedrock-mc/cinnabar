@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use protocol::{
-    ActorUseAction, ActorUsePacketError, ActorUseRequest, BedrockSession, BlockUsePacketError,
-    BlockUseRequest, HeldItemRequest, InventoryPacketError, ItemUseTrigger, NetworkItemStack,
-    PredictedSlotChange, SwingSource, VerifiedNetworkItemStack, click_air_packet,
-    click_block_packet, click_block_transaction_packet, decode_batch, destroy_block_packet, encode,
+    ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
+    HeldItemRequest, InventoryPacketError, ItemUseTrigger, NetworkItemStack, PredictedSlotChange,
+    SwingSource, VerifiedNetworkItemStack, click_air_packet, click_block_packet,
+    click_block_transaction_packet, decode_batch, destroy_block_packet, encode,
     release_item_packet, respawn_request_packet, stop_sleeping_packet, swing_arm_packet,
     use_actor_packet,
 };
@@ -61,12 +61,8 @@ const INTERACT_ACTOR_EMPTY_HAND: &[u8] =
     include_bytes!("../../fixtures/inventory_transaction_interact_actor_empty_hand.bin");
 const CONTAINER_CLOSE: &[u8] = include_bytes!("../../fixtures/container_close.bin");
 
-fn session() -> BedrockSession {
-    BedrockSession { shield_item_id: 0 }
-}
-
 fn decode_one(fixture: &'static [u8], id: McpePacketName) -> protocol::Packet {
-    let packets = decode_batch(Bytes::from_static(fixture), &session()).expect("decode fixture");
+    let packets = decode_batch(Bytes::from_static(fixture)).expect("decode fixture");
     assert_eq!(packets.len(), 1);
     let packet = packets.into_iter().next().expect("one packet");
     assert_eq!(packet.header.id, id);
@@ -192,36 +188,33 @@ fn assert_actor_builder_matches_fixture(
 ) {
     let decoded = decode_one(fixture, McpePacketName::InventoryTransactionPacket);
     assert_actor_use_constants(&decoded, action);
-    let mut built = use_actor_packet(
-        ActorUseRequest {
-            actor_runtime_id,
-            action,
-            selected_slot,
-            selected_item: verified_actor_fixture_item(&decoded),
-            player_position,
-            hit_position,
-        },
-        &session(),
-    )
+    let mut built = use_actor_packet(ActorUseRequest {
+        actor_runtime_id,
+        action,
+        selected_slot,
+        selected_item: verified_actor_fixture_item(&decoded),
+        player_position,
+        hit_position,
+    })
     .expect("valid actor-use request");
     built.header.from_subclient = 1;
     built.header.to_subclient = 2;
-    assert_eq!(encode(&built, &session()).unwrap().as_ref(), fixture);
+    assert_eq!(encode(&built).unwrap().as_ref(), fixture);
 }
 
 fn assert_builder_matches_fixture(fixture: &'static [u8], request: BlockUseRequest) {
-    let mut built = click_block_packet(request, &session()).expect("valid click-block request");
+    let mut built = click_block_packet(request).expect("valid click-block request");
     built.header.from_subclient = 1;
     built.header.to_subclient = 2;
-    let encoded = encode(&built, &session()).expect("encode builder packet");
+    let encoded = encode(&built).expect("encode builder packet");
     assert_eq!(encoded.as_ref(), fixture);
 }
 
 fn assert_destroy_builder_matches_fixture(fixture: &'static [u8], request: BlockUseRequest) {
-    let mut built = destroy_block_packet(request, &session()).expect("valid destroy-block request");
+    let mut built = destroy_block_packet(request).expect("valid destroy-block request");
     built.header.from_subclient = 1;
     built.header.to_subclient = 2;
-    let encoded = encode(&built, &session()).expect("encode builder packet");
+    let encoded = encode(&built).expect("encode builder packet");
     assert_eq!(encoded.as_ref(), fixture);
 }
 
@@ -348,10 +341,7 @@ fn container_close_fixture_cross_decodes_and_round_trips_exactly() {
             server_initiated_close: false,
         })
     );
-    assert_eq!(
-        encode(&packet, &session()).unwrap().as_ref(),
-        CONTAINER_CLOSE
-    );
+    assert_eq!(encode(&packet).unwrap().as_ref(), CONTAINER_CLOSE);
 }
 
 fn base_request() -> BlockUseRequest {
@@ -373,49 +363,49 @@ fn click_block_builder_rejects_invalid_face_slot_position_and_runtime_id() {
     let mut request = base_request();
     request.face = 6;
     assert_eq!(
-        click_block_packet(request, &session()).unwrap_err(),
+        click_block_packet(request).unwrap_err(),
         BlockUsePacketError::InvalidFace(6)
     );
 
     let mut request = base_request();
     request.selected_slot = 9;
     assert_eq!(
-        click_block_packet(request, &session()).unwrap_err(),
+        click_block_packet(request).unwrap_err(),
         BlockUsePacketError::InvalidSelectedSlot(9)
     );
 
     let mut request = base_request();
     request.player_position[1] = f32::INFINITY;
     assert_eq!(
-        click_block_packet(request, &session()).unwrap_err(),
+        click_block_packet(request).unwrap_err(),
         BlockUsePacketError::NonFinitePlayerPosition
     );
 
     let mut request = base_request();
     request.relative_hit[2] = f32::NAN;
     assert_eq!(
-        click_block_packet(request, &session()).unwrap_err(),
+        click_block_packet(request).unwrap_err(),
         BlockUsePacketError::NonFiniteRelativeHit
     );
 
     let mut request = base_request();
     request.relative_hit[0] = f32::INFINITY;
     assert_eq!(
-        click_block_packet(request, &session()).unwrap_err(),
+        click_block_packet(request).unwrap_err(),
         BlockUsePacketError::NonFiniteRelativeHit
     );
 
     let mut request = base_request();
     request.block_runtime_id = u64::from(u32::MAX) + 1;
     assert_eq!(
-        click_block_packet(request, &session()).unwrap_err(),
+        click_block_packet(request).unwrap_err(),
         BlockUsePacketError::BlockRuntimeIdOutOfRange(u64::from(u32::MAX) + 1)
     );
 
     let mut request = base_request();
     request.selected_item = oversized_wire_item();
     assert_eq!(
-        click_block_packet(request, &session()).unwrap_err(),
+        click_block_packet(request).unwrap_err(),
         BlockUsePacketError::InvalidSelectedItem(InventoryPacketError::InvalidItemNetworkId(
             i32::from(i16::MAX) + 1,
         ))
@@ -485,10 +475,7 @@ fn destroy_block_builder_shares_block_use_validation() {
     ];
 
     for (request, expected) in invalid_requests.into_iter().zip(expected_errors) {
-        assert_eq!(
-            destroy_block_packet(request, &session()).unwrap_err(),
-            expected
-        );
+        assert_eq!(destroy_block_packet(request).unwrap_err(), expected);
     }
 }
 
@@ -523,7 +510,7 @@ fn held_block_use_preserves_relative_hits_outside_the_current_cell() {
 fn click_block_builder_preserves_exact_relative_hit_boundaries() {
     let mut request = base_request();
     request.relative_hit = [0.0, 1.0, 0.0];
-    let packet = click_block_packet(request, &session()).expect("boundary request");
+    let packet = click_block_packet(request).expect("boundary request");
     let McpePacketData::InventoryTransactionPacket(packet) = packet.data else {
         panic!("expected inventory transaction");
     };
@@ -553,28 +540,28 @@ fn actor_use_builder_rejects_zero_runtime_invalid_slot_and_non_finite_positions(
     let mut request = base_actor_request();
     request.actor_runtime_id = 0;
     assert_eq!(
-        use_actor_packet(request, &session()).unwrap_err(),
+        use_actor_packet(request).unwrap_err(),
         ActorUsePacketError::InvalidActorRuntimeId
     );
 
     let mut request = base_actor_request();
     request.selected_slot = 9;
     assert_eq!(
-        use_actor_packet(request, &session()).unwrap_err(),
+        use_actor_packet(request).unwrap_err(),
         ActorUsePacketError::InvalidSelectedSlot(9)
     );
 
     let mut request = base_actor_request();
     request.player_position[0] = f32::NEG_INFINITY;
     assert_eq!(
-        use_actor_packet(request, &session()).unwrap_err(),
+        use_actor_packet(request).unwrap_err(),
         ActorUsePacketError::NonFinitePlayerPosition
     );
 
     let mut request = base_actor_request();
     request.hit_position[1] = f32::NAN;
     assert_eq!(
-        use_actor_packet(request, &session()).unwrap_err(),
+        use_actor_packet(request).unwrap_err(),
         ActorUsePacketError::NonFiniteHitPosition
     );
 }
@@ -582,7 +569,7 @@ fn actor_use_builder_rejects_zero_runtime_invalid_slot_and_non_finite_positions(
 #[test]
 fn actor_use_builder_preserves_finite_out_of_unit_hit_offsets() {
     let request = base_actor_request();
-    let packet = use_actor_packet(request.clone(), &session()).unwrap();
+    let packet = use_actor_packet(request.clone()).unwrap();
     let McpePacketData::InventoryTransactionPacket(packet) = packet.data else {
         panic!("expected inventory transaction");
     };
@@ -606,8 +593,8 @@ fn swing_arm_packet_round_trips_with_its_swing_source() {
         (SwingSource::ThrowItem, "throwitem"),
     ] {
         let packet = swing_arm_packet(0x1_0000_0001, source);
-        let bytes = encode(&packet, &session()).unwrap();
-        let decoded = decode_batch(bytes, &session()).unwrap().remove(0);
+        let bytes = encode(&packet).unwrap();
+        let decoded = decode_batch(bytes).unwrap().remove(0);
         let McpePacketData::AnimatePacket(animate) = decoded.data else {
             panic!("animate packet");
         };
@@ -624,7 +611,7 @@ fn swing_arm_packet_round_trips_with_its_swing_source() {
 /// A capitalised swing source makes strict servers close the connection mid-fight.
 #[test]
 fn swing_arm_packet_matches_the_vanilla_wire_layout() {
-    let bytes = encode(&swing_arm_packet(42, SwingSource::Attack), &session()).unwrap();
+    let bytes = encode(&swing_arm_packet(42, SwingSource::Attack)).unwrap();
     let expected = [
         &[0xfe, 0x0f][..], // batch marker, frame length
         &[0x2c],           // Animate, no subclients
@@ -640,8 +627,8 @@ fn swing_arm_packet_matches_the_vanilla_wire_layout() {
 
 #[test]
 fn stop_sleeping_packet_is_a_player_action_for_the_local_runtime_id() {
-    let bytes = encode(&stop_sleeping_packet(7), &session()).unwrap();
-    let decoded = decode_batch(bytes, &session()).unwrap().remove(0);
+    let bytes = encode(&stop_sleeping_packet(7)).unwrap();
+    let decoded = decode_batch(bytes).unwrap().remove(0);
     let McpePacketData::PlayerActionPacket(action) = decoded.data else {
         panic!("player action packet");
     };
@@ -651,8 +638,8 @@ fn stop_sleeping_packet_is_a_player_action_for_the_local_runtime_id() {
 
 #[test]
 fn respawn_request_is_client_ready_with_the_local_runtime_id() {
-    let bytes = encode(&respawn_request_packet(7), &session()).unwrap();
-    let decoded = decode_batch(bytes, &session()).unwrap().remove(0);
+    let bytes = encode(&respawn_request_packet(7)).unwrap();
+    let decoded = decode_batch(bytes).unwrap().remove(0);
     let McpePacketData::RespawnPacket(respawn) = decoded.data else {
         panic!("respawn packet");
     };
@@ -705,9 +692,9 @@ fn click_block_transaction_carries_trigger_and_prediction() {
     ] {
         let packet =
             click_block_transaction_packet(request.clone(), trigger, success, None).unwrap();
-        let bytes = encode(&packet, &session()).unwrap();
+        let bytes = encode(&packet).unwrap();
         let McpePacketData::InventoryTransactionPacket(built) =
-            decode_batch(bytes, &session()).unwrap().remove(0).data
+            decode_batch(bytes).unwrap().remove(0).data
         else {
             panic!("inventory transaction");
         };
@@ -728,9 +715,9 @@ fn click_block_transaction_carries_trigger_and_prediction() {
 }
 
 fn decoded_transaction(packet: protocol::Packet) -> InventoryTransactionPacketTransaction {
-    let bytes = encode(&packet, &session()).unwrap();
+    let bytes = encode(&packet).unwrap();
     let McpePacketData::InventoryTransactionPacket(built) =
-        decode_batch(bytes, &session()).unwrap().remove(0).data
+        decode_batch(bytes).unwrap().remove(0).data
     else {
         panic!("inventory transaction");
     };
@@ -816,9 +803,9 @@ fn snowballs(count: u16) -> VerifiedNetworkItemStack {
 fn decoded_inventory_packet(
     packet: protocol::Packet,
 ) -> valentine::bedrock::version::v1_26_51::InventoryTransactionPacket {
-    let bytes = encode(&packet, &session()).unwrap();
+    let bytes = encode(&packet).unwrap();
     let McpePacketData::InventoryTransactionPacket(built) =
-        decode_batch(bytes, &session()).unwrap().remove(0).data
+        decode_batch(bytes).unwrap().remove(0).data
     else {
         panic!("inventory transaction");
     };

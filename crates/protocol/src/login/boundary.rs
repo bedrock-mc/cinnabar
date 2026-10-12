@@ -38,7 +38,7 @@ impl<T: Transport> PlaySession<T> {
         name: McpePacketName,
     ) -> Result<bool, ProtocolError> {
         let packet = match self.stream.decode_raw_packet(raw) {
-            Ok(packet) => packet,
+            Ok(packet) => Packet::new(packet),
             Err(error) => return Err(self.fail_session(error)),
         };
         let retained =

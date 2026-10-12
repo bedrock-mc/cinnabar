@@ -43,7 +43,7 @@ pub fn player_skin_packet(
     let geometry = skin.geometry.as_ref();
     let cape = skin.cape.as_ref().filter(|cape| cape.is_valid());
     let cape_id = cape.map_or_else(String::new, cape_content_id);
-    PlayerSkinPacket {
+    crate::Packet::new(PlayerSkinPacket {
         uuid: uuid::Uuid::from_bytes(uuid),
         serialized_skin: SerializedSkinRef {
             id: id.to_owned(),
@@ -83,8 +83,7 @@ pub fn player_skin_packet(
         },
         localized_new_skin_name: name.to_owned(),
         localized_old_skin_name: String::new(),
-    }
-    .into()
+    })
 }
 
 #[cfg(test)]
@@ -117,14 +116,10 @@ mod tests {
             })),
         };
         let packet = player_skin_packet([9; 16], &skin, "slim", "imported", "Fixture");
-        let session = crate::BedrockSession { shield_item_id: 0 };
         let mut packet = packet;
         set_skin_packet_engine_version(&mut packet, "1.12.0");
-        let encoded = crate::encode(&packet, &session).unwrap();
-        let packet = crate::decode_batch(encoded, &session)
-            .unwrap()
-            .pop()
-            .unwrap();
+        let encoded = crate::encode(&packet).unwrap();
+        let packet = crate::decode_batch(encoded).unwrap().pop().unwrap();
         let valentine::bedrock::version::v1_26_51::McpePacketData::PlayerSkinPacket(wire) =
             packet.data
         else {

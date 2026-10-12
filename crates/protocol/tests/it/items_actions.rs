@@ -78,7 +78,9 @@ fn item_registry_and_add_player_held_item_are_vendor_neutral() {
         }],
     };
     let WorldEvent::ItemActor(ItemActorEvent::Registry(registry)) =
-        into_world_event(registry.into(), 0).unwrap().unwrap()
+        into_world_event(protocol::Packet::new(registry), 0)
+            .unwrap()
+            .unwrap()
     else {
         panic!("expected item registry")
     };
@@ -92,7 +94,9 @@ fn item_registry_and_add_player_held_item_are_vendor_neutral() {
         ..Default::default()
     };
     let WorldEvent::Actor(ActorEvent::PlayerSpawn { spawn, .. }) =
-        into_world_event(player.into(), 0).unwrap().unwrap()
+        into_world_event(protocol::Packet::new(player), 0)
+            .unwrap()
+            .unwrap()
     else {
         panic!("expected player spawn")
     };
@@ -132,7 +136,9 @@ fn mob_equipment_retains_slots_and_canonical_stack_identity() {
         selected_slot,
         window_id,
         handedness,
-    }) = into_world_event(packet.into(), 0).unwrap().unwrap()
+    }) = into_world_event(protocol::Packet::new(packet), 0)
+        .unwrap()
+        .unwrap()
     else {
         panic!("expected equipment")
     };
@@ -157,7 +163,9 @@ fn mob_equipment_retains_slots_and_canonical_stack_identity() {
         selected_slot: 0,
         container_id: OFFHAND_CONTAINER,
     };
-    let WorldEvent::Equipment(offhand) = into_world_event(offhand.into(), 0).unwrap().unwrap()
+    let WorldEvent::Equipment(offhand) = into_world_event(protocol::Packet::new(offhand), 0)
+        .unwrap()
+        .unwrap()
     else {
         panic!("expected offhand equipment")
     };
@@ -174,7 +182,10 @@ fn mob_equipment_retains_slots_and_canonical_stack_identity() {
         selected_slot: 0,
         container_id: 122,
     };
-    let WorldEvent::Equipment(hotbar) = into_world_event(hotbar.into(), 0).unwrap().unwrap() else {
+    let WorldEvent::Equipment(hotbar) = into_world_event(protocol::Packet::new(hotbar), 0)
+        .unwrap()
+        .unwrap()
+    else {
         panic!("expected hotbar equipment")
     };
     assert_eq!(hotbar.handedness, Some(ActorHandedness::Right));
@@ -194,7 +205,7 @@ fn mob_equipment_rejects_unknown_and_sentinel_containers() {
             selected_slot: 0,
             container_id,
         };
-        let error = into_world_event(packet.into(), 0)
+        let error = into_world_event(protocol::Packet::new(packet), 0)
             .expect_err("unknown equipment container must be rejected");
         assert!(matches!(
             error,
@@ -231,7 +242,9 @@ fn animate_known_row_and_unknown_actions_are_attributed() {
             swing_source: Some("attack".into()),
         };
         let WorldEvent::ItemActor(ItemActorEvent::Action(action)) =
-            into_world_event(packet.into(), 0).unwrap().unwrap()
+            into_world_event(protocol::Packet::new(packet), 0)
+                .unwrap()
+                .unwrap()
         else {
             panic!("expected action")
         };
@@ -253,7 +266,9 @@ fn animate_entity_retains_one_bounded_custom_action_for_all_targets() {
         m_runtime_ids: vec![runtime_id(42), runtime_id(43)],
     };
     let WorldEvent::ItemActor(ItemActorEvent::Action(action)) =
-        into_world_event(packet.into(), 0).unwrap().unwrap()
+        into_world_event(protocol::Packet::new(packet), 0)
+            .unwrap()
+            .unwrap()
     else {
         panic!("expected custom action")
     };
@@ -273,7 +288,10 @@ fn animate_entity_retains_one_bounded_custom_action_for_all_targets() {
 #[test]
 fn unrelated_packets_remain_ignored() {
     let packet = NetworkSettingsPacket::default();
-    assert_eq!(into_world_event(packet.into(), 0).unwrap(), None);
+    assert_eq!(
+        into_world_event(protocol::Packet::new(packet), 0).unwrap(),
+        None
+    );
     let _ = NetworkItemStack::default();
 }
 
@@ -285,7 +303,9 @@ fn non_player_spawns_receive_the_canonical_empty_stack() {
         ..Default::default()
     };
     let WorldEvent::Actor(ActorEvent::Spawn(spawn)) =
-        into_world_event(packet.into(), 0).unwrap().unwrap()
+        into_world_event(protocol::Packet::new(packet), 0)
+            .unwrap()
+            .unwrap()
     else {
         panic!("expected entity spawn")
     };
@@ -321,7 +341,7 @@ fn item_stacks_reject_invalid_identity_and_unbounded_extra_bytes() {
             carried_item: item,
             ..Default::default()
         };
-        assert!(into_world_event(packet.into(), 0).is_err());
+        assert!(into_world_event(protocol::Packet::new(packet), 0).is_err());
     }
 
     let signed_wire_fields = AddPlayerPacket {
@@ -335,7 +355,7 @@ fn item_stacks_reject_invalid_identity_and_unbounded_extra_bytes() {
         ..Default::default()
     };
     let WorldEvent::Actor(ActorEvent::PlayerSpawn { spawn, .. }) =
-        into_world_event(signed_wire_fields.into(), 0)
+        into_world_event(protocol::Packet::new(signed_wire_fields), 0)
             .unwrap()
             .unwrap()
     else {
@@ -355,7 +375,7 @@ fn item_stacks_reject_invalid_identity_and_unbounded_extra_bytes() {
         },
         ..Default::default()
     };
-    assert!(into_world_event(packet.into(), 0).is_err());
+    assert!(into_world_event(protocol::Packet::new(packet), 0).is_err());
 
     // A buffer too short to even hold its own `int16` header. Protocol 1001
     // spent this case on a `canDestroy` string longer than its `int16` length
@@ -371,7 +391,7 @@ fn item_stacks_reject_invalid_identity_and_unbounded_extra_bytes() {
         },
         ..Default::default()
     };
-    assert!(into_world_event(truncated_user_data.into(), 0).is_err());
+    assert!(into_world_event(protocol::Packet::new(truncated_user_data), 0).is_err());
 
     let invalid_nbt_version = AddPlayerPacket {
         target_runtime_id: runtime_id(42),
@@ -384,7 +404,7 @@ fn item_stacks_reject_invalid_identity_and_unbounded_extra_bytes() {
         },
         ..Default::default()
     };
-    assert!(into_world_event(invalid_nbt_version.into(), 0).is_err());
+    assert!(into_world_event(protocol::Packet::new(invalid_nbt_version), 0).is_err());
 
     let malformed_nbt = AddPlayerPacket {
         target_runtime_id: runtime_id(42),
@@ -397,7 +417,7 @@ fn item_stacks_reject_invalid_identity_and_unbounded_extra_bytes() {
         },
         ..Default::default()
     };
-    assert!(into_world_event(malformed_nbt.into(), 0).is_err());
+    assert!(into_world_event(protocol::Packet::new(malformed_nbt), 0).is_err());
 }
 
 #[test]
@@ -410,7 +430,9 @@ fn registry_preserves_signed_ids_and_rejects_conflicting_ids_and_oversized_recor
         }],
     };
     let WorldEvent::ItemActor(ItemActorEvent::Registry(signed_id)) =
-        into_world_event(signed_id.into(), 0).unwrap().unwrap()
+        into_world_event(protocol::Packet::new(signed_id), 0)
+            .unwrap()
+            .unwrap()
     else {
         panic!("expected signed registry ID")
     };
@@ -424,7 +446,7 @@ fn registry_preserves_signed_ids_and_rejects_conflicting_ids_and_oversized_recor
             ..Default::default()
         }],
     };
-    assert!(into_world_event(malformed_nbt.into(), 0).is_err());
+    assert!(into_world_event(protocol::Packet::new(malformed_nbt), 0).is_err());
 
     let duplicate = ItemRegistryPacket {
         item_data: vec![
@@ -440,7 +462,7 @@ fn registry_preserves_signed_ids_and_rejects_conflicting_ids_and_oversized_recor
             },
         ],
     };
-    assert!(into_world_event(duplicate.into(), 0).is_err());
+    assert!(into_world_event(protocol::Packet::new(duplicate), 0).is_err());
 
     let long_name = ItemRegistryPacket {
         item_data: vec![ItemData {
@@ -449,7 +471,7 @@ fn registry_preserves_signed_ids_and_rejects_conflicting_ids_and_oversized_recor
             ..Default::default()
         }],
     };
-    assert!(into_world_event(long_name.into(), 0).is_err());
+    assert!(into_world_event(protocol::Packet::new(long_name), 0).is_err());
 
     let oversized = ItemRegistryPacket {
         item_data: (0..=MAX_ITEM_REGISTRY_ENTRIES)
@@ -460,7 +482,7 @@ fn registry_preserves_signed_ids_and_rejects_conflicting_ids_and_oversized_recor
             })
             .collect(),
     };
-    assert!(into_world_event(oversized.into(), 0).is_err());
+    assert!(into_world_event(protocol::Packet::new(oversized), 0).is_err());
 }
 
 #[test]
@@ -491,7 +513,7 @@ fn equipment_rejects_invalid_runtime_and_stack_but_retains_unusual_slots() {
             container_id: INVENTORY_CONTAINER,
         },
     ] {
-        assert!(into_world_event(packet.into(), 0).is_err());
+        assert!(into_world_event(protocol::Packet::new(packet), 0).is_err());
     }
 
     // Non-hotbar and mismatched slots are common on custom servers; the client
@@ -504,7 +526,9 @@ fn equipment_rejects_invalid_runtime_and_stack_but_retains_unusual_slots() {
             selected_slot,
             container_id: INVENTORY_CONTAINER,
         };
-        let WorldEvent::Equipment(event) = into_world_event(packet.into(), 0).unwrap().unwrap()
+        let WorldEvent::Equipment(event) = into_world_event(protocol::Packet::new(packet), 0)
+            .unwrap()
+            .unwrap()
         else {
             panic!("expected retained equipment")
         };
@@ -519,7 +543,7 @@ fn equipment_rejects_invalid_runtime_and_stack_but_retains_unusual_slots() {
         selected_slot: 0,
         container_id: NO_CONTAINER,
     };
-    let error = into_world_event(signed_window.into(), 0)
+    let error = into_world_event(protocol::Packet::new(signed_window), 0)
         .expect_err("sentinel equipment container must be rejected");
     assert!(matches!(
         error,
@@ -542,7 +566,11 @@ fn custom_action(targets: Vec<i64>) -> AnimateEntityPacket {
 #[test]
 fn animate_entity_enforces_exact_target_and_text_bounds() {
     let maximum = custom_action((1..=MAX_ANIMATE_ENTITY_IDS as i64).collect());
-    assert!(into_world_event(maximum.into(), 0).unwrap().is_some());
+    assert!(
+        into_world_event(protocol::Packet::new(maximum), 0)
+            .unwrap()
+            .is_some()
+    );
 
     for packet in [
         custom_action(vec![]),
@@ -561,11 +589,11 @@ fn animate_entity_enforces_exact_target_and_text_bounds() {
             ..custom_action(vec![42])
         },
     ] {
-        assert!(into_world_event(packet.into(), 0).is_err());
+        assert!(into_world_event(protocol::Packet::new(packet), 0).is_err());
     }
 
     let WorldEvent::ItemActor(ItemActorEvent::Action(high_runtime_id)) =
-        into_world_event(custom_action(vec![-1]).into(), 0)
+        into_world_event(protocol::Packet::new(custom_action(vec![-1])), 0)
             .unwrap()
             .unwrap()
     else {
@@ -595,7 +623,7 @@ fn animate_rejects_invalid_runtime_non_finite_data_and_oversized_source() {
             ..Default::default()
         },
     ] {
-        assert!(into_world_event(packet.into(), 0).is_err());
+        assert!(into_world_event(protocol::Packet::new(packet), 0).is_err());
     }
 }
 
@@ -612,7 +640,9 @@ fn registry_retains_every_numeric_alias_for_a_shared_item_identifier() {
             .collect(),
     };
     let WorldEvent::ItemActor(ItemActorEvent::Registry(registry)) =
-        into_world_event(packet.into(), 0).unwrap().unwrap()
+        into_world_event(protocol::Packet::new(packet), 0)
+            .unwrap()
+            .unwrap()
     else {
         panic!("expected item registry")
     };
@@ -646,7 +676,9 @@ fn registry_collapses_identical_rows_without_losing_numeric_aliases() {
             .collect(),
     };
     let WorldEvent::ItemActor(ItemActorEvent::Registry(registry)) =
-        into_world_event(packet.into(), 0).unwrap().unwrap()
+        into_world_event(protocol::Packet::new(packet), 0)
+            .unwrap()
+            .unwrap()
     else {
         panic!("expected item registry")
     };
@@ -678,7 +710,7 @@ fn repeated_registry_rows_still_validate_component_framing() {
         ],
     };
     assert!(matches!(
-        into_world_event(packet.into(), 0),
+        into_world_event(protocol::Packet::new(packet), 0),
         Err(WorldPacketError::Wire(WorldWireError::Item(
             ItemPacketError::InvalidItemNbt
         )))

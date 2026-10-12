@@ -53,12 +53,7 @@ fn packet() -> protocol::Packet {
 fn enqueue(mut trace: ResMut<SendTrace>) {
     trace.sent_after = Some(trace.started.elapsed());
     trace.order.push("send");
-    trace.sent = protocol::encode(
-        &trace.packet,
-        &protocol::BedrockSession { shield_item_id: 0 },
-    )
-    .unwrap()
-    .to_vec();
+    trace.sent = protocol::encode(&trace.packet).unwrap().to_vec();
 }
 
 /// Models expensive pure visual work without altering the queued input.

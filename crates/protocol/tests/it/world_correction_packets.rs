@@ -35,7 +35,7 @@ fn normalizes_server_authoritative_movement_correction_to_the_local_player_surfa
     };
 
     assert_eq!(
-        into_world_event(packet.into(), 0).unwrap(),
+        into_world_event(protocol::Packet::new(packet), 0).unwrap(),
         Some(WorldEvent::PlayerMovementCorrection(
             PlayerMovementCorrectionEvent {
                 position: [27.5, 111.0, 91.5],
@@ -63,7 +63,7 @@ fn vehicle_prediction_correction_is_retained_with_its_rewind_subject() {
     };
 
     assert_eq!(
-        into_world_event(packet.into(), 0).unwrap(),
+        into_world_event(protocol::Packet::new(packet), 0).unwrap(),
         Some(WorldEvent::PlayerMovementCorrection(
             PlayerMovementCorrectionEvent {
                 position: [300.0, 90.0, -200.0],
@@ -91,7 +91,7 @@ fn unknown_prediction_subjects_are_retained_without_invention() {
     };
 
     let Some(WorldEvent::PlayerMovementCorrection(event)) =
-        into_world_event(packet.into(), 0).unwrap()
+        into_world_event(protocol::Packet::new(packet), 0).unwrap()
     else {
         panic!("expected a movement correction event")
     };
@@ -114,7 +114,10 @@ fn a_non_finite_velocity_record_skips_the_whole_correction() {
             ..Default::default()
         };
 
-        assert_eq!(into_world_event(packet.into(), 0).unwrap(), None);
+        assert_eq!(
+            into_world_event(protocol::Packet::new(packet), 0).unwrap(),
+            None
+        );
     }
 }
 
@@ -135,7 +138,10 @@ fn non_finite_rotation_skips_the_whole_correction() {
             ..Default::default()
         };
 
-        assert_eq!(into_world_event(packet.into(), 0).unwrap(), None);
+        assert_eq!(
+            into_world_event(protocol::Packet::new(packet), 0).unwrap(),
+            None
+        );
     }
 }
 
@@ -151,7 +157,7 @@ fn non_finite_positions_stay_normalized_for_downstream_sentinel_recovery() {
     };
 
     let Some(WorldEvent::PlayerMovementCorrection(event)) =
-        into_world_event(packet.into(), 0).unwrap()
+        into_world_event(protocol::Packet::new(packet), 0).unwrap()
     else {
         panic!("position sentinels are resolved downstream, not dropped here")
     };

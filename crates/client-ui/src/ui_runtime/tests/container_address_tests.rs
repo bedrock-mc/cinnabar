@@ -58,7 +58,7 @@ fn server_ledger(player_runtime: &mut player_state::PlayerState, runtime: &mut U
 }
 
 fn decode_inventory_event(bytes: Vec<u8>) -> InventoryEvent {
-    let mut packets = decode_batch(bytes.into(), &BedrockSession { shield_item_id: 0 }).unwrap();
+    let mut packets = decode_batch(bytes.into()).unwrap();
     match into_world_event(packets.pop().unwrap(), 0).unwrap() {
         Some(WorldEvent::Inventory(event)) => event,
         other => panic!("expected inventory event, got {other:?}"),

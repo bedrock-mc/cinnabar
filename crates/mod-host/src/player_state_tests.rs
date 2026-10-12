@@ -381,3 +381,73 @@ fn chat_import_is_incremental_bounded_and_fifo() {
     );
     assert!(state.read_chat(15, 4).unwrap().unwrap().is_empty());
 }
+
+#[test]
+fn supplemental_facts_require_independent_grants_and_expire() {
+    let mut state = State::new(ModGrants::default(), String::new(), Default::default());
+    state.player_state.observations.ping_ms = Some(42);
+    assert!(state.read_ping().unwrap().is_err());
+    assert!(state.read_actors().unwrap().is_err());
+    state.grants.player_state = true;
+    assert_eq!(state.read_ping().unwrap().unwrap(), Some(42));
+    assert!(
+        state
+            .read_combat(0, (mod_api::MAX_COMBAT_READ_EVENTS + 1) as u32)
+            .unwrap()
+            .is_err()
+    );
+    state.player_state.clear_presentation();
+    assert_eq!(state.read_ping().unwrap().unwrap(), None);
+}
+
+#[test]
+fn remote_combat_statuses_obey_actor_grants_while_local_intent_remains_player_owned() {
+    let mut state = State::new(
+        ModGrants {
+            player_state: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    let event = |sequence, player, local, kind| crate::CombatObservation {
+        sequence,
+        session: 7,
+        dimension: 0,
+        player,
+        local,
+        kind,
+        runtime_id: sequence,
+        distance: None,
+        position: (0., 0., 0.),
+    };
+    state.player_state.observations.combat = vec![
+        event(1, true, false, crate::CombatKind::Hurt),
+        event(2, false, false, crate::CombatKind::Hurt),
+        event(3, true, true, crate::CombatKind::Hurt),
+        event(4, true, false, crate::CombatKind::AttackAdmitted),
+    ];
+    assert_eq!(
+        state
+            .read_combat(0, 4)
+            .unwrap()
+            .unwrap()
+            .iter()
+            .map(|event| event.sequence)
+            .collect::<Vec<_>>(),
+        vec![3, 4]
+    );
+    state.grants.players = true;
+    assert_eq!(
+        state
+            .read_combat(0, 4)
+            .unwrap()
+            .unwrap()
+            .iter()
+            .map(|event| event.sequence)
+            .collect::<Vec<_>>(),
+        vec![1, 3, 4]
+    );
+    state.grants.entities = true;
+    assert_eq!(state.read_combat(0, 4).unwrap().unwrap().len(), 4);
+}

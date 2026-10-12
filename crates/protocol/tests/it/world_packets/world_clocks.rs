@@ -37,7 +37,7 @@ fn world_clock_initialization_retains_server_identity_signed_time_pause_and_orde
     packet.encode(&mut bytes).expect("encode clocks");
     let decoded = SyncWorldClocksPacket::decode(&mut bytes.freeze(), ()).expect("decode clocks");
     assert_eq!(
-        into_world_event(decoded.into(), 2).unwrap(),
+        into_world_event(protocol::Packet::new(decoded), 2).unwrap(),
         Some(WorldEvent::WorldClocks(vec![
             WorldClockUpdateEvent::Initialize(WorldClockDefinition {
                 id: u64::MAX,
@@ -65,7 +65,7 @@ fn world_clock_state_sync_keeps_pause_separate_from_time_and_dimension() {
         }),
     };
     assert_eq!(
-        into_world_event(packet.into(), 1).unwrap(),
+        into_world_event(protocol::Packet::new(packet), 1).unwrap(),
         Some(WorldEvent::WorldClocks(vec![WorldClockUpdateEvent::Sync(
             WorldClockState {
                 id: 31,
@@ -100,7 +100,7 @@ fn world_clock_packet_names_never_substitute_for_the_native_hashed_identity() {
         ),
     };
     assert_eq!(
-        into_world_event(packet.into(), 0).unwrap(),
+        into_world_event(protocol::Packet::new(packet), 0).unwrap(),
         Some(WorldEvent::WorldClocks(vec![
             WorldClockUpdateEvent::Initialize(WorldClockDefinition {
                 id: foreign_id,
@@ -123,7 +123,10 @@ fn clock_markers_have_no_time_consumer_but_truncated_markers_are_wire_errors() {
         SyncWorldClocksPacketData::RemoveTimeMarkerData(Default::default()),
     ] {
         let packet = SyncWorldClocksPacket { data };
-        assert_eq!(into_world_event(packet.clone().into(), 0).unwrap(), None);
+        assert_eq!(
+            into_world_event(protocol::Packet::new(packet.clone()), 0).unwrap(),
+            None
+        );
         let mut bytes = BytesMut::new();
         packet.encode(&mut bytes).expect("encode markers");
         bytes.truncate(bytes.len() - 1);

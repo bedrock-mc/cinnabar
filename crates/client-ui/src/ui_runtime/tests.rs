@@ -6,7 +6,7 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions},
 };
 use protocol::{
-    BedrockSession, BlockCrackAction, BlockCrackEvent, BossAction as ProtocolBossAction,
+    BlockCrackAction, BlockCrackEvent, BossAction as ProtocolBossAction,
     BossColor as ProtocolBossColor, BossEvent, BossOverlay as ProtocolBossOverlay,
     BossStyle as ProtocolBossStyle, ChatAutocompleteAction as ProtocolAutocompleteAction,
     ChatAutocompleteEvent, CommandOutputEvent, CommandOutputMessage, HudEvent, ObjectiveEvent,
@@ -67,7 +67,7 @@ fn protocol_1001_raw_text_reaches_chat_store_as_human_text_not_json() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     const FIXTURE: &[u8] = include_bytes!("../../../protocol/fixtures/text_object_rawtext.bin");
-    let mut packets = decode_batch(FIXTURE.into(), &BedrockSession { shield_item_id: 0 }).unwrap();
+    let mut packets = decode_batch(FIXTURE.into()).unwrap();
     let event = match into_world_event(packets.pop().unwrap(), 0).unwrap() {
         Some(WorldEvent::Ui(event @ UiEvent::RawText(_))) => event,
         other => panic!("expected RawText UI event, got {other:?}"),
@@ -173,7 +173,7 @@ fn resolver_backed_raw_text_presents_human_text_instead_of_dropping_messages() {
 
     const FIXTURE: &[u8] =
         include_bytes!("../../../protocol/fixtures/text_object_whisper_rawtext.bin");
-    let mut packets = decode_batch(FIXTURE.into(), &BedrockSession { shield_item_id: 0 }).unwrap();
+    let mut packets = decode_batch(FIXTURE.into()).unwrap();
     let event = match into_world_event(packets.pop().unwrap(), 0).unwrap() {
         Some(WorldEvent::Ui(event @ UiEvent::RawText(_))) => event,
         other => panic!("expected RawText UI event, got {other:?}"),

@@ -4,6 +4,7 @@ pub mod form;
 pub mod model;
 pub mod progress;
 pub mod prompt;
+pub mod world;
 
 pub use form::{
     FLAT_WORLD_LABEL, MAX_SEED_CHARS, MAX_WORLD_NAME_CHARS, NORMAL_WORLD_LABEL, backend_label,

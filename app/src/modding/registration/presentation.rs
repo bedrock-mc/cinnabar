@@ -63,6 +63,11 @@ pub(super) fn refresh_presentation(world: &mut World) {
 
 /// Releases extension-owned surfaces and gameplay presentation policies.
 pub(super) fn clear_presentation(world: &mut World) {
+    if let Some(mut style) =
+        world.get_resource_mut::<client_presentation::actor_publication::ActorPresentationStyle>()
+    {
+        *style = Default::default();
+    }
     if let Some(mut physics) =
         world.get_resource_mut::<client_interaction::movement::LocalPhysicsController>()
     {

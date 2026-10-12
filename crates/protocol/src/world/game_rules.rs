@@ -1,6 +1,8 @@
 //! The world rules the client reads from StartGame and GameRulesChanged.
 
-use super::{GameData, GameRule, GameRuleRuleValue};
+use valentine::bedrock::version::v1_26_51::StartGamePacket;
+
+use super::{GameRule, GameRuleRuleValue};
 
 /// Reads the authoritative `doDaylightCycle` switch from a rule list.
 ///
@@ -40,9 +42,8 @@ pub(super) fn death_rules(rules: &[GameRule]) -> crate::DeathRules {
 
 impl crate::DeathRules {
     /// StartGame defaults: show death reasons and wait for a respawn press.
-    #[must_use]
-    pub fn from_game_data(game_data: &GameData) -> Self {
-        let rules = death_rules(&game_data.start_game.settings.rule_data.rules_list);
+    pub(crate) fn from_start_game(start_game: &StartGamePacket) -> Self {
+        let rules = death_rules(&start_game.settings.rule_data.rules_list);
         Self {
             show_messages: Some(rules.show_messages.unwrap_or(Self::DEFAULT_SHOW_MESSAGES)),
             immediate_respawn: Some(
@@ -63,9 +64,8 @@ pub(super) fn hud_rules(rules: &[GameRule]) -> crate::HudRules {
 
 impl crate::HudRules {
     /// StartGame's HUD rules; an absent rule reads as off, its vanilla default.
-    #[must_use]
-    pub fn from_game_data(game_data: &GameData) -> Self {
-        let rules = hud_rules(&game_data.start_game.settings.rule_data.rules_list);
+    pub(crate) fn from_start_game(start_game: &StartGamePacket) -> Self {
+        let rules = hud_rules(&start_game.settings.rule_data.rules_list);
         Self {
             show_coordinates: Some(rules.show_coordinates.unwrap_or(false)),
             show_days_played: Some(rules.show_days_played.unwrap_or(false)),

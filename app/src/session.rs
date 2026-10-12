@@ -125,6 +125,13 @@ impl SessionController {
         self.presence.as_ref()
     }
 
+    /// Endpoint directory of the live session core; unavailable during teardown.
+    pub(crate) fn socket_directory(&self) -> Option<&std::path::Path> {
+        self.directory
+            .as_ref()
+            .map(SessionDirectoryGuard::directory)
+    }
+
     pub(crate) fn status(&self) -> SessionStatus {
         SessionStatus {
             connecting: self.connecting,

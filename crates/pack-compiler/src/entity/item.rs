@@ -304,6 +304,7 @@ pub(super) fn compile(
                     .unwrap_or_else(ItemDisplayTransform::identity)
             };
             ItemVisualDefinition {
+                grip: assets::item::grip::builtin_item_grip(&key.identifier),
                 fuel: assets::item::fuel::builtin_item_fuel(&key.identifier),
                 durability: assets::item::durability::builtin_item_durability(&key.identifier),
                 armour: armour

@@ -94,6 +94,7 @@ fn owner_rig<'a>(
 fn held(identifier: &str) -> ActorEquipmentInput {
     ActorEquipmentInput {
         main: Some(WornItem {
+            grip: assets::item::grip::builtin_item_grip(identifier),
             identifier: Arc::from(identifier),
             metadata: 0,
             damage: None,
@@ -449,6 +450,7 @@ fn third_person_bow_publication_tracks_use_frames_duration_and_release() {
     let mut offhand = input.clone();
     offhand.off = offhand.main.take();
     offhand.main = Some(crate::presentation::equipment::WornItem {
+        grip: assets::item::grip::builtin_item_grip("minecraft:trident"),
         identifier: "minecraft:trident".into(),
         ..offhand.off.as_ref().unwrap().clone()
     });

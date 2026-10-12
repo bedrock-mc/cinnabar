@@ -18,6 +18,7 @@ use actor_animation::ActorLifetimeId;
 
 mod armour;
 mod durability;
+mod grip;
 
 pub const MAX_ITEM_REGISTRY_RECORDS: usize = 16_384;
 pub const MAX_PENDING_ITEM_RESOLUTIONS: usize = 1_024;
@@ -26,6 +27,8 @@ pub const MAX_EQUIPMENT_NOTICES: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalItemStack {
+    /// Grip resolved for the current numeric item registry generation.
+    pub grip: assets::item::grip::ItemGrip,
     pub identity: ItemStackIdentity,
     pub identifier: Option<Arc<str>>,
     pub visual: ItemVisualRoute,
@@ -41,6 +44,8 @@ pub struct CanonicalItemStack {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalItemRegistryRecord {
+    /// Descriptor after the current component payload has been admitted.
+    pub grip: assets::item::grip::ItemGrip,
     pub identifier: Arc<str>,
     pub network_id: i32,
     pub component_based: bool,
@@ -479,6 +484,7 @@ impl ItemStateStore {
     fn resolve_identity(&self, identity: ItemStackIdentity) -> CanonicalItemStack {
         if identity.is_empty() {
             return CanonicalItemStack {
+                grip: assets::item::grip::ItemGrip::Unresolved,
                 identity,
                 identifier: None,
                 visual: ItemVisualRoute::EmptyHand,
@@ -501,6 +507,10 @@ impl ItemStateStore {
             identity.block_runtime_id,
         );
         CanonicalItemStack {
+            grip: self
+                .registry
+                .get(&identity.network_id)
+                .map_or(Default::default(), |record| record.grip),
             identity,
             identifier,
             visual,
@@ -616,6 +626,7 @@ fn registry_record(
     assets: Option<&RuntimeEntityAssets>,
 ) -> CanonicalItemRegistryRecord {
     CanonicalItemRegistryRecord {
+        grip: grip::resolve(entry, assets),
         identifier: Arc::clone(&entry.identifier),
         network_id: entry.network_id,
         component_based: entry.component_based,

@@ -60,10 +60,9 @@ fn full_charge_persists_until_another_press_fires_without_recharging() {
     let expected =
         protocol::click_air_packet(held_request(idle.selection.as_ref().unwrap(), &idle), None)
             .unwrap();
-    let session = protocol::BedrockSession { shield_item_id: 0 };
     assert_eq!(
-        protocol::encode(&fired.packets[0], &session).unwrap(),
-        protocol::encode(&expected, &session).unwrap()
+        protocol::encode(&fired.packets[0]).unwrap(),
+        protocol::encode(&expected).unwrap()
     );
     runtime.observe_press(true);
     assert!(runtime.step(&crossbow(44, true)).started);
@@ -253,7 +252,7 @@ fn rejected_early_release_does_not_become_a_completed_charge() {
     let (ready, _open) = AdmissionQueue::with_command_capacity(1);
     step_and_send(&mut runtime, &mut swings, &delayed, 7, 6, |packets| {
         assert_eq!(packets.len(), 1);
-        assert!(wire(&packets[0]).contains("action_type: Release"));
+        assert_eq!(use_kind(&wire(&packets[0])), "release");
         ready.send_inventory_packets(packets)
     });
     assert_eq!(ready.pending_command_count(), 1);

@@ -23,4 +23,6 @@ const (
 	SessionKindDisconnect = 6
 	// SessionPackChunkBytes: Archive bytes in one resource-pack data frame.
 	SessionPackChunkBytes = 4194304
+	// HostedWorldMaxPlayers: Vanilla's player limit for a hosted local world, the host included.
+	HostedWorldMaxPlayers = 8
 )

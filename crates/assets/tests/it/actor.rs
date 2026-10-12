@@ -157,6 +157,7 @@ fn entities() -> Box<[u8]> {
         }]
         .into(),
         symbols: vec![EntityAssetSymbol {
+            mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
             kind: EntityAssetKind::Entity,
             identifier: "minecraft:example".into(),
             source_index: 0,

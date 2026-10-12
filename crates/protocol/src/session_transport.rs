@@ -101,7 +101,7 @@ impl SessionTransport {
             }
         };
         self.ended = true;
-        crate::codec::encode(&packet, &crate::BedrockSession { shield_item_id: 0 })
+        crate::codec::encode(&packet)
             .map(TransportRecvMessage::Contiguous)
             .map_err(|_| BridgeError::InvalidSessionMessage {
                 reason: "terminal message does not encode",

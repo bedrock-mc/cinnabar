@@ -1,7 +1,7 @@
 //! Exact local vanilla BDS pickup body, captured 2026-10-02. No assets or tokens.
 
 use bytes::{Buf, Bytes, BytesMut};
-use valentine::bedrock::{context::BedrockSession, version::v1_26_51::*};
+use valentine::bedrock::version::v1_26_51::*;
 
 use crate::{InventoryEvent, WorldEvent};
 
@@ -33,8 +33,7 @@ fn raw(body: &[u8]) -> jolyne::raw::RawPacket {
 
 #[test]
 fn vanilla_bds_pickup_enters_raw_ingress_with_absolute_count_id_and_extra() {
-    let session = BedrockSession { shield_item_id: 0 };
-    let event = super::decode_world_raw_with(raw(&pickup_body()), 0, |raw| raw.decode(&session))
+    let event = super::decode_world_raw_with(raw(&pickup_body()), 0, super::decode_test_raw)
         .unwrap()
         .expect("normal transaction is admitted");
     let WorldEvent::Inventory(InventoryEvent::Transaction(transaction)) = event else {
@@ -61,12 +60,10 @@ fn vanilla_bds_pickup_enters_raw_ingress_with_absolute_count_id_and_extra() {
 
 #[test]
 fn truncated_pickup_is_a_fatal_wire_fault() {
-    let session = BedrockSession { shield_item_id: 0 };
     let body = pickup_body();
     for length in 0..body.len() {
-        let error =
-            super::decode_world_raw_with(raw(&body[..length]), 0, |raw| raw.decode(&session))
-                .expect_err("truncation cannot become semantic skip");
+        let error = super::decode_world_raw_with(raw(&body[..length]), 0, super::decode_test_raw)
+            .expect_err("truncation cannot become semantic skip");
         let mut skipped = 0;
         assert!(
             super::skip_semantic_world_error(error, &mut skipped).is_err(),
@@ -78,10 +75,8 @@ fn truncated_pickup_is_a_fatal_wire_fault() {
 
 #[test]
 fn trailing_pickup_bytes_are_a_fatal_wire_fault() {
-    let session = BedrockSession { shield_item_id: 0 };
     let mut body = pickup_body();
     body.push(0);
-    let error =
-        super::decode_world_raw_with(raw(&body), 0, |raw| raw.decode(&session)).unwrap_err();
+    let error = super::decode_world_raw_with(raw(&body), 0, super::decode_test_raw).unwrap_err();
     assert!(super::skip_semantic_world_error(error, &mut 0).is_err());
 }

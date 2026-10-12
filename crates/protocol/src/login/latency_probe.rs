@@ -11,11 +11,12 @@ pub const fn scaled_creation_time(creation_time: u64) -> u64 {
 /// Builds the echo after preceding world controls have been applied.
 #[must_use]
 pub fn network_stack_latency_reply(creation_time: u64) -> crate::Packet {
-    valentine::bedrock::version::v1_26_51::NetworkStackLatencyPacket {
-        creation_time: scaled_creation_time(creation_time),
-        is_from_server: true,
-    }
-    .into()
+    crate::Packet::new(
+        valentine::bedrock::version::v1_26_51::NetworkStackLatencyPacket {
+            creation_time: scaled_creation_time(creation_time),
+            is_from_server: true,
+        },
+    )
 }
 
 #[cfg(test)]

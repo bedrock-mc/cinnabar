@@ -11,11 +11,11 @@ mod weather_cycle;
 mod world_clocks;
 use protocol::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent, DimensionRange,
-    GameData, GameRulesEvent, HASHED_AIR_NETWORK_ID, HudRules, LevelChunkMode,
-    MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent,
-    SEQUENTIAL_AIR_NETWORK_ID, SetTimeEvent, SubChunkResult, WeatherChannel, WeatherUpdateEvent,
-    WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id,
-    into_world_event, request_sub_chunk_column, vanilla_dimension_range,
+    GameRulesEvent, HASHED_AIR_NETWORK_ID, HudRules, LevelChunkMode, MAX_BIOME_DEFINITIONS,
+    MAX_BIOME_NAME_BYTES, MAX_SUB_CHUNK_REQUESTS, MovePlayerEvent, SEQUENTIAL_AIR_NETWORK_ID,
+    SetTimeEvent, SubChunkResult, WeatherChannel, WeatherUpdateEvent, WorldBootstrap,
+    WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id, into_world_event,
+    request_sub_chunk_column, vanilla_dimension_range,
 };
 use valentine::bedrock::codec::{BedrockCodec, BedrockSized};
 use valentine::bedrock::version::v1_26_51::{
@@ -79,8 +79,8 @@ fn biome_packet(
 #[path = "world_packets/seasonal_biomes.rs"]
 mod seasonal_biomes;
 
-fn game_data() -> GameData {
-    GameData {
+fn game_data() -> jolyne::GameData {
+    jolyne::GameData {
         start_game: Default::default(),
         item_registry: Default::default(),
         biome_definitions: None,
@@ -112,7 +112,9 @@ fn biome_definition_ids_preserve_the_u16_wire_contract() {
         ],
     );
 
-    let WorldEvent::BiomeDefinitions(event) = into_world_event(packet.into(), 0).unwrap().unwrap()
+    let WorldEvent::BiomeDefinitions(event) = into_world_event(protocol::Packet::new(packet), 0)
+        .unwrap()
+        .unwrap()
     else {
         panic!("expected biome definitions")
     };
@@ -128,7 +130,9 @@ fn normalizes_live_biomes_by_name_without_synthesizing_packet_order_ids() {
         vec!["violet_marsh".into(), "plains".into()],
     );
 
-    let event = into_world_event(packet.into(), 0).unwrap().unwrap();
+    let event = into_world_event(protocol::Packet::new(packet), 0)
+        .unwrap()
+        .unwrap();
     assert_eq!(
         event,
         WorldEvent::BiomeDefinitions(BiomeDefinitionsEvent {
@@ -178,7 +182,7 @@ fn rejects_invalid_or_unbounded_live_biome_definitions() {
         vec!["minecraft:plains".into()],
     );
     assert_eq!(
-        into_world_event(invalid_index.into(), 0).unwrap_err(),
+        into_world_event(protocol::Packet::new(invalid_index), 0).unwrap_err(),
         WorldPacketError::InvalidBiomeNameIndex {
             index: -1,
             string_count: 1,
@@ -190,7 +194,7 @@ fn rejects_invalid_or_unbounded_live_biome_definitions() {
         vec!["x".repeat(MAX_BIOME_NAME_BYTES + 1)],
     );
     assert_eq!(
-        into_world_event(long_name.into(), 0).unwrap_err(),
+        into_world_event(protocol::Packet::new(long_name), 0).unwrap_err(),
         WorldPacketError::BiomeNameTooLong {
             bytes: MAX_BIOME_NAME_BYTES + 1,
             max: MAX_BIOME_NAME_BYTES,
@@ -201,7 +205,7 @@ fn rejects_invalid_or_unbounded_live_biome_definitions() {
     non_finite.value.downfall = f32::NAN;
     let non_finite = biome_packet(vec![non_finite], vec!["minecraft:plains".into()]);
     assert_eq!(
-        into_world_event(non_finite.into(), 0).unwrap_err(),
+        into_world_event(protocol::Packet::new(non_finite), 0).unwrap_err(),
         WorldPacketError::NonFiniteBiomeClimate {
             definition: 0,
             field: "downfall",
@@ -213,7 +217,7 @@ fn rejects_invalid_or_unbounded_live_biome_definitions() {
         vec!["minecraft:plains".into()],
     );
     assert_eq!(
-        into_world_event(oversized.into(), 0).unwrap_err(),
+        into_world_event(protocol::Packet::new(oversized), 0).unwrap_err(),
         WorldPacketError::TooManyBiomeDefinitions {
             count: MAX_BIOME_DEFINITIONS + 1,
             max: MAX_BIOME_DEFINITIONS,
@@ -261,7 +265,7 @@ fn normalizes_start_game_bootstrap_without_generated_types() {
     game_data.start_game.block_network_ids_are_hashes = true;
 
     assert_eq!(
-        WorldBootstrap::from_game_data(&game_data),
+        WorldBootstrap::from_start_game(&game_data.start_game),
         WorldBootstrap {
             dimension: 1,
             local_player_runtime_id: 0x1_0000_0001,
@@ -273,7 +277,7 @@ fn normalizes_start_game_bootstrap_without_generated_types() {
         }
     );
     assert_eq!(
-        WorldEnvironmentBootstrap::from_game_data(&game_data),
+        WorldEnvironmentBootstrap::from_start_game(&game_data.start_game),
         WorldEnvironmentBootstrap {
             initial_time: 123_456,
             day_cycle_lock_time: 18_000,
@@ -291,7 +295,7 @@ fn start_game_daylight_cycle_defaults_enabled_and_requires_a_boolean_rule() {
     game_data.start_game.level_current_time = 6_000;
     game_data.start_game.settings.day_cycle_stop_time = 0;
 
-    let bootstrap = WorldEnvironmentBootstrap::from_game_data(&game_data);
+    let bootstrap = WorldEnvironmentBootstrap::from_start_game(&game_data.start_game);
     assert_eq!(bootstrap.initial_time, 6_000);
     assert_eq!(bootstrap.day_cycle_lock_time, 0);
     assert!(
@@ -312,7 +316,7 @@ fn start_game_daylight_cycle_defaults_enabled_and_requires_a_boolean_rule() {
             rule_value: GameRuleRuleValue::Int32(0),
         });
     assert!(
-        WorldEnvironmentBootstrap::from_game_data(&game_data).daylight_cycle_enabled,
+        WorldEnvironmentBootstrap::from_start_game(&game_data.start_game).daylight_cycle_enabled,
         "a non-boolean rule with the same name is not an authoritative cycle switch"
     );
 }
@@ -322,13 +326,13 @@ fn clamps_initial_weather_levels_and_fails_non_finite_values_closed() {
     let mut game_data = game_data();
     game_data.start_game.settings.rain_level = -0.25;
     game_data.start_game.settings.lightning_level = 1.25;
-    let bootstrap = WorldEnvironmentBootstrap::from_game_data(&game_data);
+    let bootstrap = WorldEnvironmentBootstrap::from_start_game(&game_data.start_game);
     assert_eq!(bootstrap.rain_level, 0.0);
     assert_eq!(bootstrap.lightning_level, 1.0);
 
     game_data.start_game.settings.rain_level = f32::NAN;
     game_data.start_game.settings.lightning_level = f32::INFINITY;
-    let bootstrap = WorldEnvironmentBootstrap::from_game_data(&game_data);
+    let bootstrap = WorldEnvironmentBootstrap::from_start_game(&game_data.start_game);
     assert_eq!(bootstrap.rain_level, 0.0);
     assert_eq!(bootstrap.lightning_level, 0.0);
 }
@@ -354,7 +358,7 @@ fn normalizes_move_player_to_the_bounded_world_surface() {
     };
 
     assert_eq!(
-        into_world_event(packet.into(), 2).unwrap(),
+        into_world_event(protocol::Packet::new(packet), 2).unwrap(),
         Some(WorldEvent::MovePlayer(MovePlayerEvent {
             runtime_id: 73,
             position: [-12.25, 65.5, 4096.75],
@@ -403,7 +407,7 @@ fn move_player_rejects_every_non_finite_pose_field_and_recovers_for_valid_input(
                 _ => unreachable!("the field table has six entries"),
             }
 
-            let error = into_world_event(packet.into(), 0)
+            let error = into_world_event(protocol::Packet::new(packet), 0)
                 .expect_err("non-finite move player pose must be rejected");
             assert!(matches!(
                 error,
@@ -427,7 +431,7 @@ fn move_player_rejects_every_non_finite_pose_field_and_recovers_for_valid_input(
         ..Default::default()
     };
     assert!(matches!(
-        into_world_event(valid.into(), 0),
+        into_world_event(protocol::Packet::new(valid), 0),
         Ok(Some(WorldEvent::MovePlayer(_)))
     ));
 }
@@ -455,7 +459,7 @@ fn move_player_normalization_preserves_mode_tick_head_yaw_and_ground() {
     };
 
     assert_eq!(
-        into_world_event(packet.into(), 2).unwrap(),
+        into_world_event(protocol::Packet::new(packet), 2).unwrap(),
         Some(WorldEvent::MovePlayer(MovePlayerEvent {
             runtime_id: 73,
             position: [-12.25, 65.5, 4096.75],
@@ -500,7 +504,8 @@ fn move_player_modes_map_onto_the_renamed_position_mode_variants() {
             position_mode: wire,
             ..Default::default()
         };
-        let Some(WorldEvent::MovePlayer(event)) = into_world_event(packet.into(), 0).unwrap()
+        let Some(WorldEvent::MovePlayer(event)) =
+            into_world_event(protocol::Packet::new(packet), 0).unwrap()
         else {
             panic!("expected a move player event")
         };
@@ -545,7 +550,7 @@ fn move_player_uses_varuint64_for_runtime_and_ridden_ids_above_u32() {
     assert!(!encoded.has_remaining());
 
     assert_eq!(
-        into_world_event(decoded.into(), 0).unwrap(),
+        into_world_event(protocol::Packet::new(decoded), 0).unwrap(),
         Some(WorldEvent::MovePlayer(MovePlayerEvent {
             runtime_id: RUNTIME_ID,
             position: [1.0, 2.0, 3.0],
@@ -656,7 +661,9 @@ fn normalizes_inline_and_request_mode_level_chunks() {
         serialized_chunk_data: vec![1, 2, 3],
         ..Default::default()
     };
-    let event = into_world_event(inline.into(), 0).unwrap().unwrap();
+    let event = into_world_event(protocol::Packet::new(inline), 0)
+        .unwrap()
+        .unwrap();
     let WorldEvent::LevelChunk(event) = event else {
         panic!("expected LevelChunk event")
     };
@@ -675,7 +682,9 @@ fn normalizes_inline_and_request_mode_level_chunks() {
         client_request_sub_chunk_limit: Some(8),
         ..Default::default()
     };
-    let WorldEvent::LevelChunk(event) = into_world_event(limited.into(), 0).unwrap().unwrap()
+    let WorldEvent::LevelChunk(event) = into_world_event(protocol::Packet::new(limited), 0)
+        .unwrap()
+        .unwrap()
     else {
         panic!("expected LevelChunk event")
     };
@@ -685,7 +694,9 @@ fn normalizes_inline_and_request_mode_level_chunks() {
         client_request_sub_chunk_limit: Some(-1),
         ..Default::default()
     };
-    let WorldEvent::LevelChunk(event) = into_world_event(limitless.into(), 0).unwrap().unwrap()
+    let WorldEvent::LevelChunk(event) = into_world_event(protocol::Packet::new(limitless), 0)
+        .unwrap()
+        .unwrap()
     else {
         panic!("expected LevelChunk event")
     };
@@ -699,7 +710,7 @@ fn rejects_malformed_or_cached_level_chunks() {
         ..Default::default()
     };
     assert_eq!(
-        into_world_event(malformed.into(), 0),
+        into_world_event(protocol::Packet::new(malformed), 0),
         Err(WorldPacketError::InvalidSubChunkCount(-3))
     );
 
@@ -711,7 +722,7 @@ fn rejects_malformed_or_cached_level_chunks() {
         ..Default::default()
     };
     assert_eq!(
-        into_world_event(cached.into(), 0),
+        into_world_event(protocol::Packet::new(cached), 0),
         Err(WorldPacketError::CachedChunksUnsupported)
     );
 
@@ -723,9 +734,10 @@ fn rejects_malformed_or_cached_level_chunks() {
         serialized_chunk_data: vec![0; 3],
         ..Default::default()
     };
-    let WorldEvent::LevelChunk(event) = into_world_event(taller_than_overworld.into(), 0)
-        .unwrap()
-        .unwrap()
+    let WorldEvent::LevelChunk(event) =
+        into_world_event(protocol::Packet::new(taller_than_overworld), 0)
+            .unwrap()
+            .unwrap()
     else {
         panic!("expected LevelChunk event")
     };
@@ -736,9 +748,10 @@ fn rejects_malformed_or_cached_level_chunks() {
         subchunks_count: (MAX_SUB_CHUNK_REQUESTS + 1) as u32,
         ..Default::default()
     };
-    let WorldEvent::LevelChunk(event) = into_world_event(over_request_bound.into(), 0)
-        .unwrap()
-        .unwrap()
+    let WorldEvent::LevelChunk(event) =
+        into_world_event(protocol::Packet::new(over_request_bound), 0)
+            .unwrap()
+            .unwrap()
     else {
         panic!("expected LevelChunk event")
     };
@@ -796,7 +809,10 @@ fn resolves_non_cached_sub_chunk_entries_to_absolute_keys() {
         ..Default::default()
     };
 
-    let WorldEvent::SubChunks(batch) = into_world_event(packet.into(), 0).unwrap().unwrap() else {
+    let WorldEvent::SubChunks(batch) = into_world_event(protocol::Packet::new(packet), 0)
+        .unwrap()
+        .unwrap()
+    else {
         panic!("expected SubChunks event")
     };
     assert_eq!(batch.dimension, 2);
@@ -831,7 +847,7 @@ fn rejects_cached_sub_chunks_and_checked_origin_overflow() {
         ..Default::default()
     };
     assert_eq!(
-        into_world_event(cached.into(), 0),
+        into_world_event(protocol::Packet::new(cached), 0),
         Err(WorldPacketError::CachedChunksUnsupported)
     );
 
@@ -849,7 +865,7 @@ fn rejects_cached_sub_chunks_and_checked_origin_overflow() {
         ..Default::default()
     };
     assert_eq!(
-        into_world_event(overflow.into(), 0),
+        into_world_event(protocol::Packet::new(overflow), 0),
         Err(WorldPacketError::SubChunkPositionOverflow {
             origin: [i32::MAX, 0, 0],
             offset: [1, 0, 0],
@@ -869,7 +885,9 @@ fn normalizes_single_and_batched_block_updates_with_layers() {
         flags: 0,
         layer: 1,
     };
-    let WorldEvent::BlockUpdates(updates) = into_world_event(single.into(), 2).unwrap().unwrap()
+    let WorldEvent::BlockUpdates(updates) = into_world_event(protocol::Packet::new(single), 2)
+        .unwrap()
+        .unwrap()
     else {
         panic!("expected BlockUpdates event")
     };
@@ -891,8 +909,9 @@ fn normalizes_single_and_batched_block_updates_with_layers() {
             blocks_changed_extras: vec![entry(17, -63, -31, 5)],
         },
     };
-    let WorldEvent::SyncedBlockUpdates(updates) =
-        into_world_event(batch.into(), 0).unwrap().unwrap()
+    let WorldEvent::SyncedBlockUpdates(updates) = into_world_event(protocol::Packet::new(batch), 0)
+        .unwrap()
+        .unwrap()
     else {
         panic!("expected BlockUpdates event")
     };
@@ -911,18 +930,19 @@ fn rejects_negative_or_excessive_update_layers() {
         ..Default::default()
     };
     assert_eq!(
-        into_world_event(packet.into(), 0),
+        into_world_event(protocol::Packet::new(packet), 0),
         Err(WorldPacketError::InvalidBlockLayer(layer))
     );
 }
 
 #[test]
 fn normalizes_streaming_radius_publisher_and_dimension_events() {
-    let WorldEvent::ChunkRadiusUpdated(radius) =
-        into_world_event(ChunkRadiusUpdatedPacket { chunk_radius: 16 }.into(), 0)
-            .unwrap()
-            .unwrap()
-    else {
+    let WorldEvent::ChunkRadiusUpdated(radius) = into_world_event(
+        protocol::Packet::new(ChunkRadiusUpdatedPacket { chunk_radius: 16 }),
+        0,
+    )
+    .unwrap()
+    .unwrap() else {
         panic!("expected radius event")
     };
     assert_eq!(radius, 16);
@@ -936,8 +956,9 @@ fn normalizes_streaming_radius_publisher_and_dimension_events() {
         newradiusforview: 256,
         ..Default::default()
     };
-    let WorldEvent::PublisherUpdate(update) =
-        into_world_event(publisher.into(), 0).unwrap().unwrap()
+    let WorldEvent::PublisherUpdate(update) = into_world_event(protocol::Packet::new(publisher), 0)
+        .unwrap()
+        .unwrap()
     else {
         panic!("expected publisher event")
     };
@@ -954,8 +975,9 @@ fn normalizes_streaming_radius_publisher_and_dimension_events() {
         respawn: true,
         loading_screen_id: Some(0),
     };
-    let WorldEvent::ChangeDimension(change) =
-        into_world_event(dimension.into(), 0).unwrap().unwrap()
+    let WorldEvent::ChangeDimension(change) = into_world_event(protocol::Packet::new(dimension), 0)
+        .unwrap()
+        .unwrap()
     else {
         panic!("expected dimension event")
     };
@@ -969,7 +991,7 @@ fn normalizes_streaming_radius_publisher_and_dimension_events() {
 fn normalizes_post_spawn_set_time() {
     let packet = SetTimePacket { time: 6000 };
     assert_eq!(
-        into_world_event(packet.into(), 0).unwrap(),
+        into_world_event(protocol::Packet::new(packet), 0).unwrap(),
         Some(WorldEvent::SetTime(SetTimeEvent { time: 6000 }))
     );
 }
@@ -988,7 +1010,9 @@ fn normalizes_respawn_as_a_local_position_authority_change() {
             actor_runtime_id: 42,
         },
     };
-    let Some(WorldEvent::Respawn(respawn)) = into_world_event(packet.into(), 0).unwrap() else {
+    let Some(WorldEvent::Respawn(respawn)) =
+        into_world_event(protocol::Packet::new(packet), 0).unwrap()
+    else {
         panic!("expected respawn position-authority event")
     };
     assert_eq!(respawn.position, [8.5, 71.620_01, -4.25]);
@@ -1000,7 +1024,9 @@ fn normalizes_respawn_as_a_local_position_authority_change() {
         state: RespawnPacketState::Unknown(9),
         ..Default::default()
     };
-    let Some(WorldEvent::Respawn(respawn)) = into_world_event(odd_state.into(), 0).unwrap() else {
+    let Some(WorldEvent::Respawn(respawn)) =
+        into_world_event(protocol::Packet::new(odd_state), 0).unwrap()
+    else {
         panic!("expected respawn position-authority event")
     };
     assert_eq!(respawn.state, 9);
@@ -1022,7 +1048,7 @@ fn normalizes_only_boolean_daylight_cycle_rule_changes_case_insensitively() {
         },
     };
     assert_eq!(
-        into_world_event(packet.into(), 0).unwrap(),
+        into_world_event(protocol::Packet::new(packet), 0).unwrap(),
         Some(WorldEvent::GameRules(GameRulesEvent {
             daylight_cycle: Some(DaylightCycleUpdateEvent { enabled: false }),
             weather_cycle: None,
@@ -1040,7 +1066,10 @@ fn normalizes_only_boolean_daylight_cycle_rule_changes_case_insensitively() {
             }],
         },
     };
-    assert_eq!(into_world_event(wrong_type.into(), 0).unwrap(), None);
+    assert_eq!(
+        into_world_event(protocol::Packet::new(wrong_type), 0).unwrap(),
+        None
+    );
 }
 
 #[test]
@@ -1054,7 +1083,7 @@ fn normalizes_the_hud_text_rules_beside_the_daylight_cycle() {
         },
     };
     assert_eq!(
-        into_world_event(packet.into(), 0).unwrap(),
+        into_world_event(protocol::Packet::new(packet), 0).unwrap(),
         Some(WorldEvent::GameRules(GameRulesEvent {
             daylight_cycle: None,
             weather_cycle: None,
@@ -1067,7 +1096,7 @@ fn normalizes_the_hud_text_rules_beside_the_daylight_cycle() {
     );
     let mut game_data = game_data();
     assert_eq!(
-        HudRules::from_game_data(&game_data),
+        HudRules::from_start_game(&game_data.start_game),
         HudRules {
             show_coordinates: Some(false),
             show_days_played: Some(false),
@@ -1081,7 +1110,7 @@ fn normalizes_the_hud_text_rules_beside_the_daylight_cycle() {
         .rules_list
         .push(bool_rule("showcoordinates", true));
     assert_eq!(
-        HudRules::from_game_data(&game_data).show_coordinates,
+        HudRules::from_start_game(&game_data.start_game).show_coordinates,
         Some(true)
     );
 }
@@ -1126,7 +1155,7 @@ fn normalizes_weather_level_events_to_explicit_channel_targets() {
             ..Default::default()
         };
         assert_eq!(
-            into_world_event(packet.into(), 0).unwrap(),
+            into_world_event(protocol::Packet::new(packet), 0).unwrap(),
             Some(WorldEvent::Weather(expected))
         );
     }
@@ -1139,13 +1168,16 @@ fn ignores_level_events_without_normalized_world_state() {
         event_id: 9_801,
         ..Default::default()
     };
-    assert_eq!(into_world_event(packet.into(), 0).unwrap(), None);
+    assert_eq!(
+        into_world_event(protocol::Packet::new(packet), 0).unwrap(),
+        None
+    );
     let click = LevelEventPacket {
         event_id: LEVEL_EVENT_SOUND_CLICK,
         ..Default::default()
     };
     assert!(matches!(
-        into_world_event(click.into(), 0).unwrap(),
+        into_world_event(protocol::Packet::new(click), 0).unwrap(),
         Some(WorldEvent::Audio(_))
     ));
 }

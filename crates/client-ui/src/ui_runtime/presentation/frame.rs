@@ -46,6 +46,7 @@ impl UiPresentationRuntime {
         physical_size: [u32; 2],
         dpi_scale: DpiScale,
     ) -> Result<UiRenderInput, UiPresentationError> {
+        self.hud_frame.mount_equipment = runtime.screen_state().mount_equipment;
         #[cfg(feature = "tracy")]
         let _build_span = bevy::log::info_span!("ui.build").entered();
         dynamic_textures::observe_session(self, runtime.session_id());

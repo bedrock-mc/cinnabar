@@ -14,7 +14,7 @@ fn biome_snow_accumulation_preserves_optional_wire_climate_and_ignores_nonfinite
                 ..Default::default()
             });
         let WorldEvent::BiomeDefinitions(event) = into_world_event(
-            biome_packet(vec![definition], vec!["custom:snow".into()]).into(),
+            protocol::Packet::new(biome_packet(vec![definition], vec!["custom:snow".into()])),
             0,
         )
         .unwrap()

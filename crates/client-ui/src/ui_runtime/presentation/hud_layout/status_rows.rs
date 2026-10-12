@@ -348,10 +348,56 @@ fn armor(runtime: &UiRuntime, rows: &HeartRows) -> Vec<Cell> {
 pub struct HungerPaint {
     current: u32,
     saturation_empty: bool,
+    saturation_overlay: Option<u32>,
+    food_preview: Option<u32>,
+    food_saturation_preview: Option<u32>,
+    overlay_color: [u8; 4],
     sprites: Option<[&'static str; 3]>,
 }
 
 impl HungerPaint {
+    /// Applies known food values to the exact native hunger renderer, including pack relocation.
+    pub fn set_overlay(
+        &mut self,
+        style: &ui::mod_hud::HungerOverlay,
+        saturation: Option<f32>,
+        food: Option<&protocol::FoodProperties>,
+    ) {
+        if self.sprites.is_none() {
+            return;
+        }
+        let mut color = style.color.unwrap_or([1.; 4]);
+        if style.inverse_color {
+            for component in &mut color[..3] {
+                *component = 1. - *component;
+            }
+        }
+        self.overlay_color = color.map(|component| (component.clamp(0., 1.) * 255.).round() as u8);
+        self.saturation_overlay = style
+            .saturation
+            .then_some(saturation)
+            .flatten()
+            .filter(|value| value.is_finite() && *value >= 0.)
+            .map(|value| value.ceil().min(20.) as u32);
+        self.food_preview = style
+            .potential_hunger
+            .unwrap_or(style.held_food)
+            .then_some(food)
+            .flatten()
+            .map(|food| self.current.saturating_add(food.nutrition()).min(20));
+        self.food_saturation_preview = style
+            .potential_saturation
+            .unwrap_or(style.held_food)
+            .then_some(food)
+            .flatten()
+            .zip(saturation)
+            .filter(|(_, value)| value.is_finite() && *value >= 0.)
+            .map(|(food, current)| {
+                (current + food.nutrition() as f32 * food.saturation_modifier() * 2.)
+                    .min(self.current.saturating_add(food.nutrition()).min(20) as f32)
+                    .ceil() as u32
+            });
+    }
     /// Texture candidates do not depend on a control's animation phase.
     pub fn textures(&self) -> impl Iterator<Item = &str> {
         self.sprites.iter().flatten().copied()
@@ -362,7 +408,7 @@ impl HungerPaint {
         let shaking = hunger_shakes(self.saturation_empty, self.current, updates);
         (0..10u32).flat_map(move |index| {
             let Some([background, full, half]) = self.sprites else {
-                return [None, None].into_iter().flatten();
+                return [None, None, None, None, None].into_iter().flatten();
             };
             let y = if shaking {
                 hunger_shake_offset(index, updates)
@@ -378,6 +424,38 @@ impl HungerPaint {
             [
                 Some(Cell::icon(at, background)),
                 foreground.map(|texture| Cell::icon(at, texture)),
+                self.food_preview
+                    .filter(|preview| *preview > self.current && *preview > index * 2)
+                    .map(|preview| {
+                        let mut cell =
+                            Cell::icon(at, if preview - index * 2 == 1 { half } else { full });
+                        cell.alpha = 110;
+                        cell
+                    }),
+                self.saturation_overlay
+                    .filter(|points| *points > index * 2)
+                    .map(|points| {
+                        let mut cell =
+                            Cell::icon(at, if points - index * 2 == 1 { half } else { full });
+                        cell.at[1] -= 2.;
+                        cell.size = [9., 3.];
+                        cell.tint = self.overlay_color[..3].try_into().unwrap();
+                        cell.alpha = (u16::from(self.overlay_color[3]) * 180 / 255) as u8;
+                        cell
+                    }),
+                self.food_saturation_preview
+                    .filter(|points| {
+                        *points > index * 2 && *points > self.saturation_overlay.unwrap_or(0)
+                    })
+                    .map(|points| {
+                        let mut cell =
+                            Cell::icon(at, if points - index * 2 == 1 { half } else { full });
+                        cell.at[1] -= 4.;
+                        cell.size = [9., 2.];
+                        cell.tint = self.overlay_color[..3].try_into().unwrap();
+                        cell.alpha = (u16::from(self.overlay_color[3]) * 110 / 255) as u8;
+                        cell
+                    }),
             ]
             .into_iter()
             .flatten()
@@ -411,6 +489,10 @@ fn hunger(runtime: &UiRuntime, now_tick: Option<u64>) -> HungerPaint {
         ]
     };
     HungerPaint {
+        saturation_overlay: None,
+        overlay_color: [255; 4],
+        food_preview: None,
+        food_saturation_preview: None,
         current,
         saturation_empty: runtime.gameplay_hud().saturation_empty(),
         sprites: Some(roles.map(path)),
@@ -509,3 +591,42 @@ fn effects(runtime: &UiRuntime, now_tick: Option<u64>) -> Vec<Cell> {
 
 #[cfg(test)]
 mod absorption_tests;
+
+#[cfg(test)]
+mod food_overlay_tests {
+    use super::*;
+    #[test]
+    fn independent_previews_and_inverse_tint_preserve_native_hunger() {
+        let mut paint = HungerPaint {
+            current: 8,
+            saturation_empty: false,
+            saturation_overlay: None,
+            food_preview: None,
+            food_saturation_preview: None,
+            overlay_color: [255; 4],
+            sprites: Some(["empty", "full", "half"]),
+        };
+        let style: ui::mod_hud::HungerOverlay = serde_json::from_value(serde_json::json!({"saturation":true,"held_food":true,"potential_hunger":false,"potential_saturation":true,"color":[1.,0.25,0.,0.5],"inverse_color":true})).unwrap();
+        paint.set_overlay(
+            &style,
+            Some(2.),
+            protocol::FoodProperties::new(4, 0.3).as_ref(),
+        );
+        assert!(paint.food_preview.is_none());
+        assert_eq!(paint.food_saturation_preview, Some(5));
+        let cells: Vec<_> = paint.cells(0).collect();
+        assert_eq!(cells[0].tint, [255; 3]);
+        let saturation = cells.iter().find(|cell| cell.size == [9., 3.]).unwrap();
+        assert_eq!(saturation.tint, [0, 191, 255]);
+        assert_eq!(saturation.alpha, 90);
+        let legacy: ui::mod_hud::HungerOverlay =
+            serde_json::from_value(serde_json::json!({"held_food":true})).unwrap();
+        paint.set_overlay(
+            &legacy,
+            Some(2.),
+            protocol::FoodProperties::new(4, 0.3).as_ref(),
+        );
+        assert_eq!(paint.food_preview, Some(12));
+        assert_eq!(paint.food_saturation_preview, Some(5));
+    }
+}

@@ -414,6 +414,7 @@ fn assert_controller_entry_effects_survive_deactivation(nested: bool) {
             symbols.insert(
                 4,
                 assets::EntityAssetSymbol {
+                    mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
                     kind: assets::EntityAssetKind::AnimationController,
                     identifier: "controller.animation.wrapper".into(),
                     source_index: 0,

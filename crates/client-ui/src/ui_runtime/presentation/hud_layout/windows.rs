@@ -364,6 +364,12 @@ impl HudLayout<'_> {
         )?;
         self.progress_widgets(player_runtime, runtime, kind, origin)?;
         for slot in screens::screen_slots(screen) {
+            if kind == WindowKind::Horse
+                && let InventoryCellHit::Storage(index) = slot.hit
+                && !frame.mount_equipment.permits_inventory_slot(index)
+            {
+                continue;
+            }
             self.placed_slot(player_runtime, runtime, frame, origin, &slot)?;
         }
         self.window_widgets(player_runtime, runtime, frame, kind, origin)?;
@@ -786,6 +792,11 @@ impl HudLayout<'_> {
         };
         if let Some(slot) = screens::screen_slots(screen)
             .into_iter()
+            .filter(|slot| {
+                !matches!((screen, slot.hit),
+                (InventoryScreen::Window(WindowKind::Horse, _), InventoryCellHit::Storage(index))
+                if !frame.mount_equipment.permits_inventory_slot(index))
+            })
             .find(|slot| slot.hit == hover)
         {
             let inset = if slot.output { 5.0 } else { 1.0 };

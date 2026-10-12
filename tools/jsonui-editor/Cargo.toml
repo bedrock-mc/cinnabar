@@ -5,6 +5,12 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+reads = [
+    "assets/bedrock-target.json",
+    "assets/cinnangles-sans-source.json",
+]
+
 [lib]
 name = "jsonui_editor"
 path = "src/lib.rs"

@@ -23,7 +23,7 @@ pub struct MovementPredictionSync {
 #[must_use]
 pub fn client_movement_prediction_sync(sync: MovementPredictionSync) -> Packet {
     let finite = |value: f32| if value.is_finite() { value } else { 0.0 };
-    ClientMovementPredictionSyncPacket {
+    crate::Packet::new(ClientMovementPredictionSyncPacket {
         actor_data_flag: ActorDataFlagComponent {
             actor_flag_bitset_data: sync.actor_flags,
         },
@@ -35,8 +35,7 @@ pub fn client_movement_prediction_sync(sync: MovementPredictionSync) -> Packet {
             actor_unique_id: sync.unique_id,
         },
         actor_flying_state: sync.flying,
-    }
-    .into()
+    })
 }
 
 #[cfg(test)]

@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use ::protocol::wire::valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
+use ::protocol::test_support::recipes::{
+    CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture,
+};
 use ::protocol::{
     ContainerIdentity, ContainerOpenEvent, InventoryAuthority, InventoryContentEvent,
     InventoryEvent, ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, NetworkItemStack,
@@ -82,44 +84,24 @@ const FIXTURE_RECIPES: [(&str, i32, &str); 4] = [
 
 /// Commits a clearing recipe update carrying exactly `recipes` at `sequence`.
 fn apply_recipes(inventory: &mut InventorySession, recipes: &[(&str, i32, &str)], sequence: u64) {
-    let packet = CraftingDataPacket {
-        shapeless_recipes: recipes
+    let update = CraftingDataFixture::clearing(
+        recipes
             .iter()
             .enumerate()
-            .map(|(index, &(name, output, tag))| ShapelessRecipePayload {
-                ingredients: vec![CerealizerRecipeIngredientSerializedData {
-                    descriptor: vec![CerealizerRecipeIngredientSerializedDataDescriptorItem {
-                        key: "name".into(),
-                        value: name.into(),
-                    }],
-                    aux_value: 0,
-                    stack_size: 1,
-                }],
-                results: vec![CerealizerNetworkItemInstanceDescriptorSerializedData {
-                    id: output,
-                    stacksize: 1,
-                    auxvalue: 0,
-                    block_runtime_id: 0,
-                    user_data_buffer: vec![],
-                }],
+            .map(|(index, &(name, output, tag))| RecipeFixture {
                 tag: tag.into(),
-                net_id: TypedServerNetIdstructRecipeNetIdTag {
-                    raw_id: index as u32 + 1,
-                },
-                ..Default::default()
+                net_id: index as u32 + 1,
+                ..RecipeFixture::shapeless(
+                    "",
+                    vec![IngredientFixture::named(name, 0)],
+                    vec![OutputFixture::new(output, 1)],
+                )
             })
             .collect(),
-        clear_recipes: true,
-        ..Default::default()
-    };
-    let mut bytes = Vec::new();
-    packet.encode(&mut bytes).unwrap();
+    )
+    .update();
     inventory
-        .enqueue_inventory_event(
-            1,
-            sequence,
-            InventoryEvent::Recipes(::protocol::decode_recipe_update(&bytes).unwrap()),
-        )
+        .enqueue_inventory_event(1, sequence, InventoryEvent::Recipes(update))
         .unwrap();
     inventory.synchronize_crafting_frontier(1, Some((1, 0, Some(sequence))));
     inventory.drain_pending_inventory();
@@ -961,17 +943,11 @@ fn furnace_recipe_replacement_retires_unsent_input_before_transport() {
         assert!(inventory.ledger().displayed_stack(5).is_none());
         assert_eq!(inventory.ledger().storage_stack(0).unwrap().count, 8);
 
-        let packet = CraftingDataPacket {
-            clear_recipes: true,
-            ..Default::default()
-        };
-        let mut bytes = Vec::new();
-        packet.encode(&mut bytes).unwrap();
         inventory
             .enqueue_inventory_event(
                 1,
                 2,
-                InventoryEvent::Recipes(::protocol::decode_recipe_update(&bytes).unwrap()),
+                InventoryEvent::Recipes(CraftingDataFixture::clearing(Vec::new()).update()),
             )
             .unwrap();
         inventory.synchronize_crafting_frontier(1, Some((1, 0, Some(2))));

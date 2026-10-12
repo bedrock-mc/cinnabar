@@ -69,7 +69,7 @@ fn admitted_item_transaction_precedes_the_same_tick_start_using_input() {
     assert_eq!(
         packets
             .iter()
-            .map(|packet| format!("{:?}", packet.header.id))
+            .map(|packet| format!("{:?}", packet.kind()))
             .collect::<Vec<_>>(),
         ["InventoryTransactionPacket", "PlayerAuthInputPacket"],
     );
@@ -148,7 +148,7 @@ fn aim_assisted_release_follows_the_input_that_carries_its_facing() {
     assert_eq!(
         packets
             .iter()
-            .map(|packet| format!("{:?}", packet.header.id))
+            .map(|packet| format!("{:?}", packet.kind()))
             .collect::<Vec<_>>(),
         ["PlayerAuthInputPacket", "InventoryTransactionPacket"],
     );

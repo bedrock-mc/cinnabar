@@ -430,7 +430,7 @@ impl BlobCacheResolver {
         Ok(status)
     }
 
-    pub fn accept_miss_response(
+    pub(crate) fn accept_miss_response(
         &mut self,
         response: ClientCacheMissResponsePacket,
     ) -> Result<(), BlobCacheError> {

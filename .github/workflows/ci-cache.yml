@@ -129,8 +129,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
-      # Everything ci.yml's verify job compiles, so its dependencies are cached too.
+      # Everything ci.yml's preflight and verify jobs compile, so their dependencies are cached too.
       - run: cargo build -p architecture --locked
+      - run: cargo build -p devtool --locked
       - continue-on-error: true
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - continue-on-error: true

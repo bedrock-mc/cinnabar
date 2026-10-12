@@ -57,6 +57,8 @@ fn non_finite_or_oversized_values_reject_the_whole_append() {
     }
     let short_ribbon = Primitives {
         ribbons: vec![Ribbon {
+            taper: true,
+            pattern: crate::LinePattern::Solid,
             points: vec![[0.0; 3]],
             width: 1.0,
             color: [1.0; 4],

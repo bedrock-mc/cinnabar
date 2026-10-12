@@ -6,6 +6,7 @@ use protocol::{
 };
 
 use gameplay::mining::FrozenMiningSelection;
+use protocol::test_support::transactions::{ReleaseAction, TransactionBody};
 use protocol::{NetworkItemStack, VerifiedNetworkItemStack};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
@@ -368,13 +369,16 @@ fn kinds(outcome: &gameplay::item_use::UseOutcome) -> Vec<&'static str> {
         .packets
         .iter()
         .map(|packet| {
-            let debug = format!("{:?}", packet.data);
-            if debug.contains("ItemUseInventoryTransaction(") {
-                "use"
-            } else if debug.contains("action_type: Release") {
-                "release"
-            } else {
-                "other"
+            match protocol::test_support::transactions::observe_transaction(packet)
+                .map(|transaction| transaction.body)
+            {
+                Some(TransactionBody::ItemUse(_)) => "use",
+                Some(TransactionBody::Release(release))
+                    if release.action == ReleaseAction::Release =>
+                {
+                    "release"
+                }
+                _ => "other",
             }
         })
         .collect()

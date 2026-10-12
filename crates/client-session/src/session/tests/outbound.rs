@@ -542,10 +542,9 @@ async fn each_frame_leaves_as_one_ordered_batch_and_an_empty_frame_sends_nothing
         type Error = &'static str;
 
         async fn send_batch(&mut self, packets: Vec<protocol::Packet>) -> Result<(), Self::Error> {
-            let session = protocol::BedrockSession { shield_item_id: 0 };
             let batch = packets
                 .iter()
-                .map(|packet| protocol::encode(packet, &session).unwrap().to_vec())
+                .map(|packet| protocol::encode(packet).unwrap().to_vec())
                 .collect();
             self.0.lock().unwrap().push(batch);
             Ok(())
@@ -609,13 +608,12 @@ async fn each_frame_leaves_as_one_ordered_batch_and_an_empty_frame_sends_nothing
     shutdown.send_replace(true);
     worker.await.unwrap();
 
-    let session = protocol::BedrockSession { shield_item_id: 0 };
     let expected = frames
         .iter()
         .map(|frame| {
             frame
                 .iter()
-                .map(|packet| protocol::encode(packet, &session).unwrap().to_vec())
+                .map(|packet| protocol::encode(packet).unwrap().to_vec())
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();

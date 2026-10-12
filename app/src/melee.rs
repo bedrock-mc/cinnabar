@@ -187,8 +187,8 @@ pub(crate) fn produce_melee(
         |packets| {
             let packet_count = packets.len();
             let packet_kinds = [
-                packets.first().map(|packet| packet.header.id),
-                packets.last().map(|packet| packet.header.id),
+                packets.first().map(|packet| packet.kind()),
+                packets.last().map(|packet| packet.kind()),
             ];
             let rotates = packets.iter().any(protocol::is_aim_assist_rotation_action);
             let result = context.network.send_inventory_packets(packets);

@@ -1,7 +1,8 @@
-use bridge::{
-    Backend, Difficulty, GameMode, Generator, Prefs, Setup, SetupState, UnavailableReason, World,
-    WorldState, WorldStatus, WorldUpdate,
+use super::world::{
+    Difficulty, Generator, NewWorld, Prefs, Setup, SetupState, UnavailableReason, World,
+    WorldStatus, WorldUpdate,
 };
+use bridge::{Backend, GameMode, WorldState};
 
 use super::form::{CreateForm, EditForm, validate_name};
 use super::progress::{self, Progress};
@@ -14,7 +15,7 @@ pub enum Screen {
     #[default]
     List,
     Create,
-    /// Create from template: the core has no templates, so this is vanilla's empty state.
+    /// Create from template: there are no templates, so this is vanilla's empty state.
     Templates,
     /// World settings of the selected world.
     Edit,
@@ -22,7 +23,7 @@ pub enum Screen {
     ConfirmDelete,
     /// "Do you want to save your changes?" when leaving the edit screen with edits.
     ConfirmLeaveEdit,
-    /// Waiting for the core to bring the chosen world up.
+    /// Waiting for the chosen world's server to come up.
     Opening,
     /// The user must accept the Minecraft EULA before the server is downloaded.
     Eula,
@@ -64,11 +65,11 @@ pub enum Input {
     Back,
 }
 
-/// Control-channel work for the executor; each yields at most one [`Event`].
+/// World-service work for the executor; each yields at most one [`Event`].
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Effect {
     List,
-    Create(bridge::NewWorld),
+    Create(NewWorld),
     Delete(String),
     Update {
         id: String,
@@ -81,14 +82,14 @@ pub enum Effect {
     /// Its outcome is never surfaced.
     SetPaused(bool),
     LoadPrefs,
-    /// Waits briefly, then reloads preferences; repeats while the core is still detecting Docker.
+    /// Waits briefly, then reloads preferences; repeats while Docker is still being detected.
     PollPrefs,
     SetPrefs {
         dismiss_docker_prompt: bool,
         redetect: bool,
     },
     AcceptEula,
-    /// Handled by the embedding resource, not the control worker.
+    /// Handled by the embedding resource, not the world worker.
     OpenUrl(&'static str),
 }
 
@@ -251,7 +252,7 @@ impl WorldsMenu {
         Some(progress::progress(self.opening_status.as_ref(), name))
     }
 
-    /// False once the core reports the dedicated server cannot run here.
+    /// False once the dedicated server is reported unable to run here.
     pub fn bds_can_run(&self) -> bool {
         self.setup
             .as_ref()
@@ -279,7 +280,6 @@ impl WorldsMenu {
         match self.unavailable? {
             UnavailableReason::DockerMissing => Some(PromptKind::DockerMissing),
             UnavailableReason::DockerNotRunning => Some(PromptKind::DockerNotRunning),
-            UnavailableReason::Other => None,
         }
     }
 
@@ -662,7 +662,7 @@ impl WorldsMenu {
             Event::Prefs(_, status) => {
                 self.note_status(&status);
                 self.busy = self.mutation_pending;
-                // The Docker probe outlives core startup; keep reading until it reports a verdict.
+                // The Docker probe outlives startup; keep reading until it reports a verdict.
                 let detecting = status
                     .setup
                     .as_ref()

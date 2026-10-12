@@ -313,7 +313,6 @@ mod tests {
     }
 
     fn sent_air_drag(physics: &mut LocalPhysicsController, accepted: Option<f32>) -> f32 {
-        use protocol::wire::valentine::bedrock::version::v1_26_51::McpePacketData;
         let mut sent = None;
         send_movement_prediction_sync(
             physics,
@@ -325,12 +324,8 @@ mod tests {
                 true
             },
         );
-        let McpePacketData::ClientMovementPredictionSyncPacket(body) =
-            sent.expect("sync sent").data
-        else {
-            panic!("wrong packet");
-        };
-        body.movement_attributes[8]
+        protocol::test_support::packets::prediction_sync_attributes(&sent.expect("sync sent"))
+            .expect("wrong packet")[8]
     }
 
     struct NoEffects;

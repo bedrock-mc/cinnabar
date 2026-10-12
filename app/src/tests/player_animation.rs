@@ -792,7 +792,7 @@ fn a_local_attack_sends_the_swing_and_swings_the_vanilla_pack_arm() {
     let names: Vec<_> = outcome
         .packets
         .iter()
-        .map(|packet| format!("{:?}", packet.header.id))
+        .map(|packet| format!("{:?}", packet.kind()))
         .collect();
     assert_eq!(names, ["AnimatePacket", "InventoryTransactionPacket"]);
     world.start_local_player_swing(swings.take_started().expect("the attack swings"));

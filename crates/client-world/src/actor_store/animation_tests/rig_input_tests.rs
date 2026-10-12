@@ -123,33 +123,16 @@ fn creeper_ignition_advances_and_reverses_swelling_without_swell_metadata() {
 
 #[test]
 fn thrown_potion_variant_retains_normalized_add_actor_and_metadata_updates() {
-    use protocol::wire::valentine::bedrock::version::v1_26_51::{
-        ActorRuntimeId, ActorUniqueId, AddActorPacket, DataItemEntry, DataItemEntryPayload,
-        DataItemShortPayload, EnumsDataItemType, SynchedActorDataCopyableDataList,
-    };
     // The potion's auxiliary-value key, which its variant query reads.
     const AUX: u32 = actor_animation::test_support::POTION_AUX_VALUE_METADATA_KEY;
-    let packet = AddActorPacket {
-        target_actor_id: ActorUniqueId {
-            actor_unique_id: -7,
-        },
-        target_runtime_id: ActorRuntimeId {
-            actor_runtime_id: 7,
-        },
-        actor_type: "minecraft:splash_potion".into(),
-        actor_data: SynchedActorDataCopyableDataList {
-            data: vec![DataItemEntry {
-                id: AUX,
-                payload: DataItemEntryPayload::DataItemShortPayload(DataItemShortPayload {
-                    type_: EnumsDataItemType::Short,
-                    value: 21,
-                }),
-            }],
-        },
-        ..Default::default()
-    };
     let Some(protocol::WorldEvent::Actor(event)) =
-        protocol::into_world_event(packet.into(), 0).unwrap()
+        protocol::test_support::packets::add_actor_event(
+            -7,
+            7,
+            "minecraft:splash_potion",
+            &[(AUX, 21)],
+        )
+        .unwrap()
     else {
         panic!("expected normalized potion spawn");
     };

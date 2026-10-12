@@ -2,15 +2,14 @@
 use super::*;
 use bytes::Buf;
 use jolyne::raw::decode_packet_raw;
-use valentine::bedrock::{context::BedrockSession, version::v1_26_51::ScriptMessagePacket};
+use valentine::bedrock::version::v1_26_51::ScriptMessagePacket;
 
 /// Encodes a packet and traverses the same raw admission path as the socket reader.
 fn ingress(packet: Packet) -> Option<WorldEvent> {
-    let session = BedrockSession { shield_item_id: 0 };
-    let mut batch = crate::encode(&packet, &session).unwrap();
+    let mut batch = crate::encode(&packet).unwrap();
     batch.advance(1);
     let raw = decode_packet_raw(&mut batch).unwrap();
-    decode_world_raw_with(raw, 0, |raw| raw.decode(&session)).unwrap()
+    decode_world_raw_with(raw, 0, super::decode_test_raw).unwrap()
 }
 
 #[test]
@@ -28,13 +27,10 @@ fn experience_replies_cross_raw_ingress_with_existing_bounds_and_routes() {
         ),
     ] {
         assert!(
-            ingress(
-                ScriptMessagePacket {
-                    message_id: channel.into(),
-                    message_value: bytes,
-                }
-                .into()
-            )
+            ingress(crate::Packet::new(ScriptMessagePacket {
+                message_id: channel.into(),
+                message_value: bytes,
+            }))
             .is_none()
         );
     }

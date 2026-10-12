@@ -29,7 +29,7 @@ pub enum LoadingScreenPhase {
 /// Echoes the optional ID carried by ChangeDimension, including an explicit zero.
 #[must_use]
 pub fn loading_screen_packet(phase: LoadingScreenPhase, loading_screen_id: Option<u32>) -> Packet {
-    ServerboundLoadingScreenPacket {
+    crate::Packet::new(ServerboundLoadingScreenPacket {
         loading_screen_packet_type: match phase {
             LoadingScreenPhase::Start => {
                 EnumsServerboundLoadingScreenPacketType::Startloadingscreen
@@ -37,21 +37,19 @@ pub fn loading_screen_packet(phase: LoadingScreenPhase, loading_screen_id: Optio
             LoadingScreenPhase::End => EnumsServerboundLoadingScreenPacketType::Endloadingscreen,
         },
         loading_screen_id,
-    }
-    .into()
+    })
 }
 
 /// Completes a transfer with zero block positions and face; initialization belongs to login.
 #[must_use]
 pub fn dimension_change_done_packet(local_runtime_id: u64) -> Packet {
-    PlayerActionPacket {
+    crate::Packet::new(PlayerActionPacket {
         player_runtime_id: ActorRuntimeId {
             actor_runtime_id: local_runtime_id,
         },
         action: EnumsPlayerActionType::Changedimensionack,
         ..Default::default()
-    }
-    .into()
+    })
 }
 
 #[cfg(test)]

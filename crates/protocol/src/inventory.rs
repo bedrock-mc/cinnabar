@@ -394,18 +394,8 @@ impl VerifiedNetworkItemStack {
         Self { inner }
     }
 
-    #[allow(
-        dead_code,
-        reason = "Task 12 outbound builders consume this Task 10 verification boundary"
-    )]
-    pub(crate) fn into_vendor_item(
-        self,
-        shield_item_id: i32,
-    ) -> Result<ItemStackDescriptor, InventoryPacketError> {
-        // The shield ID no longer selects an extra-data shape: 1.26.40 carries
-        // the user-data buffer opaquely, so it is copied through as-is. The
-        // parameter is kept so callers keep threading session state.
-        let _ = shield_item_id;
+    /// The wire descriptor; the user-data buffer is copied through opaquely.
+    pub(crate) fn into_vendor_item(self) -> Result<ItemStackDescriptor, InventoryPacketError> {
         if self.inner.is_empty() {
             return Ok(ItemStackDescriptor::default());
         }
@@ -436,7 +426,7 @@ pub const fn normalize_authority(server_authoritative: bool) -> InventoryEvent {
     })
 }
 
-pub fn normalize_content(
+pub(crate) fn normalize_content(
     packet: InventoryContentPacket,
 ) -> Result<InventoryEvent, InventoryPacketError> {
     validate_slot_count(packet.slots.len())?;
@@ -456,7 +446,9 @@ pub fn normalize_content(
     }))
 }
 
-pub fn normalize_slot(packet: InventorySlotPacket) -> Result<InventoryEvent, InventoryPacketError> {
+pub(crate) fn normalize_slot(
+    packet: InventorySlotPacket,
+) -> Result<InventoryEvent, InventoryPacketError> {
     let slot = checked_slot(i32::from_ne_bytes(packet.slot.to_ne_bytes()))?;
     let container =
         container_identity_varint(i32::from(packet.container_id), packet.full_container_name)?;
@@ -470,7 +462,7 @@ pub fn normalize_slot(packet: InventorySlotPacket) -> Result<InventoryEvent, Inv
     }))
 }
 
-pub fn normalize_hotbar(
+pub(crate) fn normalize_hotbar(
     packet: PlayerHotbarPacket,
 ) -> Result<InventoryEvent, InventoryPacketError> {
     let slot = u8::try_from(packet.selected_slot)
@@ -486,7 +478,7 @@ pub fn normalize_hotbar(
     }))
 }
 
-pub fn normalize_response(
+pub(crate) fn normalize_response(
     packet: ItemStackResponsePacket,
 ) -> Result<InventoryEvent, InventoryPacketError> {
     if packet.responses.len() > MAX_STACK_RESPONSES {
@@ -566,7 +558,7 @@ pub fn normalize_response(
     }))
 }
 
-pub fn normalize_container_open(
+pub(crate) fn normalize_container_open(
     packet: ContainerOpenPacket,
 ) -> Result<InventoryEvent, InventoryPacketError> {
     Ok(InventoryEvent::Open(ContainerOpenEvent {
@@ -577,7 +569,7 @@ pub fn normalize_container_open(
     }))
 }
 
-pub fn normalize_container_close(
+pub(crate) fn normalize_container_close(
     packet: ContainerClosePacket,
 ) -> Result<InventoryEvent, InventoryPacketError> {
     Ok(InventoryEvent::Close(ContainerCloseEvent {
@@ -587,7 +579,7 @@ pub fn normalize_container_close(
     }))
 }
 
-pub fn normalize_container_data(
+pub(crate) fn normalize_container_data(
     packet: ContainerSetDataPacket,
 ) -> Result<InventoryEvent, InventoryPacketError> {
     Ok(InventoryEvent::Data(ContainerDataEvent {
@@ -597,7 +589,7 @@ pub fn normalize_container_data(
     }))
 }
 
-pub fn normalize_enchant_options(
+pub(crate) fn normalize_enchant_options(
     packet: PlayerEnchantOptionsPacket,
 ) -> Result<InventoryEvent, InventoryPacketError> {
     let options = packet
@@ -869,7 +861,7 @@ mod tests {
         };
         let expected_digest = event.stack.nbt_digest;
         let verified = VerifiedNetworkItemStack::try_new(event.stack, expected_digest).unwrap();
-        let vendor = verified.into_vendor_item(0).unwrap();
+        let vendor = verified.into_vendor_item().unwrap();
         assert_eq!(vendor.id, 7);
         assert_eq!(vendor.stacksize, 4);
         assert_eq!(vendor.auxvalue, 3);

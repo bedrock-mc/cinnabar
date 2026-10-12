@@ -194,18 +194,12 @@ mod tests {
         air.observe_press(true);
         let outcome = air.step(&frame);
         assert_eq!(outcome.packets.len(), 1);
-        let protocol::wire::valentine::bedrock::version::v1_26_51::McpePacketData::InventoryTransactionPacket(
-            packet,
-        ) = &outcome.packets[0].data
-        else {
-            panic!("air fallback");
-        };
-        assert_eq!(packet.legacy_request_id.id, 0);
-        let protocol::wire::valentine::bedrock::version::v1_26_51::InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) = &packet.transaction else {
-            panic!("item use");
-        };
-        assert_eq!(transaction.item.stacksize, 2);
-        assert!(transaction.actions.actions.is_empty());
+        let packet = protocol::test_support::transactions::observe_transaction(&outcome.packets[0])
+            .expect("air fallback");
+        assert_eq!(packet.legacy_request_id, 0);
+        let transaction = packet.item_use().expect("item use");
+        assert_eq!(transaction.item.count, 2);
+        assert!(packet.actions.is_empty());
         for tick in 2..=20 {
             frame.tick = tick;
             frame.now_millis += 50;

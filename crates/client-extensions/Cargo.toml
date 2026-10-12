@@ -5,6 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+reads = [
+    "crates/mod-api/wit/extension.wit",
+]
+
 [features]
 local-mods = ["mod-host/execution", "dep:mod-api", "dep:mod-render", "dep:fontdue", "dep:sha2"]
 

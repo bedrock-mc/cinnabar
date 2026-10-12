@@ -1,6 +1,7 @@
-use ::protocol::wire::valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
+use ::protocol::test_support::recipes::{
+    CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture, recipe_update_from_batch,
+};
 use ::protocol::*;
-use bytes::{Bytes, BytesMut};
 use inventory::ManualCraftCell::{Empty, Present, Unknown};
 use inventory::{
     ManualCraftInput, ManualCraftMatch, ManualCraftSnapshot, manual_craft_packet, match_manual_grid,
@@ -43,45 +44,34 @@ fn stack(id: i32, count: u16, metadata: u32) -> VerifiedNetworkItemStack {
     )
     .unwrap()
 }
-fn recipe(id: u32, height: i32, amount: i32) -> ShapedRecipePayload {
-    ShapedRecipePayload {
-        recipe_id: "test:preview".into(),
-        width: 1,
-        height,
-        ingredients: (0..height)
-            .map(|_| CerealizerRecipeIngredientSerializedData {
-                descriptor: vec![CerealizerRecipeIngredientSerializedDataDescriptorItem {
-                    key: "name".into(),
-                    value: "minecraft:oak_log".into(),
-                }],
-                aux_value: 0,
-                stack_size: amount,
-            })
-            .collect(),
-        results: vec![CerealizerNetworkItemInstanceDescriptorSerializedData {
-            id: 7,
-            stacksize: 4,
-            auxvalue: 0,
-            block_runtime_id: 0,
-            user_data_buffer: vec![0; 10],
-        }],
-        tag: "crafting_table".into(),
-        net_id: TypedServerNetIdstructRecipeNetIdTag { raw_id: id },
-        ..Default::default()
+fn recipe(id: u32, height: i32, amount: i32) -> RecipeFixture {
+    let ingredient = IngredientFixture {
+        count: amount,
+        ..IngredientFixture::named("minecraft:oak_log", 0)
+    };
+    let output = OutputFixture {
+        user_data: vec![0; 10],
+        ..OutputFixture::new(7, 4)
+    };
+    RecipeFixture {
+        net_id: id,
+        ..RecipeFixture::shaped(
+            "test:preview",
+            1,
+            height,
+            (0..height).map(|_| ingredient.clone()).collect(),
+            vec![output],
+        )
     }
 }
-fn update(recipes: Vec<ShapedRecipePayload>, clear: bool) -> RecipeUpdate {
-    let mut bytes = BytesMut::new();
-    CraftingDataPacket {
-        shaped_recipes: recipes,
+fn update(recipes: Vec<RecipeFixture>, clear: bool) -> RecipeUpdate {
+    CraftingDataFixture {
+        recipes,
         clear_recipes: clear,
-        ..Default::default()
     }
-    .encode(&mut bytes)
-    .unwrap();
-    decode_recipe_update(&bytes).unwrap()
+    .update()
 }
-fn catalog(recipes: Vec<ShapedRecipePayload>) -> RecipeCatalog {
+fn catalog(recipes: Vec<RecipeFixture>) -> RecipeCatalog {
     let mut catalog = RecipeCatalog::default();
     catalog.begin_session(1);
     assert!(catalog.apply(1, 1, &update(recipes, true)));
@@ -224,15 +214,12 @@ fn registry_binding_and_capacity_are_current_immutable_inputs() {
 
 #[test]
 fn existing_pinned_recipe_fixture_is_matchable_without_materializing_a_request() {
-    let mut bytes = Bytes::from_static(include_bytes!(
+    let update = recipe_update_from_batch(include_bytes!(
         "../../../protocol/fixtures/crafting_data_manual_named_1x1.bin"
     ));
-    let raw = ::protocol::wire::jolyne::batch::decode_batch_raw(&mut bytes, false, Some(4096))
-        .unwrap()
-        .remove(0);
     let mut catalog = RecipeCatalog::default();
     catalog.begin_session(1);
-    catalog.apply(1, 1, &decode_recipe_update(raw.body()).unwrap());
+    catalog.apply(1, 1, &update);
     let registry = registry(entries(), 1);
     let input = stack(101, 1, 0);
     assert!(matches!(
@@ -251,7 +238,7 @@ fn unsupported_descriptors_and_output_bindings_do_not_become_previews() {
     let input = stack(101, 1, 0);
     let grid = [Present(&input), Empty, Empty, Empty];
     let mut tagged = recipe(17, 1, 1);
-    tagged.ingredients[0].descriptor[0].key = "item_tag".into();
+    tagged.ingredients[0].descriptor[0].0 = "item_tag".into();
     assert_eq!(
         match_manual_grid(&catalog(vec![tagged]), 1, &registry(entries(), 1), &grid),
         ManualCraftMatch::NoMatch
@@ -275,7 +262,7 @@ fn unsupported_descriptors_and_output_bindings_do_not_become_previews() {
 #[test]
 fn bounded_catalog_scan_can_find_the_only_candidate_at_the_last_entry() {
     let mut recipes: Vec<_> = (1..=8192).map(|id| recipe(id, 1, 2)).collect();
-    recipes.last_mut().unwrap().ingredients[0].stack_size = 1;
+    recipes.last_mut().unwrap().ingredients[0].count = 1;
     let catalog = catalog(recipes);
     assert!(catalog.recipe(8192).is_some());
     let registry = registry(entries(), 1);
@@ -319,7 +306,7 @@ fn unknown_cell_authority_is_not_an_empty_cell() {
 #[test]
 fn wildcard_ingredient_metadata_matches_any_variant() {
     let mut wildcard = recipe(17, 1, 1);
-    wildcard.ingredients[0].aux_value = 32767;
+    wildcard.ingredients[0].aux = 32767;
     let catalog = catalog(vec![wildcard]);
     let registry = registry(entries(), 1);
     let input = stack(101, 1, 3);

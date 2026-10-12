@@ -39,6 +39,8 @@ pub struct ScreenState {
     pub crafter: CrafterView,
     /// The open mount inventory's entity identifier.
     pub mount_identifier: Option<std::sync::Arc<str>>,
+    /// Admitted equipment facts; an unknown mount is not assumed to be a horse.
+    pub mount_equipment: assets::entity::mount::MountEquipment,
     pub book_open: bool,
     pub furnace_book_open: bool,
     /// Furnace tabs have their own food/items/blocks/search indexes.
@@ -115,6 +117,7 @@ impl ScreenState {
             self.beacon_level = None;
             self.crafter = CrafterView::default();
             self.mount_identifier = None;
+            self.mount_equipment = assets::entity::mount::MountEquipment::Unresolved;
             self.container_scroll.clear();
             self.creative_expanded.clear();
             self.recipe_filtering = None;

@@ -5,6 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+reads = [
+    "crates/protocol/fixtures/*",
+]
+
 [dependencies]
 assets = { path = "../assets" }
 protocol = { path = "../protocol" }
@@ -16,7 +21,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 bytes.workspace = true
-protocol = { path = "../protocol", features = ["wire-test-support"] }
+protocol = { path = "../protocol", features = ["test-support"] }
 
 [lints]
 workspace = true

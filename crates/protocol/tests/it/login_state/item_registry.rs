@@ -29,10 +29,9 @@ async fn connected(
         LoginSequence::connect_transport(transport, "RustClient").await
     }
     .expect("scripted login");
-    assert_eq!(data.item_registry.item_data.len(), 1);
     assert_eq!(
-        data.item_registry.item_data[0].item_name,
-        "minecraft:shield"
+        &*data.items.identifiers,
+        [Arc::<str>::from("minecraft:shield")]
     );
     (session, script)
 }

@@ -46,6 +46,13 @@ pub struct NametagAnchor {
     pub(super) distance: f32,
 }
 
+impl NametagAnchor {
+    /// Native actor identity for presentation filters against retained world facts.
+    pub const fn runtime_id(&self) -> u64 {
+        self.runtime_id
+    }
+}
+
 fn actor_flag(actor: &ActorSnapshot, bit: u32) -> bool {
     matches!(actor.metadata.get(&0),
         Some(ActorMetadataValue::Flags(flags) | ActorMetadataValue::FlagsExtended(flags))
@@ -265,4 +272,92 @@ pub fn build_nametag_scene<'p>(
         atlas,
         atlas_revision,
     }
+}
+
+/// Applies bounded cosmetic overrides while preserving native depth pass membership.
+pub(super) fn style_scene(
+    scene: &mut NametagScene,
+    style: &ui::mod_hud::NametagStyle,
+    own_anchor: Option<[f32; 3]>,
+) {
+    if style.hide {
+        scene.records.clear();
+        scene.see_through = 0;
+        return;
+    }
+    let original = std::mem::take(&mut scene.records);
+    let old_boundary = scene.see_through;
+    let mut boundary = 0;
+    for (index, mut record) in original.into_iter().enumerate() {
+        for coordinate in &mut record.rect {
+            *coordinate *= style.scale;
+        }
+        record.line_lift *= style.scale;
+        let mut extra = Vec::new();
+        if record.uv[2] < 0.0 {
+            if let Some(color) = style.background_color {
+                record.color = color;
+            }
+            record.color[3] *= style.opacity;
+            if let Some(mut color) = style.border_color {
+                color[3] *= style.opacity;
+                let [left, top, right, bottom] = record.rect;
+                let width = style.border_width * style.scale;
+                for rect in [
+                    [left - width, top - width, right + width, top],
+                    [left - width, bottom, right + width, bottom + width],
+                    [left - width, top, left, bottom],
+                    [right, top, right + width, bottom],
+                ] {
+                    extra.push(NametagRecord {
+                        rect,
+                        color,
+                        ..record
+                    });
+                }
+            }
+        } else {
+            let own = own_anchor == Some(record.anchor);
+            let text_color = if own {
+                style.own_text_color.or(style.text_color)
+            } else {
+                style.text_color
+            };
+            let replace = if own && style.own_text_color.is_some() {
+                style.replace_own_text_color
+            } else {
+                style.replace_text_color
+            };
+            if let Some(color) = text_color {
+                for axis in 0..3 {
+                    record.color[axis] = if replace {
+                        color[axis]
+                    } else {
+                        record.color[axis] * color[axis]
+                    };
+                }
+                record.color[3] *= color[3];
+            }
+            record.color[3] *= style.opacity;
+            if style.shadow {
+                let mut shadow = record;
+                shadow.rect = [
+                    record.rect[0] + style.scale,
+                    record.rect[1] + style.scale,
+                    record.rect[2] + style.scale,
+                    record.rect[3] + style.scale,
+                ];
+                shadow.color = [0., 0., 0., record.color[3] * 0.8];
+                extra.push(shadow);
+            }
+        }
+        if scene.records.len() + extra.len() + 1 <= MAX_NAMETAG_RECORDS {
+            scene.records.extend(extra);
+            scene.records.push(record);
+        }
+        if index + 1 == old_boundary {
+            boundary = scene.records.len();
+        }
+    }
+    scene.see_through = boundary;
 }

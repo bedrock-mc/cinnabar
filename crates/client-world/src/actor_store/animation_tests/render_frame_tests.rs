@@ -49,6 +49,7 @@ fn occluded_ordinary_rigs_preserve_the_budget_for_visible_frame_layers() {
     symbols.insert(
         1,
         assets::EntityAssetSymbol {
+            mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
             kind: EntityAssetKind::Entity,
             identifier: "minecraft:visible_marker".into(),
             source_index: 1,

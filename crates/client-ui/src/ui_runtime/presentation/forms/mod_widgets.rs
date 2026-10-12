@@ -37,6 +37,25 @@ pub(super) struct ModWidgets {
     projection: Option<[f32; 16]>,
 }
 impl UiPresentationRuntime {
+    /// Native food presentation preferences of the published component.
+    pub fn mod_hunger_overlay(&self) -> Option<&ui::mod_hud::HungerOverlay> {
+        self.screens
+            .mod_widgets
+            .as_ref()?
+            .content
+            .hunger_overlay
+            .as_ref()
+    }
+    /// Reads the validated cosmetic actor style of the currently published component.
+    pub fn mod_actor_style(&self) -> Option<&ui::mod_hud::ActorStyle> {
+        self.screens
+            .mod_widgets
+            .as_ref()?
+            .content
+            .actor_style
+            .as_ref()
+    }
+
     /// Replaces card values while retaining the template when its geometry is unchanged.
     pub fn set_mod_hud(&mut self, content: Option<&Hud>) -> Result<(), String> {
         if self.mod_chat_actions() != content.map_or(&[][..], |hud| hud.chat_actions.as_slice()) {
@@ -46,7 +65,9 @@ impl UiPresentationRuntime {
             chat.extension_events.clear();
         }
         let Some(content) = content.filter(|hud| {
-            !hud.cards.is_empty()
+            hud.hunger_overlay.is_some()
+                || hud.actor_style.is_some()
+                || !hud.cards.is_empty()
                 || hud.hide_effect_icons
                 || hud.hide_scoreboard
                 || !hud.world_labels.is_empty()

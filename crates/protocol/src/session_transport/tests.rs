@@ -8,7 +8,6 @@ use tokio::net::{UnixListener, UnixStream};
 use valentine::bedrock::version::v1_26_51::McpePacketData;
 
 use super::*;
-use crate::BedrockSession;
 
 /// A transport joined to a peer standing in for the core, in a directory removed afterwards.
 struct Pair {
@@ -134,8 +133,7 @@ async fn terminal_messages_become_server_packets_then_end() {
         let Some(Ok(TransportRecvMessage::Contiguous(batch))) = receive(transport).await else {
             panic!("a terminal message reaches Jolyne as a batch")
         };
-        let packets =
-            crate::codec::decode_batch(batch, &BedrockSession { shield_item_id: 0 }).unwrap();
+        let packets = crate::codec::decode_batch(batch).unwrap();
         match (&packets[0].data, check) {
             (McpePacketData::TransferPacket(transfer), 5) => {
                 assert_eq!(

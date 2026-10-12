@@ -39,7 +39,7 @@ pub use packet_delay::{
     PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay,
 };
 pub use status::{
-    Lifecycle, PackAcquisition, PackAdmission, PackApplication, PackDownstreamOutcome, PackOffer,
+    Lifecycle, NetworkConnection, PackAcquisition, PackAdmission, PackApplication, PackDownstreamOutcome, PackOffer,
     StatusV1, TransferPending, read_status, report_pack_application,
 };
 pub use store::{
@@ -49,10 +49,8 @@ pub use store::{
     store_offer, store_purchase, store_row_more, store_search,
 };
 pub use worlds::{
-    Backend, CODE_EULA_REQUIRED, Difficulty, GameMode, Generator, NewWorld, Prefs, PrefsUpdate,
-    Setup, SetupState, UnavailableReason, World, WorldState, WorldStatus, WorldUpdate,
-    accept_bds_eula, close_world, create_world, delete_world, invite_to_world, list_worlds,
-    local_worlds_prefs, open_world, open_world_with, set_world_paused, update_world, world_status,
+    Backend, GameMode, LocalTarget, LocalWorld, LocalWorldInfo, Transport, WorldState,
+    invite_to_world, set_local_world,
 };
 
 /// Returns the platform session endpoint used for the logical socket directory.

@@ -2,7 +2,7 @@
 
 use bytes::{BufMut, BytesMut};
 use jolyne::raw::decode_packet_raw;
-use valentine::bedrock::context::BedrockSession;
+
 use valentine::bedrock::version::v1_26_51::McpePacketName;
 
 use super::*;
@@ -32,15 +32,14 @@ fn loose_ints(tags: &[(&str, u8)]) -> Vec<u8> {
 /// BDS 1.26.52 sends generic events at join; their trailing tags must not end the session.
 #[test]
 fn loose_generic_event_tags_decode_and_sleep_status_gets_a_rooted_compound() {
-    let session = BedrockSession { shield_item_id: 0 };
     let other = raw_generic(2025, &loose_ints(&[("originX", 3), ("originY", 64)]));
     assert_eq!(
-        decode_world_raw_with(other, 0, |raw| raw.decode(&session)).expect("decodes"),
+        decode_world_raw_with(other, 0, super::decode_test_raw).expect("decodes"),
         None
     );
     let tags = loose_ints(&[("sleepingPlayerCount", 1), ("overworldPlayerCount", 2)]);
     let sleep = raw_generic(9801, &tags);
-    let event = decode_world_raw_with(sleep, 0, |raw| raw.decode(&session))
+    let event = decode_world_raw_with(sleep, 0, super::decode_test_raw)
         .expect("decodes")
         .expect("sleep status");
     let WorldEvent::Ui(crate::UiEvent::SleepStatus(status)) = event else {

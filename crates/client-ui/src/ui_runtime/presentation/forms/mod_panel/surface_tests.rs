@@ -258,3 +258,70 @@ fn custom_panel_buttons_render_captured_press_and_clear_feedback_on_release_and_
     p.set_mod_panel_open(true);
     assert_eq!(pixel(&mut p), [0, 0, 255, 255]);
 }
+
+#[test]
+fn static_local_template_routes_native_click_with_scalar_override() {
+    let mut spec = authored();
+    let surface = spec.surface.as_mut().unwrap();
+    surface.document=json!({"namespace":"extension","route":{"type":"button","size":[70,20],"$action|default":"mod.control:0","button_mappings":[{"from_button_id":"button.menu_select","to_button_id":"$action","mapping_type":"pressed"}]},"screen":{"type":"screen","size":["100%","100%"],"controls":[{"chosen@extension.route":{"offset":[20,20],"$action":"mod.control:0"}}]}}).to_string();
+    let mut presentation = mini_engine_presentation();
+    presentation.set_mod_panel(Some(&spec)).unwrap();
+    presentation.set_mod_panel_open(true);
+    frame(&mut presentation, [1280, 720]);
+    let at = point(&presentation, "mod.control:0", 0.5);
+    assert_eq!(
+        presentation.mod_panel_events(at, true, true),
+        [Event {
+            id: "enabled".into(),
+            value: 1.0
+        }]
+    );
+}
+
+#[test]
+fn static_template_runtime_expression_tracks_bound_visibility_without_rebuilding() {
+    let mut spec = authored();
+    let surface = spec.surface.as_mut().unwrap();
+    surface.document=json!({"namespace":"extension","route":{"type":"button","size":[70,20],"$condition|default":"(#runtime_value = 'On')","bindings":[{"binding_name":"$condition","binding_name_override":"#visible"}],"button_mappings":[{"from_button_id":"button.menu_select","to_button_id":"mod.control:0","mapping_type":"pressed"}]},"screen":{"type":"screen","size":["100%","100%"],"controls":[{"chosen@extension.route":{"offset":[20,20]}}]}}).to_string();
+    surface
+        .bindings
+        .insert("#runtime_value".into(), SurfaceValue::Text("On".into()));
+    let mut presentation = mini_engine_presentation();
+    presentation.set_mod_panel(Some(&spec)).unwrap();
+    presentation.set_mod_panel_open(true);
+    frame(&mut presentation, [1280, 720]);
+    let at = point(&presentation, "mod.control:0", 0.5);
+    assert_eq!(
+        presentation.mod_panel_events(at, true, true)[0].id,
+        "enabled"
+    );
+    let catalog = Arc::clone(
+        presentation
+            .screens
+            .mod_panel
+            .as_ref()
+            .unwrap()
+            .catalog
+            .as_ref()
+            .unwrap(),
+    );
+    spec.surface
+        .as_mut()
+        .unwrap()
+        .bindings
+        .insert("#runtime_value".into(), SurfaceValue::Text("Off".into()));
+    presentation.set_mod_panel(Some(&spec)).unwrap();
+    frame(&mut presentation, [1280, 720]);
+    assert!(presentation.mod_panel_events(at, true, true).is_empty());
+    assert!(Arc::ptr_eq(
+        &catalog,
+        presentation
+            .screens
+            .mod_panel
+            .as_ref()
+            .unwrap()
+            .catalog
+            .as_ref()
+            .unwrap()
+    ));
+}

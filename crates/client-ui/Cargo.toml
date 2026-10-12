@@ -5,6 +5,15 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+platform-specific = ["macos"]
+reads = [
+    "assets/branding/title.png",
+    "assets/cinnangles-sans-source.json",
+    "assets/java-hud/ui/*",
+    "crates/protocol/fixtures/*",
+]
+
 [features]
 test-support = []
 tracy = []
@@ -46,7 +55,7 @@ resource-pack = { path = "../resource-pack" }
 launcher-host = { path = "../launcher-host", features = ["test-support"] }
 test-time = { path = "../test-time" }
 tempfile = "3"
-protocol = { path = "../protocol", features = ["wire-test-support"] }
+protocol = { path = "../protocol", features = ["test-support"] }
 mod-host = { path = "../mod-host" }
 pack-compiler = { path = "../pack-compiler" }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }

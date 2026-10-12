@@ -8,8 +8,8 @@
 
 use bytes::{BufMut, Bytes, BytesMut};
 use protocol::{
-    BedrockSession, GAME_VERSION, PROTOCOL_VERSION, PlayerAuthInputSnapshot, PlayerInputFlags,
-    PlayerInputMode, ProtocolError, decode_batch, encode, player_auth_input,
+    GAME_VERSION, PROTOCOL_VERSION, PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode,
+    ProtocolError, decode_batch, encode, player_auth_input,
 };
 use valentine::bedrock::version::v1_26_51::{
     ActorRuntimeId, ActorUniqueId, BlockPos, ChunkPos, DimensionType, EnumsGameType,
@@ -40,12 +40,8 @@ const TELEPORT_CAUSE_COMMAND: i32 = 3;
 /// 1.26.40, so the fixture retains its numeric value directly.
 const SOURCE_ACTOR_TYPE: i32 = 87;
 
-fn session() -> BedrockSession {
-    BedrockSession { shield_item_id: 0 }
-}
-
 fn decode_one(fixture: &'static [u8], id: McpePacketName) -> protocol::Packet {
-    let packets = decode_batch(Bytes::from_static(fixture), &session()).expect("decode fixture");
+    let packets = decode_batch(Bytes::from_static(fixture)).expect("decode fixture");
     assert_eq!(packets.len(), 1);
     let packet = packets.into_iter().next().expect("one packet");
     assert_eq!(packet.header.id, id);
@@ -55,7 +51,7 @@ fn decode_one(fixture: &'static [u8], id: McpePacketName) -> protocol::Packet {
 }
 
 fn assert_exact_round_trip(packet: &protocol::Packet, fixture: &[u8]) {
-    let encoded = encode(packet, &session()).expect("encode fixture");
+    let encoded = encode(packet).expect("encode fixture");
     assert_eq!(encoded.as_ref(), fixture);
 }
 
@@ -349,7 +345,7 @@ fn player_auth_input_builder_matches_gophertunnel_bytes_exactly() {
     built.header.from_subclient = 1;
     built.header.to_subclient = 2;
     assert_eq!(
-        encode(&built, &session()).expect("encode built PlayerAuthInput"),
+        encode(&built).expect("encode built PlayerAuthInput"),
         PLAYER_AUTH_INPUT,
         "the builder must emit the pinned gophertunnel bytes"
     );
@@ -426,7 +422,7 @@ fn decode_preserves_sender_and_target_subclients() {
 fn decode_rejects_input_over_16_mib() {
     let mut oversized = vec![0; MAX_BATCH_BYTES + 1];
     oversized[0] = 0xfe;
-    let err = decode_batch(Bytes::from(oversized), &session()).expect_err("oversized batch");
+    let err = decode_batch(Bytes::from(oversized)).expect_err("oversized batch");
     assert!(matches!(
         err,
         ProtocolError::BatchTooLarge {
@@ -444,7 +440,7 @@ fn decode_accepts_1600_packets_and_rejects_1601() {
     for _ in 0..MAX_BATCH_PACKETS {
         at_limit.extend_from_slice(inner);
     }
-    let packets = decode_batch(at_limit.freeze(), &session()).expect("1,600 packets");
+    let packets = decode_batch(at_limit.freeze()).expect("1,600 packets");
     assert_eq!(packets.len(), MAX_BATCH_PACKETS);
 
     let mut over_limit = BytesMut::with_capacity(1 + inner.len() * (MAX_BATCH_PACKETS + 1));
@@ -452,7 +448,7 @@ fn decode_accepts_1600_packets_and_rejects_1601() {
     for _ in 0..=MAX_BATCH_PACKETS {
         over_limit.extend_from_slice(inner);
     }
-    let err = decode_batch(over_limit.freeze(), &session()).expect_err("1,601 packets");
+    let err = decode_batch(over_limit.freeze()).expect_err("1,601 packets");
     assert!(matches!(
         err,
         ProtocolError::TooManyPackets {
@@ -463,18 +459,18 @@ fn decode_accepts_1600_packets_and_rejects_1601() {
 
 #[test]
 fn decode_rejects_truncated_length() {
-    assert!(decode_batch(Bytes::from_static(&[0xfe, 0x80]), &session()).is_err());
+    assert!(decode_batch(Bytes::from_static(&[0xfe, 0x80])).is_err());
 }
 
 #[test]
 fn decode_rejects_truncated_header() {
-    assert!(decode_batch(Bytes::from_static(&[0xfe, 0x01, 0x80]), &session()).is_err());
+    assert!(decode_batch(Bytes::from_static(&[0xfe, 0x01, 0x80])).is_err());
 }
 
 #[test]
 fn decode_rejects_truncated_body() {
     let truncated = Bytes::copy_from_slice(&NETWORK_SETTINGS[..NETWORK_SETTINGS.len() - 1]);
-    assert!(decode_batch(truncated, &session()).is_err());
+    assert!(decode_batch(truncated).is_err());
 }
 
 #[test]
@@ -486,7 +482,7 @@ fn decode_rejects_trailing_byte_inside_declared_entry() {
     let mut malformed = NETWORK_SETTINGS.to_vec();
     malformed[1] += 1;
     malformed.push(0);
-    let err = decode_batch(Bytes::from(malformed), &session()).expect_err("trailing entry byte");
+    let err = decode_batch(Bytes::from(malformed)).expect_err("trailing entry byte");
     assert!(matches!(
         err,
         ProtocolError::TrailingPacketBytes { remaining: 1 }
@@ -497,7 +493,7 @@ fn decode_rejects_trailing_byte_inside_declared_entry() {
 fn encode_rejects_header_data_id_mismatch() {
     let mut packet = decode_one(NETWORK_SETTINGS, McpePacketName::NetworkSettingsPacket);
     packet.header.id = McpePacketName::StartGamePacket;
-    let err = encode(&packet, &session()).expect_err("mismatched header ID");
+    let err = encode(&packet).expect_err("mismatched header ID");
     assert!(matches!(err, ProtocolError::HeaderIdMismatch { .. }));
 }
 
@@ -508,7 +504,7 @@ fn encode_rejects_out_of_range_subclient_ids() {
     let mut invalid_sender = packet.clone();
     invalid_sender.header.from_subclient = 4;
     assert!(matches!(
-        encode(&invalid_sender, &session()).expect_err("invalid sender subclient"),
+        encode(&invalid_sender).expect_err("invalid sender subclient"),
         ProtocolError::InvalidSubclient {
             sender: 4,
             target: 2,
@@ -518,7 +514,7 @@ fn encode_rejects_out_of_range_subclient_ids() {
     let mut invalid_target = packet;
     invalid_target.header.to_subclient = 4;
     assert!(matches!(
-        encode(&invalid_target, &session()).expect_err("invalid target subclient"),
+        encode(&invalid_target).expect_err("invalid target subclient"),
         ProtocolError::InvalidSubclient {
             sender: 1,
             target: 4,
@@ -635,7 +631,7 @@ fn player_auth_input_builder_embeds_block_actions_byte_exactly() {
     built.header.from_subclient = 1;
     built.header.to_subclient = 2;
     assert_eq!(
-        encode(&built, &session()).expect("encode built PlayerAuthInput"),
+        encode(&built).expect("encode built PlayerAuthInput"),
         PLAYER_AUTH_INPUT_BLOCK_ACTIONS,
         "block actions must produce the pinned gophertunnel bytes: the derived \
          PerformBlockActions flag in ascending list position and one \
@@ -778,7 +774,7 @@ fn player_auth_input_builder_embeds_creative_break_byte_exactly() {
     built.header.from_subclient = 1;
     built.header.to_subclient = 2;
     assert_eq!(
-        encode(&built, &session()).expect("encode built PlayerAuthInput"),
+        encode(&built).expect("encode built PlayerAuthInput"),
         PLAYER_AUTH_INPUT_BREAK_BLOCK,
         "the embedded break-block transaction must produce the pinned \
          gophertunnel bytes, including the derived PerformItemInteraction flag \
@@ -891,7 +887,7 @@ fn player_auth_input_combined_interactions_fixture_and_builder_match_byte_exactl
     built.header.from_subclient = 1;
     built.header.to_subclient = 2;
     assert_eq!(
-        encode(&built, &session()).expect("encode built PlayerAuthInput"),
+        encode(&built).expect("encode built PlayerAuthInput"),
         PLAYER_AUTH_INPUT_BLOCK_ACTIONS_AND_BREAK_BLOCK,
         "both carriers must produce the pinned gophertunnel bytes in the pinned order"
     );
@@ -978,7 +974,7 @@ fn empty_interactions_reproduce_the_pure_movement_fixture() {
     built.header.from_subclient = 1;
     built.header.to_subclient = 2;
     assert_eq!(
-        encode(&built, &session()).expect("encode built PlayerAuthInput"),
+        encode(&built).expect("encode built PlayerAuthInput"),
         PLAYER_AUTH_INPUT
     );
 }

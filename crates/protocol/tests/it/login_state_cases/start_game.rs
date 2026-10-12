@@ -68,5 +68,5 @@ async fn unadvertised_optional_resource_pack_stack_does_not_block_login() {
     let (_, game_data) = LoginSequence::connect_transport(transport, "RustClient")
         .await
         .expect("an unavailable optional pack must not block login");
-    assert_eq!(game_data.start_game.runtime_id.actor_runtime_id, RUNTIME_ID);
+    assert_eq!(game_data.world.local_player_runtime_id, RUNTIME_ID);
 }

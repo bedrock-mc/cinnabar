@@ -171,6 +171,7 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
             runtime.set_session_items(Some(&items), None, Vec::new());
             let mut input = ActorEquipmentInput::default();
             input.armor[slot as usize] = Some(WornItem {
+                grip: assets::item::grip::ItemGrip::Unresolved,
                 identifier: Arc::from(item.as_ref()),
                 metadata: 0,
                 damage: None,

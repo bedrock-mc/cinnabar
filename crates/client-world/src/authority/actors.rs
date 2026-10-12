@@ -32,6 +32,14 @@ impl WorldAuthority {
     pub fn player_count(&self) -> usize {
         self.actors.player_list_count()
     }
+    /// Returns equipment capabilities admitted for this actor, including unresolved entries.
+    pub fn actor_mount_equipment(&self, unique_id: i64) -> assets::entity::mount::MountEquipment {
+        self.actors
+            .snapshot_by_unique(unique_id)
+            .map_or(assets::entity::mount::MountEquipment::Unresolved, |actor| {
+                self.actors.mount_equipment(actor.runtime_id)
+            })
+    }
     /// The authoritative `(current, maximum)` health of the actor with this
     /// unique id, if it is known and well-formed.
     pub fn actor_health_by_unique(&self, unique_id: i64) -> Option<(f32, f32)> {

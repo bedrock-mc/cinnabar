@@ -27,13 +27,7 @@ fn admitted(archive: &ResourcePackArchive) -> Arc<ValidatedPackStack> {
 
 /// An otherwise empty StartGame.
 fn game_data() -> protocol::GameData {
-    protocol::GameData {
-        start_game: Default::default(),
-        item_registry: Default::default(),
-        biome_definitions: None,
-        entity_identifiers: None,
-        creative_content: None,
-    }
+    protocol::GameData::default()
 }
 
 /// A join's pack facts for a copy of `archive` under `game_data`.

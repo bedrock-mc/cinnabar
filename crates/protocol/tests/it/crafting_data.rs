@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use jolyne::batch::{decode_batch_raw, encode_batch_multi};
 use jolyne::valentine::{McpePacketArgs, McpePacketData};
-use protocol::BedrockSession;
+use valentine::bedrock::context::BedrockSession;
 
 // Regenerated for protocol 2168 from gophertunnel at commit
 // be6713da4dc051a4197f897d04835e89e9c54321:

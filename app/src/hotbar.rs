@@ -417,11 +417,10 @@ mod tests {
             Ok(())
         });
 
-        let session = protocol::BedrockSession { shield_item_id: 0 };
         let expected = select_hotbar_slot_packet(42, 2, &equipment_stack).unwrap();
         assert_eq!(
-            protocol::encode(&sent.unwrap(), &session).unwrap(),
-            protocol::encode(&expected, &session).unwrap()
+            protocol::encode(&sent.unwrap()).unwrap(),
+            protocol::encode(&expected).unwrap()
         );
         assert_eq!(player_runtime.inventory.pending_hotbar_selection(), None);
         assert_eq!(fatal, None);
@@ -456,11 +455,10 @@ mod tests {
             Ok(())
         });
 
-        let session = protocol::BedrockSession { shield_item_id: 0 };
         let expected = select_hotbar_slot_packet(42, 2, &NetworkItemStack::empty()).unwrap();
         assert_eq!(
-            protocol::encode(&retried.unwrap(), &session).unwrap(),
-            protocol::encode(&expected, &session).unwrap()
+            protocol::encode(&retried.unwrap()).unwrap(),
+            protocol::encode(&expected).unwrap()
         );
         assert_eq!(player_runtime.inventory.pending_hotbar_selection(), None);
         assert_eq!(fatal, None);
@@ -604,13 +602,9 @@ mod tests {
             predicted_packet = Some(packet);
             Ok(())
         });
-        let session = protocol::BedrockSession { shield_item_id: 0 };
-        let predicted_bytes = protocol::encode(&predicted_packet.unwrap(), &session).unwrap();
+        let predicted_bytes = protocol::encode(&predicted_packet.unwrap()).unwrap();
         let empty_packet = select_hotbar_slot_packet(42, 0, &NetworkItemStack::empty()).unwrap();
-        assert_eq!(
-            predicted_bytes,
-            protocol::encode(&empty_packet, &session).unwrap()
-        );
+        assert_eq!(predicted_bytes, protocol::encode(&empty_packet).unwrap());
 
         runtime
             .inventory_ledger_mut(&mut player_runtime)
@@ -641,11 +635,11 @@ mod tests {
             restored_packet = Some(packet);
             Ok(())
         });
-        let restored_bytes = protocol::encode(&restored_packet.unwrap(), &session).unwrap();
+        let restored_bytes = protocol::encode(&restored_packet.unwrap()).unwrap();
         let authoritative_packet = select_hotbar_slot_packet(42, 0, &authoritative).unwrap();
         assert_eq!(
             restored_bytes,
-            protocol::encode(&authoritative_packet, &session).unwrap()
+            protocol::encode(&authoritative_packet).unwrap()
         );
         assert_eq!(fatal, None);
     }
@@ -737,11 +731,10 @@ mod tests {
             Ok(())
         });
         assert_eq!(sent.len(), 1);
-        let session = protocol::BedrockSession { shield_item_id: 0 };
         let expected = select_hotbar_slot_packet(42, 0, &predicted).unwrap();
         assert_eq!(
-            protocol::encode(&sent[0], &session).unwrap(),
-            protocol::encode(&expected, &session).unwrap()
+            protocol::encode(&sent[0]).unwrap(),
+            protocol::encode(&expected).unwrap()
         );
         assert_eq!(player_runtime.inventory.pending_hotbar_selection(), None);
         assert_eq!(fatal, None);

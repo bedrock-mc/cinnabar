@@ -1,6 +1,6 @@
 use bytes::{Buf, BufMut, BytesMut};
 use jolyne::raw::{RawPacket, decode_packet_raw};
-use valentine::bedrock::context::BedrockSession;
+
 use valentine::bedrock::version::v1_26_51::{McpePacketName, SetTimePacket};
 use valentine::protocol::wire;
 
@@ -13,8 +13,7 @@ fn world_clock_registry_packet_is_allowlisted_at_raw_ingress() {
         SyncWorldClocksPacket, SyncWorldClocksPacketData,
         SyncWorldClocksPacketPayloadInitializeRegistryData, WorldClockData,
     };
-    let session = BedrockSession { shield_item_id: 0 };
-    let packet: Packet = SyncWorldClocksPacket {
+    let packet: Packet = crate::Packet::new(SyncWorldClocksPacket {
         data: SyncWorldClocksPacketData::InitializeRegistryData(
             SyncWorldClocksPacketPayloadInitializeRegistryData {
                 clock_data: vec![WorldClockData {
@@ -26,13 +25,12 @@ fn world_clock_registry_packet_is_allowlisted_at_raw_ingress() {
                 }],
             },
         ),
-    }
-    .into();
-    let mut batch = crate::encode(&packet, &session).expect("encode clock witness");
+    });
+    let mut batch = crate::encode(&packet).expect("encode clock witness");
     batch.advance(1);
     let raw = decode_packet_raw(&mut batch).expect("raw clock witness");
     assert_eq!(
-        decode_world_raw_with(raw, 0, |raw| raw.decode(&session)).expect("clock ingress"),
+        decode_world_raw_with(raw, 0, super::decode_test_raw).expect("clock ingress"),
         Some(WorldEvent::WorldClocks(vec![
             crate::WorldClockUpdateEvent::Initialize(crate::WorldClockDefinition {
                 id: 31,
@@ -116,10 +114,9 @@ fn truncated_inventory_equipment_and_actor_bodies_are_inner_wire_fatal() {
     ];
 
     for (id, body, label) in cases {
-        let error = decode_world_raw_with(raw_packet(id, body), 0, |raw| {
-            raw.decode(&BedrockSession { shield_item_id: 0 })
-        })
-        .expect_err(label);
+        let error =
+            decode_world_raw_with(raw_packet(id, body), 0, |raw| super::decode_test_raw(raw))
+                .expect_err(label);
         assert!(
             matches!(
                 error,
@@ -153,7 +150,7 @@ fn truncated_inventory_equipment_and_actor_bodies_are_inner_wire_fatal() {
 fn complete_item_descriptor_with_truncated_nbt_is_inner_wire_fatal() {
     let malformed_nbt = [0xff, 0xff, 1, 10];
     let error = decode_world_raw_with(raw_mob_equipment(1, &malformed_nbt, 0), 0, |raw| {
-        raw.decode(&BedrockSession { shield_item_id: 0 })
+        super::decode_test_raw(raw)
     })
     .expect_err("truncated item NBT");
 
@@ -226,7 +223,7 @@ fn contradictory_empty_equipment_still_scans_declared_wire_before_semantic_skip(
 fn semantic_world_rejections_remain_skippable_before_the_next_valid_packet() {
     let mut world_skips = 0;
     let unknown_container = decode_world_raw_with(raw_mob_equipment(1, &[0; 10], -1), 0, |raw| {
-        raw.decode(&BedrockSession { shield_item_id: 0 })
+        super::decode_test_raw(raw)
     })
     .expect_err("unknown container is semantically unusable");
     let mut non_finite_move = BytesMut::new();
@@ -249,13 +246,12 @@ fn semantic_world_rejections_remain_skippable_before_the_next_valid_packet() {
     }
     assert_eq!(world_skips, 2);
 
-    let session = BedrockSession { shield_item_id: 0 };
-    let packet: Packet = SetTimePacket { time: 7 }.into();
-    let mut batch = crate::encode(&packet, &session).expect("encode valid witness");
+    let packet: Packet = crate::Packet::new(SetTimePacket { time: 7 });
+    let mut batch = crate::encode(&packet).expect("encode valid witness");
     batch.advance(1);
     let raw = decode_packet_raw(&mut batch).expect("raw valid witness");
     assert!(matches!(
-        decode_world_raw_with(raw, 0, |raw| raw.decode(&session)),
+        decode_world_raw_with(raw, 0, super::decode_test_raw),
         Ok(Some(WorldEvent::SetTime(crate::SetTimeEvent { time: 7 })))
     ));
 }

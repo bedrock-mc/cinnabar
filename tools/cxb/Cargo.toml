@@ -5,6 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+reads = [
+    "tools/localserver/extension/testdata",
+]
+
 [dependencies]
 ring = "=0.17.14"
 anyhow.workspace = true

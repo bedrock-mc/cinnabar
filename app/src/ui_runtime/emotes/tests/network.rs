@@ -1,7 +1,6 @@
 use super::*;
 use crate::runtime::network::resource_packs::PackApplication;
 use client_runtime::network::NetworkHandle;
-use protocol::wire::valentine::bedrock::version::v1_26_51::McpePacketData;
 
 #[test]
 fn each_emote_start_sends_once_on_its_selection_frame() {
@@ -11,14 +10,13 @@ fn each_emote_start_sends_once_on_its_selection_frame() {
     h.play();
     let packets = captured.drain();
     assert_eq!(packets.len(), 1);
-    let McpePacketData::EmotePacket(packet) = &packets[0].data else {
-        panic!("selection must send an emote start immediately");
-    };
+    let packet = protocol::test_support::packets::emote(&packets[0])
+        .expect("selection must send an emote start immediately");
     let emote = h.runtime().emotes().playback().unwrap().emote;
-    assert_eq!(packet.actor_runtime_id.actor_runtime_id, 42);
+    assert_eq!(packet.actor_runtime_id, 42);
     assert_eq!(packet.emote_id, emote.id());
     assert_eq!(
-        f64::from(packet.emote_length_ticks),
+        f64::from(packet.length_ticks),
         (emote.duration_seconds() / world::TICK_DURATION.as_secs_f64()).ceil()
     );
     assert_eq!(packet.flags, 0);

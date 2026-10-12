@@ -169,6 +169,7 @@ fn configure_entries(app: &mut App, mods: Vec<(multi::ModSource, ModGrants)>) {
 fn install(app: &mut App, hosts: Vec<ModHost>) {
     let mut hosts = hosts.into_iter();
     let Some(host) = hosts.next() else { return };
+    app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
     let companions: Vec<_> = hosts.map(|host| multi::Companion { host }).collect();
     let controls = host.grants().controls
         || companions
@@ -214,6 +215,7 @@ fn install(app: &mut App, hosts: Vec<ModHost>) {
 
 #[cfg(feature = "local-mods")]
 fn configure_systems(app: &mut App, watching: bool) {
+    app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
     ghost::configure(app);
     block_highlights::configure(app);
     fullbright::configure(app);
@@ -273,7 +275,7 @@ fn drive_mod(
     focus: Option<Res<client_state::CursorFocus>>,
     driven: Option<Res<client_state::DrivenInput>>,
     windows: Query<(&Window, Option<&CursorOptions>), With<PrimaryWindow>>,
-    ui: Res<UiRuntime>,
+    mut ui: ResMut<UiRuntime>,
     menu: Option<Res<MenuRuntime>>,
     mut presentation: ResMut<UiPresentationRuntime>,
     time_override: Option<ResMut<VisualTimeOverride>>,
@@ -281,14 +283,18 @@ fn drive_mod(
     interaction: Option<ResMut<interaction::ModInteraction>>,
     mut outputs: ModOutputs,
     mut screen_input: screens::ScreenInput,
+    time: Res<Time<Real>>,
     observation: (
         Option<Res<registration::Watcher>>,
         Option<ResMut<render_scene::ModRenderScene>>,
         Query<(&GlobalTransform, &Projection), With<client_presentation::camera::FlyCamera>>,
         Local<presentation_facts::FrameRate>,
+        Local<module_observations::ModuleObserver>,
+        Option<ResMut<client_presentation::actor_publication::ActorPresentationStyle>>,
     ),
 ) {
-    let (watcher, render_scene, cameras, mut frame_rate) = observation;
+    let (watcher, render_scene, cameras, mut frame_rate, mut module_observer, mut actor_style) =
+        observation;
     let focused = windows.single().is_ok_and(|(window, _)| window.focused);
     let absorbed = client_shell::screen_policy::absorbs_input(
         &player_runtime,
@@ -307,7 +313,7 @@ fn drive_mod(
                 runtime.hosts.host(index).is_active() && runtime.hosts.host(index).grants().movement
             })
     });
-    gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed);
+    gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed, &ui);
     let menu_open = menu.as_deref().is_some_and(MenuRuntime::is_visible);
     screen_input.modifiers(focused && !menu_open);
     let (Some(mut extension), Some(mut time_override), Some(mut interaction)) =
@@ -345,8 +351,8 @@ fn drive_mod(
         }
     }
     if reloaded {
-        gameplay.synchronize_jump_scope(false);
-        gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed);
+        gameplay.synchronize_jump_scope(false, &ui);
+        gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed, &ui);
     }
     let pressed = keybind_allowed(focused, absorbed) && keys.just_pressed(DEMO_KEY);
     let controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
@@ -363,6 +369,13 @@ fn drive_mod(
         &ui,
     );
     let world_observation = gameplay.world_observation(&ui);
+    let modules = module_observer.capture(
+        &gameplay,
+        &ui,
+        world_observation.as_ref(),
+        &player_runtime,
+        Some(&interaction),
+    );
     let chat = if world_observation.is_some() {
         presentation_facts::chat_snapshot(&ui)
     } else {
@@ -389,13 +402,14 @@ fn drive_mod(
             player_state: player_state.as_ref(),
             world_observation: world_observation.as_ref(),
             fps,
+            modules: Some(&modules),
             sidebar: sidebar.as_ref(),
             chat: &chat,
         },
         |grants| {
             let snapshot = gameplay.snapshot(captured && !absorbed, grants);
             let mobs = gameplay.mobs(snapshot.as_ref(), grants);
-            let movement = gameplay.movement_snapshot(captured && !absorbed, grants);
+            let movement = gameplay.movement_snapshot(captured && !absorbed, grants, &ui);
             (snapshot, mobs, movement)
         },
         |index, error| {
@@ -409,6 +423,14 @@ fn drive_mod(
             eprintln!("Cinnabar extension callback failed: {error}");
         },
     );
+    for index in 0..extension.hosts.host_count() {
+        for message in extension.hosts.host_mut(index).take_local_messages() {
+            ui.push_local_chat_line(
+                message.into(),
+                u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX),
+            );
+        }
+    }
     render::publish(render_scene, &mut extension);
     if let Some(watcher) = watcher.as_ref() {
         watcher.remember_settings(
@@ -418,13 +440,13 @@ fn drive_mod(
         );
     }
     if callback_failed || merged.jump_cancel {
-        gameplay.synchronize_jump_scope(false);
+        gameplay.synchronize_jump_scope(false, &ui);
     }
     let movement_allowed = (0..extension.hosts.host_count()).any(|index| {
         extension.hosts.host(index).is_active() && extension.hosts.host(index).grants().movement
     });
-    gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed);
-    gameplay.pulse_jump(merged.jump_pulse && !merged.jump_cancel);
+    gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed, &ui);
+    gameplay.pulse_jump(merged.jump_pulse && !merged.jump_cancel, &ui);
     interaction.attack_reach = merged.attack_reach;
     interaction.attack_pulse = merged.attack_pulse && gameplay.pulse_attack();
     if let Some(delta) = merged.delta {
@@ -449,6 +471,22 @@ fn drive_mod(
     }
     let hud_owner = extension.hosts.hud_owner();
     let hud = hud_owner.and_then(|owner| extension.hosts.host(owner).hud());
+    if let Some(style) = actor_style.as_mut() {
+        style.attackable_color = hud
+            .and_then(|hud| hud.actor_style.as_ref())
+            .and_then(|style| style.attackable_color);
+        style.attackable_actor = if style.attackable_color.is_some() {
+            module_observations::current_target(&gameplay, &ui, Some(&interaction)).flatten()
+        } else {
+            None
+        };
+        style.hurt_armor_color = hud
+            .and_then(|hud| hud.actor_style.as_ref())
+            .and_then(|style| style.hurt_armor_color);
+        style.hurt_color = hud
+            .and_then(|hud| hud.actor_style.as_ref())
+            .and_then(|style| style.hurt_color);
+    }
     if let Err(error) = presentation.set_mod_hud(hud) {
         eprintln!("Cinnabar extension HUD cards rejected: {error}");
     }
@@ -628,6 +666,8 @@ pub(crate) mod ghost;
 mod input;
 #[cfg(feature = "local-mods")]
 pub(crate) mod interaction;
+#[cfg(feature = "local-mods")]
+mod module_observations;
 #[cfg(feature = "local-mods")]
 pub(crate) mod packet_delay;
 #[cfg(feature = "local-mods")]

@@ -29,7 +29,7 @@ fn primitive_shapes_packet_becomes_a_world_event() {
     let packet = PrimitiveShapesPacket {
         arrayofprimitiveshapescanbeamixofnewupdatedorremoved: vec![entry(7, WireKind::Line)],
     };
-    let result = crate::into_world_event(packet.into(), 0).unwrap();
+    let result = crate::into_world_event(crate::Packet::new(packet), 0).unwrap();
     let Some(crate::WorldEvent::PrimitiveShapes(event)) = result else {
         panic!("primitive shapes packet was not dispatched");
     };

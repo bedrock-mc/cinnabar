@@ -28,10 +28,9 @@ fn production_form_enqueue_binds_generation_and_distinguishes_definite_backpress
     else {
         panic!("form enqueue must submit a packet");
     };
-    let session = protocol::BedrockSession { shield_item_id: 0 };
     assert_eq!(
-        protocol::encode(&accepted, &session).unwrap(),
-        protocol::encode(&packet(), &session).unwrap()
+        protocol::encode(&accepted).unwrap(),
+        protocol::encode(&packet()).unwrap()
     );
     assert!(
         receiver.try_recv().is_err(),
@@ -66,10 +65,9 @@ fn render_distance_settings_send_is_session_fenced_and_retries_after_backpressur
     else {
         panic!("settings must enqueue a packet send");
     };
-    let session = protocol::BedrockSession { shield_item_id: 0 };
     assert_eq!(
-        protocol::encode(&accepted, &session).unwrap(),
-        protocol::encode(&packet(), &session).unwrap()
+        protocol::encode(&accepted).unwrap(),
+        protocol::encode(&packet()).unwrap()
     );
     network.send_settings_packet(42, packet()).unwrap();
 }

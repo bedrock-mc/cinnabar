@@ -565,6 +565,7 @@ fn swell_controlled_assignment_taints_later_unconditional_bone_channels() {
             symbols.insert(
                 3,
                 assets::EntityAssetSymbol {
+                    mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
                     kind: assets::EntityAssetKind::Animation,
                     identifier: "animation.second".into(),
                     source_index: symbols[2].source_index,

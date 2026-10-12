@@ -33,12 +33,22 @@ cause, and report any validation that remains incomplete.
 
 ## CI
 
-`ci-ok` is the required check. Pull requests run formatting, the architecture gate,
-clippy, and Rust and Go tests on Linux. Windows and macOS run
-`cargo check --workspace --all-targets`, client library tests, and the crates in
-`PLATFORM_TEST_PACKAGES` in `.github/workflows/ci.yml`. Add a crate there when its
-tests exercise platform-specific code. Packaging, physics-bootstrap, and
-PowerShell-harness jobs run when their inputs change.
+`ci-ok` is the required check. Pull requests run formatting, the architecture gate, and
+Go tests on Linux. Rust jobs build and lint the whole workspace, so only changed crates and
+their reverse dependencies recompile, and `devtool ci-plan` limits Rust tests to those
+crates. Root Cargo files, `.cargo/`, toolchain files, workflows, `tools/architecture`, and
+paths it cannot classify run every test. A crate that reads files outside its own directory lists
+them under `[package.metadata.cinnabar]` as `reads = ["crates/<crate>/data/*"]`, so changing
+one selects the reader too; the architecture gate rejects undeclared and stale reads. Go
+sources still run every test.
+
+Crates with macOS or Windows code declare it in `Cargo.toml` as
+`[package.metadata.cinnabar] platform-specific = ["macos", "windows"]`; the architecture
+gate rejects missing and stale declarations. A Windows or macOS job runs when a changed
+crate declares that platform, a shader or workflow changes, or every test runs. It tests
+the affected crates that declare the platform, with only the client's library tests. Full
+runs catch platform-only breakage reached through another crate's API. Packaging,
+physics-bootstrap, and PowerShell-harness jobs run when their inputs change.
 
 The full three-platform matrix runs on `dev` every six hours and can be requested
 with `gh workflow run ci.yml --ref <branch>`. `ci-cache.yml` tests `dev` on Linux
@@ -56,10 +66,19 @@ Directories with untracked inputs keep their current timestamps.
 
 Cache keys separate OS, architecture, compiler settings, and CI/release profiles.
 Each run gets a new key with a compatible fallback. Only runs on `dev`
-save caches; PR and tag runs restore them. After a successful save, older entries
-in that platform/profile bucket are removed. Go workflows use `stable`, with the
+save caches; PR and tag runs restore them. Go workflows use `stable`, with the
 resolved compiler version included in cache keys. Go uses the same restore/save
 ownership, without timestamp restoration.
+
+CI buckets live in the shared GitHub cache, which evicts least recently used entries
+past 10 GB. Each bucket has a budget in `.github/actions/build-cache/budgets.json`,
+the budgets must fit the limit together, and a save deletes its bucket's old entry
+first, then fails if the new one is over budget. Release buckets, used once a day,
+would be the first evicted there, so `package.yml` stores them as workflow artifacts
+instead, kept for three days with their own budgets.
+
+CI builds with `--workspace` and selects tests with nextest filtersets: a `-p` subset
+unifies features differently and rebuilds cached dependencies.
 
 The first run after a cache format change is cold. Check the restored-source count,
 Cargo build durations, and cache sizes on subsequent runs before claiming a speedup.

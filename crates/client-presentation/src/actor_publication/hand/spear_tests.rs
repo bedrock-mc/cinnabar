@@ -86,6 +86,7 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
     stream.advance_actor_interpolation_frame(delay + 2);
     let input = ActorEquipmentInput {
         main: Some(crate::presentation::equipment::WornItem {
+            grip: assets::item::grip::builtin_item_grip("minecraft:iron_spear"),
             identifier: "minecraft:iron_spear".into(),
             kind: crate::presentation::equipment::HeldKind::Sprite,
             metadata: 0,

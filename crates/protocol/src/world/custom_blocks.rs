@@ -1,7 +1,7 @@
 mod shared_states;
 use std::sync::Arc;
 
-use jolyne::GameData;
+use valentine::bedrock::version::v1_26_51::StartGamePacket;
 
 use crate::nbt_tree::{Nbt, read_root};
 
@@ -336,20 +336,13 @@ pub struct CustomBlocks {
 }
 
 impl CustomBlocks {
-    #[must_use]
-    pub fn from_game_data(game_data: &GameData) -> Self {
-        Self::from_definitions(
-            game_data
-                .start_game
-                .block_properties
-                .iter()
-                .map(|property| {
-                    (
-                        property.block_name.as_str(),
-                        property.block_definition.0.as_ref(),
-                    )
-                }),
-        )
+    pub(crate) fn from_start_game(start_game: &StartGamePacket) -> Self {
+        Self::from_definitions(start_game.block_properties.iter().map(|property| {
+            (
+                property.block_name.as_str(),
+                property.block_definition.0.as_ref(),
+            )
+        }))
     }
 
     /// Parses `(name, network NBT)` block definitions as StartGame carries them.

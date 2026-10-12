@@ -47,13 +47,13 @@ mod logging;
 mod startup;
 use startup::bind_direct_session_directory;
 
+use crate::runtime::telemetry::AcceptanceRuntimeConfig;
 use client_presentation::{
     actor_publication::publish_actor_render_frame,
     camera::FlyCameraUpdateSet,
     local_player::{LocalPlayerFrameSet, publish_interaction_origin},
 };
 use client_ui::ui_runtime::{UiRuntime, oreui_fonts, presentation::UiPresentationRuntime};
-use crate::runtime::telemetry::AcceptanceRuntimeConfig;
 use diagnostics::markers::SHUTDOWN_COMPLETED;
 use diagnostics::metrics::MetricsCollector;
 use launcher::install_layout::InstallLayout;
@@ -545,6 +545,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     {
         diagnostics::log_stderr!("OreUI originals disabled ({reason})");
     }
+    let food_catalog = equipment_catalog.clone();
     ui_presentation.set_equipment_catalog(equipment_catalog);
     ui_presentation
         .set_gui_models(&loaded_assets.runtime, &entity_runtime)
@@ -766,6 +767,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource({
         let mut ui_runtime = UiRuntime::new(0);
         ui_runtime.set_item_fuel_catalog(Arc::clone(&entity_runtime));
+        ui_runtime.set_food_catalog(food_catalog);
         if let Some(address) = &args.address {
             ui_runtime.experiences.select_destination(address);
         }

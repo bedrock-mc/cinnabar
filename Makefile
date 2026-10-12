@@ -165,6 +165,10 @@ package-windows: package-binaries $(FONT_SOURCE)
 package-linux: package-binaries $(FONT_SOURCE)
 	bash packaging/linux/build-appimage.sh
 
+.PHONY: diag
+diag:
+	$(CARGO) run -p devtool --locked -- diag
+
 SECONDS ?= 180
 .PHONY: capture play-build
 capture:

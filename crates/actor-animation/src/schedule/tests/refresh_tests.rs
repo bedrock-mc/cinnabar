@@ -32,6 +32,7 @@ fn local_fixture_with(
     symbols.insert(
         2,
         assets::EntityAssetSymbol {
+            mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
             kind: assets::EntityAssetKind::Geometry,
             identifier: layer_geometry.identifier.clone(),
             source_index: layer_geometry.source_index,

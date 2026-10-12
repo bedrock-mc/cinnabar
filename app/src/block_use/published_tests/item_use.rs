@@ -123,7 +123,10 @@ fn delay_fix_allows_a_throw_while_attacking_without_changing_native_timing() {
         let throws = captured
             .drain()
             .into_iter()
-            .filter(|packet| format!("{:?}", packet.data).contains("ItemUseInventoryTransaction("))
+            .filter(|packet| {
+                protocol::test_support::transactions::observe_transaction(packet)
+                    .is_some_and(|transaction| transaction.item_use().is_some())
+            })
             .count();
         assert_eq!(throws, usize::from(enabled));
     }

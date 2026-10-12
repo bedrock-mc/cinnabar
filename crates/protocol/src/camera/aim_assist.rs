@@ -29,7 +29,7 @@ pub fn camera_aim_assist_activation_packet(
     while !preset_id.is_char_boundary(end) {
         end -= 1;
     }
-    wire::ClientCameraAimAssistPacket {
+    crate::Packet::new(wire::ClientCameraAimAssistPacket {
         camera_preset_id: preset_id[..end].into(),
         action: if clear {
             wire::EnumsClientCameraAimAssistPacketAction::Clear
@@ -37,8 +37,7 @@ pub fn camera_aim_assist_activation_packet(
             wire::EnumsClientCameraAimAssistPacketAction::Setfromcamerapreset
         },
         allowaimassist: allow,
-    }
-    .into()
+    })
 }
 
 /// Accepts both explicit target ranking modes and rejects unknown selectors.

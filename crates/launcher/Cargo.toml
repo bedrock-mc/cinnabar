@@ -5,6 +5,16 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+platform-specific = ["macos", "windows"]
+reads = [
+    "assets/branding/icon.png",
+    "assets/branding/title.png",
+    "core/authcache/derived_suffix.txt",
+    "core/catalog/artwork_limit.txt",
+    "core/catalog/profile_overview_limit.txt",
+]
+
 [features]
 test-support = []
 

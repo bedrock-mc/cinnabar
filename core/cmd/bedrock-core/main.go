@@ -93,17 +93,6 @@ type options struct {
 	controlStatus             bool
 	xboxPresence              bool
 	upstreamClientCache       bool
-	localWorldsDir            string
-	localServerBin            string
-	localBackend              string
-	bdsDir                    string
-	bdsVersion                string
-	bdsImage                  string
-	bdsMaxPlayers             int
-	bdsHostPort               int
-	bdsLANVisible             bool
-	bdsLANHostPort            int
-	docker                    string
 	serverTrustFile           string
 }
 
@@ -124,51 +113,14 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.BoolVar(&opts.xboxPresence, "xbox-presence", false, "own Xbox title presence for the account (requires -control-status)")
 	flags.StringVar(&opts.serverTrustFile, "server-trust-file", "", "ask the control client before joining an unknown http NetherNet server, remembering trusted ones in this file (requires -control-status)")
 	flags.BoolVar(&opts.upstreamClientCache, "upstream-client-cache", false, "advertise client-cache capability upstream; enable only when the connecting client owns a verified blob cache")
-	flags.StringVar(&opts.localWorldsDir, "local-worlds-dir", "", "enable local single-player worlds stored in this directory (requires -control-status)")
-	flags.StringVar(&opts.localServerBin, "local-server-bin", "", "local world server binary (default: bedrock-local-server beside the core)")
-	flags.StringVar(&opts.localBackend, "local-backend", "auto", "default backend for new local worlds: auto (BDS where available, else dragonfly), bds or dragonfly")
-	flags.StringVar(&opts.bdsDir, "bds-dir", "", "directory for downloaded Bedrock Dedicated Server builds (default: bds beside the worlds directory)")
-	flags.StringVar(&opts.bdsVersion, "bds-version", "", "exact Bedrock Dedicated Server build to download (the client passes its target manifest's server_version)")
-	flags.StringVar(&opts.bdsImage, "bds-image", "", "digest-pinned container image that runs the Linux Bedrock Dedicated Server where no native build exists")
-	flags.IntVar(
-		&opts.bdsMaxPlayers,
-		"bds-max-players",
-		0,
-		"maximum players in a local Bedrock Dedicated Server (zero uses vanilla's hosted-world limit)",
-	)
-	flags.IntVar(&opts.bdsHostPort, "bds-host-port", 0,
-		fmt.Sprintf("local BDS loopback host port (zero selects an available port; conventional port is %d)", localworld.DefaultBDSPort))
-	flags.BoolVar(&opts.bdsLANVisible, "bds-lan-visible", false, "enable local BDS LAN discovery (container discovery remains published only on loopback)")
-	flags.IntVar(&opts.bdsLANHostPort, "bds-lan-host-port", 0, "container BDS loopback LAN discovery port (zero uses the pinned NetherNet discovery port)")
-	flags.StringVar(&opts.docker, "docker", "docker", "Docker-compatible CLI used to run the Linux Bedrock Dedicated Server where no native build exists")
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
-	}
-	switch opts.localBackend {
-	case "auto", "bds", "dragonfly":
-	default:
-		return options{}, errors.New("local-backend must be auto, bds or dragonfly")
-	}
-	if opts.localWorldsDir != "" && !opts.controlStatus {
-		return options{}, errors.New("local-worlds-dir requires -control-status")
 	}
 	if opts.xboxPresence && !opts.controlStatus {
 		return options{}, errors.New("xbox-presence requires -control-status")
 	}
 	if opts.serverTrustFile != "" && !opts.controlStatus {
 		return options{}, errors.New("server-trust-file requires -control-status")
-	}
-	if opts.localServerBin != "" && opts.localWorldsDir == "" {
-		return options{}, errors.New("local-server-bin requires -local-worlds-dir")
-	}
-	if opts.bdsMaxPlayers < 0 {
-		return options{}, errors.New("bds-max-players must not be negative")
-	}
-	if opts.bdsHostPort < 0 || opts.bdsHostPort != int(uint16(opts.bdsHostPort)) {
-		return options{}, errors.New("bds-host-port must be zero or a valid TCP/UDP port")
-	}
-	if opts.bdsLANHostPort < 0 || opts.bdsLANHostPort != int(uint16(opts.bdsLANHostPort)) {
-		return options{}, errors.New("bds-lan-host-port must be zero or a valid UDP port")
 	}
 	flags.Visit(func(value *flag.Flag) {
 		if value.Name == "resource-pack-cache-quota-bytes" {
@@ -345,16 +297,11 @@ func runWithResourcePackCacheFactory(
 			closeResourcePackCache = cache.Close
 		}
 	}
-	var localWorlds *localworld.Manager
+	// The launcher runs local worlds and reports the open one over local_world.v1.
+	var localWorlds *localworld.Local
 	var localTarget proxy.LocalTargetFunc
-	if opts.localWorldsDir != "" {
-		localWorlds, err = openLocalWorlds(opts, logger)
-		if err != nil {
-			if closeResourcePackCache != nil {
-				_ = closeResourcePackCache()
-			}
-			return err
-		}
+	if statusStore != nil {
+		localWorlds = localworld.NewLocal()
 		localTarget = localWorlds.ConnectionTarget
 	}
 	var resourcePackAdmissionUpdate func(proxy.ResourcePackAdmissionSnapshot)
@@ -362,32 +309,31 @@ func runWithResourcePackCacheFactory(
 	transfers := new(proxy.TransferState)
 	selector := new(proxy.UpstreamSelector)
 	var onDisconnect func(proxy.DisconnectInfo)
+	var networkObservation func(proxy.NetworkObservation)
 	var sessionTarget func(context.Context, string, string) (string, error)
 	var serverTrust minecraft.ServerTrust
 	if statusStore != nil {
-		if localWorlds != nil {
-			// Opening a local world supersedes any pending transfer or selected upstream.
-			worlds := controlWorlds{manager: localWorlds, onOpen: func() {
-				transfers.Clear()
-				selector.Set("")
-				statusStore.ClearTransfer()
-			}}
-			if account != nil {
-				hosting := &friendHosting{account: account, worlds: localWorlds, target: localTarget, log: logger}
-				hostingCtx, stopHosting := context.WithCancel(ctx)
-				hostingDone := make(chan struct{})
-				go func() {
-					defer close(hostingDone)
-					hosting.run(hostingCtx)
-				}()
-				defer func() {
-					stopHosting()
-					<-hostingDone
-				}()
-				worlds.invite = hosting.Invite
-			}
-			controlServer.SetWorlds(worlds)
+		// Opening a local world supersedes any pending transfer or selected upstream.
+		worlds := controlWorlds{local: localWorlds, onOpen: func() {
+			transfers.Clear()
+			selector.Set("")
+			statusStore.ClearTransfer()
+		}}
+		if account != nil {
+			hosting := &friendHosting{account: account, worlds: localWorlds, target: localTarget, log: logger}
+			hostingCtx, stopHosting := context.WithCancel(ctx)
+			hostingDone := make(chan struct{})
+			go func() {
+				defer close(hostingDone)
+				hosting.run(hostingCtx)
+			}()
+			defer func() {
+				stopHosting()
+				<-hostingDone
+			}()
+			worlds.invite = hosting.Invite
 		}
+		controlServer.SetWorlds(worlds)
 		artworkDir, cacheFile := filepath.Join(opts.socketDir, "artwork"), ""
 		if dir := authSibling(opts.authCache, "catalog-cache"); dir != "" {
 			artworkDir, cacheFile = filepath.Join(dir, "artwork"), filepath.Join(dir, "catalog.json")
@@ -419,6 +365,10 @@ func runWithResourcePackCacheFactory(
 		}
 		transfers.OnTransfer = func(target proxy.TransferTarget) { statusStore.ObserveTransfer(target.Host, target.Port) }
 		onDisconnect = func(info proxy.DisconnectInfo) { statusStore.ObserveDisconnect(info.Reason, info.Message) }
+		networkObservation = func(observation proxy.NetworkObservation) {
+			statusStore.ObserveNetwork(control.NetworkObservation{AttemptID: observation.AttemptID, LocalRuntimeID: observation.LocalRuntimeID, RoundTripMillis: observation.RoundTripMillis})
+		}
+
 		if opts.serverTrustFile != "" {
 			prompts := proxy.NewServerTrustPrompts(func(prompt proxy.ServerTrustPrompt, pending bool) {
 				statusStore.ObserveServerTrust(control.ServerTrustPrompt(prompt), pending)
@@ -446,6 +396,7 @@ func runWithResourcePackCacheFactory(
 		Transfers:           transfers,
 		Selector:            selector,
 		OnDisconnect:        onDisconnect,
+		NetworkObservation:  networkObservation,
 		LocalTarget:         localTarget,
 		ResourcePackCache:   resourcePackCache,
 		ResourcePackAdmission: func(snapshot proxy.ResourcePackAdmissionSnapshot) {
@@ -472,9 +423,6 @@ func runWithResourcePackCacheFactory(
 	})
 	if controlServer != nil {
 		serveErr = errors.Join(serveErr, controlServer.Close())
-	}
-	if localWorlds != nil {
-		localWorlds.Shutdown()
 	}
 	if closeResourcePackCache == nil {
 		return serveErr

@@ -234,7 +234,7 @@ fn authored_surfaces_bound_values_expansion_and_structure() {
 }
 
 #[test]
-fn authored_surfaces_reject_recursive_depth_and_hidden_extra_definitions() {
+fn authored_surfaces_reject_recursive_depth_and_dynamic_unused_definitions() {
     let mut authored = surface("mod.close");
     let mut nested = serde_json::json!({"type":"panel"});
     for _ in 0..34 {
@@ -243,6 +243,8 @@ fn authored_surfaces_reject_recursive_depth_and_hidden_extra_definitions() {
     authored.document = serde_json::json!({"namespace":"extension","screen":nested}).to_string();
     assert!(authored.validate().is_err());
     authored.document = serde_json::json!({"namespace":"extension","screen":{"type":"screen"},"hidden":{"type":"panel"}}).to_string();
+    assert!(authored.validate().is_ok());
+    authored.document = serde_json::json!({"namespace":"extension","screen":{"type":"screen"},"hidden":{"type":"panel","factory":{}}}).to_string();
     assert!(authored.validate().is_err());
     authored.document = "{".into();
     assert!(authored.validate().is_err());
@@ -316,4 +318,31 @@ fn scrollbar_track_actions_are_native_only_on_track_controls() {
     authored.document = document.to_string();
     panel.surface = Some(authored);
     assert!(panel.validate().is_err());
+}
+
+#[test]
+fn bounded_large_external_catalog_rejects_one_excess_control() {
+    let mut panel = panel();
+    panel.controls = (0..MAX_PANEL_CONTROLS)
+        .map(|index| Control::Button {
+            id: format!("action_{index}"),
+            label: format!("Action {index}"),
+        })
+        .collect();
+    assert!(panel.validate().is_ok());
+    panel.controls.push(Control::Button {
+        id: "excess".into(),
+        label: "Excess".into(),
+    });
+    assert!(panel.validate().is_err());
+}
+
+#[test]
+fn resolved_template_routes_still_require_declared_panel_controls() {
+    let mut spec = panel();
+    spec.surface=Some(Surface {screen:"extension.screen".into(),bindings:Default::default(),document:serde_json::json!({"namespace":"extension","button":{"type":"button","$action|default":"mod.control:0","button_mappings":[{"from_button_id":"button.menu_select","mapping_type":"pressed","to_button_id":"$action"}]},"screen":{"type":"panel","controls":[{"chosen@extension.button":{"$action":"mod.control:7"}}]}}).to_string()});
+    assert!(spec.validate().is_err());
+    let surface = spec.surface.as_mut().unwrap();
+    surface.document = surface.document.replace("mod.control:7", "mod.control:0");
+    assert!(spec.validate().is_ok());
 }

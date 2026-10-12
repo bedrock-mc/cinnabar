@@ -4,6 +4,7 @@
 //! personal UI inventory, as the ledger keeps them. Collection names follow the
 //! 26.30 `ui/*_screen.json` templates.
 
+use assets::entity::mount::{MountBody, MountEquipment, MountSlots};
 use protocol::WindowKind;
 
 use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
@@ -273,56 +274,13 @@ pub fn window_kind(kind: WindowKind) -> Option<&'static ContainerKind> {
         WindowKind::Dispenser => &DISPENSER,
         WindowKind::Dropper => &DROPPER,
         WindowKind::Crafter => &CRAFTER,
-        WindowKind::Horse => mount_kind(mount_slots(None)),
+        WindowKind::Horse => mount_kind(MountEquipment::Unresolved),
         WindowKind::Storage | WindowKind::Workbench | WindowKind::Lectern => return None,
     })
 }
 
-/// What a mount wears besides a saddle.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum MountBody {
-    None,
-    HorseArmor,
-    Carpet,
-    NautilusArmor,
-}
-
-/// A mount's equippable slots: whether it takes a saddle (slot 0) and what
-/// it wears in slot 1.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct MountSlots {
-    pub saddle: bool,
-    pub body: MountBody,
-}
-
-/// `minecraft:equippable` of the 1.26.50 behavior pack's mounts.
-const MOUNTS: [(&str, bool, MountBody); 11] = [
-    ("minecraft:horse", true, MountBody::HorseArmor),
-    ("minecraft:zombie_horse", true, MountBody::HorseArmor),
-    ("minecraft:donkey", true, MountBody::None),
-    ("minecraft:mule", true, MountBody::None),
-    ("minecraft:camel", true, MountBody::None),
-    ("minecraft:camel_husk", true, MountBody::None),
-    ("minecraft:skeleton_horse", false, MountBody::None),
-    ("minecraft:llama", false, MountBody::Carpet),
-    ("minecraft:trader_llama", false, MountBody::Carpet),
-    ("minecraft:nautilus", true, MountBody::NautilusArmor),
-    ("minecraft:zombie_nautilus", true, MountBody::NautilusArmor),
-];
-
-/// The slots of the mount `identifier`; an unknown mount keeps the horse's.
-pub fn mount_slots(identifier: Option<&str>) -> MountSlots {
-    let (saddle, body) = MOUNTS
-        .iter()
-        .find(|(id, ..)| Some(*id) == identifier)
-        .map_or((true, MountBody::HorseArmor), |(_, saddle, body)| {
-            (*saddle, *body)
-        });
-    MountSlots { saddle, body }
-}
-
 /// The horse screen addressing only the equip slots `slots` has.
-pub fn mount_kind(slots: MountSlots) -> &'static ContainerKind {
+pub fn mount_kind(equipment: MountEquipment) -> &'static ContainerKind {
     const fn horse(equip: &'static [(&'static str, &'static [Cell])]) -> ContainerKind {
         kind("horse.horse_screen", "entity.horse.name", equip)
     }
@@ -339,6 +297,7 @@ pub fn mount_kind(slots: MountSlots) -> &'static ContainerKind {
         ("container_items", &MOUNT_CHEST),
     ]);
     const BARE: ContainerKind = horse(&[("container_items", &MOUNT_CHEST)]);
+    let slots = equipment.slots().unwrap_or(MountSlots::EMPTY);
     match (slots.saddle, slots.body == MountBody::None) {
         (true, false) => &BOTH,
         (true, true) => &SADDLE,
@@ -354,6 +313,32 @@ impl ContainerKind {
             .iter()
             .find(|(name, _)| *name == collection)
             .and_then(|(_, cells)| cells.get(index).copied())
+    }
+}
+
+#[cfg(test)]
+mod mount_tests {
+    use super::*;
+
+    #[test]
+    fn unresolved_mount_has_no_guessed_horse_equipment_cells() {
+        let unresolved = MountEquipment::Unresolved;
+        assert_eq!(unresolved.slots(), None);
+        let layout = mount_kind(unresolved);
+        assert_eq!(layout.cell("horse_equip_items", 0), None);
+        assert_eq!(layout.cell("horse_equip_items", 1), None);
+        assert_eq!(layout.cell("container_items", 0), Some(Cell::Storage(2)));
+    }
+
+    #[test]
+    fn admitted_body_only_layout_addresses_the_body_slot() {
+        let equipment = MountEquipment::Equippable(MountSlots {
+            saddle: false,
+            body: MountBody::Carpet,
+        });
+        let layout = mount_kind(equipment);
+        assert_eq!(layout.cell("horse_equip_items", 0), Some(Cell::Storage(1)));
+        assert_eq!(layout.cell("horse_equip_items", 1), None);
     }
 }
 

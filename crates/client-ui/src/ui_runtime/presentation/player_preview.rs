@@ -78,18 +78,20 @@ impl UiPresentationRuntime {
         self.equipment_catalog = catalog;
     }
 
-    /// Dresses the model in the local player's armor and held item, naming each
-    /// stack's item through `identify`.
+    /// Dresses the model using each stack's admitted identity and grip facts.
     pub fn dress_player_preview(
         &mut self,
         player_runtime: &player_state::PlayerState,
         runtime: &crate::ui_runtime::UiRuntime,
-        identify: impl Fn(&protocol::NetworkItemStack) -> Option<Arc<str>>,
+        resolve: impl Fn(&protocol::NetworkItemStack) -> Option<client_world::CanonicalItemStack>,
     ) {
         use inventory::inventory_ledger::InventoryTarget;
         let ledger = runtime.inventory_ledger(player_runtime);
         let named = |stack: Option<&protocol::NetworkItemStack>| {
-            stack.and_then(|stack| Some((identify(stack)?, stack.clone())))
+            stack.and_then(|stack| {
+                let item = resolve(stack)?;
+                Some((item.identifier?, stack.clone(), item.grip))
+            })
         };
         let armor: [_; 4] = std::array::from_fn(|slot| {
             named(ledger.target_stack(InventoryTarget::Armor(slot as u8)))
@@ -101,19 +103,21 @@ impl UiPresentationRuntime {
         );
         self.set_player_preview_gear(
             armor.each_ref().map(|worn| {
-                worn.as_ref()
-                    .map(|(id, stack)| (&**id, runtime.stack_facts(stack, Some(id)).custom_color))
+                worn.as_ref().map(|(id, stack, _)| {
+                    (&**id, runtime.stack_facts(stack, Some(id)).custom_color)
+                })
             }),
-            held.as_ref().map(|(id, stack)| (&**id, stack.metadata)),
+            held.as_ref().map(|(id, stack, _)| (&**id, stack.metadata)),
         );
         let off_hand = named(ledger.target_stack(InventoryTarget::Offhand));
         self.player_preview_gear.hands = [held, off_hand].map(|item| {
-            let (identifier, stack) = item?;
+            let (identifier, stack, grip) = item?;
             let facts = runtime.stack_facts(&stack, Some(&identifier));
             let charged_projectile = (identifier.as_ref() == "minecraft:crossbow")
                 .then(|| facts.charged_projectile())
                 .flatten();
             Some(PreviewHandItem {
+                grip: Some(grip),
                 identifier,
                 metadata: stack.metadata,
                 charged_projectile,
@@ -157,6 +161,7 @@ impl UiPresentationRuntime {
         });
         let hands = [
             held.map(|(identifier, metadata)| PreviewHandItem {
+                grip: None,
                 identifier: Arc::from(identifier),
                 metadata,
                 charged_projectile: None,

@@ -14,6 +14,53 @@ use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
 mod furnace_fuel_tests;
 mod furnace_recipe_tests;
 
+#[test]
+fn unknown_mount_window_does_not_draw_or_hit_equipment_cells() {
+    use crate::ui_runtime::presentation::{
+        forms::snapshot, inventory_pointer::InventoryScreen, screens,
+    };
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let runtime = opened(&mut player_runtime, protocol::WINDOW_TYPE_HORSE, 2);
+    let mut presentation = UiPresentationRuntime::with_hud(
+        crate::test_support::fixture_font(),
+        crate::test_support::fixture_hud(),
+    )
+    .unwrap();
+    let size = [512, 512];
+    let dpi = DpiScale::new(1.0).unwrap();
+    presentation
+        .build(&player_runtime, &runtime, 0, size, dpi)
+        .unwrap();
+    let input = presentation
+        .build(&player_runtime, &runtime, 500, size, dpi)
+        .unwrap();
+    if let Some(folder) = std::env::var_os("CINNABAR_FORM_SNAPSHOT_DIR") {
+        std::fs::create_dir_all(folder).unwrap();
+        snapshot::write(&input, "unknown-mount-equipment");
+    }
+    let screen = InventoryScreen::Window(protocol::WindowKind::Horse, 2);
+    let geometry = crate::ui_runtime::presentation::HudGeometry::new(
+        size,
+        1.0,
+        presentation.safe_area,
+        presentation.gui_scale_preference,
+    )
+    .unwrap();
+    let origin = screens::panel_origin(screen, [geometry.gui_width, geometry.gui_height]);
+    let raster = snapshot::rasterize(&input);
+    for y in [27.0, 45.0] {
+        let at = [origin[0] + 17.0, origin[1] + y];
+        assert_eq!(presentation.inventory_cell_hit(at, size, 1.0, screen), None);
+        let pixel = at.map(|value| (value * geometry.scale) as u32);
+        let adjacent = [pixel[0] + (20.0 * geometry.scale) as u32, pixel[1]];
+        assert_eq!(
+            raster.get_pixel(pixel[0], pixel[1]),
+            raster.get_pixel(adjacent[0], adjacent[1]),
+            "unresolved equipment draws the panel rather than a slot well"
+        );
+    }
+}
+
 fn opened(
     player_runtime: &mut player_state::PlayerState,
     window_type: i8,
@@ -364,7 +411,12 @@ fn screens() -> Vec<(
         ),
         screen(
             "horse",
-            |player_runtime| opened(player_runtime, WINDOW_TYPE_HORSE, 17),
+            |player_runtime| {
+                let mut runtime = opened(player_runtime, WINDOW_TYPE_HORSE, 17);
+                runtime.screen_state_mut().mount_equipment =
+                    assets::entity::mount::builtin_mount_equipment("minecraft:horse");
+                runtime
+            },
             storage(17),
         ),
         // A chested llama wears only a carpet, in container slot 1.
@@ -373,6 +425,8 @@ fn screens() -> Vec<(
             |player_runtime| {
                 let mut runtime = opened(player_runtime, WINDOW_TYPE_HORSE, 17);
                 runtime.screen_state_mut().mount_identifier = Some("minecraft:llama".into());
+                runtime.screen_state_mut().mount_equipment =
+                    assets::entity::mount::builtin_mount_equipment("minecraft:llama");
                 runtime
             },
             (1..17).map(Storage).collect(),
@@ -528,12 +582,14 @@ fn crafter_slots_toggle_through_their_buttons() {
         PointerAction::Click(InventoryCellHit::Storage(4)),
     );
     assert_eq!(runtime.screen_state().crafter.shown_disabled(), 0b1_0100);
-    let toggles: Vec<String> = std::iter::from_fn(|| runtime.take_client_packet())
-        .map(|packet| format!("{:?}", packet.data))
+    let toggles: Vec<_> = std::iter::from_fn(|| runtime.take_client_packet())
+        .map(|packet| {
+            let toggle = protocol::test_support::packets::crafter_slot_toggle(&packet)
+                .expect("a crafter slot toggle");
+            (toggle.slot, toggle.disabled)
+        })
         .collect();
-    assert_eq!(toggles.len(), 2);
-    assert!(toggles[0].contains("slot_index: 0") && toggles[0].contains("is_disabled: false"));
-    assert!(toggles[1].contains("slot_index: 4") && toggles[1].contains("is_disabled: true"));
+    assert_eq!(toggles, [(0, false), (4, true)]);
 }
 
 // A llama's single equip cell is its carpet slot, never the saddle's.
@@ -551,6 +607,8 @@ fn llama_equip_cell_addresses_the_carpet_slot() {
     };
     let mut runtime = opened(&mut player_runtime, protocol::WINDOW_TYPE_HORSE, 17);
     runtime.screen_state_mut().mount_identifier = Some("minecraft:llama".into());
+    runtime.screen_state_mut().mount_equipment =
+        assets::entity::mount::builtin_mount_equipment("minecraft:llama");
     let dpi = DpiScale::new(1.0).unwrap();
     for now in [0, 500] {
         presentation

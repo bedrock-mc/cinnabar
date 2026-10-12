@@ -331,7 +331,7 @@ fn successful_uses_swing_before_their_always_sent_transaction() {
             101,
         )
         .iter()
-        .map(|packet| format!("{:?}", packet.header.id))
+        .map(|packet| format!("{:?}", packet.kind()))
         .collect::<Vec<_>>()
     };
     assert_eq!(
@@ -456,7 +456,7 @@ fn first_success_starts_before_swing_and_repeat_keeps_only_transaction() {
             1,
         )
         .iter()
-        .map(|packet| format!("{:?}", packet.header.id))
+        .map(|packet| format!("{:?}", packet.kind()))
         .collect::<Vec<_>>()
     };
     assert_eq!(
@@ -484,7 +484,7 @@ fn first_success_starts_before_swing_and_repeat_keeps_only_transaction() {
     );
     assert_eq!(failed.len(), 1);
     assert_eq!(
-        format!("{:?}", failed[0].header.id),
+        format!("{:?}", failed[0].kind()),
         "InventoryTransactionPacket"
     );
 }

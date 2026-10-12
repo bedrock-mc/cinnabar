@@ -5,6 +5,13 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+platform-specific = ["windows"]
+reads = [
+    "crates/assets/src/carriers/startup/markers.rs",
+    "crates/client-ui/src/diagnostic_markers.rs",
+]
+
 [dependencies]
 assets = { path = "../assets" }
 chunk-pipeline = { path = "../chunk-pipeline" }

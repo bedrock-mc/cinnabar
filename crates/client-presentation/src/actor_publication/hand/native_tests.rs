@@ -211,6 +211,7 @@ fn fixture_with_binding(
     stream.advance_actor_interpolation_frame(6);
     let input = ActorEquipmentInput {
         main: main.map(|identifier| crate::presentation::equipment::WornItem {
+            grip: assets::item::grip::builtin_item_grip(identifier),
             identifier: identifier.into(),
             metadata: 0,
             damage: None,
@@ -348,6 +349,7 @@ fn native_hand_unbound_attachables_keep_actor_frame_during_owner_swing() {
             );
             if off_hand {
                 input.off = Some(crate::presentation::equipment::WornItem {
+                    grip: assets::item::grip::builtin_item_grip("minecraft:shield"),
                     identifier: "minecraft:shield".into(),
                     metadata: 0,
                     damage: None,
@@ -506,6 +508,7 @@ fn assert_java_native_parent(main: Option<&str>, off: bool, degrees: f32) {
     let (mut stream, mut equipment, artwork, mut input) = fixture(main);
     if off {
         input.off = Some(crate::presentation::equipment::WornItem {
+            grip: assets::item::grip::builtin_item_grip("minecraft:shield"),
             identifier: "minecraft:shield".into(),
             metadata: 0,
             damage: None,

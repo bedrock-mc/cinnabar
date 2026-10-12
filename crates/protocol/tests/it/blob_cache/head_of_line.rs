@@ -69,10 +69,12 @@ fn two_hundred_fifty_six_large_inline_pending_packets_are_bounded_and_recovered(
         let missing_payload = format!("missing-inline-{x}");
         let missing_hash = client_blob_hash(missing_payload.as_bytes());
         let status = resolver
-            .accept_cached_packet(
-                cached_level_chunk(x, -13, vec![missing_hash], &[0x5a; INLINE_PAYLOAD_BYTES])
-                    .into(),
-            )
+            .accept_cached_packet(protocol::Packet::new(cached_level_chunk(
+                x,
+                -13,
+                vec![missing_hash],
+                &[0x5a; INLINE_PAYLOAD_BYTES],
+            )))
             .expect("pending-byte pressure must stay non-fatal");
         assert_eq!(status.missing(), [missing_hash]);
         assert!(status.have().is_empty());
@@ -135,7 +137,12 @@ fn staged_pinned_bytes_are_bounded_before_every_miss_resolves_and_released_on_sk
     let cache = ClientBlobCache::with_limits(limits(1));
     let mut resolver = BlobCacheResolver::new(cache.clone());
     let status = resolver
-        .accept_cached_packet(cached_level_chunk(41, -9, hashes.to_vec(), b"").into())
+        .accept_cached_packet(protocol::Packet::new(cached_level_chunk(
+            41,
+            -9,
+            hashes.to_vec(),
+            b"",
+        )))
         .expect("transaction is initially admitted");
     assert_eq!(status.missing(), hashes);
 
@@ -208,7 +215,7 @@ fn aggregate_reconstructed_ready_bytes_are_bounded_with_explicit_recovery() {
 fn zero_reference_status_is_suppressed_but_have_only_status_is_sent() {
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
     let empty = resolver
-        .accept_cached_packet(cached_sub_chunk_packet(Vec::new()).into())
+        .accept_cached_packet(protocol::Packet::new(cached_sub_chunk_packet(Vec::new())))
         .expect("well-formed empty cached SubChunk");
     assert!(
         empty.into_packets().is_empty(),
@@ -553,7 +560,9 @@ fn pressure_rotation_and_staged_rejection_refresh_queued_recovery_accounting() {
     hashes.push(missing_hash);
 
     let status = resolver
-        .accept_cached_packet(cached_level_chunk(999, 0, hashes, b"").into())
+        .accept_cached_packet(protocol::Packet::new(cached_level_chunk(
+            999, 0, hashes, b"",
+        )))
         .expect("staged rejection after rotation remains non-fatal");
 
     assert_eq!(status.recovery.map(|recovery| recovery.x), Some(0));
@@ -726,7 +735,12 @@ fn reconstruction_cost_is_bounded_before_duplicate_blob_copies_are_allocated() {
     let mut resolver = BlobCacheResolver::new(cache);
 
     let status = resolver
-        .accept_cached_packet(cached_level_chunk(17, -4, vec![hash, hash], &[0x7f]).into())
+        .accept_cached_packet(protocol::Packet::new(cached_level_chunk(
+            17,
+            -4,
+            vec![hash, hash],
+            &[0x7f],
+        )))
         .expect("reconstruction safety excess stays non-fatal");
 
     assert!(status.missing().is_empty());

@@ -13,32 +13,20 @@ fn source(carrier: assets::carriers::Carrier) -> (std::path::PathBuf, Vec<u8>, F
 }
 
 #[test]
-fn shipped_heading_and_body_pixels_have_solid_coverage_and_equal_stems() {
-    for carrier in [assets::carriers::FONT_SEVEN, assets::carriers::FONT_TEN] {
-        let (_, _, font) = source(carrier);
-        let em = carrier.font_face.unwrap().line_metrics().em_64 / 64;
-        for codepoint in '!'..='~' {
-            let glyph = rasterize(&font, codepoint, em, GlyphAdvances::Source).unwrap();
-            assert!(
-                glyph.alpha.iter().all(|&alpha| alpha == 0 || alpha == 255),
-                "{} {codepoint}: fractional coverage at {em} px/em",
-                carrier.name
-            );
-        }
-        let glyph = rasterize(&font, 'H', em, GlyphAdvances::Source).unwrap();
-        let row = &glyph.alpha[glyph.width as usize..2 * glyph.width as usize];
-        let left = row.iter().take_while(|&&alpha| alpha == 255).count();
-        let right = row.iter().rev().take_while(|&&alpha| alpha == 255).count();
-        assert!(left > 0);
-        assert_eq!(left, right, "{} has unequal H stems", carrier.name);
-    }
+fn shipped_faces_keep_their_native_stem_coverage() {
+    let (_, _, seven) = source(assets::carriers::FONT_SEVEN);
+    let glyph = rasterize(&seven, 'H', 20, GlyphAdvances::Source).unwrap();
+    assert!(glyph.alpha.iter().all(|&alpha| alpha == 0 || alpha == 255));
+    let (_, _, ten) = source(assets::carriers::FONT_TEN);
+    let glyph = rasterize(&ten, 'H', 20, GlyphAdvances::Source).unwrap();
+    assert!(glyph.alpha.iter().any(|&alpha| alpha > 0 && alpha < 255));
 }
 
 #[test]
 fn complete_carriers_keep_every_mapped_scalar_and_styled_motd_letters() {
     for carrier in assets::carriers::CARRIERS
         .iter()
-        .filter(|carrier| carrier.font_face.is_some())
+        .filter(|carrier| carrier.font_face.is_some_and(|face| !face.native_raster))
     {
         let (path, bytes, font) = source(*carrier);
         let face = carrier.font_face.unwrap();
@@ -97,22 +85,32 @@ fn complete_carriers_keep_every_mapped_scalar_and_styled_motd_letters() {
         }
         assert!(catalog.glyphs().len() >= font.chars().len());
         assert!(catalog.pages().len() > 1);
-        for page in catalog.pages() {
-            assert!(
-                page.pixels
-                    .bytes()
-                    .iter()
-                    .all(|&alpha| alpha == 0 || alpha == 255),
-                "{} has off-grid source pixels",
-                face.name
-            );
+        for codepoint in ['A', 'é', 'Ω', 'Я'] {
+            let original = rasterize(
+                &font,
+                codepoint,
+                face.raster_em_pixels(),
+                GlyphAdvances::Source,
+            )
+            .unwrap();
+            let glyph = catalog.glyph(codepoint).unwrap();
+            let page = &catalog.pages()[usize::from(glyph.page)];
+            let pixels: Vec<_> = (glyph.uv[1]..glyph.uv[3])
+                .flat_map(|y| {
+                    let start = usize::from(y) * page.width as usize + usize::from(glyph.uv[0]);
+                    page.pixels.bytes()[start..start + usize::from(glyph.uv[2] - glyph.uv[0])]
+                        .iter()
+                        .copied()
+                })
+                .collect();
+            assert_eq!(pixels, original.alpha.as_ref(), "{} {codepoint}", face.name);
         }
     }
 }
 
 #[test]
 fn high_glyph_indices_remain_mapped_in_shipped_faces() {
-    for carrier in [assets::carriers::FONT, assets::carriers::FONT_TEN] {
+    for carrier in [assets::carriers::FONT] {
         let (_, _, font) = source(carrier);
         for codepoint in ['\u{a95f}', '\u{aa5c}', '\u{aa5f}', '\u{a640}'] {
             assert_ne!(
@@ -124,4 +122,19 @@ fn high_glyph_indices_remain_mapped_in_shipped_faces() {
             );
         }
     }
+}
+
+#[test]
+fn source_advances_retain_fractional_atlas_texels() {
+    let (_, _, font) = source(assets::carriers::FONT_TEN);
+    let em = assets::carriers::FONT_TEN
+        .font_face
+        .unwrap()
+        .raster_em_pixels();
+    let metrics = font.metrics('A', em as f32);
+    let glyph = rasterize(&font, 'A', em, GlyphAdvances::Source).unwrap();
+    let quantum = 1.0 / FIXED_POINT_DENOMINATOR as f64;
+    let advance = f64::from(glyph.advance_64) * quantum;
+    assert!((advance - f64::from(metrics.advance_width)).abs() <= quantum / 2.0);
+    assert_ne!(i64::from(glyph.advance_64) % FIXED_POINT_DENOMINATOR, 0);
 }

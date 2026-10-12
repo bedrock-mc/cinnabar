@@ -1,14 +1,14 @@
 use bytes::Bytes;
-use protocol::{
-    BedrockSession, NetworkItemStack, WorldEvent, decode_batch, encode, into_world_event,
+use protocol::inventory::{
+    normalize_container_close, normalize_container_data, normalize_container_open,
+    normalize_content, normalize_hotbar, normalize_response, normalize_slot,
 };
 use protocol::{
     CanonicalCell, ContainerIdentity, InventoryAuthority, InventoryEvent, InventoryPacketError,
     MAX_CONTAINER_SLOTS, MAX_ITEM_NBT_BYTES, MAX_RESPONSE_CONTAINERS, MAX_STACK_RESPONSES,
-    VerifiedNetworkItemStack, normalize_authority, normalize_container_close,
-    normalize_container_data, normalize_container_open, normalize_content, normalize_hotbar,
-    normalize_response, normalize_slot, project_container_cell, validate_item_nbt_size,
+    VerifiedNetworkItemStack, normalize_authority, project_container_cell, validate_item_nbt_size,
 };
+use protocol::{NetworkItemStack, WorldEvent, decode_batch, encode, into_world_event};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use valentine::bedrock::version::v1_26_51::{
@@ -129,8 +129,7 @@ fn accepted_response(
 }
 
 fn decode_fixture(bytes: &'static [u8]) -> protocol::Packet {
-    let mut packets = decode_batch(bytes.into(), &BedrockSession { shield_item_id: 0 })
-        .expect("decode pinned inventory fixture");
+    let mut packets = decode_batch(bytes.into()).expect("decode pinned inventory fixture");
     assert_eq!(packets.len(), 1);
     packets.pop().unwrap()
 }
@@ -256,7 +255,7 @@ fn item_stack_response_fixture_decodes_and_round_trips_exactly() {
     assert_eq!(slot.custom_name.unredacted, "Fixture item");
     assert_eq!(slot.custom_name.redacted.as_deref(), Some("Fixture item"));
 
-    let encoded = encode(&packet, &BedrockSession { shield_item_id: 0 }).unwrap();
+    let encoded = encode(&packet).unwrap();
     assert_eq!(encoded.as_ref(), RESPONSE_FIXTURE);
 }
 

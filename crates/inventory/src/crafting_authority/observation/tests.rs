@@ -495,9 +495,7 @@ fn observer_does_not_change_normal_open_close_bytes_or_allocate_craft_request() 
     let mut before = ledger.clone();
     assert!(ledger.request_personal_open(42));
     assert!(before.request_personal_open(42));
-    let bytes = |packet: protocol::Packet| {
-        protocol::encode(&packet, &protocol::BedrockSession { shield_item_id: 0 }).unwrap()
-    };
+    let bytes = |packet: protocol::Packet| protocol::encode(&packet).unwrap();
     let expected = bytes(before.pending_batch().unwrap().unwrap().0);
     let fixture = Fixture::new();
     let state = state();

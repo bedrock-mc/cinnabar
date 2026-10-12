@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
 use protocol::{
-    BedrockSession, MAX_RAW_TEXT_COMPONENTS, MAX_RAW_TEXT_DEPTH, MAX_RAW_TEXT_INPUT_BYTES,
-    MAX_RAW_TEXT_NODES, MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextResolution, TextKind,
-    TitleAction, UiEvent, UiPacketError, WorldEvent, decode_batch, into_world_event,
-    parse_raw_text,
+    MAX_RAW_TEXT_COMPONENTS, MAX_RAW_TEXT_DEPTH, MAX_RAW_TEXT_INPUT_BYTES, MAX_RAW_TEXT_NODES,
+    MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextResolution, TextKind, TitleAction, UiEvent,
+    UiPacketError, WorldEvent, decode_batch, into_world_event, parse_raw_text,
 };
 use valentine::bedrock::version::v1_26_51::{
     EnumsSetTitlePacketPayloadTitleType, EnumsTextPacketType, SetTitlePacket, TextPacket,
@@ -50,7 +49,7 @@ fn normalize_json(
         "test helper accepts only object text packet kinds"
     );
     let packet = message_only(message_only_body(kind, message));
-    match into_world_event(packet.into(), 0) {
+    match into_world_event(protocol::Packet::new(packet), 0) {
         Ok(Some(WorldEvent::Ui(UiEvent::RawText(event)))) => Ok(event),
         Ok(other) => panic!("expected normalized text event, got {other:?}"),
         Err(protocol::WorldPacketError::Ui(error)) => Err(error),
@@ -60,7 +59,7 @@ fn normalize_json(
 
 fn normalize_raw(message: String) -> Result<UiEvent, UiPacketError> {
     let packet = message_only(message_only_body(TextKind::Raw, message));
-    match into_world_event(packet.into(), 0) {
+    match into_world_event(protocol::Packet::new(packet), 0) {
         Ok(Some(WorldEvent::Ui(event))) => Ok(event),
         Ok(other) => panic!("expected normalized UI event, got {other:?}"),
         Err(protocol::WorldPacketError::Ui(error)) => Err(error),
@@ -69,7 +68,7 @@ fn normalize_raw(message: String) -> Result<UiEvent, UiPacketError> {
 }
 
 fn decode_fixture(bytes: &'static [u8]) -> protocol::RawTextEvent {
-    let mut packets = decode_batch(bytes.into(), &BedrockSession { shield_item_id: 0 }).unwrap();
+    let mut packets = decode_batch(bytes.into()).unwrap();
     assert_eq!(packets.len(), 1);
     match into_world_event(packets.pop().unwrap(), 0).unwrap() {
         Some(WorldEvent::Ui(UiEvent::RawText(event))) => event,
@@ -86,7 +85,7 @@ fn normalize_title_object(
         title_text: message.to_owned(),
         ..Default::default()
     };
-    match into_world_event(packet.into(), 0) {
+    match into_world_event(protocol::Packet::new(packet), 0) {
         Ok(Some(WorldEvent::Ui(UiEvent::Title(event)))) => Ok(event),
         Ok(other) => panic!("expected normalized title event, got {other:?}"),
         Err(protocol::WorldPacketError::Ui(error)) => Err(error),

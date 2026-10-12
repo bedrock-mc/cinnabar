@@ -33,14 +33,14 @@ impl ServerDisconnectEvent {
 impl crate::ProtocolError {
     /// The server's Disconnect that ended the join, when one did.
     pub fn server_disconnect(&self) -> Option<ServerDisconnectEvent> {
-        let Self::Session(jolyne::error::JolyneError::Protocol(
+        let Self::Session(crate::SessionError(jolyne::error::JolyneError::Protocol(
             jolyne::error::ProtocolError::ServerDisconnect {
                 reason,
                 message,
                 filtered_message,
                 ..
             },
-        )) = self
+        ))) = self
         else {
             return None;
         };
@@ -160,22 +160,21 @@ mod tests {
 
     #[test]
     fn a_join_time_disconnect_keeps_the_server_text() {
-        let error = crate::ProtocolError::Session(
+        let error = crate::ProtocolError::from(jolyne::error::JolyneError::from(
             jolyne::error::ProtocolError::ServerDisconnect {
                 stage: "login",
                 reason: "Unknown".to_owned(),
                 message: "disconnectionScreen.cantConnect".to_owned(),
                 filtered_message: String::new(),
-            }
-            .into(),
-        );
+            },
+        ));
         let event = error.server_disconnect().expect("disconnect retained");
         assert_eq!(
             event.message.as_deref(),
             Some("disconnectionScreen.cantConnect")
         );
         assert_eq!(event.filtered_message, None);
-        let closed = crate::ProtocolError::Session(jolyne::error::JolyneError::ConnectionClosed);
+        let closed = crate::ProtocolError::from(jolyne::error::JolyneError::ConnectionClosed);
         assert!(closed.server_disconnect().is_none());
     }
 

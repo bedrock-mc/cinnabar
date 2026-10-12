@@ -9,6 +9,8 @@ mod bind_pose;
 mod controller_blend;
 #[path = "entity/material_states.rs"]
 mod material_states;
+#[path = "entity/mount.rs"]
+mod mount;
 #[path = "entity/review_regressions.rs"]
 mod review_regressions;
 #[path = "entity/runtime_admission.rs"]

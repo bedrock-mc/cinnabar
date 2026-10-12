@@ -49,6 +49,8 @@ pub struct PreviewEquipment {
 /// Identity and authoritative item state used to select each hand's native model.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PreviewHandItem {
+    /// Registry facts when a live stack is available; standalone previews use their compiled model.
+    pub grip: Option<assets::item::grip::ItemGrip>,
     pub identifier: Arc<str>,
     pub metadata: u32,
     pub charged_projectile: Option<Arc<str>>,
@@ -62,6 +64,24 @@ pub struct PreviewHeldModel {
     pub placements: [PreviewHeldPlacement; 2],
     /// Native player `rightItem`/`leftItem` bind origins in mirrored rig blocks.
     pub hand_pivots: [[f32; 3]; 2],
+}
+
+impl PreviewHeldModel {
+    /// Applies an admitted sprite grip while preserving authored and block placements.
+    pub(in crate::ui_runtime::presentation) fn with_grip(
+        &self,
+        grip: Option<assets::item::grip::ItemGrip>,
+    ) -> Self {
+        let mut model = self.clone();
+        if let Some(grip) = grip {
+            for placement in &mut model.placements {
+                if let PreviewHeldPlacement::Sprite { hand_equipped } = placement {
+                    *hand_equipped = grip.upright().unwrap_or(false);
+                }
+            }
+        }
+        model
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

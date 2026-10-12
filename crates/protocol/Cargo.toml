@@ -4,10 +4,20 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish = false
+# `tests/it` compiles into the library's unit tests, which may reach crate-private packet internals.
+autotests = false
+
+[package.metadata.cinnabar]
+platform-specific = ["windows"]
+reads = [
+    "assets/block-data-sources.json",
+    "tools/localserver/experience/testdata/protocol/limits.json",
+    "tools/protocol-normalize/manifest.json",
+]
 
 [features]
-# Re-exports the vendored wire crates to downstream tests that encode real packets.
-wire-test-support = []
+# Fixture builders and semantic observations for other crates' tests.
+test-support = []
 
 [dependencies]
 zeroize = "1"

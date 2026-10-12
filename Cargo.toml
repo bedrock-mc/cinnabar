@@ -59,6 +59,7 @@ members = [
     "tools/architecture",
     "tools/bedrock-replay",
     "tools/devtool",
+    "tools/workspace-declarations",
     "tools/dist",
     "tools/jsonui-editor",
     "tools/jsonui-mcp",

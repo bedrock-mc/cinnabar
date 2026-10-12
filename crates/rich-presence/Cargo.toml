@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+platform-specific = ["macos", "windows"]
+
 [dependencies]
 crossbeam-channel = "0.5"
 discord-presence = "3.2"

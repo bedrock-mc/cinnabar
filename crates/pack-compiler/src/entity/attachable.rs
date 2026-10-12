@@ -21,6 +21,8 @@ use sha2::{Digest, Sha256};
 
 use super::{SourcePayloads, invalid, json::parse_unique_json, read_bounded_source};
 mod item_attack;
+mod item_food;
+pub use item_food::compile_item_foods;
 mod textures;
 pub use item_attack::compile_item_attack_timings;
 use textures::compile_texture_identifiers_with;
@@ -570,6 +572,7 @@ mod tests {
         entries
             .iter()
             .map(|(kind, identifier, source_index)| EntityAssetSymbol {
+                mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
                 kind: *kind,
                 identifier: (*identifier).into(),
                 source_index: *source_index,

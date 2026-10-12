@@ -8,6 +8,8 @@ interface hud {
     set-content: func(json: string) -> result<_, string>;
     /// Replaces only a normally visible crosshair; requires hud authority. Empty restores it.
     set-crosshair: func(json: string) -> result<_, string>;
+    /// Adds one bounded local-only system chat line after a successful callback; requires hud.
+    local-message: func(text: string) -> result<_, string>;
     record point { x: f32, y: f32 }
     record placement { id: string, position: option<point> }
     record editor-result { saved: bool, reset: bool, placements: list<placement> }
@@ -72,6 +74,44 @@ interface player-state {
         position: tuple<f32, f32, f32>,
         alive: bool,
     }
+    record motion {
+        session: u64, dimension: s32,
+        /// Actor YXZ degrees: yaw left and pitch up. Velocity is blocks per simulation tick.
+        yaw: f32, pitch: f32, velocity: tuple<f32, f32, f32>, on-ground: bool,
+    }
+    record food {nutrition: u32, saturation-modifier: f32}
+    record vitals {
+        session: u64, dimension: s32,
+        hunger: option<f32>, max-hunger: option<f32>, saturation: option<f32>, held-food: option<food>,
+    }
+    record bounds { min: tuple<f32, f32, f32>, max: tuple<f32, f32, f32> }
+    record actor {
+        session: u64, dimension: s32, runtime-id: u64, player: bool,
+        position: tuple<f32, f32, f32>, boxes: list<bounds>, name: string,
+        identifier: string, yaw: f32, pitch: f32, pickable: bool,
+        /// Native attack ray eligibility with current world obstruction/reach; absent when no valid ray exists.
+        hittable: option<bool>,
+        /// Retained native look origin and direction, not a guessed bounding-box eye height.
+        look-origin: option<tuple<f32,f32,f32>>, look-direction: option<tuple<f32,f32,f32>>,
+        invisible: bool, sneaking: bool, hurt: bool, health: option<f32>,
+    }
+    enum combat-kind { attack-admitted, hurt, death }
+    record combat-event {
+        sequence: u64, session: u64, dimension: s32, kind: combat-kind,
+        local: bool, player: bool,
+        runtime-id: u64, distance: option<f32>, position: tuple<f32, f32, f32>,
+    }
+    /// Read-only presented motion; requires player-state authority, including while menus own input.
+    read-motion: func() -> result<option<motion>, string>;
+    /// Authoritative current food attributes; unknown fields remain absent, never estimated.
+    read-vitals: func() -> result<option<vitals>, string>;
+    /// Actual upstream round-trip milliseconds; absent before measurement or when unsupported.
+    read-ping: func() -> result<option<u32>, string>;
+    /// At most 16 nearby actors within 128 blocks; player rows require players, other rows entities.
+    read-actors: func() -> result<list<actor>, string>;
+    /// Incremental retained evidence, at most 4 entries per read. Requires player-state authority.
+    /// Attack admission is outbound intent, NOT server confirmation; hurt carries NO attacker attribution.
+    read-combat: func(after: u64, limit: u32) -> result<list<combat-event>, string>;
     record chat-message { sequence: u64, text: string }
     /// Newest 32 retained received messages, filtered by sequence > after, in FIFO order.
     /// limit is 1 through 4; individual text fields are at most 256 UTF-8 bytes.
@@ -267,6 +307,11 @@ interface render {
     update-pass: func(name: string, enabled: bool, params: list<f32>) -> result<_, string>;
     /// Appends to this callback's primitives; each successful callback replaces the drawn set.
     draw: func(primitives: primitives) -> result<_, string>;
+    enum line-pattern { solid, dashed, dotted }
+    /// Camera-facing line with width in physical pixels and an original procedural pattern.
+    record line { points: list<vector3>, width: f32, color: rgba, pattern: line-pattern }
+    /// Appends depth-tested lines with the same authority and shared ribbon budget.
+    draw-lines: func(lines: list<line>) -> result<_, string>;
 }
 
 /// The mod's JSON-UI templates beside the vanilla container screens. Templates are the

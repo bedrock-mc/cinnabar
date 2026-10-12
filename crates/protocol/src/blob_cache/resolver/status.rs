@@ -108,7 +108,7 @@ impl BlobCacheStatus {
 
     /// Splits the missing and have protocol sets. Outstanding hashes are intentionally omitted.
     #[must_use]
-    pub fn into_packets(self) -> Vec<ClientCacheBlobStatusPacket> {
+    pub(crate) fn into_packets(self) -> Vec<ClientCacheBlobStatusPacket> {
         let mut missing = self.missing.into_iter().peekable();
         let mut have = self.have.into_iter().peekable();
         let mut packets = Vec::new();

@@ -1,12 +1,7 @@
 use std::sync::Arc;
 
-use bytes::BytesMut;
-use protocol::wire::valentine::bedrock::{
-    codec::BedrockCodec,
-    version::v1_26_51::{
-        EnumsInventorySourceType, InventoryAction, InventoryTransactionPacket,
-        InventoryTransactionPacketTransaction, McpePacketData,
-    },
+use protocol::test_support::transactions::{
+    InventoryActionObservation, InventorySourceKind, TransactionBody, observe_transaction,
 };
 use protocol::{
     ContainerCloseEvent, ContainerIdentity, ContainerOpenEvent, InventoryContentEvent,
@@ -97,21 +92,21 @@ fn open(ledger: &mut PlayerInventoryLedger) {
     assert!(!ledger.poll_timeout(10_000));
 }
 
-fn normal(packet: Packet) -> Vec<InventoryAction> {
-    let McpePacketData::InventoryTransactionPacket(transaction) = packet.data else {
-        panic!("legacy gestures must send normal InventoryTransaction");
-    };
-    assert_eq!(transaction.legacy_request_id.id, 0);
-    assert!(transaction.legacy_set_item_slots.is_none());
-    let mut bytes = BytesMut::new();
-    transaction.encode(&mut bytes).unwrap();
-    let decoded = InventoryTransactionPacket::decode(&mut bytes.freeze(), ()).unwrap();
-    assert_eq!(decoded, *transaction);
-    let InventoryTransactionPacketTransaction::NormalTransactionData(normal) = decoded.transaction
-    else {
-        panic!("ordinary inventory mutations require the normal transaction body");
-    };
-    normal.actions.actions
+fn normal(packet: Packet) -> Vec<InventoryActionObservation> {
+    let transaction = observe_transaction(&packet)
+        .expect("legacy gestures must send normal InventoryTransaction");
+    assert_eq!(transaction.legacy_request_id, 0);
+    assert!(transaction.legacy_set_slots.is_none());
+    let decoded = protocol::decode_batch(protocol::encode(&packet).unwrap())
+        .unwrap()
+        .remove(0);
+    assert_eq!(decoded, packet);
+    assert_eq!(
+        transaction.body,
+        TransactionBody::Normal,
+        "ordinary inventory mutations require the normal transaction body"
+    );
+    transaction.actions
 }
 
 #[test]
@@ -141,29 +136,29 @@ fn legacy_split_pipeline_preserves_descriptors_and_commits_without_response() {
     let actions = normal(first.clone());
     assert_eq!(ledger.pending_batch().unwrap().unwrap().0, first);
     assert_eq!(actions.len(), 2);
-    assert_eq!(actions[0].source.container_id, Some(0));
+    assert_eq!(actions[0].container_id, Some(0));
     assert_eq!(actions[0].slot, 0);
-    assert_eq!(actions[0].from_item.stacksize, 12);
-    assert_eq!(actions[0].to_item.stacksize, 7);
+    assert_eq!(actions[0].from_item.count, 12);
+    assert_eq!(actions[0].to_item.count, 7);
     assert_eq!(
-        actions[1].source.container_id,
+        actions[1].container_id,
         Some(protocol::UI_INVENTORY_WINDOW_ID as i8)
     );
     assert_eq!(actions[1].slot, 0);
-    assert_eq!(actions[1].from_item.id, 0);
-    assert_eq!(actions[1].to_item.stacksize, 5);
-    assert_eq!(actions[1].to_item.auxvalue, 3);
+    assert_eq!(actions[1].from_item.network_id, 0);
+    assert_eq!(actions[1].to_item.count, 5);
+    assert_eq!(actions[1].to_item.metadata, 3);
     assert_eq!(actions[1].to_item.block_runtime_id, 11);
-    assert_eq!(actions[1].to_item.user_data_buffer, vec![0; 10]);
-    assert!(actions[1].to_item.net_id_variant.is_none());
+    assert_eq!(actions[1].to_item.user_data, vec![0; 10]);
+    assert!(actions[1].to_item.stack_network_id.is_none());
     assert!(ledger.mark_transport_enqueued(10));
     assert_eq!(ledger.pending_request_count(), 1);
     let actions = normal(ledger.pending_batch().unwrap().unwrap().0);
-    assert_eq!(actions[0].from_item.stacksize, 5);
-    assert_eq!(actions[0].to_item.stacksize, 3);
-    assert_eq!(actions[1].source.container_id, Some(0));
+    assert_eq!(actions[0].from_item.count, 5);
+    assert_eq!(actions[0].to_item.count, 3);
+    assert_eq!(actions[1].container_id, Some(0));
     assert_eq!(actions[1].slot, 1);
-    assert_eq!(actions[1].to_item.stacksize, 2);
+    assert_eq!(actions[1].to_item.count, 2);
     flush(&mut ledger);
     assert_eq!(ledger.pending_request_count(), 0);
     assert_eq!(ledger.displayed_stack(0).unwrap().count, 7);
@@ -201,10 +196,10 @@ fn legacy_chest_take_quick_move_swap_and_drop_use_normal_transactions() {
     }));
     ledger.begin_storage_click(3).unwrap();
     let actions = normal(flush(&mut ledger).remove(0));
-    assert_eq!(actions[0].source.container_id, Some(7));
+    assert_eq!(actions[0].container_id, Some(7));
     assert_eq!(actions[0].slot, 3);
-    assert_eq!(actions[0].from_item.stacksize, 8);
-    assert_eq!(actions[0].to_item.stacksize, 0);
+    assert_eq!(actions[0].from_item.count, 8);
+    assert_eq!(actions[0].to_item.count, 0);
     assert_eq!(ledger.cursor_stack().unwrap().count, 8);
     ledger.begin_storage_click(4).unwrap();
     normal(flush(&mut ledger).remove(0));
@@ -214,31 +209,24 @@ fn legacy_chest_take_quick_move_swap_and_drop_use_normal_transactions() {
     let actions = normal(flush(&mut ledger).remove(0));
     let drop = actions
         .iter()
-        .find(|action| action.source.source_type == EnumsInventorySourceType::Worldinteraction)
+        .find(|action| action.source == InventorySourceKind::World)
         .expect("a drop needs its balancing world action");
-    assert_eq!(drop.from_item.id, 0);
-    assert_eq!(drop.to_item.id, 7);
-    assert_eq!(drop.to_item.stacksize, 1);
-    assert_eq!(drop.source.container_id, None);
+    assert_eq!(drop.from_item.network_id, 0);
+    assert_eq!(drop.to_item.network_id, 7);
+    assert_eq!(drop.to_item.count, 1);
+    assert_eq!(drop.container_id, None);
     ledger
         .begin_quick_move(InventoryTarget::Storage(4))
         .unwrap();
     let actions = normal(flush(&mut ledger).remove(0));
-    assert!(
-        actions
-            .iter()
-            .any(|action| action.source.container_id == Some(0))
-    );
+    assert!(actions.iter().any(|action| action.container_id == Some(0)));
     assert!(ledger.storage_stack(4).is_none());
     assert_eq!(ledger.pending_request_count(), 0);
     ledger.request_storage_close();
     let packets = flush(&mut ledger);
     assert_eq!(packets.len(), 2);
     normal(packets[0].clone());
-    assert!(matches!(
-        packets[1].data,
-        McpePacketData::ContainerClosePacket(_)
-    ));
+    assert_eq!(format!("{:?}", packets[1].kind()), "ContainerClosePacket");
     assert!(ledger.cursor_stack().is_none());
     assert!(!ledger.resync_required());
 }
@@ -289,10 +277,7 @@ fn legacy_failed_send_keeps_retry_and_close_returns_before_control_packet() {
     let packets = flush(session.ledger_mut());
     assert_eq!(packets.len(), 2);
     normal(packets[0].clone());
-    assert!(matches!(
-        packets[1].data,
-        McpePacketData::ContainerClosePacket(_)
-    ));
+    assert_eq!(format!("{:?}", packets[1].kind()), "ContainerClosePacket");
     assert!(session.ledger().cursor_stack().is_none());
     assert_eq!(session.ledger().displayed_stack(0).unwrap().count, 12);
 }
@@ -328,12 +313,12 @@ fn legacy_hotbar_swaps_and_fixed_surfaces_keep_wire_item_ids() {
         .unwrap();
     let actions = normal(flush(&mut ledger).remove(0));
     assert_eq!(
-        actions[0].source.container_id,
+        actions[0].container_id,
         Some(protocol::ARMOR_WINDOW_ID as i8)
     );
     assert_eq!(actions[0].slot, 2);
-    assert_eq!(actions[0].from_item.net_id_variant, Some(91));
-    assert_eq!(actions[1].to_item.net_id_variant, Some(91));
+    assert_eq!(actions[0].from_item.stack_network_id, Some(91));
+    assert_eq!(actions[1].to_item.stack_network_id, Some(91));
     ledger.begin_click(0).unwrap();
     normal(flush(&mut ledger).remove(0));
     ledger
@@ -341,11 +326,11 @@ fn legacy_hotbar_swaps_and_fixed_surfaces_keep_wire_item_ids() {
         .unwrap();
     let actions = normal(flush(&mut ledger).remove(0));
     assert_eq!(
-        actions[1].source.container_id,
+        actions[1].container_id,
         Some(protocol::OFFHAND_WINDOW_ID as i8)
     );
     assert_eq!(actions[1].slot, 0);
-    assert_eq!(actions[1].to_item.net_id_variant, Some(91));
+    assert_eq!(actions[1].to_item.stack_network_id, Some(91));
     assert_eq!(
         ledger.target_stack(InventoryTarget::Offhand),
         Some(&original)
@@ -395,7 +380,7 @@ fn legacy_later_slot_correction_preserves_the_surviving_cursor_owner() {
     assert_eq!(ledger.displayed_stack(1).unwrap().count, 1);
     assert_eq!(ledger.cursor_stack().map(|stack| stack.count), Some(5));
     let actions = normal(flush(&mut ledger).remove(0));
-    assert_eq!(actions[1].to_item.stacksize, 5);
+    assert_eq!(actions[1].to_item.count, 5);
     assert_eq!(ledger.cursor_stack().unwrap().count, 5);
     assert!(!ledger.resync_required());
 }

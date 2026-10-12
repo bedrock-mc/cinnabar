@@ -1,7 +1,8 @@
-//! Local single-player worlds served by the core (BDS, or dragonfly for Flat worlds).
+//! Local single-player worlds on BDS or the built-in Dragonfly server, run by the launcher.
 //!
-//! [`WorldsMenu`] is a pure screen model; [`LocalWorlds`] wires it to the core's control
-//! channel. The menu module embeds it by calling `attach`, `input`, `menu` and `take_ready`.
+//! [`WorldsMenu`] is a pure screen model; [`LocalWorlds`] wires it to the world manager and tells
+//! the attached core where the open world is. The menu module embeds it by calling `attach`,
+//! `input`, `menu` and `take_ready`.
 
 mod client;
 
@@ -10,6 +11,9 @@ use launcher::local_worlds::model;
 mod settings_storage_flow_tests;
 
 use std::{io, path::PathBuf};
+
+use launcher::install_layout::InstallLayout;
+use launcher_host::local_worlds::Manager;
 
 use bevy::{
     prelude::{App, MessageReader, Plugin, Res, ResMut, Resource, Update},
@@ -20,16 +24,18 @@ use model::{Effect, Input, WorldsMenu};
 
 use client::WorldsClient;
 
-/// Menu model plus the control-channel worker that serves it.
+/// Menu model plus the world manager and the worker that serves it.
 #[derive(Resource)]
 pub struct LocalWorlds {
     menu: WorldsMenu,
+    /// Opened on the first attach and kept across core restarts.
+    manager: Option<Manager>,
     client: Option<WorldsClient>,
     playing: bool,
     focused: bool,
     pause_menu: bool,
     pause_on_unfocus: bool,
-    /// The pause last sent to the core.
+    /// The pause last sent to the world.
     paused: bool,
 }
 
@@ -37,6 +43,7 @@ impl Default for LocalWorlds {
     fn default() -> Self {
         Self {
             menu: WorldsMenu::default(),
+            manager: None,
             client: None,
             playing: false,
             focused: true,
@@ -47,10 +54,30 @@ impl Default for LocalWorlds {
     }
 }
 
+/// Asks the open world's server to save and stop as the client exits.
+impl Drop for LocalWorlds {
+    fn drop(&mut self) {
+        self.detach();
+    }
+}
+
 impl LocalWorlds {
-    /// Connects to the core at `socket_dir` and requests the world list.
-    pub fn attach(&mut self, socket_dir: PathBuf) -> io::Result<()> {
-        self.client = Some(WorldsClient::spawn(socket_dir)?);
+    /// Opens the install's worlds, routes the core at `socket_dir` to the open one and requests
+    /// the world list.
+    pub fn attach(&mut self, socket_dir: PathBuf, layout: &InstallLayout) -> io::Result<()> {
+        let manager = match &self.manager {
+            Some(manager) => manager.clone(),
+            None => {
+                let manager = launcher_host::local_worlds::open(layout)
+                    .map_err(|error| io::Error::other(error.to_string()))?;
+                self.manager = Some(manager.clone());
+                manager
+            }
+        };
+        if let Some(previous) = self.client.take() {
+            previous.revoke();
+        }
+        self.client = Some(WorldsClient::spawn(manager, socket_dir)?);
         self.playing = false;
         self.menu = WorldsMenu::default();
         self.input(Input::Refresh);
@@ -58,10 +85,16 @@ impl LocalWorlds {
         Ok(())
     }
 
-    /// Drops the worker; the core keeps the open world until [`Self::leave_world`].
+    /// Drops the worker and closes the open world, whose route left with the old core.
     pub fn detach(&mut self) {
-        self.client = None;
+        // Revoked first, so a request the worker already took cannot reopen the world.
+        if let Some(client) = self.client.take() {
+            client.revoke();
+        }
         self.playing = false;
+        if let Some(manager) = &self.manager {
+            manager.close();
+        }
     }
 
     pub fn menu(&self) -> &WorldsMenu {
@@ -73,7 +106,7 @@ impl LocalWorlds {
         self.dispatch(effects);
     }
 
-    /// Applies finished control-channel requests; call once per frame.
+    /// Applies finished world requests; call once per frame.
     pub fn pump(&mut self) {
         let Some(client) = &self.client else { return };
         for event in client.drain() {
@@ -93,7 +126,7 @@ impl LocalWorlds {
         self.sync_pause();
     }
 
-    /// Leaves the local world: the core saves and stops it.
+    /// Leaves the local world: its server saves and stops.
     pub fn leave_world(&mut self) {
         self.playing = false;
         self.paused = false;
@@ -112,7 +145,7 @@ impl LocalWorlds {
         self.sync_pause();
     }
 
-    /// Sends a pause change when playing and the wanted state moved; the core ignores it for BDS.
+    /// Sends a pause change when playing and the wanted state moved; BDS ignores it.
     fn sync_pause(&mut self) {
         let wanted = self.playing && (self.pause_menu || (self.pause_on_unfocus && !self.focused));
         if wanted != self.paused {

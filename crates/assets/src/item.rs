@@ -5,6 +5,7 @@ use crate::AssetError;
 
 pub mod armour;
 pub mod fuel;
+pub mod grip;
 pub mod retail;
 use armour::ItemArmour;
 pub mod durability;
@@ -163,6 +164,8 @@ impl ItemDisplayTransform {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ItemVisualDefinition {
+    /// Checked grip facts; runtime component overlays are admitted separately.
+    pub grip: grip::ItemGrip,
     /// Fuel eligibility admitted from checked compilation inputs.
     pub fuel: fuel::ItemFuel,
     pub key: ItemVisualKey,

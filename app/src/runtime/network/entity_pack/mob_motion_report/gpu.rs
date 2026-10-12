@@ -9,7 +9,7 @@ use bevy::{
         RenderApp, RenderPlugin,
         gpu_readback::{Readback, ReadbackComplete},
         render_resource::{CachedPipelineState, PipelineCache, TextureFormat, TextureUsages},
-        renderer::{RenderAdapterInfo, RenderDevice},
+        renderer::{RenderAdapter, RenderDevice},
     },
     window::WindowPlugin,
 };
@@ -76,11 +76,12 @@ pub(super) fn app() -> (App, Entity) {
     let info = app
         .sub_app(RenderApp)
         .world()
-        .resource::<RenderAdapterInfo>();
-    eprintln!("mob replay adapter: {:?}", info.0);
+        .resource::<RenderAdapter>()
+        .get_info();
+    eprintln!("mob replay adapter: {info:?}");
     #[cfg(target_os = "macos")]
-    assert_eq!(info.0.backend, wgpu::Backend::Metal);
-    assert_ne!(info.0.device_type, wgpu::DeviceType::Cpu);
+    assert_eq!(info.backend, wgpu::Backend::Metal);
+    assert_ne!(info.device_type, wgpu::DeviceType::Cpu);
     (app, camera)
 }
 

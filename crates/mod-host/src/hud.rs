@@ -14,9 +14,14 @@ pub(super) struct HudState {
     pub editor_result: Option<EditorResult>,
     pending_editor: Option<Hud>,
     result_read: bool,
+    pub local_messages: Vec<String>,
+    pending_messages: Vec<String>,
 }
 impl HudState {
     pub fn commit(&mut self) {
+        let room = 4usize.saturating_sub(self.local_messages.len());
+        self.local_messages
+            .extend(self.pending_messages.drain(..).take(room));
         if self.result_read {
             self.editor_result = None;
             self.result_read = false;
@@ -141,7 +146,9 @@ pub(super) fn set_content(state: &mut State, json: String) -> Result<Result<(), 
         if let Err(error) = hud.validate() {
             return Ok(Err(error));
         }
-        (!hud.cards.is_empty()
+        (hud.actor_style.is_some()
+            || hud.hunger_overlay.is_some()
+            || !hud.cards.is_empty()
             || hud.hide_effect_icons
             || hud.hide_scoreboard
             || !hud.world_labels.is_empty()
@@ -347,5 +354,75 @@ mod tests {
         state.hud.commit();
         assert!(state.hud.content.is_none());
         assert!(state.hud.crosshair.is_none());
+    }
+}
+
+/// Stages local system feedback without creating an outbound chat or command packet.
+pub(super) fn local_message(state: &mut State, text: String) -> Result<Result<(), String>> {
+    if let Err(error) = admit(state)? {
+        return Ok(Err(error));
+    }
+    if text.is_empty()
+        || text.len() > super::MAX_LABEL_BYTES
+        || text.chars().any(|c| c.is_control() || c == '§')
+    {
+        return Ok(Err("local message must be short plain text".into()));
+    }
+    if state.hud.pending_messages.len() + state.hud.local_messages.len() >= 4 {
+        return Ok(Err("local message queue is full".into()));
+    }
+    state.hud.pending_messages.push(text);
+    Ok(Ok(()))
+}
+
+#[cfg(test)]
+mod local_message_tests {
+    use super::*;
+    /// Native cosmetic policies survive even when all draggable cards are hidden.
+    #[test]
+    fn cosmetic_only_content_is_retained_and_cleared_explicitly() {
+        let mut state = State::new(
+            super::super::ModGrants {
+                hud: true,
+                ..Default::default()
+            },
+            String::new(),
+            Default::default(),
+        );
+        for json in [
+            r#"{"cards":[],"actor_style":{"hurt_color":[1,0,0,1]}}"#,
+            r#"{"cards":[],"hunger_overlay":{"saturation":true}}"#,
+        ] {
+            assert!(set_content(&mut state, json.into()).unwrap().is_ok());
+            state.hud.commit();
+            assert!(state.hud.content.is_some());
+        }
+        assert!(set_content(&mut state, String::new()).unwrap().is_ok());
+        state.hud.commit();
+        assert!(state.hud.content.is_none());
+    }
+    /// Messages are unavailable until commit and remain bounded without consumer progress.
+    #[test]
+    fn feedback_is_transactional_bounded_and_requires_hud_authority() {
+        let mut state = State::new(
+            super::super::ModGrants::default(),
+            String::new(),
+            Default::default(),
+        );
+        assert!(local_message(&mut state, "Notice".into()).unwrap().is_err());
+        state.grants.hud = true;
+        assert!(
+            local_message(&mut state, "bad\nline".into())
+                .unwrap()
+                .is_err()
+        );
+        for _ in 0..4 {
+            assert!(local_message(&mut state, "Notice".into()).unwrap().is_ok());
+        }
+        assert!(state.hud.local_messages.is_empty());
+        assert!(local_message(&mut state, "Excess".into()).unwrap().is_err());
+        state.hud.commit();
+        assert_eq!(state.hud.local_messages, vec!["Notice"; 4]);
+        assert!(local_message(&mut state, "Excess".into()).unwrap().is_err());
     }
 }

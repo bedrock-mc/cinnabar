@@ -1,7 +1,7 @@
 use super::*;
 use pack_compiler::{
-    CompiledFontCarrier, GlyphAdvances, OutlineFontConfig, compile_outline_font,
-    compile_outline_font_with_fallback,
+    CompiledFontCarrier, GlyphAdvances, OutlineFontConfig, compile_native_outline_rasters,
+    compile_outline_font, compile_outline_font_with_fallback,
 };
 
 const MAX_MANIFEST: usize = 64 * 1024;
@@ -120,7 +120,8 @@ pub(super) fn compile(
     )
 }
 
-/// Rasterizes every mapped character at the shipped face's exact source pixel grid.
+/// Rasterizes every mapped character at the shipped face's exact source pixel grid, or bundles a
+/// native face's FreeType rasters.
 pub(super) fn compile_pinned(
     font: &Path,
     source: &serde_json::Value,
@@ -131,9 +132,43 @@ pub(super) fn compile_pinned(
         .iter()
         .filter_map(|carrier| carrier.font_face)
         .find(|face| assets::canonical_source_manifest_sha256(face.manifest) == manifest_hash);
+    if !face.is_some_and(|face| face.native_raster) {
+        return compile_grid(font, &bytes, face, manifest_hash);
+    }
+    let rasters = compile_native_outline_rasters(font, &bytes, manifest_hash)?;
+    let mut report = pack_compiler::FontCompileReport {
+        schema: assets::FONT_FACE_BUNDLE_SCHEMA,
+        glyphs: 0,
+        pages: 0,
+        source_bytes: bytes.len() as u64,
+        decoded_bytes: 0,
+        source_manifest_sha256: manifest_hash,
+        carrier_sha256: [0; 32],
+    };
+    for raster in &rasters {
+        let font = assets::RuntimeFontCatalog::decode(&raster.carrier, manifest_hash)?;
+        report.glyphs += font.glyphs().len();
+        report.pages += font.pages().len();
+        report.decoded_bytes += font
+            .pages()
+            .iter()
+            .map(|page| page.pixels.bytes().len() as u64)
+            .sum::<u64>();
+    }
+    let bytes = assets::encode_font_face_bundle(manifest_hash, &rasters)?;
+    report.carrier_sha256 = bytes[bytes.len() - 32..].try_into()?;
+    Ok(CompiledFontCarrier { bytes, report })
+}
+
+fn compile_grid(
+    font: &Path,
+    bytes: &[u8],
+    face: Option<assets::carriers::FontFace>,
+    manifest_hash: [u8; 32],
+) -> Result<CompiledFontCarrier, Box<dyn std::error::Error>> {
     Ok(compile_outline_font(
         font,
-        &bytes,
+        bytes,
         manifest_hash,
         OutlineFontConfig {
             pixel_height: face.map_or(assets::FONT_RASTER_EM_PIXELS, |face| {

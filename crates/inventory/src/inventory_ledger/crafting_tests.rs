@@ -688,7 +688,7 @@ fn closing_a_crafting_screen_returns_inputs_before_close_admission() {
     assert!(personal.mark_transport_enqueued(10));
     let (close, _) = personal.pending_batch().unwrap().unwrap();
     assert_eq!(
-        format!("{:?}", close.header.id),
+        format!("{:?}", close.kind()),
         "ContainerClosePacket",
         "the close follows its returns at once"
     );
@@ -928,7 +928,7 @@ fn refused_close_return_after_the_close_preserves_the_ingredient() {
     ledger.request_personal_close();
     assert!(!ledger.personal_inventory_desired_open());
     let (close, _) = ledger.pending_batch().unwrap().unwrap();
-    assert_eq!(format!("{:?}", close.header.id), "ContainerClosePacket");
+    assert_eq!(format!("{:?}", close.kind()), "ContainerClosePacket");
 }
 
 #[test]

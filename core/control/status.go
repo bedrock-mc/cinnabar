@@ -17,6 +17,7 @@ type StatusV1 struct {
 	Lifecycle     Lifecycle     `json:"lifecycle"`
 	PackAdmission PackAdmission `json:"pack_admission"`
 	Transfer      *TransferV1   `json:"transfer,omitempty"`
+	Network       *NetworkV1    `json:"network,omitempty"`
 }
 
 // PackAdmission is the newest resource-pack admission attempt; it names no pack identity,
@@ -45,6 +46,21 @@ const (
 	packApplicationApplied     = "applied" // the client confirmed applying the handed-off packs
 )
 
+// NetworkV1 is the current upstream transport's round-trip estimate.
+type NetworkV1 struct {
+	AttemptID       uint64  `json:"attempt_id"`
+	LocalRuntimeID  uint64  `json:"local_runtime_id"`
+	RoundTripMillis *uint32 `json:"round_trip_ms"`
+}
+
+// NetworkObservation is the control plane's transport-neutral retained RTT sampler.
+// A nil sampler withdraws an attempt; a nil sample means no measured value.
+type NetworkObservation struct {
+	AttemptID       uint64
+	LocalRuntimeID  uint64
+	RoundTripMillis func() *uint32
+}
+
 // TransferV1 announces that the server transferred the session; the client should
 // reconnect to this same endpoint, which dials the new host.
 type TransferV1 struct {
@@ -62,6 +78,7 @@ type Store struct {
 	transfer  *TransferV1
 	transfers uint64
 	connect   *ConnectProgress // live while the newest attempt prepares a join
+	network   *NetworkObservation
 
 	auth        AuthV1
 	disconnect  *DisconnectV1
@@ -99,6 +116,7 @@ func (store *Store) Observe(snapshot PackAdmission) {
 		if snapshot.AttemptID > store.latest.AttemptID {
 			store.transfer = nil // the client reconnected
 			store.disconnect = nil
+			store.network = nil
 		}
 		store.latest = snapshot
 		store.connect = nil // a reset or final snapshot ends the join's core stages
@@ -157,6 +175,26 @@ func (store *Store) Status() StatusV1 {
 	if store.applied != 0 && store.applied == store.latest.AttemptID {
 		status.PackAdmission.Application = packApplicationApplied
 	}
+	if store.network != nil {
+		source := *store.network
+		status.Network = &NetworkV1{AttemptID: source.AttemptID, LocalRuntimeID: source.LocalRuntimeID, RoundTripMillis: source.RoundTripMillis()}
+	}
 	store.mu.RUnlock()
 	return status
+}
+
+// ObserveNetwork retains only the newest attempt's live estimator and ignores stale withdrawals.
+func (store *Store) ObserveNetwork(source NetworkObservation) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if source.AttemptID < store.latest.AttemptID || (store.network != nil && source.AttemptID < store.network.AttemptID) {
+		return
+	}
+	if source.RoundTripMillis == nil {
+		if store.network != nil && store.network.AttemptID == source.AttemptID {
+			store.network = nil
+		}
+	} else {
+		store.network = &source
+	}
 }

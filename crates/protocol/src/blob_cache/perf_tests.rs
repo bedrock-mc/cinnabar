@@ -30,7 +30,10 @@ fn blob_cache_delta_cost() {
             let hash = client_blob_hash(&payload);
             let mut resolver = BlobCacheResolver::new(cache.clone());
             resolver
-                .accept_cached_packet(super::tests::cached_level_chunk(0, vec![hash]).into())
+                .accept_cached_packet(crate::Packet::new(super::tests::cached_level_chunk(
+                    0,
+                    vec![hash],
+                )))
                 .unwrap();
             let response = ClientCacheMissResponsePacket {
                 missing_blobs: vec![valentine::bedrock::version::v1_26_51::MissingBlobData {

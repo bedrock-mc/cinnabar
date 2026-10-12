@@ -53,6 +53,18 @@ fn mod_primitive_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     }
     var out: VertexOutput;
     out.position = view.clip_from_world * vec4<f32>(world, 1.0);
+    if kind == 1u && v.style.x >= 30.0 && v.style.x <= 32.0 {
+        // Expand solid lines in clip space so width remains physical pixels at any distance.
+        let center = view.clip_from_world * vec4<f32>(anchor, 1.0);
+        var side = cross(v.shape.xyz, to_eye);
+        if dot(side, side) < 1e-10 { side = camera_right; }
+        let projected = view.clip_from_world * vec4<f32>(anchor + normalize(side), 1.0);
+        let viewport = max(view.viewport.zw, vec2<f32>(1.0));
+        let delta = (projected.xy / max(abs(projected.w), 1e-5) - center.xy / max(abs(center.w), 1e-5)) * viewport;
+        var pixel_side = vec2<f32>(1.0, 0.0);
+        if dot(delta, delta) > 1e-10 { pixel_side = normalize(delta); }
+        out.position = vec4<f32>(center.xy + pixel_side * (2.0 * v.uv.x * v.shape.w / viewport) * center.w, center.zw);
+    }
     out.color = v.color;
     out.uv = v.uv.xy;
     out.style = v.style;
@@ -179,9 +191,15 @@ fn shade(uv: vec2<f32>, style: vec4<f32>, time: f32, edge_feather: f32) -> Shade
                 * fract(uv.y * 0.5 - time * 1.7);
             s = Shade(clamp(shell + streak * 0.35 * smoothstep(1.0, 0.6, d), 0.0, 1.0), 0.15, 1.0);
         }
-        case 30u: {
+        case 30u, 31u, 32u: {
             let feather = max(edge_feather, 1e-5);
-            s = Shade(1.0 - smoothstep(1.0 - feather, 1.0, abs(uv.x)), 0.0, 0.0);
+            let edge = 1.0 - smoothstep(1.0 - feather, 1.0, abs(uv.x));
+            var pattern = 1.0;
+            // Cumulative path distance keeps phase continuous across connected segments.
+            let distance = uv.y * style.z;
+            if u32(style.x + 0.5) == 31u { pattern = select(0.0, 1.0, fract(distance / 0.24) < 0.6); }
+            if u32(style.x + 0.5) == 32u { pattern = 1.0 - smoothstep(0.16, 0.25, abs(fract(distance / 0.12) - 0.5)); }
+            s = Shade(edge * pattern, 0.0, 0.0);
         }
         default: {}
     }

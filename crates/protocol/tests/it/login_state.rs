@@ -29,10 +29,11 @@ use jolyne::valentine::{
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use p384::pkcs8::{DecodePublicKey, EncodePrivateKey, EncodePublicKey};
 use p384::{PublicKey, SecretKey};
-use protocol::{BedrockSession, ClientBlobCache, LoginSequence, Packet, ProtocolError, WorldEvent};
+use protocol::{ClientBlobCache, LoginSequence, Packet, ProtocolError, WorldEvent};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use valentine::bedrock::codec::BedrockCodec;
+use valentine::bedrock::context::BedrockSession;
 use valentine::protocol::wire;
 
 #[path = "login_state/camera_instructions.rs"]
@@ -886,7 +887,7 @@ async fn assert_transport_success(transport: ScriptTransport) {
     let (mut session, game_data) = LoginSequence::connect_transport(transport, "RustClient")
         .await
         .expect("scripted login");
-    assert_eq!(game_data.start_game.runtime_id.actor_runtime_id, RUNTIME_ID);
+    assert_eq!(game_data.world.local_player_runtime_id, RUNTIME_ID);
     assert_eq!(session.decode_error_count(), 0);
 
     for expected_time in [12_345, 23_456] {
@@ -940,7 +941,7 @@ async fn assert_transport_success(transport: ScriptTransport) {
     // alive and counted one skip.
     assert_eq!(session.world_skip_count(), 1);
 
-    let mut invalid = Packet::from(ClientCacheStatusPacket {
+    let mut invalid = Packet::new(ClientCacheStatusPacket {
         iscachesupported: true,
     });
     invalid.header.id = McpePacketName::PlayStatusPacket;
@@ -951,7 +952,7 @@ async fn assert_transport_success(transport: ScriptTransport) {
     assert!(matches!(error, ProtocolError::HeaderIdMismatch { .. }));
 
     session
-        .send(Packet::from(ClientCacheStatusPacket {
+        .send(Packet::new(ClientCacheStatusPacket {
             iscachesupported: true,
         }))
         .await

@@ -15,11 +15,6 @@ use std::{
 
 /// How long a join waits for the core to answer `connect.v1`.
 const SELECT_TIMEOUT: Duration = Duration::from_secs(3);
-const LOCAL_SERVER: &str = if cfg!(windows) {
-    "bedrock-local-server.exe"
-} else {
-    "bedrock-local-server"
-};
 
 pub struct LauncherCore {
     pub _guard: CoreProcessGuard,
@@ -156,10 +151,6 @@ fn launcher_command(
         command
             .arg("-resource-pack-cache-dir")
             .arg(layout.resource_pack_cache_dir());
-    }
-    // The core refuses to start local worlds without their server binary.
-    if executable.with_file_name(LOCAL_SERVER).is_file() {
-        command.args(crate::local_worlds::core_args(layout));
     }
     if upstream_client_cache {
         command.arg("-upstream-client-cache");

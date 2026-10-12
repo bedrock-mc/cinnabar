@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
-use protocol::{BedrockSession, NetworkItemStack, VerifiedNetworkItemStack};
+use protocol::test_support::transactions::{
+    InventorySourceKind, ReleaseAction, TransactionBody, TransactionObservation,
+    observe_transaction,
+};
+use protocol::{CONTAINER_NAME_INVENTORY, NetworkItemStack, VerifiedNetworkItemStack};
 use sha2::{Digest, Sha256};
 
 use {super::*, inventory::crossbow_animation_frame};
@@ -93,72 +97,50 @@ fn item_frame(
 
 /// Each packet as "use" or "release".
 fn kinds(outcome: &UseOutcome) -> Vec<&'static str> {
-    outcome
-        .packets
-        .iter()
-        .map(|packet| {
-            let debug = format!("{:?}", packet.data);
-            if debug.contains("ItemUseInventoryTransaction(") {
-                "use"
-            } else if debug.contains("action_type: Release") {
-                "release"
-            } else {
-                "other"
-            }
-        })
-        .collect()
+    outcome.packets.iter().map(use_kind).collect()
 }
 
-/// The packet after an encode/decode round trip, in debug form.
-fn wire(packet: &protocol::Packet) -> String {
-    let session = BedrockSession { shield_item_id: 0 };
-    let bytes = protocol::encode(packet, &session).unwrap();
-    format!(
-        "{:?}",
-        protocol::decode_batch(bytes, &session).unwrap()[0].data
-    )
+/// An item-use transaction as "use", a released item as "release", anything else as "other".
+fn use_kind(packet: &protocol::Packet) -> &'static str {
+    match observe_transaction(packet).map(|transaction| transaction.body) {
+        Some(TransactionBody::ItemUse(_)) => "use",
+        Some(TransactionBody::Release(release)) if release.action == ReleaseAction::Release => {
+            "release"
+        }
+        _ => "other",
+    }
 }
 
-/// Every value printed for `key`, in order.
-fn values(debug: &str, key: &str) -> Vec<String> {
-    let needle = format!("{key}: ");
-    debug
-        .match_indices(&needle)
-        .map(|(start, _)| {
-            let rest = &debug[start + needle.len()..];
-            let mut depth = 0;
-            let end = rest
-                .char_indices()
-                .find(|(_, c)| match c {
-                    '(' | '[' | '{' => {
-                        depth += 1;
-                        false
-                    }
-                    ')' | ']' | '}' if depth > 0 => {
-                        depth -= 1;
-                        false
-                    }
-                    ',' | ')' | ']' | '}' => true,
-                    _ => false,
-                })
-                .map_or(rest.len(), |(end, _)| end);
-            rest[..end].trim().to_owned()
-        })
-        .collect()
+/// The packet after an encode/decode round trip.
+fn wire(packet: &protocol::Packet) -> protocol::Packet {
+    let bytes = protocol::encode(packet).unwrap();
+    protocol::decode_batch(bytes).unwrap().remove(0)
+}
+
+/// The transaction a packet carries after an encode/decode round trip.
+fn transaction(packet: &protocol::Packet) -> TransactionObservation {
+    observe_transaction(&wire(packet)).expect("an inventory transaction")
 }
 
 /// The legacy request id, the action count, and every stack's size and net id (actions first).
-fn summary(debug: &str) -> (String, usize, Vec<String>, Vec<String>) {
-    let legacy = debug
-        .split("legacy_request_id: ")
-        .nth(1)
-        .and_then(|rest| values(rest, "id").into_iter().next())
-        .unwrap();
+fn summary(transaction: &TransactionObservation) -> (i32, usize, Vec<u16>, Vec<Option<i32>>) {
+    let held = match &transaction.body {
+        TransactionBody::ItemUse(body) => Some(&body.item),
+        TransactionBody::ItemUseOnActor(body) => Some(&body.item),
+        TransactionBody::Release(body) => Some(&body.item),
+        TransactionBody::Normal | TransactionBody::Mismatch => None,
+    };
+    let stacks = transaction
+        .actions
+        .iter()
+        .flat_map(|action| [&action.from_item, &action.to_item])
+        .chain(held)
+        .collect::<Vec<_>>();
     (
-        legacy,
-        debug.matches("InventoryAction {").count(),
-        values(debug, "stacksize"),
-        values(debug, "net_id_variant"),
+        transaction.legacy_request_id,
+        transaction.actions.len(),
+        stacks.iter().map(|stack| stack.count).collect(),
+        stacks.iter().map(|stack| stack.stack_network_id).collect(),
     )
 }
 
@@ -341,10 +323,9 @@ fn an_unpredicted_item_sends_click_air_once_per_press_with_its_verified_stack() 
             None,
         )
         .unwrap();
-        let session = protocol::BedrockSession { shield_item_id: 0 };
         assert_eq!(
-            protocol::encode(&outcome.packets[0], &session).unwrap(),
-            protocol::encode(&expected, &session).unwrap(),
+            protocol::encode(&outcome.packets[0]).unwrap(),
+            protocol::encode(&expected).unwrap(),
         );
         for held in [true, false] {
             assert!(
@@ -497,11 +478,12 @@ fn a_custom_menu_item_sends_click_air_and_repeats_while_held() {
     let pressed = runtime.step(&menu(100, true));
     assert_eq!(kinds(&pressed), ["use"]);
     assert!(!pressed.started && !pressed.swung && !runtime.is_using());
-    let debug = wire(&pressed.packets[0]);
-    let (legacy, actions, _, _) = summary(&debug);
-    assert_eq!((legacy.as_str(), actions), ("0", 0));
-    assert_eq!(values(&debug, "slot"), ["0"]);
-    assert!(debug.contains(&format!("id: {MENU_ITEM}")));
+    let sent = transaction(&pressed.packets[0]);
+    let (legacy, actions, _, _) = summary(&sent);
+    assert_eq!((legacy, actions), (0, 0));
+    let item_use = sent.item_use().unwrap();
+    assert_eq!(item_use.slot, 0);
+    assert_eq!(item_use.item.network_id, MENU_ITEM);
 
     // 200 ms re-arm: ticks 101..=104 are at most 200 ms later.
     for tick in 101..=104 {
@@ -523,43 +505,30 @@ fn a_snowball_throw_reports_its_predicted_decrement() {
     let first = runtime.step(&throw(100, true));
     assert_eq!(kinds(&first), ["use"]);
     assert!(first.swung && !first.started);
-    let debug = wire(&first.packets[0]);
+    let sent = transaction(&first.packets[0]);
     assert_eq!(
-        summary(&debug),
-        (
-            "-4".to_owned(),
-            1,
-            vec!["16".to_owned(), "15".to_owned(), "16".to_owned()],
-            vec![
-                "Some(41)".to_owned(),
-                "Some(-4)".to_owned(),
-                "Some(41)".to_owned()
-            ],
-        )
+        summary(&sent),
+        (-4, 1, vec![16, 15, 16], vec![Some(41), Some(-4), Some(41)])
     );
-    assert!(debug.contains("container_enum: Inventorycontainer, slots: [4]"));
-    assert!(debug.contains("source_type: Containerinventory, container_id: Some(0)"));
+    assert_eq!(
+        sent.legacy_set_slots,
+        Some(vec![(CONTAINER_NAME_INVENTORY, vec![4])])
+    );
+    assert!(sent.actions.iter().any(|action| {
+        action.source == InventorySourceKind::Container && action.container_id == Some(0)
+    }));
 
     let second = runtime.step(&throw(105, true));
     assert_eq!(
-        summary(&wire(&second.packets[0])),
-        (
-            "-6".to_owned(),
-            1,
-            vec!["15".to_owned(), "14".to_owned(), "15".to_owned()],
-            vec![
-                "Some(-4)".to_owned(),
-                "Some(-6)".to_owned(),
-                "Some(-4)".to_owned()
-            ],
-        )
+        summary(&transaction(&second.packets[0])),
+        (-6, 1, vec![15, 14, 15], vec![Some(-4), Some(-6), Some(-4)])
     );
 
     // The server restating the slot replaces the prediction.
     let restated = stack(4, SNOWBALL, 14);
     let third = runtime.step(&item_frame(110, true, restated, "minecraft:snowball"));
-    let (_, _, sizes, ids) = summary(&wire(&third.packets[0]));
-    assert_eq!((sizes[0].as_str(), ids[0].as_str()), ("14", "Some(41)"));
+    let (_, _, sizes, ids) = summary(&transaction(&third.packets[0]));
+    assert_eq!((sizes[0], ids[0]), (14, Some(41)));
 }
 
 /// Only a throw of the last item, predicted or authoritative, reports its slot and revision, once.
@@ -598,8 +567,8 @@ fn a_creative_throw_reports_no_inventory_change() {
         ..item_frame(100, true, stack(1, SNOWBALL, 16), "minecraft:snowball")
     });
     assert!(outcome.swung);
-    let (legacy, actions, _, _) = summary(&wire(&outcome.packets[0]));
-    assert_eq!((legacy.as_str(), actions), ("0", 0));
+    let (legacy, actions, _, _) = summary(&transaction(&outcome.packets[0]));
+    assert_eq!((legacy, actions), (0, 0));
 }
 
 /// An ender pearl on cooldown still sends click-air, but neither swings nor consumes.
@@ -622,7 +591,7 @@ fn an_ender_pearl_on_cooldown_sends_a_plain_click_air() {
     let cooling = runtime.step(&pearl(110, 15));
     assert_eq!(kinds(&cooling), ["use"]);
     assert!(!cooling.swung);
-    assert_eq!(summary(&wire(&cooling.packets[0])).1, 0);
+    assert_eq!(summary(&transaction(&cooling.packets[0])).1, 0);
     runtime.observe_press(true);
     assert!(runtime.step(&pearl(120, 15)).swung);
 }

@@ -137,24 +137,3 @@ pub fn is_rod(identifier: &str) -> bool {
         "fishing_rod" | "carrot_on_a_stick" | "warped_fungus_on_a_stick"
     )
 }
-
-/// Items vanilla holds upright: tools, weapons and rod-like items. The
-/// reference keeps this per item in code; the list mirrors vanilla's hand-equipped items.
-pub fn is_hand_equipped(identifier: &str) -> bool {
-    let name = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
-    ["_sword", "_axe", "_pickaxe", "_shovel", "_hoe", "_spear"]
-        .iter()
-        .any(|suffix| name.ends_with(suffix))
-        || matches!(
-            name,
-            "stick"
-                | "bone"
-                | "blaze_rod"
-                | "breeze_rod"
-                | "fishing_rod"
-                | "carrot_on_a_stick"
-                | "warped_fungus_on_a_stick"
-                | "mace"
-                | "debug_stick"
-        )
-}

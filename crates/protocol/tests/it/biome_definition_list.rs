@@ -4,7 +4,6 @@ use jolyne::{
     raw::RawPacket,
     valentine::{McpePacketArgs, McpePacketData, McpePacketName},
 };
-use protocol::BedrockSession;
 use valentine::bedrock::{
     codec::{BedrockCodec, VarInt},
     error::DecodeError,
@@ -14,10 +13,6 @@ use valentine::bedrock::{
 const GOPHERTUNNEL_BIOME_DEFINITION_LIST: &[u8] =
     include_bytes!("../../fixtures/biome_definition_list_chunk_generation.bin");
 const MAX_BIOME_COLLECTION_ELEMENTS: usize = 4_096;
-
-fn session() -> BedrockSession {
-    BedrockSession { shield_item_id: 0 }
-}
 
 fn raw_fixture() -> RawPacket {
     let mut batch = Bytes::from_static(GOPHERTUNNEL_BIOME_DEFINITION_LIST);
@@ -60,7 +55,7 @@ fn assert_fixture_fields(data: &McpePacketData) {
 #[test]
 fn pinned_gophertunnel_biome_definition_list_owned_decodes_and_round_trips() {
     let packet = raw_fixture()
-        .decode(&session())
+        .decode(&valentine::bedrock::context::BedrockSession { shield_item_id: 0 })
         .expect("owned BiomeDefinitionList decode");
     assert_eq!(
         packet.data.packet_id(),

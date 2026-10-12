@@ -16,6 +16,19 @@ pub(super) enum Condition {
 }
 
 impl Condition {
+    fn collect_atoms(&self, atoms: &mut Vec<String>) {
+        match self {
+            Self::Always => {}
+            Self::Atom(atom) => atoms.push(atom.clone()),
+            Self::All(parts) | Self::Any(parts) => {
+                for part in parts {
+                    part.collect_atoms(atoms);
+                }
+            }
+            Self::Not(inner) => inner.collect_atoms(atoms),
+        }
+    }
+
     /// Adds cfg and cfg_attr restrictions to the containing module's condition.
     pub(super) fn with_attrs(&self, attrs: &[Attribute]) -> Self {
         let mut parts = vec![self.clone()];
@@ -90,6 +103,35 @@ fn evaluate_parts(
         }
     }
     unknown.map_or(Ok(!decisive), Err)
+}
+
+/// Returns the target predicates a `cfg`/`cfg_attr` attribute tests, or a bare `cfg!` condition.
+pub(super) fn target_predicates(meta: &Meta, bare: bool) -> Vec<TargetPredicate> {
+    let condition = if bare {
+        Some(predicate(meta))
+    } else {
+        attribute_condition(meta)
+    };
+    let mut atoms = Vec::new();
+    if let Some(condition) = condition {
+        condition.collect_atoms(&mut atoms);
+    }
+    atoms
+        .iter()
+        .filter_map(|atom| platform_predicate(atom))
+        .collect()
+}
+
+/// Returns whether every built-in target `predicate` accepts also satisfies the `scope` atom.
+pub(super) fn confined_to(predicate: &TargetPredicate, scope: &str) -> bool {
+    let Some(scope) = platform_predicate(scope) else {
+        return false;
+    };
+    let mut matched = ALL_BUILTINS
+        .iter()
+        .filter(|target| predicate.matches(*target))
+        .peekable();
+    matched.peek().is_some() && matched.all(|target| scope.matches(target))
 }
 
 /// Determines whether any conditional declaration of a name is present.

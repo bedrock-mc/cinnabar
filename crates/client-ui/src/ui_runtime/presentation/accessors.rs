@@ -74,13 +74,18 @@ impl UiPresentationRuntime {
         self.nametag_anchors = anchors;
     }
 
+    /// Selects the local actor identity for a separate own-tag cosmetic colour.
+    pub fn set_nametag_local_actor(&mut self, runtime_id: Option<u64>) {
+        self.nametag_local_actor = runtime_id;
+    }
+
     /// The world-space tag quads for this frame's anchors.
     pub fn nametag_scene(&mut self) -> render_model::NametagScene {
         let palette = self.formatting_palette().copied().unwrap_or_default();
         self.nametag_atlas.set_palette(palette);
         let (font, glyphs) = (&self.font, &self.session_glyphs);
         let dynamic_start = self.textures.dynamic_start();
-        nametags::build_nametag_scene(
+        let mut scene = nametags::build_nametag_scene(
             &self.nametag_anchors,
             font,
             &mut self.layouts,
@@ -88,7 +93,19 @@ impl UiPresentationRuntime {
             &|page| {
                 nametag_atlas::font_page(font, page).or_else(|| glyphs.page(dynamic_start, page))
             },
-        )
+        );
+        if let Some(style) = self
+            .mod_actor_style()
+            .and_then(|style| style.nametags.as_ref())
+        {
+            let own_anchor = self
+                .nametag_anchors
+                .iter()
+                .find(|anchor| Some(anchor.runtime_id) == self.nametag_local_actor)
+                .map(|anchor| anchor.position.to_array());
+            nametags::style_scene(&mut scene, style, own_anchor);
+        }
+        scene
     }
 
     /// Retained text-layout cache entries, exposed for the bounded-memory

@@ -997,3 +997,22 @@ fn status_advertises_independent_registration_for_every_result() {
         assert_eq!(json["request_id"], "capability-check");
     }
 }
+
+#[test]
+fn unloading_last_extension_clears_actor_cosmetics_without_removing_owner() {
+    let (mut world, _, _) = world();
+    world.insert_resource(
+        client_presentation::actor_publication::ActorPresentationStyle {
+            hurt_color: Some([1., 0., 0., 1.]),
+            hurt_armor_color: Some([0., 1., 0., 1.]),
+            attackable_actor: Some(42),
+            attackable_color: Some([0., 0., 1., 1.]),
+        },
+    );
+    clear_owned_state(&mut world);
+    let style = world.resource::<client_presentation::actor_publication::ActorPresentationStyle>();
+    assert!(style.hurt_color.is_none());
+    assert!(style.hurt_armor_color.is_none());
+    assert!(style.attackable_color.is_none());
+    assert!(style.attackable_actor.is_none());
+}

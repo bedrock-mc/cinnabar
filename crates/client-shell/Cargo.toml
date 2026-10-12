@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+platform-specific = ["macos", "windows"]
+
 [features]
 developer-control = ["dep:developer-control"]
 test-support = ["launcher/test-support", "launcher-host/test-support"]
@@ -52,7 +55,7 @@ launcher-host = { path = "../launcher-host", features = ["test-support"] }
 client-ui = { path = "../client-ui", features = ["test-support"] }
 client-world = { path = "../client-world" }
 player-state = { path = "../player-state" }
-protocol = { path = "../protocol", features = ["wire-test-support"] }
+protocol = { path = "../protocol", features = ["test-support"] }
 test-time = { path = "../test-time" }
 tempfile = "3"
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }

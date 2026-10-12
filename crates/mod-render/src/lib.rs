@@ -43,8 +43,20 @@ pub struct Decal {
     pub style: DecalStyle,
 }
 
+/// Procedural constant-width line pattern; trailing ribbons retain their existing style.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LinePattern {
+    #[default]
+    Solid,
+    Dashed,
+    Dotted,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ribbon {
+    pub pattern: LinePattern,
+    /// False preserves constant width; true keeps the existing trailing taper.
+    pub taper: bool,
     pub points: Vec<Vec3>,
     pub width: f32,
     pub color: Rgba,

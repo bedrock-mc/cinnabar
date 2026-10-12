@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use protocol::{
-    BedrockSession, ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteEvent,
-    ChatPacketError, chat_input_packet, chat_text_packet, decode_batch, encode,
+    ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteEvent, ChatPacketError,
+    chat_input_packet, chat_text_packet, decode_batch, encode,
 };
 use valentine::bedrock::version::v1_26_51::{
     McpePacketData, McpePacketName, TextPacketBody, TextPacketPayloadAuthorAndMessageMessageType,
@@ -52,12 +52,11 @@ fn outbound_chat_rejects_empty_and_oversized_fields() {
 
 #[test]
 fn slash_input_round_trips_as_vanilla_player_command_request() {
-    let session = BedrockSession { shield_item_id: 0 };
     let built = chat_input_packet("RustMCBE", "1234", "/kill @s").unwrap();
 
     assert_eq!(built.header.id, McpePacketName::CommandRequestPacket);
-    let encoded = encode(&built, &session).expect("encode command request");
-    let mut decoded = decode_batch(encoded, &session).expect("decode command request");
+    let encoded = encode(&built).expect("encode command request");
+    let mut decoded = decode_batch(encoded).expect("decode command request");
     assert_eq!(decoded.len(), 1);
     let packet = decoded.pop().unwrap();
     assert_eq!(packet.header.id, McpePacketName::CommandRequestPacket);
@@ -75,14 +74,13 @@ fn slash_input_round_trips_as_vanilla_player_command_request() {
 
 #[test]
 fn exact_fast_transfer_matches_the_gophertunnel_command_fixture() {
-    let session = BedrockSession { shield_item_id: 0 };
     let mut built = chat_input_packet("RustMCBE", "1234", "/transfer sm3").unwrap();
     let McpePacketData::CommandRequestPacket(packet) = &mut built.data else {
         panic!("expected command request packet")
     };
     packet.origin.uuid = uuid::Uuid::parse_str("00112233-4455-6677-8899-aabbccddeeff").unwrap();
 
-    let encoded = encode(&built, &session).expect("encode command request");
+    let encoded = encode(&built).expect("encode command request");
     let expected = [
         0xfe, 0x37, 0x4d, 0x0d, b'/', b't', b'r', b'a', b'n', b's', b'f', b'e', b'r', b' ', b's',
         b'm', b'3', 0x06, b'p', b'l', b'a', b'y', b'e', b'r', 0x77, 0x66, 0x55, 0x44, 0x33, 0x22,

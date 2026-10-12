@@ -59,6 +59,7 @@ impl Console {
             sync_channel(QUEUED_WRITES);
         let dropped = Arc::new(AtomicU64::new(0));
         let lost = Arc::clone(&dropped);
+        let mut plain = AnsiFilter::default();
         let spawned = std::thread::Builder::new()
             .name("console-writer".to_owned())
             .spawn(move || {
@@ -75,7 +76,8 @@ impl Console {
                     match message {
                         Message::Write(stream, bytes) => {
                             if let Some(log) = &mut log {
-                                let _ = log.write_all(&bytes).and_then(|()| log.flush());
+                                let text = plain.strip(&bytes);
+                                let _ = log.write_all(&text).and_then(|()| log.flush());
                             }
                             let mut discard = std::io::sink();
                             let sink: &mut dyn Write = match stream {
@@ -174,6 +176,42 @@ fn write_inline(stream: Stream, bytes: &[u8]) {
         Stream::Stderr => std::io::stderr().lock().write_all(bytes),
         Stream::FileOnly => Ok(()),
     };
+}
+
+/// Drops terminal escape sequences so the session file stays plain text; state carries across
+/// writes because raw stderr arrives in arbitrary chunks.
+#[derive(Default)]
+struct AnsiFilter {
+    state: AnsiState,
+}
+
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+enum AnsiState {
+    #[default]
+    Text,
+    Escape,
+    Sequence,
+}
+
+impl AnsiFilter {
+    fn strip(&mut self, bytes: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(bytes.len());
+        for &byte in bytes {
+            self.state = match (self.state, byte) {
+                (AnsiState::Text, 0x1b) => AnsiState::Escape,
+                (AnsiState::Text, _) => {
+                    out.push(byte);
+                    AnsiState::Text
+                }
+                (AnsiState::Escape, b'[') => AnsiState::Sequence,
+                // Two-byte escapes end at their second byte.
+                (AnsiState::Escape, _) => AnsiState::Text,
+                (AnsiState::Sequence, 0x40..=0x7e) => AnsiState::Text,
+                (AnsiState::Sequence, _) => AnsiState::Sequence,
+            };
+        }
+        out
+    }
 }
 
 /// The process console, started on first use.
@@ -286,6 +324,14 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Mutex, mpsc};
     use std::time::Duration;
+
+    #[test]
+    fn session_file_drops_terminal_colours_split_across_writes() {
+        let mut filter = AnsiFilter::default();
+        let mut text = filter.strip(b"\x1b[2m2026\x1b[0m \x1b[3");
+        text.extend(filter.strip(b"2m INFO\x1b[0m done\n"));
+        assert_eq!(text, b"2026  INFO done\n");
+    }
 
     #[test]
     fn console_mirrors_both_streams_into_the_bounded_session_file() {

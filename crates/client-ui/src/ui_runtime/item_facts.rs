@@ -18,7 +18,7 @@ struct SessionItem {
 impl SessionItemComponents {
     /// `None` when no StartGame item declares components.
     pub fn from_game_data(game_data: &protocol::GameData) -> Option<Arc<Self>> {
-        let items = Self::from_iter(protocol::item_components(game_data));
+        let items = Self::from_iter(game_data.items.components.iter().cloned());
         (!items.0.is_empty()).then(|| Arc::new(items))
     }
 

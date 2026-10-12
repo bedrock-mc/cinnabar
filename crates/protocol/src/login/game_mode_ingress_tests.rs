@@ -1,15 +1,14 @@
 //! Real raw ingress for BDS's targeted game-mode confirmation packet.
 
 use bytes::BytesMut;
-use valentine::bedrock::{context::BedrockSession, version::v1_26_51::*};
+use valentine::bedrock::version::v1_26_51::*;
 
 fn raw_packet(mode: EnumsGameType, actor_unique_id: i64, tick: u64) -> jolyne::raw::RawPacket {
-    let packet: crate::Packet = UpdatePlayerGameTypePacket {
+    let packet: crate::Packet = crate::Packet::new(UpdatePlayerGameTypePacket {
         player_game_type: mode,
         targetplayer: ActorUniqueId { actor_unique_id },
         tick: PlayerInputTick { inputtick: tick },
-    }
-    .into();
+    });
     let mut frame = BytesMut::new();
     packet
         .data
@@ -20,7 +19,6 @@ fn raw_packet(mode: EnumsGameType, actor_unique_id: i64, tick: u64) -> jolyne::r
 
 #[test]
 fn update_player_game_type_enters_raw_ingress_with_unique_id_and_tick() {
-    let session = BedrockSession { shield_item_id: 0 };
     for (wire, expected) in [
         (
             EnumsGameType::Survival,
@@ -46,7 +44,7 @@ fn update_player_game_type_enters_raw_ingress_with_unique_id_and_tick() {
     ] {
         let raw = raw_packet(wire, -55, u64::MAX);
         assert_eq!(raw.id, McpePacketName::UpdatePlayerGameTypePacket);
-        let event = super::decode_world_raw_with(raw, 0, |raw| raw.decode(&session)).unwrap();
+        let event = super::decode_world_raw_with(raw, 0, super::decode_test_raw).unwrap();
         assert_eq!(
             event,
             Some(crate::WorldEvent::Ui(crate::UiEvent::PlayerGameMode {
@@ -71,8 +69,7 @@ fn truncated_targeted_game_mode_is_a_fatal_wire_fault_not_an_ignored_packet() {
     valentine::protocol::wire::write_var_u32(&mut frame, payload.len() as u32);
     frame.extend_from_slice(&payload);
     let raw = jolyne::raw::decode_packet_raw(&mut frame.freeze()).unwrap();
-    let session = BedrockSession { shield_item_id: 0 };
-    let result = super::decode_world_raw_with(raw, 0, |raw| raw.decode(&session));
+    let result = super::decode_world_raw_with(raw, 0, super::decode_test_raw);
     assert!(result.is_err());
     let mut skipped = 0;
     assert!(super::skip_semantic_world_error(result.unwrap_err(), &mut skipped).is_err());

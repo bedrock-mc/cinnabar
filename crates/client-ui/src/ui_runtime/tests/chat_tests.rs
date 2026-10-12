@@ -50,7 +50,7 @@ fn slash_chat_submission_uses_command_transport_without_consuming_the_request() 
     let (sequence, packet) = runtime.next_chat_packet().unwrap().unwrap();
 
     assert_eq!(sequence, 0);
-    assert_eq!(packet.header.id as u32, 77);
+    assert_eq!(packet.kind().id(), 77);
     assert_eq!(runtime.pending_chat_sends().len(), 1);
 }
 
@@ -316,10 +316,7 @@ fn queued_messages_all_leave_in_the_frame_they_are_submitted() {
             .collect::<Vec<_>>(),
         [0, 1, 2]
     );
-    assert_eq!(
-        sent[1].1.header.id as u32, 77,
-        "the command keeps its transport"
-    );
+    assert_eq!(sent[1].1.kind().id(), 77, "the command keeps its transport");
     for sequence in 0..3 {
         assert!(runtime.acknowledge_chat_send(4, sequence));
     }
@@ -369,10 +366,7 @@ fn fast_transfer_action_is_exact_and_carries_session_ordinal_identity() {
 
     let mut observed = None;
     flush_chat_sends(&mut runtime, 1, |session, sequence, action, packet| {
-        assert_eq!(
-            packet.header.id as u32, 77,
-            "expected CommandRequest packet ID"
-        );
+        assert_eq!(packet.kind().id(), 77, "expected CommandRequest packet ID");
         observed = action.map(|action| {
             action.marker(
                 crate::diagnostic_markers::FAST_TRANSFER_ACTION,

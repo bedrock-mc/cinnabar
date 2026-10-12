@@ -17,3 +17,10 @@ impl ActorSnapshot {
                 "minecraft:happy_ghast"))
     }
 }
+
+impl super::ActorStore {
+    /// Reads equipment capabilities cached when the actor and catalog were admitted.
+    pub(crate) fn mount_equipment(&self, runtime_id: u64) -> assets::entity::mount::MountEquipment {
+        self.animation.mount_equipment(runtime_id)
+    }
+}

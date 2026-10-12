@@ -2,7 +2,9 @@ use crate::ui_runtime::{
     inventory_actions::recipe_book_entries, inventory_drag::PointerAction,
     presentation::screens::Widget,
 };
-use ::protocol::wire::valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
+use ::protocol::test_support::recipes::{
+    CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture,
+};
 use {super::*, ui::IconRef};
 
 #[test]
@@ -56,8 +58,8 @@ fn furnace_recipe_panel_lists_outputs_and_routes_filter_tabs_and_search() {
             slots: stacks.into(),
             storage_item: NetworkItemStack::empty(),
         }));
-    let packet = CraftingDataPacket {
-        shapeless_recipes: [
+    let update = CraftingDataFixture::clearing(
+        [
             ("minecraft:raw_iron", 2, "furnace"),
             ("minecraft:beef", 3, "furnace"),
             ("minecraft:sand", 4, "furnace"),
@@ -65,41 +67,23 @@ fn furnace_recipe_panel_lists_outputs_and_routes_filter_tabs_and_search() {
         ]
         .into_iter()
         .enumerate()
-        .map(|(index, (name, output, station))| ShapelessRecipePayload {
-            ingredients: vec![CerealizerRecipeIngredientSerializedData {
-                descriptor: vec![CerealizerRecipeIngredientSerializedDataDescriptorItem {
-                    key: "name".into(),
-                    value: name.into(),
-                }],
-                aux_value: 0,
-                stack_size: 1,
-            }],
-            results: vec![CerealizerNetworkItemInstanceDescriptorSerializedData {
-                id: output,
-                stacksize: 1,
-                auxvalue: 0,
-                block_runtime_id: if output == 4 { 1 } else { 0 },
-                user_data_buffer: vec![],
-            }],
+        .map(|(index, (name, output, station))| RecipeFixture {
             tag: station.into(),
-            net_id: TypedServerNetIdstructRecipeNetIdTag {
-                raw_id: index as u32 + 1,
-            },
-            ..Default::default()
+            net_id: index as u32 + 1,
+            ..RecipeFixture::shapeless(
+                "",
+                vec![IngredientFixture::named(name, 0)],
+                vec![OutputFixture {
+                    block_runtime_id: if output == 4 { 1 } else { 0 },
+                    ..OutputFixture::new(output, 1)
+                }],
+            )
         })
         .collect(),
-        clear_recipes: true,
-        ..Default::default()
-    };
-    let mut bytes = Vec::new();
-    packet.encode(&mut bytes).unwrap();
+    )
+    .update();
     runtime
-        .enqueue_inventory_event(
-            &mut player,
-            1,
-            3,
-            InventoryEvent::Recipes(::protocol::decode_recipe_update(&bytes).unwrap()),
-        )
+        .enqueue_inventory_event(&mut player, 1, 3, InventoryEvent::Recipes(update))
         .unwrap();
     runtime.synchronize_crafting_frontier(&mut player, 1, Some((1, 0, Some(3))));
     runtime.drain_pending_inventory(&mut player);

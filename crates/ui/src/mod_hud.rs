@@ -3,6 +3,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+mod cosmetic;
+pub use cosmetic::{ActorStyle, HungerOverlay, NametagStyle};
+
 /// Bound for one read-only server text field crossing an extension callback.
 pub const MAX_OBSERVED_TEXT_BYTES: usize = 256;
 /// Bound for the newest received chat history imported by one callback.
@@ -14,9 +17,13 @@ pub const MAX_WORLD_LABELS: usize = 64;
 /// Bound for clickable literal spans in native chat.
 pub const MAX_CHAT_ACTIONS: usize = 32;
 pub const MAX_HUD_BYTES: usize = 128 * 1024;
-pub const MAX_HUD_CARDS: usize = 8;
+pub const MAX_HUD_CARDS: usize = 16;
 pub const MAX_HUD_ROWS: usize = 64;
 pub const MAX_CARD_ROWS: usize = 16;
+/// Total rectangular cells, independent of ordinary text-row limits.
+pub const MAX_HUD_CELLS: usize = 128;
+/// Rectangular cells in one card; their geometry remains individually validated.
+pub const MAX_CARD_CELLS: usize = 64;
 pub const MAX_TEXT_BYTES: usize = 96;
 pub const MAX_CROSSHAIR_BYTES: usize = 1024;
 pub const DEFAULT_CARD_WIDTH: f32 = 148.;
@@ -50,6 +57,12 @@ pub enum RowLayout {
 #[serde(deny_unknown_fields)]
 pub struct Hud {
     pub cards: Vec<Card>,
+    /// Cosmetic native actor overrides; absence restores native presentation.
+    #[serde(default)]
+    pub actor_style: Option<ActorStyle>,
+    /// Adds cosmetic food-state artwork to the actual native hunger controls.
+    #[serde(default)]
+    pub hunger_overlay: Option<HungerOverlay>,
     /// Suppresses the ordinary status-effect icons while this HUD is published.
     #[serde(default)]
     pub hide_effect_icons: bool,
@@ -345,6 +358,7 @@ fn color(value: [f32; 4]) -> Result<(), String> {
 impl Hud {
     /// Rejects unbounded or malformed guest data before publication.
     pub fn validate(&self) -> Result<(), String> {
+        cosmetic::validate(self.actor_style.as_ref(), self.hunger_overlay.as_ref())?;
         if let Some(surface) = &self.surface {
             surface.validate()?;
             for action in surface.actions()? {
@@ -410,14 +424,10 @@ impl Hud {
             return Err("invalid world labels".into());
         }
         if self.cards.len() > MAX_HUD_CARDS
-            || self
-                .cards
-                .iter()
-                .map(|c| c.rows.len() + c.cells.len())
-                .sum::<usize>()
-                > MAX_HUD_ROWS
+            || self.cards.iter().map(|c| c.rows.len()).sum::<usize>() > MAX_HUD_ROWS
+            || self.cards.iter().map(|c| c.cells.len()).sum::<usize>() > MAX_HUD_CELLS
         {
-            return Err("HUD has too many cards or rows".into());
+            return Err("HUD has too many cards, rows or cells".into());
         }
         let mut ids = HashSet::new();
         for card in &self.cards {
@@ -442,7 +452,8 @@ impl Hud {
                     .offset
                     .into_iter()
                     .any(|v| !v.is_finite() || v.abs() > 2048.)
-                || card.rows.len() + card.cells.len() > MAX_CARD_ROWS
+                || card.rows.len() > MAX_CARD_ROWS
+                || card.cells.len() > MAX_CARD_CELLS
                 || !card.rows.is_empty() && !card.cells.is_empty()
                 || !card.background_opacity.is_finite()
                 || !(0. ..=1.).contains(&card.background_opacity)
@@ -559,6 +570,39 @@ impl Crosshair {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn larger_card_catalog_and_actor_cosmetics_keep_explicit_bounds() {
+        let mut hud:Hud=serde_json::from_value(serde_json::json!({"cards":(0..MAX_HUD_CARDS)
+            .map(|index|serde_json::json!({"id":format!("card_{index}"),"rows":[]})).collect::<Vec<_>>(),
+            "actor_style":{"hurt_color":[1.,0.,0.,0.3],"nametags":{"scale":1.,"shadow":true}}})).unwrap();
+        assert!(hud.validate().is_ok());
+        hud.actor_style
+            .as_mut()
+            .unwrap()
+            .nametags
+            .as_mut()
+            .unwrap()
+            .opacity = 1.01;
+        assert!(hud.validate().is_err());
+        hud.actor_style
+            .as_mut()
+            .unwrap()
+            .nametags
+            .as_mut()
+            .unwrap()
+            .opacity = 0.5;
+        hud.actor_style.as_mut().unwrap().attackable_color = Some([1., 0., 0., 1.1]);
+        assert!(hud.validate().is_err());
+        hud.actor_style.as_mut().unwrap().attackable_color = Some([1., 0., 0., 0.3]);
+        assert!(hud.validate().is_ok());
+        hud.actor_style.as_mut().unwrap().hurt_color = Some([f32::NAN, 0., 0., 1.]);
+        assert!(hud.validate().is_err());
+        hud.actor_style = None;
+        let mut excess = hud.cards[0].clone();
+        excess.id = "excess".into();
+        hud.cards.push(excess);
+        assert!(hud.validate().is_err());
+    }
     #[test]
     fn card_defaults_preserve_legacy_background_and_validate_new_presentation_fields() {
         let mut hud: Hud =
@@ -809,8 +853,73 @@ mod cell_tests {
         hud.cards[0].cells[0].background = [0., 0., 0., 2.];
         assert!(hud.validate().is_err());
         hud.cards[0].cells[0].background = [0.; 4];
-        hud.cards[0].cells = vec![Cell::default(); MAX_CARD_ROWS + 1];
+        hud.cards[0].cells = vec![Cell::default(); MAX_CARD_CELLS];
+        assert!(hud.validate().is_ok());
+        hud.cards[0].cells.push(Cell::default());
         assert!(hud.validate().is_err());
+    }
+    #[test]
+    fn rows_and_cells_retain_independent_card_and_total_limits() {
+        let row: Row = serde_json::from_str(r#"{"label":"Observed","value":"1"}"#).unwrap();
+        let row_card = Card {
+            id: "rows".into(),
+            rows: vec![row.clone(); MAX_CARD_ROWS],
+            ..Default::default()
+        };
+        let mut single = Hud {
+            cards: vec![row_card.clone()],
+            ..Default::default()
+        };
+        assert!(single.validate().is_ok());
+        single.cards[0].rows.push(row.clone());
+        assert!(
+            single.validate().is_err(),
+            "the text-row limit stays unchanged"
+        );
+        single.cards[0].rows.pop();
+        single.cards[0].cells.push(Cell::default());
+        assert!(
+            single.validate().is_err(),
+            "rows and cells cannot share one card"
+        );
+
+        let mut hud = Hud::default();
+        for index in 0..MAX_HUD_ROWS / MAX_CARD_ROWS {
+            hud.cards.push(Card {
+                id: format!("rows_{index}"),
+                ..row_card.clone()
+            });
+        }
+        for index in 0..MAX_HUD_CELLS / MAX_CARD_CELLS {
+            hud.cards.push(Card {
+                id: format!("cells_{index}"),
+                cells: vec![Cell::default(); MAX_CARD_CELLS],
+                ..Default::default()
+            });
+        }
+        assert!(
+            hud.validate().is_ok(),
+            "full cell budgets must coexist with the existing full row budget"
+        );
+        hud.cards.push(Card {
+            id: "extra_cell".into(),
+            cells: vec![Cell::default()],
+            ..Default::default()
+        });
+        assert!(
+            hud.validate().is_err(),
+            "the total cell limit remains bounded"
+        );
+        hud.cards.pop();
+        hud.cards.push(Card {
+            id: "extra_row".into(),
+            rows: vec![row],
+            ..Default::default()
+        });
+        assert!(
+            hud.validate().is_err(),
+            "the total row limit stays unchanged"
+        );
     }
     #[test]
     fn formatted_cells_are_explicit_bounded_and_accept_native_style_codes() {

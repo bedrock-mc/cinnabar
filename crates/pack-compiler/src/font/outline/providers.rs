@@ -47,6 +47,7 @@ pub(super) fn metric_charge(
     codepoint: char,
     metrics: &fontdue::Metrics,
 ) -> Result<usize, FontCompileError> {
+    super::fixed_advance(codepoint, metrics.advance_width)?;
     let pixels = metrics
         .width
         .checked_mul(metrics.height)
@@ -60,9 +61,6 @@ pub(super) fn metric_charge(
         || !metrics.bounds.ymin.is_finite()
         || !metrics.bounds.width.is_finite()
         || !metrics.bounds.height.is_finite()
-        || !(f64::from(metrics.advance_width).round() * 64.0).is_finite()
-        || (f64::from(metrics.advance_width).round() * 64.0) < f64::from(i16::MIN)
-        || (f64::from(metrics.advance_width).round() * 64.0) > f64::from(i16::MAX)
         || i16::try_from(metrics.xmin).is_err()
         || metrics
             .xmin
@@ -125,5 +123,19 @@ mod tests {
         metrics = fontdue::Metrics::default();
         metrics.bounds.width = f32::NAN;
         assert!(metric_charge('X', &metrics).is_err());
+    }
+
+    #[test]
+    fn fractional_advance_admission_uses_the_carrier_precision() {
+        let mut metrics = fontdue::Metrics::default();
+        let quantum = 1.0 / FIXED_POINT_DENOMINATOR as f32;
+        metrics.advance_width = f32::from(i16::MAX) * quantum;
+        assert!(metric_charge(' ', &metrics).is_ok());
+        metrics.advance_width += quantum;
+        assert!(metric_charge(' ', &metrics).is_err());
+        metrics.advance_width = f32::from(i16::MIN) * quantum;
+        assert!(metric_charge(' ', &metrics).is_ok());
+        metrics.advance_width -= quantum;
+        assert!(metric_charge(' ', &metrics).is_err());
     }
 }

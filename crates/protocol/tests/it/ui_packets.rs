@@ -1,12 +1,13 @@
 use std::sync::Arc;
+use valentine::bedrock::version::v1_26_51::McpePacket;
 
 use bytes::{BufMut, BytesMut};
 use protocol::{
-    BedrockSession, BossAction, BossColor, ChatAutocompleteAction, CustomFormValue,
-    FormButtonImage, FormKind, MAX_CHAT_AUTOCOMPLETE, MAX_FORM_JSON_BYTES, MAX_FORM_JSON_DEPTH,
-    MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, ModalFormResponseSelection, UiEvent,
-    UiPacketError, WorldEvent, custom_form_submit_response, decode_batch, into_world_event,
-    modal_form_cancel_response, modal_form_submit_response,
+    BossAction, BossColor, ChatAutocompleteAction, CustomFormValue, FormButtonImage, FormKind,
+    MAX_CHAT_AUTOCOMPLETE, MAX_FORM_JSON_BYTES, MAX_FORM_JSON_DEPTH, MAX_SCORE_ENTRIES_PER_PACKET,
+    MAX_UI_TEXT_BYTES, ModalFormResponseSelection, UiEvent, UiPacketError, WorldEvent,
+    custom_form_submit_response, decode_batch, into_world_event, modal_form_cancel_response,
+    modal_form_submit_response,
 };
 use valentine::bedrock::codec::BedrockCodec;
 use valentine::bedrock::version::v1_26_51::{
@@ -63,8 +64,11 @@ fn boss_remove_ignores_unused_invalid_presentation_fields() {
 const LEVEL_EVENT_START_BLOCK_CRACKING: i32 = 3600;
 const LEVEL_EVENT_UPDATE_BLOCK_CRACKING: i32 = 3602;
 
-fn ui(packet: impl Into<protocol::Packet>) -> Result<UiEvent, UiPacketError> {
-    match into_world_event(packet.into(), 0) {
+fn ui<P>(packet: P) -> Result<UiEvent, UiPacketError>
+where
+    McpePacket: From<P>,
+{
+    match into_world_event(protocol::Packet::new(packet), 0) {
         Ok(Some(WorldEvent::Ui(event))) => Ok(event),
         Ok(other) => panic!("expected UI event, got {other:?}"),
         Err(protocol::WorldPacketError::Ui(error)) => Err(error),
@@ -73,8 +77,7 @@ fn ui(packet: impl Into<protocol::Packet>) -> Result<UiEvent, UiPacketError> {
 }
 
 fn decode_ui_fixture(bytes: &'static [u8]) -> UiEvent {
-    let mut packets = decode_batch(bytes.into(), &BedrockSession { shield_item_id: 0 })
-        .expect("decode pinned UI fixture");
+    let mut packets = decode_batch(bytes.into()).expect("decode pinned UI fixture");
     assert_eq!(packets.len(), 1);
     match into_world_event(packets.pop().unwrap(), 0).expect("normalize pinned UI fixture") {
         Some(WorldEvent::Ui(event)) => event,
@@ -327,8 +330,7 @@ fn named_removal_is_followed_by_the_next_entry() {
     ];
     batch.extend(payload);
 
-    let mut packets = decode_batch(batch.into(), &BedrockSession { shield_item_id: 0 })
-        .expect("SetScore enters the play receive path");
+    let mut packets = decode_batch(batch.into()).expect("SetScore enters the play receive path");
     let Ok(Some(WorldEvent::Ui(UiEvent::Score(score)))) = into_world_event(packets.remove(0), 0)
     else {
         panic!("expected a score event")
@@ -408,8 +410,7 @@ fn raw_ui_strings_reject_invalid_utf8_before_owned_materialization() {
     wire::write_var_u32(&mut batch, payload.len() as u32);
     batch.extend_from_slice(&payload);
 
-    let error = decode_batch(batch.freeze(), &BedrockSession { shield_item_id: 0 })
-        .expect_err("invalid UI UTF-8 must fail closed");
+    let error = decode_batch(batch.freeze()).expect_err("invalid UI UTF-8 must fail closed");
     assert!(error.to_string().contains("UTF-8"), "{error}");
 }
 
@@ -436,8 +437,7 @@ fn raw_score_strings_reject_invalid_utf8_before_owned_materialization() {
     wire::write_var_u32(&mut batch, payload.len() as u32);
     batch.extend_from_slice(&payload);
 
-    let error = decode_batch(batch.freeze(), &BedrockSession { shield_item_id: 0 })
-        .expect_err("invalid score UTF-8 must fail closed");
+    let error = decode_batch(batch.freeze()).expect_err("invalid score UTF-8 must fail closed");
     assert!(error.to_string().contains("UTF-8"), "{error}");
 }
 
@@ -459,7 +459,7 @@ fn raw_text_parameter_count_is_bounded_before_parameter_allocation() {
     wire::write_var_u32(&mut batch, payload.len() as u32);
     batch.extend_from_slice(&payload);
 
-    let error = decode_batch(batch.freeze(), &BedrockSession { shield_item_id: 0 })
+    let error = decode_batch(batch.freeze())
         .expect_err("oversized text parameter count must fail before allocation");
     assert!(error.to_string().contains("parameters"), "{error}");
 }
@@ -477,7 +477,7 @@ fn raw_soft_enum_count_is_bounded_before_suggestion_allocation() {
     wire::write_var_u32(&mut batch, payload.len() as u32);
     batch.extend_from_slice(&payload);
 
-    let error = decode_batch(batch.freeze(), &BedrockSession { shield_item_id: 0 })
+    let error = decode_batch(batch.freeze())
         .expect_err("oversized soft enum count must fail before allocation");
     assert!(error.to_string().contains("suggestions"), "{error}");
 }
@@ -493,7 +493,9 @@ fn block_crack_events_preserve_server_progress_rate_without_inventing_stage_or_a
         },
         data: 6_553,
     };
-    let Some(WorldEvent::BlockCrack(start)) = into_world_event(start.into(), 0).unwrap() else {
+    let Some(WorldEvent::BlockCrack(start)) =
+        into_world_event(protocol::Packet::new(start), 0).unwrap()
+    else {
         panic!("expected block crack start")
     };
     assert_eq!(start.position, [1, 64, -2]);
@@ -514,7 +516,8 @@ fn block_crack_events_preserve_server_progress_rate_without_inventing_stage_or_a
         },
         data: 0,
     };
-    let Some(WorldEvent::BlockCrack(fractional)) = into_world_event(fractional.into(), 0).unwrap()
+    let Some(WorldEvent::BlockCrack(fractional)) =
+        into_world_event(protocol::Packet::new(fractional), 0).unwrap()
     else {
         panic!("expected block crack update")
     };
@@ -535,7 +538,7 @@ fn block_crack_events_preserve_server_progress_rate_without_inventing_stage_or_a
         data: 1,
     };
     assert!(matches!(
-        into_world_event(non_finite.into(), 0),
+        into_world_event(protocol::Packet::new(non_finite), 0),
         Err(protocol::WorldPacketError::Ui(
             UiPacketError::InvalidBlockCrackPosition { field: "x", .. }
         ))
@@ -551,7 +554,7 @@ fn block_crack_events_preserve_server_progress_rate_without_inventing_stage_or_a
         data: 1,
     };
     assert!(matches!(
-        into_world_event(overflowing.into(), 0),
+        into_world_event(protocol::Packet::new(overflowing), 0),
         Err(protocol::WorldPacketError::Ui(
             UiPacketError::InvalidBlockCrackPosition { field: "x", .. }
         ))
@@ -571,7 +574,8 @@ fn block_crack_events_preserve_the_full_wire_speed() {
             },
             data,
         };
-        let Some(WorldEvent::BlockCrack(event)) = into_world_event(packet.into(), 0).unwrap()
+        let Some(WorldEvent::BlockCrack(event)) =
+            into_world_event(protocol::Packet::new(packet), 0).unwrap()
         else {
             panic!("expected block crack update")
         };
@@ -682,17 +686,8 @@ fn pinned_text_menu_and_response_fixtures_match_exact_wire_payloads() {
     ] {
         expected.header.from_subclient = 1;
         expected.header.to_subclient = 2;
-        assert_eq!(
-            protocol::encode(&expected, &BedrockSession { shield_item_id: 0 })
-                .unwrap()
-                .as_ref(),
-            fixture
-        );
-        let decoded = decode_batch(
-            fixture.to_vec().into(),
-            &BedrockSession { shield_item_id: 0 },
-        )
-        .unwrap();
+        assert_eq!(protocol::encode(&expected).unwrap().as_ref(), fixture);
+        let decoded = decode_batch(fixture.to_vec().into()).unwrap();
         assert_eq!(decoded, vec![expected]);
     }
 }
@@ -769,7 +764,6 @@ fn imageless_buttons_retain_a_none_slot_per_index() {
 
 #[test]
 fn modal_and_custom_form_responses_round_trip() {
-    let session = BedrockSession { shield_item_id: 0 };
     fn json_of(packet: &protocol::Packet) -> Option<&str> {
         match &packet.data {
             McpePacketData::ModalFormResponsePacket(response) => response.json_response.as_deref(),
@@ -801,8 +795,8 @@ fn modal_and_custom_form_responses_round_trip() {
     // The custom answer survives an encode/decode wire round trip.
     submit.header.from_subclient = 1;
     submit.header.to_subclient = 2;
-    let bytes = protocol::encode(&submit, &session).unwrap();
-    let decoded = decode_batch(bytes.as_ref().to_vec().into(), &session).unwrap();
+    let bytes = protocol::encode(&submit).unwrap();
+    let decoded = decode_batch(bytes.as_ref().to_vec().into()).unwrap();
     assert_eq!(decoded, vec![submit]);
 }
 
@@ -914,13 +908,11 @@ fn oversized_form_titles_fail_the_shared_ui_text_budget() {
 
 #[test]
 fn modal_form_responses_encode_exact_submit_and_cancel_markers() {
-    let session = BedrockSession { shield_item_id: 0 };
-
     // Submitting button 2 of form 7: batch header, length, packet id 101, then
     // id, present(1), len 1, '2', cancel absent(0).
     let submit = modal_form_submit_response(7, ModalFormResponseSelection::ButtonIndex(2));
     assert_eq!(
-        protocol::encode(&submit, &session).unwrap().as_ref(),
+        protocol::encode(&submit).unwrap().as_ref(),
         &[0xfe, 0x06, 101, 0x07, 0x01, 0x01, b'2', 0x00]
     );
     let direct = ModalFormResponsePacket {
@@ -929,14 +921,14 @@ fn modal_form_responses_encode_exact_submit_and_cancel_markers() {
         form_cancel_reason: None,
     };
     assert_eq!(
-        protocol::encode(&submit, &session).unwrap(),
-        protocol::encode(&direct.into(), &session).unwrap()
+        protocol::encode(&submit).unwrap(),
+        protocol::encode(&protocol::Packet::new(direct)).unwrap()
     );
 
     // Dismissing form 7: id, response absent(0), cancel present(1) UserClosed(0).
     let cancel = modal_form_cancel_response(7);
     assert_eq!(
-        protocol::encode(&cancel, &session).unwrap().as_ref(),
+        protocol::encode(&cancel).unwrap().as_ref(),
         &[0xfe, 0x05, 101, 0x07, 0x00, 0x01, 0x00]
     );
     let direct_cancel = ModalFormResponsePacket {
@@ -945,8 +937,8 @@ fn modal_form_responses_encode_exact_submit_and_cancel_markers() {
         form_cancel_reason: Some(EnumsModalFormCancelReason::Userclosed),
     };
     assert_eq!(
-        protocol::encode(&cancel, &session).unwrap(),
-        protocol::encode(&direct_cancel.into(), &session).unwrap()
+        protocol::encode(&cancel).unwrap(),
+        protocol::encode(&protocol::Packet::new(direct_cancel)).unwrap()
     );
 
     // Both directions round-trip through the pinned codec unchanged.
@@ -967,7 +959,7 @@ fn modal_form_responses_encode_exact_submit_and_cancel_markers() {
     frame.put_u8(0xfe);
     wire::write_var_u32(&mut frame, payload.len() as u32);
     frame.extend_from_slice(&payload);
-    let mut packets = decode_batch(frame.freeze(), &BedrockSession { shield_item_id: 0 }).unwrap();
+    let mut packets = decode_batch(frame.freeze()).unwrap();
     assert_eq!(packets.len(), 1);
     assert!(matches!(
         packets.pop().unwrap().data,

@@ -59,8 +59,9 @@ Mojang assets are never committed or embedded. `make assets` fetches Mojang's of
 | `tools/cxb` | Publisher tooling for server Experiences: seeds, `.cxb` bundles, cache seeding. |
 | `tools/jsonui-editor` | Browser JSON-UI editor on the client's own engine, live at <https://bedrock-mc.github.io/cinnabar/>. |
 | `tools/jsonui-mcp` | The same editor core as an MCP server: resolve, validate, lay out, render and export packs. |
-| `tools/devtool` | `verify-affected`, which tests only what a change touches. |
+| `tools/devtool` | `verify-affected`, which tests only what a change touches, and `ci-plan`, which scopes pull-request CI the same way. |
 | `tools/dist` | Stages distributable bundles. |
+| `tools/workspace-declarations` | The `[package.metadata.cinnabar]` keys and path matching shared by the architecture gate and `devtool`. |
 
 The [modding spike](docs/modding-spike.md) is a disabled-by-default Cinnabar extension; its
 samples are `examples/mods/hello` and `examples/mods/time-changer`, and `examples/experiences/probe`
@@ -73,7 +74,7 @@ plan is in `docs/architecture/`.
 | `proxy` | Upstream session, resource-pack download and packet relay. |
 | `authflow`, `authcache` | Microsoft device sign-in and token cache. |
 | `catalog`, `store`, `launcher`, `control` | Menu data: featured servers, Realms, friends, marketplace. |
-| `localworld` | Local worlds on BDS (a container on macOS); `proxy` hosts open ones for Xbox friends. |
+| `localworld` | The launcher's open local world as the core routes it; `proxy` hosts it for Xbox friends. |
 | `packcache` | On-disk cache of server packs. |
 | `update` | Signed update checks. |
 

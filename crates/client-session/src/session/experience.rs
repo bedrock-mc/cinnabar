@@ -110,10 +110,9 @@ mod tests {
         fn outbound(&mut self) -> Result<Self::Outbound, String> {
             let sent = std::sync::Arc::clone(&self.0);
             Ok(super::super::tests::PacketOutbound::new(move |packet| {
-                let session = protocol::BedrockSession { shield_item_id: 0 };
                 sent.lock()
                     .unwrap()
-                    .push(protocol::encode(&packet, &session).unwrap());
+                    .push(protocol::encode(&packet).unwrap());
                 std::future::ready(Ok(()))
             }))
         }
@@ -139,10 +138,9 @@ mod tests {
             protocol::modal_form_cancel_response(7),
             protocol::modal_form_cancel_response(9),
         ];
-        let session = protocol::BedrockSession { shield_item_id: 0 };
         let expected: Vec<_> = packets
             .iter()
-            .map(|packet| protocol::encode(packet, &session).unwrap())
+            .map(|packet| protocol::encode(packet).unwrap())
             .collect();
         let (commands, receiver) = mpsc::channel(5);
         for packet in packets

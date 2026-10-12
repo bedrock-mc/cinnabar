@@ -35,6 +35,7 @@ mod actors;
 mod biomes;
 mod block_events;
 mod block_identities;
+mod combat;
 mod commits;
 mod contracts;
 mod dimension_ranges;
@@ -59,6 +60,7 @@ mod terrain;
 mod tests;
 pub use biomes::BiomeCommitReport;
 pub use block_events::BlockEventCue;
+pub use combat::{ActorCombatEvidence, ActorCombatKind};
 pub use contracts::{
     CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent, CommittedParticleEvent,
     CommittedUiEvent, PublisherViewGeometry, ViewCohort,
@@ -82,6 +84,8 @@ pub const COMMITTED_PARTICLE_CAPACITY: usize = 512;
 pub struct WorldAuthority {
     terrain: ChunkStore,
     actors: ActorStore,
+    combat_evidence: VecDeque<ActorCombatEvidence>,
+    combat_revision: u64,
     block_events: block_events::BlockEvents,
     map_images: map_data::MapImages,
     pending_sign_edit: Option<SignEditRequest>,
@@ -162,6 +166,8 @@ impl WorldAuthority {
         Self {
             terrain: ChunkStore::new(),
             actors,
+            combat_evidence: VecDeque::new(),
+            combat_revision: 0,
             block_events: block_events::BlockEvents::default(),
             map_images: map_data::MapImages::default(),
             pending_sign_edit: None,

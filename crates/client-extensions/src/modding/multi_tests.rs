@@ -249,6 +249,7 @@ fn run(probes: &[Probe], frames: usize) -> (ModHosts, Merged, Vec<usize>) {
         merged = run_frame(
             &mut runtime,
             FrameInput {
+                modules: None,
                 pressed: false,
                 controls: &controls,
                 previous_cues: &previous,
@@ -339,6 +340,7 @@ fn grants_stay_per_mod() {
     let merged = run_frame(
         &mut runtime,
         FrameInput {
+            modules: None,
             pressed: false,
             controls: &controls,
             previous_cues: &[],
@@ -422,6 +424,7 @@ fn inactive_hosts_do_not_capture_world_state() {
     run_frame(
         &mut runtime,
         FrameInput {
+            modules: None,
             pressed: false,
             controls: &controls,
             previous_cues: &[],

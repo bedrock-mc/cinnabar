@@ -15,7 +15,7 @@ use valentine::bedrock::version::v1_26_51::{
     TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0, Vec3,
 };
 
-use crate::{BedrockSession, InventoryPacketError, VerifiedNetworkItemStack};
+use crate::{InventoryPacketError, VerifiedNetworkItemStack};
 
 /// All authoritative state needed to encode one protocol-2168 click-block transaction.
 ///
@@ -90,15 +90,8 @@ pub enum ActorUsePacketError {
 /// The packet carries no legacy slot records and no inventory actions. The required transaction
 /// and action presence markers are set, prediction is `Failure`, and cooldown is `Off`, matching
 /// the pinned public wire fixture. Click coordinates retain the held action's hit point.
-pub fn click_block_packet(
-    request: BlockUseRequest,
-    session: &BedrockSession,
-) -> Result<crate::Packet, BlockUsePacketError> {
-    block_use_packet(
-        request,
-        session,
-        ItemUseInventoryTransactionActionType::Place,
-    )
+pub fn click_block_packet(request: BlockUseRequest) -> Result<crate::Packet, BlockUsePacketError> {
+    block_use_packet(request, ItemUseInventoryTransactionActionType::Place)
 }
 
 /// What fired a click-block transaction.
@@ -135,7 +128,7 @@ pub fn click_block_transaction_packet(
         actions,
     } = slot_change_parts(slot, change)?;
     transaction.actions.actions = actions;
-    Ok(InventoryTransactionPacket {
+    Ok(crate::Packet::new(InventoryTransactionPacket {
         legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 {
             id: legacy_request_id,
         },
@@ -143,8 +136,7 @@ pub fn click_block_transaction_packet(
         transaction: InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(Box::new(
             transaction,
         )),
-    }
-    .into())
+    }))
 }
 
 /// Builds a protocol-2168 player-input destroy-block transaction.
@@ -155,33 +147,22 @@ pub fn click_block_transaction_packet(
 /// and encodes one already-authorised block interaction.
 pub fn destroy_block_packet(
     request: BlockUseRequest,
-    session: &BedrockSession,
 ) -> Result<crate::Packet, BlockUsePacketError> {
-    block_use_packet(
-        request,
-        session,
-        ItemUseInventoryTransactionActionType::Destroy,
-    )
+    block_use_packet(request, ItemUseInventoryTransactionActionType::Destroy)
 }
 
 fn block_use_packet(
     request: BlockUseRequest,
-    session: &BedrockSession,
     action_type: ItemUseInventoryTransactionActionType,
 ) -> Result<crate::Packet, BlockUsePacketError> {
-    // The pinned 1.26.40 item descriptor carries its user data opaquely, so
-    // no session state participates in item encoding; the session parameter
-    // is retained only for the public builder signature.
-    let _ = session;
     let transaction = item_use_transaction(request, action_type)?;
-    Ok(InventoryTransactionPacket {
+    Ok(crate::Packet::new(InventoryTransactionPacket {
         legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
         legacy_set_item_slots: None,
         transaction: InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(Box::new(
             transaction,
         )),
-    }
-    .into())
+    }))
 }
 
 /// Validates one block-use request and encodes it as the shared item-use
@@ -220,10 +201,7 @@ pub(crate) fn item_use_transaction(
     let [x, y, z] = request.block_position;
     let [from_x, from_y, from_z] = request.player_position;
     let [click_x, click_y, click_z] = request.relative_hit;
-    // The 1.26.40 item descriptor never consults session state (see
-    // `VerifiedNetworkItemStack::into_vendor_item`), so no shield or session
-    // identity is fabricated here.
-    let item = request.selected_item.into_vendor_item(0)?;
+    let item = request.selected_item.into_vendor_item()?;
 
     Ok(ItemUseInventoryTransaction {
         actions: InventoryTransaction {
@@ -312,8 +290,8 @@ fn slot_change_parts(
                 bit_flags: None,
             },
             slot: u32::from(slot),
-            from_item: change.from.into_vendor_item(0)?,
-            to_item: change.to.into_vendor_item(0)?,
+            from_item: change.from.into_vendor_item()?,
+            to_item: change.to.into_vendor_item()?,
         });
     }
     Ok(SlotChangeParts {
@@ -331,13 +309,13 @@ pub fn click_air_packet(
     change: Option<PredictedSlotChange>,
 ) -> Result<crate::Packet, BlockUsePacketError> {
     let (slot, from_position) = held_item_parts(&request)?;
-    let item = request.selected_item.into_vendor_item(0)?;
+    let item = request.selected_item.into_vendor_item()?;
     let SlotChangeParts {
         legacy_request_id,
         legacy_set_item_slots,
         actions,
     } = slot_change_parts(request.selected_slot, change)?;
-    Ok(InventoryTransactionPacket {
+    Ok(crate::Packet::new(InventoryTransactionPacket {
         legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 {
             id: legacy_request_id,
         },
@@ -364,8 +342,7 @@ pub fn click_air_packet(
                 client_cooldown_state: ItemUseInventoryTransactionClientCooldownState::Off,
             },
         )),
-    }
-    .into())
+    }))
 }
 
 /// Reports an item-directed attack, including its world-space aim and current cooldown.
@@ -433,8 +410,8 @@ pub fn is_aim_assist_rotation_action(packet: &crate::Packet) -> bool {
 /// goes up; a use that runs out completes without a packet from the client.
 pub fn release_item_packet(request: HeldItemRequest) -> Result<crate::Packet, BlockUsePacketError> {
     let (slot, from_position) = held_item_parts(&request)?;
-    let item = request.selected_item.into_vendor_item(0)?;
-    Ok(InventoryTransactionPacket {
+    let item = request.selected_item.into_vendor_item()?;
+    Ok(crate::Packet::new(InventoryTransactionPacket {
         legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
         legacy_set_item_slots: None,
         transaction: InventoryTransactionPacketTransaction::ItemReleaseInventoryTransaction(
@@ -448,8 +425,7 @@ pub fn release_item_packet(request: HeldItemRequest) -> Result<crate::Packet, Bl
                 from_position,
             }),
         ),
-    }
-    .into())
+    }))
 }
 
 /// Builds a protocol-2168 attack or interact transaction for an already-selected actor.
@@ -457,10 +433,7 @@ pub fn release_item_packet(request: HeldItemRequest) -> Result<crate::Packet, Bl
 /// The packet carries a zero legacy request ID, no legacy slots, and no inventory actions. Both
 /// required presence markers are set. Runtime IDs preserve the complete public `u64` varlong wire
 /// domain; zero is rejected because it cannot identify a target actor.
-pub fn use_actor_packet(
-    request: ActorUseRequest,
-    session: &BedrockSession,
-) -> Result<crate::Packet, ActorUsePacketError> {
+pub fn use_actor_packet(request: ActorUseRequest) -> Result<crate::Packet, ActorUsePacketError> {
     if request.actor_runtime_id == 0 {
         return Err(ActorUsePacketError::InvalidActorRuntimeId);
     }
@@ -481,13 +454,11 @@ pub fn use_actor_packet(
         ActorUseAction::Attack => ItemUseOnActorInventoryTransactionActionType::Attack,
         ActorUseAction::Interact => ItemUseOnActorInventoryTransactionActionType::Interact,
     };
-    let item = request
-        .selected_item
-        .into_vendor_item(session.shield_item_id)?;
+    let item = request.selected_item.into_vendor_item()?;
     let [from_x, from_y, from_z] = request.player_position;
     let [hit_x, hit_y, hit_z] = request.hit_position;
 
-    Ok(InventoryTransactionPacket {
+    Ok(crate::Packet::new(InventoryTransactionPacket {
         legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
         legacy_set_item_slots: None,
         transaction: InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(
@@ -511,8 +482,7 @@ pub fn use_actor_packet(
                 },
             }),
         ),
-    }
-    .into())
+    }))
 }
 
 /// Why the local arm swung, as carried by an outbound swing animation.
@@ -549,7 +519,7 @@ pub fn start_item_use_on_packet(
 ) -> crate::Packet {
     let [x, y, z] = clicked;
     let [result_x, result_y, result_z] = destination;
-    PlayerActionPacket {
+    crate::Packet::new(PlayerActionPacket {
         player_runtime_id: ActorRuntimeId {
             actor_runtime_id: local_runtime_id,
         },
@@ -561,15 +531,14 @@ pub fn start_item_use_on_packet(
             z: result_z,
         },
         face: i32::from(face),
-    }
-    .into()
+    })
 }
 
 /// Ends a successful held block use at its last resulting cell.
 #[must_use]
 pub fn stop_item_use_on_packet(local_runtime_id: u64, destination: [i32; 3]) -> crate::Packet {
     let [x, y, z] = destination;
-    PlayerActionPacket {
+    crate::Packet::new(PlayerActionPacket {
         player_runtime_id: ActorRuntimeId {
             actor_runtime_id: local_runtime_id,
         },
@@ -577,14 +546,13 @@ pub fn stop_item_use_on_packet(local_runtime_id: u64, destination: [i32; 3]) -> 
         block_position: BlockPos { x, y, z },
         result_pos: BlockPos { x: 0, y: 0, z: 0 },
         face: 0,
-    }
-    .into()
+    })
 }
 
 /// Builds the PlayerAction that asks the server to wake the local player.
 #[must_use]
 pub fn stop_sleeping_packet(local_runtime_id: u64) -> crate::Packet {
-    PlayerActionPacket {
+    crate::Packet::new(PlayerActionPacket {
         player_runtime_id: ActorRuntimeId {
             actor_runtime_id: local_runtime_id,
         },
@@ -592,8 +560,7 @@ pub fn stop_sleeping_packet(local_runtime_id: u64) -> crate::Packet {
         block_position: BlockPos { x: 0, y: 0, z: 0 },
         result_pos: BlockPos { x: 0, y: 0, z: 0 },
         face: 0,
-    }
-    .into()
+    })
 }
 
 /// Requests release from a vehicle using the rider's current native actor position.
@@ -608,26 +575,24 @@ pub fn stop_riding_packet(
         return Err(ActorUsePacketError::NonFinitePlayerPosition);
     }
     let [x, y, z] = player_position;
-    Ok(InteractPacket {
+    Ok(crate::Packet::new(InteractPacket {
         action: EnumsInteractPacketPayloadAction::Stopriding,
         target_runtime_id: ActorRuntimeId {
             actor_runtime_id: mount_runtime_id,
         },
         position: Some(Vec3 { x, y, z }),
-    }
-    .into())
+    }))
 }
 
 /// Builds the local player's arm-swing animation packet.
 #[must_use]
 pub fn swing_arm_packet(local_runtime_id: u64, source: SwingSource) -> crate::Packet {
-    AnimatePacket {
+    crate::Packet::new(AnimatePacket {
         action: EnumsAnimatePacketPayloadAction::Swing,
         target_actor_runtime_id: ActorRuntimeId {
             actor_runtime_id: local_runtime_id,
         },
         data: 0.0,
         swing_source: Some(source.wire_name().to_owned()),
-    }
-    .into()
+    })
 }

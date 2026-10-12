@@ -93,6 +93,18 @@ pub struct StatusV1 {
     /// Present while the server's transfer awaits the client's reconnect.
     #[serde(default)]
     pub transfer: Option<TransferPending>,
+    /// Active upstream transport estimator, absent after disconnect or before handoff.
+    #[serde(default)]
+    pub network: Option<NetworkConnection>,
+}
+
+/// Session-scoped upstream latency; an unsampled transport has no fabricated zero.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct NetworkConnection {
+    pub attempt_id: u64,
+    pub local_runtime_id: u64,
+    pub round_trip_ms: Option<u32>,
 }
 
 /// Server-directed transfer target; reconnecting to the same core dials it.
@@ -239,6 +251,29 @@ mod tests {
             }
         }
     }"#;
+
+    #[test]
+    fn parses_optional_network_latency_without_inventing_unknown_values() {
+        assert!(
+            parse_status_response(VALID_RESULT.as_bytes())
+                .unwrap()
+                .network
+                .is_none()
+        );
+        for millis in ["null", "0", "4294967295"] {
+            let payload = VALID_RESULT.replace(
+                "\"lifecycle\":\"running\",",
+                &format!("\"lifecycle\":\"running\",\"network\":{{\"attempt_id\":42,\"local_runtime_id\":71,\"round_trip_ms\":{millis}}},"),
+            );
+            let network = parse_status_response(payload.as_bytes())
+                .unwrap()
+                .network
+                .unwrap();
+            assert_eq!(network.attempt_id, 42);
+            assert_eq!(network.local_runtime_id, 71);
+            assert_eq!(network.round_trip_ms, millis.parse::<u32>().ok());
+        }
+    }
 
     #[test]
     fn parses_pending_transfer_and_defaults_to_none() {

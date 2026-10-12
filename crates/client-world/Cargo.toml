@@ -20,7 +20,7 @@ world = { path = "../world" }
 [dev-dependencies]
 actor-animation = { path = "../actor-animation", features = ["test-support"] }
 test-time = { path = "../test-time" }
-protocol = { path = "../protocol", features = ["wire-test-support"] }
+protocol = { path = "../protocol", features = ["test-support"] }
 
 [lints]
 workspace = true

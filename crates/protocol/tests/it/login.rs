@@ -59,16 +59,13 @@ async fn login_reaches_start_game_through_bds() {
         .await
         .expect("headless presentation ready");
 
-    // `runtime_entity_id` is now the `runtime_id: ActorRuntimeId` wrapper, and
-    // the version string prismarine called `engine` is gophertunnel's
-    // `ServerVersion` (`server_version` in the generated crate).
     assert_ne!(
-        game_data.start_game.runtime_id.actor_runtime_id, 0,
+        game_data.world.local_player_runtime_id, 0,
         "StartGame runtime entity ID must be non-zero"
     );
     assert!(
-        !game_data.start_game.server_version.trim().is_empty(),
-        "StartGame must expose the compatible server's version"
+        !game_data.settings.base_game_version.trim().is_empty(),
+        "StartGame must expose the world's base game version"
     );
 
     let available_commands = tokio::time::timeout(LOGIN_TIMEOUT, async {
@@ -281,11 +278,10 @@ async fn wait_for_startup_marker(
 
 /// Builds an application-owned barrier that the upstream can observe on the wire.
 fn startup_marker(timestamp: u64) -> protocol::Packet {
-    jolyne::valentine::NetworkStackLatencyPacket {
+    protocol::Packet::new(jolyne::valentine::NetworkStackLatencyPacket {
         creation_time: timestamp,
         is_from_server: false,
-    }
-    .into()
+    })
 }
 
 /// Waits for the external harness in a blocking context on the tests' multithreaded runtime.
@@ -694,13 +690,10 @@ async fn assert_core_frame_payloads(session: &mut protocol::PlaySession) {
         (0..1024 * 1024).map(|index| (index % 251) as u8).collect(),
     ] {
         session
-            .send(
-                ScriptMessagePacket {
-                    message_id: "framing".into(),
-                    message_value: payload.clone(),
-                }
-                .into(),
-            )
+            .send(protocol::Packet::new(ScriptMessagePacket {
+                message_id: "framing".into(),
+                message_value: payload.clone(),
+            }))
             .await
             .expect("send binary frame");
         let reply = tokio::time::timeout(LOGIN_TIMEOUT, session.recv())

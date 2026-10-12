@@ -17,7 +17,7 @@ fn player_skin_packet_reaches_the_actor_pipeline() {
         ..Default::default()
     };
     let Some(WorldEvent::Actor(ActorEvent::Skin { uuid, skin })) =
-        into_world_event(packet.into(), 0).unwrap()
+        into_world_event(protocol::Packet::new(packet), 0).unwrap()
     else {
         panic!("a skin update must reach the actor pipeline");
     };

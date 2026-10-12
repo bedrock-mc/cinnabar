@@ -64,13 +64,15 @@ pub use entity::{
     MAX_PACK_ENTITY_SOURCES, RejectReason, compile_entity_assets,
     compile_entity_assets_with_report, compile_entity_pack, compile_equipment_textures,
     compile_equipment_textures_for_assets, compile_equipment_textures_for_assets_with,
-    compile_equipment_textures_with, compile_item_attack_timings, compile_item_use_durations,
-    compile_molang_expression, compile_vanilla_entity_refs, select_entity_geometry,
+    compile_equipment_textures_with, compile_item_attack_timings, compile_item_foods,
+    compile_item_use_durations, compile_molang_expression, compile_vanilla_entity_refs,
+    select_entity_geometry,
 };
 pub use fadpcm::{DecodedFadpcm, FadpcmDecodeError, decode_fsb5_fadpcm};
 pub use font::{
-    CompiledFontCarrier, FontCompileError, FontCompileReport, GlyphAdvances, OutlineFontConfig,
-    compile_fonts, compile_outline_font, compile_outline_font_with_fallback,
+    CompiledFontCarrier, FontCompileError, FontCompileReport, GlyphAdvances, NATIVE_SDF_EM_PIXELS,
+    NATIVE_SDF_MIN_PIXELS, OutlineFontConfig, compile_fonts, compile_native_outline_rasters,
+    compile_outline_font, compile_outline_font_with_fallback,
 };
 pub use hud::{CompiledHudCarrier, HudCompileError, HudCompileReport, compile_hud_assets};
 pub use hud_extras::compile_hud_extras_to_file;

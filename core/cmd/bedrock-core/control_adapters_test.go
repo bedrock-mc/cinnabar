@@ -103,14 +103,7 @@ func TestControlWireMatchesTheSourceJSON(t *testing.T) {
 		return store.PurchaseRequest(request)
 	})
 
-	sameWire(t, "world", func(world localworld.World) control.World { return control.World(world) })
-	sameWire(t, "world status", wireWorldStatus)
-	sameWire(t, "world prefs", func(prefs localworld.Prefs) control.WorldPrefs { return control.WorldPrefs(prefs) })
-	sameWire(t, "world spec", func(spec control.WorldSpec) localworld.Spec { return localworld.Spec(spec) })
-	sameWire(t, "world update", func(update control.WorldUpdate) localworld.Update { return localworld.Update(update) })
-	sameWire(t, "world prefs update", func(update control.WorldPrefsUpdate) localworld.PrefsUpdate {
-		return localworld.PrefsUpdate(update)
-	})
+	sameWire(t, "local world", localStatus)
 
 	sameWire(t, "pack admission", wirePackAdmission)
 	sameWire(t, "connect progress", wireConnectProgress)
@@ -145,7 +138,7 @@ func TestStatusStoreUnderstandsRelayAdmissions(t *testing.T) {
 func TestClassifiedErrorsKeepTheirMessageAndChain(t *testing.T) {
 	invalid := worldErr(fmt.Errorf("%w: unknown value", localworld.ErrInvalid))
 	if !errors.Is(invalid, control.ErrWorldInvalid) || !errors.Is(invalid, localworld.ErrInvalid) ||
-		errors.Is(invalid, control.ErrWorldNotFound) || invalid.Error() != "invalid world settings: unknown value" {
+		errors.Is(invalid, control.ErrWorldNotOpen) || invalid.Error() != "invalid local world report: unknown value" {
 		t.Fatalf("classified invalid = %v", invalid)
 	}
 	if worldErr(nil) != nil {
@@ -155,7 +148,7 @@ func TestClassifiedErrorsKeepTheirMessageAndChain(t *testing.T) {
 	if !errors.Is(signedOut, control.ErrSignedOut) || errors.Is(signedOut, control.ErrPurchaseBusy) {
 		t.Fatalf("classified sign-out = %v", signedOut)
 	}
-	// world_* replies show a sentinel's own message, which must stay the one clients already see.
+	// World replies show a sentinel's own message, which must stay the one clients already see.
 	for _, pair := range worldSentinels {
 		if pair.reported != control.ErrWorldInvalid && pair.reported.Error() != pair.wrapped.Error() {
 			t.Errorf("control reports %q for %q", pair.reported, pair.wrapped)

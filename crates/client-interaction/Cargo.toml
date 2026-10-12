@@ -30,6 +30,7 @@ world = { path = "../world" }
 [dev-dependencies]
 gameplay = { path = "../gameplay", features = ["test-support"] }
 player-state = { path = "../player-state" }
+protocol = { path = "../protocol", features = ["test-support"] }
 sha2.workspace = true
 ui = { path = "../ui" }
 

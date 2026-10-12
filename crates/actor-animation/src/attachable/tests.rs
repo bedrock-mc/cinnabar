@@ -640,6 +640,7 @@ fn standby_and_three_pulling_frames_choose_matching_geometry_texture_and_pose() 
         symbols.insert(
             frame,
             EntityAssetSymbol {
+                mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
                 kind: EntityAssetKind::Geometry,
                 identifier: geometry.identifier.clone(),
                 source_index: 2,
@@ -657,6 +658,7 @@ fn standby_and_three_pulling_frames_choose_matching_geometry_texture_and_pose() 
         symbols.insert(
             6 + frame,
             EntityAssetSymbol {
+                mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
                 kind: EntityAssetKind::Texture,
                 identifier: format!("textures/items/item_frame_{frame}").into(),
                 source_index: 4 + frame as u32,

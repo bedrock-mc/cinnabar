@@ -20,7 +20,7 @@ pub mod compiled;
 pub mod dye;
 mod effects;
 mod encoding;
-mod entity;
+pub mod entity;
 mod environment_settings;
 mod equipment;
 mod error;
@@ -165,14 +165,14 @@ pub use entity::{PACK_EQUIPMENT_INDEX_BASE, PACK_RIG_ID_BASE};
 pub use environment_settings::{CloudQuality, EnvironmentQualitySettings, PrecipitationQuality};
 pub use equipment::{
     ArmorSlot, AttachablePose, AttachablePoseBone, CompiledItemAttackCooldown,
-    CompiledItemAttackTiming, CompiledKineticWeaponTiming, DEFAULT_LEATHER_RGB,
+    CompiledItemAttackTiming, CompiledItemFood, CompiledKineticWeaponTiming, DEFAULT_LEATHER_RGB,
     EQUIPMENT_CARRIER_MAGIC, EQUIPMENT_CARRIER_VERSION, EquipmentBinding, EquipmentCategory,
     EquipmentColorMask, EquipmentReference, EquipmentTexture, EquipmentTransform, ItemUseDuration,
     MAX_EQUIPMENT_BINDINGS, MAX_EQUIPMENT_CARRIER_BYTES, MAX_EQUIPMENT_IDENTIFIER_BYTES,
     MAX_EQUIPMENT_PIXEL_BYTES, MAX_EQUIPMENT_TEXTURE_SIDE, MAX_EQUIPMENT_TEXTURES,
     RuntimeEquipmentCatalog, color_mask_texel, encode_equipment_catalog,
     encode_equipment_catalog_full, encode_equipment_catalog_with_attack_timings,
-    encode_equipment_catalog_with_textures,
+    encode_equipment_catalog_with_food, encode_equipment_catalog_with_textures,
 };
 pub use error::AssetError;
 pub use fire::{FIRE_ATTACHMENT_MASK_COUNT, FIRE_SUPPORTED_QUAD_COUNT, FIRE_TEMPLATE_COUNT};
@@ -180,7 +180,9 @@ pub use fire::{fire_attachment_template_offset, fire_template_quad_count};
 pub use fog_layers::resolve_fog_layers;
 pub use fog_transition::FogTransition;
 pub use font::{
-    CompiledFontCatalog, FONT_CARRIER_MAGIC, FONT_CARRIER_SCHEMA, FONT_FALLBACK_ATLAS_SIDE,
+    CompiledFontCatalog, FONT_CARRIER_MAGIC, FONT_CARRIER_SCHEMA, FONT_FACE_BUNDLE_MAGIC,
+    FONT_FACE_BUNDLE_SCHEMA, FONT_FALLBACK_ATLAS_SIDE, FontFaceRaster, decode_font_face_bundle,
+    encode_font_face_bundle,
     FONT_RASTER_EM_PIXELS, FONT_STYLE_COVERAGE_GAMMA, FONT_STYLE_SDF, FontCatalogError,
     FontCatalogIdentity, FontGlyphRequests, FontLineMetrics, FontPixels, FontRendering,
     FontTexturePage, GlyphMetrics, MAX_FONT_CARRIER_BYTES, MAX_FONT_FALLBACK_PAGES,

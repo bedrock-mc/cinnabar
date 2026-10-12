@@ -1,6 +1,6 @@
 use protocol::{
-    BedrockSession, PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, decode_batch,
-    encode, player_auth_input,
+    PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, decode_batch, encode,
+    player_auth_input,
 };
 use valentine::bedrock::version::v1_26_51::{
     EnumsClientPlayMode, EnumsInputMode, EnumsNewInteractionModel,
@@ -227,23 +227,22 @@ fn missed_swing_flag_serializes_as_its_wire_ordinal() {
 
 #[test]
 fn handled_teleport_flag_costs_exactly_one_wire_byte_and_round_trips() {
-    let session = BedrockSession { shield_item_id: 0 };
     let mut baseline = snapshot();
     baseline.flags = PlayerInputFlags::JUMPING;
     let mut flagged = baseline;
     flagged.flags |= PlayerInputFlags::HANDLED_TELEPORT;
 
-    let baseline_len = encode(&player_auth_input(baseline).unwrap(), &session)
+    let baseline_len = encode(&player_auth_input(baseline).unwrap())
         .expect("encode baseline")
         .len();
-    let encoded = encode(&player_auth_input(flagged).unwrap(), &session).expect("encode flagged");
+    let encoded = encode(&player_auth_input(flagged).unwrap()).expect("encode flagged");
     assert_eq!(
         encoded.len() - baseline_len,
         1,
         "one more set flag must add exactly its one-byte zigzag varint ordinal"
     );
 
-    let mut decoded = decode_batch(encoded, &session).expect("decode flagged batch");
+    let mut decoded = decode_batch(encoded).expect("decode flagged batch");
     assert_eq!(decoded.len(), 1);
     let McpePacketData::PlayerAuthInputPacket(input) = decoded.pop().unwrap().data else {
         panic!("expected PlayerAuthInput payload");

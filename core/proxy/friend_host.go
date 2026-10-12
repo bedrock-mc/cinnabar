@@ -12,6 +12,7 @@ import (
 	"github.com/df-mc/go-nethernet"
 	"github.com/df-mc/go-xsapi/v2/mpsd"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
@@ -22,8 +23,8 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/service/signaling/messaging"
 )
 
-// FriendWorldMaxPlayers is vanilla's player limit for a hosted world, the host included.
-const FriendWorldMaxPlayers = 8
+// FriendWorldMaxPlayers is the hosted world's player limit, shared with the launcher's local servers.
+const FriendWorldMaxPlayers = bridgecontract.HostedWorldMaxPlayers
 
 // inviteTitleID names the title Cinnabar signs in as, which Xbox invites are sent from.
 var inviteTitleID = fmt.Sprint(auth.AndroidConfig.TitleID)

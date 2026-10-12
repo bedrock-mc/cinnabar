@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+platform-specific = ["windows"]
+
 [dependencies]
 crossbeam-channel = "0.5"
 serde = { version = "1", features = ["derive"] }

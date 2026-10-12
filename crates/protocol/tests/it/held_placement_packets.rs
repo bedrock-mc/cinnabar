@@ -1,5 +1,5 @@
 use protocol::{
-    BedrockSession, BlockUseRequest, ItemUseTrigger, NetworkItemStack, PredictedSlotChange,
+    BlockUseRequest, ItemUseTrigger, NetworkItemStack, PredictedSlotChange,
     VerifiedNetworkItemStack, click_block_transaction_packet, decode_batch, encode,
     start_item_use_on_packet, stop_item_use_on_packet,
 };
@@ -22,8 +22,7 @@ fn block_stack(count: u16) -> VerifiedNetworkItemStack {
 
 /// Encodes and decodes the packet so assertions cover the outbound wire values.
 fn round_trip(packet: protocol::Packet) -> McpePacketData {
-    let session = BedrockSession { shield_item_id: 0 };
-    decode_batch(encode(&packet, &session).unwrap(), &session)
+    decode_batch(encode(&packet).unwrap())
         .unwrap()
         .remove(0)
         .data

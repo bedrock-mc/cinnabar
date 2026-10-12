@@ -5,7 +5,7 @@ use jolyne::{
     raw::{RawPacket, decode_packet_raw},
     valentine::{McpePacketArgs, McpePacketData, McpePacketName},
 };
-use protocol::BedrockSession;
+use valentine::bedrock::context::BedrockSession;
 use valentine::bedrock::error::DecodeError;
 use valentine::protocol::wire;
 

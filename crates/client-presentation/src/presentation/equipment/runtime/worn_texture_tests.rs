@@ -61,6 +61,7 @@ fn helmet() -> ActorEquipmentInput {
     ActorEquipmentInput {
         armor: [
             Some(WornItem {
+                grip: assets::item::grip::builtin_item_grip("test:coat_helmet"),
                 identifier: Arc::from("test:coat_helmet"),
                 metadata: 0,
                 damage: None,

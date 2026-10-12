@@ -28,9 +28,11 @@ ownership_record = "THIRD_PARTY_NOTICES.md"
 path = "assets/fonts/"
 ownership_record = "THIRD_PARTY_NOTICES.md"
 
+# The vendored codec and session crates stay behind protocol's owned API.
 [[vendored]]
 path = "crates/protocol/vendor/"
 ownership_record = "crates/protocol/vendor/UPSTREAM.md"
+owner = "protocol"
 
 [[crates]]
 name = "bridge"
@@ -43,6 +45,7 @@ name = "protocol"
 path = "crates/protocol"
 allowed_dependencies = ["block-transform", "bridge", "render-api", "test-time"]
 forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
+test_support_features = ["test-support"]
 
 [[crates]]
 name = "resource-pack"
@@ -100,7 +103,7 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", 
 [[crates]]
 name = "pack-compiler"
 path = "crates/pack-compiler"
-allowed_dependencies = ["assets"]
+allowed_dependencies = ["assets", "freetype-sys"]
 forbidden_dependencies = ["asset-compiler", "clap", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
 
@@ -389,7 +392,7 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "ui"
 path = "crates/ui"
-allowed_dependencies = ["assets", "render-api", "semantic-input"]
+allowed_dependencies = ["json-ui", "assets", "render-api", "semantic-input"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
@@ -401,14 +404,21 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "architecture"
 path = "tools/architecture"
-allowed_dependencies = []
+allowed_dependencies = ["workspace-declarations"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 [[crates]]
 name = "devtool"
 path = "tools/devtool"
-allowed_dependencies = []
+allowed_dependencies = ["workspace-declarations"]
 forbidden_dependencies = ["bevy", "wgpu"]
+
+# The crate declarations the architecture gate enforces and devtool reads; std-only.
+[[crates]]
+name = "workspace-declarations"
+path = "tools/workspace-declarations"
+allowed_dependencies = []
+dependency_free = true
 
 [[crates]]
 name = "dist-local"
@@ -1067,43 +1077,12 @@ exports = [
 [[reexport_allowances]]
 path = "crates/protocol/src/lib.rs"
 exports = [
-    "jolyne",
-    "jolyne::GAME_VERSION",
-    "jolyne::GameData",
-    "jolyne::PROTOCOL_VERSION",
-    "jolyne::stream::ResourcePackArchive",
-    "jolyne::stream::ResourcePackContentKey",
-    "jolyne::stream::ResourcePackHandoff",
-    "jolyne::stream::ResourcePackIdentity",
-    "jolyne::stream::ResourcePackStore",
-    "jolyne::stream::client::ClientCape",
-    "jolyne::stream::client::ClientSkin",
-    "jolyne::stream::client::ClientSkinGeometry",
     "render_api::primitive_shapes::PrimitiveShapeChange",
     "render_api::primitive_shapes::PrimitiveShapeData",
     "render_api::primitive_shapes::PrimitiveShapeKind",
     "render_api::primitive_shapes::PrimitiveShapeUpdate",
     "render_api::primitive_shapes::PrimitiveShapesEvent",
     "render_api::primitive_shapes::PrimitiveText",
-    "valentine",
-    "valentine::bedrock::context::BedrockSession",
-    "transfer::MAX_TRANSFER_HOST_BYTES",
-    "transfer::ServerTransferEvent",
-    "transfer::ServerTransferRejection",
-]
-
-[[reexport_allowances]]
-path = "crates/protocol/src/blob_cache.rs"
-exports = [
-    "valentine::bedrock::version::v1_26_51::EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkRequestResult",
-]
-
-[[reexport_allowances]]
-path = "crates/protocol/src/transfer.rs"
-exports = [
-    "jolyne::transfer::MAX_TRANSFER_HOST_BYTES",
-    "jolyne::transfer::ServerTransferEvent",
-    "jolyne::transfer::ServerTransferRejection",
 ]
 
 [[crates]]

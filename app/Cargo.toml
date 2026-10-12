@@ -5,6 +5,23 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+platform-specific = ["macos", "windows"]
+reads = [
+    "assets/bedrock-target.json",
+    "assets/cinnangles-sans-source.json",
+    "assets/vanilla-source.json",
+    "crates/assets/data/*",
+    "crates/client-presentation/src/local_player.rs",
+    "crates/mod-api/wit/extension.wit",
+    "crates/mod-host/src/tests/gameplay.wat",
+    "crates/mod-host/src/tests/guest.wat",
+    "crates/protocol/fixtures/crafting_data_manual_named_1x1.bin",
+    "crates/render/src/atmosphere.wesl",
+    "crates/render/src/cloud.wesl",
+    "examples/mods/screen-probe",
+]
+
 # No doctests here; skipping rustdoc's pass over the crate saves a full re-parse.
 [lib]
 doctest = false
@@ -130,7 +147,7 @@ client-presentation = { path = "../crates/client-presentation", features = ["tes
 gameplay = { path = "../crates/gameplay", features = ["test-support"] }
 client-session = { path = "../crates/client-session", features = ["test-support"] }
 client-ui = { path = "../crates/client-ui", features = ["test-support"] }
-protocol = { path = "../crates/protocol", features = ["wire-test-support"] }
+protocol = { path = "../crates/protocol", features = ["test-support"] }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 pack-compiler = { path = "../crates/pack-compiler" }
 chunk-pipeline = { path = "../crates/chunk-pipeline", features = ["publication-test-support"] }

@@ -243,6 +243,11 @@ impl GameplayHudState {
         }
     }
 
+    /// Latest replicated food saturation; absence means the server has supplied no accepted value.
+    pub const fn saturation(&self) -> Option<f32> {
+        self.saturation
+    }
+
     /// True once saturation is known to be exhausted, which shakes the hunger row.
     #[must_use]
     pub fn saturation_empty(&self) -> bool {

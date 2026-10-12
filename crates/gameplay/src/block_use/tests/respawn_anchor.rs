@@ -1,8 +1,4 @@
-use protocol::wire::valentine::bedrock::version::v1_26_51::{
-    EnumsItemUseInventoryTransactionActionType, EnumsItemUseInventoryTransactionPredictedResult,
-    EnumsItemUseInventoryTransactionTriggerType, InventoryTransactionPacketTransaction,
-    McpePacketData,
-};
+use protocol::test_support::transactions::{ItemUseAction, observe_transaction};
 
 use super::{
     GameModeCapabilities, ItemUseTrigger, LocalUse, PlayerGameMode, UseSurroundings, network_item,
@@ -106,16 +102,7 @@ fn anchor_use_sends_click_block_success_with_the_clicked_anchor() {
     );
     for charge in 0..=4 {
         let outcome = LocalUse::resolve(&glowstone, [2, 63, 0], 1, &anchor(charge, true), &caps);
-        for (trigger, expected_trigger) in [
-            (
-                ItemUseTrigger::PlayerInput,
-                EnumsItemUseInventoryTransactionTriggerType::Playerinput,
-            ),
-            (
-                ItemUseTrigger::SimulationTick,
-                EnumsItemUseInventoryTransactionTriggerType::Simulationtick,
-            ),
-        ] {
+        for trigger in [ItemUseTrigger::PlayerInput, ItemUseTrigger::SimulationTick] {
             let packets = use_packets(
                 (&observed, 3_219),
                 [0.5, 65.62, 0.5],
@@ -128,29 +115,17 @@ fn anchor_use_sends_click_block_success_with_the_clicked_anchor() {
                 101,
             );
             assert_eq!(packets.len(), 2, "successful interaction swings first");
-            let McpePacketData::InventoryTransactionPacket(packet) = &packets[1].data else {
-                panic!("click-block transaction");
-            };
-            let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
-                &packet.transaction
-            else {
-                panic!("item use transaction");
-            };
-            assert_eq!(
-                transaction.action_type,
-                EnumsItemUseInventoryTransactionActionType::Place
-            );
-            assert_eq!(transaction.trigger_type, expected_trigger);
-            assert_eq!(
-                transaction.client_interact_prediction,
-                EnumsItemUseInventoryTransactionPredictedResult::Success
-            );
+            let packet = observe_transaction(&packets[1]).expect("click-block transaction");
+            let transaction = packet.item_use().expect("item use transaction");
+            assert_eq!(transaction.action, ItemUseAction::ClickBlock);
+            assert_eq!(transaction.trigger, Some(trigger));
+            assert!(transaction.predicted_success);
             assert_eq!(transaction.target_block_id, 3_219);
-            assert_eq!(transaction.position.x, observed.target.position[0]);
-            assert_eq!(i32::from(transaction.item.id), glowstone.network_id());
-            assert_eq!(transaction.item.stacksize, glowstone.count());
+            assert_eq!(transaction.position[0], observed.target.position[0]);
+            assert_eq!(transaction.item.network_id, glowstone.network_id());
+            assert_eq!(transaction.item.count, glowstone.count());
             assert_eq!(transaction.item.block_runtime_id, 77);
-            assert!(transaction.actions.actions.is_empty());
+            assert!(packet.actions.is_empty());
         }
     }
 }

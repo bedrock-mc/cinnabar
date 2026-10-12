@@ -177,13 +177,18 @@ pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog,
     } else {
         br#"{"ui_defs":["ui/hud_editor.json"]}"#.as_slice()
     };
+    let surface_document = hud
+        .surface
+        .as_ref()
+        .map(ui::mod_panel::Surface::resolved_document)
+        .transpose()?;
     let mut files = vec![
         ("ui/_global_variables.json", &b"{}"[..]),
         ("ui/_ui_defs.json", defs),
         ("ui/hud_editor.json", definition.as_bytes()),
     ];
-    if let Some(surface) = &hud.surface {
-        files.push(("ui/extension_surface.json", surface.document.as_bytes()));
+    if let Some(document) = &surface_document {
+        files.push(("ui/extension_surface.json", document.as_bytes()));
     }
     let catalog = Catalog::from_files(files).map_err(|e| e.to_string())?;
     if !catalog.diagnostics().is_empty() {

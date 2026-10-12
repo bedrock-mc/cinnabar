@@ -77,6 +77,7 @@ impl UiPresentationRuntime {
             hud_frame: HudFrame::default(),
             last_hud_diagnostics: Default::default(),
             nametag_anchors: Vec::new(),
+            nametag_local_actor: None,
             nametag_atlas: nametag_atlas::NametagAtlas::default(),
             primitive_text: primitive_shapes::PrimitiveTextRasterizer::default(),
             paper_doll: Default::default(),

@@ -1,5 +1,7 @@
 use super::*;
-use ::protocol::wire::valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
+use ::protocol::test_support::recipes::{
+    CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture,
+};
 use ::protocol::{CreativeCategory, CreativeGroup, CreativeItem, ItemRegistryVersion};
 
 fn entry(network_id: i32, identifier: &str, tags: &[&str]) -> ItemRegistryEntry {
@@ -80,90 +82,70 @@ fn creative() -> ::protocol::CreativeContentEvent {
     }
 }
 
-fn descriptor(key: &str, name: &str, aux: i32) -> CerealizerRecipeIngredientSerializedData {
-    CerealizerRecipeIngredientSerializedData {
-        descriptor: vec![CerealizerRecipeIngredientSerializedDataDescriptorItem {
-            key: key.into(),
-            value: name.into(),
-        }],
-        aux_value: aux,
-        stack_size: 1,
+fn descriptor(key: &str, name: &str, aux: i32) -> IngredientFixture {
+    IngredientFixture {
+        descriptor: vec![(key.into(), name.into())],
+        aux,
+        count: 1,
     }
 }
 
-fn empty_cell() -> CerealizerRecipeIngredientSerializedData {
-    CerealizerRecipeIngredientSerializedData {
-        descriptor: Vec::new(),
-        aux_value: 0,
-        stack_size: 0,
-    }
-}
-
-fn result(id: i32) -> Vec<CerealizerNetworkItemInstanceDescriptorSerializedData> {
-    vec![CerealizerNetworkItemInstanceDescriptorSerializedData {
-        id,
-        stacksize: 1,
-        auxvalue: 0,
-        block_runtime_id: 0,
-        user_data_buffer: Vec::new(),
-    }]
+fn result(id: i32) -> Vec<OutputFixture> {
+    vec![OutputFixture::new(id, 1)]
 }
 
 /// A bed (shaped 2x2: planks tag, empty, any wool, empty), sticks (shapeless planks), a recipe
 /// whose output network id the registry lacks, and a stonecutter slab.
 fn catalog() -> RecipeCatalog {
-    let mut packet = CraftingDataPacket {
-        clear_recipes: true,
-        ..Default::default()
+    let bed = RecipeFixture {
+        net_id: 1,
+        ..RecipeFixture::shaped(
+            "test:bed",
+            2,
+            2,
+            vec![
+                descriptor("item_tag", "minecraft:planks", 0),
+                IngredientFixture::empty(),
+                descriptor(
+                    "name",
+                    "minecraft:wool",
+                    i32::from(::protocol::RECIPE_ANY_AUX),
+                ),
+                IngredientFixture::empty(),
+            ],
+            result(5),
+        )
     };
-    packet.shaped_recipes.push(ShapedRecipePayload {
-        recipe_id: "test:bed".into(),
-        width: 2,
-        height: 2,
-        ingredients: vec![
-            descriptor("item_tag", "minecraft:planks", 0),
-            empty_cell(),
-            descriptor(
-                "name",
-                "minecraft:wool",
-                i32::from(::protocol::RECIPE_ANY_AUX),
-            ),
-            empty_cell(),
-        ],
-        results: result(5),
-        tag: "crafting_table".into(),
-        ..Default::default()
-    });
-    packet.shapeless_recipes.push(ShapelessRecipePayload {
-        recipe_id: "test:sticks".into(),
-        ingredients: vec![descriptor("name", "minecraft:oak_planks", 0)],
-        results: result(7),
-        tag: "crafting_table".into(),
-        ..Default::default()
-    });
-    packet.shapeless_recipes.push(ShapelessRecipePayload {
-        recipe_id: "test:unknown".into(),
-        ingredients: vec![descriptor("name", "minecraft:stone", 0)],
-        results: result(99),
-        tag: "crafting_table".into(),
-        ..Default::default()
-    });
-    packet.shapeless_recipes.push(ShapelessRecipePayload {
-        recipe_id: "test:slab".into(),
-        ingredients: vec![descriptor("name", "minecraft:stone", 0)],
-        results: result(6),
-        tag: "stonecutter".into(),
-        ..Default::default()
-    });
-    for (index, recipe) in packet.shaped_recipes.iter_mut().enumerate() {
-        recipe.net_id.raw_id = index as u32 + 1;
-    }
-    for (index, recipe) in packet.shapeless_recipes.iter_mut().enumerate() {
-        recipe.net_id.raw_id = index as u32 + 10;
-    }
-    let mut bytes = Vec::new();
-    packet.encode(&mut bytes).unwrap();
-    let update = ::protocol::decode_recipe_update(&bytes).unwrap();
+    let shapeless = |net_id, recipe_id, ingredient, output, tag: &str| RecipeFixture {
+        tag: tag.into(),
+        net_id,
+        ..RecipeFixture::shapeless(recipe_id, vec![ingredient], result(output))
+    };
+    let update = CraftingDataFixture::clearing(vec![
+        bed,
+        shapeless(
+            10,
+            "test:sticks",
+            descriptor("name", "minecraft:oak_planks", 0),
+            7,
+            "crafting_table",
+        ),
+        shapeless(
+            11,
+            "test:unknown",
+            descriptor("name", "minecraft:stone", 0),
+            99,
+            "crafting_table",
+        ),
+        shapeless(
+            12,
+            "test:slab",
+            descriptor("name", "minecraft:stone", 0),
+            6,
+            "stonecutter",
+        ),
+    ])
+    .update();
     let mut catalog = RecipeCatalog::default();
     catalog.begin_session(1);
     assert!(catalog.apply(1, 1, &update));
@@ -433,13 +415,7 @@ fn recipe_derived_tag_changes_advance_the_item_revision() {
         tagged.lookup(&key("minecraft:oak_planks", 0)).unwrap().tags,
         ["minecraft:planks"]
     );
-    let packet = CraftingDataPacket {
-        clear_recipes: true,
-        ..Default::default()
-    };
-    let mut bytes = Vec::new();
-    packet.encode(&mut bytes).unwrap();
-    let update = ::protocol::decode_recipe_update(&bytes).unwrap();
+    let update = CraftingDataFixture::clearing(Vec::new()).update();
     assert!(recipes.apply(1, 2, &update));
     let cleared = publish(&recipes);
     assert!(cleared.tag_members("minecraft:planks").is_empty());

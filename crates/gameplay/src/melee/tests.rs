@@ -4,10 +4,7 @@ use client_world::{
     ActorSnapshot, BOUNDING_BOX_HEIGHT_METADATA_KEY, BOUNDING_BOX_WIDTH_METADATA_KEY,
     SCALE_METADATA_KEY, WorldAuthority,
 };
-use protocol::wire::valentine::bedrock::version::v1_26_51::{
-    EnumsItemUseOnActorInventoryTransactionActionType, InventoryTransactionPacketTransaction,
-    McpePacketData,
-};
+use protocol::test_support::transactions::observe_transaction;
 use protocol::{ActorKind, ActorMetadataValue};
 
 use super::*;
@@ -187,35 +184,15 @@ fn custom_npc_without_size_metadata_sends_attack_for_picked_world_point() {
         ["AnimatePacket", "InventoryTransactionPacket"]
     );
     assert!(!outcome.missed_swing);
-    let McpePacketData::InventoryTransactionPacket(packet) = &outcome.packets[1].data else {
-        panic!("the picked NPC receives an attack transaction");
-    };
-    let InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(transaction) =
-        &packet.transaction
-    else {
-        panic!("the transaction targets an actor");
-    };
-    assert_eq!(
-        transaction.action_type,
-        EnumsItemUseOnActorInventoryTransactionActionType::Attack
-    );
-    assert_eq!(transaction.runtime_id.actor_runtime_id, hit.runtime_id);
-    assert_eq!(
-        [
-            transaction.hit_position.x,
-            transaction.hit_position.y,
-            transaction.hit_position.z,
-        ],
-        hit.point
-    );
-    assert_eq!(
-        [
-            transaction.from_position.x,
-            transaction.from_position.y,
-            transaction.from_position.z,
-        ],
-        press.player_position
-    );
+    let observed = observe_transaction(&outcome.packets[1])
+        .expect("the picked NPC receives an attack transaction");
+    let transaction = observed
+        .actor_use()
+        .expect("the transaction targets an actor");
+    assert_eq!(transaction.action, Some(ActorUseAction::Attack));
+    assert_eq!(transaction.runtime_id, hit.runtime_id);
+    assert_eq!(transaction.hit_position, hit.point);
+    assert_eq!(transaction.from_position, press.player_position);
 }
 
 #[test]
@@ -333,7 +310,7 @@ fn press(input_mode: PlayerInputMode) -> PressContext {
 fn kinds(packets: &[protocol::Packet]) -> Vec<String> {
     packets
         .iter()
-        .map(|packet| format!("{:?}", packet.header.id))
+        .map(|packet| format!("{:?}", packet.kind()))
         .collect()
 }
 
@@ -682,6 +659,11 @@ fn assert_published_press_retry(crosshair: Crosshair, duration: i32) {
         },
     ));
     assert_eq!(swings.take_started(), None);
+    assert_eq!(
+        runtime.admitted_attack(),
+        None,
+        "a refused FIFO admits no combat evidence"
+    );
     assert_eq!(swings.published_progress(press.tick).bedrock, [0.0; 2]);
     swings.sync_ticks((1, 1), press.tick, &effects);
     let mut admitted_packets = Vec::new();
@@ -692,24 +674,13 @@ fn assert_published_press_retry(crosshair: Crosshair, duration: i32) {
             "a recovered send retains its original packet order"
         );
         if let Crosshair::Actor(hit) = crosshair {
-            let McpePacketData::InventoryTransactionPacket(packet) = &packets[1].data else {
-                panic!("the swing precedes the original actor transaction");
-            };
-            let InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(
-                transaction,
-            ) = &packet.transaction
-            else {
-                panic!("the original actor attack survives backpressure");
-            };
-            assert_eq!(transaction.runtime_id.actor_runtime_id, hit.runtime_id);
-            assert_eq!(
-                [
-                    transaction.from_position.x,
-                    transaction.from_position.y,
-                    transaction.from_position.z
-                ],
-                press.player_position
-            );
+            let observed = observe_transaction(&packets[1])
+                .expect("the swing precedes the original actor transaction");
+            let transaction = observed
+                .actor_use()
+                .expect("the original actor attack survives backpressure");
+            assert_eq!(transaction.runtime_id, hit.runtime_id);
+            assert_eq!(transaction.from_position, press.player_position);
         }
         Ok(())
     });
@@ -717,6 +688,14 @@ fn assert_published_press_retry(crosshair: Crosshair, duration: i32) {
         admitted_packets, initial_packets,
         "the retry keeps its admitted swing and packet order"
     );
+    if let Crosshair::Actor(hit) = crosshair {
+        assert_eq!(
+            runtime.admitted_attack().map(|attack| attack.hit),
+            Some(hit)
+        );
+    } else {
+        assert_eq!(runtime.admitted_attack(), None);
+    }
     assert_eq!(missed, crosshair == Crosshair::Miss);
     assert_eq!(swings.take_started(), Some(press.swing_duration));
     assert!(

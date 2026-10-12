@@ -13,6 +13,7 @@ pub use query_manifest::{
     MolangQueryArguments, MolangQueryDescriptor, MolangQueryHandler, MolangQueryOutput,
     MolangQuerySupport, bind_molang_queries,
 };
+pub mod mount;
 mod server_animation;
 pub use molang_program::MolangProgram;
 #[path = "entity/inherited_cubes.rs"]
@@ -56,8 +57,8 @@ pub use v4::{
 };
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
-/// Includes authored clip clocks; invalidates catalogs compiled before `anim_time_update` support.
-pub const ENTITY_BLOB_VERSION: u32 = 15;
+/// Includes admitted item grips; stale carriers require `make assets`.
+pub const ENTITY_BLOB_VERSION: u32 = 17;
 /// Actor rig id ranges (a rig id is a `u32`):
 /// - `0..PACK_RIG_ID_BASE`: vanilla catalog rig-geometry bindings, and from `0x2000_0000`
 ///   the catalog geometries render controllers draw beside the rig (`0x2000_0000 + index`).
@@ -139,6 +140,8 @@ pub struct EntityDependency {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityAssetSymbol {
+    /// Equipment capabilities; non-entity symbols remain unresolved.
+    pub mount_equipment: mount::MountEquipment,
     pub kind: EntityAssetKind,
     pub identifier: Box<str>,
     pub source_index: u32,
@@ -623,6 +626,7 @@ fn validate_compiled(compiled: &CompiledEntityAssets) -> Result<Box<[Option<usiz
         previous_symbol = Some(key);
     }
     let parents = validate_geometries(compiled)?;
+    mount::validate_mount_equipment(&compiled.sources, &compiled.symbols)?;
     validate_extended_payload(compiled)?;
     Ok(parents)
 }

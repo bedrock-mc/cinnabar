@@ -24,6 +24,8 @@ pub struct Resolver<'a> {
     catalog: &'a Catalog,
     diagnostics: Vec<String>,
     nodes: usize,
+    max_depth: usize,
+    max_nodes: usize,
     /// The scope resolution started in; a factory records what it adds to it.
     root: Option<Env>,
 }
@@ -34,8 +36,17 @@ impl<'a> Resolver<'a> {
             catalog,
             diagnostics: Vec::new(),
             nodes: 0,
+            max_depth: MAX_DEPTH,
+            max_nodes: MAX_NODES,
             root: None,
         }
+    }
+
+    /// Restricts resolution to a caller's smaller retained presentation budget.
+    pub fn with_limits(mut self, depth: usize, nodes: usize) -> Self {
+        self.max_depth = depth.clamp(1, MAX_DEPTH);
+        self.max_nodes = nodes.clamp(1, MAX_NODES);
+        self
     }
 
     pub fn diagnostics(&self) -> &[String] {
@@ -215,8 +226,8 @@ impl<'a> Resolver<'a> {
         env: &Env,
         depth: usize,
     ) -> Vec<ResolvedControl> {
-        if depth >= MAX_DEPTH || self.nodes >= MAX_NODES {
-            if depth >= MAX_DEPTH {
+        if depth >= self.max_depth || self.nodes >= self.max_nodes {
+            if depth >= self.max_depth {
                 self.diagnostics.push(format!(
                     "{}.{}: max depth reached",
                     control.owner_ns, control.name
@@ -239,7 +250,7 @@ impl<'a> Resolver<'a> {
         let children = dynamic.as_ref().unwrap_or(&control.children);
         let mut resolved = Vec::new();
         for child in children {
-            if self.nodes >= MAX_NODES {
+            if self.nodes >= self.max_nodes {
                 self.diagnostics.push(format!(
                     "{}.{}: node budget exhausted",
                     control.owner_ns, control.name

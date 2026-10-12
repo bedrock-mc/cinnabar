@@ -12,7 +12,7 @@ pub const MAX_BOOK_PAGE_BYTES: usize = 1_024;
 /// Asks the server to put the block at `position` in the player's hand.
 #[must_use]
 pub fn block_pick_request_packet(position: [i32; 3], with_data: bool) -> crate::Packet {
-    BlockPickRequestPacket {
+    crate::Packet::new(BlockPickRequestPacket {
         position: BlockPos {
             x: position[0],
             y: position[1],
@@ -20,14 +20,13 @@ pub fn block_pick_request_packet(position: [i32; 3], with_data: bool) -> crate::
         },
         with_data,
         max_slots: 9,
-    }
-    .into()
+    })
 }
 
 /// Reports a lectern's page turn to the server.
 #[must_use]
 pub fn lectern_update_packet(page: u8, total_pages: u8, position: [i32; 3]) -> crate::Packet {
-    LecternUpdatePacket {
+    crate::Packet::new(LecternUpdatePacket {
         newpagetoshow: page,
         total_pages,
         positionof_lecterntoupdate: BlockPos {
@@ -35,21 +34,19 @@ pub fn lectern_update_packet(page: u8, total_pages: u8, position: [i32; 3]) -> c
             y: position[1],
             z: position[2],
         },
-    }
-    .into()
+    })
 }
 
 /// Asks the server to disable or enable one slot of the crafter at `position`.
 #[must_use]
 pub fn crafter_slot_toggle_packet(position: [i32; 3], slot: u8, disabled: bool) -> crate::Packet {
-    PlayerToggleCrafterSlotRequestPacket {
+    crate::Packet::new(PlayerToggleCrafterSlotRequestPacket {
         pos_x: position[0],
         pos_y: position[1],
         pos_z: position[2],
         slot_index: slot,
         is_disabled: disabled,
-    }
-    .into()
+    })
 }
 
 /// One edit of a writable book.
@@ -121,13 +118,10 @@ pub fn book_edit_packet(book_slot: u8, edit: &BookEdit) -> Option<crate::Packet>
         }),
         _ => return None,
     };
-    Some(
-        BookEditPacket {
-            book_slot: i32::from(book_slot),
-            operation,
-        }
-        .into(),
-    )
+    Some(crate::Packet::new(BookEditPacket {
+        book_slot: i32::from(book_slot),
+        operation,
+    }))
 }
 
 #[cfg(test)]

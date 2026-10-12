@@ -5,6 +5,12 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+reads = [
+    "crates/experience-sdk/wit/client/deps/server-experience",
+    "crates/experience-sdk/wit/session",
+]
+
 [dependencies]
 wit-bindgen.workspace = true
 

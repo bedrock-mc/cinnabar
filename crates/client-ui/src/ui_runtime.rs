@@ -23,6 +23,7 @@ pub mod inventory_actions;
 pub mod inventory_drag;
 pub mod inventory_ingress;
 
+mod food;
 mod item_activation;
 pub mod item_facts;
 pub mod json_ui_assets;
@@ -210,6 +211,8 @@ pub struct UiRuntime {
     server_lang: Option<Arc<assets::ServerLangOverlay>>,
     session_icons: Option<Arc<presentation::SessionIcons>>,
     session_items: Option<Arc<item_facts::SessionItemComponents>>,
+    /// Version-pinned local item facts survive replacement of server session state.
+    food_catalog: Option<Arc<assets::RuntimeEquipmentCatalog>>,
     stack_facts: protocol::ItemStackFactsCache,
     /// Invalidates names when components or any translation table changes.
     item_name_generation: u64,
@@ -306,6 +309,7 @@ impl UiRuntime {
             server_lang: None,
             session_icons: None,
             session_items: None,
+            food_catalog: None,
             stack_facts: Default::default(),
             item_name_generation: 0,
             server_ui: None,

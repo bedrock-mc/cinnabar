@@ -35,11 +35,7 @@ fn dismount_press_targets_the_mount_and_retains_a_full_queue_request() {
         Ok(())
     });
     assert_eq!(accepted.len(), 1);
-    let bytes = protocol::encode(
-        &accepted[0],
-        &protocol::BedrockSession { shield_item_id: 0 },
-    )
-    .unwrap();
+    let bytes = protocol::encode(&accepted[0]).unwrap();
     let bytes = &bytes[2..];
     // Interact: packet id, StopRiding action, full unsigned vehicle id, position presence.
     assert_eq!(&bytes[..2], &[0x21, 3]);

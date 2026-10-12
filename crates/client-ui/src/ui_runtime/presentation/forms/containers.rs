@@ -14,9 +14,7 @@ use std::sync::Arc;
 use ui::UiNode;
 
 use super::container_data;
-use super::container_kinds::{
-    Cell, ContainerKind, mount_kind, mount_slots, storage_kind, window_kind,
-};
+use super::container_kinds::{Cell, ContainerKind, mount_kind, storage_kind, window_kind};
 use super::engine::{
     self,
     screen::{CustomRenderer, PaintFrame},
@@ -69,9 +67,9 @@ impl ScreenLayout {
             InventoryScreen::Personal | InventoryScreen::Creative => Self::Personal { book },
             InventoryScreen::Workbench => Self::Workbench { book },
             InventoryScreen::Storage(slots) => Self::Station(storage_kind(slots, block_entity)),
-            InventoryScreen::Window(protocol::WindowKind::Horse, _) => Self::Station(mount_kind(
-                mount_slots(runtime.screen_state().mount_identifier.as_deref()),
-            )),
+            InventoryScreen::Window(protocol::WindowKind::Horse, _) => {
+                Self::Station(mount_kind(runtime.screen_state().mount_equipment))
+            }
             InventoryScreen::Window(kind, _) => Self::Station(window_kind(kind)?),
             InventoryScreen::Book => Self::Book,
         })

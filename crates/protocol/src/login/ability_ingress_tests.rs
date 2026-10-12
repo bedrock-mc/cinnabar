@@ -4,14 +4,13 @@ use valentine::bedrock::version::v1_26_51::{
 };
 
 fn raw(count: usize) -> jolyne::raw::RawPacket {
-    let packet: crate::Packet = UpdateAbilitiesPacket {
+    let packet: crate::Packet = crate::Packet::new(UpdateAbilitiesPacket {
         data: SerializedAbilitiesData {
             target_player_raw_id: 42,
             layers: vec![SerializedAbilitiesDataSerializedLayer::default(); count],
             ..Default::default()
         },
-    }
-    .into();
+    });
     let mut frame = BytesMut::new();
     packet
         .data

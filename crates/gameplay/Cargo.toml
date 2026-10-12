@@ -5,6 +5,12 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+reads = [
+    "assets/bedrock-target.json",
+    "crates/assets/data/*",
+]
+
 [features]
 test-support = []
 
@@ -27,7 +33,7 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-protocol = { path = "../protocol", features = ["wire-test-support"] }
+protocol = { path = "../protocol", features = ["test-support"] }
 
 [lints]
 workspace = true

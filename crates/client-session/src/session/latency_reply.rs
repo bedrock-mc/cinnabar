@@ -83,10 +83,9 @@ mod tests {
         let NetworkCommand::Send { packet, .. } = receiver.try_recv().unwrap() else {
             panic!("expected a latency reply, received loading completion");
         };
-        let session = protocol::BedrockSession { shield_item_id: 0 };
         assert_eq!(
-            protocol::encode(&packet, &session).unwrap(),
-            protocol::encode(&protocol::network_stack_latency_reply(timestamp), &session).unwrap(),
+            protocol::encode(&packet).unwrap(),
+            protocol::encode(&protocol::network_stack_latency_reply(timestamp)).unwrap(),
         );
     }
 

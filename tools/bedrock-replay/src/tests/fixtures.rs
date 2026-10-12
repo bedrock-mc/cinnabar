@@ -1,9 +1,6 @@
-use protocol::wire::valentine::bedrock::version::v1_26_51::{
-    ChunkRadiusUpdatedPacket, EnumsPlayStatus, ItemRegistryPacket, PlayStatusPacket,
-};
-use protocol::{
-    BedrockSession,
-    session_wire::{CoreMessage, batch_frame_from_bedrock, decode_core_message},
+use protocol::session_wire::{CoreMessage, batch_frame_from_bedrock, decode_core_message};
+use protocol::test_support::packets::{
+    chunk_radius_updated_packet, item_registry_packet, player_spawn_packet,
 };
 use sha2::{Digest, Sha256};
 use std::{fs::OpenOptions, io::Write, path::Path};
@@ -65,18 +62,13 @@ fn committed(name: &str) -> Vec<u8> {
 /// Combines pinned packet fixtures with the minimal original spawn-completion packets.
 pub(super) fn capture() -> Vec<u8> {
     let mut result = committed("start_game.bin");
-    let packets: [protocol::Packet; 3] = [
-        ItemRegistryPacket::default().into(),
-        ChunkRadiusUpdatedPacket { chunk_radius: 1 }.into(),
-        PlayStatusPacket {
-            status: EnumsPlayStatus::Playerspawn,
-        }
-        .into(),
+    let packets = [
+        item_registry_packet(),
+        chunk_radius_updated_packet(1),
+        player_spawn_packet(),
     ];
     for packet in packets {
-        result.extend(unframe(
-            &protocol::encode(&packet, &BedrockSession { shield_item_id: 0 }).unwrap(),
-        ));
+        result.extend(unframe(&protocol::encode(&packet).unwrap()));
     }
     result.extend(committed("add_actor.bin"));
     result.extend(committed("text.bin"));

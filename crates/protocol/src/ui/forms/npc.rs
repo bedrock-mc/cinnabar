@@ -144,7 +144,7 @@ pub fn npc_request_packet(
             0,
         ),
     };
-    NpcRequestPacket {
+    crate::Packet::new(NpcRequestPacket {
         npc_runtime_id: ActorRuntimeId {
             actor_runtime_id: npc_runtime_id,
         },
@@ -152,8 +152,7 @@ pub fn npc_request_packet(
         actions: String::new(),
         action_index,
         scene_name: scene_name.to_owned(),
-    }
-    .into()
+    })
 }
 
 pub(crate) fn normalize_server_settings(
@@ -171,7 +170,7 @@ pub(crate) fn normalize_server_settings(
 
 /// Asks the server for its settings form (sent when the settings screen opens).
 pub fn server_settings_request_packet() -> crate::Packet {
-    ServerSettingsRequestPacket {}.into()
+    crate::Packet::new(ServerSettingsRequestPacket {})
 }
 
 #[cfg(test)]

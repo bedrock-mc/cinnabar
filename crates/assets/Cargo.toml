@@ -5,6 +5,20 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+platform-specific = ["macos", "windows"]
+reads = [
+    "assets/bedrock-target.json",
+    "assets/cinnangles-five-bold-source.json",
+    "assets/cinnangles-five-source.json",
+    "assets/cinnangles-sans-source.json",
+    "assets/cinnangles-seven-source.json",
+    "assets/cinnangles-ten-source.json",
+    "assets/vanilla-source.json",
+    "crates/protocol/data/retail_biomes_1_26_50.txt",
+    "crates/protocol/data/retail_items_1_26_50.tsv",
+]
+
 [features]
 test-support = []
 

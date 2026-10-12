@@ -26,6 +26,7 @@ fn playback(blending: bool) -> (Vec<WeightedClip>, f32) {
     symbols.insert(
         2,
         EntityAssetSymbol {
+            mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
             kind: EntityAssetKind::AnimationController,
             identifier: "controller.animation.timed".into(),
             source_index: 0,

@@ -7,11 +7,12 @@ use ui::mod_panel::{Surface, SurfaceValue};
 /// Loads the validated document in a private catalog and checks its root resolution.
 pub(in super::super) fn catalog(surface: &Surface) -> Result<Catalog, String> {
     surface.validate()?;
+    let document = surface.resolved_document()?;
     let definitions = br#"{"ui_defs":["ui/extension_surface.json"]}"#;
     let catalog = Catalog::from_files([
         ("ui/_global_variables.json", &b"{}"[..]),
         ("ui/_ui_defs.json", &definitions[..]),
-        ("ui/extension_surface.json", surface.document.as_bytes()),
+        ("ui/extension_surface.json", document.as_bytes()),
     ])
     .map_err(|error| error.to_string())?;
     if !catalog.diagnostics().is_empty() {

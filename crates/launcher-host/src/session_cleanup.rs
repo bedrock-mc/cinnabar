@@ -221,6 +221,11 @@ pub struct SessionDirectoryGuard {
 }
 
 impl SessionDirectoryGuard {
+    /// Borrows the runtime endpoint directory while this identity-checked lease is alive.
+    pub fn directory(&self) -> &Path {
+        &self.directory
+    }
+
     /// Creates (or takes over) the exclusive session directory at
     /// `directory` and writes this binding's owner marker into it.
     ///

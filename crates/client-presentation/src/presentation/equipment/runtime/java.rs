@@ -59,7 +59,7 @@ impl EquipmentRuntime {
             JavaHeldItem::Bow
         } else if is_java_tool(&item.identifier) {
             JavaHeldItem::Tool {
-                rotate_around: render_model::equipment::is_rod(&item.identifier),
+                rotate_around: item.grip.mirrored_art(),
                 blocking: grip.blocking && is_java_sword(&item.identifier),
             }
         } else {
@@ -107,11 +107,7 @@ impl EquipmentRuntime {
         hand: JavaHand,
     ) -> Option<FirstPersonItem> {
         let (mesh, location, block) = self.held_mesh(item, true)?;
-        let camera = java::first_person_item(
-            hand,
-            mesh_kind(block),
-            render_model::equipment::is_rod(&item.identifier),
-        );
+        let camera = java::first_person_item(hand, mesh_kind(block), item.grip.mirrored_art());
         let rest = [rest_bone([0.0; 3])];
         let poses = self
             .poses

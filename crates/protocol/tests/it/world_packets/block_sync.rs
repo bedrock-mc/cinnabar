@@ -22,7 +22,9 @@ fn synced_falling_block_source_update_is_admitted_as_world_data() {
     let decoded = UpdateBlockSyncedPacket::decode(&mut wire, ()).unwrap();
     assert!(!wire.has_remaining());
     assert!(
-        into_world_event(decoded.into(), 2).unwrap().is_some(),
+        into_world_event(protocol::Packet::new(decoded), 2)
+            .unwrap()
+            .is_some(),
         "the block-to-entity source update must reach the ordered world owner"
     );
 }
@@ -38,7 +40,7 @@ fn synced_block_update_preserves_flags_and_signed_actor_identity() {
         actor_sync_message: 2,
     };
     assert_eq!(
-        into_world_event(packet.into(), 2).unwrap(),
+        into_world_event(protocol::Packet::new(packet), 2).unwrap(),
         Some(WorldEvent::SyncedBlockUpdates(vec![
             SyncedBlockUpdateEvent {
                 update: BlockUpdateEvent {
@@ -73,7 +75,8 @@ fn batched_block_update_preserves_each_actor_transition_and_layer() {
             blocks_changed_extras: vec![entry(58, 2, 7, 99)],
         },
     };
-    let Some(WorldEvent::SyncedBlockUpdates(updates)) = into_world_event(packet.into(), 2).unwrap()
+    let Some(WorldEvent::SyncedBlockUpdates(updates)) =
+        into_world_event(protocol::Packet::new(packet), 2).unwrap()
     else {
         panic!("batched terrain updates must preserve their synchronization")
     };

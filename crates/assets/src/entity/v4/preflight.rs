@@ -96,6 +96,7 @@ impl<'de> Deserialize<'de> for SequenceCount {
 #[serde(deny_unknown_fields)]
 #[allow(dead_code)]
 struct SymbolProbe {
+    mount_equipment: de::IgnoredAny,
     kind: de::IgnoredAny,
     identifier: de::IgnoredAny,
     source_index: de::IgnoredAny,
@@ -125,6 +126,7 @@ impl<'de> Deserialize<'de> for SymbolSequenceCount {
                 let mut count = 0usize;
                 while let Some(symbol) = sequence.next_element::<SymbolProbe>()? {
                     let SymbolProbe {
+                        mount_equipment: _,
                         kind: _,
                         identifier: _,
                         source_index: _,

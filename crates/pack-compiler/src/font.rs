@@ -18,7 +18,8 @@ use thiserror::Error;
 mod outline;
 
 pub use outline::{
-    GlyphAdvances, OutlineFontConfig, compile_outline_font, compile_outline_font_with_fallback,
+    GlyphAdvances, NATIVE_SDF_EM_PIXELS, NATIVE_SDF_MIN_PIXELS, OutlineFontConfig,
+    compile_native_outline_rasters, compile_outline_font, compile_outline_font_with_fallback,
 };
 
 const FONT_DESCRIPTOR_SCHEMA: u32 = 1;

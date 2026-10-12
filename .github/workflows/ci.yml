@@ -1,8 +1,10 @@
 name: CI
 
 # Pull requests run preflight, then Linux checks and a Windows/macOS subset when runtime inputs
-# change. Scheduled and manual runs are full: every test, clippy and Go check on all three OSes.
-# `ci-ok` passes when every job succeeded or was intentionally skipped.
+# change. Rust jobs build the whole workspace, so the cache leaves only changed crates and their
+# dependents to compile; preflight's `devtool ci-plan` limits tests to those crates, and the
+# Windows and macOS jobs to changes in crates declaring that platform. Scheduled and manual runs are full: every test, clippy and Go check on
+# all three OSes. `ci-ok` passes when every job succeeded or was intentionally skipped.
 on:
   pull_request:
   schedule:
@@ -131,8 +133,20 @@ jobs:
     if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Pull requests only; full runs ignore these and check the whole workspace.
+    outputs:
+      scope: ${{ steps.affected.outputs.scope }}
+      macos: ${{ steps.affected.outputs.macos }}
+      windows: ${{ steps.affected.outputs.windows }}
+      names: ${{ steps.affected.outputs.names }}
+      tests: ${{ steps.affected.outputs.tests }}
+      macos_tests: ${{ steps.affected.outputs.macos_tests }}
+      windows_tests: ${{ steps.affected.outputs.windows_tests }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          # The merge commit's first parent is the base it is compared against.
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
       - uses: dtolnay/rust-toolchain@1.99.0
         with:
           components: rustfmt
@@ -140,6 +154,11 @@ jobs:
         run: cargo fmt --check
       - name: Restore Rust build cache
         uses: ./.github/actions/build-cache
+      - name: Plan affected checks
+        id: affected
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        shell: bash
+        run: cargo run -p devtool --locked -- ci-plan --base HEAD^1 | tee -a "$GITHUB_OUTPUT"
       - name: Enforce architecture boundaries
         if: ${{ !cancelled() }}
         run: cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml
@@ -150,9 +169,13 @@ jobs:
     if: >-
       !cancelled() && needs.changes.result == 'success'
       && needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
-      && (needs.changes.outputs.full == 'true' || needs.preflight.result == 'success')
+      && (needs.changes.outputs.full == 'true'
+        || (needs.preflight.result == 'success' && needs.preflight.outputs.scope != 'none'))
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      FULL: ${{ needs.changes.outputs.full }}
+      AFFECTED: ${{ needs.preflight.outputs.names }}
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@1.99.0
@@ -174,21 +197,29 @@ jobs:
           cargo tree -e features -p bedrock-client --target x86_64-unknown-linux-gnu --locked | grep -F 'bevy feature "wayland"'
           cargo tree -e features -p bedrock-client --target x86_64-unknown-linux-gnu --locked | grep -F 'bevy feature "x11"'
       # The checks below are independent, so each reports even when an earlier one fails.
+      # Whole-workspace builds match the cached features, so only affected crates are linted.
       - name: Lint Rust workspace
         if: ${{ !cancelled() }}
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Lint off-by-default features
         if: ${{ !cancelled() }}
         run: |
-          cargo clippy -p render --features enhanced --all-targets --locked -- -D warnings
-          cargo clippy -p bedrock-client --features enhanced,local-mods,developer-control,tracy --locked -- -D warnings
-          cargo clippy -p bedrock-client --features reports --tests --locked -- -D warnings
-          cargo clippy -p client-extensions --features local-mods --all-targets --locked -- -D warnings
+          affected() { [ "$FULL" = true ] || [[ " $AFFECTED " == *" $1 "* ]]; }
+          if affected render; then
+            cargo clippy -p render --features enhanced --all-targets --locked -- -D warnings
+          fi
+          if affected bedrock-client; then
+            cargo clippy -p bedrock-client --features enhanced,local-mods,developer-control,tracy --locked -- -D warnings
+            cargo clippy -p bedrock-client --features reports --tests --locked -- -D warnings
+          fi
+          if affected client-extensions; then
+            cargo clippy -p client-extensions --features local-mods --all-targets --locked -- -D warnings
+          fi
       - name: Test local WASM mod and developer control adapters
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (env.FULL == 'true' || contains(format(' {0} ', env.AFFECTED), ' bedrock-client ')) }}
         run: cargo test -p bedrock-client --features local-mods,developer-control --lib --locked -- modding developer_control
       - name: Test local WASM mod hosts
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (env.FULL == 'true' || contains(format(' {0} ', env.AFFECTED), ' client-extensions ')) }}
         run: cargo test -p client-extensions --features local-mods --lib --locked
       - name: Test acceptance dry run and protocol provenance
         if: ${{ !cancelled() }}
@@ -203,9 +234,12 @@ jobs:
     if: >-
       !cancelled() && needs.changes.result == 'success'
       && needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
-      && (needs.changes.outputs.full == 'true' || needs.preflight.result == 'success')
+      && (needs.changes.outputs.full == 'true'
+        || (needs.preflight.result == 'success' && needs.preflight.outputs.scope != 'none'))
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
+    env:
+      TESTS: ${{ needs.changes.outputs.full == 'true' && 'all()' || needs.preflight.outputs.tests }}
     strategy:
       fail-fast: false
       matrix:
@@ -235,8 +269,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
-      - name: Test Rust workspace
-        run: cargo nextest run --workspace --locked --no-fail-fast ${{ runner.os == 'Linux' && '--timings' || '' }}
+      # Builds the whole workspace, which the cache keeps fresh, and runs only affected tests.
+      - name: Test affected Rust packages
+        shell: bash
+        run: cargo nextest run --workspace -E "$TESTS" --locked --no-fail-fast --no-tests=warn ${{ runner.os == 'Linux' && '--timings' || '' }}
       - name: Upload Linux test build timings
         if: ${{ !cancelled() && runner.os == 'Linux' }}
         uses: actions/upload-artifact@v7
@@ -337,47 +373,44 @@ jobs:
 
   # Pull requests only; full runs cover Windows and macOS through rust-tests and go.
   platform:
-    name: Platform (${{ matrix.name }})
+    name: Platform (${{ matrix.os }})
     needs: [changes, preflight]
     if: >-
       !cancelled() && needs.changes.result == 'success'
       && needs.changes.outputs.run == 'true' && needs.changes.outputs.runtime == 'true'
-      && (needs.changes.outputs.full == 'true' || needs.preflight.result == 'success')
       && needs.changes.outputs.full != 'true'
+      && needs.preflight.result == 'success'
+      && (needs.preflight.outputs.macos == 'true' || needs.preflight.outputs.windows == 'true')
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # These GPU witnesses exhaust the PR budget on the software WARP adapter.
-          # macOS PRs and full Windows runs still cover every excluded case.
-          - name: windows
-            os: windows-latest
-            crates: true
-            client: false
-            skip: >-
-              test(=gpu_culling::direct::occlusion_cuts_submitted_terrain_only_while_the_view_holds_still)
-              | test(=terrain_seams::near_merged_floors_far_from_origin_leave_no_seam_pixels)
-              | test(=terrain_seams::sealing_grows_silhouettes_by_less_than_a_pixel)
-              | test(=terrain_seams::sealing_keeps_face_interiors_in_place)
-              | test(=world_seams::far_from_origin_floors_of_cubes_slabs_and_water_leave_no_seam_pixels)
-          - { name: windows client, os: windows-latest, crates: false, client: true }
-          - { name: macos, os: macos-latest, crates: true, client: false }
-          - { name: macos client, os: macos-latest, crates: false, client: true }
+        os: [windows-latest, macos-latest]
+        # Each OS runs only for changes to crates that declare it, shaders, workflows, or the
+        # whole workspace.
+        exclude:
+          - os: ${{ needs.preflight.outputs.macos == 'true' && 'none' || 'macos-latest' }}
+          - os: ${{ needs.preflight.outputs.windows == 'true' && 'none' || 'windows-latest' }}
     defaults:
       run:
         shell: bash
     env:
-      # Crates whose tests exercise OS-specific behaviour: cfg(windows)/cfg(target_os) code, paths
-      # and install layout, processes and IPC, GPU, input and windowing. Add a crate to opt it in.
-      PLATFORM_TEST_PACKAGES: >-
-        -p asset-compiler -p assets -p bridge -p chunk-pipeline -p client-shell -p developer-control
-        -p dist-local -p experience-runtime -p launcher -p launcher-host -p first-run -p mod-host -p pack-compiler
-        -p protocol -p render -p rich-presence -p semantic-input -p server-experience
+      # Affected crates declaring this platform; `none()` when there are none.
+      PLATFORM: ${{ matrix.os == 'macos-latest' && needs.preflight.outputs.macos_tests || needs.preflight.outputs.windows_tests }}
+      # These GPU witnesses exhaust the PR budget on the software WARP adapter.
+      # macOS PRs and full Windows runs still cover every excluded case.
+      WINDOWS_SKIP: >-
+        test(=gpu_culling::direct::occlusion_cuts_submitted_terrain_only_while_the_view_holds_still)
+        | test(=terrain_seams::near_merged_floors_far_from_origin_leave_no_seam_pixels)
+        | test(=terrain_seams::sealing_grows_silhouettes_by_less_than_a_pixel)
+        | test(=terrain_seams::sealing_keeps_face_interiors_in_place)
+        | test(=world_seams::far_from_origin_floors_of_cubes_slabs_and_water_leave_no_seam_pixels)
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          components: clippy
       - name: Restore Rust build cache
         id: rust-cache
         uses: ./.github/actions/build-cache
@@ -393,28 +426,20 @@ jobs:
         uses: ./.github/actions/build-cache
         with:
           language: go
-      - name: Check Rust workspace
-        if: matrix.crates
-        run: cargo check --workspace --all-targets --locked
+      # The same whole-workspace commands as full runs, whose cache then leaves only affected
+      # crates to build. A package subset would unify features differently and rebuild dependencies.
+      - name: Lint Rust workspace
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Build release Go core
-        if: matrix.crates
         run: go build -trimpath -o "$RUNNER_TEMP/bedrock-core$(go env GOEXE)" ./core/cmd/bedrock-core
       - name: Test Go local transport and credential storage
-        if: matrix.crates
         run: go test ./core/internal/streamnet ./core/internal/lockfile ./core/authcache
-      - name: Test platform crates
-        if: matrix.crates
-        env:
-          SKIP: ${{ matrix.skip }}
+      - name: Test affected platform crates
+        if: env.PLATFORM != 'none()'
         run: |
-          filter=()
-          if [ -n "$SKIP" ]; then filter=(-E "not ($SKIP)"); fi
-          # shellcheck disable=SC2086 # one -p flag per word
-          cargo nextest run $PLATFORM_TEST_PACKAGES "${filter[@]}" --locked --no-fail-fast
-      # The client's asset-carrier integration tests skip without local carriers, so only its library runs.
-      - name: Test client library
-        if: ${{ !cancelled() && matrix.client }}
-        run: cargo nextest run -p bedrock-client --lib --locked --no-fail-fast
+          filter="$PLATFORM"
+          if [ "$RUNNER_OS" = Windows ]; then filter="($PLATFORM) & not ($WINDOWS_SKIP)"; fi
+          cargo nextest run --workspace -E "$filter" --locked --no-fail-fast --no-tests=warn
 
   packaging:
     name: Packaging tests

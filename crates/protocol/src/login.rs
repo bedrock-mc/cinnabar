@@ -13,22 +13,28 @@ use valentine::protocol::wire;
 use crate::blob_cache::ResolverReady;
 use crate::session_transport::SessionTransport;
 use crate::{
-    BlobCacheResolver, BlobCacheStats, ClientBlobCache, GameData, LevelChunkEvent, Packet,
-    ProtocolError, ResourcePackHandoff, ServerDisconnectEvent, ServerTransferEvent, WorldEvent,
-    into_world_event,
+    BlobCacheResolver, BlobCacheStats, ClientBlobCache, LevelChunkEvent, Packet, ProtocolError,
+    ServerDisconnectEvent, ServerTransferEvent, WorldEvent, into_world_event,
 };
 
 mod boundary;
 mod client_data;
+mod game_data;
 mod latency_probe;
 mod outbound;
+mod pack_handoff;
 mod packet_trace;
 mod raw_equipment;
 pub(crate) mod session_join;
 use boundary::boundary_wakeup;
-pub use client_data::{ClientRandomId, LoginSettings, login_memory_tier};
+pub use client_data::{
+    ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION, LoginSettings,
+    PROTOCOL_VERSION, login_memory_tier,
+};
+pub use game_data::{GameData, StartupItems, StartupSettings};
 pub use latency_probe::network_stack_latency_reply;
 pub use outbound::PlayOutbound;
+pub use pack_handoff::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
 pub use packet_trace::PacketIdTraceSnapshot;
 use packet_trace::PacketIdTraceState;
 #[cfg(test)]
@@ -79,8 +85,10 @@ impl LoginSequence {
         let stream: BedrockStream<Handshake, Client, T> = BedrockStream::from_transport(transport);
         let config = ClientHandshakeConfig::random(peer_addr, display_name)
             .with_client_cache_enabled(cache.is_some());
-        let (stream, game_data) = stream.join(config).await?;
-        Ok((PlaySession::new(stream, cache), game_data))
+        let (mut stream, game_data) = stream.join(config).await?;
+        let packs = ResourcePackHandoff::from_session(stream.take_resource_pack_handoff());
+        let game_data = GameData::from_wire(&game_data.start_game, &game_data.item_registry);
+        Ok((PlaySession::new(stream, cache, packs), game_data))
     }
 }
 
@@ -95,6 +103,7 @@ pub struct PlaySession<T: Transport = SessionTransport> {
     pending_blob_cache_delivery: Option<PendingBlobCacheDelivery>,
     server_disconnect: Option<ServerDisconnectEvent>,
     server_transfer: Option<ServerTransferEvent>,
+    resource_packs: ResourcePackHandoff,
 }
 
 struct PendingBlobCacheDelivery {
@@ -131,7 +140,11 @@ impl<T: Transport> PlaySession<T> {
             .map_err(ProtocolError::from)
     }
 
-    fn new(stream: BedrockStream<Play, Client, T>, cache: Option<ClientBlobCache>) -> Self {
+    fn new(
+        stream: BedrockStream<Play, Client, T>,
+        cache: Option<ClientBlobCache>,
+        resource_packs: ResourcePackHandoff,
+    ) -> Self {
         Self {
             stream,
             decode_errors: 0,
@@ -142,6 +155,7 @@ impl<T: Transport> PlaySession<T> {
             pending_blob_cache_delivery: None,
             server_disconnect: None,
             server_transfer: None,
+            resource_packs,
         }
     }
 
@@ -169,7 +183,7 @@ impl<T: Transport> PlaySession<T> {
     /// Takes the validated ordered resource-pack archives captured during login.
     /// No archive is parsed or applied, and a second call returns an empty handoff.
     pub fn take_resource_pack_handoff(&mut self) -> ResourcePackHandoff {
-        self.stream.take_resource_pack_handoff()
+        std::mem::take(&mut self.resource_packs)
     }
 
     /// Whether the server sent terrain before login completed at PlayerSpawn.
@@ -199,7 +213,7 @@ impl<T: Transport> PlaySession<T> {
 
     /// Receives one packet, counting malformed/decompression failures.
     pub async fn recv(&mut self) -> Result<Packet, ProtocolError> {
-        match self.stream.recv_packet().await {
+        match self.stream.recv_packet().await.map(Packet::new) {
             Ok(packet) => {
                 if matches!(
                     &packet.data,
@@ -303,13 +317,13 @@ impl<T: Transport> PlaySession<T> {
                 continue;
             }
             let decoded = decode_world_raw_with(raw, current_dimension, |raw| {
-                self.stream.decode_raw_packet(raw)
+                self.stream.decode_raw_packet(raw).map(Packet::new)
             });
             match decoded {
                 Ok(Some(event)) => return Ok(WorldIngress::Event(event)),
                 Ok(None) => {}
                 Err(ProtocolError::Session(error)) => {
-                    if is_decode_error(&error) {
+                    if is_decode_error(&error.0) {
                         self.decode_errors = self.decode_errors.saturating_add(1);
                     }
                     return Err(ProtocolError::Session(error));
@@ -322,7 +336,7 @@ impl<T: Transport> PlaySession<T> {
     /// Sends one packet through the encrypted play session.
     pub async fn send(&mut self, packet: Packet) -> Result<(), ProtocolError> {
         crate::codec::validate_packet(&packet)?;
-        self.stream.send_packet(packet).await?;
+        self.stream.send_packet(packet.into_wire()).await?;
         Ok(())
     }
 
@@ -534,7 +548,7 @@ impl<T: Transport> PlaySession<T> {
                     }
                 }
                 let packet = match self.stream.decode_raw_packet(raw) {
-                    Ok(packet) => packet,
+                    Ok(packet) => Packet::new(packet),
                     Err(error) => return Err(self.fail_session(error)),
                 };
                 reset_blob_cache_for_decoded_candidate(
@@ -575,7 +589,11 @@ impl<T: Transport> PlaySession<T> {
                         events.push_back(WorldEvent::ChunkResync(recovery));
                     }
                     self.pending_blob_cache_delivery = Some(PendingBlobCacheDelivery {
-                        status_packets: status.into_packets().into_iter().map(Into::into).collect(),
+                        status_packets: status
+                            .into_packets()
+                            .into_iter()
+                            .map(Packet::new)
+                            .collect(),
                         status_send_in_flight: false,
                         events,
                     });
@@ -602,7 +620,7 @@ impl<T: Transport> PlaySession<T> {
             }
 
             let decoded = decode_world_raw_with(raw, current_dimension, |raw| {
-                self.stream.decode_raw_packet(raw)
+                self.stream.decode_raw_packet(raw).map(Packet::new)
             });
             match decoded {
                 Ok(Some(event)) => {
@@ -616,7 +634,7 @@ impl<T: Transport> PlaySession<T> {
                     }
                 }
                 Ok(None) => {}
-                Err(ProtocolError::Session(error)) => return Err(self.fail_session(error)),
+                Err(ProtocolError::Session(error)) => return Err(self.fail_session(error.0)),
                 Err(error) => self.skip_or_fail_world(error)?,
             }
         }
@@ -627,7 +645,7 @@ impl<T: Transport> PlaySession<T> {
             self.decode_errors = self.decode_errors.saturating_add(1);
         }
         self.reset_blob_cache_pending();
-        ProtocolError::Session(error)
+        ProtocolError::from(error)
     }
 }
 
@@ -849,6 +867,13 @@ fn decode_world_raw_with(
     Ok(into_world_event(packet, current_dimension)?)
 }
 
+/// Decodes a raw test packet as the play stream does.
+#[cfg(test)]
+fn decode_test_raw(raw: RawPacket) -> Result<Packet, JolyneError> {
+    raw.decode(&valentine::bedrock::context::BedrockSession { shield_item_id: 0 })
+        .map(Packet::new)
+}
+
 /// LevelEventGeneric's event data is loose NBT tags filling the rest of the packet (as
 /// gophertunnel documents); the generated decoder reads one rooted value and rejects the rest.
 fn level_event_generic(raw: &RawPacket) -> Option<Packet> {
@@ -863,7 +888,7 @@ fn level_event_generic(raw: &RawPacket) -> Option<Packet> {
         event_id,
         __ctd__: Nbt(body),
     });
-    Some(Packet::new(raw.header, data))
+    Some(Packet::from_parts(raw.header, data))
 }
 
 /// Reclassifies the raw UI pre-validator's semantic rejections as skippable

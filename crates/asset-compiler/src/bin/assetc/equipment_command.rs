@@ -2,11 +2,11 @@ use std::path::Path;
 
 use assets::{
     AssetError, EntityDependencyResolution, EquipmentCategory, EquipmentTransform,
-    encode_entity_blob, encode_equipment_catalog_with_attack_timings,
+    encode_entity_blob, encode_equipment_catalog_with_food,
 };
 use pack_compiler::{
     compile_entity_assets_with_report, compile_equipment_textures_for_assets,
-    compile_item_attack_timings, compile_item_use_durations,
+    compile_item_attack_timings, compile_item_foods, compile_item_use_durations,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -32,6 +32,7 @@ struct EquipmentCounts {
     textures: usize,
     item_use: usize,
     item_attack: usize,
+    item_food: usize,
     held: usize,
     armor: usize,
     shield: usize,
@@ -74,19 +75,25 @@ pub(super) fn compile_equipment_assets_command(
         .map(compile_item_attack_timings)
         .transpose()?
         .unwrap_or_default();
-    let carrier = encode_equipment_catalog_with_attack_timings(
+    let item_food = behavior_pack
+        .map(compile_item_foods)
+        .transpose()?
+        .unwrap_or_default();
+    let carrier = encode_equipment_catalog_with_food(
         compilation.assets.source_manifest_sha256,
         entity_blob_sha256,
         bindings,
         &textures,
         &item_use,
         &item_attack,
+        &item_food,
     )?;
     let counts = EquipmentCounts {
         bindings: bindings.len(),
         textures: textures.len(),
         item_use: item_use.len(),
         item_attack: item_attack.len(),
+        item_food: item_food.len(),
         held: bindings
             .iter()
             .filter(|binding| binding.category == EquipmentCategory::Held)
