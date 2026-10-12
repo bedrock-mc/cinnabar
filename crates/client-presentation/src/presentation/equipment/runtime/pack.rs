@@ -48,9 +48,10 @@ impl EquipmentRuntime {
 
     /// The catalog's held-item enchantment raster, which binds beside the actor glint.
     pub fn item_glint(catalog: &RuntimeEquipmentCatalog) -> Option<EquipmentRaster> {
-        Self::glint_raster(catalog, assets::ITEM_GLINT_TEXTURE_IDENTIFIER)
+        Self::glint_raster(catalog, assets::entity::ITEM_GLINT_TEXTURE_IDENTIFIER)
     }
 
+    /// Returns the catalog raster for one glint texture identifier.
     fn glint_raster(
         catalog: &RuntimeEquipmentCatalog,
         identifier: &str,
