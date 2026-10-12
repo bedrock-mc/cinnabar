@@ -20,7 +20,7 @@ fn item_world() -> World {
 fn potted_block_artwork_keeps_its_resolution_and_alpha() {
     let side = 64_u32;
     let mut pixels = vec![90_u8; (side * side * 4) as usize];
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         pixel[3] = 255;
     }
     let transparent = (2 * side as usize + 3) * 4;

@@ -5,6 +5,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use client_world::{CommittedControlEvent, LocalPlayerFacts};
+use protocol::{MovePlayerMode, PlayerGameMode};
 use sim::MovementMode;
 use tracing::info;
 
@@ -12,6 +14,9 @@ use super::PhysicsMovementSample;
 
 const MIN_LINE_SPACING: Duration = Duration::from_millis(250);
 const SUMMARY_WINDOW: Duration = Duration::from_secs(60);
+/// Context lines printed per session before only one per summary window prints.
+const FULL_CONTEXT_LINES: u64 = 16;
+const MAX_CAMERA_PRESET_CHARS: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CorrectionKind {
@@ -186,3 +191,172 @@ pub fn note_skipped_authority(kind: &'static str, value: f64) -> u64 {
     }
     skipped
 }
+
+/// Packet facts of one server position correction or teleport.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CorrectionPacket {
+    /// None for CorrectPlayerMovePrediction.
+    pub move_mode: Option<MovePlayerMode>,
+    pub tick: u64,
+    /// MovePlayer's vehicle runtime id (0 when none); CorrectPlayerMovePrediction has none.
+    pub riding_runtime_id: Option<u64>,
+    pub teleport_cause: Option<i32>,
+    pub on_ground: bool,
+}
+
+impl CorrectionPacket {
+    /// Returns the facts of a committed MovePlayer or prediction correction, else None.
+    pub fn from_control(control: &CommittedControlEvent) -> Option<Self> {
+        match control {
+            CommittedControlEvent::MovePlayer { movement, .. } => Some(Self {
+                move_mode: Some(movement.mode),
+                tick: movement.source_tick,
+                riding_runtime_id: Some(movement.riding_runtime_id),
+                teleport_cause: movement.teleport_cause,
+                on_ground: movement.on_ground,
+            }),
+            CommittedControlEvent::PlayerMovementCorrection { correction, .. } => Some(Self {
+                move_mode: None,
+                tick: correction.tick,
+                riding_runtime_id: None,
+                teleport_cause: None,
+                on_ground: correction.on_ground,
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// Local state that decides whether the player hovers, rides or falls between server snaps.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct CorrectionContext<'a> {
+    pub game_mode: Option<PlayerGameMode>,
+    pub can_fly: bool,
+    pub server_flying: bool,
+    pub has_gravity: bool,
+    pub immobile: bool,
+    pub mount_unique_id: Option<i64>,
+    /// False while the client follows server positions without local prediction.
+    pub predicting: bool,
+    pub camera_preset: Option<&'a str>,
+    /// A server camera pose or entity attachment replaces the player view.
+    pub camera_override: bool,
+}
+
+impl<'a> CorrectionContext<'a> {
+    /// Reads the committed player facts; camera state comes from its presentation owner.
+    pub fn read(
+        facts: &LocalPlayerFacts,
+        predicting: bool,
+        camera_preset: Option<&'a str>,
+        camera_override: bool,
+    ) -> Self {
+        let capabilities = facts.game_mode_capabilities();
+        Self {
+            game_mode: facts.player_game_mode(),
+            can_fly: capabilities.is_some_and(|capabilities| capabilities.can_fly),
+            server_flying: capabilities.is_some_and(|capabilities| capabilities.flying),
+            has_gravity: facts.has_gravity(),
+            immobile: facts.is_immobile(),
+            mount_unique_id: facts.mount_unique_id(),
+            predicting,
+            camera_preset,
+            camera_override,
+        }
+    }
+}
+
+/// Whether one correction's context line printed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CorrectionContextLine {
+    /// `suppressed` counts the quiet corrections since the previous printed line.
+    Printed {
+        seq: u64,
+        suppressed: u64,
+    },
+    Quiet,
+}
+
+/// Per-session budget for correction context lines.
+#[derive(Debug, Default)]
+pub struct CorrectionContextLog {
+    session: u64,
+    total: u64,
+    suppressed: u64,
+    last_line: Option<Instant>,
+}
+
+impl CorrectionContextLog {
+    /// Prints a session's first lines, then one line per summary window carrying the quiet count.
+    pub fn admit(&mut self, session: u64, now: Instant) -> CorrectionContextLine {
+        if self.session != session {
+            *self = Self {
+                session,
+                ..Self::default()
+            };
+        }
+        self.total += 1;
+        let due = self.total <= FULL_CONTEXT_LINES
+            || self
+                .last_line
+                .is_none_or(|last| now.duration_since(last) >= SUMMARY_WINDOW);
+        if !due {
+            self.suppressed += 1;
+            return CorrectionContextLine::Quiet;
+        }
+        self.last_line = Some(now);
+        CorrectionContextLine::Printed {
+            seq: self.total,
+            suppressed: std::mem::take(&mut self.suppressed),
+        }
+    }
+
+    /// Logs one correction's packet facts and local movement state within the budget.
+    pub fn note(
+        &mut self,
+        session: u64,
+        now: Instant,
+        packet: CorrectionPacket,
+        context: CorrectionContext<'_>,
+    ) -> CorrectionContextLine {
+        let line = self.admit(session, now);
+        if let CorrectionContextLine::Printed { seq, suppressed } = line {
+            info!(
+                packet = if packet.move_mode.is_some() {
+                    "move_player"
+                } else {
+                    "correct"
+                },
+                move_mode = ?packet.move_mode,
+                tick = packet.tick,
+                riding_runtime_id = ?packet.riding_runtime_id,
+                teleport_cause = ?packet.teleport_cause,
+                server_on_ground = packet.on_ground,
+                game_mode = ?context.game_mode,
+                can_fly = context.can_fly,
+                server_flying = context.server_flying,
+                has_gravity = context.has_gravity,
+                immobile = context.immobile,
+                mount_unique_id = ?context.mount_unique_id,
+                predicting = context.predicting,
+                camera_preset = ?context.camera_preset.map(bounded_preset),
+                camera_override = context.camera_override,
+                seq,
+                suppressed,
+                "server correction movement state"
+            );
+        }
+        line
+    }
+}
+
+/// Keeps a server-chosen preset name from unbounding the line.
+fn bounded_preset(name: &str) -> &str {
+    name.char_indices()
+        .nth(MAX_CAMERA_PRESET_CHARS)
+        .map_or(name, |(end, _)| &name[..end])
+}
+
+#[cfg(test)]
+#[path = "diagnostics_tests.rs"]
+mod tests;

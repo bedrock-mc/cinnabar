@@ -3,7 +3,7 @@ use bytes::Bytes;
 use protocol::MovePlayerEvent;
 use valentine::bedrock::version::v1_26_51::{
     EnumsPlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode, MovePlayerPacket,
-    MovePlayerPacketView, PlayerInputTick, Vec2,
+    MovePlayerPacketView, MovePlayerTeleportData, PlayerInputTick, Vec2,
 };
 
 #[test]
@@ -38,6 +38,8 @@ fn normalizes_move_player_to_the_bounded_world_surface() {
             on_ground: false,
             teleported: false,
             source_tick: 0,
+            riding_runtime_id: 0,
+            teleport_cause: None,
         }))
     );
 }
@@ -106,7 +108,7 @@ fn move_player_rejects_every_non_finite_pose_field_and_recovers_for_valid_input(
 }
 
 #[test]
-fn move_player_normalization_preserves_mode_tick_head_yaw_and_ground() {
+fn move_player_normalization_preserves_mode_tick_head_yaw_ground_ride_and_cause() {
     let packet = MovePlayerPacket {
         player_runtime_id: ActorRuntimeId {
             actor_runtime_id: 73,
@@ -123,8 +125,14 @@ fn move_player_normalization_preserves_mode_tick_head_yaw_and_ground() {
         y_head_rotation: 99.0,
         position_mode: MovePlayerPacketPositionMode::Teleport,
         on_ground: true,
+        riding_runtime_id: ActorRuntimeId {
+            actor_runtime_id: 91,
+        },
+        teleport_data: Some(MovePlayerTeleportData {
+            teleportation_cause: 3,
+            source_actor_type: 87,
+        }),
         tick: PlayerInputTick { inputtick: 12 },
-        ..Default::default()
     };
 
     assert_eq!(
@@ -139,6 +147,8 @@ fn move_player_normalization_preserves_mode_tick_head_yaw_and_ground() {
             on_ground: true,
             teleported: true,
             source_tick: 12,
+            riding_runtime_id: 91,
+            teleport_cause: Some(3),
         }))
     );
 }
@@ -230,6 +240,8 @@ fn move_player_uses_varuint64_for_runtime_and_ridden_ids_above_u32() {
             on_ground: false,
             teleported: false,
             source_tick: 0,
+            riding_runtime_id: RIDDEN_RUNTIME_ID,
+            teleport_cause: None,
         }))
     );
 }

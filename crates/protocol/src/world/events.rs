@@ -250,6 +250,10 @@ pub struct MovePlayerEvent {
     pub on_ground: bool,
     pub teleported: bool,
     pub source_tick: u64,
+    /// Vehicle the server says the player rides; 0 when none.
+    pub riding_runtime_id: u64,
+    /// Raw teleport cause, present only when the packet carries teleport data.
+    pub teleport_cause: Option<i32>,
 }
 
 /// Visual eye height of a standing player above its feet.

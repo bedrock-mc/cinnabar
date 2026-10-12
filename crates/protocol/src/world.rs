@@ -797,6 +797,11 @@ pub fn into_world_event(
                 on_ground: packet.on_ground,
                 teleported: mode.is_teleport(),
                 source_tick: packet.tick.inputtick,
+                riding_runtime_id: packet.riding_runtime_id.actor_runtime_id,
+                teleport_cause: packet
+                    .teleport_data
+                    .as_ref()
+                    .map(|data| data.teleportation_cause),
             })
         }
         McpePacketData::NetworkStackLatencyPacket(packet) => {

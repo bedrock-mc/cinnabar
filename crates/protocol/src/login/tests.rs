@@ -787,6 +787,8 @@ fn allowlisted_move_player_is_materialized_and_normalized() {
             on_ground: false,
             teleported: false,
             source_tick: 0,
+            riding_runtime_id: 0,
+            teleport_cause: None,
         })
     );
 }

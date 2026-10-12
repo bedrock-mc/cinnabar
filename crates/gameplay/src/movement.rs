@@ -43,7 +43,10 @@ pub use correction_shape::{
     reconcile_committed_correction, reconcile_move_player_teleport,
     reconcile_prediction_correction, reconcile_timeline_rewind,
 };
-pub use diagnostics::{CorrectionKind, note_correction, note_motion};
+pub use diagnostics::{
+    CorrectionContext, CorrectionContextLine, CorrectionContextLog, CorrectionKind,
+    CorrectionPacket, note_correction, note_motion,
+};
 pub use effects::{BoostSpan, LocalMovementEffectTimeline, MiningEffects, MovementBoost};
 use encoding::{HeldInput, input_flags, normalize_move_vector};
 use evidence::PhysicsTickSampleEvidence;

@@ -101,6 +101,8 @@ fn move_players(world: &mut World, mut sequence: u64, players: u64, tick: u64) -
                     on_ground: true,
                     teleported: false,
                     source_tick: tick,
+                    riding_runtime_id: 0,
+                    teleport_cause: None,
                 }),
             )
             .unwrap();
