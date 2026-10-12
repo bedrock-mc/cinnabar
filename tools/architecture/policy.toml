@@ -430,7 +430,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "ui-screens"
 path = "crates/ui-screens"
-allowed_dependencies = ["actor-animation", "assets", "bridge", "inventory", "json-ui", "launcher", "player-state", "protocol", "resource-pack", "ui", "ui-engine"]
+allowed_dependencies = ["actor-animation", "assets", "bridge", "inventory", "json-ui", "launcher", "player-state", "protocol", "render-model", "resource-pack", "ui", "ui-engine"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu", "client-ui", "launcher-host", "oreui", "mod-ui"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "launcher-host", "oreui", "mod-ui", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
