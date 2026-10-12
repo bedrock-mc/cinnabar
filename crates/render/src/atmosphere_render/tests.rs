@@ -15,7 +15,7 @@ use bevy::{
     render::{
         ExtractSchedule, Render, RenderApp, RenderStartup,
         render_phase::DrawFunctions,
-        renderer::{RenderDevice, RenderQueue},
+        renderer::{RenderAdapter, RenderDevice, RenderQueue},
     },
 };
 use sha2::Sha256;
@@ -66,11 +66,26 @@ fn star_specialization_uses_native_colour_blend_and_never_writes_alpha() {
 
 /// Creates the minimal render app needed to verify resource installation.
 fn app_with_noop_render_sub_app() -> App {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::NOOP,
+        backend_options: wgpu::BackendOptions {
+            noop: wgpu::NoopBackendOptions {
+                enable: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let adapter =
+        bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .expect("the NOOP adapter is built in");
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let mut render_app = SubApp::new();
     render_app
         .insert_resource(RenderDevice::from(device))
         .insert_resource(RenderQueue::new(queue))
+        .insert_resource(RenderAdapter::new(adapter))
         .insert_resource(DrawFunctions::<Opaque3d>::default())
         .insert_resource(DrawFunctions::<Transparent3d>::default())
         .add_schedule(Schedule::new(RenderStartup))
