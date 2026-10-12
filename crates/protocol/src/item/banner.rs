@@ -18,7 +18,7 @@ pub fn item_banner_patterns(extra_data: &[u8]) -> Vec<ItemBannerPattern> {
 /// Validates the pattern list without allocating from untrusted counts or string lengths.
 fn parse(extra_data: &[u8]) -> Option<Vec<ItemBannerPattern>> {
     let nbt = decode_extra_nbt(extra_data)?;
-    let mut cursor = &nbt[..];
+    let mut cursor = nbt;
     let mut list = root_tag(&mut cursor, 9, b"Patterns")?;
     if read_u8(&mut list)? != 10 {
         return None;

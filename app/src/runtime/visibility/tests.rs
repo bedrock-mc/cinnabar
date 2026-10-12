@@ -110,3 +110,95 @@ fn publishing_touches_only_entities_whose_visibility_flipped() {
     cache.publish_next(|entity, visible| writes.push((entity, visible)));
     assert!(writes.is_empty());
 }
+
+/// Particle instance building shares the cave cache's current, loaded-section rule.
+#[test]
+fn particles_draw_when_cave_results_are_stale_unknown_or_touch_a_visible_section() {
+    use particles::{EmptyWorld, ParticleSystem, ParticleView, SpawnRequest};
+
+    let key = |x, y, z| SubChunkKey::new(0, x, y, z);
+    let camera = key(0, 0, 0);
+    let mut cache = CaveVisibilityCache {
+        camera: Some(camera),
+        graph_generation: Some(7),
+        visible: [camera].into_iter().collect(),
+        initialized: true,
+        ..Default::default()
+    };
+    let view = ParticleView {
+        position: [8.0, 8.0, 8.0],
+        right: [1.0, 0.0, 0.0],
+        up: [0.0, 1.0, 0.0],
+        forward: [0.0, 0.0, -1.0],
+        half_diagonal: 1.0,
+    };
+    let mut system = ParticleSystem::default();
+    assert!(system.register_effect(
+        br#"{"particle_effect":{
+        "description":{"identifier":"test:cave","basic_render_parameters":{
+            "material":"particles_alpha","texture":"textures/none"}},
+        "components":{
+            "minecraft:emitter_rate_instant":{"num_particles":1},
+            "minecraft:emitter_lifetime_once":{"active_time":1},
+            "minecraft:emitter_shape_point":{},
+            "minecraft:particle_lifetime_expression":{"max_lifetime":2},
+            "minecraft:particle_appearance_billboard":{"size":[0.5,0.5]}
+        }}}"#
+    ));
+    system.spawn(&SpawnRequest {
+        effect: "test:cave".into(),
+        position: [8.0, 8.0, -8.0],
+        ..Default::default()
+    });
+    system.tick(0.02, &EmptyWorld);
+    for (current_camera, generation, loaded, hidden) in [
+        (camera, 7, true, true),
+        (key(1, 0, 0), 7, true, false),
+        (SubChunkKey::new(1, 0, 0, 0), 7, true, false),
+        (camera, 8, true, false),
+        (camera, 7, false, false),
+    ] {
+        let lists = system.build_draw_with_visibility(&view, &EmptyWorld, |low, high| {
+            cache.hides_box(current_camera, generation, |_| loaded, low, high)
+        });
+        assert_eq!(lists.cave_hidden, usize::from(hidden));
+        assert_eq!(lists.opaque.len(), usize::from(!hidden));
+        assert_eq!(system.live_particles(), 1);
+    }
+    cache.initialized = false;
+    assert_eq!(
+        system
+            .build_draw_with_visibility(&view, &EmptyWorld, |low, high| {
+                cache.hides_box(camera, 7, |_| true, low, high)
+            })
+            .opaque
+            .len(),
+        1
+    );
+    cache.initialized = true;
+    // The midpoint is hidden, but a long quad reaches the camera's visible section.
+    let wide = br#"{"particle_effect":{
+        "description":{"identifier":"test:wide","basic_render_parameters":{
+            "material":"particles_add","texture":"textures/none"}},
+        "components":{
+            "minecraft:emitter_rate_instant":{"num_particles":1},
+            "minecraft:emitter_lifetime_once":{"active_time":1},
+            "minecraft:emitter_shape_point":{},
+            "minecraft:particle_lifetime_expression":{"max_lifetime":2},
+            "minecraft:particle_appearance_billboard":{"size":[12,0.5],
+                "facing_camera_mode":"lookat_direction",
+                "direction":{"mode":"custom","custom_direction":[0,0,1]}}
+        }}}"#;
+    assert!(system.register_effect(wide));
+    system.spawn(&SpawnRequest {
+        effect: "test:wide".into(),
+        position: [8.0, 8.0, -8.0],
+        ..Default::default()
+    });
+    system.tick(0.02, &EmptyWorld);
+    let lists = system.build_draw_with_visibility(&view, &EmptyWorld, |low, high| {
+        cache.hides_box(camera, 7, |_| true, low, high)
+    });
+    assert_eq!(lists.cave_hidden, 1);
+    assert_eq!(lists.add.len(), 1);
+}

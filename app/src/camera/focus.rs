@@ -217,3 +217,6 @@ fn enforce_cursor_ownership(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod high_rate_tests;

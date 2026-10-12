@@ -43,6 +43,8 @@ pub struct DrawLists {
     /// Blended materials, sorted far to near.
     pub blend: Vec<ParticleInstance>,
     pub add: Vec<ParticleInstance>,
+    /// Drawable particles omitted because the caller proved their whole quad hidden.
+    pub cave_hidden: usize,
 }
 
 pub const MAX_DRAW_DISTANCE: f32 = 128.0;
@@ -226,6 +228,8 @@ fn emit_emitter(
     world: &dyn ParticleWorld,
     cos_limit: f32,
     out: &mut Vec<(f32, ParticleInstance, Material)>,
+    hides_box: &mut impl FnMut([f32; 3], [f32; 3]) -> bool,
+    cave_hidden: &mut usize,
 ) {
     let def = std::sync::Arc::clone(&emitter.def);
     let local = def.emitter.local_position;
@@ -309,15 +313,26 @@ fn emit_emitter(
             rng,
             &queries,
         );
+        color[3] = color[3].clamp(0.0, 1.0);
+        if color[3] <= 0.0 {
+            continue;
+        }
+        // Each effect draws independent quads, including beam and trail pieces. The sum
+        // of the absolute edge vectors encloses every corner, even after rotation or scale.
+        let extent: [f32; 3] =
+            std::array::from_fn(|i| (right[i] * size[0]).abs() + (up[i] * size[1]).abs());
+        // Round outward so a corner on a section boundary cannot lose its neighbour.
+        let low = std::array::from_fn(|i| (position[i] - extent[i]).next_down());
+        let high = std::array::from_fn(|i| (position[i] + extent[i]).next_up());
+        if low.iter().chain(&high).all(|value| value.is_finite()) && hides_box(low, high) {
+            *cave_hidden += 1;
+            continue;
+        }
         let sample = if def.particle.lit {
             light_sample(world, position.map(|c| c.floor() as i32))
         } else {
             0.0
         };
-        color[3] = color[3].clamp(0.0, 1.0);
-        if color[3] <= 0.0 {
-            continue;
-        }
         let instance = ParticleInstance {
             center_light: [position[0], position[1], position[2], sample],
             axis_x: [
@@ -347,13 +362,36 @@ fn emit_emitter(
 impl ParticleSystem {
     /// Builds the frame's draw lists against `view`, evaluating per-render expressions.
     pub fn build_draw(&mut self, view: &ParticleView, world: &dyn ParticleWorld) -> DrawLists {
+        self.build_draw_with_visibility(view, world, |_, _| false)
+    }
+
+    /// Builds instances, omitting a quad only when `hides_box` proves its entire world
+    /// bounds hidden. Simulation and per-render expressions still advance normally.
+    pub fn build_draw_with_visibility(
+        &mut self,
+        view: &ParticleView,
+        world: &dyn ParticleWorld,
+        mut hides_box: impl FnMut([f32; 3], [f32; 3]) -> bool,
+    ) -> DrawLists {
         let cos_limit = (view.half_diagonal + 0.15).min(3.0).cos();
         let mut collected = Vec::new();
+        let mut cave_hidden = 0;
         for emitter in self.emitters_mut() {
-            emit_emitter(emitter, view, world, cos_limit, &mut collected);
+            emit_emitter(
+                emitter,
+                view,
+                world,
+                cos_limit,
+                &mut collected,
+                &mut hides_box,
+                &mut cave_hidden,
+            );
         }
         collected.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
-        let mut lists = DrawLists::default();
+        let mut lists = DrawLists {
+            cave_hidden,
+            ..DrawLists::default()
+        };
         for (_, instance, material) in collected {
             match material {
                 Material::Alpha | Material::Opaque => lists.opaque.push(instance),
@@ -485,6 +523,88 @@ mod tests {
             );
             assert_eq!(instance.axis_y[3], 1.0);
         }
+    }
+
+    #[test]
+    fn hidden_particles_keep_simulating_and_retire_normally() {
+        let effect = EFFECT.replace(
+            "\"minecraft:emitter_shape_point\":{}",
+            "\"minecraft:emitter_shape_point\":{},\"minecraft:particle_initial_speed\":[1,0,0],\"minecraft:particle_motion_dynamic\":{},\"minecraft:particle_initialization\":{\"per_render_expression\":\"variable.draw_random = math.random(0,1);\"}",
+        ).replace("[1,0.5,0,0.5]", "[\"math.random(0,1)\",0.5,0,0.5]");
+        let spawn = || {
+            let mut system = ParticleSystem::default();
+            assert!(system.register_effect(effect.as_bytes()));
+            system.spawn(&SpawnRequest {
+                effect: "minecraft:quad".into(),
+                position: [0.0, 0.0, -5.0],
+                ..SpawnRequest::default()
+            });
+            system.tick(0.02, &EmptyWorld);
+            system
+        };
+        let mut hidden = spawn();
+        let mut visible = spawn();
+        for _ in 0..10 {
+            let lists = hidden.build_draw_with_visibility(&view(), &EmptyWorld, |_, _| true);
+            assert_eq!(lists.cave_hidden, 1);
+            assert!(lists.opaque.is_empty());
+            assert_eq!(visible.build_draw(&view(), &EmptyWorld).opaque.len(), 1);
+            hidden.tick(0.02, &EmptyWorld);
+            visible.tick(0.02, &EmptyWorld);
+            let a = &hidden.emitters_mut()[0].particles[0];
+            let b = &visible.emitters_mut()[0].particles[0];
+            assert_eq!((a.age, a.pos, a.vel), (b.age, b.pos, b.vel));
+            assert_eq!(
+                a.vars.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                b.vars.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+            );
+        }
+        assert!(hidden.emitters_mut()[0].particles[0].age > 0.1);
+        assert!(hidden.emitters_mut()[0].particles[0].pos[0] > 0.1);
+        assert_eq!(
+            hidden.build_draw(&view(), &EmptyWorld).opaque,
+            visible.build_draw(&view(), &EmptyWorld).opaque
+        );
+        for _ in 0..10 {
+            hidden.tick(0.25, &EmptyWorld);
+        }
+        assert_eq!(hidden.live_particles(), 0);
+    }
+
+    #[test]
+    fn visibility_bounds_enclose_rotated_scaled_local_quads() {
+        let mut system = ParticleSystem::default();
+        let effect = EFFECT.replace(
+            "\"minecraft:emitter_shape_point\":{}",
+            "\"minecraft:emitter_local_space\":{\"position\":true},\"minecraft:emitter_shape_point\":{}",
+        ).replace("rotate_xyz", "emitter_transform_xy");
+        assert!(system.register_effect(effect.as_bytes()));
+        system.spawn(&SpawnRequest {
+            effect: "minecraft:quad".into(),
+            position: [0.0, 0.0, -5.0],
+            basis: Some([[2.0, 0.0, 0.0], [0.0, 3.0, 0.0], [0.0, 0.0, 1.0]]),
+            ..SpawnRequest::default()
+        });
+        system.tick(0.02, &EmptyWorld);
+        system.emitters_mut()[0].particles[0].rotation = 45.0;
+        let mut bounds = None;
+        let lists = system.build_draw_with_visibility(&view(), &EmptyWorld, |low, high| {
+            bounds = Some((low, high));
+            false
+        });
+        let (low, high) = bounds.unwrap();
+        let instance = lists.opaque[0];
+        for x in [-1.0, 1.0] {
+            for y in [-1.0, 1.0] {
+                for i in 0..3 {
+                    let corner =
+                        instance.center_light[i] + x * instance.axis_x[i] + y * instance.axis_y[i];
+                    assert!(corner >= low[i] - 1e-5 && corner <= high[i] + 1e-5);
+                }
+            }
+        }
+        assert!(high[0] - low[0] > 1.0);
+        assert!(high[1] - low[1] > 1.5);
     }
 
     #[test]
