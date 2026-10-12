@@ -34,6 +34,7 @@ type sessionServer struct {
 	prepared     *preparedConnections
 	transfers    *TransferState
 	onDisconnect func(DisconnectInfo)
+	onNetwork    func(NetworkObservation)
 	selectTarget func(ctx context.Context, kind, value string) (string, error) // nil rejects targeted Connects
 	dialTarget   func(ctx context.Context, address string) (*resolvedUpstreamTarget, error)
 	device       *device.Profile // nil keeps the client's claimed device
@@ -156,11 +157,17 @@ func (server *sessionServer) serveConn(ctx context.Context, raw net.Conn) error 
 		}
 		return err
 	}
+	if server.onNetwork != nil && prepared.packAdmission != nil {
+		attempt := prepared.packAdmission.attemptID
+		server.onNetwork(NetworkObservation{AttemptID: attempt, LocalRuntimeID: session.runtimeID.Load(), RoundTripMillis: plan.latency})
+		defer server.onNetwork(NetworkObservation{AttemptID: attempt})
+	}
 	return handOffSession(sessionCtx, session, prepared, plan)
 }
 
 // sessionPlan is what the handoff carries, taken from a prepared upstream.
 type sessionPlan struct {
+	latency func() *uint32
 	handoff sessionHandoff
 	packs   []*resource.Pack // content of handoff.Packs, in the same order
 	startup [][]byte         // packets through StartGame
@@ -203,6 +210,7 @@ func (server *sessionServer) prepare(
 		return plan, nil, err
 	}
 	prepared.packetDelay = server.delay
+	latency := latencySampler(prepared.upstream)
 	// The dial returned at StartGame; the observing wrappers below hide the upstream's game data.
 	if game, ok := prepared.upstream.(interface{ GameData() minecraft.GameData }); ok {
 		session.runtimeID.Store(game.GameData().EntityRuntimeID)
@@ -243,6 +251,7 @@ func (server *sessionServer) prepare(
 	}
 	prepared.releasePacks = referenceSessionPacks(server.prepared.resourcePackCache, selected, packs)
 	plan.packs = packs
+	plan.latency = latency
 	return plan, prepared, nil
 }
 

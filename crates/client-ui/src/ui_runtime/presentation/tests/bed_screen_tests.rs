@@ -2,7 +2,7 @@
 //! other players present) taking input once the screen settles.
 
 use super::*;
-use crate::ui_runtime::presentation::BedHit;
+use oreui::BedHit;
 
 fn asleep(presentation: &mut UiPresentationRuntime, runtime: &mut UiRuntime) {
     runtime.set_local_sleeping(true);

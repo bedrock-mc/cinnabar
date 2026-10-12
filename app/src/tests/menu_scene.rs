@@ -1,4 +1,5 @@
 //! Scene-stack regressions through the real animated hand publication system.
+use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use client_state::PlayerRuntime;
 use std::sync::Arc;
 
@@ -123,8 +124,8 @@ fn menu_input_leak_animated_hand_obeys_pack_visibility_and_restores_after_settin
     );
     world.insert_resource(equipment);
     world.insert_resource(PlayerRuntime(player_state::PlayerState::new(1)));
-    world.insert_resource(UiRuntime::new(1));
-    world.insert_resource(mini_engine_presentation());
+    world.insert_resource(UiRuntimeResource(UiRuntime::new(1)));
+    world.insert_resource(UiPresentationResource(mini_engine_presentation()));
     world.insert_resource(MenuRuntime::new(false, 2, "Tester".into()));
     world
         .run_system_cached(crate::runtime::network::advance_actor_frame)
@@ -146,7 +147,7 @@ fn menu_input_leak_animated_hand_obeys_pack_visibility_and_restores_after_settin
     let opaque_pause =
         br#"{"namespace":"pause","pause_screen":{"type":"screen","render_game_behind":false}}"#;
     world
-        .resource_mut::<client_ui::ui_runtime::presentation::UiPresentationRuntime>()
+        .resource_mut::<client_shell::ui_resources::UiPresentationResource>()
         .set_server_ui_pack(&ServerUiPack {
             ui_layers: vec![vec![
                 (
@@ -166,7 +167,7 @@ fn menu_input_leak_animated_hand_obeys_pack_visibility_and_restores_after_settin
         "opaque pack screen clears the hand"
     );
     world
-        .resource_mut::<client_ui::ui_runtime::presentation::UiPresentationRuntime>()
+        .resource_mut::<client_shell::ui_resources::UiPresentationResource>()
         .set_server_ui_pack(&ServerUiPack::default());
     world
         .run_system_cached(crate::runtime::network::advance_actor_frame)

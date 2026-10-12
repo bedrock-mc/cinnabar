@@ -1,9 +1,7 @@
 use crate::runtime::network::resource_packs::PackApplication;
 use client_runtime::network::NetworkHandle;
-use protocol::wire::valentine::bedrock::version::v1_26_51::{
-    EnumsItemUseOnActorInventoryTransactionActionType as ActorAction,
-    InventoryTransactionPacketTransaction, McpePacketData,
-};
+use protocol::ActorUseAction;
+use protocol::test_support::transactions::{TransactionBody, observe_transaction};
 use {super::*, gameplay::block_use::RepeatClock};
 
 /// Adds a selectable actor after the fixture's latest terrain update.
@@ -60,21 +58,15 @@ fn actor_use_is_admitted_on_the_press_frame_before_the_next_physics_tick() {
     assert_eq!(world.resource::<MovementTicker>().completed_tick(), tick);
     let packets = captured.drain();
     assert_eq!(packets.len(), 1);
-    let McpePacketData::InventoryTransactionPacket(packet) = &packets[0].data else {
-        panic!("the press must emit an actor transaction");
-    };
-    let InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(tx) =
-        &packet.transaction
-    else {
-        panic!("the nearer actor must consume the block and air use");
-    };
-    assert_eq!(tx.action_type, ActorAction::Interact);
-    assert_eq!(tx.runtime_id.actor_runtime_id, 99);
+    let packet =
+        observe_transaction(&packets[0]).expect("the press must emit an actor transaction");
+    let tx = packet
+        .actor_use()
+        .expect("the nearer actor must consume the block and air use");
+    assert_eq!(tx.action, Some(ActorUseAction::Interact));
+    assert_eq!(tx.runtime_id, 99);
     assert_eq!(tx.slot, 0);
-    assert_eq!(
-        [tx.from_position.x, tx.from_position.y, tx.from_position.z],
-        [4.5, 2.620_01, 8.5]
-    );
+    assert_eq!(tx.from_position, [4.5, 2.620_01, 8.5]);
     assert!(world.resource::<BlockUseRuntime>().press_interacted());
     hold_use(&mut world);
     world.run_system_cached(produce_block_use).unwrap();
@@ -139,7 +131,7 @@ fn throw_at_player(interact_text: &str) -> Vec<&'static str> {
         },
     );
     world
-        .resource_mut::<UiRuntime>()
+        .resource_mut::<UiRuntimeResource>()
         .apply_local_metadata(
             7,
             u64::MAX,
@@ -156,18 +148,13 @@ fn throw_at_player(interact_text: &str) -> Vec<&'static str> {
     captured
         .drain()
         .into_iter()
-        .filter_map(|packet| match &packet.data {
-            McpePacketData::InventoryTransactionPacket(packet) => match &packet.transaction {
-                InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(tx) => {
-                    assert_eq!(tx.action_type, ActorAction::Interact);
-                    assert_eq!(tx.runtime_id.actor_runtime_id, 99);
-                    Some("interact")
-                }
-                InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(_) => {
-                    Some("use")
-                }
-                _ => None,
-            },
+        .filter_map(|packet| match observe_transaction(&packet)?.body {
+            TransactionBody::ItemUseOnActor(tx) => {
+                assert_eq!(tx.action, Some(ActorUseAction::Interact));
+                assert_eq!(tx.runtime_id, 99);
+                Some("interact")
+            }
+            TransactionBody::ItemUse(_) => Some("use"),
             _ => None,
         })
         .collect()

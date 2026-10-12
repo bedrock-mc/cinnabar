@@ -142,7 +142,7 @@ fn empty_modifier_server_sprint_runs_at_one_boost_and_custom_speed_survives() {
             let before = physics.state().unwrap().position;
             run_tick_with(&mut physics, input);
             let movement = physics.state().unwrap().position - before;
-            speed = movement.x.hypot(movement.z) * f64::from(world::TICKS_PER_SECOND);
+            speed = movement.x.hypot(movement.z) * f64::from(simulation_clock::TICKS_PER_SECOND);
         }
         speed
     }
@@ -161,7 +161,10 @@ fn delayed_effective_speed_replays_only_sprint_edges_after_its_stamp() {
     for sprinting in [true, true, false, false, true] {
         run_tick_with(&mut physics, sprinting_input(sprinting));
     }
-    assert_eq!(physics.queue_server_motion([0.3, 0.2, -0.1], 102), Some(102));
+    assert_eq!(
+        physics.queue_server_motion([0.3, 0.2, -0.1], 102),
+        Some(102)
+    );
     let (_, speed) = physics
         .retime_movement_speed(101, attribute(f64::from(0.13_f32), 0.1, None))
         .unwrap();

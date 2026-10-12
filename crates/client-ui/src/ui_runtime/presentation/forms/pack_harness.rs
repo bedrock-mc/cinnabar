@@ -8,14 +8,15 @@ use std::{
     sync::Arc,
 };
 
-use assets::{RuntimeFontCatalog, RuntimeUiAssets};
+use assets::RuntimeFontCatalog;
 use protocol::{FormKind, FormRequestEvent, ServerFormModel, TextMenuForm, UiEvent};
 use ui::{DpiScale, UiNode, UiVisual};
 
-use super::super::{TextMetrics, UiPresentationRuntime};
+use super::super::UiPresentationRuntime;
 use super::ServerUiPack;
-use crate::test_support::fixture_font;
 use crate::ui_runtime::{SequencedUiEvent, UiRuntime};
+use ui_engine::test_support::fixture_font;
+use ui_engine::text_metrics::TextMetrics;
 
 const PACK_ENV: &str = "CINNABAR_FORM_PACK_DIR";
 
@@ -51,25 +52,6 @@ fn local(path: &str) -> std::path::PathBuf {
         .join(path)
 }
 
-/// Loads the installed UI carrier, reporting an absent fixture and rejecting malformed data.
-pub fn carrier() -> Option<Arc<RuntimeUiAssets>> {
-    let path = local("assets/compiled/vanilla-v1.mcbeui");
-    let bytes = match std::fs::read(&path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!(
-                "skipping local UI fixture test: missing {}; make assets",
-                path.display()
-            );
-            return None;
-        }
-        Err(error) => panic!("read UI fixture {}: {error}", path.display()),
-    };
-    Some(Arc::new(
-        RuntimeUiAssets::decode(&bytes).expect("decode installed UI fixture"),
-    ))
-}
-
 /// Loads shipped carriers from the checkout, or an isolated snapshot fixture directory.
 pub fn font() -> Arc<RuntimeFontCatalog> {
     let directory = std::env::var_os("CINNABAR_FONT_CARRIER_DIR")
@@ -82,7 +64,7 @@ pub fn font() -> Arc<RuntimeFontCatalog> {
         .ok()
         .and_then(|bytes| RuntimeFontCatalog::decode(&bytes, manifest).ok())
         .map_or_else(fixture_font, |font| Arc::new(font.with_coverage_pages()));
-    crate::ui_runtime::oreui_fonts::install(base, &directory)
+    oreui::fonts::install(base, &directory)
 }
 
 /// Every file of an unpacked pack directory as `(pack-relative path, bytes)`.
@@ -274,13 +256,16 @@ pub fn render(
 }
 
 pub fn engine_presentation() -> Option<UiPresentationRuntime> {
-    let carrier = carrier()?;
+    let carrier = ui_engine::test_support::carrier()?;
     let mut presentation =
         UiPresentationRuntime::new(Arc::new((*font()).clone().with_coverage_pages())).unwrap();
     presentation.enable_json_ui(carrier).unwrap();
     let vanilla = local(&launcher::install_layout::vanilla_pack_relative());
-    let engine = presentation.form_presentation.engine.as_mut().unwrap();
-    engine.textures.set_fallbacks(Default::default(), vanilla);
+    let engine = presentation.engine.as_mut().unwrap();
+    engine.textures.set_fallbacks(
+        Default::default(),
+        Arc::new(super::texture_sources::VanillaPack::new(vanilla)),
+    );
     Some(presentation)
 }
 
@@ -354,12 +339,7 @@ fn server_pack_form_renders_its_text_through_the_engine() {
         nodes.len(),
     );
     assert!(presentation.form_engine_frame(identity).is_some());
-    let (drawn, missing) = presentation
-        .form_presentation
-        .engine
-        .as_ref()
-        .unwrap()
-        .drawn_sprites();
+    let (drawn, missing) = presentation.engine.as_ref().unwrap().drawn_sprites();
     eprintln!(
         "server pages: {}, sprite textures drawn: {}, outside textures/ui: {:?}, unresolved: {missing:?}",
         presentation.server_ui_pages().len(),
@@ -478,19 +458,14 @@ fn vanilla_form_button_images_resolve() {
             Some(Url(url.as_str().into())),
         ],
     );
-    let engine = presentation.form_presentation.engine.as_ref().unwrap();
+    let engine = presentation.engine.as_ref().unwrap();
     let remote = engine.textures.remote.clone();
     render(&mut presentation, &runtime, [1280, 720], 1.0);
     test_time::wait_until(std::time::Duration::from_secs(5), || {
-        remote.state(&url) != launcher_host::remote_images::RemoteState::Loading
+        remote.state(&url) != ui_engine::sources::RemoteImage::Loading
     });
     render(&mut presentation, &runtime, [1280, 720], 1.0);
-    let (drawn, missing) = presentation
-        .form_presentation
-        .engine
-        .as_ref()
-        .unwrap()
-        .drawn_sprites();
+    let (drawn, missing) = presentation.engine.as_ref().unwrap().drawn_sprites();
     eprintln!("drawn {drawn:?}, unresolved {missing:?}");
     for image in [
         "textures/items/diamond",
@@ -521,7 +496,7 @@ fn large_server_pack_images_draw_at_full_resolution() {
         .unwrap();
     presentation.set_server_ui_pack(&ServerUiPack {
         screen_settings: None,
-        chat_catalog: None,
+        builtin_screen_catalog: None,
         ui_layers: Vec::new(),
         textures: vec![("textures/ui/big_logo.png".to_owned(), png)],
         catalog: None,
@@ -754,12 +729,7 @@ fn snapshot_pack_image_grid() {
         .build(&player_runtime, &runtime, 0, [1280, 1440], dpi)
         .unwrap();
     super::snapshot::write(&input, "image-grid-hover");
-    let (drawn, missing) = presentation
-        .form_presentation
-        .engine
-        .as_ref()
-        .unwrap()
-        .drawn_sprites();
+    let (drawn, missing) = presentation.engine.as_ref().unwrap().drawn_sprites();
     eprintln!("drawn {drawn:?}, unresolved {missing:?}");
 }
 

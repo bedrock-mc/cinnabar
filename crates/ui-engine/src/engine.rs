@@ -1,0 +1,940 @@
+//! Presents a server form through the JSON-UI engine: the vanilla
+//! `ui/*.json` templates resolve against the compiled carrier's catalog, lay out
+//! in virtual UI pixels, and their draw nodes become retained UI nodes over the
+//! carrier's atlas pages. One virtual pixel is one GUI pixel of the HUD's scale
+//! (needs native measurement against Bedrock's own scale-index rule).
+mod scene_policy;
+pub mod tooltip;
+
+use std::{borrow::Borrow, cell::RefCell, sync::Arc};
+
+use assets::{RuntimeFontCatalog, RuntimeUiAssets};
+use json_ui::{
+    Catalog, Context, DataSource, Draw, DrawNode, FormModel, FormRender, HitRegion, LayoutEnv,
+    RectOut, ResolvedControl, ViewState, bind_form_over, render_bound_gated,
+};
+use ui::{TextLayoutCache, TextShadow, UiNode, UiNodeId, UiPoint, UiRect, UiVisual};
+
+use {crate::text_metrics::TextMetrics, ui::FONT_DESIGN_PIXEL_TEXELS};
+
+mod fill_renderers;
+mod formatting_colors;
+pub mod host_edit;
+pub mod item_renderer;
+#[cfg(test)]
+mod ownership_tests;
+pub mod pack_catalog;
+pub mod pixel_snap;
+mod rounded;
+pub mod screen;
+pub mod screen_cache;
+mod sprites;
+pub mod text_paint;
+mod vector_icons;
+use crate::atlas::ServerAtlas;
+use crate::frame::{EditText, EngineFrame};
+use crate::sources::{ImageWork, RemoteSource};
+use crate::textures::{TextureSet, Textures};
+use screen::{CustomDraw, CustomRenderer, PaintError, PaintFrame, ScreenRegistry};
+use text_paint::{Measure, TextPaint};
+
+pub struct FormEngine {
+    assets: Arc<RuntimeUiAssets>,
+    /// The carrier's vanilla catalog, before the built-in packs.
+    vanilla: Arc<Catalog>,
+    /// Vanilla under the built-in packs: the catalog with no server pack.
+    base: Arc<Catalog>,
+    catalog: Arc<Catalog>,
+    /// Built-in screens' catalog carrying the installed pack's filters.
+    builtin_screens: Arc<Catalog>,
+    /// What the screen families registered: catalog policy, screens and binding hooks.
+    registry: &'static ScreenRegistry,
+    pub formatting_palette: ui::FormattingPalette,
+    /// Where texture paths draw from, including the on-demand server atlas.
+    pub textures: TextureSet,
+    /// The atlas page images last handed to the dynamic pages.
+    pub server_pages: Vec<render_model::UiTexturePage>,
+    pub server_sheet_pages: Vec<render_model::UiTexturePage>,
+    /// Whether a server pack's ui files are layered over the base catalog.
+    pub server_ui: bool,
+    /// The last form's bound tree and laid-out output, reused while unchanged.
+    pub cache: Option<FormCache>,
+    /// Resolve+bind and layout passes run, for cache tests and profiling.
+    pub passes: [usize; 2],
+    screens: screen_cache::ScreenCache,
+    /// Animation state of every drawn control, keyed by layout key.
+    animator: std::sync::Mutex<json_ui::Animator>,
+}
+
+pub struct FormCache {
+    model: FormModel,
+    components: json_ui::Components,
+    catalog: Arc<Catalog>,
+    /// A rejected bind retains its input key without publishing a partial tree.
+    bound: Option<ResolvedControl>,
+    laid: Option<LaidForm>,
+    /// The screen's Escape target; flattening the screen per frame deep-clones pack controls.
+    screen_cancel: Option<String>,
+}
+
+struct LaidForm {
+    view: ViewState,
+    root: [f64; 2],
+    px: f32,
+    text: [usize; 3],
+    font: assets::FontCatalogIdentity,
+    texture_metadata: u64,
+    render: FormRender,
+}
+
+/// Borrowed texture sources a paint reads.
+#[derive(Clone, Copy)]
+struct Art<'a> {
+    assets: &'a RuntimeUiAssets,
+    set: &'a TextureSet,
+    animator: &'a std::sync::Mutex<json_ui::Animator>,
+}
+
+impl FormEngine {
+    /// An engine over `assets` and its `catalog` under the families `registry` records; URL
+    /// textures download through `remote`, and images read and decode as `work` allows.
+    pub fn new(
+        assets: Arc<RuntimeUiAssets>,
+        mut catalog: Catalog,
+        first_page: u16,
+        registry: &'static ScreenRegistry,
+        remote: Arc<dyn RemoteSource>,
+        work: ImageWork,
+    ) -> Self {
+        registry.catalog().extended(&mut catalog);
+        let vanilla = Arc::new(catalog);
+        let base = Arc::new(registry.catalog().builtin(&vanilla));
+        Self {
+            textures: TextureSet::new(first_page, remote, work).with_carrier(Arc::clone(&assets)),
+            assets,
+            catalog: Arc::clone(&base),
+            builtin_screens: Arc::clone(&base),
+            formatting_palette: formatting_colors::from_catalog(&base),
+            screens: screen_cache::ScreenCache::default(),
+            vanilla,
+            base,
+            registry,
+            server_pages: Vec::new(),
+            server_sheet_pages: Vec::new(),
+            server_ui: false,
+            cache: None,
+            passes: [0; 2],
+            animator: std::sync::Mutex::default(),
+        }
+    }
+
+    fn art(&self) -> Art<'_> {
+        Art {
+            assets: &self.assets,
+            set: &self.textures,
+            animator: &self.animator,
+        }
+    }
+
+    /// The animator every paint ticks: the dispatcher fires button events into
+    /// it, drains its end and destroy events, and ends each presented frame.
+    pub fn animator(&self) -> std::sync::MutexGuard<'_, json_ui::Animator> {
+        self.animator
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    /// Which catalog forms resolve against, for the render-path log.
+    pub fn catalog_label(&self) -> String {
+        if Arc::ptr_eq(&self.catalog, &self.base) {
+            "vanilla catalog with the Java HUD pack".to_owned()
+        } else {
+            let notes = self
+                .catalog
+                .diagnostics()
+                .len()
+                .saturating_sub(self.vanilla.diagnostics().len());
+            format!("server pack overlay, {notes} pack diagnostics")
+        }
+    }
+
+    /// Install a server texture atlas whose pages start at texture page `first`.
+    pub fn set_server_atlas(&mut self, atlas: ServerAtlas, first: u16) {
+        self.textures.set_atlas(atlas, first);
+        if let Some(cache) = &mut self.cache {
+            cache.laid = None;
+        }
+        self.screens.invalidate_layouts();
+    }
+
+    /// Polls original-image readiness even when the current menu needs no repaint.
+    pub fn poll_native_images(&mut self) -> bool {
+        let atlas = self.textures.atlas_mut();
+        atlas.poll_native_images() | atlas.take_metadata_changed()
+    }
+
+    /// The atlas page images when they changed since the last call.
+    pub fn take_server_pages(&mut self) -> Option<&[render_model::UiTexturePage]> {
+        let atlas = self.textures.atlas_mut();
+        if !atlas.take_dirty() {
+            return None;
+        }
+        self.server_pages = atlas.images().to_vec();
+        self.server_sheet_pages = atlas.native_pages().to_vec();
+        Some(&self.server_pages)
+    }
+
+    /// The last form's sprite textures, and those resolving to no source.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn drawn_sprites(&self) -> (Vec<String>, Vec<String>) {
+        let atlas = self.textures.lock();
+        let view = Textures {
+            assets: &self.assets,
+            set: &self.textures,
+            atlas: &atlas,
+            images: None,
+        };
+        let mut drawn: Vec<String> = self
+            .cache
+            .iter()
+            .flat_map(|cache| cache.laid.iter())
+            .flat_map(|laid| laid.render.nodes.iter())
+            .filter_map(|node| match &node.draw {
+                Draw::Sprite { texture, .. } => Some(view.canonical(texture).into_owned()),
+                _ => None,
+            })
+            .collect();
+        drawn.sort();
+        drawn.dedup();
+        let missing = drawn
+            .iter()
+            .filter(|key| view.sprite(key).is_none())
+            .cloned()
+            .collect();
+        (drawn, missing)
+    }
+
+    /// Apply a server pack's ui files over vanilla and the built-in packs; none restores the base.
+    pub fn set_server_pack(&mut self, layers: &[Vec<(String, Vec<u8>)>]) {
+        if layers.iter().all(Vec::is_empty) {
+            self.install_pack_catalog(Arc::clone(&self.base), None);
+            return;
+        }
+        let layered = self.registry.catalog().layer(&self.vanilla, layers);
+        self.install_pack_catalog(
+            Arc::new(layered.pack),
+            layered.builtin_screens.map(Arc::new),
+        );
+    }
+
+    /// Returns the original catalog used by background pack compilation.
+    pub fn pack_catalog_base(&self) -> Arc<Catalog> {
+        self.vanilla.clone()
+    }
+
+    /// Publishes worker-resolved catalogs and retires caches holding the previous ones;
+    /// `builtin_screens` defaults to the base catalog.
+    pub fn install_pack_catalog(
+        &mut self,
+        catalog: Arc<Catalog>,
+        builtin_screens: Option<Arc<Catalog>>,
+    ) {
+        self.builtin_screens = builtin_screens.unwrap_or_else(|| Arc::clone(&self.base));
+        self.formatting_palette = formatting_colors::from_catalog(&catalog);
+        self.catalog = catalog;
+        self.cache = None;
+        self.screens = screen_cache::ScreenCache::default();
+        *self
+            .animator
+            .get_mut()
+            .unwrap_or_else(|poison| poison.into_inner()) = json_ui::Animator::new();
+    }
+
+    /// Render `model`; `Ok(None)` without its template. Layout holds until model or scroll change.
+    pub fn render(
+        &mut self,
+        model: &FormModel,
+        view: &ViewState,
+        frame: &mut PaintFrame<'_>,
+    ) -> Result<Option<EngineFrame>, PaintError> {
+        let current = self.cache.as_ref().is_some_and(|cache| {
+            cache.model == *model
+                && cache.components.same_bindings(&view.components)
+                && Arc::ptr_eq(&cache.catalog, &self.catalog)
+        });
+        if !current {
+            self.passes[0] += 1;
+            let components = &view.components;
+            self.cache = Some(FormCache {
+                components: components.clone(),
+                model: model.clone(),
+                catalog: Arc::clone(&self.catalog),
+                bound: bind_form_over(model, &self.catalog, self.registry.context(), components),
+                laid: None,
+                screen_cancel: json_ui::form_screen_cancel(&self.catalog),
+            });
+        }
+        let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+        let text = frame.language;
+        let font = frame.font.identity();
+        let texture_metadata = self.textures.metadata_revision();
+        let art = Art {
+            assets: &self.assets,
+            set: &self.textures,
+            animator: &self.animator,
+        };
+        let screen_cancel = self
+            .cache
+            .as_ref()
+            .and_then(|cache| cache.screen_cancel.clone());
+        let (cache, passes) = (&mut self.cache, &mut self.passes[1]);
+        let screen_art = ScreenArt {
+            view: Some(view),
+            ..ScreenArt::default()
+        };
+        let drawn = render_with(art, frame, screen_art, move |env, root| {
+            let cache = cache.as_mut()?;
+            let fresh = cache.laid.as_ref().is_some_and(|laid| {
+                laid.view.same_layout(view)
+                    && (laid.root, laid.px, laid.text) == (root, px, text)
+                    && laid.font == font
+                    && laid.texture_metadata == texture_metadata
+            });
+            if !fresh {
+                let bound = cache.bound.clone()?;
+                *passes += 1;
+                let measures = &mut Default::default();
+                let render = render_bound_gated(bound, root, env, view, measures);
+                cache.laid = Some(LaidForm {
+                    view: view.clone(),
+                    root,
+                    px,
+                    text,
+                    font,
+                    texture_metadata,
+                    render,
+                });
+            }
+            cache.laid.as_ref().map(|laid| &laid.render)
+        })?;
+        Ok(drawn.map(|mut drawn| {
+            drawn.cancel_target = drawn.cancel_target.or(screen_cancel);
+            drawn
+        }))
+    }
+
+    pub fn assets(&self) -> &RuntimeUiAssets {
+        &self.assets
+    }
+
+    pub fn catalog(&self) -> &Arc<Catalog> {
+        &self.catalog
+    }
+
+    /// Registered built-in screens resolve against the base catalog carrying pack filters;
+    /// others use the pack stack.
+    pub fn screen_catalog(&self, reference: &str) -> &Arc<Catalog> {
+        if self.registry.builtin(reference) {
+            &self.builtin_screens
+        } else {
+            &self.catalog
+        }
+    }
+
+    /// Resolves built-in screens against the carrier alone, or again under the built-in packs.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_native_chat_fixture(&mut self, native: bool) {
+        self.base = if native {
+            Arc::clone(&self.vanilla)
+        } else {
+            Arc::new(self.registry.catalog().builtin(&self.vanilla))
+        };
+        self.install_pack_catalog(Arc::clone(&self.base), None);
+    }
+
+    pub fn context(&self) -> &Context {
+        self.registry.context()
+    }
+
+    /// Paint what `draw` lays out over this engine's textures; `Ok(None)` when it lays out nothing.
+    pub fn draw<R: Borrow<FormRender>>(
+        &self,
+        art: ScreenArt<'_>,
+        frame: &mut PaintFrame<'_>,
+        draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
+    ) -> Result<Option<EngineFrame>, PaintError> {
+        render_with(self.art(), frame, art, draw)
+    }
+
+    /// [`Self::draw`] over `textures` instead of the engine's own sources.
+    pub fn draw_with<R: Borrow<FormRender>>(
+        &self,
+        textures: &TextureSet,
+        art: ScreenArt<'_>,
+        frame: &mut PaintFrame<'_>,
+        draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
+    ) -> Result<Option<EngineFrame>, PaintError> {
+        let sources = Art {
+            assets: &self.assets,
+            set: textures,
+            animator: &self.animator,
+        };
+        render_with(sources, frame, art, draw)
+    }
+
+    /// Render a registered screen against `data` under `view`; `frame`'s renderers draw its
+    /// custom controls.
+    pub fn render_screen<'a>(
+        &self,
+        reference: &str,
+        data: &DataSource,
+        context: &Context,
+        view: &'a ViewState,
+        mut art: ScreenArt<'a>,
+        frame: &mut PaintFrame<'_>,
+    ) -> Result<Option<EngineFrame>, PaintError> {
+        art.view = Some(view);
+        let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+        let text = frame.language;
+        let texture_metadata = self.textures.metadata_revision();
+        render_with(self.art(), frame, art, |env, root| {
+            let key = screen_cache::ScreenKey {
+                reference,
+                catalog: &self.catalog,
+                context,
+                data,
+                view,
+                root,
+                px,
+                text,
+                texture_metadata,
+            };
+            self.screens.render(key, env, self.registry)
+        })
+    }
+}
+
+fn render_with<R: Borrow<FormRender>>(
+    textures: Art<'_>,
+    frame: &mut PaintFrame<'_>,
+    art: ScreenArt<'_>,
+    draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
+) -> Result<Option<EngineFrame>, PaintError> {
+    let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+    let root = [
+        f64::from(frame.content[0] / px),
+        f64::from(frame.content[1] / px),
+    ];
+    let cache = RefCell::new(&mut *frame.layouts);
+    let render = {
+        let atlas = textures.set.lock();
+        let view = Textures {
+            assets: textures.assets,
+            set: textures.set,
+            atlas: &atlas,
+            images: art.images,
+        };
+        let measure = Measure {
+            layouts: &cache,
+            font: frame.font,
+            metrics: frame.metrics,
+            px,
+            translate: frame.translate,
+        };
+        let env = LayoutEnv {
+            text: &measure,
+            textures: &view,
+        };
+        draw(&env, root)
+    };
+    let Some(render) = render else {
+        return Ok(None);
+    };
+    let render = render.borrow();
+    let layouts = cache.into_inner();
+    let mut atlas = textures.set.lock();
+    let laid = || {
+        render
+            .nodes
+            .iter()
+            .chain(art.overlay)
+            .filter(|node| !art.omits(node))
+    };
+    let drawn_renderer = |name: &str| {
+        laid().any(|node| matches!(&node.draw, Draw::Custom { renderer, .. } if renderer == name))
+    };
+    // Only what this screen draws needs to be resident.
+    // Many nodes share a texture; each path resolves once.
+    let mut paths: std::collections::HashSet<&str> = laid()
+        .filter_map(|node| match &node.draw {
+            Draw::Sprite { texture, .. } => Some(texture.as_str()),
+            Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER => {
+                Some(tooltip::BACKGROUND_TEXTURE)
+            }
+            _ => None,
+        })
+        .collect();
+    for renderer in frame.renderers.iter() {
+        renderer.textures(&drawn_renderer, &mut |path| {
+            paths.insert(path);
+        });
+    }
+    let drawn = Textures {
+        assets: textures.assets,
+        set: textures.set,
+        atlas: &atlas,
+        images: art.images,
+    }
+    .atlas_keys(paths.into_iter());
+    atlas.require(drawn.iter().map(String::as_str));
+    let mut canvas = Canvas {
+        textures: Textures {
+            assets: textures.assets,
+            set: textures.set,
+            atlas: &atlas,
+            images: art.images,
+        },
+        solid_page: frame.solid_page,
+        edit: host_edit::Target::from_frame(render, art),
+        art,
+        now: frame.now,
+        screen: [0.0, 0.0, frame.content[0], frame.content[1]],
+        layouts,
+        font: frame.font,
+        metrics: frame.metrics,
+        px,
+        translate: frame.translate,
+        nodes: &mut *frame.nodes,
+        next: &mut *frame.next,
+        clip: None,
+        animator: textures
+            .animator
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner()),
+    };
+    let renderers = &mut *frame.renderers;
+    let view = art.view;
+    let mut top: Vec<std::ops::Range<usize>> = Vec::new();
+    let overlay_start = render.nodes.len();
+    for (index, node) in render.nodes.iter().chain(art.overlay).enumerate() {
+        if !art.omits(node) && view.is_none_or(|view| node.shown(view)) {
+            let start = canvas.nodes.len();
+            canvas.paint(node, renderers)?;
+            let lifted = index >= overlay_start
+                || matches!(&node.draw, Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER);
+            if lifted && canvas.nodes.len() > start {
+                match top.last_mut() {
+                    Some(last) if last.end == start => last.end = canvas.nodes.len(),
+                    _ => top.push(start..canvas.nodes.len()),
+                }
+            }
+        }
+    }
+    let origin = [frame.safe_area.left(), frame.safe_area.top()];
+    Ok(Some(EngineFrame {
+        hits: render.hits.clone(),
+        report: render.report.clone(),
+        cancel_target: render.cancel_target.clone(),
+        origin,
+        scale: px,
+        panel: render
+            .root_panel
+            .map(|rect| [rect.x, rect.y, rect.w, rect.h]),
+        edit_texts: edit_texts(
+            &render.hits,
+            &render.nodes,
+            origin[0],
+            [frame.metrics.gui_scale, px],
+        ),
+        top,
+    }))
+}
+
+/// Each edit box's text label as painted: where it starts, its scale and font; `pixels` and
+/// `px` are the physical and logical pixels per GUI unit.
+fn edit_texts(
+    hits: &[HitRegion],
+    nodes: &[DrawNode],
+    left: f32,
+    [pixels, px]: [f32; 2],
+) -> Vec<EditText> {
+    hits.iter()
+        .filter_map(|region| {
+            let (target, _) = region.widget.edit.as_ref()?.text_target.as_ref()?;
+            nodes.iter().find_map(|node| match &node.draw {
+                Draw::Text { scale, options, .. } if node.key == *target => Some(EditText {
+                    key: region.key.clone(),
+                    left: left
+                        + pixel_snap::positioned(
+                            [node.dest.x, node.dest.y, node.dest.w, node.dest.h],
+                            pixels,
+                            px,
+                        )[0],
+                    scale: *scale,
+                    font: options.font_type.clone(),
+                }),
+                _ => None,
+            })
+        })
+        .collect()
+}
+
+/// `[left, top, right, bottom]` in logical px as a rect.
+pub fn rect(left: f32, top: f32, right: f32, bottom: f32) -> Result<UiRect, PaintError> {
+    UiRect::new(
+        UiPoint::new(left, top).map_err(PaintError::Geometry)?,
+        UiPoint::new(right, bottom).map_err(PaintError::Geometry)?,
+    )
+    .map_err(PaintError::Geometry)
+}
+
+/// What the engine paints a screen against besides its layout: the interaction state, the
+/// hover tooltip and pointer (virtual px), transition clocks, artwork and edit feedback.
+#[derive(Clone, Copy, Default)]
+pub struct ScreenArt<'a> {
+    /// Native replacements retain the pack's backdrop while omitting the replaced controls.
+    pub omit_controls: &'a [&'a str],
+    /// The interaction state gated nodes ([`json_ui::render_bound_gated`]) paint under.
+    pub view: Option<&'a ViewState>,
+    /// Text a shown hover tooltip draws instead of its bound `#hover_text`.
+    pub tooltip: Option<&'a str>,
+    pub pointer: Option<[f32; 2]>,
+    /// Creation times that fades naming a clock read instead of their own.
+    pub clocks: Option<&'a std::collections::BTreeMap<String, f64>>,
+    pub images: Option<&'a std::collections::HashMap<String, ui::IconRef>>,
+    pub edit: Option<host_edit::Feedback>,
+    /// Caller nodes painted above the screen (the held stack).
+    pub overlay: &'a [DrawNode],
+}
+
+impl ScreenArt<'_> {
+    fn omits(&self, node: &DrawNode) -> bool {
+        self.omit_controls.iter().any(|name| {
+            node.key
+                .split('/')
+                .any(|part| part.split(['[', '~']).next() == Some(*name))
+        })
+    }
+}
+
+/// Turns draw nodes into retained UI nodes, opening a clip group per clip change to keep
+/// order; custom renderers draw through it.
+pub struct Canvas<'a> {
+    edit: Option<host_edit::Target<'a>>,
+    textures: Textures<'a>,
+    solid_page: u16,
+    art: ScreenArt<'a>,
+    now: f64,
+    /// The whole content area, the clip for unclipped tooltips.
+    screen: [f32; 4],
+    layouts: &'a mut TextLayoutCache,
+    font: &'a RuntimeFontCatalog,
+    metrics: TextMetrics,
+    px: f32,
+    translate: &'a dyn Fn(&str) -> Option<Arc<str>>,
+    nodes: &'a mut Vec<UiNode>,
+    next: &'a mut u32,
+    clip: Option<([f32; 4], UiNodeId)>,
+    animator: std::sync::MutexGuard<'a, json_ui::Animator>,
+}
+
+impl<'a> Canvas<'a> {
+    /// Logical px per GUI px.
+    pub fn px(&self) -> f32 {
+        self.px
+    }
+
+    pub fn solid_page(&self) -> u16 {
+        self.solid_page
+    }
+
+    pub fn metrics(&self) -> TextMetrics {
+        self.metrics
+    }
+
+    pub fn font(&self) -> &'a RuntimeFontCatalog {
+        self.font
+    }
+
+    pub fn layouts(&mut self) -> &mut TextLayoutCache {
+        self.layouts
+    }
+
+    /// The whole content area in logical px.
+    pub fn screen(&self) -> [f32; 4] {
+        self.screen
+    }
+
+    /// The current clip group's bounds.
+    pub fn clip(&self) -> Option<[f32; 4]> {
+        self.clip.map(|(bounds, _)| bounds)
+    }
+
+    /// The pointer in virtual px, when the caller tracks one.
+    pub fn pointer(&self) -> Option<[f32; 2]> {
+        self.art.pointer
+    }
+
+    pub fn textures(&self) -> &Textures<'a> {
+        &self.textures
+    }
+}
+
+impl Canvas<'_> {
+    fn logical(&self, rect: &RectOut) -> [f32; 4] {
+        let px = self.px;
+        [
+            rect.x as f32 * px,
+            rect.y as f32 * px,
+            (rect.x + rect.w) as f32 * px,
+            (rect.y + rect.h) as f32 * px,
+        ]
+    }
+
+    /// `rect` as logical bounds on whole physical pixels, where vanilla places
+    /// an image ([`pixel_snap`]).
+    fn snapped(&self, rect: &RectOut) -> [f32; 4] {
+        pixel_snap::snapped(
+            [rect.x, rect.y, rect.w, rect.h],
+            self.metrics.gui_scale,
+            self.px,
+        )
+    }
+
+    /// `rect` as logical bounds moved to a whole physical pixel, where vanilla
+    /// places text ([`pixel_snap`]).
+    fn positioned(&self, rect: &RectOut) -> [f32; 4] {
+        pixel_snap::positioned(
+            [rect.x, rect.y, rect.w, rect.h],
+            self.metrics.gui_scale,
+            self.px,
+        )
+    }
+
+    fn id(&mut self) -> UiNodeId {
+        let id = UiNodeId::new(*self.next);
+        *self.next = self.next.saturating_add(1);
+        id
+    }
+
+    /// The clip group for `clip`, reusing the current one when it matches.
+    pub fn group(&mut self, clip: [f32; 4]) -> Result<UiNodeId, PaintError> {
+        if let Some((current, id)) = self.clip
+            && current == clip
+        {
+            return Ok(id);
+        }
+        let id = self.id();
+        self.nodes.push(
+            UiNode::new(id, None, rect(clip[0], clip[1], clip[2], clip[3])?)
+                .with_clip_children(true),
+        );
+        self.clip = Some((clip, id));
+        Ok(id)
+    }
+
+    /// Hands `node` to the frame's renderers, then to the engine's own: vector icons, rounded
+    /// chrome, fills, messaging art, named profile images and name tags. Others draw nothing.
+    fn custom(
+        &mut self,
+        node: &CustomDraw<'_>,
+        renderers: &mut [&mut dyn CustomRenderer],
+    ) -> Result<(), PaintError> {
+        for renderer in renderers.iter_mut() {
+            if renderer.paint(node, self)? {
+                return Ok(());
+            }
+        }
+        let (data, dest) = (node.data, node.dest);
+        let alpha = |color: [u8; 4]| node.alpha(color);
+        let drawn = match node.renderer {
+            "cinnabar_vector_icon" => self
+                .vector_icon(data, dest, &alpha)
+                .map(|visual| (visual, dest)),
+            "cinnabar_rounded_rectangle" => self
+                .rounded_rectangle(data, dest, &alpha)
+                .map(|visual| (visual, dest)),
+            "progress_bar_renderer" => {
+                self.progress_bar(data, dest, &alpha);
+                None
+            }
+            "gradient_renderer" => self.gradient(data, &alpha).map(|visual| (visual, dest)),
+            "animated_gif_renderer" => self.animated_gif(data, dest, &alpha),
+            "profile_image_renderer" => self.named_profile_image(data, dest, &alpha),
+            "name_tag_renderer" => self.name_tag(data, dest, &alpha),
+            _ => None,
+        };
+        match drawn {
+            Some((visual, bounds)) => self.push(visual, bounds),
+            None => Ok(()),
+        }
+    }
+
+    /// Push `visual` at `bounds` into the current clip group.
+    pub fn push(&mut self, visual: UiVisual, bounds: [f32; 4]) -> Result<(), PaintError> {
+        let Some((clip, parent)) = self.clip else {
+            return Ok(());
+        };
+        let id = self.id();
+        self.nodes.push(
+            UiNode::new(
+                id,
+                Some(parent),
+                rect(
+                    bounds[0] - clip[0],
+                    bounds[1] - clip[1],
+                    bounds[2] - clip[0],
+                    bounds[3] - clip[1],
+                )?,
+            )
+            .with_visual(visual),
+        );
+        Ok(())
+    }
+
+    /// A solid rect in the current clip group.
+    pub fn solid(&mut self, bounds: [f32; 4], color: [u8; 4]) -> Result<(), PaintError> {
+        let visual = UiVisual::Solid {
+            texture_page: self.solid_page,
+            color,
+        };
+        self.push(visual, bounds)
+    }
+
+    fn paint(
+        &mut self,
+        node: &DrawNode,
+        renderers: &mut [&mut dyn CustomRenderer],
+    ) -> Result<(), PaintError> {
+        if let Draw::Sprite { texture, .. } = &node.draw
+            && node
+                .anim
+                .as_ref()
+                .and_then(|anim| anim.own.as_ref())
+                .is_some_and(|own| {
+                    own.graph.nodes.iter().any(|anim| {
+                        matches!(
+                            anim.kind,
+                            json_ui::AnimKind::FlipBook | json_ui::AnimKind::Aseprite
+                        )
+                    })
+                })
+            && !self.textures.animation_ready(texture)
+        {
+            return Ok(());
+        }
+        let drawn = node.animate(
+            &mut self.animator,
+            self.now,
+            self.art.clocks,
+            Some(&self.textures),
+        );
+        let clip = self.logical(&drawn.clip);
+        let dest = if matches!(node.draw, Draw::Text { .. }) {
+            self.positioned(&drawn.dest)
+        } else {
+            self.snapped(&drawn.dest)
+        };
+        let opacity = drawn.opacity;
+        if self
+            .edit
+            .is_some_and(|edit| edit.placeholder == Some(node.key.as_str()))
+            || drawn.hidden
+            || clip[2] <= clip[0]
+            || clip[3] <= clip[1]
+            || dest[2] <= dest[0]
+            || dest[3] <= dest[1]
+            || opacity <= 0.0
+        {
+            return Ok(());
+        }
+        let alpha = |color: [u8; 4]| {
+            let a = (f32::from(color[3]) * opacity.clamp(0.0, 1.0)).round() as u8;
+            [color[0], color[1], color[2], a]
+        };
+        // Tooltips ignore the hovered control's clip.
+        let clip = match &node.draw {
+            Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER => self.screen,
+            _ => clip,
+        };
+        if let Draw::Text {
+            text,
+            color,
+            shadow,
+            align,
+            scale,
+            localize,
+            options,
+        } = &node.draw
+        {
+            let feedback = self
+                .edit
+                .filter(|edit| edit.text == node.key)
+                .map(|edit| edit.feedback);
+            let style = TextPaint {
+                edit: feedback,
+                color: alpha(*color),
+                shadow: if *shadow {
+                    self.metrics.shadow()
+                } else {
+                    TextShadow::None
+                },
+                align: *align,
+                scale: *scale,
+                localize: *localize,
+                options: options.clone(),
+            };
+            return self.text(text, dest, clip, style);
+        }
+        self.group(clip)?;
+        let (visual, bounds) = match &node.draw {
+            Draw::Solid { color } => (
+                UiVisual::Solid {
+                    texture_page: self.solid_page,
+                    color: alpha(*color),
+                },
+                dest,
+            ),
+            Draw::Sprite {
+                texture,
+                uv,
+                color,
+                filter,
+            } => {
+                let uv = drawn.uv.unwrap_or(*uv);
+                let color = drawn.color.unwrap_or(*color);
+                if self.paint_native_sprite(texture, uv, alpha(color), *filter, dest)? {
+                    return Ok(());
+                }
+                let Some(visual) = self.sprite(texture, uv, alpha(color), *filter) else {
+                    return Ok(());
+                };
+                (visual, dest)
+            }
+            // Drawn above.
+            Draw::Text { .. } => return Ok(()),
+            Draw::Custom { renderer, data } if renderer == tooltip::RENDERER => {
+                let text = self
+                    .art
+                    .tooltip
+                    .or_else(|| data.get("#hover_text")?.as_str())
+                    .filter(|text| !text.is_empty());
+                return match text {
+                    Some(text) => self.tooltip(text, data, dest, &alpha),
+                    None => Ok(()),
+                };
+            }
+            Draw::Custom { renderer, data } => {
+                let custom = CustomDraw {
+                    key: &node.key,
+                    renderer,
+                    data,
+                    dest,
+                    opacity,
+                };
+                return self.custom(&custom, renderers);
+            }
+        };
+        self.push(visual, bounds)
+    }
+}

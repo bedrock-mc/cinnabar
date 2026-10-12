@@ -8,7 +8,7 @@ use meshing::{Face, PackedLiquidQuad};
 
 #[test]
 #[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
-fn native_liquid_planes_and_replicated_flow_uvs_execute_on_gpu() {
+fn native_liquid_planes_and_flow_uvs_execute_on_gpu() {
     let gpu = Gpu::new().expect("native GPU");
     let source = format!(
         "{}\n{WITNESS}",
@@ -77,10 +77,10 @@ fn native_liquid_planes_and_replicated_flow_uvs_execute_on_gpu() {
         }
     }
     for (flow, expected) in [
-        ([1., 0.], [0.75, 0.25]),
-        ([0., 1.], [0.25, 0.25]),
-        ([-1., 0.], [0.25, 0.75]),
-        ([0., -1.], [0.75, 0.75]),
+        ([1., 0.], [1., 0.]),
+        ([0., 1.], [0., 0.]),
+        ([-1., 0.], [0., 1.]),
+        ([0., -1.], [1., 1.]),
     ] {
         assert_case(
             &gpu,
@@ -95,21 +95,19 @@ fn native_liquid_planes_and_replicated_flow_uvs_execute_on_gpu() {
             &format!("flow {flow:?}"),
         );
     }
-    for scale in [1., 0.5, 0.25] {
-        let height = 1. - LIQUID_FACE_INSET;
-        assert_case(
-            &gpu,
-            &source,
-            [
-                [0.; 4],
-                [0.; 4],
-                [1., 2., height, scale],
-                [0., 0., scale, (1. - height) * scale],
-            ],
-            "uv",
-            &format!("side replicate scale{scale}"),
-        );
-    }
+    let height = 1. - LIQUID_FACE_INSET;
+    assert_case(
+        &gpu,
+        &source,
+        [
+            [0.; 4],
+            [0.; 4],
+            [1., 2., height, 0.],
+            [0., 0., 1., 1. - height],
+        ],
+        "uv",
+        "side spans the whole tile",
+    );
 }
 
 fn assert_case(gpu: &Gpu, source: &str, record: [[f32; 4]; 4], fragment: &str, label: &str) {
@@ -154,7 +152,7 @@ struct WitnessOutput { @builtin(position) position: vec4<f32>, }
 @fragment fn uv() -> @location(0) vec4<f32> {
     let data = witness_case[2];
     let expected = witness_case[3];
-    let actual = liquid_uv(u32(data.x), u32(data.y), data.z, i32(expected.x), i32(expected.y), data.w);
+    let actual = liquid_uv(u32(data.x), u32(data.y), data.z, i32(expected.x), i32(expected.y));
     return select(vec4(1., 0., 0., 1.), vec4(0., 1., 0., 1.), distance(actual, expected.zw) < 0.000002);
 }
 "#;

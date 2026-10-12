@@ -68,7 +68,6 @@ struct Streams {
     liquid_geometry: wgpu::Buffer,
     /// First section-map word of the model and liquid geometry streams.
     model_sections: u32,
-    liquid_sections: u32,
 }
 
 impl Streams {
@@ -77,6 +76,8 @@ impl Streams {
         let storage = wgpu::BufferUsages::STORAGE;
         let cube_count = floor.cubes.len();
         let skipped = cube_count.div_ceil(2) as u32;
+        // Liquid lighting records follow the liquid records, two words each.
+        let liquid_lighting_base = 2 * floor.water.len() as u32;
         let origins = floor
             .origins
             .iter()
@@ -89,7 +90,7 @@ impl Streams {
                     0,
                     skipped,
                     0,
-                    0,
+                    liquid_lighting_base,
                 ]
             })
             .collect::<Vec<_>>();
@@ -119,16 +120,17 @@ impl Streams {
         let model_sections = model_geometry.len() as u32;
         model_geometry.extend(floor.slabs.iter().map(|&(section, _)| section));
 
-        // Liquid records, then lighting records and the section map.
+        // Liquid records, then lighting records.
         let water = floor.water.len();
         let mut liquid_geometry = Vec::with_capacity(7 * water);
-        for (index, &(_, origin)) in floor.water.iter().enumerate() {
+        for &(section, origin) in &floor.water {
+            // The last word names the record's origin slot, as the upload stamps it.
             let mut words = PackedLiquidQuad::try_pack(
                 origin,
                 Face::PositiveY,
                 [255; 4],
                 0,
-                (2 * water + index) as u32,
+                section,
                 [0; 2],
                 false,
             )
@@ -138,8 +140,6 @@ impl Streams {
             liquid_geometry.extend(words);
         }
         liquid_geometry.resize(6 * water, FULL_LIGHT);
-        let liquid_sections = liquid_geometry.len() as u32;
-        liquid_geometry.extend(floor.water.iter().map(|&(section, _)| section));
 
         Self {
             origins: gpu.words(&origins, storage),
@@ -156,7 +156,6 @@ impl Streams {
             model_geometry: gpu.words(&model_geometry, storage),
             liquid_geometry: gpu.words(&liquid_geometry, storage),
             model_sections,
-            liquid_sections,
         }
     }
 }
@@ -240,10 +239,7 @@ impl Shaders {
                 include_str!("../../src/model.wesl"),
                 &MODEL_ENTRIES.replace("SECTIONS", &format!("{}u", streams.model_sections)),
             ),
-            liquid: prepare(
-                include_str!("../../src/liquid.wesl"),
-                &LIQUID_ENTRIES.replace("SECTIONS", &format!("{}u", streams.liquid_sections)),
-            ),
+            liquid: prepare(include_str!("../../src/liquid.wesl"), LIQUID_ENTRIES),
         }
     }
 }
@@ -529,12 +525,10 @@ fn sectioned_model_vertex(index: u32) -> VertexOutput {
 
 /// Production liquid vertices, and the matching world-coordinate control.
 const LIQUID_ENTRIES: &str = r#"
-/// Maps fixture liquid instances to their section before running production geometry.
+/// Runs production geometry for fixture liquid instances; each record names its section.
 fn sectioned_liquid_vertex(index: u32) -> VertexOutput {
     var indices = array<u32, 6>(INDICES);
-    let water = index / 6u;
-    let section = geometry_streams[SECTIONS + water];
-    return vertex_for_ref(TransparentDrawRef(water, section), section * 4u + indices[index % 6u]);
+    return vertex_for_record(index / 6u, indices[index % 6u]);
 }
 
 /// Uses production camera-relative liquid projection in the shared-floor witness.

@@ -176,13 +176,7 @@ impl WorldStream {
     pub fn take_equipment_notices(&mut self) -> Vec<client_world::EquipmentNotice> {
         self.authority.take_equipment_notices()
     }
-    /// Installs the per-mount seat layouts riders fall back to when the server streams no offset.
-    pub fn set_actor_seat_defaults(
-        &mut self,
-        defaults: std::sync::Arc<client_world::SeatDefaults>,
-    ) {
-        self.authority.set_actor_seat_defaults(defaults)
-    }
+
     /// Records the `(runtime_id, degrees)` bed orientation that backs `query.sleep_rotation`.
     pub fn set_actor_bed_rotations(&mut self, samples: &[(u64, f32)]) {
         self.authority.set_actor_bed_rotations(samples)
@@ -269,6 +263,16 @@ impl WorldStream {
         types: &[(std::sync::Arc<str>, Vec<client_world::PropertyDefault>)],
     ) {
         self.authority.seed_property_defaults(types)
+    }
+
+    /// Installs compiled item-use overlays before numerical admission.
+    pub fn set_item_use_overlays(
+        &mut self,
+        overlays: std::sync::Arc<
+            std::collections::BTreeMap<Box<str>, assets::equipment::CompiledItemUseOverlay>,
+        >,
+    ) {
+        self.authority.set_item_use_overlays(overlays)
     }
 
     pub fn set_item_use_durations(

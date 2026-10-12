@@ -5,7 +5,11 @@ use std::sync::Arc;
 use json_ui::{BindState, EmptyLibrary, ResolvedControl, bind_stateful};
 use serde_json::{Value, json};
 
-use super::*;
+use protocol::NetworkItemStack;
+use ui::IconRef;
+use ui_screens::containers::{ScreenLayout, screen_data};
+
+use super::{ContainerAuthority, HudFrame, UiRuntime, container_frame};
 
 const BOOK: &str = "recipe_book";
 
@@ -90,6 +94,7 @@ fn moving_an_inventory_item_keeps_the_recipe_book_icons_and_layout() {
     let root = screen_root();
     let mut state = BindState::new();
     let mut caches = (None, None);
+    let mut table_len = None;
     for occupied in [false, true, false] {
         let mut slots = vec![NetworkItemStack::empty(); 36];
         if occupied {
@@ -110,15 +115,19 @@ fn moving_an_inventory_item_keeps_the_recipe_book_icons_and_layout() {
             ));
         let mut icons = Vec::new();
         let data = screen_data(
-            &player,
-            &runtime,
-            &frame,
+            &ContainerAuthority::new(&player, &runtime),
+            &container_frame(&frame),
             ScreenLayout::Personal { book: true },
             "",
             &mut icons,
             (&mut caches.0, &mut caches.1),
         );
-        assert_eq!(icons.len(), 1 + usize::from(occupied));
+        assert_eq!(icons[0], icon);
+        assert_eq!(
+            *table_len.get_or_insert(icons.len()),
+            icons.len(),
+            "cells reserve their icon entries whether or not they hold an item"
+        );
         let (bound, notes) = bind_stateful(&root, &data, &EmptyLibrary, &mut state);
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(

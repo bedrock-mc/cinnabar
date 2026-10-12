@@ -111,7 +111,7 @@ fn admitted_actor_keeps_all_its_boxes_past_the_candidate_threshold() {
         1,
         &CameraEvent::AimAssist(settings(CameraAimAssistTargetMode::Angle)),
     );
-    let before = crate::test_allocations::count();
+    let before = test_alloc::thread_allocations();
     for tick in 3..5 {
         frame.evaluate(
             &state,
@@ -126,5 +126,5 @@ fn admitted_actor_keeps_all_its_boxes_past_the_candidate_threshold() {
             |_| &[],
         );
     }
-    assert_eq!(crate::test_allocations::count() - before, 0);
+    assert_eq!(test_alloc::thread_allocations() - before, 0);
 }

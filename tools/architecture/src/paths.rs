@@ -11,10 +11,19 @@ pub(super) fn ignored_directory(relative: &str) -> bool {
 }
 
 pub(super) fn is_vendored(relative: &str, policy: &Policy) -> bool {
-    policy.vendored.iter().any(|rule| {
-        let prefix = rule.path.trim_start_matches("./").trim_end_matches('/');
-        relative == prefix || relative.starts_with(&format!("{prefix}/"))
-    })
+    policy
+        .vendored
+        .iter()
+        .any(|rule| in_tree(relative, &rule.path))
+}
+
+/// Whether `relative` is a configured tree, written with or without `./` and a trailing `/`,
+/// or lies beneath it.
+pub(super) fn in_tree(relative: &str, tree: &str) -> bool {
+    within(
+        relative,
+        tree.trim_start_matches("./").trim_end_matches('/'),
+    )
 }
 
 pub(super) fn marker_literals(source: &str) -> Vec<String> {

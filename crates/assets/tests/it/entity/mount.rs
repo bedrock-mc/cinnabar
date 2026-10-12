@@ -21,7 +21,8 @@ fn entity_carrier_round_trips_mount_equipment_dispositions() {
         compiled.sources = sources.into_boxed_slice();
         compiled.symbols[0].identifier = "minecraft:horse".into();
         compiled.symbols[0].mount_equipment = equipment;
-        let blob = encode_entity_blob(&compiled).expect("encode mount catalog");
+        let blob = encode_entity_blob(&compiled.with_unresolved_admissions())
+            .expect("encode mount catalog");
         let runtime = RuntimeEntityAssets::decode(&blob).expect("decode mount catalog");
         assert_eq!(runtime.symbols()[0].mount_equipment, equipment);
         assert_eq!(runtime.encode().unwrap(), blob);

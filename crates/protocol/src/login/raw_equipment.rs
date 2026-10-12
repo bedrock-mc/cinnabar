@@ -1,5 +1,5 @@
+use crate::raw_packet::RawPacket;
 use bytes::Buf;
-use jolyne::raw::RawPacket;
 use valentine::protocol::wire;
 
 use crate::ProtocolError;

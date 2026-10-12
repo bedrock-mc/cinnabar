@@ -1,5 +1,5 @@
 use super::*;
-use world::TICK_DURATION as ACTOR_TICK_DURATION;
+use simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION;
 
 fn clock_stream(program: Vec<MolangOp>, length: f32, mode: EntityAnimationLoop) -> WorldStream {
     configured_clock_stream(program, length, mode, |_| {})

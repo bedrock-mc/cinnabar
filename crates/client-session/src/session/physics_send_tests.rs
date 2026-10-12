@@ -205,9 +205,7 @@ impl NetworkSession for RecordingSendSession {
     fn outbound(&mut self) -> Result<Self::Outbound, Self::Error> {
         let sent = Arc::clone(&self.sent);
         Ok(PacketOutbound::new(move |packet| {
-            let bytes = protocol::encode(&packet, &protocol::BedrockSession { shield_item_id: 0 })
-                .unwrap()
-                .to_vec();
+            let bytes = protocol::encode(&packet).unwrap().to_vec();
             sent.lock().unwrap().push(bytes);
             future::ready(Ok(()))
         }))
@@ -227,9 +225,7 @@ async fn revoked_mining_is_removed_before_write_without_suppressing_its_movement
         reanchor_epoch: 0,
     };
     let (combined, movement) = traced_movement_packets(101);
-    let expected = protocol::encode(&movement, &protocol::BedrockSession { shield_item_id: 0 })
-        .unwrap()
-        .to_vec();
+    let expected = protocol::encode(&movement).unwrap().to_vec();
     let (mining_authority, mining_authority_rx) = watch::channel(0);
     let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
     let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
@@ -294,9 +290,7 @@ async fn current_mining_command_reaches_the_write_byte_exact() {
         reanchor_epoch: 0,
     };
     let combined = protocol::request_sub_chunk_column(0, 7, 8, -4, 1).unwrap();
-    let expected = protocol::encode(&combined, &protocol::BedrockSession { shield_item_id: 0 })
-        .unwrap()
-        .to_vec();
+    let expected = protocol::encode(&combined).unwrap().to_vec();
     let (_mining_authority, mining_authority_rx) = watch::channel(0);
     let (world_event_tx, _world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
     let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
@@ -475,11 +469,7 @@ async fn transfer_messages_survive_reanchor_and_precede_destination_movement() {
     let expected = transfer
         .into_iter()
         .chain([movement])
-        .map(|packet| {
-            protocol::encode(&packet, &protocol::BedrockSession { shield_item_id: 0 })
-                .unwrap()
-                .to_vec()
-        })
+        .map(|packet| protocol::encode(&packet).unwrap().to_vec())
         .collect::<Vec<_>>();
     let sent = Arc::new(Mutex::new(Vec::new()));
     let (control_event_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);

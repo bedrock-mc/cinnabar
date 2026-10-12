@@ -69,7 +69,9 @@ pub(super) fn track_test_focus(
 #[test]
 fn hud_capture_request_waits_for_click_after_focus_returns() {
     let (mut app, window) = capture_test_app(true, CursorGrabMode::Locked, false, false);
-    app.insert_resource(client_ui::ui_runtime::UiRuntime::new(1));
+    app.insert_resource(client_shell::ui_resources::UiRuntimeResource(
+        client_ui::ui_runtime::UiRuntime::new(1),
+    ));
     app.update();
     app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
     app.update();

@@ -1,5 +1,5 @@
 use crate::{PropertyDefinition, PropertyKind};
-use {super::*, world::TICK_DURATION as ACTOR_TICK_DURATION};
+use {super::*, simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION};
 
 fn read(context: &ActorTickContext, name: &str, arguments: &[MolangValue]) -> f32 {
     let actor = crate::tests::actor_with_metadata(HashMap::new());

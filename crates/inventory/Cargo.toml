@@ -11,6 +11,7 @@ reads = [
 ]
 
 [dependencies]
+simulation-clock = { path = "../simulation-clock" }
 assets = { path = "../assets" }
 protocol = { path = "../protocol" }
 serde = { version = "1", features = ["derive"] }
@@ -21,7 +22,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 bytes.workspace = true
-protocol = { path = "../protocol", features = ["wire-test-support"] }
+protocol = { path = "../protocol", features = ["test-support"] }
 
 [lints]
 workspace = true

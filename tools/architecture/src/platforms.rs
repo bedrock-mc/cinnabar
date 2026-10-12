@@ -5,7 +5,7 @@ use std::{
 
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use syn::{
-    Attribute, ItemUse, Macro, Meta, UseTree,
+    Attribute, File, ItemMod, ItemUse, Macro, Meta, UseTree,
     ext::IdentExt,
     visit::{self, Visit},
 };
@@ -79,7 +79,10 @@ pub(super) fn check_platforms(
         let Ok(file) = syn::parse_file(&read(path)?) else {
             continue;
         };
-        let mut scan = Scan::default();
+        let mut scan = Scan {
+            modules: local_modules(&file),
+            ..Scan::default()
+        };
         scan.visit_file(&file);
         for platform in scan.found {
             evidence
@@ -152,6 +155,22 @@ fn declared_platforms(
 #[derive(Default)]
 struct Scan {
     found: BTreeSet<Platform>,
+    modules: BTreeSet<String>, // the file's own modules, which shadow same-named crates
+}
+
+/// Returns the names of every module `file` declares.
+fn local_modules(file: &File) -> BTreeSet<String> {
+    #[derive(Default)]
+    struct Modules(BTreeSet<String>);
+    impl<'ast> Visit<'ast> for Modules {
+        fn visit_item_mod(&mut self, item: &'ast ItemMod) {
+            self.0.insert(item.ident.unraw().to_string());
+            visit::visit_item_mod(self, item);
+        }
+    }
+    let mut modules = Modules::default();
+    modules.visit_file(file);
+    modules.0
 }
 
 impl Scan {
@@ -173,7 +192,7 @@ impl Scan {
         };
         if segments.len() > 1 {
             for platform in Platform::ALL {
-                if platform.owns_crate(first) {
+                if platform.owns_crate(first) && !self.modules.contains(first) {
                     self.found.insert(platform);
                 }
             }

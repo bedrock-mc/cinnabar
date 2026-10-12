@@ -51,10 +51,9 @@ pub(in crate::chunk) struct AnimationGpu {
     pub(in crate::chunk) frame_count: u32,
     pub(in crate::chunk) ticks_per_frame: u32,
     pub(in crate::chunk) flags: u32,
-    pub(in crate::chunk) uv_scale: f32,
 }
 
-const _: () = assert!(std::mem::size_of::<AnimationGpu>() == 5 * 4);
+const _: () = assert!(std::mem::size_of::<AnimationGpu>() == 4 * 4);
 
 #[repr(C, align(16))]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -454,7 +453,6 @@ fn build_chunk_texture_assets(
             frame_count: animation.frame_count,
             ticks_per_frame: animation.ticks_per_frame,
             flags: animation.flags,
-            uv_scale: 1.0 / animation.replicate as f32,
         })
         .collect::<Vec<_>>();
     let animation_frame_words = assets
@@ -501,7 +499,6 @@ fn build_chunk_texture_assets(
         frame_count: 1,
         ticks_per_frame: 1,
         flags: 0,
-        uv_scale: 1.0,
     }];
     let animation_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("global chunk animations"),

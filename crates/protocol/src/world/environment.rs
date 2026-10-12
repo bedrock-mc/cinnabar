@@ -1,7 +1,6 @@
-use super::{
-    GameData,
-    game_rules::{daylight_cycle_rule_update, weather_cycle_rule_update},
-};
+use valentine::bedrock::version::v1_26_51::StartGamePacket;
+
+use super::game_rules::{daylight_cycle_rule_update, weather_cycle_rule_update};
 
 /// Initial clock and weather state retained from StartGame.
 ///
@@ -24,13 +23,12 @@ pub struct WorldEnvironmentBootstrap {
 }
 
 impl WorldEnvironmentBootstrap {
-    #[must_use]
-    pub fn from_game_data(game_data: &GameData) -> Self {
-        let settings = &game_data.start_game.settings;
+    pub(crate) fn from_start_game(start_game: &StartGamePacket) -> Self {
+        let settings = &start_game.settings;
         Self {
             // gophertunnel packet/start_game.go writes `Time int64`; the
             // generated field is u64 over the same eight little-endian bytes.
-            initial_time: game_data.start_game.level_current_time as i64,
+            initial_time: start_game.level_current_time as i64,
             day_cycle_lock_time: settings.day_cycle_stop_time,
             // StartGame and GameRulesChanged carry the same tagged GameRule.
             daylight_cycle_enabled: daylight_cycle_rule_update(&settings.rule_data.rules_list)

@@ -1,10 +1,7 @@
 use super::*;
 use crate::block_use::{BuildIntention, PlacementTarget};
 use crate::movement::{MovementSource, MovementTicker};
-use protocol::wire::valentine::bedrock::version::v1_26_51::{
-    EnumsItemUseInventoryTransactionTriggerType, InventoryTransactionPacketTransaction,
-    McpePacketData,
-};
+use protocol::test_support::transactions::observe_transaction;
 
 /// Advances one deterministic use tick against the known support and actor box.
 fn step(
@@ -95,36 +92,13 @@ fn step(
         return None;
     }
     let packet = packets.last().unwrap();
-    let McpePacketData::InventoryTransactionPacket(tx) = &packet.data else {
-        panic!("placement transaction");
-    };
-    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(tx) = &tx.transaction
-    else {
-        panic!("item-use transaction");
-    };
-    assert_eq!(
-        [tx.position.x, tx.position.y, tx.position.z],
-        target.position
-    );
+    let observed_packet = observe_transaction(packet).expect("placement transaction");
+    let tx = observed_packet.item_use().expect("item-use transaction");
+    assert_eq!(tx.position, target.position);
     assert_eq!(tx.face, target.face);
     assert_eq!(tx.target_block_id, 9);
-    assert_eq!(
-        tx.trigger_type,
-        match trigger {
-            ItemUseTrigger::PlayerInput => EnumsItemUseInventoryTransactionTriggerType::Playerinput,
-            ItemUseTrigger::SimulationTick => {
-                EnumsItemUseInventoryTransactionTriggerType::Simulationtick
-            }
-        }
-    );
-    assert_eq!(
-        [
-            tx.click_position.x,
-            tx.click_position.y,
-            tx.click_position.z
-        ],
-        observed.target.relative_hit
-    );
+    assert_eq!(tx.trigger, Some(trigger));
+    assert_eq!(tx.click_position, observed.target.relative_hit);
     Some((destination, packets))
 }
 

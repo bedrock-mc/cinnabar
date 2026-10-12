@@ -16,7 +16,7 @@ fn compact_font_snapshots() {
         );
         return;
     };
-    let Some(carrier) = super::pack_harness::carrier() else {
+    let Some(carrier) = ui_engine::test_support::carrier() else {
         return;
     };
     let manifest = assets::canonical_source_manifest_sha256(include_bytes!(
@@ -49,7 +49,7 @@ fn compact_font_snapshots() {
     ] {
         view.screen = screen;
         if screen == MenuScreen::Settings {
-            view.settings_section = super::menu_screens::SETTINGS_SECTIONS
+            view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
                 .iter()
                 .find_map(|(name, index)| (*name == "language_forced_index").then_some(*index))
                 .unwrap();

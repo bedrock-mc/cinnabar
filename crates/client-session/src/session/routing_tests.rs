@@ -40,18 +40,12 @@ fn level_chunk_private_ingress_preserves_payload_allocation_and_fifo_sequence() 
 
 #[test]
 fn start_game_inventory_authority_is_fanned_out_as_a_normalized_event() {
-    let mut game_data = protocol::GameData {
-        start_game: Default::default(),
-        item_registry: Default::default(),
-        biome_definitions: None,
-        entity_identifiers: None,
-        creative_content: None,
-    };
+    let mut game_data = protocol::GameData::default();
     assert_eq!(
         start_game_inventory_authority(&game_data),
         InventoryEvent::Authority(InventoryAuthority::Client)
     );
-    game_data.start_game.enable_item_stack_net_manager = true;
+    game_data.settings.inventory_authority = InventoryAuthority::Server;
     assert_eq!(
         start_game_inventory_authority(&game_data),
         InventoryEvent::Authority(InventoryAuthority::Server)
@@ -59,44 +53,25 @@ fn start_game_inventory_authority_is_fanned_out_as_a_normalized_event() {
 }
 
 #[test]
-fn start_game_item_registry_is_normalized_from_captured_game_data() {
-    let mut game_data = protocol::GameData {
-        start_game: Default::default(),
-        item_registry: Default::default(),
-        biome_definitions: None,
-        entity_identifiers: None,
-        creative_content: None,
+fn start_game_item_registry_publishes_the_admitted_registry() {
+    let mut game_data = protocol::GameData::default();
+    let registry = protocol::ItemRegistryEvent {
+        entries: std::sync::Arc::from([]),
     };
-    game_data.item_registry.item_data.push(Default::default());
-    let entry = &mut game_data.item_registry.item_data[0];
-    entry.item_name = "minecraft:apple".into();
-    entry.item_id = 878;
-
-    let registry = start_game_item_registry(&game_data, 0)
-        .unwrap()
-        .expect("normalized registry");
-    assert_eq!(registry.entries.len(), 1);
-    assert_eq!(registry.entries[0].identifier.as_ref(), "minecraft:apple");
-    assert_eq!(registry.entries[0].network_id, 878);
+    game_data.items.registry = Ok(registry.clone());
+    assert_eq!(
+        start_game_item_registry(&game_data).unwrap(),
+        Some(registry)
+    );
 }
 
 #[test]
 fn semantically_rejected_start_game_registry_does_not_reject_bootstrap() {
-    let mut game_data = protocol::GameData {
-        start_game: Default::default(),
-        item_registry: Default::default(),
-        biome_definitions: None,
-        entity_identifiers: None,
-        creative_content: None,
-    };
-    for identifier in ["minecraft:stick", "minecraft:stone"] {
-        game_data.item_registry.item_data.push(Default::default());
-        let entry = game_data.item_registry.item_data.last_mut().unwrap();
-        entry.item_name = identifier.into();
-        entry.item_id = 5;
-    }
-
-    assert_eq!(start_game_item_registry(&game_data, 0).unwrap(), None);
+    let mut game_data = protocol::GameData::default();
+    game_data.items.registry = Err(protocol::WorldPacketError::Item(
+        protocol::ItemPacketError::DuplicateRegistryEntry,
+    ));
+    assert_eq!(start_game_item_registry(&game_data).unwrap(), None);
     assert_eq!(
         start_game_inventory_authority(&game_data),
         InventoryEvent::Authority(InventoryAuthority::Client)
@@ -105,25 +80,12 @@ fn semantically_rejected_start_game_registry_does_not_reject_bootstrap() {
 
 #[test]
 fn malformed_start_game_registry_nbt_is_a_typed_wire_failure() {
-    let mut game_data = protocol::GameData {
-        start_game: Default::default(),
-        item_registry: Default::default(),
-        biome_definitions: None,
-        entity_identifiers: None,
-        creative_content: None,
-    };
-    game_data.item_registry.item_data.push(Default::default());
-    let entry = &mut game_data.item_registry.item_data[0];
-    entry.item_name = "minecraft:apple".into();
-    entry.item_id = 878;
-    entry.item_component_data.0 = bytes::Bytes::from_static(&[0xff]);
-
-    assert!(matches!(
-        start_game_item_registry(&game_data, 0),
-        Err(protocol::WorldPacketError::Wire(
-            protocol::WorldWireError::Item(protocol::ItemPacketError::InvalidItemNbt)
-        ))
+    let mut game_data = protocol::GameData::default();
+    let error = protocol::WorldPacketError::Wire(protocol::WorldWireError::Item(
+        protocol::ItemPacketError::InvalidItemNbt,
     ));
+    game_data.items.registry = Err(error.clone());
+    assert_eq!(start_game_item_registry(&game_data), Err(error));
 }
 
 #[test]

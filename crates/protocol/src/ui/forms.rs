@@ -483,24 +483,22 @@ pub fn modal_form_submit_response(
         ModalFormResponseSelection::ButtonIndex(index) => index.to_string(),
         ModalFormResponseSelection::ModalButton(flag) => flag.to_string(),
     };
-    ModalFormResponsePacket {
+    crate::Packet::new(ModalFormResponsePacket {
         form_id,
         json_response: Some(payload),
         form_cancel_reason: None,
-    }
-    .into()
+    })
 }
 
 /// Encodes a custom-form submit answer: response data present(1) carrying the JSON
 /// array of `values` in element order, cancel reason absent(0).
 pub fn custom_form_submit_response(form_id: u32, values: &[CustomFormValue]) -> crate::Packet {
     let array = serde_json::Value::Array(values.iter().map(custom_value_json).collect());
-    ModalFormResponsePacket {
+    crate::Packet::new(ModalFormResponsePacket {
         form_id,
         json_response: Some(array.to_string()),
         form_cancel_reason: None,
-    }
-    .into()
+    })
 }
 
 fn custom_value_json(value: &CustomFormValue) -> serde_json::Value {
@@ -521,21 +519,19 @@ fn custom_value_json(value: &CustomFormValue) -> serde_json::Value {
 /// An overlapping dialog cannot take ownership of an already occupied UI.
 /// UserBusy is wire value 1 in the pinned response schema.
 pub fn modal_form_busy_response(form_id: u32) -> crate::Packet {
-    ModalFormResponsePacket {
+    crate::Packet::new(ModalFormResponsePacket {
         form_id,
         json_response: None,
         form_cancel_reason: Some(EnumsModalFormCancelReason::Userbusy),
-    }
-    .into()
+    })
 }
 
 /// Encodes the vanilla user-closed dismissal: response data absent(0), cancel
 /// reason present(1) as the `UserClosed` wire value 0.
 pub fn modal_form_cancel_response(form_id: u32) -> crate::Packet {
-    ModalFormResponsePacket {
+    crate::Packet::new(ModalFormResponsePacket {
         form_id,
         json_response: None,
         form_cancel_reason: Some(EnumsModalFormCancelReason::Userclosed),
-    }
-    .into()
+    })
 }

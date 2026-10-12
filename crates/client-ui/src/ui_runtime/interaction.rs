@@ -1,19 +1,12 @@
-use bevy::{
-    input::{
-        ButtonState, gamepad::GamepadButton, keyboard::KeyboardInput, mouse::AccumulatedMouseMotion,
-    },
-    prelude::{ButtonInput, KeyCode, MouseButton, Vec2},
-    window::{CursorGrabMode, CursorOptions},
-};
-
 use protocol::{ChatPacketError, Packet};
+use semantic_input::KeyboardKey;
 use ui::{ChatClipboard, UiAction};
 
 use super::{UiRuntime, presentation};
 #[cfg(any(test, feature = "test-support"))]
 use inventory::inventory_ledger::CellGesture;
 use inventory::inventory_ledger::{DropSource, InventoryGestureError};
-use presentation::inventory_pointer::InventoryCellHit;
+use ui_screens::container_actions::InventoryCellHit;
 
 /// Admits every ready inventory packet in queue order, stopping at the first
 /// transport refusal. Returns whether anything was admitted.
@@ -86,7 +79,7 @@ pub fn flush_chat_sends<E>(
 /// frame's key state: this frame's presses and the held modifiers.
 #[derive(Debug, Clone, Default)]
 pub struct InventoryKeys {
-    presses: Vec<KeyCode>,
+    presses: Vec<KeyboardKey>,
     shift: bool,
     control: bool,
     modifier_sides: [bool; 4],
@@ -94,7 +87,7 @@ pub struct InventoryKeys {
 
 impl InventoryKeys {
     /// Drains this frame's presses while retaining the held modifier state.
-    pub fn take_frame(&mut self) -> (Vec<KeyCode>, bool, bool) {
+    pub fn take_frame(&mut self) -> (Vec<KeyboardKey>, bool, bool) {
         (std::mem::take(&mut self.presses), self.shift, self.control)
     }
 
@@ -102,20 +95,20 @@ impl InventoryKeys {
     const MAX_PRESSES: usize = 16;
 
     /// Tracks each physical modifier independently across suppressed gameplay frames.
-    pub fn track_modifier(&mut self, input: &KeyboardInput) {
-        let index = match input.key_code {
-            KeyCode::ShiftLeft => 0,
-            KeyCode::ShiftRight => 1,
-            KeyCode::ControlLeft => 2,
-            KeyCode::ControlRight => 3,
+    pub fn track_modifier(&mut self, key: KeyboardKey, pressed: bool) {
+        let index = match key {
+            KeyboardKey::ShiftLeft => 0,
+            KeyboardKey::ShiftRight => 1,
+            KeyboardKey::ControlLeft => 2,
+            KeyboardKey::ControlRight => 3,
             _ => return,
         };
-        self.modifier_sides[index] = input.state == ButtonState::Pressed;
+        self.modifier_sides[index] = pressed;
         self.shift = self.modifier_sides[0] || self.modifier_sides[1];
         self.control = self.modifier_sides[2] || self.modifier_sides[3];
     }
 
-    pub fn press(&mut self, key: KeyCode) {
+    pub fn press(&mut self, key: KeyboardKey) {
         if self.presses.len() < Self::MAX_PRESSES {
             self.presses.push(key);
         }
@@ -129,7 +122,7 @@ pub fn dispatch_inventory_key(
     player_runtime: &mut player_state::PlayerState,
     runtime: &mut UiRuntime,
     hit: Option<InventoryCellHit>,
-    key: KeyCode,
+    key: KeyboardKey,
     control: bool,
     hotbar: Option<u8>,
     drop: bool,
@@ -141,8 +134,8 @@ pub fn dispatch_inventory_key(
         return None;
     }
     let scroll = match key {
-        KeyCode::ArrowUp | KeyCode::PageUp => Some(-1),
-        KeyCode::ArrowDown | KeyCode::PageDown => Some(1),
+        KeyboardKey::ArrowUp | KeyboardKey::PageUp => Some(-1),
+        KeyboardKey::ArrowDown | KeyboardKey::PageDown => Some(1),
         _ => None,
     };
     if let Some(rows) = scroll
@@ -163,7 +156,7 @@ pub fn dispatch_inventory_key(
     {
         runtime
             .screen_state_mut()
-            .scroll_loom(rows, super::screen_recipes::LOOM_PATTERNS.len());
+            .scroll_loom(rows, ui_screens::container_actions::LOOM_PATTERNS.len());
         return None;
     }
     if drop && runtime.screen_state().text_focused() {
@@ -228,18 +221,6 @@ pub fn dispatch_inventory_click(
     }
 }
 
-pub const fn gamepad_chat_action(button: GamepadButton) -> Option<UiAction> {
-    match button {
-        GamepadButton::DPadUp => Some(UiAction::Navigate([0, -1])),
-        GamepadButton::DPadDown => Some(UiAction::Navigate([0, 1])),
-        GamepadButton::South => Some(UiAction::Accept),
-        GamepadButton::East => Some(UiAction::Cancel),
-        GamepadButton::RightTrigger => Some(UiAction::TabNext),
-        GamepadButton::LeftTrigger => Some(UiAction::TabPrevious),
-        _ => None,
-    }
-}
-
 pub fn dispatch_chat_ui_action(
     runtime: &mut UiRuntime,
     action: UiAction,
@@ -262,78 +243,33 @@ pub fn dispatch_chat_ui_action(
     }
 }
 
-pub fn is_chat_edit_shortcut(keys: &ButtonInput<KeyCode>) -> bool {
-    (keys.pressed(KeyCode::ControlLeft)
-        || keys.pressed(KeyCode::ControlRight)
-        || keys.pressed(KeyCode::SuperLeft)
-        || keys.pressed(KeyCode::SuperRight))
-        && !keys.pressed(KeyCode::AltLeft)
-        && !keys.pressed(KeyCode::AltRight)
+/// Whether the held keys make a key press a Control/Command editing shortcut.
+pub fn is_chat_edit_shortcut(held: &[KeyboardKey]) -> bool {
+    let pressed = |key: KeyboardKey| held.contains(&key);
+    (pressed(KeyboardKey::ControlLeft)
+        || pressed(KeyboardKey::ControlRight)
+        || pressed(KeyboardKey::SuperLeft)
+        || pressed(KeyboardKey::SuperRight))
+        && !pressed(KeyboardKey::AltLeft)
+        && !pressed(KeyboardKey::AltRight)
 }
 
 pub fn paste_chat_shortcut<C: ChatClipboard>(
     runtime: &mut UiRuntime,
-    key: KeyCode,
-    keys: &ButtonInput<KeyCode>,
+    key: KeyboardKey,
+    held: &[KeyboardKey],
     clipboard: &mut C,
 ) -> bool {
-    if key != KeyCode::KeyV || !is_chat_edit_shortcut(keys) {
+    if key != KeyboardKey::KeyV || !is_chat_edit_shortcut(held) {
         return false;
     }
     let _ = runtime.paste_chat_text(clipboard);
     true
 }
 
-pub fn suppress_gameplay_input_for_inventory(
-    runtime: &UiRuntime,
-    cursor: &mut CursorOptions,
-    keys: &mut ButtonInput<KeyCode>,
-    mouse_motion: &mut AccumulatedMouseMotion,
-) {
-    if !runtime.inventory_open() {
-        return;
-    }
-    cursor.grab_mode = CursorGrabMode::None;
-    cursor.visible = true;
-    keys.reset_all();
-    mouse_motion.delta = Vec2::ZERO;
-}
-
-pub fn restore_gameplay_input_after_chat(
-    cursor: &mut CursorOptions,
-    keys: &mut ButtonInput<KeyCode>,
-    mouse_buttons: &mut ButtonInput<MouseButton>,
-    mouse_motion: &mut AccumulatedMouseMotion,
-) {
-    cursor.grab_mode = CursorGrabMode::Locked;
-    cursor.visible = false;
-    keys.reset_all();
-    mouse_buttons.reset_all();
-    mouse_motion.delta = bevy::math::Vec2::ZERO;
-}
-
-pub fn suppress_gameplay_input_for_chat(
-    player_runtime: &player_state::PlayerState,
-    runtime: &UiRuntime,
-    cursor: &mut CursorOptions,
-    keys: &mut ButtonInput<KeyCode>,
-    mouse_buttons: &mut ButtonInput<MouseButton>,
-    mouse_motion: &mut AccumulatedMouseMotion,
-) {
-    if !runtime.ui_focused(player_runtime) {
-        return;
-    }
-    cursor.grab_mode = CursorGrabMode::None;
-    cursor.visible = true;
-    keys.reset_all();
-    mouse_buttons.reset_all();
-    mouse_motion.delta = bevy::math::Vec2::ZERO;
-}
-
 mod pointer_order;
 pub use pointer_order::{
-    FrameInput, PointerRouter, PressRoute, ScreenKey, ordered_pointer_presses, route_frame_presses,
-    screen_after,
+    FrameInput, PointerRouter, PressRoute, ScreenKey, route_frame_presses, screen_after,
 };
 
 #[cfg(test)]

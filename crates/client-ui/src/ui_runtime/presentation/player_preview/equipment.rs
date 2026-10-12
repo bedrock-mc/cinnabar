@@ -53,7 +53,8 @@ pub struct PreviewHandItem {
     pub grip: Option<assets::item::grip::ItemGrip>,
     pub identifier: Arc<str>,
     pub metadata: u32,
-    pub charged_projectile: Option<Arc<str>>,
+    pub use_animation: assets::item_use::ItemUseAnimation,
+    pub charged_projectile: assets::item_use::ItemProjectileRole,
 }
 
 /// Real item-space geometry and the source atlas region, never a projected GUI icon.

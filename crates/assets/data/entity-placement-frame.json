@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "frames": {
+    "minecraft:arrow": {
+      "Provisional": {
+        "placement": "Absolute",
+        "target_rotation": "Absolute"
+      }
+    },
+    "minecraft:dragon_fireball": {
+      "Provisional": {
+        "placement": "Absolute",
+        "target_rotation": "Body"
+      }
+    },
+    "minecraft:egg": {
+      "Provisional": {
+        "placement": "Absolute",
+        "target_rotation": "Body"
+      }
+    },
+    "minecraft:ender_pearl": {
+      "Provisional": {
+        "placement": "Absolute",
+        "target_rotation": "Body"
+      }
+    },
+    "minecraft:eye_of_ender_signal": {
+      "Provisional": {
+        "placement": "Absolute",
+        "target_rotation": "Body"
+      }
+    },
+    "minecraft:fireball": {
+      "Provisional": {
+        "placement": "Absolute",
+        "target_rotation": "Body"
+      }
+    },
+    "minecraft:fireworks_rocket": {
+      "Provisional": {
+        "placement": "Absolute",
+        "target_rotation": "Absolute"
+      }
+    },
+    "minecraft:lingering_potion": {
+      "Provisional": {
+        "placement": "Absolute",
+        "target_rotation": "Body"
+      }
+    },
+    "minecraft:small_fireball": {
+      "Provisional": {
+        "placement": "Absolute",
+        "target_rotation": "Body"
+      }
+    },
+    "minecraft:snowball": {
+      "Provisional": {
+        "placement": "Absolute",
+        "target_rotation": "Body"
+      }
+    },
+    "minecraft:splash_potion": {
+      "Provisional": {
+        "placement": "Absolute",
+        "target_rotation": "Body"
+      }
+    },
+    "minecraft:wither_skull": {
+      "Provisional": {
+        "placement": "Absolute",
+        "target_rotation": "Absolute"
+      }
+    },
+    "minecraft:wither_skull_dangerous": {
+      "Provisional": {
+        "placement": "Absolute",
+        "target_rotation": "Absolute"
+      }
+    },
+    "minecraft:xp_bottle": {
+      "Provisional": {
+        "placement": "Absolute",
+        "target_rotation": "Body"
+      }
+    },
+    "minecraft:xp_orb": {
+      "Provisional": {
+        "placement": "Absolute",
+        "target_rotation": "Body"
+      }
+    }
+  }
+}

@@ -1,6 +1,7 @@
 //! Geometry of the recipe book panel beside the personal and crafting-table screens.
 
-use super::{InventoryScreen, Widget};
+use super::InventoryScreen;
+use ui_screens::container_actions::Widget;
 
 pub const BOOK_PANEL: [f32; 2] = [147.0, 166.0];
 /// Gap between the book panel and the main panel.

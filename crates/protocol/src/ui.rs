@@ -96,7 +96,7 @@ pub fn chat_text_packet(
     // (`minecraft/protocol/packet/text.go`, `Text.Marshal`): TextTypeChat is
     // written under TextCategoryAuthoredMessage, which is the AuthorAndMessage
     // payload here.
-    Ok(TextPacket {
+    Ok(crate::Packet::new(TextPacket {
         localize: false,
         body: TextPacketBody::AuthorAndMessage(TextPacketPayloadAuthorAndMessage {
             message_type: TextPacketPayloadAuthorAndMessageMessageType::Chat,
@@ -106,8 +106,7 @@ pub fn chat_text_packet(
         senders_xuid: xuid.to_owned(),
         platform_id: String::new(),
         filtered_message: None,
-    }
-    .into())
+    }))
 }
 
 /// Builds the vanilla outbound packet for a chat-editor submission.
@@ -133,7 +132,7 @@ pub fn command_request_packet(command: &str) -> crate::Packet {
     // integer: gophertunnel's `commandOriginToString` maps
     // `CommandOriginPlayer` to exactly "player"
     // (`minecraft/protocol/command.go`).
-    CommandRequestPacket {
+    crate::Packet::new(CommandRequestPacket {
         command: command.to_owned(),
         origin: CommandOriginDatajson {
             type_: "player".to_owned(),
@@ -143,8 +142,7 @@ pub fn command_request_packet(command: &str) -> crate::Packet {
         },
         is_internal: false,
         version: "latest".to_owned(),
-    }
-    .into()
+    })
 }
 
 #[derive(Debug, Clone, PartialEq)]

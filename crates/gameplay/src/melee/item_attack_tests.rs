@@ -1,8 +1,6 @@
 use super::*;
-use protocol::wire::valentine::bedrock::version::v1_26_51::{
-    EnumsItemUseInventoryTransactionActionType as Action,
-    EnumsItemUseInventoryTransactionClientCooldownState as Cooldown,
-    InventoryTransactionPacketTransaction, ItemUseInventoryTransaction, McpePacketData,
+use protocol::test_support::transactions::{
+    ItemUseAction as Action, ItemUseObservation, observe_transaction,
 };
 
 /// Supplies verified selected-stack identity and a sampled item-directed attack.
@@ -31,17 +29,13 @@ fn press(tick: u64) -> PressContext {
 }
 
 /// Extracts the item transaction instead of accepting an actor attack as equivalent.
-fn transaction(outcome: &MeleeOutcome) -> &ItemUseInventoryTransaction {
-    let McpePacketData::InventoryTransactionPacket(packet) = &outcome.packets.last().unwrap().data
-    else {
-        panic!("item attack transaction missing");
-    };
-    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
-        &packet.transaction
-    else {
-        panic!("item attack incorrectly routed through actor use");
-    };
+fn transaction(outcome: &MeleeOutcome) -> ItemUseObservation {
+    let transaction = observe_transaction(outcome.packets.last().unwrap())
+        .expect("item attack transaction missing");
     transaction
+        .item_use()
+        .cloned()
+        .expect("item attack incorrectly routed through actor use")
 }
 
 #[test]
@@ -59,25 +53,11 @@ fn piercing_attacks_report_aim_for_air_actor_and_block_targets_without_mining() 
         runtime.observe_input(true, true);
         let outcome = runtime.resolve(crosshair, &press(100), &mut SwingTracker::default());
         let transaction = transaction(&outcome);
-        assert_eq!(transaction.action_type, Action::Useasattack);
+        assert_eq!(transaction.action, Action::UseAsAttack);
         assert_eq!(transaction.slot, 4);
-        assert_eq!(
-            [
-                transaction.from_position.x,
-                transaction.from_position.y,
-                transaction.from_position.z
-            ],
-            [10.0, 50.0, -3.0]
-        );
-        assert_eq!(
-            [
-                transaction.click_position.x,
-                transaction.click_position.y,
-                transaction.click_position.z
-            ],
-            [10.0, 50.0, -4.0]
-        );
-        assert_eq!(transaction.client_cooldown_state, Cooldown::Off);
+        assert_eq!(transaction.from_position, [10.0, 50.0, -3.0]);
+        assert_eq!(transaction.click_position, [10.0, 50.0, -4.0]);
+        assert!(!transaction.cooldown_active);
         assert!(protocol::is_aim_assist_rotation_action(
             outcome.packets.last().unwrap()
         ));
@@ -87,7 +67,7 @@ fn piercing_attacks_report_aim_for_air_actor_and_block_targets_without_mining() 
     let mut runtime = MeleeRuntime::default();
     runtime.observe_input(true, true);
     let block = runtime.resolve(Crosshair::Block, &press(100), &mut SwingTracker::default());
-    assert_eq!(transaction(&block).action_type, Action::Useasattack);
+    assert_eq!(transaction(&block).action, Action::UseAsAttack);
     runtime.observe_input(false, true);
     assert_eq!(
         runtime.observe_attack_target(Crosshair::Block, true),
@@ -131,10 +111,10 @@ fn shared_attack_cooldown_expires_on_its_tick_and_full_queue_does_not_start_it()
         },
     );
     assert_eq!(runtime.attack_cooldowns.len(), 1);
-    for (tick, expected, packet_count) in [(118, Cooldown::On, 1), (119, Cooldown::Off, 2)] {
+    for (tick, cooldown_active, packet_count) in [(118, true, 1), (119, false, 2)] {
         runtime.observe_input(true, true);
         let outcome = runtime.resolve(Crosshair::Miss, &press(tick), &mut swings);
-        assert_eq!(transaction(&outcome).client_cooldown_state, expected);
+        assert_eq!(transaction(&outcome).cooldown_active, cooldown_active);
         assert_eq!(outcome.packets.len(), packet_count);
     }
     runtime.synchronize((1, 1));

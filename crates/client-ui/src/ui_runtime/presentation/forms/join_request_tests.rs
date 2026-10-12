@@ -80,7 +80,7 @@ fn join_request_buttons_read_the_active_language() {
         _ => None,
     };
     let json_ui::FormModel::Modal(modal) =
-        super::menu_screens::join_request_model("Alex", &translate)
+        ui_screens::menu_screens::join_request_model("Alex", &translate)
     else {
         panic!("a join request is a modal popup");
     };

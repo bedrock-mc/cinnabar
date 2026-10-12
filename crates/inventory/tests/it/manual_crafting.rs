@@ -1,4 +1,7 @@
-use ::protocol::wire::valentine::bedrock::version::v1_26_51::McpePacketData;
+use ::protocol::test_support::recipes::{
+    CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture, StackActionObservation,
+    StackSlotObservation, recipe_update_from_batch, stack_request_actions, with_subclients,
+};
 use ::protocol::*;
 use bytes::Bytes;
 use inventory::{ManualCraftError, ManualCraftInput, ManualCraftSnapshot, manual_craft_packet};
@@ -6,21 +9,17 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 fn admitted(fixture: &'static [u8]) -> RecipeUpdate {
-    let mut batch = Bytes::from_static(fixture);
-    let raw = ::protocol::wire::jolyne::batch::decode_batch_raw(&mut batch, false, Some(4096))
-        .unwrap()
-        .remove(0);
-    decode_recipe_update(raw.body()).unwrap()
+    recipe_update_from_batch(fixture)
 }
 fn registry() -> Vec<ItemRegistryEntry> {
     [(6, "minecraft:oak_log"), (7, "minecraft:oak_planks")]
         .into_iter()
         .map(|(network_id, name)| ItemRegistryEntry {
-            components: None,
             identifier: Arc::from(name),
             network_id,
             component_based: false,
             version: ItemRegistryVersion::None,
+            components: None,
             component_digest: [0; 32],
             negotiated_max_stack_size: Some(64),
             canonical_empty_component_data: true,
@@ -64,24 +63,15 @@ fn each_atomic_request_uses_current_registry_and_ingredient_authority() {
         &cursor(),
     )
     .unwrap();
-    let McpePacketData::ItemStackRequestPacket(packet) = packet.data else {
-        panic!("request")
-    };
-    use ::protocol::wire::valentine::bedrock::version::v1_26_51::{
-        ItemStackRequestCerealNetworkItemInstanceDescriptorDataItemDescriptor as Descriptor,
-        ItemStackRequestPacketDataRequestDataActionsItem as Action,
-    };
-    let Action::CraftResultsActionData(results) = &packet.requests[0].actions[1] else {
+    let actions = stack_request_actions(&packet).expect("request");
+    let StackActionObservation::CraftResults(results) = &actions[1] else {
         panic!("results")
     };
-    let Descriptor::ItemNameDescriptorData(name) = &results.craft_results[0].item_descriptor else {
-        panic!("name")
-    };
-    assert_eq!(name.full_name, "minecraft:birch_planks");
-    let Action::ConsumeActionData(consume) = &packet.requests[0].actions[2] else {
+    assert_eq!(results[0].as_deref(), Some("minecraft:birch_planks"));
+    let StackActionObservation::Consume { source, .. } = &actions[2] else {
         panic!("consume")
     };
-    assert_eq!(consume.source.net_id_variant, 202);
+    assert_eq!(source.stack_network_id, 202);
     entries[1].negotiated_max_stack_size = Some(3);
     assert!(request(&catalog, 17, inputs(), &entries, -7, &cursor()).is_err());
     entries[1].negotiated_max_stack_size = None;
@@ -104,40 +94,22 @@ fn each_atomic_request_uses_current_registry_and_ingredient_authority() {
 
 #[test]
 fn current_ingredient_count_must_cover_the_advertised_consumption() {
-    use ::protocol::wire::valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
-    let mut bytes = bytes::BytesMut::new();
-    CraftingDataPacket {
-        shaped_recipes: vec![ShapedRecipePayload {
-            recipe_id: "test:two".into(),
-            width: 1,
-            height: 1,
-            ingredients: vec![CerealizerRecipeIngredientSerializedData {
-                descriptor: vec![CerealizerRecipeIngredientSerializedDataDescriptorItem {
-                    key: "name".into(),
-                    value: "minecraft:oak_log".into(),
-                }],
-                aux_value: 0,
-                stack_size: 2,
-            }],
-            results: vec![CerealizerNetworkItemInstanceDescriptorSerializedData {
-                id: 7,
-                stacksize: 4,
-                auxvalue: 0,
-                block_runtime_id: 0,
-                user_data_buffer: vec![0; 10],
-            }],
-            tag: "crafting_table".into(),
-            net_id: TypedServerNetIdstructRecipeNetIdTag { raw_id: 17 },
-            ..Default::default()
-        }],
-        clear_recipes: true,
-        ..Default::default()
-    }
-    .encode(&mut bytes)
-    .unwrap();
+    let ingredient = IngredientFixture {
+        count: 2,
+        ..IngredientFixture::named("minecraft:oak_log", 0)
+    };
+    let output = OutputFixture {
+        user_data: vec![0; 10],
+        ..OutputFixture::new(7, 4)
+    };
+    let update = CraftingDataFixture::clearing(vec![RecipeFixture {
+        net_id: 17,
+        ..RecipeFixture::shaped("test:two", 1, 1, vec![ingredient], vec![output])
+    }])
+    .update();
     let mut catalog = RecipeCatalog::default();
     catalog.begin_session(1);
-    catalog.apply(1, 1, &decode_recipe_update(&bytes).unwrap());
+    catalog.apply(1, 1, &update);
     assert!(
         request(
             &catalog,
@@ -203,7 +175,7 @@ fn request(
 #[test]
 fn candidate_compound_order_and_current_request_reference_match_pinned_codec() {
     let catalog = catalog();
-    let mut packet = request(
+    let packet = request(
         &catalog,
         17,
         [Some(input(28, 101)), None, None, None],
@@ -212,30 +184,43 @@ fn candidate_compound_order_and_current_request_reference_match_pinned_codec() {
         &cursor(),
     )
     .unwrap();
-    packet.header.from_subclient = 1;
-    packet.header.to_subclient = 2;
+    let packet = with_subclients(packet, 1, 2);
     assert_eq!(
-        encode(&packet, &BedrockSession { shield_item_id: 0 })
-            .unwrap()
-            .as_ref(),
+        encode(&packet).unwrap().as_ref(),
         include_bytes!("../../../protocol/fixtures/item_stack_request_manual_craft.bin")
     );
-    let McpePacketData::ItemStackRequestPacket(request) = packet.data else {
-        panic!("request");
-    };
-    let actions = &request.requests[0].actions;
+    let actions = stack_request_actions(&packet).expect("request");
     assert_eq!(actions.len(), 4);
-    use ::protocol::wire::valentine::bedrock::version::v1_26_51::ItemStackRequestPacketDataRequestDataActionsItem as Action;
-    assert!(matches!(actions[0], Action::CraftRecipeActionData(_)));
-    assert!(matches!(actions[1], Action::CraftResultsActionData(_)));
-    assert!(matches!(actions[2], Action::ConsumeActionData(_)));
-    let Action::TakeActionData(take) = &actions[3] else {
+    assert!(matches!(
+        actions[0],
+        StackActionObservation::CraftRecipe { .. }
+    ));
+    assert!(matches!(
+        actions[1],
+        StackActionObservation::CraftResults(_)
+    ));
+    assert!(matches!(actions[2], StackActionObservation::Consume { .. }));
+    let StackActionObservation::Take {
+        source,
+        destination,
+        ..
+    } = actions[3]
+    else {
         panic!("take");
     };
-    assert_eq!((take.source.slot, take.source.net_id_variant), (50, -3));
     assert_eq!(
-        (take.destination.slot, take.destination.net_id_variant),
-        (0, 0)
+        source,
+        StackSlotObservation {
+            slot: 50,
+            stack_network_id: -3
+        }
+    );
+    assert_eq!(
+        destination,
+        StackSlotObservation {
+            slot: 0,
+            stack_network_id: 0
+        }
     );
 }
 
@@ -260,10 +245,8 @@ fn vertical_named_shape_uses_personal_grid_stride_and_positive_input_ids() {
         )
     };
     let packet = prepare(101, 102).unwrap();
-    let McpePacketData::ItemStackRequestPacket(packet) = packet.data else {
-        panic!("request");
-    };
-    assert_eq!(packet.requests[0].actions.len(), 5);
+    let actions = stack_request_actions(&packet).expect("request");
+    assert_eq!(actions.len(), 5);
     assert!(prepare(-1, 102).is_err());
     assert!(prepare(101, 101).is_err());
     assert!(
@@ -330,12 +313,9 @@ fn replaced_or_retired_recipe_cannot_emit_and_generic_negative_slots_stay_invali
 
 #[test]
 fn synthetic_acceptance_response_retains_exact_request_and_result_mapping() {
-    let packets = decode_batch(
-        Bytes::from_static(include_bytes!(
-            "../../../protocol/fixtures/item_stack_response_manual_craft.bin"
-        )),
-        &BedrockSession { shield_item_id: 0 },
-    )
+    let packets = decode_batch(Bytes::from_static(include_bytes!(
+        "../../../protocol/fixtures/item_stack_response_manual_craft.bin"
+    )))
     .unwrap();
     let packet = packets.into_iter().next().unwrap();
     let Some(WorldEvent::Inventory(InventoryEvent::Response(response))) =

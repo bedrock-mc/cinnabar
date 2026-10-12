@@ -9,7 +9,7 @@ mod tests;
 impl UiPresentationRuntime {
     /// Identifies the painted controls, so outgoing frames cannot drive another screen's focus.
     pub fn drawn_menu_context(&self) -> Option<(launcher::menu::MenuScreen, bool)> {
-        self.form_presentation.menu_focus_context
+        self.projections.menu_focus_context
     }
 
     /// Native focus uses full control rectangles and the current screen's landmark tree.
@@ -20,20 +20,20 @@ impl UiPresentationRuntime {
         &[launcher::menu::view::SettingsFocusLandmark],
     ) {
         (
-            &self.form_presentation.menu_focus_geometry,
-            &self.form_presentation.menu_focus_landmarks,
+            &self.projections.menu_focus_geometry,
+            &self.projections.menu_focus_landmarks,
         )
     }
 
     /// Whether the current topmost menu takes native Settings pointer clicks.
     pub fn uses_oreui_settings(&self) -> bool {
-        self.form_presentation.oreui_settings_input
+        self.projections.oreui_settings_input
     }
 
     /// The unrounded drag position uses full thumb-centre endpoints before clipping.
     pub fn settings_slider_drag_fraction(&self, index: u16, point: ui::UiPoint) -> Option<f32> {
         let (_, track, _) = self
-            .form_presentation
+            .projections
             .oreui_slider_tracks
             .iter()
             .find(|(at, _, _)| *at == index)?;
@@ -44,7 +44,7 @@ impl UiPresentationRuntime {
 
     /// Only the visible part of the current painted thumb starts a native drag.
     pub fn settings_slider_thumb_contains(&self, index: u16, point: ui::UiPoint) -> bool {
-        self.form_presentation
+        self.projections
             .oreui_slider_tracks
             .iter()
             .any(|(at, _, thumb)| *at == index && thumb.is_some_and(|thumb| thumb.contains(point)))
@@ -52,7 +52,7 @@ impl UiPresentationRuntime {
 
     /// Visible animated thumbs take precedence over the stationary track while dragging.
     pub fn settings_slider_thumb_hit_test(&self, point: ui::UiPoint) -> Option<u16> {
-        self.form_presentation
+        self.projections
             .oreui_slider_tracks
             .iter()
             .rev()
@@ -65,11 +65,11 @@ impl UiPresentationRuntime {
 
     /// Authored focus order includes controls keyboard navigation can scroll into view.
     pub fn menu_focus_actions(&self) -> impl Iterator<Item = launcher::menu::MenuAction> + '_ {
-        self.form_presentation.menu_focus.iter().copied().chain(
+        self.projections.menu_focus.iter().copied().chain(
             self.menu_hit_targets
                 .iter()
                 .map(|(action, _)| *action)
-                .filter(|_| self.form_presentation.menu_focus.is_empty()),
+                .filter(|_| self.projections.menu_focus.is_empty()),
         )
     }
 

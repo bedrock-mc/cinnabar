@@ -76,17 +76,14 @@ pub(super) fn produce(
     if trigger == ItemUseTrigger::SimulationTick {
         return true;
     }
-    let packet = protocol::use_actor_packet(
-        protocol::ActorUseRequest {
-            actor_runtime_id: hit.runtime_id,
-            action: protocol::ActorUseAction::Interact,
-            selected_slot: selection.slot,
-            selected_item: selection.item.clone(),
-            player_position: state.position,
-            hit_position: hit.point,
-        },
-        &protocol::BedrockSession { shield_item_id: 0 },
-    );
+    let packet = protocol::use_actor_packet(protocol::ActorUseRequest {
+        actor_runtime_id: hit.runtime_id,
+        action: protocol::ActorUseAction::Interact,
+        selected_slot: selection.slot,
+        selected_item: selection.item.clone(),
+        player_position: state.position,
+        hit_position: hit.point,
+    });
     let admitted = packet
         .ok()
         .is_some_and(|packet| context.network.send_inventory_packets(vec![packet]).is_ok());

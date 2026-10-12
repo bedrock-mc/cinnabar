@@ -5,18 +5,19 @@
 
 use std::time::Instant;
 
-use bevy::input::mouse::MouseScrollUnit;
 use json_ui::{Draggable, HitKind, HitRegion, ScrollMetrics};
+use semantic_input::ScrollUnit;
 
-use super::values::{EngineFrame, FormDrag};
+use super::values::FormDrag;
 use crate::ui_runtime::UiRuntime;
+use ui_engine::frame::EngineFrame;
 
 /// Wheel notches or pixels over the view the pointer reaches.
 pub(super) fn wheel(
     runtime: &mut UiRuntime,
     frame: &EngineFrame,
     point: [f64; 2],
-    notches: &[(f32, MouseScrollUnit)],
+    notches: &[(f32, ScrollUnit)],
 ) {
     let Some(view) = json_ui::scroll_target(&frame.hits, &frame.report, point) else {
         return;
@@ -36,8 +37,8 @@ pub(super) fn wheel(
             ..metrics.clone()
         };
         offset = match unit {
-            MouseScrollUnit::Line => at.offset_for_wheel(f64::from(*notch)),
-            MouseScrollUnit::Pixel => {
+            ScrollUnit::Line => at.offset_for_wheel(f64::from(*notch)),
+            ScrollUnit::Pixel => {
                 (offset - f64::from(*notch / frame.scale)).clamp(0.0, metrics.max_offset())
             }
         };

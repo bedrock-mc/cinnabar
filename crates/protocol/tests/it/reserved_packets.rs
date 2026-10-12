@@ -1,5 +1,5 @@
 use bytes::{BufMut, Bytes, BytesMut};
-use protocol::{BedrockSession, ProtocolError, decode_batch};
+use protocol::{ProtocolError, decode_batch};
 use valentine::bedrock::version::v1_26_51::{BorrowedMcpePacket, McpePacketName};
 use valentine::protocol::wire;
 
@@ -21,10 +21,6 @@ const FORMER_RESERVED: &[(u32, McpePacketName)] = &[
 ];
 
 const UNASSIGNED: &[u32] = &[173, 301];
-
-fn session() -> BedrockSession {
-    BedrockSession { shield_item_id: 0 }
-}
 
 fn inner_frame(id: u32, from_subclient: u32, to_subclient: u32, body: &[u8]) -> Bytes {
     let header = id | (from_subclient << 10) | (to_subclient << 12);
@@ -58,7 +54,7 @@ fn former_reserved_packet_ids_now_use_generated_numeric_discriminants() {
 fn generated_packet_names_reject_arbitrary_reserved_bodies_without_opacity() {
     for &(id, name) in FORMER_RESERVED {
         let fixture = batch(&[inner_frame(id, 2, 3, &[0xff, 0x80, 0x01, 0x00, 0x7f])]);
-        let error = decode_batch(fixture, &session())
+        let error = decode_batch(fixture)
             .expect_err("generated packet must not decode arbitrary legacy opaque body");
         assert!(
             matches!(
@@ -84,7 +80,7 @@ fn unassigned_packet_cannot_consume_an_adjacent_frame() {
     let second = inner_frame(109, 3, 1, &[0x01, 0x02]);
     let fixture = batch(&[first, second]);
     assert!(matches!(
-        decode_batch(fixture, &session()),
+        decode_batch(fixture),
         Err(ProtocolError::Decode(_))
     ));
 }
@@ -98,7 +94,7 @@ fn unassigned_packet_declared_length_truncation_is_fatal() {
     fixture.extend_from_slice(&[0x01, 0x02]);
 
     assert!(matches!(
-        decode_batch(fixture.freeze(), &session()),
+        decode_batch(fixture.freeze()),
         Err(ProtocolError::TruncatedPacket { .. })
     ));
 }

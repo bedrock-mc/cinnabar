@@ -28,10 +28,8 @@ fn family(record: &RegistryRecord) -> Option<Shape> {
     let name = name.strip_prefix("dead_").unwrap_or(name);
     let (species, shape) = if let Some(species) = name.strip_suffix("_coral_wall_fan") {
         (species, Shape::Wall(0))
-    } else if let Some(species) = name.strip_suffix("_coral_fan") {
-        (species, Shape::Floor)
     } else {
-        return None;
+        (name.strip_suffix("_coral_fan")?, Shape::Floor)
     };
     matches!(species, "tube" | "brain" | "bubble" | "fire" | "horn").then_some(shape)
 }

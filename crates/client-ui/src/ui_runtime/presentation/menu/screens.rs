@@ -9,11 +9,12 @@ use ui::{SafeArea, TextLayoutCache, UiNode, UiRect};
 use launcher::menu::{MenuAction, MenuScreen, MenuServerCard, MenuView};
 
 use super::{
-    ContentArea, TextMetrics, UiPresentationError, bounded_visible_text,
+    ContentArea, UiPresentationError, bounded_visible_text,
     components::{button, card, solid, text},
     rect, text_visual_extent,
     tokens::*,
 };
+use ui_engine::text_metrics::TextMetrics;
 
 pub(super) fn append(
     view: &MenuView,

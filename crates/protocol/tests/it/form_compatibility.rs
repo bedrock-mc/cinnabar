@@ -5,11 +5,10 @@ use valentine::bedrock::version::v1_26_51::ModalFormRequestPacket;
 /// Decodes an authored form through the same normalization used by live packets.
 fn model(document: serde_json::Value) -> ServerFormModel {
     let Some(WorldEvent::Ui(UiEvent::Form(event))) = into_world_event(
-        ModalFormRequestPacket {
+        protocol::Packet::new(ModalFormRequestPacket {
             form_id: 7,
             form_uijson: document.to_string(),
-        }
-        .into(),
+        }),
         0,
     )
     .unwrap() else {

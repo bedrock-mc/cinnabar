@@ -1,7 +1,7 @@
 //! Static owners retain equipment and property inputs for their attachables.
 use crate::{PropertyDefinition, PropertyKind};
 use assets::{MolangCall, MolangOp, MolangSymbol, MolangSymbolKind};
-use {super::*, world::TICK_DURATION as ACTOR_TICK_DURATION};
+use {super::*, simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION};
 
 /// Selects one animation from an owning-entity query with a single argument.
 fn query_fixture(property: bool) -> Arc<RuntimeEntityAssets> {
@@ -43,7 +43,7 @@ fn owner_store(
     owner: &TestActor,
     context: &ActorTickContext,
 ) -> ActorAnimationStore {
-    let mut store = ActorAnimationStore::new(Some(Arc::clone(assets)));
+    let mut store = ActorAnimationStore::with_assets(Arc::clone(assets));
     let lifetime = tests::owner_rig().actor;
     let state = resolve_binding(assets, &store.layout, owner, 0, 0).unwrap();
     store.rigs.insert(lifetime, state);

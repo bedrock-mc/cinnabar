@@ -247,10 +247,25 @@ impl RuntimeAssets {
         let mut model_templates = self.model_templates.to_vec();
         let compound_tails = crate::blob::compiled_compound_tails(&overlay.model_templates)?;
         let mut covered = 0usize;
-        for template in &overlay.model_templates {
+        for (index, template) in overlay.model_templates.iter().enumerate() {
+            if template.flags == crate::MODEL_TEMPLATE_FLAG_POTTED_PLANT
+                && (template.quad_count == 0
+                    || overlay
+                        .model_templates
+                        .get(index + 1)
+                        .is_none_or(|next| next.flags != 0))
+            {
+                return Err(invalid(
+                    "overlay pot-content template has no standalone world model",
+                ));
+            }
             if template.quad_start as usize != covered
                 || template.quad_count as usize > crate::MAX_MODEL_TEMPLATE_QUADS
-                || !matches!(template.flags, 0 | crate::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT)
+                || !matches!(
+                    template.flags,
+                    0 | crate::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT
+                        | crate::MODEL_TEMPLATE_FLAG_POTTED_PLANT
+                )
             {
                 return Err(invalid("overlay template spans are noncanonical"));
             }
@@ -298,6 +313,13 @@ impl RuntimeAssets {
         }
         let mut visuals = self.visuals.to_vec();
         for visual in &overlay.visuals {
+            if overlay
+                .model_templates
+                .get(visual.model_template as usize)
+                .is_some_and(|template| template.flags == crate::MODEL_TEMPLATE_FLAG_POTTED_PLANT)
+            {
+                return Err(invalid("overlay visual references pot-content geometry"));
+            }
             if visual.model_template != NO_MODEL_TEMPLATE
                 && compound_tails.get(visual.model_template as usize).copied() == Some(true)
             {

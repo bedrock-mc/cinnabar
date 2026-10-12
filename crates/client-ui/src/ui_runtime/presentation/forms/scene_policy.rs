@@ -2,7 +2,7 @@
 
 use json_ui::ScreenSettings;
 
-use super::menu_screens;
+use ui_screens::menu_screens;
 use {
     crate::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
     launcher::menu::MenuView,
@@ -32,7 +32,8 @@ impl UiPresentationRuntime {
         runtime: &UiRuntime,
         menu: &dyn MenuScene,
     ) -> bool {
-        self.mod_panel_open() || self.base_absorbs_gameplay_input(player_runtime, runtime, menu)
+        self.screens.mod_ui.mod_panel_open()
+            || self.base_absorbs_gameplay_input(player_runtime, runtime, menu)
     }
 
     /// The ordinary scene policy before an optional personal panel takes focus.
@@ -44,7 +45,7 @@ impl UiPresentationRuntime {
     ) -> bool {
         runtime.ui_focused(player_runtime)
             || (menu.is_visible() && self.menu_settings(runtime, &menu.view()).absorbs_input)
-            || self.experience_modal_open()
+            || self.screens.mod_ui.experience_modal_open()
     }
 
     /// Every visible scene above the world must permit drawing the game behind it.
@@ -54,7 +55,7 @@ impl UiPresentationRuntime {
         runtime: &UiRuntime,
         menu: &dyn MenuScene,
     ) -> bool {
-        let engine = self.form_presentation.engine.as_deref();
+        let engine = self.engine.as_deref();
         let settings = |reference: &str| {
             engine.map_or_else(ScreenSettings::default, |engine| {
                 engine.scene_settings(reference, engine.context())
@@ -66,16 +67,18 @@ impl UiPresentationRuntime {
         {
             return false;
         }
-        if runtime.chat_focused() && !settings(super::chat_screen::CHAT_SCREEN).render_game_behind {
+        if runtime.chat_focused()
+            && !settings(ui_screens::chat_screen::CHAT_SCREEN).render_game_behind
+        {
             return false;
         }
         if runtime.emotes().is_open()
-            && !settings(super::emote_screen::EMOTE_SCREEN).render_game_behind
+            && !settings(ui_screens::emote_screen::EMOTE_SCREEN).render_game_behind
         {
             return false;
         }
         if runtime.inventory_open()
-            && let Some(layout) = super::containers::ScreenLayout::of(player_runtime, runtime, None)
+            && let Some(layout) = super::containers::screen_layout(player_runtime, runtime, None)
             && !settings(layout.screen().0).render_game_behind
         {
             return false;
@@ -93,11 +96,14 @@ impl UiPresentationRuntime {
         if view.screen == launcher::menu::MenuScreen::Death {
             return crate::ui_runtime::scene_stack::construction::death_settings();
         }
-        let Some(engine) = self.form_presentation.engine.as_deref() else {
+        let Some(engine) = self.engine.as_deref() else {
             return ScreenSettings::default();
         };
-        let Some(mut screen) = menu_screens::screen_data(view, &|key| runtime.translation(key))
-        else {
+        let Some(mut screen) = menu_screens::screen_data(
+            view,
+            &|key| runtime.translation(key),
+            super::menus::unix_seconds(),
+        ) else {
             return ScreenSettings::default();
         };
         let mut policy = engine.scene_settings(screen.reference, &screen.context);

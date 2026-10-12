@@ -59,36 +59,16 @@ fn ledge_fixture(pitch: f32) -> (World, client_session::CapturedPackets) {
 fn looking_past_a_ledge_places_on_the_forward_face_of_support() {
     let (mut world, mut captured) = ledge_fixture(-0.9601);
     world.run_system_cached(produce_block_use).unwrap();
-    use protocol::wire::valentine::bedrock::version::v1_26_51::{
-        InventoryTransactionPacketTransaction, McpePacketData,
-    };
     let transaction = captured
         .drain()
-        .into_iter()
-        .find_map(|packet| {
-            let McpePacketData::InventoryTransactionPacket(packet) = packet.data else {
-                return None;
-            };
-            let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(tx) =
-                packet.transaction
-            else {
-                return None;
-            };
-            Some(tx)
-        })
+        .iter()
+        .find_map(super::item_use)
         .expect("forward placement transaction");
-    assert_eq!(
-        [
-            transaction.position.x,
-            transaction.position.y,
-            transaction.position.z
-        ],
-        [4, 0, 6]
-    );
+    assert_eq!(transaction.position, [4, 0, 6]);
     assert_eq!(transaction.face, 2);
-    assert_eq!(transaction.click_position.x, 0.5);
-    assert_eq!(transaction.click_position.y, 1.0);
-    assert!((transaction.click_position.z - 0.1).abs() < 1.0e-5);
+    assert_eq!(transaction.click_position[0], 0.5);
+    assert_eq!(transaction.click_position[1], 1.0);
+    assert!((transaction.click_position[2] - 0.1).abs() < 1.0e-5);
     let client = world.resource::<crate::runtime::world::ClientWorld>();
     let stream = client.stream.as_ref().unwrap();
     let palette = sim::PaletteWorld::new(

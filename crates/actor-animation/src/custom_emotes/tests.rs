@@ -44,6 +44,7 @@ impl Fixture {
 
     pub(super) fn rig(&self) -> ActorRigSnapshot<'_> {
         ActorRigSnapshot {
+            placement_frame: assets::placement::EntityPlacementFrame::Unresolved,
             actor: ActorLifetimeId {
                 session_id: 7,
                 dimension: 0,

@@ -123,33 +123,16 @@ fn creeper_ignition_advances_and_reverses_swelling_without_swell_metadata() {
 
 #[test]
 fn thrown_potion_variant_retains_normalized_add_actor_and_metadata_updates() {
-    use protocol::wire::valentine::bedrock::version::v1_26_51::{
-        ActorRuntimeId, ActorUniqueId, AddActorPacket, DataItemEntry, DataItemEntryPayload,
-        DataItemShortPayload, EnumsDataItemType, SynchedActorDataCopyableDataList,
-    };
     // The potion's auxiliary-value key, which its variant query reads.
     const AUX: u32 = actor_animation::test_support::POTION_AUX_VALUE_METADATA_KEY;
-    let packet = AddActorPacket {
-        target_actor_id: ActorUniqueId {
-            actor_unique_id: -7,
-        },
-        target_runtime_id: ActorRuntimeId {
-            actor_runtime_id: 7,
-        },
-        actor_type: "minecraft:splash_potion".into(),
-        actor_data: SynchedActorDataCopyableDataList {
-            data: vec![DataItemEntry {
-                id: AUX,
-                payload: DataItemEntryPayload::DataItemShortPayload(DataItemShortPayload {
-                    type_: EnumsDataItemType::Short,
-                    value: 21,
-                }),
-            }],
-        },
-        ..Default::default()
-    };
     let Some(protocol::WorldEvent::Actor(event)) =
-        protocol::into_world_event(packet.into(), 0).unwrap()
+        protocol::test_support::packets::add_actor_event(
+            -7,
+            7,
+            "minecraft:splash_potion",
+            &[(AUX, 21)],
+        )
+        .unwrap()
     else {
         panic!("expected normalized potion spawn");
     };
@@ -184,10 +167,13 @@ fn local_flight_freezes_cape_walk_phase_but_keeps_chase_and_resumes_walking() {
     compiled.rig_bindings[0].entity_symbol = 0;
     compiled.rig_bindings[0].render_controller = 3;
     compiled.animation_clips[0].symbol = 2;
-    let assets = Arc::new(assets::RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let assets = Arc::new(
+        assets::RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+    );
     let mut store = ActorStore::new_with_entity_assets(1, 0, assets);
     store.exclude_remote_state_for(1);
     let mut feed = crate::LocalPlayerFeed {
+        held_network_ids: [0; 2],
         game_mode: None,
         prefer_client_skin: false,
         uuid: [1; 16],

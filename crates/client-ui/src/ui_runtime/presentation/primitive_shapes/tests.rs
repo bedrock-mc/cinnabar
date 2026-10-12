@@ -95,7 +95,7 @@ fn primitive_text_resolves_text_objects_and_literal_escaped_lines() {
 
 #[test]
 fn primitive_text_steady_and_movement_frames_keep_atlas_and_quad_slots() {
-    let font = super::super::tests::fixture_font();
+    let font = ui_engine::test_support::fixture_font();
     let mut presentation = UiPresentationRuntime::new(font).unwrap();
     let runtime = UiRuntime::new(1);
     let mut store = PrimitiveShapeStore::default();
@@ -132,7 +132,7 @@ fn set_translation(runtime: &mut UiRuntime, value: &str) {
 
 #[test]
 fn primitive_text_rawtext_refreshes_after_common_or_equal_patch_and_retains_steady_frames() {
-    let font = super::super::tests::fixture_font();
+    let font = ui_engine::test_support::fixture_font();
     let mut presentation = UiPresentationRuntime::new(font).unwrap();
     let mut runtime = UiRuntime::new(1);
     let mut store = PrimitiveShapeStore::default();

@@ -15,13 +15,12 @@ pub(crate) fn normalize(packet: &ShowCreditsPacket) -> Option<ShowCreditsEvent> 
 /// Finishes the credits for the addressed player; it does not acknowledge a dimension switch.
 #[must_use]
 pub fn credits_finished_packet(runtime_id: u64) -> crate::Packet {
-    ShowCreditsPacket {
+    crate::Packet::new(ShowCreditsPacket {
         player_runtime_id: ActorRuntimeId {
             actor_runtime_id: runtime_id,
         },
         credits_state: 1,
-    }
-    .into()
+    })
 }
 
 #[cfg(test)]

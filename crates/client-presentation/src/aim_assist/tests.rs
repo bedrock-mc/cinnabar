@@ -180,12 +180,12 @@ fn explicit_blocks_tags_and_exclusions_resolve_without_allocating() {
         target_liquids: false,
     };
     let tags: [Arc<str>; 1] = [Arc::from("wood")];
-    let before = crate::test_allocations::count();
+    let before = test_alloc::thread_allocations();
     assert_eq!(category.block_priority("stone", &tags), Some(20));
     assert_eq!(category.block_priority("log", &tags), Some(20));
     assert_eq!(category.block_priority("unknown", &[]), Some(3));
     assert_eq!(category.block_priority("air", &[]), None);
-    assert_eq!(crate::test_allocations::count() - before, 0);
+    assert_eq!(test_alloc::thread_allocations() - before, 0);
 }
 
 #[test]
@@ -446,7 +446,7 @@ fn full_evaluation_is_allocation_free_and_publishes_every_second_tick() {
     );
     assert_eq!(frame.visibility_queries, queries);
     assert_eq!(frame.skipped_queries, skips);
-    let before = crate::test_allocations::count();
+    let before = test_alloc::thread_allocations();
     for tick in 2..20 {
         frame.evaluate(
             &state,
@@ -461,7 +461,7 @@ fn full_evaluation_is_allocation_free_and_publishes_every_second_tick() {
             |_| &[],
         );
     }
-    assert_eq!(crate::test_allocations::count() - before, 0);
+    assert_eq!(test_alloc::thread_allocations() - before, 0);
     assert_eq!(frame.target.unwrap().kind, TargetKind::Actor(2));
     let mut clear = settings(CameraAimAssistTargetMode::Distance);
     clear.action = CameraAimAssistAction::Clear;

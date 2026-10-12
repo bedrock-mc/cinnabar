@@ -80,7 +80,7 @@ pub(super) fn reconstruct(
             packet.cache_enabled = false;
             packet.cache_metadata.clear();
             stats.reconstructed_level_chunks = stats.reconstructed_level_chunks.saturating_add(1);
-            Ok(ResolverReady::Packet(packet.into()))
+            Ok(ResolverReady::Packet(crate::Packet::new(packet)))
         }
         PendingPacket::SubChunk(packet) => {
             let mut packet = (**packet).clone();
@@ -116,7 +116,7 @@ pub(super) fn reconstruct(
             }
             packet.cache_enabled = false;
             stats.reconstructed_sub_chunks = stats.reconstructed_sub_chunks.saturating_add(1);
-            Ok(ResolverReady::Packet(packet.into()))
+            Ok(ResolverReady::Packet(crate::Packet::new(packet)))
         }
     }
 }

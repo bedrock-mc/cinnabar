@@ -566,15 +566,12 @@ mod tests {
         );
         let mut budget = usize::MAX;
         lane.prioritize_deferred(&mut budget, None, |_, _| true);
-        let before = super::super::tests::allocation_count::thread_allocations();
+        let before = test_alloc::thread_allocations();
         for _ in 0..64 {
             let mut budget = usize::MAX;
             lane.prioritize_deferred(&mut budget, None, |_, _| true);
         }
-        assert_eq!(
-            super::super::tests::allocation_count::thread_allocations(),
-            before
-        );
+        assert_eq!(test_alloc::thread_allocations(), before);
         assert_eq!(
             lane.deferred.peek().map(|candidate| candidate.key),
             Some(spawn.key)

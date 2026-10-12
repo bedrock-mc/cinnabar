@@ -25,9 +25,8 @@
 //!   `found_ids` rather than `missing` / `have`.
 
 use protocol::{
-    BedrockSession, BlobCacheError, BlobCacheLimits, BlobCacheReady, BlobCacheResolver,
-    BlockUpdateEvent, ChunkResyncEvent, ClientBlobCache, SetTimeEvent, WorldEvent,
-    client_blob_hash,
+    BlobCacheError, BlobCacheLimits, BlobCacheReady, BlobCacheResolver, BlockUpdateEvent,
+    ChunkResyncEvent, ClientBlobCache, SetTimeEvent, WorldEvent, client_blob_hash,
 };
 use std::sync::{Arc, Barrier};
 use valentine::bedrock::version::v1_26_51::{
@@ -85,7 +84,7 @@ fn cached_level(hashes: Vec<u64>, tail: &[u8]) -> protocol::Packet {
 }
 
 fn cached_level_at(x: i32, hashes: Vec<u64>, tail: &[u8]) -> protocol::Packet {
-    cached_level_chunk(x, -7, hashes, tail).into()
+    protocol::Packet::new(cached_level_chunk(x, -7, hashes, tail))
 }
 
 /// Builds one sub-chunk entry; `blob_id` present means the payload is cached.
@@ -125,7 +124,7 @@ pub(crate) fn cached_sub_chunk_packet(
 }
 
 fn cached_subchunk(hash: u64, tail: &[u8]) -> protocol::Packet {
-    cached_sub_chunk_packet(vec![
+    protocol::Packet::new(cached_sub_chunk_packet(vec![
         sub_chunk_entry(
             (0, 1, -1),
             SubChunkRequestResult::Success,
@@ -140,12 +139,11 @@ fn cached_subchunk(hash: u64, tail: &[u8]) -> protocol::Packet {
             None,
             Some(u64::MAX),
         ),
-    ])
-    .into()
+    ]))
 }
 
 fn cached_subchunk_multi_column(hash: u64, tail: &[u8]) -> protocol::Packet {
-    cached_sub_chunk_packet(vec![
+    protocol::Packet::new(cached_sub_chunk_packet(vec![
         sub_chunk_entry(
             (0, 1, 0),
             SubChunkRequestResult::Success,
@@ -158,8 +156,7 @@ fn cached_subchunk_multi_column(hash: u64, tail: &[u8]) -> protocol::Packet {
             Some(tail.to_vec()),
             Some(hash),
         ),
-    ])
-    .into()
+    ]))
 }
 
 /// A single-blob cached column.
@@ -168,7 +165,7 @@ fn cached_subchunk_multi_column(hash: u64, tail: &[u8]) -> protocol::Packet {
 /// sentinel. That sentinel no longer exists, so the equivalent minimal cached
 /// column is `subchunks_count: 0` with exactly one hash - the biome blob.
 fn cached_request_level(x: i32, hash: u64) -> protocol::Packet {
-    cached_level_chunk(x, 0, vec![hash], b"").into()
+    protocol::Packet::new(cached_level_chunk(x, 0, vec![hash], b""))
 }
 
 /// Builds a miss response for one blob.
@@ -384,11 +381,10 @@ fn sub_chunk_limited_level_chunk_reconstructs_biome_before_uncached_tail() {
     let cache = ClientBlobCache::with_limits(limits(128));
     cache.insert(biome).expect("seed biome");
     let mut resolver = BlobCacheResolver::new(cache);
-    let packet: protocol::Packet = LevelChunkPacket {
+    let packet: protocol::Packet = protocol::Packet::new(LevelChunkPacket {
         client_request_sub_chunk_limit: Some(7),
         ..cached_level_chunk(1, 2, vec![hash], &[0])
-    }
-    .into();
+    });
 
     let status = resolver.accept_cached_packet(packet).expect("cached biome");
     assert_eq!(status.have(), [hash]);
@@ -467,7 +463,7 @@ fn ordinary_packets_and_later_ready_chunks_bypass_unresolved_chunks() {
         .accept_cached_packet(cached_level(vec![ah, ah, ah], b"A"))
         .expect("pending A");
     resolver
-        .accept_passthrough(SetTimePacket { time: 42 }.into(), 8)
+        .accept_passthrough(protocol::Packet::new(SetTimePacket { time: 42 }), 8)
         .expect("ordinary packet");
     let b_status = resolver
         .accept_cached_packet(cached_level_at(5, vec![bh, bh, bh], b"B"))
@@ -581,11 +577,10 @@ fn semantic_shape_skips_truthfully_classify_every_referenced_hash() {
 
     // A recoverable semantic shape skip: the sub-chunk count disagrees with the
     // hash vector (gophertunnel requires exactly `SubChunkCount + 1` hashes).
-    let packets: [protocol::Packet; 1] = [LevelChunkPacket {
+    let packets: [protocol::Packet; 1] = [protocol::Packet::new(LevelChunkPacket {
         subchunks_count: 0,
         ..cached_level_chunk(4, -7, vec![hit, miss], b"")
-    }
-    .into()];
+    })];
 
     for packet in packets {
         let mut resolver = BlobCacheResolver::new(cache.clone());
@@ -662,7 +657,7 @@ fn passthrough_items_are_excluded_from_cache_transaction_stats() {
         .accept_cached_packet(cached_level(vec![hash, hash, hash], b""))
         .expect("ready cached packet");
     resolver
-        .accept_passthrough(SetTimePacket { time: 7 }.into(), 8)
+        .accept_passthrough(protocol::Packet::new(SetTimePacket { time: 7 }), 8)
         .expect("ready passthrough");
 
     assert_eq!(resolver.stats().pending_transactions, 0);
@@ -682,7 +677,7 @@ fn lunar_sized_many_small_blobs_are_not_charged_as_worst_case_blobs() {
         hashes.push(cache.insert(&payload).expect("seed small blob"));
         expected.extend_from_slice(&payload);
     }
-    let packet: protocol::Packet = cached_level_chunk(0, 0, hashes, b"tail").into();
+    let packet: protocol::Packet = protocol::Packet::new(cached_level_chunk(0, 0, hashes, b"tail"));
     let mut resolver = BlobCacheResolver::new(cache);
 
     resolver
@@ -708,11 +703,11 @@ fn blob_status_round_trips_exact_have_and_missing_hashes_on_the_wire() {
     let status = resolver
         .accept_cached_packet(cached_level(vec![hit_hash, miss_hash, hit_hash], b""))
         .expect("classify status");
-    let session = BedrockSession { shield_item_id: 0 };
     let packets = status.into_packets();
     assert_eq!(packets.len(), 1);
-    let encoded = protocol::encode(&packets[0].clone().into(), &session).expect("encode status");
-    let decoded = protocol::decode_batch(encoded, &session).expect("decode status");
+    let encoded =
+        protocol::encode(&protocol::Packet::new(packets[0].clone())).expect("encode status");
+    let decoded = protocol::decode_batch(encoded).expect("decode status");
     let McpePacketData::ClientCacheBlobStatusPacket(status) = &decoded[0].data else {
         panic!("expected cache blob status")
     };
@@ -730,7 +725,7 @@ fn blob_status_splits_4096_wire_hashes_at_4095_ids_without_omission() {
     hashes.push(hit);
     let mut resolver = BlobCacheResolver::new(cache);
     let status = resolver
-        .accept_cached_packet(cached_level_chunk(0, 0, hashes, b"").into())
+        .accept_cached_packet(protocol::Packet::new(cached_level_chunk(0, 0, hashes, b"")))
         .expect("classify every referenced hash through the only status-producing path");
     let packets = status.into_packets();
 

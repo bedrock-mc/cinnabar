@@ -12,5 +12,8 @@ pub use snapshot::{DisplayRow, StoreArt, StoreSnapshot, StoreView};
 pub use state::StoreState;
 pub use worker::{StoreError, StoreEvent, StoreRequest};
 
+/// The start-screen Marketplace button.
+pub const OPEN: StoreAction = StoreAction::Open;
+
 /// The vanilla base screen for Marketplace navigation.
 pub const SDL_SCREEN: &str = "store_layout.store_data_driven_screen";

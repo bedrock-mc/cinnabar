@@ -10,11 +10,12 @@ use bevy::{
     time::Real,
     window::{CursorOptions, PrimaryWindow},
 };
+use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use client_ui::ui_runtime::{UiRuntime, flush_form_response, presentation::UiPresentationRuntime};
 use {
     crate::ui_runtime::{drive_chat_keyboard_input, drive_server_form_input},
     client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
-    client_ui::test_support::fixture_font,
+    ui_engine::test_support::fixture_font,
 };
 
 #[test]
@@ -158,9 +159,9 @@ fn app_for(player_runtime: &mut client_state::PlayerRuntime, unsupported: bool) 
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
         .init_resource::<MenuClipboard>()
-        .insert_resource(runtime)
+        .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime.clone())
-        .insert_resource(presentation)
+        .insert_resource(UiPresentationResource(presentation))
         .insert_resource(menu)
         .add_systems(
             Update,
@@ -216,7 +217,7 @@ fn form_open_and_answer_frames_consume_gameplay_chat_inventory_and_pause_edges()
             .resource_mut::<ButtonInput<MouseButton>>()
             .press(MouseButton::Right);
         app.update();
-        let runtime = app.world().resource::<UiRuntime>();
+        let runtime = app.world().resource::<UiRuntimeResource>();
         assert!(
             runtime.ui_focused(&player_runtime),
             "transition-frame pending answer owns semantic context"
@@ -239,23 +240,26 @@ fn form_open_and_answer_frames_consume_gameplay_chat_inventory_and_pause_edges()
                 .is_none()
         );
         let mut packets = Vec::new();
-        flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |packet| {
-            packets.push(packet);
-            Ok(())
-        })
+        flush_form_response(
+            &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+            |packet| {
+                packets.push(packet);
+                Ok(())
+            },
+        )
         .unwrap();
         assert_eq!(packets.len(), 1);
         app.update(); // returns cursor ownership without replaying old messages
         assert!(
             !app.world()
-                .resource::<UiRuntime>()
+                .resource::<UiRuntimeResource>()
                 .ui_focused(&player_runtime)
         );
         assert!(!app.world().resource::<MenuRuntime>().is_visible());
         press(&mut app, entity, KeyCode::KeyT);
         app.update();
         assert!(
-            app.world().resource::<UiRuntime>().chat_focused(),
+            app.world().resource::<UiRuntimeResource>().chat_focused(),
             "normal controls resume"
         );
     }
@@ -269,31 +273,30 @@ fn pointer_action_is_bound_to_rendered_revision_and_keyboard_focus_selects_index
     press(&mut app, entity, KeyCode::ArrowDown);
     app.update();
     assert_eq!(
-        app.world().resource::<UiRuntime>().server_forms().focus(),
+        app.world()
+            .resource::<UiRuntimeResource>()
+            .server_forms()
+            .focus(),
         1
     );
     press(&mut app, entity, KeyCode::Enter);
     app.update();
     let mut response = None;
-    flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |packet| {
-        response = Some(packet);
-        Ok(())
-    })
-    .unwrap();
-    let wire = protocol::encode(
-        &response.unwrap(),
-        &protocol::BedrockSession { shield_item_id: 0 },
+    flush_form_response(
+        &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+        |packet| {
+            response = Some(packet);
+            Ok(())
+        },
     )
     .unwrap();
+    let wire = protocol::encode(&response.unwrap()).unwrap();
     assert_eq!(
         wire,
-        protocol::encode(
-            &protocol::modal_form_submit_response(
-                7,
-                protocol::ModalFormResponseSelection::ButtonIndex(1)
-            ),
-            &protocol::BedrockSession { shield_item_id: 0 }
-        )
+        protocol::encode(&protocol::modal_form_submit_response(
+            7,
+            protocol::ModalFormResponseSelection::ButtonIndex(1)
+        ),)
         .unwrap()
     );
 }
@@ -307,7 +310,7 @@ fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
         let point = ui::UiPoint::new(640.0, 156.0).unwrap();
         let hit = app
             .world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .hit_test_form(point)
             .unwrap();
         assert_eq!(
@@ -316,7 +319,7 @@ fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
         );
         if stale {
             app.world_mut()
-                .resource_mut::<UiRuntime>()
+                .resource_mut::<UiRuntimeResource>()
                 .apply(&mut player_runtime, retained(7, 2))
                 .unwrap();
         }
@@ -328,18 +331,23 @@ fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
             .resource_mut::<ButtonInput<MouseButton>>()
             .press(MouseButton::Left);
         app.update();
-        let sent =
-            flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |_| Ok(()))
-                .unwrap();
+        let sent = flush_form_response(
+            &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+            |_| Ok(()),
+        )
+        .unwrap();
         assert_eq!(sent, !stale);
         assert!(
-            !flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |_| Ok(()))
-                .unwrap()
+            !flush_form_response(
+                &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+                |_| Ok(())
+            )
+            .unwrap()
         );
         if stale {
             assert!(
                 app.world()
-                    .resource::<UiRuntime>()
+                    .resource::<UiRuntimeResource>()
                     .server_forms()
                     .active()
                     .is_some()
@@ -361,10 +369,13 @@ fn enter_reveals_a_hidden_button_before_it_can_submit() {
         menu.content = "Long body\n".repeat(100).into();
         menu.omitted_images = 1;
     }
-    let mut runtime = app.world_mut().remove_resource::<UiRuntime>().unwrap();
+    let mut runtime = app
+        .world_mut()
+        .remove_resource::<UiRuntimeResource>()
+        .unwrap();
     runtime.apply(&mut player_runtime, event).unwrap();
     app.world_mut()
-        .resource_mut::<UiPresentationRuntime>()
+        .resource_mut::<UiPresentationResource>()
         .build(
             &player_runtime,
             &runtime,
@@ -376,17 +387,20 @@ fn enter_reveals_a_hidden_button_before_it_can_submit() {
     let identity = runtime.server_forms().active().unwrap().identity;
     assert!(
         !app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .form_button_visible(identity, 0)
     );
     app.insert_resource(runtime);
     press(&mut app, entity, KeyCode::Enter);
     app.update();
-    let runtime = app.world_mut().remove_resource::<UiRuntime>().unwrap();
+    let runtime = app
+        .world_mut()
+        .remove_resource::<UiRuntimeResource>()
+        .unwrap();
     assert!(runtime.server_forms().active().is_some());
     assert!(runtime.server_forms().scroll() > 0);
     app.world_mut()
-        .resource_mut::<UiPresentationRuntime>()
+        .resource_mut::<UiPresentationResource>()
         .build(
             &player_runtime,
             &runtime,
@@ -397,17 +411,25 @@ fn enter_reveals_a_hidden_button_before_it_can_submit() {
         .unwrap();
     assert!(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .form_button_visible(identity, 0)
     );
     app.insert_resource(runtime);
     press(&mut app, entity, KeyCode::Enter);
     app.update();
     assert!(
-        flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |_| Ok(())).unwrap()
+        flush_form_response(
+            &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+            |_| Ok(())
+        )
+        .unwrap()
     );
     assert!(
-        !flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |_| Ok(())).unwrap()
+        !flush_form_response(
+            &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+            |_| Ok(())
+        )
+        .unwrap()
     );
 }
 
@@ -445,9 +467,9 @@ fn clicking_an_engine_drawn_button_answers_its_index() {
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
-        .insert_resource(runtime)
+        .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime.clone())
-        .insert_resource(presentation)
+        .insert_resource(UiPresentationResource(presentation))
         .add_systems(Update, drive_server_form_input);
     let mut window = Window {
         focused: true,
@@ -476,21 +498,20 @@ fn clicking_an_engine_drawn_button_answers_its_index() {
         app.update();
     }
     let mut response = None;
-    flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |packet| {
-        response = Some(packet);
-        Ok(())
-    })
+    flush_form_response(
+        &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+        |packet| {
+            response = Some(packet);
+            Ok(())
+        },
+    )
     .unwrap();
-    let session = protocol::BedrockSession { shield_item_id: 0 };
     assert_eq!(
-        protocol::encode(&response.expect("the click answered"), &session).unwrap(),
-        protocol::encode(
-            &protocol::modal_form_submit_response(
-                3,
-                protocol::ModalFormResponseSelection::ButtonIndex(1)
-            ),
-            &session
-        )
+        protocol::encode(&response.expect("the click answered")).unwrap(),
+        protocol::encode(&protocol::modal_form_submit_response(
+            3,
+            protocol::ModalFormResponseSelection::ButtonIndex(1)
+        ),)
         .unwrap()
     );
 }
@@ -528,9 +549,9 @@ fn held_keys_auto_repeating_into_an_open_form_do_not_answer_it() {
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
-        .insert_resource(runtime)
+        .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime)
-        .insert_resource(presentation)
+        .insert_resource(UiPresentationResource(presentation))
         .add_systems(Update, drive_server_form_input);
     let mut window = Window {
         focused: true,
@@ -558,10 +579,13 @@ fn held_keys_auto_repeating_into_an_open_form_do_not_answer_it() {
         app.update();
     }
     let mut response = None;
-    flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |packet| {
-        response = Some(packet);
-        Ok(())
-    })
+    flush_form_response(
+        &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+        |packet| {
+            response = Some(packet);
+            Ok(())
+        },
+    )
     .unwrap();
     assert!(response.is_none(), "an auto-repeated key answered the form");
 }
@@ -601,9 +625,9 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
-        .insert_resource(runtime)
+        .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime)
-        .insert_resource(presentation)
+        .insert_resource(UiPresentationResource(presentation))
         .add_systems(Update, drive_server_form_input);
     let mut window = Window {
         focused: true,
@@ -634,10 +658,13 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
     };
     let take = |app: &mut App| {
         let mut sent = Vec::new();
-        flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |packet| {
-            sent.push(packet);
-            Ok(())
-        })
+        flush_form_response(
+            &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+            |packet| {
+                sent.push(packet);
+                Ok(())
+            },
+        )
         .unwrap();
         sent
     };
@@ -645,7 +672,7 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
     let first = take(&mut app);
     // The server's next page arrives while the button is still held.
     app.world_mut()
-        .resource_scope(|world, mut runtime: Mut<UiRuntime>| {
+        .resource_scope(|world, mut runtime: Mut<UiRuntimeResource>| {
             let mut player_runtime = world
                 .remove_resource::<client_state::PlayerRuntime>()
                 .unwrap();
@@ -677,7 +704,7 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
                 )
                 .unwrap();
             world
-                .resource_mut::<UiPresentationRuntime>()
+                .resource_mut::<UiPresentationResource>()
                 .build(&player_runtime, &runtime, 16, physical, dpi)
                 .unwrap();
             world.insert_resource(player_runtime);
@@ -715,9 +742,9 @@ fn a_click_without_a_form_reaches_gameplay() {
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
-        .insert_resource(runtime)
+        .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime.clone())
-        .insert_resource(presentation)
+        .insert_resource(UiPresentationResource(presentation))
         .add_systems(Update, drive_server_form_input);
     let entity = app
         .world_mut()
@@ -821,9 +848,9 @@ fn custom_form_toggle_and_input_edit_their_values() {
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()
-        .insert_resource(runtime)
+        .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime.clone())
-        .insert_resource(presentation)
+        .insert_resource(UiPresentationResource(presentation))
         .add_systems(Update, drive_server_form_input);
     let mut window = Window {
         focused: true,
@@ -861,7 +888,7 @@ fn custom_form_toggle_and_input_edit_their_values() {
     click(&mut app, centre(HitKind::Toggle));
     let values = |app: &App| {
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<UiRuntimeResource>()
             .server_forms()
             .engine()
             .values
@@ -910,14 +937,14 @@ fn explicit_form_return_survives_pending_response_after_overlay_focus_loss() {
         app.update();
         assert!(
             app.world()
-                .resource::<UiRuntime>()
+                .resource::<UiRuntimeResource>()
                 .server_forms()
                 .active()
                 .is_none()
         );
         assert!(
             app.world()
-                .resource::<UiRuntime>()
+                .resource::<UiRuntimeResource>()
                 .server_forms()
                 .owns_input()
         );
@@ -925,7 +952,11 @@ fn explicit_form_return_survives_pending_response_after_overlay_focus_loss() {
             app.world().get::<CursorOptions>(window).unwrap().grab_mode,
             bevy::window::CursorGrabMode::None
         );
-        flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |_| Ok(())).unwrap();
+        flush_form_response(
+            &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+            |_| Ok(()),
+        )
+        .unwrap();
         app.world_mut()
             .resource_mut::<client_state::CursorFocus>()
             .begin_frame(true);

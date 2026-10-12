@@ -53,7 +53,7 @@ fn check_option_slider_drag(presentation: UiPresentationRuntime) {
             1,
         )))
         .insert_resource(menu)
-        .insert_resource(presentation)
+        .insert_resource(UiPresentationResource(presentation))
         .add_systems(Update, drive_menu_input);
     let window = app
         .world_mut()
@@ -69,7 +69,7 @@ fn check_option_slider_drag(presentation: UiPresentationRuntime) {
         .id();
     let view = app.world().resource::<MenuRuntime>().view();
     let player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
-    let presentation = &mut *app.world_mut().resource_mut::<UiPresentationRuntime>();
+    let presentation = &mut *app.world_mut().resource_mut::<UiPresentationResource>();
     presentation.set_menu_view(Some(view));
     presentation
         .build(
@@ -198,7 +198,7 @@ fn check_option_slider_drag(presentation: UiPresentationRuntime) {
 fn frame(app: &mut App, action: MenuAction) -> UiRect {
     let view = app.world().resource::<MenuRuntime>().view();
     app.world_mut()
-        .resource_scope(|world, mut presentation: Mut<UiPresentationRuntime>| {
+        .resource_scope(|world, mut presentation: Mut<UiPresentationResource>| {
             presentation.set_menu_view(Some(view));
             let pane = UiPoint::new(PHYSICAL[0] as f32 * 0.75, PHYSICAL[1] as f32 * 0.6).unwrap();
             for tick in 0..32_u64 {
@@ -289,7 +289,7 @@ fn settings_slider_drag_keeps_tracking_outside_hover_until_released() {
             1,
         )))
         .insert_resource(menu)
-        .insert_resource(presentation)
+        .insert_resource(UiPresentationResource(presentation))
         .add_systems(Update, drive_menu_input);
     let window = app
         .world_mut()
@@ -306,7 +306,7 @@ fn settings_slider_drag_keeps_tracking_outside_hover_until_released() {
     app.update();
     let middle =
         app.world_mut()
-            .resource_scope(|world, mut presentation: Mut<UiPresentationRuntime>| {
+            .resource_scope(|world, mut presentation: Mut<UiPresentationResource>| {
                 presentation.set_menu_view(Some(world.resource::<MenuRuntime>().view()));
                 let build = |presentation: &mut UiPresentationRuntime, world: &World| {
                     presentation
@@ -395,7 +395,7 @@ fn native_gui_scale_click_relayouts_and_held_pointer_never_drags_choices() {
             1,
         )))
         .insert_resource(menu)
-        .insert_resource(presentation)
+        .insert_resource(UiPresentationResource(presentation))
         .add_systems(Update, (drive_menu_input, apply_gui_scale_setting).chain());
     let window = app
         .world_mut()
@@ -424,7 +424,7 @@ fn native_gui_scale_click_relayouts_and_held_pointer_never_drags_choices() {
     assert_eq!(app.world().resource::<MenuRuntime>().gui_scale_offset(), -1);
     assert_eq!(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .gui_scale_preference(),
         Some(3)
     );
@@ -437,7 +437,7 @@ fn native_gui_scale_click_relayouts_and_held_pointer_never_drags_choices() {
     let inert = Vec2::new(PHYSICAL[0] as f32 * 0.75, 1.0);
     assert_eq!(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .hit_test_menu(UiPoint::new(inert.x, inert.y).unwrap()),
         None
     );
@@ -471,7 +471,7 @@ fn native_gui_scale_click_relayouts_and_held_pointer_never_drags_choices() {
     assert_eq!(app.world().resource::<MenuRuntime>().gui_scale_offset(), 0);
     assert_eq!(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .gui_scale_preference(),
         Some(4)
     );

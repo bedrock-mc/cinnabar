@@ -1,30 +1,20 @@
 //! Joins through the core's session endpoint: the core makes the only login and acquires the packs,
-//! and this client continues from StartGame with Jolyne's spawn sequence.
+//! and this client continues from StartGame with its own spawn sequence.
 
 use std::path::Path;
 
-use crate::session_wire::{
-    ConnectRequest, CoreMessage, HandoffPackReceiver, SessionDisconnect, SessionHandoff,
-    SessionTransfer,
-};
+use crate::session_wire::{ConnectRequest, CoreMessage, HandoffPackReceiver, SessionHandoff};
 use bridge::{BridgeError, FramedReader};
-use bytes::{BufMut, Bytes, BytesMut};
 use futures::StreamExt;
-use jolyne::error::JolyneError;
-use jolyne::stream::transport::BedrockTransport;
-use jolyne::stream::{BedrockStream, Client, StartGame};
-use valentine::bedrock::codec::{BedrockCodec, ZigZag32};
-use valentine::bedrock::version::v1_26_51::{
-    DisconnectPacket, DisconnectPacketMessages, EnumsConnectionDisconnectFailReason,
-    McpePacketData, TransferPacket,
-};
 
 use super::client_data::{ClientRandomId, LoginSettings};
-use super::{LoginSequence, MAX_DECOMPRESSED_BATCH_SIZE, PlaySession};
+use super::{LoginSequence, PlaySession};
+use crate::codec::SessionFailure;
+use crate::disconnect::{disconnect_reason, join_disconnect};
 use crate::session_transport::SessionTransport;
 use crate::{
-    ClientBlobCache, ClientSkin, GameData, PROTOCOL_VERSION, Packet, ProtocolError,
-    ResourcePackArchive, ResourcePackHandoff, ServerTransferEvent,
+    ClientBlobCache, ClientSkin, GameData, PROTOCOL_VERSION, ProtocolError, ResourcePackArchive,
+    ResourcePackHandoff, ServerTransferEvent,
 };
 
 impl LoginSequence {
@@ -62,17 +52,17 @@ impl LoginSequence {
         let packs = resource_pack_handoff(&handoff, archives)?;
         // A blob cache serves only a session whose upstream login advertised one.
         let cache = cache.filter(|_| handoff.client_cache);
-        let mut transport = BedrockTransport::new(SessionTransport::new(
-            reader,
-            frames,
-            startup_batches(&handoff.startup),
-        ));
-        transport.set_max_decompressed_batch_size(Some(MAX_DECOMPRESSED_BATCH_SIZE));
-        let (stream, game_data) =
-            BedrockStream::<StartGame, Client, _>::from_session_handoff(transport, packs)
-                .await_start_game()
-                .await?;
-        Ok((PlaySession::new(stream, cache), game_data))
+        let mut transport = SessionTransport::new(reader, frames, &handoff.startup);
+        let spawned = super::startup::await_spawn(&mut transport).await?;
+        let runtime_id = spawned.runtime_id;
+        let terrain_before_spawn = spawned.terrain_before_spawn;
+        let game_data = tokio::task::spawn_blocking(move || {
+            GameData::from_wire(&spawned.start_game, &spawned.item_registry)
+        })
+        .await
+        .map_err(|_| unexpected("startup facts reader failed"))?;
+        let session = PlaySession::new(transport, cache, packs, runtime_id, terrain_before_spawn);
+        Ok((session, game_data))
     }
 }
 
@@ -109,32 +99,28 @@ async fn next_message(reader: &mut FramedReader) -> Result<CoreMessage, Protocol
     match reader.next().await {
         Some(Ok(frame)) => crate::session_wire::decode_core_message(frame).map_err(bridge_error),
         Some(Err(error)) => Err(bridge_error(error)),
-        None => Err(JolyneError::ConnectionClosed.into()),
+        None => Err(SessionFailure::ConnectionClosed.into()),
     }
 }
 
 /// The error a message other than the next setup step ends the join with, as a login ended before.
 fn join_ended(message: CoreMessage) -> ProtocolError {
     match message {
-        CoreMessage::Disconnect(disconnect) => {
-            let McpePacketData::DisconnectPacket(packet) = disconnect_packet(&disconnect).data
-            else {
-                unreachable!("a disconnect message builds a Disconnect packet")
-            };
-            JolyneError::from(jolyne::error::ProtocolError::ServerDisconnect {
-                stage: "login",
-                reason: format!("{:?}", packet.reason),
-                message: packet.messages.message,
-                filtered_message: packet.messages.filtered_message,
-            })
-            .into()
-        }
+        CoreMessage::Disconnect(disconnect) => join_disconnect(
+            "login",
+            &disconnect_reason(disconnect.reason),
+            &disconnect.message,
+            &disconnect.filtered_message,
+        )
+        .into(),
         CoreMessage::Transfer(transfer) => {
-            match ServerTransferEvent::from_packet_data(&transfer_packet(&transfer).data) {
-                Ok(Some(target)) => {
-                    JolyneError::from(jolyne::error::ProtocolError::ServerTransfer(target)).into()
-                }
-                _ => unexpected("unusable transfer before the handoff"),
+            match ServerTransferEvent::from_target(
+                &transfer.address,
+                transfer.port,
+                transfer.reload_world,
+            ) {
+                Ok(target) => SessionFailure::ServerTransfer(target).into(),
+                Err(_) => unexpected("unusable transfer before the handoff"),
             }
         }
         CoreMessage::Handoff(_) => unexpected("repeated handoff"),
@@ -174,76 +160,6 @@ fn resource_pack_handoff(
         })
         .collect::<Result<Vec<_>, ProtocolError>>()?;
     Ok(ResourcePackHandoff::from_archives(archives).with_required(handoff.packs_required))
-}
-
-/// Groups the startup packets, which may span many upstream batches, into uncompressed Bedrock
-/// batches that each stay within Jolyne's per-batch packet and byte bounds; a packet larger than
-/// the byte bound keeps a batch of its own, which Jolyne refuses as it would from the server.
-fn startup_batches(packets: &[Bytes]) -> Vec<Bytes> {
-    let mut batches = Vec::new();
-    let mut batch = BytesMut::new();
-    let mut count = 0;
-    for packet in packets {
-        let length = u32::try_from(packet.len()).expect("a frame bounds its packets");
-        let entry = varuint32_len(length) + packet.len();
-        if count != 0
-            && (count == jolyne::raw::MAX_RAW_BATCH_PACKETS
-                || batch.len() + entry > MAX_DECOMPRESSED_BATCH_SIZE)
-        {
-            batches.push(std::mem::take(&mut batch).freeze());
-            count = 0;
-        }
-        if count == 0 {
-            batch.put_u8(0xfe);
-        }
-        let mut length = length;
-        while length >= 0x80 {
-            batch.put_u8(length as u8 | 0x80);
-            length >>= 7;
-        }
-        batch.put_u8(length as u8);
-        batch.extend_from_slice(packet);
-        count += 1;
-    }
-    if count != 0 {
-        batches.push(batch.freeze());
-    }
-    batches
-}
-
-fn varuint32_len(value: u32) -> usize {
-    (32 - value.max(1).leading_zeros() as usize).div_ceil(7)
-}
-
-/// The Transfer packet a core Transfer message stands for.
-pub(crate) fn transfer_packet(transfer: &SessionTransfer) -> Packet {
-    TransferPacket {
-        server_address: transfer.address.clone(),
-        server_port: transfer.port,
-        reload_world: transfer.reload_world,
-        gatherings_configuration: None,
-    }
-    .into()
-}
-
-/// The Disconnect packet a core Disconnect message stands for; a reason this protocol does not
-/// name keeps the message and reads as unknown.
-pub(crate) fn disconnect_packet(disconnect: &SessionDisconnect) -> Packet {
-    let mut reason = BytesMut::new();
-    ZigZag32(disconnect.reason)
-        .encode(&mut reason)
-        .expect("a buffer accepts a varint");
-    let reason = EnumsConnectionDisconnectFailReason::decode(&mut reason.freeze(), ())
-        .unwrap_or(EnumsConnectionDisconnectFailReason::Unknown);
-    DisconnectPacket {
-        reason,
-        hide_disconnection_screen: disconnect.hide_screen,
-        messages: DisconnectPacketMessages {
-            message: disconnect.message.clone(),
-            filtered_message: disconnect.filtered_message.clone(),
-        },
-    }
-    .into()
 }
 
 #[cfg(all(test, unix))]

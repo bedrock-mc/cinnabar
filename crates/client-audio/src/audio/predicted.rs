@@ -21,54 +21,7 @@ const HEAD_HEIGHT_FRACTION: f32 = 0.9;
 const HIT_INTERVAL: f32 = 0.2;
 /// Seconds between eating/drinking sounds while an item is in use; needs native measurement.
 const CONSUME_INTERVAL: f32 = 0.25;
-const SECONDS_PER_TICK: f32 = world::TICK_DURATION.as_secs_f32();
-
-const DRINKS: [&str; 3] = [
-    "minecraft:potion",
-    "minecraft:milk_bucket",
-    "minecraft:ominous_bottle",
-];
-const FOODS: &[&str] = &[
-    "minecraft:apple",
-    "minecraft:golden_apple",
-    "minecraft:enchanted_golden_apple",
-    "minecraft:baked_potato",
-    "minecraft:potato",
-    "minecraft:poisonous_potato",
-    "minecraft:carrot",
-    "minecraft:golden_carrot",
-    "minecraft:beetroot",
-    "minecraft:beetroot_soup",
-    "minecraft:bread",
-    "minecraft:cookie",
-    "minecraft:melon_slice",
-    "minecraft:pumpkin_pie",
-    "minecraft:mushroom_stew",
-    "minecraft:rabbit_stew",
-    "minecraft:suspicious_stew",
-    "minecraft:beef",
-    "minecraft:cooked_beef",
-    "minecraft:porkchop",
-    "minecraft:cooked_porkchop",
-    "minecraft:chicken",
-    "minecraft:cooked_chicken",
-    "minecraft:mutton",
-    "minecraft:cooked_mutton",
-    "minecraft:rabbit",
-    "minecraft:cooked_rabbit",
-    "minecraft:cod",
-    "minecraft:cooked_cod",
-    "minecraft:salmon",
-    "minecraft:cooked_salmon",
-    "minecraft:tropical_fish",
-    "minecraft:pufferfish",
-    "minecraft:rotten_flesh",
-    "minecraft:spider_eye",
-    "minecraft:dried_kelp",
-    "minecraft:sweet_berries",
-    "minecraft:glow_berries",
-    "minecraft:chorus_fruit",
-];
+const SECONDS_PER_TICK: f32 = simulation_clock::TICK_DURATION.as_secs_f32();
 
 /// A local block interaction the audio runtime should voice before the server confirms it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Message)]
@@ -95,16 +48,15 @@ fn center(cell: [i32; 3]) -> [f32; 3] {
     cell.map(|axis| axis as f32 + 0.5)
 }
 
-/// The player sound event voiced while `identifier` is being consumed.
-pub fn is_consumable(identifier: &str) -> Option<&'static str> {
-    if identifier == "minecraft:honey_bottle" {
-        Some("drink.honey")
-    } else if DRINKS.contains(&identifier) {
-        Some("drink")
-    } else if FOODS.contains(&identifier) {
-        Some("eat")
-    } else {
-        None
+/// Selects the sound event from the same admitted consumption fact as first-person animation.
+pub fn consume_event(consumption: assets::item_use::ItemConsumption) -> Option<&'static str> {
+    match consumption {
+        assets::item_use::ItemConsumption::Eat => Some("eat"),
+        assets::item_use::ItemConsumption::Drink => Some("drink"),
+        assets::item_use::ItemConsumption::Honey => Some("drink.honey"),
+        assets::item_use::ItemConsumption::Unresolved | assets::item_use::ItemConsumption::None => {
+            None
+        }
     }
 }
 
@@ -264,19 +216,20 @@ pub fn drive_consume_audio(
     let using = stream
         .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
         .is_some_and(|actor| actor.is_using_item());
-    let item = stream.zip(ui).filter(|_| using).and_then(|(stream, _)| {
-        let identifier = stream
-            .authority()
-            .canonical_item_stack(player_runtime.selected_stack()?)?
-            .identifier?;
-        let event = is_consumable(&identifier)?;
-        Some((identifier, event))
+    let admitted = stream.zip(ui).filter(|_| using).and_then(|(stream, _)| {
+        let stack = player_runtime.selected_stack()?;
+        let profile = stream.authority().item_use_profile(stack.network_id);
+        let identifier = stream.authority().canonical_item_stack(stack)?.identifier?;
+        Some((
+            identifier,
+            consume_event(profile.consumption)?,
+            profile.ticks?,
+        ))
     });
-    let duration = stream
-        .zip(item.as_ref())
-        .and_then(|(stream, (identifier, _))| {
-            Some(stream.authority().item_max_use_ticks(identifier)? as f32 * SECONDS_PER_TICK)
-        });
+    let duration = admitted
+        .as_ref()
+        .map(|(_, _, ticks)| *ticks as f32 * SECONDS_PER_TICK);
+    let item = admitted.map(|(identifier, event, _)| (identifier, event));
     let cues = state.advance(item, duration, time.delta_secs());
     if cues.is_empty() {
         return;
@@ -371,13 +324,26 @@ pub fn drive_actor_audio(
 mod tests {
     use super::*;
 
+    /// Resolves an original compatibility fixture before checking its consumption sound.
+    fn fixture_consume_event(identifier: &str) -> Option<&'static str> {
+        let profile = assets::item_use::diagnostic_profile(identifier);
+        consume_event(client_world::resolve_item_use(&profile, Some(32), None).consumption)
+    }
+
     #[test]
     fn consumables_are_classified() {
-        assert_eq!(is_consumable("minecraft:bread"), Some("eat"));
-        assert_eq!(is_consumable("minecraft:potion"), Some("drink"));
-        assert_eq!(is_consumable("minecraft:honey_bottle"), Some("drink.honey"));
-        assert_eq!(is_consumable("minecraft:experience_bottle"), None, "thrown");
-        assert_eq!(is_consumable("minecraft:stone"), None);
+        assert_eq!(fixture_consume_event("minecraft:bread"), Some("eat"));
+        assert_eq!(fixture_consume_event("minecraft:potion"), Some("drink"));
+        assert_eq!(
+            fixture_consume_event("minecraft:honey_bottle"),
+            Some("drink.honey")
+        );
+        assert_eq!(
+            fixture_consume_event("minecraft:experience_bottle"),
+            None,
+            "thrown"
+        );
+        assert_eq!(fixture_consume_event("minecraft:stone"), None);
     }
 
     // Food only burped after releasing Use past a fixed 1.6 s, whatever the item's duration.

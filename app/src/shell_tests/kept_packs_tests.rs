@@ -1,5 +1,6 @@
 //! Leaving for the menu releases the server packs recent joins keep for a following join.
 use client_shell::menu::test_support as menu_fixture;
+use client_shell::ui_resources::UiRuntimeResource;
 
 use crate::runtime::network::resource_packs::PackApplication;
 use client_runtime::network::NetworkHandle;
@@ -87,7 +88,7 @@ fn run_session<M>(
         .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
-        .insert_resource(UiRuntime::new(1))
+        .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))

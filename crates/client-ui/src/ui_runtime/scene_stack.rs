@@ -237,7 +237,7 @@ impl SceneClocks {
 
 fn form_screen(entry: &super::ServerFormEntry) -> &'static str {
     match entry.model {
-        protocol::ServerFormModel::NpcDialogue(_) => super::presentation::forms::NPC_SCREEN,
+        protocol::ServerFormModel::NpcDialogue(_) => ui_screens::npc::NPC_SCREEN,
         _ => SERVER_FORM_SCREEN,
     }
 }

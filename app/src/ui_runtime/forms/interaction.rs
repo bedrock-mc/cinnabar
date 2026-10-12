@@ -1,9 +1,12 @@
-use super::{LocalFormAction, engine_focus, engine_input};
+use super::{LocalFormAction, engine_input};
+use crate::ui_runtime::interaction::input_capture::{
+    restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
+};
 use bevy::{
     ecs::message::{MessageCursor, Messages},
     input::{
         ButtonState,
-        gamepad::Gamepad,
+        gamepad::{Gamepad, GamepadButton},
         keyboard::KeyboardInput,
         mouse::{AccumulatedMouseMotion, MouseButtonInput, MouseScrollUnit, MouseWheel},
     },
@@ -14,8 +17,60 @@ use bevy::{
     time::Real,
     window::{CursorOptions, PrimaryWindow},
 };
-use client_shell::menu::MenuRuntime;
-use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use client_shell::{
+    menu::MenuRuntime,
+    physical_input::{keyboard_key, scroll_unit},
+    ui_resources::{UiPresentationResource, UiRuntimeResource},
+};
+use semantic_input::KeyboardKey;
+
+/// Stick deflection that counts as a directional press (needs native measurement).
+const STICK_PRESS: f32 = 0.5;
+
+/// Gamepad presses as the keys the engine path reads: the d-pad and left
+/// stick as arrows, South as Enter (`button.menu_select`) and East as Escape
+/// (`button.menu_cancel`). `stick` keeps last frame's deflected directions.
+fn gamepad_keys<'a>(
+    pads: impl Iterator<Item = &'a Gamepad>,
+    stick: &mut [bool; 4],
+) -> Vec<(KeyboardKey, Option<String>)> {
+    const BUTTONS: [(GamepadButton, KeyboardKey); 6] = [
+        (GamepadButton::DPadUp, KeyboardKey::ArrowUp),
+        (GamepadButton::DPadDown, KeyboardKey::ArrowDown),
+        (GamepadButton::DPadLeft, KeyboardKey::ArrowLeft),
+        (GamepadButton::DPadRight, KeyboardKey::ArrowRight),
+        (GamepadButton::South, KeyboardKey::Enter),
+        (GamepadButton::East, KeyboardKey::Escape),
+    ];
+    let mut keys = Vec::new();
+    let mut deflected = [false; 4];
+    for pad in pads {
+        keys.extend(
+            BUTTONS
+                .iter()
+                .filter(|(button, _)| pad.just_pressed(*button))
+                .map(|(_, key)| (*key, None)),
+        );
+        let axes = pad.left_stick();
+        deflected[0] |= axes.y > STICK_PRESS;
+        deflected[1] |= axes.y < -STICK_PRESS;
+        deflected[2] |= axes.x < -STICK_PRESS;
+        deflected[3] |= axes.x > STICK_PRESS;
+    }
+    let arrows = [
+        KeyboardKey::ArrowUp,
+        KeyboardKey::ArrowDown,
+        KeyboardKey::ArrowLeft,
+        KeyboardKey::ArrowRight,
+    ];
+    for ((now, was), key) in deflected.iter().zip(stick.iter()).zip(arrows) {
+        if *now && !*was {
+            keys.push((key, None));
+        }
+    }
+    *stick = deflected;
+    keys
+}
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn drive_server_form_input(
@@ -34,8 +89,8 @@ pub(crate) fn drive_server_form_input(
     mut button_cursor: Local<MessageCursor<MouseButtonInput>>,
     mut held: Local<bool>,
     menu: Option<Res<MenuRuntime>>,
-    presentation: Res<UiPresentationRuntime>,
-    mut runtime: ResMut<UiRuntime>,
+    presentation: Res<UiPresentationResource>,
+    mut runtime: ResMut<UiRuntimeResource>,
     mut owned_last_frame: Local<bool>,
     time: Option<Res<Time<Real>>>,
     pads: Query<&Gamepad>,
@@ -101,12 +156,7 @@ pub(crate) fn drive_server_form_input(
         wheel.clear();
         keyboard.clear();
         if *owned_last_frame && !runtime.ui_focused(&player_runtime) && input_available {
-            client_ui::ui_runtime::interaction::restore_gameplay_input_after_chat(
-                &mut cursor,
-                &mut keys,
-                &mut mouse,
-                &mut motion,
-            );
+            restore_gameplay_input_after_chat(&mut cursor, &mut keys, &mut mouse, &mut motion);
         }
         *owned_last_frame = false;
         return;
@@ -121,7 +171,7 @@ pub(crate) fn drive_server_form_input(
             .server_forms_mut()
             .engine_mut()
             .cancel_pointer_input();
-        client_ui::ui_runtime::interaction::suppress_gameplay_input_for_chat(
+        suppress_gameplay_input_for_chat(
             &player_runtime,
             &runtime,
             &mut cursor,
@@ -137,26 +187,30 @@ pub(crate) fn drive_server_form_input(
         .and_then(|entry| presentation.form_engine_frame(entry.identity))
         .cloned();
     if input_available && let Some(frame) = engine_frame {
+        let held: Vec<_> = keys.get_pressed().map(|key| keyboard_key(*key)).collect();
         let input = engine_input::EngineInput {
             pointer_edges,
             cursor: window
                 .cursor_position()
                 .and_then(|point| ui::UiPoint::new(point.x, point.y).ok()),
-            keys: &keys,
+            keys: &held,
             pointer,
-            wheel: wheel.read().map(|event| (event.y, event.unit)).collect(),
+            wheel: wheel
+                .read()
+                .map(|event| (event.y, scroll_unit(event.unit)))
+                .collect(),
             typed: keyboard
                 .read()
                 .filter(|input| input.state == ButtonState::Pressed)
                 .map(|input| {
                     (
-                        input.key_code,
+                        keyboard_key(input.key_code),
                         input.text.as_ref().map(|text| text.to_string()),
                         input.repeat,
                     )
                 })
                 .chain(
-                    engine_focus::gamepad_keys(pads.iter(), &mut stick)
+                    gamepad_keys(pads.iter(), &mut stick)
                         .into_iter()
                         .map(|(key, text)| (key, text, false)),
                 )
@@ -238,7 +292,7 @@ pub(crate) fn drive_server_form_input(
     }
     // Also retain ownership through the answer frame; pending enqueue owns
     // input until the later network phase accepts it or retires the session.
-    client_ui::ui_runtime::interaction::suppress_gameplay_input_for_chat(
+    suppress_gameplay_input_for_chat(
         &player_runtime,
         &runtime,
         &mut cursor,
@@ -254,6 +308,33 @@ mod focus_tests {
     use bevy::prelude::{App, Update};
     use client_ui::test_support::mini_engine_presentation;
     use client_ui::ui_runtime::forms::values::FormDrag;
+
+    // X14: d-pad, stick edges and face buttons reach the engine path as keys, without stick repeat.
+    #[test]
+    fn gamepad_presses_become_engine_keys() {
+        use bevy::input::gamepad::GamepadAxis;
+        let mut pad = Gamepad::default();
+        pad.digital_mut().press(GamepadButton::DPadDown);
+        pad.digital_mut().press(GamepadButton::South);
+        pad.analog_mut().set(GamepadAxis::LeftStickX, 0.9);
+        let mut stick = [false; 4];
+        let keys = |pad: &Gamepad, stick: &mut [bool; 4]| -> Vec<KeyboardKey> {
+            gamepad_keys(std::iter::once(pad), stick)
+                .into_iter()
+                .map(|(key, _)| key)
+                .collect()
+        };
+        assert_eq!(
+            keys(&pad, &mut stick),
+            [
+                KeyboardKey::ArrowDown,
+                KeyboardKey::Enter,
+                KeyboardKey::ArrowRight
+            ]
+        );
+        pad.digital_mut().clear();
+        assert!(keys(&pad, &mut stick).is_empty());
+    }
 
     #[test]
     fn unfocused_form_discards_pointer_edges_without_closing_or_replaying_them() {
@@ -276,8 +357,8 @@ mod focus_tests {
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<AccumulatedMouseMotion>()
             .insert_resource(player)
-            .insert_resource(runtime)
-            .insert_resource(mini_engine_presentation())
+            .insert_resource(UiRuntimeResource(runtime))
+            .insert_resource(UiPresentationResource(mini_engine_presentation()))
             .add_systems(Update, drive_server_form_input);
         let entity = app
             .world_mut()
@@ -304,7 +385,7 @@ mod focus_tests {
         app.update();
         app.world_mut().get_mut::<Window>(entity).unwrap().focused = true;
         app.update();
-        let runtime = app.world().resource::<UiRuntime>();
+        let runtime = app.world().resource::<UiRuntimeResource>();
         assert_eq!(runtime.server_forms().active().unwrap().identity, identity);
         let engine = runtime.server_forms().engine();
         assert!(engine.drag.is_none() && engine.view.pressed.is_none());

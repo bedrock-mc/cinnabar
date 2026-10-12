@@ -2,3 +2,4 @@
 
 pub mod bamboo;
 pub mod random_offset;
+pub mod rotation;

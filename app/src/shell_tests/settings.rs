@@ -1,4 +1,5 @@
 use client_shell::menu::test_support as menu_fixture;
+use client_shell::ui_resources::UiRuntimeResource;
 use semantic_input::PhysicalControl;
 use {
     launcher::menu::settings_options::EXTRA_KEYS, launcher::menu::settings_options::KEY_BINDINGS,
@@ -77,8 +78,8 @@ fn saved_volumes_reach_the_mixer() {
 
 #[test]
 fn shared_hotbar_press_swaps_each_bound_slot_in_order() {
-    use client_ui::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
     use semantic_input::Action;
+    use ui_screens::container_actions::InventoryCellHit;
     use {
         protocol::ContainerIdentity, protocol::InventoryContentEvent, protocol::InventoryEvent,
         protocol::NetworkItemStack,
@@ -214,7 +215,7 @@ fn shared_use_and_drop_drops_an_ordinary_item_but_use_alone_does_not() {
             }
             let mut app = App::new();
             app.insert_resource(player)
-                .insert_resource(runtime)
+                .insert_resource(UiRuntimeResource(runtime))
                 .insert_resource(menu)
                 .insert_resource(keys)
                 .insert_resource(mouse)
@@ -231,7 +232,9 @@ fn shared_use_and_drop_drops_an_ordinary_item_but_use_alone_does_not() {
             ));
             app.update();
             let player = app.world().resource::<client_state::PlayerRuntime>();
-            let runtime = app.world().resource::<client_ui::ui_runtime::UiRuntime>();
+            let runtime = app
+                .world()
+                .resource::<client_shell::ui_resources::UiRuntimeResource>();
             let ledger = runtime.inventory_ledger(player);
             assert_eq!(
                 ledger.displayed_stack(0).unwrap().count,
@@ -257,7 +260,7 @@ fn rebound_hotbar_keys_are_reserved_only_while_the_container_is_visible() {
         &mut menu,
         row,
         PhysicalControl::KeyboardUsage(
-            client_ui::physical_input::keyboard_usage(KeyCode::KeyR).unwrap()
+            client_shell::physical_input::keyboard_usage(KeyCode::KeyR).unwrap()
         )
     ));
     assert!(inventory_consumes_key(Some(&menu), KeyCode::KeyR, false));

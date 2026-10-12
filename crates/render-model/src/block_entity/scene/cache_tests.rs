@@ -110,7 +110,8 @@ fn reference_frame(
             portal: builder.portal.into(),
             additive: builder.additive.into(),
             portal_star_rect: super::super::portal::star_rect(atlas),
-            portal_time_seconds: (clock.ticks / f64::from(world::TICKS_PER_SECOND)) as f32,
+            portal_time_seconds: (clock.ticks / f64::from(simulation_clock::TICKS_PER_SECOND))
+                as f32,
         },
         rejected,
     )
@@ -338,10 +339,10 @@ fn cached_additive_fragment_respects_capacity_after_its_prefix_moves() {
             light: 1.0.into(),
             kind: BlockEntityKind::DragonDeath(DragonDeathModel {
                 center: [0.0; 3],
-                death_ticks: world::TICKS_PER_SECOND,
+                death_ticks: simulation_clock::TICKS_PER_SECOND,
                 partial_tick: 0.0,
                 seed: 1,
-                duration_ticks: (world::TICKS_PER_SECOND * 2) as f32,
+                duration_ticks: (simulation_clock::TICKS_PER_SECOND * 2) as f32,
             }),
         },
         |builder| &mut builder.additive,

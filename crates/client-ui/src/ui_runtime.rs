@@ -23,11 +23,10 @@ pub mod inventory_actions;
 pub mod inventory_drag;
 pub mod inventory_ingress;
 
+mod food;
 mod item_activation;
 pub mod item_facts;
 pub mod json_ui_assets;
-pub mod oreui_assets;
-pub mod oreui_fonts;
 pub mod platform_clipboard;
 pub mod presentation;
 pub mod raw_text_resolution;
@@ -40,7 +39,6 @@ pub mod session_data;
 pub mod sign_editor;
 pub mod use_on_identity_evidence;
 
-pub use bed::SleepStatus;
 pub use forms::{
     FormRespondError, FormTransportError, LocalFormAction, MAX_RETAINED_SERVER_FORMS,
     ServerFormEntry, ServerFormIdentity, ServerFormStore, flush_form_response,
@@ -52,14 +50,10 @@ pub use interaction::FastTransferAction;
 pub use interaction::dispatch_inventory_click;
 pub use interaction::{ChatFlushError, flush_chat_sends, flush_inventory_send};
 #[cfg(test)]
-use interaction::{
-    dispatch_chat_ui_action, gamepad_chat_action, paste_chat_shortcut,
-    restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
-};
+use interaction::{dispatch_chat_ui_action, paste_chat_shortcut};
 
 use std::{collections::VecDeque, sync::Arc};
 
-use bevy::prelude::Resource;
 use protocol::{
     ActorAttribute, BlockCrackEvent, ChatAutocompleteCatalog, EquipmentEvent, InventoryAuthority,
     UiEvent,
@@ -138,7 +132,7 @@ impl UiAuthorityTransition {
     }
 }
 
-#[derive(Clone, Debug, Resource)]
+#[derive(Clone, Debug)]
 pub struct UiRuntime {
     pub experiences: crate::experience_session::ExperienceSession,
     session_id: u64,
@@ -167,7 +161,7 @@ pub struct UiRuntime {
     chat_usage_hint: Option<Arc<str>>,
     local_sleeping: bool,
     wake_requested: bool,
-    sleep_status: Option<bed::SleepStatus>,
+    sleep_status: Option<oreui::SleepStatus>,
     chat_tab_cycling: bool,
     chat_tab_start: Option<usize>,
     pending_chat_autocomplete_request: Option<ChatAutocompleteRequest>,
@@ -210,6 +204,8 @@ pub struct UiRuntime {
     server_lang: Option<Arc<assets::ServerLangOverlay>>,
     session_icons: Option<Arc<presentation::SessionIcons>>,
     session_items: Option<Arc<item_facts::SessionItemComponents>>,
+    /// Version-pinned local item facts survive replacement of server session state.
+    food_catalog: Option<Arc<assets::RuntimeEquipmentCatalog>>,
     stack_facts: protocol::ItemStackFactsCache,
     /// Invalidates names when components or any translation table changes.
     item_name_generation: u64,
@@ -306,6 +302,7 @@ impl UiRuntime {
             server_lang: None,
             session_icons: None,
             session_items: None,
+            food_catalog: None,
             stack_facts: Default::default(),
             item_name_generation: 0,
             server_ui: None,

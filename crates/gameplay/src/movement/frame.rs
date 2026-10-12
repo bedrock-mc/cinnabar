@@ -26,7 +26,7 @@ pub fn wire_head_yaw(yaw: f32) -> f32 {
 
 /// Vanilla clamps each render frame's elapsed time to this and loses the rest,
 /// so a stall runs at most two ticks instead of catching up.
-const MAX_FRAME_ELAPSED: Duration = world::MAX_FRAME_ELAPSED;
+const MAX_FRAME_ELAPSED: Duration = simulation_clock::MAX_FRAME_ELAPSED;
 
 /// Whether a render frame of `delta` will simulate at least one fixed tick.
 pub fn frame_simulates_tick(

@@ -6,12 +6,33 @@ use client_presentation::camera::{
     HeadMedium, PortalProgress, ScreenOverlays, ServerCameraView, VisionEffects, WalkBobState,
 };
 use client_presentation::server_camera::ServerCameraInstructions;
-use client_ui::ui_runtime::UiRuntime;
+use client_shell::ui_resources::UiRuntimeResource;
 use {
     crate::runtime::world::ClientWorld,
     client_interaction::movement::{LocalPhysicsController, PhysicsCollisionRegistries},
     client_presentation::local_player::LocalViewPose,
 };
+
+/// Borrows the semantic frame, HUD effects and movement speed for this frame's FOV inputs.
+pub(crate) fn collect_fov_inputs(
+    input: Res<client_state::SemanticInputSnapshot>,
+    settings: Res<CameraSettingsAuthority>,
+    ui: Option<Res<UiRuntimeResource>>,
+    physics: Option<Res<LocalPhysicsController>>,
+    movement_speed: Option<Res<client_interaction::movement::LocalMovementSpeedAuthority>>,
+    inputs: ResMut<CameraFovInputs>,
+) {
+    client_presentation::camera::presentation::collect_fov_inputs(
+        client_presentation::observations::InputObservation(input.snapshot()),
+        settings,
+        ui.as_deref().map(|ui| &ui.0),
+        physics
+            .as_deref()
+            .map(|value| value as &dyn client_presentation::observations::PhysicsObservation),
+        movement_speed.and_then(|speed| speed.current()),
+        inputs,
+    );
+}
 
 /// Samples the local actor after tick preparation and clears death time when it leaves or recovers.
 pub(crate) fn collect_death_fov_inputs(
@@ -57,7 +78,7 @@ pub(crate) fn advance_presentation_state(
     view: Res<LocalViewPose>,
     client_world: Option<Res<ClientWorld>>,
     physics: Option<Res<LocalPhysicsController>>,
-    ui: Option<Res<UiRuntime>>,
+    ui: Option<Res<UiRuntimeResource>>,
     bob: ResMut<WalkBobState>,
     sway: ResMut<HandSwayState>,
     hurt: ResMut<CameraHurtState>,
@@ -76,7 +97,7 @@ pub(crate) fn advance_presentation_state(
         physics
             .as_deref()
             .map(|value| value as &dyn client_presentation::observations::PhysicsObservation),
-        ui.as_deref(),
+        ui.as_deref().map(|ui| &ui.0),
         bob,
         sway,
         hurt,
@@ -95,7 +116,7 @@ pub(crate) fn update_screen_overlays(
     facts: Res<ScreenEffectFacts>,
     fov_inputs: Res<CameraFovInputs>,
     server: Res<ServerCameraView>,
-    ui: Option<Res<UiRuntime>>,
+    ui: Option<Res<UiRuntimeResource>>,
     client_world: Option<Res<ClientWorld>>,
     collisions: Option<Res<PhysicsCollisionRegistries>>,
     portal: ResMut<PortalProgress>,
@@ -111,7 +132,7 @@ pub(crate) fn update_screen_overlays(
         facts,
         fov_inputs,
         server,
-        ui.as_deref(),
+        ui.as_deref().map(|ui| &ui.0),
         client_world.as_deref().map(
             |world| client_presentation::observations::WorldObservation {
                 stream: world.stream.as_ref(),

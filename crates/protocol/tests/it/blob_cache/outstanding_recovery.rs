@@ -190,17 +190,14 @@ fn abandoned_subchunk_recovery_index_is_bounded_by_admission() {
             })
             .collect();
         let mut status = resolver
-            .accept_cached_packet(
-                SubChunkPacket {
-                    center_pos: SubChunkPos {
-                        subchunk_position_x: transaction.saturating_mul(512),
-                        subchunk_position_y: -4,
-                        subchunk_position_z: 0,
-                    },
-                    ..cached_sub_chunk_packet(entries)
-                }
-                .into(),
-            )
+            .accept_cached_packet(protocol::Packet::new(SubChunkPacket {
+                center_pos: SubChunkPos {
+                    subchunk_position_x: transaction.saturating_mul(512),
+                    subchunk_position_y: -4,
+                    subchunk_position_z: 0,
+                },
+                ..cached_sub_chunk_packet(entries)
+            }))
             .expect("large indexed SubChunk fixture remains bounded");
         inline_recoveries.extend(status.take_recovery());
     }

@@ -4,9 +4,10 @@ use std::io::Cursor;
 
 use ui::DpiScale;
 
-use super::super::{LoadingStage, UiPresentationRuntime, menu_artwork};
+use super::super::UiPresentationRuntime;
 use super::{pack_harness, snapshot};
 use crate::ui_runtime::UiRuntime;
+use ui::LoadingStage;
 
 mod carrier;
 
@@ -45,7 +46,7 @@ fn loading_screen_keeps_artwork_uvs_with_the_pixels_they_address() {
         );
         return;
     };
-    let title = menu_artwork::TITLE_KEY;
+    let title = ui_engine::textures::TITLE_KEY;
     presentation.set_server_ui_pack(&super::ServerUiPack {
         textures: vec![(format!("{title}.png"), png([900, 300], [220, 20, 30, 255]))],
         ..Default::default()
@@ -92,14 +93,17 @@ fn settled(
 ) -> render_model::UiRenderInput {
     test_time::eventually("loading backdrop and title become available", || {
         frame(player_runtime, presentation);
-        let engine = presentation.form_presentation.engine.as_ref().unwrap();
+        let engine = presentation.engine.as_ref().unwrap();
         let atlas = engine.textures.lock();
         let backdrop_ready = !atlas.has_image("textures/blocks/dirt")
             || atlas.placement("textures/blocks/dirt").is_some();
-        let has_title = atlas.has_image(menu_artwork::TITLE_KEY);
+        let has_title = atlas.has_image(ui_engine::textures::TITLE_KEY);
         drop(atlas);
         backdrop_ready
-            && (!has_title || engine.menu_title(&presentation.menu_artwork.refs).is_some())
+            && (!has_title
+                || presentation
+                    .title_icon(&presentation.menu_artwork.refs)
+                    .is_some())
     });
     presentation.finish_menu_artwork();
     frame(player_runtime, presentation)
@@ -130,7 +134,7 @@ fn zeqa_loading_pixels_survive_artwork_repacking_and_pack_reload() {
     assert!(
         pack.textures
             .iter()
-            .any(|(key, _)| key == &format!("{}.png", menu_artwork::TITLE_KEY))
+            .any(|(key, _)| key == &format!("{}.png", ui_engine::textures::TITLE_KEY))
     );
     presentation.set_server_ui_pack(&pack);
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
@@ -177,17 +181,13 @@ fn zeqa_loading_pixels_survive_artwork_repacking_and_pack_reload() {
     );
     before.validate().unwrap();
     let title_icon = presentation
-        .form_presentation
-        .engine
-        .as_ref()
-        .unwrap()
-        .menu_title(&presentation.menu_artwork.refs)
+        .title_icon(&presentation.menu_artwork.refs)
         .expect("the pack title is ready for loading-screen painting");
     carrier::title_bounds(&presentation);
     let title_bytes = &pack
         .textures
         .iter()
-        .find(|(key, _)| key == &format!("{}.png", menu_artwork::TITLE_KEY))
+        .find(|(key, _)| key == &format!("{}.png", ui_engine::textures::TITLE_KEY))
         .unwrap()
         .1;
     let title = image::load_from_memory(title_bytes).unwrap().into_rgba8();

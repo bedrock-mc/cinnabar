@@ -10,7 +10,9 @@ use bevy::{
     time::Real,
     window::{CursorOptions, PrimaryWindow},
 };
-use client_ui::test_support::{fixture_font, inventory_session};
+use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
+use client_ui::test_support::inventory_session;
+use ui_engine::test_support::fixture_font;
 use {
     super::*,
     experience_sdk::mod_manifest::{KeyDecl, Modifier},
@@ -47,8 +49,10 @@ fn input_app() -> (App, Entity) {
         .init_resource::<AccumulatedMouseMotion>()
         .init_resource::<Observed>()
         .insert_resource(player)
-        .insert_resource(ui)
-        .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap());
+        .insert_resource(UiRuntimeResource(ui))
+        .insert_resource(UiPresentationResource(
+            UiPresentationRuntime::new(fixture_font()).unwrap(),
+        ));
     let window = app
         .world_mut()
         .spawn((
@@ -189,7 +193,8 @@ fn draw_view(app: &mut App) -> bool {
     }
     assert!(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
+            .mod_ui()
             .mod_view_shown()
     );
     true
@@ -222,13 +227,13 @@ fn draw_package_view(
     presentation
         .build(
             app.world().resource::<client_state::PlayerRuntime>(),
-            app.world().resource::<UiRuntime>(),
+            app.world().resource::<UiRuntimeResource>(),
             0,
             [1280, 720],
             ui::DpiScale::new(1.0).unwrap(),
         )
         .unwrap();
-    app.insert_resource(presentation);
+    app.insert_resource(UiPresentationResource(presentation));
     true
 }
 
@@ -236,8 +241,8 @@ fn draw_package_view(
 fn observe_keys(
     mut input: ScreenInput,
     player: Res<client_state::PlayerRuntime>,
-    ui: Res<UiRuntime>,
-    mut presentation: ResMut<UiPresentationRuntime>,
+    ui: Res<UiRuntimeResource>,
+    mut presentation: ResMut<UiPresentationResource>,
     mut observed: ResMut<Observed>,
 ) {
     let modifiers = input.modifiers(true);
@@ -279,7 +284,7 @@ fn hidden_vanilla_text_fields_do_not_receive_typing_under_a_mod_view() {
         if !draw_view(&mut app) {
             return;
         }
-        let mut ui = app.world_mut().resource_mut::<UiRuntime>();
+        let mut ui = app.world_mut().resource_mut::<UiRuntimeResource>();
         ui.screen_state_mut().search = "Search".into();
         ui.screen_state_mut().anvil_name = "Name".into();
         ui.screen_state_mut().search_focused = !anvil;
@@ -292,7 +297,7 @@ fn hidden_vanilla_text_fields_do_not_receive_typing_under_a_mod_view() {
             ButtonState::Pressed,
             Some("r"),
         );
-        let ui = app.world().resource::<UiRuntime>();
+        let ui = app.world().resource::<UiRuntimeResource>();
         assert_eq!(ui.screen_state().search, "Search");
         assert_eq!(ui.screen_state().anvil_name, "Name");
         assert!(ui.inventory_open());
@@ -306,7 +311,7 @@ fn a_shown_mod_view_releases_declared_keys_from_hidden_vanilla_text_focus() {
         return;
     }
     app.world_mut()
-        .resource_mut::<UiRuntime>()
+        .resource_mut::<UiRuntimeResource>()
         .screen_state_mut()
         .search_focused = true;
     let dir = tempfile::tempdir().unwrap();
@@ -325,7 +330,7 @@ fn a_shown_mod_view_releases_declared_keys_from_hidden_vanilla_text_focus() {
     );
     app.world_mut().resource_mut::<Observed>().keys.clear();
     app.world_mut()
-        .resource_mut::<UiPresentationRuntime>()
+        .resource_mut::<UiPresentationResource>()
         .set_mod_screens(None);
     send(
         &mut app,
@@ -336,7 +341,10 @@ fn a_shown_mod_view_releases_declared_keys_from_hidden_vanilla_text_focus() {
     );
     assert!(app.world().resource::<Observed>().keys.is_empty());
     assert_eq!(
-        app.world().resource::<UiRuntime>().screen_state().search,
+        app.world()
+            .resource::<UiRuntimeResource>()
+            .screen_state()
+            .search,
         "r"
     );
 }
@@ -350,8 +358,8 @@ fn exercise_owner(
     mut host: ResMut<Host>,
     mut state: ResMut<OwnerState>,
     player: Res<client_state::PlayerRuntime>,
-    ui: Res<UiRuntime>,
-    mut presentation: ResMut<UiPresentationRuntime>,
+    ui: Res<UiRuntimeResource>,
+    mut presentation: ResMut<UiPresentationResource>,
 ) {
     drive_owner(
         &mut host.0,
@@ -413,9 +421,9 @@ fn a_replacements_owner_does_not_inherit_a_previous_packages_presentation_failur
         if !draw_package_view(&mut app, MOD_ID, &files) {
             return;
         }
-        let presentation = app.world().resource::<UiPresentationRuntime>();
-        assert!(presentation.mod_screens_failure().is_some());
-        let layout = presentation.mod_screen_layout().cloned();
+        let presentation = app.world().resource::<UiPresentationResource>();
+        assert!(presentation.mod_ui().mod_screens_failure().is_some());
+        let layout = presentation.mod_ui().mod_screen_layout().cloned();
         assert!(layout.is_some());
         if replacement == "reload" {
             write_screen_package(dir.path(), MOD_ID, false);
@@ -441,7 +449,8 @@ fn a_replacements_owner_does_not_inherit_a_previous_packages_presentation_failur
             assert!(app.world().resource::<OwnerState>().0.layout.is_some());
             assert!(
                 app.world()
-                    .resource::<UiPresentationRuntime>()
+                    .resource::<UiPresentationResource>()
+                    .mod_ui()
                     .mod_screens_failure()
                     .is_none()
             );
@@ -546,7 +555,8 @@ fn a_package_reload_keeps_the_open_container_and_restored_view() {
     }
     let layout = app
         .world()
-        .resource::<UiPresentationRuntime>()
+        .resource::<UiPresentationResource>()
+        .mod_ui()
         .mod_screen_layout()
         .cloned();
     assert!(layout.is_some());
@@ -589,8 +599,8 @@ fn exercise_runtime(
     mut input: ScreenInput,
     mut runtime: ResMut<ModRuntime>,
     player: Res<client_state::PlayerRuntime>,
-    ui: Res<UiRuntime>,
-    mut presentation: ResMut<UiPresentationRuntime>,
+    ui: Res<UiRuntimeResource>,
+    mut presentation: ResMut<UiPresentationResource>,
 ) {
     drive(
         &mut runtime,
@@ -617,7 +627,8 @@ fn a_departing_screen_owner_closes_its_view_and_forgets_the_container() {
     }
     let layout = app
         .world()
-        .resource::<UiPresentationRuntime>()
+        .resource::<UiPresentationResource>()
+        .mod_ui()
         .mod_screen_layout()
         .cloned();
     previous
@@ -673,7 +684,8 @@ fn data_callbacks_observe_simultaneous_container_opening_and_closing() {
         }
         let layout = app
             .world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
+            .mod_ui()
             .mod_screen_layout()
             .cloned();
         assert!(layout.is_some());
@@ -683,16 +695,16 @@ fn data_callbacks_observe_simultaneous_container_opening_and_closing() {
             app.world_mut().resource_scope(
                 |world, mut player: Mut<client_state::PlayerRuntime>| {
                     world
-                        .resource_mut::<UiRuntime>()
+                        .resource_mut::<UiRuntimeResource>()
                         .toggle_inventory(&mut player);
                 },
             );
             app.world_mut().resource_scope(
-                |world, mut presentation: Mut<UiPresentationRuntime>| {
+                |world, mut presentation: Mut<UiPresentationResource>| {
                     presentation
                         .build(
                             world.resource::<client_state::PlayerRuntime>(),
-                            world.resource::<UiRuntime>(),
+                            world.resource::<UiRuntimeResource>(),
                             0,
                             [1280, 720],
                             ui::DpiScale::new(1.0).unwrap(),
@@ -748,9 +760,14 @@ fn draw_edit_box(app: &mut App) -> Option<[f32; 2]> {
     if !draw_package_view(app, MOD_ID, &files) {
         return None;
     }
-    let presentation = app.world().resource::<UiPresentationRuntime>();
-    assert!(!presentation.mod_text_focused());
-    let scale = presentation.mod_screen_layout().unwrap().size.scale as f32;
+    let presentation = app.world().resource::<UiPresentationResource>();
+    assert!(!presentation.mod_ui().mod_text_focused());
+    let scale = presentation
+        .mod_ui()
+        .mod_screen_layout()
+        .unwrap()
+        .size
+        .scale as f32;
     Some([30.0 * scale, 25.0 * scale])
 }
 
@@ -780,7 +797,8 @@ fn clicking_a_mod_edit_box_routes_same_update_typing_without_a_shortcut() {
     );
     assert!(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
+            .mod_ui()
             .mod_text_focused(),
         "fixture click did not select its edit box"
     );
@@ -834,7 +852,7 @@ fn click_focus_precedes_vanilla_inventory_shortcuts() {
             Some("e"),
         );
         assert!(
-            app.world().resource::<UiRuntime>().inventory_open(),
+            app.world().resource::<UiRuntimeResource>().inventory_open(),
             "click-plus-typing closed the inventory with ordered={ordered}"
         );
         assert_eq!(
@@ -916,7 +934,8 @@ fn production_mod_driver_delivers_declared_keys_and_view_escape() {
     }
     let layout = app
         .world()
-        .resource::<UiPresentationRuntime>()
+        .resource::<UiPresentationResource>()
+        .mod_ui()
         .mod_screen_layout()
         .cloned();
     assert!(layout.is_some());
@@ -991,7 +1010,8 @@ fn escape_closes_a_view_after_same_frame_pointer_actions() {
     }
     let layout = app
         .world()
-        .resource::<UiPresentationRuntime>()
+        .resource::<UiPresentationResource>()
+        .mod_ui()
         .mod_screen_layout()
         .cloned();
     let scale = layout.as_ref().unwrap().size.scale as f32;

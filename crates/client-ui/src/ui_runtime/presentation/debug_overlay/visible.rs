@@ -3,7 +3,8 @@
 use ui::UiScale;
 
 use super::{DebugLines, INSET, LINE_HEIGHT, MAX_LINES_PER_COLUMN, bounded_visible_text};
-use {super::super::TextMetrics, ui::FONT_DESIGN_PIXEL_TEXELS};
+use ui::FONT_DESIGN_PIXEL_TEXELS;
+use ui_engine::text_metrics::TextMetrics;
 
 /// Matches the JSON-UI row budget, including the current content height.
 pub(super) fn row_limit(root: [f64; 2]) -> usize {

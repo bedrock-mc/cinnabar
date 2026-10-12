@@ -1,6 +1,6 @@
 use assets::{MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MolangSymbolKind, molang_call};
 
-use {super::*, world::TICK_DURATION as ACTOR_TICK_DURATION};
+use {super::*, simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION};
 
 mod input_reads;
 mod owner_variables;

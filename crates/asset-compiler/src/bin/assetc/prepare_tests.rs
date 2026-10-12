@@ -412,3 +412,81 @@ fn physics_compiles_from_the_seed_and_is_reused_until_an_input_changes() {
         BLOCK_PHYSICS.name
     );
 }
+
+#[test]
+fn entity_only_behavior_is_available_to_entity_actor_and_equipment_compilation() {
+    let root = checkout();
+    let context = context(root.path());
+    let behavior = context.pack.cache.join("behavior_pack");
+    fs::create_dir_all(behavior.join("entities")).unwrap();
+    assert_eq!(context.behavior_pack(), Some(behavior.clone()));
+    assert_eq!(context.seat_behavior_pack(), Some(behavior.clone()));
+    for carrier in [carriers::ENTITY, carriers::ACTOR, carriers::EQUIPMENT] {
+        let selected = match command(&carrier, &context).unwrap() {
+            Command::EntityAssets { behavior_pack, .. }
+            | Command::ActorAssets { behavior_pack, .. }
+            | Command::EquipmentAssets { behavior_pack, .. } => behavior_pack,
+            _ => unreachable!(),
+        };
+        assert_eq!(selected, Some(behavior.clone()));
+    }
+}
+
+#[test]
+fn prepared_actor_and_equipment_decode_against_the_published_entity_carrier() {
+    let root = checkout();
+    let context = context(root.path());
+    let resource = context.resource_pack();
+    for family in [
+        "entity",
+        "models/entity",
+        "animations",
+        "animation_controllers",
+        "render_controllers",
+        "textures/entity",
+    ] {
+        fs::create_dir_all(resource.join(family)).unwrap();
+    }
+    fs::write(resource.join("entity/mount.json"), br#"{"format_version":"1.8.0","minecraft:client_entity":{"description":{"identifier":"fixture:mount","geometry":{"default":"geometry.mount"},"materials":{"default":"entity_alphatest"},"textures":{"default":"textures/entity/mount"},"render_controllers":["controller.render.mount"]}}}"#).unwrap();
+    fs::write(resource.join("models/entity/mount.json"), br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.mount","texture_width":16,"texture_height":16},"bones":[{"name":"root","cubes":[{"origin":[0,0,0],"size":[0,2,7],"uv":[0,0]}]}]}]}"#).unwrap();
+    fs::write(resource.join("render_controllers/mount.json"), br#"{"format_version":"1.8.0","render_controllers":{"controller.render.mount":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#).unwrap();
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([17, 31, 47, 255]))
+        .save(resource.join("textures/entity/mount.png"))
+        .unwrap();
+    let behavior = context.pack.cache.join("behavior_pack/entities");
+    fs::create_dir_all(&behavior).unwrap();
+    fs::write(behavior.join("mount.json"), br#"{"format_version":"1.21.0","minecraft:entity":{"description":{"identifier":"fixture:mount"},"components":{"minecraft:rideable":{"seats":{"position":[0,1,0]}}}}}"#).unwrap();
+    fs::write(
+        root.path().join(carriers::VANILLA_MANIFEST),
+        include_bytes!("../../../../../assets/vanilla-source.json"),
+    )
+    .unwrap();
+    fs::create_dir_all(&context.out).unwrap();
+    for with_behavior in [true, false] {
+        if !with_behavior {
+            fs::remove_dir_all(&behavior).unwrap();
+        }
+        for carrier in [carriers::ENTITY, carriers::ACTOR, carriers::EQUIPMENT] {
+            crate::run(command(&carrier, &context).unwrap()).unwrap();
+        }
+        let entity = assets::RuntimeEntityAssets::decode(
+            &fs::read(context.out.join(carriers::ENTITY.output)).unwrap(),
+        )
+        .unwrap();
+        let actor = assets::RuntimeActorCatalog::decode(
+            &fs::read(context.out.join(carriers::ACTOR.output)).unwrap(),
+            &entity,
+        )
+        .unwrap();
+        assert_eq!(actor.bindings().len(), 1);
+        assert_eq!(&actor.textures()[0].rgba8[..4], &[17, 31, 47, 255]);
+        let equipment = assets::RuntimeEquipmentCatalog::decode(
+            &fs::read(context.out.join(carriers::EQUIPMENT.output)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            Some(equipment.entity_blob_sha256()),
+            entity.carrier_identity()
+        );
+    }
+}

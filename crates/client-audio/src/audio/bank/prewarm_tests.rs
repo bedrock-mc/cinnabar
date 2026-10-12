@@ -42,7 +42,7 @@ fn bank(
     ));
     std::fs::write(
         &path,
-        assets::encode_sound_bank(b"{}", b"{}", b"{}", files).unwrap(),
+        assets::sound_bank::encode_sound_bank(b"{}", b"{}", b"{}", files).unwrap(),
     )
     .unwrap();
     (

@@ -2,16 +2,17 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use thiserror::Error;
 use valentine::bedrock::borrowed::{BorrowedStr, take_varint_prefixed_string};
 use valentine::bedrock::codec::{BedrockCodec, I32LE, VarInt, ZigZag64};
-use valentine::bedrock::context::BedrockSession;
-use valentine::bedrock::version::v1_26_51::{BorrowedMcpePacket, McpePacketData, McpePacketName};
+use valentine::bedrock::version::v1_26_51::{
+    BorrowedMcpePacket, McpePacketArgs, McpePacketData, McpePacketName,
+};
 use valentine::protocol::wire;
 
-use crate::Packet;
 use crate::ui::{
     MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS,
     MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, UiPacketError, validate_borrowed_ui_packet,
 };
 use crate::world::WorldPacketError;
+use crate::{Packet, PacketKind};
 
 pub(crate) const BATCH_HEADER: u8 = 0xfe;
 const MAX_BATCH_BYTES: usize = 16 * 1024 * 1024;
@@ -27,7 +28,7 @@ pub enum ProtocolError {
     BlobCache(#[from] crate::BlobCacheError),
 
     #[error("Bedrock session failed: {0}")]
-    Session(#[from] jolyne::error::JolyneError),
+    Session(#[source] SessionError),
 
     #[error("the server ended the current play session")]
     SessionBoundary,
@@ -49,15 +50,15 @@ pub enum ProtocolError {
 
     #[error("packet header ID {header:?} does not match payload ID {payload:?}")]
     HeaderIdMismatch {
-        header: McpePacketName,
-        payload: McpePacketName,
+        header: PacketKind,
+        payload: PacketKind,
     },
 
     #[error("subclient IDs must be in 0..=3, got sender {sender} and target {target}")]
     InvalidSubclient { sender: u32, target: u32 },
 
     #[error("packet decode failed: {0}")]
-    Decode(#[from] valentine::bedrock::error::DecodeError),
+    Decode(#[source] PacketDecodeError),
 
     #[error("UI packet validation failed: {0}")]
     Ui(#[from] UiPacketError),
@@ -69,11 +70,99 @@ pub enum ProtocolError {
     World(#[from] WorldPacketError),
 }
 
+/// A failure in the play session or its startup; `Display` carries its detail.
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub struct SessionError(pub(crate) SessionFailure);
+
+/// Why a session failed; packet failures name the packet and keep a bounded body preview.
+#[derive(Debug, Error)]
+pub(crate) enum SessionFailure {
+    #[error(
+        "decode packet {packet_id:?} (body_len={body_len}, body_preview={body_preview:02x?}): {source}"
+    )]
+    PacketDecode {
+        packet_id: McpePacketName,
+        body_len: usize,
+        body_preview: Vec<u8>,
+        #[source]
+        source: valentine::bedrock::error::DecodeError,
+    },
+    #[error(
+        "decode packet {packet_id:?} (body_len={body_len}) left {remaining} trailing body bytes"
+    )]
+    PacketTrailingBytes {
+        packet_id: McpePacketName,
+        body_len: usize,
+        remaining: usize,
+    },
+    #[error("malformed packet entry: {0}")]
+    MalformedEntry(#[source] std::io::Error),
+    #[error("declared packet length {declared} exceeds available {available}")]
+    TruncatedEntry { declared: usize, available: usize },
+    #[error("unknown packet ID {0}")]
+    UnknownPacketId(u32),
+    #[error("batch payload exceeds max size ({actual} > {max})")]
+    BatchTooLarge { actual: usize, max: usize },
+    #[error("batch contains more than {max} packets")]
+    TooManyPackets { max: usize },
+    #[error("unexpected startup packet: {0}")]
+    UnexpectedStartup(String),
+    /// A Disconnect ended the join; the texts are the server's own, unbounded.
+    #[error("server disconnected during {stage}: {reason}")]
+    ServerDisconnect {
+        stage: &'static str,
+        reason: String,
+        message: String,
+        filtered_message: String,
+    },
+    /// A usable Transfer hands the join back to the reconnect owner.
+    #[error("server transferred to {}:{}", .0.host, .0.port)]
+    ServerTransfer(crate::ServerTransferEvent),
+    #[error("session transport failed: {0}")]
+    Transport(#[source] bridge::BridgeError),
+    #[error("connection closed")]
+    ConnectionClosed,
+}
+
+impl SessionFailure {
+    /// Whether this is a malformed-input failure, which play counts, rather than a closed link.
+    pub(crate) const fn is_decode(&self) -> bool {
+        !matches!(self, Self::Transport(_) | Self::ConnectionClosed)
+    }
+}
+
+impl From<SessionFailure> for SessionError {
+    fn from(failure: SessionFailure) -> Self {
+        Self(failure)
+    }
+}
+
+/// A packet body the codec could not decode; `Display` carries its detail.
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub struct PacketDecodeError(pub(crate) valentine::bedrock::error::DecodeError);
+
+impl From<SessionError> for ProtocolError {
+    fn from(error: SessionError) -> Self {
+        Self::Session(error)
+    }
+}
+
+impl From<SessionFailure> for ProtocolError {
+    fn from(failure: SessionFailure) -> Self {
+        Self::Session(SessionError(failure))
+    }
+}
+
+impl From<valentine::bedrock::error::DecodeError> for ProtocolError {
+    fn from(error: valentine::bedrock::error::DecodeError) -> Self {
+        Self::Decode(PacketDecodeError(error))
+    }
+}
+
 /// Decodes an uncompressed gophertunnel raw batch into owned protocol packets.
-pub fn decode_batch(
-    mut bytes: Bytes,
-    session: &BedrockSession,
-) -> Result<Vec<Packet>, ProtocolError> {
+pub fn decode_batch(mut bytes: Bytes) -> Result<Vec<Packet>, ProtocolError> {
     if bytes.len() > MAX_BATCH_BYTES {
         return Err(ProtocolError::BatchTooLarge {
             actual: bytes.len(),
@@ -110,14 +199,13 @@ pub fn decode_batch(
         bytes.advance(declared);
         validate_raw_ui_frame(&frame)?;
         validate_raw_audio_frame(&frame)?;
-        let (header, data) =
-            McpePacketData::decode_inner(&mut frame, jolyne::valentine::packet_args(session))?;
+        let (header, data) = McpePacketData::decode_inner(&mut frame, McpePacketArgs)?;
         if frame.has_remaining() {
             return Err(ProtocolError::TrailingPacketBytes {
                 remaining: frame.remaining(),
             });
         }
-        packets.push(Packet::new(header, data));
+        packets.push(Packet::from_parts(header, data));
     }
     Ok(packets)
 }
@@ -384,7 +472,7 @@ fn validate_raw_utf8(value: &BorrowedStr, field: &'static str) -> Result<(), Pro
 }
 
 /// Encodes one packet as an uncompressed gophertunnel raw batch.
-pub fn encode(packet: &Packet, _session: &BedrockSession) -> Result<Bytes, ProtocolError> {
+pub fn encode(packet: &Packet) -> Result<Bytes, ProtocolError> {
     validate_packet(packet)?;
 
     let mut bytes = BytesMut::new();
@@ -401,8 +489,8 @@ pub(crate) fn validate_packet(packet: &Packet) -> Result<(), ProtocolError> {
     let payload_id = packet.data.packet_id();
     if packet.header.id != payload_id {
         return Err(ProtocolError::HeaderIdMismatch {
-            header: packet.header.id,
-            payload: payload_id,
+            header: packet.kind(),
+            payload: PacketKind(payload_id),
         });
     }
     if packet.header.from_subclient > 3 || packet.header.to_subclient > 3 {

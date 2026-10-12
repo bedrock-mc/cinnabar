@@ -131,7 +131,7 @@ pub(crate) fn drive_ambience(
     collisions: Option<Res<PhysicsCollisionRegistries>>,
     view: Res<LocalViewPose>,
     player_runtime: Option<Res<client_state::PlayerRuntime>>,
-    ui: Option<Res<client_ui::ui_runtime::UiRuntime>>,
+    ui: Option<Res<client_shell::ui_resources::UiRuntimeResource>>,
     engine: ResMut<AudioEngine>,
     state: Local<AmbientState>,
     profiler: Option<Res<RuntimeStageProfiler>>,

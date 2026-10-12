@@ -1,7 +1,7 @@
 use {
     super::*,
     actor_animation::test_support::{quat_from_euler, total_scale},
-    world::TICK_DURATION as ACTOR_TICK_DURATION,
+    simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION,
 };
 
 #[test]

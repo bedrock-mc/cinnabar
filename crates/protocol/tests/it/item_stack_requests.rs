@@ -1,7 +1,7 @@
 use protocol::{
-    BedrockSession, CREATED_OUTPUT_SLOT, InventoryPacketError, MAX_STACK_REQUEST_ACTIONS,
-    StackRequestAction, StackRequestContainer, StackRequestSlot, container_close_packet,
-    decode_batch, encode, item_stack_request_packet,
+    CREATED_OUTPUT_SLOT, InventoryPacketError, MAX_STACK_REQUEST_ACTIONS, StackRequestAction,
+    StackRequestContainer, StackRequestSlot, container_close_packet, decode_batch, encode,
+    item_stack_request_packet,
 };
 
 fn slot(container: StackRequestContainer, slot: u8, stack_network_id: i32) -> StackRequestSlot {
@@ -17,12 +17,9 @@ fn body(action: StackRequestAction) -> Vec<u8> {
 }
 
 fn request_body(request_id: i32, action: StackRequestAction) -> Vec<u8> {
-    encode(
-        &item_stack_request_packet(request_id, &[action]).expect("valid request"),
-        &BedrockSession { shield_item_id: 0 },
-    )
-    .expect("encode request")
-    .to_vec()
+    encode(&item_stack_request_packet(request_id, &[action]).expect("valid request"))
+        .expect("encode request")
+        .to_vec()
 }
 
 #[test]
@@ -111,30 +108,21 @@ fn level_entity_take_and_native_client_close_encode_expected_wire() {
         hex("fe1b93010105010000030700025b0000003b0000ffffffff00ffffffff")
     );
     assert_eq!(
-        encode(
-            &container_close_packet(1).expect("valid close"),
-            &BedrockSession { shield_item_id: 0 },
-        )
-        .unwrap()
-        .to_vec(),
+        encode(&container_close_packet(1).expect("valid close"),)
+            .unwrap()
+            .to_vec(),
         hex("fe042f01f700")
     );
     assert_eq!(
-        encode(
-            &container_close_packet(-1).expect("signed raw close"),
-            &BedrockSession { shield_item_id: 0 },
-        )
-        .unwrap()
-        .to_vec(),
+        encode(&container_close_packet(-1).expect("signed raw close"),)
+            .unwrap()
+            .to_vec(),
         hex("fe042ffff700")
     );
     assert_eq!(
-        encode(
-            &container_close_packet(-128).expect("lowest signed raw close"),
-            &BedrockSession { shield_item_id: 0 },
-        )
-        .unwrap()
-        .to_vec(),
+        encode(&container_close_packet(-128).expect("lowest signed raw close"),)
+            .unwrap()
+            .to_vec(),
         hex("fe042f80f700")
     );
 }
@@ -219,8 +207,7 @@ fn negative_stack_ids_name_prior_predictions_or_this_requests_created_output() {
         },
     ];
     let packet = item_stack_request_packet(-7, &chained).unwrap();
-    let session = BedrockSession { shield_item_id: 0 };
-    let mut packets = decode_batch(encode(&packet, &session).unwrap(), &session).unwrap();
+    let mut packets = decode_batch(encode(&packet).unwrap()).unwrap();
     use valentine::bedrock::version::v1_26_51::{
         ItemStackRequestPacketDataRequestDataActionsItem as Action, McpePacketData,
     };

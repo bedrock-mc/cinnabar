@@ -61,30 +61,26 @@ impl ItemUseRuntime {
             .unwrap_or_else(|| {
                 selected
                     .as_ref()
-                    .and_then(|item| item.charged_projectile.as_deref())
+                    .filter(|item| item.charged_projectile.is_some())
+                    .map(|item| item.charged_projectile_role)
             });
         let charged = projectile.is_some();
-        let animation_frame = if selected
-            .as_ref()
-            .and_then(|item| item.identifier.as_deref())
-            == Some("minecraft:crossbow")
+        let use_facts = player_runtime
+            .selected_stack()
+            .map(|stack| stream.authority().item_use_profile(stack.network_id))
+            .unwrap_or_default();
+        let animation_frame = if use_facts.animation == assets::item_use::ItemUseAnimation::Crossbow
         {
-            let firework = ui
-                .gameplay_hud()
-                .offhand_stack()
-                .and_then(|stack| stream.authority().canonical_item_stack(stack))
-                .is_some_and(|item| {
-                    item.identifier.as_deref() == Some("minecraft:firework_rocket")
-                });
+            let firework = ui.gameplay_hud().offhand_stack().is_some_and(|stack| {
+                stream
+                    .authority()
+                    .item_use_profile(stack.network_id)
+                    .projectile
+                    == assets::item_use::ItemProjectileRole::Firework
+            });
             crossbow_animation_frame(use_elapsed_ticks, max_use_ticks, projectile, firework)
         } else {
-            ranged_animation_frame(
-                selected
-                    .as_ref()
-                    .and_then(|item| item.identifier.as_deref()),
-                use_elapsed_ticks,
-                max_use_ticks,
-            )
+            ranged_animation_frame(use_facts.animation, use_elapsed_ticks, max_use_ticks)
         };
         actor_animation::AttachableAnimationInput {
             first_person: true,
@@ -109,7 +105,12 @@ impl ItemUseRuntime {
     ) -> Option<u32> {
         let stack = ui.inventory_ledger(player_runtime).displayed_stack(slot)?;
         let canonical = stream.authority().canonical_item_stack(stack)?;
-        if canonical.identifier.as_deref() != Some("minecraft:crossbow") {
+        if stream
+            .authority()
+            .item_use_profile(stack.network_id)
+            .animation
+            != assets::item_use::ItemUseAnimation::Crossbow
+        {
             return None;
         }
         if player_runtime.selected_hotbar_slot() == Some(slot) {
@@ -120,7 +121,12 @@ impl ItemUseRuntime {
         }
         let projectile = self
             .slot_projectile(player_runtime, ui, slot)
-            .unwrap_or(canonical.charged_projectile.as_deref());
+            .unwrap_or_else(|| {
+                canonical
+                    .charged_projectile
+                    .as_ref()
+                    .map(|_| canonical.charged_projectile_role)
+            });
         Some(crossbow_animation_frame(None, 0, projectile, false))
     }
 
@@ -139,7 +145,7 @@ impl ItemUseRuntime {
             stream,
             self.selected_projectile(player_runtime, ui),
         ) {
-            Some(AirUse::Hold { .. } | AirUse::Instant) => LocalItemUse::Idle,
+            Some(AirUse::Hold { .. } | AirUse::Instant { .. }) => LocalItemUse::Idle,
             Some(AirUse::Throw { .. }) | None => LocalItemUse::Unpredicted,
         }
     }
@@ -148,7 +154,7 @@ impl ItemUseRuntime {
         &self,
         player_runtime: &client_state::PlayerRuntime,
         ui: &UiRuntime,
-    ) -> Option<Option<&'static str>> {
+    ) -> Option<Option<assets::item_use::ItemProjectileRole>> {
         let slot = player_runtime.selected_hotbar_slot()?;
         self.predicted_projectile(
             slot,
@@ -163,7 +169,7 @@ impl ItemUseRuntime {
         player_runtime: &client_state::PlayerRuntime,
         ui: &UiRuntime,
         slot: u8,
-    ) -> Option<Option<&'static str>> {
+    ) -> Option<Option<assets::item_use::ItemProjectileRole>> {
         self.predicted_projectile(
             slot,
             ui.inventory_ledger(player_runtime)

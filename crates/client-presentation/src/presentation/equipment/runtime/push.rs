@@ -278,12 +278,12 @@ impl EquipmentRuntime {
             .owner
             .is_using_item()
             .then_some(animation.rig.hand[1].use_ticks);
-        let duration = equipment
+        let use_facts = equipment
             .main
             .as_ref()
-            .and_then(|main| self.item_use.get(main.identifier.as_ref()))
-            .copied()
+            .map(|main| main.use_facts)
             .unwrap_or_default();
+        let duration = use_facts.ticks.unwrap_or_default();
         let pack = self.pack.as_mut()?;
         let variables = [("variable.is_enchanted", f32::from(item.enchanted))];
         let input = equipment.attachable_input(actor_animation::AttachableAnimationInput {
@@ -293,7 +293,7 @@ impl EquipmentRuntime {
             use_elapsed_ticks: elapsed,
             delta_seconds: Some(animation.delta_seconds),
             animation_frame: inventory::ranged_animation_frame(
-                equipment.main.as_ref().map(|main| main.identifier.as_ref()),
+                use_facts.animation,
                 elapsed,
                 duration,
             ),

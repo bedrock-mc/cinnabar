@@ -163,10 +163,7 @@ fn mixed_native_font_pages_keep_source_pixels_with_bounded_gpu_residency() {
     let page_bytes = |side: u32| side as usize * side as usize * 4;
     let small_page_bytes = page_bytes(render_model::UI_DYNAMIC_PAGE_SIDE);
     let dynamic_bytes = render_model::UI_LOCAL_FONT_PAGE_OFFSET * small_page_bytes
-        + page_bytes(render_model::UI_LOCAL_FONT_PAGE_SIDE)
-        + render_model::MAX_UI_FALLBACK_FONT_PAGES
-            * render_model::UI_FALLBACK_FONT_PAGE_SIDE as usize
-            * render_model::UI_FALLBACK_FONT_PAGE_SIDE as usize;
+        + page_bytes(render_model::UI_LOCAL_FONT_PAGE_SIDE);
     assert_eq!(
         presentation.textures.plan().bytes(),
         font_bytes
@@ -180,6 +177,19 @@ fn mixed_native_font_pages_keep_source_pixels_with_bounded_gpu_residency() {
         assert_eq!(page.dimensions(), [source.width, source.height]);
         assert_eq!(page.pixels().as_ptr(), source.pixels.bytes().as_ptr());
     }
+}
+
+/// A font without coverage pages leaves no blank coverage layers resident on the GPU.
+#[test]
+fn rgba_font_reserves_no_coverage_texture_layers() {
+    let presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
+    let buckets = presentation.textures.plan().buckets();
+    assert!(
+        buckets
+            .iter()
+            .all(|bucket| bucket.format != render_model::UiTextureFormat::Coverage),
+        "{buckets:?}"
+    );
 }
 
 #[test]
@@ -511,7 +521,7 @@ fn session_icons_pack_onto_the_last_dynamic_page() {
     let dynamic_start = presentation.textures.dynamic_start();
     assert_eq!(
         usize::from(icon.page),
-        dynamic_start + dynamic_textures::SESSION_ICON_PAGE
+        dynamic_start + ui_engine::pages::SESSION_ICON_PAGE
     );
     assert_eq!(icon.uv, [1, 1, 3, 2], "one-pixel gutter around the sprite");
     assert!(
@@ -530,7 +540,7 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
     assert!(presentation.font.glyph('\u{e005}').is_none());
     presentation.set_nametag_anchors(vec![super::super::nametags::NametagAnchor {
         runtime_id: 1,
-        position: bevy::math::Vec3::new(0.0, 2.0, 0.0),
+        position: glam::Vec3::new(0.0, 2.0, 0.0),
         lines: vec![Arc::from("\u{e005}")],
         depth_tested: false,
         text_alpha: 1.0,
@@ -728,7 +738,7 @@ fn real_carriers_keep_icons_drawable_with_session_pages() {
     let (Some(hud), Some(icons), Some(carrier)) = (
         local("vanilla-v1.mcbehud"),
         local("vanilla-v1.mcbeico"),
-        pack_harness::carrier(),
+        ui_engine::test_support::carrier(),
     ) else {
         eprintln!(
             "skipping real_carriers_keep_icons_drawable_with_session_pages: fixture unavailable; requires installed local carriers (make assets)"
@@ -809,15 +819,11 @@ fn coverage_font_pages_fit_the_bucket_budget_with_every_reserved_slot() {
     let plan = presentation.textures.plan();
     assert!(plan.buckets().len() <= render_model::MAX_UI_TEXTURE_BUCKETS);
     for (index, page) in presentation.textures.pages().iter().enumerate() {
-        let fallback_start =
-            presentation.textures.dynamic_start() + render_model::UI_FALLBACK_FONT_PAGE_OFFSET;
-        let fallback_end = fallback_start + render_model::MAX_UI_FALLBACK_FONT_PAGES;
-        let expected =
-            if index < font.pages().len() || (fallback_start..fallback_end).contains(&index) {
-                render_model::UiTextureFormat::Coverage
-            } else {
-                render_model::UiTextureFormat::Rgba8
-            };
+        let expected = if index < font.pages().len() {
+            render_model::UiTextureFormat::Coverage
+        } else {
+            render_model::UiTextureFormat::Rgba8
+        };
         assert_eq!(page.format(), expected, "page {index}");
     }
     let local = presentation.textures.dynamic_start() + render_model::UI_LOCAL_FONT_PAGE_OFFSET;

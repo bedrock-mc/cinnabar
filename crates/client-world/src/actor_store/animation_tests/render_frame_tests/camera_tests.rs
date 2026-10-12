@@ -137,7 +137,9 @@ fn camera_compiled() -> assets::CompiledEntityAssets {
 }
 
 fn camera_assets() -> Arc<RuntimeEntityAssets> {
-    Arc::new(RuntimeEntityAssets::from_compiled(camera_compiled()).unwrap())
+    Arc::new(
+        RuntimeEntityAssets::from_compiled(camera_compiled().with_unresolved_admissions()).unwrap(),
+    )
 }
 
 fn fixture() -> ActorStore {
@@ -216,7 +218,9 @@ fn light_multiplier_defaults_to_one_and_evaluates_unclamped_values_between_ticks
     compiled.render.layers[1].light_color_multiplier = Some(2);
     compiled.render.layers[1].ignore_lighting = true;
     compiled.render.layers[2].light_color_multiplier = Some(3);
-    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let assets = Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+    );
     let store = fixture_with_assets(assets);
     let completed_tick = store.actor_rig(1).unwrap().completed_tick;
     for alpha in [0.0, 0.75] {
@@ -327,7 +331,7 @@ fn inactive_camera_compiled() -> assets::CompiledEntityAssets {
 /// Advances a moving actor one tick so ordinary pose endpoints differ.
 fn walking_fixture(compiled: assets::CompiledEntityAssets) -> ActorStore {
     let mut store = fixture_with_assets(Arc::new(
-        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
     ));
     store.apply(
         1,
@@ -416,7 +420,7 @@ fn camera_animation_mapped_only_to_selected_geometry_samples_between_ticks() {
     compiled.animation_keyframes[channel.first_keyframe as usize].expressions =
         [Some(0), Some(1), None];
     let mut store = fixture_with_assets(Arc::new(
-        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
     ));
     let completed_tick = store.actor_rig(1).unwrap().completed_tick;
     store.set_camera_position([4.0, 3.0, 0.0]);
@@ -560,7 +564,7 @@ fn server_camera_animation_outside_rig_bindings_samples_between_ticks() {
     });
     compiled.animation_clips = clips.into_boxed_slice();
     let mut store = fixture_with_assets(Arc::new(
-        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
     ));
     store.apply_item_actor(
         1,
@@ -633,7 +637,9 @@ fn camera_distance_pre_animation_updates_channel_variables_between_ticks() {
     for keyframe in &mut compiled.animation_keyframes {
         keyframe.expressions = [Some(1), None, None];
     }
-    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let assets = Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+    );
     let mut store = fixture_with_assets(assets);
     let completed_tick = store.actor_rig(1).unwrap().completed_tick;
     store.set_camera_position([4.0, 3.0, 0.0]);
@@ -741,7 +747,9 @@ fn local_swing_samples_molang_layers_and_poses_at_the_physics_fraction() {
     for layer in &mut compiled.render.layers {
         layer.color = Some([0; 4]);
     }
-    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let assets = Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+    );
     let mut store = fixture_with_assets(assets);
     store.exclude_remote_state_for(1);
     let completed_tick = store.actor_rig(1).unwrap().completed_tick;
@@ -922,7 +930,7 @@ fn local_swing_wrap_resamples_controller_weight_without_advancing_tick_state() {
                 variant.controller_animations[0].weight = None;
             }
             let mut store = fixture_with_assets(Arc::new(
-                RuntimeEntityAssets::from_compiled(variant).unwrap(),
+                RuntimeEntityAssets::from_compiled(variant.with_unresolved_admissions()).unwrap(),
             ));
             store.exclude_remote_state_for(1);
             let completed_tick = store.actor_rig(1).unwrap().completed_tick;
@@ -991,7 +999,7 @@ fn local_swing_frame_preserves_the_authored_item_rotation_factor() {
         keyframe.expressions = [Some(0), None, None];
     }
     let mut store = fixture_with_assets(Arc::new(
-        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
     ));
     store.exclude_remote_state_for(1);
     store.sync_local_swing(

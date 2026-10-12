@@ -23,6 +23,7 @@ mod icon;
 mod image;
 mod lang;
 mod lightning_rod;
+mod oreui_icons;
 mod pack;
 mod particle;
 mod respawn_anchor;
@@ -33,7 +34,8 @@ pub use pack::{apply_atlas_tint, parse_atlas_tint};
 
 pub use actor::{
     ActorCompileReport, ActorFallback, ActorPackCompilation, ActorTextureEvidence,
-    CompiledActorCarrier, compile_actor_assets, compile_actor_pack, compile_actor_pack_unless,
+    CompiledActorCarrier, compile_actor_assets, compile_actor_assets_for_assets,
+    compile_actor_pack, compile_actor_pack_unless,
 };
 pub use animation::AnimationInventory;
 
@@ -62,10 +64,12 @@ pub use entity::{
     BlockMolang, BlockStateValue, CompileReferenceOutcome, EntityAssetCompilation,
     EntityPackCompilation, EntityPackSkips, FallbackReason, MAX_PACK_ENTITY_BYTES,
     MAX_PACK_ENTITY_SOURCES, RejectReason, compile_entity_assets,
-    compile_entity_assets_with_report, compile_entity_pack, compile_equipment_textures,
-    compile_equipment_textures_for_assets, compile_equipment_textures_for_assets_with,
-    compile_equipment_textures_with, compile_item_attack_timings, compile_item_use_durations,
-    compile_molang_expression, compile_vanilla_entity_refs, select_entity_geometry,
+    compile_entity_assets_with_behavior_report, compile_entity_assets_with_report,
+    compile_entity_pack, compile_equipment_textures, compile_equipment_textures_for_assets,
+    compile_equipment_textures_for_assets_with, compile_equipment_textures_with,
+    compile_item_attack_timings, compile_item_foods, compile_item_use_durations,
+    compile_item_use_profiles, compile_molang_expression, compile_vanilla_entity_refs,
+    select_entity_geometry,
 };
 pub use fadpcm::{DecodedFadpcm, FadpcmDecodeError, decode_fsb5_fadpcm};
 pub use font::{
@@ -83,6 +87,7 @@ pub use lang::{
     CompiledLangCarrier, LangCompileError, LangCompileReport, compile_lang_assets,
     compile_language, vanilla_language_codes,
 };
+pub use oreui_icons::compile_oreui_icons_to_file;
 pub use pack::{
     BlockTextureMap, DEFAULT_BLEND_FRAMES, FlipbookSource, MAX_FLIPBOOK_FRAMES, MAX_FLIPBOOKS,
     PackSources, TerrainTextureMap, TextureKey, read_pack, resolve_texture_key,

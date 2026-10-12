@@ -126,11 +126,13 @@ fn preparation_materializes_state_physics_for_registry_consumers() {
     let block = &blocks.blocks[0];
     assert_eq!(block.state_physics.len(), block.state_count as usize);
     for state in 0..block.state_count {
+        let transformation = block.physics_for_state(state).transformation;
         let (collides, collision_boxes, selection) = state_physics(block, state);
         assert_eq!(
             block.physics_for_state(state),
             CustomBlockPhysics {
                 random_offset: None,
+                transformation,
                 collides,
                 collision_boxes,
                 selection
@@ -232,4 +234,159 @@ fn random_offset_state_overrides_are_prepared_once_in_palette_order() {
             Some(expected)
         );
     }
+}
+
+/// Zigzag VarInt element count for a network NBT list.
+fn count(elements: usize) -> Vec<u8> {
+    let mut zigzag = (elements as i64) << 1;
+    let mut encoded = Vec::new();
+    loop {
+        let byte = (zigzag & 0x7f) as u8;
+        zigzag >>= 7;
+        if zigzag == 0 {
+            encoded.push(byte);
+            return encoded;
+        }
+        encoded.push(byte | 0x80);
+    }
+}
+
+/// A face-attached block that orients only through `minecraft:transformation`,
+/// as `owlscubed_pob:backrooms_wallpaper_slab` does on the wire: the face
+/// permutations carry no boxes of their own.
+fn face_attached() -> protocol::CustomBlocks {
+    let mut encoded = named(10, "");
+    encoded.extend(named(10, "components"));
+    // The block's default face is `up`; the base box is that top slab.
+    encoded.extend(boxes(8.0, 16.0));
+    encoded.extend(selection(8.0, 8.0));
+    encoded.push(0);
+    encoded.extend(named(9, "properties"));
+    encoded.extend([10]);
+    encoded.extend(count(1));
+    encoded.extend(named(8, "name"));
+    encoded.extend(text("minecraft:block_face"));
+    encoded.extend(named(9, "enum"));
+    encoded.extend([8]);
+    encoded.extend(count(6));
+    for face in ["down", "up", "north", "south", "west", "east"] {
+        encoded.extend(text(face));
+    }
+    encoded.push(0);
+    encoded.extend(named(9, "permutations"));
+    encoded.extend([10]);
+    encoded.extend(count(5));
+    for (face, rotation) in [
+        ("north", [1, 2, 0]),
+        ("south", [1, 0, 0]),
+        ("east", [0, 1, 3]),
+        ("west", [2, 1, 3]),
+        ("down", [2, 0, 0]),
+    ] {
+        encoded.extend(named(8, "condition"));
+        encoded.extend(text(&format!(
+            "q.block_state('minecraft:block_face') == '{face}'"
+        )));
+        encoded.extend(named(10, "components"));
+        encoded.extend(named(10, "minecraft:transformation"));
+        for (key, value) in [
+            ("RX", rotation[0]),
+            ("RY", rotation[1]),
+            ("RZ", rotation[2]),
+            ("SX", 1),
+            ("SY", 1),
+            ("SZ", 1),
+            ("TX", 0),
+            ("TY", 0),
+            ("TZ", 0),
+        ] {
+            encoded.extend(named(3, key));
+            encoded.extend(count(value));
+        }
+        // Close the transformation and component compounds, then the permutation.
+        encoded.extend([0, 0, 0]);
+    }
+    encoded.push(0);
+    protocol::CustomBlocks::from_definitions([("test:face_facing", encoded.as_slice())])
+}
+
+/// Transformation-only permutations are physical: each face state keeps its own turn.
+#[test]
+fn every_face_state_carries_its_own_turn() {
+    let mut blocks = face_attached();
+    resolve(&mut blocks);
+    assert_eq!(blocks.skipped, 0);
+    let block = &blocks.blocks[0];
+    assert_eq!(block.state_physics.len(), 6);
+    let expected: [(u32, Option<[i32; 3]>); 6] = [
+        (0, Some([2, 0, 0])),
+        (1, None), // up: the default face, no permutation
+        (2, Some([1, 2, 0])),
+        (3, Some([1, 0, 0])),
+        (4, Some([2, 1, 3])),
+        (5, Some([0, 1, 3])),
+    ];
+    for (state, rotation) in expected {
+        assert_eq!(
+            block
+                .physics_for_state(state)
+                .transformation
+                .map(|t| t.rotation),
+            rotation,
+            "turn for state {state}"
+        );
+    }
+}
+
+/// A later permutation without a transformation replaces the boxes and inherits the turn.
+#[test]
+fn a_later_permutation_without_a_transform_inherits_the_earlier_turn() {
+    let mut blocks = face_attached();
+    resolve(&mut blocks);
+    let block = Arc::make_mut(&mut blocks.blocks);
+    let visuals = Arc::make_mut(&mut block[0].visual);
+    let mut later = protocol::CustomPermutation {
+        condition: "q.block_state('minecraft:block_face') == 'east'".into(),
+        components: protocol::CustomVisualComponents::default(),
+        physical: protocol::CustomPhysicalComponents::default(),
+    };
+    later.physical.collision = Some(protocol::CustomCollision {
+        enabled: true,
+        boxes: Some(
+            [protocol::CustomBox {
+                min: [0.0; 3],
+                max: [1.0; 3],
+            }]
+            .into(),
+        ),
+    });
+    visuals.permutations = visuals
+        .permutations
+        .iter()
+        .cloned()
+        .chain([later])
+        .collect();
+    let mut blocks = CustomBlocks {
+        blocks: blocks.blocks.clone(),
+        ..Default::default()
+    };
+    resolve(&mut blocks);
+    let east = blocks.blocks[0]
+        .physics_for_state(5)
+        .transformation
+        .expect("the earlier permutation still contributes its transform");
+    assert_eq!(east.rotation, [0, 1, 3]);
+    assert_eq!(
+        blocks.blocks[0]
+            .physics_for_state(5)
+            .collision_boxes
+            .as_deref(),
+        Some(
+            [protocol::CustomBox {
+                min: [0.0; 3],
+                max: [1.0; 3]
+            }]
+            .as_slice()
+        )
+    );
 }

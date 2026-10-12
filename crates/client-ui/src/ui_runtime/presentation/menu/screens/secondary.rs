@@ -8,8 +8,9 @@ use super::{
         rect,
         tokens::*,
     },
-    ContentArea, TextMetrics, UiPresentationError, panel, section_heading,
+    ContentArea, UiPresentationError, panel, section_heading,
 };
+use ui_engine::text_metrics::TextMetrics;
 
 pub(super) fn profile(
     view: &MenuView,
@@ -538,8 +539,8 @@ mod tests {
         launcher::menu::{MenuAction, MenuView},
     };
     use {
-        crate::ui_runtime::presentation::tests::fixture_font,
         launcher::menu::{MenuScreen, auth::AuthState},
+        ui_engine::test_support::fixture_font,
     };
 
     #[test]

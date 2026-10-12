@@ -12,6 +12,17 @@ const TILE_SIDE: usize = assets::BLOCK_ITEM_FACE_SIDE as usize;
 const TILE_PITCH: usize = TILE_SIDE + 2;
 const TILE_COLUMNS: usize = assets::BLOCK_ITEM_SHEET_GRID[0] as usize;
 
+#[cfg(test)]
+#[path = "cube_tests.rs"]
+pub(crate) mod tests;
+
+/// The existing held-cube transport pose, shared by cube and validated cube-model geometry.
+fn opaque_cube_pose() -> Mat4 {
+    Mat4::from_translation(Vec3::new(0.56, -0.52, -0.72))
+        * Mat4::from_rotation_y(45_f32.to_radians())
+        * Mat4::from_scale(Vec3::splat(0.4))
+}
+
 impl ViewmodelGeometry {
     /// Builds an ordinary opaque cube from the current validated block carrier.
     /// The existing nearest-only skin transport contains six unmodified tiles.
@@ -23,13 +34,15 @@ impl ViewmodelGeometry {
             return None;
         }
         let block = assets.resolve(NetworkIdMode::Sequential, visual.0);
-        if !block.is_known()
-            || block.kind() != VisualKind::Cube
-            || block.support() != VisualSupport::Exact
-            || !block
+        let model = assets::gui_item::full_cube_model_quads(assets, visual);
+        let ordinary_cube = block.kind() == VisualKind::Cube
+            && block
                 .flags()
                 .contains(BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE)
-            || block.model_template().is_some()
+            && block.model_template().is_none();
+        if !block.is_known()
+            || (!ordinary_cube && model.is_none())
+            || block.support() != VisualSupport::Exact
             || block.animation().is_some()
         {
             return None;
@@ -97,16 +110,20 @@ impl ViewmodelGeometry {
         let transposed = [[0., 0.], [0., 1.], [1., 1.], [1., 0.]];
         let vertical = [[0., 1.], [1., 1.], [1., 0.], [0., 0.]];
         let vertical_transposed = [[0., 1.], [0., 0.], [1., 0.], [1., 1.]];
-        let transform = Mat4::from_translation(Vec3::new(0.56, -0.52, -0.72))
-            * Mat4::from_rotation_y(45_f32.to_radians())
-            * Mat4::from_scale(Vec3::splat(0.4));
+        let transform = opaque_cube_pose();
         let mut vertices = Vec::with_capacity(36);
         for (face, positions) in corners.into_iter().enumerate() {
-            let uv = match face {
-                0 | 5 => vertical,
-                1 | 4 => vertical_transposed,
-                3 => transposed,
-                _ => horizontal,
+            let uv = if let Some(quads) = model {
+                quads[face]
+                    .uvs
+                    .map(|uv| uv.map(|coordinate| f32::from(coordinate) / 4096.0))
+            } else {
+                match face {
+                    0 | 5 => vertical,
+                    1 | 4 => vertical_transposed,
+                    3 => transposed,
+                    _ => horizontal,
+                }
             };
             for corner in [0, 1, 2, 0, 2, 3] {
                 let p = transform

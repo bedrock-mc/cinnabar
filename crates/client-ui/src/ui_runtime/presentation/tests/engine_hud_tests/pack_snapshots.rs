@@ -52,7 +52,7 @@ fn snapshot_recent_effects() {
         );
         return;
     }
-    let Some(ui) = pack_harness::carrier() else {
+    let Some(ui) = ui_engine::test_support::carrier() else {
         return;
     };
     let hud = Arc::new(assets::RuntimeHudCatalog::decode(&std::fs::read(path).unwrap()).unwrap());

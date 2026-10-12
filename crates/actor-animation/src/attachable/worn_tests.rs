@@ -1,6 +1,7 @@
 //! Attachables worn on the body rather than held.
 
 use super::*;
+use crate::test_support::scalar;
 
 #[test]
 fn worn_attachables_read_owner_movement_delta_for_glide_wings() {

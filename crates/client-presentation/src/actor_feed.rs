@@ -51,6 +51,7 @@ pub fn build_local_player_feed(
         pitch: pitch_degrees,
         main_hand: None,
         off_hand: None,
+        held_network_ids: [0; 2],
         main_hand_metadata: 0,
         main_hand_slot: 0,
         main_hand_stack_id: None,
@@ -116,6 +117,23 @@ pub fn prepare_local_player_feed(
     if let Some(feed) = &mut local_feed {
         feed.game_mode = player.facts.player_game_mode();
         feed.prefer_client_skin = prefer_client_skin;
+        feed.held_network_ids = [
+            equipment
+                .main
+                .as_ref()
+                .and_then(|_| player.selected_stack())
+                .map_or(0, |stack| stack.network_id),
+            equipment
+                .off
+                .as_ref()
+                .and_then(|_| {
+                    player
+                        .inventory
+                        .ledger()
+                        .target_stack(inventory::inventory_ledger::InventoryTarget::Offhand)
+                })
+                .map_or(0, |stack| stack.network_id),
+        ];
         feed.main_hand_slot = player.selected_hotbar_slot().unwrap_or(0);
         feed.main_hand_stack_id = player
             .selected_stack()

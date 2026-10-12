@@ -133,12 +133,15 @@ impl IconBlocks {
         }
         match block.kind() {
             VisualKind::Cube => block.flags().contains(BlockFlags::CUBE_GEOMETRY),
-            VisualKind::Model => block
-                .model_template()
-                .and_then(|id| world.model_templates().get(id as usize))
-                .is_some_and(|template| {
-                    template.flags & assets::MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE != 0
-                }),
+            VisualKind::Model => {
+                assets::gui_item::full_cube_model_quads(world, visual).is_some()
+                    || block
+                        .model_template()
+                        .and_then(|id| world.model_templates().get(id as usize))
+                        .is_some_and(|template| {
+                            template.flags & assets::MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE != 0
+                        })
+            }
             _ => false,
         }
     }

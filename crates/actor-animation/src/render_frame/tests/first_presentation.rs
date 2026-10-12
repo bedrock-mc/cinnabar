@@ -8,7 +8,9 @@ fn compiled_assets() -> assets::CompiledEntityAssets {
 
 /// Loads the original initialized pose and visibility fixture.
 fn assets() -> Arc<RuntimeEntityAssets> {
-    Arc::new(RuntimeEntityAssets::from_compiled(compiled_assets()).unwrap())
+    Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled_assets().with_unresolved_admissions()).unwrap(),
+    )
 }
 
 /// Selects a second geometry with its own matching animation channel.
@@ -45,7 +47,7 @@ fn alternate_geometry_assets() -> Arc<RuntimeEntityAssets> {
         geometry: 1,
     }]
     .into();
-    Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap())
+    Arc::new(RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap())
 }
 
 /// A fresh rig with the complete zero-time presentation context.
@@ -102,7 +104,7 @@ fn first_presentation_preserves_motion_and_clip_time_and_replays_local_view() {
             .unwrap()
             .clip_clocks
             .values()
-            .all(|clock| clock.time == world::TICK_DURATION.as_secs_f32())
+            .all(|clock| clock.time == simulation_clock::TICK_DURATION.as_secs_f32())
     );
     store.clear();
     store.insert(2, 0, actors.get(&1).unwrap());
@@ -192,7 +194,9 @@ fn first_presentation_seeds_java_posture_without_advancing_motion() {
     ] {
         let mut compiled = compiled_assets();
         compiled.symbols[0].identifier = "minecraft:player".into();
-        let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+        let assets = Arc::new(
+            RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+        );
         let mut actor = super::super::super::tests::actor_with_metadata(HashMap::new());
         actor.kind = protocol::ActorKind::Player {
             uuid: [1; 16],
@@ -240,7 +244,9 @@ fn first_presentation_refreshes_current_queries_after_pending_simulation_history
     let expression = compiled.animation_keyframes[0].expressions[1].unwrap() as usize;
     let op = compiled.molang_expressions[expression].first_op as usize;
     compiled.molang_ops[op] = MolangOp::LoadQuery(3);
-    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let assets = Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+    );
     let (mut store, mut actors) = animation_fixture_with(assets);
     store.advance_tick(&actors, None, None, true, true, |_| ActorTickContext {
         appearance_pending: true,
@@ -291,7 +297,9 @@ fn first_presentation_uses_the_rendered_body_heading_after_pending_motion() {
     let expression = compiled.animation_keyframes[0].expressions[1].unwrap() as usize;
     let op = compiled.molang_expressions[expression].first_op as usize;
     compiled.molang_ops[op] = MolangOp::LoadQuery(5);
-    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let assets = Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+    );
     let (mut store, mut actors) = animation_fixture_with(assets);
     let actor = actors.get_mut(&1).unwrap();
     actor.yaw = 90.0;
@@ -363,7 +371,9 @@ fn local_view_fixture() -> (ActorAnimationStore, HashMap<u64, TestActor>) {
     let expression = compiled.animation_keyframes[0].expressions[1].unwrap() as usize;
     let op = compiled.molang_expressions[expression].first_op as usize;
     compiled.molang_ops[op] = MolangOp::LoadVariable(slot);
-    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let assets = Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+    );
     let mut store = ActorAnimationStore::with_assets(assets);
     let mut actor = super::super::super::tests::actor_with_metadata(HashMap::new());
     actor.runtime_id = LOCAL_VIEW_RUNTIME_ID;

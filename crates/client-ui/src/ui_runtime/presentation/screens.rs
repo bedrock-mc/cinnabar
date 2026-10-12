@@ -3,16 +3,15 @@
 //! Offsets are GUI pixels from the panel's top-left corner. Layout values come
 //! from remembered public GUI texture layouts and need screenshot measurement.
 
-use super::inventory_pointer::{InventoryCellHit, InventoryScreen};
+use super::inventory_pointer::InventoryScreen;
+use ui_screens::container_actions::InventoryCellHit;
 
 mod book;
 mod creative;
 mod reader;
 mod window;
 
-pub use reader::{
-    PAGE_TEXT_ORIGIN, PAGE_TEXT_WIDTH, READER_PANEL, ReaderButton, reader_buttons, reader_hit,
-};
+pub use reader::{PAGE_TEXT_ORIGIN, PAGE_TEXT_WIDTH, READER_PANEL, reader_buttons, reader_hit};
 
 pub use book::{
     BOOK_CELL_SIZE, BOOK_CELLS, BOOK_PANEL, book_hit, book_origin, cell_origin as book_cell_origin,
@@ -21,14 +20,11 @@ pub use book::{
 };
 
 pub use creative::{
-    CREATIVE_PANEL, GRID_CELLS, GRID_COLUMNS, GRID_ROWS, SEARCH_TAB, TAB_COUNT, creative_slots,
-    tab_at, tab_origin, tab_size,
+    CREATIVE_PANEL, GRID_CELLS, GRID_COLUMNS, GRID_ROWS, creative_slots, tab_at, tab_origin,
+    tab_size,
 };
 
-pub use window::{
-    BEACON_LEVEL_FOR, LOOM_CELLS, LOOM_COLUMNS, STONECUTTER_CELLS, Widget, widget_rects,
-    window_layout,
-};
+pub use window::{LOOM_CELLS, LOOM_COLUMNS, widget_rects, window_layout};
 
 pub const SLOT_SIZE: f32 = 18.0;
 const PERSONAL_PANEL: [f32; 2] = [176.0, 166.0];

@@ -97,7 +97,7 @@ impl WalkBobState {
         if !(delta_seconds.is_finite() && delta_seconds > 0.0) {
             return;
         }
-        let ticks = delta_seconds * world::TICKS_PER_SECOND as f32;
+        let ticks = delta_seconds * simulation_clock::TICKS_PER_SECOND as f32;
         let per_tick_speed = horizontal / ticks;
         let target = if on_ground && alive {
             per_tick_speed.min(BOB_TARGET_CAP_PER_TICK)

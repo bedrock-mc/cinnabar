@@ -199,7 +199,7 @@ fn hurt_closes_a_top_container_that_asks() {
 fn carrier_settings_route_input_like_vanilla() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
-    let Some(carrier) = super::super::presentation::forms::pack_harness::carrier() else {
+    let Some(carrier) = ui_engine::test_support::carrier() else {
         eprintln!(
             "skipping carrier_settings_route_input_like_vanilla: fixture unavailable; requires installed local carriers (make assets)"
         );

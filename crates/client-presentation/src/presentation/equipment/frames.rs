@@ -195,6 +195,7 @@ fn feed(main_hand: &str, first_person: bool) -> LocalPlayerFeed {
         pitch: 0.0,
         main_hand: Some(Arc::from(main_hand)),
         off_hand: None,
+        held_network_ids: [0; 2],
         main_hand_metadata: 0,
         main_hand_slot: 0,
         main_hand_stack_id: None,
@@ -226,7 +227,6 @@ fn fixture_path(name: &str) -> Option<PathBuf> {
 // Writes to CINNABAR_FP_FRAMES from an entity carrier (CINNABAR_FP_ENTITY) and the vanilla
 // resource pack (CINNABAR_FP_SAMPLES); CINNABAR_FP_THIRD renders third person instead.
 #[test]
-#[ignore = "writes PNG frames from local carriers"]
 fn render_first_person_held_item_frames() {
     let (Some(out), Some(samples), Some(entity_path)) = (
         fixture_path("CINNABAR_FP_FRAMES"),

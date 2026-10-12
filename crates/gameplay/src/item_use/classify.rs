@@ -1,198 +1,112 @@
-//! What each item does on an air use beyond the click-air transaction every item sends.
+//! Item use reads numerical admissions; identifiers are resolved by the world owner.
 
-use inventory::LONG_WEAPON_USE_TICKS;
-const SPYGLASS_USE_TICKS: u32 = 1_200;
-/// Crossbow charge: 25 ticks less 5 per Quick Charge level.
-const CROSSBOW_CHARGE_TICKS: u32 = 25;
-const QUICK_CHARGE_TICKS_PER_LEVEL: u32 = 5;
-/// Drink duration of potions, ominous bottles and milk buckets.
-const DRINK_TICKS: u32 = 32;
-/// Vanilla's movement factor for a use without `minecraft:use_modifiers`.
-const DEFAULT_USE_SLOWDOWN: f64 = 0.35;
-/// The vanilla spears' `use_modifiers.movement_modifier`.
-const SPEAR_USE_SLOWDOWN: f64 = 1.0;
-/// Ender pearl cooldown.
-const ENDER_PEARL_COOLDOWN: Cooldown = Cooldown {
-    category: "ender_pearl",
-    ticks: 20,
-};
-/// The vanilla food component's chorus fruit cooldown.
-const CHORUS_FRUIT_COOLDOWN: Cooldown = Cooldown {
-    category: "chorusfruit",
-    ticks: 20,
-};
-/// The vanilla pack's `wind_charge` `minecraft:cooldown` (0.5 s).
-const WIND_CHARGE_COOLDOWN: Cooldown = Cooldown {
-    category: "wind_charge",
-    ticks: 10,
-};
-/// Vanilla foods whose `minecraft:food` sets `can_always_eat`.
-const ALWAYS_EDIBLE: &[&str] = &[
-    "enchanted_golden_apple",
-    "golden_apple",
-    "honey_bottle",
-    "suspicious_stew",
-];
-/// Wire names whose vanilla behavior-pack file keeps a legacy identifier.
-const PACK_ALIASES: &[(&str, &str)] = &[
-    (
-        "minecraft:enchanted_golden_apple",
-        "minecraft:appleEnchanted",
-    ),
-    ("minecraft:cooked_mutton", "minecraft:muttonCooked"),
-    ("minecraft:mutton", "minecraft:muttonRaw"),
-    ("minecraft:tropical_fish", "minecraft:clownfish"),
-    ("minecraft:cod", "minecraft:fish"),
-    ("minecraft:cooked_cod", "minecraft:cooked_fish"),
-];
+use assets::item_use::ItemUseKind;
+use assets::item_use::ItemUseRequirement as Needs;
+use client_world::EffectiveItemUse;
+use client_world::ResolvedUseCooldown as Cooldown;
 
-/// What a use needs before it starts outside creative.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Needs {
-    Nothing,
-    Arrow,
-    /// Arrows anywhere, or a firework rocket in the offhand.
-    ArrowOrOffhandRocket,
-    /// Food points below full, as vanilla food requires.
-    Appetite,
+/// The unloaded use retained even while a crossbow's current action is instant.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CrossbowUse {
+    pub max_ticks: u32,
+    pub slowdown: f64,
+    pub cooldown: Option<Cooldown>,
 }
 
-/// A use's shared cooldown category and length.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Cooldown {
-    pub category: &'static str,
-    pub ticks: u32,
-}
-
-/// What pressing use in the air does with the selected item.
+/// Action facts copied from the admitted item definition into one gameplay frame.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AirUse {
-    /// Starts a use that ends on release, or silently once `max_ticks` run out.
     Hold {
         max_ticks: u32,
         needs: Needs,
         slowdown: f64,
-        /// The category cooldown that starts when this use begins.
         cooldown: Option<Cooldown>,
     },
-    /// Consumes one item outside creative and swings, as a thrown projectile does.
-    Throw { cooldown: Option<Cooldown> },
-    /// Acts at once, as a loaded crossbow fires.
-    Instant,
+    Throw {
+        cooldown: Option<Cooldown>,
+    },
+    Instant {
+        unloaded: CrossbowUse,
+    },
 }
 
 impl AirUse {
-    /// Creates a held use without an item cooldown.
-    const fn hold(max_ticks: u32, needs: Needs) -> Self {
-        Self::Hold {
-            max_ticks,
-            needs,
-            slowdown: DEFAULT_USE_SLOWDOWN,
-            cooldown: None,
-        }
-    }
-
-    /// The category cooldown started by an accepted use.
+    /// Returns the admitted category timer independently from charge state.
     pub const fn cooldown(self) -> Option<Cooldown> {
         match self {
             Self::Throw { cooldown } | Self::Hold { cooldown, .. } => cooldown,
-            Self::Instant => None,
+            Self::Instant { unloaded } => unloaded.cooldown,
         }
     }
-
-    /// A crossbow acts only on a fresh press; everything else repeats while use is held.
+    /// Crossbow actions consume fresh presses; other admitted actions may repeat.
     pub const fn repeats_while_held(self) -> bool {
         !matches!(
             self,
-            Self::Instant
+            Self::Instant { .. }
                 | Self::Hold {
                     needs: Needs::ArrowOrOffhandRocket,
                     ..
                 }
         )
     }
-}
-
-/// Whether a vanilla hold use is eaten or drunk (eat/drink use animation), which the
-/// first-person pass raises to the mouth.
-pub fn is_consumed(identifier: &str) -> bool {
-    identifier.strip_prefix("minecraft:").is_some_and(|name| {
-        !matches!(name, "bow" | "trident" | "spyglass" | "crossbow" | "camera")
-            && !name.ends_with("_spear")
-    })
-}
-
-/// The behavior-pack identifier a wire identifier's use duration is filed under.
-pub fn pack_identifier(identifier: &str) -> Option<&'static str> {
-    PACK_ALIASES
-        .iter()
-        .find(|(wire, _)| *wire == identifier)
-        .map(|(_, pack)| *pack)
-}
-
-/// The vanilla item's shared cooldown, independent of its use duration or charge state.
-pub fn item_cooldown(identifier: &str) -> Option<Cooldown> {
-    match identifier.strip_prefix("minecraft:")? {
-        "ender_pearl" => Some(ENDER_PEARL_COOLDOWN),
-        "wind_charge" => Some(WIND_CHARGE_COOLDOWN),
-        "chorus_fruit" => Some(CHORUS_FRUIT_COOLDOWN),
-        _ => None,
+    /// Selects the predicted crossbow charge state while preserving all definition facts.
+    pub const fn with_crossbow_charge(self, charged: bool) -> Self {
+        let unloaded = match self {
+            Self::Instant { unloaded } => unloaded,
+            Self::Hold {
+                max_ticks,
+                needs: Needs::ArrowOrOffhandRocket,
+                slowdown,
+                cooldown,
+            } => CrossbowUse {
+                max_ticks,
+                slowdown,
+                cooldown,
+            },
+            _ => return self,
+        };
+        if charged {
+            Self::Instant { unloaded }
+        } else {
+            Self::Hold {
+                max_ticks: unloaded.max_ticks,
+                needs: Needs::ArrowOrOffhandRocket,
+                slowdown: unloaded.slowdown,
+                cooldown: unloaded.cooldown,
+            }
+        }
     }
 }
 
-/// The air use of `identifier`; `pack_ticks` is the use duration its pack or item components
-/// state. `None` sends only the click-air transaction.
-pub fn classify(
-    identifier: &str,
-    charged: bool,
-    quick_charge: u8,
-    pack_ticks: Option<u32>,
-) -> Option<AirUse> {
-    let Some(name) = identifier.strip_prefix("minecraft:") else {
-        // A custom item with a stated use duration holds like vanilla `use_modifiers`.
-        return pack_ticks.map(|ticks| AirUse::hold(ticks, Needs::Nothing));
-    };
-    Some(match name {
-        "bow" => AirUse::hold(LONG_WEAPON_USE_TICKS, Needs::Arrow),
-        "trident" => AirUse::hold(LONG_WEAPON_USE_TICKS, Needs::Nothing),
-        "spyglass" => AirUse::hold(SPYGLASS_USE_TICKS, Needs::Nothing),
-        "crossbow" if charged => AirUse::Instant,
-        "crossbow" => AirUse::hold(
-            CROSSBOW_CHARGE_TICKS
-                .saturating_sub(u32::from(quick_charge) * QUICK_CHARGE_TICKS_PER_LEVEL),
-            Needs::ArrowOrOffhandRocket,
-        ),
-        "potion" | "ominous_bottle" | "milk_bucket" => AirUse::hold(DRINK_TICKS, Needs::Nothing),
-        "snowball" | "egg" | "blue_egg" | "brown_egg" | "experience_bottle" | "splash_potion"
-        | "lingering_potion" => AirUse::Throw { cooldown: None },
-        "ender_pearl" => AirUse::Throw {
-            cooldown: item_cooldown(identifier),
-        },
-        "wind_charge" => AirUse::Throw {
-            cooldown: item_cooldown(identifier),
-        },
-        // Placed with its block; its pack use duration is not an air use.
-        "camera" => return None,
-        _ if name.ends_with("_spear") => AirUse::Hold {
-            max_ticks: pack_ticks?,
-            needs: Needs::Nothing,
-            slowdown: SPEAR_USE_SLOWDOWN,
-            cooldown: None,
-        },
-        "chorus_fruit" => AirUse::Hold {
-            cooldown: item_cooldown(identifier),
-            max_ticks: pack_ticks?,
-            needs: Needs::Nothing,
-            slowdown: DEFAULT_USE_SLOWDOWN,
-        },
-        // Every other vanilla item with a pack use duration is a food.
-        _ => AirUse::hold(
-            pack_ticks?,
-            if ALWAYS_EDIBLE.contains(&name) {
-                Needs::Nothing
+/// Applies only stack-sensitive charge facts to an already resolved item definition.
+pub fn classify(profile: EffectiveItemUse, charged: bool, quick_charge: u8) -> Option<AirUse> {
+    match profile.kind? {
+        ItemUseKind::None => None,
+        ItemUseKind::Throw => Some(AirUse::Throw {
+            cooldown: profile.cooldown,
+        }),
+        ItemUseKind::Hold | ItemUseKind::Crossbow => {
+            let max_ticks = profile.ticks?;
+            let max_ticks = if profile.kind == Some(ItemUseKind::Crossbow) {
+                max_ticks
+                    .saturating_sub(
+                        u32::from(quick_charge) * assets::item_use::QUICK_CHARGE_TICKS_PER_LEVEL,
+                    )
+                    .max(1)
             } else {
-                Needs::Appetite
-            },
-        ),
-    })
+                max_ticks
+            };
+            let action = AirUse::Hold {
+                max_ticks,
+                needs: profile.requirement,
+                slowdown: profile.movement,
+                cooldown: profile.cooldown,
+            };
+            Some(if profile.kind == Some(ItemUseKind::Crossbow) {
+                action.with_crossbow_charge(charged)
+            } else {
+                action
+            })
+        }
+    }
 }

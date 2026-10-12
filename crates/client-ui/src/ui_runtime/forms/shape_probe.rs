@@ -20,7 +20,7 @@ pub(super) fn observe(event: &FormRequestEvent) {
         opted_in(std::env::var_os(crate::diagnostic_markers::FORM_SHAPE_PROBE).as_deref())
     });
     if let Some(summary) = inspect(enabled, &CLAIMED, event) {
-        bevy::log::warn!(target: "bedrock_client::form_shape_probe", "form shape probe: {summary:?}");
+        tracing::warn!(target: "bedrock_client::form_shape_probe", "form shape probe: {summary:?}");
     }
 }
 

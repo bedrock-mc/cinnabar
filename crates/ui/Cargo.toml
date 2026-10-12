@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+json-ui = { path = "../json-ui" }
 assets = { path = "../assets" }
 render-api = { path = "../render-api" }
 semantic-input = { path = "../input" }

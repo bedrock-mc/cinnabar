@@ -19,7 +19,7 @@ use launcher_host::{
 };
 
 use client_shell::presence_target::presence_target;
-use client_ui::ui_runtime::UiRuntime;
+use client_shell::ui_resources::UiRuntimeResource;
 use {
     crate::runtime::{
         network::{CompiledStacks, session::NetworkConfig},
@@ -123,6 +123,14 @@ impl SessionController {
 
     pub(crate) fn presence_target(&self) -> Option<&rich_presence::Target> {
         self.presence.as_ref()
+    }
+
+    /// Endpoint directory of the live session core; unavailable during teardown.
+    #[cfg(feature = "local-mods")]
+    pub(crate) fn socket_directory(&self) -> Option<&std::path::Path> {
+        self.directory
+            .as_ref()
+            .map(SessionDirectoryGuard::directory)
     }
 
     pub(crate) fn status(&self) -> SessionStatus {
@@ -266,7 +274,7 @@ pub(crate) struct SessionResources<'w> {
     controller: ResMut<'w, SessionController>,
     network: ResMut<'w, NetworkHandle<PackApplication>>,
     resource_packs: ResMut<'w, ResourcePackAdmissionState>,
-    runtime: ResMut<'w, UiRuntime>,
+    runtime: ResMut<'w, UiRuntimeResource>,
     player_runtime: ResMut<'w, PlayerRuntime>,
     client_world: ResMut<'w, ClientWorld>,
     movement: ResMut<'w, MovementTicker>,

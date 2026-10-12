@@ -8,10 +8,7 @@ const KEY_SEAT_LOCK_DEGREES: u32 = 58;
 const KEY_SEAT_ROTATION_DEGREES: u32 = 60;
 const KEY_BED_POSITION: u32 = 28;
 
-const FLAG_SADDLED: u32 = 8;
 pub(crate) const FLAG_BABY: u32 = 11;
-const FLAG_TAMED: u32 = 28;
-const FLAG_SHEARED: u32 = 31;
 
 /// Head turn, in degrees either side of the body, at or beyond which a seat does not limit it.
 const UNLOCKED_HEAD_DEGREES: f32 = 180.0;
@@ -37,112 +34,10 @@ pub struct RideSeat {
     pub position: [f32; 3],
     pub min_riders: u32,
     pub max_riders: u32,
-    /// Degrees added to the mount's yaw for the rider's body; `None` when the pack gives an
-    /// expression instead of a number.
+    /// Admitted literal body rotation; unresolved expressions do not produce a seat.
     pub rotate_by: Option<f32>,
     /// Degrees the rider's head may turn either side of its body; `None` leaves it free.
     pub lock_degrees: Option<f32>,
-}
-
-/// Mount state a seat layout applies to, read from the mount's flags.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SeatRequirement {
-    Saddled(bool),
-    Baby(bool),
-    Tamed(bool),
-    Sheared(bool),
-}
-
-impl SeatRequirement {
-    fn holds(self, mount: &super::ActorSnapshot) -> bool {
-        let (bit, wanted) = match self {
-            Self::Saddled(wanted) => (FLAG_SADDLED, wanted),
-            Self::Baby(wanted) => (FLAG_BABY, wanted),
-            Self::Tamed(wanted) => (FLAG_TAMED, wanted),
-            Self::Sheared(wanted) => (FLAG_SHEARED, wanted),
-        };
-        mount.flag(bit) == wanted
-    }
-
-    /// Requirements a component group's name spells out (`pig_unsaddled`, `cow_baby`, ...).
-    pub fn from_group_name(name: &str) -> Vec<Self> {
-        let mut found = Vec::new();
-        for token in name.split(|ch: char| !ch.is_ascii_alphanumeric()) {
-            found.extend(match token {
-                "saddled" => Some(Self::Saddled(true)),
-                "unsaddled" => Some(Self::Saddled(false)),
-                "baby" => Some(Self::Baby(true)),
-                "adult" => Some(Self::Baby(false)),
-                "sheared" => Some(Self::Sheared(true)),
-                "unsheared" => Some(Self::Sheared(false)),
-                "tamed" | "tame" => Some(Self::Tamed(true)),
-                "wild" => Some(Self::Tamed(false)),
-                _ => None,
-            });
-        }
-        found
-    }
-}
-
-#[derive(Clone, Debug)]
-struct SeatLayout {
-    requirements: Vec<SeatRequirement>,
-    seats: Vec<RideSeat>,
-}
-
-/// Seat layouts by mount identifier, used when the server streams no seat offset.
-#[derive(Clone, Debug, Default)]
-pub struct SeatDefaults {
-    layouts: std::collections::HashMap<std::sync::Arc<str>, Vec<SeatLayout>>,
-}
-
-impl SeatDefaults {
-    /// Adds a layout that applies while every requirement holds; none applies always.
-    pub fn insert(
-        &mut self,
-        identifier: impl Into<std::sync::Arc<str>>,
-        requirements: Vec<SeatRequirement>,
-        seats: Vec<RideSeat>,
-    ) {
-        if !seats.is_empty() {
-            self.layouts
-                .entry(identifier.into())
-                .or_default()
-                .push(SeatLayout {
-                    requirements,
-                    seats,
-                });
-        }
-    }
-
-    /// Seat for the `index`th of `riders` riders of `mount`, from its most specific matching
-    /// layout; an index past the seats takes the last one.
-    fn seat(
-        &self,
-        mount: &super::ActorSnapshot,
-        name: &str,
-        riders: u32,
-        index: usize,
-    ) -> Option<RideSeat> {
-        let layout = self
-            .layouts
-            .get(name)?
-            .iter()
-            .filter(|layout| layout.requirements.iter().all(|need| need.holds(mount)))
-            .reduce(|best, layout| {
-                if layout.requirements.len() > best.requirements.len() {
-                    layout
-                } else {
-                    best
-                }
-            })?;
-        let usable: Vec<_> = layout
-            .seats
-            .iter()
-            .filter(|seat| (seat.min_riders..=seat.max_riders).contains(&riders))
-            .collect();
-        usable.get(index).or(usable.last()).map(|seat| **seat)
-    }
 }
 
 impl super::movement_interpolation::MotionState {
@@ -171,10 +66,6 @@ struct Placement {
 }
 
 impl ActorStore {
-    pub(crate) fn set_seat_defaults(&mut self, defaults: std::sync::Arc<SeatDefaults>) {
-        self.seat_defaults = defaults;
-    }
-
     /// Streamed seat of a rider, else the mount type's default for its rider index (riders of
     /// one mount are ordered by unique id).
     fn seat_for(
@@ -201,19 +92,21 @@ impl ActorStore {
                 lock_degrees: degrees(KEY_SEAT_LOCK_DEGREES),
             });
         }
-        let protocol::ActorKind::Entity { identifier } = &mount.kind else {
-            return None;
-        };
-        let mut riders: Vec<i64> = self
-            .rider_to_ridden
-            .iter()
-            .filter(|(_, ridden)| **ridden == mount.unique_id)
-            .map(|(rider, _)| *rider)
-            .collect();
-        riders.sort_unstable();
-        let index = riders.iter().position(|rider| *rider == rider_unique_id)?;
-        self.seat_defaults
-            .seat(mount, identifier.as_ref(), riders.len() as u32, index)
+        let descriptor = self.seat_bindings.get(&mount.runtime_id)?.as_ref()?;
+        let admission = self.entity_assets.as_ref()?.seat_descriptor(*descriptor)?;
+        let mut riders = 0_u32;
+        let mut index = 0_usize;
+        let mut linked = false;
+        for (&id, &ridden) in &self.rider_to_ridden {
+            if ridden == mount.unique_id {
+                riders += 1;
+                index += usize::from(id < rider_unique_id);
+                linked |= id == rider_unique_id;
+            }
+        }
+        linked
+            .then(|| compiled_seat(admission, riders, index))
+            .flatten()
     }
 
     /// Feet position and body yaw of `rider_unique_id` on its mount's seat, when linked and known.
@@ -379,13 +272,9 @@ pub struct ActorFluidProbe {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use protocol::ActorMetadataValue;
 
-    use super::{FLAG_SADDLED, RideSeat, SeatDefaults, SeatRequirement, seat_world_offset};
-    use crate::{ActorPose, ActorSnapshot};
-    use protocol::ActorKind;
+    use super::seat_world_offset;
 
     #[test]
     fn actor_fluid_probes_use_the_streamed_body_bounds() {
@@ -465,84 +354,256 @@ mod tests {
         assert_eq!(predicted, live);
     }
 
-    fn mount(flags: u64) -> ActorSnapshot {
-        let pose = ActorPose {
-            position: [0.0; 3],
-            pitch: 0.0,
-            yaw: 0.0,
-            head_yaw: 0.0,
-        };
-        ActorSnapshot {
-            unique_id: -1,
-            runtime_id: 1,
-            spawn_revision: 1,
-            movement_revision: 0,
-            kind: ActorKind::Entity {
-                identifier: "minecraft:test".into(),
-            },
-            position: [0.0; 3],
-            velocity: [0.0; 3],
-            pitch: 0.0,
-            yaw: 0.0,
-            head_yaw: 0.0,
-            previous_pose: pose,
-            received_pose: pose,
-            interpolation_ticks_remaining: 0,
-            body_yaw: 0.0,
-            on_ground: Some(false),
-            teleported: false,
-            player_mode: None,
-            player_game_mode: None,
-            source_tick: None,
-            metadata: HashMap::from([(0, ActorMetadataValue::Flags(flags))]),
-            attributes: HashMap::new(),
-            int_properties: HashMap::new(),
-            float_properties: HashMap::new(),
-            status: Default::default(),
-            dragon_animation: None,
-            hitboxes: None,
-        }
-    }
-
-    // Seats follow rider count and index; the layout with the most satisfied requirements wins.
-    #[test]
-    fn default_seats_follow_rider_count_and_index() {
-        let mut defaults = SeatDefaults::default();
-        let seat = |z, min, max| RideSeat {
-            position: [0.0, 1.0, z],
-            min_riders: min,
-            max_riders: max,
-            rotate_by: None,
-            lock_degrees: None,
-        };
-        defaults.insert(
-            "minecraft:camel",
-            Vec::new(),
-            vec![seat(0.5, 0, 2), seat(-0.5, 1, 2)],
-        );
-        defaults.insert(
-            "minecraft:camel",
-            vec![SeatRequirement::Saddled(true)],
-            vec![seat(2.0, 0, 2)],
-        );
-        let plain = mount(0);
-        let saddled = mount(1 << FLAG_SADDLED);
-        let at = |actor, riders, index| {
-            defaults
-                .seat(actor, "minecraft:camel", riders, index)
-                .map(|seat| seat.position)
-        };
-        assert_eq!(at(&plain, 1, 0), Some([0.0, 1.0, 0.5]));
-        assert_eq!(at(&plain, 2, 1), Some([0.0, 1.0, -0.5]));
-        assert_eq!(at(&saddled, 1, 0), Some([0.0, 1.0, 2.0]));
-        assert_eq!(defaults.seat(&plain, "minecraft:pig", 1, 0), None);
-    }
-
     #[test]
     fn seat_offset_rotates_about_the_vertical_axis() {
         let world = seat_world_offset([1.0, 0.5, 0.0], 90.0);
         assert!((world[0]).abs() < 1.0e-6 && (world[2] - 1.0).abs() < 1.0e-6);
         assert_eq!(world[1], 0.5);
         assert_eq!(seat_world_offset([0.0, 0.0, 2.0], 0.0), [0.0, 0.0, 2.0]);
+    }
+}
+
+/// Selects only admitted static layouts; unresolved activation or rotation retains streamed pose.
+fn compiled_seat(
+    admission: &assets::entity_seats::EntitySeatAdmission,
+    riders: u32,
+    index: usize,
+) -> Option<RideSeat> {
+    use assets::entity_seats::{EntitySeatAdmission, SeatRotation, SeatSelector};
+    let EntitySeatAdmission::Provisional { layouts, .. } = admission else {
+        return None;
+    };
+    if layouts
+        .iter()
+        .any(|layout| !matches!(layout.selector, SeatSelector::Base))
+    {
+        return None;
+    }
+    let layout = layouts
+        .iter()
+        .find(|layout| layout.selector == SeatSelector::Base)?;
+    let mut usable = layout
+        .seats
+        .iter()
+        .filter(|seat| (seat.min_riders..=seat.max_riders).contains(&riders));
+    let seat = usable.clone().nth(index).or_else(|| usable.next_back())?;
+    let rotate_by = match seat.rotation {
+        SeatRotation::Absent => None,
+        SeatRotation::Literal(degrees) => Some(degrees.get()),
+        SeatRotation::Expression { .. } | SeatRotation::Unresolved => return None,
+    };
+    Some(RideSeat {
+        position: seat.position.map(|value| value.get()),
+        min_riders: seat.min_riders,
+        max_riders: seat.max_riders,
+        rotate_by,
+        lock_degrees: seat.lock_degrees.map(|value| value.get()),
+    })
+}
+
+impl ActorStore {
+    /// Resolves one actor's base once at spawn; placement reads only the numerical binding.
+    pub(super) fn bind_actor_seat(&mut self, actor: &super::ActorSnapshot) {
+        let descriptor = match &actor.kind {
+            protocol::ActorKind::Entity { identifier } => self
+                .seat_bases
+                .get(identifier.as_ref())
+                .copied()
+                .unwrap_or_else(|| {
+                    self.entity_assets
+                        .as_ref()?
+                        .seat_descriptor_index(identifier)
+                }),
+            protocol::ActorKind::Player { .. } => None,
+        };
+        self.seat_bindings.insert(actor.runtime_id, descriptor);
+    }
+
+    /// Retains the first advertised base and refreshes actors that preceded the registry.
+    pub(super) fn apply_seat_bases(&mut self, registry: &protocol::ActorIdentifierRegistry) {
+        for entry in registry.entries.iter() {
+            if self.seat_bases.contains_key(entry.identifier.as_ref())
+                || self.seat_bases.len() >= protocol::MAX_ACTOR_IDENTIFIERS
+            {
+                continue;
+            }
+            let base = if entry.base_identifier.is_empty() {
+                &entry.identifier
+            } else {
+                &entry.base_identifier
+            };
+            let descriptor = self
+                .entity_assets
+                .as_ref()
+                .and_then(|assets| assets.seat_descriptor_index(base));
+            self.seat_bases
+                .insert(std::sync::Arc::clone(&entry.identifier), descriptor);
+        }
+        for actor in self.actors.values() {
+            let descriptor = match &actor.kind {
+                protocol::ActorKind::Entity { identifier } => self
+                    .seat_bases
+                    .get(identifier.as_ref())
+                    .copied()
+                    .unwrap_or_else(|| {
+                        self.entity_assets
+                            .as_ref()?
+                            .seat_descriptor_index(identifier)
+                    }),
+                protocol::ActorKind::Player { .. } => None,
+            };
+            self.seat_bindings.insert(actor.runtime_id, descriptor);
+        }
+    }
+}
+
+#[cfg(test)]
+mod compiled_seat_tests {
+    use super::*;
+    use assets::entity_seats::{
+        CompiledRideSeat, CompiledSeatLayout, EntitySeatAdmission, SeatRotation, SeatSelector,
+    };
+
+    /// Creates an original static count interval without installed carrier data.
+    fn seat(z: f32, min: u32, max: u32) -> CompiledRideSeat {
+        CompiledRideSeat {
+            position: [0.0, 1.0, z].map(|value| assets::ItemDisplayScalar::new(value).unwrap()),
+            min_riders: min,
+            max_riders: max,
+            rotation: SeatRotation::Absent,
+            lock_degrees: None,
+        }
+    }
+
+    /// Gives the store an original checked literal seat instead of an installed behavior pack.
+    fn store() -> ActorStore {
+        let mut compiled = assets::carriers::startup::test_carriers::synthetic_entity_assets(1);
+        compiled.sources = Box::from([
+            assets::EntityAssetSource {
+                path: "behavior/entities/fixture.json".into(),
+                source_bytes: 1,
+                source_sha256: [2; 32],
+            },
+            compiled.sources[0].clone(),
+        ]);
+        compiled.symbols[0].source_index = 1;
+        compiled.seat_layouts[0].admission = EntitySeatAdmission::Provisional {
+            source: 0,
+            layouts: Box::from([CompiledSeatLayout {
+                selector: SeatSelector::Base,
+                seats: Box::from([seat(0.5, 0, 2)]),
+            }]),
+        };
+        let bytes = assets::encode_entity_blob(&compiled).unwrap();
+        ActorStore::new_with_entity_assets(
+            1,
+            0,
+            std::sync::Arc::new(assets::RuntimeEntityAssets::decode(&bytes).unwrap()),
+        )
+    }
+
+    /// Admits one authored custom base through the real streamed registry path.
+    fn advertise(store: &mut ActorStore, sequence: u64, base: &str) {
+        store.apply(
+            1,
+            sequence,
+            protocol::ActorEvent::Identifiers(protocol::ActorIdentifierRegistry {
+                entries: std::sync::Arc::from([protocol::ActorIdentifier {
+                    identifier: "fixture:mount".into(),
+                    base_identifier: base.into(),
+                }]),
+                skipped: 0,
+            }),
+        );
+    }
+
+    /// Spawns the same network identity with an unrelated display name.
+    fn spawn_mount(store: &mut ActorStore, sequence: u64) {
+        let protocol::ActorEvent::Spawn(mut event) = super::super::tests::spawn(8, 80) else {
+            unreachable!();
+        };
+        event.kind = protocol::ActorKind::Entity {
+            identifier: "fixture:mount".into(),
+        };
+        store.apply(1, sequence, protocol::ActorEvent::Spawn(event));
+    }
+
+    #[test]
+    fn seat_base_admission_refreshes_early_actors_and_keeps_the_first_definition() {
+        let mut store = store();
+        spawn_mount(&mut store, 1);
+        assert_eq!(store.seat_bindings.get(&8), Some(&None));
+        advertise(&mut store, 2, "minecraft:allay");
+        assert_eq!(store.seat_bindings.get(&8), Some(&Some(0)));
+        advertise(&mut store, 3, "fixture:unadmitted");
+        assert_eq!(store.seat_bindings.get(&8), Some(&Some(0)));
+        spawn_mount(&mut store, 4);
+        assert_eq!(store.seat_bindings.get(&8), Some(&Some(0)));
+        store.begin_session(2, 0);
+        assert!(store.seat_bindings.is_empty());
+        assert!(store.seat_bases.is_empty());
+    }
+
+    #[test]
+    fn an_unknown_declared_seat_base_stays_unresolved_after_actor_admission() {
+        let mut store = store();
+        advertise(&mut store, 1, "fixture:unadmitted");
+        spawn_mount(&mut store, 2);
+        assert_eq!(store.seat_bindings.get(&8), Some(&None));
+        advertise(&mut store, 3, "minecraft:allay");
+        assert_eq!(store.seat_bindings.get(&8), Some(&None));
+    }
+
+    #[test]
+    fn compiled_base_seats_preserve_count_intervals_and_compatibility_order() {
+        let admission = EntitySeatAdmission::Provisional {
+            source: 0,
+            layouts: Box::from([CompiledSeatLayout {
+                selector: SeatSelector::Base,
+                seats: Box::from([seat(0.5, 0, 2), seat(-0.5, 2, 2)]),
+            }]),
+        };
+        assert_eq!(
+            compiled_seat(&admission, 1, 0).unwrap().position,
+            [0.0, 1.0, 0.5]
+        );
+        assert_eq!(
+            compiled_seat(&admission, 2, 1).unwrap().position,
+            [0.0, 1.0, -0.5]
+        );
+        assert_eq!(
+            compiled_seat(&admission, 2, 7).unwrap().position,
+            [0.0, 1.0, -0.5]
+        );
+        assert_eq!(compiled_seat(&admission, 3, 0), None);
+    }
+
+    #[test]
+    fn unknown_group_or_rotation_does_not_silently_use_a_base_or_zero_angle() {
+        let admission = EntitySeatAdmission::Provisional {
+            source: 0,
+            layouts: Box::from([
+                CompiledSeatLayout {
+                    selector: SeatSelector::Base,
+                    seats: Box::from([seat(0.5, 0, 2)]),
+                },
+                CompiledSeatLayout {
+                    selector: SeatSelector::UnresolvedComponentGroup { group: 2 },
+                    seats: Box::from([seat(2.0, 0, 2)]),
+                },
+            ]),
+        };
+        assert_eq!(compiled_seat(&admission, 1, 0), None);
+        let mut expression_seat = seat(0.5, 0, 2);
+        expression_seat.rotation = SeatRotation::Expression { expression: 0 };
+        let admission = EntitySeatAdmission::Provisional {
+            source: 0,
+            layouts: Box::from([CompiledSeatLayout {
+                selector: SeatSelector::Base,
+                seats: Box::from([expression_seat]),
+            }]),
+        };
+        assert_eq!(compiled_seat(&admission, 1, 0), None);
+        assert_eq!(compiled_seat(&EntitySeatAdmission::Unresolved, 1, 0), None);
     }
 }

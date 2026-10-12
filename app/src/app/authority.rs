@@ -40,7 +40,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     .add_message::<client_audio::audio_ingress::SequencedAudioEvent>()
     .add_message::<bevy::input::mouse::MouseWheel>()
     .init_resource::<WorldStreamFramePoll>()
-    .init_resource::<client_ui::ui_runtime::presentation::PreparedUiPublication>()
+    .init_resource::<crate::ui_runtime::presentation::publish::PreparedUiPublication>()
     .init_resource::<crate::ui_runtime::emotes::EmoteInputConsumed>()
     .add_systems(
         Update,

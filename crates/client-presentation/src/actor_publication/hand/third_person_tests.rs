@@ -135,6 +135,7 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 },
                 Some(swing),
                 |_, _, _, _| false,
+                None,
                 params.get_mut(&mut world).unwrap(),
             );
             let rig = stream.authority().actor_rig(1).unwrap();
@@ -282,13 +283,13 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 let mut state = world.resource_mut::<super::super::ActorFrameState>();
                 let work = state.java_hand.native_pose.sample_work;
                 assert_eq!(work.0, 1, "only the native body consumer samples the frame");
-                let allocations = crate::test_allocations::count();
+                let allocations = test_alloc::thread_allocations();
                 state
                     .java_hand
                     .native_pose
                     .apply_body(&stream, &mut repeated, actor_alpha, camera);
                 assert_eq!(state.java_hand.native_pose.sample_work, work);
-                assert_eq!(crate::test_allocations::count(), allocations);
+                assert_eq!(test_alloc::thread_allocations(), allocations);
             }
             let unchanged = stream.authority().actor_rig(1).unwrap();
             assert_eq!(

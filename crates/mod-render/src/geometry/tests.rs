@@ -28,6 +28,8 @@ fn decals_lie_flat_on_their_centre_height() {
 fn ribbons_emit_two_triangles_per_segment_and_taper_to_the_tail() {
     let vertices = build(&Primitives {
         ribbons: vec![Ribbon {
+            taper: true,
+            pattern: crate::LinePattern::Solid,
             points: vec![
                 [0.0, 0.0, 0.0],
                 [1.0, 0.0, 0.0],
@@ -116,6 +118,8 @@ fn billboards_keep_anchor_and_select_facing_mode() {
 #[test]
 fn full_budgets_fit_the_vertex_bound() {
     let ribbon = Ribbon {
+        taper: true,
+        pattern: crate::LinePattern::Solid,
         points: vec![[0.0; 3]; mod_api::MAX_RIBBON_POINTS],
         width: 1.0,
         color: [1.0; 4],
@@ -125,4 +129,57 @@ fn full_budgets_fit_the_vertex_bound() {
         ..Default::default()
     };
     assert!(build(&primitives).len() <= MAX_VERTICES);
+}
+
+/// Explicit untapered strips retain width and use uniform solid coverage at both ends.
+#[test]
+fn untapered_ribbons_keep_constant_width_and_solid_style() {
+    let vertices = build(&Primitives {
+        ribbons: vec![Ribbon {
+            taper: false,
+            pattern: crate::LinePattern::Solid,
+            points: vec![[0., 0., 0.], [1., 0., 0.], [1., 2., 0.]],
+            width: 0.5,
+            color: [0.2, 0.4, 0.6, 0.8],
+        }],
+        ..Default::default()
+    });
+    assert_eq!(vertices.len(), 12);
+    for vertex in vertices {
+        assert_eq!(vertex.shape[3], 0.25);
+        assert_eq!(vertex.style[0], STYLE_UNTAPERED_RIBBON);
+        assert_eq!(vertex.color, [0.2, 0.4, 0.6, 0.8]);
+    }
+}
+
+/// Pattern phase follows distance rather than point index across unequal segments.
+#[test]
+fn line_patterns_keep_continuous_distance_and_distinct_styles() {
+    for (pattern, style) in [
+        (crate::LinePattern::Dashed, 31.),
+        (crate::LinePattern::Dotted, 32.),
+    ] {
+        let vertices = build(&Primitives {
+            ribbons: vec![Ribbon {
+                taper: false,
+                pattern,
+                points: vec![[0., 0., 0.], [1., 0., 0.], [1., 3., 0.]],
+                width: 1.,
+                color: [1.; 4],
+            }],
+            ..Default::default()
+        });
+        assert_eq!(vertices.len(), 12);
+        for vertex in &vertices {
+            assert_eq!(vertex.style[0], style);
+            assert_eq!(vertex.style[2], 4.);
+            assert_eq!(vertex.shape[3], 0.5);
+        }
+        let joint = vertices
+            .iter()
+            .find(|vertex| vertex.anchor[..3] == [1., 0., 0.])
+            .unwrap();
+        assert_eq!(joint.uv[1], 0.25);
+        assert_eq!(vertices.last().unwrap().uv[1], 1.);
+    }
 }

@@ -69,7 +69,7 @@ mod tests {
             }
         }
         compiled.symbols[0].mount_equipment = equipment;
-        Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap())
+        Arc::new(RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap())
     }
 
     #[test]

@@ -10,6 +10,7 @@ use crate::runtime::network::resource_packs::PackApplication;
 use ::acceptance::AcceptanceRun;
 use bevy::prelude::{App, IntoScheduleConfigs, Update};
 use client_runtime::network::NetworkHandle;
+use client_shell::ui_resources::UiRuntimeResource;
 use protocol::{
     ChangeDimensionEvent, MovePlayerEvent, MovementCorrectionSubject, Packet, PlayerInputMode,
     PlayerMovementCorrectionEvent, RespawnEvent, WorldBootstrap, WorldEvent,
@@ -143,7 +144,7 @@ fn wiring_app(ticker: MovementTicker, physics: LocalPhysicsController) -> App {
         .init_resource::<client_interaction::movement::LocalMovementEffectTimeline>()
         .init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>()
         .insert_resource(fixture_registries())
-        .insert_resource(UiRuntime::new(1))
+        .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))
@@ -520,13 +521,12 @@ fn dimension_transfer_starts_loading_and_tracks_later_server_teleports() {
     app.update();
     let outgoing = packets.drain();
     assert_eq!(outgoing.len(), 1);
-    let session = protocol::BedrockSession { shield_item_id: 0 };
     assert_eq!(
-        protocol::encode(&outgoing[0], &session).unwrap(),
-        protocol::encode(
-            &protocol::loading_screen_packet(protocol::LoadingScreenPhase::Start, Some(42)),
-            &session
-        )
+        protocol::encode(&outgoing[0]).unwrap(),
+        protocol::encode(&protocol::loading_screen_packet(
+            protocol::LoadingScreenPhase::Start,
+            Some(42)
+        ),)
         .unwrap()
     );
     let world = app.world().resource::<ClientWorld>();

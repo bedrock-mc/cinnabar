@@ -3,10 +3,11 @@
 use json_ui::{Draw, DrawNode, FormRender, LayoutEnv, TextMeasure, TextureMeta, TextureSource};
 use ui::{DpiScale, UiVisual};
 
-use super::super::{TextMetrics, debug_overlay};
+use super::super::debug_overlay;
 use crate::test_support::mini_engine_presentation;
 use crate::ui_runtime::UiRuntime;
 use crate::ui_runtime::presentation::{DebugLines, UiPresentationRuntime};
+use ui_engine::text_metrics::TextMetrics;
 
 fn vertex_count(
     player_runtime: &player_state::PlayerState,
@@ -50,8 +51,8 @@ fn debug_lines_add_geometry_and_clearing_them_restores_the_frame() {
 
 #[test]
 fn menus_and_other_screens_hide_debug_until_gameplay_resumes() {
-    use crate::ui_runtime::presentation::LoadingStage;
     use launcher::menu::{MenuScreen, MenuView};
+    use ui::LoadingStage;
 
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
@@ -225,11 +226,11 @@ fn swapping_the_font_relays_the_overlay() {
         right: vec!["GPU".to_owned()],
     };
     let mut cache = debug_overlay::OverlayCache::default();
-    let font = crate::test_support::fixture_font();
+    let font = ui_engine::test_support::fixture_font();
     for (font, relaid) in [
         (&font, true),
         (&font, false),
-        (&crate::test_support::fixture_font(), true),
+        (&ui_engine::test_support::fixture_font(), true),
     ] {
         cache.retain_font(font);
         let passes = cache.passes;
@@ -443,7 +444,7 @@ fn unchanged_overlay_paint_allocates_nothing_and_reuses_glyph_runs() {
     let expected = nodes.clone();
     let passes = presentation.debug_overlay.passes;
     nodes.clear();
-    let (result, allocations) = crate::allocation_count::count(|| {
+    let (result, allocations) = test_alloc::count(|| {
         presentation.append_debug_overlay(&mut nodes, &mut 1, metrics, [800.0, 600.0])
     });
     result.unwrap();
@@ -557,7 +558,7 @@ fn overlay_paint_refreshes_when_its_presentation_inputs_change() {
             )
             .unwrap();
         match change {
-            "font" => presentation.font = crate::test_support::fixture_font(),
+            "font" => presentation.font = ui_engine::test_support::fixture_font(),
             "viewport" => {
                 viewport[0] += 100;
                 content[0] += 100.0;
@@ -619,7 +620,7 @@ fn publishing_equal_overlay_lines_keeps_both_buffer_sets() {
         right: Vec::new(),
     });
     let staged_storage = staged.as_ref().unwrap().left[0].as_ptr();
-    let (_, allocations) = crate::allocation_count::count(|| {
+    let (_, allocations) = test_alloc::count(|| {
         assert!(!presentation.swap_debug_lines(&mut staged));
     });
     assert_eq!(allocations, 0);
@@ -655,7 +656,7 @@ fn changes_outside_displayed_rows_keep_paint_and_glyphs() {
     lines.left[49] = "changed hidden row".into();
     presentation.set_debug_lines(Some(lines));
     nodes.clear();
-    let (_, allocations) = crate::allocation_count::count(|| {
+    let (_, allocations) = test_alloc::count(|| {
         presentation
             .append_debug_overlay(&mut nodes, &mut 1, metrics, [800.0, 600.0])
             .unwrap();
@@ -667,9 +668,9 @@ fn changes_outside_displayed_rows_keep_paint_and_glyphs() {
 
 #[test]
 fn diagnostic_eligibility_matches_the_rendered_stack_without_allocations() {
-    use crate::ui_runtime::presentation::LoadingStage;
     use crate::ui_runtime::scene_stack::Scene;
     use launcher::menu::{MenuScreen, MenuView};
+    use ui::LoadingStage;
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
     runtime
@@ -712,9 +713,8 @@ fn diagnostic_eligibility_matches_the_rendered_stack_without_allocations() {
                 .scenes()
                 .iter()
                 .all(|entry| matches!(entry.key, Scene::Gameplay | Scene::Crosshair | Scene::Hud));
-        let (allowed, allocations) = crate::allocation_count::count(|| {
-            presentation.debug_overlay_allowed(&player, &runtime)
-        });
+        let (allowed, allocations) =
+            test_alloc::count(|| presentation.debug_overlay_allowed(&player, &runtime));
         assert_eq!(allowed, expected, "{cover}");
         assert_eq!(allowed, cover == "game", "{cover}");
         assert_eq!(allocations, 0, "{cover}");
@@ -802,9 +802,8 @@ fn pack_hud_visibility_controls_diagnostic_eligibility_without_allocations() {
             stack.visible(false).contains(&Scene::Gameplay),
             render_game_behind
         );
-        let (allowed, allocations) = crate::allocation_count::count(|| {
-            presentation.debug_overlay_allowed(&player, &runtime)
-        });
+        let (allowed, allocations) =
+            test_alloc::count(|| presentation.debug_overlay_allowed(&player, &runtime));
         assert_eq!(allowed, render_game_behind);
         assert_eq!(allocations, 0);
     }

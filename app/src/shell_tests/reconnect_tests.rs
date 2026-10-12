@@ -10,6 +10,7 @@ fn reconnect_drives_two_fresh_production_attempts_and_retires_old_controls() {
         blob_cache::ClientBlobCacheOwner, network::NetworkHandle,
         pack_admission::ResourcePackAdmissionState,
     };
+    use client_shell::ui_resources::UiRuntimeResource;
     use client_ui::ui_runtime::UiRuntime;
 
     let mut menu = MenuRuntime::new(true, 2, "Player".into());
@@ -27,7 +28,7 @@ fn reconnect_drives_two_fresh_production_attempts_and_retires_old_controls() {
         .insert_resource(network)
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
-        .insert_resource(UiRuntime::new(1))
+        .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))
@@ -38,9 +39,9 @@ fn reconnect_drives_two_fresh_production_attempts_and_retires_old_controls() {
         .insert_resource(client_presentation::local_player::InteractionOriginSnapshot::default())
         .add_systems(Update, drive_session);
     for attempt in 0..2 {
-        let previous = app.world().resource::<UiRuntime>().session_id();
+        let previous = app.world().resource::<UiRuntimeResource>().session_id();
         app.update();
-        assert!(app.world().resource::<UiRuntime>().session_id() > previous);
+        assert!(app.world().resource::<UiRuntimeResource>().session_id() > previous);
         assert!(old_controls.is_closed());
         let menu = app.world().resource::<MenuRuntime>();
         assert!(!menu.is_connecting());

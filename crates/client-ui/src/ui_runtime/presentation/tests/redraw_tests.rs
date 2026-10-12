@@ -43,6 +43,33 @@ struct Twin {
     full: UiPresentationRuntime,
 }
 
+#[test]
+fn changed_hand_pixels_reuse_layout_and_geometry() {
+    let mut player = player_state::PlayerState::new(1);
+    let runtime = survival(&mut player, 20);
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    presentation.hud_frame.first_person = true;
+    let mut skin = render_model::default_actor_skin_rgba8().to_vec();
+    presentation.set_player_preview_skin(Some(&skin), Default::default());
+    presentation.hud_frame.right_hand = presentation.player_hand_icons().1;
+    let before = build(&player, &mut presentation, &runtime, 0);
+    let builds = presentation.tree_builds;
+    // Change visible skin artwork while keeping its extent and every control fixed.
+    for texel in skin.chunks_exact_mut(4) {
+        texel[0] = texel[0].wrapping_add(1);
+    }
+    presentation.set_player_preview_skin(Some(&skin), Default::default());
+    let after = build(&player, &mut presentation, &runtime, 0);
+    assert_ne!(before.textures, after.textures);
+    assert_eq!(
+        presentation.tree_builds, builds,
+        "new pixels do not invalidate UI layout"
+    );
+    assert!(Arc::ptr_eq(&before.vertices, &after.vertices));
+    assert!(Arc::ptr_eq(&before.indices, &after.indices));
+    assert!(Arc::ptr_eq(&before.batches, &after.batches));
+}
+
 impl Twin {
     /// Builds both and asserts they publish the same frame; returns the redraw's nodes emitted
     /// and whether it built in full.
@@ -254,7 +281,7 @@ fn retained_frames_follow_viewport_and_texture_changes() {
     let expected = twin.full.build(&player, &runtime, 10, size, dpi).unwrap();
     assert_eq!(drawn.vertices, expected.vertices);
     assert_eq!(drawn.batches, expected.batches);
-    assert_eq!(twin.redrawn.tree_builds, builds + 1);
+    assert_eq!(twin.redrawn.tree_builds, builds);
 }
 
 /// The installed HUD and font render identically through retained and fresh publications.

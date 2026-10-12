@@ -159,6 +159,9 @@ impl State {
 }
 
 impl cinnabar::extension::hud::Host for State {
+    fn local_message(&mut self, text: String) -> Result<Result<(), String>> {
+        hud::local_message(self, text)
+    }
     fn open_editor(&mut self, json: String) -> Result<Result<(), String>> {
         hud::open_editor(self, json)
     }
@@ -338,6 +341,16 @@ impl Instance {
         state.player_state.fps = fps;
         state.player_state.sidebar = sidebar;
         state.player_state.chat = chat;
+        Ok(())
+    }
+
+    /// Validates native cosmetic facts before exposing any current callback data.
+    pub(super) fn observe_modules(
+        &mut self,
+        observations: crate::module_observations::ModuleObservations,
+    ) -> Result<()> {
+        super::module_observations::validate(&observations)?;
+        self.store.data_mut().player_state.observations = observations;
         Ok(())
     }
 
@@ -554,6 +567,11 @@ impl Instance {
 
     pub(super) fn hud(&self) -> Option<&ui::mod_hud::Hud> {
         self.store.data().hud.content.as_ref()
+    }
+
+    /// Consumes committed local-only system feedback once.
+    pub(super) fn take_local_messages(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.store.data_mut().hud.local_messages)
     }
 
     /// Moves a committed preview into the native editor without a guest call.

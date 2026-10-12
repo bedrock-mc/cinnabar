@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use protocol::{
-    BedrockSession, BlockAction, BlockActionKind, MineBlockRequest, MineBlockRequestError,
+    BlockAction, BlockActionKind, MineBlockRequest, MineBlockRequestError,
     PlayerAuthInputInteractions, PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode,
     decode_batch, encode, player_auth_input_with_interactions,
     player_auth_input_with_mining_request,
@@ -9,7 +9,8 @@ use valentine::bedrock::{
     codec::BedrockCodec,
     version::v1_26_51::{
         EnumsItemStackRequestActionType, EnumsPlayerAuthInputPacketPayloadInputData as InputData,
-        ItemStackRequestCerealRequestDataActionsItem, McpePacketData,
+        ItemRegistryPacket, ItemStackRequestCerealRequestDataActionsItem, McpePacketData,
+        StartGamePacket,
     },
 };
 
@@ -77,7 +78,6 @@ fn mining_request_admission_is_bounded_not_current_item_authority() {
 
 #[test]
 fn mining_request_flags_and_independent_optional_prediction_match_pinned_fixtures() {
-    let session = BedrockSession { shield_item_id: 0 };
     for (predict, fixture) in [
         (
             false,
@@ -111,17 +111,14 @@ fn mining_request_flags_and_independent_optional_prediction_match_pinned_fixture
             panic!("expected input")
         };
         assert_eq!(&built_input.input_data, &canonical_flags);
-        let canonical_bytes = encode(&built, &session).unwrap();
-        let canonical_decoded = decode_batch(canonical_bytes.clone(), &session).unwrap();
+        let canonical_bytes = encode(&built).unwrap();
+        let canonical_decoded = decode_batch(canonical_bytes.clone()).unwrap();
         assert_eq!(canonical_decoded.len(), 1);
         assert_eq!(canonical_decoded[0], built);
-        assert_eq!(
-            encode(&canonical_decoded[0], &session).unwrap(),
-            canonical_bytes
-        );
-        let decoded = decode_batch(Bytes::copy_from_slice(fixture), &session).unwrap();
+        assert_eq!(encode(&canonical_decoded[0]).unwrap(), canonical_bytes);
+        let decoded = decode_batch(Bytes::copy_from_slice(fixture)).unwrap();
         assert_eq!(decoded.len(), 1);
-        assert_eq!(encode(&decoded[0], &session).unwrap().as_ref(), fixture);
+        assert_eq!(encode(&decoded[0]).unwrap().as_ref(), fixture);
         let McpePacketData::PlayerAuthInputPacket(input) = &decoded[0].data else {
             panic!("expected input")
         };
@@ -141,10 +138,7 @@ fn mining_request_flags_and_independent_optional_prediction_match_pinned_fixture
         };
         fixture_order_input.input_data = fixture_flags;
         assert_eq!(fixture_order_built, decoded[0]);
-        assert_eq!(
-            encode(&fixture_order_built, &session).unwrap().as_ref(),
-            fixture
-        );
+        assert_eq!(encode(&fixture_order_built).unwrap().as_ref(), fixture);
         assert!(flags.contains(&InputData::Performitemstackrequest));
         assert_eq!(flags.contains(&InputData::Performblockactions), predict);
         assert!(!flags.contains(&InputData::Performiteminteraction));
@@ -178,15 +172,11 @@ fn mining_request_flags_and_independent_optional_prediction_match_pinned_fixture
 
 #[test]
 fn absent_mining_request_preserves_existing_input_and_prediction_bytes() {
-    let session = BedrockSession { shield_item_id: 0 };
     for predict in [false, true] {
         let value = interactions(predict);
         let old = player_auth_input_with_interactions(snapshot(), &value).unwrap();
         let absent = player_auth_input_with_mining_request(snapshot(), &value, None).unwrap();
-        assert_eq!(
-            encode(&old, &session).unwrap(),
-            encode(&absent, &session).unwrap()
-        );
+        assert_eq!(encode(&old).unwrap(), encode(&absent).unwrap());
         let McpePacketData::PlayerAuthInputPacket(input) = absent.data else {
             panic!("expected input")
         };
@@ -202,7 +192,7 @@ fn absent_mining_request_preserves_existing_input_and_prediction_bytes() {
     absent.header.from_subclient = 1;
     absent.header.to_subclient = 2;
     assert_eq!(
-        encode(&absent, &session).unwrap().as_ref(),
+        encode(&absent).unwrap().as_ref(),
         include_bytes!("../../fixtures/player_auth_input.bin")
     );
 }
@@ -220,21 +210,16 @@ fn caller_cannot_assert_request_presence_without_encoder_ownership() {
 
 #[test]
 fn start_game_block_breaking_mode_preserves_explicit_false() {
-    let mut game_data = protocol::GameData {
-        start_game: Default::default(),
-        item_registry: Default::default(),
-        biome_definitions: None,
-        entity_identifiers: None,
-        creative_content: None,
-    };
-    game_data
-        .start_game
+    let mut start_game = StartGamePacket::default();
+    let registry = ItemRegistryPacket::default();
+    start_game
         .movement_settings
         .server_authoritative_block_breaking = true;
-    assert!(protocol::server_authoritative_block_breaking(&game_data));
-    game_data
-        .start_game
+    let game_data = protocol::GameData::from_wire(&start_game, &registry);
+    assert!(game_data.settings.server_authoritative_block_breaking);
+    start_game
         .movement_settings
         .server_authoritative_block_breaking = false;
-    assert!(!protocol::server_authoritative_block_breaking(&game_data));
+    let game_data = protocol::GameData::from_wire(&start_game, &registry);
+    assert!(!game_data.settings.server_authoritative_block_breaking);
 }

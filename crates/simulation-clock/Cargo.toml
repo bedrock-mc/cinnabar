@@ -1,0 +1,9 @@
+[package]
+name = "simulation-clock"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true

@@ -443,7 +443,7 @@ fn server_form_returns_to_the_servers_tab() {
 #[test]
 fn home_realms_and_marketplace_are_reachable_and_activate_their_routes() {
     let realms = MenuAction::Navigate(MenuScreen::Social);
-    let marketplace = MenuAction::Store(client_ui::store::OPEN);
+    let marketplace = MenuAction::Store(launcher::store::OPEN);
     for directional in [false, true] {
         let mut menu = MenuRuntime::new(true, 2, "Tester".into());
         menu.focus_pointer(realms);
@@ -456,7 +456,7 @@ fn home_realms_and_marketplace_are_reachable_and_activate_their_routes() {
         assert_eq!(menu.view().focused_action, Some(marketplace));
         menu.activate_focused();
         assert_eq!(menu.screen(), MenuScreen::Store);
-        assert_eq!(menu.take_store_actions(), vec![client_ui::store::OPEN]);
+        assert_eq!(menu.take_store_actions(), vec![launcher::store::OPEN]);
         menu.show_home();
         menu.focus_pointer(realms);
         menu.activate_focused();

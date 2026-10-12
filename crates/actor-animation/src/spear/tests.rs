@@ -1,5 +1,5 @@
 use super::super::evaluation::MolangValue;
-use {super::*, world::TICK_DURATION as ACTOR_TICK_DURATION};
+use {super::*, simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION};
 
 /// Easing curves retain their small endpoint residuals; poses agree within 0.05 model units/degrees.
 fn close(actual: f32, expected: f32) {
@@ -182,7 +182,7 @@ fn authored_player_spear_inputs_keep_their_own_pre_animation() {
     compiled.rig_bindings[0].render_controller = 3;
     compiled.animation_clips[0].symbol = 2;
     compiled.molang_symbols[7].identifier = "variable.melee_spear_equipped".into();
-    let assets = RuntimeEntityAssets::from_compiled(compiled).unwrap();
+    let assets = RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap();
     assert!(
         !needs_completion(&assets, 0),
         "a supplied spear pre-animation must win"

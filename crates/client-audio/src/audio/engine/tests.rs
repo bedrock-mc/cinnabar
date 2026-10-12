@@ -1,7 +1,8 @@
 use super::*;
 use crate::audio::voice::Pcm;
 use assets::{
-    AudioAlternative, AudioDefinition, RuntimeAudioCatalog, SoundBankIndex, SoundEventTables,
+    AudioAlternative, AudioDefinition, RuntimeAudioCatalog, SoundEventTables,
+    sound_bank::SoundBankIndex,
 };
 
 mod weather;
@@ -38,8 +39,8 @@ pub fn engine(names: &[(&str, &str)]) -> AudioEngine {
         &assets::encode_audio_catalog([0; 32], [0; 32], &defs).expect("catalog"),
     )
     .expect("decode");
-    let bytes = assets::encode_sound_bank(b"{}", b"{}", b"{}", &[]).expect("bank");
-    let prefix = assets::sound_bank_prefix_len(&bytes).expect("prefix");
+    let bytes = assets::sound_bank::encode_sound_bank(b"{}", b"{}", b"{}", &[]).expect("bank");
+    let prefix = assets::sound_bank::sound_bank_prefix_len(&bytes).expect("prefix");
     let index = SoundBankIndex::decode_prefix(&bytes[..prefix]).expect("index");
     let mut bank =
         SoundBank::from_parts(index, SoundEventTables::default(), Some(Arc::new(catalog)));
@@ -83,7 +84,7 @@ fn engine_with_encoded_files(
     let files: Vec<_> = std::iter::once((format!("sounds/{name}"), fsb.clone()))
         .chain((0..others).map(|i| (format!("sounds/waiting{i}"), fsb.clone())))
         .collect();
-    let bytes = assets::encode_sound_bank(b"{}", b"{}", b"{}", &files).expect("bank");
+    let bytes = assets::sound_bank::encode_sound_bank(b"{}", b"{}", b"{}", &files).expect("bank");
     let path = std::env::temp_dir().join(format!(
         "cinnabar-engine-{}-{name}.mcbesnd",
         std::process::id()

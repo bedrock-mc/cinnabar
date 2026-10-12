@@ -3,7 +3,7 @@ use {
         Aabb, CollisionQuery, CollisionWorld, MovementInput, PlayerState, SimulationError,
         Simulator, Vec3, WorldQueryError,
     },
-    world::TICKS_PER_SECOND,
+    simulation_clock::TICKS_PER_SECOND,
 };
 
 #[derive(Default)]

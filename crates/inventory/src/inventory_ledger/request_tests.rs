@@ -57,11 +57,11 @@ fn merge_stack(network_id: i32, count: u16, stack_network_id: i32) -> NetworkIte
 fn apple_registry() -> ItemRegistryEvent {
     ItemRegistryEvent {
         entries: Arc::from([ItemRegistryEntry {
-            components: None,
             identifier: Arc::from("minecraft:apple"),
             network_id: 6,
             component_based: true,
             version: ItemRegistryVersion::DataDriven,
+            components: None,
             component_digest: [6; 32],
             negotiated_max_stack_size: Some(64),
             canonical_empty_component_data: false,

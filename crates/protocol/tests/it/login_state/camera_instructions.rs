@@ -4,27 +4,16 @@ use protocol::CameraEvent;
 
 const DRAIN_LIMIT: usize = 32;
 
-fn scripted_camera_transport(epilogue: PlayEpilogue) -> ScriptTransport {
-    let mut script = ServerScript::new(
-        CompressionMode::Deflate,
-        SpawnOrder::RadiusThenSpawn,
-        false,
-        false,
-        false,
-        CachePlayScript::ResolveValid,
-    );
-    script.epilogue = epilogue;
-    ScriptTransport {
-        script: Arc::new(Mutex::new(script)),
+fn camera_script(epilogue: PlayEpilogue) -> Script {
+    Script {
+        epilogue,
+        ..Script::default()
     }
 }
 
 #[tokio::test]
 async fn play_ingress_preserves_wire_order_across_interleaved_camera_families() {
-    let transport = scripted_camera_transport(PlayEpilogue::CameraInstructions);
-    let (mut session, _) = LoginSequence::connect_transport(transport, "RustClient")
-        .await
-        .expect("scripted login");
+    let (mut session, core) = joined(camera_script(PlayEpilogue::CameraInstructions)).await;
 
     let mut events = Vec::new();
     for _ in 0..DRAIN_LIMIT {
@@ -95,14 +84,12 @@ async fn play_ingress_preserves_wire_order_across_interleaved_camera_families() 
     // One skip is the script's own malformed LevelChunk; camera traffic adds none.
     assert_eq!(session.world_skip_count(), 1);
     assert_eq!(session.decode_error_count(), 0);
+    core.finish(session).await;
 }
 
 #[tokio::test]
 async fn invalid_camera_instruction_is_counted_and_session_survives() {
-    let transport = scripted_camera_transport(PlayEpilogue::OddCameraInstruction);
-    let (mut session, _) = LoginSequence::connect_transport(transport, "RustClient")
-        .await
-        .expect("scripted login");
+    let (mut session, core) = joined(camera_script(PlayEpilogue::OddCameraInstruction)).await;
 
     for _ in 0..DRAIN_LIMIT {
         let event = session
@@ -123,14 +110,12 @@ async fn invalid_camera_instruction_is_counted_and_session_survives() {
     // script's own malformed LevelChunk; the spline adds exactly one more.
     assert_eq!(session.world_skip_count(), 2);
     assert_eq!(session.decode_error_count(), 0);
+    core.finish(session).await;
 }
 
 #[tokio::test]
 async fn truncated_camera_shake_wire_is_fatal_in_play_ingress() {
-    let transport = scripted_camera_transport(PlayEpilogue::TruncatedCameraShake);
-    let (mut session, _) = LoginSequence::connect_transport(transport, "RustClient")
-        .await
-        .expect("scripted login");
+    let (mut session, core) = joined(camera_script(PlayEpilogue::TruncatedCameraShake)).await;
 
     for _ in 0..DRAIN_LIMIT {
         match session.recv_world_event(0).await {
@@ -143,6 +128,7 @@ async fn truncated_camera_shake_wire_is_fatal_in_play_ingress() {
             Err(error) => {
                 assert!(matches!(error, ProtocolError::Session(_)));
                 assert_eq!(session.decode_error_count(), 1);
+                core.finish(session).await;
                 return;
             }
         }

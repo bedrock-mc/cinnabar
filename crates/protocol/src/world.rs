@@ -1,15 +1,14 @@
 use std::sync::Arc;
 
-use jolyne::GameData;
 use thiserror::Error;
 use valentine::bedrock::version::v1_26_51::{
     EnumsMovementEffectType,
     EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
-    GameRule, GameRuleRuleValue, McpePacketData,
+    GameRule, GameRuleRuleValue, McpePacketData, StartGamePacket,
 };
 
 use crate::{
-    ActorPacketError, InventoryPacketError, ItemPacketError, Packet,
+    ActorPacketError, InventoryPacketError, ItemActorEvent, ItemPacketError, Packet,
     actor::{
         normalize_add_entity, normalize_add_item_actor, normalize_add_player, normalize_mob_effect,
         normalize_move_entity, normalize_move_entity_delta, normalize_player_list,
@@ -145,32 +144,8 @@ pub struct WorldBootstrap {
     pub block_network_ids_are_hashes: bool,
 }
 
-/// The explicit StartGame block-breaking negotiation, separate from whether
-/// a caller currently has sufficient authority to mine any particular block.
-#[must_use]
-pub fn server_authoritative_block_breaking(game_data: &GameData) -> bool {
-    game_data
-        .start_game
-        .movement_settings
-        .server_authoritative_block_breaking
-}
-
-/// StartGame's `RewindHistorySize`, the retained prediction window in ticks.
-#[must_use]
-pub fn rewind_history_size(game_data: &GameData) -> i32 {
-    game_data.start_game.movement_settings.rewind_history_size
-}
-
-/// Whether StartGame declares a hardcore world.
-#[must_use]
-pub fn is_hardcore(game_data: &GameData) -> bool {
-    game_data.start_game.settings.is_hardcore
-}
-
 impl WorldBootstrap {
-    #[must_use]
-    pub fn from_game_data(game_data: &GameData) -> Self {
-        let start_game = &game_data.start_game;
+    pub(crate) fn from_start_game(start_game: &StartGamePacket) -> Self {
         let settings = &start_game.settings;
         Self {
             // 1.26.40 stopped naming the vanilla dimension ids in an enum and
@@ -459,7 +434,7 @@ pub fn into_world_event(
             WorldEvent::Actor(event)
         }
         McpePacketData::ItemRegistryPacket(packet) => {
-            WorldEvent::ItemActor(normalize_item_registry(packet)?)
+            WorldEvent::ItemActor(ItemActorEvent::Registry(normalize_item_registry(packet)?))
         }
         McpePacketData::MobEquipmentPacket(packet) => {
             WorldEvent::Equipment(normalize_equipment(*packet)?)

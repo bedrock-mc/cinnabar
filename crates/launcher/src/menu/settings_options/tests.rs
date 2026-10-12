@@ -652,6 +652,18 @@ fn frame_rate_missing_and_invalid_values_default_to_unlimited() {
     }
 }
 
+#[test]
+fn frame_rate_caption_names_caps_and_unlimited() {
+    let translate = |key: &str| format!("<{key}>");
+    assert_eq!(frame_rate_label(144, &translate), "144");
+    for value in [-1, 0, FRAME_RATE_UNLIMITED, i32::MAX] {
+        assert_eq!(
+            frame_rate_label(value, &translate),
+            "<options.framerateLimit.max>"
+        );
+    }
+}
+
 /// Every slider stop applies the selected limit and survives a settings round trip.
 #[test]
 fn frame_rate_slider_stops_cover_every_cap_and_unlimited() {

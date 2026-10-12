@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use protocol::{
-    AudioEvent, BedrockSession, LevelAudioEvent, PlayAudioEvent, ProtocolError, StopAudioEvent,
-    WorldEvent, WorldPacketError, decode_batch, encode, into_world_event,
+    AudioEvent, LevelAudioEvent, PlayAudioEvent, ProtocolError, StopAudioEvent, WorldEvent,
+    WorldPacketError, decode_batch, encode, into_world_event,
 };
 use valentine::bedrock::version::v1_26_51::{McpePacketData, McpePacketName, PlaySoundPacket};
 
@@ -11,13 +11,8 @@ const PLAY_SOUND: &[u8] = include_bytes!("../../fixtures/play_sound.bin");
 const STOP_SOUND: &[u8] = include_bytes!("../../fixtures/stop_sound.bin");
 const LEVEL_SOUND_EVENT: &[u8] = include_bytes!("../../fixtures/level_sound_event.bin");
 
-fn session() -> BedrockSession {
-    BedrockSession { shield_item_id: 0 }
-}
-
 fn decode_one(fixture: &'static [u8], id: McpePacketName) -> protocol::Packet {
-    let mut packets =
-        decode_batch(Bytes::from_static(fixture), &session()).expect("decode fixture");
+    let mut packets = decode_batch(Bytes::from_static(fixture)).expect("decode fixture");
     assert_eq!(packets.len(), 1);
     let packet = packets.pop().expect("one packet");
     assert_eq!(packet.header.id, id);
@@ -25,7 +20,7 @@ fn decode_one(fixture: &'static [u8], id: McpePacketName) -> protocol::Packet {
         (packet.header.from_subclient, packet.header.to_subclient),
         (1, 2)
     );
-    assert_eq!(encode(&packet, &session()).unwrap().as_ref(), fixture);
+    assert_eq!(encode(&packet).unwrap().as_ref(), fixture);
     packet
 }
 
@@ -129,30 +124,28 @@ fn fixtures_normalize_without_interpreting_odd_or_empty_fields() {
 
 #[test]
 fn batch_decode_bounds_audio_before_allocation_and_keeps_truncation_fatal() {
-    let packet: protocol::Packet = PlaySoundPacket {
+    let packet: protocol::Packet = protocol::Packet::new(PlaySoundPacket {
         name: "x".repeat(protocol::MAX_AUDIO_IDENTIFIER_BYTES + 1),
         volume: 1.0,
         pitch: 1.0,
         ..Default::default()
-    }
-    .into();
-    let overlong = encode(&packet, &session()).unwrap();
+    });
+    let overlong = encode(&packet).unwrap();
     assert!(matches!(
-        decode_batch(overlong, &session()),
+        decode_batch(overlong),
         Err(ProtocolError::World(
             WorldPacketError::AudioIdentifierTooLong { .. }
         ))
     ));
 
-    let packet: protocol::Packet = PlaySoundPacket {
+    let packet: protocol::Packet = protocol::Packet::new(PlaySoundPacket {
         volume: f32::INFINITY,
         pitch: 1.0,
         ..Default::default()
-    }
-    .into();
-    let non_finite = encode(&packet, &session()).unwrap();
+    });
+    let non_finite = encode(&packet).unwrap();
     assert!(matches!(
-        decode_batch(non_finite, &session()),
+        decode_batch(non_finite),
         Err(ProtocolError::World(
             WorldPacketError::NonFiniteAudioField { .. }
         ))
@@ -160,7 +153,7 @@ fn batch_decode_bounds_audio_before_allocation_and_keeps_truncation_fatal() {
 
     let truncated = Bytes::copy_from_slice(&PLAY_SOUND[..PLAY_SOUND.len() - 1]);
     assert!(matches!(
-        decode_batch(truncated, &session()),
+        decode_batch(truncated),
         Err(ProtocolError::TruncatedPacket { .. })
     ));
 }

@@ -405,11 +405,11 @@ fn witness_counts_water_drawn_without_a_sort() {
     );
 }
 
-/// A direct water draw covers the transparent records only, flags them as water for the shared
-/// transparent pipeline, and gives the shader the metadata index through a base vertex offset
-/// by one, so it never reads the ref buffer.
+/// A direct water draw covers the transparent records only and flags them as water records for
+/// the shared transparent pipeline, at base vertex zero: the records name their own metadata
+/// slot, so the shader never reads the ref buffer or the builtin vertex index for it.
 #[test]
-fn direct_water_draw_covers_transparent_records_with_offset_metadata() {
+fn direct_water_draw_covers_transparent_records_at_base_vertex_zero() {
     let identity =
         TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 0), 1, 16..48, 64..80, 6);
     let mut allocation = super::transparent::resident_transparent_allocation(
@@ -423,7 +423,12 @@ fn direct_water_draw_covers_transparent_records_with_offset_metadata() {
             command.instance_count,
             command.base_vertex
         ),
-        (4 | meshing::liquid::TRANSPARENT_WATER_DRAW_FLAG, 8, 28)
+        (
+            4 | meshing::liquid::TRANSPARENT_WATER_DRAW_FLAG
+                | meshing::liquid::TRANSPARENT_WATER_RECORD_FLAG,
+            8,
+            0
+        )
     );
     allocation.depth_liquid_range = Some(10..12);
     assert_eq!(

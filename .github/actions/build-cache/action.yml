@@ -1,5 +1,7 @@
 name: Build cache
 description: Restore or save compiler outputs without creating caches on pull requests
+# CI lanes use the shared GitHub cache, whose budgets in budgets.json must fit its limit together.
+# Release lanes store artifacts instead: once-a-day entries would be the first evicted there.
 inputs:
   phase:
     description: restore or save
@@ -13,6 +15,12 @@ inputs:
   lane:
     description: ci or release (Rust profiles are kept separate)
     default: ci
+  store:
+    description: cache (the shared GitHub cache) or artifact (workflow artifacts)
+    default: cache
+  prefix:
+    description: Prefix returned by the restore step, which names an artifact store entry
+    default: ''
   key:
     description: Key returned by the restore step
     default: ''
@@ -32,6 +40,9 @@ outputs:
   paths:
     description: Compiler output paths
     value: ${{ steps.plan.outputs.paths }}
+  prefix:
+    description: Key prefix shared by compatible entries
+    value: ${{ steps.plan.outputs.prefix }}
 runs:
   using: composite
   steps:
@@ -46,11 +57,21 @@ runs:
         CACHE_LANE: ${{ inputs.lane }}
       run: python3 "$GITHUB_ACTION_PATH/cache.py" plan
     - uses: actions/cache/restore@v5
-      if: inputs.phase == 'restore'
+      if: inputs.phase == 'restore' && inputs.store == 'cache'
       with:
         key: ${{ steps.plan.outputs.key }}
         restore-keys: ${{ steps.plan.outputs.prefix }}
         path: ${{ steps.plan.outputs.paths }}
+    - name: Restore the newest artifact cache
+      if: inputs.phase == 'restore' && inputs.store == 'artifact'
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        CACHE_BRANCH: ${{ github.event.repository.default_branch }}
+        CACHE_PREFIX: ${{ steps.plan.outputs.prefix }}
+        CACHE_PATHS: ${{ steps.plan.outputs.paths }}
+      run: python3 "$GITHUB_ACTION_PATH/cache.py" restore-artifact
     - name: Restore unchanged source timestamps
       if: inputs.phase == 'restore' && inputs.language == 'rust'
       shell: bash
@@ -65,14 +86,21 @@ runs:
       env:
         CACHE_WORKSPACE: ${{ inputs.workspace }}
       run: python3 "$GITHUB_ACTION_PATH/cache.py" verify-inputs
+    - name: Check the budget and replace this bucket's entries
+      if: inputs.phase == 'save' && inputs.store == 'cache'
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        CACHE_BUCKET: ${{ inputs.bucket }}
+      run: python3 "$GITHUB_ACTION_PATH/cache.py" make-room
     - uses: actions/cache/save@v5
-      if: inputs.phase == 'save'
+      if: inputs.phase == 'save' && inputs.store == 'cache'
       with:
         key: ${{ inputs.key }}
         path: ${{ inputs.paths }}
-    - name: Retain the newest cache in this bucket
-      continue-on-error: true
-      if: inputs.phase == 'save'
+    - name: Retain the newest cache in this bucket within its budget
+      if: inputs.phase == 'save' && inputs.store == 'cache'
       shell: bash
       working-directory: ${{ github.workspace }}
       env:
@@ -80,3 +108,35 @@ runs:
         CACHE_KEY: ${{ inputs.key }}
         CACHE_BUCKET: ${{ inputs.bucket }}
       run: python3 "$GITHUB_ACTION_PATH/cache.py" prune
+    - name: Archive the artifact cache within its budget
+      id: archive
+      if: inputs.phase == 'save' && inputs.store == 'artifact'
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        CACHE_BUCKET: ${{ inputs.bucket }}
+        CACHE_PREFIX: ${{ inputs.prefix }}
+        CACHE_PATHS: ${{ inputs.paths }}
+      run: python3 "$GITHUB_ACTION_PATH/cache.py" pack-artifact
+    - uses: actions/upload-artifact@v7
+      id: upload
+      if: inputs.phase == 'save' && inputs.store == 'artifact'
+      with:
+        name: ${{ steps.archive.outputs.name }}
+        path: ${{ steps.archive.outputs.archive }}
+        compression-level: 0
+        retention-days: 3
+        # A rerun of the job replaces its earlier attempt's upload.
+        overwrite: true
+        if-no-files-found: error
+    - name: Retain the newest artifact cache
+      if: inputs.phase == 'save' && inputs.store == 'artifact'
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        CACHE_BRANCH: ${{ github.event.repository.default_branch }}
+        CACHE_PREFIX: ${{ inputs.prefix }}
+        CACHE_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        CACHE_ARCHIVE: ${{ steps.archive.outputs.archive }}
+      run: python3 "$GITHUB_ACTION_PATH/cache.py" prune-artifacts

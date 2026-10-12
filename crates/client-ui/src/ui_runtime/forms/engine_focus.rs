@@ -1,25 +1,20 @@
 //! Keyboard and gamepad focus movement for an engine-drawn form, through the
 //! engine's vanilla focus navigation.
 
-use bevy::input::{
-    gamepad::{Gamepad, GamepadButton},
-    keyboard::KeyCode,
-};
 use json_ui::{FocusDirection, FocusMove, HitKind, HitRegion, RectOut};
 
-use super::values::EngineFrame;
-use crate::ui_runtime::UiRuntime;
+use semantic_input::KeyboardKey;
 
-/// Stick deflection that counts as a directional press (needs native measurement).
-const STICK_PRESS: f32 = 0.5;
+use crate::ui_runtime::UiRuntime;
+use ui_engine::frame::EngineFrame;
 
 /// The focus direction an arrow key moves.
-pub fn direction_of(key: KeyCode) -> Option<FocusDirection> {
+pub fn direction_of(key: KeyboardKey) -> Option<FocusDirection> {
     Some(match key {
-        KeyCode::ArrowUp => FocusDirection::Up,
-        KeyCode::ArrowDown => FocusDirection::Down,
-        KeyCode::ArrowLeft => FocusDirection::Left,
-        KeyCode::ArrowRight => FocusDirection::Right,
+        KeyboardKey::ArrowUp => FocusDirection::Up,
+        KeyboardKey::ArrowDown => FocusDirection::Down,
+        KeyboardKey::ArrowLeft => FocusDirection::Left,
+        KeyboardKey::ArrowRight => FocusDirection::Right,
         _ => return None,
     })
 }
@@ -87,78 +82,10 @@ fn screen(hits: &[HitRegion]) -> RectOut {
     }
 }
 
-/// Gamepad presses as the keys the engine path reads: the d-pad and left
-/// stick as arrows, South as Enter (`button.menu_select`) and East as Escape
-/// (`button.menu_cancel`). `stick` keeps last frame's deflected directions.
-pub fn gamepad_keys<'a>(
-    pads: impl Iterator<Item = &'a Gamepad>,
-    stick: &mut [bool; 4],
-) -> Vec<(KeyCode, Option<String>)> {
-    const BUTTONS: [(GamepadButton, KeyCode); 6] = [
-        (GamepadButton::DPadUp, KeyCode::ArrowUp),
-        (GamepadButton::DPadDown, KeyCode::ArrowDown),
-        (GamepadButton::DPadLeft, KeyCode::ArrowLeft),
-        (GamepadButton::DPadRight, KeyCode::ArrowRight),
-        (GamepadButton::South, KeyCode::Enter),
-        (GamepadButton::East, KeyCode::Escape),
-    ];
-    let mut keys = Vec::new();
-    let mut deflected = [false; 4];
-    for pad in pads {
-        keys.extend(
-            BUTTONS
-                .iter()
-                .filter(|(button, _)| pad.just_pressed(*button))
-                .map(|(_, key)| (*key, None)),
-        );
-        let axes = pad.left_stick();
-        deflected[0] |= axes.y > STICK_PRESS;
-        deflected[1] |= axes.y < -STICK_PRESS;
-        deflected[2] |= axes.x < -STICK_PRESS;
-        deflected[3] |= axes.x > STICK_PRESS;
-    }
-    let arrows = [
-        KeyCode::ArrowUp,
-        KeyCode::ArrowDown,
-        KeyCode::ArrowLeft,
-        KeyCode::ArrowRight,
-    ];
-    for ((now, was), key) in deflected.iter().zip(stick.iter()).zip(arrows) {
-        if *now && !*was {
-            keys.push((key, None));
-        }
-    }
-    *stick = deflected;
-    keys
-}
-
 #[cfg(test)]
 mod tests {
-    use bevy::input::gamepad::GamepadAxis;
-
     use super::*;
 
-    // X14: d-pad, stick edges and face buttons reach the engine path as keys, without stick repeat.
-    #[test]
-    fn gamepad_presses_become_engine_keys() {
-        let mut pad = Gamepad::default();
-        pad.digital_mut().press(GamepadButton::DPadDown);
-        pad.digital_mut().press(GamepadButton::South);
-        pad.analog_mut().set(GamepadAxis::LeftStickX, 0.9);
-        let mut stick = [false; 4];
-        let keys = |pad: &Gamepad, stick: &mut [bool; 4]| -> Vec<KeyCode> {
-            gamepad_keys(std::iter::once(pad), stick)
-                .into_iter()
-                .map(|(key, _)| key)
-                .collect()
-        };
-        assert_eq!(
-            keys(&pad, &mut stick),
-            [KeyCode::ArrowDown, KeyCode::Enter, KeyCode::ArrowRight]
-        );
-        pad.digital_mut().clear();
-        assert!(keys(&pad, &mut stick).is_empty());
-    }
     #[test]
     fn horizontal_focus_reveals_the_controls_horizontal_span() {
         use crate::ui_runtime::presentation::forms::{

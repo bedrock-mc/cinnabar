@@ -66,10 +66,8 @@ pub fn drive_primitive_shapes(
     now: f32,
     partial_tick: f32,
     view: &crate::local_player::LocalViewPose,
-    mut presentation: bevy::prelude::ResMut<
-        client_ui::ui_runtime::presentation::UiPresentationRuntime,
-    >,
-    runtime: bevy::prelude::Res<client_ui::ui_runtime::UiRuntime>,
+    presentation: &mut client_ui::ui_runtime::presentation::UiPresentationRuntime,
+    runtime: &client_ui::ui_runtime::UiRuntime,
     mut publisher: bevy::prelude::Local<PrimitiveShapePublisher>,
 ) {
     publisher.publish(
@@ -80,5 +78,5 @@ pub fn drive_primitive_shapes(
         Some(view.feet_translation().to_array()),
     );
     let mut store = scene.store.lock().expect("primitive store lock poisoned");
-    presentation.prepare_primitive_text(&mut store, &runtime);
+    presentation.prepare_primitive_text(&mut store, runtime);
 }

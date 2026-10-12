@@ -94,7 +94,7 @@ impl UiPresentationRuntime {
                 && self.gui_models.discard_optional_models(first)
             {
                 if let Err(error) = self.install_gui_fire() {
-                    bevy::log::warn!(%error, "actor flames exceed the GUI texture budget");
+                    tracing::warn!(%error, "actor flames exceed the GUI texture budget");
                 }
                 placed = place(&textures, available(&self.gui_models), false);
             }
@@ -103,12 +103,12 @@ impl UiPresentationRuntime {
             }
             for texture in &textures {
                 match placed.regions.get(texture.identifier.as_ref()) {
-                    None => bevy::log::warn!(
+                    None => tracing::warn!(
                         texture = %texture.identifier,
                         "pack armor exceeds the GUI texture budget; base art stands in"
                     ),
                     Some((_, size)) if *size != [texture.width, texture.height] => {
-                        bevy::log::info!(
+                        tracing::info!(
                             texture = %texture.identifier,
                             source = ?[texture.width, texture.height],
                             placed = ?size,

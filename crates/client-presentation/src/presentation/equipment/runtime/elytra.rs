@@ -117,7 +117,7 @@ impl EquipmentRuntime {
                 state: Some(state.unwrap_or(WING_MATERIAL_STATE)),
                 glint: render_model::ActorGlint {
                     time_seconds: (animation.rig.completed_tick as f32 + animation.frame_alpha)
-                        * world::TICK_DURATION.as_secs_f32(),
+                        * simulation_clock::TICK_DURATION.as_secs_f32(),
                     ..Default::default()
                 },
                 ..Default::default()

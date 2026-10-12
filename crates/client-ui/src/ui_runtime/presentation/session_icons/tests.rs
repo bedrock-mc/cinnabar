@@ -42,7 +42,8 @@ fn metadata_variants_get_distinct_uvs_and_large_catalogs_grow_the_page() {
 #[test]
 fn block_sheet_items_draw_the_gui_cube_over_their_thumbnail() {
     use ui::{UiNode, UiNodeId, UiPoint, UiRect, UiVisual};
-    let mut presentation = UiPresentationRuntime::new(super::super::tests::fixture_font()).unwrap();
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.gui_models.enabled = true;
     let thumbnail = |identifier: &str| SessionIcon {
         identifier: Arc::from(identifier),
@@ -143,7 +144,7 @@ fn large_session_icons_install_without_blocking_later_server_ui_textures() {
         vec![Some(protocol::FormButtonImage::Path(path.into()))],
     );
     let nodes = pack_harness::render(&mut presentation, &runtime, [1280, 720], 1.0);
-    let server_page = presentation.textures.dynamic_start() + dynamic_textures::SERVER_UI_PAGE;
+    let server_page = presentation.textures.dynamic_start() + ui_engine::pages::SERVER_UI_PAGE;
     let uv = nodes
         .iter()
         .find_map(|node| match node.visual() {
@@ -164,35 +165,50 @@ fn large_session_icons_install_without_blocking_later_server_ui_textures() {
 }
 
 #[test]
-fn stack_icon_identity_retains_loaded_projectile_and_local_frame_override() {
-    for projectile in ["minecraft:arrow", "minecraft:firework_rocket"] {
+fn stack_icon_identity_retains_admitted_roles_and_local_frame_override() {
+    use assets::item_use::{ItemProjectileRole as Projectile, ItemUseAnimation as Animation};
+    for projectile in [Projectile::Arrow, Projectile::Firework] {
         let frame = inventory::crossbow_animation_frame(None, 0, Some(projectile), false);
         assert_eq!(
-            UiPresentationRuntime::item_icon_key("minecraft:crossbow", 73, Some(projectile), None),
+            UiPresentationRuntime::item_icon_key(
+                "fixture:display",
+                73,
+                Animation::Crossbow,
+                projectile,
+                None
+            ),
             ("minecraft:crossbow_pulling", frame - 1),
         );
         assert_eq!(
             UiPresentationRuntime::item_icon_key(
-                "minecraft:crossbow",
+                "fixture:display",
                 73,
-                Some(projectile),
+                Animation::Crossbow,
+                projectile,
                 Some(0)
             ),
-            ("minecraft:crossbow", 73),
+            ("fixture:display", 73),
         );
     }
     assert_eq!(
-        UiPresentationRuntime::item_icon_key("minecraft:crossbow", 73, None, None),
+        UiPresentationRuntime::item_icon_key(
+            "minecraft:crossbow",
+            73,
+            Animation::Crossbow,
+            Projectile::None,
+            None
+        ),
         ("minecraft:crossbow", 73),
     );
     assert_eq!(
         UiPresentationRuntime::item_icon_key(
-            "minecraft:stone",
+            "minecraft:crossbow",
             2,
-            Some("minecraft:arrow"),
+            Animation::None,
+            Projectile::Arrow,
             Some(1)
         ),
-        ("minecraft:stone", 2),
+        ("minecraft:crossbow", 2),
     );
 }
 
@@ -200,7 +216,8 @@ fn stack_icon_identity_retains_loaded_projectile_and_local_frame_override() {
 // the same placements an inline pack makes once the page lands.
 #[test]
 fn a_large_icon_set_packs_off_the_frame() {
-    let mut presentation = UiPresentationRuntime::new(super::super::tests::fixture_font()).unwrap();
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let small = Arc::new(SessionIcons {
         icons: vec![sprite(0)],
         ..Default::default()
@@ -229,7 +246,7 @@ fn a_large_icon_set_packs_off_the_frame() {
         &large
     ));
     assert_eq!(PACKS.with(std::cell::Cell::get), packs);
-    let page = (presentation.textures.dynamic_start() + dynamic_textures::SESSION_ICON_PAGE) as u16;
+    let page = (presentation.textures.dynamic_start() + ui_engine::pages::SESSION_ICON_PAGE) as u16;
     let expected = pack(&large, page).unwrap();
     assert_eq!(presentation.session_icons.refs, expected.refs);
     assert_eq!(presentation.session_icons.page, Some(expected.page));

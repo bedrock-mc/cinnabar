@@ -3,6 +3,7 @@ use gameplay::item_use::{UseFrame, classify};
 use protocol::{
     ContainerIdentity, InventoryEvent, InventorySlotEvent, NetworkItemStack, SlotIdentity,
 };
+use std::sync::Arc;
 
 /// Publishes a named vanilla stack into the player's authoritative inventory.
 fn publish_item(player: &mut PlayerRuntime, ui: &mut UiRuntime, slot: u8, identifier: &str) {
@@ -63,7 +64,12 @@ fn hotbar_publishes_food_and_projectile_cooldowns_for_every_matching_slot() {
             publish_item(&mut player, &mut ui, slot, item);
         }
         player.inventory.set_local_selected_slot(0);
-        let air_use = classify(identifier, false, 0, Some(32)).unwrap();
+        stream.set_item_use_durations(Arc::new(std::collections::BTreeMap::from([(
+            Box::from(identifier),
+            32,
+        )])));
+        let network_id = player.selected_stack().unwrap().network_id;
+        let air_use = classify(stream.authority().item_use_profile(network_id), false, 0).unwrap();
         let cooldown = air_use.cooldown().unwrap();
         let tick = 10;
         let mut item_use = ItemUseRuntime::default();

@@ -2,14 +2,6 @@
 use super::UiRuntime;
 use protocol::{RecipeCatalog, RecipeHandle, ScreenRecipe};
 
-/// Banner patterns the loom offers without a pattern item, as wire names
-/// (provisional list, no vanilla evidence yet).
-pub const LOOM_PATTERNS: [&str; 36] = [
-    "bs", "ts", "ls", "rs", "cs", "ms", "drs", "dls", "ss", "cr", "sc", "ld", "rud", "lud", "rd",
-    "vh", "vhr", "hh", "hhb", "bl", "br", "tl", "tr", "bt", "tt", "bts", "tts", "mc", "mr", "bo",
-    "gra", "gru", "cbo", "bri", "flo", "cre",
-];
-
 impl UiRuntime {
     /// Borrows the currently credited recipe catalog.
     pub fn screen_catalog<'a>(

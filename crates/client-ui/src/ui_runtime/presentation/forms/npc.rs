@@ -1,15 +1,13 @@
-//! NPC dialogue through the vanilla NPC screen's student (player) view: the
-//! NPC's name and dialogue text over one button per button-mode action.
+//! Draws an active NPC dialogue form through the NPC screen and records its frame.
 
-use json_ui::{CollectionItem, DataSource, Scalar, ViewState};
+use json_ui::ViewState;
 use protocol::NpcDialogueForm;
 use ui::UiNode;
 
-use super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime};
-use super::engine;
+use super::super::{UiPresentationError, UiPresentationRuntime};
 use crate::ui_runtime::{ServerFormIdentity, UiRuntime};
-
-pub const NPC_SCREEN: &str = "npc_interact.npc_screen";
+use ui_engine::engine::screen::PaintFrame;
+use ui_engine::text_metrics::TextMetrics;
 
 impl UiPresentationRuntime {
     /// Draw `npc` through the engine; `Ok(false)` leaves it to the fallback.
@@ -25,14 +23,13 @@ impl UiPresentationRuntime {
         width: f32,
         height: f32,
     ) -> Result<bool, UiPresentationError> {
-        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+        let Some(renderer) = self.engine.as_deref() else {
             return Ok(false);
         };
-        let data = npc_data(npc);
         let view: &ViewState = &runtime.server_forms().engine().view;
         let translate = |key: &str| runtime.translation(key);
         let rollback = (nodes.len(), *next);
-        let inputs = engine::EngineInputs {
+        let mut paint_frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
             metrics,
@@ -41,29 +38,14 @@ impl UiPresentationRuntime {
             content: [width, height],
             translate: &translate,
             language: runtime.text_generation(),
-        };
-        let out = engine::EngineOutput {
+            now: self.menu_seconds,
             nodes: &mut *nodes,
             next: &mut *next,
-            overlay: &[],
+            renderers: &mut [],
         };
-        let art = engine::ScreenArt {
-            now: self.menu_seconds,
-            clocks: Some(&self.scene_clock),
-            ..engine::ScreenArt::default()
-        };
-        match renderer.render_screen(
-            NPC_SCREEN,
-            &data,
-            &super::menu_screens::retail_context(),
-            view,
-            art,
-            inputs,
-            out,
-        ) {
-            Ok(Some(mut frame)) => {
-                frame.identity = Some(identity);
-                self.form_presentation.frame = Some(frame);
+        match ui_screens::npc::paint(renderer, npc, view, &self.scene_clock, &mut paint_frame) {
+            Ok(Some(frame)) => {
+                self.projections.form.frame = Some((identity, frame));
                 Ok(true)
             }
             Ok(None) | Err(_) => {
@@ -73,27 +55,4 @@ impl UiPresentationRuntime {
             }
         }
     }
-}
-
-fn npc_data(npc: &NpcDialogueForm) -> DataSource {
-    let mut data = DataSource::new();
-    data.set_strict(true);
-    data.set_global("#student_view_visible", Scalar::Bool(true));
-    data.set_global("#title_text", Scalar::Text(npc.npc_name.to_string()));
-    data.set_global("#dialogtext", Scalar::Text(npc.dialogue.to_string()));
-    data.set_global("#action_count", Scalar::Num(npc.buttons.len() as f64));
-    let buttons = npc
-        .buttons
-        .iter()
-        .map(|button| {
-            CollectionItem::default()
-                .with(
-                    "#student_button_text",
-                    Scalar::Text(button.text.to_string()),
-                )
-                .with("#student_button_visible", Scalar::Bool(true))
-        })
-        .collect();
-    data.set_collection("student_buttons_collection", buttons);
-    data
 }

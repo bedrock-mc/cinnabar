@@ -98,21 +98,21 @@ impl UiRuntime {
         if self.chat_focused() {
             visit(
                 Scene::Chat,
-                json(Some(crate::ui_runtime::presentation::forms::CHAT_SCREEN)),
+                json(Some(ui_screens::chat_screen::CHAT_SCREEN)),
             );
         }
         if self.emotes().is_open() {
             visit(
                 Scene::Emote,
-                json(Some(crate::ui_runtime::presentation::forms::EMOTE_SCREEN)),
+                json(Some(ui_screens::emote_screen::EMOTE_SCREEN)),
             );
         }
         if host.loading && host.menu.is_none() {
-            let reference = crate::ui_runtime::presentation::forms::LOADING_SCREEN;
+            let reference = ui_screens::loading_screen::LOADING_SCREEN;
             visit(Scene::Loading, json(Some(reference)));
         }
         if self.sign_editor().is_open() {
-            let reference = crate::ui_runtime::presentation::forms::SIGN_SCREEN;
+            let reference = ui_screens::sign_editor::SIGN_SCREEN;
             visit(Scene::SignEditor, json(Some(reference)));
         }
         let form = self.server_forms().active();
@@ -139,7 +139,7 @@ impl UiRuntime {
         if self.credits().owns_input() {
             visit(
                 Scene::Credits,
-                json(Some(crate::ui_runtime::credits::CREDITS_SCREEN)),
+                json(Some(ui_screens::credits_screen::CREDITS_SCREEN)),
             );
         }
     }

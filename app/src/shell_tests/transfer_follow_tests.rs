@@ -1,6 +1,7 @@
 use crate::runtime::network::resource_packs::PackApplication;
 use client_runtime::network::NetworkHandle;
 use client_shell::menu::test_support as menu_fixture;
+use client_shell::ui_resources::UiRuntimeResource;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -131,7 +132,7 @@ fn explicit_disconnect_discards_queued_terminal_events_and_closes_the_old_receiv
         .insert_resource(network)
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
-        .insert_resource(UiRuntime::new(1))
+        .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))
@@ -185,7 +186,7 @@ fn app_with_core(root: &Path, script: &str) -> App {
         .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
-        .insert_resource(UiRuntime::new(1))
+        .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))
@@ -369,7 +370,7 @@ fn failed_automatic_replacement(
         .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
-        .insert_resource(runtime)
+        .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime.clone())
         .insert_resource(client_world)
         .insert_resource(client_interaction::movement::MovementTicker::default())
@@ -380,7 +381,7 @@ fn failed_automatic_replacement(
     app.update();
 
     assert!(app.world().resource::<ClientWorld>().stream.is_none());
-    let runtime = app.world().resource::<UiRuntime>();
+    let runtime = app.world().resource::<UiRuntimeResource>();
     assert_ne!(runtime.session_id(), old_generation);
     assert!(!runtime.chat_focused());
     assert!(runtime.chat_editor().as_str().is_empty());

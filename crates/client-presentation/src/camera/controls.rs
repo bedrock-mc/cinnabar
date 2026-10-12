@@ -1,12 +1,8 @@
-//! Camera input routing, cursor capture and deterministic acceptance movement.
+//! Camera input routing and deterministic acceptance movement.
 
 use bevy::{
-    input::mouse::AccumulatedMouseMotion,
-    prelude::{
-        ButtonInput, EulerRot, KeyCode, MouseButton, Quat, Res, ResMut, Resource, Single, Time,
-        Transform, Vec2, Vec3, With,
-    },
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
+    prelude::{EulerRot, Quat, Res, ResMut, Resource, Single, Time, Transform, Vec2, Vec3},
+    window::{CursorGrabMode, CursorOptions, Window},
 };
 use semantic_input::Action;
 use std::f32::consts::TAU;
@@ -89,6 +85,16 @@ impl AutoFly {
             self.presentation_paused = false;
         }
     }
+
+    /// Whether a startup or acceptance pointer capture is still requested.
+    pub const fn capture_pending(&self) -> bool {
+        self.capture_pending
+    }
+
+    /// Retires the pending capture request once capture is granted or refused.
+    pub fn clear_capture_request(&mut self) {
+        self.capture_pending = false;
+    }
 }
 
 #[must_use]
@@ -135,78 +141,6 @@ pub fn look_angles(yaw: f32, pitch: f32, mouse_delta: Vec2, sensitivity: Vec2) -
 /// Requires focused and captured gameplay input.
 pub fn input_is_active(window: &Window, cursor: &CursorOptions) -> bool {
     window.focused && cursor.grab_mode == CursorGrabMode::Locked && !cursor.visible
-}
-
-/// Requests the captured gameplay pointer state.
-fn capture_cursor(cursor: &mut CursorOptions) {
-    cursor.grab_mode = CursorGrabMode::Locked;
-    cursor.visible = false;
-}
-
-use client_ui::physical_input::release_cursor;
-
-/// Drops held pointer and key input when gameplay capture is released.
-fn clear_controller_input(
-    keys: &mut ButtonInput<KeyCode>,
-    mouse_buttons: &mut ButtonInput<MouseButton>,
-    mouse_motion: &mut AccumulatedMouseMotion,
-) {
-    keys.reset_all();
-    mouse_buttons.reset_all();
-    mouse_motion.delta = Vec2::ZERO;
-}
-
-#[allow(clippy::too_many_arguments)]
-/// Applies the retained input policy before accepting gameplay pointer motion.
-pub fn update_cursor_capture(
-    policy: crate::observations::CursorPolicy,
-    window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
-    mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
-    mut mouse_motion: ResMut<AccumulatedMouseMotion>,
-    mut auto_fly: ResMut<AutoFly>,
-) {
-    if policy.driven {
-        return;
-    }
-    let (window, mut cursor) = window.into_inner();
-
-    // Focus loss has priority over every capture request, including auto-fly.
-    // The trusted consent popup needs a pointer whatever settings the scene behind it declares.
-    if !window.focused || !policy.capture_allowed || policy.consent {
-        release_cursor(&mut cursor);
-        clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
-        auto_fly.capture_pending = false;
-        return;
-    }
-
-    let steals = policy.steals_mouse;
-    if policy.absorbs_input || steals == Some(false) {
-        release_cursor(&mut cursor);
-        clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
-        auto_fly.capture_pending = false;
-        return;
-    }
-
-    // Escape also wins if it arrives in the same frame as a left click.
-    if keys.just_pressed(KeyCode::Escape) {
-        release_cursor(&mut cursor);
-        clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
-        auto_fly.capture_pending = false;
-        return;
-    }
-
-    let active = input_is_active(window, &cursor);
-    let recapture_click = !active && mouse_buttons.just_pressed(MouseButton::Left);
-    if recapture_click || (steals == Some(true) && !active) || auto_fly.capture_pending {
-        capture_cursor(&mut cursor);
-        if recapture_click {
-            // Recapture consumes the click; a later physical press must rearm attack.
-            mouse_buttons.release(MouseButton::Left);
-            mouse_motion.delta = Vec2::ZERO;
-        }
-        auto_fly.capture_pending = false;
-    }
 }
 
 /// Routes device-scaled look input through freelook and the selected server rig.

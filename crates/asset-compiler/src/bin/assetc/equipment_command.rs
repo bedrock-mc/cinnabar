@@ -1,12 +1,13 @@
 use std::path::Path;
 
 use assets::{
-    AssetError, EntityDependencyResolution, EquipmentCategory, EquipmentTransform,
-    encode_entity_blob, encode_equipment_catalog_with_attack_timings,
+    AssetError, EntityDependencyResolution, EquipmentCategory, EquipmentItemFacts,
+    EquipmentTransform, encode_entity_blob, encode_equipment_catalog_with_use_profiles,
 };
 use pack_compiler::{
-    compile_entity_assets_with_report, compile_equipment_textures_for_assets,
-    compile_item_attack_timings, compile_item_use_durations,
+    compile_entity_assets_with_behavior_report, compile_entity_assets_with_report,
+    compile_equipment_textures_for_assets, compile_item_attack_timings, compile_item_foods,
+    compile_item_use_profiles,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -32,6 +33,7 @@ struct EquipmentCounts {
     textures: usize,
     item_use: usize,
     item_attack: usize,
+    item_food: usize,
     held: usize,
     armor: usize,
     shield: usize,
@@ -61,32 +63,56 @@ pub(super) fn compile_equipment_assets_command(
                 source,
             }
         })?;
-    let compilation = compile_entity_assets_with_report(pack, &manifest_bytes)?;
+    let compilation = match behavior_pack {
+        Some(behavior) if behavior.join("entities").is_dir() => {
+            compile_entity_assets_with_behavior_report(pack, behavior, &manifest_bytes)?
+        }
+        _ => compile_entity_assets_with_report(pack, &manifest_bytes)?,
+    };
     let entity_blob = encode_entity_blob(&compilation.assets)?;
     let entity_blob_sha256: [u8; 32] = Sha256::digest(&entity_blob).into();
     let bindings = &compilation.equipment_bindings;
     let textures = compile_equipment_textures_for_assets(pack, &compilation.assets, bindings)?;
-    let item_use = behavior_pack
-        .map(compile_item_use_durations)
+    let item_behavior = behavior_pack.filter(|behavior| behavior.join("items").is_dir());
+    let use_profiles = item_behavior
+        .map(compile_item_use_profiles)
         .transpose()?
         .unwrap_or_default();
-    let item_attack = behavior_pack
+    let item_use = use_profiles
+        .iter()
+        .filter_map(|entry| {
+            Some(assets::ItemUseDuration {
+                identifier: entry.identifier.clone(),
+                ticks: entry.duration_ticks.filter(|ticks| *ticks > 0)?,
+            })
+        })
+        .collect::<Vec<_>>();
+    let item_attack = item_behavior
         .map(compile_item_attack_timings)
         .transpose()?
         .unwrap_or_default();
-    let carrier = encode_equipment_catalog_with_attack_timings(
+    let item_food = item_behavior
+        .map(compile_item_foods)
+        .transpose()?
+        .unwrap_or_default();
+    let carrier = encode_equipment_catalog_with_use_profiles(
         compilation.assets.source_manifest_sha256,
         entity_blob_sha256,
         bindings,
         &textures,
-        &item_use,
-        &item_attack,
+        EquipmentItemFacts {
+            item_use: &item_use,
+            item_attack: &item_attack,
+            item_use_overlays: &use_profiles,
+            item_food: &item_food,
+        },
     )?;
     let counts = EquipmentCounts {
         bindings: bindings.len(),
         textures: textures.len(),
         item_use: item_use.len(),
         item_attack: item_attack.len(),
+        item_food: item_food.len(),
         held: bindings
             .iter()
             .filter(|binding| binding.category == EquipmentCategory::Held)
@@ -148,3 +174,7 @@ pub(super) fn compile_equipment_assets_command(
     );
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "equipment_command/tests.rs"]
+mod tests;

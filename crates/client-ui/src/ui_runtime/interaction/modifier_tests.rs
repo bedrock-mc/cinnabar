@@ -3,27 +3,15 @@ use super::*;
 
 #[test]
 fn releasing_one_modifier_does_not_release_its_other_side() {
-    use bevy::input::keyboard::{Key, NativeKey};
     for (left, right) in [
-        (KeyCode::ShiftLeft, KeyCode::ShiftRight),
-        (KeyCode::ControlLeft, KeyCode::ControlRight),
+        (KeyboardKey::ShiftLeft, KeyboardKey::ShiftRight),
+        (KeyboardKey::ControlLeft, KeyboardKey::ControlRight),
     ] {
         let mut keys = InventoryKeys::default();
-        for (key_code, state) in [
-            (left, ButtonState::Pressed),
-            (right, ButtonState::Pressed),
-            (left, ButtonState::Released),
-        ] {
-            keys.track_modifier(&KeyboardInput {
-                key_code,
-                state,
-                logical_key: Key::Unidentified(NativeKey::Unidentified),
-                text: None,
-                repeat: false,
-                window: bevy::prelude::Entity::PLACEHOLDER,
-            });
+        for (key, pressed) in [(left, true), (right, true), (left, false)] {
+            keys.track_modifier(key, pressed);
         }
-        assert!(if left == KeyCode::ShiftLeft {
+        assert!(if left == KeyboardKey::ShiftLeft {
             keys.shift
         } else {
             keys.control

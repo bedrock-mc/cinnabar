@@ -300,7 +300,7 @@ fn plan_extraction(
         ));
     }
     // Largest first, so the server binary never trails the small files.
-    files.sort_by(|a, b| b.size.cmp(&a.size));
+    files.sort_by_key(|file| std::cmp::Reverse(file.size));
     Ok((files, dirs))
 }
 

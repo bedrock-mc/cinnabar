@@ -109,7 +109,7 @@ pub(super) fn tooltip_lines(
     identifier: Option<&str>,
     stated_name: Option<&str>,
 ) -> Vec<TooltipLine> {
-    let facts = runtime.stack_facts(stack, identifier);
+    let facts = runtime.stack_facts(stack);
     let display = &facts.display;
     let mut lines = vec![
         name_line(runtime, identifier, stated_name, display).unwrap_or_else(|| TooltipLine {

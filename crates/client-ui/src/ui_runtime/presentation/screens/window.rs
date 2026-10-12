@@ -2,7 +2,8 @@
 
 use protocol::WindowKind;
 
-use super::{InventoryCellHit, PlacedSlot, SLOT_SIZE};
+use super::{PlacedSlot, SLOT_SIZE};
+use ui_screens::container_actions::{InventoryCellHit, STONECUTTER_CELLS, Widget};
 
 /// One screen's panel, labels, cells and where the player inventory starts.
 #[derive(Debug, Clone)]
@@ -16,50 +17,9 @@ pub struct WindowLayout {
     pub player: [f32; 2],
 }
 
-/// A clickable control that is not an item cell.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum Widget {
-    EnchantOption(u8),
-    BeaconEffect {
-        id: i32,
-        secondary: bool,
-    },
-    /// The secondary effect that upgrades the chosen primary one.
-    BeaconUpgrade,
-    BeaconConfirm,
-    /// One stonecutter recipe cell by position on the visible page.
-    StonecutterRecipe(u8),
-    /// One loom pattern cell by position on the visible page.
-    LoomPattern(u8),
-    /// One loom pattern by position in the whole list.
-    LoomPatternAt(u8),
-    AnvilName,
-    /// Opens or closes the recipe book.
-    BookToggle,
-    /// Flips the survival recipe book between craftable-only and every recipe.
-    RecipeFilter,
-    /// Picks the inventory layout by its radio index: survival, recipe book, or
-    /// the creative wide list.
-    InventoryLayout(u8),
-    FurnaceTab(u8),
-    FurnaceClearRecipe,
-    /// Re-enables one disabled crafter slot.
-    CrafterSlot(u8),
-    /// One recipe cell by position on the visible page.
-    BookRecipe(u8),
-    BookPage {
-        next: bool,
-    },
-    /// A book reader or editor button.
-    Reader(super::ReaderButton),
-}
-
 pub const STONECUTTER_COLUMNS: usize = 4;
-pub const STONECUTTER_CELLS: usize = 12;
 pub const LOOM_COLUMNS: usize = 4;
 pub const LOOM_CELLS: usize = 16;
-/// The beacon level each selectable effect needs.
-pub const BEACON_LEVEL_FOR: [(i32, u8); 6] = [(1, 1), (3, 1), (11, 2), (8, 2), (5, 3), (10, 4)];
 
 const EFFECT_SIZE: f32 = 22.0;
 /// Beacon effect buttons by tier: `(effect id, panel-relative position)`.

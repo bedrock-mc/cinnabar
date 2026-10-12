@@ -2,10 +2,12 @@
 // shader can draw both without binding the same slot twice.
 import bevy_render::view::View;
 
-struct ChunkOrigin { value: vec4<i32>, cube_bases: vec4<u32> }
+struct ChunkOrigin { value: vec4<i32>, stream_bases: vec4<u32> }
 // ANIMATION_GPU_LAYOUT
 // Composable modules avoid member names ending in digits, which naga's writer would rename.
 struct AnimationClockGpu { tick: u32, partial_tick: f32, reserved_a: u32, reserved_b: u32 }
+// Shaders read a ref's record; the record names its own origin slot, which `metadata_index` mirrors
+// for the CPU-side sort.
 struct TransparentDrawRef { liquid_record_index: u32, metadata_index: u32 }
 struct AtmosphereUniform {
     sun_direction_daylight: vec4<f32>, moon_direction_phase: vec4<f32>,

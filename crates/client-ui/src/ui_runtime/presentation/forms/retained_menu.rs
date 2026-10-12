@@ -12,7 +12,7 @@ pub(in crate::ui_runtime::presentation) struct RetainedMenu {
     text_generation: [usize; 3],
     session: u64,
     scale: Option<u8>,
-    look: forms::oreui::Look,
+    look: oreui::Look,
     offsets: HashMap<String, f32>,
 }
 
@@ -26,7 +26,7 @@ impl UiPresentationRuntime {
                 view.screen,
                 MenuScreen::Home | MenuScreen::Servers | MenuScreen::Settings
             )
-            && !(view.screen == MenuScreen::Servers && forms::oreui::animated_server_details(view))
+            && !(view.screen == MenuScreen::Servers && oreui::animated_server_details(view))
             && !view.popup_open()
             && view.field.is_none()
             && view.key_remap.is_none()
@@ -53,8 +53,8 @@ impl UiPresentationRuntime {
             && runtime.hud.toasts().is_empty()
             && !runtime.experiences.active
             && !runtime.experiences.holds_world_entry()
-            && !self.mod_panel_open()
-            && !self.experience_modal_open())
+            && !self.screens.mod_ui.mod_panel_open()
+            && !self.screens.mod_ui.experience_modal_open())
         .then_some(view)
     }
 
@@ -72,16 +72,13 @@ impl UiPresentationRuntime {
             && saved.scale == self.gui_scale_preference
             && Arc::ptr_eq(&saved.font, &self.font)
             && Arc::ptr_eq(&saved.textures, &self.textures)
-            && Arc::ptr_eq(&saved.settings, &self.form_presentation.screen_settings)
+            && Arc::ptr_eq(&saved.settings, &self.screen_settings)
             && saved.text_generation == runtime.text_generation()
             && saved.session == runtime.session_id()
-            && saved.look == self.form_presentation.oreui_look
+            && saved.look == self.screens.oreui.look
             && saved.offsets == *self.menu_scrolls.offsets()
             && !self.menu_scrolls.active()
-            && !self
-                .form_presentation
-                .oreui_transitions
-                .active(self.menu_seconds))
+            && !self.screens.oreui.transitions.active(self.menu_seconds))
         .then(|| self.last_input.clone())
         .flatten()
     }
@@ -94,10 +91,7 @@ impl UiPresentationRuntime {
     ) {
         let view = if self.last_frame.is_some()
             && !self.menu_scrolls.active()
-            && !self
-                .form_presentation
-                .oreui_transitions
-                .active(self.menu_seconds)
+            && !self.screens.oreui.transitions.active(self.menu_seconds)
         {
             self.retainable_menu(runtime)
                 .and(self.menu_view.as_ref())
@@ -110,11 +104,11 @@ impl UiPresentationRuntime {
             frame,
             font: Arc::clone(&self.font),
             textures: Arc::clone(&self.textures),
-            settings: Arc::clone(&self.form_presentation.screen_settings),
+            settings: Arc::clone(&self.screen_settings),
             text_generation: runtime.text_generation(),
             session: runtime.session_id(),
             scale: self.gui_scale_preference,
-            look: self.form_presentation.oreui_look,
+            look: self.screens.oreui.look,
             offsets: self.menu_scrolls.offsets().clone(),
         });
     }

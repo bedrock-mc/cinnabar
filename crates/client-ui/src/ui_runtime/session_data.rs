@@ -101,7 +101,7 @@ impl SessionDataCache {
         if recipes_changed {
             let (recipes, skipped) = build_recipes(inputs.catalog, registry);
             if skipped > 0 {
-                bevy::log::debug!(skipped, "session recipes skipped: unresolved output");
+                tracing::debug!(skipped, "session recipes skipped: unresolved output");
             }
             data.recipes = recipes.into();
             data.recipe_revision += 1;
@@ -109,7 +109,7 @@ impl SessionDataCache {
         if items_changed || recipes_changed {
             let (items, skipped) = build_items(inputs.creative, registry, name);
             if skipped > 0 {
-                bevy::log::debug!(skipped, "session items skipped: unresolved or odd stacks");
+                tracing::debug!(skipped, "session items skipped: unresolved or odd stacks");
             }
             let (items, tags) = with_tags(items, &data.recipes, registry);
             if items_changed

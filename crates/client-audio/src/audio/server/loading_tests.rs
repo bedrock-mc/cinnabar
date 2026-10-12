@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use assets::{SoundBankIndex, SoundEventTables};
+use assets::{SoundEventTables, sound_bank::SoundBankIndex};
 use resource_pack::{LayeredPackView, validate_handoff};
 use serde_json::json;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
@@ -37,7 +37,7 @@ fn view(files: &[(&str, &[u8])]) -> LayeredPackView {
 }
 
 fn bank(pack: Arc<ServerSoundPack>) -> SoundBank {
-    let bytes = assets::encode_sound_bank(b"{}", b"{}", b"{}", &[]).unwrap();
+    let bytes = assets::sound_bank::encode_sound_bank(b"{}", b"{}", b"{}", &[]).unwrap();
     let mut bank = SoundBank::from_parts(
         SoundBankIndex::decode_prefix(&bytes).unwrap(),
         SoundEventTables::default(),

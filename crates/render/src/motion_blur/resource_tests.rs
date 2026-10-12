@@ -101,9 +101,9 @@ fn motion_blur_off_allocates_no_view_resources_and_releases_enabled_resources() 
     let mut prepare = IntoSystem::into_system(super::prepare::prepare_views);
     prepare.initialize(world);
     prepare.run((), world).unwrap();
-    let allocated = crate::alloc_count::thread_allocations();
+    let allocated = test_alloc::thread_allocations();
     prepare.run((), world).unwrap();
-    assert_eq!(crate::alloc_count::thread_allocations(), allocated);
+    assert_eq!(test_alloc::thread_allocations(), allocated);
     assert!(world.get::<BlurView>(entity).is_none());
 
     world.entity_mut(entity).insert(CameraMotionBlur {
@@ -128,9 +128,9 @@ fn motion_blur_off_allocates_no_view_resources_and_releases_enabled_resources() 
         .unwrap()
         .id();
     prepare.run((), world).unwrap();
-    let allocated = crate::alloc_count::thread_allocations();
+    let allocated = test_alloc::thread_allocations();
     prepare.run((), world).unwrap();
-    assert_eq!(crate::alloc_count::thread_allocations(), allocated);
+    assert_eq!(test_alloc::thread_allocations(), allocated);
     assert_eq!(
         world
             .get::<BlurView>(entity)
@@ -144,9 +144,9 @@ fn motion_blur_off_allocates_no_view_resources_and_releases_enabled_resources() 
     world.entity_mut(entity).remove::<CameraMotionBlur>();
     prepare.run((), world).unwrap();
     assert!(world.get::<BlurView>(entity).is_none());
-    let allocated = crate::alloc_count::thread_allocations();
+    let allocated = test_alloc::thread_allocations();
     prepare.run((), world).unwrap();
-    assert_eq!(crate::alloc_count::thread_allocations(), allocated);
+    assert_eq!(test_alloc::thread_allocations(), allocated);
     assert!(!super::applies(world, entity));
 }
 
@@ -196,9 +196,9 @@ fn motion_blur_repeated_specialization_reuses_pipelines_without_allocating() {
         ] {
             for samples in [1, 2, 4, 8] {
                 let original = pipeline.specialize(&cache, format, samples);
-                let allocated = crate::alloc_count::thread_allocations();
+                let allocated = test_alloc::thread_allocations();
                 let repeated = pipeline.specialize(&cache, format, samples);
-                assert_eq!(crate::alloc_count::thread_allocations(), allocated);
+                assert_eq!(test_alloc::thread_allocations(), allocated);
                 assert_eq!(repeated, original);
             }
         }

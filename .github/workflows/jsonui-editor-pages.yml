@@ -4,19 +4,11 @@ on:
   push:
     branches:
       - dev
+    # Broad on purpose: the plan job decides from the dependency graph whether the site changed.
     paths:
+      - crates/**
       - tools/jsonui-editor/**
-      - crates/json-ui/**
-      - crates/ui/**
-      - crates/assets/**
-      - crates/input/**
-      - crates/asset-compiler/**
-      - crates/pack-compiler/**
-      - assets/ui-font-source.json
-      - assets/cinnangles-sans-source.json
-      - assets/fonts/CinnanglesSans.ttf
-      - assets/bedrock-target.json
-      - scripts/fetch-ui-font.sh
+      - assets/**
       - Cargo.toml
       - Cargo.lock
       - rust-toolchain.toml
@@ -34,7 +26,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Builds when devtool's CI plan selects the editor or the font compiler the site runs (both
+  # select on their declared reads), or when the Makefile target that drives the build changes.
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      build: ${{ steps.affected.outputs.build }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@1.99.0
+      - name: Plan from the pushed range
+        id: affected
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          build=true
+          if [ "$EVENT" = push ] && [ -n "$BEFORE" ] && [ "${BEFORE//0/}" != "" ] \
+            && git fetch --no-tags --depth=1 origin "$BEFORE"; then
+            names="$(cargo run -p devtool --locked -- ci-plan --base "$BEFORE" | sed -n 's/^names=//p')"
+            build=false
+            for name in jsonui-editor asset-compiler; do
+              if [[ " $names " == *" $name "* ]]; then build=true; fi
+            done
+            if ! git diff --quiet "$BEFORE" HEAD -- Makefile; then build=true; fi
+          fi
+          echo "build=$build" | tee -a "$GITHUB_OUTPUT"
+
   build:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

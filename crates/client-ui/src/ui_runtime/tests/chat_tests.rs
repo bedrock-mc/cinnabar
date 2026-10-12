@@ -50,7 +50,7 @@ fn slash_chat_submission_uses_command_transport_without_consuming_the_request() 
     let (sequence, packet) = runtime.next_chat_packet().unwrap().unwrap();
 
     assert_eq!(sequence, 0);
-    assert_eq!(packet.header.id as u32, 77);
+    assert_eq!(packet.kind().id(), 77);
     assert_eq!(runtime.pending_chat_sends().len(), 1);
 }
 
@@ -316,10 +316,7 @@ fn queued_messages_all_leave_in_the_frame_they_are_submitted() {
             .collect::<Vec<_>>(),
         [0, 1, 2]
     );
-    assert_eq!(
-        sent[1].1.header.id as u32, 77,
-        "the command keeps its transport"
-    );
+    assert_eq!(sent[1].1.kind().id(), 77, "the command keeps its transport");
     for sequence in 0..3 {
         assert!(runtime.acknowledge_chat_send(4, sequence));
     }
@@ -369,10 +366,7 @@ fn fast_transfer_action_is_exact_and_carries_session_ordinal_identity() {
 
     let mut observed = None;
     flush_chat_sends(&mut runtime, 1, |session, sequence, action, packet| {
-        assert_eq!(
-            packet.header.id as u32, 77,
-            "expected CommandRequest packet ID"
-        );
+        assert_eq!(packet.kind().id(), 77, "expected CommandRequest packet ID");
         observed = action.map(|action| {
             action.marker(
                 crate::diagnostic_markers::FAST_TRANSFER_ACTION,
@@ -415,82 +409,27 @@ fn session_replacement_clears_editor_autocomplete_and_old_outbox() {
 }
 
 #[test]
-fn focused_chat_suppresses_production_gameplay_inputs() {
-    let mut player_runtime = player_state::PlayerState::new(1);
-
-    let mut runtime = UiRuntime::new(1);
-    runtime.open_chat(&mut player_runtime);
-    let mut cursor = CursorOptions {
-        grab_mode: CursorGrabMode::Locked,
-        visible: false,
-        ..CursorOptions::default()
-    };
-    let mut keys = ButtonInput::<KeyCode>::default();
-    keys.press(KeyCode::KeyW);
-    let mut mouse_buttons = ButtonInput::<MouseButton>::default();
-    mouse_buttons.press(MouseButton::Left);
-    let mut mouse_motion = AccumulatedMouseMotion {
-        delta: Vec2::new(4.0, 2.0),
-    };
-
-    suppress_gameplay_input_for_chat(
-        &player_runtime,
-        &runtime,
-        &mut cursor,
-        &mut keys,
-        &mut mouse_buttons,
-        &mut mouse_motion,
-    );
-
-    assert_eq!(cursor.grab_mode, CursorGrabMode::None);
-    assert!(cursor.visible);
-    assert!(keys.get_pressed().next().is_none());
-    assert!(mouse_buttons.get_pressed().next().is_none());
-    assert_eq!(mouse_motion.delta, Vec2::ZERO);
-}
-
-#[test]
 fn control_or_command_v_uses_the_bounded_clipboard_adapter() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
     runtime.open_chat(&mut player_runtime);
-    let mut keys = ButtonInput::<KeyCode>::default();
-    keys.press(KeyCode::ControlLeft);
     let mut clipboard = ClipboardFixture(Some(Arc::from("bounded paste")));
 
     assert!(paste_chat_shortcut(
         &mut runtime,
-        KeyCode::KeyV,
-        &keys,
+        KeyboardKey::KeyV,
+        &[KeyboardKey::ControlLeft],
         &mut clipboard,
     ));
     assert_eq!(runtime.chat_editor().as_str(), "bounded paste");
 
-    keys.release(KeyCode::ControlLeft);
     assert!(!paste_chat_shortcut(
         &mut runtime,
-        KeyCode::KeyV,
-        &keys,
+        KeyboardKey::KeyV,
+        &[],
         &mut ClipboardFixture(None),
     ));
-}
-
-#[test]
-fn controller_buttons_map_to_the_shared_ui_action_adapter() {
-    assert_eq!(
-        gamepad_chat_action(GamepadButton::DPadUp),
-        Some(UiAction::Navigate([0, -1]))
-    );
-    assert_eq!(
-        gamepad_chat_action(GamepadButton::South),
-        Some(UiAction::Accept)
-    );
-    assert_eq!(
-        gamepad_chat_action(GamepadButton::East),
-        Some(UiAction::Cancel)
-    );
-    assert_eq!(gamepad_chat_action(GamepadButton::North), None);
 }
 
 #[test]
@@ -517,35 +456,6 @@ fn accept_and_cancel_actions_close_chat_and_restore_gameplay_authority() {
         1,
     ));
     assert!(!runtime.chat_focused());
-}
-
-#[test]
-fn closing_chat_immediately_regrabs_and_hides_the_gameplay_cursor() {
-    let mut cursor = CursorOptions {
-        grab_mode: CursorGrabMode::None,
-        visible: true,
-        ..CursorOptions::default()
-    };
-    let mut keys = ButtonInput::<KeyCode>::default();
-    keys.press(KeyCode::Enter);
-    let mut mouse_buttons = ButtonInput::<MouseButton>::default();
-    mouse_buttons.press(MouseButton::Left);
-    let mut mouse_motion = AccumulatedMouseMotion {
-        delta: Vec2::new(4.0, 2.0),
-    };
-
-    restore_gameplay_input_after_chat(
-        &mut cursor,
-        &mut keys,
-        &mut mouse_buttons,
-        &mut mouse_motion,
-    );
-
-    assert_eq!(cursor.grab_mode, CursorGrabMode::Locked);
-    assert!(!cursor.visible);
-    assert!(keys.get_pressed().next().is_none());
-    assert!(mouse_buttons.get_pressed().next().is_none());
-    assert_eq!(mouse_motion.delta, Vec2::ZERO);
 }
 
 #[test]

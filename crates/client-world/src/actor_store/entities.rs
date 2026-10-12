@@ -249,9 +249,6 @@ mod tests {
 }
 
 #[cfg(test)]
-mod allocation_count;
-
-#[cfg(test)]
 mod allocation_tests {
     use super::*;
 
@@ -265,7 +262,7 @@ mod allocation_tests {
                 super::super::tests::spawn(runtime, runtime as i64),
             );
         }
-        let (ropes, allocations) = super::allocation_count::measure(|| store.ropes(0.5));
+        let (ropes, allocations) = test_alloc::count(|| store.ropes(0.5));
         assert!(ropes.is_empty());
         assert_eq!(allocations, 0);
         println!("512 unrelated actors: rope-view allocations={allocations}");

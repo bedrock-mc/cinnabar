@@ -1,5 +1,7 @@
 //! Profile route state shared by input and presentation.
 
+use super::MenuView;
+
 /// The two routes of the Bedrock Profile screen.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ProfileTab {
@@ -63,6 +65,34 @@ fn profile_value(value: &str) -> Option<f64> {
     (value.is_finite() && value >= 0.0).then_some(value)
 }
 
+/// The signed-in account's gamertag: the profile's, the active saved account's, else the
+/// display name.
+pub fn current_name(view: &MenuView) -> &str {
+    if !view.feeds.profile.gamertag.is_empty() {
+        return &view.feeds.profile.gamertag;
+    }
+    view.feeds
+        .accounts
+        .iter()
+        .find(|account| Some(&account.id) == view.feeds.account_active_id.as_ref())
+        .map_or(view.display_name.as_str(), |account| {
+            account.gamertag.as_str()
+        })
+}
+
+/// The signed-in account's picture path: the profile's, else the active saved account's.
+pub fn current_picture(view: &MenuView) -> Option<&str> {
+    if !view.feeds.profile.picture_path.is_empty() {
+        return Some(&view.feeds.profile.picture_path);
+    }
+    view.feeds
+        .accounts
+        .iter()
+        .find(|account| Some(&account.id) == view.feeds.account_active_id.as_ref())
+        .and_then(|account| account.picture_path.as_deref())
+        .filter(|path| !path.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,5 +133,20 @@ mod tests {
             assert_eq!(profile_count_display(invalid), None);
             assert_eq!(profile_minutes_display(invalid), None);
         }
+    }
+
+    #[test]
+    fn home_portrait_uses_the_saved_xbox_picture_until_profile_arrives() {
+        let mut view = crate::test_support::saved_accounts_view();
+        assert_eq!(current_picture(&view), Some("first.png"));
+        assert_eq!(current_name(&view), "First");
+        view.feeds.profile.picture_path = "fresh.png".into();
+        assert_eq!(current_picture(&view), Some("fresh.png"));
+        view.feeds.profile.picture_path.clear();
+        view.feeds.account_active_id = Some("second".into());
+        assert_eq!(current_picture(&view), Some("second.png"));
+        assert_eq!(current_name(&view), "Second");
+        view.feeds.profile.gamertag = "Fresh name".into();
+        assert_eq!(current_name(&view), "Fresh name");
     }
 }

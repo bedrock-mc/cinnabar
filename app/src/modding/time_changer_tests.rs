@@ -2,6 +2,7 @@ use super::*;
 use crate::environment::{self, WeatherState, WorldClock};
 use crate::runtime::network::resource_packs::PackApplication;
 use client_runtime::network::NetworkHandle;
+use client_ui::ui_runtime::UiRuntime;
 
 #[test]
 fn configured_time_changer_is_visual_only_offline() {
@@ -15,8 +16,8 @@ fn configured_time_changer_is_visual_only_offline() {
     let Some(presentation) = client_ui::test_support::pack_harness::engine_presentation() else {
         return;
     };
-    app.insert_resource(presentation)
-        .insert_resource(UiRuntime::new(1))
+    app.insert_resource(UiPresentationResource(presentation))
+        .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
         .insert_resource(client_state::PlayerRuntime(
             ::player_state::PlayerState::new(1),
         ))

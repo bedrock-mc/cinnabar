@@ -41,7 +41,10 @@ fn retains_sub_chunk_payload_presence_and_server_heightmap_facts() {
         ],
         ..Default::default()
     };
-    let WorldEvent::SubChunks(batch) = into_world_event(packet.into(), 0).unwrap().unwrap() else {
+    let WorldEvent::SubChunks(batch) = into_world_event(protocol::Packet::new(packet), 0)
+        .unwrap()
+        .unwrap()
+    else {
         panic!("expected sub-chunks");
     };
     assert_eq!(batch.entries[0].result, SubChunkResult::AllAir);
@@ -79,8 +82,9 @@ fn bounds_advertised_dimension_heights_without_rejecting_custom_ranges() {
             })
             .collect(),
     };
-    let WorldEvent::DimensionHeights(heights) =
-        into_world_event(packet.into(), 0).unwrap().unwrap()
+    let WorldEvent::DimensionHeights(heights) = into_world_event(protocol::Packet::new(packet), 0)
+        .unwrap()
+        .unwrap()
     else {
         panic!("expected dimension height facts");
     };
@@ -107,8 +111,9 @@ fn retains_named_overworld_definition_with_a_distinct_numeric_type() {
             },
         }],
     };
-    let WorldEvent::DimensionHeights(heights) =
-        into_world_event(packet.into(), 0).unwrap().unwrap()
+    let WorldEvent::DimensionHeights(heights) = into_world_event(protocol::Packet::new(packet), 0)
+        .unwrap()
+        .unwrap()
     else {
         panic!("expected dimension definitions");
     };

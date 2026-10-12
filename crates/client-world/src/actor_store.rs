@@ -95,6 +95,8 @@ pub struct ActorSnapshot {
     pub spawn_revision: u64,
     pub movement_revision: u64,
     pub kind: ActorKind,
+    /// Resolved at packet admission; frame and ray paths read these numeric dispositions.
+    pub interaction_traits: assets::interactions::EntityInteractionTraits,
     pub position: [f32; 3],
     pub velocity: [f32; 3],
     pub pitch: f32,
@@ -152,13 +154,6 @@ impl ActorSnapshot {
         self.status.native_velocity
     }
 
-    /// These actors animate their full yaw through the target-rotation queries.
-    #[must_use]
-    pub fn target_rotation_is_absolute(&self) -> bool {
-        matches!(&self.kind, ActorKind::Entity { identifier } if matches!(identifier.as_ref(),
-            "minecraft:arrow" | "minecraft:fireworks_rocket" | "minecraft:wither_skull" | "minecraft:wither_skull_dangerous"))
-    }
-
     /// The render position `alpha` of the way from the previous tick's pose to the current one,
     /// or `None` when a component is not finite.
     #[must_use]
@@ -192,6 +187,7 @@ impl ActorSnapshot {
             runtime_id: spawn.runtime_id,
             spawn_revision,
             movement_revision: 0,
+            interaction_traits: assets::interactions::EntityInteractionTraits::Unresolved,
             kind: spawn.kind,
             position,
             velocity: spawn.velocity,
@@ -248,6 +244,7 @@ impl ActorSnapshot {
             runtime_id,
             spawn_revision: revision,
             movement_revision: revision,
+            interaction_traits: assets::interactions::EntityInteractionTraits::GENERIC_MOB,
             kind: ActorKind::Player { uuid, username },
             position: feed.position,
             velocity: feed.velocity,
@@ -410,6 +407,15 @@ impl ActorSnapshot {
         let mut position = self.position;
         position[1] += self.network_position_offset();
         position
+    }
+
+    /// Native actor-state origin at supplied retained feet, preserving this class's decoded offset.
+    pub fn native_position_at(&self, mut position: [f32; 3]) -> Option<[f32; 3]> {
+        position[1] += self.network_position_offset();
+        position
+            .iter()
+            .all(|value| value.is_finite())
+            .then_some(position)
     }
 
     /// Offset from stored collision feet to the native actor-state position.
@@ -673,6 +679,8 @@ pub struct LocalPlayerFeed {
     /// Identifiers of the client-owned main-hand and off-hand items.
     pub main_hand: Option<std::sync::Arc<str>>,
     pub off_hand: Option<std::sync::Arc<str>>,
+    /// Numerical registry identities for the main hand and off hand; zero means empty.
+    pub held_network_ids: [i32; 2],
     /// The main-hand stack's data value.
     pub main_hand_metadata: u32,
     /// Positive server identity for the selected stack, if one is available.
@@ -727,7 +735,9 @@ pub(crate) struct ActorStore {
     actor_identifier_skips: u64,
     player_game_mode_skips: u64,
     world_default_game_mode: Option<protocol::PlayerGameMode>,
-    aim_actor_classes: HashMap<std::sync::Arc<str>, bool>,
+    entity_assets: Option<std::sync::Arc<assets::RuntimeEntityAssets>>,
+    custom_actor_traits:
+        HashMap<std::sync::Arc<str>, assets::interactions::EntityInteractionTraits>,
     actors: HashMap<u64, ActorSnapshot>,
     effect_members: effect_members::EffectMembers,
     unique_to_runtime: HashMap<i64, u64>,
@@ -767,6 +777,7 @@ pub(crate) struct ActorStore {
     local_flying: bool,
     /// Held items of the client-fed local player, which the item store never tracks.
     local_hands: [Option<std::sync::Arc<str>>; 2],
+    local_held_network_ids: [i32; 2],
     local_main_metadata: u32,
     local_main_stack_id: Option<i32>,
     local_main_slot: u8,
@@ -779,8 +790,9 @@ pub(crate) struct ActorStore {
     camera_position: [f32; 3],
     /// Rigs outside this view hold their pose instead of animating.
     animation_view: Option<actor_animation::ActorAnimationView>,
-    /// Seat layouts for mounts whose riders stream no seat offset.
-    seat_defaults: std::sync::Arc<SeatDefaults>,
+    /// Seat descriptor per mount, for riders that stream no seat offset.
+    seat_bindings: HashMap<u64, Option<u32>>,
+    seat_bases: HashMap<std::sync::Arc<str>, Option<u32>>,
     property_registry: properties::PropertyRegistry,
     /// Latest local-player knockback `(sequence, [x, z])`, for hurt direction inference.
     local_knockback: Option<(u64, [f32; 2])>,
@@ -832,7 +844,7 @@ pub use hurt::{
 };
 pub use lightning::LightningBoltView;
 pub(crate) use placement::FLAG_BABY;
-pub use placement::{ActorFluidProbe, RideSeat, SeatDefaults, SeatRequirement};
+pub use placement::{ActorFluidProbe, RideSeat};
 pub use properties::PropertyDefault;
 pub use shadow::ActorShadowCaster;
 

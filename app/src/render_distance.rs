@@ -4,13 +4,13 @@ use crate::runtime::network::resource_packs::PackApplication;
 use crate::runtime::world::ClientWorld;
 use bevy::prelude::{Local, Res};
 use client_runtime::network::NetworkHandle;
+use client_shell::ui_resources::UiRuntimeResource;
 use client_state::RuntimeSettings;
-use client_ui::ui_runtime::UiRuntime;
 
 /// Sends the selected radius after joining and whenever it changes, retrying backpressure.
 pub(crate) fn apply_render_distance(
     settings: Res<RuntimeSettings>,
-    ui: Option<Res<UiRuntime>>,
+    ui: Option<Res<UiRuntimeResource>>,
     world: Option<Res<ClientWorld>>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
     mut sent: Local<Option<(u64, u8)>>,

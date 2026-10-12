@@ -25,13 +25,10 @@ pub fn experience_packet(bytes: Vec<u8>) -> Option<crate::Packet> {
     if bytes.len() > MAX_EXPERIENCE_ENVELOPE_BYTES {
         return None;
     }
-    Some(
-        ScriptMessagePacket {
-            message_id: EXPERIENCE_CHANNEL.to_owned(),
-            message_value: bytes,
-        }
-        .into(),
-    )
+    Some(crate::Packet::new(ScriptMessagePacket {
+        message_id: EXPERIENCE_CHANNEL.to_owned(),
+        message_value: bytes,
+    }))
 }
 
 /// Identifies only this optional carrier before an authorized socket write.

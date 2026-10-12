@@ -10,6 +10,16 @@ pub const STARTER_SKIN_NAMES: [&str; 2] = [
 ];
 pub const MAX_SKIN_NAME_BYTES: usize = 128;
 
+/// The menu artwork key of a skin's thumbnail.
+pub fn thumbnail_key(id: &str) -> String {
+    format!("skin-thumbnail:{id}")
+}
+
+/// The menu artwork key of a cape's thumbnail.
+pub fn cape_thumbnail_key(id: &str) -> String {
+    format!("cape-thumbnail:{id}")
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SkinModel {

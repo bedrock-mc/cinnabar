@@ -93,41 +93,18 @@ impl LayeredPackView {
 
 #[cfg(all(test, feature = "handoff"))]
 mod tests {
-    use std::io::{Cursor, Write};
+    use crate::{LayeredPackView, test_support::layered_pack_view};
 
-    use protocol::{ResourcePackArchive, ResourcePackHandoff};
-    use uuid::Uuid;
-    use zip::{ZipWriter, write::SimpleFileOptions};
-
-    use crate::{LayeredPackView, validate_handoff};
-
-    fn pack(id: u128, files: &[(&str, &str)]) -> ResourcePackArchive {
-        let id = Uuid::from_u128(id);
-        let manifest = format!(
-            r#"{{"format_version":2,"header":{{"uuid":"{id}","version":[1,0,0]}},"modules":[{{"type":"resources"}}]}}"#
-        );
-        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
-        for (path, text) in
-            std::iter::once(("manifest.json", manifest.as_str())).chain(files.iter().copied())
-        {
-            writer
-                .start_file(path, SimpleFileOptions::default())
-                .unwrap();
-            writer.write_all(text.as_bytes()).unwrap();
-        }
-        ResourcePackArchive::unencrypted(
-            id,
-            "1.0.0".into(),
-            String::new(),
-            writer.finish().unwrap().into_inner(),
-        )
+    /// Owned copies of `files` as the fixture archive takes them.
+    fn files(files: &[(&str, &str)]) -> Vec<(String, Vec<u8>)> {
+        files
+            .iter()
+            .map(|(path, text)| ((*path).to_owned(), text.as_bytes().to_vec()))
+            .collect()
     }
 
     fn view(top: &[(&str, &str)], bottom: &[(&str, &str)]) -> LayeredPackView {
-        LayeredPackView::new(validate_handoff(ResourcePackHandoff::from_archives(vec![
-            pack(2, bottom),
-            pack(1, top),
-        ])))
+        layered_pack_view(&[&files(bottom), &files(top)])
     }
 
     // Mixed sectioned and legacy files merge by name with the higher layer winning.

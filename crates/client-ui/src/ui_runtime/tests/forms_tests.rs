@@ -30,9 +30,7 @@ fn identity(runtime: &UiRuntime) -> ServerFormIdentity {
     runtime.server_forms().active().unwrap().identity
 }
 fn bytes(packet: protocol::Packet) -> Vec<u8> {
-    protocol::encode(&packet, &protocol::BedrockSession { shield_item_id: 0 })
-        .unwrap()
-        .to_vec()
+    protocol::encode(&packet).unwrap().to_vec()
 }
 fn drain(runtime: &mut UiRuntime) -> Vec<Vec<u8>> {
     let mut packets = Vec::new();
@@ -65,11 +63,7 @@ fn decoded_element_button_form_selects_index_one_and_cancels_without_duplicate_r
     let mut encoded = vec![0xfe];
     varuint(packet.len(), &mut encoded);
     encoded.extend_from_slice(&packet);
-    let mut decoded = protocol::decode_batch(
-        encoded.into(),
-        &protocol::BedrockSession { shield_item_id: 0 },
-    )
-    .unwrap();
+    let mut decoded = protocol::decode_batch(encoded.into()).unwrap();
     let Some(protocol::WorldEvent::Ui(event)) =
         protocol::into_world_event(decoded.pop().unwrap(), 0).unwrap()
     else {

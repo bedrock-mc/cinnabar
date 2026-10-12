@@ -86,6 +86,7 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
     stream.advance_actor_interpolation_frame(delay + 2);
     let input = ActorEquipmentInput {
         main: Some(crate::presentation::equipment::WornItem {
+            use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip("minecraft:iron_spear"),
             identifier: "minecraft:iron_spear".into(),
             kind: crate::presentation::equipment::HeldKind::Sprite,
@@ -98,7 +99,7 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
     };
     let mut world = World::new();
     let mut time = Time::<Real>::default();
-    time.advance_by(world::TICK_DURATION);
+    time.advance_by(simulation_clock::TICK_DURATION);
     world.insert_resource(time);
     world.insert_resource(equipment);
     world.insert_resource(render_scene::ActorArtworkResource(artwork));
@@ -162,6 +163,7 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
         },
         None,
         |_, _, _, _| false,
+        None,
         params.get_mut(&mut world).unwrap(),
     );
     let rig = stream.authority().actor_rig(1).unwrap();

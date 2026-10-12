@@ -7,7 +7,7 @@ use assets::{CellGlyph, pack_cells};
 use render_model::UiTexturePage;
 
 use super::{UiPresentationRuntime, dynamic_textures};
-use dynamic_textures::FIRST_GLYPH_PAGE;
+use ui_engine::pages::FIRST_GLYPH_PAGE;
 
 use render_model::UI_DYNAMIC_PAGE_SIDE as PAGE_SIDE;
 
@@ -44,7 +44,7 @@ impl SessionGlyphSheets {
     /// Keeps relative atlas pages reusable independently of the carrier page offset.
     fn prepared(&self) -> &PreparedGlyphs {
         self.prepared.get_or_init(|| {
-            let mut atlas = pack_cells(&self.cells, 0, PAGE_SIDE, dynamic_textures::GLYPH_PAGES);
+            let mut atlas = pack_cells(&self.cells, 0, PAGE_SIDE, ui_engine::pages::GLYPH_PAGES);
             let mut named = std::collections::BTreeMap::new();
             for (name, cells) in &self.named {
                 let defaults: std::collections::BTreeMap<_, _> = self
@@ -67,7 +67,7 @@ impl SessionGlyphSheets {
                     &unique,
                     atlas.pages.len() as u16,
                     PAGE_SIDE,
-                    dynamic_textures::GLYPH_PAGES.saturating_sub(atlas.pages.len()),
+                    ui_engine::pages::GLYPH_PAGES.saturating_sub(atlas.pages.len()),
                 );
                 next.glyphs.extend(
                     shared

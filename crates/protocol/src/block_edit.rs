@@ -12,27 +12,25 @@ use crate::Packet;
 /// compound as NetworkLittleEndian bytes.
 #[must_use]
 pub fn sign_edit_packet(position: [i32; 3], nbt: &[u8]) -> Packet {
-    BlockActorDataPacket {
+    crate::Packet::new(BlockActorDataPacket {
         block_position: BlockPos {
             x: position[0],
             y: position[1],
             z: position[2],
         },
         actor_data_tags: Nbt(Bytes::copy_from_slice(nbt)),
-    }
-    .into()
+    })
 }
 
 /// Asks the server for the pixels of `map_id`, as a client does on first sight of a map.
 #[must_use]
 pub fn map_info_request_packet(map_id: i64) -> Packet {
-    MapInfoRequestPacket {
+    crate::Packet::new(MapInfoRequestPacket {
         map_unique_id: valentine::bedrock::version::v1_26_51::ActorUniqueId {
             actor_unique_id: map_id,
         },
         client_pixels_list: Vec::new(),
-    }
-    .into()
+    })
 }
 
 #[cfg(test)]

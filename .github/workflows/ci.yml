@@ -221,6 +221,12 @@ jobs:
       - name: Test local WASM mod hosts
         if: ${{ !cancelled() && (env.FULL == 'true' || contains(format(' {0} ', env.AFFECTED), ' client-extensions ')) }}
         run: cargo test -p client-extensions --features local-mods --lib --locked
+      # The editor site ships ui-engine as WebAssembly; Pages only builds it after a merge.
+      - name: Check the JSON-UI editor for WebAssembly
+        if: ${{ !cancelled() && (env.FULL == 'true' || contains(format(' {0} ', env.AFFECTED), ' jsonui-editor ')) }}
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo check -p jsonui-editor --lib --target wasm32-unknown-unknown --locked
       - name: Test acceptance dry run and protocol provenance
         if: ${{ !cancelled() }}
         run: bash scripts/tests/acceptance_test.sh

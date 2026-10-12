@@ -4,6 +4,7 @@ use crate::acceptance::AcceptanceRun;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
 use bevy::ecs::system::RunSystemOnce;
+use client_shell::ui_resources::UiRuntimeResource;
 use client_state::PlayerRuntime;
 #[path = "latency_fences.rs"]
 mod latency_fences;
@@ -82,7 +83,7 @@ fn app() -> App {
     .insert_resource(clock)
     .insert_resource(weather)
     .insert_resource(collisions)
-    .insert_resource(runtime)
+    .insert_resource(UiRuntimeResource(runtime))
     .insert_resource(player_runtime.clone())
     .insert_resource(AcceptanceRun::new(Some(900), None, false, false))
     .insert_resource(ModelWitnessFileSource::new(None))
@@ -434,11 +435,11 @@ fn named_registry(name: &str) -> ItemRegistryEvent {
         entries: [(6, name), (7, "minecraft:oak_planks")]
             .into_iter()
             .map(|(network_id, identifier)| protocol::ItemRegistryEntry {
-                components: None,
                 identifier: identifier.into(),
                 network_id,
                 component_based: false,
                 version: protocol::ItemRegistryVersion::None,
+                components: None,
                 component_digest: [0; 32],
                 negotiated_max_stack_size: Some(64),
                 canonical_empty_component_data: true,
@@ -915,11 +916,11 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
         let mut app = app();
         let registry = ItemRegistryEvent {
             entries: std::sync::Arc::from([protocol::ItemRegistryEntry {
-                components: None,
                 identifier: "minecraft:apple".into(),
                 network_id: 878,
                 component_based: true,
                 version: protocol::ItemRegistryVersion::DataDriven,
+                components: None,
                 component_digest: [8; 32],
                 negotiated_max_stack_size: Some(64),
                 canonical_empty_component_data: false,
@@ -1077,14 +1078,7 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
             runtime_entity_id: -1,
         }));
         assert_eq!(ledger.begin_click(0), Ok(-3));
-        let mut encoded = bytes::BytesMut::new();
-        ledger
-            .pending_batch()
-            .unwrap()
-            .unwrap()
-            .0
-            .encode_bytes_mut(&mut encoded)
-            .unwrap();
+        let encoded = protocol::encode(&ledger.pending_batch().unwrap().unwrap().0).unwrap();
         let player = ledger.displayed_stack(0).unwrap().count;
         let cursor = ledger.cursor_stack().unwrap().count;
         assert_eq!(player + cursor, 93);
@@ -1098,10 +1092,9 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
 #[test]
 fn output_click_crafts_the_unique_recipe_through_the_ledger() {
     use {
-        client_ui::ui_runtime::{
-            dispatch_inventory_click, presentation::inventory_pointer::InventoryCellHit,
-        },
+        client_ui::ui_runtime::dispatch_inventory_click,
         inventory::inventory_ledger::{CellGesture, PERSONAL_INVENTORY_WINDOW_TYPE},
+        ui_screens::container_actions::InventoryCellHit,
     };
     let mut app = app();
     registry_ingress(&mut app, 1, named_registry("minecraft:oak_log"));

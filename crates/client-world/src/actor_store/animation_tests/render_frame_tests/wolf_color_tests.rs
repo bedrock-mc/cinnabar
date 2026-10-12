@@ -21,7 +21,9 @@ const TAMED: u64 = match MolangQuery::IsTamed.descriptor().handler {
 fn wolf(flags: u64, color: ActorMetadataValue) -> ActorStore {
     let mut compiled = test_support::counting_random_compiled(WOLF_IDENTIFIER);
     compiled.render.layers[0].color = None;
-    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let assets = Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+    );
     let mut store = ActorStore::new_with_entity_assets(1, 0, assets);
     store.apply(
         1,

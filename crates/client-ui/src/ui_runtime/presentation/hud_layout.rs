@@ -27,9 +27,8 @@ mod player;
 mod reader;
 mod recipe_book;
 mod sleep;
-mod status_motion;
 mod status_rows;
-pub(super) use status_rows::{HeartPaint, HungerPaint, capture as capture_hud_paint};
+pub(super) use status_rows::capture as capture_hud_paint;
 mod windows;
 
 pub(super) use inventory::{CraftingFrame, StorageIcons};
@@ -100,6 +99,8 @@ pub struct HudFrame {
     pub viewmodel_pitch_degrees: f32,
     /// Presented name of the selected stack, resolved this frame.
     pub selected_item_name: Option<std::sync::Arc<str>>,
+    /// Exact declared food component of the currently selected authoritative stack.
+    pub selected_food: Option<protocol::FoodProperties>,
     /// Jump charge in `0.0..=1.0` while riding a jump-capable mount: the
     /// mount jump bar replaces the experience bar for the ride's duration.
     pub mount_jump: Option<f32>,

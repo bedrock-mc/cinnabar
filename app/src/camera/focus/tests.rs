@@ -1,4 +1,5 @@
 use bevy::window::CursorGrabMode;
+use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use client_ui::ui_runtime::UiRuntime;
 use {super::*, client_presentation::camera::AutoFly};
 
@@ -12,7 +13,7 @@ fn focus_app() -> (App, Entity) {
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))
-        .insert_resource(UiRuntime::new(1))
+        .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
         .init_resource::<client_state::ScreenFocus>()
         .add_systems(
             Update,
@@ -197,8 +198,8 @@ fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
         .init_resource::<client_state::ScreenFocus>()
         .insert_resource(AutoFly::new(false))
         .insert_resource(player)
-        .insert_resource(runtime)
-        .insert_resource(presentation)
+        .insert_resource(UiRuntimeResource(runtime))
+        .insert_resource(UiPresentationResource(presentation))
         .add_systems(
             Update,
             (
@@ -233,7 +234,7 @@ fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
     app.update();
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<UiRuntimeResource>()
             .server_forms()
             .active()
             .is_some()
@@ -246,19 +247,23 @@ fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
     app.update();
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<UiRuntimeResource>()
             .server_forms()
             .active()
             .is_none()
     );
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<UiRuntimeResource>()
             .server_forms()
             .owns_input()
     );
     assert_released(&app, window);
-    flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |_| Ok(())).unwrap();
+    flush_form_response(
+        &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+        |_| Ok(()),
+    )
+    .unwrap();
     app.update();
     let cursor = app.world().get::<CursorOptions>(window).unwrap();
     assert_eq!(cursor.grab_mode, CursorGrabMode::Locked);
@@ -272,7 +277,8 @@ fn discarded_pointer_batch_cannot_authorize_a_later_programmatic_close() {
     let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = UiRuntime::new(1);
     runtime.open_chat(&mut player);
-    app.insert_resource(player).insert_resource(runtime);
+    app.insert_resource(player)
+        .insert_resource(UiRuntimeResource(runtime));
     app.add_systems(
         PreUpdate,
         (move |mut focused: MessageWriter<WindowFocused>,
@@ -299,7 +305,9 @@ fn discarded_pointer_batch_cannot_authorize_a_later_programmatic_close() {
     );
     app.update();
     assert_released(&app, window);
-    app.world_mut().resource_mut::<UiRuntime>().close_chat();
+    app.world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .close_chat();
     app.update();
     assert_released(&app, window);
 }
@@ -317,7 +325,7 @@ fn credits_keyboard_skip_retains_return_until_completion_delivery() {
                 .before(client_shell::menu::screen_focus::publish_screen_focus),
         );
     {
-        let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+        let mut runtime = app.world_mut().resource_mut::<UiRuntimeResource>();
         assert!(runtime.credits_mut().open(7, 1, 0));
         runtime.credits_mut().select(0, false);
     }
@@ -331,14 +339,14 @@ fn credits_keyboard_skip_retains_return_until_completion_delivery() {
     app.update();
     assert!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<UiRuntimeResource>()
             .credits()
             .active()
             .is_none()
     );
     assert_released(&app, window);
     app.world_mut()
-        .resource_mut::<UiRuntime>()
+        .resource_mut::<UiRuntimeResource>()
         .credits_mut()
         .flush(Some(7), |_| Ok(()))
         .unwrap();
@@ -353,10 +361,8 @@ fn credits_keyboard_skip_retains_return_until_completion_delivery() {
 fn leave_bed_retains_return_until_server_wakes_player() {
     use crate::ui_runtime::interaction::drive_chat_ui_actions;
     use bevy::time::Real;
-    use client_ui::{
-        test_support::{fixture_font, fixture_hud},
-        ui_runtime::presentation::UiPresentationRuntime,
-    };
+    use client_ui::{test_support::fixture_hud, ui_runtime::presentation::UiPresentationRuntime};
+    use ui_engine::test_support::fixture_font;
     let (mut app, window) = focus_app();
     let player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = UiRuntime::new(1);
@@ -379,15 +385,12 @@ fn leave_bed_retains_return_until_server_wakes_player() {
                 .step_by(8)
                 .map(move |x| ui::UiPoint::new(x as f32, y as f32).unwrap())
         })
-        .find(|point| {
-            presentation.hit_test_bed(*point)
-                == Some(client_ui::ui_runtime::presentation::BedHit::LeaveBed)
-        })
+        .find(|point| presentation.hit_test_bed(*point) == Some(oreui::BedHit::LeaveBed))
         .unwrap();
     let centre = Vec2::new(point.x(), point.y());
     app.insert_resource(player)
-        .insert_resource(runtime)
-        .insert_resource(presentation)
+        .insert_resource(UiRuntimeResource(runtime))
+        .insert_resource(UiPresentationResource(presentation))
         .init_resource::<Time<Real>>()
         .init_resource::<Touches>()
         .init_resource::<client_presentation::local_player::LocalPlayerFrameCarrier>()
@@ -417,11 +420,11 @@ fn leave_bed_retains_return_until_server_wakes_player() {
         .reset_all();
     assert!(
         app.world_mut()
-            .resource_mut::<UiRuntime>()
+            .resource_mut::<UiRuntimeResource>()
             .flush_wake_request(Some(1), |_| Ok::<_, ()>(()))
     );
     app.world_mut()
-        .resource_mut::<UiRuntime>()
+        .resource_mut::<UiRuntimeResource>()
         .set_local_sleeping(false);
     app.update();
     assert_eq!(
@@ -436,7 +439,8 @@ fn touch_resume_returns_capture_after_focus_loss() {
         InputPlugin,
         touch::{TouchInput, TouchPhase},
     };
-    use client_ui::{test_support::fixture_font, ui_runtime::presentation::UiPresentationRuntime};
+    use client_ui::ui_runtime::presentation::UiPresentationRuntime;
+    use ui_engine::test_support::fixture_font;
     use {
         client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
         launcher::menu::MenuAction,
@@ -468,9 +472,9 @@ fn touch_resume_returns_capture_after_focus_loss() {
         .find(|point| presentation.hit_test_menu(*point) == Some(MenuAction::PauseResume))
         .unwrap();
     app.insert_resource(player)
-        .insert_resource(runtime)
+        .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(menu)
-        .insert_resource(presentation)
+        .insert_resource(UiPresentationResource(presentation))
         .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
         .add_systems(
             Update,
@@ -532,7 +536,7 @@ fn keyboard_wake_retains_return_until_server_acknowledgment() {
                 .before(client_shell::menu::screen_focus::publish_screen_focus),
         );
     app.world_mut()
-        .resource_mut::<UiRuntime>()
+        .resource_mut::<UiRuntimeResource>()
         .set_local_sleeping(true);
     app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
     app.update();
@@ -542,11 +546,11 @@ fn keyboard_wake_retains_return_until_server_acknowledgment() {
     assert_released(&app, window);
     assert!(
         app.world_mut()
-            .resource_mut::<UiRuntime>()
+            .resource_mut::<UiRuntimeResource>()
             .flush_wake_request(Some(1), |_| Ok::<_, ()>(()))
     );
     app.world_mut()
-        .resource_mut::<UiRuntime>()
+        .resource_mut::<UiRuntimeResource>()
         .set_local_sleeping(false);
     app.update();
     assert_eq!(
@@ -559,14 +563,14 @@ fn keyboard_wake_retains_return_until_server_acknowledgment() {
 fn sign_finish_retains_return_until_transport_accepts_edit() {
     use crate::ui_runtime::drive_sign_editor;
     use bevy::input::keyboard::KeyboardInput;
-    use client_ui::{
-        test_support::fixture_font,
-        ui_runtime::{presentation::UiPresentationRuntime, sign_editor::SignEdit},
-    };
+    use client_ui::ui_runtime::{presentation::UiPresentationRuntime, sign_editor::SignEdit};
+    use ui_engine::test_support::fixture_font;
     let (mut app, window) = focus_app();
     app.add_message::<KeyboardInput>()
         .init_resource::<crate::runtime::world::ClientWorld>()
-        .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
+        .insert_resource(UiPresentationResource(
+            UiPresentationRuntime::new(fixture_font()).unwrap(),
+        ))
         .add_systems(
             Update,
             drive_sign_editor.before(client_shell::menu::screen_focus::publish_screen_focus),
@@ -574,7 +578,7 @@ fn sign_finish_retains_return_until_transport_accepts_edit() {
     let mut edit = SignEdit::new([0, 0, 0], true, Default::default());
     assert!(edit.insert('a', |_| true));
     app.world_mut()
-        .resource_mut::<UiRuntime>()
+        .resource_mut::<UiRuntimeResource>()
         .sign_editor_mut()
         .open(edit);
     app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
@@ -582,11 +586,16 @@ fn sign_finish_retains_return_until_transport_accepts_edit() {
     app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
     app.update();
     press_escape(&mut app, window);
-    assert!(app.world().resource::<UiRuntime>().sign_editor().is_open());
+    assert!(
+        app.world()
+            .resource::<UiRuntimeResource>()
+            .sign_editor()
+            .is_open()
+    );
     assert_released(&app, window);
     assert!(
         app.world_mut()
-            .resource_mut::<UiRuntime>()
+            .resource_mut::<UiRuntimeResource>()
             .sign_editor_mut()
             .finish(|_| Ok(()))
     );
@@ -600,7 +609,8 @@ fn sign_finish_retains_return_until_transport_accepts_edit() {
 #[test]
 fn remapped_side_button_inventory_dismissal_returns_capture() {
     use bevy::{input::keyboard::KeyboardInput, time::Real};
-    use client_ui::{test_support::fixture_font, ui_runtime::presentation::UiPresentationRuntime};
+    use client_ui::ui_runtime::presentation::UiPresentationRuntime;
+    use ui_engine::test_support::fixture_font;
     use {
         crate::ui_runtime::interaction::drive_chat_keyboard_input,
         client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
@@ -623,7 +633,9 @@ fn remapped_side_button_inventory_dismissal_returns_capture() {
         .add_message::<KeyboardInput>()
         .insert_resource(menu)
         .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
-        .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
+        .insert_resource(UiPresentationResource(
+            UiPresentationRuntime::new(fixture_font()).unwrap(),
+        ))
         .add_systems(Update, drive_chat_keyboard_input.before(drive_menu_input))
         .add_systems(
             Update,
@@ -640,21 +652,21 @@ fn remapped_side_button_inventory_dismissal_returns_capture() {
                 .0
                 .named_key_control("key.inventory"),
             Some(semantic_input::PhysicalControl::MouseButton(
-                client_ui::physical_input::mouse_button_code(MouseButton::Back).unwrap()
+                client_shell::physical_input::mouse_button_code(MouseButton::Back).unwrap()
             ))
         );
         menu.set_visible(false);
     }
     app.world_mut()
         .resource_scope(|world, mut player: Mut<client_state::PlayerRuntime>| {
-            let mut runtime = world.resource_mut::<UiRuntime>();
+            let mut runtime = world.resource_mut::<UiRuntimeResource>();
             runtime.publish_inventory_authority(&mut player, protocol::InventoryAuthority::Server);
             runtime
                 .publish_local_runtime_id(&mut player, 1, 42)
                 .unwrap();
             runtime.toggle_inventory(&mut player);
         });
-    assert!(app.world().resource::<UiRuntime>().inventory_open());
+    assert!(app.world().resource::<UiRuntimeResource>().inventory_open());
     app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
     app.update();
     app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
@@ -663,7 +675,7 @@ fn remapped_side_button_inventory_dismissal_returns_capture() {
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Back);
     app.update();
-    assert!(!app.world().resource::<UiRuntime>().inventory_open());
+    assert!(!app.world().resource::<UiRuntimeResource>().inventory_open());
     assert_eq!(
         app.world().get::<CursorOptions>(window).unwrap().grab_mode,
         CursorGrabMode::Locked
@@ -673,7 +685,8 @@ fn remapped_side_button_inventory_dismissal_returns_capture() {
 #[test]
 fn explicit_join_keeps_return_authorization_across_loading() {
     use bevy::input::keyboard::KeyboardInput;
-    use client_ui::{test_support::fixture_font, ui_runtime::presentation::UiPresentationRuntime};
+    use client_ui::ui_runtime::presentation::UiPresentationRuntime;
+    use ui_engine::test_support::fixture_font;
     use {
         client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
         launcher::menu::{MenuAction, MenuScreen},
@@ -716,7 +729,7 @@ fn explicit_join_keeps_return_authorization_across_loading() {
         presentation
             .build(
                 app.world().resource::<client_state::PlayerRuntime>(),
-                app.world().resource::<UiRuntime>(),
+                app.world().resource::<UiRuntimeResource>(),
                 0,
                 [1280, 720],
                 ui::DpiScale::new(1.0).unwrap(),
@@ -738,7 +751,7 @@ fn explicit_join_keeps_return_authorization_across_loading() {
         app.init_resource::<Touches>()
             .add_message::<KeyboardInput>()
             .insert_resource(menu)
-            .insert_resource(presentation)
+            .insert_resource(UiPresentationResource(presentation))
             .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
             .add_systems(
                 Update,

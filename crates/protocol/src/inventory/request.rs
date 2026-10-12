@@ -25,14 +25,13 @@ pub fn open_inventory_packet(
     if target_runtime_id == 0 {
         return Err(InventoryPacketError::InvalidInventoryTargetRuntimeId);
     }
-    Ok(InteractPacket {
+    Ok(crate::Packet::new(InteractPacket {
         action: InteractAction::Openinventory,
         target_runtime_id: ActorRuntimeId {
             actor_runtime_id: target_runtime_id,
         },
         position: None,
-    }
-    .into())
+    }))
 }
 
 /// Builds one request. Valid negative odd stack ids name an earlier sparse
@@ -54,10 +53,9 @@ pub fn item_stack_request_packet_filtered(
     actions: &[StackRequestAction],
     filter_strings: &[String],
 ) -> Result<crate::Packet, InventoryPacketError> {
-    Ok(ItemStackRequestPacket {
+    Ok(crate::Packet::new(ItemStackRequestPacket {
         requests: vec![encode_request(request_id, actions, filter_strings)?],
-    }
-    .into())
+    }))
 }
 
 /// Builds the native request vector without combining actions or filtering text across requests.
@@ -68,7 +66,7 @@ pub fn item_stack_request_batch<'a>(
         .into_iter()
         .map(|(id, actions, strings)| encode_request(id, actions, strings))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok((!requests.is_empty()).then(|| ItemStackRequestPacket { requests }.into()))
+    Ok((!requests.is_empty()).then(|| crate::Packet::new(ItemStackRequestPacket { requests })))
 }
 
 /// Validates each request independently, including its own created-output identifiers.
@@ -152,12 +150,11 @@ pub fn container_close_packet(window_id: i32) -> Result<crate::Packet, Inventory
             ));
         }
     };
-    Ok(ContainerClosePacket {
+    Ok(crate::Packet::new(ContainerClosePacket {
         container_id,
         container_type: super::NO_CONTAINER_WINDOW_TYPE.to_ne_bytes()[0],
         server_initiated_close: false,
-    }
-    .into())
+    }))
 }
 
 #[cfg(test)]

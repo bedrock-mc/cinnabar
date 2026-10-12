@@ -147,44 +147,52 @@ fn omitted_face_uv_size_uses_cube_dimensions_for_bounds() {
 }
 
 fn entities() -> Box<[u8]> {
-    encode_entity_blob(&CompiledEntityAssets {
-        source_manifest_sha256: [1; 32],
-        block_visual_count: 0,
-        sources: vec![EntityAssetSource {
-            path: "entity/example.entity.json".into(),
-            source_bytes: 2,
-            source_sha256: Sha256::digest(b"{}").into(),
-        }]
-        .into(),
-        symbols: vec![EntityAssetSymbol {
-            mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
-            kind: EntityAssetKind::Entity,
-            identifier: "minecraft:example".into(),
-            source_index: 0,
-            dependencies: Box::new([]),
-        }]
-        .into(),
-        geometries: Box::new([]),
-        animation_clips: Box::new([]),
-        animation_channels: Box::new([]),
-        animation_keyframes: Box::new([]),
-        molang_symbols: Box::new([]),
-        molang_expressions: Box::new([]),
-        molang_ops: Box::new([]),
-        molang_collections: Box::new([]),
-        molang_collection_items: Box::new([]),
-        controllers: Box::new([]),
-        controller_states: Box::new([]),
-        controller_animations: Box::new([]),
-        controller_transitions: Box::new([]),
-        rig_bindings: Box::new([]),
-        rig_geometries: Box::new([]),
-        rig_animations: Box::new([]),
-        rig_controllers: Box::new([]),
-        item_visuals: Box::new([]),
-        item_visual_aliases: Box::new([]),
-        render: Default::default(),
-    })
+    encode_entity_blob(
+        &CompiledEntityAssets {
+            item_use_profiles: Box::new([]),
+            seat_layouts: Box::new([]),
+            interaction_traits: Box::new([]),
+            source_manifest_sha256: [1; 32],
+            block_visual_count: 0,
+            sources: vec![EntityAssetSource {
+                path: "entity/example.entity.json".into(),
+                source_bytes: 2,
+                source_sha256: Sha256::digest(b"{}").into(),
+            }]
+            .into(),
+            symbols: vec![EntityAssetSymbol {
+                mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
+                kind: EntityAssetKind::Entity,
+                identifier: "minecraft:example".into(),
+                source_index: 0,
+                dependencies: Box::new([]),
+            }]
+            .into(),
+            geometries: Box::new([]),
+            animation_clips: Box::new([]),
+            animation_channels: Box::new([]),
+            animation_keyframes: Box::new([]),
+            molang_symbols: Box::new([]),
+            molang_expressions: Box::new([]),
+            molang_ops: Box::new([]),
+            molang_collections: Box::new([]),
+            molang_collection_items: Box::new([]),
+            controllers: Box::new([]),
+            controller_states: Box::new([]),
+            controller_animations: Box::new([]),
+            controller_transitions: Box::new([]),
+            rig_bindings: Box::new([]),
+            rig_geometries: Box::new([]),
+            rig_animations: Box::new([]),
+            rig_controllers: Box::new([]),
+            item_visuals: Box::new([]),
+            item_visual_aliases: Box::new([]),
+            render: Default::default(),
+        }
+        .with_unresolved_item_use()
+        .with_unresolved_seats()
+        .with_unresolved_interactions(),
+    )
     .unwrap()
 }
 

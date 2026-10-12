@@ -4,7 +4,7 @@ use valentine::bedrock::version::v1_26_51::{ActorRuntimeId, EmotePacket};
 /// Announces the selected clip without substituting another clip's identity.
 #[must_use]
 pub fn emote_packet(runtime_id: u64, id: &str, length_ticks: u32) -> crate::Packet {
-    EmotePacket {
+    crate::Packet::new(EmotePacket {
         actor_runtime_id: ActorRuntimeId {
             actor_runtime_id: runtime_id,
         },
@@ -13,6 +13,5 @@ pub fn emote_packet(runtime_id: u64, id: &str, length_ticks: u32) -> crate::Pack
         xuid: String::new(),
         platform_id: String::new(),
         flags: 0,
-    }
-    .into()
+    })
 }

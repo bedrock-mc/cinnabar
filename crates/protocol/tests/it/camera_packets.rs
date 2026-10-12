@@ -1,11 +1,11 @@
 use std::sync::Arc;
+use valentine::bedrock::version::v1_26_51::McpePacket;
 
 use protocol::{
-    BedrockSession, CameraEase, CameraEvent, CameraFadeColor, CameraFadeInstruction,
-    CameraFadeTimes, CameraFovInstruction, CameraInstructionEvent, CameraSetInstruction,
-    CameraShakeAction, CameraShakeEvent, CameraShakeType, CameraSwitchEvent,
-    CameraTargetInstruction, ProtocolError, WorldEvent, WorldPacketError, decode_batch, encode,
-    into_world_event,
+    CameraEase, CameraEvent, CameraFadeColor, CameraFadeInstruction, CameraFadeTimes,
+    CameraFovInstruction, CameraInstructionEvent, CameraSetInstruction, CameraShakeAction,
+    CameraShakeEvent, CameraShakeType, CameraSwitchEvent, CameraTargetInstruction, ProtocolError,
+    WorldEvent, WorldPacketError, decode_batch, encode, into_world_event,
 };
 use valentine::bedrock::version::v1_26_51::{
     ActorUniqueId, CameraInstruction, CameraInstructionOptionsAttachToEntityInstruction,
@@ -68,12 +68,12 @@ fn aim_assist_settings_reach_camera_presentation() {
     assert!(matches!(event, Some(WorldEvent::Camera(_))));
 }
 
-fn session() -> BedrockSession {
-    BedrockSession { shield_item_id: 0 }
-}
-
-fn normalized(packet: impl Into<protocol::Packet>) -> Option<WorldEvent> {
-    into_world_event(packet.into(), 0).expect("well-formed camera packet normalizes")
+fn normalized<P>(packet: P) -> Option<WorldEvent>
+where
+    McpePacket: From<P>,
+{
+    into_world_event(protocol::Packet::new(packet), 0)
+        .expect("well-formed camera packet normalizes")
 }
 
 fn instruction_event(instruction: CameraInstruction) -> CameraInstructionEvent {
@@ -320,17 +320,15 @@ fn unknown_shake_kinds_are_retained_verbatim() {
 #[test]
 fn non_finite_camera_values_are_semantic_skips() {
     for packet in [
-        CameraShakePacket {
+        protocol::Packet::new(CameraShakePacket {
             intensity: f32::NAN,
             ..Default::default()
-        }
-        .into(),
-        CameraShakePacket {
+        }),
+        protocol::Packet::new(CameraShakePacket {
             seconds: f32::INFINITY,
             ..Default::default()
-        }
-        .into(),
-        InstructionPacket {
+        }),
+        protocol::Packet::new(InstructionPacket {
             camera_instruction: CameraInstruction {
                 fade: Some(CameraInstructionOptionsFadeInstruction {
                     color: Some(CameraInstructionOptionsFadeInstructionColorOption {
@@ -341,9 +339,8 @@ fn non_finite_camera_values_are_semantic_skips() {
                 }),
                 ..Default::default()
             },
-        }
-        .into(),
-        InstructionPacket {
+        }),
+        protocol::Packet::new(InstructionPacket {
             camera_instruction: CameraInstruction {
                 field_of_view: Some(CameraInstructionOptionsFovInstruction {
                     fieldof_view: f32::NEG_INFINITY,
@@ -351,9 +348,8 @@ fn non_finite_camera_values_are_semantic_skips() {
                 }),
                 ..Default::default()
             },
-        }
-        .into(),
-        InstructionPacket {
+        }),
+        protocol::Packet::new(InstructionPacket {
             camera_instruction: CameraInstruction {
                 set: Some(CameraInstructionOptionsSetInstruction {
                     pos: Some(CameraInstructionOptionsSetInstructionPosOption {
@@ -363,9 +359,8 @@ fn non_finite_camera_values_are_semantic_skips() {
                 }),
                 ..Default::default()
             },
-        }
-        .into(),
-        InstructionPacket {
+        }),
+        protocol::Packet::new(InstructionPacket {
             camera_instruction: CameraInstruction {
                 target: Some(CameraInstructionOptionsTargetInstruction {
                     target_center_offset: Some(valentine_vec3(f32::INFINITY, 0.0, 0.0)),
@@ -373,8 +368,7 @@ fn non_finite_camera_values_are_semantic_skips() {
                 }),
                 ..Default::default()
             },
-        }
-        .into(),
+        }),
     ] {
         let error = into_world_event(packet, 0).expect_err("non-finite camera data must skip");
         assert!(
@@ -387,7 +381,7 @@ fn non_finite_camera_values_are_semantic_skips() {
 
 #[test]
 fn oversized_camera_strings_are_semantic_skips() {
-    let packet: protocol::Packet = InstructionPacket {
+    let packet: protocol::Packet = protocol::Packet::new(InstructionPacket {
         camera_instruction: CameraInstruction {
             field_of_view: Some(CameraInstructionOptionsFovInstruction {
                 fov_ease_type: "x".repeat(protocol::MAX_CAMERA_EASE_IDENTIFIER_BYTES + 1),
@@ -395,8 +389,7 @@ fn oversized_camera_strings_are_semantic_skips() {
             }),
             ..Default::default()
         },
-    }
-    .into();
+    });
     let error = into_world_event(packet, 0).expect_err("over-long ease name must skip");
     assert!(matches!(
         error,
@@ -407,15 +400,14 @@ fn oversized_camera_strings_are_semantic_skips() {
 
 #[test]
 fn invalid_spline_instructions_are_semantic_skips() {
-    let packet: protocol::Packet = InstructionPacket {
+    let packet: protocol::Packet = protocol::Packet::new(InstructionPacket {
         camera_instruction: CameraInstruction {
             spline: Some(
                 valentine::bedrock::version::v1_26_51::CameraInstructionOptionsSplineInstruction::default(),
             ),
             ..Default::default()
         },
-    }
-    .into();
+    });
     let error = into_world_event(packet, 0).expect_err("spline instructions must skip");
     assert!(matches!(error, WorldPacketError::InvalidCameraField { .. }));
     assert!(!is_fatal_wire(&error));
@@ -423,7 +415,7 @@ fn invalid_spline_instructions_are_semantic_skips() {
 
 #[test]
 fn camera_instruction_batches_round_trip_through_the_codec() {
-    let packet: protocol::Packet = InstructionPacket {
+    let packet: protocol::Packet = protocol::Packet::new(InstructionPacket {
         camera_instruction: CameraInstruction {
             clear: Some(true),
             fade: Some(CameraInstructionOptionsFadeInstruction {
@@ -436,10 +428,9 @@ fn camera_instruction_batches_round_trip_through_the_codec() {
             }),
             ..Default::default()
         },
-    }
-    .into();
-    let bytes = encode(&packet, &session()).expect("encode camera batch");
-    let mut decoded = decode_batch(bytes, &session()).expect("decode camera batch");
+    });
+    let bytes = encode(&packet).expect("encode camera batch");
+    let mut decoded = decode_batch(bytes).expect("decode camera batch");
     assert_eq!(decoded.len(), 1);
     let decoded = decoded.pop().expect("one packet");
     assert_eq!(decoded.header.id, McpePacketName::CameraInstructionPacket);
@@ -462,11 +453,11 @@ fn camera_instruction_batches_round_trip_through_the_codec() {
 
 #[test]
 fn truncated_camera_shake_wire_stays_fatal() {
-    let packet: protocol::Packet = ShakePacket::default().into();
-    let bytes = encode(&packet, &session()).expect("encode shake batch");
+    let packet: protocol::Packet = protocol::Packet::new(ShakePacket::default());
+    let bytes = encode(&packet).expect("encode shake batch");
     let truncated = &bytes[..bytes.len() - 1];
     assert!(matches!(
-        decode_batch(bytes::Bytes::copy_from_slice(truncated), &session()),
+        decode_batch(bytes::Bytes::copy_from_slice(truncated)),
         Err(ProtocolError::TruncatedPacket { .. } | ProtocolError::Decode(_))
     ));
 }
@@ -501,12 +492,11 @@ fn preset_registry_preserves_indices_and_counts_non_finite_rejection() {
     assert_eq!(presets[1].radius, Some(7.0));
     assert!(matches!(
         into_world_event(
-            CameraPresetsPacket {
+            protocol::Packet::new(CameraPresetsPacket {
                 camera_presets: CameraPresets {
                     presets: vec![preset("bad", f32::INFINITY)]
                 },
-            }
-            .into(),
+            }),
             0
         ),
         Err(WorldPacketError::NonFiniteCameraField { .. })

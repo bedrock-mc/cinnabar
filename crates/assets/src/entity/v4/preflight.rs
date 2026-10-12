@@ -20,9 +20,11 @@ use super::{
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EntityCatalogCountProbe {
+    interaction_traits: SequenceCount,
     #[serde(rename = "block_visual_count")]
     _block_visual_count: de::IgnoredAny,
     sources: SequenceCount,
+    seat_layouts: SequenceCount,
     symbols: SymbolSequenceCount,
     geometries: GeometrySequenceCount,
     animation_clips: SequenceCount,
@@ -41,6 +43,7 @@ struct EntityCatalogCountProbe {
     rig_geometries: SequenceCount,
     rig_animations: SequenceCount,
     rig_controllers: SequenceCount,
+    item_use_profiles: SequenceCount,
     item_visuals: SequenceCount,
     item_visual_aliases: SequenceCount,
     render: RenderCountProbe,
@@ -294,8 +297,10 @@ impl<'de> Deserialize<'de> for GeometrySequenceCount {
 pub(crate) fn payload_counts(bytes: &[u8]) -> Result<[usize; 7], serde_json::Error> {
     let counts: EntityCatalogCountProbe = serde_json::from_slice(bytes)?;
     let bounded = [
+        (counts.interaction_traits.0, MAX_ENTITY_ASSET_SYMBOLS * 2),
         (counts.sources.0, MAX_ENTITY_ASSET_SOURCES),
         (counts.symbols.0, MAX_ENTITY_ASSET_SYMBOLS),
+        (counts.seat_layouts.0, MAX_ENTITY_ASSET_SYMBOLS),
         (counts.geometries.0, MAX_ENTITY_GEOMETRIES),
         (counts.animation_clips.0, MAX_ENTITY_ANIMATION_CLIPS),
         (counts.animation_channels.0, MAX_ENTITY_ANIMATION_CHANNELS),
@@ -327,6 +332,7 @@ pub(crate) fn payload_counts(bytes: &[u8]) -> Result<[usize; 7], serde_json::Err
         (counts.render.candidates.0, MAX_ENTITY_RENDER_CANDIDATES),
         (counts.render.visibility.0, MAX_ENTITY_RENDER_VISIBILITY),
         (counts.render.geometries.0, MAX_ENTITY_RENDER_CANDIDATES),
+        (counts.item_use_profiles.0, MAX_ITEM_VISUALS * 2),
         (counts.item_visuals.0, MAX_ITEM_VISUALS),
         (counts.item_visual_aliases.0, MAX_ITEM_VISUAL_ALIASES),
     ];
@@ -354,6 +360,9 @@ mod review_tests {
         let mut root = serde_json::Map::new();
         root.insert("block_visual_count".into(), serde_json::json!(0));
         for field in [
+            "interaction_traits",
+            "seat_layouts",
+            "item_use_profiles",
             "sources",
             "symbols",
             "geometries",

@@ -10,14 +10,14 @@ use json_ui::{
 use protocol::{CustomFormElement, FormButtonImage, MenuElement, ServerFormModel};
 
 use crate::ui_runtime::forms::{FormEngineState, FormValue, values::slider_fraction};
-use launcher_host::remote_images::RemoteState;
+use ui_engine::sources::RemoteImage;
 
 /// `None` for a form the engine cannot draw (unsupported controls).
 pub(super) fn engine_model(
     model: &ServerFormModel,
     state: &FormEngineState,
     translate: &dyn Fn(&str) -> Option<Arc<str>>,
-    remote: &dyn Fn(&str) -> RemoteState,
+    remote: &dyn Fn(&str) -> RemoteImage,
     resolve: &dyn Fn(&protocol::FormText) -> String,
 ) -> Option<FormModel> {
     Some(match model {
@@ -96,14 +96,14 @@ pub(super) fn engine_model(
 /// Maps package paths and the current remote image state to template bindings.
 fn engine_image(
     image: &FormButtonImage,
-    remote: &dyn Fn(&str) -> RemoteState,
+    remote: &dyn Fn(&str) -> RemoteImage,
 ) -> Option<ButtonImage> {
     match image {
         FormButtonImage::Path(path) => Some(ButtonImage::Path(path.to_string())),
         FormButtonImage::Url(url) => match remote(url) {
-            RemoteState::Ready(_) => Some(ButtonImage::Url(url.to_string())),
-            RemoteState::Loading => Some(ButtonImage::Loading),
-            RemoteState::Failed => None,
+            RemoteImage::Ready(_) => Some(ButtonImage::Url(url.to_string())),
+            RemoteImage::Loading => Some(ButtonImage::Loading),
+            RemoteImage::Failed => None,
         },
     }
 }
@@ -271,12 +271,12 @@ mod tests {
         });
         let state = FormEngineState::for_model(&model);
         for (remote, expected) in [
-            (RemoteState::Loading, Some(ButtonImage::Loading)),
+            (RemoteImage::Loading, Some(ButtonImage::Loading)),
             (
-                RemoteState::Ready(Arc::from([])),
+                RemoteImage::Ready(Arc::from([])),
                 Some(ButtonImage::Url("https://example.invalid/image".to_owned())),
             ),
-            (RemoteState::Failed, None),
+            (RemoteImage::Failed, None),
         ] {
             let Some(FormModel::Action(form)) =
                 engine_model(&model, &state, &|_| None, &|_| remote.clone(), &|text| {
@@ -319,7 +319,7 @@ mod tests {
             &model,
             &state,
             &|key| (key == "options.sliderLabelFormat").then(|| Arc::from("%s : %s")),
-            &|_| RemoteState::Failed,
+            &|_| RemoteImage::Failed,
             &|text| text.to_string(),
         ) else {
             panic!("custom form");

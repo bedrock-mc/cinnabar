@@ -48,7 +48,7 @@ impl UiPresentationRuntime {
     ) -> Result<UiRenderInput, UiPresentationError> {
         self.hud_frame.mount_equipment = runtime.screen_state().mount_equipment;
         #[cfg(feature = "tracy")]
-        let _build_span = bevy::log::info_span!("ui.build").entered();
+        let _build_span = tracing::info_span!("ui.build").entered();
         dynamic_textures::observe_session(self, runtime.session_id());
         session_icons::observe(self, runtime.session_icons());
         self.observe_server_ui(runtime.server_ui());
@@ -359,7 +359,7 @@ impl UiPresentationRuntime {
                 }
                 let input = match redrawn.input {
                     Redrawn::Unchanged(input) => input,
-                    Redrawn::Vertices(input) => self.advance_revision(input),
+                    Redrawn::Changed(input) => self.advance_revision(input),
                     Redrawn::Rebuilt(input) => self.stabilize_revision(input),
                 };
                 self.menu_hit_targets = menu_hit_targets;
@@ -367,13 +367,13 @@ impl UiPresentationRuntime {
                 return Ok(input);
             }
             #[cfg(feature = "tracy")]
-            let _span = bevy::log::info_span!("ui.geometry_rebuild").entered();
+            let _span = tracing::info_span!("ui.geometry_rebuild").entered();
             #[cfg(test)]
             {
                 self.tree_builds += 1;
             }
             #[cfg(feature = "tracy")]
-            let _layout_span = bevy::log::info_span!("ui.layout_publish").entered();
+            let _layout_span = tracing::info_span!("ui.layout_publish").entered();
             let draw =
                 RetainedDraw::build(&nodes, viewport, UiScale::default(), safe_area, effects)
                     .map_err(UiPresentationError::Tree)?;
@@ -386,7 +386,6 @@ impl UiPresentationRuntime {
             self.last_frame = (!obfuscated).then(|| BuiltFrame {
                 nodes: nodes.clone(),
                 frame,
-                textures: Arc::clone(&self.textures),
                 draw,
             });
             let input = self.stabilize_revision(input);
@@ -399,7 +398,7 @@ impl UiPresentationRuntime {
         if overflows > previous_overflows
             && overflows.checked_ilog2() != previous_overflows.checked_ilog2()
         {
-            bevy::log::warn!(
+            tracing::warn!(
                 text_overflows = overflows,
                 "wrapped UI text exceeds its control; clipping to the UI viewport"
             );
@@ -408,11 +407,10 @@ impl UiPresentationRuntime {
     }
 }
 
-/// A frame's inputs: its nodes, viewport and texture array, and the draw list they made.
+/// A frame's nodes, viewport and retained draw list.
 pub(super) struct BuiltFrame {
     pub(super) nodes: Vec<UiNode>,
     frame: ([u32; 2], f32, SafeArea),
-    textures: Arc<UiRenderTextureArray>,
     /// The frame's draw list with each node's share of it.
     draw: RetainedDraw,
 }
@@ -428,14 +426,14 @@ struct Redraw {
 enum Redrawn {
     /// Every node matched: the last frame's input as published.
     Unchanged(UiRenderInput),
-    /// Only vertices changed, and differ from the last frame's.
-    Vertices(UiRenderInput),
+    /// Vertices or artwork changed without rebuilding topology.
+    Changed(UiRenderInput),
     /// Indices or batches changed too.
     Rebuilt(UiRenderInput),
 }
 
 /// Draws `nodes` by emitting only nodes that differ from the last frame's, when the frame keeps
-/// the last frame's tree shape, viewport and textures; `None` asks for a full build.
+/// the last frame's tree shape and viewport; `None` asks for a full build.
 fn redraw_changed(
     last: Option<&mut BuiltFrame>,
     previous: Option<&UiRenderInput>,
@@ -448,7 +446,7 @@ fn redraw_changed(
     let (Some(last), Some(previous)) = (last, previous) else {
         return Ok(None);
     };
-    if last.frame != frame || !Arc::ptr_eq(&last.textures, textures) {
+    if last.frame != frame {
         return Ok(None);
     }
     let Some(update) = last.draw.update(
@@ -467,16 +465,26 @@ fn redraw_changed(
                 .map_err(UiPresentationError::Adapter)?,
         )
     } else {
-        match render_adapter::patch_ui_vertices(
+        let patched = render_adapter::patch_ui_vertices(
             previous,
             last.draw.draw_list(),
             &update.vertices,
             render_viewport.dpi_scale,
         )
-        .map_err(UiPresentationError::Adapter)?
-        {
-            Some(input) => Redrawn::Vertices(input),
-            None => Redrawn::Unchanged(previous.clone()),
+        .map_err(UiPresentationError::Adapter)?;
+        if previous.textures.as_ref() != textures.as_ref() {
+            let mut input = patched.unwrap_or_else(|| previous.clone());
+            input.textures = Arc::clone(textures);
+            input
+                .validate()
+                .map_err(render_adapter::UiRenderAdapterError::RenderInputRejected)
+                .map_err(UiPresentationError::Adapter)?;
+            Redrawn::Changed(input)
+        } else {
+            match patched {
+                Some(input) => Redrawn::Changed(input),
+                None => Redrawn::Unchanged(previous.clone()),
+            }
         }
     };
     Ok(Some(Redraw {

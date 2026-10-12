@@ -15,6 +15,7 @@ reads = [
 test-support = []
 
 [dependencies]
+simulation-clock = { path = "../simulation-clock" }
 block-transform = { path = "../block-transform" }
 assets = { path = "../assets" }
 client-world = { path = "../client-world" }
@@ -33,7 +34,7 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-protocol = { path = "../protocol", features = ["wire-test-support"] }
+protocol = { path = "../protocol", features = ["test-support"] }
 
 [lints]
 workspace = true

@@ -18,7 +18,7 @@ use crosshair::resolve_crosshair;
 
 #[cfg(feature = "local-mods")]
 use crate::modding::interaction::{ModInteraction, effective_reach};
-use client_ui::ui_runtime::UiRuntime;
+use client_shell::ui_resources::UiRuntimeResource;
 use client_world::game_mode_capabilities::SURVIVAL_ATTACK_REACH;
 use {
     crate::runtime::world::ClientWorld,
@@ -37,7 +37,7 @@ use gameplay::melee::{Crosshair, PressContext, press_admission, resolve_and_send
 pub(crate) struct MeleeContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
     origin: Res<'w, InteractionOriginSnapshot>,
-    ui: Res<'w, UiRuntime>,
+    ui: Res<'w, UiRuntimeResource>,
     focus: Res<'w, client_state::ScreenFocus>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     client_world: Res<'w, ClientWorld>,
@@ -187,8 +187,8 @@ pub(crate) fn produce_melee(
         |packets| {
             let packet_count = packets.len();
             let packet_kinds = [
-                packets.first().map(|packet| packet.header.id),
-                packets.last().map(|packet| packet.header.id),
+                packets.first().map(|packet| packet.kind()),
+                packets.last().map(|packet| packet.kind()),
             ];
             let rotates = packets.iter().any(protocol::is_aim_assist_rotation_action);
             let result = context.network.send_inventory_packets(packets);

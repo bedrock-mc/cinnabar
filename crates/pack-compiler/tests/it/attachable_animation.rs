@@ -65,6 +65,17 @@ fn framed_pack() -> Vec<(Box<str>, Vec<u8>)> {
 }
 
 #[test]
+fn server_pack_use_profiles_do_not_inherit_compatibility_admissions() {
+    let compiled = compile_actor_pack(framed_pack()).unwrap().unwrap();
+    let runtime = RuntimeEntityAssets::from_compiled(compiled.entities).unwrap();
+    assert_eq!(
+        runtime.item_use_profile("minecraft:bow"),
+        assets::item_use::ItemUseProfile::Unresolved,
+        "an attachable pack cannot manufacture item-use facts for absent items"
+    );
+}
+
+#[test]
 fn attachable_scripts_roots_and_all_render_frames_survive_the_carriers() {
     let compiled = compile_actor_pack(framed_pack()).unwrap().unwrap();
     assert_eq!(compiled.skipped.unparsable, 0);

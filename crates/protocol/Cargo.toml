@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish = false
+# `tests/it` compiles into the library's unit tests, which may reach crate-private packet internals.
+autotests = false
 
 [package.metadata.cinnabar]
 platform-specific = ["windows"]
@@ -14,10 +16,11 @@ reads = [
 ]
 
 [features]
-# Re-exports the vendored wire crates to downstream tests that encode real packets.
-wire-test-support = []
+# Fixture builders and semantic observations for other crates' tests.
+test-support = []
 
 [dependencies]
+simulation-clock = { path = "../simulation-clock" }
 zeroize = "1"
 cap-std = "3.4.5"
 cap-fs-ext = "3.4.5"
@@ -33,20 +36,15 @@ serde_json = "1"
 sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
-uuid.workspace = true
+tracing.workspace = true
+uuid = { workspace = true, features = ["v4"] }
 xxhash-rust = { version = "0.8.15", features = ["xxh64"] }
 valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }
-jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_51"] }
 
 [dev-dependencies]
+test-alloc = { path = "../test-alloc" }
 tempfile = "3"
 test-time = { path = "../test-time" }
-aes = "0.8"
-ctr = "0.9"
-flate2 = "1"
-jsonwebtoken = "9.3"
-p384 = { version = "0.13", features = ["ecdh", "pkcs8"] }
-snap = "1.1"
 
 [lints]
 workspace = true

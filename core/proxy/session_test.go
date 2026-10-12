@@ -152,7 +152,7 @@ func TestSessionDownstreamClaimsTheCoreDevice(t *testing.T) {
 		t.Fatal(err)
 	}
 	delete(claims, "DeviceOS")
-	claims["DeviceModel"] = "JolyneClient"
+	claims["DeviceModel"] = "FixtureClient"
 	claims["CurrentInputMode"] = packet.InputModeMouse
 	request.ClientData, _ = json.Marshal(claims)
 	if _, err := newSessionDownstream(request, nil); err == nil {

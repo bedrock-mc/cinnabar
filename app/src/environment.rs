@@ -271,7 +271,8 @@ pub(crate) fn visual_world_time(clock: WorldClock, elapsed_seconds: f64) -> f64 
     };
     let elapsed_seconds = finite_nonnegative(elapsed_seconds);
     if clock.daylight_cycle_enabled && !clock.paused {
-        server_time + (elapsed_seconds - anchor).max(0.0) * f64::from(world::TICKS_PER_SECOND)
+        server_time
+            + (elapsed_seconds - anchor).max(0.0) * f64::from(simulation_clock::TICKS_PER_SECOND)
     } else {
         server_time
     }

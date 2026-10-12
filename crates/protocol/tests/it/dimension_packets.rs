@@ -1,5 +1,5 @@
 use protocol::{
-    BedrockSession, LoadingScreenPhase, WorldEvent, dimension_change_done_packet, into_world_event,
+    LoadingScreenPhase, WorldEvent, dimension_change_done_packet, into_world_event,
     loading_screen_packet,
 };
 use valentine::bedrock::version::v1_26_51::{
@@ -22,7 +22,7 @@ fn dimension_change_retains_respawn_and_optional_loading_identifier() {
                 loading_screen_id,
             };
             let Some(WorldEvent::ChangeDimension(event)) =
-                into_world_event(packet.into(), 0).unwrap()
+                into_world_event(protocol::Packet::new(packet), 0).unwrap()
             else {
                 panic!("dimension transfer event");
             };
@@ -37,9 +37,8 @@ fn dimension_change_retains_respawn_and_optional_loading_identifier() {
 #[test]
 fn dimension_completion_packet_uses_action_fourteen_and_empty_block_coordinates() {
     let packet = dimension_change_done_packet(42);
-    let session = BedrockSession { shield_item_id: 0 };
-    let encoded = protocol::encode(&packet, &session).unwrap();
-    let decoded = protocol::decode_batch(encoded, &session).unwrap();
+    let encoded = protocol::encode(&packet).unwrap();
+    let decoded = protocol::decode_batch(encoded).unwrap();
     let McpePacketData::PlayerActionPacket(action) = &decoded[0].data else {
         panic!("player action packet");
     };
@@ -52,12 +51,11 @@ fn dimension_completion_packet_uses_action_fourteen_and_empty_block_coordinates(
 
 #[test]
 fn dimension_loading_pair_preserves_absent_zero_and_full_width_identifiers() {
-    let session = BedrockSession { shield_item_id: 0 };
     for loading_screen_id in [None, Some(0), Some(u32::MAX)] {
         for phase in [LoadingScreenPhase::Start, LoadingScreenPhase::End] {
             let packet = loading_screen_packet(phase, loading_screen_id);
-            let encoded = protocol::encode(&packet, &session).unwrap();
-            let decoded = protocol::decode_batch(encoded, &session).unwrap();
+            let encoded = protocol::encode(&packet).unwrap();
+            let decoded = protocol::decode_batch(encoded).unwrap();
             let McpePacketData::ServerboundLoadingScreenPacket(loading) = &decoded[0].data else {
                 panic!("loading screen packet");
             };

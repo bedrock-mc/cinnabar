@@ -2,7 +2,6 @@
 
 use super::pack_harness;
 use crate::ui_runtime::{SequencedUiEvent, UiRuntime};
-use protocol::wire::valentine::bedrock::version::v1_26_51::ModalFormRequestPacket;
 use protocol::{ServerFormModel, UiEvent, WorldEvent};
 use std::sync::Arc;
 
@@ -16,11 +15,7 @@ pub(crate) fn replay(
     old_fallback: bool,
 ) -> UiRuntime {
     let Some(WorldEvent::Ui(UiEvent::Form(mut event))) = protocol::into_world_event(
-        ModalFormRequestPacket {
-            form_id: 7,
-            form_uijson: json.into(),
-        }
-        .into(),
+        protocol::test_support::packets::modal_form_request_packet(7, json),
         0,
     )
     .unwrap() else {
@@ -174,7 +169,7 @@ fn form_compatibility_before_after_snapshots() {
 }
 
 /// Reveals the lower controls using the rendered scroll extents.
-fn scroll_to_end(runtime: &mut UiRuntime, frame: &crate::ui_runtime::forms::EngineFrame) {
+fn scroll_to_end(runtime: &mut UiRuntime, frame: &ui_engine::frame::EngineFrame) {
     for (key, metrics) in &frame.report.scrolls {
         runtime
             .server_forms_mut()

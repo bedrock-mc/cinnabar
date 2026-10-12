@@ -110,7 +110,7 @@ impl AmbientParticles {
 
     fn due_ticks(&mut self, elapsed: Duration) -> usize {
         self.accumulated_nanos = self.accumulated_nanos.saturating_add(elapsed.as_nanos());
-        let tick_nanos = world::TICK_DURATION.as_nanos();
+        let tick_nanos = simulation_clock::TICK_DURATION.as_nanos();
         let elapsed_ticks = self.accumulated_nanos / tick_nanos;
         self.accumulated_nanos %= tick_nanos;
         elapsed_ticks.min(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u128) as usize
@@ -190,22 +190,25 @@ mod tests {
     #[test]
     fn ambient_leaf_cadence_is_fixed_tick_not_render_frame_and_resets_without_a_backlog() {
         let mut ambient = AmbientParticles::default();
-        let quarter_tick = world::TICK_DURATION / 4;
+        let quarter_tick = simulation_clock::TICK_DURATION / 4;
         for _ in 0..30 {
             for _ in 0..3 {
                 assert_eq!(ambient.due_ticks(quarter_tick), 0);
             }
             assert_eq!(ambient.due_ticks(quarter_tick), 1);
         }
-        assert_eq!(ambient.due_ticks(world::TICK_DURATION * 3), 3);
+        assert_eq!(ambient.due_ticks(simulation_clock::TICK_DURATION * 3), 3);
         assert_eq!(
-            ambient.due_ticks(world::TICK_DURATION * 1000),
+            ambient.due_ticks(simulation_clock::TICK_DURATION * 1000),
             MAX_LOCAL_PHYSICS_TICKS_PER_FRAME
         );
         assert_eq!(ambient.due_ticks(Duration::ZERO), 0);
         assert_eq!(ambient.due_ticks(quarter_tick), 0);
         ambient.reset();
-        assert_eq!(ambient.due_ticks(world::TICK_DURATION - quarter_tick), 0);
+        assert_eq!(
+            ambient.due_ticks(simulation_clock::TICK_DURATION - quarter_tick),
+            0
+        );
         assert_eq!(ambient.due_ticks(quarter_tick), 1);
     }
 }

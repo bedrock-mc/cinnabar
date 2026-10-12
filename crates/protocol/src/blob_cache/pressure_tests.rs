@@ -63,9 +63,10 @@ fn exercise_aggregate_pin_pressure(preseed: bool) {
             cache.insert(&payload).unwrap();
         }
         let mut status = resolver
-            .accept_cached_packet(
-                super::tests::cached_level_chunk(x, vec![hash, u64::MAX - x as u64]).into(),
-            )
+            .accept_cached_packet(crate::Packet::new(super::tests::cached_level_chunk(
+                x,
+                vec![hash, u64::MAX - x as u64],
+            )))
             .unwrap();
         if preseed && x == 2 {
             assert_eq!(status.take_recovery().map(|event| event.x), Some(x));

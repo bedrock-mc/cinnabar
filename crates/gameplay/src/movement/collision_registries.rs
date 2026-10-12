@@ -406,7 +406,12 @@ impl PhysicsCollisionRegistries {
                         physics.surface_response,
                     )
                     .ok()?;
-                apply_selection(&mut self.sequential, next, effective.selection);
+                apply_selection(
+                    &mut self.sequential,
+                    next,
+                    effective.selection,
+                    effective.transformation,
+                );
                 if let Some(offset) = effective.random_offset {
                     self.sequential.set_random_offset(next, offset);
                 }
@@ -463,7 +468,12 @@ impl PhysicsCollisionRegistries {
                             connections: None,
                         },
                     );
-                    apply_selection(&mut self.hashed, state.hash, effective.selection);
+                    apply_selection(
+                        &mut self.hashed,
+                        state.hash,
+                        effective.selection,
+                        effective.transformation,
+                    );
                     if let Some(offset) = effective.random_offset {
                         self.hashed.set_random_offset(state.hash, offset);
                     }
@@ -584,18 +594,46 @@ fn custom_block_boxes(block: &protocol::CustomBlockPhysics) -> impl Iterator<Ite
         .collision_boxes
         .is_none()
         .then(|| Aabb::new(Vec3::ZERO, Vec3::ONE));
+    let boxes = block
+        .collision_boxes
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .map(|shape| transformed_box(*shape, block.transformation));
     defaults
         .into_iter()
-        .chain(
-            block
-                .collision_boxes
-                .as_deref()
-                .unwrap_or_default()
-                .iter()
-                .copied()
-                .map(box_to_aabb),
-        )
+        .chain(boxes.map(box_to_aabb))
         .filter(move |_| block.collides)
+}
+
+/// The bounds of one authored box under a state's transformation, so collision and
+/// selection follow the same face as the geometry.
+fn transformed_box(
+    shape: protocol::CustomBox,
+    transform: Option<protocol::CustomTransformation>,
+) -> protocol::CustomBox {
+    let Some(transform) = transform else {
+        return shape;
+    };
+    let mut min = [f32::INFINITY; 3];
+    let mut max = [f32::NEG_INFINITY; 3];
+    for bits in 0..8_u32 {
+        let corner = [0, 1, 2].map(|axis| {
+            if bits >> axis & 1 != 0 {
+                shape.max[axis]
+            } else {
+                shape.min[axis]
+            }
+        });
+        let point = transform
+            .apply(corner.map(|coordinate| coordinate * 16.0 - 8.0))
+            .map(|coordinate| (coordinate + 8.0) / 16.0);
+        for axis in 0..3 {
+            min[axis] = min[axis].min(point[axis]);
+            max[axis] = max[axis].max(point[axis]);
+        }
+    }
+    protocol::CustomBox { min, max }
 }
 
 /// Applies the block's selection box to a registered state's pick ray.
@@ -603,11 +641,14 @@ fn apply_selection(
     registry: &mut CollisionRegistry,
     id: u32,
     selection: protocol::CustomSelection,
+    transform: Option<protocol::CustomTransformation>,
 ) {
     let shapes = match selection {
         protocol::CustomSelection::Default => vec![Aabb::new(Vec3::ZERO, Vec3::ONE)],
         protocol::CustomSelection::Disabled => Vec::new(),
-        protocol::CustomSelection::Box(shape) => vec![box_to_aabb(shape)],
+        protocol::CustomSelection::Box(shape) => {
+            vec![box_to_aabb(transformed_box(shape, transform))]
+        }
     };
     registry.set_pick_shapes(id, shapes);
 }

@@ -224,7 +224,9 @@ pub(super) fn pack_swell_fixture_with(
     }
 
     edit(&mut compiled);
-    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let assets = Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+    );
     let mut store = crate::actor_store::ActorStore::new_with_entity_assets(1, 0, assets);
     store.apply(
         1,

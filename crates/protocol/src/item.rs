@@ -28,12 +28,13 @@ pub use facts::{ItemStackFacts, ItemStackFactsCache};
 mod registry_capacity;
 
 pub use attack::{ItemAttackCooldown, ItemAttackTiming, KineticWeaponTiming};
-pub use components::{ItemComponents, item_components};
+pub(crate) use components::item_components;
+pub use components::{FoodProperties, ItemComponents, ItemUseCooldown};
 pub use display::{
     ItemBook, ItemDisplay, MAX_BOOK_PAGES, item_book, item_bundle_id, item_display,
     item_has_enchantment_list,
 };
-pub use icons::item_icon_keys;
+pub(crate) use icons::item_icon_keys;
 
 /// The single item shape 1.26.40 puts on the wire.
 ///
@@ -71,8 +72,8 @@ pub fn select_hotbar_slot_packet(
         untracked.stack_network_id = -1;
     }
     let item =
-        VerifiedNetworkItemStack::try_new(untracked, stack.nbt_digest)?.into_vendor_item(0)?;
-    Ok(MobEquipmentPacket {
+        VerifiedNetworkItemStack::try_new(untracked, stack.nbt_digest)?.into_vendor_item()?;
+    Ok(crate::Packet::new(MobEquipmentPacket {
         target_runtime_id: ActorRuntimeId {
             actor_runtime_id: runtime_id,
         },
@@ -82,8 +83,7 @@ pub fn select_hotbar_slot_packet(
         // The inventory container. 1.26.40 carries the raw ID rather than a
         // named WindowId enum.
         container_id: 0,
-    }
-    .into())
+    }))
 }
 
 pub const MAX_ITEM_REGISTRY_ENTRIES: usize = 16_384;
@@ -409,11 +409,11 @@ pub fn vanilla_item_registry() -> Arc<[ItemRegistryEntry]> {
             .parse::<i32>()
             .expect("retail item ID must be an i32");
         entries.push(ItemRegistryEntry {
-            components: None,
             identifier: Arc::from(identifier),
             network_id,
             component_based: false,
             version: ItemRegistryVersion::Legacy,
+            components: None,
             component_digest: [0; 32],
             negotiated_max_stack_size: None,
             canonical_empty_component_data: true,
@@ -676,7 +676,7 @@ fn validate_registry_nbt(nbt: &Nbt) -> Result<(), ItemPacketError> {
 
 pub(crate) fn normalize_item_registry(
     packet: ItemRegistryPacket,
-) -> Result<ItemActorEvent, ItemPacketError> {
+) -> Result<ItemRegistryEvent, ItemPacketError> {
     if packet.item_data.len() > MAX_ITEM_REGISTRY_ENTRIES {
         return Err(ItemPacketError::TooManyRegistryEntries {
             count: packet.item_data.len(),
@@ -709,11 +709,11 @@ pub(crate) fn normalize_item_registry(
             registry_capacity::negotiated_max_stack_size(&component_bytes)
         };
         let entry = ItemRegistryEntry {
-            components: components::parse_components(&component_bytes).map(Arc::new),
             identifier: Arc::from(item.item_name),
             network_id,
             component_based: item.is_component_based,
             version,
+            components: components::parse_components(&component_bytes).map(Arc::new),
             component_digest: Sha256::digest(&component_bytes).into(),
             negotiated_max_stack_size,
             canonical_empty_component_data,
@@ -744,9 +744,9 @@ pub(crate) fn normalize_item_registry(
             entries.push(entry);
         }
     }
-    Ok(ItemActorEvent::Registry(ItemRegistryEvent {
+    Ok(ItemRegistryEvent {
         entries: Arc::from(entries),
-    }))
+    })
 }
 
 pub(crate) fn normalize_equipment(

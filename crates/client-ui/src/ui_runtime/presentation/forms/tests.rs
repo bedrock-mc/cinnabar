@@ -1,9 +1,11 @@
 //! Form presentation paths: the fallback without the carrier, and the engine's
 //! render caching over a minimal in-memory carrier.
-use super::super::{UiPresentationRuntime, tests::fixture_font};
+use super::super::UiPresentationRuntime;
 use crate::ui_runtime::UiRuntime;
 use protocol::{FormKind, FormRequestEvent, ModalDialogForm, ServerFormModel};
 use std::sync::Arc;
+use ui_engine::test_support::fixture_font;
+use ui_screens::test_support::{FixedText, NoTextures};
 
 pub use crate::test_support::{mini_carrier, mini_engine_presentation};
 
@@ -35,15 +37,7 @@ fn rejected_form_binds_once_without_partial_hits_and_changed_inputs_retry() {
             .unwrap();
         assert!(presentation.form_engine_frame(identity).is_none());
         assert_eq!(presentation.form_button_count(identity), Some(labels.len()));
-        assert_eq!(
-            presentation
-                .form_presentation
-                .engine
-                .as_ref()
-                .unwrap()
-                .passes,
-            [1, 0]
-        );
+        assert_eq!(presentation.engine.as_ref().unwrap().passes, [1, 0]);
     }
     presentation.set_server_ui_pack(&super::ServerUiPack::default());
     presentation
@@ -53,15 +47,7 @@ fn rejected_form_binds_once_without_partial_hits_and_changed_inputs_retry() {
         presentation.form_engine_frame(identity).unwrap().hits.len(),
         labels.len()
     );
-    assert_eq!(
-        presentation
-            .form_presentation
-            .engine
-            .as_ref()
-            .unwrap()
-            .passes,
-        [2, 1]
-    );
+    assert_eq!(presentation.engine.as_ref().unwrap().passes, [2, 1]);
     let runtime =
         super::pack_harness::action_form(&mut player_runtime, "Smaller menu", &["Choice"]);
     let identity = runtime.server_forms().active().unwrap().identity;
@@ -72,15 +58,7 @@ fn rejected_form_binds_once_without_partial_hits_and_changed_inputs_retry() {
         presentation.form_engine_frame(identity).unwrap().hits.len(),
         1
     );
-    assert_eq!(
-        presentation
-            .form_presentation
-            .engine
-            .as_ref()
-            .unwrap()
-            .passes,
-        [3, 2]
-    );
+    assert_eq!(presentation.engine.as_ref().unwrap().passes, [3, 2]);
 }
 
 // A static form resolves and lays out once; hovering a button only repaints.
@@ -91,14 +69,8 @@ fn static_form_resolves_once_and_hover_only_repaints() {
     let mut presentation = mini_engine_presentation();
     let mut runtime =
         super::pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B", "C"]);
-    let passes = |presentation: &UiPresentationRuntime| {
-        presentation
-            .form_presentation
-            .engine
-            .as_ref()
-            .unwrap()
-            .passes
-    };
+    let passes =
+        |presentation: &UiPresentationRuntime| presentation.engine.as_ref().unwrap().passes;
     for _ in 0..3 {
         presentation
             .build(
@@ -164,7 +136,7 @@ fn review_open_form_remeasures_after_a_late_font_swap() {
         .build(&player_runtime, &runtime, 1, [1280, 720], dpi)
         .unwrap();
     super::snapshot::write(&after, "late-font-after");
-    let engine = presentation.form_presentation.engine.as_ref().unwrap();
+    let engine = presentation.engine.as_ref().unwrap();
     assert_eq!(
         engine.passes,
         [1, 2],
@@ -175,28 +147,12 @@ fn review_open_form_remeasures_after_a_late_font_swap() {
             .build(&player_runtime, &runtime, now, [1280, 720], dpi)
             .unwrap();
     }
-    assert_eq!(
-        presentation
-            .form_presentation
-            .engine
-            .as_ref()
-            .unwrap()
-            .passes,
-        [1, 2]
-    );
+    assert_eq!(presentation.engine.as_ref().unwrap().passes, [1, 2]);
     runtime.set_session_glyphs(None);
     presentation
         .build(&player_runtime, &runtime, 7, [1280, 720], dpi)
         .unwrap();
-    assert_eq!(
-        presentation
-            .form_presentation
-            .engine
-            .as_ref()
-            .unwrap()
-            .passes,
-        [1, 3]
-    );
+    assert_eq!(presentation.engine.as_ref().unwrap().passes, [1, 3]);
 }
 
 #[test]
@@ -229,12 +185,7 @@ fn selected_edit_box_rebinds_only_when_its_visible_state_changes() {
                 ui::DpiScale::new(1.0).unwrap(),
             )
             .unwrap();
-        presentation
-            .form_presentation
-            .engine
-            .as_ref()
-            .unwrap()
-            .passes
+        presentation.engine.as_ref().unwrap().passes
     };
     render(&mut presentation, &runtime);
     let identity = runtime.server_forms().active().unwrap().identity;
@@ -375,7 +326,7 @@ fn server_pack_install_and_removal_keep_the_renderer_accepting_frames() {
         .unwrap();
     let pack = super::ServerUiPack {
         screen_settings: None,
-        chat_catalog: None,
+        builtin_screen_catalog: None,
         catalog: None,
         ui_layers: vec![vec![(
             "ui/server_form.json".to_owned(),
@@ -464,8 +415,11 @@ fn path_and_url_button_images_resolve_like_vanilla() {
         glint: false,
     };
     let icons = [("textures/items/apple".to_owned(), apple)].into();
-    let engine = presentation.form_presentation.engine.as_mut().unwrap();
-    engine.textures.set_fallbacks(icons, vanilla.clone());
+    let engine = presentation.engine.as_mut().unwrap();
+    engine.textures.set_fallbacks(
+        icons,
+        Arc::new(super::texture_sources::VanillaPack::new(vanilla.clone())),
+    );
     let remote = engine.textures.remote.clone();
     let runtime = super::pack_harness::image_form(
         &mut player_runtime,
@@ -477,8 +431,7 @@ fn path_and_url_button_images_resolve_like_vanilla() {
             Some(Url(url.as_str().into())),
         ],
     );
-    let server_page =
-        presentation.textures.dynamic_start() + super::super::dynamic_textures::SERVER_UI_PAGE;
+    let server_page = presentation.textures.dynamic_start() + ui_engine::pages::SERVER_UI_PAGE;
     let frame = |presentation: &mut UiPresentationRuntime| {
         let nodes = super::pack_harness::render(presentation, &runtime, [1280, 720], 1.0);
         sprite_pages(&nodes)
@@ -500,7 +453,7 @@ fn path_and_url_button_images_resolve_like_vanilla() {
         "the block decodes from the vanilla pack"
     );
     test_time::wait_until(std::time::Duration::from_secs(5), || {
-        remote.state(&url) != launcher_host::remote_images::RemoteState::Loading
+        remote.state(&url) != ui_engine::sources::RemoteImage::Loading
     });
     let loaded = frame(&mut presentation);
     assert_eq!(on_server(&loaded), 2, "the downloaded image joins it");
@@ -509,24 +462,6 @@ fn path_and_url_button_images_resolve_like_vanilla() {
 }
 
 /// Six virtual px per character, nine per line.
-pub(super) struct FixedText;
-impl json_ui::TextMeasure for FixedText {
-    fn extent(&self, text: &str) -> [f64; 2] {
-        [text.chars().count() as f64 * 6.0, 9.0]
-    }
-}
-
-pub(super) struct NoTextures;
-impl json_ui::TextureSource for NoTextures {
-    fn texture(&self, _: &str) -> Option<json_ui::TextureMeta> {
-        Some(json_ui::TextureMeta {
-            base_size: [16.0, 16.0],
-            pixels: [16.0, 16.0],
-            nineslice: None,
-        })
-    }
-}
-
 fn pause_texts() -> Option<Vec<String>> {
     let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
     view.screen = launcher::menu::MenuScreen::Pause;
@@ -534,7 +469,7 @@ fn pause_texts() -> Option<Vec<String>> {
 }
 
 pub(super) fn screen_texts(view: &launcher::menu::MenuView) -> Option<Vec<String>> {
-    let carrier = super::pack_harness::carrier()?;
+    let carrier = ui_engine::test_support::carrier()?;
     let catalog = json_ui::Catalog::from_files(
         carrier
             .ui_files()
@@ -542,7 +477,7 @@ pub(super) fn screen_texts(view: &launcher::menu::MenuView) -> Option<Vec<String
             .map(|file| (&*file.path, &*file.bytes)),
     )
     .ok()?;
-    let screen = super::menu_screens::screen_data(view, &|_| None)?;
+    let screen = ui_screens::menu_screens::screen_data(view, &|_| None, 0)?;
     let env = json_ui::LayoutEnv {
         text: &FixedText,
         textures: &NoTextures,
@@ -664,7 +599,7 @@ fn local_world_loading_screen_names_the_stage() {
 // automation sections stay hidden.
 #[test]
 fn retail_settings_hide_debug_and_automation_sections() {
-    let Some(carrier) = super::pack_harness::carrier() else {
+    let Some(carrier) = ui_engine::test_support::carrier() else {
         eprintln!(
             "skipping retail_settings_hide_debug_and_automation_sections: fixture unavailable; requires installed local carriers (make assets)"
         );
@@ -675,7 +610,7 @@ fn retail_settings_hide_debug_and_automation_sections() {
         json_ui::Catalog::from_files(files.iter().map(|file| (&*file.path, &*file.bytes))).unwrap();
     let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
     view.screen = launcher::menu::MenuScreen::Settings;
-    let settings = super::menu_screens::screen_data(&view, &|_| None).unwrap();
+    let settings = ui_screens::menu_screens::screen_data(&view, &|_| None, 0).unwrap();
     let tree = json_ui::resolve(&catalog, settings.reference, &settings.context)
         .control
         .unwrap();
@@ -720,7 +655,7 @@ fn retail_settings_hide_debug_and_automation_sections() {
 // and hidden advanced video options leave only the panel's normal bottom inset.
 #[test]
 fn retail_settings_keep_navigation_and_video_options_compact() {
-    let Some(carrier) = super::pack_harness::carrier() else {
+    let Some(carrier) = ui_engine::test_support::carrier() else {
         eprintln!(
             "skipping retail_settings_keep_navigation_and_video_options_compact: fixture unavailable; requires installed local carriers (make assets)"
         );
@@ -735,7 +670,7 @@ fn retail_settings_keep_navigation_and_video_options_compact() {
     .unwrap();
     let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
     view.screen = launcher::menu::MenuScreen::Settings;
-    let screen = super::menu_screens::screen_data(&view, &|_| None).unwrap();
+    let screen = ui_screens::menu_screens::screen_data(&view, &|_| None, 0).unwrap();
     let resolved = json_ui::resolve(&catalog, screen.reference, &screen.context)
         .control
         .unwrap();
@@ -845,7 +780,7 @@ fn the_server_list_builds_only_visible_rows() {
 fn oreui_texts(view: &launcher::menu::MenuView) -> Vec<String> {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let dpi = ui::DpiScale::new(1.0).unwrap();
-    let metrics = super::super::TextMetrics::for_viewport([1600, 900], dpi, None);
+    let metrics = ui_engine::text_metrics::TextMetrics::for_viewport([1600, 900], dpi, None);
     let (mut nodes, mut next) = (Vec::new(), 1);
     presentation
         .append_oreui_screen(
@@ -960,12 +895,16 @@ fn fallback_form_preserves_host_owned_presentation_state() {
     let runtime = super::pack_harness::action_form(&mut player_runtime, "Menu", &["A"]);
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation
+        .mod_ui_mut()
         .set_experience_chrome(Some("Trusted status"), false)
         .unwrap();
-    presentation.set_mod_label(Some("Extension label")).unwrap();
+    presentation
+        .mod_ui_mut()
+        .set_mod_label(Some("Extension label"))
+        .unwrap();
     super::pack_harness::render(&mut presentation, &runtime, [1280, 720], 1.0);
-    assert!(presentation.form_presentation.experience.is_some());
-    assert!(presentation.form_presentation.mod_hud.is_some());
+    assert!(presentation.mod_ui().experience_chrome_installed());
+    assert!(presentation.mod_ui().mod_label_passes().is_some());
 }
 
 #[test]
@@ -1002,7 +941,7 @@ fn review_failed_menu_modal_does_not_expose_underlying_actions() {
 
 #[test]
 fn paper_doll_keeps_vanilla_placement_under_the_java_hud_overlay() {
-    let Some(carrier) = super::pack_harness::carrier() else {
+    let Some(carrier) = ui_engine::test_support::carrier() else {
         return;
     };
     let mut catalog = json_ui::Catalog::from_files(
@@ -1019,7 +958,7 @@ fn paper_doll_keeps_vanilla_placement_under_the_java_hud_overlay() {
     };
     for java in [false, true] {
         if java {
-            for (path, _, bytes) in super::hud::JAVA_HUD_PACK {
+            for (path, _, bytes) in ui_screens::hud::JAVA_HUD_PACK {
                 let text = std::str::from_utf8(bytes).unwrap();
                 if path.ends_with("_global_variables.json") {
                     catalog.overlay_globals_text(text);
@@ -1116,7 +1055,7 @@ fn server_trust_question_reads_the_active_language() {
         (key == "permissions.servertrust.message").then(|| Arc::<str>::from("Vertrauen %1$s?"))
     };
     let json_ui::FormModel::Modal(modal) =
-        super::menu_screens::server_trust_model("http://a:1", &translate)
+        ui_screens::menu_screens::server_trust_model("http://a:1", &translate)
     else {
         panic!("the trust question is a modal popup");
     };

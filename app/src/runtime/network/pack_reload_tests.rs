@@ -6,6 +6,7 @@ use super::{
 };
 use crate::runtime::world::ClientWorld;
 use bevy::prelude::{App, Update};
+use client_shell::ui_resources::UiRuntimeResource;
 use client_ui::ui_runtime::UiRuntime;
 use pack_runtime::PackInputs;
 use resource_pack::ValidatedPackStack;
@@ -67,7 +68,7 @@ pub(super) fn app_with_assets(assets: Arc<assets::RuntimeAssets>) -> App {
     ));
     let mut app = App::new();
     app.insert_resource(world)
-        .insert_resource(UiRuntime::new(0))
+        .insert_resource(UiRuntimeResource(UiRuntime::new(0)))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             0,
         )))
@@ -168,12 +169,22 @@ fn live_reload_removal_releases_old_snapshot_and_keeps_world_identity() {
         .resource_mut::<PackReload>()
         .request_globals(stack(&[("ui/reload.json", definition)]));
     settle(&mut app, 1);
-    let old = Arc::downgrade(app.world().resource::<UiRuntime>().server_ui().unwrap());
+    let old = Arc::downgrade(
+        app.world()
+            .resource::<UiRuntimeResource>()
+            .server_ui()
+            .unwrap(),
+    );
     app.world_mut()
         .resource_mut::<PackReload>()
         .request_globals(stack(&[]));
     settle(&mut app, 2);
-    assert!(app.world().resource::<UiRuntime>().server_ui().is_none());
+    assert!(
+        app.world()
+            .resource::<UiRuntimeResource>()
+            .server_ui()
+            .is_none()
+    );
     assert!(
         old.upgrade().is_none(),
         "old presentation snapshot must be released"
@@ -204,7 +215,11 @@ fn newer_reload_request_supersedes_an_in_flight_worker() {
         .resource_mut::<PackReload>()
         .request_globals(stack(&[("ui/new.json", br#"{"namespace":"new"}"#)]));
     settle(&mut app, 2);
-    let ui = app.world().resource::<UiRuntime>().server_ui().unwrap();
+    let ui = app
+        .world()
+        .resource::<UiRuntimeResource>()
+        .server_ui()
+        .unwrap();
     assert_eq!(ui.ui_layers[0][0].0, "ui/new.json");
 }
 

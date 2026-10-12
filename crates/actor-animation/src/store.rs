@@ -321,6 +321,7 @@ impl ActorAnimationStore {
             return None;
         }
         Some(ActorRigSnapshot {
+            placement_frame: state.placement_frame,
             actor,
             rig: state.rig,
             previous: &state.previous,

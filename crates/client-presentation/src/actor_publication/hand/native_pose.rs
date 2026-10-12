@@ -128,7 +128,7 @@ impl NativePoseCache {
             return self.pose.clone();
         }
         #[cfg(test)]
-        let allocated = crate::test_allocations::count();
+        let allocated = test_alloc::thread_allocations();
         let mut frame = stream.authority().actor_render_frame(alpha);
         self.skin_layers = None;
         let sampled = if sample_skin {
@@ -166,7 +166,7 @@ impl NativePoseCache {
         #[cfg(test)]
         {
             self.sample_work.0 += 1;
-            self.sample_work.1 += crate::test_allocations::count() - allocated;
+            self.sample_work.1 += test_alloc::thread_allocations() - allocated;
         }
         self.key = Some(key);
         self.pose = pose.clone();

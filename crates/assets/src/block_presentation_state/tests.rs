@@ -122,12 +122,11 @@ fn admitted_portal_axis_lookup_allocates_nothing() {
         .find(|record| record.name.as_ref() == crate::NETHER_PORTAL_IDENTIFIER)
         .unwrap();
     let states = crate::pinned_block_presentation_states();
-    let (old, old_allocations) = super::test_allocations::measure(|| {
+    let (old, old_allocations) = test_alloc::count(|| {
         serde_json::from_str::<serde_json::Value>(&record.canonical_state).unwrap()
     });
-    let (state, new_allocations) = super::test_allocations::measure(|| {
-        states.get(crate::NetworkIdMode::Sequential, record.sequential_id)
-    });
+    let (state, new_allocations) =
+        test_alloc::count(|| states.get(crate::NetworkIdMode::Sequential, record.sequential_id));
     assert!(state.portal_axis.is_some());
     assert!(old.get("portal_axis").is_some());
     assert_eq!(new_allocations, 0);

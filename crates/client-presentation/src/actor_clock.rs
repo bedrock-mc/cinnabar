@@ -1,7 +1,7 @@
 //! Actor interpolation timing and local visibility publication.
 use crate::local_player::{LocalAvatarPresentation, LocalAvatarVisibilityCarrier};
 use std::time::Duration;
-const ACTOR_TICK_NANOS: u128 = world::TICK_DURATION.as_nanos();
+const ACTOR_TICK_NANOS: u128 = simulation_clock::TICK_DURATION.as_nanos();
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActorFrameStep {
     pub ticks: u32,
@@ -62,7 +62,7 @@ pub struct ActorFrameClock {
 }
 
 impl ActorFrameClock {
-    /// Advances actor time with its fractional remainder, capping whole ticks at world::MAX_TICKS_PER_FRAME.
+    /// Advances actor time with its fractional remainder, capping whole ticks at simulation_clock::MAX_TICKS_PER_FRAME.
     /// Discards excess catch-up ticks so the next frame does not replay the stall.
     pub fn advance(&mut self, delta: Duration) -> ActorFrameStep {
         self.accumulated_nanos = self.accumulated_nanos.saturating_add(delta.as_nanos());
@@ -71,7 +71,7 @@ impl ActorFrameClock {
         ActorFrameStep {
             ticks: u32::try_from(elapsed_ticks)
                 .unwrap_or(u32::MAX)
-                .min(world::MAX_TICKS_PER_FRAME),
+                .min(simulation_clock::MAX_TICKS_PER_FRAME),
             partial_tick: self.accumulated_nanos as f32 / ACTOR_TICK_NANOS as f32,
         }
     }
@@ -88,10 +88,10 @@ mod tests {
 
     #[test]
     fn a_stalled_frame_replays_at_most_the_vanilla_tick_cap() {
-        let tick = world::TICK_DURATION;
+        let tick = simulation_clock::TICK_DURATION;
         let mut clock = ActorFrameClock::default();
         let stalled = clock.advance(tick * 240 + tick / 2);
-        assert_eq!(stalled.ticks, world::MAX_TICKS_PER_FRAME);
+        assert_eq!(stalled.ticks, simulation_clock::MAX_TICKS_PER_FRAME);
         assert_eq!(stalled.partial_tick, 0.5);
         let next = clock.advance(tick / 2);
         assert_eq!((next.ticks, next.partial_tick), (1, 0.0));

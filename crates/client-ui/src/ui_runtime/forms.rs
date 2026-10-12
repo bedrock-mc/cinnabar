@@ -13,7 +13,7 @@ use protocol::{
     modal_form_cancel_response, modal_form_submit_response, npc_request_packet,
 };
 use std::{collections::VecDeque, sync::Arc};
-pub use values::{EditText, EngineFrame, FormEngineState, FormValue};
+pub use values::{FormEngineState, FormValue};
 
 /// One displayed form; at most eight pending busy cancellations.
 pub const MAX_RETAINED_SERVER_FORMS: usize = 8;

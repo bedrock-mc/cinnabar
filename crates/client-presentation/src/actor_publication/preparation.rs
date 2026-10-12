@@ -5,8 +5,6 @@ use super::*;
 #[derive(Resource, Default)]
 pub struct ActorFrameState {
     pub(super) published_session: Option<u64>,
-    /// The session the read seat layouts were last given to.
-    seated_session: Option<u64>,
     pub(super) published_pack: Option<Arc<assets::SessionEntityPack>>,
     pub(super) pack_geometry_ready: SessionGeometryReady,
     pub(super) published_items: Option<Arc<crate::session_assets::SessionItems>>,
@@ -98,7 +96,6 @@ pub fn advance_actor_frame(
         published_items,
         actor_clock,
         motion_step,
-        seated_session,
         session_artwork,
         skin_rigs,
         skin_layers,
@@ -143,14 +140,6 @@ pub fn advance_actor_frame(
         }
         *skin_layers = Default::default();
         *published_session = session_id;
-    }
-    // Layouts are read off the frame; a session takes them in the first frame they are ready.
-    if *seated_session != session_id
-        && let Some(stream) = client_world.stream.as_mut()
-        && let Some(defaults) = crate::seat_defaults::seat_defaults()
-    {
-        stream.set_actor_seat_defaults(defaults);
-        *seated_session = session_id;
     }
     let pack = session_id.and_then(|_| client_world.pack_entities.clone());
     let items = session_id.and_then(|_| client_world.session_items.clone());
@@ -235,6 +224,7 @@ pub fn advance_actor_frame(
     }
     if let Some(stream) = client_world.stream.as_mut() {
         if let Some(equipment) = equipment.as_deref() {
+            stream.set_item_use_overlays(equipment.item_use_overlays());
             stream.set_item_use_durations(equipment.item_use_durations());
             stream.set_item_attack_timings(equipment.item_attack_timings());
         }

@@ -178,7 +178,11 @@ fn a_fresh_slot_change_throw_sends_in_the_next_frame_between_ticks() {
             Ok(())
         });
         assert_eq!(sent.len(), 1, "slot 2 throws in its press frame");
-        assert_eq!(summary(&wire(&sent[0])).1, 1, "the throw consumes an item");
+        assert_eq!(
+            summary(&transaction(&sent[0])).1,
+            1,
+            "the throw consumes an item"
+        );
     }
 }
 
@@ -276,7 +280,7 @@ fn slot_change_throws_keep_cooldowns_in_their_item_categories() {
         let outcome = runtime.step(&blocked);
         assert!(!outcome.swung);
         assert_eq!(kinds(&outcome), ["use"]);
-        assert_eq!(summary(&wire(&outcome.packets[0])).1, 0);
+        assert_eq!(summary(&transaction(&outcome.packets[0])).1, 0);
         assert_eq!(runtime.cooldown_progress(cooldown, first.tick), 1.0);
         for (slot, other) in [
             (2, "minecraft:splash_potion"),

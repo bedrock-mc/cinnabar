@@ -1,4 +1,5 @@
 use super::*;
+use ui_engine::textures::TITLE_KEY;
 
 #[test]
 fn server_details_art_fits_alongside_all_catalog_logos_without_home_promotions() {

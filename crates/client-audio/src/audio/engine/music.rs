@@ -50,7 +50,8 @@ mod tests {
         settings::AudioSettings, voice::Pcm,
     };
     use assets::{
-        AudioAlternative, AudioDefinition, RuntimeAudioCatalog, SoundBankIndex, SoundEventTables,
+        AudioAlternative, AudioDefinition, RuntimeAudioCatalog, SoundEventTables,
+        sound_bank::SoundBankIndex,
     };
     use std::sync::Arc;
 
@@ -83,8 +84,8 @@ mod tests {
             &assets::encode_audio_catalog([0; 32], [0; 32], &definitions).unwrap(),
         )
         .unwrap();
-        let bytes = assets::encode_sound_bank(b"{}", b"{}", br#"{"game":{"event_name":"music.fixture.game","min_delay":10,"max_delay":10},"credits":{"event_name":"music.fixture.credits","min_delay":0,"max_delay":0}}"#, &[]).unwrap();
-        let prefix = assets::sound_bank_prefix_len(&bytes).unwrap();
+        let bytes = assets::sound_bank::encode_sound_bank(b"{}", b"{}", br#"{"game":{"event_name":"music.fixture.game","min_delay":10,"max_delay":10},"credits":{"event_name":"music.fixture.credits","min_delay":0,"max_delay":0}}"#, &[]).unwrap();
+        let prefix = assets::sound_bank::sound_bank_prefix_len(&bytes).unwrap();
         let mut bank = SoundBank::from_parts(
             SoundBankIndex::decode_prefix(&bytes[..prefix]).unwrap(),
             SoundEventTables::default(),

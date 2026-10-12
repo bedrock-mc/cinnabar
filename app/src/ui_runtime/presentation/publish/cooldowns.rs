@@ -20,9 +20,12 @@ pub(super) fn hotbar_cooldowns(
         let Some(cooldown) = runtime
             .inventory_ledger(player_runtime)
             .displayed_stack(slot as u8)
-            .and_then(|stack| stream.authority().canonical_item_stack(stack))
-            .and_then(|item| item.identifier)
-            .and_then(|identifier| gameplay::item_use::classify::item_cooldown(&identifier))
+            .and_then(|stack| {
+                stream
+                    .authority()
+                    .item_use_profile(stack.network_id)
+                    .cooldown
+            })
         else {
             return 0.0;
         };

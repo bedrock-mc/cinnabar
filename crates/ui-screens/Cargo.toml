@@ -1,0 +1,38 @@
+[package]
+name = "ui-screens"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[package.metadata.cinnabar]
+platform-specific = ["macos"]
+reads = [
+    "assets/branding/title.png",
+    "assets/java-hud/ui/*",
+]
+
+[features]
+test-support = []
+
+[dependencies]
+actor-animation = { path = "../actor-animation" }
+assets = { path = "../assets" }
+bridge = { path = "../bridge" }
+inventory = { path = "../inventory" }
+json-ui = { path = "../json-ui" }
+launcher = { path = "../launcher" }
+player-state = { path = "../player-state" }
+protocol = { path = "../protocol" }
+resource-pack = { path = "../resource-pack", default-features = false }
+serde_json = "1"
+tracing.workspace = true
+ui = { path = "../ui" }
+ui-engine = { path = "../ui-engine" }
+
+[dev-dependencies]
+image.workspace = true
+ui-engine = { path = "../ui-engine", features = ["test-support"] }
+
+[lints]
+workspace = true

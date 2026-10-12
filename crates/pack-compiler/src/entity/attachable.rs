@@ -8,6 +8,9 @@
 //! keyframes in the exact `wield_first_person`/`wield_third_person` base clips;
 //! anything Molang/query-derived is left `NeedsMeasurement`.
 
+mod use_profiles;
+pub use use_profiles::compile_item_use_profiles;
+
 use std::{collections::BTreeMap, path::Path};
 
 use assets::{
@@ -21,6 +24,8 @@ use sha2::{Digest, Sha256};
 
 use super::{SourcePayloads, invalid, json::parse_unique_json, read_bounded_source};
 mod item_attack;
+mod item_food;
+pub use item_food::compile_item_foods;
 mod textures;
 pub use item_attack::compile_item_attack_timings;
 use textures::compile_texture_identifiers_with;
@@ -128,14 +133,18 @@ pub fn compile_item_use(behavior_pack: &Path) -> Result<Vec<ItemUseDuration>, As
     for (identifier, components) in item_attack::components(behavior_pack)? {
         let seconds = components
             .pointer("/minecraft:use_modifiers/use_duration")
-            .and_then(Value::as_f64)
-            .map(|seconds| seconds * 20.0);
-        let ticks = seconds.or_else(|| {
-            components
+            .and_then(Value::as_f64);
+        let ticks = match seconds {
+            Some(seconds) => {
+                simulation_clock::whole_ticks_from_seconds(seconds as f32).map(f64::from)
+            }
+            None => components
                 .get("minecraft:use_duration")
-                .and_then(Value::as_f64)
-        });
-        let Some(ticks) = ticks.filter(|ticks| ticks.is_finite() && *ticks >= 1.0) else {
+                .and_then(Value::as_f64),
+        };
+        let Some(ticks) = ticks
+            .filter(|ticks| ticks.is_finite() && *ticks >= 1.0 && *ticks <= f64::from(u32::MAX))
+        else {
             continue;
         };
         let Ok(ticks) = u32::try_from(ticks.round() as u64) else {
@@ -830,6 +839,32 @@ mod tests {
             "seed.json",
             r#"{"minecraft:item":{"description":{"identifier":"minecraft:seeds"},"components":{}}}"#,
         );
+        write(
+            "fractional.json",
+            r#"{"minecraft:item":{"description":{"identifier":"test:fractional"},
+                "components":{"minecraft:use_modifiers":{"use_duration":1.049}}}}"#,
+        );
+        write(
+            "precision.json",
+            r#"{"minecraft:item":{"description":{"identifier":"test:precision"},
+                "components":{"minecraft:use_modifiers":{"use_duration":1.04999998}}}}"#,
+        );
+        for (name, duration) in [("sub_tick", 0.049), ("negative", -1.0), ("overflow", 1e40)] {
+            write(
+                &format!("{name}.json"),
+                &serde_json::json!({"minecraft:item": {
+                    "description": {"identifier": format!("test:{name}")},
+                    "components": {"minecraft:use_modifiers": {"use_duration": duration}}
+                }})
+                .to_string(),
+            );
+        }
+        write(
+            "unsupported_modern.json",
+            r#"{"minecraft:item":{"description":{"identifier":"test:unsupported_modern"},
+                "components":{"minecraft:use_modifiers":{"use_duration":-1},
+                    "minecraft:use_duration":32}}}"#,
+        );
         write("broken.json", "{");
         let durations = compile_item_use(root.path()).unwrap();
         let pairs = durations
@@ -840,7 +875,9 @@ mod tests {
             pairs,
             [
                 ("minecraft:honey_bottle", 32),
-                ("minecraft:iron_spear", 72000)
+                ("minecraft:iron_spear", 72000),
+                ("test:fractional", 20),
+                ("test:precision", 21)
             ]
         );
     }

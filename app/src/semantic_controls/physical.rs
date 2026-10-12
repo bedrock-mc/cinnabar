@@ -292,7 +292,7 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
     }
 }
 
-use client_ui::physical_input::{TRANSLATED_GAMEPAD_BUTTONS, keyboard_usage, mouse_button_code};
+use client_shell::physical_input::{TRANSLATED_GAMEPAD_BUTTONS, keyboard_usage, mouse_button_code};
 
 fn gamepad_button_codes(gamepad: &Gamepad) -> Vec<u8> {
     let mut buttons = TRANSLATED_GAMEPAD_BUTTONS
@@ -315,7 +315,7 @@ mod tests {
         prelude::{App, Update, Window},
         window::{CursorGrabMode, CursorOptions, PrimaryWindow},
     };
-    use client_ui::physical_input::KEYBOARD_USAGES;
+    use client_shell::physical_input::DESKTOP_KEYS;
     use semantic_input::{
         ControlSettings, ControllerFrame, MAX_CONTROLLERS, MAX_TOUCH_CONTACTS, PhysicalControl,
         TouchContact,
@@ -340,7 +340,7 @@ mod tests {
     /// Touch reachability is tracked as an open gap, not proven here.
     #[test]
     fn default_binding_reachability_is_explicit_for_every_device_family() {
-        let usages = KEYBOARD_USAGES
+        let usages = DESKTOP_KEYS
             .iter()
             .filter_map(|(key, _)| keyboard_usage(*key))
             .collect::<Vec<_>>();
@@ -432,7 +432,7 @@ mod tests {
     /// mapping typo cannot quietly alias two keys onto one action.
     #[test]
     fn translated_keys_map_to_distinct_usages() {
-        let mut usages = KEYBOARD_USAGES
+        let mut usages = DESKTOP_KEYS
             .iter()
             .filter_map(|(key, _)| keyboard_usage(*key))
             .collect::<Vec<_>>();
@@ -469,13 +469,16 @@ mod tests {
             },
             PrimaryWindow,
         ));
-        for &(key, usage) in [
+        let desktop = DESKTOP_KEYS
+            .iter()
+            .filter_map(|(key, semantic)| Some((*key, semantic.usage()?)));
+        for (key, usage) in [
             (KeyCode::CapsLock, 0x39),
             (KeyCode::NumLock, 0x53),
             (KeyCode::ScrollLock, 0x47),
         ]
-        .iter()
-        .chain(KEYBOARD_USAGES)
+        .into_iter()
+        .chain(desktop)
         {
             let mut settings = SettingsOptions::default();
             assert!(settings.remap(row, PhysicalControl::KeyboardUsage(usage)));

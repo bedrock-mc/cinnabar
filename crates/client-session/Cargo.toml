@@ -9,6 +9,7 @@ publish = false
 test-support = []
 
 [dependencies]
+simulation-clock = { path = "../simulation-clock" }
 bridge = { path = "../bridge" }
 crossbeam-channel = "0.5"
 bytes.workspace = true
@@ -21,6 +22,7 @@ tracing.workspace = true
 world = { path = "../world" }
 
 [dev-dependencies]
+test-alloc = { path = "../test-alloc" }
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 uuid.workspace = true
 

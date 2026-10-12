@@ -3,6 +3,7 @@ use super::*;
 
 #[derive(Debug)]
 pub(super) struct ActorRigState {
+    pub(super) placement_frame: assets::placement::EntityPlacementFrame,
     /// Resolved from the session pack catalog rather than the vanilla one.
     pub(super) pack: bool,
     pub(super) rig: EntityRigId,
@@ -101,6 +102,7 @@ pub(super) struct ControllerState {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct ActorTickInput {
+    pub(super) placement_frame: assets::placement::EntityPlacementFrame,
     pub(super) position: [f32; 3],
     pub(super) position_delta: [f32; 3],
     pub(super) velocity: [f32; 3],

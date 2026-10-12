@@ -7,6 +7,7 @@ crates/protocol/data/retail_biomes_*.txt text eol=lf
 assets/vanilla-source.json text eol=lf
 assets/ui-font-source.json text eol=lf
 assets/cinnangles-*-source.json text eol=lf
+assets/oreui-icons-source.json text eol=lf
 assets/fonts/*.ttf binary
 assets/hud-source-v2193.json text eol=lf
 assets/licenses/Monocraft-OFL-1.1.txt text eol=lf whitespace=-blank-at-eol
@@ -24,3 +25,4 @@ tools/registrygen/cmd/itemcapacity/probe/main.js text eol=lf
 tools/registrygen/cmd/itemcapacity/probe/manifest.json text eol=lf
 tools/localserver/extension/testdata/* -text
 tools/localserver/extension/testdata/go/* -text
+crates/assets/data/entity-placement-frame.json text eol=lf

@@ -20,6 +20,14 @@ pub fn frame_rate_limit(value: i32) -> FrameRateLimit {
     }
 }
 
+/// The Max Framerate caption: a numeric cap or Unlimited.
+pub fn frame_rate_label(value: i32, translate: &dyn Fn(&str) -> String) -> String {
+    match frame_rate_limit(value) {
+        FrameRateLimit::Unlimited => translate("options.framerateLimit.max"),
+        FrameRateLimit::Fixed(fps) => fps.to_string(),
+    }
+}
+
 impl SettingsOptions {
     /// Builds the existing subsystem settings from the controller's saved values.
     pub fn user_settings(&self) -> ui::UserSettings {

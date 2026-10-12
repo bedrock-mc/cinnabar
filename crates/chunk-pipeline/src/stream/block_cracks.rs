@@ -70,7 +70,7 @@ impl WorldStream {
 
     /// Advances cracks once per rendered frame. A zero elapsed time pauses progression.
     pub fn advance_block_cracks(&mut self, elapsed_seconds: f32) {
-        let ticks = elapsed_seconds / world::TICK_DURATION.as_secs_f32();
+        let ticks = elapsed_seconds / simulation_clock::TICK_DURATION.as_secs_f32();
         let mut completed = 0;
         self.block_cracks.columns.retain(|_, entries| {
             entries.retain(|_, entry| {

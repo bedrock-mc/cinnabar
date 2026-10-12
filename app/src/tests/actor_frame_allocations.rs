@@ -141,13 +141,13 @@ fn steady_frame_allocations(actors: u64) -> u64 {
             .resource_mut::<Time<Real>>()
             .update_with_instant(clock);
         let before_tick = tick(&world);
-        let before = super::alloc_count::thread_allocations();
+        let before = test_alloc::thread_allocations();
         world
             .run_system_cached(crate::runtime::network::advance_actor_frame)
             .unwrap();
         world.run_system_cached(prepare_actor_render_frame).unwrap();
         world.run_system_cached(publish_actor_render_frame).unwrap();
-        let allocated = super::alloc_count::thread_allocations() - before;
+        let allocated = test_alloc::thread_allocations() - before;
         if frame >= 30 && tick(&world) == before_tick {
             worst = worst.max(allocated);
         }

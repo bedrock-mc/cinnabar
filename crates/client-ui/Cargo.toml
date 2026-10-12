@@ -8,25 +8,24 @@ publish = false
 [package.metadata.cinnabar]
 platform-specific = ["macos"]
 reads = [
-    "assets/branding/title.png",
     "assets/cinnangles-sans-source.json",
-    "assets/java-hud/ui/*",
     "crates/protocol/fixtures/*",
 ]
 
 [features]
-test-support = []
-tracy = []
+test-support = ["oreui/test-support", "ui-engine/test-support", "ui-screens/test-support", "mod-ui/test-support"]
+tracy = ["oreui/tracy"]
 
 [dependencies]
+simulation-clock = { path = "../simulation-clock" }
 launcher-host = { path = "../launcher-host" }
 bridge = { path = "../bridge" }
 anyhow.workspace = true
 arboard = { version = "3", default-features = false }
 assets = { path = "../assets" }
-bevy.workspace = true
 chunk-pipeline = { path = "../chunk-pipeline" }
 client-world = { path = "../client-world" }
+glam.workspace = true
 actor-animation = { path = "../actor-animation" }
 render-api = { path = "../render-api" }
 render-model = { path = "../render-model" }
@@ -34,9 +33,13 @@ player-state = { path = "../player-state" }
 launcher = { path = "../launcher" }
 inventory = { path = "../inventory" }
 json-ui = { path = "../json-ui" }
+oreui = { path = "../oreui" }
+mod-ui = { path = "../mod-ui" }
 protocol = { path = "../protocol" }
 semantic-input = { path = "../input" }
 ui = { path = "../ui" }
+ui-engine = { path = "../ui-engine" }
+ui-screens = { path = "../ui-screens" }
 world = { path = "../world" }
 server-experience = { path = "../server-experience" }
 image.workspace = true
@@ -44,6 +47,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 crossbeam-channel = "0.5"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 url = "2"
@@ -52,10 +56,17 @@ tokio.workspace = true
 resource-pack = { path = "../resource-pack" }
 
 [dev-dependencies]
+test-alloc = { path = "../test-alloc" }
+launcher = { path = "../launcher", features = ["test-support"] }
+oreui = { path = "../oreui", features = ["test-support"] }
+ui-engine = { path = "../ui-engine", features = ["test-support"] }
+ui-screens = { path = "../ui-screens", features = ["test-support"] }
+mod-ui = { path = "../mod-ui", features = ["test-support"] }
 launcher-host = { path = "../launcher-host", features = ["test-support"] }
 test-time = { path = "../test-time" }
 tempfile = "3"
-protocol = { path = "../protocol", features = ["wire-test-support"] }
+protocol = { path = "../protocol", features = ["test-support"] }
+resource-pack = { path = "../resource-pack", features = ["test-support"] }
 mod-host = { path = "../mod-host" }
 pack-compiler = { path = "../pack-compiler" }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }

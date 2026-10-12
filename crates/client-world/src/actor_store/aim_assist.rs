@@ -2,26 +2,43 @@ use super::{ActorApplyResult, ActorSnapshot, ActorStore};
 use protocol::ActorKind;
 
 impl ActorStore {
-    /// The first advertised definition wins; unrecognized or empty bases construct generic mobs.
-    pub(super) fn apply_aim_actor_classes(
+    /// Admits the first advertised base and refreshes actors that arrived before its definition.
+    pub(super) fn apply_actor_interactions(
         &mut self,
         registry: protocol::ActorIdentifierRegistry,
     ) -> ActorApplyResult {
+        use assets::interactions::{self, EntityInteractionTraits};
         let previous_skips = self.actor_identifier_skips;
         self.actor_identifier_skips += registry.skipped;
         for entry in registry.entries.iter() {
-            if native_class(&entry.identifier).is_some()
-                || self.aim_actor_classes.contains_key(&entry.identifier)
+            if interactions::builtin(&entry.identifier) != EntityInteractionTraits::Unresolved
+                || self.custom_actor_traits.contains_key(&entry.identifier)
             {
                 continue;
             }
-            if self.aim_actor_classes.len() == protocol::MAX_ACTOR_IDENTIFIERS {
+            if self.custom_actor_traits.len() == protocol::MAX_ACTOR_IDENTIFIERS {
                 self.actor_identifier_skips += 1;
                 continue;
             }
-            self.aim_actor_classes.insert(
-                entry.identifier.clone(),
-                native_class(&entry.base_identifier).unwrap_or(true),
+            let traits = if entry.base_identifier.is_empty() {
+                EntityInteractionTraits::GENERIC_MOB
+            } else {
+                self.entity_assets.as_ref().map_or_else(
+                    || interactions::builtin(&entry.base_identifier),
+                    |assets| assets.interaction_traits_for(&entry.base_identifier),
+                )
+            };
+            if traits == EntityInteractionTraits::Unresolved {
+                self.actor_identifier_skips += 1;
+            }
+            self.custom_actor_traits
+                .insert(entry.identifier.clone(), traits);
+        }
+        for actor in self.actors.values_mut() {
+            actor.interaction_traits = Self::resolve_actor_interactions(
+                &actor.kind,
+                self.entity_assets.as_deref(),
+                &self.custom_actor_traits,
             );
         }
         if self.actor_identifier_skips != previous_skips {
@@ -31,6 +48,33 @@ impl ActorStore {
             );
         }
         ActorApplyResult::Updated
+    }
+
+    /// Resolves a constructor disposition once; diagnostics use the same compatibility source.
+    pub(super) fn resolve_actor_interactions(
+        kind: &ActorKind,
+        assets: Option<&assets::RuntimeEntityAssets>,
+        custom: &std::collections::HashMap<
+            std::sync::Arc<str>,
+            assets::interactions::EntityInteractionTraits,
+        >,
+    ) -> assets::interactions::EntityInteractionTraits {
+        use assets::interactions::{self, EntityInteractionTraits};
+        match kind {
+            ActorKind::Player { .. } => EntityInteractionTraits::GENERIC_MOB,
+            ActorKind::Entity { identifier } => {
+                let traits = assets.map_or_else(
+                    || interactions::builtin(identifier),
+                    |assets| assets.interaction_traits_for(identifier),
+                );
+                match traits {
+                    EntityInteractionTraits::Unresolved => {
+                        custom.get(identifier).copied().unwrap_or_default()
+                    }
+                    resolved => resolved,
+                }
+            }
+        }
     }
 
     /// Custom actor classes and remote-player spectator state are retained at packet admission.
@@ -45,9 +89,7 @@ impl ActorStore {
                 ) && (actor.player_game_mode != Some(protocol::GameModeUpdate::WorldDefault)
                     || self.world_default_game_mode != Some(protocol::PlayerGameMode::Spectator)),
             ),
-            ActorKind::Entity { identifier } => {
-                native_class(identifier).or_else(|| self.aim_actor_classes.get(identifier).copied())
-            }
+            ActorKind::Entity { .. } => actor.interaction_traits.aim_assist(),
         }
     }
 
@@ -95,159 +137,11 @@ impl ActorStore {
     }
 }
 
-/// Unknown custom identifiers need their runtime class before they can be admitted.
-fn native_class(identifier: &str) -> Option<bool> {
-    let identifier = identifier.split('<').next()?;
-    match identifier.strip_prefix("minecraft:").unwrap_or(identifier) {
-        "agent"
-        | "allay"
-        | "armadillo"
-        | "armor_stand"
-        | "axolotl"
-        | "bat"
-        | "bee"
-        | "blaze"
-        | "boat"
-        | "bogged"
-        | "breeze"
-        | "camel"
-        | "camel_husk"
-        | "cat"
-        | "cave_spider"
-        | "chest_boat"
-        | "chest_minecart"
-        | "chicken"
-        | "cod"
-        | "command_block_minecart"
-        | "copper_golem"
-        | "cow"
-        | "creaking"
-        | "creeper"
-        | "dolphin"
-        | "donkey"
-        | "drowned"
-        | "elder_guardian"
-        | "elder_guardian_ghost"
-        | "ender_dragon"
-        | "enderman"
-        | "endermite"
-        | "evocation_illager"
-        | "fox"
-        | "frog"
-        | "ghast"
-        | "glow_squid"
-        | "goat"
-        | "guardian"
-        | "happy_ghast"
-        | "hoglin"
-        | "hopper_minecart"
-        | "horse"
-        | "husk"
-        | "iron_golem"
-        | "llama"
-        | "magma_cube"
-        | "minecart"
-        | "mooshroom"
-        | "mule"
-        | "nautilus"
-        | "npc"
-        | "ocelot"
-        | "panda"
-        | "parched"
-        | "parrot"
-        | "phantom"
-        | "pig"
-        | "piglin"
-        | "piglin_brute"
-        | "pillager"
-        | "player"
-        | "polar_bear"
-        | "pufferfish"
-        | "rabbit"
-        | "ravager"
-        | "salmon"
-        | "sheep"
-        | "shulker"
-        | "silverfish"
-        | "skeleton"
-        | "skeleton_horse"
-        | "slime"
-        | "sniffer"
-        | "snow_golem"
-        | "spider"
-        | "squid"
-        | "stray"
-        | "strider"
-        | "sulfur_cube"
-        | "tadpole"
-        | "tnt_minecart"
-        | "trader_llama"
-        | "tripod_camera"
-        | "tropicalfish"
-        | "turtle"
-        | "vex"
-        | "villager"
-        | "villager_v2"
-        | "vindicator"
-        | "wandering_trader"
-        | "warden"
-        | "witch"
-        | "wither"
-        | "wither_skeleton"
-        | "wolf"
-        | "zoglin"
-        | "zombie"
-        | "zombie_horse"
-        | "zombie_nautilus"
-        | "zombie_pigman"
-        | "zombie_villager"
-        | "zombie_villager_v2" => Some(true),
-        "area_effect_cloud"
-        | "arrow"
-        | "balloon"
-        | "chalkboard"
-        | "dragon_fireball"
-        | "egg"
-        | "ender_crystal"
-        | "ender_pearl"
-        | "evocation_fang"
-        | "eye_of_ender_signal"
-        | "falling_block"
-        | "fireball"
-        | "fireworks_rocket"
-        | "fishing_hook"
-        | "ice_bomb"
-        | "item"
-        | "leash_knot"
-        | "lightning_bolt"
-        | "lingering_potion"
-        | "llama_spit"
-        | "moving_block"
-        | "ominous_item_spawner"
-        | "painting"
-        | "shield"
-        | "shulker_bullet"
-        | "small_fireball"
-        | "snowball"
-        | "splash_potion"
-        | "thrown_trident"
-        | "tnt"
-        | "wind_charge_projectile"
-        | "wither_skull"
-        | "wither_skull_dangerous"
-        | "xp_bottle"
-        | "xp_orb" => Some(false),
-        "breeze_wind_charge_projectile" => Some(false),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::native_class;
 
     #[test]
-    fn native_class_admits_mobs_boats_and_minecarts_only() {
+    fn compatibility_traits_preserve_existing_aim_routes() {
         for identifier in [
             "minecraft:player",
             "minecraft:pig",
@@ -255,7 +149,10 @@ mod tests {
             "minecraft:chest_boat",
             "minecraft:tnt_minecart",
         ] {
-            assert_eq!(native_class(identifier), Some(true));
+            assert_eq!(
+                assets::interactions::builtin(identifier).aim_assist(),
+                Some(true)
+            );
         }
         for identifier in [
             "minecraft:item",
@@ -263,16 +160,22 @@ mod tests {
             "minecraft:painting",
             "minecraft:tnt",
         ] {
-            assert_eq!(native_class(identifier), Some(false));
+            assert_eq!(
+                assets::interactions::builtin(identifier).aim_assist(),
+                Some(false)
+            );
         }
-        assert_eq!(native_class("pig"), Some(true));
+        assert_eq!(
+            assets::interactions::builtin("pig").aim_assist(),
+            Some(true)
+        );
         for identifier in ["custom:pig", "minecraft:unknown"] {
-            assert_eq!(native_class(identifier), None);
+            assert_eq!(assets::interactions::builtin(identifier).aim_assist(), None);
         }
     }
 
     #[test]
-    fn custom_bases_use_first_advertisement_and_unknown_bases_are_mobs() {
+    fn custom_bases_preserve_first_advertisement_and_unadmitted_bases_stay_unresolved() {
         use protocol::{ActorIdentifier, ActorIdentifierRegistry};
         use std::sync::Arc;
         let mut store = super::ActorStore::new(1, 0);
@@ -287,7 +190,7 @@ mod tests {
                 ("minecraft:pig", "minecraft:arrow"),
             ],
         ] {
-            store.apply_aim_actor_classes(ActorIdentifierRegistry {
+            store.apply_actor_interactions(ActorIdentifierRegistry {
                 entries: entries
                     .into_iter()
                     .map(|(id, base)| ActorIdentifier {
@@ -298,15 +201,111 @@ mod tests {
                 skipped: 0,
             });
         }
-        assert_eq!(store.aim_actor_classes.get("custom:arrow"), Some(&false));
-        assert_eq!(store.aim_actor_classes.get("custom:mob"), Some(&true));
-        assert_eq!(store.aim_actor_classes.get("custom:unknown"), Some(&true));
-        assert!(!store.aim_actor_classes.contains_key("minecraft:pig"));
+        assert_eq!(
+            store
+                .custom_actor_traits
+                .get("custom:arrow")
+                .and_then(|traits| traits.aim_assist()),
+            Some(false)
+        );
+        assert_eq!(
+            store
+                .custom_actor_traits
+                .get("custom:mob")
+                .and_then(|traits| traits.aim_assist()),
+            Some(true)
+        );
+        assert_eq!(
+            store
+                .custom_actor_traits
+                .get("custom:unknown")
+                .and_then(|traits| traits.aim_assist()),
+            None
+        );
+        assert!(!store.custom_actor_traits.contains_key("minecraft:pig"));
         store.reset_dimension(1, 1, 1);
-        assert_eq!(store.aim_actor_classes.get("custom:arrow"), Some(&false));
+        assert_eq!(
+            store
+                .custom_actor_traits
+                .get("custom:arrow")
+                .and_then(|traits| traits.aim_assist()),
+            Some(false)
+        );
         store.begin_session(2, 0);
-        assert!(store.aim_actor_classes.is_empty());
+        assert!(store.custom_actor_traits.is_empty());
     }
+    #[test]
+    fn interaction_admission_refreshes_earlier_actors_and_preserves_first_base() {
+        use protocol::{ActorEvent, ActorIdentifier, ActorIdentifierRegistry, ActorKind};
+        use std::sync::Arc;
+        let mut store = super::ActorStore::new(1, 0);
+        let ActorEvent::Spawn(mut spawn) = crate::actor_store::tests::spawn(8, -8) else {
+            unreachable!()
+        };
+        spawn.kind = ActorKind::Entity {
+            identifier: "fixture:projectile".into(),
+        };
+        store.apply(1, 1, ActorEvent::Spawn(spawn.clone()));
+        assert_eq!(store.get(8).unwrap().interaction_traits.pickable(), None);
+        for base in ["minecraft:arrow", "minecraft:pig"] {
+            store.apply_actor_interactions(ActorIdentifierRegistry {
+                entries: Arc::from([ActorIdentifier {
+                    identifier: "fixture:projectile".into(),
+                    base_identifier: base.into(),
+                }]),
+                skipped: 0,
+            });
+            let actor = store.get(8).unwrap();
+            assert_eq!(actor.interaction_traits.pickable(), Some(false));
+            assert_eq!(actor.interaction_traits.obstructs_placement(), Some(false));
+            assert_eq!(store.camera_aim_assist_eligible(actor), Some(false));
+        }
+        spawn.kind = ActorKind::Entity {
+            identifier: "minecraft:pig".into(),
+        };
+        store.apply(1, 2, ActorEvent::Spawn(spawn));
+        assert_eq!(
+            store.get(8).unwrap().interaction_traits.pickable(),
+            Some(true)
+        );
+        let mut detached = store.get(8).unwrap().clone();
+        detached.kind = ActorKind::Entity {
+            identifier: "fixture:display".into(),
+        };
+        assert_eq!(store.camera_aim_assist_eligible(&detached), Some(true));
+    }
+
+    #[test]
+    fn interaction_bases_resolve_from_a_checked_carrier() {
+        use protocol::{ActorEvent, ActorIdentifier, ActorIdentifierRegistry, ActorKind};
+        use std::sync::Arc;
+        let compiled = assets::carriers::startup::test_carriers::synthetic_interaction_assets(
+            "fixture:projectile",
+        );
+        let encoded = assets::encode_entity_blob(&compiled).unwrap();
+        let runtime = Arc::new(assets::RuntimeEntityAssets::decode(&encoded).unwrap());
+        let mut store = super::ActorStore::new_with_entity_assets(1, 0, runtime);
+        let ActorEvent::Spawn(mut spawn) = crate::actor_store::tests::spawn(8, -8) else {
+            unreachable!()
+        };
+        spawn.kind = ActorKind::Entity {
+            identifier: "fixture:projectile".into(),
+        };
+        store.apply(1, 1, ActorEvent::Spawn(spawn));
+        assert_eq!(store.get(8).unwrap().interaction_traits.pickable(), None);
+        store.apply_actor_interactions(ActorIdentifierRegistry {
+            entries: Arc::from([ActorIdentifier {
+                identifier: "fixture:projectile".into(),
+                base_identifier: "minecraft:arrow".into(),
+            }]),
+            skipped: 0,
+        });
+        let actor = store.get(8).unwrap();
+        assert_eq!(actor.interaction_traits.pickable(), Some(false));
+        assert_eq!(actor.interaction_traits.obstructs_placement(), Some(false));
+        assert_eq!(store.camera_aim_assist_eligible(actor), Some(false));
+    }
+
     #[test]
     fn spectator_players_follow_spawn_updates_and_level_default_without_losing_mode_on_unknown() {
         use protocol::{ActorEvent, ActorKind, GameModeUpdate, PlayerGameMode};

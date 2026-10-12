@@ -245,6 +245,8 @@ pub enum EntityRigFallback {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityRigBinding {
+    /// The admitted placement and target-rotation contract for this exact rig.
+    pub placement_frame: super::placement::EntityPlacementFrame,
     pub entity_symbol: u32,
     pub render_controller: u32,
     pub first_geometry: u32,
@@ -503,12 +505,16 @@ impl RuntimeEntityAssets {
 }
 
 pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
+    super::item_use::validate(compiled)?;
     crate::item::grip::validate(&compiled.item_visuals, &compiled.sources)?;
     crate::item::fuel::validate(&compiled.item_visuals, &compiled.sources)?;
+    super::seats::validate(compiled)?;
     validate_animation_payload(compiled)?;
     validate_molang_payload(compiled)?;
     validate_controller_payload(compiled)?;
     validate_rig_payload(compiled)?;
+    super::interactions::validate(compiled)?;
+    super::placement::validate(compiled)?;
     validate_render_payload(compiled)?;
     validate_item_visuals(
         &compiled.item_visuals,

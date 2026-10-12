@@ -89,7 +89,8 @@ fn normalize(entry: ItemData) -> Result<protocol::ItemRegistryEntry, WorldPacket
         item_data: vec![entry],
     };
     let WorldEvent::ItemActor(ItemActorEvent::Registry(registry)) =
-        into_world_event(packet.into(), 0)?.expect("item registry must produce an event")
+        into_world_event(protocol::Packet::new(packet), 0)?
+            .expect("item registry must produce an event")
     else {
         panic!("expected item registry")
     };
@@ -130,7 +131,9 @@ fn repeated_registry_declaration_retains_its_populated_definition() {
             ],
         };
         let WorldEvent::ItemActor(ItemActorEvent::Registry(registry)) =
-            into_world_event(packet.into(), 0).unwrap().unwrap()
+            into_world_event(protocol::Packet::new(packet), 0)
+                .unwrap()
+                .unwrap()
         else {
             panic!("expected item registry")
         };

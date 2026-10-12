@@ -24,7 +24,7 @@ impl Harness {
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<AccumulatedMouseMotion>()
-            .insert_resource(UiRuntime::new(1))
+            .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
             .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
                 1,
             )))
@@ -83,7 +83,7 @@ impl Harness {
     fn text(&self) -> &str {
         self.app
             .world()
-            .resource::<UiRuntime>()
+            .resource::<UiRuntimeResource>()
             .chat_editor()
             .as_str()
     }
@@ -115,7 +115,7 @@ fn held_control_or_command_pastes_across_suppressed_frames_even_before_chat_open
         assert!(
             h.app
                 .world()
-                .resource::<UiRuntime>()
+                .resource::<UiRuntimeResource>()
                 .pending_chat_sends()
                 .is_empty()
         );
@@ -174,7 +174,7 @@ fn focus_loss_drops_held_modifiers_and_discards_unfocused_events() {
         .unwrap()
         .focused = false;
     h.release(KeyCode::ControlLeft);
-    assert!(h.app.world().resource::<UiRuntime>().chat_focused());
+    assert!(h.app.world().resource::<UiRuntimeResource>().chat_focused());
     h.app
         .world_mut()
         .get_mut::<Window>(h.window)
@@ -204,7 +204,11 @@ fn menu_and_server_form_ownership_drop_chat_modifiers() {
             // An open chat correctly makes incoming forms busy. Close it through
             // the real keyboard path before admitting the new screen's authority.
             h.press(KeyCode::Escape, None);
-            let mut runtime = h.app.world_mut().remove_resource::<UiRuntime>().unwrap();
+            let mut runtime = h
+                .app
+                .world_mut()
+                .remove_resource::<UiRuntimeResource>()
+                .unwrap();
             runtime
                 .apply(
                     &mut h
@@ -240,7 +244,7 @@ fn menu_and_server_form_ownership_drop_chat_modifiers() {
         h.app
             .world_mut()
             .remove_resource::<client_shell::menu::MenuRuntime>();
-        h.app.insert_resource(UiRuntime::new(1));
+        h.app.insert_resource(UiRuntimeResource(UiRuntime::new(1)));
         h.press(KeyCode::KeyT, Some("t"));
         h.press(KeyCode::KeyV, Some("v"));
         assert_eq!(h.text(), "v");
@@ -265,7 +269,7 @@ fn held_control_or_command_selects_all_then_copies_without_typing_or_sending() {
         assert_eq!(
             h.app
                 .world()
-                .resource::<UiRuntime>()
+                .resource::<UiRuntimeResource>()
                 .chat_editor()
                 .selection(),
             Some(0..h.text().len())
@@ -277,7 +281,7 @@ fn held_control_or_command_selects_all_then_copies_without_typing_or_sending() {
         assert!(
             h.app
                 .world()
-                .resource::<UiRuntime>()
+                .resource::<UiRuntimeResource>()
                 .pending_chat_sends()
                 .is_empty()
         );
@@ -312,7 +316,7 @@ fn copy_uses_only_unicode_selection_and_no_selection_leaves_clipboard_unchanged(
     assert!(
         h.app
             .world()
-            .resource::<UiRuntime>()
+            .resource::<UiRuntimeResource>()
             .pending_chat_sends()
             .is_empty()
     );
@@ -330,7 +334,7 @@ fn alt_excludes_select_all_and_copy_shortcuts() {
     assert!(
         h.app
             .world()
-            .resource::<UiRuntime>()
+            .resource::<UiRuntimeResource>()
             .chat_editor()
             .selection()
             .is_none()

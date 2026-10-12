@@ -9,4 +9,5 @@ mod plugin;
 pub use plugin::ClientAudioPlugin;
 
 #[cfg(test)]
-mod test_allocations;
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;

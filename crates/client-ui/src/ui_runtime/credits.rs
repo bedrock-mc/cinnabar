@@ -2,7 +2,6 @@
 
 use super::{FormTransportError, UiRuntime};
 
-pub const CREDITS_SCREEN: &str = "credits.credits_screen";
 pub const CREDITS_SCROLL_PIXELS_PER_SECOND: f64 = 20.0;
 pub const CREDITS_FADE_MILLIS: u64 = 3_000;
 pub const CREDITS_SKIP_VISIBLE_MILLIS: u64 = 5_000;

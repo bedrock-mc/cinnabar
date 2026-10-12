@@ -75,14 +75,13 @@ pub use ui::{
     UiScissor,
 };
 pub use ui_textures::{
-    MAX_UI_ART_PAGES, MAX_UI_DYNAMIC_PAGES, MAX_UI_FALLBACK_FONT_PAGES, MAX_UI_MODEL_ATLAS_PAGES,
-    MAX_UI_NATIVE_SHEET_BYTES, MAX_UI_NATIVE_SHEET_PAGES, MAX_UI_NATIVE_SHEET_SIDE,
-    MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES, MAX_UI_TEXTURE_BUCKETS, UI_ART_PAGE_SIDE,
-    UI_DYNAMIC_PAGE_SIDE, UI_FALLBACK_FONT_PAGE_OFFSET, UI_FALLBACK_FONT_PAGE_SIDE,
-    UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET,
-    UI_MODEL_ATLAS_SIDE, UI_NATIVE_SHEET_PAGE_OFFSET, UI_PLAYER_SKIN_PAGE_OFFSET,
-    UI_SESSION_ICON_PAGE_OFFSET, UiTextureBucket, UiTextureCatalog, UiTextureFormat,
-    UiTextureLocation, UiTexturePage, UiTexturePlan,
+    MAX_UI_ART_PAGES, MAX_UI_DYNAMIC_PAGES, MAX_UI_MODEL_ATLAS_PAGES, MAX_UI_NATIVE_SHEET_BYTES,
+    MAX_UI_NATIVE_SHEET_PAGES, MAX_UI_NATIVE_SHEET_SIDE, MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES,
+    MAX_UI_TEXTURE_BUCKETS, UI_ART_PAGE_SIDE, UI_DYNAMIC_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET,
+    UI_LOCAL_FONT_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET, UI_MODEL_ATLAS_SIDE,
+    UI_NATIVE_SHEET_PAGE_OFFSET, UI_PLAYER_SKIN_PAGE_OFFSET, UI_SESSION_ICON_PAGE_OFFSET,
+    UiTextureBucket, UiTextureCatalog, UiTextureFormat, UiTextureLocation, UiTexturePage,
+    UiTexturePlan,
 };
 pub use visibility::{
     ExtractedCameraIdentity, GraphicsAdapterMetadata, OpaqueDrawMode, VisibilityDiagnosticSnapshot,
@@ -133,7 +132,8 @@ pub fn enhanced_rendering_enabled() -> bool {
 }
 
 #[cfg(test)]
-mod alloc_count;
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 pub mod block_entity;
 pub mod celestial;
 pub mod hand;

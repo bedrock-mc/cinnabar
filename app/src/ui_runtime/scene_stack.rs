@@ -1,6 +1,6 @@
 //! Ordered app adapter for UI scene retirement.
 use bevy::prelude::{Res, ResMut};
-use client_ui::ui_runtime::UiRuntime;
+use client_shell::ui_resources::UiRuntimeResource;
 use client_ui::ui_runtime::presentation::forms::scene_policy::MenuScene;
 use {client_shell::menu::MenuRuntime, client_state::PlayerRuntime};
 
@@ -8,7 +8,7 @@ use {client_shell::menu::MenuRuntime, client_state::PlayerRuntime};
 pub(crate) fn close_scenes_on_player_hurt(
     mut player_runtime: ResMut<PlayerRuntime>,
     menu: Option<Res<MenuRuntime>>,
-    mut runtime: ResMut<UiRuntime>,
+    mut runtime: ResMut<UiRuntimeResource>,
 ) {
     runtime.close_scenes_on_player_hurt(
         &mut player_runtime,

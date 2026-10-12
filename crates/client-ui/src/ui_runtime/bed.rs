@@ -1,15 +1,7 @@
 //! Bed screen state: sleeping shows the bed screen and a wake request leaves the bed.
 
 use super::{UiApplyOutcome, UiRuntime};
-
-/// The world's sleep status as the server last sent it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SleepStatus {
-    pub sleeping: u32,
-    /// Sleepers needed to skip the night (the `overworldPlayerCount` field).
-    pub required: u32,
-    pub able: bool,
-}
+use oreui::SleepStatus;
 
 impl UiRuntime {
     /// Tracks the local player's sleep; waking closes a chat opened from the bed.

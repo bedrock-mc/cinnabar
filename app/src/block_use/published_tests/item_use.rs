@@ -10,11 +10,11 @@ pub(super) fn hold_snowball(world: &mut World) -> (u64, i32) {
         assert!(
             stream.seed_item_registry(protocol::ItemRegistryEvent {
                 entries: [protocol::ItemRegistryEntry {
-                    components: None,
                     identifier: "minecraft:snowball".into(),
                     network_id,
                     component_based: false,
                     version: protocol::ItemRegistryVersion::None,
+                    components: None,
                     component_digest: [0; 32],
                     negotiated_max_stack_size: Some(16),
                     canonical_empty_component_data: true,
@@ -28,7 +28,7 @@ pub(super) fn hold_snowball(world: &mut World) -> (u64, i32) {
             stream.authority().current_dimension(),
         )
     };
-    world.resource_scope(|world, mut ui: Mut<UiRuntime>| {
+    world.resource_scope(|world, mut ui: Mut<UiRuntimeResource>| {
         let mut player = world.resource_mut::<client_state::PlayerRuntime>();
         let extra_data: std::sync::Arc<[u8]> = std::sync::Arc::from([]);
         ui.inventory_ledger_mut(&mut player)
@@ -88,7 +88,7 @@ fn attack_and_throw_fixture(enabled: bool) -> (World, client_session::CapturedPa
         local_runtime_id: 42,
         selection: client_interaction::block_use::verified_use_selection(
             world.resource::<client_state::PlayerRuntime>(),
-            world.resource::<UiRuntime>(),
+            world.resource::<UiRuntimeResource>(),
         ),
         swing_duration: 6,
         item_attack: None,
@@ -123,7 +123,10 @@ fn delay_fix_allows_a_throw_while_attacking_without_changing_native_timing() {
         let throws = captured
             .drain()
             .into_iter()
-            .filter(|packet| format!("{:?}", packet.data).contains("ItemUseInventoryTransaction("))
+            .filter(|packet| {
+                protocol::test_support::transactions::observe_transaction(packet)
+                    .is_some_and(|transaction| transaction.item_use().is_some())
+            })
             .count();
         assert_eq!(throws, usize::from(enabled));
     }

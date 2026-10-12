@@ -16,7 +16,7 @@ fn texture() -> ParticleTexture {
 #[test]
 fn flame_frames_retain_original_texels_and_animate_without_texture_rebuilds() {
     let mut presentation =
-        UiPresentationRuntime::new(crate::ui_runtime::presentation::tests::fixture_font()).unwrap();
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.gui_models.enabled = true;
     let source = texture();
     presentation.set_gui_fire_texture(Some(&source)).unwrap();
@@ -64,7 +64,7 @@ fn flame_frames_retain_original_texels_and_animate_without_texture_rebuilds() {
 #[test]
 fn optional_flame_texture_can_be_replaced_removed_or_rejected_without_accumulating_pages() {
     let mut presentation =
-        UiPresentationRuntime::new(crate::ui_runtime::presentation::tests::fixture_font()).unwrap();
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let mut texture = texture();
     presentation.set_gui_fire_texture(Some(&texture)).unwrap();
     let pages = presentation.gui_models.pages.len();
@@ -101,7 +101,7 @@ fn review_actor_flames_reclaim_pages_from_optional_block_models() {
     use super::super::{GuiModels, icon_key, item_gui};
     use render_model::UiTexturePage;
     let mut presentation =
-        UiPresentationRuntime::new(crate::ui_runtime::presentation::tests::fixture_font()).unwrap();
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let side = render_model::UI_MODEL_ATLAS_SIDE;
     let page =
         UiTexturePage::owned([side; 2], vec![255; (side * side * 4) as usize].into()).unwrap();
@@ -181,7 +181,7 @@ fn review_actor_flames_reclaim_pages_from_optional_block_models() {
 #[test]
 fn exhausted_required_pages_clear_previous_flame_frame_addresses() {
     let mut presentation =
-        UiPresentationRuntime::new(crate::ui_runtime::presentation::tests::fixture_font()).unwrap();
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.set_gui_fire_texture(Some(&texture())).unwrap();
     assert!(!presentation.gui_models.fire.frames.is_empty());
     let page = presentation.gui_models.pages[0].clone();

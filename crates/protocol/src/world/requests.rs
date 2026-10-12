@@ -35,7 +35,7 @@ pub fn request_sub_chunk_column(
     }
     // Field renames only: gophertunnel packet/sub_chunk_request.go still writes
     // Varint32 Dimension, then the offset slice, then the centre SubChunkPos.
-    Ok(SubChunkRequestPacket {
+    Ok(crate::Packet::new(SubChunkRequestPacket {
         dimension_type: DimensionType { value: dimension },
         sub_chunk_position_offset_list: requests,
         center_pos: SubChunkPos {
@@ -43,8 +43,7 @@ pub fn request_sub_chunk_column(
             subchunk_position_y: base_sub_chunk_y,
             subchunk_position_z: chunk_z,
         },
-    }
-    .into())
+    }))
 }
 
 pub(super) fn normalize_layer(layer: u32) -> Result<usize, WorldPacketError> {

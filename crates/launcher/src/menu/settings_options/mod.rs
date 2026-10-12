@@ -38,7 +38,7 @@ pub use definitions::{
 pub use emotes::EMOTE_SLOT_COUNT;
 pub use keybindings::{KEY_BINDINGS, OPEN_NOTIFICATION_KEY, key_name};
 pub use persistence::{SETTINGS_FILE, SETTINGS_SCHEMA};
-pub use runtime::frame_rate_limit;
+pub use runtime::{frame_rate_label, frame_rate_limit};
 
 pub const SHOW_EXACT_SERVER_PING: &str = "show_exact_server_ping";
 pub const OREUI_DARK_MODE: &str = "oreui_dark_mode";

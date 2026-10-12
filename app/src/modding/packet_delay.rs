@@ -3,7 +3,7 @@ use super::ModRuntime;
 use crate::runtime::network::resource_packs::PackApplication;
 use bevy::prelude::*;
 use client_runtime::network::NetworkHandle;
-use client_ui::ui_runtime::UiRuntime;
+use client_shell::ui_resources::UiRuntimeResource;
 use crossbeam_channel::{Sender, bounded};
 use std::{
     path::PathBuf,
@@ -186,14 +186,14 @@ fn requested(extension: Option<&ModRuntime>) -> (u32, bool) {
 pub(super) fn publish_packet_delay(
     extension: Option<Res<ModRuntime>>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
-    ui: Option<Res<UiRuntime>>,
+    ui: Option<Res<UiRuntimeResource>>,
     mut snapshot: ResMut<RealPositionSnapshot>,
     mut worker: Local<Option<Worker>>,
 ) {
     let endpoint = network
         .as_deref()
         .and_then(NetworkHandle::<PackApplication>::core_socket_dir);
-    let app_session = ui.as_deref().map_or(0, UiRuntime::session_id);
+    let app_session = ui.as_deref().map_or(0, |ui| ui.session_id());
     if worker.as_ref().is_some_and(|worker| {
         Some(worker.endpoint.as_path()) != endpoint || worker.app_session != app_session
     }) {

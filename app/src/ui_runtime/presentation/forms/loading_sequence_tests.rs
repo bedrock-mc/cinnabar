@@ -151,10 +151,10 @@ fn vanilla_loading_before_pack_arrival_survives_static_page_insertion() {
         );
         return;
     };
-    let side = client_ui::ui_runtime::oreui_assets::OREUI_PAGE_SIDE as usize;
+    let side = oreui::images::OREUI_PAGE_SIDE as usize;
     presentation
-        .enable_oreui_originals(client_ui::ui_runtime::oreui_assets::OreUiImages {
-            pages: vec![client_ui::ui_runtime::oreui_assets::OreUiPage {
+        .enable_oreui_originals(oreui::images::OreUiImages {
+            pages: vec![oreui::images::OreUiPage {
                 dimensions: [side as u32; 2],
                 pixels: vec![255; side * side * 4].into(),
             }],

@@ -23,6 +23,8 @@ pub struct BoneTransform {
 
 #[derive(Clone, Copy, Debug)]
 pub struct ActorRigSnapshot<'a> {
+    /// Coordinate frames cached with the selected rig.
+    pub placement_frame: assets::placement::EntityPlacementFrame,
     pub actor: ActorLifetimeId,
     pub rig: EntityRigId,
     pub previous: &'a [BoneTransform],

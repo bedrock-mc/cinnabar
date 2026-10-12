@@ -79,11 +79,11 @@ mod tests {
 
     fn entry(id: i32) -> ItemRegistryEntry {
         ItemRegistryEntry {
-            components: None,
             identifier: Arc::from("minecraft:oak_log"),
             network_id: id,
             component_based: false,
             version: ItemRegistryVersion::None,
+            components: None,
             component_digest: [0; 32],
             negotiated_max_stack_size: Some(64),
             canonical_empty_component_data: true,

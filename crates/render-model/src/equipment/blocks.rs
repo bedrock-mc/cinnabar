@@ -23,6 +23,25 @@ pub struct BlockSheets {
     pub models: BTreeMap<u32, Vec<crate::ActorRigVertex>>,
 }
 
+impl BlockSheets {
+    /// Lets matching authored carried faces use canonical cube UVs instead of world-model UVs.
+    /// Non-cube models retain their geometry when a carried sheet is present.
+    pub fn prefer_carried_faces(
+        &mut self,
+        world: &RuntimeAssets,
+        icons: &assets::RuntimeIconCatalog,
+    ) {
+        if icons.source_manifest_sha256() != world.provenance().source_manifest_sha256 {
+            return;
+        }
+        for sheet in icons.block_sheets() {
+            if assets::gui_item::full_cube_model_quads(world, sheet.visual).is_some() {
+                self.models.remove(&sheet.visual.0);
+            }
+        }
+    }
+}
+
 /// Shares face sheets across cube items independently of their terrain occlusion and alpha.
 pub fn collect(world: &RuntimeAssets, entities: &RuntimeEntityAssets) -> BlockSheets {
     let mut sheets = Vec::new();
@@ -46,7 +65,8 @@ pub fn collect(world: &RuntimeAssets, entities: &RuntimeEntityAssets) -> BlockSh
         }
         let model = (definition.key.identifier.as_ref() == assets::END_PORTAL_FRAME_IDENTIFIER)
             .then(|| frame_model(world, visual))
-            .flatten();
+            .flatten()
+            .or_else(|| cube_model(world, visual));
         let Some(materials) = model
             .as_ref()
             .map(|(materials, _)| *materials)
@@ -95,6 +115,29 @@ fn frame_model(
     let quads = world.model_quads().get(
         template.quad_start as usize..template.quad_start as usize + template.quad_count as usize,
     )?;
+    sheet_model(quads)
+}
+
+/// Retains full-cube models' directional UVs when world art supplies the held faces.
+fn cube_model(
+    world: &RuntimeAssets,
+    visual: u32,
+) -> Option<([u32; 6], Vec<crate::ActorRigVertex>)> {
+    if world
+        .resolve(NetworkIdMode::Sequential, visual)
+        .animation()
+        .is_some()
+    {
+        return None;
+    }
+    sheet_model(assets::gui_item::full_cube_model_quads(
+        world,
+        assets::BlockVisualId(visual),
+    )?)
+}
+
+/// Places six canonical model faces on the shared carried sheet without changing their UVs.
+fn sheet_model(quads: &[assets::ModelQuad]) -> Option<([u32; 6], Vec<crate::ActorRigVertex>)> {
     let rects = face_rects([0.0, 0.0, 1.0, 1.0]);
     let mut materials = [0; 6];
     let mut vertices = Vec::with_capacity(36);

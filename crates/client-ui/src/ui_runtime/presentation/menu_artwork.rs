@@ -19,15 +19,15 @@ use image::{ImageReader, Limits, imageops::FilterType};
 
 use super::UiPresentationRuntime;
 use ui::IconRef;
+use ui_engine::pages::WHOLE_ART_PAGE;
 
 mod skin_previews;
 use skin_previews::SkinArtwork;
-pub(crate) use skin_previews::thumbnail_key;
 mod cape_previews;
 mod packing;
 mod request_cache;
 use cape_previews::CapeArtwork;
-pub(crate) use cape_previews::{cape_texture_key, cape_thumbnail_key};
+pub(crate) use cape_previews::cape_texture_key;
 use packing::pack;
 
 use launcher::accounts::MAX_ARTWORK_BYTES as MAX_SOURCE_BYTES;
@@ -40,7 +40,6 @@ const MAX_WORKING_ALLOC: u64 = MAX_DECODE_ALLOC * 2;
 const MAX_ARTWORK_SIDE: u32 = 512;
 const SERVER_BANNER_SIDE: u32 = 960;
 const SERVER_ACTIVITY_SIDE: u32 = 256;
-const GUTTER: u32 = 1;
 const MAX_ARTWORKS: usize = 64;
 /// Longest side kept for a list thumbnail (server logos, gamerpics, badges), so
 /// a whole featured list fits the art pages beside banners.
@@ -49,8 +48,6 @@ pub const THUMBNAIL_SIDE: u32 = 128;
 /// keep 16:9 art several to a 1024 art page next to the title, so a screen's images all pack.
 const STORE_CARD_SIDE: u32 = 192;
 const STORE_FEATURE_SIDE: u32 = 480;
-/// The start screen's title texture, which Cinnabar's own logo replaces.
-pub(super) const TITLE_KEY: &str = "textures/ui/title";
 /// Prefix of a server-pack texture's full-resolution copy on the art pages, so
 /// a pack's `textures/ui/title` never collides with Cinnabar's logo.
 pub(super) const SERVER_ART_PREFIX: &str = "server-pack:";
@@ -132,7 +129,7 @@ impl Default for ArtworkLoader {
             .name("menu-artwork".to_owned())
             .spawn(move || serve(&jobs, &done));
         if let Err(error) = spawned {
-            bevy::log::warn!("menu artwork worker unavailable: {error}");
+            tracing::warn!("menu artwork worker unavailable: {error}");
         }
         // The title is packed before the first frame so the pack's own never flashes.
         let title = pack(&ArtworkSet::default(), &DecodeCache::default(), 0, true);
@@ -288,13 +285,15 @@ impl Source {
             Self::File(path, side) => (path.clone(), *side, None),
             Self::Bytes(key, bytes) => {
                 use sha2::{Digest, Sha256};
-                (key.clone(), WHOLE_PAGE, Some(Sha256::digest(bytes).into()))
+                (
+                    key.clone(),
+                    WHOLE_ART_PAGE,
+                    Some(Sha256::digest(bytes).into()),
+                )
             }
         }
     }
 }
-
-pub(super) const WHOLE_PAGE: u32 = render_model::UI_ART_PAGE_SIDE - GUTTER * 2;
 
 impl DecodeCache {
     fn missing(&self, set: &ArtworkSet) -> Vec<Source> {
@@ -316,7 +315,7 @@ impl DecodeCache {
                     Source::Skin(skin) => skin.decode(),
                     Source::Cape(cape) => cape.decode(),
                     Source::File(path, side) => decode(Path::new(path), *side),
-                    Source::Bytes(_, bytes) => decode_bytes(bytes, WHOLE_PAGE),
+                    Source::Bytes(_, bytes) => decode_bytes(bytes, WHOLE_ART_PAGE),
                 };
                 (source.key(), art)
             })

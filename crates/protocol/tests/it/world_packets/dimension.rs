@@ -11,7 +11,7 @@ fn dimension_ack_is_selected_by_subclient_without_requiring_the_action_actor_id(
             action: EnumsPlayerActionType::Changedimensionack,
             ..Default::default()
         };
-        let packet: protocol::Packet = action.into();
+        let packet: protocol::Packet = protocol::Packet::new(action);
         assert_eq!(
             into_world_event(packet.clone(), 1).unwrap(),
             Some(WorldEvent::DimensionChangeAck { runtime_id })

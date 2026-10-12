@@ -44,7 +44,7 @@ pub fn encode_font_face_bundle(
 }
 
 /// Decodes every carrier in bundle order once their pages fit one catalog's page and decoded-byte
-/// budget, rejecting any byte the digest does not cover.
+/// budget, rejecting any byte the digest does not cover. That digest is the carriers' only seal.
 pub fn decode_font_face_bundle(
     bytes: &[u8],
     source_manifest_sha256: [u8; 32],
@@ -75,7 +75,10 @@ pub fn decode_font_face_bundle(
     let mut offset = header + count * ENTRY_BYTES;
     let mut entries = Vec::with_capacity(count);
     let (mut pages, mut decoded) = (0usize, 0usize);
-    for entry in body[header..header + count * ENTRY_BYTES].chunks_exact(ENTRY_BYTES) {
+    for entry in body[header..header + count * ENTRY_BYTES]
+        .as_chunks::<ENTRY_BYTES>()
+        .0
+    {
         let em = u32::from_le_bytes(entry[..4].try_into().unwrap());
         let rendering = match entry[4] {
             0 => FontRendering::Coverage,
@@ -97,7 +100,9 @@ pub fn decode_font_face_bundle(
         pages += entry_pages;
         decoded += entry_bytes;
         if pages > MAX_FONT_PAGES || decoded > MAX_FONT_DECODED_BYTES {
-            return Err(invalid("face bundle pages exceed the shared decoded budget"));
+            return Err(invalid(
+                "face bundle pages exceed the shared decoded budget",
+            ));
         }
         entries.push((em, rendering, offset..end));
         offset = end;
@@ -108,8 +113,16 @@ pub fn decode_font_face_bundle(
     entries
         .into_iter()
         .map(|(em, rendering, range)| {
-            CompiledFontCatalog::decode(&body[range], source_manifest_sha256)
-                .map(|font| (em, rendering, font))
+            // The bundle digest seals each carrier, so its position in that digest identifies it.
+            let mut identity = Sha256::new();
+            identity.update(digest);
+            identity.update((range.start as u64).to_le_bytes());
+            CompiledFontCatalog::decode_covered(
+                &body[range],
+                source_manifest_sha256,
+                identity.finalize().into(),
+            )
+            .map(|font| (em, rendering, font))
         })
         .collect()
 }
@@ -128,7 +141,7 @@ mod tests {
                 pixels_sha256: Sha256::digest([255]).into(),
                 width: 1,
                 height: 1,
-                pixels: FontPixels::Coverage(Box::new([255])),
+                pixels: FontPixels::Coverage([255u8].into()),
             })
             .collect();
         let glyph = GlyphMetrics {
@@ -153,6 +166,34 @@ mod tests {
         assert_eq!(decode_font_face_bundle(&fits, manifest).unwrap().len(), 2);
         let over = encode_font_face_bundle(manifest, &[raster(200), raster(200)]).unwrap();
         assert!(decode_font_face_bundle(&over, manifest).is_err());
+    }
+
+    /// Bundled carriers are not rehashed against their own seals, yet any changed byte still fails.
+    #[test]
+    fn bundle_digest_alone_seals_its_carriers() {
+        let manifest = [3; 32];
+        let mut unsealed = carrier(manifest, 1).into_vec();
+        *unsealed.last_mut().unwrap() ^= 1;
+        assert!(matches!(
+            CompiledFontCatalog::decode(&unsealed, manifest),
+            Err(FontCatalogError::CarrierHashMismatch)
+        ));
+        let raster = |carrier: &[u8]| FontFaceRaster {
+            em_pixels: 52,
+            rendering: FontRendering::NativeSdf,
+            carrier: carrier.into(),
+        };
+        let bundle =
+            encode_font_face_bundle(manifest, &[raster(&unsealed), raster(&unsealed)]).unwrap();
+        let decoded = decode_font_face_bundle(&bundle, manifest).unwrap();
+        assert_ne!(decoded[0].2.identity(), decoded[1].2.identity());
+        let mut corrupt = bundle.into_vec();
+        let middle = corrupt.len() / 2;
+        corrupt[middle] ^= 1;
+        assert!(matches!(
+            decode_font_face_bundle(&corrupt, manifest),
+            Err(FontCatalogError::CarrierHashMismatch)
+        ));
     }
 }
 

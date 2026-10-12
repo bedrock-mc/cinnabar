@@ -228,7 +228,7 @@ pub fn player_auth_input_with_mining_request(
         request.packed()
     });
 
-    Ok(PlayerAuthInputPacket {
+    Ok(crate::Packet::new(PlayerAuthInputPacket {
         player_rotation: Vec2 {
             x: snapshot.pitch,
             y: snapshot.yaw,
@@ -263,8 +263,7 @@ pub fn player_auth_input_with_mining_request(
         analog_move_vector: vec2(snapshot.analogue_move_vector),
         camera_orientation: vec3(snapshot.camera_orientation),
         raw_move_vector: vec2(snapshot.raw_move_vector),
-    }
-    .into())
+    }))
 }
 
 use EnumsPlayerAuthInputPacketPayloadInputData as Item;

@@ -2,41 +2,14 @@
 
 use crate::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use assets::{
-    FontPixels, FontTexturePage, GlyphMetrics, HudTexture, HudTextureRole, RuntimeFontCatalog,
-    RuntimeHudCatalog, RuntimeUiAssets, UiAtlasPage, UiFile, encode_font_catalog,
-    encode_hud_catalog, encode_ui_catalog,
+    HudTexture, HudTextureRole, RuntimeFontCatalog, RuntimeHudCatalog, RuntimeUiAssets,
+    UiAtlasPage, UiFile, encode_hud_catalog, encode_ui_catalog,
 };
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
+use ui_engine::test_support::fixture_font;
 
 pub use crate::ui_runtime::presentation::forms::pack_harness;
-
-/// Models the shipped atlas: ink 16 texels tall sitting 14 above the baseline
-/// with a 12-texel advance, so layout geometry in these tests matches what the
-/// client actually lays out. A fixture whose glyphs hang below the baseline
-/// instead makes every row report far more height than it occupies.
-pub fn fixture_font() -> Arc<RuntimeFontCatalog> {
-    let pixels = vec![255; 16 * 16 * 4].into_boxed_slice();
-    let page = FontTexturePage {
-        source_path: "font/page.png".into(),
-        source_bytes: pixels.len() as u32,
-        source_sha256: [1; 32],
-        pixels_sha256: Sha256::digest(&pixels).into(),
-        width: 16,
-        height: 16,
-        pixels: FontPixels::Rgba8(pixels.into()),
-    };
-    let glyphs = ['/', '0', '2', '\u{fffd}'].map(|codepoint| GlyphMetrics {
-        codepoint,
-        page: 0,
-        uv: [0, 0, 12, 16],
-        bearing: [0, -14],
-        advance_64: 12 * 64,
-    });
-    let manifest = [7; 32];
-    let bytes = encode_font_catalog(manifest, &glyphs, &[page]).unwrap();
-    Arc::new(RuntimeFontCatalog::decode(&bytes, manifest).unwrap())
-}
 
 /// Builds every required HUD texture with deterministic synthetic pixels.
 pub fn fixture_hud() -> Arc<RuntimeHudCatalog> {
@@ -121,7 +94,7 @@ pub fn engine_presentation() -> Option<UiPresentationRuntime> {
 
 /// Builds an engine HUD fixture with the supplied font.
 pub fn engine_presentation_with(font: Arc<RuntimeFontCatalog>) -> Option<UiPresentationRuntime> {
-    let carrier = pack_harness::carrier()?;
+    let carrier = ui_engine::test_support::carrier()?;
     let mut presentation =
         UiPresentationRuntime::with_hud(font, fixture_hud()).expect("build fixture HUD");
     presentation

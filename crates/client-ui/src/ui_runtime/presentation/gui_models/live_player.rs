@@ -1,7 +1,7 @@
 //! The HUD uses the same geometry and evaluated bones as the world player.
 
 use super::super::UiPresentationRuntime;
-use bevy::math::{Affine3A, Quat, Vec3, Vec4};
+use glam::{Affine3A, Quat, Vec3, Vec4};
 use render_model::{ActorRigGeometry, ActorVertex, EntityRigId, RenderBoneTransform};
 
 type GeometryIdentity = (u32, Option<[u8; 32]>, Option<[u8; 32]>);

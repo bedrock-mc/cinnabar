@@ -2,8 +2,8 @@
 
 use super::{Instance, Live, Worker};
 use anyhow::Result;
-use client_ui::ui_runtime::presentation::ExperienceModal;
 use mod_host::helper::{Dispatch, Event};
+use mod_ui::experience_modal::ExperienceModal;
 use server_experience::{
     runtime::{Command, Transaction},
     screen::{self, GuiSize},

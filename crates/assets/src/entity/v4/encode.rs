@@ -22,6 +22,9 @@ use super::{
 #[derive(Serialize)]
 #[serde(deny_unknown_fields)]
 struct EntityCatalogPayloadRef<'a> {
+    item_use_profiles: &'a [super::super::item_use::ItemUseDescriptor],
+    seat_layouts: &'a [super::super::seats::EntitySeatDescriptor],
+    interaction_traits: &'a [super::super::interactions::EntityInteractionDescriptor],
     block_visual_count: u32,
     sources: &'a [EntityAssetSource],
     symbols: &'a [EntityAssetSymbol],
@@ -52,7 +55,10 @@ pub(crate) fn encode_compiled(compiled: &CompiledEntityAssets) -> Result<Box<[u8
     encode(
         compiled.source_manifest_sha256,
         EntityCatalogPayloadRef {
+            item_use_profiles: &compiled.item_use_profiles,
+            seat_layouts: &compiled.seat_layouts,
             block_visual_count: compiled.block_visual_count,
+            interaction_traits: &compiled.interaction_traits,
             sources: &compiled.sources,
             symbols: &compiled.symbols,
             geometries: &compiled.geometries,
@@ -83,7 +89,10 @@ pub(crate) fn encode_runtime(runtime: &RuntimeEntityAssets) -> Result<Box<[u8]>,
     encode(
         runtime.source_manifest_sha256,
         EntityCatalogPayloadRef {
+            item_use_profiles: &runtime.item_use_profiles,
+            seat_layouts: &runtime.seat_layouts,
             block_visual_count: runtime.block_visual_count,
+            interaction_traits: &runtime.interaction_traits,
             sources: &runtime.sources,
             symbols: &runtime.symbols,
             geometries: &runtime.geometries,

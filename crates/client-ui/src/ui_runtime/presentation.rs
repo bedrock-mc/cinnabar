@@ -1,13 +1,12 @@
 use std::{fmt, sync::Arc};
 
 use assets::{RuntimeFontCatalog, RuntimeHudCatalog, RuntimeIconCatalog};
-use bevy::prelude::Resource;
 use render_model::{UiRenderInput, UiRenderTextureArray};
 use sha2::{Digest, Sha256};
 
 use ui::{
-    DpiScale, ObfuscationGlyphs, SafeArea, TextEffects, TextLayoutCache, UiNode, UiNodeId, UiPoint,
-    UiRect, UiScale, UiVisual,
+    DpiScale, LoadingStage, ObfuscationGlyphs, SafeArea, TextEffects, TextLayoutCache, UiNode,
+    UiNodeId, UiPoint, UiRect, UiScale, UiVisual,
 };
 
 use super::scene_stack::Scene;
@@ -18,7 +17,6 @@ mod accessors;
 mod construction;
 pub mod debug_overlay;
 pub mod dynamic_textures;
-mod font_fallback;
 pub mod forms;
 mod frame;
 pub mod gui_models;
@@ -52,34 +50,32 @@ pub use forms::ServerUiPack;
 pub use session_glyphs::SessionGlyphSheets;
 pub use session_icons::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
 pub mod startup;
-pub mod text_metrics;
 pub mod texture_atlas;
 
 pub use debug_overlay::DebugLines;
-pub use forms::{BedHit, ChatHit, ExperienceModal, LoadingStage, ModScreensInput, ModalEdits};
 pub use hud_layout::HudFrame;
 use hud_layout::{HudGeometry, HudLayout};
 use launcher::menu::{MenuAction, MenuView};
-use primitives::{bounded_visible_text, rect, resolve_chat_line};
+use primitives::rect;
 #[cfg(any(test, feature = "test-support"))]
 pub use publish::commit::refresh_hud_frame;
 pub use publish::{
     capture_hud_frame,
-    commit::{PendingUiPublication, PreparedUiPublication, PreviewCapture, render_prepared_ui},
+    commit::{PendingUiPublication, PreviewCapture, render_prepared_ui},
     item_icons::ItemIconFrames,
 };
 use retained_hud::{PresentedScoreboardCache, ScoreboardOwnerNameAuthority};
 use startup::StartupPresentationState;
-use text_metrics::TextMetrics;
 use texture_atlas::{
     HudTexturePages, font_texture_array, font_texture_array_with_hud_and_icons,
     font_texture_array_with_optional_hud,
 };
 use ui::IconRef;
+use ui_engine::text_metrics::TextMetrics;
+use ui_screens::text::{bounded_visible_text, resolve_chat_line};
 
 const TEXT_CACHE_ENTRIES: usize = 1_024;
 const TEXT_CACHE_BYTES: usize = 8 * 1024 * 1024;
-const MAX_PRESENTED_TEXT_BYTES: usize = 512;
 #[derive(Debug)]
 pub enum UiPresentationError {
     InvalidFontTexture,
@@ -98,13 +94,23 @@ impl fmt::Display for UiPresentationError {
 
 impl std::error::Error for UiPresentationError {}
 
-#[derive(Resource)]
+impl From<ui_engine::engine::screen::PaintError> for UiPresentationError {
+    fn from(error: ui_engine::engine::screen::PaintError) -> Self {
+        use ui_engine::engine::screen::PaintError;
+        match error {
+            PaintError::InvalidFontTexture => Self::InvalidFontTexture,
+            PaintError::Geometry(error) => Self::Geometry(error),
+            PaintError::Text(error) => Self::Text(error),
+            PaintError::Tree(error) => Self::Tree(error),
+        }
+    }
+}
+
 pub struct UiPresentationRuntime {
     font: Arc<RuntimeFontCatalog>,
     /// The startup font without the session's glyph sheets.
     base_font: Arc<RuntimeFontCatalog>,
     mod_panel_font: Option<mod_panel_font::InstalledFont>,
-    fallback_font: Option<Arc<RuntimeFontCatalog>>,
     textures: Arc<UiRenderTextureArray>,
     texture_session: Option<u64>,
     blank_dynamic_page: render_model::UiTexturePage,
@@ -144,6 +150,7 @@ pub struct UiPresentationRuntime {
     last_hud_diagnostics: crate::ui_runtime::gameplay_hud::GameplayHudDiagnostics,
     /// This frame's world-space tags, including scores, and their retained glyph atlas.
     nametag_anchors: Vec<nametags::NametagAnchor>,
+    nametag_local_actor: Option<u64>,
     nametag_atlas: nametag_atlas::NametagAtlas,
     primitive_text: primitive_shapes::PrimitiveTextRasterizer,
     /// Stable reserved logical page for the optional preview raster.
@@ -199,8 +206,17 @@ pub struct UiPresentationRuntime {
     menu_cape_thumbnail_indices: Vec<usize>,
     /// Full settings slider geometry, including steps clipped from view.
     settings_slider_drag_targets: Vec<(MenuAction, UiRect)>,
-    menu_scrolls: menu_scroll::MenuScrolls,
-    form_presentation: forms::FormPresentation,
+    menu_scrolls: ui_engine::menu_scroll::MenuScrolls<launcher::menu::MenuAction>,
+    /// The JSON-UI engine: catalogs, layout caches and animation state.
+    engine: Option<Box<ui_engine::engine::FormEngine>>,
+    /// The server UI pack last applied to the engine, compared by identity.
+    engine_pack: Option<Arc<ServerUiPack>>,
+    /// The live catalog's screen settings, published to the runtime.
+    screen_settings: Arc<super::scene_stack::ScreenSettingsTable>,
+    /// Each screen family's own state, carried across builds.
+    screens: forms::ScreenStates,
+    /// What the last build exposes to input; reset as each build starts.
+    projections: forms::FrameProjections,
     /// Window-space rect of the sign editor's Done button in the last build.
     loading_stage: Option<LoadingStage>,
     startup: StartupPresentationState,

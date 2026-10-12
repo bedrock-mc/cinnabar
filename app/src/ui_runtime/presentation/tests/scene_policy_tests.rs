@@ -20,7 +20,7 @@ fn java_chat_keeps_the_world_and_hud_but_absorbs_gameplay() {
     let menu = MenuRuntime::new(false, 2, "Tester".into());
     let chat = client_ui::test_support::screen_settings(
         &presentation,
-        client_ui::ui_runtime::presentation::forms::chat_screen::CHAT_SCREEN,
+        ui_screens::chat_screen::CHAT_SCREEN,
     );
     let hud = client_ui::test_support::screen_settings(&presentation, json_ui::HUD_SCREEN);
     assert!(chat.absorbs_input && chat.render_game_behind);

@@ -203,6 +203,8 @@ mod tests {
     #[test]
     fn elytra_flies_until_one_damage_below_its_maximum() {
         let elytra = |identifier: &str, damage| client_world::CanonicalItemStack {
+            use_animation: assets::item_use::ItemUseAnimation::None,
+            charged_projectile_role: assets::item_use::ItemProjectileRole::None,
             grip: assets::item::grip::ItemGrip::Unresolved,
             durability: assets::item::durability::builtin_item_durability(ELYTRA_IDENTIFIER),
             identity: assets::ItemStackIdentity {
@@ -241,6 +243,8 @@ mod tests {
             .maximum()
             .unwrap();
         let elytra = |damage| client_world::CanonicalItemStack {
+            use_animation: assets::item_use::ItemUseAnimation::None,
+            charged_projectile_role: assets::item_use::ItemProjectileRole::None,
             grip: assets::item::grip::ItemGrip::Unresolved,
             durability: assets::item::durability::builtin_item_durability(ELYTRA_IDENTIFIER),
             identity: assets::ItemStackIdentity {

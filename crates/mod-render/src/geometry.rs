@@ -12,6 +12,8 @@ pub const KIND_STRIP: f32 = 1.0;
 pub const KIND_BILLBOARD: f32 = 2.0;
 pub const KIND_UPRIGHT: f32 = 3.0;
 pub const STYLE_RIBBON: f32 = 10.0;
+/// Solid camera-facing line with constant width and coverage along its length.
+pub const STYLE_UNTAPERED_RIBBON: f32 = 30.0;
 pub const STYLE_BEAM: f32 = 11.0;
 /// Billboard style ids start here, offset by pattern.
 pub const STYLE_BILLBOARD: f32 = 20.0;
@@ -89,10 +91,31 @@ pub fn build(primitives: &Primitives) -> Vec<ModVertex> {
             let b = ribbon.points[(i + 1).min(last)];
             normalize(sub(b, a))
         };
+        let mut distances = Vec::with_capacity(ribbon.points.len());
+        distances.push(0.);
+        for pair in ribbon.points.windows(2) {
+            let length = sub(pair[1], pair[0])
+                .iter()
+                .map(|v| v * v)
+                .sum::<f32>()
+                .sqrt();
+            distances.push(distances.last().copied().unwrap_or(0.) + length);
+        }
+        let length = distances.last().copied().unwrap_or(0.).max(0.0001);
         for i in 0..last {
             let ends = [i, i + 1].map(|j| {
-                let t = j as f32 / last as f32;
-                let half = ribbon.width * 0.5 * (1.0 - (1.0 - RIBBON_TAIL_WIDTH) * t);
+                let t = if ribbon.taper {
+                    j as f32 / last as f32
+                } else {
+                    distances[j] / length
+                };
+                let half = ribbon.width
+                    * 0.5
+                    * if ribbon.taper {
+                        1.0 - (1.0 - RIBBON_TAIL_WIDTH) * t
+                    } else {
+                        1.0
+                    };
                 (ribbon.points[j], tangent(j), half, t)
             });
             for [side, end] in QUAD {
@@ -104,7 +127,21 @@ pub fn build(primitives: &Primitives) -> Vec<ModVertex> {
                     ribbon.color,
                     side,
                     t,
-                    [STYLE_RIBBON, 0.0, 0.0, 1.0],
+                    [
+                        if ribbon.taper {
+                            STYLE_RIBBON
+                        } else {
+                            STYLE_UNTAPERED_RIBBON
+                                + match ribbon.pattern {
+                                    crate::LinePattern::Solid => 0.,
+                                    crate::LinePattern::Dashed => 1.,
+                                    crate::LinePattern::Dotted => 2.,
+                                }
+                        },
+                        0.0,
+                        length,
+                        1.0,
+                    ],
                 ));
             }
         }

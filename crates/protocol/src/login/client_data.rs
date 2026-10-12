@@ -3,14 +3,54 @@
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bytes::BytesMut;
-use jolyne::auth::client::{NON_EDITOR_CONNECTION_INTENT, SUPER_HIGH_MEMORY_TIER};
 use serde_json::{Value, json};
 use std::num::NonZeroI64;
 use uuid::Uuid;
 use valentine::bedrock::codec::{BedrockCodec, VarUInt};
-use valentine::bedrock::version::v1_26_51::EnumsInputMode;
+use valentine::bedrock::version::v1_26_51::{self as wire, EnumsInputMode};
 
-use crate::{ClientSkin, GAME_VERSION, PlayerInputMode};
+use crate::PlayerInputMode;
+
+/// The game version this client reports at login. The codec's source manifest is 1.26.51, but
+/// gophertunnel identifies protocol 2193 as 1.26.50 and the core accepts only that string.
+pub const GAME_VERSION: &str = "1.26.50";
+
+/// The Bedrock network protocol this client speaks.
+pub const PROTOCOL_VERSION: i32 = wire::PROTOCOL_VERSION;
+
+/// The highest Bedrock memory tier, used by desktop client-data claims.
+const SUPER_HIGH_MEMORY_TIER: u32 = 4;
+
+/// A normal gameplay connection has no editor role.
+const NON_EDITOR_CONNECTION_INTENT: u32 = 0;
+
+/// The client's own skin for the login claims; `None` at login uploads a solid-white placeholder.
+#[derive(Debug, Clone)]
+pub struct ClientSkin {
+    pub rgba8: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    pub arm_size: String,
+    pub cape: Option<ClientCape>,
+    pub geometry: Option<ClientSkinGeometry>,
+}
+
+/// Client-authored model inputs; the strings are raw and encoded only into the claims.
+#[derive(Debug, Clone)]
+pub struct ClientSkinGeometry {
+    pub resource_patch: String,
+    pub geometry_data: String,
+    pub engine_version: String,
+}
+
+/// The client's cape image and its catalog ID.
+#[derive(Debug, Clone)]
+pub struct ClientCape {
+    pub rgba8: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    pub id: String,
+}
 
 /// An opaque persisted login identifier, independent of account, device and transport identity.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -182,7 +222,6 @@ fn input_mode_value(mode: PlayerInputMode) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ClientCape, ClientSkinGeometry};
 
     /// Repeated claims and bridge JSON retain all signed bits of the caller's ID.
     #[test]
@@ -315,10 +354,7 @@ mod tests {
 
     /// Login validation requires a supported memory tier and explicit gameplay editor claims.
     #[test]
-    fn session_and_self_signed_logins_report_supported_client_capabilities() {
-        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-        use jolyne::auth::client::generate_self_signed_chain;
-
+    fn session_logins_report_supported_client_capabilities() {
         let settings = LoginSettings::default();
         let skin = ClientSkin {
             rgba8: vec![255; 64 * 64 * 4],
@@ -328,32 +364,21 @@ mod tests {
             cape: None,
             geometry: None,
         };
-        let key = p384::SecretKey::random(&mut p384::elliptic_curve::rand_core::OsRng);
         for skin in [None, Some(&skin)] {
-            let session_claims =
+            let claims =
                 login_client_data("Fixture", ClientRandomId::new(-7).unwrap(), skin, &settings);
-            let (_, client_jwt) =
-                generate_self_signed_chain(&key, "Fixture", Uuid::new_v4(), skin).unwrap();
-            let jwt_claims: Value = serde_json::from_slice(
-                &URL_SAFE_NO_PAD
-                    .decode(client_jwt.split('.').nth(1).unwrap())
-                    .unwrap(),
-            )
-            .unwrap();
-            for claims in [session_claims, jwt_claims] {
-                let tier = claims["MemoryTier"]
-                    .as_u64()
-                    .expect("an unsigned enum value");
-                assert!(
-                    tier <= u64::from(SUPER_HIGH_MEMORY_TIER),
-                    "unsupported memory tier {tier} rejects otherwise valid login claims"
-                );
-                assert_eq!(claims["ClientIsEditorCapable"], false);
-                assert_eq!(
-                    claims["ClientEditorConnectionIntent"],
-                    NON_EDITOR_CONNECTION_INTENT
-                );
-            }
+            let tier = claims["MemoryTier"]
+                .as_u64()
+                .expect("an unsigned enum value");
+            assert!(
+                tier <= u64::from(SUPER_HIGH_MEMORY_TIER),
+                "unsupported memory tier {tier} rejects otherwise valid login claims"
+            );
+            assert_eq!(claims["ClientIsEditorCapable"], false);
+            assert_eq!(
+                claims["ClientEditorConnectionIntent"],
+                NON_EDITOR_CONNECTION_INTENT
+            );
         }
     }
 

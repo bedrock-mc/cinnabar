@@ -118,7 +118,7 @@ fn draw_with(layout: Arc<TextLayout>, effects: TextEffects<'_>) -> UiDrawList {
 
 #[test]
 fn fallback_scales_to_primary_em_and_uses_its_own_sampling_per_glyph() {
-    use assets::{FontGlyphRequests, FontLineMetrics, FontRendering, SheetGlyph};
+    use assets::{FontLineMetrics, FontRendering, SheetGlyph};
     let primary = font()
         .with_line_metrics(FontLineMetrics {
             em_64: 32 * 64,
@@ -149,9 +149,12 @@ fn fallback_scales_to_primary_em_and_uses_its_own_sampling_per_glyph() {
         .unwrap()
         .with_rendering(FontRendering::NativeSdf);
     let catalog = font()
-        .with_named_font("body", &primary)
-        .unwrap()
-        .with_shared_fallback(&fallback, Arc::new(FontGlyphRequests::default()))
+        .with_named_face(
+            "body",
+            &primary,
+            &Default::default(),
+            Some(&Arc::new(fallback)),
+        )
         .unwrap();
     let native = catalog.font_named("body");
     let latin = layout("A", TextStyle::default(), &primary);

@@ -8,28 +8,26 @@ use valentine::bedrock::version::v1_26_51::{
 /// Requests respawn readiness with a zero position and the local player's runtime ID.
 #[must_use]
 pub fn respawn_request_packet(local_runtime_id: u64) -> crate::Packet {
-    RespawnPacket {
+    crate::Packet::new(RespawnPacket {
         state: EnumsPlayerRespawnState::Clientreadytospawn,
         player_runtime_id: ActorRuntimeId {
             actor_runtime_id: local_runtime_id,
         },
         ..Default::default()
-    }
-    .into()
+    })
 }
 
 /// Completes respawn readiness with zero block positions, face -1, and the local runtime ID.
 #[must_use]
 pub fn respawn_ready_packet(local_runtime_id: u64) -> crate::Packet {
-    PlayerActionPacket {
+    crate::Packet::new(PlayerActionPacket {
         action: EnumsPlayerActionType::Respawn,
         face: -1,
         player_runtime_id: ActorRuntimeId {
             actor_runtime_id: local_runtime_id,
         },
         ..Default::default()
-    }
-    .into()
+    })
 }
 
 #[cfg(test)]

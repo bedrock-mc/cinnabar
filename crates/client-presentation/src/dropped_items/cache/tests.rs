@@ -257,7 +257,7 @@ fn warm_icon_lookup_and_admission_do_not_allocate() {
         Some(0)
     );
     cache.finish_frame();
-    let before = crate::test_allocations::count();
+    let before = test_alloc::thread_allocations();
     for _ in 0..100 {
         cache.request(&key);
         assert_eq!(
@@ -269,7 +269,7 @@ fn warm_icon_lookup_and_admission_do_not_allocate() {
             Some(0)
         );
     }
-    assert_eq!(crate::test_allocations::count() - before, 0);
+    assert_eq!(test_alloc::thread_allocations() - before, 0);
 }
 
 #[test]
@@ -443,7 +443,7 @@ fn icons() -> UiPresentationRuntime {
         RuntimeIconCatalog::decode(&encode_icon_catalog([5; 32], &sprites, &entries).unwrap())
             .unwrap();
     UiPresentationRuntime::with_hud_and_icons(
-        client_ui::test_support::fixture_font(),
+        ui_engine::test_support::fixture_font(),
         client_ui::test_support::fixture_hud(),
         Arc::new(catalog),
     )

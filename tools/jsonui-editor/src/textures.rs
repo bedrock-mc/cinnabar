@@ -1,13 +1,17 @@
 //! Decoded pack textures as raster pages, plus the sidecar metadata layout and
 //! nine-slicing read. A texture resolves from the topmost layer holding it; its
 //! sidecar follows the client's rule (a `base_size` is required, else the
-//! image's own size with no slicing).
+//! image's own size with no slicing). Keys follow `ui-engine`'s texture lookup;
+//! URLs never load. Each texture keeps its own full-resolution page, and bytes
+//! the host has not supplied yet are reported as wanted.
 
 use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use json_ui::{TextureMeta, TextureSource};
+use ui_engine::sources::is_remote;
+use ui_engine::textures::texture_key;
 
 use crate::raster::Page;
 use crate::workspace::{TextureFile, Workspace};
@@ -94,7 +98,7 @@ impl<'a> Textures<'a> {
     }
 
     fn entry(&self, path: &str) -> Entry {
-        let key = texture_key(path).to_owned();
+        let key = texture_key(path.trim_start_matches('/')).to_owned();
         if let Some(entry) = self.cache.borrow().entries.get(&key) {
             self.note(&key, entry);
             return entry.clone();
@@ -118,7 +122,7 @@ impl<'a> Textures<'a> {
     }
 
     fn load(&self, key: &str) -> Entry {
-        if key.starts_with("http://") || key.starts_with("https://") {
+        if is_remote(key) {
             return Entry::Missing;
         }
         let mut workspace = self.workspace.borrow_mut();
@@ -158,17 +162,6 @@ impl TextureSource for Textures<'_> {
             _ => None,
         }
     }
-}
-
-/// Ui json sometimes spells a texture with its extension; lookups key it without.
-pub fn texture_key(path: &str) -> &str {
-    let path = path.trim_start_matches('/');
-    for extension in [".png", ".jpg", ".jpeg", ".tga"] {
-        if let Some(stem) = path.strip_suffix(extension) {
-            return stem;
-        }
-    }
-    path
 }
 
 fn decode(bytes: &[u8], path: &str) -> Option<Page> {

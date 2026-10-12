@@ -23,6 +23,7 @@ fn committed_ui_uses_the_current_local_players_name_for_credits() {
         pitch: 0.0,
         main_hand: None,
         off_hand: None,
+        held_network_ids: [0; 2],
         main_hand_metadata: 0,
         main_hand_slot: 0,
         main_hand_stack_id: None,
@@ -51,7 +52,9 @@ fn committed_ui_uses_the_current_local_players_name_for_credits() {
             .sync_local_player_pose(&feed);
         schedule.run(app.world_mut());
         assert_eq!(
-            app.world().resource::<UiRuntime>().credits_player_name(),
+            app.world()
+                .resource::<UiRuntimeResource>()
+                .credits_player_name(),
             name,
             "the production drain must refresh identity even without a UI packet"
         );

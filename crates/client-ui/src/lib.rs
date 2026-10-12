@@ -12,6 +12,5 @@ pub mod store;
 pub mod test_support;
 
 #[cfg(test)]
-mod allocation_count;
-
-pub mod physical_input;
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;

@@ -21,7 +21,9 @@ fn local_ability_packet_is_not_silently_discarded() {
         },
     };
     assert!(
-        into_world_event(packet.into(), 0).unwrap().is_some(),
+        into_world_event(protocol::Packet::new(packet), 0)
+            .unwrap()
+            .is_some(),
         "well-framed ability evidence must reach the committed world pipeline"
     );
 }
@@ -114,7 +116,7 @@ fn owned_and_raw_paths_preserve_identical_unknown_values_and_layer_order() {
         let mut encoded = Vec::new();
         packet.encode(&mut encoded).unwrap();
         assert_eq!(
-            into_world_event(packet.into(), 0).unwrap(),
+            into_world_event(protocol::Packet::new(packet), 0).unwrap(),
             Some(protocol::WorldEvent::Abilities(
                 decode_abilities_update(&encoded).unwrap()
             ))

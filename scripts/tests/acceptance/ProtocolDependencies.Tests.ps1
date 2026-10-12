@@ -234,18 +234,9 @@ Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
 $vendorRoot = Join-Path $fixtureRoot 'crates\protocol\vendor'
 Copy-Item -LiteralPath (Join-Path $vendorRoot 'valentine') `
     -Destination (Join-Path $vendorRoot 'valentine-decoy') -Recurse
-Copy-Item -LiteralPath (Join-Path $vendorRoot 'jolyne') `
-    -Destination (Join-Path $vendorRoot 'jolyne-decoy') -Recurse
-$jolyneDecoyManifest = Join-Path $vendorRoot 'jolyne-decoy\Cargo.toml'
-$jolyneDecoy = (Get-Content -Raw -LiteralPath $jolyneDecoyManifest).Replace(
-    'path = "../valentine"',
-    'path = "../valentine-decoy"'
-)
-Set-Content -LiteralPath $jolyneDecoyManifest -NoNewline -Value $jolyneDecoy
 $canonicalStringDecoys = @'
 [dependencies]
 valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }
-jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_51"] }
 '@
 $quotedWrongPaths = $canonicalManifest.Replace(
     'publish = false',
@@ -253,9 +244,6 @@ $quotedWrongPaths = $canonicalManifest.Replace(
 ).Replace(
     'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }',
     '"valentine" = { path = "vendor/valentine-decoy", default-features = false, features = ["bedrock_1_26_51"] }'
-).Replace(
-    'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_51"] }',
-    '"jolyne" = { path = "vendor/jolyne-decoy", default-features = false, features = ["client", "bedrock_1_26_51"] }'
 )
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $quotedWrongPaths
 Assert-ThrowsLike {
@@ -328,16 +316,16 @@ Assert-ThrowsLike {
 Set-Content -LiteralPath $lockPath -NoNewline -Value $canonicalLock
 
 $driftedLock = $canonicalLock.Replace(
-    "name = `"jolyne`"`r`nversion = `"0.1.0`"",
-    "name = `"jolyne`"`r`nversion = `"0.1.0`"`r`n`tchecksum = `"$('2' * 64)`""
+    "name = `"valentine`"`r`nversion = `"0.1.0`"",
+    "name = `"valentine`"`r`nversion = `"0.1.0`"`r`n`tchecksum = `"$('2' * 64)`""
 )
 if ($driftedLock -ceq $canonicalLock) {
     $driftedLock = $canonicalLock.Replace(
-        "name = `"jolyne`"`nversion = `"0.1.0`"",
-        "name = `"jolyne`"`nversion = `"0.1.0`"`n`tchecksum = `"$('2' * 64)`""
+        "name = `"valentine`"`nversion = `"0.1.0`"",
+        "name = `"valentine`"`nversion = `"0.1.0`"`n`tchecksum = `"$('2' * 64)`""
     )
 }
-Assert-True ($driftedLock -cne $canonicalLock) 'checksum drift fixture did not mutate Jolyne resolution'
+Assert-True ($driftedLock -cne $canonicalLock) 'checksum drift fixture did not mutate Valentine resolution'
 Set-Content -LiteralPath $lockPath -NoNewline -Value $driftedLock
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot

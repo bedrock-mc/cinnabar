@@ -37,7 +37,7 @@ impl Harness {
             .init_resource::<SemanticInputRuntime>()
             .init_resource::<SemanticInputSnapshot>()
             .init_resource::<EmoteInputConsumed>()
-            .insert_resource(runtime)
+            .insert_resource(UiRuntimeResource(runtime))
             .insert_resource(player)
             .add_systems(
                 Update,
@@ -92,7 +92,7 @@ impl Harness {
     }
 
     fn runtime(&self) -> &UiRuntime {
-        self.app.world().resource::<UiRuntime>()
+        self.app.world().resource::<UiRuntimeResource>()
     }
 
     fn play(&mut self) {
@@ -190,7 +190,7 @@ fn same_frame_open_and_play_consumes_already_sampled_gameplay_controls() {
 fn stationary_pointer_preserves_keyboard_selection_until_accept() {
     let mut h = Harness::new();
     {
-        let mut runtime = h.app.world_mut().resource_mut::<UiRuntime>();
+        let mut runtime = h.app.world_mut().resource_mut::<UiRuntimeResource>();
         let emotes = runtime.emotes_mut();
         emotes.open();
         emotes.change_emotes();
@@ -294,7 +294,7 @@ fn controller_can_equip_and_play_the_left_slot_using_the_opening_button() {
     assert_eq!(h.runtime().emotes().selected_slot(), None);
     h.app
         .world_mut()
-        .resource_mut::<UiRuntime>()
+        .resource_mut::<UiRuntimeResource>()
         .emotes_mut()
         .change_emotes();
     press(&mut h, GamepadButton::DPadLeft);
@@ -367,7 +367,7 @@ fn new_session_cannot_resume_an_old_emote() {
     h.press(KeyCode::KeyB);
     h.app
         .world_mut()
-        .resource_scope(|world, mut runtime: Mut<UiRuntime>| {
+        .resource_scope(|world, mut runtime: Mut<UiRuntimeResource>| {
             let mut player = world.resource_mut::<PlayerRuntime>();
             player.begin_session(2);
             runtime.begin_session(2);

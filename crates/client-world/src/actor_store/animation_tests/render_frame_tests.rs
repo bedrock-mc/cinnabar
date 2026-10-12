@@ -80,7 +80,9 @@ fn occluded_ordinary_rigs_preserve_the_budget_for_visible_frame_layers() {
     marker_slot.first_candidate = 1;
     compiled.render.slots = vec![compiled.render.slots[0], marker_slot].into_boxed_slice();
     compiled.render.candidates = vec![compiled.render.candidates[0]; 2].into_boxed_slice();
-    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let assets = Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+    );
     let mut store = ActorStore::new_with_entity_assets(1, 0, assets);
     for (runtime_id, identifier) in [(1, "minecraft:test"), (2, "minecraft:visible_marker")] {
         let mut actor = super::actor_with_metadata(HashMap::new());

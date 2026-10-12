@@ -82,6 +82,39 @@ pub struct ActorPresentationState<'w, 's> {
     camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
 }
 
+/// Optional validated cosmetic tint of already active native actor damage overlays.
+#[derive(Resource, Default)]
+pub struct ActorPresentationStyle {
+    pub hurt_color: Option<[f32; 4]>,
+    pub hurt_armor_color: Option<[f32; 4]>,
+    /// Native admitted ray target; never a guest-provided actor identity.
+    pub attackable_actor: Option<u64>,
+    pub attackable_color: Option<[f32; 4]>,
+}
+
+/// Selects cosmetic color without treating a reach overlay as evidence of damage.
+fn cosmetic_overlay(
+    style: &ActorPresentationStyle,
+    hurt: bool,
+    armor: bool,
+    native_overlay: bool,
+    attackable: bool,
+) -> Option<[f32; 4]> {
+    if hurt {
+        if armor {
+            style.hurt_armor_color
+        } else if native_overlay {
+            style.hurt_color
+        } else {
+            None
+        }
+    } else if attackable {
+        style.attackable_color
+    } else {
+        None
+    }
+}
+
 /// The frame fraction the actor rigs interpolate at, for overlays anchored to actors.
 #[derive(Resource, Default)]
 pub struct ActorFramePartialTick(pub f32);
@@ -196,6 +229,7 @@ fn apply_session_geometry(
 #[derive(SystemParam)]
 pub struct ActorFramePublication<'w, 's> {
     time: Res<'w, Time<Real>>,
+    actor_style: Option<Res<'w, ActorPresentationStyle>>,
     state: ResMut<'w, ActorFrameState>,
     scene: ResMut<'w, ActorRenderScene>,
     prepared: ResMut<'w, PreparedActorPublication>,
@@ -216,10 +250,12 @@ pub fn prepare_actor_render_frame(
     mut client_world: ActorWorld<'_>,
     swing_progress: Option<actor_animation::LocalSwingProgress>,
     hides_box: impl Fn(&WorldStream, [f32; 3], [f32; 3], [f32; 3]) -> bool,
+    icons: Option<&client_ui::ui_runtime::presentation::UiPresentationRuntime>,
     params: ActorFramePublication,
 ) {
     let ActorFramePublication {
         time,
+        actor_style,
         mut state,
         mut scene,
         mut prepared,
@@ -733,6 +769,35 @@ pub fn prepare_actor_render_frame(
     {
         scene.configure_artwork(pages);
     }
+    if let Some(style) = actor_style.as_ref() {
+        for submission in &mut batch.submissions {
+            let armor = (3..=6).contains(&submission.input.identity.layer);
+            let hurt = client_world.stream.as_ref().is_some_and(|stream| {
+                stream
+                    .authority()
+                    .actor(submission.input.identity.runtime_id)
+                    .is_some_and(|actor| actor.hurt_overlay_active())
+            });
+            let attackable = style.attackable_actor == Some(submission.input.identity.runtime_id)
+                && client_world.stream.as_ref().is_some_and(|stream| {
+                    stream
+                        .authority()
+                        .actor(submission.input.identity.runtime_id)
+                        .is_some_and(|actor| {
+                            matches!(actor.kind, protocol::ActorKind::Player { .. })
+                        })
+                });
+            if let Some(color) = cosmetic_overlay(
+                style,
+                hurt,
+                armor,
+                submission.overlay_rgba8 != 0,
+                attackable,
+            ) {
+                submission.overlay_rgba8 = render_model::pack_overlay_rgba8(color);
+            }
+        }
+    }
     // Hiding skin layers keeps armor and held items visible.
     if let Some(stream) = client_world.stream.as_ref() {
         for submission in &mut batch.submissions {
@@ -820,6 +885,7 @@ pub fn prepare_actor_render_frame(
         hand_light
     };
     dropped_items.publish(
+        icons,
         client_world.stream.as_deref(),
         client_world.collisions,
         camera_position.map(|position| {

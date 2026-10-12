@@ -767,9 +767,9 @@ mod tests {
         let mut system = IntoSystem::into_system(prepare_media_screens);
         system.initialize(app.world_mut());
         system.run((), app.world_mut()).unwrap();
-        let before = crate::alloc_count::thread_allocations();
+        let before = test_alloc::thread_allocations();
         system.run((), app.world_mut()).unwrap();
-        assert_eq!(crate::alloc_count::thread_allocations() - before, 0);
+        assert_eq!(test_alloc::thread_allocations() - before, 0);
         assert_eq!(
             app.world().resource::<MediaScreenGpu>().draws,
             [Some(7), Some(8), None]

@@ -51,6 +51,7 @@ pub(super) fn head_feed() -> client_world::LocalPlayerFeed {
         pitch: 5.0,
         main_hand: None,
         off_hand: None,
+        held_network_ids: [0; 2],
         main_hand_metadata: 0,
         main_hand_slot: 0,
         main_hand_stack_id: None,
@@ -312,6 +313,7 @@ fn retained_item_does_not_use_the_selected_items_clock() {
 #[test]
 fn native_and_modern_items_stay_retained_until_equip_adopts_them() {
     let item = |identifier: &str| WornItem {
+        use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
         identifier: identifier.into(),
         metadata: 0,
@@ -340,6 +342,7 @@ fn native_and_modern_items_stay_retained_until_equip_adopts_them() {
 #[test]
 fn outgoing_main_use_is_idle_while_offhand_keeps_the_actual_owner_use() {
     let item = |identifier: &str| WornItem {
+        use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
         identifier: identifier.into(),
         metadata: 0,
@@ -413,6 +416,7 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
         .unwrap(),
     );
     let item = |identifier: &str| WornItem {
+        use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
         identifier: identifier.into(),
         metadata: 0,
@@ -536,6 +540,7 @@ fn partial_layers_skip_missing_parts() {
 /// Builds a sprite stack for the hand transition tests.
 fn worn(identifier: &str) -> WornItem {
     WornItem {
+        use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
         identifier: Arc::from(identifier),
         metadata: 0,
@@ -594,6 +599,7 @@ fn mixed_swaps_change_hands_at_the_bottom_of_the_dip() {
 fn displayed_stack_keeps_its_data_value_through_the_dip() {
     let water = worn("minecraft:potion");
     let healing = WornItem {
+        use_facts: client_world::EffectiveItemUse::default(),
         metadata: 21,
         ..worn("minecraft:potion")
     };
@@ -662,6 +668,7 @@ fn local_death_root_reapplies_java_tilt_and_preserves_native_mode() {
 fn outgoing_metadata_variant_keeps_its_own_idle_use_clock() {
     let owner = ActorEquipmentInput {
         main: Some(WornItem {
+            use_facts: client_world::EffectiveItemUse::default(),
             metadata: 21,
             ..worn("minecraft:potion")
         }),
@@ -789,9 +796,9 @@ fn java_frames_between_ticks_allocate_only_published_poses() {
             &mut scratch,
         ));
         scratch.begin_frame();
-        let before = crate::test_allocations::count();
+        let before = test_alloc::thread_allocations();
         let posed = third_person(&stream, &rig, actor, Some(&equipment), 0.5, &mut scratch);
-        let allocations = crate::test_allocations::count() - before;
+        let allocations = test_alloc::thread_allocations() - before;
         let layers = posed.unwrap().posed.skin_layers.len() as u64;
         assert_eq!(layers, u64::from(animated));
         let published = 1 + if layers > 0 { 1 + layers } else { 0 };

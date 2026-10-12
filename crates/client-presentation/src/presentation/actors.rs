@@ -357,7 +357,8 @@ pub(crate) fn sampled_rig_placement(
 ) -> Option<([[f32; 4]; 3], f32)> {
     let alpha = alpha.clamp(0.0, 1.0);
     let position = interpolated_position(actor, alpha)?;
-    let yaw = if is_billboard(actor) || actor.target_rotation_is_absolute() {
+    let yaw = if rig.placement_frame.placement() == Some(assets::placement::ActorYawFrame::Absolute)
+    {
         0.0
     } else {
         lerp_degrees(rig.previous_body_yaw, rig.body_yaw, alpha)
@@ -752,15 +753,6 @@ pub(crate) fn wrap_degrees(degrees: f32) -> f32 {
     (degrees + 180.0).rem_euclid(360.0) - 180.0
 }
 
-/// Projectile bones carry absolute rotation; billboard bones carry the camera's rotation.
-fn is_billboard(actor: &ActorSnapshot) -> bool {
-    matches!(&actor.kind, ActorKind::Entity { identifier } if matches!(identifier.as_ref(),
-        "minecraft:xp_bottle" | "minecraft:ender_pearl" | "minecraft:xp_orb"
-        | "minecraft:dragon_fireball" | "minecraft:fireball" | "minecraft:snowball"
-        | "minecraft:small_fireball" | "minecraft:splash_potion" | "minecraft:egg"
-        | "minecraft:eye_of_ender_signal" | "minecraft:lingering_potion"))
-}
-
 fn quaternion_from_euler_degrees(rotation: [f32; 3]) -> [f32; 4] {
     let [x, y, z] = rotation.map(|value| value.to_radians() * 0.5);
     let (sx, cx) = x.sin_cos();
@@ -932,3 +924,7 @@ mod layer_pass_tests {
 #[cfg(test)]
 #[path = "actors/native_skin_tests.rs"]
 mod native_skin_tests;
+
+#[cfg(test)]
+#[path = "actors/placement_frame_tests.rs"]
+mod placement_frame_tests;

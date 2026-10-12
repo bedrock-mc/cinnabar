@@ -92,7 +92,7 @@ fn ui_presentation() -> client_ui::ui_runtime::presentation::UiPresentationRunti
         .into_runtime();
     let mut presentation = UiPresentationRuntime::with_hud(pack_harness::font(), hud).unwrap();
     presentation
-        .enable_json_ui(pack_harness::carrier().expect("installed JSON-UI carrier"))
+        .enable_json_ui(ui_engine::test_support::carrier().expect("installed JSON-UI carrier"))
         .unwrap();
     presentation.hud_frame_mut().first_person = true;
     presentation

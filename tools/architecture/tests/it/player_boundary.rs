@@ -261,6 +261,41 @@ fn declared_vendor_manifests_are_followed_instead_of_hiding_transitive_edges() {
         == "inventory: forbidden dependency path `inventory -> protocol -> wire -> bevy`"));
 }
 
+/// A vendored package is a dependency of its owner only, including through dev-dependencies.
+#[test]
+fn vendored_packages_are_dependencies_of_their_owner_only() {
+    let temp = fixture();
+    let root = temp.path();
+    let policy = fs::read_to_string(root.join("policy.toml")).unwrap();
+    write(
+        &root.join("policy.toml"),
+        &format!(
+            "{policy}\n[[vendored]]\npath='crates/protocol/vendor/'\nownership_record='crates/protocol/vendor/UPSTREAM.md'\nowner='protocol'\n"
+        ),
+    );
+    write(
+        &root.join("crates/protocol/vendor/UPSTREAM.md"),
+        "Fixture vendor",
+    );
+    write(
+        &root.join("crates/protocol/vendor/wire/Cargo.toml"),
+        "[package]\nname='wire'\nversion='1'\n",
+    );
+    set_dependencies(
+        root,
+        "protocol",
+        "[dependencies]\nwire={path='vendor/wire'}",
+    );
+    let owned = "inventory: dependency `wire` is vendored for `protocol` only";
+    assert!(!diagnostics(root).iter().any(|line| line == owned));
+    set_dependencies(
+        root,
+        "inventory",
+        "[dev-dependencies]\nwire={path='../protocol/vendor/wire'}",
+    );
+    assert!(diagnostics(root).iter().any(|line| line == owned));
+}
+
 #[test]
 fn external_modules_inherit_test_cfg_but_any_production_import_remains_checked() {
     let temp = fixture();

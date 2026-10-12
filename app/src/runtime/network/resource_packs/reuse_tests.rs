@@ -27,13 +27,7 @@ fn admitted(archive: &ResourcePackArchive) -> Arc<ValidatedPackStack> {
 
 /// An otherwise empty StartGame.
 fn game_data() -> protocol::GameData {
-    protocol::GameData {
-        start_game: Default::default(),
-        item_registry: Default::default(),
-        biome_definitions: None,
-        entity_identifiers: None,
-        creative_content: None,
-    }
+    protocol::GameData::default()
 }
 
 /// A join's pack facts for a copy of `archive` under `game_data`.
@@ -393,7 +387,9 @@ fn the_post_join_reload_publishes_the_join_outputs() {
         .begin_session(1, &joined);
     settle(&mut app, 1);
     assert!(app.world().resource::<PackReload>().error().is_none());
-    let ui = app.world().resource::<client_ui::ui_runtime::UiRuntime>();
+    let ui = app
+        .world()
+        .resource::<client_shell::ui_resources::UiRuntimeResource>();
     assert!(same(&ui.session_glyphs().cloned(), &joined.glyph_sheets));
     assert!(same(&ui.server_ui().cloned(), &joined.server_ui));
     let world = app.world().resource::<crate::runtime::world::ClientWorld>();

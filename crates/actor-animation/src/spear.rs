@@ -2,7 +2,7 @@
 
 use assets::{MolangEaseCurve as Curve, MolangEaseMode as Mode, MolangFunction, MolangOp};
 
-use {super::*, world::TICK_DURATION as ACTOR_TICK_DURATION};
+use {super::*, simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION};
 
 type PoseValue = fn(&SpearPose) -> f32;
 const MODEL_SCALE: f32 = 40.0;

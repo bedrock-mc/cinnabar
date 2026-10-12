@@ -287,7 +287,7 @@ impl MenuRuntime {
             ]),
             Screen::Templates => Some(vec![
                 MenuAction::LocalWorld(A::BeginCreate),
-                MenuAction::Store(client_ui::store::OPEN),
+                MenuAction::Store(launcher::store::OPEN),
             ]),
             Screen::ConfirmDelete => local(&[A::Back, A::ConfirmDelete]),
             Screen::ConfirmLeaveEdit => local(&[A::Save, A::Discard]),

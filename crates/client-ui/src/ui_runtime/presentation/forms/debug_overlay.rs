@@ -2,8 +2,9 @@
 
 use ui::UiNode;
 
-use super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime, debug_overlay};
-use super::engine::{EngineInputs, EngineOutput, ScreenArt};
+use super::super::{UiPresentationError, UiPresentationRuntime, debug_overlay};
+use ui_engine::engine::{ScreenArt, screen::PaintFrame};
+use ui_engine::text_metrics::TextMetrics;
 
 impl UiPresentationRuntime {
     pub(in super::super) fn append_debug_overlay(
@@ -13,17 +14,15 @@ impl UiPresentationRuntime {
         metrics: TextMetrics,
         content: [f32; 2],
     ) -> Result<(), UiPresentationError> {
-        let (Some(lines), Some(engine)) = (
-            self.debug_lines.as_ref(),
-            self.form_presentation.engine.as_deref(),
-        ) else {
+        let (Some(lines), Some(engine)) = (self.debug_lines.as_ref(), self.engine.as_deref())
+        else {
             return Ok(());
         };
         if content.iter().any(|axis| *axis <= 0.0) {
             return Ok(());
         }
         #[cfg(feature = "tracy")]
-        let _span = bevy::log::info_span!("ui.f3.paint").entered();
+        let _span = tracing::info_span!("ui.f3.paint").entered();
         let metrics = debug_overlay::visible::fitted_metrics(metrics, content[1]);
         let scale = metrics.scale.get();
         self.debug_overlay.retain_font(&self.font);
@@ -54,7 +53,7 @@ impl UiPresentationRuntime {
         let mut painted = std::mem::take(&mut cache.painted);
         painted.nodes.clear();
         let mut paint_next = 1;
-        let inputs = EngineInputs {
+        let mut paint_frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
             metrics,
@@ -63,13 +62,12 @@ impl UiPresentationRuntime {
             content,
             translate: &|_| None,
             language: [0; 3],
-        };
-        let out = EngineOutput {
+            now: 0.0,
             nodes: &mut painted.nodes,
             next: &mut paint_next,
-            overlay: &[],
+            renderers: &mut [],
         };
-        engine.draw(ScreenArt::default(), inputs, out, |env, root| {
+        engine.draw(ScreenArt::default(), &mut paint_frame, |env, root| {
             Some(debug_overlay::render(cache, lines, (root, scale), env))
         })?;
         painted.key = Some(key);

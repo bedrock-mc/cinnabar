@@ -210,7 +210,7 @@ fn credits_logo_and_first_poem_row_have_a_content_separator() {
         assert!(logo_bottom.is_finite(), "the runtime logo is painted");
         assert!(first_glyph_top.is_finite(), "the first poem row is painted");
         assert!(
-            first_glyph_top - logo_bottom >= forms::credits_content::CONTENT_FILE_GAP * px,
+            first_glyph_top - logo_bottom >= ui_screens::credits_content::CONTENT_FILE_GAP * px,
             "the logo and poem need their content-file separator: logo bottom {logo_bottom}, first glyph top {first_glyph_top}, GUI scale {px}"
         );
         break;
@@ -353,7 +353,7 @@ fn a_new_credits_screen_cannot_use_an_old_skip_hit_region_before_its_first_paint
 
 #[test]
 fn credits_pack_skip_can_be_revealed_again_late_in_the_poem() {
-    let Some(carrier) = forms::pack_harness::carrier() else {
+    let Some(carrier) = ui_engine::test_support::carrier() else {
         return;
     };
     let player = player_state::PlayerState::new(1);

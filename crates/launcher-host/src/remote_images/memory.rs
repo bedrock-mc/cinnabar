@@ -72,10 +72,6 @@ impl Entries {
     }
 }
 
-pub fn is_remote(path: &str) -> bool {
-    path.starts_with("https://") || path.starts_with("http://")
-}
-
 impl RemoteImages {
     /// The download state of `url`, starting its download on first sight.
     pub fn state(&self, url: &str) -> RemoteState {

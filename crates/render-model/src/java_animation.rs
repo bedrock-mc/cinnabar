@@ -347,7 +347,7 @@ pub fn first_person_item(hand: JavaHand, mesh: JavaItemMesh, rotate_around: bool
             stack.rotate_y(-12.0);
             stack.rotate_x(-8.0);
             stack.translate(-0.9, 0.2, 0.0);
-            let mut draw = pull / 20.0;
+            let mut draw = pull / simulation_clock::TICKS_PER_SECOND as f32;
             draw = (draw * draw + draw * 2.0) / 3.0;
             draw = draw.min(1.0);
             if draw > 0.1 {

@@ -437,15 +437,11 @@ fn changing_only_the_skin_engine_version_updates_the_local_and_wire_selection() 
     let previous = Some((SkinModel::Custom, Arc::from("0.0.0")));
     let outcome = Outcome::new(&view, Some(skin.clone()), previous, [9; 16], true);
     assert!(outcome.changed);
-    let protocol::wire::valentine::bedrock::version::v1_26_51::McpePacketData::PlayerSkinPacket(
-        packet,
-    ) = outcome.packet.unwrap().data
-    else {
-        panic!("skin packet");
-    };
+    let packet = outcome.packet.unwrap();
     assert_eq!(
-        packet.serialized_skin.geometry_data_min_engine_version,
-        "1.12.0"
+        protocol::test_support::packets::skin_engine_version(&packet),
+        Some("1.12.0"),
+        "skin packet"
     );
     let unchanged = Outcome::new(
         &view,

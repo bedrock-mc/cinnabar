@@ -1,20 +1,16 @@
 use std::cell::Cell;
 
+use crate::raw_packet::{RawPacket, decode_packet_raw};
 use bytes::BytesMut;
-use jolyne::raw::{RawPacket, decode_packet_raw};
-use valentine::bedrock::{
-    context::BedrockSession,
-    version::v1_26_51::{ActorRuntimeId, ShowCreditsPacket},
-};
+use valentine::bedrock::version::v1_26_51::{ActorRuntimeId, ShowCreditsPacket};
 
 fn raw_credits(runtime_id: u64, credits_state: i32) -> RawPacket {
-    let packet: crate::Packet = ShowCreditsPacket {
+    let packet: crate::Packet = crate::Packet::new(ShowCreditsPacket {
         player_runtime_id: ActorRuntimeId {
             actor_runtime_id: runtime_id,
         },
         credits_state,
-    }
-    .into();
+    });
     let mut frame = BytesMut::new();
     packet
         .data
@@ -25,10 +21,9 @@ fn raw_credits(runtime_id: u64, credits_state: i32) -> RawPacket {
 
 #[test]
 fn credits_start_reaches_raw_world_ingress_with_the_addressed_actor() {
-    let session = BedrockSession { shield_item_id: 0 };
     for runtime_id in [0, 71, u64::MAX] {
         let event =
-            super::decode_world_raw_with(raw_credits(runtime_id, 0), 2, |raw| raw.decode(&session))
+            super::decode_world_raw_with(raw_credits(runtime_id, 0), 2, super::decode_test_raw)
                 .unwrap();
         assert_eq!(
             event,
@@ -41,12 +36,11 @@ fn credits_start_reaches_raw_world_ingress_with_the_addressed_actor() {
 
 #[test]
 fn non_start_credits_states_are_decoded_then_ignored_without_session_failure() {
-    let session = BedrockSession { shield_item_id: 0 };
     for credits_state in [1, -1, i32::MAX] {
         let decoded = Cell::new(false);
         let event = super::decode_world_raw_with(raw_credits(71, credits_state), 2, |raw| {
             decoded.set(true);
-            raw.decode(&session)
+            super::decode_test_raw(raw)
         })
         .unwrap();
         assert!(
@@ -67,8 +61,7 @@ fn truncated_credits_are_a_fatal_wire_fault() {
     valentine::protocol::wire::write_var_u32(&mut frame, payload.len() as u32);
     frame.extend_from_slice(&payload);
     let raw = decode_packet_raw(&mut frame.freeze()).unwrap();
-    let session = BedrockSession { shield_item_id: 0 };
-    let error = super::decode_world_raw_with(raw, 2, |raw| raw.decode(&session))
+    let error = super::decode_world_raw_with(raw, 2, super::decode_test_raw)
         .expect_err("a truncated credits packet must not be skipped by the raw filter");
     let mut skipped = 0;
     assert!(super::skip_semantic_world_error(error, &mut skipped).is_err());

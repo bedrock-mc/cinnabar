@@ -39,7 +39,7 @@ fn persona_animation_raster_survives_player_list_normalization() {
         ))],
     };
     let Some(WorldEvent::Actor(ActorEvent::PlayerList(update))) =
-        into_world_event(packet.into(), 0).unwrap()
+        into_world_event(protocol::Packet::new(packet), 0).unwrap()
     else {
         panic!("player list");
     };

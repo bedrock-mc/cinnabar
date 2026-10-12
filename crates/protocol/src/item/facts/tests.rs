@@ -53,7 +53,7 @@ fn tail_is_borrowed_and_projectile_work_is_limited_to_crossbows() {
         Some("minecraft:arrow")
     );
     let ((ordinary_again, charged_again), allocations) =
-        crate::test_allocations::measure(|| (cache.get(&extra, false), cache.get(&extra, true)));
+        test_alloc::count(|| (cache.get(&extra, false), cache.get(&extra, true)));
     assert!(Arc::ptr_eq(&ordinary_again, &charged_again));
     assert!(Arc::ptr_eq(&ordinary, &ordinary_again));
     assert_eq!(allocations, 0);
@@ -89,8 +89,8 @@ fn warmed_presentation_facts_do_not_allocate() {
     let cache = ItemStackFactsCache::default();
     let facts = cache.get(&source, false);
     assert_eq!(facts.display.name.as_deref(), Some("A tool"));
-    let (uncached, fresh_allocations) = crate::test_allocations::measure(|| item_display(&source));
-    let (shared, allocations) = crate::test_allocations::measure(|| cache.get(&source, false));
+    let (uncached, fresh_allocations) = test_alloc::count(|| item_display(&source));
+    let (shared, allocations) = test_alloc::count(|| cache.get(&source, false));
     assert_eq!(uncached.name, shared.display.name);
     assert!(Arc::ptr_eq(&facts, &shared));
     assert_eq!(allocations, 0);

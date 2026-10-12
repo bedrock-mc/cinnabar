@@ -52,10 +52,16 @@ impl Context {
         self.pack.cache.join("resource_pack")
     }
 
-    /// The behavior pack, when it ships the item definitions equipment reads.
+    /// Includes either item or entity definitions so equipment pins the same entity carrier.
     pub(super) fn behavior_pack(&self) -> Option<PathBuf> {
         let dir = self.pack.cache.join("behavior_pack");
-        dir.join("items").is_dir().then_some(dir)
+        (dir.join("items").is_dir() || dir.join("entities").is_dir()).then_some(dir)
+    }
+
+    /// Includes behavior entity definitions independently from equipment item definitions.
+    pub(super) fn seat_behavior_pack(&self) -> Option<PathBuf> {
+        let directory = self.pack.cache.join("behavior_pack");
+        directory.join("entities").is_dir().then_some(directory)
     }
 
     /// The source manifest `carrier` declares.

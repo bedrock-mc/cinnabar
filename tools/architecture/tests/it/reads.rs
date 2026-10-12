@@ -46,6 +46,7 @@ fn undeclared_reads_of_another_crate_fail() {
     for source in [
         "const TABLE: &str = include_str!(\"../../beta/data/table.tsv\");",
         "const TABLE: &[u8] = include_bytes!(\"../../beta/data/table.tsv\");",
+        "const TABLE: &str = concat!(include_str!(\"../../beta/data/table.tsv\"), \"\\n\");",
         "const TABLE: &str = include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../beta/data/table.tsv\"));",
         "fn table() -> std::path::PathBuf { std::path::Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(\"../beta/data/table.tsv\") }",
         "fn table() -> std::path::PathBuf { std::path::Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(\"../../crates/beta/data/table.tsv\") }",

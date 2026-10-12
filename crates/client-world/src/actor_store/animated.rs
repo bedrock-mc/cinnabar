@@ -103,10 +103,6 @@ impl AnimatedActor for ActorSnapshot {
         self.status.dead
     }
 
-    fn target_rotation_is_absolute(&self) -> bool {
-        ActorSnapshot::target_rotation_is_absolute(self)
-    }
-
     fn network_position_offset(&self) -> f32 {
         ActorSnapshot::network_position_offset(self)
     }

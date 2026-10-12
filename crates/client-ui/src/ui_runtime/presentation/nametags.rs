@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use assets::RuntimeFontCatalog;
-use bevy::{camera::Camera, math::Vec3, prelude::GlobalTransform};
 use client_world::ActorSnapshot;
+use glam::Vec3;
 use protocol::{ActorKind, ActorMetadataValue};
 use render_model::{MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NametagRecord, NametagScene};
 use ui::{FONT_DESIGN_PIXEL_TEXELS, TextLayoutCache};
@@ -44,6 +44,13 @@ pub struct NametagAnchor {
     pub(super) depth_tested: bool,
     pub(super) text_alpha: f32,
     pub(super) distance: f32,
+}
+
+impl NametagAnchor {
+    /// Native actor identity for presentation filters against retained world facts.
+    pub const fn runtime_id(&self) -> u64 {
+        self.runtime_id
+    }
 }
 
 fn actor_flag(actor: &ActorSnapshot, bit: u32) -> bool {
@@ -156,14 +163,12 @@ pub fn extract_nametag(
 pub fn project_nametags(
     scoreboards: &ui::ScoreboardStore,
     stream: &chunk_pipeline::WorldStream,
-    _camera: &Camera,
-    camera_transform: &GlobalTransform,
+    eye: Vec3,
     _logical_size: [f32; 2],
     picked_actor: Option<u64>,
     partial_tick: f32,
     show_players: bool,
 ) -> Vec<NametagAnchor> {
-    let eye = camera_transform.translation();
     let mut anchors: Vec<_> = stream
         .authority()
         .remote_actors()
@@ -265,4 +270,92 @@ pub fn build_nametag_scene<'p>(
         atlas,
         atlas_revision,
     }
+}
+
+/// Applies bounded cosmetic overrides while preserving native depth pass membership.
+pub(super) fn style_scene(
+    scene: &mut NametagScene,
+    style: &ui::mod_hud::NametagStyle,
+    own_anchor: Option<[f32; 3]>,
+) {
+    if style.hide {
+        scene.records.clear();
+        scene.see_through = 0;
+        return;
+    }
+    let original = std::mem::take(&mut scene.records);
+    let old_boundary = scene.see_through;
+    let mut boundary = 0;
+    for (index, mut record) in original.into_iter().enumerate() {
+        for coordinate in &mut record.rect {
+            *coordinate *= style.scale;
+        }
+        record.line_lift *= style.scale;
+        let mut extra = Vec::new();
+        if record.uv[2] < 0.0 {
+            if let Some(color) = style.background_color {
+                record.color = color;
+            }
+            record.color[3] *= style.opacity;
+            if let Some(mut color) = style.border_color {
+                color[3] *= style.opacity;
+                let [left, top, right, bottom] = record.rect;
+                let width = style.border_width * style.scale;
+                for rect in [
+                    [left - width, top - width, right + width, top],
+                    [left - width, bottom, right + width, bottom + width],
+                    [left - width, top, left, bottom],
+                    [right, top, right + width, bottom],
+                ] {
+                    extra.push(NametagRecord {
+                        rect,
+                        color,
+                        ..record
+                    });
+                }
+            }
+        } else {
+            let own = own_anchor == Some(record.anchor);
+            let text_color = if own {
+                style.own_text_color.or(style.text_color)
+            } else {
+                style.text_color
+            };
+            let replace = if own && style.own_text_color.is_some() {
+                style.replace_own_text_color
+            } else {
+                style.replace_text_color
+            };
+            if let Some(color) = text_color {
+                for axis in 0..3 {
+                    record.color[axis] = if replace {
+                        color[axis]
+                    } else {
+                        record.color[axis] * color[axis]
+                    };
+                }
+                record.color[3] *= color[3];
+            }
+            record.color[3] *= style.opacity;
+            if style.shadow {
+                let mut shadow = record;
+                shadow.rect = [
+                    record.rect[0] + style.scale,
+                    record.rect[1] + style.scale,
+                    record.rect[2] + style.scale,
+                    record.rect[3] + style.scale,
+                ];
+                shadow.color = [0., 0., 0., record.color[3] * 0.8];
+                extra.push(shadow);
+            }
+        }
+        if scene.records.len() + extra.len() + 1 <= MAX_NAMETAG_RECORDS {
+            scene.records.extend(extra);
+            scene.records.push(record);
+        }
+        if index + 1 == old_boundary {
+            boundary = scene.records.len();
+        }
+    }
+    scene.see_through = boundary;
 }

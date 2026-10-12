@@ -1,7 +1,7 @@
 //! Clip time assignment before bone evaluation.
 use {
     super::{tick::WeightedClip, *},
-    world::TICK_DURATION as ACTOR_TICK_DURATION,
+    simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]

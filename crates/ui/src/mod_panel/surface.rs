@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+mod static_templates;
+use static_templates::{acyclic, authored, bound_expansion, local_reference, resolved_value};
 
 /// Host-owned track action consumed without invoking an extension control.
 pub const SCROLL_TRACK_ACTION: &str = "mod.scroll_track";
@@ -63,8 +65,31 @@ impl Surface {
         self.walk()
     }
 
-    /// Loads a single catalog definition while bounding every authored child.
+    /// Returns a canonical static document consumed by the native renderer.
+    /// No host context can later select an authored branch that escaped validation.
+    pub fn resolved_document(&self) -> Result<String, String> {
+        let root = self.resolved_root()?;
+        let namespace = self
+            .screen
+            .split_once('.')
+            .ok_or("surface screen must be qualified")?
+            .0;
+        let name = self.screen.split_once('.').expect("qualified checked").1;
+        let mut document = serde_json::Map::new();
+        document.insert("namespace".into(), Value::String(namespace.into()));
+        document.insert(name.into(), root);
+        Ok(Value::Object(document).to_string())
+    }
+    /// Collects capability-routed actions from the fully validated static tree.
     fn walk(&self) -> Result<Vec<String>, String> {
+        let root = self.resolved_root()?;
+        let mut count = 0;
+        let mut actions = Vec::new();
+        node(&root, 0, &mut count, &mut actions)?;
+        Ok(actions)
+    }
+    /// Resolves only static local templates before validating the emitted tree.
+    fn resolved_root(&self) -> Result<Value, String> {
         if self.document.len() > MAX_SURFACE_BYTES {
             return Err("surface document exceeds byte limit".into());
         }
@@ -82,14 +107,67 @@ impl Surface {
         let object = document
             .as_object()
             .ok_or("surface document must be an object")?;
-        if object.len() != 2 || object.get("namespace").and_then(Value::as_str) != Some(namespace) {
-            return Err("surface document must contain its namespace and one screen".into());
+        if object.get("namespace").and_then(Value::as_str) != Some(namespace) {
+            return Err("surface document must contain its own namespace".into());
         }
-        let root = object.get(name).ok_or("surface screen is missing")?;
+        let mut definitions = BTreeMap::new();
+        for (key, body) in object.iter().filter(|(key, _)| *key != "namespace") {
+            let (local, base) = local_reference(key, namespace)?;
+            if definitions.insert(local, (body, base)).is_some() {
+                return Err("duplicate surface definition".into());
+            }
+        }
+        if !definitions.contains_key(name) {
+            return Err("surface screen is missing".into());
+        }
+        let mut graph = BTreeMap::new();
+        let mut authored_nodes = 0;
+        for (key, (body, base)) in &definitions {
+            let mut references = Vec::new();
+            if let Some(base) = base {
+                references.push(base.clone());
+            }
+            authored(body, namespace, 0, &mut authored_nodes, &mut references)?;
+            graph.insert(key.clone(), references);
+        }
+        for key in graph.keys() {
+            acyclic(
+                key,
+                &graph,
+                &mut Vec::new(),
+                &mut std::collections::BTreeSet::new(),
+            )?;
+        }
+        bound_expansion(name, namespace, &definitions)?;
+        let files = br#"{"ui_defs":["ui/extension_surface.json"]}"#;
+        let catalog = json_ui::Catalog::from_files([
+            ("ui/_global_variables.json", &b"{}"[..]),
+            ("ui/_ui_defs.json", &files[..]),
+            ("ui/extension_surface.json", self.document.as_bytes()),
+        ])
+        .map_err(|error| error.to_string())?;
+        if !catalog.diagnostics().is_empty() {
+            return Err(catalog.diagnostics().join("; "));
+        }
+        let resolved = json_ui::resolve_with_limits(
+            &catalog,
+            &self.screen,
+            &json_ui::Context::default(),
+            33,
+            MAX_SURFACE_NODES,
+        );
+        if !resolved.diagnostics.is_empty() {
+            return Err(resolved.diagnostics.join("; "));
+        }
+        let root = resolved
+            .control
+            .as_ref()
+            .ok_or("surface root cannot be resolved")?;
+        let root = resolved_value(root)?;
         let mut count = 0;
         let mut actions = Vec::new();
-        node(root, 0, &mut count, &mut actions)?;
-        Ok(actions)
+        node(&root, 0, &mut count, &mut actions)?;
+        Ok(root)
     }
 }
 

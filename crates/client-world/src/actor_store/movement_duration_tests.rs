@@ -1,10 +1,6 @@
 use super::*;
-use protocol::wire::valentine::bedrock::{
-    codec::BedrockCodec,
-    version::v1_26_51::{
-        ActorRuntimeId, MoveActorAbsoluteData, MoveActorAbsolutePacket, MoveActorDeltaData,
-        MoveActorDeltaPacket, Vec3,
-    },
+use protocol::test_support::packets::{
+    ActorAbsoluteFixture, ActorDeltaFixture, move_actor_absolute_event, move_actor_delta_event,
 };
 
 fn orb() -> ActorStore {
@@ -24,26 +20,19 @@ fn orb() -> ActorStore {
 }
 
 fn delta(x: f32, ticks: u64, force_completion: bool) -> ActorEvent {
-    wire_delta(MoveActorDeltaData {
-        new_position_x: Some(x),
+    wire_delta(ActorDeltaFixture {
+        position: [Some(x), None, None],
         ticks,
         force_completion,
         ..Default::default()
     })
 }
 
-fn wire_delta(mut move_data: MoveActorDeltaData) -> ActorEvent {
-    move_data.actor_runtime_id = ActorRuntimeId {
-        actor_runtime_id: 7,
-    };
-    let packet = MoveActorDeltaPacket { move_data };
-    let mut bytes = Vec::new();
-    packet.encode(&mut bytes).unwrap();
-    let decoded = MoveActorDeltaPacket::decode(&mut bytes.as_slice(), ()).unwrap();
-    let event = protocol::into_world_event(
-        protocol::Packet::from_payload_with_subclients(decoded, 0, 0),
-        0,
-    )
+fn wire_delta(delta: ActorDeltaFixture) -> ActorEvent {
+    let event = move_actor_delta_event(ActorDeltaFixture {
+        runtime_id: 7,
+        ..delta
+    })
     .unwrap()
     .unwrap();
     let protocol::WorldEvent::Actor(event) = event else {
@@ -98,29 +87,12 @@ fn xp_orb_wire_force_completion_finishes_before_a_later_ordinary_target() {
 
 #[test]
 fn xp_orb_absolute_wire_completion_uses_the_same_target_ordering() {
-    let packet = MoveActorAbsolutePacket {
-        move_data: MoveActorAbsoluteData {
-            actor_runtime_id: ActorRuntimeId {
-                actor_runtime_id: 7,
-            },
-            header: 1 << 3,
-            position: Vec3 {
-                x: 9.0,
-                y: 0.0,
-                z: 0.0,
-            },
-            rotation_x: 0,
-            rotation_y: 0,
-            rotation_y_head: 0,
-        },
-    };
-    let mut bytes = Vec::new();
-    packet.encode(&mut bytes).unwrap();
-    let decoded = MoveActorAbsolutePacket::decode(&mut bytes.as_slice(), ()).unwrap();
-    let protocol::WorldEvent::Actor(movement) = protocol::into_world_event(
-        protocol::Packet::from_payload_with_subclients(decoded, 0, 0),
-        0,
-    )
+    let protocol::WorldEvent::Actor(movement) = move_actor_absolute_event(ActorAbsoluteFixture {
+        runtime_id: 7,
+        flags: 1 << 3,
+        position: [9.0, 0.0, 0.0],
+        rotation: [0; 3],
+    })
     .unwrap()
     .unwrap() else {
         panic!("absolute movement must normalize")
@@ -183,17 +155,16 @@ fn xp_orb_partial_deltas_merge_into_the_latest_wire_pose_while_completion_waits(
     store.apply(
         1,
         3,
-        wire_delta(MoveActorDeltaData {
-            new_position_x: Some(21.0),
-            new_position_y: Some(6.0),
+        wire_delta(ActorDeltaFixture {
+            position: [Some(21.0), Some(6.0), None],
             ..Default::default()
         }),
     );
     store.apply(
         1,
         4,
-        wire_delta(MoveActorDeltaData {
-            new_position_z: Some(9.0),
+        wire_delta(ActorDeltaFixture {
+            position: [None, None, Some(9.0)],
             ..Default::default()
         }),
     );
@@ -207,11 +178,9 @@ fn xp_orb_rotation_keeps_three_ticks_when_position_has_a_longer_duration() {
     store.apply(
         1,
         2,
-        wire_delta(MoveActorDeltaData {
-            new_position_x: Some(10.0),
-            rotation_x: Some(64),
-            rotation_y: Some(64),
-            rotation_y_head: Some(64),
+        wire_delta(ActorDeltaFixture {
+            position: [Some(10.0), None, None],
+            rotation: [Some(64); 3],
             ticks: 10,
             ..Default::default()
         }),

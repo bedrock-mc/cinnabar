@@ -40,7 +40,6 @@ impl std::str::FromStr for EntityType {
 /// Static entity definition data.
 ///
 /// Contains the protocol-level information about an entity type.
-/// For behavior and AI, see jolyne's entity implementations.
 #[derive(Debug, Clone, Copy)]
 pub struct EntityData {
     /// Unique entity ID in this version.

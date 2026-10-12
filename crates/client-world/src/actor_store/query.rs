@@ -170,8 +170,9 @@ impl ActorStore {
     pub(crate) fn get(&self, runtime_id: u64) -> Option<&ActorSnapshot> {
         self.actors.get(&runtime_id)
     }
-    pub(crate) fn item_max_use_ticks(&self, identifier: &str) -> Option<u32> {
-        self.items.max_use_ticks(identifier)
+    /// Returns numerical use admission shared by gameplay, presentation and audio.
+    pub(crate) fn item_use_profile(&self, network_id: i32) -> crate::EffectiveItemUse {
+        self.items.item_use_profile(network_id)
     }
     /// Retrieves the item's effective attack facts without guessing from its name.
     pub(crate) fn item_attack_timing(

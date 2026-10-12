@@ -103,7 +103,7 @@ fn pending_transport_correction_keeps_the_presented_view_without_advancing_autho
         app.world_mut()
             .resource_mut::<Time<Real>>()
             .advance_by(Duration::from_secs_f64(
-                ticks / world::TICKS_PER_SECOND as f64,
+                ticks / simulation_clock::TICKS_PER_SECOND as f64,
             ));
         app.update();
     }
@@ -194,7 +194,7 @@ fn pending_transport_correction_keeps_the_presented_view_without_advancing_autho
             .can_advance_physics_frame()
     );
     // The retained half-tick plus two half-ticks advances once, then samples its decay.
-    let half_tick = Duration::from_secs_f64(0.5 / world::TICKS_PER_SECOND as f64);
+    let half_tick = Duration::from_secs_f64(0.5 / simulation_clock::TICKS_PER_SECOND as f64);
     for _ in 0..2 {
         app.world_mut()
             .resource_mut::<Time<Real>>()

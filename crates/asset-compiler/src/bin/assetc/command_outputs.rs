@@ -126,6 +126,10 @@ pub(super) fn validate_command_outputs(command: &Command) -> Result<(), AssetErr
             source_manifest,
             out,
             ..
+        }
+        | OreuiIconsAssets {
+            source_manifest,
+            out,
         } => {
             inputs.push(source_manifest);
             outputs.push(out);
@@ -188,6 +192,7 @@ mod tests {
         let out = PathBuf::from("/tmp/result.bin");
         let refs = entity_refs_output(&out);
         let command = Command::EntityAssets {
+            behavior_pack: None,
             pack: "/tmp/pack".into(),
             source_manifest: "/tmp/source.json".into(),
             out,
@@ -217,6 +222,7 @@ mod tests {
         assert!(error.contains("distinct files"), "{error}");
         let command = Command::ActorAssets {
             pack: "/tmp/pack".into(),
+            behavior_pack: None,
             source_manifest: "/tmp/source.json".into(),
             out: "/tmp/source.json".into(),
             report: "/tmp/report.json".into(),

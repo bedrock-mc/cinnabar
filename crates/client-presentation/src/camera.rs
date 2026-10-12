@@ -45,8 +45,8 @@ mod spawn_tests;
 
 pub use bob::{HandSwayState, ViewEffect, WalkBobState, walk_bob_effect};
 pub use controls::{
-    AutoFly, auto_fly_offset, input_is_active, look_angles, look_at_target, update_cursor_capture,
-    update_look, update_movement, update_perspective,
+    AutoFly, auto_fly_offset, input_is_active, look_angles, look_at_target, update_look,
+    update_movement, update_perspective,
 };
 pub use fov::{CameraFovInputs, CameraFovState, SPYGLASS_FOV_MODIFIER};
 pub use hurt::{CameraHurtState, LocalHurtEvent};

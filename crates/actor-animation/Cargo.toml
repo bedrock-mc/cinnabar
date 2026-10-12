@@ -10,6 +10,7 @@ publish = false
 test-support = []
 
 [dependencies]
+simulation-clock = { path = "../simulation-clock" }
 assets = { path = "../assets" }
 protocol = { path = "../protocol" }
 rayon.workspace = true

@@ -3,12 +3,13 @@
 use ui::{SafeArea, TextLayoutCache, UiNode, UiNodeId, UiRect, UiVisual};
 
 use launcher::menu::{MenuAction, MenuField, MenuView};
-use {crate::ui_runtime::presentation::forms::menu_caret::with_caret, ui::IconRef};
+use {ui::IconRef, ui_screens::menu_caret::with_caret};
 
 use super::{
     ACCENT, BUTTON, BUTTON_FOCUSED, BUTTON_HOVERED, BUTTON_PRESSED, MUTED, PANEL_ALT, TEXT,
-    TextMetrics, UiPresentationError, bounded_visible_text, rect,
+    UiPresentationError, bounded_visible_text, rect,
 };
+use ui_engine::text_metrics::TextMetrics;
 
 pub(super) fn card(
     view: &MenuView,

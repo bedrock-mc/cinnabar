@@ -26,7 +26,7 @@ fn compiled() -> assets::CompiledEntityAssets {
 }
 
 fn assets() -> Arc<RuntimeEntityAssets> {
-    Arc::new(RuntimeEntityAssets::from_compiled(compiled()).unwrap())
+    Arc::new(RuntimeEntityAssets::from_compiled(compiled().with_unresolved_admissions()).unwrap())
 }
 
 fn unposed_store() -> ActorStore {
@@ -221,7 +221,9 @@ fn generic_packet_channels_bind_by_bone_name_and_skip_names_absent_from_the_mode
     compiled.animation_channels =
         vec![compiled.animation_channels[0].clone(), missing].into_boxed_slice();
     compiled.animation_clips[0].channel_count = 2;
-    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let assets = Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+    );
     let actor = super::actor_with_metadata(HashMap::new());
     let mut store = ActorAnimationStore::with_assets(Arc::clone(&assets));
     store.insert(1, 0, &actor);

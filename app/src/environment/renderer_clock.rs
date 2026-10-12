@@ -27,7 +27,7 @@ impl RendererClock {
             return 0.0;
         }
         self.remainder += delta;
-        let tick_seconds = world::TICK_DURATION.as_secs_f64();
+        let tick_seconds = simulation_clock::TICK_DURATION.as_secs_f64();
         let due = ((self.remainder + f64::EPSILON) / tick_seconds).floor();
         self.remainder = (self.remainder - due * tick_seconds).max(0.0);
         self.ticks = self.ticks.saturating_add(

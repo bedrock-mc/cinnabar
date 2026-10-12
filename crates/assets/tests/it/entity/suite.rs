@@ -31,6 +31,9 @@ use item::{
 pub(super) fn fixture() -> CompiledEntityAssets {
     let source_bytes = br#"{"format_version":"1.10.0"}"#;
     CompiledEntityAssets {
+        item_use_profiles: Box::new([]),
+        seat_layouts: Box::new([]),
+        interaction_traits: Box::new([]),
         source_manifest_sha256: [0x11; 32],
         block_visual_count: 0,
         sources: vec![EntityAssetSource {
@@ -80,72 +83,16 @@ pub(super) fn fixture() -> CompiledEntityAssets {
         item_visual_aliases: Box::new([]),
         render: Default::default(),
     }
+    .with_unresolved_item_use()
+    .with_unresolved_seats()
+    .with_unresolved_interactions()
 }
 
-fn scalar(value: f32) -> EntityGeometryScalar {
-    EntityGeometryScalar::new(value).expect("finite bounded geometry scalar")
-}
+#[path = "suite/geometry_fixture.rs"]
+mod geometry_fixture;
+use geometry_fixture::{geometry_fixture, scalar};
 
-fn geometry_fixture() -> CompiledEntityAssets {
-    let geometry_source = br#"{"format_version":"1.21.0"}"#;
-    let mut compiled = fixture();
-    compiled.sources = vec![
-        compiled.sources[0].clone(),
-        EntityAssetSource {
-            path: "models/entity/allay.geo.json".into(),
-            source_bytes: geometry_source.len() as u32,
-            source_sha256: Sha256::digest(geometry_source).into(),
-        },
-    ]
-    .into_boxed_slice();
-    compiled.symbols[0].dependencies[0].resolution = EntityDependencyResolution::Catalog;
-    compiled.symbols = vec![
-        compiled.symbols[0].clone(),
-        EntityAssetSymbol {
-            mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
-            kind: EntityAssetKind::Geometry,
-            identifier: "geometry.allay".into(),
-            source_index: 1,
-            dependencies: Box::new([]),
-        },
-    ]
-    .into_boxed_slice();
-    compiled.geometries = vec![EntityGeometry {
-        visible_bounds: None,
-        identifier: "geometry.allay".into(),
-        inherits: None,
-        source_index: 1,
-        texture_width: 32,
-        texture_height: 32,
-        bones: vec![EntityGeometryBone {
-            name: "wing".into(),
-            parent: None,
-            pivot: Some([scalar(0.5), scalar(4.0), scalar(1.0)]),
-            rotation: Some([scalar(0.0), scalar(15.0), scalar(0.0)]),
-            bind_pose_rotation: None,
-            mirror: None,
-            inflate: None,
-            never_render: None,
-            reset: None,
-            binding: None,
-            texture_meshes: Box::new([]),
-            cubes: vec![EntityGeometryCube {
-                origin: [scalar(0.5), scalar(-1.0), scalar(1.0)],
-                size: [scalar(0.0), scalar(5.0), scalar(8.0)],
-                pivot: [scalar(0.5), scalar(4.0), scalar(1.0)],
-                rotation: [scalar(0.0), scalar(0.0), scalar(-2.5)],
-                uv: EntityGeometryUv::Box([scalar(16.0), scalar(14.0)]),
-                inflate: scalar(-0.2),
-                mirror: true,
-            }]
-            .into_boxed_slice(),
-        }]
-        .into_boxed_slice(),
-    }]
-    .into_boxed_slice();
-    compiled
-}
-
+/// Builds a derived geometry with a retained parent for inheritance tests.
 pub(super) fn inherited_geometry_fixture() -> CompiledEntityAssets {
     let mut compiled = geometry_fixture();
     compiled.sources = vec![
@@ -517,6 +464,9 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
     .into_boxed_slice();
 
     CompiledEntityAssetsV4 {
+        item_use_profiles: Box::new([]),
+        seat_layouts: Box::new([]),
+        interaction_traits: Box::new([]),
         source_manifest_sha256: [0x21; 32],
         block_visual_count: 8,
         sources,
@@ -644,6 +594,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         }]
         .into_boxed_slice(),
         rig_bindings: vec![EntityRigBinding {
+            placement_frame: assets::placement::EntityPlacementFrame::Unresolved,
             entity_symbol: 0,
             render_controller: 4,
             first_geometry: 0,
@@ -739,6 +690,9 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             geometries: Box::new([]),
         },
     }
+    .with_unresolved_item_use()
+    .with_unresolved_seats()
+    .with_unresolved_interactions()
 }
 
 #[test]
@@ -1005,6 +959,7 @@ fn carrier_v4_enforces_molang_and_rig_bounds_and_all_indices() {
         .collect();
     compiled.rig_bindings = (0..MAX_ENTITY_RIG_BINDINGS)
         .map(|index| EntityRigBinding {
+            placement_frame: assets::placement::EntityPlacementFrame::Unresolved,
             first_geometry: index as u32,
             geometry_count: 1,
             ..compiled.rig_bindings[0]
@@ -1025,106 +980,6 @@ fn carrier_v4_enforces_molang_and_rig_bounds_and_all_indices() {
     compiled.animation_keyframes[0].value[0] =
         serde_json::from_str(&f32::NAN.to_bits().to_string()).unwrap();
     assert!(compiled.validate().is_err());
-}
-
-#[test]
-fn every_math_function_and_collection_selection_validates_at_its_arity() {
-    use entity::{MolangEaseCurve, MolangEaseMode, MolangFunction};
-    let mut functions = vec![
-        MolangFunction::Abs,
-        MolangFunction::Acos,
-        MolangFunction::Asin,
-        MolangFunction::Atan,
-        MolangFunction::Atan2,
-        MolangFunction::Ceil,
-        MolangFunction::Clamp,
-        MolangFunction::CopySign,
-        MolangFunction::Cos,
-        MolangFunction::DieRoll,
-        MolangFunction::DieRollInteger,
-        MolangFunction::Exp,
-        MolangFunction::Floor,
-        MolangFunction::HermiteBlend,
-        MolangFunction::InverseLerp,
-        MolangFunction::Lerp,
-        MolangFunction::LerpRotate,
-        MolangFunction::Ln,
-        MolangFunction::Max,
-        MolangFunction::Min,
-        MolangFunction::MinAngle,
-        MolangFunction::Mod,
-        MolangFunction::Pow,
-        MolangFunction::Random,
-        MolangFunction::RandomInteger,
-        MolangFunction::Round,
-        MolangFunction::Sign,
-        MolangFunction::Sin,
-        MolangFunction::Sqrt,
-        MolangFunction::Trunc,
-    ];
-    functions.push(MolangFunction::Ease(
-        MolangEaseCurve::Elastic,
-        MolangEaseMode::InOut,
-    ));
-    let one = entity::EntityGeometryScalar::new(1.0).unwrap();
-    for function in functions {
-        let arity = function.arity();
-        let mut compiled = carrier_v4_fixture();
-        let mut ops = vec![MolangOp::Push(one); arity];
-        ops.push(MolangOp::Call(function));
-        compiled.molang_expressions[0].op_count = ops.len() as u16;
-        compiled.molang_expressions[0].max_stack = arity.max(1) as u8;
-        compiled.molang_ops = ops.into_boxed_slice();
-        assert!(compiled.validate().is_ok(), "function {function:?}");
-        let mut short = compiled.clone();
-        short.molang_ops = short.molang_ops[1..].into();
-        short.molang_expressions[0].op_count -= 1;
-        assert!(short.validate().is_err(), "underfed {function:?}");
-    }
-    let mut compiled = carrier_v4_fixture();
-    compiled.molang_ops = vec![MolangOp::Push(one), MolangOp::SelectCollection(0)].into();
-    compiled.molang_expressions[0].op_count = 2;
-    assert!(compiled.validate().is_ok());
-}
-
-#[test]
-fn carrier_v4_requires_exact_valid_molang_program_stack_contracts() {
-    let mut zero = carrier_v4_fixture();
-    zero.molang_expressions[0] = CompiledMolangExpression {
-        first_op: 0,
-        op_count: 0,
-        max_stack: 0,
-    };
-    zero.molang_ops = Box::new([]);
-    assert!(zero.validate().is_err());
-
-    let mut underflow = carrier_v4_fixture();
-    underflow.molang_ops = vec![MolangOp::Add].into_boxed_slice();
-    underflow.molang_expressions[0].max_stack = 0;
-    assert!(underflow.validate().is_err());
-
-    let mut final_two = carrier_v4_fixture();
-    final_two.molang_ops = vec![final_two.molang_ops[0]; 2].into_boxed_slice();
-    final_two.molang_expressions[0].op_count = 2;
-    final_two.molang_expressions[0].max_stack = 2;
-    assert!(final_two.validate().is_err());
-
-    let mut dishonest = carrier_v4_fixture();
-    dishonest.molang_expressions[0].max_stack = 2;
-    assert!(dishonest.validate().is_err());
-
-    let mut exact_depth = carrier_v4_fixture();
-    exact_depth.molang_ops = std::iter::repeat_n(exact_depth.molang_ops[0], 32)
-        .chain(std::iter::repeat_n(MolangOp::Add, 31))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-    exact_depth.molang_expressions[0].op_count = 63;
-    exact_depth.molang_expressions[0].max_stack = 32;
-    assert!(exact_depth.validate().is_ok());
-
-    let mut dishonest_depth = exact_depth;
-    dishonest_depth.molang_expressions[0].max_stack = 31;
-    assert!(dishonest_depth.validate().is_err());
 }
 
 #[test]

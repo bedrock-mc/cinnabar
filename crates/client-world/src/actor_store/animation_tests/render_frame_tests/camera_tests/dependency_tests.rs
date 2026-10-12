@@ -53,7 +53,7 @@ fn render_only_swing_updates_persona_visibility_without_reposing_it() {
         }].into(),
     });
     let mut store = ActorAnimationStore::with_assets(Arc::new(
-        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
     ));
     store.request_skin_preparation(&source);
     store.submit_skin_preparation();
@@ -128,7 +128,7 @@ fn coalesced_swing_weight_updates_the_body_between_ticks() {
         key.value[0] = EntityGeometryScalar::new(45.0).unwrap();
     }
     let mut store = fixture_with_assets(Arc::new(
-        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
     ));
     store.exclude_remote_state_for(1);
     let progress = LocalSwingProgress {
@@ -192,7 +192,7 @@ fn camera_derived_selection_writes_follow_live_presentation_inputs() {
             key.expressions = [Some(2), None, None];
         }
         let mut store = fixture_with_assets(Arc::new(
-            RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+            RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
         ));
         let completed_tick = store.actor_rig(1).unwrap().completed_tick;
         store.set_camera_rotation([30.0, 0.0]);
@@ -367,7 +367,7 @@ fn render_controller_camera_write_updates_only_a_layer_that_reads_it() {
         }
         let mut store = if reads_camera_write {
             fixture_with_assets(Arc::new(
-                RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+                RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
             ))
         } else {
             walking_fixture(compiled)

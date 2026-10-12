@@ -17,20 +17,17 @@ pub fn boss_registration_response(event: &BossEvent) -> Option<Packet> {
     } else {
         (String::new(), String::new())
     };
-    Some(
-        BossEventPacket {
-            target_actor_id: ActorUniqueId {
-                actor_unique_id: event.target_entity_id,
-            },
-            event_type,
-            name,
-            filtered_name,
-            health_percent: 0.0,
-            color: EnumsBossBarColor::Blue,
-            overlay: EnumsBossBarOverlay::Progress,
-        }
-        .into(),
-    )
+    Some(crate::Packet::new(BossEventPacket {
+        target_actor_id: ActorUniqueId {
+            actor_unique_id: event.target_entity_id,
+        },
+        event_type,
+        name,
+        filtered_name,
+        health_percent: 0.0,
+        color: EnumsBossBarColor::Blue,
+        overlay: EnumsBossBarOverlay::Progress,
+    }))
 }
 
 #[cfg(test)]

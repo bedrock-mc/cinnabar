@@ -56,6 +56,7 @@ fn owner_rig<'a>(
     names: &'a [Box<str>],
 ) -> ActorRigSnapshot<'a> {
     ActorRigSnapshot {
+        placement_frame: assets::placement::EntityPlacementFrame::Unresolved,
         actor: ActorLifetimeId {
             session_id: 1,
             dimension: 0,
@@ -94,6 +95,11 @@ fn owner_rig<'a>(
 fn held(identifier: &str) -> ActorEquipmentInput {
     ActorEquipmentInput {
         main: Some(WornItem {
+            use_facts: client_world::resolve_item_use(
+                &assets::item_use::diagnostic_profile(identifier),
+                None,
+                None,
+            ),
             grip: assets::item::grip::builtin_item_grip(identifier),
             identifier: Arc::from(identifier),
             metadata: 0,
@@ -206,7 +212,7 @@ fn warm_static_held_publication_retains_pose_without_evaluation_allocations() {
         });
         assert_eq!(batch.submissions.len(), 2);
     }
-    let allocations = crate::test_allocations::count();
+    let allocations = test_alloc::thread_allocations();
     for tick in 3..13 {
         rig.completed_tick = tick;
         runtime.begin_frame();
@@ -228,7 +234,7 @@ fn warm_static_held_publication_retains_pose_without_evaluation_allocations() {
         assert_eq!(batch.artwork.len(), 1);
     }
     assert_eq!(
-        crate::test_allocations::count() - allocations,
+        test_alloc::thread_allocations() - allocations,
         0,
         "unchanged held publication must reuse evaluation, placement, and output storage"
     );
@@ -389,8 +395,9 @@ fn third_person_bow_publication_tracks_use_frames_duration_and_release() {
         "leftItem",
     ]
     .map(Box::from);
-    let input = held("minecraft:bow");
+    let mut input = held("minecraft:bow");
     let duration = 40;
+    input.main.as_mut().unwrap().use_facts.ticks = Some(duration);
     let items = crate::session_assets::SessionItems {
         components: Arc::new(
             [(
@@ -449,11 +456,7 @@ fn third_person_bow_publication_tracks_use_frames_duration_and_release() {
     }
     let mut offhand = input.clone();
     offhand.off = offhand.main.take();
-    offhand.main = Some(crate::presentation::equipment::WornItem {
-        grip: assets::item::grip::builtin_item_grip("minecraft:trident"),
-        identifier: "minecraft:trident".into(),
-        ..offhand.off.as_ref().unwrap().clone()
-    });
+    offhand.main = held("minecraft:trident").main;
     owner
         .metadata
         .insert(0, protocol::ActorMetadataValue::Flags(1 << 4));
@@ -476,7 +479,8 @@ fn third_person_bow_publication_tracks_use_frames_duration_and_release() {
         "an offhand bow must stay on frame zero while the main hand is using another item"
     );
     assert!(
-        (off_bone.translation_scale[1] - (inventory::LONG_WEAPON_USE_TICKS - 15) as f32 / 16.0)
+        (off_bone.translation_scale[1]
+            - (assets::item_use::LONG_WEAPON_USE_TICKS - 15) as f32 / 16.0)
             .abs()
             < 1e-3,
         "offhand models retain the owner's shared remaining-use query"
@@ -536,7 +540,7 @@ fn third_person_held_attachable_runs_authored_perspective_and_owner_bone_channel
             owner: &owner,
             rig: &rig,
             frame_alpha: 1.0,
-            delta_seconds: world::TICK_DURATION.as_secs_f32(),
+            delta_seconds: simulation_clock::TICK_DURATION.as_secs_f32(),
         }),
     );
     assert_eq!(
@@ -563,7 +567,7 @@ fn third_person_held_attachable_runs_authored_perspective_and_owner_bone_channel
             owner: &owner,
             rig: &rig,
             frame_alpha: 1.0,
-            delta_seconds: world::TICK_DURATION.as_secs_f32(),
+            delta_seconds: simulation_clock::TICK_DURATION.as_secs_f32(),
         }),
     );
     assert_eq!(repeated[0].submission.input.rig, initial_rig);
@@ -638,7 +642,7 @@ fn worn_attachable_categories_do_not_become_held_models() {
                 owner: &owner,
                 rig: &rig,
                 frame_alpha: 1.0,
-                delta_seconds: world::TICK_DURATION.as_secs_f32(),
+                delta_seconds: simulation_clock::TICK_DURATION.as_secs_f32(),
             }),
         );
         assert!(
@@ -690,7 +694,7 @@ fn installed_shield_and_trident_warm_draws_reuse_output_storage() {
                 1
             );
         }
-        let allocations = crate::test_allocations::count();
+        let allocations = test_alloc::thread_allocations();
         for tick in 2..12 {
             rig.completed_tick = tick;
             runtime.begin_frame();
@@ -711,7 +715,7 @@ fn installed_shield_and_trident_warm_draws_reuse_output_storage() {
             );
         }
         assert_eq!(
-            crate::test_allocations::count() - allocations,
+            test_alloc::thread_allocations() - allocations,
             0,
             "unchanged {identifier} publication must retain evaluation and output storage"
         );
@@ -751,7 +755,7 @@ fn installed_bow_third_person_uses_authored_texture_mesh_and_wield_pose() {
     ]
     .map(Box::from);
     let mut rig = owner_rig(&owner, &names);
-    let input = held("minecraft:bow");
+    let mut input = held("minecraft:bow");
     let expected = runtime
         .first_person_attachable(
             &body,
@@ -772,7 +776,7 @@ fn installed_bow_third_person_uses_authored_texture_mesh_and_wield_pose() {
             owner: &owner,
             rig: &rig,
             frame_alpha: 1.0,
-            delta_seconds: world::TICK_DURATION.as_secs_f32(),
+            delta_seconds: simulation_clock::TICK_DURATION.as_secs_f32(),
         }),
     );
     assert_eq!(layers.len(), 1);
@@ -791,6 +795,7 @@ fn installed_bow_third_person_uses_authored_texture_mesh_and_wield_pose() {
         .get("minecraft:bow")
         .expect("the installed bow must retain its authored use duration");
     assert!(duration > 15);
+    input.main.as_mut().unwrap().use_facts.ticks = Some(duration);
     let mut stages = Vec::new();
     for (elapsed, pulling) in [(0, true), (9, true), (15, true), (duration, false)] {
         owner
@@ -850,7 +855,7 @@ fn custom_wearable_model_draws_only_in_its_effective_armor_slot() {
         owner: &owner,
         rig: &rig,
         frame_alpha: 0.5,
-        delta_seconds: world::TICK_DURATION.as_secs_f32(),
+        delta_seconds: simulation_clock::TICK_DURATION.as_secs_f32(),
     };
     let mut input = held("test:held");
     assert!(
@@ -913,7 +918,7 @@ fn third_person_authored_offset_tracks_the_drawn_rotating_parent() {
                 owner: &owner,
                 rig: &rig,
                 frame_alpha: alpha,
-                delta_seconds: world::TICK_DURATION.as_secs_f32(),
+                delta_seconds: simulation_clock::TICK_DURATION.as_secs_f32(),
             }),
         );
         assert_eq!(layers.len(), 1);

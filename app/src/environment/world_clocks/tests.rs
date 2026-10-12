@@ -74,8 +74,8 @@ fn unknown_clock_ids_are_counted_and_never_replace_the_native_consumer() {
 fn named_clock_pause_and_daylight_cycle_are_independent_gates() {
     let mut clock = running_clock(6_000, false);
     let mut weather = WeatherState::default();
-    let per_second = f64::from(world::TICKS_PER_SECOND);
-    let after_second = 6_000 + world::TICKS_PER_SECOND as i32;
+    let per_second = f64::from(simulation_clock::TICKS_PER_SECOND);
+    let after_second = 6_000 + simulation_clock::TICKS_PER_SECOND as i32;
     assert_eq!(visual_world_time(clock, 6.0), f64::from(after_second));
     sync(&mut clock, OVERWORLD_CLOCK_ID, after_second, true, 6.0);
     assert_eq!(visual_world_time(clock, 60.0), f64::from(after_second));
@@ -110,7 +110,7 @@ fn named_clock_pause_and_daylight_cycle_are_independent_gates() {
 #[test]
 fn equal_integer_sync_does_not_reset_the_existing_fractional_tick() {
     let mut clock = running_clock(6_000, false);
-    let partial_tick_seconds = 0.5 / f64::from(world::TICKS_PER_SECOND);
+    let partial_tick_seconds = 0.5 / f64::from(simulation_clock::TICKS_PER_SECOND);
     sync(
         &mut clock,
         OVERWORLD_CLOCK_ID,
@@ -127,7 +127,7 @@ fn equal_integer_sync_does_not_reset_the_existing_fractional_tick() {
 #[test]
 fn equal_legacy_time_does_not_reset_fraction_but_an_older_tick_is_a_real_update() {
     let mut clock = running_clock(6_000, false);
-    let partial_tick_seconds = 0.5 / f64::from(world::TICKS_PER_SECOND);
+    let partial_tick_seconds = 0.5 / f64::from(simulation_clock::TICKS_PER_SECOND);
     apply_legacy_time(&mut clock, 6_000, 5.0 + partial_tick_seconds);
     assert_eq!(clock.server_time_anchor_seconds, Some(5.0));
     apply_legacy_time(&mut clock, 6_000, 6.0);
@@ -206,7 +206,7 @@ fn new_session_elapsed_tick_is_not_daylight_and_canonical_clock_accepts_sync_bef
         assert_eq!(visual_world_time(clock, 10.0), 6_000.0);
         assert_eq!(
             visual_world_time(clock, 11.0),
-            6_000.0 + f64::from(world::TICKS_PER_SECOND)
+            6_000.0 + f64::from(simulation_clock::TICKS_PER_SECOND)
         );
     }
 }

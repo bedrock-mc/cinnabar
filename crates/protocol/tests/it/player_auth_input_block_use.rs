@@ -136,8 +136,7 @@ fn filled_use_matches_independent_pinned_movement_fixture() {
         "/fixtures/player_auth_input_use_block.bin"
     ))
     .expect("generate the pinned embedded filled Use fixture before verification");
-    let session = protocol::BedrockSession { shield_item_id: 0 };
-    let packets = protocol::decode_batch(bytes::Bytes::from(fixture.clone()), &session).unwrap();
+    let packets = protocol::decode_batch(bytes::Bytes::from(fixture.clone())).unwrap();
     let decoded = &packets[0];
     let McpePacketData::PlayerAuthInputPacket(input) = &decoded.data else {
         panic!("expected PAI");
@@ -193,8 +192,5 @@ fn filled_use_matches_independent_pinned_movement_fixture() {
         protocol::player_auth_input_with_interactions(snapshot, &interactions).unwrap();
     rebuilt.header.from_subclient = 1;
     rebuilt.header.to_subclient = 2;
-    assert_eq!(
-        protocol::encode(&rebuilt, &session).unwrap().as_ref(),
-        fixture
-    );
+    assert_eq!(protocol::encode(&rebuilt).unwrap().as_ref(), fixture);
 }

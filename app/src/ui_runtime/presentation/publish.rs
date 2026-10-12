@@ -11,14 +11,18 @@ mod commit;
 mod cooldowns;
 mod loading;
 use client_ui::ui_runtime::presentation::{
-    ItemIconFrames, PendingUiPublication, PreparedUiPublication, PreviewCapture, capture_hud_frame,
-    nametags, player_preview,
+    ItemIconFrames, PendingUiPublication, PreviewCapture, capture_hud_frame, nametags,
+    player_preview,
 };
 pub(crate) use commit::publish_ui_runtime;
 
+/// The UI authority captured before input enqueue, rendered once by `publish_ui_runtime`.
+#[derive(bevy::prelude::Resource, Default)]
+pub(crate) struct PreparedUiPublication(pub(crate) Option<PendingUiPublication>);
+
 pub(crate) fn observe_mount_jump_input(
     input: Res<client_state::SemanticInputSnapshot>,
-    mut runtime: ResMut<UiRuntime>,
+    mut runtime: ResMut<UiRuntimeResource>,
     time: Res<Time<Real>>,
 ) {
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -66,8 +70,8 @@ type PublishExtras<'w> = (
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare_ui_runtime(
     player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
-    mut runtime: ResMut<UiRuntime>,
-    mut presentation: ResMut<UiPresentationRuntime>,
+    mut runtime: ResMut<UiRuntimeResource>,
+    mut presentation: ResMut<UiPresentationResource>,
     mut prepared: ResMut<PreparedUiPublication>,
     visibility: Res<CaveVisibilityCache>,
     mut diagnostics_input: ResMut<VisibilityDiagnosticsInput>,
@@ -346,29 +350,82 @@ pub(crate) fn prepare_ui_runtime(
         .0
         .value("ingame_player_names")
         != 0;
+    let tag_style = presentation
+        .mod_ui()
+        .mod_actor_style()
+        .and_then(|style| style.nametags.as_ref());
+    let show_self_tag =
+        tag_style.is_some_and(|style| style.show_self && !style.hide_players) && !first_person;
+    let names_with_hidden_hud = tag_style.is_some_and(|style| style.show_when_hud_hidden);
     let nametags = client_world
         .stream
         .as_ref()
-        .filter(|_| overlays.nametags)
+        .filter(|_| {
+            overlays.nametags
+                || (names_with_hidden_hud
+                    && settings.value("hide_hud") != 0
+                    && !menu_runtime.is_visible())
+        })
         .zip(
             cameras
                 .single()
                 .ok()
-                .map(|(camera, transform)| (camera, GlobalTransform::from(*transform))),
+                .map(|(_, transform)| GlobalTransform::from(*transform)),
         )
-        .map(|(stream, (camera, transform))| {
-            nametags::project_nametags(
+        .map(|(stream, transform)| {
+            let mut tags = nametags::project_nametags(
                 runtime.scoreboards(),
                 stream,
-                camera,
-                &transform,
+                transform.translation(),
                 [logical_width, logical_height],
                 picked_nametag_actor(stream, &transform, collisions.as_deref(), &player_runtime),
                 actor_partial.0,
-                show_names,
-            )
+                show_names && !tag_style.is_some_and(|style| style.hide_players),
+            );
+            if tag_style.is_some_and(|style| style.hide_passengers) {
+                let authority = stream.authority();
+                tags.retain(|tag| {
+                    authority
+                        .actor(tag.runtime_id())
+                        .is_some_and(|actor| authority.ridden_unique_id(actor.unique_id).is_none())
+                });
+            }
+            if show_self_tag && show_names {
+                let authority = stream.authority();
+                if let Some(actor) =
+                    authority
+                        .actor(authority.local_player_runtime_id())
+                        .filter(|actor| {
+                            !tag_style.is_some_and(|style| style.hide_passengers)
+                                || authority.ridden_unique_id(actor.unique_id).is_none()
+                        })
+                {
+                    if let Some(name) = authority
+                        .actor_name_tag(actor.unique_id)
+                        .or_else(|| authority.actor_display_name(actor.unique_id))
+                    {
+                        if let Some(tag) = nametags::extract_nametag(
+                            actor,
+                            transform.translation(),
+                            None,
+                            name,
+                            runtime.scoreboards(),
+                            actor_partial.0,
+                        ) {
+                            tags.push(tag);
+                        }
+                    }
+                }
+            }
+            tags
         })
         .unwrap_or_default();
+    presentation.set_nametag_local_actor(
+        client_world
+            .stream
+            .as_ref()
+            .map(|stream| stream.authority().local_player_runtime_id()),
+    );
     presentation.set_nametag_anchors(nametags);
     presentation.set_chat_settings_snapshot(menu_runtime.settings_snapshot());
     let menu_view = menu_runtime.is_visible().then(|| {

@@ -5,7 +5,8 @@ use std::{io::Cursor, sync::Arc};
 use assets::RuntimeUiAssets;
 
 use super::{frame, png, snapshot};
-use crate::ui_runtime::presentation::{LoadingStage, UiPresentationRuntime};
+use crate::ui_runtime::presentation::UiPresentationRuntime;
+use ui::LoadingStage;
 
 fn carrier() -> Arc<RuntimeUiAssets> {
     let root = super::pack_harness::scratch_dir("loading-carrier");
@@ -102,19 +103,12 @@ fn settled(
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         frame(player, presentation);
-        let textures = &presentation
-            .form_presentation
-            .engine
-            .as_ref()
-            .unwrap()
-            .textures;
+        let textures = &presentation.engine.as_ref().unwrap().textures;
         let atlas = textures.lock();
         let ready = (!atlas.has_image("textures/blocks/dirt")
             || atlas.placement("textures/blocks/dirt").is_some())
-            && (!atlas.has_image(crate::ui_runtime::presentation::menu_artwork::TITLE_KEY)
-                || atlas
-                    .placement(crate::ui_runtime::presentation::menu_artwork::TITLE_KEY)
-                    .is_some());
+            && (!atlas.has_image(ui_engine::textures::TITLE_KEY)
+                || atlas.placement(ui_engine::textures::TITLE_KEY).is_some());
         drop(atlas);
         if ready {
             break;
@@ -132,11 +126,7 @@ fn settled(
 /// The native title's painted bounds, rather than the omitted JSON title control.
 pub(super) fn title_bounds(presentation: &UiPresentationRuntime) -> ui::UiRect {
     let icon = presentation
-        .form_presentation
-        .engine
-        .as_deref()
-        .unwrap()
-        .menu_title(&presentation.menu_artwork.refs)
+        .title_icon(&presentation.menu_artwork.refs)
         .unwrap();
     presentation
         .last_frame
@@ -162,7 +152,7 @@ pub(super) fn center(presentation: &UiPresentationRuntime) -> [u32; 2] {
 }
 
 fn layout_pixel_scale(presentation: &UiPresentationRuntime) -> f32 {
-    crate::ui_runtime::presentation::TextMetrics::for_viewport(
+    ui_engine::text_metrics::TextMetrics::for_viewport(
         [1280, 720],
         ui::DpiScale::new(1.0).unwrap(),
         presentation.gui_scale_preference,
@@ -175,18 +165,12 @@ fn layout_pixel_scale(presentation: &UiPresentationRuntime) -> f32 {
 #[test]
 fn texture_only_pack_replacement_updates_loading_background_tile_sizes() {
     let player = player_state::PlayerState::new(1);
-    let mut presentation = UiPresentationRuntime::new(crate::test_support::fixture_font()).unwrap();
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.enable_json_ui(carrier()).unwrap();
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
     settled(&player, &mut presentation);
-    let catalog = Arc::clone(
-        presentation
-            .form_presentation
-            .engine
-            .as_ref()
-            .unwrap()
-            .catalog(),
-    );
+    let catalog = Arc::clone(presentation.engine.as_ref().unwrap().catalog());
     let mut dirt = image::RgbaImage::new(32, 16);
     let colors = [[180, 30, 40, 255], [30, 50, 190, 255]];
     for (x, _, pixel) in dirt.enumerate_pixels_mut() {
@@ -201,12 +185,7 @@ fn texture_only_pack_replacement_updates_loading_background_tile_sizes() {
     });
     assert!(Arc::ptr_eq(
         &catalog,
-        presentation
-            .form_presentation
-            .engine
-            .as_ref()
-            .unwrap()
-            .catalog(),
+        presentation.engine.as_ref().unwrap().catalog(),
     ));
     let pixels = snapshot::rasterize(&settled(&player, &mut presentation));
     let px = layout_pixel_scale(&presentation);
@@ -225,7 +204,8 @@ fn texture_only_pack_replacement_updates_loading_background_tile_sizes() {
 #[test]
 fn loading_frame_draws_brand_backdrop_and_animation_without_source_files() {
     let player = player_state::PlayerState::new(1);
-    let mut presentation = UiPresentationRuntime::new(crate::test_support::fixture_font()).unwrap();
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.enable_json_ui(carrier()).unwrap();
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
     let input = settled(&player, &mut presentation);

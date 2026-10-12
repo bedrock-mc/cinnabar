@@ -137,7 +137,7 @@ impl CameraFovState {
         let target = if target.is_finite() { target } else { 1.0 };
         if delta_seconds.is_finite() && delta_seconds > 0.0 {
             let keep = SMOOTHING_PER_TICK
-                .powf((delta_seconds * world::TICKS_PER_SECOND as f32).min(1000.0));
+                .powf((delta_seconds * simulation_clock::TICKS_PER_SECOND as f32).min(1000.0));
             self.modifier += (target - self.modifier) * (1.0 - keep);
         }
         self.modifier = self.modifier.clamp(MIN_MODIFIER, MAX_MODIFIER);
@@ -285,10 +285,10 @@ mod tests {
     #[test]
     fn smoothing_halves_the_gap_per_tick_regardless_of_frame_rate() {
         let mut one = CameraFovState::default();
-        one.advance(0.1, world::TICK_DURATION.as_secs_f32());
+        one.advance(0.1, simulation_clock::TICK_DURATION.as_secs_f32());
         let mut many = CameraFovState::default();
         for _ in 0..5 {
-            many.advance(0.1, world::TICK_DURATION.as_secs_f32() / 5.0);
+            many.advance(0.1, simulation_clock::TICK_DURATION.as_secs_f32() / 5.0);
         }
         assert!((one.modifier() - 0.55).abs() < 1e-5);
         assert!((one.modifier() - many.modifier()).abs() < 1e-5);

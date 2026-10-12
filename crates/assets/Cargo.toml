@@ -14,6 +14,7 @@ reads = [
     "assets/cinnangles-sans-source.json",
     "assets/cinnangles-seven-source.json",
     "assets/cinnangles-ten-source.json",
+    "assets/oreui-icons-source.json",
     "assets/vanilla-source.json",
     "crates/protocol/data/retail_biomes_1_26_50.txt",
     "crates/protocol/data/retail_items_1_26_50.tsv",
@@ -42,6 +43,7 @@ rustix = { version = "1", default-features = false, features = ["fs", "std"] }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
+test-alloc = { path = "../test-alloc" }
 tempfile = "3"
 
 [lints]

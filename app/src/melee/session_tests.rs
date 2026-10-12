@@ -30,7 +30,7 @@ fn press(input_mode: PlayerInputMode) -> PressContext {
 fn kinds(packets: &[protocol::Packet]) -> Vec<String> {
     packets
         .iter()
-        .map(|packet| format!("{:?}", packet.header.id))
+        .map(|packet| format!("{:?}", packet.kind()))
         .collect()
 }
 

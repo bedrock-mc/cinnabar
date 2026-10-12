@@ -37,7 +37,7 @@ fn sleeping_players_generic_level_event_carries_its_compound() {
         __ctd__: Nbt(loose.clone()),
     };
     assert_eq!(
-        into_world_event(packet.into(), 0).unwrap(),
+        into_world_event(protocol::Packet::new(packet), 0).unwrap(),
         Some(WorldEvent::Ui(UiEvent::SleepStatus(SleepStatusEvent {
             nbt: nbt.into()
         })))
@@ -46,5 +46,8 @@ fn sleeping_players_generic_level_event_carries_its_compound() {
         event_id: 1,
         __ctd__: Nbt(Bytes::from(int_compound(&[]))),
     };
-    assert_eq!(into_world_event(other.into(), 0).unwrap(), None);
+    assert_eq!(
+        into_world_event(protocol::Packet::new(other), 0).unwrap(),
+        None
+    );
 }

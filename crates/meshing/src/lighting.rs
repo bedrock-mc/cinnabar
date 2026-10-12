@@ -474,9 +474,12 @@ pub(crate) fn bake_template<I: LightingInputs + ?Sized>(
     let start = template.quad_start as usize;
     let end = start.checked_add(template.quad_count as usize)?;
     let quads = assets.model_quads().get(start..end)?;
-    // Current lily tessellator reads light at the pad's own cell.
+    // Lily pads and bubble columns read light at their own cell.
     // Neither neighbor AO nor terrain's underside face coefficient is applied.
-    if template.flags & assets::MODEL_TEMPLATE_FLAG_LILY_PAD != 0 {
+    if template.flags
+        & (assets::MODEL_TEMPLATE_FLAG_LILY_PAD | assets::MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN)
+        != 0
+    {
         return Some(vec![lighting_at(inputs.sample(block)); quads.len()]);
     }
     Some(

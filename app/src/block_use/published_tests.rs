@@ -161,7 +161,7 @@ fn fixture() -> (World, client_session::CapturedPackets) {
     world.insert_resource(origin);
     world.insert_resource(LocalViewPose::new(eye, Quat::IDENTITY));
     world.insert_resource(input);
-    world.insert_resource(ui);
+    world.insert_resource(UiRuntimeResource(ui));
     world.insert_resource(client_shell::menu::MenuRuntime::new(
         false,
         2,
@@ -214,7 +214,7 @@ fn a_fresh_press_resolves_for_the_tick_after_the_last_completed_one() {
     let ids: Vec<_> = captured
         .drain()
         .iter()
-        .map(|packet| format!("{:?}", packet.header.id))
+        .map(|packet| format!("{:?}", packet.kind()))
         .collect();
     let swing = ids.iter().position(|id| id == "AnimatePacket").unwrap();
     let transaction = ids
@@ -228,9 +228,6 @@ fn a_fresh_press_resolves_for_the_tick_after_the_last_completed_one() {
 /// A press reports the end position of the last completed tick, which precedes its tick.
 #[test]
 fn a_block_press_reports_the_last_completed_position() {
-    use protocol::wire::valentine::bedrock::version::v1_26_51::{
-        InventoryTransactionPacketTransaction, McpePacketData,
-    };
     let (mut world, mut captured) = fixture();
     let before = world
         .resource::<MovementTicker>()
@@ -247,16 +244,9 @@ fn a_block_press_reports_the_last_completed_position() {
     world.run_system_cached(produce_block_use).unwrap();
     let positions: Vec<_> = captured
         .drain()
-        .into_iter()
-        .filter_map(|packet| match packet.data {
-            McpePacketData::InventoryTransactionPacket(tx) => match tx.transaction {
-                InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(tx) => {
-                    Some([tx.from_position.x, tx.from_position.y, tx.from_position.z])
-                }
-                _ => None,
-            },
-            _ => None,
-        })
+        .iter()
+        .filter_map(item_use)
+        .map(|tx| tx.from_position)
         .collect();
     assert_eq!(positions, [moved]);
 }
@@ -286,23 +276,22 @@ fn frame_origin(world: &World, eye: Vec3, rotation: Quat) -> InteractionOriginSn
     origin
 }
 
+/// The item-use transaction a packet carries, if any.
+fn item_use(
+    packet: &protocol::Packet,
+) -> Option<protocol::test_support::transactions::ItemUseObservation> {
+    protocol::test_support::transactions::observe_transaction(packet)?
+        .item_use()
+        .cloned()
+}
+
 /// Blocks targeted by the captured item-use transactions.
 fn transaction_targets(captured: &mut client_session::CapturedPackets) -> Vec<[i32; 3]> {
-    use protocol::wire::valentine::bedrock::version::v1_26_51::{
-        InventoryTransactionPacketTransaction, McpePacketData,
-    };
     captured
         .drain()
-        .into_iter()
-        .filter_map(|packet| match packet.data {
-            McpePacketData::InventoryTransactionPacket(tx) => match tx.transaction {
-                InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(tx) => {
-                    Some([tx.position.x, tx.position.y, tx.position.z])
-                }
-                _ => None,
-            },
-            _ => None,
-        })
+        .iter()
+        .filter_map(item_use)
+        .map(|tx| tx.position)
         .collect()
 }
 
@@ -398,11 +387,11 @@ fn a_press_waiting_for_a_pick_is_not_resolved_as_item_use() {
             .unwrap()
             .seed_item_registry(protocol::ItemRegistryEvent {
                 entries: [protocol::ItemRegistryEntry {
-                    components: None,
                     identifier: "minecraft:snowball".into(),
                     network_id: snowball,
                     component_based: false,
                     version: protocol::ItemRegistryVersion::None,
+                    components: None,
                     component_digest: [0; 32],
                     negotiated_max_stack_size: Some(16),
                     canonical_empty_component_data: true,
@@ -411,7 +400,7 @@ fn a_press_waiting_for_a_pick_is_not_resolved_as_item_use() {
                 .into(),
             })
     );
-    world.resource_scope(|world, mut ui: Mut<UiRuntime>| {
+    world.resource_scope(|world, mut ui: Mut<UiRuntimeResource>| {
         let mut player = world.resource_mut::<client_state::PlayerRuntime>();
         let extra_data: std::sync::Arc<[u8]> = std::sync::Arc::from([]);
         ui.inventory_ledger_mut(&mut player)
@@ -498,7 +487,7 @@ fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::Capture
             std::thread::yield_now();
         }
     }
-    world.resource_scope(|world, mut ui: Mut<UiRuntime>| {
+    world.resource_scope(|world, mut ui: Mut<UiRuntimeResource>| {
         let mut player = world.resource_mut::<client_state::PlayerRuntime>();
         let extra_data: std::sync::Arc<[u8]> = std::sync::Arc::from([]);
         ui.inventory_ledger_mut(&mut player)
@@ -801,7 +790,7 @@ fn hotbar_changes_preserve_the_held_line_intercept_and_repeat_deadline() {
         set_hotbar_stack(&mut world, 1, placeable.then_some("minecraft:dirt"));
         let selected = verified_use_selection(
             world.resource::<client_state::PlayerRuntime>(),
-            world.resource::<UiRuntime>(),
+            world.resource::<UiRuntimeResource>(),
         )
         .unwrap();
         let mut runtime = world.resource_mut::<BlockUseRuntime>();
@@ -985,9 +974,6 @@ fn pending_hotbar_selection_retains_a_deferred_block_press() {
 /// selected block from the pre-physics build action, without a stop or a fresh start.
 #[test]
 fn a_hotbar_switch_mid_hold_repeats_with_the_new_block_before_the_tick() {
-    use protocol::wire::valentine::bedrock::version::v1_26_51::{
-        InventoryTransactionPacketTransaction, McpePacketData,
-    };
     let (mut world, mut captured) =
         floor_fixture([4.5, 2.620_01, 8.32], Quat::from_rotation_x(-0.9601));
     let mut router = crate::semantic_controls::SemanticInputRuntime::default();
@@ -1013,20 +999,13 @@ fn a_hotbar_switch_mid_hold_repeats_with_the_new_block_before_the_tick() {
     }
     assert!(
         sent.iter()
-            .all(|packet| format!("{:?}", packet.header.id) != "PlayerActionPacket"),
+            .all(|packet| format!("{:?}", packet.kind()) != "PlayerActionPacket"),
         "switching must not stop or restart the hold"
     );
     let repeats: Vec<_> = sent
-        .into_iter()
-        .filter_map(|packet| match packet.data {
-            McpePacketData::InventoryTransactionPacket(tx) => match tx.transaction {
-                InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(tx) => {
-                    Some((tx.slot, [tx.position.x, tx.position.y, tx.position.z]))
-                }
-                _ => None,
-            },
-            _ => None,
-        })
+        .iter()
+        .filter_map(item_use)
+        .map(|tx| (tx.slot, tx.position))
         .collect();
     assert_eq!(repeats.first(), Some(&(1, [4, 1, 7])), "{repeats:?}");
 }

@@ -23,6 +23,7 @@ mod packet;
 mod particle;
 mod permissions;
 mod primitive_shapes;
+mod raw_packet;
 mod raw_text;
 mod respawn;
 mod settings;
@@ -87,7 +88,7 @@ pub use camera::{
     CameraTargetInstruction, MAX_CAMERA_AIM_ASSIST_ENTRIES, MAX_CAMERA_EASE_IDENTIFIER_BYTES,
     MAX_CAMERA_PRESETS, MAX_CAMERA_SPLINE_POINTS, camera_aim_assist_activation_packet,
 };
-pub use codec::{ProtocolError, decode_batch, encode};
+pub use codec::{PacketDecodeError, ProtocolError, SessionError, decode_batch, encode};
 pub use disconnect::ServerDisconnectEvent;
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
@@ -129,10 +130,9 @@ pub use inventory::{
     StackResponseContainer, StackResponseSlot, StackResponseStatus, UI_INVENTORY_WINDOW_ID,
     VerifiedNetworkItemStack, container_close_packet, item_stack_request_batch,
     item_stack_request_packet, item_stack_request_packet_filtered,
-    normal_inventory_transaction_packet, normalize_authority, normalize_container_close,
-    normalize_container_data, normalize_container_open, normalize_content, normalize_hotbar,
-    normalize_response, normalize_slot, open_inventory_packet, personal_craft_content_indices,
-    personal_craft_slot_index, project_container_cell, validate_item_nbt_size,
+    normal_inventory_transaction_packet, normalize_authority, open_inventory_packet,
+    personal_craft_content_indices, personal_craft_slot_index, project_container_cell,
+    validate_item_nbt_size,
 };
 pub use inventory::{
     CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
@@ -146,8 +146,8 @@ pub use inventory::{
     WINDOW_TYPE_HOPPER, WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN, WINDOW_TYPE_LOOM,
     WINDOW_TYPE_SMITHING_TABLE, WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER, WINDOW_TYPE_WORKBENCH,
     WindowKind, WindowSegment, is_chest_like_name, is_open_window_name, is_result_preview_name,
-    normalize_enchant_options, open_cell_request, open_name_first_cell, ui_slot_container_name,
-    ui_slot_for_name, ui_slot_request_container,
+    open_cell_request, open_name_first_cell, ui_slot_container_name, ui_slot_for_name,
+    ui_slot_request_container,
 };
 pub use inventory::{
     IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
@@ -156,31 +156,23 @@ pub use inventory::{MineBlockRequest, MineBlockRequestError};
 pub use inventory::{RecipeRegistryError, RecipeRegistrySnapshot};
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, EquipmentEvent,
-    HOTBAR_SLOT_COUNT, ItemActorEvent, ItemAttackCooldown, ItemAttackTiming, ItemBook,
-    ItemComponents, ItemDisplay, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent,
-    ItemRegistryVersion, ItemStackFacts, ItemStackFactsCache, KineticWeaponTiming,
+    FoodProperties, HOTBAR_SLOT_COUNT, ItemActorEvent, ItemAttackCooldown, ItemAttackTiming,
+    ItemBook, ItemComponents, ItemDisplay, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent,
+    ItemRegistryVersion, ItemStackFacts, ItemStackFactsCache, ItemUseCooldown, KineticWeaponTiming,
     MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS, MAX_ANIMATION_IDENTIFIER_BYTES,
     MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, item_book,
-    item_bundle_id, item_charged_projectile, item_components, item_custom_color, item_display,
+    item_bundle_id, item_charged_projectile, item_custom_color, item_display,
     item_enchantment_level, item_extra_damage, item_extra_unbreakable, item_has_enchantment_list,
-    item_icon_keys, item_stack_damage, select_hotbar_slot_packet, vanilla_item_registry,
+    item_stack_damage, select_hotbar_slot_packet, vanilla_item_registry,
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
-pub use jolyne::GameData;
-pub use jolyne::stream::client::{ClientCape, ClientSkin, ClientSkinGeometry};
-pub use jolyne::stream::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
-pub use jolyne::{GAME_VERSION, PROTOCOL_VERSION};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};
 
-/// The vendored wire crates, so no other manifest declares their pinned paths.
-#[cfg(feature = "wire-test-support")]
-pub mod wire {
-    pub use jolyne;
-    pub use valentine;
-}
 pub use login::{
-    ClientRandomId, LoginSequence, LoginSettings, PacketIdTraceSnapshot, PlayOutbound, PlaySession,
-    login_memory_tier, network_stack_latency_reply,
+    ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION, GameData,
+    LoginSequence, LoginSettings, PROTOCOL_VERSION, PacketIdTraceSnapshot, PlayOutbound,
+    PlaySession, ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff, StartupItems,
+    StartupSettings, login_memory_tier, network_stack_latency_reply,
 };
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
@@ -190,7 +182,7 @@ pub use movement::{
     player_auth_input, player_auth_input_trace_sample, player_auth_input_with_interactions,
     player_auth_input_with_mining_request,
 };
-pub use packet::Packet;
+pub use packet::{Packet, PacketKind};
 pub use particle::{
     LevelParticleEvent, MAX_PARTICLE_NAME_BYTES, MAX_PARTICLE_VARIABLES_BYTES, ParticleEvent,
     SpawnParticleEffectEvent,
@@ -208,7 +200,7 @@ pub use render_api::primitive_shapes::{
     PrimitiveShapeChange, PrimitiveShapeData, PrimitiveShapeKind, PrimitiveShapeUpdate,
     PrimitiveShapesEvent, PrimitiveText,
 };
-pub use session_transport::{SessionTransport, report_pack_application};
+pub use session_transport::report_pack_application;
 pub use settings::request_chunk_radius_packet;
 pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
 pub use translation_parameter::localize_parameter_prefix;
@@ -231,7 +223,6 @@ pub use ui::{
     modal_form_busy_response, modal_form_cancel_response, modal_form_submit_response,
     npc_request_packet, server_settings_request_packet,
 };
-pub use valentine::bedrock::context::BedrockSession;
 pub use world::{
     ActorBlockSyncMessage, ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent,
     BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent,
@@ -250,9 +241,8 @@ pub use world::{
     SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent,
     WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldClockDefinition, WorldClockState,
     WorldClockUpdateEvent, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, WorldWireError,
-    air_network_id, block_name_sort_key, block_state_network_hash, into_world_event, is_hardcore,
-    request_sub_chunk_column, rewind_history_size, server_authoritative_block_breaking,
-    vanilla_dimension_range,
+    air_network_id, block_name_sort_key, block_state_network_hash, into_world_event,
+    request_sub_chunk_column, vanilla_dimension_range,
 };
 
 mod movement_transport;
@@ -261,5 +251,16 @@ pub use movement_transport::{BatchSendError, InteractionPacketGuard, PhysicsSend
 mod fast_transfer_action;
 pub use fast_transfer_action::FastTransferAction;
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
+
 #[cfg(test)]
-mod test_allocations;
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
+// Wire-layout tests live beside the codec so packet internals stay crate-private.
+#[cfg(test)]
+extern crate self as protocol;
+#[cfg(test)]
+#[path = "../tests/it/main.rs"]
+mod wire_tests;

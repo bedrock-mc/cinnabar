@@ -204,11 +204,11 @@ fn slot(name: u8, slot: u16) -> InventoryAuthorityEvent {
 fn named_registry(name: &str, capacity: u8) -> protocol::ItemRegistryEvent {
     protocol::ItemRegistryEvent {
         entries: Arc::from([protocol::ItemRegistryEntry {
-            components: None,
             identifier: Arc::from(name),
             network_id: 6,
             component_based: false,
             version: protocol::ItemRegistryVersion::None,
+            components: None,
             component_digest: [0; 32],
             negotiated_max_stack_size: Some(capacity),
             canonical_empty_component_data: true,

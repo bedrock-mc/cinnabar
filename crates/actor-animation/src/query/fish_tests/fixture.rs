@@ -80,6 +80,9 @@ pub(super) fn assets(identifier: &str) -> Arc<RuntimeEntityAssets> {
     .collect::<Vec<_>>()
     .into_boxed_slice();
     let compiled = CompiledEntityAssets {
+        item_use_profiles: Box::new([]),
+        seat_layouts: Box::new([]),
+        interaction_traits: Box::new([]),
         source_manifest_sha256: [1; 32],
         block_visual_count: 1,
         sources,
@@ -103,6 +106,7 @@ pub(super) fn assets(identifier: &str) -> Arc<RuntimeEntityAssets> {
         controller_animations: Box::new([]),
         controller_transitions: Box::new([]),
         rig_bindings: vec![EntityRigBinding {
+            placement_frame: assets::placement::EntityPlacementFrame::Unresolved,
             entity_symbol: 0,
             render_controller: 3,
             first_geometry: 0,
@@ -132,6 +136,9 @@ pub(super) fn assets(identifier: &str) -> Arc<RuntimeEntityAssets> {
         item_visuals: Box::new([]),
         item_visual_aliases: Box::new([]),
         render: EntityRenderData::default(),
-    };
+    }
+    .with_unresolved_item_use()
+    .with_unresolved_seats()
+    .with_unresolved_interactions();
     Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap())
 }

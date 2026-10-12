@@ -8,7 +8,6 @@ pub mod entity_shadows;
 pub mod prepared_actor_artwork;
 pub mod presentation;
 pub mod primitive_shapes;
-pub mod seat_defaults;
 pub mod session_assets;
 
 pub mod camera;
@@ -29,4 +28,5 @@ mod molang_conformance_tests;
 mod perspective_head_tests;
 
 #[cfg(test)]
-mod test_allocations;
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;

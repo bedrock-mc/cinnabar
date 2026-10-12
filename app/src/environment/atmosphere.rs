@@ -10,7 +10,7 @@ use meshing::CameraMedium;
 use render_scene::{AtmosphereFrame, SkyKind};
 use ui::BossBarView;
 
-use client_ui::ui_runtime::UiRuntime;
+use client_shell::ui_resources::UiRuntimeResource;
 
 use super::{
     CameraMediumState, EnvironmentContext, EnvironmentProfileRoute, LightningFlashState,
@@ -197,7 +197,7 @@ pub(crate) fn update_atmosphere_frame(
     weather: Res<WeatherState>,
     medium: Res<CameraMediumState>,
     context: Res<EnvironmentContext>,
-    boss_bars: Res<UiRuntime>,
+    boss_bars: Res<UiRuntimeResource>,
     atmosphere_assets: Res<render_scene::AtmosphereTextureAssets>,
     time: Res<Time<Real>>,
     flash: Res<LightningFlashState>,

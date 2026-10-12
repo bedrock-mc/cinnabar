@@ -433,9 +433,9 @@ fn steady_frames_of_fresh_poses_allocate_independently_of_actor_count() {
                     submission(runtime_id, 0, 4, [Arc::clone(&bones), bones])
                 })
                 .collect();
-            let before = crate::alloc_count::thread_allocations();
+            let before = test_alloc::thread_allocations();
             let built = builder.build(0.5, None, submissions);
-            let allocated = crate::alloc_count::thread_allocations() - before;
+            let allocated = test_alloc::thread_allocations() - before;
             assert_eq!(built.instances.len() as u64, actors);
             if frame >= 32 {
                 worst = worst.max(allocated);

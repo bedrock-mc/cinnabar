@@ -10,9 +10,8 @@ use valentine::bedrock::version::v1_26_51::{
     SubChunkPacket, SubChunkPacketPayloadSubChunkPacketData,
 };
 
-/// The per-entry sub-chunk request result. Aliased because the generated name
-/// carries the whole payload path.
-pub(crate) use valentine::bedrock::version::v1_26_51::EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkRequestResult;
+// The per-entry sub-chunk request result, aliased because the generated name carries its path.
+use valentine::bedrock::version::v1_26_51::EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkRequestResult;
 
 /// Unwraps the dimension ID 1.26.40 wraps in a `DimensionType` newtype.
 pub(crate) fn dimension_id(

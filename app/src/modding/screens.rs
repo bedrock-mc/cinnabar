@@ -15,9 +15,10 @@ use bevy::{
 };
 use client_ui::ui_runtime::{
     UiRuntime,
-    presentation::{ModScreensInput, UiPresentationRuntime, publish::hovered_stack},
+    presentation::{UiPresentationRuntime, publish::hovered_stack},
     session_data::{SessionDataCache, session_data, session_stack},
 };
+use mod_ui::mod_screens::ModScreensInput;
 use server_experience::screen::ScreenLayout;
 use {
     experience_sdk::mod_manifest::{KeyDecl, Modifier},
@@ -202,16 +203,19 @@ fn drive_owner(
         return;
     };
     let keys = package.keys.clone();
-    if !presentation.mod_screens_match(&package.id, &package.files) {
+    if !presentation
+        .mod_ui()
+        .mod_screens_match(&package.id, &package.files)
+    {
         publish(host, presentation);
     }
-    if let Some(reason) = presentation.mod_screens_failure() {
+    if let Some(reason) = presentation.mod_ui().mod_screens_failure() {
         eprintln!("Cinnabar mod screens refused, mod quarantined: {reason}");
         host.quarantine();
     }
     let mut events: Vec<ModEvent> = state.data_change.take().into_iter().collect();
     if host.is_active() {
-        let layout = presentation.mod_screen_layout().cloned();
+        let layout = presentation.mod_ui().mod_screen_layout().cloned();
         if layout != state.layout {
             state.layout.clone_from(&layout);
             events.push(ModEvent::ScreenChanged(layout));
@@ -254,7 +258,7 @@ fn pointer_events(
     input: &mut ScreenInput,
     events: &mut Vec<ModEvent>,
 ) -> bool {
-    presentation.hover_mod_screens(cursor);
+    presentation.mod_ui_mut().hover_mod_screens(cursor);
     let notches: f64 = input
         .wheel
         .read()
@@ -264,7 +268,7 @@ fn pointer_events(
         })
         .sum();
     if let Some(point) = cursor
-        && let Some([x, y]) = presentation.scroll_mod_screens(point, notches)
+        && let Some([x, y]) = presentation.mod_ui_mut().scroll_mod_screens(point, notches)
     {
         events.push(ModEvent::Scrolled {
             delta: notches,
@@ -288,15 +292,20 @@ fn pointer_events(
             _ => {}
         }
     }
-    if let Some((id, index)) = presentation.press_mod_screens(cursor, pressed, released) {
+    if let Some((id, index)) = presentation
+        .mod_ui_mut()
+        .press_mod_screens(cursor, pressed, released)
+    {
         events.push(ModEvent::Action {
             id,
             index: index.and_then(|index| u32::try_from(index).ok()),
         });
     }
-    if let Some((id, index)) =
-        presentation.secondary_press_mod_screens(cursor, secondary_pressed, secondary_released)
-    {
+    if let Some((id, index)) = presentation.mod_ui_mut().secondary_press_mod_screens(
+        cursor,
+        secondary_pressed,
+        secondary_released,
+    ) {
         events.push(ModEvent::SecondaryAction {
             id,
             index: index.and_then(|index| u32::try_from(index).ok()),
@@ -330,13 +339,13 @@ fn key_events(
         cursor,
         pressed,
     } = frame;
-    let view = presentation.mod_view_shown();
+    let view = presentation.mod_ui().mod_view_shown();
     let presses: Vec<_> = input.presses.drain(..).collect();
     let typed: Vec<String> = presses
         .iter()
         .filter_map(|press| {
             client_ui::ui_runtime::forms::engine_input::typed_text(
-                press.key,
+                client_shell::physical_input::keyboard_key(press.key),
                 press.text.as_deref(),
                 press.modifiers.ctrl,
             )
@@ -347,8 +356,10 @@ fn key_events(
         .time
         .as_ref()
         .map_or(0.0, |time| time.elapsed_secs_f64());
-    let edits = presentation.edit_mod_screens(cursor, pressed, &typed, escape, now);
-    let text_focused = presentation.mod_text_focused();
+    let edits = presentation
+        .mod_ui_mut()
+        .edit_mod_screens(cursor, pressed, &typed, escape, now);
+    let text_focused = presentation.mod_ui().mod_text_focused();
     for (control, text) in edits.edits {
         events.push(ModEvent::TextChanged { control, text });
     }
@@ -371,7 +382,7 @@ fn key_events(
             .negotiated_item_registry();
         let hovered = hovered_stack(player_runtime, ui)
             .and_then(|(stack, _)| session_stack(registry, &stack));
-        let row = cursor.and_then(|point| presentation.mod_screens_row(point));
+        let row = cursor.and_then(|point| presentation.mod_ui_mut().mod_screens_row(point));
         events.push(ModEvent::Key {
             id: declared.id.clone(),
             hovered,

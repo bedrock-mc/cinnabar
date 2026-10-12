@@ -227,16 +227,6 @@ impl AnimatedActor for TestActor {
         self.status.dead
     }
 
-    fn target_rotation_is_absolute(&self) -> bool {
-        matches!(
-            self.identifier(),
-            "minecraft:arrow"
-                | "minecraft:fireworks_rocket"
-                | "minecraft:wither_skull"
-                | "minecraft:wither_skull_dangerous"
-        )
-    }
-
     fn network_position_offset(&self) -> f32 {
         self.status.network_position_offset
     }

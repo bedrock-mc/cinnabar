@@ -12,7 +12,7 @@ fn death_discards_a_same_frame_pause_settings_click() {
     let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = UiRuntime::new(1);
     let mut presentation =
-        UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap();
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.set_menu_view(Some(menu.view()));
     presentation
         .build(
@@ -51,9 +51,9 @@ fn death_discards_a_same_frame_pause_settings_click() {
         .init_resource::<Touches>()
         .init_resource::<MenuClipboard>()
         .insert_resource(player)
-        .insert_resource(runtime)
+        .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(menu)
-        .insert_resource(presentation)
+        .insert_resource(UiPresentationResource(presentation))
         .add_systems(Update, drive_menu_input);
     let mut window = Window {
         focused: true,
@@ -85,7 +85,7 @@ fn death_discards_a_same_frame_pause_settings_click() {
         "held old input stays retired"
     );
     app.world_mut()
-        .resource_scope(|world, mut runtime: Mut<UiRuntime>| {
+        .resource_scope(|world, mut runtime: Mut<UiRuntimeResource>| {
             let mut player = world.resource_mut::<client_state::PlayerRuntime>();
             runtime
                 .apply_local_attributes(
@@ -122,7 +122,9 @@ fn death_controls_advance_on_real_time_while_simulation_is_paused() {
     .init_resource::<ButtonInput<KeyCode>>()
     .init_resource::<ButtonInput<MouseButton>>()
     .init_resource::<Touches>()
-    .insert_resource(UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap())
+    .insert_resource(UiPresentationResource(
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap(),
+    ))
     .insert_resource(MenuRuntime::new(false, 2, "Player".into()))
     .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
     .add_systems(Update, drive_menu_input);
@@ -176,7 +178,9 @@ fn death_respawn_retains_explicit_cursor_return_until_recovery() {
     .init_resource::<ButtonInput<KeyCode>>()
     .init_resource::<ButtonInput<MouseButton>>()
     .init_resource::<Touches>()
-    .insert_resource(UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap())
+    .insert_resource(UiPresentationResource(
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap(),
+    ))
     .insert_resource(MenuRuntime::new(false, 2, "Player".into()))
     .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
     .add_systems(Update, drive_menu_input);

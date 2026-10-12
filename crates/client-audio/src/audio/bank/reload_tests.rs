@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn replacing_a_pack_preserves_the_pool_and_discards_stale_completion() {
-    let encoded = assets::encode_sound_bank(b"{}", b"{}", b"{}", &[]).unwrap();
+    let encoded = assets::sound_bank::encode_sound_bank(b"{}", b"{}", b"{}", &[]).unwrap();
     let mut bank = SoundBank::from_parts(
         SoundBankIndex::decode_prefix(&encoded).unwrap(),
         SoundEventTables::default(),
@@ -55,7 +55,7 @@ fn queued_input_budget_remains_held_across_pack_generations() {
 
 #[test]
 fn stale_queued_sounds_do_not_retain_previous_pack_archives() {
-    let encoded = assets::encode_sound_bank(b"{}", b"{}", b"{}", &[]).unwrap();
+    let encoded = assets::sound_bank::encode_sound_bank(b"{}", b"{}", b"{}", &[]).unwrap();
     let mut bank = SoundBank::from_parts(
         SoundBankIndex::decode_prefix(&encoded).unwrap(),
         SoundEventTables::default(),

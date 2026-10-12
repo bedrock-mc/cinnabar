@@ -5,11 +5,10 @@ use valentine::bedrock::version::v1_26_51::ModalFormRequestPacket;
 
 fn model(json: serde_json::Value) -> ServerFormModel {
     let event = into_world_event(
-        ModalFormRequestPacket {
+        protocol::Packet::new(ModalFormRequestPacket {
             form_id: 7,
             form_uijson: json.to_string(),
-        }
-        .into(),
+        }),
         0,
     )
     .unwrap();

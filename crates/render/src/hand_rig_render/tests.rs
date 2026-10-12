@@ -109,14 +109,14 @@ fn steady_uploads_hand_uniforms_are_independent_and_allocation_free() {
     let mut light = light();
     upload_uniforms(&mut gpu, &device, &queue, None, projection, light);
     assert_eq!(gpu.uniform_uploads, [1, 1]);
-    let allocated = crate::alloc_count::thread_allocations();
+    let allocated = test_alloc::thread_allocations();
     upload_uniforms(&mut gpu, &device, &queue, None, projection, light);
     assert_eq!(
         gpu.uniform_uploads,
         [1, 1],
         "equal uniforms issue no queue writes"
     );
-    assert_eq!(crate::alloc_count::thread_allocations() - allocated, 0);
+    assert_eq!(test_alloc::thread_allocations() - allocated, 0);
 
     let projection = glam::camera::rh::proj::directx::perspective_infinite_reverse(
         1.2,

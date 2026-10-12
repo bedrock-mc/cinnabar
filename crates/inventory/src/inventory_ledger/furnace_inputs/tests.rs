@@ -1,39 +1,26 @@
 use super::*;
-use ::protocol::wire::valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
+use ::protocol::test_support::recipes::{
+    CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture,
+};
 
 /// Admits original wire recipe inputs through the same bounded catalog as the session.
 fn catalog(inputs: impl IntoIterator<Item = (String, bool, u16)>) -> Arc<RecipeCatalog> {
-    let packet = CraftingDataPacket {
-        shapeless_recipes: inputs
-            .into_iter()
-            .enumerate()
-            .map(|(index, (name, tag, aux))| ShapelessRecipePayload {
-                ingredients: vec![CerealizerRecipeIngredientSerializedData {
-                    descriptor: vec![CerealizerRecipeIngredientSerializedDataDescriptorItem {
-                        key: if tag { "item_tag" } else { "name" }.into(),
-                        value: name,
-                    }],
-                    aux_value: i32::from(aux),
-                    stack_size: 1,
-                }],
-                results: vec![CerealizerNetworkItemInstanceDescriptorSerializedData {
-                    id: 1,
-                    stacksize: 1,
-                    ..Default::default()
-                }],
+    let recipes = inputs
+        .into_iter()
+        .enumerate()
+        .map(|(index, (name, tag, aux))| {
+            let mut ingredient = IngredientFixture::named(&name, i32::from(aux));
+            if tag {
+                ingredient.descriptor[0].0 = "item_tag".into();
+            }
+            RecipeFixture {
                 tag: "furnace".into(),
-                net_id: TypedServerNetIdstructRecipeNetIdTag {
-                    raw_id: index as u32 + 1,
-                },
-                ..Default::default()
-            })
-            .collect(),
-        clear_recipes: true,
-        ..Default::default()
-    };
-    let mut bytes = Vec::new();
-    packet.encode(&mut bytes).unwrap();
-    let update = ::protocol::decode_recipe_update(&bytes).unwrap();
+                net_id: index as u32 + 1,
+                ..RecipeFixture::shapeless("", vec![ingredient], vec![OutputFixture::new(1, 1)])
+            }
+        })
+        .collect();
+    let update = CraftingDataFixture::clearing(recipes).update();
     let mut catalog = RecipeCatalog::default();
     catalog.begin_session(1);
     assert!(catalog.apply(1, 1, &update));

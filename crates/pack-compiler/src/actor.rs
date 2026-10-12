@@ -49,12 +49,22 @@ pub struct CompiledActorCarrier {
     pub report: ActorCompileReport,
 }
 
+/// Compiles neutral artwork against the resource-only entity carrier.
 pub fn compile_actor_assets(
     root: &Path,
     manifest: &[u8],
 ) -> Result<CompiledActorCarrier, AssetError> {
     let entities = compile_entity_assets(root, manifest)?;
-    let entity_bytes = encode_entity_blob(&entities)?;
+    compile_actor_assets_for_assets(root, &entities)
+}
+
+/// Compiles neutral artwork in the exact entity catalog's index space and pins its encoding.
+/// Only resource textures are read from `root`, with their recorded size and hash checked.
+pub fn compile_actor_assets_for_assets(
+    root: &Path,
+    entities: &CompiledEntityAssets,
+) -> Result<CompiledActorCarrier, AssetError> {
+    let entity_bytes = encode_entity_blob(entities)?;
     let runtime_entities = assets::RuntimeEntityAssets::decode(&entity_bytes)?;
     let mut read = |index: u32| -> Result<Vec<u8>, AssetError> {
         let source = &entities.sources[index as usize];
@@ -71,7 +81,7 @@ pub fn compile_actor_assets(
         bindings,
         fallbacks,
         pixel_bytes,
-    } = build_artwork(&entities, &runtime_entities, &mut read, false)?;
+    } = build_artwork(entities, &runtime_entities, &mut read, false)?;
     let bytes = encode_actor_catalog(&entity_bytes, &textures, &bindings)?;
     let report = ActorCompileReport {
         source_manifest_sha256: entities.source_manifest_sha256,

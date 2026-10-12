@@ -10,7 +10,7 @@ use protocol::{
 
 use crate::ui_runtime::UiRuntime;
 use crate::ui_runtime::inventory_drag::PointerAction;
-use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
+use ui_screens::container_actions::InventoryCellHit;
 
 /// Opens a mount window with one known player stack and empty storage cells.
 fn fixture(identifier: &str) -> (player_state::PlayerState, UiRuntime) {

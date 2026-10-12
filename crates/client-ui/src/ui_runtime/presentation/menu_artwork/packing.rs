@@ -1,24 +1,25 @@
 use std::{collections::HashMap, sync::Arc};
 
 use {
-    super::{
-        Artwork, ArtworkSet, DecodeCache, GUTTER, Packed, TITLE_KEY, WHOLE_PAGE, decode_bytes,
-        sources,
-    },
+    super::{Artwork, ArtworkSet, DecodeCache, Packed, decode_bytes, sources},
     ui::IconRef,
+    ui_engine::{
+        pages::{ART_PAGE_GUTTER as GUTTER, WHOLE_ART_PAGE},
+        textures::TITLE_KEY,
+    },
 };
 
 fn title() -> Option<&'static Artwork> {
     static TITLE: std::sync::OnceLock<Option<Artwork>> = std::sync::OnceLock::new();
     TITLE
         .get_or_init(|| {
-            decode_bytes(launcher::branding::TITLE, WHOLE_PAGE).map(|(pixels, width, height)| {
-                Artwork {
+            decode_bytes(launcher::branding::TITLE, WHOLE_ART_PAGE).map(
+                |(pixels, width, height)| Artwork {
                     width,
                     height,
                     pixels,
-                }
-            })
+                },
+            )
         })
         .as_ref()
 }

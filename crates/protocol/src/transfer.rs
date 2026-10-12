@@ -1,12 +1,91 @@
-pub use jolyne::transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
+use valentine::bedrock::version::v1_26_51::McpePacketData;
+
+/// Longest retained transfer host, in bytes.
+///
+/// DNS names cap at 253 octets and literal IPv6 at 45 characters, so this
+/// bounds every legitimate target while refusing unbounded wire strings.
+pub const MAX_TRANSFER_HOST_BYTES: usize = 255;
+
+/// Bounded record of a server-directed transfer target.
+///
+/// The host is trimmed and checked for well-formedness only; following it is a policy
+/// decision above the protocol layer, and vanilla servers transfer across unrelated hosts.
+/// The optional gatherings configuration is not retained: nothing consumes it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerTransferEvent {
+    pub host: String,
+    pub port: u16,
+    pub reload_world: bool,
+}
+
+/// Why a completely decoded Transfer packet named an unusable target.
+///
+/// These are semantic oddities, not wire failures: the session survives and the
+/// caller counts the rejection instead of tearing down.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServerTransferRejection {
+    EmptyHost,
+    HostTooLong { bytes: usize },
+    InvalidHostCharacter,
+    ZeroPort,
+}
+
+impl ServerTransferEvent {
+    /// Normalizes one decoded packet; other packets normalize to nothing.
+    pub(crate) fn from_packet_data(
+        data: &McpePacketData,
+    ) -> Result<Option<Self>, ServerTransferRejection> {
+        let McpePacketData::TransferPacket(packet) = data else {
+            return Ok(None);
+        };
+        Self::from_target(
+            &packet.server_address,
+            packet.server_port,
+            packet.reload_world,
+        )
+        .map(Some)
+    }
+
+    /// Validates a destination, from a packet or the core's terminal Transfer, before it is kept.
+    pub(crate) fn from_target(
+        address: &str,
+        port: u16,
+        reload_world: bool,
+    ) -> Result<Self, ServerTransferRejection> {
+        let host = address.trim();
+        if host.is_empty() {
+            return Err(ServerTransferRejection::EmptyHost);
+        }
+        if host.len() > MAX_TRANSFER_HOST_BYTES {
+            return Err(ServerTransferRejection::HostTooLong { bytes: host.len() });
+        }
+        if host.chars().any(is_forbidden_host_character) {
+            return Err(ServerTransferRejection::InvalidHostCharacter);
+        }
+        if port == 0 {
+            return Err(ServerTransferRejection::ZeroPort);
+        }
+        Ok(Self {
+            host: host.to_owned(),
+            port,
+            reload_world,
+        })
+    }
+}
+
+/// Rejects ASCII control characters and interior spaces: a well-formedness floor, not a
+/// hostname grammar, so unusual but dialable hosts fail visibly when dialled instead.
+fn is_forbidden_host_character(character: char) -> bool {
+    matches!(character, '\0'..='\x1f' | '\x7f' | ' ')
+}
 
 impl crate::ProtocolError {
     /// Returns the validated destination when a Transfer ends any login phase.
     pub fn server_transfer(&self) -> Option<ServerTransferEvent> {
         match self {
-            Self::Session(jolyne::error::JolyneError::Protocol(
-                jolyne::error::ProtocolError::ServerTransfer(target),
-            )) => Some(target.clone()),
+            Self::Session(crate::SessionError(crate::codec::SessionFailure::ServerTransfer(
+                target,
+            ))) => Some(target.clone()),
             _ => None,
         }
     }
@@ -15,7 +94,7 @@ impl crate::ProtocolError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use valentine::bedrock::version::v1_26_51::{McpePacketData, TransferPacket};
+    use valentine::bedrock::version::v1_26_51::TransferPacket;
 
     fn transfer_data(address: &str, port: u16) -> McpePacketData {
         McpePacketData::TransferPacket(Box::new(TransferPacket {

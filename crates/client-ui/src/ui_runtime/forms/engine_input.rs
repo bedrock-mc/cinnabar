@@ -4,19 +4,20 @@
 //! mappings to its components; this module is the form's screen controller,
 //! turning the resulting screen events into form values and answers.
 
-use bevy::input::{ButtonInput, keyboard::KeyCode, mouse::MouseScrollUnit};
 use json_ui::{
     ButtonEvent, ButtonInput as EngineButton, Dispatch, HitKind, HitRegion, InputMode,
     PointerInput, ScreenEvent, hit_test,
 };
 use protocol::{CustomFormElement, MenuElement, ServerFormModel};
+use semantic_input::{KeyboardKey, ScrollUnit};
 use ui::{ChatClipboard, UiPoint};
 
 use super::engine_focus;
 use super::engine_scroll;
-use super::values::{EngineFrame, slider_fraction, slider_value_after_step, slider_value_at};
+use super::values::{slider_fraction, slider_value_after_step, slider_value_at};
 use super::{FormValue, LocalFormAction};
 use crate::ui_runtime::{PlatformClipboard, UiRuntime};
+use ui_engine::frame::EngineFrame;
 
 /// Longest paste accepted into an edit box, before its own `max_length`.
 const MAX_PASTE_BYTES: usize = 4096;
@@ -39,13 +40,14 @@ pub struct PointerButtons {
 /// One frame of raw input for the engine path.
 pub struct EngineInput<'a> {
     pub cursor: Option<UiPoint>,
-    pub keys: &'a ButtonInput<KeyCode>,
+    /// Keys held this frame.
+    pub keys: &'a [KeyboardKey],
     pub pointer: PointerButtons,
     pub pointer_edges: Vec<bool>,
-    pub wheel: Vec<(f32, MouseScrollUnit)>,
+    pub wheel: Vec<(f32, ScrollUnit)>,
     /// Pressed keys this frame with their produced text.
     /// Key presses with their text and whether the OS auto-repeated them.
-    pub typed: Vec<(KeyCode, Option<String>, bool)>,
+    pub typed: Vec<(KeyboardKey, Option<String>, bool)>,
     /// Seconds on the app clock.
     pub now: f64,
     /// The form's animator: button events play and reset its animations.
@@ -77,10 +79,10 @@ pub fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: EngineInpu
         _ => frame,
     };
     let point = input.cursor.map(|cursor| frame.to_virtual(cursor));
-    let control = input.keys.pressed(KeyCode::ControlLeft)
-        || input.keys.pressed(KeyCode::ControlRight)
-        || input.keys.pressed(KeyCode::SuperLeft)
-        || input.keys.pressed(KeyCode::SuperRight);
+    let control = input.keys.contains(&KeyboardKey::ControlLeft)
+        || input.keys.contains(&KeyboardKey::ControlRight)
+        || input.keys.contains(&KeyboardKey::SuperLeft)
+        || input.keys.contains(&KeyboardKey::SuperRight);
     let mut events = Vec::new();
     {
         let engine = runtime.server_forms_mut().engine_mut();
@@ -266,7 +268,7 @@ fn editing(runtime: &UiRuntime, frame: &EngineFrame) -> bool {
 fn keyboard(
     runtime: &mut UiRuntime,
     frame: &EngineFrame,
-    key: KeyCode,
+    key: KeyboardKey,
     text: Option<&str>,
     control: bool,
     now: f64,
@@ -281,13 +283,13 @@ fn keyboard(
             .events;
     }
     let id = match key {
-        KeyCode::Escape => "button.menu_cancel",
-        KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space => "button.menu_ok",
-        KeyCode::ArrowUp => "button.menu_up",
-        KeyCode::ArrowDown => "button.menu_down",
-        KeyCode::ArrowLeft => "button.menu_left",
-        KeyCode::ArrowRight => "button.menu_right",
-        KeyCode::Tab => {
+        KeyboardKey::Escape => "button.menu_cancel",
+        KeyboardKey::Enter | KeyboardKey::NumpadEnter | KeyboardKey::Space => "button.menu_ok",
+        KeyboardKey::ArrowUp => "button.menu_up",
+        KeyboardKey::ArrowDown => "button.menu_down",
+        KeyboardKey::ArrowLeft => "button.menu_left",
+        KeyboardKey::ArrowRight => "button.menu_right",
+        KeyboardKey::Tab => {
             engine_focus::tab(runtime, frame);
             return Vec::new();
         }
@@ -298,7 +300,7 @@ fn keyboard(
     let mut events = down.events;
     events.extend(button(runtime, frame, id, false, None, now).events);
     // Content subtrees omit the screen's global cancel mapping.
-    if !consumed && key == KeyCode::Escape
+    if !consumed && key == KeyboardKey::Escape
         && let Some(target) = &frame.cancel_target
         && !events.iter().any(|event| matches!(event, ScreenEvent::Button(button) if button.id == *target && button.down && button.interacted))
     {
@@ -323,11 +325,11 @@ fn keyboard(
 /// What a key press types into a selected edit box, as vanilla's edit box takes it: Backspace
 /// and Enter as their control characters, Ctrl+V the clipboard, anything else its text without
 /// control characters.
-pub fn typed_text(key: KeyCode, text: Option<&str>, control: bool) -> Option<String> {
+pub fn typed_text(key: KeyboardKey, text: Option<&str>, control: bool) -> Option<String> {
     match key {
-        KeyCode::Backspace => Some("\u{8}".to_owned()),
-        KeyCode::Enter | KeyCode::NumpadEnter => Some("\r".to_owned()),
-        KeyCode::KeyV if control => PlatformClipboard
+        KeyboardKey::Backspace => Some("\u{8}".to_owned()),
+        KeyboardKey::Enter | KeyboardKey::NumpadEnter => Some("\r".to_owned()),
+        KeyboardKey::KeyV if control => PlatformClipboard
             .read_text_bounded(MAX_PASTE_BYTES)
             .ok()
             .flatten()
@@ -361,7 +363,7 @@ fn controller(
             let action = answers.then(|| mapped_action(model, button)).flatten();
             if let Some(action) = &action {
                 // Names the input that answered, for diagnosing unintended answers.
-                bevy::log::info!(
+                tracing::info!(
                     target: "server_form",
                     id = %button.id,
                     from = %button.from,

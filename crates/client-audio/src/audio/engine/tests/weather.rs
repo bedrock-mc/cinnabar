@@ -163,7 +163,7 @@ fn sustained_rain_overlaps_finite_faded_samples_and_clear_lets_them_expire() {
     };
     let (controller, mut mixer) = rodio::dynamic_mixer::mixer::<f32>(2, OUTPUT_RATE);
     let mut scheduler = RainSoundScheduler::default();
-    let samples_per_tick = OUTPUT_RATE as usize * 2 / world::TICKS_PER_SECOND as usize;
+    let samples_per_tick = OUTPUT_RATE as usize * 2 / simulation_clock::TICKS_PER_SECOND as usize;
     let mut levels = Vec::new();
     for tick in 0..180 {
         let rain = if tick < 120 { 1.0 } else { 0.0 };
@@ -176,7 +176,7 @@ fn sustained_rain_overlaps_finite_faded_samples_and_clear_lets_them_expire() {
         });
         for source in engine.pump(
             Some(listener),
-            1.0 / world::TICKS_PER_SECOND as f32,
+            1.0 / simulation_clock::TICKS_PER_SECOND as f32,
             &settings,
         ) {
             controller.add(source);

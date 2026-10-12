@@ -33,7 +33,7 @@ A server may send no terrain until it receives initialized: the pinned Dragonfly
 `conn.StartGameContext` (`server/server.go` `finaliseConn`) until `SetLocalPlayerAsInitialised`
 and only then adds the player and streams chunks, answering the radius request with
 `ChunkRadiusUpdated` and `PlayerSpawn` alone. A probe sending Cinnabar's order to the local
-server received 0 chunks before initialized and 637 in the 8 s after. Jolyne therefore records
+server received 0 chunks before initialized and 637 in the 8 s after. The spawn sequence therefore records
 whether a publisher update, level chunk or sub-chunk preceded spawn. When none did, the startup
 view is empty until the server publishes one, so the gate releases once received work drains.
 **Provisional:** vanilla must also complete loading without terrain here (it joins Dragonfly),

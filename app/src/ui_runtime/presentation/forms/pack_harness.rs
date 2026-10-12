@@ -1,8 +1,9 @@
 //! Startup fixture that exercises the app's carrier-loading entry points.
 
-use client_ui::test_support::pack_harness::{carrier, font};
+use client_ui::test_support::pack_harness::font;
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 use std::path::Path;
+use ui_engine::test_support::carrier;
 
 /// Resolves a fixture asset through this worktree's installed assets symlink.
 fn local(path: &str) -> std::path::PathBuf {
@@ -49,7 +50,9 @@ pub fn startup_presentation() -> Option<UiPresentationRuntime> {
         &entities,
         local(&launcher::install_layout::vanilla_pack_relative()),
     );
-    if let Some(images) = client_ui::ui_runtime::oreui_assets::load_optional_oreui_images() {
+    if let Some(images) =
+        oreui::images::load_optional_oreui_images(world.parent().unwrap_or(Path::new(".")))
+    {
         presentation.enable_oreui_originals(images).unwrap();
     }
     presentation

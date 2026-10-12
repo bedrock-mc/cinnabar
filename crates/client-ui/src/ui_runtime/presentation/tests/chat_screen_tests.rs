@@ -6,7 +6,7 @@ use json_ui::{Draw, DrawNode};
 
 use super::engine_hud_tests::{engine_presentation, engine_presentation_with};
 use super::*;
-use crate::ui_runtime::presentation::ChatHit;
+use ui_screens::chat_screen::ChatHit;
 
 /// Selects the native catalog directly for native control checks.
 fn native_chat_presentation() -> Option<UiPresentationRuntime> {

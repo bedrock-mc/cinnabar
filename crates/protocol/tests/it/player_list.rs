@@ -22,16 +22,12 @@
 //! is the same intent expressed against the new shape.
 
 use bytes::{Bytes, BytesMut};
-use jolyne::batch::{decode_batch_raw, encode_batch_multi};
-use jolyne::valentine::{
+use valentine::bedrock::codec::{BedrockCodec, VarUInt};
+use valentine::bedrock::error::DecodeError;
+use valentine::bedrock::version::v1_26_51::{
     McpePacketArgs, McpePacketData, PlayerListPacket, PlayerListPacketEntriesItem,
     PlayerListPacketPayloadAddEntry, PlayerListPacketPayloadRemoveEntry,
-    bedrock::{
-        codec::{BedrockCodec, VarUInt},
-        error::DecodeError,
-    },
 };
-use protocol::BedrockSession;
 
 const FIXTURE_UUID: uuid::Uuid = uuid::Uuid::from_bytes([
     0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
@@ -78,13 +74,12 @@ const GOPHERTUNNEL_PLAYER_LIST_ADD: &[u8] = &[
     0x75, 0x65, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
 
-fn raw_player_list() -> jolyne::raw::RawPacket {
+fn raw_player_list() -> crate::raw_packet::RawPacket {
     raw_player_list_fixture(GOPHERTUNNEL_PLAYER_LIST_REMOVE)
 }
 
-fn raw_player_list_fixture(fixture: &'static [u8]) -> jolyne::raw::RawPacket {
-    let mut batch = Bytes::from_static(fixture);
-    decode_batch_raw(&mut batch, false, Some(1024))
+fn raw_player_list_fixture(fixture: &'static [u8]) -> crate::raw_packet::RawPacket {
+    crate::raw_packet::decode_batch(Bytes::from_static(fixture), 1024)
         .expect("raw batch decode")
         .into_iter()
         .next()
@@ -114,7 +109,7 @@ fn encoded_player_list(packet: &PlayerListPacket) -> BytesMut {
 #[test]
 fn pinned_gophertunnel_player_list_add_carries_the_trusted_skin_flag_per_entry() {
     let packet = raw_player_list_fixture(GOPHERTUNNEL_PLAYER_LIST_ADD)
-        .decode(&BedrockSession { shield_item_id: 0 })
+        .decode()
         .expect("owned Add PlayerList decode");
     let McpePacketData::PlayerListPacket(content) = &packet.data else {
         panic!("expected PlayerList");
@@ -130,7 +125,7 @@ fn pinned_gophertunnel_player_list_add_carries_the_trusted_skin_flag_per_entry()
     // skin, written as gophertunnel's `"true"`/`"false"` string.
     assert_eq!(entry.serialized_skin.trusted_skin_flag, "true");
 
-    let encoded = encode_batch_multi(&[packet], false, 0, 0, true).expect("re-encode");
+    let encoded = crate::encode(&packet).expect("re-encode");
     assert_eq!(encoded.as_ref(), GOPHERTUNNEL_PLAYER_LIST_ADD);
 }
 
@@ -147,11 +142,9 @@ fn assert_remove_payload(data: &McpePacketData) {
 
 #[test]
 fn pinned_gophertunnel_player_list_owned_decodes_and_round_trips_exactly() {
-    let packet = raw_player_list()
-        .decode(&BedrockSession { shield_item_id: 0 })
-        .expect("owned PlayerList decode");
+    let packet = raw_player_list().decode().expect("owned PlayerList decode");
     assert_remove_payload(&packet.data);
-    let encoded = encode_batch_multi(&[packet], false, 0, 0, true).expect("re-encode");
+    let encoded = crate::encode(&packet).expect("re-encode");
     assert_eq!(encoded.as_ref(), GOPHERTUNNEL_PLAYER_LIST_REMOVE);
 }
 

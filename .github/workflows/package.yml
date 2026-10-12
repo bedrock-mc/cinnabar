@@ -127,6 +127,7 @@ jobs:
         with:
           workspace: source
           lane: release
+          store: artifact
       - uses: actions/setup-go@v6
         with:
           go-version: 'stable'
@@ -137,6 +138,8 @@ jobs:
         with:
           workspace: source
           language: go
+          lane: release
+          store: artifact
       - name: Install icon renderer
         run: brew install librsvg
       - name: Detect signing credentials
@@ -198,24 +201,33 @@ jobs:
           exit "$status"
       - name: Save Rust release build cache
         if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        # A cache problem, reported as an annotation, must not stop the release.
+        continue-on-error: true
         uses: ./release-tools/.github/actions/build-cache
         with:
           phase: save
           workspace: source
           lane: release
+          store: artifact
           key: ${{ steps.rust-cache.outputs.key }}
           bucket: ${{ steps.rust-cache.outputs.bucket }}
           paths: ${{ steps.rust-cache.outputs.paths }}
+          prefix: ${{ steps.rust-cache.outputs.prefix }}
       - name: Save Go build cache
         if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        # A cache problem, reported as an annotation, must not stop the release.
+        continue-on-error: true
         uses: ./release-tools/.github/actions/build-cache
         with:
           phase: save
           workspace: source
           language: go
+          lane: release
+          store: artifact
           key: ${{ steps.go-cache.outputs.key }}
           bucket: ${{ steps.go-cache.outputs.bucket }}
           paths: ${{ steps.go-cache.outputs.paths }}
+          prefix: ${{ steps.go-cache.outputs.prefix }}
       - uses: actions/upload-artifact@v7
         with:
           name: macos-${{ matrix.arch }}
@@ -262,6 +274,7 @@ jobs:
         with:
           workspace: source
           lane: release
+          store: artifact
       - uses: actions/setup-go@v6
         with:
           go-version: 'stable'
@@ -272,6 +285,8 @@ jobs:
         with:
           workspace: source
           language: go
+          lane: release
+          store: artifact
       - name: Install WiX, ImageMagick and make
         shell: pwsh
         run: |
@@ -318,24 +333,33 @@ jobs:
           if ($process.ExitCode -ne 0) { Get-Content $log; throw "Setup layout failed: $($process.ExitCode)" }
       - name: Save Rust release build cache
         if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        # A cache problem, reported as an annotation, must not stop the release.
+        continue-on-error: true
         uses: ./release-tools/.github/actions/build-cache
         with:
           phase: save
           workspace: source
           lane: release
+          store: artifact
           key: ${{ steps.rust-cache.outputs.key }}
           bucket: ${{ steps.rust-cache.outputs.bucket }}
           paths: ${{ steps.rust-cache.outputs.paths }}
+          prefix: ${{ steps.rust-cache.outputs.prefix }}
       - name: Save Go build cache
         if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        # A cache problem, reported as an annotation, must not stop the release.
+        continue-on-error: true
         uses: ./release-tools/.github/actions/build-cache
         with:
           phase: save
           workspace: source
           language: go
+          lane: release
+          store: artifact
           key: ${{ steps.go-cache.outputs.key }}
           bucket: ${{ steps.go-cache.outputs.bucket }}
           paths: ${{ steps.go-cache.outputs.paths }}
+          prefix: ${{ steps.go-cache.outputs.prefix }}
       - uses: actions/upload-artifact@v7
         with:
           name: windows-x64
@@ -387,6 +411,7 @@ jobs:
         with:
           workspace: source
           lane: release
+          store: artifact
       - uses: actions/setup-go@v6
         with:
           go-version: 'stable'
@@ -397,6 +422,8 @@ jobs:
         with:
           workspace: source
           language: go
+          lane: release
+          store: artifact
       - name: Install build and packaging dependencies
         run: |
           sudo apt-get update
@@ -422,24 +449,33 @@ jobs:
           bash "$GITHUB_WORKSPACE/release-tools/packaging/check-payload.sh" linux "$RUNNER_TEMP/squashfs-root"
       - name: Save Rust release build cache
         if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        # A cache problem, reported as an annotation, must not stop the release.
+        continue-on-error: true
         uses: ./release-tools/.github/actions/build-cache
         with:
           phase: save
           workspace: source
           lane: release
+          store: artifact
           key: ${{ steps.rust-cache.outputs.key }}
           bucket: ${{ steps.rust-cache.outputs.bucket }}
           paths: ${{ steps.rust-cache.outputs.paths }}
+          prefix: ${{ steps.rust-cache.outputs.prefix }}
       - name: Save Go build cache
         if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        # A cache problem, reported as an annotation, must not stop the release.
+        continue-on-error: true
         uses: ./release-tools/.github/actions/build-cache
         with:
           phase: save
           workspace: source
           language: go
+          lane: release
+          store: artifact
           key: ${{ steps.go-cache.outputs.key }}
           bucket: ${{ steps.go-cache.outputs.bucket }}
           paths: ${{ steps.go-cache.outputs.paths }}
+          prefix: ${{ steps.go-cache.outputs.prefix }}
       - uses: actions/upload-artifact@v7
         with:
           name: linux-x86_64

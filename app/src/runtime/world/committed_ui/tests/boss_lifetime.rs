@@ -65,7 +65,7 @@ fn unresolved_boss_show_does_not_acknowledge_registration_before_actor_admission
     submit(&mut app, 2, show_boss(-17));
     schedule.run(app.world_mut());
     {
-        let mut ui = app.world_mut().resource_mut::<UiRuntime>();
+        let mut ui = app.world_mut().resource_mut::<UiRuntimeResource>();
         assert!(ui.boss_bars().stacked().is_empty());
         assert_eq!(
             ui.flush_boss_responses(|_| Ok(())),
@@ -77,7 +77,7 @@ fn unresolved_boss_show_does_not_acknowledge_registration_before_actor_admission
     submit(&mut app, 3, boss_actor(2, -17, 17));
     submit(&mut app, 4, show_boss(-17));
     schedule.run(app.world_mut());
-    let mut ui = app.world_mut().resource_mut::<UiRuntime>();
+    let mut ui = app.world_mut().resource_mut::<UiRuntimeResource>();
     assert_eq!(ui.boss_bars().stacked()[0].target_entity_id, -17);
     assert_eq!(ui.flush_boss_responses(|_| Ok(())), Ok(1));
 }
@@ -94,7 +94,7 @@ fn committed_boss_bars_retire_only_when_their_actor_leaves_authority() {
     submit(&mut app, 5, show_boss(-18));
     schedule.run(app.world_mut());
     {
-        let mut ui = app.world_mut().resource_mut::<UiRuntime>();
+        let mut ui = app.world_mut().resource_mut::<UiRuntimeResource>();
         assert_eq!(ui.boss_bars().stacked().len(), 2);
         assert_eq!(ui.flush_boss_responses(|_| Ok(())), Ok(2));
     }
@@ -109,7 +109,7 @@ fn committed_boss_bars_retire_only_when_their_actor_leaves_authority() {
     );
     schedule.run(app.world_mut());
     {
-        let mut ui = app.world_mut().resource_mut::<UiRuntime>();
+        let mut ui = app.world_mut().resource_mut::<UiRuntimeResource>();
         assert_eq!(
             ui.boss_bars()
                 .stacked()
@@ -128,7 +128,7 @@ fn committed_boss_bars_retire_only_when_their_actor_leaves_authority() {
     submit(&mut app, 7, dimension(0));
     schedule.run(app.world_mut());
     {
-        let mut ui = app.world_mut().resource_mut::<UiRuntime>();
+        let mut ui = app.world_mut().resource_mut::<UiRuntimeResource>();
         assert!(
             ui.boss_bars().stacked().is_empty(),
             "the End actor no longer exists in the Overworld"
@@ -143,7 +143,7 @@ fn committed_boss_bars_retire_only_when_their_actor_leaves_authority() {
     submit(&mut app, 8, boss_actor(0, -18, 18));
     submit(&mut app, 9, show_boss(-18));
     schedule.run(app.world_mut());
-    let mut ui = app.world_mut().resource_mut::<UiRuntime>();
+    let mut ui = app.world_mut().resource_mut::<UiRuntimeResource>();
     assert_eq!(ui.boss_bars().stacked()[0].target_entity_id, -18);
     assert_eq!(ui.flush_boss_responses(|_| Ok(())), Ok(1));
     assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());

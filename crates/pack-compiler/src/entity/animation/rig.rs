@@ -31,6 +31,7 @@ pub(super) struct PendingRigPayload {
 
 struct PendingRig {
     entity_symbol: u32,
+    placement_frame: assets::placement::EntityPlacementFrame,
     render_controller: u32,
     geometries: Vec<PendingRigGeometry>,
     fallback: EntityRigFallback,
@@ -101,6 +102,7 @@ impl PendingRigPayload {
                 });
             }
             bindings.push(EntityRigBinding {
+                placement_frame: rig.placement_frame,
                 entity_symbol: rig.entity_symbol,
                 render_controller: rig.render_controller,
                 first_geometry,
@@ -347,6 +349,11 @@ pub(super) fn compile_rigs(
         }
         let rig_index = rigs.len() as u32;
         rigs.push(PendingRig {
+            placement_frame: if entity.kind == EntityAssetKind::Entity {
+                assets::placement::builtin_placement_frame(&entity.identifier)
+            } else {
+                assets::placement::EntityPlacementFrame::Unresolved
+            },
             entity_symbol: entity_symbol as u32,
             render_controller,
             geometries: pending_geometries,

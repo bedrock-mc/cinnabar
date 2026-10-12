@@ -3,30 +3,14 @@
 use std::sync::Arc;
 
 use render_model::UiTexturePage;
+use ui_engine::pages::{
+    GLYPH_PAGES, MOD_UI_PAGES, MODAL_UI_PAGES, SERVER_UI_PAGES, SESSION_ICON_PAGE,
+};
 
 use {
     super::{UiPresentationRuntime, item_viewmodel, menu_artwork, player_preview},
     ui::IconRef,
 };
-
-/// Dynamic page offset holding the session's server item icons.
-pub(super) const SESSION_ICON_PAGE: usize = render_model::UI_SESSION_ICON_PAGE_OFFSET;
-/// Dynamic pages after the general ten, holding the session's glyph-sheet atlas.
-pub(super) const GLYPH_PAGES: usize = 8;
-pub(super) const FIRST_GLYPH_PAGE: usize = SESSION_ICON_PAGE + 1;
-/// Dynamic page offset of the server resource-pack UI textures, after the glyphs.
-pub(super) const SERVER_UI_PAGE: usize = FIRST_GLYPH_PAGE + GLYPH_PAGES;
-/// Dynamic pages reserved for server resource-pack UI textures.
-pub(super) const SERVER_UI_PAGES: usize =
-    render_model::UI_LOCAL_FONT_PAGE_OFFSET - SERVER_UI_PAGE - MODAL_UI_PAGES - MOD_UI_PAGES;
-/// Dynamic page offset of a client part's modal screen textures, after the server pack's.
-pub(super) const MODAL_UI_PAGE: usize = SERVER_UI_PAGE + SERVER_UI_PAGES;
-/// Dynamic pages reserved for the modal's bundle textures, apart from the server pack's.
-pub(super) const MODAL_UI_PAGES: usize = 4;
-/// Dynamic page offset of a player mod's screen textures, after the modal's.
-pub(super) const MOD_UI_PAGE: usize = MODAL_UI_PAGE + MODAL_UI_PAGES;
-/// Dynamic pages reserved for the player mod's package textures, before the local font page.
-pub(super) const MOD_UI_PAGES: usize = 4;
 
 pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64) {
     let changed = runtime
@@ -256,14 +240,14 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             .cloned()
             .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
     }));
-    let modal_pages = runtime.experience_modal_pages();
+    let modal_pages = runtime.screens.mod_ui.experience_modal_pages();
     dynamic.extend((0..MODAL_UI_PAGES).map(|offset| {
         modal_pages
             .get(offset)
             .cloned()
             .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
     }));
-    let mod_pages = runtime.mod_screen_pages();
+    let mod_pages = runtime.screens.mod_ui.mod_screen_pages();
     dynamic.extend((0..MOD_UI_PAGES).map(|offset| {
         mod_pages
             .get(offset)
@@ -276,7 +260,6 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             .as_ref()
             .map_or_else(super::mod_panel_font::blank_page, |font| font.page.clone()),
     );
-    dynamic.extend(super::font_fallback::pages(runtime));
     // Unused art pages keep their old pixels; nothing references them.
     let art_pages = previous
         .len()
@@ -331,7 +314,7 @@ fn warn_rebuild_failed(reason: &render_model::UiRenderRejectReason) {
     static FAILURES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let count = FAILURES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
     if count.is_power_of_two() {
-        bevy::log::warn!(count, ?reason, "dynamic UI texture pages were not replaced");
+        tracing::warn!(count, ?reason, "dynamic UI texture pages were not replaced");
     }
 }
 
@@ -341,13 +324,14 @@ mod tests {
 
     #[test]
     fn rejected_rebuild_keeps_pending_artwork_and_preview_for_retry() {
-        let mut runtime = UiPresentationRuntime::new(crate::test_support::fixture_font()).unwrap();
+        let mut runtime =
+            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
         let side = render_model::UI_ART_PAGE_SIDE;
         let pixels = vec![91; (side * side * 4) as usize];
         runtime.menu_artwork_loader.set_pending_fixture(
             vec![UiTexturePage::owned([side; 2], pixels.into()).unwrap()],
             std::collections::HashMap::from([(
-                menu_artwork::TITLE_KEY.to_owned(),
+                ui_engine::textures::TITLE_KEY.to_owned(),
                 IconRef {
                     page: 0,
                     uv: [0, 0, 8, 4],
@@ -374,7 +358,9 @@ mod tests {
         assert!(!runtime.preview_dirty);
         assert!(!runtime.menu_artwork_dirty);
         assert!(!runtime.menu_artwork_loader.poll());
-        let icon = runtime.menu_artwork_icon(menu_artwork::TITLE_KEY).unwrap();
+        let icon = runtime
+            .menu_artwork_icon(ui_engine::textures::TITLE_KEY)
+            .unwrap();
         assert_eq!(
             runtime.textures.pages()[usize::from(icon.page)].pixels()[0],
             91

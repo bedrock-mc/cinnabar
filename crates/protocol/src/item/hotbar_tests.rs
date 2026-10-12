@@ -1,4 +1,3 @@
-use valentine::bedrock::context::BedrockSession;
 use valentine::bedrock::version::v1_26_51::McpePacketData;
 
 use super::*;
@@ -22,9 +21,8 @@ fn selected_stack() -> NetworkItemStack {
 fn selected_stack_survives_mob_equipment_encode_decode_and_normalize() {
     let expected = selected_stack();
     let packet = select_hotbar_slot_packet(4242, 3, &expected).unwrap();
-    let session = BedrockSession { shield_item_id: 0 };
-    let encoded = crate::encode(&packet, &session).unwrap();
-    let mut decoded = crate::decode_batch(encoded, &session).unwrap();
+    let encoded = crate::encode(&packet).unwrap();
+    let mut decoded = crate::decode_batch(encoded).unwrap();
     let McpePacketData::MobEquipmentPacket(packet) = decoded.remove(0).data else {
         panic!("hotbar selection must build a MobEquipment packet, not PlayerHotbar");
     };

@@ -50,6 +50,12 @@ embed entity-catalog identity. Packaged first-run preparation already hashes
 the asset compiler and invalidates these dependent carriers when it changes;
 this geometry correction needs no carrier schema change.
 
+Preparation uses the same behavior-seat definitions for entity, actor and
+equipment generation. For direct `assetc` commands, pass the same
+`--behavior-pack` to all three, or omit it from all three for resource-only
+generation. Actor artwork uses the resulting entity catalog's texture and rig
+indices; startup still rejects carriers with mismatched entity identity.
+
 ## Local verification
 
 On 2026-10-04 the freshly built client rendered a disposable loopback gallery

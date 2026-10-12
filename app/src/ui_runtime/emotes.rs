@@ -2,6 +2,7 @@
 use crate::runtime::network::resource_packs::PackApplication;
 use client_runtime::network::NetworkHandle;
 mod controls;
+use super::interaction::input_capture::ordered_pointer_presses;
 use super::interaction::{chat_modifiers, command_macros};
 use bevy::{
     ecs::message::{MessageCursor, Messages},
@@ -16,12 +17,12 @@ use bevy::{
     time::Real,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowEvent},
 };
-use client_ui::ui_runtime::interaction::ordered_pointer_presses;
-use client_ui::ui_runtime::presentation::forms::EmoteHit;
 use launcher::menu::settings_options::EMOTE_SLOT_COUNT;
 use ui::{UiAction, UiPoint};
+use ui_screens::emote_screen::EmoteHit;
 
-use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
+use client_ui::ui_runtime::UiRuntime;
 use {
     crate::runtime::world::ClientWorld,
     client_shell::menu::{
@@ -61,8 +62,8 @@ pub(crate) struct EmoteInput<'w, 's> {
     consent: Option<Res<'w, client_state::ConsentInput>>,
     world: Option<Res<'w, ClientWorld>>,
     player: Res<'w, PlayerRuntime>,
-    runtime: ResMut<'w, UiRuntime>,
-    presentation: Option<ResMut<'w, UiPresentationRuntime>>,
+    runtime: ResMut<'w, UiRuntimeResource>,
+    presentation: Option<ResMut<'w, UiPresentationResource>>,
     observed: Local<'s, ObservedEmotes>,
     consumed: ResMut<'w, EmoteInputConsumed>,
     focus: Option<ResMut<'w, client_state::CursorFocus>>,
@@ -185,7 +186,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             input.menu.as_deref(),
             &input.runtime,
             alt,
-            client_ui::physical_input::mouse_button_code(*button)
+            client_shell::physical_input::mouse_button_code(*button)
                 .map(semantic_input::PhysicalControl::MouseButton),
         )
         .is_none()
@@ -220,7 +221,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
                 input.menu.as_deref(),
                 &input.runtime,
                 chat_modifiers::alt_held(&input.observed.modifiers),
-                client_ui::physical_input::keyboard_usage(event.key_code)
+                client_shell::physical_input::keyboard_usage(event.key_code)
                     .map(semantic_input::PhysicalControl::KeyboardUsage),
             )
             .is_some()
@@ -319,8 +320,9 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         && let Some(runtime_id) = runtime_id
         && let Some(network) = input.network.as_deref()
     {
-        let length_ticks =
-            (emote.duration_seconds() / world::TICK_DURATION.as_secs_f64()).ceil() as u32;
+        let length_ticks = (emote.duration_seconds()
+            / simulation_clock::TICK_DURATION.as_secs_f64())
+        .ceil() as u32;
         if let Err(error) = network.send_inventory_packet(protocol::emote_packet(
             runtime_id,
             emote.id(),
@@ -356,7 +358,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
 /// The current gameplay snapshot is available after UI authority has finalized.
 pub(crate) fn cancel_emote_from_gameplay(
     semantic: Res<SemanticInputSnapshot>,
-    mut runtime: ResMut<UiRuntime>,
+    mut runtime: ResMut<UiRuntimeResource>,
 ) {
     if should_stop_emote(&semantic) {
         runtime.emotes_mut().stop();

@@ -143,11 +143,11 @@ fn camera_corner_rays_leave_thin_geometry_between_the_rays_and_allocate_nothing(
             .z,
         4.0
     );
-    let before = crate::test_allocations::count();
+    let before = test_alloc::thread_allocations();
     for _ in 0..1000 {
         let _ = collision_safe_rig_pose(eye, Quat::IDENTITY, rig, &thin);
     }
-    assert_eq!(crate::test_allocations::count() - before, 0);
+    assert_eq!(test_alloc::thread_allocations() - before, 0);
 }
 
 #[test]

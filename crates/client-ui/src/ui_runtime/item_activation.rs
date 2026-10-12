@@ -4,10 +4,9 @@ use std::hash::BuildHasher;
 use std::sync::Arc;
 
 use super::{UiRuntime, UiRuntimeError, gameplay_authority::MILLIS_PER_SERVER_TICK};
-use inventory::inventory_ledger::{InventoryTarget, PlayerInventorySlot};
+use inventory::inventory_ledger::{InventoryTarget, PlayerInventorySlot, TOTEM_IDENTIFIER};
 
 pub(super) const ACTIVATION_TICKS: u64 = 40;
-pub(super) const TOTEM_IDENTIFIER: &str = "minecraft:totem_of_undying";
 
 #[derive(Clone, Debug)]
 pub(super) struct ItemActivation {
@@ -69,7 +68,7 @@ impl UiRuntime {
         );
         clock.elapsed_millis = clock
             .elapsed_millis
-            .saturating_add(delta.min(world::MAX_FRAME_ELAPSED.as_millis() as u64));
+            .saturating_add(delta.min(simulation_clock::MAX_FRAME_ELAPSED.as_millis() as u64));
         if let Some(activation) = self.item_activation.as_mut() {
             activation.elapsed_millis = clock
                 .elapsed_millis

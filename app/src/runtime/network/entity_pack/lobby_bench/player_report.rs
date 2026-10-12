@@ -21,8 +21,7 @@ fn labels(capture: &Capture) -> BTreeMap<[u8; 16], String> {
         let mut batch = vec![0xfe];
         write_varint(&mut batch, packet.len() as u64);
         batch.extend(packet);
-        let packets =
-            protocol::decode_batch(batch.into(), &BedrockSession { shield_item_id: 0 }).unwrap();
+        let packets = protocol::decode_batch(batch.into()).unwrap();
         for packet in packets {
             if let Ok(Some(WorldEvent::Actor(ActorEvent::PlayerList(list)))) =
                 protocol::into_world_event(packet, 0)

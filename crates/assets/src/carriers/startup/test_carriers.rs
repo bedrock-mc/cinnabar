@@ -10,9 +10,17 @@ fn manifest() -> [u8; 32] {
     super::canonical_source_manifest_sha256(super::VANILLA_SOURCE_JSON)
 }
 
-/// An entity carrier with one source; `seed` varies its identity.
+/// An entity carrier with one original source; `seed` varies its identity.
 pub fn synthetic_entity_blob(seed: u8) -> Box<[u8]> {
-    crate::encode_entity_blob(&CompiledEntityAssets {
+    crate::encode_entity_blob(&synthetic_entity_assets(seed)).unwrap()
+}
+
+/// Gives original tests a checked-carrier fixture before changing its authored descriptors.
+pub fn synthetic_entity_assets(seed: u8) -> CompiledEntityAssets {
+    CompiledEntityAssets {
+        item_use_profiles: Box::new([]),
+        seat_layouts: Box::new([]),
+        interaction_traits: Box::new([]),
         source_manifest_sha256: manifest(),
         block_visual_count: 0,
         sources: vec![EntityAssetSource {
@@ -49,8 +57,26 @@ pub fn synthetic_entity_blob(seed: u8) -> Box<[u8]> {
         item_visuals: Box::new([]),
         item_visual_aliases: Box::new([]),
         render: Default::default(),
-    })
-    .unwrap()
+    }
+    .with_unresolved_item_use()
+    .with_unresolved_seats()
+    .with_unresolved_interactions()
+}
+
+/// Binds an original independent entity inventory to the admitted compatibility interactions.
+pub fn synthetic_interaction_assets(identifier: &str) -> CompiledEntityAssets {
+    let mut compiled = synthetic_entity_assets(1);
+    compiled.symbols[0].identifier = identifier.into();
+    let (source_bytes, source_sha256) = crate::interactions::source_identity();
+    let mut sources = compiled.sources.into_vec();
+    sources.push(EntityAssetSource {
+        path: crate::interactions::SOURCE_PATH.into(),
+        source_bytes,
+        source_sha256,
+    });
+    compiled.sources = sources.into();
+    compiled.interaction_traits = crate::interactions::compile(&compiled.symbols);
+    compiled.with_unresolved_seats()
 }
 
 /// An atmosphere carrier with flat sun, moon and cloud textures.
@@ -93,4 +119,25 @@ pub fn synthetic_atmosphere_blob() -> Box<[u8]> {
         fog_profiles: Box::new([]),
     })
     .unwrap()
+}
+
+/// Builds one original unsupported item identity independently from the use catalog.
+pub fn synthetic_entity_assets_for_item_use() -> CompiledEntityAssets {
+    let mut compiled = synthetic_entity_assets(1);
+    compiled.item_visuals = Box::from([crate::ItemVisualDefinition {
+        grip: crate::item::grip::ItemGrip::Unresolved,
+        fuel: crate::item::fuel::ItemFuel::Unresolved,
+        armour: crate::item::armour::ItemArmour::Unresolved,
+        durability: crate::item::durability::ItemDurability::Unresolved,
+        key: crate::ItemVisualKey {
+            identifier: "fixture:unadmitted".into(),
+            metadata: 0,
+        },
+        source: 0,
+        route: crate::ItemVisualDefinitionRoute::Missing,
+        first_person: crate::ItemDisplayTransform::identity(),
+        third_person: crate::ItemDisplayTransform::identity(),
+        dropped: crate::ItemDisplayTransform::identity(),
+    }]);
+    compiled.with_unresolved_item_use()
 }

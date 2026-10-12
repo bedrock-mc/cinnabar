@@ -2,54 +2,38 @@
 //! is present. The oak-log -> four-planks shape follows the pinned vanilla
 //! `behavior_pack/recipes/oak_planks.json`; numeric bindings are fixture-owned.
 
-use ::protocol::wire::valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
-use ::protocol::{RecipeCatalog, decode_recipe_update};
-use bytes::BytesMut;
+use ::protocol::RecipeCatalog;
+use ::protocol::test_support::recipes::{
+    CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture, UnlockingFixture,
+};
 use inventory::{CraftGridItem, CraftGridMatch, match_crafting_grid};
 
 const BLOCK_IDENTITY: u32 = 0xf234_5678;
 
-fn recipe() -> ShapedRecipePayload {
-    let ingredient = CerealizerRecipeIngredientSerializedData {
-        descriptor: vec![CerealizerRecipeIngredientSerializedDataDescriptorItem {
-            key: "name".into(),
-            value: "minecraft:oak_log".into(),
-        }],
-        aux_value: 0,
-        stack_size: 1,
+// Wire values of the named discovery contexts; the test also sends unknown 127.
+const ALWAYS_UNLOCKED: i32 = 1;
+const PLAYER_IN_WATER: i32 = 2;
+const PLAYER_HAS_MANY_ITEMS: i32 = 3;
+
+fn recipe() -> RecipeFixture {
+    let ingredient = IngredientFixture::named("minecraft:oak_log", 0);
+    let output = OutputFixture {
+        block_runtime_id: i32::from_ne_bytes(BLOCK_IDENTITY.to_ne_bytes()),
+        user_data: vec![0; 10],
+        ..OutputFixture::new(5, 4)
     };
-    ShapedRecipePayload {
-        recipe_id: "minecraft:oak_planks".into(),
-        width: 1,
-        height: 1,
-        ingredients: vec![ingredient.clone()],
-        results: vec![CerealizerNetworkItemInstanceDescriptorSerializedData {
-            id: 5,
-            stacksize: 4,
-            auxvalue: 0,
-            block_runtime_id: i32::from_ne_bytes(BLOCK_IDENTITY.to_ne_bytes()),
-            user_data_buffer: vec![0; 10],
-        }],
-        tag: "crafting_table".into(),
-        unlocking_requirement: Some(CerealizerRecipeUnlockingRequirementSerializedData {
-            unlocking_context: EnumsRecipeUnlockingRequirementUnlockingContext::None,
-            unlocking_ingredients: Some(vec![ingredient]),
+    RecipeFixture {
+        unlocking: Some(UnlockingFixture {
+            context: 0,
+            ingredients: Some(vec![ingredient.clone()]),
         }),
-        net_id: TypedServerNetIdstructRecipeNetIdTag { raw_id: 1 },
-        ..Default::default()
+        net_id: 1,
+        ..RecipeFixture::shaped("minecraft:oak_planks", 1, 1, vec![ingredient], vec![output])
     }
 }
 
-fn catalog(recipe: ShapedRecipePayload) -> RecipeCatalog {
-    let mut bytes = BytesMut::new();
-    CraftingDataPacket {
-        shaped_recipes: vec![recipe],
-        clear_recipes: true,
-        ..Default::default()
-    }
-    .encode(&mut bytes)
-    .unwrap();
-    let update = decode_recipe_update(&bytes).unwrap();
+fn catalog(recipe: RecipeFixture) -> RecipeCatalog {
+    let update = CraftingDataFixture::clearing(vec![recipe]).update();
     assert!(!update.is_unavailable());
     let mut catalog = RecipeCatalog::default();
     catalog.begin_session(1);
@@ -101,18 +85,9 @@ fn ingredient_discovery_does_not_discard_manual_crafting_and_signed_block_bits_s
 
 #[test]
 fn discovery_context_is_not_a_recipe_admission_gate() {
-    for context in [
-        EnumsRecipeUnlockingRequirementUnlockingContext::Alwaysunlocked,
-        EnumsRecipeUnlockingRequirementUnlockingContext::Playerinwater,
-        EnumsRecipeUnlockingRequirementUnlockingContext::Playerhasmanyitems,
-        EnumsRecipeUnlockingRequirementUnlockingContext::Unknown(127),
-    ] {
+    for context in [ALWAYS_UNLOCKED, PLAYER_IN_WATER, PLAYER_HAS_MANY_ITEMS, 127] {
         let mut recipe = recipe();
-        recipe
-            .unlocking_requirement
-            .as_mut()
-            .unwrap()
-            .unlocking_context = context;
+        recipe.unlocking.as_mut().unwrap().context = context;
         assert!(catalog(recipe).recipe(1).is_some(), "context {context:?}");
     }
 }
@@ -120,17 +95,11 @@ fn discovery_context_is_not_a_recipe_admission_gate() {
 #[test]
 fn discovery_ingredients_still_obey_nested_decode_bounds() {
     let mut recipe = recipe();
-    recipe
-        .unlocking_requirement
-        .as_mut()
-        .unwrap()
-        .unlocking_ingredients = Some(vec![recipe.ingredients[0].clone(); 65]);
-    let mut bytes = BytesMut::new();
-    CraftingDataPacket {
-        shaped_recipes: vec![recipe],
-        ..Default::default()
+    recipe.unlocking.as_mut().unwrap().ingredients = Some(vec![recipe.ingredients[0].clone(); 65]);
+    let update = CraftingDataFixture {
+        recipes: vec![recipe],
+        clear_recipes: false,
     }
-    .encode(&mut bytes)
-    .unwrap();
-    assert!(decode_recipe_update(&bytes).unwrap().is_unavailable());
+    .update();
+    assert!(update.is_unavailable());
 }

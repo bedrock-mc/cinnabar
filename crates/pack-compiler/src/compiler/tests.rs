@@ -8,10 +8,18 @@ use assets::{RegistryRecord, TILE_SIZE, VisualKind, VisualSupport};
 
 #[path = "tests/anvil.rs"]
 mod anvil;
+#[path = "tests/barrel.rs"]
+pub(crate) mod barrel;
+#[path = "tests/brewing_stand.rs"]
+mod brewing_stand;
+#[path = "tests/bubble_column.rs"]
+mod bubble_column;
 #[path = "tests/candle_cake.rs"]
 mod candle_cake;
 #[path = "tests/coral.rs"]
 mod coral;
+#[path = "tests/crops.rs"]
+mod crops;
 #[path = "tests/dragon_egg.rs"]
 mod dragon_egg;
 #[path = "tests/end_rod.rs"]
@@ -28,10 +36,14 @@ mod isotropic;
 mod lantern;
 #[path = "tests/lightning_rod.rs"]
 mod lightning_rod;
+#[path = "tests/potted_plants.rs"]
+mod potted_plants;
 #[path = "tests/sea_pickle.rs"]
 mod sea_pickle;
 #[path = "tests/shelf_cake.rs"]
 mod shelf_cake;
+#[path = "tests/tripwire_hook.rs"]
+mod tripwire_hook;
 
 fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
     let path = path.as_ref();

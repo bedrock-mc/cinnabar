@@ -90,7 +90,7 @@ mod tests {
         bounded.set_precipitation_count(Some(usize::MAX));
         let mut native = WeatherFog::default();
         native.set_precipitation_count(Some(PRECIPITATION_SAMPLE_OFFSETS.len()));
-        for _ in 0..world::TICKS_PER_SECOND {
+        for _ in 0..simulation_clock::TICKS_PER_SECOND {
             bounded.tick(1.0, 0);
             native.tick(1.0, 0);
         }

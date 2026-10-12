@@ -65,7 +65,7 @@ pub fn spawn_network<P: Send + 'static>(
                     }
                 };
                 tracing::info!(
-                    base_game_version = %game_data.start_game.settings.base_game_version,
+                    base_game_version = %game_data.settings.base_game_version,
                     "world lighting compatibility version"
                 );
                 // The login handoff is one-shot. Take and validate it before
@@ -101,16 +101,10 @@ pub fn spawn_network<P: Send + 'static>(
                     packs_applied,
                     packs,
                 } = packs;
-                let bootstrap = WorldBootstrap::from_game_data(&game_data);
-                let server_authoritative_block_breaking =
-                    protocol::server_authoritative_block_breaking(&game_data);
-                let environment = WorldEnvironmentBootstrap::from_game_data(&game_data);
-                let hardcore = protocol::is_hardcore(&game_data);
-                let hud_rules = protocol::HudRules::from_game_data(&game_data);
-                let death_rules = protocol::DeathRules::from_game_data(&game_data);
+                let bootstrap = game_data.world;
+                let settings = &game_data.settings;
                 let inventory = start_game_inventory_authority(&game_data);
-                let item_registry = match start_game_item_registry(&game_data, bootstrap.dimension)
-                {
+                let item_registry = match start_game_item_registry(&game_data) {
                     Ok(registry) => registry,
                     Err(error) => {
                         send_startup_failure(&control_event_tx, &mut shutdown_rx, error, None)
@@ -118,29 +112,26 @@ pub fn spawn_network<P: Send + 'static>(
                         return;
                     }
                 };
-                let player_game_mode = PlayerGameMode::from_game_data(&game_data);
-                let world_default_game_mode =
-                    PlayerGameMode::world_default_update_from_game_data(&game_data);
-                let player_game_mode_uses_world_default =
-                    PlayerGameMode::bootstrap_uses_world_default(&game_data);
                 if !send_control_event_or_cancel(
                     &control_event_tx,
                     &mut shutdown_rx,
                     NetworkControlEvent::Bootstrap {
                         session_generation,
                         world: bootstrap,
-                        environment,
+                        environment: game_data.environment,
                         custom_blocks,
                         inventory,
                         item_registry,
-                        player_game_mode,
-                        world_default_game_mode,
-                        player_game_mode_uses_world_default,
-                        server_authoritative_block_breaking,
-                        rewind_history_size: protocol::rewind_history_size(&game_data),
-                        hardcore,
-                        hud_rules,
-                        death_rules,
+                        player_game_mode: settings.player_game_mode,
+                        world_default_game_mode: settings.world_default_game_mode,
+                        player_game_mode_uses_world_default: settings
+                            .player_game_mode_uses_world_default,
+                        server_authoritative_block_breaking: settings
+                            .server_authoritative_block_breaking,
+                        rewind_history_size: settings.rewind_history_size,
+                        hardcore: settings.hardcore,
+                        hud_rules: settings.hud_rules,
+                        death_rules: settings.death_rules,
                         packs,
                         terrain_before_spawn: session.terrain_before_spawn(),
                     },

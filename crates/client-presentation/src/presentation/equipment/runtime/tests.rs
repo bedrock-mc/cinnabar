@@ -25,14 +25,14 @@ fn unchanged_authored_pose_sampling_allocates_nothing_and_keeps_matrix_identity(
                 Some(endpoints[endpoint])
             })
             .unwrap();
-        let allocated = crate::test_allocations::count();
+        let allocated = test_alloc::thread_allocations();
         let repeated = runtime
             .poses
             .sample_pair(&body, LAYER_MAIN_HAND, 1, |endpoint, _| {
                 Some(endpoints[endpoint])
             })
             .unwrap();
-        assert_eq!(crate::test_allocations::count() - allocated, 0);
+        assert_eq!(test_alloc::thread_allocations() - allocated, 0);
         assert!(Arc::ptr_eq(&pose[0], &repeated[0]));
         assert!(Arc::ptr_eq(&pose[1], &repeated[1]));
         assert_eq!(
@@ -45,44 +45,52 @@ fn unchanged_authored_pose_sampling_allocates_nothing_and_keeps_matrix_identity(
 /// The cube sheet is injected after atlas construction: these tests cover placement and
 /// routing, not block-carrier admission (which has separate asset tests).
 fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
-    let entities = RuntimeEntityAssets::from_compiled(assets::CompiledEntityAssets {
-        source_manifest_sha256: [1; 32],
-        block_visual_count: 8,
-        sources: vec![assets::EntityAssetSource {
-            path: "entity/fixture.entity.json".into(),
-            source_bytes: 2,
-            source_sha256: Sha256::digest(b"{}").into(),
-        }]
-        .into(),
-        symbols: vec![assets::EntityAssetSymbol {
-            mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
-            kind: assets::EntityAssetKind::Entity,
-            identifier: "test:fixture".into(),
-            source_index: 0,
-            dependencies: Box::new([]),
-        }]
-        .into(),
-        geometries: Box::new([]),
-        animation_clips: Box::new([]),
-        animation_channels: Box::new([]),
-        animation_keyframes: Box::new([]),
-        molang_symbols: Box::new([]),
-        molang_expressions: Box::new([]),
-        molang_ops: Box::new([]),
-        molang_collections: Box::new([]),
-        molang_collection_items: Box::new([]),
-        controllers: Box::new([]),
-        controller_states: Box::new([]),
-        controller_animations: Box::new([]),
-        controller_transitions: Box::new([]),
-        rig_bindings: Box::new([]),
-        rig_geometries: Box::new([]),
-        rig_animations: Box::new([]),
-        rig_controllers: Box::new([]),
-        item_visuals: Box::new([]),
-        item_visual_aliases: Box::new([]),
-        render: Default::default(),
-    })
+    let entities = RuntimeEntityAssets::from_compiled(
+        assets::CompiledEntityAssets {
+            item_use_profiles: Box::new([]),
+            seat_layouts: Box::new([]),
+            interaction_traits: Box::new([]),
+            source_manifest_sha256: [1; 32],
+            block_visual_count: 8,
+            sources: vec![assets::EntityAssetSource {
+                path: "entity/fixture.entity.json".into(),
+                source_bytes: 2,
+                source_sha256: Sha256::digest(b"{}").into(),
+            }]
+            .into(),
+            symbols: vec![assets::EntityAssetSymbol {
+                mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
+                kind: assets::EntityAssetKind::Entity,
+                identifier: "test:fixture".into(),
+                source_index: 0,
+                dependencies: Box::new([]),
+            }]
+            .into(),
+            geometries: Box::new([]),
+            animation_clips: Box::new([]),
+            animation_channels: Box::new([]),
+            animation_keyframes: Box::new([]),
+            molang_symbols: Box::new([]),
+            molang_expressions: Box::new([]),
+            molang_ops: Box::new([]),
+            molang_collections: Box::new([]),
+            molang_collection_items: Box::new([]),
+            controllers: Box::new([]),
+            controller_states: Box::new([]),
+            controller_animations: Box::new([]),
+            controller_transitions: Box::new([]),
+            rig_bindings: Box::new([]),
+            rig_geometries: Box::new([]),
+            rig_animations: Box::new([]),
+            rig_controllers: Box::new([]),
+            item_visuals: Box::new([]),
+            item_visual_aliases: Box::new([]),
+            render: Default::default(),
+        }
+        .with_unresolved_item_use()
+        .with_unresolved_seats()
+        .with_unresolved_interactions(),
+    )
     .unwrap();
     let icons =
         RuntimeIconCatalog::decode(&assets::encode_icon_catalog([1; 32], &[], &[]).unwrap())
@@ -148,6 +156,7 @@ fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
         overlay_rgba8: 0,
     };
     let item = WornItem {
+        use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:opaque_cube"),
         identifier: Arc::from("test:opaque_cube"),
         metadata: 0,
@@ -595,16 +604,16 @@ fn compiled_attack_facts_normalize_and_session_overrides_reset_to_the_catalog() 
     let timing = base.get("fixture:spear").unwrap();
     assert_eq!(
         timing.swing_duration_ticks,
-        Some(world::TICKS_PER_SECOND * 3 / 4)
+        Some(simulation_clock::TICKS_PER_SECOND * 3 / 4)
     );
     let cooldown = timing.attack_cooldown.as_ref().unwrap();
     assert_eq!(cooldown.category.as_ref(), "fixture:jab");
-    assert_eq!(cooldown.ticks, world::TICKS_PER_SECOND / 2);
+    assert_eq!(cooldown.ticks, simulation_clock::TICKS_PER_SECOND / 2);
     assert!(timing.piercing_weapon);
     assert!(timing.is_spear);
     assert_eq!(timing.kinetic_weapon.unwrap().damage_ticks, 90);
     let override_timing = protocol::ItemAttackTiming {
-        swing_duration_ticks: Some(world::TICKS_PER_SECOND),
+        swing_duration_ticks: Some(simulation_clock::TICKS_PER_SECOND),
         ..Default::default()
     };
     let items = crate::session_assets::SessionItems {

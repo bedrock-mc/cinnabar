@@ -99,14 +99,11 @@ fn ready_subchunk_accounting_uses_retained_entry_and_payload_capacities() {
             .as_ref()
             .expect("fixture payload")
             .capacity();
-    let value = BlobCacheReady::Packet(
-        SubChunkPacket {
-            cache_enabled: false,
-            sub_chunk_data: entries,
-            ..Default::default()
-        }
-        .into(),
-    );
+    let value = BlobCacheReady::Packet(crate::Packet::new(SubChunkPacket {
+        cache_enabled: false,
+        sub_chunk_data: entries,
+        ..Default::default()
+    }));
 
     assert_eq!(
         ready_value_accounted_bytes(&ResolverReady::from(value)),
@@ -122,7 +119,7 @@ fn pending_queue_high_water_is_exact_and_reset_releases_backing_allocations() {
         let payload = [x as u8];
         let hash = client_blob_hash(&payload);
         resolver
-            .accept_cached_packet(cached_level_chunk(x, vec![hash]).into())
+            .accept_cached_packet(crate::Packet::new(cached_level_chunk(x, vec![hash])))
             .expect("grow unresolved pending queue");
     }
     assert!(resolver.pending.capacity() >= 8);
@@ -156,7 +153,7 @@ fn pending_accounting_includes_owned_hash_capacity() {
     };
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
     resolver
-        .accept_cached_packet(packet.into())
+        .accept_cached_packet(crate::Packet::new(packet))
         .expect("retain the unresolved transaction");
 
     let transaction = resolver
@@ -236,7 +233,7 @@ fn arriving_blob_visits_only_transactions_in_its_hash_index_bucket() {
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
     for (x, hash) in [(1, shared), (2, shared), (3, other)] {
         resolver
-            .accept_cached_packet(cached_level_chunk(x, vec![hash]).into())
+            .accept_cached_packet(crate::Packet::new(cached_level_chunk(x, vec![hash])))
             .expect("index pending transaction by its missing hash");
     }
     assert_eq!(resolver.pending_by_hash[&shared].len(), 2);
@@ -268,7 +265,7 @@ fn late_duplicate_blob_does_not_abandon_another_column() {
     let new_hash = client_blob_hash(new_payload);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
     resolver
-        .accept_cached_packet(cached_level_chunk(1, vec![old_hash]).into())
+        .accept_cached_packet(crate::Packet::new(cached_level_chunk(1, vec![old_hash])))
         .unwrap();
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
@@ -284,7 +281,7 @@ fn late_duplicate_blob_does_not_abandon_another_column() {
     ));
 
     resolver
-        .accept_cached_packet(cached_level_chunk(2, vec![new_hash]).into())
+        .accept_cached_packet(crate::Packet::new(cached_level_chunk(2, vec![new_hash])))
         .unwrap();
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
@@ -329,7 +326,7 @@ fn late_duplicate_response_still_validates_entire_batch() {
     let new_hash = client_blob_hash(new_payload);
     let mut resolver = BlobCacheResolver::new(cache);
     resolver
-        .accept_cached_packet(cached_level_chunk(2, vec![new_hash]).into())
+        .accept_cached_packet(crate::Packet::new(cached_level_chunk(2, vec![new_hash])))
         .unwrap();
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
@@ -369,7 +366,10 @@ fn unsolicited_blob_still_rejects_a_mixed_response() {
     let unknown_hash = client_blob_hash(unknown_payload);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
     resolver
-        .accept_cached_packet(cached_level_chunk(2, vec![requested_hash]).into())
+        .accept_cached_packet(crate::Packet::new(cached_level_chunk(
+            2,
+            vec![requested_hash],
+        )))
         .unwrap();
     resolver
         .accept_miss_response(ClientCacheMissResponsePacket {
@@ -399,7 +399,7 @@ fn unsolicited_blob_still_rejects_a_mixed_response() {
 fn retained_cached_subchunk_emits_admission_before_reconstruction() {
     let payload = b"admitted-subchunk";
     let hash = client_blob_hash(payload);
-    let packet = SubChunkPacket {
+    let packet = crate::Packet::new(SubChunkPacket {
         cache_enabled: true,
         dimension_type: valentine::bedrock::version::v1_26_51::DimensionType { value: 2 },
         center_pos: valentine::bedrock::version::v1_26_51::SubChunkPos {
@@ -418,8 +418,7 @@ fn retained_cached_subchunk_emits_admission_before_reconstruction() {
             ),
             sub_chunk_entry(1, 2, 0, SubChunkRequestResult::Successallair, None, None),
         ],
-    }
-    .into();
+    });
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
     let mut status = resolver
         .accept_cached_packet(packet)
@@ -445,16 +444,16 @@ fn pressure_rotated_cached_subchunk_has_recovery_without_admission() {
         let payload = format!("pressure-{x}");
         let hash = client_blob_hash(payload.as_bytes());
         resolver
-            .accept_cached_packet(
-                cached_level_chunk(i32::try_from(x).expect("test coordinate fits"), vec![hash])
-                    .into(),
-            )
+            .accept_cached_packet(crate::Packet::new(cached_level_chunk(
+                i32::try_from(x).expect("test coordinate fits"),
+                vec![hash],
+            )))
             .expect("fill the bounded cached transaction window");
     }
 
     let payload = b"pressure-subchunk";
     let hash = client_blob_hash(payload);
-    let packet = SubChunkPacket {
+    let packet = crate::Packet::new(SubChunkPacket {
         cache_enabled: true,
         sub_chunk_data: vec![sub_chunk_entry(
             0,
@@ -465,8 +464,7 @@ fn pressure_rotated_cached_subchunk_has_recovery_without_admission() {
             Some(hash),
         )],
         ..Default::default()
-    }
-    .into();
+    });
     let mut status = resolver
         .accept_cached_packet(packet)
         .expect("pressure rotation remains non-fatal");
@@ -492,19 +490,19 @@ fn precounted_secondary_recovery_coalesces_without_double_counting() {
     for x in 0..MAX_CLIENT_BLOB_PENDING_TRANSACTIONS - 1 {
         let payload = format!("coalesced-pressure-{x}");
         resolver
-            .accept_cached_packet(
-                cached_level_chunk(
-                    i32::try_from(x).expect("test coordinate fits"),
-                    vec![client_blob_hash(payload.as_bytes())],
-                )
-                .into(),
-            )
+            .accept_cached_packet(crate::Packet::new(cached_level_chunk(
+                i32::try_from(x).expect("test coordinate fits"),
+                vec![client_blob_hash(payload.as_bytes())],
+            )))
             .expect("fill every recovery slot except the queued event");
     }
 
     let mut status = resolver
         .accept_cached_packet_with_size(
-            cached_level_chunk(999, vec![client_blob_hash(b"oversized-current")]).into(),
+            crate::Packet::new(cached_level_chunk(
+                999,
+                vec![client_blob_hash(b"oversized-current")],
+            )),
             MAX_CLIENT_BLOB_PENDING_BYTES,
         )
         .expect("pending-byte rejection after rotation remains non-fatal");

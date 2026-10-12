@@ -9,7 +9,12 @@ use actor_animation::test_support;
 
 /// Loads the initialized pose and visibility fixture.
 fn assets() -> Arc<RuntimeEntityAssets> {
-    Arc::new(RuntimeEntityAssets::from_compiled(test_support::initialized_pose_compiled()).unwrap())
+    Arc::new(
+        RuntimeEntityAssets::from_compiled(
+            test_support::initialized_pose_compiled().with_unresolved_admissions(),
+        )
+        .unwrap(),
+    )
 }
 
 /// Admits a fresh lifetime with its authoritative visibility flag already installed.

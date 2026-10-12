@@ -386,7 +386,7 @@ fn warmed_camera_flight_allocates_nothing() {
             update_incrementally(camera, &grid, &mut scratch, &mut visible, &mut replacement);
         }
     }
-    let before = crate::stream::tests::allocation_count::thread_allocations();
+    let before = test_alloc::thread_allocations();
     for _ in 0..128 {
         for camera in flight {
             assert!(!update_incrementally(
@@ -401,7 +401,7 @@ fn warmed_camera_flight_allocates_nothing() {
         }
     }
     assert_eq!(
-        crate::stream::tests::allocation_count::thread_allocations(),
+        test_alloc::thread_allocations(),
         before,
         "camera boundary crossings allocated after warming the traversal buffers",
     );

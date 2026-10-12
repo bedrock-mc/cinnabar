@@ -59,6 +59,9 @@ pub(super) struct LineBaseline {
 pub(super) struct VendoredRule {
     pub(super) path: String,
     pub(super) ownership_record: String,
+    /// The only crate that may depend on packages in this tree, by any dependency kind.
+    #[serde(default)]
+    pub(super) owner: Option<String>,
 }
 
 /// Original art exempt from `forbidden_artifacts`; its record must name the path.

@@ -1,17 +1,17 @@
 //! Publishes screen ownership and menu-configured controls to gameplay.
 use bevy::prelude::{ButtonInput, Gamepad, KeyCode, MouseButton, Query, Res, ResMut};
 use client_state::{GameplayScreenControls, PlayerRuntime, ScreenFocus};
-use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use semantic_input::InputMode;
 
 use super::{MenuRuntime, settings_options::control_bindings};
+use crate::ui_resources::{UiPresentationResource, UiRuntimeResource};
 
 /// Samples the current screen stack after shell and UI changes become authoritative.
 pub fn publish_screen_focus(
     player: Res<PlayerRuntime>,
-    ui: Option<Res<UiRuntime>>,
+    ui: Option<Res<UiRuntimeResource>>,
     menu: Option<Res<MenuRuntime>>,
-    presentation: Option<Res<UiPresentationRuntime>>,
+    presentation: Option<Res<UiPresentationResource>>,
     mut focus: ResMut<ScreenFocus>,
 ) {
     *focus = ScreenFocus {
@@ -19,9 +19,9 @@ pub fn publish_screen_focus(
         ui_focused: ui.as_deref().is_some_and(|ui| ui.ui_focused(&player)),
         absorbs_input: crate::screen_policy::absorbs_input(
             &player,
-            ui.as_deref(),
+            ui.as_deref().map(|ui| &ui.0),
             menu.as_deref(),
-            presentation.as_deref(),
+            presentation.as_deref().map(|presentation| &presentation.0),
         ),
         steals_mouse: ui.as_deref().map(|ui| {
             ui.steals_mouse(

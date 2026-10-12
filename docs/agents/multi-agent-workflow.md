@@ -66,10 +66,16 @@ Directories with untracked inputs keep their current timestamps.
 
 Cache keys separate OS, architecture, compiler settings, and CI/release profiles.
 Each run gets a new key with a compatible fallback. Only runs on `dev`
-save caches; PR and tag runs restore them. After a successful save, older entries
-in that platform/profile bucket are removed. Go workflows use `stable`, with the
+save caches; PR and tag runs restore them. Go workflows use `stable`, with the
 resolved compiler version included in cache keys. Go uses the same restore/save
 ownership, without timestamp restoration.
+
+CI buckets live in the shared GitHub cache, which evicts least recently used entries
+past 10 GB. Each bucket has a budget in `.github/actions/build-cache/budgets.json`,
+the budgets must fit the limit together, and a save deletes its bucket's old entry
+first, then fails if the new one is over budget. Release buckets, used once a day,
+would be the first evicted there, so `package.yml` stores them as workflow artifacts
+instead, kept for three days with their own budgets.
 
 CI builds with `--workspace` and selects tests with nextest filtersets: a `-p` subset
 unifies features differently and rebuilds cached dependencies.

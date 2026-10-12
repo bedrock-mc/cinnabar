@@ -37,8 +37,6 @@ pub trait AnimatedActor: Send + Sync + std::fmt::Debug {
     fn is_sleeping(&self) -> bool;
     fn is_using_item(&self) -> bool;
     fn is_dead(&self) -> bool;
-    /// Arrows and similar projectiles animate their full yaw through the target queries.
-    fn target_rotation_is_absolute(&self) -> bool;
     /// Height the server adds above the feet position this actor reports.
     fn network_position_offset(&self) -> f32;
     fn render_scale(&self) -> f32;

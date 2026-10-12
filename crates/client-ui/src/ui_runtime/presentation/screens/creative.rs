@@ -1,14 +1,12 @@
 //! Geometry of the creative catalog screen: tab strip, item grid, hotbar row.
 
-use super::{InventoryCellHit, PlacedSlot, SLOT_SIZE};
+use super::{PlacedSlot, SLOT_SIZE};
+use ui_screens::container_actions::{InventoryCellHit, TAB_COUNT};
 
 pub const CREATIVE_PANEL: [f32; 2] = [195.0, 136.0];
 pub const GRID_COLUMNS: usize = 9;
 pub const GRID_ROWS: usize = 5;
 pub const GRID_CELLS: usize = GRID_COLUMNS * GRID_ROWS;
-pub const TAB_COUNT: u8 = 5;
-/// The last tab is the search tab.
-pub const SEARCH_TAB: u8 = TAB_COUNT - 1;
 const GRID_ORIGIN: [f32; 2] = [9.0, 18.0];
 const HOTBAR_ORIGIN: [f32; 2] = [9.0, 112.0];
 const TAB_SIZE: [f32; 2] = [28.0, 28.0];

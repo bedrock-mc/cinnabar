@@ -265,7 +265,8 @@ impl BlockEntityScene {
         let (Some(atlas), Some(text)) = (self.atlas.as_ref(), self.text.as_ref()) else {
             return self.update_untextured(submissions);
         };
-        self.frame.portal_time_seconds = (clock.ticks / f64::from(world::TICKS_PER_SECOND)) as f32;
+        self.frame.portal_time_seconds =
+            (clock.ticks / f64::from(simulation_clock::TICKS_PER_SECOND)) as f32;
         self.frame.portal_star_rect = super::portal::star_rect(atlas);
         // Rebuilding would emit the same vertices; keeping the revision spares the GPU upload.
         if self.frame.dynamic_revision == text.revision()
@@ -526,7 +527,7 @@ mod tests {
         );
         assert_eq!(
             scene.frame.portal_time_seconds,
-            1.0 / world::TICKS_PER_SECOND as f32
+            1.0 / simulation_clock::TICKS_PER_SECOND as f32
         );
     }
 

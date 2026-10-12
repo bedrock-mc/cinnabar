@@ -1,9 +1,21 @@
-use super::super::engine::FormEngine;
-use super::super::server_pack::ServerAtlas;
-use crate::test_support::{fixture_font, mini_carrier};
+use super::super::screen_registry::registry;
+use crate::test_support::mini_carrier;
 use crate::ui_runtime::SequencedLocalAttributes;
+use json_ui::{Context, DataSource};
 use ui::{DpiScale, SafeArea, TextLayoutCache};
+use ui_engine::atlas::ServerAtlas;
+use ui_engine::cached_screen::CachedScreen;
+use ui_engine::engine::{FormEngine, ScreenArt, screen::PaintFrame};
+use ui_engine::test_support::fixture_font;
+use ui_screens::hud_renderers::{HUNGER_RENDERER, HudRenderer, HungerAnimation};
 use {super::*, ui::FONT_DESIGN_PIXEL_TEXELS};
+
+/// The HUD screen and the hunger motion its native renderer advances, kept across draws.
+#[derive(Default)]
+struct HudScreens {
+    hud: CachedScreen,
+    hunger_animation: HungerAnimation,
+}
 
 /// A server pack placing independently visible hunger controls on separate rows.
 fn engine() -> FormEngine {
@@ -12,21 +24,28 @@ fn engine() -> FormEngine {
         "namespace":"hud",
         "food_template":{"type":"custom", "size":[1,1], "offset":[160,30],
             "anchor_from":"top_left", "anchor_to":"top_left",
-            "renderer":super::super::hud_renderers::HUNGER_RENDERER},
+            "renderer":HUNGER_RENDERER},
         "root":{"type":"panel", "controls":[
             {"factory":{"type":"factory", "factory":{"name":"food_factory",
                 "control_ids":{"food":"hud.food_template"}}}},
             {"first":{"type":"custom", "size":[1,1], "offset":[160,30],
                 "anchor_from":"top_left", "anchor_to":"top_left",
-                "renderer":super::super::hud_renderers::HUNGER_RENDERER,
+                "renderer":HUNGER_RENDERER,
                 "bindings":[{"binding_name":"#first_visible", "binding_name_override":"#visible"}]}},
             {"second":{"type":"custom", "size":[1,1], "offset":[160,60],
                 "anchor_from":"top_left", "anchor_to":"top_left",
-                "renderer":super::super::hud_renderers::HUNGER_RENDERER,
+                "renderer":HUNGER_RENDERER,
                 "bindings":[{"binding_name":"#second_visible", "binding_name_override":"#visible"}]}}
         ]}
     }).to_string());
-    let mut engine = FormEngine::new(mini_carrier(), catalog, 2);
+    let mut engine = FormEngine::new(
+        mini_carrier(),
+        catalog,
+        2,
+        registry(),
+        crate::ui_runtime::presentation::forms::texture_sources::downloads(),
+        crate::ui_runtime::presentation::forms::texture_sources::image_work(),
+    );
     let mut png = Vec::new();
     image::RgbaImage::from_pixel(9, 9, image::Rgba([255, 0, 0, 255]))
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
@@ -92,12 +111,8 @@ fn draw_with_factory(
     let advance_hunger = |key: &str, instance| hunger_animation.borrow_mut().advance(key, instance);
     engine
         .draw(
-            ScreenArt {
-                hud: Some(&paint),
-                hunger_update: Some(&advance_hunger),
-                ..Default::default()
-            },
-            EngineInputs {
+            ScreenArt::default(),
+            &mut PaintFrame {
                 layouts: &mut layouts,
                 font: &fixture_font(),
                 metrics,
@@ -106,11 +121,13 @@ fn draw_with_factory(
                 content: [1280.0, 720.0],
                 translate: &|_| None,
                 language: [0; 3],
-            },
-            EngineOutput {
+                now: 0.0,
                 nodes: &mut nodes,
                 next: &mut next,
-                overlay: &[],
+                renderers: &mut [&mut HudRenderer {
+                    hud: &paint,
+                    hunger_update: Some(&advance_hunger),
+                }],
             },
             |env, root| {
                 screens.hud.render(

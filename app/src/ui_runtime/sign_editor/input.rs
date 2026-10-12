@@ -10,10 +10,9 @@ use bevy::{
 };
 use client_runtime::network::NetworkHandle;
 
+use crate::ui_runtime::interaction::input_capture::restore_gameplay_input_after_chat;
+use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use client_ui::ui_runtime::sign_editor::{MAX_LINE_DESIGN_PIXELS, SignEdit};
-use client_ui::ui_runtime::{
-    UiRuntime, interaction::restore_gameplay_input_after_chat, presentation::UiPresentationRuntime,
-};
 use {
     crate::{
         block_entities::{BlockEntityFont, BlockEntityRuntime},
@@ -38,12 +37,12 @@ pub(crate) fn drive_sign_editor(
     mut motion: ResMut<AccumulatedMouseMotion>,
     mut keyboard: MessageReader<KeyboardInput>,
     menu: Option<Res<MenuRuntime>>,
-    presentation: Res<UiPresentationRuntime>,
+    presentation: Res<UiPresentationResource>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
     font: Option<Res<BlockEntityFont>>,
     measure: Option<ResMut<BlockEntityRuntime>>,
     mut client_world: ResMut<ClientWorld>,
-    mut runtime: ResMut<UiRuntime>,
+    mut runtime: ResMut<UiRuntimeResource>,
     mut owned_last_frame: Local<bool>,
     collisions: Option<Res<client_interaction::movement::PhysicsCollisionRegistries>>,
     authority: SignInputAuthority,

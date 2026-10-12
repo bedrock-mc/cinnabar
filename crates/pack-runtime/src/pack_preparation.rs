@@ -72,14 +72,13 @@ pub fn prepare_session_packs(
     game_data: &protocol::GameData,
     physical_memory_bytes: u64,
 ) -> PackPreparation {
-    let mut blocks = protocol::CustomBlocks::from_game_data(game_data);
+    let mut blocks = game_data.custom_blocks.clone();
     crate::block_physics::resolve(&mut blocks);
-    let icons = protocol::item_icon_keys(game_data);
-    let block_items = custom_block_items(game_data, &blocks);
-    let hashed = game_data.start_game.block_network_ids_are_hashes;
+    let block_items = custom_block_items(&game_data.items, &blocks);
+    let hashed = game_data.world.block_network_ids_are_hashes;
     tracing::info!(
         block_network_ids_are_hashes = hashed,
-        block_property_count = game_data.start_game.block_properties.len(),
+        block_property_count = game_data.block_definition_count,
         custom_block_count = blocks.blocks.len(),
         custom_state_count = blocks.total_states(),
         skipped_block_definitions = blocks.skipped,
@@ -95,7 +94,7 @@ pub fn prepare_session_packs(
     PackPreparation {
         inputs: Arc::new(PackInputs {
             blocks,
-            icons: icons.to_vec(),
+            icons: game_data.items.icon_keys.to_vec(),
             block_items: block_items.to_vec(),
             hashed,
         }),
@@ -123,7 +122,7 @@ pub fn required_packs_applied(
 /// item (a `BlockItem`, which vanilla always renders as its block), or a `block_placer` item
 /// declaring no icon of its own.
 pub fn custom_block_items(
-    game_data: &protocol::GameData,
+    items: &protocol::StartupItems,
     blocks: &protocol::CustomBlocks,
 ) -> Box<[(Arc<str>, Arc<str>)]> {
     let names = blocks
@@ -134,15 +133,13 @@ pub fn custom_block_items(
     if names.is_empty() {
         return Box::new([]);
     }
-    let components = protocol::item_components(game_data);
-    let mut pairs = game_data
-        .item_registry
-        .item_data
+    let mut pairs = items
+        .identifiers
         .iter()
-        .filter_map(|item| names.get(item.item_name.as_str()).cloned())
+        .filter_map(|identifier| names.get(identifier).cloned())
         .map(|block| (Arc::clone(&block), block))
         .collect::<Vec<_>>();
-    for (identifier, facts) in components.iter() {
+    for (identifier, facts) in items.components.iter() {
         if facts.icon.is_some() || names.contains(identifier) {
             continue;
         }
@@ -313,13 +310,7 @@ mod tests {
             String::new(),
             vec![0; 32],
         );
-        let game_data = protocol::GameData {
-            start_game: Default::default(),
-            item_registry: Default::default(),
-            biome_definitions: None,
-            entity_identifiers: None,
-            creative_content: None,
-        };
+        let game_data = protocol::GameData::default();
         let mut validated = None;
         let preparation = prepare_session_packs(
             protocol::ResourcePackHandoff::from_archives(vec![archive]),

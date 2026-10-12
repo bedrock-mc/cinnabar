@@ -12,7 +12,7 @@ use ui::BoundedStat;
 use super::{GameplayHudState, SequencedLocalAttributes, UiRuntime, UiRuntimeError, hud_adapter};
 
 /// Bedrock's fixed wire cadence: 20 server ticks per second.
-pub(super) const MILLIS_PER_SERVER_TICK: u64 = world::TICK_DURATION.as_millis() as u64;
+pub(super) const MILLIS_PER_SERVER_TICK: u64 = simulation_clock::TICK_DURATION.as_millis() as u64;
 
 /// The reference charges the mount jump bar from empty to full over half a
 /// second of held jump input; pinned in milliseconds as a bounded recorded
@@ -510,21 +510,15 @@ impl UiRuntime {
 
     pub fn item_glint(&self, stack: &protocol::NetworkItemStack, identifier: &str) -> bool {
         super::item_facts::glint_for_facts(
-            self.stack_facts(stack, Some(identifier))
-                .has_enchantment_list,
+            self.stack_facts(stack).has_enchantment_list,
             identifier,
             self.item_components(identifier),
         )
     }
 
     /// Returns shared immutable NBT facts; descriptor and language generations are resolved separately.
-    pub fn stack_facts(
-        &self,
-        stack: &protocol::NetworkItemStack,
-        identifier: Option<&str>,
-    ) -> Arc<protocol::ItemStackFacts> {
-        self.stack_facts
-            .get(&stack.extra_data, identifier == Some("minecraft:crossbow"))
+    pub fn stack_facts(&self, stack: &protocol::NetworkItemStack) -> Arc<protocol::ItemStackFacts> {
+        self.stack_facts.get(&stack.extra_data, true)
     }
 
     /// Resolves a cell's bar from cached damage and the latest authority correction.
@@ -536,7 +530,7 @@ impl UiRuntime {
     ) -> Option<f32> {
         let damage = correction
             .and_then(|damage| u32::try_from(damage).ok())
-            .or_else(|| self.stack_facts(stack, None).damage)?;
+            .or_else(|| self.stack_facts(stack).damage)?;
         super::item_facts::durability_fraction_for_damage(maximum, damage)
     }
 

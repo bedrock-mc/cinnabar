@@ -1,4 +1,9 @@
+use bytes::BytesMut;
+use valentine::bedrock::codec::{BedrockCodec, ZigZag32};
 use valentine::bedrock::version::v1_26_51::{EnumsConnectionDisconnectFailReason, McpePacketData};
+
+use crate::codec::SessionFailure;
+use crate::session_wire::SessionDisconnect;
 
 /// Longest retained server disconnect text per message field, in bytes.
 pub(crate) const MAX_DISCONNECT_TEXT_BYTES: usize = 512;
@@ -22,25 +27,83 @@ impl ServerDisconnectEvent {
         let McpePacketData::DisconnectPacket(packet) = data else {
             return None;
         };
-        Some(Self {
-            reason: reason_label(&packet.reason),
-            message: bounded_text(&packet.messages.message),
-            filtered_message: bounded_text(&packet.messages.filtered_message),
-        })
+        Some(Self::from_fields(
+            &packet.reason,
+            &packet.messages.message,
+            &packet.messages.filtered_message,
+        ))
+    }
+
+    /// Normalizes the core's terminal Disconnect as the server's packet would read.
+    pub(crate) fn from_session(disconnect: &SessionDisconnect) -> Self {
+        let (message, filtered_message) = delivered_texts(disconnect);
+        Self::from_fields(
+            &disconnect_reason(disconnect.reason),
+            message,
+            filtered_message,
+        )
+    }
+
+    fn from_fields(
+        reason: &EnumsConnectionDisconnectFailReason,
+        message: &str,
+        filtered_message: &str,
+    ) -> Self {
+        Self {
+            reason: reason_label(reason),
+            message: bounded_text(message),
+            filtered_message: bounded_text(filtered_message),
+        }
+    }
+}
+
+/// This protocol's reason for a core disconnect code; a code it does not name reads as unknown.
+pub(crate) fn disconnect_reason(code: i32) -> EnumsConnectionDisconnectFailReason {
+    let mut reason = BytesMut::new();
+    ZigZag32(code)
+        .encode(&mut reason)
+        .expect("a buffer accepts a varint");
+    EnumsConnectionDisconnectFailReason::decode(&mut reason.freeze(), ())
+        .unwrap_or(EnumsConnectionDisconnectFailReason::Unknown)
+}
+
+/// The texts a terminal Disconnect carries once the session has started: a hidden disconnect
+/// screen sends none on the wire.
+pub(crate) fn delivered_texts(disconnect: &SessionDisconnect) -> (&str, &str) {
+    if disconnect.hide_screen {
+        ("", "")
+    } else {
+        (
+            disconnect.message.as_str(),
+            disconnect.filtered_message.as_str(),
+        )
+    }
+}
+
+/// The failure a Disconnect ending the join reports, keeping the server's texts unbounded.
+pub(crate) fn join_disconnect(
+    stage: &'static str,
+    reason: &EnumsConnectionDisconnectFailReason,
+    message: &str,
+    filtered_message: &str,
+) -> SessionFailure {
+    SessionFailure::ServerDisconnect {
+        stage,
+        reason: format!("{reason:?}"),
+        message: message.to_owned(),
+        filtered_message: filtered_message.to_owned(),
     }
 }
 
 impl crate::ProtocolError {
     /// The server's Disconnect that ended the join, when one did.
     pub fn server_disconnect(&self) -> Option<ServerDisconnectEvent> {
-        let Self::Session(jolyne::error::JolyneError::Protocol(
-            jolyne::error::ProtocolError::ServerDisconnect {
-                reason,
-                message,
-                filtered_message,
-                ..
-            },
-        )) = self
+        let Self::Session(crate::SessionError(SessionFailure::ServerDisconnect {
+            reason,
+            message,
+            filtered_message,
+            ..
+        })) = self
         else {
             return None;
         };
@@ -160,23 +223,49 @@ mod tests {
 
     #[test]
     fn a_join_time_disconnect_keeps_the_server_text() {
-        let error = crate::ProtocolError::Session(
-            jolyne::error::ProtocolError::ServerDisconnect {
-                stage: "login",
-                reason: "Unknown".to_owned(),
-                message: "disconnectionScreen.cantConnect".to_owned(),
-                filtered_message: String::new(),
-            }
-            .into(),
-        );
+        let error = crate::ProtocolError::from(join_disconnect(
+            "login",
+            &EnumsConnectionDisconnectFailReason::Unknown,
+            "disconnectionScreen.cantConnect",
+            "",
+        ));
         let event = error.server_disconnect().expect("disconnect retained");
         assert_eq!(
             event.message.as_deref(),
             Some("disconnectionScreen.cantConnect")
         );
         assert_eq!(event.filtered_message, None);
-        let closed = crate::ProtocolError::Session(jolyne::error::JolyneError::ConnectionClosed);
+        let closed = crate::ProtocolError::from(SessionFailure::ConnectionClosed);
         assert!(closed.server_disconnect().is_none());
+    }
+
+    /// Core codes map onto this protocol's reasons, an unnamed one keeps its value, and a hidden
+    /// screen drops the texts as the server's packet would.
+    #[test]
+    fn terminal_disconnects_read_as_the_servers_packet() {
+        let disconnect = |reason, hide_screen| SessionDisconnect {
+            reason,
+            message: "kicked".into(),
+            filtered_message: "k*****".into(),
+            hide_screen,
+        };
+        assert_eq!(
+            disconnect_reason(25),
+            EnumsConnectionDisconnectFailReason::Serverfull
+        );
+        assert_eq!(
+            disconnect_reason(i32::MAX),
+            EnumsConnectionDisconnectFailReason::UnknownValue(i32::MAX)
+        );
+        let shown = ServerDisconnectEvent::from_session(&disconnect(25, false));
+        assert_eq!(shown.reason, "Serverfull");
+        assert_eq!(
+            (shown.message.as_deref(), shown.filtered_message.as_deref()),
+            (Some("kicked"), Some("k*****"))
+        );
+        let hidden = ServerDisconnectEvent::from_session(&disconnect(i32::MAX, true));
+        assert_eq!(hidden.reason, format!("UnknownValue({})", i32::MAX));
+        assert_eq!((hidden.message, hidden.filtered_message), (None, None));
     }
 
     #[test]

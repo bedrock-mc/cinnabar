@@ -223,6 +223,7 @@ pub(super) fn advance_motion(
         state.history.pop_front();
     }
     let input = ActorTickInput {
+        placement_frame: state.placement_frame,
         position: actor.position(),
         position_delta,
         velocity: actor.velocity(),
@@ -266,6 +267,7 @@ pub(super) fn seed_presentation_input(
         ..Default::default()
     });
     let input = ActorTickInput {
+        placement_frame: state.placement_frame,
         position: actor.position(),
         velocity: actor.velocity(),
         on_ground: actor.on_ground(),

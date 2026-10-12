@@ -1,37 +1,27 @@
 //! Server-form presentation: the vanilla JSON-UI templates through the engine
 //! when the UI carrier is loaded, else the programmatic fallback dialog.
-pub mod book_screen;
-pub mod chat_coordinates;
-mod chat_link_dialog;
-mod chat_links;
-mod chat_position;
+#[cfg(test)]
+mod chat_links_tests;
+#[cfg(test)]
+mod chat_position_tests;
 pub mod chat_screen;
-pub mod container_data;
-pub mod container_kinds;
-mod death_screen;
-mod debug_overlay;
-mod disconnect_retry;
-pub mod discord_presence_setting;
-pub mod furnace_book;
-pub(super) use container_kinds::supported_storage_slots;
 pub mod containers;
-pub(super) mod credits_content;
 pub mod credits_screen;
-pub mod crosshair_settings;
+mod debug_overlay;
+#[cfg(test)]
+mod disconnect_retry_tests;
 pub mod emote_screen;
-pub mod engine;
-pub mod experience;
-pub mod experience_modal;
+#[cfg(test)]
+mod engine_tests;
 pub mod fallback;
 #[cfg(test)]
 mod formatting_tests;
-pub mod global_resources;
+pub mod furnace_book;
+#[cfg(test)]
+mod global_resources_tests;
 pub mod hud;
 #[cfg(test)]
 pub mod inbox_tests;
-mod invite_screen;
-pub mod java_animations_setting;
-pub mod join_progress;
 #[cfg(test)]
 mod join_request_tests;
 pub mod loading_screen;
@@ -40,22 +30,18 @@ pub mod loading_texture_tests;
 pub(super) mod menu_caret;
 #[cfg(test)]
 pub mod menu_latency;
-pub mod menu_screens;
+mod menu_title;
 pub mod menus;
-pub mod mod_hud;
-pub mod mod_hud_editor;
-pub mod mod_panel;
-pub mod mod_screens;
-pub mod mod_widgets;
+mod mod_surfaces;
 pub mod model;
-pub mod motion_blur_setting;
 pub mod npc;
-pub mod oreui;
+mod oreui_runtime;
+#[cfg(test)]
+mod oreui_tests;
+mod preview_renderer;
 #[cfg(test)]
 mod retained_image_tests;
 mod retained_menu;
-mod skybox_setting;
-pub mod smaa_setting;
 pub(super) use retained_menu::RetainedMenu;
 #[cfg(test)]
 pub(crate) mod compatibility_tests;
@@ -63,77 +49,116 @@ pub(crate) mod compatibility_tests;
 mod font_snapshots;
 #[cfg(any(test, feature = "test-support"))]
 pub mod pack_harness;
-pub mod pages;
 #[cfg(test)]
 mod publication_tests;
 #[cfg(test)]
 pub mod regression_snapshots;
 
+#[cfg(test)]
 mod accounts;
-pub mod always_sprint_setting;
-pub mod enhanced_setting;
-pub mod graphics_expander;
 #[cfg(test)]
 pub mod play_flow_snapshots;
-pub mod play_screen;
 mod player_list;
 pub mod recipe_book;
 pub mod scene_policy;
+mod screen_registry;
 pub mod server_pack;
-pub mod settings_account;
-pub mod settings_chat;
-pub mod settings_controls;
-pub mod settings_defaults;
-pub mod settings_keys;
-pub mod settings_language;
-pub mod settings_reset;
-pub mod settings_resources;
+#[cfg(test)]
+mod settings_reset_tests;
 #[cfg(test)]
 pub mod settings_snapshots;
-pub mod settings_storage;
 #[cfg(test)]
 pub mod settings_storage_support_tests;
-pub mod settings_support;
 pub mod sign_editor;
 #[cfg(any(test, feature = "test-support"))]
 pub mod snapshot;
-pub mod start_feed;
 #[cfg(test)]
 mod store_tests;
-mod template_screen;
 #[cfg(test)]
 pub mod tests;
-pub mod textures;
+mod texture_sources;
 pub mod toast_screen;
-pub mod vrr_setting;
-pub mod vsync_setting;
 
-pub use chat_screen::{CHAT_SCREEN, ChatHit};
-pub use container_data::observe_station_block;
-pub use emote_screen::{EMOTE_EQUIP_POPUP, EMOTE_SCREEN, EmoteHit};
-pub use experience_modal::ExperienceModal;
+pub use containers::observe_station_block;
 
-pub use loading_screen::{LOADING_SCREEN, LoadingStage};
-pub use mod_screens::ModScreensInput;
-pub use npc::NPC_SCREEN;
-pub use oreui::BedHit;
-pub use sign_editor::SIGN_SCREEN;
-pub use template_screen::ModalEdits;
-
-use super::{TextMetrics, UiPresentationError, UiPresentationRuntime, dynamic_textures};
+use super::{UiPresentationError, UiPresentationRuntime};
 use crate::ui_runtime::scene_stack::ScreenSettingsTable;
-use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime, forms::EngineFrame};
+use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime};
 use assets::RuntimeUiAssets;
-pub use containers::{container_screen_reference, engine_panel_contains, engine_screen_for};
-pub use engine::hud_renderers;
+pub use containers::{container_screen_reference, engine_screen_for};
 pub use recipe_book::{recipe_book_hover, recipe_book_icons, recipe_book_shown};
+use ui_engine::{
+    engine::{FormEngine, screen::PaintFrame},
+    frame::EngineFrame,
+    pages,
+    text_metrics::TextMetrics,
+};
 
 pub use server_pack::ServerUiPack;
 use std::sync::Arc;
 use ui::{UiNode, UiPoint, UiRect};
 
+/// Each screen family's own state, carried across builds.
 #[derive(Default)]
-pub(super) struct FormPresentation {
+pub(super) struct ScreenStates {
+    /// The engine menu's regions by action, for next frame's hover state.
+    menu_keys: Vec<(launcher::menu::MenuAction, String)>,
+    /// The engine menu's press sounds by action.
+    menu_sounds: Vec<(launcher::menu::MenuAction, json_ui::ControlSound)>,
+    /// Where the installed catalog's title image draws from.
+    menu_title: Option<menu_title::TitleSource>,
+    /// The title splash, picked once per launch.
+    splash: std::sync::OnceLock<Option<String>>,
+    /// The menu clock when the splash first drew, which its pulse runs from.
+    splash_epoch: std::sync::OnceLock<f64>,
+    /// The form whose render path was last logged, so each form logs once.
+    logged: Option<ServerFormIdentity>,
+    /// The engine HUD's cached screens.
+    hud: ui_screens::hud::HudScreens,
+    player_list: Option<ui_screens::player_list::PlayerList>,
+    /// Every mod- and experience-owned surface.
+    pub(super) mod_ui: mod_ui::ModUi,
+    /// The container screens' layout and recipe rows.
+    containers: ui_screens::containers::ContainerScreen,
+    /// The menu text caret's blink and its boxes' text.
+    menu_caret: menu_caret::MenuCaretState,
+    /// The open chat's cached screen.
+    chat: ui_screens::chat_screen::ChatScreen,
+    emote: ui_screens::emote_screen::EmoteScreen,
+    /// The bed screen's hits and pointer.
+    bed: oreui::BedScreen,
+    /// The sign editor's cached screen.
+    sign: ui_screens::sign_editor::SignScreen,
+    credits: ui_screens::credits_screen::CreditsScreen,
+    /// The credits' skip regions from their last paint.
+    credits_hits: Vec<(ui_screens::credits_screen::CreditsAction, UiRect)>,
+    /// OreUI's artwork, look and motion.
+    oreui: oreui::OreUiScreen,
+}
+
+/// What the last build exposes to input and the next build; reset as each build starts.
+#[derive(Default)]
+pub(super) struct FrameProjections {
+    /// The server form drawn this build.
+    pub(super) form: FormProjection,
+    /// The container screen the engine drew this build, with its cell layout.
+    container: Option<(EngineFrame, ui_screens::containers::ScreenLayout)>,
+    /// Last build's container frame, for this build's pointer hover.
+    previous_container: Option<(EngineFrame, ui_screens::containers::ScreenLayout)>,
+    /// Keyboard controls include rows outside the pointer's clipped viewports.
+    pub(super) menu_focus: Vec<launcher::menu::MenuAction>,
+    /// Screen and popup context owning the painted menu controls.
+    pub(super) menu_focus_context: Option<(launcher::menu::MenuScreen, bool)>,
+    pub(super) menu_focus_geometry: Vec<launcher::menu::view::SettingsFocusTarget>,
+    pub(super) menu_focus_landmarks: Vec<launcher::menu::view::SettingsFocusLandmark>,
+    pub(super) oreui_slider_tracks: Vec<(u16, UiRect, Option<UiRect>)>,
+    pub(super) oreui_settings_input: bool,
+}
+
+/// The server form a build drew: the fallback dialog's rows, or the engine frame.
+#[derive(Default)]
+pub(super) struct FormProjection {
+    /// The form the fallback dialog drew.
     identity: Option<ServerFormIdentity>,
     pub(super) hits: Vec<(LocalFormAction, UiRect)>,
     pub(super) offsets: Vec<usize>,
@@ -141,70 +166,14 @@ pub(super) struct FormPresentation {
     height: usize,
     pub(super) maximum: usize,
     row_height: usize,
-    /// The engine frame drawn this build, when the engine drew the form.
-    frame: Option<EngineFrame>,
-    /// The JSON-UI engine; carried across the per-frame reset.
-    engine: Option<Box<engine::FormEngine>>,
-    /// The container screen the engine drew this build, with its cell layout.
-    container: Option<(EngineFrame, containers::ScreenLayout)>,
-    /// The engine menu's regions by action, for next frame's hover state.
-    menu_keys: Vec<(launcher::menu::MenuAction, String)>,
-    /// Keyboard controls include rows outside the pointer's clipped viewports.
-    pub(super) menu_focus: Vec<launcher::menu::MenuAction>,
-    /// Screen and popup context owning the painted menu controls.
-    pub(super) menu_focus_context: Option<(launcher::menu::MenuScreen, bool)>,
-    pub(super) menu_focus_geometry: Vec<launcher::menu::view::SettingsFocusTarget>,
-    pub(super) menu_focus_landmarks: Vec<launcher::menu::view::SettingsFocusLandmark>,
-    /// The engine menu's press sounds by action; carried across the per-frame reset.
-    menu_sounds: Vec<(launcher::menu::MenuAction, json_ui::ControlSound)>,
-    /// The form whose render path was last logged, so each form logs once.
-    logged: Option<ServerFormIdentity>,
-    /// The engine HUD's cached screens; carried across the per-frame reset.
-    hud: hud::HudScreens,
-    mod_hud: Option<mod_hud::ModHud>,
-    mod_hud_editor: Option<mod_hud_editor::HudEditor>,
-    mod_widgets: Option<mod_widgets::ModWidgets>,
-    mod_crosshair: Option<ui::mod_hud::Crosshair>,
-    player_list: Option<player_list::PlayerList>,
-    mod_panel: Option<mod_panel::ModPanel>,
-    experience: Option<experience::ExperienceChrome>,
-    /// A client part's modal screen; carried across the per-frame reset.
-    experience_modal: Option<experience_modal::ModalScreen>,
-    /// A player mod's overlay and view; carried across the per-frame reset.
-    mod_screens: Option<mod_screens::ModScreens>,
-    /// The last container screen's layout; carried across the per-frame reset.
-    container_cache: Option<containers::ScreenCache>,
-    /// Immutable creative rows reused across hover and scroll frames.
-    book_cache: Option<recipe_book::BookCache>,
-    furnace_cache: Option<furnace_book::FurnaceBookCache>,
-    /// The menu text caret's blink and its boxes' text; carried across the per-frame reset.
-    menu_caret: menu_caret::MenuCaretState,
-    /// The open chat's cached screen; carried across the per-frame reset.
-    chat: chat_screen::ChatScreen,
-    emote: emote_screen::EmoteScreen,
-    /// The bed screen's hits and pointer; carried across the per-frame reset.
-    bed: oreui::BedScreen,
-    /// The sign editor's cached screen; carried across the per-frame reset.
-    sign: sign_editor::SignScreen,
-    credits: credits_screen::CreditsScreen,
-    /// Installed OreUI artwork, available in every build, and the selected screen look.
-    oreui_originals: Option<Arc<oreui::Originals>>,
-    oreui_look: oreui::Look,
-    oreui_dark_mode: bool,
-    oreui_transitions: oreui::Transitions,
-    pub(super) oreui_slider_tracks: Vec<(u16, UiRect, Option<UiRect>)>,
-    pub(super) oreui_settings_input: bool,
-    /// The engine catalog's screen settings; carried across the per-frame reset.
-    screen_settings: Arc<ScreenSettingsTable>,
-    /// Last build's container frame, for this build's pointer hover.
-    previous_container: Option<(EngineFrame, containers::ScreenLayout)>,
+    /// The engine frame and the form it drew; input validates that identity.
+    frame: Option<(ServerFormIdentity, EngineFrame)>,
 }
 
 impl UiPresentationRuntime {
     /// Shares immutable carrier definitions with the optional-pack reload worker.
     pub fn pack_catalog_base(&self) -> Option<Arc<json_ui::Catalog>> {
-        self.form_presentation
-            .engine
+        self.engine
             .as_ref()
             .map(|engine| engine.pack_catalog_base())
     }
@@ -226,10 +195,22 @@ impl UiPresentationRuntime {
         self.preview_dirty = true;
         self.menu_artwork_dirty = true;
         self.rebuild_dynamic_textures();
-        let mut engine = engine::FormEngine::new(assets, catalog, first_page);
+        let mut engine = FormEngine::new(
+            assets,
+            catalog,
+            first_page,
+            screen_registry::registry(),
+            texture_sources::downloads(),
+            texture_sources::image_work(),
+        );
         engine.textures.server_page =
-            (self.textures.dynamic_start() + dynamic_textures::SERVER_UI_PAGE) as u16;
-        self.form_presentation.engine = Some(Box::new(engine));
+            (self.textures.dynamic_start() + pages::SERVER_UI_PAGE) as u16;
+        self.engine = Some(Box::new(engine));
+        self.engine_pack = None;
+        // A new carrier reads its own credits files and splashes.
+        self.screens.credits.forget_content();
+        self.screens.splash = std::sync::OnceLock::new();
+        self.refresh_menu_title();
         self.refresh_screen_settings();
         self.hud_frame.engine_containers = true;
         Ok(())
@@ -240,30 +221,30 @@ impl UiPresentationRuntime {
     /// carrier's from reserved dynamic pages, so the static texture identity the
     /// renderer pins never changes. An empty pack restores vanilla.
     pub fn set_server_ui_pack(&mut self, pack: &ServerUiPack) {
-        let first = self.textures.dynamic_start() + dynamic_textures::SERVER_UI_PAGE;
-        let Some(engine) = self.form_presentation.engine.as_mut() else {
+        let first = self.textures.dynamic_start() + pages::SERVER_UI_PAGE;
+        let Some(engine) = self.engine.as_mut() else {
             return;
         };
         engine.server_ui = pack.ui_layers.iter().any(|layer| !layer.is_empty());
         if let Some(catalog) = &pack.catalog {
-            engine.install_pack_catalog(catalog.clone(), pack.chat_catalog.clone());
+            engine.install_pack_catalog(catalog.clone(), pack.builtin_screen_catalog.clone());
         } else {
             engine.set_server_pack(&pack.ui_layers);
         }
         // Palette-only reloads can leave every cached text node unchanged.
         self.last_frame = None;
-        let atlas = server_pack::ServerAtlas::new(
+        let atlas = ui_engine::atlas::ServerAtlas::new(
             &pack.textures,
             pack.view.clone(),
-            dynamic_textures::SERVER_UI_PAGES,
+            pages::SERVER_UI_PAGES,
         )
         .with_preread(
             pack.catalog
                 .as_ref()
-                .and_then(hud::prepared::take_textures)
+                .and_then(ui_engine::prepared::take_textures)
                 .as_deref(),
         );
-        bevy::log::info!(
+        tracing::info!(
             layers = pack.ui_layers.len(),
             ui_files = pack.ui_layers.iter().map(Vec::len).sum::<usize>(),
             textures = pack.textures.len(),
@@ -272,26 +253,25 @@ impl UiPresentationRuntime {
         engine.set_server_atlas(atlas, first as u16);
         // A texture-only pack may retain the catalog while changing sprite
         // dimensions, UV metadata, or nine-slice borders used during layout.
-        self.form_presentation.hud.invalidate_textures();
-        if let Some(cache) = &mut self.form_presentation.container_cache {
-            cache.invalidate_textures();
-        }
+        self.screens.hud.invalidate_textures();
+        self.screens.containers.invalidate_textures();
         if let Some(settings) = pack
             .screen_settings
             .as_ref()
             .and_then(|settings| settings.for_inputs(engine.catalog(), engine.context()))
         {
-            self.form_presentation.screen_settings = settings;
+            self.screen_settings = settings;
         } else {
             self.refresh_screen_settings();
         }
+        self.refresh_menu_title();
         self.sync_server_ui_pages();
     }
 
     /// Draws oversized server textures from their server-page downscale again.
     #[cfg(test)]
     pub fn drop_full_res_art(&mut self) {
-        if let Some(engine) = self.form_presentation.engine.as_mut() {
+        if let Some(engine) = self.engine.as_mut() {
             engine.textures.set_full_res(Default::default());
         }
     }
@@ -307,7 +287,7 @@ impl UiPresentationRuntime {
                 Some((key.clone(), *self.menu_artwork.refs.get(&art)?))
             })
             .collect();
-        if let Some(engine) = self.form_presentation.engine.as_mut() {
+        if let Some(engine) = self.engine.as_mut() {
             engine.textures.set_full_res(full_res);
         }
     }
@@ -315,16 +295,13 @@ impl UiPresentationRuntime {
     /// Publishes completed original images before a saved menu frame can be reused.
     pub(super) fn poll_server_ui_images(&mut self) {
         if self
-            .form_presentation
             .engine
             .as_mut()
             .is_some_and(|engine| engine.poll_native_images())
         {
             self.retained_menu = None;
-            self.form_presentation.hud.invalidate_textures();
-            if let Some(cache) = &mut self.form_presentation.container_cache {
-                cache.invalidate_textures();
-            }
+            self.screens.hud.invalidate_textures();
+            self.screens.containers.invalidate_textures();
             self.sync_server_ui_pages();
         }
     }
@@ -333,12 +310,12 @@ impl UiPresentationRuntime {
     /// after the frame's screens drew, before the frame publishes.
     pub(super) fn sync_server_ui_pages(&mut self) {
         let server = self
-            .form_presentation
             .engine
             .as_mut()
             .is_some_and(|engine| engine.take_server_pages().is_some());
-        let changed =
-            self.refresh_experience_modal_pages() | self.refresh_mod_screen_pages() | server;
+        let changed = self.screens.mod_ui.refresh_experience_modal_pages()
+            | self.screens.mod_ui.refresh_mod_screen_pages()
+            | server;
         // Server textures too big for a server page draw from full-resolution art.
         let set = super::menu_artwork::ArtworkSet {
             paths: self.menu_artwork_set.paths.clone(),
@@ -379,68 +356,78 @@ impl UiPresentationRuntime {
                 icons.entry(path.to_owned()).or_insert(icon);
             }
         }
-        if let Some(engine) = self.form_presentation.engine.as_mut() {
-            engine.textures.set_fallbacks(icons, vanilla);
+        if let Some(engine) = self.engine.as_mut() {
+            engine
+                .textures
+                .set_fallbacks(icons, Arc::new(texture_sources::VanillaPack::new(vanilla)));
         }
     }
 
     /// Reads vanilla images the carrier lacks from the local pack at `vanilla`.
     #[cfg(test)]
     pub fn set_vanilla_texture_root(&mut self, vanilla: std::path::PathBuf) {
-        if let Some(engine) = self.form_presentation.engine.as_mut() {
-            engine.textures.set_fallbacks(Default::default(), vanilla);
+        if let Some(engine) = self.engine.as_mut() {
+            engine.textures.set_fallbacks(
+                Default::default(),
+                Arc::new(texture_sources::VanillaPack::new(vanilla)),
+            );
         }
     }
 
     /// Retire animation state no paint touched this frame, so a control that
     /// comes back starts its animations afresh.
     pub(super) fn end_animation_frame(&mut self) {
-        if let Some(engine) = self.form_presentation.engine.as_ref() {
+        if let Some(engine) = self.engine.as_ref() {
             engine.animator().end_frame();
         }
-        self.form_presentation.oreui_transitions.end_frame();
+        self.screens.oreui.transitions.end_frame();
     }
 
     pub(super) fn configure_oreui_motion(&mut self) {
         if let Some(view) = &self.menu_view {
-            self.form_presentation.oreui_dark_mode = view.settings_options.oreui_dark_mode();
-            self.form_presentation
-                .oreui_transitions
+            self.screens.oreui.dark_mode = view.settings_options.oreui_dark_mode();
+            self.screens
+                .oreui
+                .transitions
                 .configure_motion(view.settings_options.value("screen_animations") != 0);
         }
     }
 
     /// Drawn engine textures too big for a server page, for the art pages.
     pub(super) fn oversized_ui_textures(&self) -> Vec<(String, Arc<[u8]>)> {
-        self.form_presentation
-            .engine
+        self.engine
             .as_ref()
             .map_or_else(Vec::new, |engine| engine.textures.oversized())
     }
 
     pub(super) fn server_ui_pages(&self) -> &[render_model::UiTexturePage] {
-        self.form_presentation
-            .engine
+        self.engine
             .as_ref()
             .map_or(&[], |engine| &engine.server_pages)
     }
 
     /// Immutable original-image tiles owned by the active resource-pack namespace.
     pub(super) fn server_ui_sheet_pages(&self) -> &[render_model::UiTexturePage] {
-        self.form_presentation
-            .engine
+        self.engine
             .as_ref()
             .map_or(&[], |engine| &engine.server_sheet_pages)
     }
 
     /// Applies the runtime's server UI pack when it changes identity.
     pub(super) fn observe_server_ui(&mut self, pack: Option<&Arc<ServerUiPack>>) {
-        let Some(engine) = self.form_presentation.engine.as_mut() else {
-            return;
-        };
-        if !engine.take_server_source(pack) {
+        if self.engine.is_none() {
             return;
         }
+        let same = match (&self.engine_pack, pack) {
+            (Some(current), Some(next)) => Arc::ptr_eq(current, next),
+            (None, None) => true,
+            _ => false,
+        };
+        self.engine_pack = pack.cloned();
+        if same {
+            return;
+        }
+        self.screens.credits.forget_content();
         match pack {
             Some(pack) => self.set_server_ui_pack(&Arc::clone(pack)),
             None => self.set_server_ui_pack(&ServerUiPack::default()),
@@ -449,15 +436,14 @@ impl UiPresentationRuntime {
 
     /// The text color table resolved from the currently installed UI pack stack.
     pub(super) fn formatting_palette(&self) -> Option<&ui::FormattingPalette> {
-        self.form_presentation
-            .engine
+        self.engine
             .as_ref()
             .map(|engine| &engine.formatting_palette)
     }
 
     /// The sound the engine menu's control for `action` plays when pressed.
     pub fn menu_sound(&self, action: launcher::menu::MenuAction) -> Option<&json_ui::ControlSound> {
-        self.form_presentation
+        self.screens
             .menu_sounds
             .iter()
             .find(|(candidate, _)| *candidate == action)
@@ -466,7 +452,7 @@ impl UiPresentationRuntime {
 
     /// The live catalog's screen settings; empty without the JSON-UI engine.
     pub fn screen_settings(&self) -> Arc<ScreenSettingsTable> {
-        Arc::clone(&self.form_presentation.screen_settings)
+        Arc::clone(&self.screen_settings)
     }
 
     /// Hands the runtime this frame's loading cover and the catalog's screen settings.
@@ -475,49 +461,53 @@ impl UiPresentationRuntime {
     }
 
     fn refresh_screen_settings(&mut self) {
-        if let Some(engine) = self.form_presentation.engine.as_deref() {
-            self.form_presentation.screen_settings = Arc::new(ScreenSettingsTable::for_catalog(
+        if let Some(engine) = self.engine.as_deref() {
+            self.screen_settings = Arc::new(ScreenSettingsTable::for_catalog(
                 engine.catalog(),
                 engine.context(),
             ));
         }
     }
 
-    /// The engine frame for `identity`, when the engine drew that form.
     /// The engine forms' animator, which input fires button events into.
     pub fn form_animator(&self) -> Option<std::sync::MutexGuard<'_, json_ui::Animator>> {
-        Some(self.form_presentation.engine.as_ref()?.animator())
+        Some(self.engine.as_ref()?.animator())
     }
 
+    /// The engine frame for `identity`, when the engine drew that form.
     pub fn form_engine_frame(&self, identity: ServerFormIdentity) -> Option<&EngineFrame> {
-        self.form_presentation
+        self.projections
+            .form
             .frame
             .as_ref()
-            .filter(|frame| frame.identity == Some(identity))
+            .filter(|(drawn, _)| *drawn == identity)
+            .map(|(_, frame)| frame)
     }
 
     pub fn form_button_count(&self, identity: ServerFormIdentity) -> Option<usize> {
-        (self.form_presentation.identity == Some(identity))
-            .then_some(self.form_presentation.offsets.len().saturating_sub(1))
+        (self.projections.form.identity == Some(identity))
+            .then_some(self.projections.form.offsets.len().saturating_sub(1))
     }
     pub fn form_button_visible(&self, identity: ServerFormIdentity, index: usize) -> bool {
-        self.form_presentation.identity == Some(identity)
+        self.projections.form.identity == Some(identity)
             && self
-                .form_presentation
+                .projections
+                .form
                 .hits
                 .iter()
                 .any(|(action, _)| *action == LocalFormAction::SubmitButton(index as u32))
     }
     pub fn hit_test_form(&self, point: UiPoint) -> Option<(ServerFormIdentity, LocalFormAction)> {
-        let identity = self.form_presentation.identity?;
-        self.form_presentation
+        let identity = self.projections.form.identity?;
+        self.projections
+            .form
             .hits
             .iter()
             .rev()
             .find_map(|(action, bounds)| bounds.contains(point).then_some((identity, *action)))
     }
     pub fn form_focus_scroll(&self, identity: ServerFormIdentity, index: usize) -> Option<usize> {
-        let state = &self.form_presentation;
+        let state = &self.projections.form;
         if state.identity != Some(identity) {
             return None;
         }
@@ -535,51 +525,24 @@ impl UiPresentationRuntime {
         )
     }
 
-    /// Starts a build's form state, keeping what is carried across builds.
+    /// Starts a build's projections; screen families keep their own state.
     pub(super) fn begin_form_frame(&mut self) {
-        let previous_container = self.form_presentation.container.take();
-        self.form_presentation.oreui_slider_tracks.clear();
-        self.form_presentation.menu_focus_geometry.clear();
-        self.form_presentation.menu_focus_landmarks.clear();
-        let state = std::mem::take(&mut self.form_presentation);
-        self.form_presentation = FormPresentation {
-            engine: state.engine,
-            menu_keys: state.menu_keys,
-            menu_sounds: state.menu_sounds,
-            logged: state.logged,
-            hud: state.hud,
-            mod_hud: state.mod_hud,
-            mod_hud_editor: state.mod_hud_editor,
-            mod_widgets: state.mod_widgets,
-            mod_crosshair: state.mod_crosshair,
-            player_list: state.player_list,
-            mod_panel: state.mod_panel,
-            experience: state.experience,
-            experience_modal: state.experience_modal,
-            mod_screens: state.mod_screens,
-            container_cache: state.container_cache,
-            book_cache: state.book_cache,
-            furnace_cache: state.furnace_cache,
-            menu_caret: state.menu_caret,
-            chat: state.chat,
-            emote: state.emote,
-            bed: state.bed,
-            sign: state.sign,
-            credits: state.credits,
-            oreui_originals: state.oreui_originals,
-            oreui_look: state.oreui_look,
-            oreui_dark_mode: state.oreui_dark_mode,
-            oreui_transitions: state.oreui_transitions,
-            oreui_slider_tracks: state.oreui_slider_tracks,
-            menu_focus_geometry: state.menu_focus_geometry,
-            menu_focus_landmarks: state.menu_focus_landmarks,
-            screen_settings: state.screen_settings,
+        let projections = &mut self.projections;
+        let previous_container = projections.container.take();
+        let mut menu_focus_geometry = std::mem::take(&mut projections.menu_focus_geometry);
+        let mut menu_focus_landmarks = std::mem::take(&mut projections.menu_focus_landmarks);
+        let mut oreui_slider_tracks = std::mem::take(&mut projections.oreui_slider_tracks);
+        menu_focus_geometry.clear();
+        menu_focus_landmarks.clear();
+        oreui_slider_tracks.clear();
+        *projections = FrameProjections {
             previous_container,
-            ..FormPresentation::default()
+            menu_focus_geometry,
+            menu_focus_landmarks,
+            oreui_slider_tracks,
+            ..FrameProjections::default()
         };
-        if let Some(screens) = self.form_presentation.mod_screens.as_mut() {
-            screens.begin_frame();
-        }
+        self.screens.mod_ui.begin_mod_screens_frame();
     }
 
     /// Draws the open container's engine screen.
@@ -597,7 +560,7 @@ impl UiPresentationRuntime {
         width: f32,
         height: f32,
     ) -> Result<(), UiPresentationError> {
-        let previous = self.form_presentation.previous_container.take();
+        let previous = self.projections.previous_container.take();
         self.append_engine_container(
             player_runtime,
             runtime,
@@ -638,7 +601,7 @@ impl UiPresentationRuntime {
         {
             return Ok(());
         }
-        let reason = match self.form_presentation.engine.as_deref_mut() {
+        let reason = match self.engine.as_deref_mut() {
             None => "JSON-UI carrier not loaded".to_owned(),
             Some(renderer) => {
                 let translate = |key: &str| runtime.translation(key);
@@ -651,7 +614,7 @@ impl UiPresentationRuntime {
                     None => "form kind has no engine template".to_owned(),
                     Some(form) => {
                         let rollback = (nodes.len(), *next);
-                        let inputs = engine::EngineInputs {
+                        let mut frame = PaintFrame {
                             layouts: &mut self.layouts,
                             font: &self.font,
                             metrics,
@@ -660,25 +623,17 @@ impl UiPresentationRuntime {
                             content: [width, height],
                             translate: &translate,
                             language: runtime.text_generation(),
-                        };
-                        let out = engine::EngineOutput {
+                            now: self.menu_seconds,
                             nodes: &mut *nodes,
                             next: &mut *next,
-                            overlay: &[],
+                            renderers: &mut [],
                         };
                         let catalog = renderer.catalog_label();
-                        let now = self.menu_seconds;
-                        match renderer.render(
-                            &form,
-                            &state.view,
-                            (entry.identity, now),
-                            inputs,
-                            out,
-                        ) {
+                        match renderer.render(&form, &state.view, &mut frame) {
                             Ok(Some(frame)) => {
-                                self.form_presentation.frame = Some(frame);
+                                self.projections.form.frame = Some((entry.identity, frame));
                                 log_path(
-                                    &mut self.form_presentation.logged,
+                                    &mut self.screens.logged,
                                     entry.identity,
                                     "engine",
                                     &catalog,
@@ -703,7 +658,7 @@ impl UiPresentationRuntime {
             }
         };
         log_path(
-            &mut self.form_presentation.logged,
+            &mut self.screens.logged,
             entry.identity,
             "fallback",
             &reason,
@@ -715,16 +670,16 @@ impl UiPresentationRuntime {
 /// Screens the host draws beyond [`json_ui::ENGINE_SCREENS`], for the scene settings.
 pub fn host_screen_references() -> impl Iterator<Item = &'static str> {
     [
-        SIGN_SCREEN,
-        EMOTE_SCREEN,
-        EMOTE_EQUIP_POPUP,
-        NPC_SCREEN,
-        toast_screen::TOAST_SCREEN,
+        ui_screens::sign_editor::SIGN_SCREEN,
+        ui_screens::emote_screen::EMOTE_SCREEN,
+        ui_screens::emote_screen::EMOTE_EQUIP_POPUP,
+        ui_screens::npc::NPC_SCREEN,
+        ui_screens::toast_screen::TOAST_SCREEN,
         launcher::store::SDL_SCREEN,
-        crate::ui_runtime::credits::CREDITS_SCREEN,
+        ui_screens::credits_screen::CREDITS_SCREEN,
     ]
     .into_iter()
-    .chain(loading_screen::LOADING_SCREENS)
+    .chain(ui_screens::loading_screen::LOADING_SCREENS)
 }
 
 /// Logs which path draws `identity`, once per form.
@@ -736,17 +691,14 @@ fn log_path(
 ) {
     if *logged != Some(identity) {
         *logged = Some(identity);
-        bevy::log::info!(?identity, path, reason, "server form render path");
+        tracing::info!(?identity, path, reason, "server form render path");
     }
 }
 
 impl UiPresentationRuntime {
     /// Borrows the loaded UI carrier for the app panorama adapter.
     pub fn ui_assets(&self) -> Option<&assets::RuntimeUiAssets> {
-        self.form_presentation
-            .engine
-            .as_deref()
-            .map(|engine| engine.assets())
+        self.engine.as_deref().map(|engine| engine.assets())
     }
 }
 

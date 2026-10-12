@@ -1,6 +1,7 @@
 //! The vanilla store screens render the store's snapshots: card text, hero rows and the offer page.
 
-use super::tests::{FixedText, NoTextures, screen_texts};
+use super::tests::screen_texts;
+use ui_screens::test_support::{FixedText, NoTextures};
 
 // Cards drew only their price: the title and creator cells and the row header hid behind unset visibility flags.
 #[test]
@@ -122,13 +123,13 @@ fn a_hero_row_draws_and_opens_its_offers() {
             .collect(),
         ..launcher::store::StoreSnapshot::empty()
     }));
-    let Some(carrier) = super::pack_harness::carrier() else {
+    let Some(carrier) = ui_engine::test_support::carrier() else {
         return;
     };
     let files = carrier.ui_files();
     let catalog =
         json_ui::Catalog::from_files(files.iter().map(|f| (&*f.path, &*f.bytes))).unwrap();
-    let screen = super::menu_screens::screen_data(&view, &|_| None).unwrap();
+    let screen = ui_screens::menu_screens::screen_data(&view, &|_| None, 0).unwrap();
     let env = json_ui::LayoutEnv {
         text: &FixedText,
         textures: &NoTextures,
@@ -161,7 +162,7 @@ fn a_hero_row_draws_and_opens_its_offers() {
     let opens: Vec<_> = render
         .hits
         .iter()
-        .filter_map(|region| crate::store::action(snapshot, region))
+        .filter_map(|region| ui_screens::store::action(snapshot, region))
         .collect();
     assert!(
         opens.contains(&launcher::store::StoreAction::OpenOffer { row: 0, index: 1 }),
@@ -203,13 +204,13 @@ fn each_hero_row_draws_its_own_offers() {
             .collect(),
         ..launcher::store::StoreSnapshot::empty()
     }));
-    let Some(carrier) = super::pack_harness::carrier() else {
+    let Some(carrier) = ui_engine::test_support::carrier() else {
         return;
     };
     let files = carrier.ui_files();
     let catalog =
         json_ui::Catalog::from_files(files.iter().map(|f| (&*f.path, &*f.bytes))).unwrap();
-    let screen = super::menu_screens::screen_data(&view, &|_| None).unwrap();
+    let screen = ui_screens::menu_screens::screen_data(&view, &|_| None, 0).unwrap();
     let env = json_ui::LayoutEnv {
         text: &FixedText,
         textures: &NoTextures,
@@ -244,7 +245,7 @@ fn store_render(
     rows: Vec<launcher::store::DisplayRow>,
     root: [f64; 2],
 ) -> Option<json_ui::ScreenRender> {
-    let carrier = super::pack_harness::carrier()?;
+    let carrier = ui_engine::test_support::carrier()?;
     let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
     view.screen = launcher::menu::MenuScreen::Store;
     let images = rows
@@ -265,7 +266,7 @@ fn store_render(
     let files = carrier.ui_files();
     let catalog =
         json_ui::Catalog::from_files(files.iter().map(|f| (&*f.path, &*f.bytes))).unwrap();
-    let screen = super::menu_screens::screen_data(&view, &|_| None).unwrap();
+    let screen = ui_screens::menu_screens::screen_data(&view, &|_| None, 0).unwrap();
     let env = json_ui::LayoutEnv {
         text: &FixedText,
         textures: &NoTextures,

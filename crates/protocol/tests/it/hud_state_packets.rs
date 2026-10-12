@@ -20,7 +20,7 @@ fn runtime_id(value: u64) -> ActorRuntimeId {
 
 #[test]
 fn mob_effect_normalizes_to_a_bounded_actor_effect_event() {
-    let packet = MobEffectPacket {
+    let packet = protocol::Packet::new(MobEffectPacket {
         target_runtime_id: runtime_id(42),
         event_id: MobEffectPacketEventId::Add,
         effect_id: 19,
@@ -29,8 +29,7 @@ fn mob_effect_normalizes_to_a_bounded_actor_effect_event() {
         effect_duration_ticks: 600,
         tick: PlayerInputTick { inputtick: 100 },
         ambient: false,
-    }
-    .into();
+    });
 
     let Some(WorldEvent::ActorEffect(effect)) =
         into_world_event(packet, 0).expect("normalize mob effect")
@@ -58,7 +57,7 @@ fn mob_effect_update_remove_and_unknown_actions_stay_typed() {
             ActorEffectAction::Unknown(9),
         ),
     ] {
-        let packet = MobEffectPacket {
+        let packet = protocol::Packet::new(MobEffectPacket {
             target_runtime_id: runtime_id(7),
             event_id: wire,
             effect_id: 20,
@@ -67,8 +66,7 @@ fn mob_effect_update_remove_and_unknown_actions_stay_typed() {
             effect_duration_ticks: -1,
             tick: PlayerInputTick { inputtick: 0 },
             ambient: true,
-        }
-        .into();
+        });
         let Some(WorldEvent::ActorEffect(effect)) =
             into_world_event(packet, 1).expect("normalize mob effect action")
         else {
@@ -82,7 +80,7 @@ fn mob_effect_update_remove_and_unknown_actions_stay_typed() {
 
 #[test]
 fn mob_effect_preserves_the_full_unsigned_tick_domain() {
-    let packet = MobEffectPacket {
+    let packet = protocol::Packet::new(MobEffectPacket {
         target_runtime_id: runtime_id(42),
         event_id: MobEffectPacketEventId::Add,
         effect_id: 1,
@@ -93,8 +91,7 @@ fn mob_effect_preserves_the_full_unsigned_tick_domain() {
             inputtick: u64::MAX,
         },
         ambient: false,
-    }
-    .into();
+    });
     let Some(WorldEvent::ActorEffect(effect)) =
         into_world_event(packet, 0).expect("normalize maximum unsigned tick")
     else {
@@ -113,15 +110,14 @@ fn mob_armor_equipment_normalizes_all_five_stacks() {
         auxvalue: 0,
         ..Default::default()
     };
-    let packet = MobArmorEquipmentPacket {
+    let packet = protocol::Packet::new(MobArmorEquipmentPacket {
         target_runtime_id: runtime_id(9),
         head: piece(100),
         torso: piece(101),
         legs: piece(102),
         feet: CerealizerNetworkItemStackDescriptorSerializedData::default(),
         body: CerealizerNetworkItemStackDescriptorSerializedData::default(),
-    }
-    .into();
+    });
 
     let Some(WorldEvent::ArmorEquipment(armor)) =
         into_world_event(packet, 0).expect("normalize armor equipment")
@@ -138,15 +134,14 @@ fn mob_armor_equipment_normalizes_all_five_stacks() {
 
 #[test]
 fn mob_armor_equipment_zero_runtime_id_fails_closed() {
-    let packet = MobArmorEquipmentPacket {
+    let packet = protocol::Packet::new(MobArmorEquipmentPacket {
         target_runtime_id: runtime_id(0),
         head: CerealizerNetworkItemStackDescriptorSerializedData::default(),
         torso: CerealizerNetworkItemStackDescriptorSerializedData::default(),
         legs: CerealizerNetworkItemStackDescriptorSerializedData::default(),
         feet: CerealizerNetworkItemStackDescriptorSerializedData::default(),
         body: CerealizerNetworkItemStackDescriptorSerializedData::default(),
-    }
-    .into();
+    });
     assert!(into_world_event(packet, 0).is_err());
 }
 
@@ -163,10 +158,9 @@ fn set_player_game_type_normalizes_explicit_modes() {
         (EnumsGameType::Adventure, PlayerGameMode::Adventure),
         (EnumsGameType::Spectator, PlayerGameMode::Spectator),
     ] {
-        let packet = SetPlayerGameTypePacket {
+        let packet = protocol::Packet::new(SetPlayerGameTypePacket {
             player_game_type: wire,
-        }
-        .into();
+        });
         let Some(WorldEvent::Ui(UiEvent::GameMode(event))) =
             into_world_event(packet, 0).expect("normalize game type")
         else {
@@ -190,10 +184,9 @@ fn set_player_game_type_fallback_and_unknown_stay_typed_without_a_guess() {
             protocol::GameModeUpdate::Unknown(77),
         ),
     ] {
-        let packet = SetPlayerGameTypePacket {
+        let packet = protocol::Packet::new(SetPlayerGameTypePacket {
             player_game_type: wire,
-        }
-        .into();
+        });
         let Some(WorldEvent::Ui(UiEvent::GameMode(event))) =
             into_world_event(packet, 0).expect("normalize odd game type")
         else {
@@ -208,10 +201,9 @@ fn set_default_game_type_dispatches_as_a_default_mode_event() {
     use valentine::bedrock::version::v1_26_51::{
         SetDefaultGameTypePacket, SetDefaultGameTypePacketDefaultGameType,
     };
-    let packet = SetDefaultGameTypePacket {
+    let packet = protocol::Packet::new(SetDefaultGameTypePacket {
         default_game_type: SetDefaultGameTypePacketDefaultGameType::Adventure,
-    }
-    .into();
+    });
     let Some(WorldEvent::Ui(UiEvent::DefaultGameMode(event))) =
         into_world_event(packet, 0).expect("normalize default game type")
     else {
@@ -233,7 +225,7 @@ fn set_entity_link_normalizes_typed_rider_links() {
         (VendorActorLinkType::Passenger, ActorLinkType::Passenger),
         (VendorActorLinkType::Unknown(9), ActorLinkType::Unknown(9)),
     ] {
-        let packet = SetActorLinkPacket {
+        let packet = protocol::Packet::new(SetActorLinkPacket {
             link: ActorLink {
                 target_a: ActorUniqueId {
                     actor_unique_id: -55,
@@ -246,8 +238,7 @@ fn set_entity_link_normalizes_typed_rider_links() {
                 passenger_initiated: false,
                 vehicle_angular_velocity: 0.25,
             },
-        }
-        .into();
+        });
         let Some(WorldEvent::ActorLink(link)) =
             into_world_event(packet, 0).expect("normalize entity link")
         else {
@@ -306,19 +297,13 @@ fn item_stack_damage_reads_the_root_damage_tag_and_fails_closed_on_junk() {
 
 #[test]
 fn world_bootstrap_carries_the_local_player_unique_id() {
-    let mut game_data = protocol::GameData {
-        start_game: Default::default(),
-        item_registry: Default::default(),
-        biome_definitions: None,
-        entity_identifiers: None,
-        creative_content: None,
-    };
+    let mut start_game = valentine::bedrock::version::v1_26_51::StartGamePacket::default();
     // 1.26.40 wraps both StartGame ids in named newtypes.
-    game_data.start_game.entity_id = ActorUniqueId {
+    start_game.entity_id = ActorUniqueId {
         actor_unique_id: -3,
     };
-    game_data.start_game.runtime_id = runtime_id(3);
-    let bootstrap = protocol::WorldBootstrap::from_game_data(&game_data);
+    start_game.runtime_id = runtime_id(3);
+    let bootstrap = protocol::WorldBootstrap::from_start_game(&start_game);
     assert_eq!(bootstrap.local_player_unique_id, -3);
     assert_eq!(bootstrap.local_player_runtime_id, 3);
 }

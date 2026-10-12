@@ -14,19 +14,26 @@ use {crate::runtime::world::ClientWorld, client_state::SemanticInputSnapshot};
 
 #[derive(SystemParam)]
 pub(super) struct GameplayContext<'w> {
-    world: Option<Res<'w, ClientWorld>>,
-    view: Option<ResMut<'w, LocalViewPose>>,
-    input: Option<ResMut<'w, SemanticInputSnapshot>>,
+    pub(super) world: Option<Res<'w, ClientWorld>>,
+    pub(super) view: Option<ResMut<'w, LocalViewPose>>,
+    pub(super) input: Option<ResMut<'w, SemanticInputSnapshot>>,
     auto_fly: Option<Res<'w, AutoFly>>,
     server_camera: Option<Res<'w, ServerCameraView>>,
     time: Option<Res<'w, Time>>,
     real_time: Option<Res<'w, Time<Real>>>,
     clock: Option<Res<'w, crate::environment::WorldClock>>,
-    physics: Option<ResMut<'w, client_interaction::movement::LocalPhysicsController>>,
-    movement: Option<Res<'w, client_interaction::movement::MovementTicker>>,
-    player: Option<Res<'w, client_state::PlayerRuntime>>,
-    ui: Option<Res<'w, client_ui::ui_runtime::UiRuntime>>,
-    session: Option<Res<'w, crate::session::SessionController>>,
+    pub(super) physics: Option<ResMut<'w, client_interaction::movement::LocalPhysicsController>>,
+    pub(super) movement: Option<Res<'w, client_interaction::movement::MovementTicker>>,
+    pub(super) player: Option<Res<'w, client_state::PlayerRuntime>>,
+    pub(super) origin:
+        Option<Res<'w, client_presentation::local_player::InteractionOriginSnapshot>>,
+    pub(super) collisions:
+        Option<Res<'w, client_interaction::movement::PhysicsCollisionRegistries>>,
+    pub(super) aim: Option<Res<'w, client_presentation::aim_assist::AimAssistFrame>>,
+    pub(super) actor_partial:
+        Option<Res<'w, client_presentation::actor_publication::ActorFramePartialTick>>,
+    pub(super) melee: Option<Res<'w, client_interaction::melee::MeleeRuntime>>,
+    pub(super) session: Option<Res<'w, crate::session::SessionController>>,
 }
 
 impl GameplayContext<'_> {
@@ -89,7 +96,7 @@ impl GameplayContext<'_> {
     }
 
     /// Returns the current walking authority only while local movement can accept input.
-    fn movement_scope(&self) -> Option<(u64, i32)> {
+    fn movement_scope(&self, ui: &client_ui::ui_runtime::UiRuntime) -> Option<(u64, i32)> {
         self.input.as_ref()?.snapshot()?;
         let world = self.world.as_ref()?;
         if world.dimension_transfer.active()
@@ -100,11 +107,10 @@ impl GameplayContext<'_> {
                 .server_camera
                 .as_ref()
                 .is_some_and(|camera| camera.is_active())
-            || self.ui.as_ref().is_some_and(|ui| {
-                ui.hud()
-                    .health()
-                    .is_some_and(|health| health.current() == 0)
-            })
+            || ui
+                .hud()
+                .health()
+                .is_some_and(|health| health.current() == 0)
         {
             return None;
         }
@@ -122,8 +128,12 @@ impl GameplayContext<'_> {
     }
 
     /// Revokes pending jump input when its gameplay ownership changes.
-    pub(super) fn synchronize_jump_scope(&mut self, granted: bool) {
-        let scope = granted.then(|| self.movement_scope()).flatten();
+    pub(super) fn synchronize_jump_scope(
+        &mut self,
+        granted: bool,
+        ui: &client_ui::ui_runtime::UiRuntime,
+    ) {
+        let scope = granted.then(|| self.movement_scope(ui)).flatten();
         if let Some(physics) = self.physics.as_mut() {
             physics.set_jump_pulse_scope(scope);
         }
@@ -134,11 +144,12 @@ impl GameplayContext<'_> {
         &self,
         allowed: bool,
         grants: &ModGrants,
+        ui: &client_ui::ui_runtime::UiRuntime,
     ) -> Option<GameplayMovementSnapshot> {
         if !allowed || !grants.movement {
             return None;
         }
-        let (session, dimension) = self.movement_scope()?;
+        let (session, dimension) = self.movement_scope(ui)?;
         let physics = self.physics.as_ref()?;
         let state = physics.state()?;
         let velocity = state.velocity;
@@ -161,9 +172,9 @@ impl GameplayContext<'_> {
     }
 
     /// Queues an ordinary jump while the current walking authority remains valid.
-    pub(super) fn pulse_jump(&mut self, requested: bool) {
+    pub(super) fn pulse_jump(&mut self, requested: bool, ui: &client_ui::ui_runtime::UiRuntime) {
         if requested
-            && self.movement_scope().is_some()
+            && self.movement_scope(ui).is_some()
             && let Some(physics) = self.physics.as_mut()
         {
             physics.request_jump_pulse();

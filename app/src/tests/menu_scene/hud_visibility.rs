@@ -1,8 +1,8 @@
 //! HUD visibility through both first-person hand publishers and retained name tags.
 use crate::runtime::network::resource_packs::PackApplication;
+use crate::ui_runtime::presentation::publish::PreparedUiPublication;
 use bevy::window::{PrimaryWindow, Window};
 use client_runtime::network::NetworkHandle;
-use client_ui::ui_runtime::presentation::{PreparedUiPublication, UiPresentationRuntime};
 use {
     super::*, client_presentation::actor_publication::HandRigBuilder,
     client_ui::test_support::mini_engine_presentation,
@@ -77,8 +77,8 @@ fn fixture_world() -> World {
         (Vec3::new(0., 66., -2.), Vec3::new(0., 66., 0.)),
     );
     world.insert_resource(equipment);
-    world.insert_resource(UiRuntime::new(1));
-    world.insert_resource(mini_engine_presentation());
+    world.insert_resource(UiRuntimeResource(UiRuntime::new(1)));
+    world.insert_resource(UiPresentationResource(mini_engine_presentation()));
     world.insert_resource(MenuRuntime::new(false, 2, "Tester".into()));
     world.insert_resource(NetworkHandle::<PackApplication>::stub().0);
     world.init_resource::<PreparedUiPublication>();
@@ -117,7 +117,7 @@ fn assert_published(world: &mut World, hands: bool, names: bool) {
     assert_eq!(pending.preview.hands, hands, "CPU hand capture");
     assert_eq!(
         world
-            .resource_mut::<UiPresentationRuntime>()
+            .resource_mut::<UiPresentationResource>()
             .hud_frame_mut()
             .first_person,
         hands,
@@ -125,7 +125,7 @@ fn assert_published(world: &mut World, hands: bool, names: bool) {
     );
     assert_eq!(
         !world
-            .resource_mut::<UiPresentationRuntime>()
+            .resource_mut::<UiPresentationResource>()
             .nametag_scene()
             .records
             .is_empty(),
@@ -134,7 +134,7 @@ fn assert_published(world: &mut World, hands: bool, names: bool) {
     );
     // Terrain startup is unrelated to the visibility option under test.
     world
-        .resource_mut::<UiPresentationRuntime>()
+        .resource_mut::<UiPresentationResource>()
         .set_loading_stage(None);
     world
         .run_system_cached(crate::runtime::network::advance_actor_frame)
@@ -186,7 +186,7 @@ fn hud_coordinates_floor_player_feet_independently_of_camera_pose() {
         world.run_system_cached(prepare_ui_runtime).unwrap();
         assert_eq!(
             world
-                .resource::<UiPresentationRuntime>()
+                .resource::<UiPresentationResource>()
                 .hud_frame()
                 .player_block,
             Some([-17, 47, 2]),

@@ -1,7 +1,5 @@
 use bytes::Bytes;
-use jolyne::batch::{decode_batch_raw, encode_batch_multi};
-use jolyne::valentine::{McpePacketArgs, McpePacketData};
-use protocol::BedrockSession;
+use valentine::bedrock::version::v1_26_51::{McpePacketArgs, McpePacketData};
 
 // Regenerated for protocol 2168 from gophertunnel at commit
 // be6713da4dc051a4197f897d04835e89e9c54321:
@@ -58,13 +56,12 @@ const ENCHANTED_BOOK_ICON_USER_DATA: &[u8] = &[
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
 
-fn raw_creative_content() -> jolyne::raw::RawPacket {
+fn raw_creative_content() -> crate::raw_packet::RawPacket {
     raw_creative_content_fixture(GOPHERTUNNEL_EMPTY_ICON_CREATIVE_CONTENT)
 }
 
-fn raw_creative_content_fixture(fixture: &'static [u8]) -> jolyne::raw::RawPacket {
-    let mut batch = Bytes::from_static(fixture);
-    decode_batch_raw(&mut batch, false, Some(1024))
+fn raw_creative_content_fixture(fixture: &'static [u8]) -> crate::raw_packet::RawPacket {
+    crate::raw_packet::decode_batch(Bytes::from_static(fixture), 1024)
         .expect("raw batch decode")
         .into_iter()
         .next()
@@ -91,11 +88,11 @@ fn assert_enchanted_book_payload(data: &McpePacketData) {
 #[test]
 fn pinned_gophertunnel_enchanted_book_nbt_decodes_and_round_trips_exactly() {
     let packet = raw_creative_content_fixture(GOPHERTUNNEL_ENCHANTED_BOOK_CREATIVE_CONTENT)
-        .decode(&BedrockSession { shield_item_id: 0 })
+        .decode()
         .expect("owned enchanted-book CreativeContent decode");
     assert_enchanted_book_payload(&packet.data);
 
-    let encoded = encode_batch_multi(&[packet], false, 0, 0, true).expect("re-encode");
+    let encoded = crate::encode(&packet).expect("re-encode");
     assert_eq!(
         encoded.as_ref(),
         GOPHERTUNNEL_ENCHANTED_BOOK_CREATIVE_CONTENT
@@ -133,10 +130,10 @@ fn assert_empty_icon_payload(data: &McpePacketData) {
 #[test]
 fn pinned_gophertunnel_empty_icon_decodes_and_round_trips_exactly() {
     let packet = raw_creative_content()
-        .decode(&BedrockSession { shield_item_id: 0 })
+        .decode()
         .expect("owned CreativeContent decode");
     assert_empty_icon_payload(&packet.data);
-    let encoded = encode_batch_multi(&[packet], false, 0, 0, true).expect("re-encode");
+    let encoded = crate::encode(&packet).expect("re-encode");
     assert_eq!(encoded.as_ref(), GOPHERTUNNEL_EMPTY_ICON_CREATIVE_CONTENT);
 }
 

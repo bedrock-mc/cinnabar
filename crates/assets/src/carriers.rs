@@ -16,6 +16,7 @@ pub const FONT_TEN_MANIFEST: &str = "assets/cinnangles-ten-source.json";
 pub const FONT_SEVEN_MANIFEST: &str = "assets/cinnangles-seven-source.json";
 pub const FONT_FIVE_MANIFEST: &str = "assets/cinnangles-five-source.json";
 pub const FONT_FIVE_BOLD_MANIFEST: &str = "assets/cinnangles-five-bold-source.json";
+pub const OREUI_ICONS_MANIFEST: &str = "assets/oreui-icons-source.json";
 
 mod fonts;
 pub use fonts::{AsciiBearing, FontFace};
@@ -56,6 +57,7 @@ pub enum Recipe {
     HudExtras,
     StarterSkins,
     AudioPcm,
+    OreUiIcons,
 }
 
 /// What a recipe reads besides the compiler itself; tracked paths are checkout-relative.
@@ -63,7 +65,7 @@ pub enum Recipe {
 pub enum Input {
     /// The pinned sample `resource_pack`, identified by [`VANILLA_MANIFEST`].
     Pack,
-    /// The pinned sample `behavior_pack`, passed only when it ships item definitions.
+    /// The pinned behavior-pack source used by authored entity and item facts.
     BehaviorPack,
     /// The source manifest the compiler embeds.
     Manifest(&'static str),
@@ -162,6 +164,7 @@ pub const ENTITY: Carrier = Carrier {
         Input::File(crate::item::grip::GRIP_INPUT_PATH),
         Input::File(crate::item::fuel::INPUT_PATH),
         Input::File(crate::item::retail::INPUT_PATH),
+        Input::BehaviorPack,
     ],
     ..carrier(
         "entity",
@@ -343,14 +346,21 @@ pub const AUDIO: Carrier = carrier(
     Some("audio-assets.json"),
     false,
 );
-pub const ACTOR: Carrier = carrier(
-    "actor",
-    "Compiling actor assets",
-    Recipe::Actor,
-    "vanilla-v1.mcbeact",
-    Some("actor-assets.json"),
-    false,
-);
+pub const ACTOR: Carrier = Carrier {
+    inputs: &[
+        Input::Pack,
+        Input::Manifest(VANILLA_MANIFEST),
+        Input::BehaviorPack,
+    ],
+    ..carrier(
+        "actor",
+        "Compiling actor assets",
+        Recipe::Actor,
+        "vanilla-v1.mcbeact",
+        Some("actor-assets.json"),
+        false,
+    )
+};
 pub const AUDIO_BANK: Carrier = Carrier {
     inputs: &[Input::Pack],
     ..carrier(
@@ -434,6 +444,18 @@ pub const STARTER_SKINS: Carrier = Carrier {
         false,
     )
 };
+/// Shipped original OreUI artwork; the manifest's per-file digests cover its PNG sources.
+pub const OREUI_ICONS: Carrier = Carrier {
+    inputs: &[Input::Manifest(OREUI_ICONS_MANIFEST)],
+    ..carrier(
+        "oreui-icons",
+        "Compiling OreUI icons",
+        Recipe::OreUiIcons,
+        "ui-oreui-icons-v1.mcbeoui",
+        None,
+        false,
+    )
+};
 /// Development-only finite predecode of one reviewed sample.
 pub const AUDIO_PCM: Carrier = Carrier {
     installed: false,
@@ -459,6 +481,7 @@ pub const CARRIERS: &[Carrier] = &[
     FONT_SEVEN,
     FONT_FIVE,
     FONT_FIVE_BOLD,
+    OREUI_ICONS,
     HUD,
     LANG,
     LANGUAGES,
@@ -613,6 +636,12 @@ mod tests {
             assert_eq!(carrier.recipe, Recipe::Font);
             assert!(!carrier.inputs.contains(&Input::Pack));
         }
+    }
+
+    #[test]
+    fn shipped_oreui_icons_are_optional_and_independent_of_the_game_pack() {
+        assert!(!OREUI_ICONS.required && OREUI_ICONS.installed);
+        assert_eq!(OREUI_ICONS.inputs, &[Input::Manifest(OREUI_ICONS_MANIFEST)]);
     }
 
     #[test]

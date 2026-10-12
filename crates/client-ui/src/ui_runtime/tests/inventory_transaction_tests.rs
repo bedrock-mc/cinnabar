@@ -10,10 +10,7 @@ fn pickup() -> InventoryEvent {
             .split_whitespace()
             .map(|byte| u8::from_str_radix(byte, 16).unwrap())
             .collect();
-    let packet = decode_batch(batch.into(), &BedrockSession { shield_item_id: 0 })
-        .unwrap()
-        .pop()
-        .unwrap();
+    let packet = decode_batch(batch.into()).unwrap().pop().unwrap();
     let Some(WorldEvent::Inventory(event)) = into_world_event(packet, 0).unwrap() else {
         panic!()
     };

@@ -593,10 +593,10 @@ mod tests {
             })
         );
         let shared = diagnostics.clone();
-        let before = crate::alloc_count::thread_allocations();
+        let before = test_alloc::thread_allocations();
         let first = diagnostics.graphics_adapter_ref().unwrap();
         let second = shared.graphics_adapter_ref().unwrap();
-        let allocations = crate::alloc_count::thread_allocations() - before;
+        let allocations = test_alloc::thread_allocations() - before;
         assert!(std::ptr::eq(first, second));
         assert_eq!(allocations, 0);
         assert_eq!(diagnostics.graphics_adapter(), Some(metadata));

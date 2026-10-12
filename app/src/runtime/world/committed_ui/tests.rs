@@ -16,6 +16,7 @@ use bevy::{
 };
 use client_presentation::server_camera::ServerCameraInstructions;
 use client_runtime::network::NetworkHandle;
+use client_shell::ui_resources::UiPresentationResource;
 use client_state::PlayerRuntime;
 use client_ui::ui_runtime::{
     LocalFormAction, flush_form_response, presentation::UiPresentationRuntime,
@@ -49,7 +50,7 @@ use {
     },
     client_shell::menu::{MenuClipboard, MenuRuntime},
     client_state::{RuntimeSettings, SemanticInputSnapshot},
-    client_ui::test_support::fixture_font,
+    ui_engine::test_support::fixture_font,
 };
 
 mod boss_lifetime;
@@ -106,9 +107,11 @@ fn fixture_app() -> (App, Entity) {
         .insert_resource(clock)
         .insert_resource(weather)
         .insert_resource(collisions)
-        .insert_resource(runtime)
+        .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime)
-        .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
+        .insert_resource(UiPresentationResource(
+            UiPresentationRuntime::new(fixture_font()).unwrap(),
+        ))
         .insert_resource(menu)
         .insert_resource(network)
         .insert_resource(AcceptanceRun::new(Some(900), None, false, false))
@@ -222,7 +225,7 @@ fn rapid_dimension_return_skips_old_form_but_preserves_new_form_and_non_form_ui(
         .unwrap();
     submit_form_id(&mut app, 5, 8);
     app.update();
-    let runtime = app.world().resource::<UiRuntime>();
+    let runtime = app.world().resource::<UiRuntimeResource>();
     assert_eq!(runtime.server_forms().active().unwrap().form_id, 8);
     assert_eq!(runtime.server_forms().queued_busy_count(), 0);
     assert_eq!(runtime.hud().health(), ui::BoundedStat::new(17, 20));
@@ -238,13 +241,13 @@ fn transition_retires_full_local_and_busy_answers_and_stale_same_id_actions() {
     app.update();
     let old = app
         .world()
-        .resource::<UiRuntime>()
+        .resource::<UiRuntimeResource>()
         .server_forms()
         .active()
         .unwrap()
         .identity;
     {
-        let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+        let mut runtime = app.world_mut().resource_mut::<UiRuntimeResource>();
         runtime.server_forms_mut().move_focus(1);
         runtime.server_forms_mut().set_scroll(3);
         runtime
@@ -260,7 +263,7 @@ fn transition_retires_full_local_and_busy_answers_and_stale_same_id_actions() {
     submit_transition(&mut app, 4, 0);
     submit_form(&mut app, 5);
     app.update();
-    let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+    let mut runtime = app.world_mut().resource_mut::<UiRuntimeResource>();
     let current = runtime.server_forms().active().unwrap().identity;
     assert!(current.revision > old.revision);
     assert_eq!(runtime.server_forms().queued_busy_count(), 0);
@@ -295,13 +298,13 @@ fn new_session_with_same_initial_epoch_retires_old_form_authority() {
     app.update();
     let old = app
         .world()
-        .resource::<UiRuntime>()
+        .resource::<UiRuntimeResource>()
         .server_forms()
         .active()
         .unwrap()
         .identity;
     app.world_mut()
-        .resource_mut::<UiRuntime>()
+        .resource_mut::<UiRuntimeResource>()
         .respond_to_server_form(old, LocalFormAction::Dismiss)
         .unwrap();
     let replacement = fixture_app()
@@ -317,14 +320,14 @@ fn new_session_with_same_initial_epoch_retires_old_form_authority() {
     app.world_mut()
         .resource_scope(|world, mut player: Mut<PlayerRuntime>| {
             client_runtime::session::begin_session(
-                &mut world.resource_mut::<UiRuntime>(),
+                &mut world.resource_mut::<UiRuntimeResource>(),
                 &mut player,
                 2,
             );
         });
     submit_form(&mut app, 1);
     app.update();
-    let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+    let mut runtime = app.world_mut().resource_mut::<UiRuntimeResource>();
     let current = runtime.server_forms().active().unwrap().identity;
     assert_eq!(current.session, 2);
     assert!(current.revision > old.revision);
@@ -348,7 +351,7 @@ fn transition_without_successor_clears_display_and_definitely_unsent_busy_reply(
     submit_form_id(&mut app, 2, 8);
     app.update();
     {
-        let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+        let mut runtime = app.world_mut().resource_mut::<UiRuntimeResource>();
         assert_eq!(
             flush_form_response(&mut runtime, |_| Err(FormTransportError::Full)),
             Err(FormTransportError::Full)
@@ -360,7 +363,7 @@ fn transition_without_successor_clears_display_and_definitely_unsent_busy_reply(
     submit_transition(&mut app, 4, 0);
     app.update();
     {
-        let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+        let mut runtime = app.world_mut().resource_mut::<UiRuntimeResource>();
         assert!(runtime.server_forms().active().is_none());
         assert!(!runtime.server_forms().owns_input());
         assert_eq!(runtime.server_forms().queued_busy_count(), 0);
@@ -406,7 +409,7 @@ fn press(app: &mut App, window: Entity, case: InputCase) {
 }
 
 fn assert_positive_control(app: &App, case: InputCase) {
-    let ui = app.world().resource::<UiRuntime>();
+    let ui = app.world().resource::<UiRuntimeResource>();
     let input = app.world().resource::<SemanticInputSnapshot>();
     match case {
         InputCase::Move => assert_ne!(
@@ -447,7 +450,7 @@ fn committed_form_owns_first_visible_frame_and_recovers_each_real_input_consumer
         submit_form(&mut app, 1); // Real ordered stream; never pre-admit UiRuntime.
         press(&mut app, window, case);
         app.update();
-        let runtime = app.world().resource::<UiRuntime>();
+        let runtime = app.world().resource::<UiRuntimeResource>();
         assert!(
             runtime.server_forms().owns_input(),
             "{case:?}: first-visible-frame authority"
@@ -472,10 +475,13 @@ fn committed_form_owns_first_visible_frame_and_recovers_each_real_input_consumer
             app.world().resource::<ClientWorld>().fatal_error.is_none(),
             "real stream drain must succeed"
         );
-        let mut runtime = app.world_mut().remove_resource::<UiRuntime>().unwrap();
+        let mut runtime = app
+            .world_mut()
+            .remove_resource::<UiRuntimeResource>()
+            .unwrap();
         let player_runtime = app.world().resource::<PlayerRuntime>().clone();
         app.world_mut()
-            .resource_mut::<UiPresentationRuntime>()
+            .resource_mut::<UiPresentationResource>()
             .build(
                 &player_runtime,
                 &runtime,
@@ -488,7 +494,7 @@ fn committed_form_owns_first_visible_frame_and_recovers_each_real_input_consumer
             let identity = form.identity;
             assert_eq!(
                 app.world()
-                    .resource::<UiPresentationRuntime>()
+                    .resource::<UiPresentationResource>()
                     .form_button_count(identity),
                 Some(2)
             );
@@ -504,7 +510,7 @@ fn committed_form_owns_first_visible_frame_and_recovers_each_real_input_consumer
         assert!(!cursor.visible && cursor.grab_mode == CursorGrabMode::Locked);
         assert!(
             !app.world()
-                .resource::<UiRuntime>()
+                .resource::<UiRuntimeResource>()
                 .ui_focused(app.world().resource::<PlayerRuntime>())
         );
         press(&mut app, window, case);
@@ -628,7 +634,7 @@ fn committed_block_cracks_reach_frame_authority_once_in_fifo_order() {
         .unwrap();
     app.add_systems(
         Update,
-        (move |mut runtime: ResMut<UiRuntime>| {
+        (move |mut runtime: ResMut<UiRuntimeResource>| {
             assert!(matches!(
                 runtime.retain_block_crack(SequencedBlockCrackEvent {
                     session_id: 1,

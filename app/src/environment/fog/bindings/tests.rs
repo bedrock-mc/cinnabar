@@ -5,17 +5,17 @@ fn admitted_samples_and_route_handles_allocate_nothing() {
     let profiles = crate::environment::tests::profiles();
     let fogs = crate::environment::tests::fog_profiles();
     let bindings = FogBindings::for_profiles(&[], &profiles, &fogs);
-    let before = crate::tests::alloc_count::thread_allocations();
+    let before = test_alloc::thread_allocations();
     let old_names: Vec<Option<Box<str>>> = [(); render_model::PRECIPITATION_SAMPLE_OFFSETS.len()]
         .map(|_| Some(Box::<str>::from("minecraft:the_end")))
         .into_iter()
         .collect();
-    let old_allocations = crate::tests::alloc_count::thread_allocations() - before;
+    let old_allocations = test_alloc::thread_allocations() - before;
     assert_eq!(
         old_names.len(),
         render_model::PRECIPITATION_SAMPLE_OFFSETS.len()
     );
-    let before = crate::tests::alloc_count::thread_allocations();
+    let before = test_alloc::thread_allocations();
     let samples =
         [(); render_model::PRECIPITATION_SAMPLE_OFFSETS.len()].map(|_| bindings.fog(None, 2));
     let (profile, route, fog) = bindings.camera(None, 2);
@@ -42,7 +42,7 @@ fn admitted_samples_and_route_handles_allocate_nothing() {
         None,
         0.0,
     );
-    let allocations = crate::tests::alloc_count::thread_allocations() - before;
+    let allocations = test_alloc::thread_allocations() - before;
     let expected = profiles
         .iter()
         .position(|profile| profile.biome_identifier.as_ref() == "minecraft:the_end")
@@ -305,12 +305,12 @@ fn admitted_custom_names_and_visual_routes_follow_registry_replacement() {
         &profiles,
         &fogs,
     );
-    let before = crate::tests::alloc_count::thread_allocations();
+    let before = test_alloc::thread_allocations();
     let identifier = bindings.identifier(Some(42)).unwrap();
     let (_, route, fog) = bindings.camera(Some(42), 0);
     let samples =
         [(); render_model::PRECIPITATION_SAMPLE_OFFSETS.len()].map(|_| bindings.fog(Some(42), 0));
-    assert_eq!(crate::tests::alloc_count::thread_allocations() - before, 0);
+    assert_eq!(test_alloc::thread_allocations() - before, 0);
     assert_eq!(identifier.as_ref(), "custom:profiled");
     assert_eq!(
         route.unwrap().biome_identifier.as_deref(),

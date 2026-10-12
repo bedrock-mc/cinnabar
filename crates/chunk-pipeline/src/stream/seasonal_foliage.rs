@@ -20,7 +20,7 @@ fn advance_row(snow: f32, temperature: f32, downfall: f32, rain: [f32; 2]) -> f3
         } else {
             COLD_ACCUMULATION
         };
-        rate * rain[0] * downfall / world::TICKS_PER_SECOND as f32
+        rate * rain[0] * downfall / simulation_clock::TICKS_PER_SECOND as f32
     } else {
         DRY_MELT
     };

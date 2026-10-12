@@ -13,8 +13,8 @@ use std::{
 };
 
 use assets::{
-    AudioDefinition, RuntimeAudioCatalog, SoundBankEntry, SoundBankIndex, SoundEventTables,
-    decode_sound, sound_bank_prefix_len,
+    AudioDefinition, RuntimeAudioCatalog, SoundEventTables, decode_sound,
+    sound_bank::{SoundBankEntry, SoundBankIndex, sound_bank_prefix_len},
 };
 use serde_json::Value;
 
@@ -589,7 +589,7 @@ mod tests {
 
     #[test]
     fn review_ready_stream_is_shared_by_all_starts_until_released() {
-        let bytes = assets::encode_sound_bank(b"{}", b"{}", b"{}", &[]).unwrap();
+        let bytes = assets::sound_bank::encode_sound_bank(b"{}", b"{}", b"{}", &[]).unwrap();
         let index = SoundBankIndex::decode_prefix(&bytes).unwrap();
         let mut bank = SoundBank::from_parts(index, SoundEventTables::default(), None);
         let pcm = Arc::new(Pcm {
@@ -634,9 +634,13 @@ mod tests {
 
     #[test]
     fn lookup_queues_a_descriptor_without_touching_the_file() {
-        let bytes =
-            assets::encode_sound_bank(b"{}", b"{}", b"{}", &[("sounds/tone".to_owned(), tone())])
-                .unwrap();
+        let bytes = assets::sound_bank::encode_sound_bank(
+            b"{}",
+            b"{}",
+            b"{}",
+            &[("sounds/tone".to_owned(), tone())],
+        )
+        .unwrap();
         let path = std::env::temp_dir().join(format!(
             "cinnabar-no-frame-read-{}.mcbesnd",
             std::process::id()
@@ -671,9 +675,13 @@ mod tests {
 
     #[test]
     fn file_read_failure_is_reported_by_the_worker() {
-        let bytes =
-            assets::encode_sound_bank(b"{}", b"{}", b"{}", &[("sounds/tone".to_owned(), tone())])
-                .unwrap();
+        let bytes = assets::sound_bank::encode_sound_bank(
+            b"{}",
+            b"{}",
+            b"{}",
+            &[("sounds/tone".to_owned(), tone())],
+        )
+        .unwrap();
         let path = std::env::temp_dir().join(format!(
             "cinnabar-worker-read-failure-{}.mcbesnd",
             std::process::id()
@@ -722,7 +730,7 @@ mod tests {
         ));
         std::fs::write(
             &path,
-            assets::encode_sound_bank(b"{}", b"{}", b"{}", &files).unwrap(),
+            assets::sound_bank::encode_sound_bank(b"{}", b"{}", b"{}", &files).unwrap(),
         )
         .unwrap();
         let mut bank = SoundBank::open(&path, None).unwrap().unwrap();
@@ -747,7 +755,8 @@ mod tests {
             ("sounds/warm".to_owned(), tone()),
             ("sounds/large".to_owned(), large),
         ];
-        let bytes = assets::encode_sound_bank(b"{}", b"{}", b"{}", &files).expect("encode");
+        let bytes =
+            assets::sound_bank::encode_sound_bank(b"{}", b"{}", b"{}", &files).expect("encode");
         let path = std::env::temp_dir().join(format!(
             "cinnabar-bank-caller-{}.mcbesnd",
             std::process::id()
@@ -757,9 +766,9 @@ mod tests {
             .expect("open")
             .expect("present");
         assert!(bank.pcm("sounds/warm", false).is_some(), "workers started");
-        let before = crate::test_allocations::bytes();
+        let before = test_alloc::thread_allocated_bytes();
         let lookup = bank.lookup("sounds/large", false);
-        let copied = crate::test_allocations::bytes() - before;
+        let copied = test_alloc::thread_allocated_bytes() - before;
         assert!(matches!(lookup, PcmLookup::Pending));
         assert!(
             copied < (LARGE / 16) as u64,
@@ -777,7 +786,8 @@ mod tests {
         let files: Vec<_> = (0..MAX_QUEUED_DECODES + 8)
             .map(|index| (format!("sounds/tone{index}"), tone()))
             .collect();
-        let bytes = assets::encode_sound_bank(b"{}", b"{}", b"{}", &files).expect("encode");
+        let bytes =
+            assets::sound_bank::encode_sound_bank(b"{}", b"{}", b"{}", &files).expect("encode");
         let path = std::env::temp_dir().join(format!(
             "cinnabar-bank-backlog-{}.mcbesnd",
             std::process::id()
@@ -809,7 +819,7 @@ mod tests {
         fsb.resize(60, 0);
         fsb.extend(mode.to_le_bytes());
         fsb.extend([0, 0x40, 0, 0xc0]);
-        let bytes = assets::encode_sound_bank(
+        let bytes = assets::sound_bank::encode_sound_bank(
             br#"{}"#,
             b"{}",
             b"{}",

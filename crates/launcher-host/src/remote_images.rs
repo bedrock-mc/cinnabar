@@ -17,7 +17,7 @@ mod memory;
 pub use disk::ImageDirectory;
 #[cfg(any(test, feature = "test-support"))]
 pub use memory::tests;
-pub use memory::{RemoteImages, RemoteState, is_remote};
+pub use memory::{RemoteImages, RemoteState};
 
 /// Download and storage limits of one image surface.
 #[derive(Clone, Copy, Debug)]

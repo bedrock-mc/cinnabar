@@ -46,7 +46,7 @@ pub fn mesh(
 /// Uses already posed world geometry for the HUD, retaining the shared UI shading and depth path.
 #[allow(clippy::too_many_arguments)]
 pub fn mesh_with_body(
-    body: Option<(&[ActorVertex], &[Option<bevy::math::Affine3A>; 6])>,
+    body: Option<(&[ActorVertex], &[Option<glam::Affine3A>; 6])>,
     pose: PlayerPreviewPose,
     view: PreviewView,
     bob: f32,
@@ -77,7 +77,7 @@ pub fn mesh_with_body(
 /// Samples an attached cape from its original texture alongside the skin and equipment.
 #[allow(clippy::too_many_arguments)]
 pub fn mesh_with_cape(
-    body: Option<(&[ActorVertex], &[Option<bevy::math::Affine3A>; 6])>,
+    body: Option<(&[ActorVertex], &[Option<glam::Affine3A>; 6])>,
     pose: PlayerPreviewPose,
     view: PreviewView,
     bob: f32,

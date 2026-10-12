@@ -1,7 +1,7 @@
 use assets::{MolangQuery as Q, MolangQueryHandler};
 use {
     super::{evaluation::MolangValue, *},
-    world::TICK_DURATION as ACTOR_TICK_DURATION,
+    simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION,
 };
 
 mod item_use;
@@ -420,7 +420,7 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         Q::BodyYRotation => input.body_yaw,
         Q::BodyXRotation | Q::TargetXRotation => input.pitch,
         Q::TargetYRotation => {
-            if actor.target_rotation_is_absolute() {
+            if input.placement_frame.target_rotation() == Some(assets::placement::ActorYawFrame::Absolute) {
                 input.yaw
             } else {
                 head_relative_yaw(input, TARGET_YAW_LIMIT)

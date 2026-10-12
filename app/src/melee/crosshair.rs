@@ -94,3 +94,7 @@ pub(super) fn resolve_crosshair(
     );
     Some(classify(actor, block_distance, attack_reach))
 }
+
+#[cfg(test)]
+#[path = "crosshair/interaction_traits_tests.rs"]
+mod interaction_traits_tests;

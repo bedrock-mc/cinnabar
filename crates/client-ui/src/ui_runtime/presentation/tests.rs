@@ -187,4 +187,5 @@ fn fixture_font_with_page_count(page_count: usize) -> Arc<RuntimeFontCatalog> {
     Arc::new(RuntimeFontCatalog::decode(&bytes, manifest).unwrap())
 }
 
-pub use crate::test_support::{fixture_font, fixture_hud};
+pub use crate::test_support::fixture_hud;
+use ui_engine::test_support::fixture_font;

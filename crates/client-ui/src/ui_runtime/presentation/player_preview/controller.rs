@@ -2,8 +2,9 @@ use ui::{UiNode, UiNodeId, UiPoint, UiRect, UiVisual};
 
 use super::{PreviewView, UiPresentationRuntime, renderer_frame};
 use launcher::menu::MenuScreen;
+use ui_engine::text_metrics::TextMetrics;
 use {
-    crate::ui_runtime::presentation::{TextMetrics, UiPresentationError, rect},
+    crate::ui_runtime::presentation::{UiPresentationError, rect},
     ui::FONT_DESIGN_PIXEL_TEXELS,
 };
 

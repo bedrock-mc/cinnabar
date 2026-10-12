@@ -1,102 +1,43 @@
 use super::*;
-use ::protocol::wire::valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::*};
-use bytes::BytesMut;
+use ::protocol::test_support::recipes::{
+    CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture,
+};
 
 /// Encode an ingredient through the same descriptor grammar used on the wire.
-fn named(name: Option<&str>) -> CerealizerRecipeIngredientSerializedData {
-    CerealizerRecipeIngredientSerializedData {
-        descriptor: name
-            .into_iter()
-            .map(
-                |name| CerealizerRecipeIngredientSerializedDataDescriptorItem {
-                    key: "name".into(),
-                    value: name.into(),
-                },
-            )
-            .collect(),
-        aux_value: 0,
-        stack_size: i32::from(name.is_some()),
-    }
+fn named(name: Option<&str>) -> IngredientFixture {
+    name.map_or_else(IngredientFixture::empty, |name| {
+        IngredientFixture::named(name, 0)
+    })
 }
 
 /// Build one wire recipe so matcher tests use public decoded data.
-fn recipe(width: u8, height: u8, shapeless: bool, cells: &[Option<&str>]) -> CraftingDataPacket {
+fn recipe(width: u8, height: u8, shapeless: bool, cells: &[Option<&str>]) -> RecipeFixture {
     let ingredients = cells.iter().copied().map(named).collect();
-    let results = vec![CerealizerNetworkItemInstanceDescriptorSerializedData {
-        id: 9,
-        stacksize: 1,
-        auxvalue: 0,
-        block_runtime_id: 0,
-        user_data_buffer: Vec::new(),
-    }];
+    let results = vec![OutputFixture::new(9, 1)];
     if shapeless {
-        CraftingDataPacket {
-            shapeless_recipes: vec![ShapelessRecipePayload {
-                recipe_id: "test:recipe".into(),
-                ingredients,
-                results,
-                tag: "crafting_table".into(),
-                ..Default::default()
-            }],
-            ..Default::default()
-        }
+        RecipeFixture::shapeless("test:recipe", ingredients, results)
     } else {
-        CraftingDataPacket {
-            shaped_recipes: vec![ShapedRecipePayload {
-                recipe_id: "test:recipe".into(),
-                width: i32::from(width),
-                height: i32::from(height),
-                ingredients,
-                results,
-                tag: "crafting_table".into(),
-                ..Default::default()
-            }],
-            ..Default::default()
-        }
-    }
-}
-
-/// Borrow fixture ingredients regardless of whether the recipe has a shape.
-fn ingredients(
-    recipe: &mut CraftingDataPacket,
-) -> &mut Vec<CerealizerRecipeIngredientSerializedData> {
-    if let Some(recipe) = recipe.shaped_recipes.first_mut() {
-        &mut recipe.ingredients
-    } else {
-        &mut recipe.shapeless_recipes[0].ingredients
-    }
-}
-
-/// Borrow fixture outputs regardless of whether the recipe has a shape.
-fn results(
-    recipe: &mut CraftingDataPacket,
-) -> &mut Vec<CerealizerNetworkItemInstanceDescriptorSerializedData> {
-    if let Some(recipe) = recipe.shaped_recipes.first_mut() {
-        &mut recipe.results
-    } else {
-        &mut recipe.shapeless_recipes[0].results
+        RecipeFixture::shaped(
+            "test:recipe",
+            i32::from(width),
+            i32::from(height),
+            ingredients,
+            results,
+        )
     }
 }
 
 /// Admit fixture recipes through the actual protocol decoder and catalog.
-fn catalog(recipes: Vec<CraftingDataPacket>) -> RecipeCatalog {
-    let mut packet = CraftingDataPacket {
-        clear_recipes: true,
-        ..Default::default()
-    };
-    for (index, mut recipe) in recipes.into_iter().enumerate() {
-        for recipe in &mut recipe.shaped_recipes {
-            recipe.net_id.raw_id = index as u32 + 1;
-        }
-        for recipe in &mut recipe.shapeless_recipes {
-            recipe.net_id.raw_id = index as u32 + 1;
-        }
-        packet.shaped_recipes.extend(recipe.shaped_recipes);
-        packet.shapeless_recipes.extend(recipe.shapeless_recipes);
-    }
-    let mut bytes = BytesMut::new();
-    packet.encode(&mut bytes).unwrap();
-    let update = ::protocol::decode_recipe_update(&bytes).unwrap();
+fn catalog(recipes: Vec<RecipeFixture>) -> RecipeCatalog {
+    let recipes = recipes
+        .into_iter()
+        .enumerate()
+        .map(|(index, mut recipe)| {
+            recipe.net_id = index as u32 + 1;
+            recipe
+        })
+        .collect();
+    let update = CraftingDataFixture::clearing(recipes).update();
     let mut catalog = RecipeCatalog::default();
     catalog.begin_session(1);
     assert!(catalog.apply(1, 1, &update));
@@ -185,7 +126,7 @@ fn shapeless_recipes_assign_each_cell_once() {
 #[test]
 fn tags_data_and_duplicates_fail_closed() {
     let mut unknown = recipe(1, 1, false, &[Some("custom:unknown_tag")]);
-    ingredients(&mut unknown)[0].descriptor[0].key = "item_tag".into();
+    unknown.ingredients[0].descriptor[0].0 = "item_tag".into();
     let catalog_with_tag = catalog(vec![unknown]);
     assert!(matches!(
         match_crafting_grid(
@@ -203,7 +144,7 @@ fn tags_data_and_duplicates_fail_closed() {
         CraftGridMatch::Unique(_)
     ));
     let mut other_output = recipe(0, 0, true, &[Some("a:x")]);
-    results(&mut other_output)[0].id = 10;
+    other_output.results[0].network_id = 10;
     let duplicates = catalog(vec![recipe(1, 1, false, &[Some("a:x")]), other_output]);
     assert!(matches!(
         match_crafting_grid(&duplicates, 2, &[item("a:x"), None, None, None]),
@@ -240,8 +181,8 @@ fn any_metadata_ingredients_accept_every_variant() {
         false,
         &[Some("minecraft:coal"), Some("minecraft:stick")],
     );
-    for ingredient in ingredients(&mut torch) {
-        ingredient.aux_value = i32::from(::protocol::RECIPE_ANY_AUX);
+    for ingredient in &mut torch.ingredients {
+        ingredient.aux = i32::from(::protocol::RECIPE_ANY_AUX);
     }
     let catalog = catalog(vec![torch]);
     let mut coal = item("minecraft:coal");
@@ -286,7 +227,7 @@ fn mirror_flag_allows_the_horizontal_mirror_only() {
         CraftGridMatch::NoMatch
     ));
     let mut symmetric = recipe(2, 3, false, &hoe);
-    symmetric.shaped_recipes[0].assume_symmetry = true;
+    symmetric.assume_symmetry = true;
     let catalog = catalog(vec![symmetric]);
     assert_eq!(
         unique_id(match_crafting_grid(&catalog, 3, &mirrored)),
@@ -298,10 +239,10 @@ fn mirror_flag_allows_the_horizontal_mirror_only() {
 #[test]
 fn lowest_priority_wins_among_matches() {
     let mut generic = recipe(1, 1, false, &[Some("a:x")]);
-    generic.shaped_recipes[0].priority = -1;
+    generic.priority = -1;
     let mut specific = recipe(0, 0, true, &[Some("a:x")]);
-    specific.shapeless_recipes[0].priority = 2;
-    results(&mut specific)[0].id = 10;
+    specific.priority = 2;
+    specific.results[0].network_id = 10;
     let catalog = catalog(vec![specific, generic]);
     assert_eq!(
         unique_id(match_crafting_grid(
@@ -322,8 +263,8 @@ fn vanilla_tags_match_their_members_only() {
         false,
         &[Some("minecraft:planks"), Some("minecraft:planks")],
     );
-    for ingredient in ingredients(&mut sticks) {
-        ingredient.descriptor[0].key = "item_tag".into();
+    for ingredient in &mut sticks.ingredients {
+        ingredient.descriptor[0].0 = "item_tag".into();
     }
     let catalog = catalog(vec![sticks]);
     let planks = [

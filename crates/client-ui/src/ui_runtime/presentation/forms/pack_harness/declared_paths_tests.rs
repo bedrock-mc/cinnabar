@@ -1,7 +1,7 @@
 //! Unpacked fixture packs follow the same indexed paths as admitted server packs.
 
 use super::{dir_pack, scratch_dir};
-use crate::ui_runtime::presentation::forms::server_pack::ServerAtlas;
+use ui_engine::atlas::ServerAtlas;
 
 // Unix permits colons in names, reproducing the drive-letter split without Windows.
 #[cfg(unix)]

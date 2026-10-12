@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use jolyne::GameData;
+use valentine::bedrock::version::v1_26_51::ItemRegistryPacket;
 
 use crate::nbt_tree::read_root;
 
@@ -13,9 +13,8 @@ const MAX_ICON_KEY_BYTES: usize = 256;
 /// textures are keyed by for most items (a pack only overrides when it defines
 /// that key). Malformed or oversized components fall back to the short name.
 #[must_use]
-pub fn item_icon_keys(game_data: &GameData) -> Box<[(Arc<str>, Arc<str>)]> {
-    game_data
-        .item_registry
+pub(crate) fn item_icon_keys(registry: &ItemRegistryPacket) -> Box<[(Arc<str>, Arc<str>)]> {
+    registry
         .item_data
         .iter()
         .filter_map(|item| {

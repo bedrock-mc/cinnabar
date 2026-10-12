@@ -520,10 +520,10 @@ fn world_shaders_sample_shared_lightmap_at_their_native_stage() {
 fn chunk_shader_reads_cube_light_from_expanded_origin_without_changing_stream_bindings() {
     let shader = include_str!("../../../src/chunk.wesl");
     assert!(shader.contains("struct ChunkOrigin"));
-    assert!(shader.contains("cube_bases: vec4<u32>"));
+    assert!(shader.contains("stream_bases: vec4<u32>"));
     assert!(shader.contains("@binding(13) var<storage, read> geometry_streams: array<u32>"));
-    assert!(shader.contains("let local_quad_index = instance_index - chunk_origin.cube_bases.x"));
-    assert!(shader.contains("chunk_origin.cube_bases.y + local_quad_index"));
+    assert!(shader.contains("let local_quad_index = instance_index - chunk_origin.stream_bases.x"));
+    assert!(shader.contains("chunk_origin.stream_bases.y + local_quad_index"));
     let module = naga::front::wgsl::parse_str(&standalone_world_shader(shader))
         .expect("parse packed chunk WGSL");
     assert!(entry_points_use_binding(

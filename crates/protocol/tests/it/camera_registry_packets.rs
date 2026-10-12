@@ -1,12 +1,15 @@
 use ::protocol;
 use protocol::{CameraEvent, CameraSplineKind, WorldEvent, WorldPacketError, into_world_event};
+use valentine::bedrock::version::v1_26_51::McpePacket;
 use valentine::bedrock::version::v1_26_51::*;
 
 /// Exercises the owned wire codec before checking normalized camera data.
-fn camera(packet: impl Into<protocol::Packet>) -> CameraEvent {
-    let session = protocol::BedrockSession { shield_item_id: 0 };
-    let batch = protocol::encode(&packet.into(), &session).unwrap();
-    let packet = protocol::decode_batch(batch, &session).unwrap().remove(0);
+fn camera<P>(packet: P) -> CameraEvent
+where
+    McpePacket: From<P>,
+{
+    let batch = protocol::encode(&protocol::Packet::new(packet)).unwrap();
+    let packet = protocol::decode_batch(batch).unwrap().remove(0);
     match into_world_event(packet, 0).unwrap().unwrap() {
         WorldEvent::Camera(event) => event,
         other => panic!("expected camera event, got {other:?}"),
@@ -236,7 +239,7 @@ fn camera_odd_aim_values_are_semantic_errors() {
             ..Default::default()
         },
     ] {
-        let error = into_world_event(packet.into(), 0).unwrap_err();
+        let error = into_world_event(protocol::Packet::new(packet), 0).unwrap_err();
         assert!(matches!(
             error,
             WorldPacketError::NonFiniteCameraField { .. }
@@ -254,7 +257,7 @@ fn camera_oversized_spline_registry_is_a_semantic_error() {
         ],
     };
     assert!(matches!(
-        into_world_event(packet.into(), 0),
+        into_world_event(protocol::Packet::new(packet), 0),
         Err(WorldPacketError::CameraCollectionTooLarge { .. })
     ));
 }

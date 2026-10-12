@@ -6,7 +6,7 @@ mod frame_stats;
 mod support;
 
 #[global_allocator]
-static ALLOCATOR: frame_stats::CountedAllocator = frame_stats::CountedAllocator;
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
 use std::{hint::black_box, path::PathBuf, sync::Arc, time::Instant};
 

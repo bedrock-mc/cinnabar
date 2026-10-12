@@ -9,7 +9,7 @@ use client_ui::ui_runtime::{
 use protocol::{InventoryEvent, PlayerGameMode, WorldBootstrap};
 use ui::DpiScale;
 
-use protocol::{BedrockSession, ItemActorEvent, WorldEvent};
+use protocol::{ItemActorEvent, WorldEvent};
 
 /// Encodes the unsigned framing integers used by a Bedrock packet batch.
 fn varint(out: &mut Vec<u8>, mut value: u64) {
@@ -37,7 +37,6 @@ fn captured_hotbar_survives_network_registry_and_inventory_publication() {
     let view = super::super::local_pack::local_pack_view("CINNABAR_RENDER_PACK")
         .expect("captured session resource pack");
     let bytes = std::fs::read(path).unwrap();
-    let session = BedrockSession { shield_item_id: 0 };
     let mut runtime = UiRuntime::new(1);
     player_runtime
         .facts
@@ -57,7 +56,7 @@ fn captured_hotbar_survives_network_registry_and_inventory_publication() {
         varint(&mut batch, (header.len() + body.len()) as u64);
         batch.extend(header);
         batch.extend(body);
-        for packet in protocol::decode_batch(batch.into(), &session).unwrap() {
+        for packet in protocol::decode_batch(batch.into()).unwrap() {
             sequence += 1;
             match protocol::into_world_event(packet, 0).unwrap() {
                 Some(WorldEvent::Inventory(event)) => {
@@ -152,11 +151,11 @@ fn harness() -> Option<(UiPresentationRuntime, chunk_pipeline::WorldStream)> {
         RuntimeEntityAssets::decode(&std::fs::read(root.join("vanilla-v1.mcbeent")).ok()?).ok()?,
     );
     let world = Arc::new(RuntimeAssets::diagnostic());
-    let fixtures = client_ui::test_support::fixture_font();
+    let fixtures = ui_engine::test_support::fixture_font();
     let hud = client_ui::test_support::fixture_hud();
     let mut presentation = UiPresentationRuntime::with_hud_and_icons(fixtures, hud, icons).ok()?;
     presentation
-        .enable_json_ui(client_ui::test_support::pack_harness::carrier()?)
+        .enable_json_ui(ui_engine::test_support::carrier()?)
         .ok()?;
     presentation.set_gui_models(&world, &entities).ok()?;
     let stream = chunk_pipeline::WorldStream::new_with_asset_sets(

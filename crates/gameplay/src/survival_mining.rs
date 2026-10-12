@@ -264,7 +264,8 @@ impl DestroyMachine {
                 }
             }
             Some(_) if target.instant => {
-                let slow = motion.moved * world::TICKS_PER_SECOND as f32 <= CREATIVE_SLOW_SPEED;
+                let slow =
+                    motion.moved * simulation_clock::TICKS_PER_SECOND as f32 <= CREATIVE_SLOW_SPEED;
                 if !slow {
                     self.travel += motion.moved;
                 }

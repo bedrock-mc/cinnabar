@@ -17,6 +17,7 @@ reads = [
 ]
 
 [dependencies]
+simulation-clock = { path = "../simulation-clock" }
 assets = { path = "../assets" }
 cap-fs-ext = "3.4.5"
 cap-std = "3.4.5"

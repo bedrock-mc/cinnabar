@@ -1,7 +1,7 @@
 use super::*;
+use crate::raw_packet::decode_packet_raw;
 use bytes::Buf;
-use jolyne::raw::decode_packet_raw;
-use valentine::bedrock::{context::BedrockSession, version::v1_26_51::Vec3};
+use valentine::bedrock::version::v1_26_51::Vec3;
 
 #[test]
 fn primitive_shapes_raw_ingress_retains_valid_changes_and_counts_odd_entries() {
@@ -11,8 +11,7 @@ fn primitive_shapes_raw_ingress_retains_valid_changes_and_counts_odd_entries() {
         PrimitiveShapesPacket,
     };
 
-    let session = BedrockSession { shield_item_id: 0 };
-    let packet: Packet = PrimitiveShapesPacket {
+    let packet: Packet = crate::Packet::new(PrimitiveShapesPacket {
         arrayofprimitiveshapescanbeamixofnewupdatedorremoved: vec![
             PrimitiveShapeDataPayload {
                 network_id: 7,
@@ -42,12 +41,11 @@ fn primitive_shapes_raw_ingress_retains_valid_changes_and_counts_odd_entries() {
                 ..Default::default()
             },
         ],
-    }
-    .into();
-    let mut encoded = crate::encode(&packet, &session).expect("encoded shape packet");
+    });
+    let mut encoded = crate::encode(&packet).expect("encoded shape packet");
     encoded.advance(1);
     let raw = decode_packet_raw(&mut encoded).expect("raw shape packet");
-    let event = decode_world_raw_with(raw, 0, |raw| raw.decode(&session))
+    let event = decode_world_raw_with(raw, 0, super::decode_test_raw)
         .expect("shape wire decode")
         .expect("shape event admitted from raw ingress");
     let WorldEvent::PrimitiveShapes(event) = event else {

@@ -1,31 +1,27 @@
 use bytes::{Bytes, BytesMut};
-use jolyne::{
-    batch::{decode_batch_raw, encode_batch_multi},
-    raw::RawPacket,
-    valentine::{McpePacketArgs, McpePacketData, McpePacketName},
-};
-use protocol::BedrockSession;
 use valentine::bedrock::{
     codec::{BedrockCodec, VarInt},
     error::DecodeError,
-    version::v1_26_51::BiomeDefinitionChunkGenData,
+    version::v1_26_51::{
+        BiomeDefinitionChunkGenData, McpePacketArgs, McpePacketData, McpePacketName,
+    },
 };
+
+use crate::raw_packet::RawPacket;
 
 const GOPHERTUNNEL_BIOME_DEFINITION_LIST: &[u8] =
     include_bytes!("../../fixtures/biome_definition_list_chunk_generation.bin");
 const MAX_BIOME_COLLECTION_ELEMENTS: usize = 4_096;
 
-fn session() -> BedrockSession {
-    BedrockSession { shield_item_id: 0 }
-}
-
 fn raw_fixture() -> RawPacket {
-    let mut batch = Bytes::from_static(GOPHERTUNNEL_BIOME_DEFINITION_LIST);
-    decode_batch_raw(&mut batch, false, Some(1_024))
-        .expect("raw batch decode")
-        .into_iter()
-        .next()
-        .expect("one packet")
+    crate::raw_packet::decode_batch(
+        Bytes::from_static(GOPHERTUNNEL_BIOME_DEFINITION_LIST),
+        1_024,
+    )
+    .expect("raw batch decode")
+    .into_iter()
+    .next()
+    .expect("one packet")
 }
 
 fn assert_fixture_fields(data: &McpePacketData) {
@@ -60,14 +56,14 @@ fn assert_fixture_fields(data: &McpePacketData) {
 #[test]
 fn pinned_gophertunnel_biome_definition_list_owned_decodes_and_round_trips() {
     let packet = raw_fixture()
-        .decode(&session())
+        .decode()
         .expect("owned BiomeDefinitionList decode");
     assert_eq!(
         packet.data.packet_id(),
         McpePacketName::BiomeDefinitionListPacket
     );
     assert_fixture_fields(&packet.data);
-    let encoded = encode_batch_multi(&[packet], false, 0, 0, true).expect("re-encode");
+    let encoded = crate::encode(&packet).expect("re-encode");
     assert_eq!(encoded.as_ref(), GOPHERTUNNEL_BIOME_DEFINITION_LIST);
 }
 
@@ -87,7 +83,8 @@ fn pinned_gophertunnel_biome_definition_list_borrowed_view_materializes_and_roun
         .into_owned(McpePacketArgs)
         .expect("materialize borrowed BiomeDefinitionList");
     assert_fixture_fields(&owned.data);
-    let encoded = encode_batch_multi(&[owned], false, 0, 0, true).expect("re-encode");
+    let encoded =
+        crate::encode(&crate::Packet::from_parts(owned.header, owned.data)).expect("re-encode");
     assert_eq!(encoded.as_ref(), GOPHERTUNNEL_BIOME_DEFINITION_LIST);
 }
 

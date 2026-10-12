@@ -115,6 +115,13 @@ impl Read for SharedFile {
         let read = std::os::unix::fs::FileExt::read_at(&*self.file, buffer, self.position)?;
         #[cfg(windows)]
         let read = std::os::windows::fs::FileExt::seek_read(&*self.file, buffer, self.position)?;
+        // Without positional reads, clones share the OS cursor, so seek on every read.
+        #[cfg(not(any(unix, windows)))]
+        let read = {
+            let mut file = &*self.file;
+            file.seek(SeekFrom::Start(self.position))?;
+            file.read(buffer)?
+        };
         self.position += read as u64;
         Ok(read)
     }

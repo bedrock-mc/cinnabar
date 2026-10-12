@@ -16,7 +16,7 @@ fn fixture() -> (HashMap<u64, TestActor>, ActorAnimationStore) {
         username: "Player".into(),
     };
     let mut store = ActorAnimationStore::with_assets(Arc::new(
-        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
     ));
     store.insert(1, 0, &actor);
     store.set_local_motion_authority(1, Some((1, 1)));
