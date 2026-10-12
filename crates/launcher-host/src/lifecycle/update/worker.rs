@@ -154,25 +154,21 @@ fn run(
     {
         state.ready = None;
     }
-    if destination.exists() {
-        match stage::verify(&destination, &keys, check, OffsetDateTime::now_utc()) {
-            Ok(selected) => {
-                if supersedes(&selected.manifest, staged.as_ref(), false)? {
-                    staged = Some(selected.manifest.clone());
-                    let (directory, reader) = stage::retain(&destination, &lease, &selected)?;
-                    publish(
-                        directory,
-                        reader,
-                        selected,
-                        preferences.channel,
-                        switch_now,
-                        generation,
-                    );
-                }
-            }
-            // A fresh signed envelope can still authenticate this payload after expiry or a channel change.
-            Err(_) => {}
-        }
+    // A fresh signed envelope can still authenticate an unverifiable payload after expiry or a channel change.
+    if destination.exists()
+        && let Ok(selected) = stage::verify(&destination, &keys, check, OffsetDateTime::now_utc())
+        && supersedes(&selected.manifest, staged.as_ref(), false)?
+    {
+        staged = Some(selected.manifest.clone());
+        let (directory, reader) = stage::retain(&destination, &lease, &selected)?;
+        publish(
+            directory,
+            reader,
+            selected,
+            preferences.channel,
+            switch_now,
+            generation,
+        );
     }
     if (!preferences.checks && !switch_now) || !active(generation) {
         return Ok(());
@@ -180,12 +176,11 @@ fn run(
     let stamp_path = stamp_path(&root, preferences.channel);
     if !force && !switch_now && !due(last_check(&root, preferences.channel), now_secs()) {
         // The skipped check would have found the same release, so restore what it offered.
-        if cached_switch_offer(&channel_cache, &keys, check, OffsetDateTime::now_utc()) {
-            if let Ok(mut state) = STATE.lock() {
-                if state.generation == generation {
-                    offer_switch(&mut state);
-                }
-            }
+        if cached_switch_offer(&channel_cache, &keys, check, OffsetDateTime::now_utc())
+            && let Ok(mut state) = STATE.lock()
+            && state.generation == generation
+        {
+            offer_switch(&mut state);
         }
         return Ok(());
     }
@@ -194,18 +189,16 @@ fn run(
         .build()?;
     let client = http_client()?;
     runtime.block_on(async {
-        if preferences.channel != Channel::Stable {
-            if let Some(url) = &stable_url {
-                if let Ok(bytes) = fetch(&client, url).await {
-                    if Selection::verify(&bytes, &keys, stable, OffsetDateTime::now_utc()).is_ok() {
-                        let _ = fs::write(&stable_cache, &bytes);
-                        if let Ok(mut state) = STATE.lock() {
-                            if state.generation == generation {
-                                state.stable_available = true;
-                            }
-                        }
-                    }
-                }
+        if preferences.channel != Channel::Stable
+            && let Some(url) = &stable_url
+            && let Ok(bytes) = fetch(&client, url).await
+            && Selection::verify(&bytes, &keys, stable, OffsetDateTime::now_utc()).is_ok()
+        {
+            let _ = fs::write(&stable_cache, &bytes);
+            if let Ok(mut state) = STATE.lock()
+                && state.generation == generation
+            {
+                state.stable_available = true;
             }
         }
         ensure!(active(generation), "update channel changed");
@@ -236,12 +229,11 @@ fn run(
                 check.current_build,
             )?
         {
-            if older_release(&selected.manifest, check)? {
-                if let Ok(mut state) = STATE.lock() {
-                    if state.generation == generation {
-                        offer_switch(&mut state);
-                    }
-                }
+            if older_release(&selected.manifest, check)?
+                && let Ok(mut state) = STATE.lock()
+                && state.generation == generation
+            {
+                offer_switch(&mut state);
             }
             return record(&stamp_path, check, now_secs());
         }
@@ -266,14 +258,13 @@ fn run(
                 let entry = entry?;
                 let name = entry.file_name();
                 let name = name.to_string_lossy();
-                if let Some(digest) = name.strip_suffix(".part") {
-                    if digest.len() == 64
-                        && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
-                        && !digest.eq_ignore_ascii_case(&artifact.sha256)
-                        && entry.file_type()?.is_file()
-                    {
-                        fs::remove_file(entry.path())?;
-                    }
+                if let Some(digest) = name.strip_suffix(".part")
+                    && digest.len() == 64
+                    && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    && !digest.eq_ignore_ascii_case(&artifact.sha256)
+                    && entry.file_type()?.is_file()
+                {
+                    fs::remove_file(entry.path())?;
                 }
             }
             if offset < artifact.size as u64 {
