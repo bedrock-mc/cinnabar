@@ -9,18 +9,26 @@ here="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 source "$here/../common/stage-payload.sh"
 target="${1:?usage: sign-notarize.sh <app-or-dmg>}"
 
+# helper_binaries <app>: listed runtime executables except the bundle's own, which signing the
+# bundle covers. Signing that executable first would reject the still-unsigned helpers beside it.
+helper_binaries() {
+    local main
+    require_file "$runtime_binary_list" 'restore the runtime binary table'
+    main="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$1/Contents/Info.plist")"
+    runtime_binaries | grep -vxF -- "$main"
+}
+
 if [[ -z "${CODESIGN_IDENTITY:-}" ]]; then
     case "$target" in
         *.app)
-            # Apple Silicon refuses unsigned Mach-O, so every helper gets an ad-hoc signature too.
-            # Cross-built x86_64 executables carry no linker signature, so sign the listed ones by name.
-            require_file "$runtime_binary_list" 'restore the runtime binary table'
-            while IFS= read -r name; do
-                codesign --force --sign - "$target/Contents/MacOS/$name"
-            done < <(runtime_binaries)
+            # Apple Silicon refuses unsigned Mach-O, and cross-built x86_64 executables carry no
+            # linker signature, so every helper is signed before the bundle.
             while IFS= read -r -d '' file; do
                 if [[ "$(file -b "$file")" == Mach-O* ]]; then codesign --force --sign - "$file"; fi
             done < <(find "$target/Contents/Resources" -type f -perm -u+x -print0)
+            while IFS= read -r name; do
+                codesign --force --sign - "$target/Contents/MacOS/$name"
+            done < <(helper_binaries "$target")
             codesign --force --deep --sign - "$target"
             codesign --verify --deep --strict --verbose=2 "$target"
             echo "ad-hoc signed $target (not notarized)"
@@ -46,12 +54,11 @@ case "$target" in
     *.app)
         # Nested code first (helpers under Resources, then the bundle's own executables), bundle last.
         while IFS= read -r -d '' file; do
-            if file "$file" | grep -q 'Mach-O'; then sign "$file"; fi
+            if [[ "$(file -b "$file")" == Mach-O* ]]; then sign "$file"; fi
         done < <(find "$target/Contents/Resources" -type f -perm -u+x -print0)
-        require_file "$runtime_binary_list" 'restore the runtime binary table'
         while IFS= read -r name; do
             sign "$target/Contents/MacOS/$name"
-        done < <(runtime_binaries)
+        done < <(helper_binaries "$target")
         sign "$target"
         codesign --verify --deep --strict --verbose=2 "$target"
         archive="$(mktemp -d)/Cinnabar.zip"

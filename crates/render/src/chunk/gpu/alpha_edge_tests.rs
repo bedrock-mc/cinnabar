@@ -1,6 +1,7 @@
 //! Multisampled coverage must not fetch texels beyond an alpha-tested quad.
 
 use crate::gpu_snapshot::{Draw, Gpu, SNAPSHOT_SIDE, save};
+use crate::hand_rig_render::bindings::HandFragmentBindings;
 use wgpu::util::DeviceExt;
 
 const QUAD: &str = r#"
@@ -95,6 +96,7 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
     out.skin_layer = HAND_FIXTURE_LAYER;
     out.valid = 1u;
     out.shade = 1.0;
+    out.glint_instance = 0xffffffffu;
     return out;
 }"#
         )
@@ -169,23 +171,32 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
         wgpu::BufferUsages::UNIFORM,
     );
     let hand_light = gpu.buffer(&[0.0; 24], wgpu::BufferUsages::UNIFORM);
+    let instances = gpu.buffer(
+        bytemuck::cast_slice(&[render_model::ActorGpuInstance::default()]),
+        wgpu::BufferUsages::STORAGE,
+    );
+    let glint = gpu.blank_texture_view();
     let texture_entry = |binding| wgpu::BindGroupEntry {
         binding,
         resource: wgpu::BindingResource::TextureView(&view),
     };
     let entries = if held {
-        vec![
-            texture_entry(6),
-            wgpu::BindGroupEntry {
-                binding: 7,
-                resource: wgpu::BindingResource::Sampler(&sampler),
-            },
-            buffer_entry(8, &material),
-            buffer_entry(9, &hand_light),
-            texture_entry(10),
-            texture_entry(11),
-            buffer_entry(20, &lightmap),
-        ]
+        let mut entries = Vec::from(
+            HandFragmentBindings {
+                instances: &instances,
+                skins: &view,
+                skin_sampler: &sampler,
+                material: &material,
+                light: &hand_light,
+                main_atlas: &view,
+                offhand_atlas: &view,
+                item_glint: &glint,
+                glint_sampler: &sampler,
+            }
+            .entries(),
+        );
+        entries.push(buffer_entry(20, &lightmap));
+        entries
     } else {
         vec![
             buffer_entry(0, &camera),

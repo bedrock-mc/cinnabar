@@ -573,79 +573,43 @@ pub(super) fn build_bind_group(gpu: &mut HandRigGpu, device: &RenderDevice, cach
     else {
         return;
     };
-    gpu.bind_group = Some(
-        device.create_bind_group(
-            "first-person rig bind group",
-            &cache.get_bind_group_layout(&gpu.layout),
-            &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: gpu.view_uniform.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: instances.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: vertices.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 3,
-                    resource: spans.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 4,
-                    resource: previous.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 5,
-                    resource: current.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 6,
-                    resource: BindingResource::TextureView(&skin.view),
-                },
-                BindGroupEntry {
-                    binding: 7,
-                    resource: BindingResource::Sampler(&gpu.sampler),
-                },
-                BindGroupEntry {
-                    binding: 8,
-                    resource: gpu.material.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 9,
-                    resource: gpu.light_uniform.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 10,
-                    // Without an item atlas the skin view stands in; no instance selects it.
-                    resource: BindingResource::TextureView(
-                        gpu.atlases[0]
-                            .as_ref()
-                            .map_or(&skin.view, |atlas| &atlas.view),
-                    ),
-                },
-                BindGroupEntry {
-                    binding: 11,
-                    resource: BindingResource::TextureView(
-                        gpu.atlases[1]
-                            .as_ref()
-                            .map_or(&skin.view, |atlas| &atlas.view),
-                    ),
-                },
-                BindGroupEntry {
-                    binding: 12,
-                    resource: BindingResource::TextureView(&glint.view),
-                },
-                BindGroupEntry {
-                    binding: 13,
-                    resource: BindingResource::Sampler(&gpu.glint_sampler),
-                },
-            ],
-        ),
+    let mut entries = Vec::from(
+        bindings::HandFragmentBindings {
+            instances,
+            skins: &skin.view,
+            skin_sampler: &gpu.sampler,
+            material: &gpu.material,
+            light: &gpu.light_uniform,
+            // Without an item atlas the skin view stands in; no instance selects it.
+            main_atlas: gpu.atlases[0]
+                .as_ref()
+                .map_or(&skin.view, |atlas| &atlas.view),
+            offhand_atlas: gpu.atlases[1]
+                .as_ref()
+                .map_or(&skin.view, |atlas| &atlas.view),
+            item_glint: &glint.view,
+            glint_sampler: &gpu.glint_sampler,
+        }
+        .entries(),
     );
+    entries.extend(
+        [
+            (0, &gpu.view_uniform),
+            (2, vertices),
+            (3, spans),
+            (4, previous),
+            (5, current),
+        ]
+        .map(|(binding, buffer)| BindGroupEntry {
+            binding,
+            resource: buffer.as_entire_binding(),
+        }),
+    );
+    gpu.bind_group = Some(device.create_bind_group(
+        "first-person rig bind group",
+        &cache.get_bind_group_layout(&gpu.layout),
+        &entries,
+    ));
 }
 
 /// Creates an immutable storage buffer for the supplied packed geometry.

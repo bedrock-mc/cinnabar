@@ -1,6 +1,9 @@
 //! Scene description for the menu panorama cube; the GPU side lives in `panorama_render`.
 
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 
 use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 use render_model::{PanoramaFaces, PanoramaView};
@@ -9,10 +12,15 @@ use render_model::{PanoramaFaces, PanoramaView};
 #[derive(Clone, Debug, Default, Resource, ExtractResource)]
 #[extract_app(bevy::render::RenderApp)]
 pub struct PanoramaScene {
+    /// The faces' pixels until the renderer has uploaded them; see
+    /// [`Self::release_uploaded_faces`].
     pub faces: Option<Arc<PanoramaFaces>>,
     pub faces_revision: u64,
     pub view: Option<PanoramaView>,
     game_hidden: bool,
+    has_faces: bool,
+    /// One past the faces revision the renderer last uploaded, shared with the render world's copy.
+    uploaded: Arc<AtomicU64>,
 }
 
 impl PanoramaScene {
@@ -27,8 +35,24 @@ impl PanoramaScene {
     }
 
     pub fn set_faces(&mut self, faces: Option<Arc<PanoramaFaces>>) {
+        self.has_faces = faces.is_some();
         self.faces = faces;
         self.faces_revision = self.faces_revision.wrapping_add(1);
+    }
+
+    /// Records that the renderer uploaded the faces of `revision`.
+    pub fn mark_uploaded(&self, revision: u64) {
+        self.uploaded
+            .store(revision.wrapping_add(1), Ordering::Release);
+    }
+
+    /// Drops the faces' pixels once the renderer holds them on the GPU; the panorama still shows.
+    pub fn release_uploaded_faces(&mut self) {
+        if self.faces.is_some()
+            && self.uploaded.load(Ordering::Acquire) == self.faces_revision.wrapping_add(1)
+        {
+            self.faces = None;
+        }
     }
 
     /// Shows the panorama from `view`, or hides it; non-finite views hide it.
@@ -48,9 +72,10 @@ impl PanoramaScene {
         });
     }
 
+    /// Whether faces were set, including ones already released after upload.
     #[must_use]
     pub const fn has_faces(&self) -> bool {
-        self.faces.is_some()
+        self.has_faces
     }
 }
 
@@ -62,6 +87,32 @@ pub fn world_passes_enabled(scene: Option<bevy::prelude::Res<PanoramaScene>>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The pixels stay until the renderer uploads that exact revision, then go; the panorama still
+    // counts as shown, and newer faces wait for their own upload.
+    #[test]
+    fn faces_are_released_only_after_their_revision_is_uploaded() {
+        let faces = || {
+            Some(Arc::new(
+                PanoramaFaces::new(1, std::array::from_fn(|_| vec![9; 4])).unwrap(),
+            ))
+        };
+        let mut scene = PanoramaScene::default();
+        scene.set_faces(faces());
+        scene.release_uploaded_faces();
+        assert!(scene.faces.is_some());
+        scene.mark_uploaded(scene.faces_revision.wrapping_sub(1));
+        scene.release_uploaded_faces();
+        assert!(scene.faces.is_some());
+        let render_copy = scene.clone();
+        render_copy.mark_uploaded(render_copy.faces_revision);
+        scene.release_uploaded_faces();
+        assert!(scene.faces.is_none());
+        assert!(scene.has_faces());
+        scene.set_faces(faces());
+        scene.release_uploaded_faces();
+        assert!(scene.faces.is_some());
+    }
 
     #[test]
     fn screen_policy_suppresses_world_queues_without_any_panorama_faces() {

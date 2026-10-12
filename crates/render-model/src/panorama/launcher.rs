@@ -64,29 +64,30 @@ fn override_or_pack_faces(
     // The title screen shows the alternate set when a pack carries one.
     overridden.or_else(|| {
         ["panorama_alternate_", "panorama_"].iter().find_map(|set| {
-            decode_faces(|face| {
-                assets
-                    .ui_file(&format!("textures/ui/{set}{face}.png"))
-                    .map(<[u8]>::to_vec)
-            })
+            decode_faces(|face| assets.ui_file(&format!("textures/ui/{set}{face}.png")))
         })
     })
 }
 
 /// Decodes PNG or JPEG faces `0..6` at one native size; any missing or odd face drops them all.
-pub fn decode_faces(mut read: impl FnMut(usize) -> Option<Vec<u8>>) -> Option<PanoramaFaces> {
+/// Faces are appended to one buffer as they decode, so at most one decoded face is held besides it.
+pub fn decode_faces<B: AsRef<[u8]>>(
+    mut read: impl FnMut(usize) -> Option<B>,
+) -> Option<PanoramaFaces> {
     let mut side = None;
-    let mut faces = Vec::with_capacity(6);
+    let mut pixels = Vec::new();
     for face in 0..6 {
-        let (width, height, pixels) = decode_image(&read(face)?)?;
+        let (width, height, decoded) = decode_image(read(face)?.as_ref())?;
         if width != height || side.is_some_and(|side| side != width) {
             return None;
         }
+        if side.is_none() {
+            pixels.reserve_exact(decoded.len() * 6);
+        }
         side = Some(width);
-        faces.push(pixels);
+        pixels.extend_from_slice(&decoded);
     }
-    let faces: [Vec<u8>; 6] = faces.try_into().ok()?;
-    PanoramaFaces::new(side?, faces)
+    PanoramaFaces::from_layer_major(side?, pixels)
 }
 
 /// The 1x1 overlay's colour as straight-alpha floats; clear when absent.
