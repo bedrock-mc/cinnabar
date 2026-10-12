@@ -178,7 +178,10 @@ impl ModHost {
     }
 
     /// Supplies bounded, session-fenced cosmetic facts for the next callback only.
-    pub fn observe_modules(&mut self, observations: ModuleObservations) -> Result<()> {
+    pub fn observe_modules(
+        &mut self,
+        observations: module_observations::ModuleObservations,
+    ) -> Result<()> {
         self.instance.observe_modules(observations)
     }
 
