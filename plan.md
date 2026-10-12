@@ -4884,6 +4884,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       render Fancy. Wall-torch pivot, ladder/rail offsets, and rail curve
       sprite orientation need native measurement; the coverage baseline must
       be regenerated. Residual names: `docs/phase-2-family-inventory.md`.
+      Torch lighting follows the native torch tessellation: one light value
+      from the torch's own cell for every plane, no ambient occlusion, and no
+      face dimming.
     - [ ] Coral fans compile spreading floor sprites and four wall mounting
       directions with replacement-pack artwork. Native-server placement and
       rendered parity acceptance remain incomplete.

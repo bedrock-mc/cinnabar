@@ -143,6 +143,57 @@ fn lily_pad_planes_repeat_own_cell_light_without_neighbor_ao() {
     }
 }
 
+#[test]
+fn torch_planes_take_own_cell_light_without_neighbor_ao() {
+    // An inset upright pillar side and its cap, beside solid neighbours on every side.
+    let mut side = model_quad(4);
+    side.positions = [
+        [144, 0, 112],
+        [144, 0, 144],
+        [144, 160, 144],
+        [144, 160, 112],
+    ];
+    let mut cap = model_quad(2);
+    cap.positions = [
+        [112, 160, 144],
+        [144, 160, 144],
+        [144, 160, 112],
+        [112, 160, 112],
+    ];
+    let assets = runtime_assets_with_model_geometry(
+        vec![ModelTemplate {
+            quad_start: 0,
+            quad_count: 2,
+            flags: assets::MODEL_TEMPLATE_FLAG_TORCH,
+        }],
+        vec![side, cap],
+    );
+    let block = [8, 8, 8];
+    let center = layered_uniform(&[SOLID]);
+    let sampler = |coordinate| {
+        if coordinate == block {
+            MeshLightSample::try_new(14, 2).unwrap()
+        } else {
+            MeshLightSample::FULL_BRIGHT
+        }
+    };
+    let lighting = bake_template_lighting_with_sampler(
+        &BlockClassifier::new(AIR),
+        &assets,
+        NetworkIdMode::Sequential,
+        &MeshNeighbourhood::new(&center),
+        &sampler,
+        block,
+        0,
+        0,
+    )
+    .unwrap();
+    assert_eq!(lighting.len(), 2);
+    for quad in lighting {
+        assert_eq!(quad.samples(), [14 | (2 << 4); 4]);
+    }
+}
+
 fn runtime_assets_with_model_geometry(
     model_templates: Vec<ModelTemplate>,
     model_quads: Vec<ModelQuad>,

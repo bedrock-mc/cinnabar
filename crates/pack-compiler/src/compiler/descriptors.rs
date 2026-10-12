@@ -80,6 +80,10 @@ pub(super) fn descriptor_for(
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
         flags |= leaf_tint_flags(&record.name);
     }
+    if is_torch(record) {
+        // Native torch tessellation lights the whole torch from its own cell in plain white.
+        flags |= assets::MATERIAL_FLAG_DISABLE_AO | assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING;
+    }
     if record.name.as_ref() == "minecraft:glass" {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
     }
