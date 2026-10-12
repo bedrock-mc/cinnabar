@@ -896,7 +896,7 @@ fn private_use_layout(text: &str) -> Arc<TextLayout> {
         pixels_sha256: Sha256::digest(&pixels).into(),
         width: 1,
         height: 1,
-        pixels: FontPixels::Rgba8(pixels),
+        pixels: FontPixels::Rgba8(pixels.into()),
     }];
     let glyphs = [
         'A', '\u{d7ff}', '\u{e000}', '\u{e101}', '\u{f8ff}', '\u{f900}', '\u{fffd}',
