@@ -60,6 +60,7 @@ use {
 };
 
 const ITEM_SHADER_HANDLE: Handle<Shader> = uuid_handle!("6b7c1b0e-2f3d-4a61-9d1e-7a8f2c4e5b13");
+mod glint;
 pub(crate) mod terrain_items;
 use terrain_items::{TerrainItemMeshGenerations, TerrainItemSessionSet};
 
@@ -133,43 +134,6 @@ struct GpuItemInstance {
 }
 
 const _: () = assert!(size_of::<GpuItemInstance>() == 80);
-
-/// Packs one drawn copy, with its model's glint UV scale when the copy glints.
-fn pack_instance(
-    instance: &render_model::DroppedItemInstance,
-    glint_scales: &[[f32; 2]],
-) -> GpuItemInstance {
-    GpuItemInstance {
-        rows: instance.world_from_item,
-        meta: [
-            instance.model,
-            instance.block_level,
-            instance.sky_level,
-            instance.overlay_rgba8,
-        ],
-        glint: match glint_scales.get(instance.model as usize) {
-            Some(&[u, v]) if instance.glint => [u, v, 0.0, 0.0],
-            _ => [0.0; 4],
-        },
-    }
-}
-
-/// The share of its texture layer that a model's art spans, which the item glint covers.
-fn glint_span(model: &DroppedItemModel, side: u32) -> [f32; 2] {
-    let side = side as f32;
-    match model {
-        DroppedItemModel::Sprite(sprite) | DroppedItemModel::NativeSprite(sprite) => {
-            [sprite.width as f32 / side, sprite.height as f32 / side]
-        }
-        DroppedItemModel::Cube(cube) => [cube.tile as f32 / side; 2],
-        DroppedItemModel::Block(block) => {
-            block.materials.first().map_or([1.0; 2], |(sprite, _)| {
-                [sprite.width as f32 / side, sprite.height as f32 / side]
-            })
-        }
-        DroppedItemModel::Vacant => [1.0; 2],
-    }
-}
 
 #[derive(Resource)]
 struct ItemGpu {
@@ -266,14 +230,7 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         }),
         ranges: Vec::new(),
         glint_scales: Vec::new(),
-        glint_sampler: device.create_sampler(&SamplerDescriptor {
-            label: Some("repeat dropped item glint sampler"),
-            address_mode_u: AddressMode::Repeat,
-            address_mode_v: AddressMode::Repeat,
-            mag_filter: FilterMode::Linear,
-            min_filter: FilterMode::Linear,
-            ..default()
-        }),
+        glint_sampler: glint::sampler(&device),
         glint: None,
         _atlas: None,
         atlas_view: None,
@@ -420,7 +377,7 @@ fn rebuild_models(
         .models
         .iter()
         .map(|model| {
-            glint_span(model, side as u32).map(|span| render_model::ITEM_GLINT_UV_SCALE / span)
+            glint::span(model, side as u32).map(|span| render_model::ITEM_GLINT_UV_SCALE / span)
         })
         .collect();
     let layers = atlas.len() / layer_bytes;
@@ -471,7 +428,7 @@ fn prepare_items(
     if gpu.models_revision != scene.models_revision || gpu.atlas_view.is_none() {
         rebuild_models(&scene, &device, &queue, &mut gpu);
     }
-    upload_glint(&scene, &device, &queue, &mut gpu);
+    glint::upload(&scene, &device, &queue, &mut gpu);
     if scene.instances.is_empty()
         && scene.dynamic.is_empty()
         && !scene
@@ -516,7 +473,7 @@ fn prepare_items(
                 .bounds
                 .and_then(|bounds| bounds.transformed(instance.world_from_item)),
         });
-        instances.push(pack_instance(instance, &gpu.glint_scales));
+        instances.push(glint::pack_instance(instance, &gpu.glint_scales));
     }
     gpu.identity_instance = instances.len() as u32;
     instances.push(GpuItemInstance {
@@ -564,59 +521,6 @@ fn prepare_items(
     {
         gpu.upload_calls += 1;
     }
-}
-
-/// Uploads the scene's item glint, or a transparent texel without one, keeping the texture
-/// while its pixels are unchanged.
-fn upload_glint(
-    scene: &DroppedItemScene,
-    device: &RenderDevice,
-    queue: &RenderQueue,
-    gpu: &mut ItemGpu,
-) {
-    let raster = scene.glint.as_ref().filter(|raster| {
-        u32::from(raster.width.max(raster.height)) <= device.limits().max_texture_dimension_2d
-    });
-    let pixels = raster.map(|raster| Arc::clone(&raster.rgba8));
-    if let Some((_, _, current)) = &gpu.glint
-        && match (current, &pixels) {
-            (Some(current), Some(pixels)) => Arc::ptr_eq(current, pixels),
-            (None, None) => true,
-            _ => false,
-        }
-    {
-        return;
-    }
-    let (width, height, data): (u32, u32, &[u8]) = match raster {
-        Some(raster) => (
-            u32::from(raster.width),
-            u32::from(raster.height),
-            &raster.rgba8,
-        ),
-        None => (1, 1, &[0; 4]),
-    };
-    let texture = device.create_texture_with_data(
-        queue,
-        &TextureDescriptor {
-            label: Some("dropped item glint"),
-            size: Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8UnormSrgb,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: &[],
-        },
-        TextureDataOrder::LayerMajor,
-        data,
-    );
-    let view = texture.create_view(&TextureViewDescriptor::default());
-    gpu.glint = Some((texture, view, pixels));
-    gpu.bind_group = None;
 }
 
 struct ItemPipelineSpecializer;

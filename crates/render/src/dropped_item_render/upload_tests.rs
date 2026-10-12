@@ -333,11 +333,11 @@ fn glinting_copies_carry_the_item_glint_scale_across_their_sprite() {
         glint,
     };
     assert_eq!(
-        pack_instance(&instance(true), &gpu.glint_scales).glint,
+        glint::pack_instance(&instance(true), &gpu.glint_scales).glint,
         [1.0, 1.0, 0.0, 0.0]
     );
     assert_eq!(
-        pack_instance(&instance(false), &gpu.glint_scales).glint,
+        glint::pack_instance(&instance(false), &gpu.glint_scales).glint,
         [0.0; 4]
     );
 }
