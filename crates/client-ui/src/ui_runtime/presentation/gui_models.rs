@@ -93,7 +93,7 @@ pub(super) struct GuiModels {
     optional_models: BTreeSet<IconKey>,
     required_pages: usize,
     textures: BTreeMap<atlas::TextureKey, IconRef>,
-    held: BTreeMap<assets::ItemVisualKey, player_preview::PreviewHeldModel>,
+    held: BTreeMap<assets::ItemVisualKey, held::HeldModel>,
     fire: fire::FireAtlas,
 }
 
@@ -325,18 +325,18 @@ impl UiPresentationRuntime {
                 hand.charged_projectile,
                 None,
             );
-            self.gui_models
-                .held
-                .get(&assets::ItemVisualKey {
-                    identifier: identifier.into(),
-                    metadata,
-                })
-                .or_else(|| {
-                    self.gui_models.held.get(&assets::ItemVisualKey {
+            let icons = self.icon_catalog.as_deref()?;
+            let held = |metadata| {
+                self.gui_models
+                    .held
+                    .get(&assets::ItemVisualKey {
                         identifier: identifier.into(),
-                        metadata: 0,
-                    })
-                })
+                        metadata,
+                    })?
+                    .model(icons)
+            };
+            held(metadata)
+                .or_else(|| held(0))
                 .map(|model| model.with_grip(hand.grip).with_glint(hand.glint))
         });
         let unposed = [None; 6];

@@ -3,7 +3,7 @@
 
 Usage:
   changelog.py label <pr-number>  Adds the category label to a PR that has none.
-  changelog.py discord <tag>      Posts the release's changelog to DISCORD_CHANGELOG_WEBHOOK (skips when unset).
+  changelog.py discord <tag>      Posts the release's published changelog to DISCORD_CHANGELOG_WEBHOOK (skips when unset).
 """
 
 import json
@@ -63,18 +63,8 @@ def label_pr(number: str) -> None:
     print(f"Labelled #{number} {label}")
 
 
-def release_entries(tag: str) -> list[dict]:
-    """Returns the PRs merged since the previous stable release, from GitHub's generated notes."""
-    releases = json.loads(gh("release", "list", "--limit", "100", "--json", "tagName,isPrerelease,isDraft,publishedAt"))
-    stable = sorted(
-        (r for r in releases if r["tagName"].startswith("v") and not r["isPrerelease"] and not r["isDraft"]),
-        key=lambda r: r["publishedAt"] or "",
-    )
-    tags = [r["tagName"] for r in stable]
-    args = ["api", "repos/{owner}/{repo}/releases/generate-notes", "-f", f"tag_name={tag}"]
-    if tag in tags and tags.index(tag) > 0:
-        args += ["-f", f"previous_tag_name={tags[tags.index(tag) - 1]}"]
-    body = json.loads(gh(*args))["body"]
+def release_entries(body: str) -> list[dict]:
+    """Returns the PR entries a release's published notes list, whatever range they span."""
     entries = []
     for line in body.splitlines():
         match = ENTRY.match(line.strip())
@@ -135,7 +125,7 @@ def post_discord(tag: str) -> None:
         print("::warning::DISCORD_CHANGELOG_WEBHOOK is unset; skipping the Discord changelog")
         return
     release = json.loads(gh("release", "view", tag, "--json", "tagName,url,body,publishedAt"))
-    entries = release_entries(tag)
+    entries = release_entries(release.get("body") or "")
     labels = {e["number"]: pr_label(e["number"], e["title"]) for e in entries}
     compare = re.search(r"\*\*Full Changelog\*\*: (\S+)", release.get("body") or "")
     message = payload(tag, release["url"], release.get("publishedAt") or "", entries, labels,

@@ -150,7 +150,7 @@ fn held_banner_block_route_without_cube_sheet_remains_available_in_both_preview_
         uv: [0, 0, 64, 64],
         glint: false,
     };
-    let draw = |hands| {
+    let draw = |hands: [Option<&PreviewHeldModel>; 2]| {
         player_preview::geometry::mesh(
             Default::default(),
             Default::default(),
@@ -171,6 +171,7 @@ fn held_banner_block_route_without_cube_sheet_remains_available_in_both_preview_
         ));
         let model = models
             .get(&definition.key)
+            .and_then(|held| held.model(icons))
             .expect("noncube block item retains its held model");
         assert!(
             model
@@ -184,10 +185,13 @@ fn held_banner_block_route_without_cube_sheet_remains_available_in_both_preview_
                 .item_icon(&definition.key.identifier, definition.key.metadata)
                 .unwrap()
         );
-        let right = draw([Some(model), None]).vertices().len();
-        let left = draw([None, Some(model)]).vertices().len();
+        let right = draw([Some(&model), None]).vertices().len();
+        let left = draw([None, Some(&model)]).vertices().len();
         assert!(right > bare && left > bare);
-        assert_eq!(draw([Some(model); 2]).vertices().len(), right + left - bare);
+        assert_eq!(
+            draw([Some(&model); 2]).vertices().len(),
+            right + left - bare
+        );
     }
     assert!(
         atlas.finish().unwrap().0.is_empty(),
@@ -235,7 +239,11 @@ fn installed_gui_carriers_reuse_sprite_pages_within_the_model_atlas_budget() {
     presentation.set_equipment_catalog(Some(equipment));
     presentation.set_gui_models(&world, &entities).unwrap();
     let mut sprites = 0;
-    for (key, model) in &presentation.gui_models.held {
+    let icons = presentation.icon_catalog.as_deref().unwrap();
+    for (key, held) in &presentation.gui_models.held {
+        let Some(model) = held.model(icons) else {
+            continue;
+        };
         if matches!(model.placements[0], PreviewHeldPlacement::Sprite { .. }) {
             assert_eq!(
                 model.source,

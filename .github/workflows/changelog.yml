@@ -1,0 +1,29 @@
+name: Repost changelog
+
+# Reposts a published release's changelog to Discord, for example after its notes were corrected.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to post, such as v0.1.16
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Post the changelog to Discord
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DISCORD_CHANGELOG_WEBHOOK: ${{ secrets.DISCORD_CHANGELOG_WEBHOOK }}
+          TAG: ${{ inputs.tag }}
+        run: python3 packaging/changelog.py discord "$TAG"
