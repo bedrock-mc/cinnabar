@@ -177,7 +177,6 @@ fn actor_queries(
                     .collect(),
             )
         }),
-        ..Default::default()
     }
 }
 
