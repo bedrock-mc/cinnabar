@@ -207,7 +207,7 @@ fn items_and_particles_compose_native_rgb_in_darkness_and_daylight() {
                                 resource: wgpu::BindingResource::Sampler(&sampler),
                             },
                             wgpu::BindGroupEntry {
-                                binding: 19,
+                                binding: 34,
                                 resource: case.as_entire_binding(),
                             },
                             wgpu::BindGroupEntry {
@@ -259,7 +259,7 @@ fn items_and_particles_compose_native_rgb_in_darkness_and_daylight() {
 }
 
 const ITEM_VERTEX: &str = r#"
-@group(0) @binding(19) var<uniform> witness: array<vec4<f32>, 2>;
+@group(0) @binding(34) var<uniform> witness: array<vec4<f32>, 2>;
 @vertex fn item_witness_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     let corners = array(vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(1.0, 1.0), vec2(-1.0, -1.0), vec2(1.0, 1.0), vec2(-1.0, 1.0));
     return item_vertex(VertexInput(

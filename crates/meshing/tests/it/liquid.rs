@@ -4,8 +4,9 @@ use assets::{
     Animation, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, ContributorRole,
     DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT,
     MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_WATER_TINT, Material, NO_ANIMATION,
-    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray, TextureMip, TexturePage,
-    TextureRef, VisualKind, encode_blob,
+    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TexturePage, TextureRef, VisualKind,
+    encode_blob,
+    texture::{TextureArray, TextureMip},
 };
 use meshing::{
     BlockClassifier, Face, LiquidLevel, MeshLightSample, Neighbourhood, PackedLiquidQuad,
@@ -1142,10 +1143,10 @@ fn mixed_neighbourhood_mesh_output_is_golden() {
     assert_eq!(
         digests,
         [
-            13_081_610_191_978_589_870,
-            7_276_265_386_106_865_686,
-            18_330_598_413_732_250_100,
-            11_629_133_763_896_578_950
+            16_715_591_858_653_808_722,
+            15_343_295_655_449_602_570,
+            6_930_619_347_398_743_328,
+            12_942_816_368_648_828_370
         ]
     );
 }
@@ -1195,5 +1196,5 @@ fn conflicting_layer_mesh_output_is_golden() {
             (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
         });
     assert!(!mesh.cube_quads().is_empty());
-    assert_eq!(digest, 857_614_043_643_775_143);
+    assert_eq!(digest, 7_666_403_402_603_278_499);
 }

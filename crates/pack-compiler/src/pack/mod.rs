@@ -2,7 +2,7 @@ mod block;
 mod fixed_tint;
 mod flipbook;
 mod parse;
-mod terrain;
+pub(crate) mod terrain;
 mod variations;
 pub use fixed_tint::{apply_atlas_tint, parse_atlas_tint};
 

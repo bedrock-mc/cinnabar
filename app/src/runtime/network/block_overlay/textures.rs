@@ -209,7 +209,7 @@ pub(super) fn resample_square(texture: &DecodedTexture, tile: u32) -> Box<[u8]> 
         let mut pixels = texture.rgba8.clone();
         let mut size = texture.width;
         while size > tile {
-            pixels = assets::downsample_linear_premultiplied(&pixels, size);
+            pixels = assets::texture::downsample_linear_premultiplied(&pixels, size);
             size /= 2;
         }
         return pixels;

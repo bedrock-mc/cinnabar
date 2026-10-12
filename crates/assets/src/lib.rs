@@ -1,6 +1,6 @@
 //! Bounded Bedrock resource-pack source readers.
-mod actor;
-mod atmosphere;
+pub mod actor;
+pub mod atmosphere;
 mod audio;
 mod audio_pcm;
 pub mod bamboo;
@@ -60,27 +60,11 @@ pub mod sound_bank;
 mod sound_events;
 mod stair;
 pub mod starter_skins;
-mod texture;
+pub mod texture;
 mod ui;
 pub mod vanilla_pack;
 mod vanilla_refs;
 pub mod weather_textures;
-pub use actor::{
-    ACTOR_CARRIER_MAGIC, ACTOR_CARRIER_VERSION, ActorArtworkBinding, ActorPoseMode, ActorTexture,
-    MAX_ACTOR_BINDINGS, MAX_ACTOR_CARRIER_BYTES, MAX_ACTOR_PIXEL_BYTES, MAX_ACTOR_TEXTURE_SIDE,
-    MAX_ACTOR_TEXTURES, RuntimeActorCatalog, actor_dissolve_mask_sources, encode_actor_catalog,
-    native_actor_texture_preserves_fractional_alpha, native_actor_texture_uses_color_mask,
-    native_actor_texture_uses_multitexture, native_actor_uses_multitexture,
-    neutral_actor_geometry_sampled_texels, neutral_actor_geometry_uvs_are_supported,
-    neutral_actor_material_is_supported, neutral_actor_pose_mode,
-};
-pub use atmosphere::{
-    ATMOSPHERE_BLOB_MAGIC, ATMOSPHERE_BLOB_VERSION, AtmosphereRole, AtmosphereTexture,
-    BiomeVisualProfile, CelestialBorderTexel, CelestialTile, CompiledAtmosphereAssets, FogDistance,
-    FogDistanceMode, FogMedium, FogProfile, MAX_ENVIRONMENT_IDENTIFIER_BYTES,
-    MAX_ENVIRONMENT_PROFILES, MAX_FOG_DISTANCES, ResolvedFog, RuntimeAtmosphereAssets,
-    composite_celestial, encode_atmosphere_blob,
-};
 pub use audio::{
     AUDIO_CARRIER_MAGIC, AudioAlternative, AudioCatalogError, AudioDefinition,
     MAX_AUDIO_ALTERNATIVES, MAX_AUDIO_ALTERNATIVES_PER_DEFINITION, MAX_AUDIO_CARRIER_BYTES,
@@ -286,11 +270,6 @@ pub use skybox::{DEFAULT_NATIVE_SKYBOX_OFFSET, SKYBOX_FACE_COUNT};
 pub use skybox::{PackSkybox, SkyboxDimension, SkyboxFace};
 pub use sound_events::{FloatRange, RouteLookup, SoundEventTables, SoundRoute};
 pub use stair::StairDirection;
-pub use texture::{
-    MAX_TILE_SIZE, MIP_COUNT, TERRAIN_QUAD_SHIFT_MASK, TILE_SIZE, TextureArray, TextureMip,
-    VANILLA_TERRAIN_MIP_COUNT, build_legacy_terrain_mip_chain, build_texture_mip_chain,
-    downsample_linear_premultiplied, legacy_terrain_mip, rebuild_legacy_terrain_mips,
-};
 pub use ui::{
     ITEM_GLINT_TEXTURE_PATH, MAX_UI_ATLAS_PAGES, MAX_UI_ATLAS_SIDE, MAX_UI_CARRIER_BYTES,
     MAX_UI_FILE_BYTES, MAX_UI_FILES, MAX_UI_KEY_BYTES, MAX_UI_SIDECARS, MAX_UI_TEXTURES,

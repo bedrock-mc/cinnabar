@@ -12,6 +12,7 @@ pub(super) fn attach(
     local_runtime_id: u64,
     input: &ActorEquipmentInput,
     java_posed: &[java::Posed],
+    local_shadows: bool,
     frame: (f32, f32, Option<&render_scene::UiGlintSettings>),
 ) {
     let (partial_tick, delta_seconds, glint_settings) = frame;
@@ -29,10 +30,13 @@ pub(super) fn attach(
                 .is_some_and(|actor| actor.is_using_item());
             input.java = Some(crate::presentation::equipment::JavaGrip { blocking: using });
         }
-        let animation = stream
-            .authority()
-            .actor(runtime_id)
-            .zip(stream.authority().actor_rig(runtime_id));
+        // The local shadow body holds items as its third-person world rig animates them.
+        let animation = stream.authority().actor(runtime_id).zip(culling::world_rig(
+            stream,
+            runtime_id,
+            local_runtime_id,
+            local_shadows,
+        ));
         let layers = equipment.layers_for(
             body,
             &input,

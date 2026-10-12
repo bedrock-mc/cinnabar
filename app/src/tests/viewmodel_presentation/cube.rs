@@ -7,6 +7,7 @@ use ::acceptance::AcceptanceRun;
 fn cube_world_assets(
     entities: &assets::RuntimeEntityAssets,
 ) -> std::sync::Arc<assets::RuntimeAssets> {
+    use assets::texture::{TextureArray, TextureMip};
     use assets::*;
     use sha2::{Digest, Sha256};
     let count = entities.block_visual_count() as usize;

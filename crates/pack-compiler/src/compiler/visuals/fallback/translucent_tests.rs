@@ -65,15 +65,15 @@ fn current_registry_ice_supersedes_fallback_alpha_and_geometry() {
     .unwrap();
     let source_alpha = 190;
     RgbaImage::from_pixel(
-        assets::TILE_SIZE,
-        assets::TILE_SIZE,
+        assets::texture::TILE_SIZE,
+        assets::texture::TILE_SIZE,
         Rgba([120, 140, 180, source_alpha]),
     )
     .save(directory.path().join("textures/blocks/test_cube.png"))
     .unwrap();
     RgbaImage::from_pixel(
-        assets::TILE_SIZE,
-        assets::TILE_SIZE,
+        assets::texture::TILE_SIZE,
+        assets::texture::TILE_SIZE,
         Rgba([100, 100, 100, u8::MAX]),
     )
     .save(directory.path().join("textures/blocks/stone.png"))

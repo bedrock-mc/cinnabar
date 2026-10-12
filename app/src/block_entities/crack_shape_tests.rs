@@ -136,9 +136,10 @@ fn custom_compound_cracks_follow_each_admitted_column_displacement() {
         model_quads: vec![quad; 2],
         model_random_offsets: vec![(1, block_transform::random_offset::BAMBOO)],
         hashes: vec![Some(0xdead_beef)],
-        texture: Some(assets::TextureArray {
+        texture: Some(assets::texture::TextureArray {
             layers: 1,
-            mips: assets::build_texture_mip_chain(vec![255; 16 * 16 * 4].into(), 16).unwrap(),
+            mips: assets::texture::build_texture_mip_chain(vec![255; 16 * 16 * 4].into(), 16)
+                .unwrap(),
         }),
         ..Default::default()
     };
@@ -219,9 +220,10 @@ fn overlay_surface(height: i16) -> Arc<assets::RuntimeAssets> {
             flags: 0,
         }],
         hashes: vec![Some(0xdead_beef)],
-        texture: Some(assets::TextureArray {
+        texture: Some(assets::texture::TextureArray {
             layers: 1,
-            mips: assets::build_texture_mip_chain(vec![255; 16 * 16 * 4].into(), 16).unwrap(),
+            mips: assets::texture::build_texture_mip_chain(vec![255; 16 * 16 * 4].into(), 16)
+                .unwrap(),
         }),
         ..Default::default()
     };

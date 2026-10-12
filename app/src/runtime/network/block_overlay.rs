@@ -19,8 +19,9 @@ use assets::{
     MATERIAL_FLAG_DISABLE_AO, MATERIAL_FLAG_DISABLE_FACE_DIMMING, MATERIAL_FLAG_DRY_FOLIAGE,
     MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT,
     MATERIAL_FLAG_WATER_TINT, MODEL_QUAD_FLAG_TWO_SIDED, Material, MaterialKeys, MaterialOverride,
-    ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, TextureArray, TextureMip,
-    TextureRef, VisualKind, VisualSupport,
+    ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, TextureRef, VisualKind,
+    VisualSupport,
+    texture::{TextureArray, TextureMip},
 };
 use protocol::{CustomBlocks, CustomVisualComponents};
 use resource_pack::LayeredPackView;
@@ -37,7 +38,7 @@ use pack_runtime::pack_textures::DecodedTexture;
 
 const FULL_BLOCK: &str = "minecraft:geometry.full_block";
 const FULL_BLOCK_V1: &str = "minecraft:geometry.full_block_v1";
-const MIN_TILE: u32 = assets::TILE_SIZE;
+const MIN_TILE: u32 = assets::texture::TILE_SIZE;
 const MAX_TILE: u32 = 128;
 const MAX_OVERLAY_LAYERS: usize = assets::MAX_TEXTURE_LAYERS;
 const MAX_OVERLAY_TEXTURE_BYTES: usize = 64 * 1024 * 1024;
@@ -579,7 +580,8 @@ impl Builder<'_> {
             let (dimensions, chain) = match source {
                 Source::Diagnostic => (
                     [tile as u16; 2],
-                    assets::build_legacy_terrain_mip_chain(&diagnostic_pixels(tile), tile).ok()?,
+                    assets::texture::build_legacy_terrain_mip_chain(&diagnostic_pixels(tile), tile)
+                        .ok()?,
                 ),
                 Source::Image(texture) | Source::GridImage(texture, _) => {
                     source_mip_chain(texture, tile)?
@@ -594,7 +596,8 @@ impl Builder<'_> {
                 self.gaps.missing_textures = self.gaps.missing_textures.saturating_add(1);
                 (
                     [tile as u16; 2],
-                    assets::build_legacy_terrain_mip_chain(&diagnostic_pixels(tile), tile).ok()?,
+                    assets::texture::build_legacy_terrain_mip_chain(&diagnostic_pixels(tile), tile)
+                        .ok()?,
                     0,
                 )
             } else {

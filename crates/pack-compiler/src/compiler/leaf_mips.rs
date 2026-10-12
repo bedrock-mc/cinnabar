@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 use assets::{
     Animation, AssetError, MATERIAL_FLAG_NATIVE_LEAF_COLOUR, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS,
-    MAX_CARRIER_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT, Material, NO_ANIMATION, TILE_SIZE,
-    TextureArray, TextureMip, TexturePage, TextureRef, build_legacy_terrain_mip_chain,
+    MAX_CARRIER_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, Material, NO_ANIMATION, TexturePage, TextureRef,
+    texture::{MIP_COUNT, TILE_SIZE, TextureArray, TextureMip, build_legacy_terrain_mip_chain},
 };
 
 pub(super) struct CompiledLeafTextures {

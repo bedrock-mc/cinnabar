@@ -3,10 +3,11 @@ use assets::{
     CompiledAssets, CompiledBiomeAssets, DIAGNOSTIC_MATERIAL, LightProperties,
     MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAGS_MASK, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS,
     MAX_MATERIALS, MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, Material, ModelQuad, ModelTemplate,
-    NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TINT_MAP_BYTES, TextureArray,
-    TextureMip, TexturePage, TextureRef, TintSource, VisualKind, VisualSupport,
+    NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TINT_MAP_BYTES, TexturePage,
+    TextureRef, TintSource, VisualKind, VisualSupport,
     blob::{HEADER_BYTES, VISUAL_BYTES},
     encode_blob,
+    texture::{TextureArray, TextureMip},
 };
 use sha2::{Digest, Sha256};
 

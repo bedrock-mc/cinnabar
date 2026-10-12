@@ -31,7 +31,12 @@ pub(super) fn page_pixels(
     pixels
 }
 
-fn append_nearest(pixels: &mut Vec<u8>, texture: &assets::ActorTexture, width: u16, height: u16) {
+fn append_nearest(
+    pixels: &mut Vec<u8>,
+    texture: &assets::actor::ActorTexture,
+    width: u16,
+    height: u16,
+) {
     if (texture.width, texture.height) == (width, height) {
         pixels.extend_from_slice(&texture.rgba8);
         return;
@@ -93,7 +98,7 @@ mod tests {
 
     #[test]
     fn nearest_expansion_preserves_partial_alpha_and_normalized_texel_boundaries() {
-        let texture = assets::ActorTexture {
+        let texture = assets::actor::ActorTexture {
             source: 0,
             width: 2,
             height: 1,
@@ -114,7 +119,7 @@ mod tests {
         let location = |page, layer| ActorArtworkLocation {
             page,
             layer,
-            pose_mode: assets::ActorPoseMode::CompiledLiteral,
+            pose_mode: assets::actor::ActorPoseMode::CompiledLiteral,
             multitexture: None,
         };
         let first = location(1, 0);

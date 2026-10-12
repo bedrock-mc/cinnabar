@@ -6,7 +6,10 @@ use std::{
 
 use ::image::{ImageFormat, ImageReader, Limits};
 
-use assets::{AssetError, TILE_SIZE, TextureMip, downsample_linear_premultiplied};
+use assets::{
+    AssetError,
+    texture::{TILE_SIZE, TextureMip, downsample_linear_premultiplied},
+};
 
 const MAX_TEXTURE_BYTES: usize = 1024 * 1024;
 const MAX_DECODE_ALLOC: u64 = 256 * 1024;
@@ -179,7 +182,7 @@ pub(crate) fn normalize_texture_tile(
 }
 
 pub(crate) fn build_texture_mip_chain(base: Box<[u8]>) -> Result<Box<[TextureMip]>, AssetError> {
-    assets::build_texture_mip_chain(base, TILE_SIZE)
+    assets::texture::build_texture_mip_chain(base, TILE_SIZE)
 }
 
 fn static_texture_format(path: &Path, key: &str) -> Result<ImageFormat, AssetError> {

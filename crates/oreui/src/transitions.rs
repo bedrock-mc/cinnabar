@@ -23,6 +23,7 @@ const ICON_HIGHLIGHT_DURATION: f64 = 0.200;
 enum Control {
     Setting(u16),
     Fullscreen,
+    EnhancedRendering,
 }
 
 impl Control {
@@ -30,6 +31,7 @@ impl Control {
         match action {
             MenuAction::SettingsOption(index, _) => Some(Self::Setting(index)),
             MenuAction::SettingsFullscreen(_) => Some(Self::Fullscreen),
+            MenuAction::ToggleRenderMode => Some(Self::EnhancedRendering),
             _ => None,
         }
     }

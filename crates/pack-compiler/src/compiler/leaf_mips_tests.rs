@@ -19,7 +19,7 @@ fn base(seed: u8) -> Box<[u8]> {
 fn page(bases: &[Box<[u8]>]) -> TexturePage {
     let chains = bases
         .iter()
-        .map(|base| assets::build_texture_mip_chain(base.clone(), TILE_SIZE).unwrap())
+        .map(|base| assets::texture::build_texture_mip_chain(base.clone(), TILE_SIZE).unwrap())
         .collect::<Vec<_>>();
     TexturePage::new(TextureArray {
         layers: bases.len() as u32,

@@ -5,8 +5,9 @@ use std::collections::BTreeMap;
 use assets::{
     BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BlockFace, BlockFlags, BlockOverlay,
     DIAGNOSTIC_MATERIAL, IconSprite, ItemVisualDefinitionRoute, Material, NO_ANIMATION,
-    NetworkIdMode, RuntimeAssets, RuntimeEntityAssets, TextureArray, TextureMip, VisualKind,
-    VisualSupport, compose_block_item_sheet,
+    NetworkIdMode, RuntimeAssets, RuntimeEntityAssets, VisualKind, VisualSupport,
+    compose_block_item_sheet,
+    texture::{TextureArray, TextureMip},
 };
 
 const TILE: usize = BLOCK_ITEM_FACE_SIDE as usize;
@@ -293,9 +294,9 @@ fn overlay_face_tile(overlay: &BlockOverlay, material: &Material) -> Option<Icon
     let level = source_side
         .ilog2()
         .saturating_sub(TILE.ilog2())
-        .min(assets::VANILLA_TERRAIN_MIP_COUNT - 1);
+        .min(assets::texture::VANILLA_TERRAIN_MIP_COUNT - 1);
     let mip = texture.mips.get(level as usize)?;
-    if mip.size == 0 || mip.size > assets::MAX_TILE_SIZE {
+    if mip.size == 0 || mip.size > assets::texture::MAX_TILE_SIZE {
         return None;
     }
     let side = mip.size as usize;

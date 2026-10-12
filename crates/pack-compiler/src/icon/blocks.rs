@@ -237,7 +237,7 @@ impl IconBlocks {
         if first_strip_frame {
             crate::image::retain_first_strip_frame(&mut decoded);
             if decoded.width == decoded.height
-                && decoded.width >= assets::TILE_SIZE
+                && decoded.width >= assets::texture::TILE_SIZE
                 && decoded.width.is_power_of_two()
             {
                 return Ok(Some(IconSprite {

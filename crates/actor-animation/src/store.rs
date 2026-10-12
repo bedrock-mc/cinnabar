@@ -21,6 +21,8 @@ pub struct ActorAnimationStore {
     pub(super) next_reset_generation: u64,
     pub(super) next_rest_reset_generation: u64,
     pub(super) stats: ActorAnimationStats,
+    /// Whether the local first-person actor also evaluates a third-person world body.
+    pub(super) local_body_enabled: bool,
     #[cfg(any(test, feature = "test-support"))]
     pub(super) schedule: schedule::TestSchedule,
 }
@@ -75,6 +77,7 @@ impl ActorAnimationStore {
             next_reset_generation: 1,
             next_rest_reset_generation: 1,
             stats: ActorAnimationStats::default(),
+            local_body_enabled: false,
             #[cfg(any(test, feature = "test-support"))]
             schedule: Default::default(),
         };
@@ -315,7 +318,7 @@ impl ActorAnimationStore {
         self.stats
     }
 
-    fn snapshot<'a>(
+    pub(super) fn snapshot<'a>(
         &'a self,
         actor: ActorLifetimeId,
         state: &'a ActorRigState,

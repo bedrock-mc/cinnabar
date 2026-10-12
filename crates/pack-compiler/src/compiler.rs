@@ -15,8 +15,8 @@ use assets::{
     MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
     MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
     MODEL_TEMPLATE_FLAG_WALL, Material, MaterialKeys, ModelFamily, ModelQuad, ModelStateField,
-    ModelTemplate, NO_ANIMATION, RegistryRecord, TextureArray, TexturePage, TextureRef, VisualKind,
-    VisualSupport,
+    ModelTemplate, NO_ANIMATION, RegistryRecord, TexturePage, TextureRef, VisualKind,
+    VisualSupport, texture::TextureArray,
 };
 
 use {
@@ -757,8 +757,8 @@ fn compile_runtime_animation_plan(
         }
         decoded_images.push(DecodedImage {
             source_path,
-            width: assets::TILE_SIZE,
-            height: assets::TILE_SIZE,
+            width: assets::texture::TILE_SIZE,
+            height: assets::texture::TILE_SIZE,
             rgba8,
         });
     }
@@ -820,9 +820,9 @@ fn descriptor_supports_alpha(descriptor: &Descriptor) -> bool {
 fn animation_plan_pages(plan: &AnimationPlan) -> Result<Box<[TexturePage]>, AssetError> {
     let mut pages = Vec::new();
     for chunk in plan.layers.chunks(MAX_CARRIER_TEXTURE_LAYERS) {
-        let mut mips = Vec::with_capacity(assets::MIP_COUNT as usize);
-        for level in 0..assets::MIP_COUNT as usize {
-            let size = assets::TILE_SIZE >> level;
+        let mut mips = Vec::with_capacity(assets::texture::MIP_COUNT as usize);
+        for level in 0..assets::texture::MIP_COUNT as usize {
+            let size = assets::texture::TILE_SIZE >> level;
             let mut rgba8 = Vec::new();
             for layer in chunk {
                 let mip =
@@ -839,7 +839,7 @@ fn animation_plan_pages(plan: &AnimationPlan) -> Result<Box<[TexturePage]>, Asse
                 }
                 rgba8.extend_from_slice(&mip.rgba8);
             }
-            mips.push(assets::TextureMip {
+            mips.push(assets::texture::TextureMip {
                 size,
                 rgba8: rgba8.into_boxed_slice(),
             });

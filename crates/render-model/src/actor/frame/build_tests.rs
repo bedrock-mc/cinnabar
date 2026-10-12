@@ -167,7 +167,7 @@ fn batch(
             let location = ActorArtworkLocation {
                 page,
                 layer: entry.texture_layer,
-                pose_mode: assets::ActorPoseMode::CompiledLiteral,
+                pose_mode: assets::actor::ActorPoseMode::CompiledLiteral,
                 multitexture: (random.below(2) == 0).then(|| [page.into(), 7]),
             };
             assignments.insert(entry.input.identity, location);

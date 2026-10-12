@@ -12,6 +12,9 @@ reads = [
     "crates/render/src/model.wesl",
 ]
 
+[features]
+enhanced = []
+
 [dependencies]
 block-transform = { path = "../block-transform" }
 assets = { path = "../assets" }

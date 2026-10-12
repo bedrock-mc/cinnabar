@@ -231,7 +231,7 @@ fn compile(pack: &Path) -> Vanilla {
     let bytes = assets::encode_entity_blob(&compiled).unwrap();
     let entities = Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
     let artwork = pack_compiler::compile_actor_assets(pack, manifest).unwrap();
-    let catalog = assets::RuntimeActorCatalog::decode(&artwork.bytes, &entities).unwrap();
+    let catalog = assets::actor::RuntimeActorCatalog::decode(&artwork.bytes, &entities).unwrap();
     Vanilla {
         candidates: catalog
             .bindings()

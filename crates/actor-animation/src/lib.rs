@@ -44,6 +44,7 @@ pub use store::ActorAnimationStore;
 use store::{PackCatalog, PoseStep, model_scale};
 
 mod attachable;
+mod body;
 mod clock;
 pub mod custom_emotes;
 pub use custom_emotes::{CustomEmote, CustomEmotePose, sample_custom_emote};

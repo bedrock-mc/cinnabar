@@ -52,7 +52,7 @@ fn move_actor(runtime_id: u64, position: [f32; 3], yaw: f32) -> WorldEvent {
 /// The production frame schedule over the actor fixture, with the resources its systems read.
 fn production(app: &mut App) -> (bevy::ecs::schedule::Schedule, World) {
     crate::app::configure_client_frame_schedule(app);
-    crate::app::configure_actor_render_systems(app);
+    crate::app::frame_systems::configure_actor_render_systems(app);
     let schedule = app
         .world_mut()
         .resource_mut::<bevy::ecs::schedule::Schedules>()

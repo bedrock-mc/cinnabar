@@ -94,7 +94,7 @@ fn larger_overlays_keep_every_texture_that_fits_the_device() {
         assert_eq!(texture.layers, admitted);
         render_scene::TextureArrayLimits {
             max_layers: limit,
-            max_dimension_2d: assets::MAX_TILE_SIZE,
+            max_dimension_2d: assets::texture::MAX_TILE_SIZE,
         }
         .validate(texture.layers, texture.mips[0].size)
         .expect("uploadable overlay");

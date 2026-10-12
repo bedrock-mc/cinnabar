@@ -322,7 +322,7 @@ impl BlockEntityScene {
     pub fn install_mob_assets(
         &mut self,
         entities: &assets::RuntimeEntityAssets,
-        catalog: &assets::RuntimeActorCatalog,
+        catalog: &assets::actor::RuntimeActorCatalog,
     ) {
         let mobs = MobModels::from_assets(entities, catalog);
         let Some(current) = self.atlas.as_ref() else {

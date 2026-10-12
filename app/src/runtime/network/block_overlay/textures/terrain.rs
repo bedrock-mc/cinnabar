@@ -10,8 +10,8 @@ pub(in super::super) fn admit_static_rectangle(texture: &mut DecodedTexture) {
         pixels.truncate((texture.width * texture.height * 4) as usize);
         texture.rgba8 = pixels.into_boxed_slice();
     }
-    let width = texture.width.max(assets::TILE_SIZE);
-    let height = texture.height.max(assets::TILE_SIZE);
+    let width = texture.width.max(assets::texture::TILE_SIZE);
+    let height = texture.height.max(assets::texture::TILE_SIZE);
     if [width, height] != [texture.width, texture.height] {
         let mut pixels = Vec::with_capacity((width * height * 4) as usize);
         for y in 0..height {
@@ -32,13 +32,13 @@ pub(in super::super) fn admit_static_rectangle(texture: &mut DecodedTexture) {
 pub(in super::super) fn source_mip_chain(
     texture: &DecodedTexture,
     tile: u32,
-) -> Option<([u16; 2], Box<[assets::TextureMip]>)> {
+) -> Option<([u16; 2], Box<[assets::texture::TextureMip]>)> {
     let dimensions = [texture.width, texture.height];
     if dimensions.iter().any(|size| !size.is_power_of_two()) {
         let base = resample_square(texture, tile);
         return Some((
             [tile as u16; 2],
-            assets::build_legacy_terrain_mip_chain(&base, tile).ok()?,
+            assets::texture::build_legacy_terrain_mip_chain(&base, tile).ok()?,
         ));
     }
     let bias = dimensions
@@ -50,9 +50,10 @@ pub(in super::super) fn source_mip_chain(
     let mips = (0..=tile.ilog2())
         .map(|level| {
             let (rgba8, [width, height]) =
-                assets::legacy_terrain_mip(&texture.rgba8, dimensions, level + bias).ok()?;
+                assets::texture::legacy_terrain_mip(&texture.rgba8, dimensions, level + bias)
+                    .ok()?;
             let size = tile >> level;
-            Some(assets::TextureMip {
+            Some(assets::texture::TextureMip {
                 size,
                 rgba8: resample_square(
                     &DecodedTexture {

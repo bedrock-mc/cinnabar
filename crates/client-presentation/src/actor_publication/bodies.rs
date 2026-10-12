@@ -45,7 +45,7 @@ pub(super) struct SampledBodies<'a> {
 pub(super) fn sample<'a>(
     stream: Option<&'a WorldStream>,
     input: &ActorFrameInput,
-    view: (PoseView, Option<ActorCullView>),
+    view: (PoseView, Option<culling::ActorPublicationViews>),
     artwork: &render_model::ActorArtworkPages,
     caches: BodyCaches<'_>,
     hides_box: impl Fn(&WorldStream, ActorCullView, [f32; 3], [f32; 3]) -> bool,
@@ -58,8 +58,10 @@ pub(super) fn sample<'a>(
             java_mode,
             sampling_camera,
         },
-        cull_view,
+        actor_views,
     ) = view;
+    // Enhanced shadow views publish off-screen casters through the widened view.
+    let cull_view = actor_views.map(|views| views.publication);
     let BodyCaches {
         poses,
         java_poses,
@@ -117,11 +119,11 @@ pub(super) fn sample<'a>(
                     occlusion_work.candidates +=
                         u32::from(rig.actor.runtime_id != local_runtime_id);
                     if rig.actor.runtime_id != local_runtime_id
-                        && !crate::presentation::actors::rig_may_be_visible(
+                        && !culling::rig_may_be_published(
                             &rig,
                             actor,
                             partial_tick,
-                            cull_view,
+                            actor_views,
                             render_frame.as_mut(),
                             |low, high| {
                                 cull_view.is_some_and(|view| {

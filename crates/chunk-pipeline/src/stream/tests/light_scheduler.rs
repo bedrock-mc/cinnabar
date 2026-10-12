@@ -6,8 +6,9 @@ use std::{
 
 use assets::{
     BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, ContributorRole, LightProperties,
-    Material, NO_ANIMATION, NO_MODEL_TEMPLATE, RuntimeAssets, TextureArray, TextureMip,
-    TexturePage, TextureRef, VisualKind, encode_blob,
+    Material, NO_ANIMATION, NO_MODEL_TEMPLATE, RuntimeAssets, TexturePage, TextureRef, VisualKind,
+    encode_blob,
+    texture::{TextureArray, TextureMip},
 };
 use protocol::WorldBootstrap;
 use world::{

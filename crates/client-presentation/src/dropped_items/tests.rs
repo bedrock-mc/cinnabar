@@ -49,9 +49,10 @@ fn potted_models_sample_the_exposed_server_texture_grid() {
                 },
             ],
             model_quads: vec![quad, cropped, quad],
-            texture: Some(assets::TextureArray {
+            texture: Some(assets::texture::TextureArray {
                 layers: 1,
-                mips: assets::build_texture_mip_chain(pixels.clone().into(), side).unwrap(),
+                mips: assets::texture::build_texture_mip_chain(pixels.clone().into(), side)
+                    .unwrap(),
             }),
             texture_source_sizes: vec![[side as u16 >> grid; 2]],
             texture_source_grids: vec![grid],
@@ -239,7 +240,7 @@ use assets::{CompiledAssets, RegistryRecord};
 use std::fs;
 /// Compiles real barrel selectors with original opaque sprite artwork for held-consumer checks.
 fn barrels() -> (CompiledAssets, Vec<RegistryRecord>) {
-    barrels_with_size(assets::TILE_SIZE)
+    barrels_with_size(assets::texture::TILE_SIZE)
 }
 
 /// Compiles original sprites at the requested source resolution.

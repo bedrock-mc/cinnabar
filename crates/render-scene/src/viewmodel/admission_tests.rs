@@ -1,4 +1,5 @@
 use super::*;
+use assets::texture::{TextureArray, TextureMip};
 use bevy::prelude::{Mat2, Vec2};
 use render_model::viewmodel::geometry;
 use render_model::viewmodel::{VIEWMODEL_TEXTURE_BYTES, VIEWMODEL_TEXTURE_SIDE};

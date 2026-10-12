@@ -2,9 +2,11 @@ use std::fs;
 
 use assets::{
     AssetError, BLOB_MAGIC, BLOB_VERSION, BlobProvenance, BlockFlags, BlockVisual, CompiledAssets,
-    CompiledBiomeAssets, MATERIAL_FLAGS_MASK, MAX_MATERIALS, MAX_TEXTURE_LAYERS, MIP_COUNT,
-    Material, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TextureArray, TextureMip, TexturePage,
-    TextureRef, VisualKind, VisualSupport, encode_blob, write_blob_atomic,
+    CompiledBiomeAssets, MATERIAL_FLAGS_MASK, MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material,
+    NO_ANIMATION, NO_MODEL_TEMPLATE, TexturePage, TextureRef, VisualKind, VisualSupport,
+    encode_blob,
+    texture::{MIP_COUNT, TILE_SIZE, TextureArray, TextureMip},
+    write_blob_atomic,
 };
 use sha2::{Digest, Sha256};
 

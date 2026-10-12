@@ -1,5 +1,6 @@
 mod bodies;
 mod commit;
+mod culling;
 mod geometry;
 mod hand_frame;
 mod layers;
@@ -33,7 +34,9 @@ use crate::local_player::{LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
 use crate::{
     actor_clock::authoritative_local_actor_eye,
     dropped_items::DroppedItemPublisher,
-    presentation::{actors::select_actor_presentations_for_view, equipment::EquipmentRuntime},
+    presentation::{
+        actors::select_actor_presentations_for_shadow_view, equipment::EquipmentRuntime,
+    },
 };
 use bevy::prelude::{Query, Transform, With};
 
@@ -68,7 +71,16 @@ pub struct ActorPresentationState<'w, 's> {
     settings: Res<'w, CameraSettingsAuthority>,
     server_camera: Option<Res<'w, crate::camera::ServerCameraView>>,
     view: Res<'w, LocalViewPose>,
-    camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
+    camera: Query<
+        'w,
+        's,
+        (
+            &'static Transform,
+            &'static Projection,
+            Option<&'static render_scene::EnhancedRendering>,
+        ),
+        With<FlyCamera>,
+    >,
 }
 
 /// Optional validated cosmetic tint of already active native actor damage overlays.
@@ -149,14 +161,16 @@ pub fn prepare_actor_render_frame(
         .profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::ActorPreparation));
-    let cull_view = params.presentation.cull_view();
+    let actor_views = params.presentation.actor_views();
+    let cull_view = actor_views.map(|views| views.publication);
+    let local_shadows = state.first_person && actor_views.is_some_and(|views| views.casts_shadows);
     let mut new_geometries = Vec::new();
     // The hand reads the canonical body before local placement. Layers share the body sample's
     // controller budget; all new geometry is registered together before either rig is published.
     let mut bodies = bodies::sample(
         stream,
         &input,
-        (pose_view, cull_view),
+        (pose_view, actor_views),
         artwork,
         bodies::BodyCaches {
             poses: &mut state.poses,
@@ -194,15 +208,33 @@ pub fn prepare_actor_render_frame(
         params.equipment.as_deref_mut(),
         &mut new_geometries,
     );
+    let local = culling::with_local_shadow_body(
+        local,
+        local_shadows,
+        stream,
+        (
+            &mut state.shadow_poses,
+            &mut state.java_poses,
+            &mut bodies.java_posed,
+        ),
+        (
+            state.java_mode && input.custom_emote.is_none(),
+            &input.local_equipment,
+        ),
+        step.partial_tick,
+    );
     let camera_position = cull_view
         .as_ref()
         .map(|view| view.camera_position.to_array());
-    let mut batch = select_actor_presentations_for_view(
+    let mut batch = select_actor_presentations_for_shadow_view(
         bodies.local_runtime_id,
         local_visible,
         local,
         bodies.remotes,
-        cull_view,
+        actor_views.map(|views| views.main),
+        actor_views
+            .filter(|views| views.casts_shadows)
+            .map(|views| views.publication),
     );
     if let Some(stream) = stream {
         crate::presentation::actors::light_bodies(&mut batch, stream);
@@ -221,6 +253,7 @@ pub fn prepare_actor_render_frame(
             local_emote_pose: bodies.local_emote_pose.as_ref(),
             native_body_sampled: bodies.native_body_sampled,
             native_pose: &state.java_hand.native_pose,
+            local_shadows,
         },
         layers::LayerCaches {
             layer_poses: &mut state.layer_poses,
@@ -239,6 +272,9 @@ pub fn prepare_actor_render_frame(
         ),
         &mut new_geometries,
     );
+    if actor_views.is_some_and(|views| views.casts_shadows) {
+        culling::shadow_only_caster_layers(&mut batch);
+    }
     layers::apply_style_and_visibility(&mut batch, stream, params.actor_style.as_deref());
     if let Some(equipment) = params.equipment.as_deref_mut() {
         new_geometries.extend(equipment.take_pending_geometries());

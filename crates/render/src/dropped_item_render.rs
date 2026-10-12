@@ -334,7 +334,7 @@ fn atlas_side(models: &[DroppedItemModel]) -> u32 {
             DroppedItemModel::Cube(cube) => Some(cube.tile),
             _ => None,
         })
-        .filter(|&side| side <= assets::MAX_TILE_SIZE)
+        .filter(|&side| side <= assets::texture::MAX_TILE_SIZE)
         .fold(MAX_ITEM_SPRITE_SIDE, u32::max)
         .next_power_of_two()
 }

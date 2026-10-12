@@ -2,8 +2,8 @@
 //! from any untinted material which happens to share the same source image.
 
 use assets::{
-    MAX_CARRIER_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT, MODEL_TEMPLATE_FLAG_LILY_PAD,
-    TILE_SIZE, TextureMip,
+    MAX_CARRIER_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MODEL_TEMPLATE_FLAG_LILY_PAD,
+    texture::{MIP_COUNT, TILE_SIZE, TextureMip},
 };
 use {super::*, assets::BlockFace};
 

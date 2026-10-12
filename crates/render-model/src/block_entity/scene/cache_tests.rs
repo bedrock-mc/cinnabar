@@ -505,8 +505,8 @@ fn review_render_atlas_snapshot_does_not_block_mob_installation() {
     .unwrap();
     let bytes = assets::encode_entity_blob(&compiled).unwrap();
     let entities = assets::RuntimeEntityAssets::decode(&bytes).unwrap();
-    let catalog = assets::RuntimeActorCatalog::decode(
-        &assets::encode_actor_catalog(&bytes, &[], &[]).unwrap(),
+    let catalog = assets::actor::RuntimeActorCatalog::decode(
+        &assets::actor::encode_actor_catalog(&bytes, &[], &[]).unwrap(),
         &entities,
     )
     .unwrap();

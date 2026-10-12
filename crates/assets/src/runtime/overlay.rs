@@ -5,10 +5,12 @@ use std::sync::atomic::AtomicU64;
 use super::RuntimeAssets;
 use crate::{
     Animation, AssetError, BlockFlags, BlockVisual, LightProperties, MAX_MATERIALS,
-    MAX_TEXTURE_LAYERS, MAX_TILE_SIZE, Material, ModelQuad, ModelTemplate, NO_ANIMATION,
-    NO_MODEL_TEMPLATE, TextureArray, TexturePage, TextureRef, VisualKind,
-    compiled::material_flags_are_valid, compiled::visual_semantics_are_valid,
+    MAX_TEXTURE_LAYERS, Material, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
+    TexturePage, TextureRef, VisualKind,
+    compiled::material_flags_are_valid,
+    compiled::visual_semantics_are_valid,
     model::model_quad_flags_are_valid,
+    texture::{MAX_TILE_SIZE, TextureArray},
 };
 
 /// Repoints a base material at an overlay texture, keeping its flags (tint, alpha).
@@ -110,7 +112,7 @@ impl RuntimeAssets {
                     .iter()
                     .zip(&overlay.texture_source_sizes)
                     .any(|(&grid, size)| {
-                        u32::from(grid) > crate::TERRAIN_QUAD_SHIFT_MASK
+                        u32::from(grid) > crate::texture::TERRAIN_QUAD_SHIFT_MASK
                             || size.iter().any(|&axis| {
                                 u32::from(axis)
                                     .checked_mul(1u32 << grid)
@@ -442,7 +444,7 @@ fn invalid(detail: impl Into<Box<str>>) -> AssetError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{BlockFlags, ContributorRole, NetworkIdMode, TextureMip, VisualSupport};
+    use crate::{BlockFlags, ContributorRole, NetworkIdMode, VisualSupport, texture::TextureMip};
 
     fn page(size: u32) -> TextureArray {
         let mut mips = Vec::new();

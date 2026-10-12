@@ -30,6 +30,8 @@ pub(super) fn render_plugin() -> RenderPlugin {
     if let Some(backends) = preferred_render_backends(std::env::var_os("WGPU_BACKEND").as_deref()) {
         settings.backends = Some(backends);
     }
+    #[cfg(all(feature = "enhanced", target_os = "windows"))]
+    render::configure_enhanced_shader_compiler(&mut settings);
     #[cfg(windows)]
     {
         static LOG_COMPILER: std::sync::Once = std::sync::Once::new();

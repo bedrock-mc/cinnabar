@@ -17,7 +17,10 @@ POWERSHELL ?= powershell
 
 NO_VSYNC ?= 0
 TRACY ?= 0
-CLIENT_FEATURES = $(if $(filter 1,$(TRACY)),--features tracy)
+CLIENT_FEATURES ?=
+RENDER_MODE ?=
+CLIENT_CARGO_FEATURES = $(if $(strip $(CLIENT_FEATURES)),--features "$(CLIENT_FEATURES)") $(if $(filter 1,$(TRACY)),--features tracy)
+CLIENT_RENDER_MODE_ARGS = $(if $(strip $(RENDER_MODE)),--render-mode "$(RENDER_MODE)")
 # Identifies the client build in its session log and supplies runtime acceptance markers.
 # The pre-rename RUST_MCBE_BUILD_COMMIT is still honoured for one release.
 ifdef RUST_MCBE_BUILD_COMMIT
@@ -134,10 +137,10 @@ ifeq ($(CINNABAR_DEV_SERVER_EXPERIENCES),1)
 endif
 	$(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
 	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" .
-	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build --profile $(PROFILE) -p cinnabar --locked $(CLIENT_FEATURES) --message-format=$(CLIENT_MESSAGE_FORMAT)
+	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build --profile $(PROFILE) -p cinnabar --locked $(CLIENT_CARGO_FEATURES) --message-format=$(CLIENT_MESSAGE_FORMAT)
 
 play: play-build
-	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) -p cinnabar --locked $(CLIENT_FEATURES) -- $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
+	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) -p cinnabar --locked $(CLIENT_CARGO_FEATURES) -- $(CLIENT_RENDER_MODE_ARGS) $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 dist-local:
 	$(CARGO) run --locked -p dist-local -- --platform "$(DIST_PLATFORM)" --client "$(DIST_CLIENT)" --core "$(DIST_CORE)" --binaries "$(DIST_BINARIES)" --physics "$(PHYSICS_REGISTRY)" --notices "$(DIST_NOTICES)" --target "$(DIST_TARGET)" --git-commit "$(DIST_GIT_COMMIT)" --out "$(DIST_OUT)"

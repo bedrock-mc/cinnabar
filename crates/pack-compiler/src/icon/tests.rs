@@ -1,4 +1,5 @@
 use super::*;
+use assets::texture::{TILE_SIZE, TextureArray, TextureMip};
 use assets::*;
 
 #[test]

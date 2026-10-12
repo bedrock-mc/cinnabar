@@ -248,7 +248,7 @@ pub(super) fn evaluate_render(
     let assets = evaluator.assets;
     let render = assets.render_data();
     let mut output = Vec::new();
-    let multitexture = assets::native_actor_uses_multitexture(assets, rig.binding);
+    let multitexture = assets::actor::native_actor_uses_multitexture(assets, rig.binding);
     let actor_color = assets
         .rig_bindings()
         .get(rig.binding)

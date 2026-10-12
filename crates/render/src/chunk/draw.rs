@@ -591,7 +591,8 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     for (view_entity, main_entity, view, visible_entities, msaa, enhanced, extracted_camera) in
         &views
     {
-        if runtime.view_entity != Some(view_entity) {
+        let capture = enhanced.is_some_and(|settings| settings.reflection_capture);
+        if runtime.view_entity != Some(view_entity) && !capture {
             continue;
         }
         let Some(phase) = transparent_phases.get_mut(&view.retained_view_entity) else {
@@ -609,34 +610,19 @@ pub(in crate::chunk) fn queue_transparent_chunks(
         else {
             continue;
         };
-        let mut models = BTreeMap::new();
-        let mut water = Vec::new();
-        for (entity, main) in visible_entities
-            .get::<ChunkRenderInstance>()
-            .into_iter()
-            .flat_map(|class| class.iter_visible())
-            .map(|(entity, main)| (*entity, *main))
-        {
-            let Ok(allocation) = allocations.get(entity) else {
-                continue;
-            };
-            if transparent_model_direct_draw_command(allocation).is_some() {
-                models.insert(allocation.key, (entity, main));
-            }
-            // Like opaque terrain, water waits for its re-upload under a new tint table.
-            if transparent_liquid_direct_draw_command(allocation).is_some()
-                && chunk_tint_identity_is_active(
-                    allocation.tint_identity,
-                    biome_tints.table_identity(),
-                )
-            {
-                water.push(VisibleWater {
-                    key: allocation.key,
-                    entity,
-                    main,
-                    order_independent: allocation.order_independent_liquid,
-                });
-            }
+        let (models, water) =
+            visible_transparent_terrain(visible_entities, &allocations, &biome_tints);
+        if capture {
+            queue_capture_transparent(
+                phase,
+                &rangefinder,
+                pipeline_id,
+                [record_draw, transparent_model_draw],
+                &models,
+                water,
+                &arena.transparent_liquids,
+            );
+            continue;
         }
         // Equal phase distances keep insertion order, so water enters in key order.
         let water = water_order.update(water);
@@ -767,6 +753,88 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     }
     mixed.finish_frame();
     unsorted.finish_frame();
+}
+
+/// Visible sub-chunks with drawable transparent models, by key, and with drawable water.
+fn visible_transparent_terrain(
+    visible_entities: &RenderVisibleEntities,
+    allocations: &Query<&GpuChunkAllocation>,
+    biome_tints: &ChunkBiomeTints,
+) -> (
+    BTreeMap<SubChunkKey, (Entity, MainEntity)>,
+    Vec<VisibleWater>,
+) {
+    let mut models = BTreeMap::new();
+    let mut water = Vec::new();
+    for (entity, main) in visible_entities
+        .get::<ChunkRenderInstance>()
+        .into_iter()
+        .flat_map(|class| class.iter_visible())
+        .map(|(entity, main)| (*entity, *main))
+    {
+        let Ok(allocation) = allocations.get(entity) else {
+            continue;
+        };
+        if transparent_model_direct_draw_command(allocation).is_some() {
+            models.insert(allocation.key, (entity, main));
+        }
+        // Like opaque terrain, water waits for its re-upload under a new tint table.
+        if transparent_liquid_direct_draw_command(allocation).is_some()
+            && chunk_tint_identity_is_active(allocation.tint_identity, biome_tints.table_identity())
+        {
+            water.push(VisibleWater {
+                key: allocation.key,
+                entity,
+                main,
+                order_independent: allocation.order_independent_liquid,
+            });
+        }
+    }
+    (models, water)
+}
+
+/// Queues a reflection capture's transparent terrain without the gameplay view's retained sort:
+/// each sub-chunk draws its own records, and the phase orders sub-chunks back to front.
+fn queue_capture_transparent(
+    phase: &mut bevy::render::render_phase::SortedRenderPhase<Transparent3d>,
+    rangefinder: &ViewRangefinder3d,
+    pipeline: bevy::render::render_resource::CachedRenderPipelineId,
+    [water_draw, model_draw]: [bevy::render::render_phase::DrawFunctionId; 2],
+    models: &BTreeMap<SubChunkKey, (Entity, MainEntity)>,
+    mut water: Vec<VisibleWater>,
+    residents: &TransparentLiquidResidents,
+) {
+    // Equal phase distances keep insertion order, so water enters in key order before models.
+    water.sort_unstable_by_key(|water| (water.key, water.entity));
+    let water = each_visible_key(&water, residents).map(|water| {
+        (
+            (water.entity, water.main),
+            water_draw,
+            transparent_liquid_phase_distance(rangefinder, water.key),
+        )
+    });
+    let models = models.iter().map(|(&key, &entity)| {
+        (
+            entity,
+            model_draw,
+            transparent_model_phase_distance(rangefinder, key),
+        )
+    });
+    for (entity, draw_function, distance) in water.chain(models) {
+        crate::transparent_phase::add(
+            phase,
+            Transparent3d {
+                sorting_info: bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
+                entity,
+                pipeline,
+                draw_function,
+                distance,
+                batch_range: 0..1,
+                extra_index: PhaseItemExtraIndex::None,
+                indexed: true,
+            },
+        );
+    }
 }
 
 const UNSORTED_WATER_LOG_INTERVAL: Duration = Duration::from_secs(5);

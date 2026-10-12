@@ -1,5 +1,6 @@
 //! Gliding bodies tilt and bank as vanilla's renderer turns them, about the feet.
 
+use super::transform::{glide_rotation, glide_tilted, rig_world_from_actor};
 use super::*;
 use client_world::WorldAuthority;
 use protocol::{ActorEvent, ActorMetadataValue, ActorSpawnEvent, WorldBootstrap, WorldEvent};

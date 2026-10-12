@@ -7,7 +7,7 @@ fn pack_artwork_retains_more_than_byte_sized_distinct_texture_pages() {
             let height = u16::try_from(index + 1).unwrap();
             let pixel = [index as u8, (index >> 8) as u8, 7, 255];
             let rgba8 = pixel.repeat(usize::from(height));
-            assets::ActorTexture {
+            assets::actor::ActorTexture {
                 source: index as u32,
                 width: 1,
                 height,
@@ -19,7 +19,7 @@ fn pack_artwork_retains_more_than_byte_sized_distinct_texture_pages() {
     let bindings = textures
         .iter()
         .enumerate()
-        .map(|(index, _)| assets::ActorArtworkBinding {
+        .map(|(index, _)| assets::actor::ActorArtworkBinding {
             rig: index as u32,
             geometry_candidate: index as u32,
             entity_symbol: index as u32,
@@ -27,7 +27,7 @@ fn pack_artwork_retains_more_than_byte_sized_distinct_texture_pages() {
             render_controller: 0,
             texture: index as u32,
             material: "entity".into(),
-            pose_mode: assets::ActorPoseMode::CompiledLiteral,
+            pose_mode: assets::actor::ActorPoseMode::CompiledLiteral,
         })
         .collect::<Vec<_>>();
     let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &bindings);

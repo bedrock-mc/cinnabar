@@ -45,8 +45,8 @@ pub fn terrain_texture_grids(view: &LayeredPackView) -> HashMap<String, u8> {
             if first_texture_path(&entry["textures"]).is_some() {
                 grids.insert(
                     key,
-                    (entry["quad"].as_u64().unwrap_or(0) as u32 & assets::TERRAIN_QUAD_SHIFT_MASK)
-                        as u8,
+                    (entry["quad"].as_u64().unwrap_or(0) as u32
+                        & assets::texture::TERRAIN_QUAD_SHIFT_MASK) as u8,
                 );
             }
         }

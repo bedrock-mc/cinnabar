@@ -29,8 +29,10 @@ mod cloud_render;
 mod device_poll;
 
 mod enhanced;
+#[cfg(all(feature = "enhanced", target_os = "windows"))]
+pub use enhanced::configure_enhanced_shader_compiler;
+pub use enhanced::{EnhancedRenderPlugin, EnhancedRenderSupport};
 mod entity_shadow_render;
-pub use enhanced::EnhancedRenderPlugin;
 pub use entity_shadow_render::EntityShadowRenderPlugin;
 mod gpu_timing;
 pub use gpu_timing::{DetailedGpuTiming, GpuTimingPlugin};

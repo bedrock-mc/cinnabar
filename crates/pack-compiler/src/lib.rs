@@ -26,6 +26,7 @@ mod lightning_rod;
 mod oreui_icons;
 mod pack;
 mod particle;
+pub mod pbr;
 mod respawn_anchor;
 mod starter_skins;
 mod ui;

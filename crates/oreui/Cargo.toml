@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [features]
-test-support = ["dep:render-api"]
+test-support = []
 tracy = ["dep:tracing"]
 
 [dependencies]
@@ -15,7 +15,7 @@ bridge = { path = "../bridge" }
 image.workspace = true
 launcher = { path = "../launcher" }
 protocol = { path = "../protocol" }
-render-api = { path = "../render-api", optional = true }
+render-api = { path = "../render-api" }
 render-model = { path = "../render-model" }
 resource-pack = { path = "../resource-pack", default-features = false }
 semantic-input = { path = "../input" }
@@ -27,7 +27,6 @@ ui-engine = { path = "../ui-engine" }
 
 [dev-dependencies]
 test-alloc = { path = "../test-alloc" }
-render-api = { path = "../render-api" }
 tempfile = "3"
 ui-engine = { path = "../ui-engine", features = ["test-support"] }
 

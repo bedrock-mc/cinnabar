@@ -6,7 +6,7 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use assets::{EntityAssetKind, RuntimeActorCatalog, RuntimeEntityAssets};
+use assets::{EntityAssetKind, RuntimeEntityAssets, actor::RuntimeActorCatalog};
 
 use super::heads::HeadModel;
 

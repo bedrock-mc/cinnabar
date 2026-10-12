@@ -6,8 +6,11 @@ use std::{
 };
 
 use assets::{
-    AssetError, AtmosphereRole, AtmosphereTexture, CelestialTile, CompiledAtmosphereAssets,
-    RuntimeAtmosphereAssets, composite_celestial, encode_atmosphere_blob,
+    AssetError,
+    atmosphere::{
+        AtmosphereRole, AtmosphereTexture, CelestialTile, CompiledAtmosphereAssets,
+        RuntimeAtmosphereAssets, composite_celestial, encode_atmosphere_blob,
+    },
 };
 use image::{Rgba, RgbaImage};
 use pack_compiler::{

@@ -14,6 +14,8 @@ pub(super) struct LayerPoses<'a> {
     pub local_emote_pose: Option<&'a actor_animation::CustomEmotePose>,
     pub native_body_sampled: bool,
     pub native_pose: &'a hand::NativePoseCache,
+    /// The local actor draws its third-person world body as an Enhanced shadow caster.
+    pub local_shadows: bool,
 }
 
 /// Retained layer geometry and pose conversions, borrowed only during layer assembly.
@@ -46,6 +48,7 @@ pub(super) fn attach(
         local_emote_pose,
         native_body_sampled,
         native_pose,
+        local_shadows,
     } = poses;
     let LayerCaches {
         layer_poses,
@@ -65,6 +68,11 @@ pub(super) fn attach(
                     .is_some_and(|actor| matches!(actor.kind, protocol::ActorKind::Player { .. }))
                 {
                     return None;
+                }
+                // The local shadow body draws the third-person world rig's layers.
+                if local_shadows && runtime_id == local_runtime_id {
+                    return culling::world_rig(stream, runtime_id, local_runtime_id, true)
+                        .map(|rig| std::borrow::Cow::Borrowed(rig.render));
                 }
                 if runtime_id == local_runtime_id
                     && let Some(pose) = local_emote_pose
@@ -86,6 +94,7 @@ pub(super) fn attach(
             local_runtime_id,
             local_equipment_input,
             java_posed,
+            local_shadows,
             (partial_tick, delta_seconds, glint_settings),
         );
     }
@@ -97,7 +106,7 @@ pub(super) fn attach(
             batch,
             cape,
             |runtime_id| {
-                stream.authority().actor_rig(runtime_id).map(|rig| {
+                culling::world_rig(stream, runtime_id, local_runtime_id, local_shadows).map(|rig| {
                     if runtime_id == local_runtime_id
                         && let Some(pose) = local_emote_pose
                     {
@@ -153,7 +162,7 @@ pub(super) fn attach(
             batch,
             artwork,
             |runtime_id| {
-                let rig = stream.authority().actor_rig(runtime_id)?;
+                let rig = culling::world_rig(stream, runtime_id, local_runtime_id, local_shadows)?;
                 let emote = (runtime_id == local_runtime_id)
                     .then_some(local_emote_pose)
                     .flatten();

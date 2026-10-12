@@ -1,7 +1,8 @@
 use assets::{
     BlobProvenance, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, Material,
-    ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, TextureArray,
-    TextureMip, TexturePage, TextureRef, VisualKind, encode_blob,
+    ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, TexturePage,
+    TextureRef, VisualKind, encode_blob,
+    texture::{TextureArray, TextureMip},
 };
 
 use super::{BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual};

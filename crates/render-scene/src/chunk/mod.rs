@@ -1,7 +1,7 @@
 //! Chunk submission queues, immutable instances, and presentation acknowledgements.
 use assets::{
-    ANIMATION_FLAG_BLEND, Animation, NO_ANIMATION, ResolvedBiomeTints, RuntimeAssets, TextureArray,
-    TextureMip,
+    ANIMATION_FLAG_BLEND, Animation, NO_ANIMATION, ResolvedBiomeTints, RuntimeAssets,
+    texture::{TextureArray, TextureMip},
 };
 use bevy::{
     camera::visibility::{self, VisibilityClass},
