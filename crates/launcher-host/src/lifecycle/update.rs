@@ -392,10 +392,10 @@ pub fn acknowledge_startup() {
                 .open(marker);
         }
         #[cfg(unix)]
-        if let Some(startup) = STARTUP.get() {
-            if let Err(error) = startup.confirm(&update_dir) {
-                tracing::debug!("update recovery: {error:#}");
-            }
+        if let Some(startup) = STARTUP.get()
+            && let Err(error) = startup.confirm(&update_dir)
+        {
+            tracing::debug!("update recovery: {error:#}");
         }
         if let Ok(mut state) = STATE.lock() {
             state.startup = StartupPhase::Complete;
@@ -410,16 +410,12 @@ pub fn recover_after_failed_start() {
     if STATE
         .lock()
         .is_ok_and(|state| state.updater.is_some() && state.startup == StartupPhase::Preparing)
+        && let Some(layout) = LAYOUT.get()
+        && let Ok(target) = handoff::installed_target()
+        && update_installer::recovery::needs_rollback(&target, &layout.update_dir())
+        && let Err(error) = handoff::spawn_recovery(layout, target)
     {
-        if let Some(layout) = LAYOUT.get() {
-            if let Ok(target) = handoff::installed_target() {
-                if update_installer::recovery::needs_rollback(&target, &layout.update_dir()) {
-                    if let Err(error) = handoff::spawn_recovery(layout, target) {
-                        tracing::warn!("could not start update recovery: {error:#}");
-                    }
-                }
-            }
-        }
+        tracing::warn!("could not start update recovery: {error:#}");
     }
 }
 
