@@ -7721,9 +7721,13 @@ Ordinary first-person world damage rotation samples the actor's completed hurt
 and death counters independently of hand animation. Scripted captures retain
 their requested pose after those effects run.
 Portal and fire overlays sample the final rendered camera pose and projection.
+While the local player is dead, first person presents third-person-back with a
+level heading fixed at the body's yaw, ignoring look and perspective input until
+respawn (the native client activates its death camera component on death); the
+Java 1.7 animation mode keeps first person.
 
 Incomplete parity: exact target-version animation constants,
-respawn retries, death camera/FOV, hurt and HUD flash timing, hardcore and secondary
+respawn retries, death camera framing/FOV, hurt and HUD flash timing, hardcore and secondary
 client variants, and matched native frames remain open. The modern implementation
 and its focused regressions do not close the full death-screen parity gate.
 
