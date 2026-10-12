@@ -29,12 +29,8 @@ pub(super) fn recipe_entries(
             )
     ) && presentation::forms::recipe_book_shown(player_runtime, runtime)
     {
-        let icon = |stack: &protocol::NetworkItemStack| {
-            items
-                .identifier(stack)
-                .as_deref()
-                .and_then(|id| presentation.item_icon(id, stack.metadata))
-        };
+        // Entries resolve icons like slots do, so enchanted and foil items glint here too.
+        let icon = |stack: &protocol::NetworkItemStack| items.icon(stack, None);
         if ui_screens::furnace_book::active(player_runtime) {
             window_icons.furnace_entries = presentation::forms::furnace_book::icons(
                 player_runtime,
