@@ -1192,3 +1192,5 @@ fn brightness_sample_uses_interpolated_feet_and_body_height() {
         assert!((sample[1] - (feet[1] + 0.66 * height)).abs() < 1e-6);
     }
 }
+
+mod local_server_swings;

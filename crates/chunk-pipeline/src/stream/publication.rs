@@ -214,7 +214,10 @@ impl WorldStream {
         self.authority
             .update_local_player_skin(profile.skin.clone())
     }
-    /// Starts the local player's arm swing, which the server never echoes back to its owner.
+    /// Arm swings the server sent for the local player since the last call.
+    pub fn take_local_server_swings(&mut self) -> u8 {
+        self.authority.take_local_server_swings()
+    }
     /// Starts the local arm swing lasting `ticks`, the duration its packet guard used.
     pub fn start_local_player_swing(&mut self, ticks: i32) {
         self.authority.start_local_player_swing(ticks)
