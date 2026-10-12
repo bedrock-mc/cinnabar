@@ -625,14 +625,14 @@ fn cape_corners_land_where_java_draws_them() {
 /// wrap forward from the last step to 1.
 fn java_swing_samples(requests: &[u32], ticks: u32) -> Vec<f32> {
     const LENGTH: i32 = 6;
-    let (mut counter, mut previous, mut current) = (None::<i32>, 0.0_f32, 0.0_f32);
+    let (mut counter, mut current) = (None::<i32>, 0.0_f32);
     let mut samples = Vec::new();
     for tick in 0..ticks {
         if requests.contains(&tick) && counter.is_none_or(|c| c < 0 || c >= LENGTH / 2) {
             counter = Some(-1);
         }
         counter = counter.map(|c| c + 1).filter(|c| *c < LENGTH);
-        previous = current;
+        let previous = current;
         current = counter.map_or(0.0, |c| c as f32 / LENGTH as f32);
         let step = if current < previous {
             current - previous + 1.0
