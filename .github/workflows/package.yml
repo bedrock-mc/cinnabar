@@ -593,8 +593,12 @@ jobs:
             gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" \
               --notes-file "$RUNNER_TEMP/notes.md" --draft=false --prerelease=false
           else
+            # Notes start at the last published release, not the last tag, so a tag left by an
+            # unpublished attempt cannot shrink them.
+            previous="$(gh release list --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // empty')"
             gh release create "$RELEASE_TAG" dist/* --verify-tag --target "$RELEASE_COMMIT" \
-              --title "$RELEASE_TAG" --generate-notes --notes-file "$RUNNER_TEMP/notes.md"
+              --title "$RELEASE_TAG" --generate-notes ${previous:+--notes-start-tag "$previous"} \
+              --notes-file "$RUNNER_TEMP/notes.md"
             echo "created=true" >> "${GITHUB_OUTPUT:-/dev/null}"
           fi
       - name: Post the changelog to Discord
