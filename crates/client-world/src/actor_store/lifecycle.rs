@@ -363,6 +363,7 @@ impl ActorStore {
         self.ready_appearances = Default::default();
         self.items.clear();
         self.actions.clear();
+        self.local_server_swings = 0;
         self.status_notices.clear();
         self.pickup_visuals.clear();
         self.particle_effects.clear();
@@ -379,6 +380,7 @@ impl ActorStore {
             return guard;
         }
         self.dimension = dimension;
+        self.local_server_swings = 0;
         self.local_flying = false;
         self.pending_local_health = self
             .remote_state_excluded_runtime_id
