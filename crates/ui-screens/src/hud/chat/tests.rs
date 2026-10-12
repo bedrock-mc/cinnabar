@@ -196,10 +196,14 @@ fn long_factory_chains_are_scanned_within_the_expansion_limit() {
         serde_json::Value::Object(document),
     );
     prefer_builtin(&mut pack, &builtin);
-    let bindings = &pack.lookup("hud", "chat_label").unwrap().props["bindings"];
+    let bindings = pack
+        .lookup("hud", "chat_label")
+        .unwrap()
+        .props
+        .get("bindings");
     assert!(
         !bindings
-            .as_array()
+            .and_then(Value::as_array)
             .is_some_and(|bindings| bindings.contains(&visible_when("(#text = 'deep')")))
     );
 }
