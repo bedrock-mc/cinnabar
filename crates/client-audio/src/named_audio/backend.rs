@@ -158,9 +158,8 @@ struct Output {
     _release: Sender<()>,
 }
 
-/// What an output's owner thread sends back: the shared handle and mixer rate, with the sender
-/// whose drop releases the stream.
-type Opening = Receiver<Option<((OutputStreamHandle, u32), Sender<()>)>>;
+/// Receives the shared output value and the sender whose drop releases its owner's stream.
+type Opening<H = (OutputStreamHandle, u32)> = Receiver<Option<(H, Sender<()>)>>;
 
 /// Main-thread owner. No automatic reopen, alternate device enumeration or Sink.
 pub struct AudioDevice {
@@ -331,10 +330,7 @@ fn open_default_stream() -> Option<(OutputStream, (OutputStreamHandle, u32))> {
 /// the shared half drops; the stream never leaves that thread. `None` reports a failed open.
 fn open_on_owner_thread<S: 'static, H: Send + 'static>(
     open: impl FnOnce() -> Option<(S, H)> + Send + 'static,
-) -> std::io::Result<(
-    Receiver<Option<(H, Sender<()>)>>,
-    std::thread::JoinHandle<()>,
-)> {
+) -> std::io::Result<(Opening<H>, std::thread::JoinHandle<()>)> {
     let (opened, opening) = mpsc::channel();
     let owner = std::thread::Builder::new()
         .name("audio-output".to_owned())
