@@ -1868,7 +1868,9 @@ open, independently of this regression check.
 
 The user's latest matched spruce views also identified missing shading, face
 orientation and sampler contracts. Vanilla shade brightness
-assigns primary leaves/emitting blocks .2 independently of cached solid occlusion.
+assigns primary leaves .2 independently of cached solid occlusion; light emission
+does not count, so non-solid emitters such as torches leave neighbouring faces
+unshaded.
 Vanilla ambient occlusion averages outward/side/diagonal shade and raises
 average*face-coefficient to the authored exponent before vertex interpolation;
 solid side tests alone decide the diagonal fallback. Direct/cached lighting

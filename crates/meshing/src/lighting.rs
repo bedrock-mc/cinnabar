@@ -125,8 +125,9 @@ pub fn bake_quad_lighting_with_sampler<S: MeshLightSampler + ?Sized>(
 pub(crate) trait LightingInputs {
     /// Native cached solid-render bit, independent of geometric face coverage.
     fn occludes(&self, coordinate: [i32; 3]) -> bool;
-    /// Native shade brightness is 0.2 for leaves, emitting blocks and solid
-    /// render blocks; only the last group also blocks diagonal light sampling.
+    /// Native shade brightness is 0.2 for leaves and solid render blocks; only
+    /// the latter also block diagonal light sampling. Light emission does not
+    /// count, so torches and lanterns leave neighbouring faces unshaded.
     fn shade_darkened(&self, coordinate: [i32; 3]) -> bool {
         self.occludes(coordinate)
     }
@@ -185,10 +186,8 @@ impl<S: MeshLightSampler + ?Sized> LightingInputs for DirectInputs<'_, '_, S> {
             .filter(|&id| !self.classifier.is_air(id))
             .is_some_and(|id| {
                 let visual = self.assets.resolve(self.network_id_mode, id);
-                // Vanilla shade brightness: leaf models and light emitters count,
-                // whatever their solidity.
+                // Vanilla shade brightness also counts leaves, whatever their solidity.
                 visual.flags().contains(assets::BlockFlags::LEAF_MODEL)
-                    || visual.light_properties().emission() > 0
             })
     }
 
