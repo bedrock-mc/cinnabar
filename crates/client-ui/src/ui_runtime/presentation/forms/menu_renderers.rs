@@ -5,8 +5,8 @@ use std::{
     cell::Cell,
     f64::consts::PI,
     sync::{Arc, OnceLock},
-    time::Instant,
 };
+use web_time::Instant;
 
 use assets::RuntimeUiAssets;
 use serde_json::Value;
@@ -86,8 +86,8 @@ pub(super) fn pick_splash(
     if lines.is_empty() {
         return translate("menu.beta").map(|text| text.to_string());
     }
-    let seed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let seed = web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.subsec_nanos() as usize);
     let pick = seed % lines.len();
     lines.into_iter().nth(pick)

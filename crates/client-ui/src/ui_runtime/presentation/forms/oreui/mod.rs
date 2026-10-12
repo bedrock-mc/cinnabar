@@ -26,6 +26,7 @@ mod modal;
 mod motion;
 mod paint;
 mod pause;
+pub use pause::RESUME_LABEL;
 mod play;
 mod play_realms;
 mod play_servers;

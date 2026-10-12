@@ -329,8 +329,8 @@ fn model_gallery_camera_marker_only_reports_committed_move_player() {
 
 #[test]
 fn relative_socket_dir_falls_back_to_the_development_project_root() {
-    let unique = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let unique = web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     let root = std::env::temp_dir()
@@ -362,8 +362,8 @@ fn relative_socket_dir_falls_back_to_the_development_project_root() {
 
 #[test]
 fn bridge_endpoint_exists_only_for_the_platform_marker() {
-    let unique = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let unique = web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     let root = std::env::temp_dir()
@@ -419,8 +419,8 @@ fn bridge_endpoint_path_selects_the_platform_marker() {
 
 #[test]
 fn missing_bridge_endpoint_returns_an_actionable_error() {
-    let unique = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let unique = web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     let socket_dir = std::env::temp_dir().join(format!(
@@ -440,8 +440,8 @@ fn missing_bridge_endpoint_returns_an_actionable_error() {
 
 #[test]
 fn clearing_a_stale_bridge_endpoint_lets_the_wait_observe_a_fresh_bind() {
-    let unique = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let unique = web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     let socket_dir = std::env::temp_dir().join(format!(
@@ -515,8 +515,8 @@ fn a_long_session_failure_shows_vanilla_text() {
 
 #[test]
 fn existing_platform_endpoint_passes_preflight() {
-    let unique = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let unique = web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     let socket_dir = std::env::temp_dir().join(format!(

@@ -27,7 +27,7 @@ fn forced_remesh_returns_exact_resident_generation_manifest() {
     stream.record_known_air(known_air);
     stream.mark_light_changed_sources(keys.into_iter().chain([known_air]));
     light_scheduler::settle_light(&mut stream, [0.0; 3]);
-    let previously_dirty_at = std::time::Instant::now();
+    let previously_dirty_at = web_time::Instant::now();
     stream.mark_dirty_exact(keys[0], previously_dirty_at);
     let started = previously_dirty_at + Duration::from_millis(1);
 

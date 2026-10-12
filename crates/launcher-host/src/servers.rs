@@ -3,13 +3,14 @@
 //! Writes are atomic (temp sibling + rename) so an interrupted write can
 //! never replace a readable file with torn bytes. Loads validate the saved
 //! schema and quarantine unreadable files beside the original instead of
-//! silently presenting an empty list.
+//! silently presenting an empty list. Browsers keep the file in local storage
+//! (`launcher::browser_files`) and write it on the frame.
 
+use std::path::{Path, PathBuf};
+#[cfg(not(target_arch = "wasm32"))]
 use std::{
     fs,
     io::{Read, Write},
-    path::{Path, PathBuf},
-    process,
 };
 
 use anyhow::{Context, Result, bail};
@@ -78,12 +79,18 @@ pub fn load_servers(path: &Path) -> LoadedServers {
 
 /// Reads at most one byte beyond the saved-server file ceiling so a growing
 /// or hostile local file can be rejected without allocating its full size.
+#[cfg(not(target_arch = "wasm32"))]
 fn read_bounded(path: &Path) -> std::io::Result<Vec<u8>> {
     let file = fs::File::open(path)?;
     let mut bytes = Vec::with_capacity(MAX_SAVED_SERVER_FILE_BYTES.saturating_add(1));
     file.take((MAX_SAVED_SERVER_FILE_BYTES as u64).saturating_add(1))
         .read_to_end(&mut bytes)?;
     Ok(bytes)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn read_bounded(path: &Path) -> std::io::Result<Vec<u8>> {
+    launcher::browser_files::read(path, (MAX_SAVED_SERVER_FILE_BYTES as u64).saturating_add(1))
 }
 
 /// Quarantines one semantically invalid or over-limit saved-server file.
@@ -120,7 +127,15 @@ fn quarantine(path: &Path) -> Result<PathBuf> {
         .ok_or_else(|| anyhow::anyhow!("{} has no file name", path.display()))?;
     name.push(".invalid");
     let target = path.with_file_name(name);
+    #[cfg(not(target_arch = "wasm32"))]
     fs::rename(path, &target).with_context(|| format!("quarantine {}", path.display()))?;
+    #[cfg(target_arch = "wasm32")]
+    {
+        let bytes = launcher::browser_files::read(path, u64::MAX)
+            .and_then(|bytes| launcher::browser_files::write(&target, &bytes))
+            .and_then(|()| launcher::browser_files::remove(path));
+        bytes.with_context(|| format!("quarantine {}", path.display()))?;
+    }
     Ok(target)
 }
 
@@ -160,11 +175,6 @@ fn validate(servers: &[SavedServer]) -> Result<()> {
 /// POSIX a power loss after the rename may resurrect the older complete
 /// file (no directory fsync); torn state is impossible either way.
 fn write_servers(path: &Path, servers: &[SavedServer]) -> Result<()> {
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .context(format!("{} has no parent directory", path.display()))?;
-    fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     let bytes = serde_json::to_vec_pretty(servers).context("encode saved servers")?;
     if bytes.len() > MAX_SAVED_SERVER_FILE_BYTES {
         bail!(
@@ -172,12 +182,28 @@ fn write_servers(path: &Path, servers: &[SavedServer]) -> Result<()> {
             bytes.len()
         );
     }
+    replace_file(path, &bytes)
+}
+
+/// Replaces the browser's stored list in one write.
+#[cfg(target_arch = "wasm32")]
+fn replace_file(path: &Path, bytes: &[u8]) -> Result<()> {
+    launcher::browser_files::write(path, bytes).with_context(|| format!("write {}", path.display()))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn replace_file(path: &Path, bytes: &[u8]) -> Result<()> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .context(format!("{} has no parent directory", path.display()))?;
+    fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     let temp = path.with_file_name(format!(
         "{}.tmp-{}",
         path.file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default(),
-        process::id()
+        launcher::install_layout::process_id()
     ));
     // One writer thread owns this file, so clearing a leftover temp
     // from an earlier crashed run is safe and keeps create_new working when
@@ -197,7 +223,7 @@ fn write_servers(path: &Path, servers: &[SavedServer]) -> Result<()> {
         #[cfg(not(unix))]
         let mut file =
             fs::File::create(&temp).with_context(|| format!("create {}", temp.display()))?;
-        file.write_all(&bytes)
+        file.write_all(bytes)
             .and_then(|()| file.sync_all())
             .with_context(|| format!("write {}", temp.display()))
     })();
@@ -212,6 +238,7 @@ fn write_servers(path: &Path, servers: &[SavedServer]) -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 enum Job {
     Save(Vec<SavedServer>),
     #[cfg(any(test, feature = "test-support"))]
@@ -219,52 +246,66 @@ enum Job {
 }
 
 /// Persists saved-server snapshots on a worker so the frame never waits on
-/// `sync_all`; writes stay ordered and only the newest pending one runs.
+/// `sync_all`; writes stay ordered and only the newest pending one runs. A
+/// browser starts no threads, so it writes local storage on the frame instead.
 #[derive(Debug)]
 pub struct ServerWriter {
+    #[cfg(not(target_arch = "wasm32"))]
     jobs: Option<crossbeam_channel::Sender<Job>>,
     errors: crossbeam_channel::Receiver<String>,
+    #[cfg(not(target_arch = "wasm32"))]
     worker: Option<std::thread::JoinHandle<()>>,
+    #[cfg(target_arch = "wasm32")]
+    inline: (PathBuf, crossbeam_channel::Sender<String>),
     allow_writes: bool,
 }
 
 impl ServerWriter {
     /// Keeps failed-load snapshots read-only so they cannot overwrite recoverable data.
     pub fn new(path: PathBuf, allow_writes: bool) -> Self {
-        let (jobs, queue) = crossbeam_channel::unbounded::<Job>();
         let (report, errors) = crossbeam_channel::unbounded();
-        let worker = std::thread::Builder::new()
-            .name("saved-servers".to_owned())
-            .spawn(move || {
-                let run = |job| match job {
-                    Job::Save(servers) => {
-                        if let Err(error) = write_servers(&path, &servers) {
-                            let _ = report.send(format!("{error:#}"));
-                        }
-                    }
-                    #[cfg(any(test, feature = "test-support"))]
-                    Job::Flush(ack) => {
-                        let _ = ack.send(());
-                    }
-                };
-                while let Ok(mut job) = queue.recv() {
-                    // A newer snapshot supersedes a queued one; anything else runs in order.
-                    while let Ok(next) = queue.try_recv() {
-                        if matches!((&job, &next), (Job::Save(_), Job::Save(_))) {
-                            job = next;
-                        } else {
-                            run(std::mem::replace(&mut job, next));
-                        }
-                    }
-                    run(job);
-                }
-            })
-            .ok();
-        Self {
-            jobs: Some(jobs),
+        #[cfg(target_arch = "wasm32")]
+        return Self {
             errors,
-            worker,
+            inline: (path, report),
             allow_writes,
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let (jobs, queue) = crossbeam_channel::unbounded::<Job>();
+            let worker = std::thread::Builder::new()
+                .name("saved-servers".to_owned())
+                .spawn(move || {
+                    let run = |job| match job {
+                        Job::Save(servers) => {
+                            if let Err(error) = write_servers(&path, &servers) {
+                                let _ = report.send(format!("{error:#}"));
+                            }
+                        }
+                        #[cfg(any(test, feature = "test-support"))]
+                        Job::Flush(ack) => {
+                            let _ = ack.send(());
+                        }
+                    };
+                    while let Ok(mut job) = queue.recv() {
+                        // A newer snapshot supersedes a queued one; anything else runs in order.
+                        while let Ok(next) = queue.try_recv() {
+                            if matches!((&job, &next), (Job::Save(_), Job::Save(_))) {
+                                job = next;
+                            } else {
+                                run(std::mem::replace(&mut job, next));
+                            }
+                        }
+                        run(job);
+                    }
+                })
+                .ok();
+            Self {
+                jobs: Some(jobs),
+                errors,
+                worker,
+                allow_writes,
+            }
         }
     }
 
@@ -275,13 +316,25 @@ impl ServerWriter {
         if !self.allow_writes {
             bail!("saved servers are read-only because their original file could not be recovered");
         }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let (path, report) = &self.inline;
+            if let Err(error) = write_servers(path, servers) {
+                let _ = report.send(format!("{error:#}"));
+            }
+            Ok(())
+        }
+        #[cfg(not(target_arch = "wasm32"))]
         let jobs = self
             .jobs
             .as_ref()
             .context("saved-server writer has stopped")?;
-        jobs.send(Job::Save(servers.to_vec()))
-            .context("saved-server writer has stopped")?;
-        Ok(())
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            jobs.send(Job::Save(servers.to_vec()))
+                .context("saved-server writer has stopped")?;
+            Ok(())
+        }
     }
 
     /// A write that failed since the last call.
@@ -290,7 +343,7 @@ impl ServerWriter {
     }
 
     /// Blocks until every queued write has finished.
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(all(any(test, feature = "test-support"), not(target_arch = "wasm32")))]
     pub fn flush(&self) {
         let (ack, done) = crossbeam_channel::bounded(1);
         if let Some(jobs) = &self.jobs
@@ -301,6 +354,7 @@ impl ServerWriter {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Drop for ServerWriter {
     /// Finishes queued writes so a save right before exit still lands.
     fn drop(&mut self) {

@@ -419,7 +419,7 @@ pub(in crate::chunk) fn spawn_transparent_model_sort(
     sender: SyncSender<TransparentModelWorkerResult>,
     work: TransparentModelSortWork,
 ) {
-    rayon::spawn(move || {
+    async_platform::spawn_pooled(move || {
         let batches = sort_transparent_model_candidates(work.camera_position, work.candidates);
         let _ = sender.try_send(TransparentModelWorkerResult {
             generation: work.generation,

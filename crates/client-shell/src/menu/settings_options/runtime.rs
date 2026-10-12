@@ -1,9 +1,7 @@
 //! One handoff applies menu edits to the camera, input, window and sound authorities.
 
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
+use web_time::Instant;
 
 use bevy::prelude::ResMut;
 

@@ -9,8 +9,8 @@ fn custom_world_icon_recovery_uses_the_exact_world_input() {
     let world = std::env::temp_dir().join(format!(
         "icon-recovery-{}-{}-selected world.mcbea",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        web_time::SystemTime::now()
+            .duration_since(web_time::UNIX_EPOCH)
             .unwrap()
             .as_nanos(),
     ));

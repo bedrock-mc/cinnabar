@@ -6,8 +6,9 @@ use std::{
     process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 /// Tells a spawned core which PID to outlive; bedrock-core's `lifeline.ParentEnv` reads it.
 const PARENT_ENV: &str = "BEDROCK_CORE_PARENT_PID";
@@ -218,6 +219,11 @@ pub fn install_exit_hooks(flush_logs: fn()) {
             stop_all(Duration::ZERO);
         }
     }));
+    install_signal_exit(flush_logs);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn install_signal_exit(flush_logs: fn()) {
     let installed = ctrlc::try_set_handler(move || {
         stop_all(EXIT_GRACE);
         flush_logs();
@@ -227,6 +233,10 @@ pub fn install_exit_hooks(flush_logs: fn()) {
         tracing::warn!("child processes will not be stopped on SIGINT/SIGTERM: {error}");
     }
 }
+
+/// Browsers deliver no process signals.
+#[cfg(target_arch = "wasm32")]
+fn install_signal_exit(_flush_logs: fn()) {}
 
 impl Spawned {
     /// Returns the tracked child PID for process-lifetime fixtures.
@@ -509,6 +519,6 @@ mod tests {
             .read_to_string(&mut printed)
             .unwrap();
         child.wait();
-        assert_eq!(printed, std::process::id().to_string());
+        assert_eq!(printed, launcher::install_layout::process_id().to_string());
     }
 }

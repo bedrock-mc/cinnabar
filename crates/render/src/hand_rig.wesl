@@ -165,19 +165,23 @@ fn hand_vertex(
 
 @fragment
 fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    let cutout = (input.skin_layer & hand_material.texture_flags.w) != 0u;
+    let reverse_cube = !front && input.back_uv.x < -1.0e8;
+    let uv = select(input.back_uv, input.uv, front || reverse_cube);
+    // WebGPU allows implicit-derivative sampling only in uniform control flow, so derivatives
+    // are taken before any per-pixel branch and the branches sample with them.
+    let uv_dx = dpdx(uv);
+    let uv_dy = dpdy(uv);
     if (input.valid == 0u) {
         discard;
     }
-    let cutout = (input.skin_layer & hand_material.texture_flags.w) != 0u;
-    let reverse_cube = !front && input.back_uv.x < -1.0e8;
     if (reverse_cube && !cutout) {
         discard;
     }
-    let uv = select(input.back_uv, input.uv, front || reverse_cube);
     let layer = i32(input.skin_layer & hand_material.layer_mask.x);
-    let skin_color = textureSample(skins, skin_sampler, uv, layer);
-    let main_color = textureSample(item_atlas, skin_sampler, uv, layer);
-    let off_color = textureSample(offhand_atlas, skin_sampler, uv, layer);
+    let skin_color = textureSampleGrad(skins, skin_sampler, uv, layer, uv_dx, uv_dy);
+    let main_color = textureSampleGrad(item_atlas, skin_sampler, uv, layer, uv_dx, uv_dy);
+    let off_color = textureSampleGrad(offhand_atlas, skin_sampler, uv, layer, uv_dx, uv_dy);
     let item_color = select(main_color, off_color, (input.skin_layer & hand_material.texture_flags.y) != 0u);
     let is_item = (input.skin_layer & hand_material.texture_flags.x) != 0u;
     let color = select(skin_color, item_color, is_item);

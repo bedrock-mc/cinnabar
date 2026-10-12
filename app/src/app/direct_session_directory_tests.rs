@@ -9,8 +9,8 @@ fn run_args(arguments: &[&str]) -> args::ClientArgs {
 }
 
 fn temporary_root(label: &str) -> std::path::PathBuf {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let nonce = web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .expect("system clock must be after the Unix epoch")
         .as_nanos();
     std::env::temp_dir().join(format!("rust-mcbe-{label}-{}-{nonce}", std::process::id()))

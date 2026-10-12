@@ -29,7 +29,8 @@ pub use dependencies::{PackDependencies, PackDependency};
 pub use import::{PACK_IMPORT_EXTENSIONS, is_pack_import_path};
 pub use jsonc::normalize_jsonc;
 pub use library::{
-    ActivePack, GlobalPackLibrary, ImportReport, InstalledPack, LibraryError, Subpack,
+    ActivePack, DirectoryStorage, GlobalPackLibrary, ImportReport, InstalledPack, LibraryError,
+    PackStorage, Subpack,
 };
 pub use merge::{MAX_MERGED_ENTRIES, MAX_WINNING_BYTES, MAX_WINNING_FILES};
 pub use pack::{PackRejection, ValidatedPack, ValidatedPackStack};

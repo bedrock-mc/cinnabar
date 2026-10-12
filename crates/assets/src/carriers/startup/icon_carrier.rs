@@ -7,7 +7,6 @@
 //! a fatal, actionable error naming the exact path and rebuild command.
 
 use std::{
-    fs::File,
     io::{self, Read},
     path::{Path, PathBuf},
     sync::Arc,
@@ -92,7 +91,7 @@ pub fn require_icon_assets(
     vanilla_source_json: &str,
 ) -> Result<LoadedIconAssets, AssetStartupError> {
     let path = icon_asset_path(world_asset_path);
-    let file = match File::open(&path) {
+    let file = match crate::carriers::file::open(&path) {
         Ok(file) => file,
         Err(source) if source.kind() == io::ErrorKind::NotFound => {
             let rebuild_command = world_icon_rebuild_command(world_asset_path, &path);

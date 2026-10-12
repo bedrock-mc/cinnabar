@@ -8,7 +8,8 @@ mod support;
 #[global_allocator]
 static ALLOCATOR: frame_stats::CountedAllocator = frame_stats::CountedAllocator;
 
-use std::{hint::black_box, path::PathBuf, sync::Arc, time::Instant};
+use std::{hint::black_box, path::PathBuf, sync::Arc};
+use web_time::Instant;
 
 use json_ui::{
     BindState, BossBar, CachedLibrary, Catalog, CatalogLibrary, Context, HUD_SCREEN, HudModel,

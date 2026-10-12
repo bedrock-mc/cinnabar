@@ -259,16 +259,21 @@ func (s *Service) Target(ctx context.Context, kind, value string) (string, error
 }
 
 // upstreamTarget maps a connect.v1 target to the proxy's target syntax.
+// RakNetTarget validates a connect.v1 RakNet target's host:port and returns it as a proxy address.
+func RakNetTarget(value string) (string, error) {
+	host, port, err := net.SplitHostPort(strings.TrimSpace(value))
+	number, portErr := strconv.ParseUint(port, 10, 16)
+	if err != nil || portErr != nil || number == 0 || host == "" || strings.ContainsAny(host, " \t/\\") {
+		return "", control.ErrInvalidTarget
+	}
+	return net.JoinHostPort(host, port), nil
+}
+
 func upstreamTarget(kind, value string) (string, error) {
 	value = strings.TrimSpace(value)
 	switch kind {
 	case control.TargetRakNet:
-		host, port, err := net.SplitHostPort(value)
-		number, portErr := strconv.ParseUint(port, 10, 16)
-		if err != nil || portErr != nil || number == 0 || host == "" || strings.ContainsAny(host, " \t/\\") {
-			return "", control.ErrInvalidTarget
-		}
-		return net.JoinHostPort(host, port), nil
+		return RakNetTarget(value)
 	case control.TargetRealm:
 		if id, err := strconv.ParseUint(value, 10, 31); err != nil || id == 0 {
 			return "", control.ErrInvalidTarget

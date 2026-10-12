@@ -2,13 +2,13 @@
 //! tracked inputs it declares in the carrier table and the fingerprints of carriers it reads; the
 //! stamp beside the carriers records what each was built from.
 
+use std::time::UNIX_EPOCH;
 use std::{
     cell::RefCell,
     collections::{BTreeMap, HashMap},
     error::Error,
     fs,
     path::{Path, PathBuf},
-    time::UNIX_EPOCH,
 };
 
 use assets::{

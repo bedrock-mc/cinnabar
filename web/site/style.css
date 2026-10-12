@@ -1,0 +1,107 @@
+:root {
+  color-scheme: dark;
+  --background: #0b0f15;
+  --surface: #151b24;
+  --text: #e6e9ee;
+  --muted: #8b95a5;
+  --accent: #c8402e;
+  --error: #ff7a6b;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--background);
+  color: var(--text);
+  font: 16px/1.5 system-ui, sans-serif;
+}
+
+/* The game's canvas fills the page once it starts. */
+body > canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw !important;
+  height: 100vh !important;
+  outline: none;
+}
+
+#launcher {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+h1 { margin: 0 0 0.25rem; }
+h2 { font-size: 1rem; margin: 0 0 0.5rem; }
+.lede, .muted { color: var(--muted); }
+.error { color: var(--error); }
+
+section {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 1rem 0;
+}
+
+a { color: var(--text); }
+
+.actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+
+button {
+  margin-top: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: 0;
+  border-radius: 4px;
+  background: var(--accent);
+  color: white;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.secondary { background: #2a3340; }
+
+button:disabled { opacity: 0.5; cursor: default; }
+
+/* Startup progress over the canvas until the game draws; the spinner keeps turning on the
+   compositor while the client's startup holds the page's thread. */
+#startup {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  background: var(--background);
+}
+
+#startup[hidden] { display: none; }
+
+.spinner {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 4px solid var(--surface);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.progress {
+  width: min(20rem, 80vw);
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+#startup-bar {
+  width: 0;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s;
+}

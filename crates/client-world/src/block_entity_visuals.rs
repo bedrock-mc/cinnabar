@@ -619,7 +619,7 @@ mod tests {
             );
         }
         let calls = 600;
-        let started = std::time::Instant::now();
+        let started = web_time::Instant::now();
         for _ in 0..calls {
             let mut recount = [0_usize; 4];
             for route in diagnostics.routes.values() {
@@ -628,7 +628,7 @@ mod tests {
             std::hint::black_box(recount);
         }
         let old = started.elapsed() / calls;
-        let started = std::time::Instant::now();
+        let started = web_time::Instant::now();
         for _ in 0..calls {
             std::hint::black_box(diagnostics.counts());
         }

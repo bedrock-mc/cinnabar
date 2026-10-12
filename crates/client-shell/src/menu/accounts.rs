@@ -21,7 +21,7 @@ pub(super) struct Manager {
     pub skip_control: bool,
     pub work: Option<crossbeam_channel::Receiver<(bool, bool)>>,
     pub(super) remember: Option<crossbeam_channel::Receiver<bool>>,
-    remember_retry: Option<std::time::Instant>,
+    remember_retry: Option<web_time::Instant>,
 }
 
 use launcher_host::accounts::{Operation, operation_job, remember};
@@ -259,7 +259,7 @@ impl MenuRuntime {
                 if !success {
                     self.accounts.remembered = None;
                     self.accounts.remember_retry =
-                        Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
+                        Some(web_time::Instant::now() + std::time::Duration::from_secs(1));
                 } else {
                     self.reload_accounts();
                 }
@@ -305,7 +305,7 @@ impl MenuRuntime {
         } else if self
             .accounts
             .remember_retry
-            .is_none_or(|retry| std::time::Instant::now() >= retry)
+            .is_none_or(|retry| web_time::Instant::now() >= retry)
             && self.accounts.remember.is_none()
             && self.accounts.remembered.as_ref() != Some(&identity)
             && let Some(receiver) = remember(self.account_store(), profile.clone())

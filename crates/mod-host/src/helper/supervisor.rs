@@ -12,8 +12,9 @@ use std::{
     path::PathBuf,
     process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio},
     sync::{Arc, Mutex, mpsc},
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 #[derive(Default)]
 struct State {

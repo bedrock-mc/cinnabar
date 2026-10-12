@@ -20,10 +20,11 @@ tracy = []
 
 [dependencies]
 simulation-clock = { path = "../simulation-clock" }
+async-platform = { path = "../async-platform" }
+web-time.workspace = true
 launcher-host = { path = "../launcher-host" }
 bridge = { path = "../bridge" }
 anyhow.workspace = true
-arboard = { version = "3", default-features = false }
 assets = { path = "../assets" }
 chunk-pipeline = { path = "../chunk-pipeline" }
 client-world = { path = "../client-world" }
@@ -53,6 +54,9 @@ url = "2"
 rayon.workspace = true
 tokio.workspace = true
 resource-pack = { path = "../resource-pack" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+arboard = { version = "3", default-features = false }
 
 [dev-dependencies]
 ui-engine = { path = "../ui-engine", features = ["test-support"] }

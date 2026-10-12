@@ -425,8 +425,8 @@ fn resize_and_session_reset_do_not_reload_static_pixels_or_retain_dynamic_owners
 
 #[test]
 fn preview_changes_do_not_reread_menu_files_or_copy_cached_menu_pages() {
-    let unique = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let unique = web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     let path = std::env::temp_dir().join(format!(
@@ -790,7 +790,7 @@ fn frame_cost_bench_hidden_player_preview_while_turning() {
     let skin = vec![200; 64 * 64 * 4];
     let pose = |frame: u32| player_preview::PlayerPreviewPose::new(frame as f32, 0.0, 0.0, false);
     let time = |mut frame: Box<dyn FnMut(u32) + '_>| {
-        let started = std::time::Instant::now();
+        let started = web_time::Instant::now();
         (0..200).for_each(&mut frame);
         started.elapsed().as_secs_f64() * 1e3 / 200.0
     };

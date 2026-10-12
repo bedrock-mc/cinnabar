@@ -37,7 +37,7 @@ pub(super) async fn send_final_blob_cache_telemetry<S: NetworkSession, P>(
     let stats = session.blob_cache_stats();
     emit_blob_cache_telemetry(stats);
     matches!(
-        tokio::time::timeout(
+        async_platform::timeout(
             FINAL_CONTROL_FLUSH_TIMEOUT,
             control_event_tx.send(NetworkControlEvent::BlobCacheTelemetry {
                 enabled: true,

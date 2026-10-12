@@ -6,8 +6,9 @@
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use bevy::{
     math::Vec3,

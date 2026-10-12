@@ -17,18 +17,23 @@ reads = [
 ]
 
 [dependencies]
+web-time.workspace = true
 simulation-clock = { path = "../simulation-clock" }
 assets = { path = "../assets" }
-cap-fs-ext = "3.4.5"
-cap-std = "3.4.5"
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
-# Outline glyphs need no embedded PNG support; use the portable bundled build.
-freetype-sys = { version = "=0.22.0", features = ["bundled"] }
 image.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2.workspace = true
 thiserror.workspace = true
+
+# Directory pack reads open files without following links; browsers have no such directories.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+cap-fs-ext = "3.4.5"
+cap-std = "3.4.5"
+# Outline glyphs need no embedded PNG support; use the portable bundled build. Only the asset
+# compiler rasterizes shipped faces, and browsers cannot build its C sources.
+freetype-sys = { version = "=0.22.0", features = ["bundled"] }
 
 [dev-dependencies]
 tempfile = "3"

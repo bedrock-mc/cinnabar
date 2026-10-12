@@ -124,12 +124,12 @@ const QUEUED_FRAMES: usize = 16;
 
 /// Splits a fresh stream so a spawned writer task owns its write half.
 ///
-/// Requires a Tokio runtime. The writer exits once every [`FrameQueue`] clone is dropped.
+/// Native callers need a Tokio runtime. The writer exits once every [`FrameQueue`] clone is dropped.
 pub(crate) fn queued(stream: PlatformStream, maximum: usize) -> (FramedReader, FrameQueue) {
     let (read, write) = stream.into_split();
     let (frames, queued) = mpsc::channel(QUEUED_FRAMES);
     let failure = Arc::new(OnceLock::new());
-    tokio::spawn(write_queued_frames(
+    async_platform::spawn(write_queued_frames(
         FramedWrite::new(write, BridgeCodec::with_max(maximum)),
         queued,
         Arc::clone(&failure),

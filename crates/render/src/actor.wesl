@@ -228,9 +228,9 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
         discard;
     }
     var uv = select(input.back_uv, input.uv, front);
-    @if(ALPHA_TO_COVERAGE)
+    // Derivatives come before any branch: WebGPU allows implicit-gradient samples only in
+    // uniform control flow, so the multitexture layers below sample with these gradients.
     let uv_dx = dpdx(uv);
-    @if(ALPHA_TO_COVERAGE)
     let uv_dy = dpdy(uv);
     // Every uv_anim material vanilla and packs ship samples with repeat wrap (scrolling armor).
     if (input.uv_wrap != 0u) {
@@ -280,8 +280,8 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     if (multitexture_material) {
         // Native llama:entity_multitexture has three samplers, no ALPHA_TEST and no blend.
         // Coverage never comes from the base alpha; overlay alpha weights RGB instead.
-        let tex1 = tint_to_gamma(textureSample(skins, skin_sampler, uv, i32(input.multitexture_layers.x)));
-        let tex2 = tint_to_gamma(textureSample(skins, skin_sampler, uv, i32(input.multitexture_layers.y)));
+        let tex1 = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(input.multitexture_layers.x), uv_dx, uv_dy));
+        let tex2 = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(input.multitexture_layers.y), uv_dx, uv_dy));
         color = vec4(mix(mix(color.rgb, tex1.rgb, tex1.a), tex2.rgb, tex2.a), color.a);
     }
     // Actor/Entity overlays blend BEFORE the shaded lightmap product. Vertex

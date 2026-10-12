@@ -101,7 +101,7 @@ impl SettingsGroup {
 }
 
 impl SettingsOptions {
-    /// Resets only one section to registry defaults, preserving bindings and other sections.
+    /// Resets only one section to its defaults, preserving bindings and other sections.
     pub fn reset_group(&mut self, group: SettingsGroup) -> bool {
         let mut changed = false;
         for (index, option) in SETTINGS_OPTIONS.iter().enumerate() {
@@ -109,7 +109,7 @@ impl SettingsOptions {
                 if option.name == "render_distance" {
                     changed |= self.values.remove(option.name).is_some();
                 } else {
-                    changed |= self.set(index, option.default);
+                    changed |= self.set(index, self.option_default(option));
                 }
             }
         }

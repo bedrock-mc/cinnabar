@@ -666,7 +666,8 @@ fn drive_unified_publication_fixture(
 
 #[test]
 fn production_pipeline_presents_exact_6951_manifest_with_known_air_within_sixteen_frames() {
-    use std::{collections::BTreeMap, sync::Arc, time::Instant};
+    use std::{collections::BTreeMap, sync::Arc};
+    use web_time::Instant;
 
     use bevy::{
         asset::{AssetPlugin, Assets},
@@ -966,7 +967,7 @@ fn permitted_removal_crosses_real_extraction_and_physically_frees_an_existing_gp
     app.cleanup();
 
     let key = SubChunkKey::new(0, 9, 0, 9);
-    let now = std::time::Instant::now();
+    let now = web_time::Instant::now();
     app.world_mut()
         .resource_mut::<ChunkRenderQueue>()
         .try_update_tracked_with_biome_identity_permitted(
@@ -1096,7 +1097,7 @@ fn production_world_handoff_fails_closed_without_a_linear_publication_permit() {
     let missing = WorldMeshChange::Remove {
         key: world::SubChunkKey::new(0, 0, 0, 0),
         generation: 1,
-        dirty_since: std::time::Instant::now(),
+        dirty_since: web_time::Instant::now(),
         urgent: false,
         permit: None,
     };

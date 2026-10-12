@@ -31,7 +31,7 @@ pub(crate) fn configure(args: &ClientArgs) -> Result<Option<DiagnosticBudget>> {
         .ok_or_else(|| anyhow::anyhow!("Enhanced diagnostics require an explicit viewport"))?;
     render_model::enable_enhanced_diagnostics(viewport).map_err(anyhow::Error::msg)?;
     Ok(Some(DiagnosticBudget {
-        deadline: std::time::Instant::now()
+        deadline: web_time::Instant::now()
             + std::time::Duration::from_secs(args.acceptance_seconds.unwrap()),
         frame_rate: render_model::FrameRate::from_hz(args.frame_cap.unwrap()).unwrap(),
     }))
@@ -51,7 +51,7 @@ fn bounded_request(args: &ClientArgs) -> bool {
 /// Launch-time limits retained across startup, menus and fixed-clock recordings.
 #[derive(bevy::prelude::Resource)]
 pub(crate) struct DiagnosticBudget {
-    deadline: std::time::Instant,
+    deadline: web_time::Instant,
     frame_rate: render_model::FrameRate,
 }
 
@@ -89,7 +89,7 @@ fn expire(
                 .set_physical_resolution(bounded[0], bounded[1]);
         }
     }
-    if std::time::Instant::now() >= budget.deadline {
+    if web_time::Instant::now() >= budget.deadline {
         exit.write(bevy::app::AppExit::Success);
     }
 }
@@ -109,7 +109,7 @@ mod tests {
         install_deadline(
             &mut app,
             DiagnosticBudget {
-                deadline: std::time::Instant::now(),
+                deadline: web_time::Instant::now(),
                 frame_rate: render_model::FrameRate::from_hz(MAX_FRAME_CAP).unwrap(),
             },
         );
@@ -135,7 +135,7 @@ mod tests {
         install_deadline(
             &mut app,
             DiagnosticBudget {
-                deadline: std::time::Instant::now() + std::time::Duration::from_secs(MAX_LIFETIME),
+                deadline: web_time::Instant::now() + std::time::Duration::from_secs(MAX_LIFETIME),
                 frame_rate: render_model::FrameRate::from_hz(MAX_FRAME_CAP).unwrap(),
             },
         );

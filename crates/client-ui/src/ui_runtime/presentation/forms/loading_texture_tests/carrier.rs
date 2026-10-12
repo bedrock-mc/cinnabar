@@ -99,7 +99,7 @@ fn settled(
     player: &player_state::PlayerState,
     presentation: &mut UiPresentationRuntime,
 ) -> render_model::UiRenderInput {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let deadline = web_time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         frame(player, presentation);
         let textures = &presentation.engine.as_ref().unwrap().textures;
@@ -113,7 +113,7 @@ fn settled(
             break;
         }
         assert!(
-            std::time::Instant::now() < deadline,
+            web_time::Instant::now() < deadline,
             "carrier images were unresolved"
         );
         test_time::idle();

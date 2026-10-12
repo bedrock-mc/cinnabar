@@ -1,12 +1,18 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::Read;
-use std::path::{Component, Path, PathBuf};
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Component;
+use std::path::{Path, PathBuf};
 
+#[cfg(not(target_arch = "wasm32"))]
 use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
+#[cfg(not(target_arch = "wasm32"))]
 use cap_std::{
     ambient_authority,
     fs::{Dir, OpenOptions},
 };
 use serde::{Deserialize, Serialize};
+#[cfg(not(target_arch = "wasm32"))]
 use sha2::{Digest, Sha256};
 
 use super::invalid;
@@ -23,6 +29,7 @@ pub struct CachedArchive {
 impl CachedArchive {
     /// Reads only from the client's trusted cache root and verifies the exact archive bytes.
     /// Call this on a blocking worker; the root must come from client configuration, not the handoff.
+    #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn read(&self, root: Option<&Path>, size: u64) -> Result<Vec<u8>, BridgeError> {
         let root = root.ok_or(invalid(
             "cached archive without a configured cache directory",
@@ -76,5 +83,14 @@ impl CachedArchive {
             return Err(invalid("cached archive hash does not match the handoff"));
         }
         Ok(archive)
+    }
+
+    /// Browsers have no core cache directory, so every cache reference is rejected there and
+    /// only streamed archives can complete a handoff.
+    #[cfg(target_arch = "wasm32")]
+    pub(super) fn read(&self, _root: Option<&Path>, _size: u64) -> Result<Vec<u8>, BridgeError> {
+        Err(invalid(
+            "cached archive references are unavailable in the browser",
+        ))
     }
 }

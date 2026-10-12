@@ -1,7 +1,8 @@
 //! Fixed-tick ambient block animation triggers.
 //! Other blocks' ambient animation and unclassified native materials remain unsupported.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use assets::BLOCK_VISUAL_VARIANT_SEASONAL_LEAF;
 use chunk_pipeline::WorldStream;

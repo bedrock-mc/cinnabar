@@ -6,6 +6,8 @@
 mod actor;
 mod animation;
 mod atmosphere;
+// Reads the catalog from an unpacked install directory, which browsers do not have.
+#[cfg(not(target_arch = "wasm32"))]
 mod audio;
 mod audio_bank;
 mod audio_pcm;
@@ -41,6 +43,7 @@ pub use animation::AnimationInventory;
 pub use atmosphere::{
     AtmosphereCompileOptions, compile_atmosphere_assets, compile_atmosphere_assets_with_options,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub use audio::{
     AUDIO_SOUND_DEFINITIONS_RELATIVE_PATH, AudioCompileError, AudioCompileReport,
     CompiledAudioCarrier, PINNED_SOUND_DEFINITIONS_SHA256, compile_audio_assets,
@@ -72,10 +75,11 @@ pub use entity::{
 };
 pub use fadpcm::{DecodedFadpcm, FadpcmDecodeError, decode_fsb5_fadpcm};
 pub use font::{
-    CompiledFontCarrier, FontCompileError, FontCompileReport, GlyphAdvances, NATIVE_SDF_EM_PIXELS,
-    NATIVE_SDF_MIN_PIXELS, OutlineFontConfig, compile_fonts, compile_native_outline_rasters,
-    compile_outline_font, compile_outline_font_with_fallback,
+    CompiledFontCarrier, FontCompileError, FontCompileReport, GlyphAdvances, OutlineFontConfig,
+    compile_fonts, compile_outline_font, compile_outline_font_with_fallback,
 };
+#[cfg(not(target_arch = "wasm32"))]
+pub use font::{NATIVE_SDF_EM_PIXELS, NATIVE_SDF_MIN_PIXELS, compile_native_outline_rasters};
 pub use hud::{CompiledHudCarrier, HudCompileError, HudCompileReport, compile_hud_assets};
 pub use hud_extras::compile_hud_extras_to_file;
 pub use icon::{

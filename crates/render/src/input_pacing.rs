@@ -9,6 +9,13 @@
 //! swapchain backpressure is folded in. The wait ends before the event loop collects the next
 //! frame's input, so events arriving meanwhile are read fresh, and since every update passes
 //! through it, input events can wake the loop but never admit an extra frame.
+//!
+//! Browsers pace frames with `requestAnimationFrame` and cannot block, so there only the frame
+//! boundary and frame time are installed and nothing waits.
+#![cfg_attr(
+    target_arch = "wasm32",
+    allow(dead_code, reason = "browsers never wait for frame admission")
+)]
 
 use bevy::prelude::IntoScheduleConfigs;
 mod frame_time;
@@ -19,19 +26,26 @@ use std::{
         Arc, Mutex, PoisonError,
         atomic::{AtomicU64, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 #[cfg(test)]
 use bevy::prelude::{Fixed, FixedUpdate, PreUpdate, Real, ResMut, Time, Update};
 use bevy::{
     app::MainScheduleOrder,
-    ecs::schedule::{MainThreadExecutor, ScheduleLabel},
-    prelude::{App, First, Last, Plugin, Res, Resource, World},
+    ecs::schedule::ScheduleLabel,
+    prelude::{App, First, Plugin, Res, Resource},
+};
+#[cfg(not(target_arch = "wasm32"))]
+use bevy::{
+    ecs::schedule::MainThreadExecutor,
+    prelude::{Last, World},
     render::{Render, RenderApp, RenderSystems, pipelined_rendering::RenderExtractApp},
 };
 use render_model::{Cadence, FrameRate};
 
+#[cfg(not(target_arch = "wasm32"))]
 use render_scene::{RuntimeStage, RuntimeStageProfiler};
 
 /// `0` keeps measuring input age but never delays an update for render completion.
@@ -286,6 +300,7 @@ impl InputPacer {
     }
 
     /// Runs Bevy's handoff, then waits until the next update should sample input.
+    #[cfg(not(target_arch = "wasm32"))]
     fn handoff(
         &self,
         main: &mut World,
@@ -346,6 +361,7 @@ impl InputPacer {
     }
 
     /// Without pipelined rendering only the cadence applies, at the end of the update.
+    #[cfg(not(target_arch = "wasm32"))]
     fn pace_unpipelined(&self, main: &World) {
         let (cadence, precise) = {
             let state = self.state();
@@ -358,6 +374,7 @@ impl InputPacer {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn wait(
         &self,
         deadline: Instant,
@@ -424,25 +441,32 @@ impl Plugin for InputPacingPlugin {
             .insert_resource(pacer.clone())
             .add_systems(FrameStart, mark_update_start);
         frame_time::install(app);
-        let inner = app
-            .get_sub_app_mut(RenderExtractApp)
-            .and_then(|extract_app| extract_app.take_extract());
-        let Some(mut inner) = inner else {
-            app.add_systems(Last, pace_unpipelined);
-            return;
-        };
-        let handoff = pacer.clone();
-        app.sub_app_mut(RenderExtractApp)
-            .set_extract(move |main, render| handoff.handoff(main, render, &mut inner));
-        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
-            render_app.insert_resource(pacer).add_systems(
-                Render,
-                (
-                    mark_render_start.before(RenderSystems::ExtractCommands),
-                    mark_render_end.in_set(RenderSystems::PostCleanup),
-                ),
-            );
-        }
+        #[cfg(not(target_arch = "wasm32"))]
+        install_handoff_pacing(app, pacer);
+    }
+}
+
+/// Paces at the render handoff when rendering is pipelined, otherwise at the end of `Last`.
+#[cfg(not(target_arch = "wasm32"))]
+fn install_handoff_pacing(app: &mut App, pacer: InputPacer) {
+    let inner = app
+        .get_sub_app_mut(RenderExtractApp)
+        .and_then(|extract_app| extract_app.take_extract());
+    let Some(mut inner) = inner else {
+        app.add_systems(Last, pace_unpipelined);
+        return;
+    };
+    let handoff = pacer.clone();
+    app.sub_app_mut(RenderExtractApp)
+        .set_extract(move |main, render| handoff.handoff(main, render, &mut inner));
+    if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
+        render_app.insert_resource(pacer).add_systems(
+            Render,
+            (
+                mark_render_start.before(RenderSystems::ExtractCommands),
+                mark_render_end.in_set(RenderSystems::PostCleanup),
+            ),
+        );
     }
 }
 
@@ -450,6 +474,7 @@ fn mark_update_start(pacer: Res<InputPacer>, pacing: Res<FramePacing>) {
     pacer.update_started(*pacing);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn pace_unpipelined(world: &mut World) {
     if let Some(pacer) = world.get_resource::<InputPacer>().cloned() {
         pacer.pace_unpipelined(world);

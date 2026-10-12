@@ -3,7 +3,6 @@
 //! unreadable, malformed, or compiled from another pinned source manifest.
 
 use std::{
-    fs::File,
     io::Read,
     path::{Path, PathBuf},
     sync::Arc,
@@ -39,7 +38,7 @@ pub fn require_ui_assets(world_asset_path: &Path) -> anyhow::Result<Arc<RuntimeU
 }
 
 fn read_carrier(path: &Path) -> Result<RuntimeUiAssets, String> {
-    let file = File::open(path).map_err(|error| error.to_string())?;
+    let file = assets::carriers::file::open(path).map_err(|error| error.to_string())?;
     let mut bytes = Vec::new();
     file.take(MAX_UI_CARRIER_BYTES as u64 + 1)
         .read_to_end(&mut bytes)

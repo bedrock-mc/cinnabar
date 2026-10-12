@@ -116,9 +116,13 @@ impl BlockNames {
         let base = cache.get_or_init(|| {
             let base = Arc::new(OnceLock::new());
             let pending = Arc::clone(&base);
-            std::thread::spawn(move || {
+            // A browser has no other thread, so there the index loads before this returns.
+            let spawned = async_platform::spawn_thread("block-name-index", move || {
                 let _ = pending.set(load());
             });
+            if let Err(error) = spawned {
+                eprintln!("block name registry unavailable: {error}");
+            }
             base
         });
         Self {

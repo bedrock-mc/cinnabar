@@ -6,8 +6,8 @@ use std::{
     io::{self, BufWriter, Write},
     path::{Path, PathBuf},
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
 };
+use web_time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(test)]
 use bevy::prelude::Messages;

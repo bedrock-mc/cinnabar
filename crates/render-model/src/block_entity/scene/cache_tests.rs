@@ -407,7 +407,7 @@ fn frame_cost_bench_block_entity_mixed_scene_400_chests() {
     let frames = 200;
     let mut old_scene = scene();
     old_scene.update(SceneClock::default(), &[], &submissions);
-    let started = std::time::Instant::now();
+    let started = web_time::Instant::now();
     for tick in 0..frames {
         let (frame, rejected) = reference_frame(
             &old_scene,
@@ -423,7 +423,7 @@ fn frame_cost_bench_block_entity_mixed_scene_400_chests() {
     let old = started.elapsed() / frames;
     let mut new_scene = scene();
     new_scene.update(SceneClock::default(), &[], &submissions);
-    let started = std::time::Instant::now();
+    let started = web_time::Instant::now();
     for tick in 0..frames {
         std::hint::black_box(new_scene.update(
             SceneClock {
@@ -551,7 +551,7 @@ fn lobby_block_entity_frame_cost() {
         let mut uploads = 0usize;
         let mut last_revision = 0;
         for frame in 0..=300u32 {
-            let started = std::time::Instant::now();
+            let started = web_time::Instant::now();
             let mut submissions = Vec::new();
             for index in 0..signs {
                 let rect = scene.text_rect(index as u64, || vec![255; 96 * 48 * 4]);

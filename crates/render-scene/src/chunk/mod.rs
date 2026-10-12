@@ -22,8 +22,8 @@ use render_model::{
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex},
-    time::Instant,
 };
+use web_time::Instant;
 use world::SubChunkKey;
 pub mod api;
 pub use api::{

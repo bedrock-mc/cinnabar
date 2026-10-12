@@ -12,7 +12,9 @@ reads = [
 ]
 
 [dependencies]
+web-time.workspace = true
 anyhow.workspace = true
+async-platform = { path = "../async-platform" }
 bytes.workspace = true
 sha2.workspace = true
 futures.workspace = true
@@ -28,6 +30,15 @@ rustix = { version = "1", default-features = false, features = ["net", "process"
 
 [target.'cfg(windows)'.dependencies]
 tempfile = "3"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["fs", "net", "rt-multi-thread"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys.workspace = true
+send_wrapper = "0.6"
+wasm-bindgen.workspace = true
+web-sys = { workspace = true, features = ["BinaryType", "CloseEvent", "Event", "MessageEvent", "Storage", "WebSocket", "Window"] }
 
 [dev-dependencies]
 test-time = { path = "../test-time" }

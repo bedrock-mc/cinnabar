@@ -3,6 +3,13 @@ use launcher::menu::view::MenuProfile;
 use launcher::menu::{MenuAction, MenuDialog, MenuScreen};
 use {super::*, launcher::install_layout::InstallLayout, launcher::menu::auth::AuthState};
 
+/// A sign-in request for an account control that signs in itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ControlSignIn {
+    Start,
+    Cancel,
+}
+
 pub(super) fn validated_auth_cache(
     layout: &InstallLayout,
     state: Option<&AuthState>,
@@ -11,6 +18,14 @@ pub(super) fn validated_auth_cache(
 }
 
 impl MenuRuntime {
+    /// Signs in through the account control, as a browser's web relay does, rather than the
+    /// device-code helper the desktop runs.
+    #[must_use]
+    pub fn with_control_sign_in(mut self) -> Self {
+        self.control_signs_in = true;
+        self
+    }
+
     fn start_catalog(&mut self) {
         if self.catalog_started || !self.visible || self.is_connecting() {
             return;
@@ -91,6 +106,11 @@ impl MenuRuntime {
         self.stop_catalog();
         self.catalog_started = false;
         self.catalog_message = None;
+        if self.control_signs_in {
+            self.control_auth = Some(AuthState::Checking);
+            self.control_sign_in = Some(ControlSignIn::Start);
+            return;
+        }
         if let Some(process) = self.auth_process.as_mut()
             && !process.cleanup_complete()
         {
@@ -136,6 +156,11 @@ impl MenuRuntime {
             return;
         }
         self.sign_in_browser.poll();
+        // A browser blocks a tab opened outside a click, so the page opens inside the link
+        // button's own click instead (see `sign_in_link_hovered`).
+        if cfg!(target_arch = "wasm32") {
+            return;
+        }
         if self.auth_restart_requested
             || self.sign_in_cancelled
             || self.owned_sign_in_failure().is_some()
@@ -325,6 +350,9 @@ impl MenuRuntime {
         }
         self.auth_attempted = true;
         self.auth_restart_requested = false;
+        if self.control_signs_in {
+            self.control_sign_in = Some(ControlSignIn::Cancel);
+        }
         if let Some(mut process) = self.auth_process.take() {
             process.cancel_prompt();
             self.auth_process = Some(process);

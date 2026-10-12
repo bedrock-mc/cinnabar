@@ -6,6 +6,7 @@ members = [
     "crates/diagnostics",
     "crates/asset-compiler",
     "crates/assets",
+    "crates/async-platform",
     "crates/bridge",
     "crates/block-transform",
     "crates/client-world",
@@ -69,6 +70,7 @@ members = [
     "tools/cinnabar-mcp",
     "tools/cxb",
     "tools/release-manifest",
+    "web/client",
 ]
 resolver = "3"
 
@@ -80,7 +82,8 @@ rust-version = "1.99.0"
 [workspace.dependencies]
 glam = { version = "0.33.2", default-features = false, features = ["std", "f64"] }
 # One feature set per heavy dependency: any per-crate difference rebuilds it and every dependent.
-# wayland/x11 only select winit backends on Linux; winit ignores them on other targets.
+# wayland/x11 only select winit backends on Linux; winit ignores them on other targets, and
+# webgpu only selects wgpu's browser backend on WebAssembly.
 bevy = { version = "=0.20.0", default-features = false, features = [
     "bevy_anti_alias",
     "smaa_luts",
@@ -105,11 +108,14 @@ bevy = { version = "=0.20.0", default-features = false, features = [
     "std",
     "wayland",
     "x11",
+    "webgpu",
 ] }
 # The noop backend only runs when an instance explicitly enables it (render tests).
 wgpu = { version = "30.0.1", default-features = false, features = ["noop", "wgsl"] }
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
-tokio = { version = "1.52", features = ["fs", "io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
+# Only the features WebAssembly supports; native crates add "fs", "net" and "rt-multi-thread"
+# for non-wasm targets, all with the same set so native builds share one tokio.
+tokio = { version = "1.52", features = ["io-util", "macros", "rt", "sync", "time"] }
 tokio-util = "0.7"
 bytes = "1"
 futures = "0.3"
@@ -120,6 +126,11 @@ rayon = "1.11"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 sha2 = "=0.10.9"
 uuid = { version = "1", features = ["v4"] }
+web-time = "1.1"
+wasm-bindgen = "=0.2.127"
+wasm-bindgen-futures = "0.4.76"
+js-sys = "0.3.103"
+web-sys = "0.3.103"
 wasmtime = { version = "=36.0.16", default-features = false, features = ["component-model", "cranelift", "runtime", "std", "wat"] }
 wit-bindgen = "=0.57.1"
 wit-component = "=0.247.0"

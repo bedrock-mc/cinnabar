@@ -190,8 +190,8 @@ fn profile_replacement_atlas_preserves_the_portrait_fallback() {
     let path = std::env::temp_dir().join(format!(
         "cinnabar-profile-portrait-{}-{}.png",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        web_time::SystemTime::now()
+            .duration_since(web_time::UNIX_EPOCH)
             .unwrap()
             .as_nanos()
     ));

@@ -1,7 +1,8 @@
 //! Read-back occlusion for direct draws: the kernel matches a CPU Hi-Z reference, replayed
 //! camera paths never skip a sub-chunk that shows pixels, and still views skip hidden terrain.
 
-use std::{collections::VecDeque, time::Instant};
+use std::collections::VecDeque;
+use web_time::Instant;
 
 use super::*;
 use kernels::OcclusionStorage;

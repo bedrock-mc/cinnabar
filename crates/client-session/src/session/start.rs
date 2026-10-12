@@ -22,7 +22,171 @@ pub fn spawn_network<P: Send + 'static>(
     let network_readiness_ingress = Arc::clone(&readiness_ingress);
     let experience_gate = Arc::new(experience::ExperienceGate::default());
     let network_experience_gate = Arc::clone(&experience_gate);
-    let thread = thread::Builder::new()
+    let failures = control_event_tx.clone();
+    // Built where it runs: on native the network thread polls it, so it never crosses threads.
+    let session = move || async move {
+        let Some(login) = wait_for_login_or_cancel(
+            LoginSequence::connect_session(
+                &config.core,
+                config.target.clone(),
+                &config.display_name,
+                config.client_random_id,
+                Some(config.client_blob_cache.clone()),
+                Some(config.player_skin),
+                &config.login_settings,
+            ),
+            &mut shutdown_rx,
+        )
+        .await
+        else {
+            return;
+        };
+        let (mut session, game_data) = match login {
+            Ok(connected) => connected,
+            Err(error) => {
+                send_login_error(&control_event_tx, &mut shutdown_rx, error).await;
+                return;
+            }
+        };
+        tracing::info!(
+            base_game_version = %game_data.settings.base_game_version,
+            "world lighting compatibility version"
+        );
+        // The login handoff is one-shot. Take and validate it before
+        // publishing any StartGame state; optional semantic rejection
+        // remains a live base-assets session, a required one ends it.
+        let handoff = session.take_resource_pack_handoff();
+        let cancelled = shutdown_rx.clone();
+        let Some((game_data, packs)) = run_blocking_or_cancel(
+            move || {
+                let packs = unless_cancelled(&cancelled, || {
+                    prepare_presentation(handoff, &game_data, &|| *cancelled.borrow())
+                })
+                .flatten();
+                (game_data, packs)
+            },
+            &mut shutdown_rx,
+        )
+        .await
+        else {
+            return;
+        };
+        let packs = match packs {
+            None => return,
+            Some(Ok(packs)) => packs,
+            Some(Err(error)) => {
+                send_startup_failure(&control_event_tx, &mut shutdown_rx, error, None).await;
+                return;
+            }
+        };
+        let PreparedSession {
+            custom_blocks,
+            packs_applied,
+            packs,
+        } = packs;
+        let bootstrap = game_data.world;
+        let settings = &game_data.settings;
+        let inventory = start_game_inventory_authority(&game_data);
+        let item_registry = match start_game_item_registry(&game_data) {
+            Ok(registry) => registry,
+            Err(error) => {
+                send_startup_failure(&control_event_tx, &mut shutdown_rx, error, None).await;
+                return;
+            }
+        };
+        if !send_control_event_or_cancel(
+            &control_event_tx,
+            &mut shutdown_rx,
+            NetworkControlEvent::Bootstrap {
+                session_generation,
+                world: bootstrap,
+                environment: game_data.environment,
+                custom_blocks,
+                inventory,
+                item_registry,
+                player_game_mode: settings.player_game_mode,
+                world_default_game_mode: settings.world_default_game_mode,
+                player_game_mode_uses_world_default: settings.player_game_mode_uses_world_default,
+                server_authoritative_block_breaking: settings.server_authoritative_block_breaking,
+                rewind_history_size: settings.rewind_history_size,
+                hardcore: settings.hardcore,
+                hud_rules: settings.hud_rules,
+                death_rules: settings.death_rules,
+                packs,
+                terrain_before_spawn: session.terrain_before_spawn(),
+            },
+        )
+        .await
+        {
+            return;
+        }
+        let sequencer = NetworkSequencer::new(
+            session_generation,
+            bootstrap.dimension,
+            bootstrap.local_player_runtime_id,
+        );
+        let pump = async {
+            run_network_pump_with_readiness_ingress(
+                session,
+                sequencer,
+                command_rx,
+                control_event_tx,
+                world_event_tx,
+                shutdown_rx,
+                (network_readiness_ingress, network_experience_gate),
+                observation,
+            )
+            .await;
+        };
+        if packs_applied {
+            let core = config.core.clone();
+            run_with_pack_report(pump, move |applied| {
+                let core = core.clone();
+                async move {
+                    protocol::report_pack_application(&core, applied).await;
+                }
+            })
+            .await;
+        } else {
+            pump.await;
+        }
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    let thread = Some(spawn_session_thread(session, failures)?);
+    #[cfg(target_arch = "wasm32")]
+    let thread = {
+        drop(failures);
+        async_platform::spawn(session());
+        None
+    };
+    Ok(NetworkHandle {
+        session_generation,
+        control_events,
+        world_events,
+        commands,
+        pending_latency_reply: Mutex::new(None),
+        physics_reanchor,
+        shutdown,
+        thread,
+        readiness_ingress,
+        experience_gate,
+        unflushed: AtomicBool::new(false),
+    })
+}
+
+/// Runs the session built by `session` on its own network thread and runtime, reporting a
+/// runtime that cannot start through `failures`.
+#[cfg(not(target_arch = "wasm32"))]
+fn spawn_session_thread<P, F, S>(
+    session: S,
+    failures: mpsc::Sender<NetworkControlEvent<P>>,
+) -> std::io::Result<JoinHandle<()>>
+where
+    P: Send + 'static,
+    F: Future<Output = ()>,
+    S: FnOnce() -> F + Send + 'static,
+{
+    thread::Builder::new()
         .name("bedrock-network".to_owned())
         .spawn(move || {
             let runtime = match tokio::runtime::Builder::new_multi_thread()
@@ -32,7 +196,7 @@ pub fn spawn_network<P: Send + 'static>(
             {
                 Ok(runtime) => runtime,
                 Err(error) => {
-                    let _ = control_event_tx.try_send(NetworkControlEvent::Failed {
+                    let _ = failures.try_send(NetworkControlEvent::Failed {
                         message: format!("failed to create network runtime: {error}"),
                         decode_error_count: 0,
                         server_disconnect: None,
@@ -41,153 +205,12 @@ pub fn spawn_network<P: Send + 'static>(
                     return;
                 }
             };
-            run_session_runtime(runtime, async move {
-                let Some(login) = wait_for_login_or_cancel(
-                    LoginSequence::connect_session(
-                        &config.socket_dir,
-                        &config.display_name,
-                        config.client_random_id,
-                        Some(config.client_blob_cache.clone()),
-                        Some(config.player_skin),
-                        &config.login_settings,
-                    ),
-                    &mut shutdown_rx,
-                )
-                .await
-                else {
-                    return;
-                };
-                let (mut session, game_data) = match login {
-                    Ok(connected) => connected,
-                    Err(error) => {
-                        send_login_error(&control_event_tx, &mut shutdown_rx, error).await;
-                        return;
-                    }
-                };
-                tracing::info!(
-                    base_game_version = %game_data.settings.base_game_version,
-                    "world lighting compatibility version"
-                );
-                // The login handoff is one-shot. Take and validate it before
-                // publishing any StartGame state; optional semantic rejection
-                // remains a live base-assets session, a required one ends it.
-                let handoff = session.take_resource_pack_handoff();
-                let cancelled = shutdown_rx.clone();
-                let Some((game_data, packs)) = run_blocking_or_cancel(
-                    move || {
-                        let packs = unless_cancelled(&cancelled, || {
-                            prepare_presentation(handoff, &game_data, &|| *cancelled.borrow())
-                        })
-                        .flatten();
-                        (game_data, packs)
-                    },
-                    &mut shutdown_rx,
-                )
-                .await
-                else {
-                    return;
-                };
-                let packs = match packs {
-                    None => return,
-                    Some(Ok(packs)) => packs,
-                    Some(Err(error)) => {
-                        send_startup_failure(&control_event_tx, &mut shutdown_rx, error, None)
-                            .await;
-                        return;
-                    }
-                };
-                let PreparedSession {
-                    custom_blocks,
-                    packs_applied,
-                    packs,
-                } = packs;
-                let bootstrap = game_data.world;
-                let settings = &game_data.settings;
-                let inventory = start_game_inventory_authority(&game_data);
-                let item_registry = match start_game_item_registry(&game_data) {
-                    Ok(registry) => registry,
-                    Err(error) => {
-                        send_startup_failure(&control_event_tx, &mut shutdown_rx, error, None)
-                            .await;
-                        return;
-                    }
-                };
-                if !send_control_event_or_cancel(
-                    &control_event_tx,
-                    &mut shutdown_rx,
-                    NetworkControlEvent::Bootstrap {
-                        session_generation,
-                        world: bootstrap,
-                        environment: game_data.environment,
-                        custom_blocks,
-                        inventory,
-                        item_registry,
-                        player_game_mode: settings.player_game_mode,
-                        world_default_game_mode: settings.world_default_game_mode,
-                        player_game_mode_uses_world_default: settings
-                            .player_game_mode_uses_world_default,
-                        server_authoritative_block_breaking: settings
-                            .server_authoritative_block_breaking,
-                        rewind_history_size: settings.rewind_history_size,
-                        hardcore: settings.hardcore,
-                        hud_rules: settings.hud_rules,
-                        death_rules: settings.death_rules,
-                        packs,
-                        terrain_before_spawn: session.terrain_before_spawn(),
-                    },
-                )
-                .await
-                {
-                    return;
-                }
-                let sequencer = NetworkSequencer::new(
-                    session_generation,
-                    bootstrap.dimension,
-                    bootstrap.local_player_runtime_id,
-                );
-                let pump = async {
-                    run_network_pump_with_readiness_ingress(
-                        session,
-                        sequencer,
-                        command_rx,
-                        control_event_tx,
-                        world_event_tx,
-                        shutdown_rx,
-                        (network_readiness_ingress, network_experience_gate),
-                        observation,
-                    )
-                    .await;
-                };
-                if packs_applied {
-                    let socket_dir = config.socket_dir.clone();
-                    run_with_pack_report(pump, move |applied| {
-                        let socket_dir = socket_dir.clone();
-                        async move {
-                            protocol::report_pack_application(&socket_dir, applied).await;
-                        }
-                    })
-                    .await;
-                } else {
-                    pump.await;
-                }
-            });
-        })?;
-    Ok(NetworkHandle {
-        session_generation,
-        control_events,
-        world_events,
-        commands,
-        pending_latency_reply: Mutex::new(None),
-        physics_reanchor,
-        shutdown,
-        thread: Some(thread),
-        readiness_ingress,
-        experience_gate,
-        unflushed: AtomicBool::new(false),
-    })
+            run_session_runtime(runtime, session());
+        })
 }
 
 /// Drives the session without waiting on a cancelled preparation that is still compiling.
+#[cfg(not(target_arch = "wasm32"))]
 fn run_session_runtime(runtime: tokio::runtime::Runtime, session: impl Future<Output = ()>) {
     runtime.block_on(session);
     runtime.shutdown_background();

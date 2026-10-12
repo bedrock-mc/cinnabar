@@ -6,6 +6,7 @@ pub mod dbus;
 pub mod windows;
 
 /// Opens a trusted or user-confirmed web URL on a worker thread.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn open_url(url: &str) {
     let url = url.to_owned();
     let spawned = std::thread::Builder::new()
@@ -17,6 +18,14 @@ pub fn open_url(url: &str) {
         });
     if let Err(error) = spawned {
         tracing::warn!("could not start the browser launcher: {error}");
+    }
+}
+
+/// Opens a trusted or user-confirmed web URL in a new browser tab, which never blocks.
+#[cfg(target_arch = "wasm32")]
+pub fn open_url(url: &str) {
+    if !open_with_default(url) {
+        tracing::warn!("the browser blocked opening {url}");
     }
 }
 
@@ -46,8 +55,24 @@ fn open_outcome(url: &str) -> OpenOutcome {
     return handoff_result(run_tool("open", url));
     #[cfg(target_os = "linux")]
     return portal_outcome(dbus::open_uri(url), || run_tool("xdg-open", url));
-    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    #[cfg(target_arch = "wasm32")]
+    return handoff_result(open_browser_tab(url));
+    #[cfg(not(any(
+        windows,
+        target_os = "macos",
+        target_os = "linux",
+        target_arch = "wasm32"
+    )))]
     return handoff_result(run_tool("xdg-open", url));
+}
+
+/// Opens `url` in a new tab; popup blockers may refuse one not started by a click.
+#[cfg(target_arch = "wasm32")]
+fn open_browser_tab(url: &str) -> bool {
+    web_sys::window()
+        .and_then(|window| window.open_with_url_and_target(url, "_blank").ok())
+        .flatten()
+        .is_some()
 }
 
 /// Only unavailable or failed portal requests may try another desktop handler.

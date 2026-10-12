@@ -1,8 +1,8 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
 };
+use web_time::{SystemTime, UNIX_EPOCH};
 
 use crate::servers::{ServerWriter, load_servers, save_servers};
 use launcher::menu::view::SavedServer;

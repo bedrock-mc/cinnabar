@@ -6,8 +6,17 @@ use resource_pack::{GlobalPackLibrary, LibraryError, ValidatedPackStack};
 use std::{path::PathBuf, sync::Arc};
 
 pub(super) enum Command {
-    Action { action: Action, revision: u64 },
+    Action {
+        action: Action,
+        revision: u64,
+    },
     Import(PathBuf),
+    /// A pack file's name and bytes, which a browser's file picker or drop delivers.
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        expect(dead_code, reason = "desktops import picked and dropped files by path")
+    )]
+    ImportArchive(String, Vec<u8>),
     Commit(Vec<resource_pack::ActivePack>),
 }
 pub(super) enum Event {
@@ -28,7 +37,14 @@ impl Worker {
     pub fn new(root: PathBuf, files: Vec<PathBuf>) -> Self {
         let (commands, incoming) = crossbeam_channel::unbounded();
         let (outgoing, events) = crossbeam_channel::unbounded();
+        #[cfg(not(target_arch = "wasm32"))]
         std::thread::spawn(move || run(root, files, incoming, outgoing));
+        // A browser has no pack folder to import from, nor a thread for this loop.
+        #[cfg(target_arch = "wasm32")]
+        {
+            drop(files);
+            super::browser::start(root, commands.clone(), incoming, outgoing);
+        }
         Self {
             commands,
             events,
@@ -40,49 +56,102 @@ impl Worker {
     /// Queues a command without blocking the frame.
     pub fn send(&mut self, command: Command) {
         let _ = self.commands.send(command);
+        #[cfg(target_arch = "wasm32")]
+        super::browser::wake();
     }
 }
 
-/// Opens storage and processes commands until the app drops the sender.
+/// Opens storage in `root`, imports `files`, and processes commands until the app drops the
+/// sender.
 fn run(
     root: PathBuf,
     files: Vec<PathBuf>,
     incoming: crossbeam_channel::Receiver<Command>,
     outgoing: crossbeam_channel::Sender<Event>,
 ) {
-    let mut snapshot = Snapshot::default();
-    let icon_root = root.join("icons");
-    let mut library = match GlobalPackLibrary::open(root, engine_version()) {
-        Ok(library) => library,
-        Err(error) => {
-            snapshot.message = error.to_string();
-            let _ = outgoing.send(Event::Snapshot(snapshot));
-            return;
-        }
+    let storage = Box::new(resource_pack::DirectoryStorage::new(root));
+    let Some(mut session) = Session::open(storage, &outgoing) else {
+        return;
     };
-    library.set_device_memory(launcher_host::memory::physical_bytes());
-    super::icons::refresh(&library, &mut snapshot, &icon_root);
-    match library.preview() {
-        Ok(stack) => {
-            let _ = outgoing.send(Event::Apply(stack, library.active().to_vec()));
-        }
-        Err(error) => snapshot.message = error.to_string(),
+    session.start(&outgoing);
+    for command in files.into_iter().map(Command::Import).chain(incoming) {
+        session.handle(command, &outgoing);
     }
-    refresh(&library, &mut snapshot);
-    let _ = outgoing.send(Event::Snapshot(snapshot.clone()));
-    let initial = files.into_iter().map(Command::Import);
-    for command in initial.chain(incoming) {
+}
+
+/// One pack library and the lists it publishes, driven in submission order by a desktop's
+/// worker thread or a browser's storage tasks.
+pub(super) struct Session {
+    library: GlobalPackLibrary,
+    snapshot: Snapshot,
+}
+
+impl Session {
+    /// Opens the packs in `storage`; a failure is published and leaves no session.
+    pub(super) fn open(
+        storage: Box<dyn resource_pack::PackStorage>,
+        outgoing: &crossbeam_channel::Sender<Event>,
+    ) -> Option<Self> {
+        let mut snapshot = Snapshot::default();
+        match GlobalPackLibrary::open_in(storage, engine_version()) {
+            Ok(mut library) => {
+                library.set_device_memory(launcher_host::memory::physical_bytes());
+                Some(Self { library, snapshot })
+            }
+            Err(error) => {
+                snapshot.message = error.to_string();
+                let _ = outgoing.send(Event::Snapshot(snapshot));
+                None
+            }
+        }
+    }
+
+    /// The stored archives the session reads before publishing its first lists, or while
+    /// handling `command`; a browser loads them first.
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        expect(dead_code, reason = "a desktop's storage reads its files directly")
+    )]
+    pub(super) fn reads(&self, command: Option<&Command>) -> Vec<String> {
+        match command {
+            None
+            | Some(Command::Action {
+                action: Action::Apply,
+                ..
+            }) => self.library.staged_archives(),
+            Some(_) => Vec::new(),
+        }
+    }
+
+    /// Hands the stored selection to the runtime and publishes the first lists.
+    pub(super) fn start(&mut self, outgoing: &crossbeam_channel::Sender<Event>) {
+        let snapshot = &mut self.snapshot;
+        super::icons::refresh(&mut self.library, snapshot);
+        match self.library.preview() {
+            Ok(stack) => {
+                let _ = outgoing.send(Event::Apply(stack, self.library.active().to_vec()));
+            }
+            Err(error) => snapshot.message = error.to_string(),
+        }
+        refresh(&self.library, snapshot);
+        let _ = outgoing.send(Event::Snapshot(snapshot.clone()));
+    }
+
+    /// Applies one command and publishes the resulting lists.
+    pub(super) fn handle(&mut self, command: Command, outgoing: &crossbeam_channel::Sender<Event>) {
+        let (library, snapshot) = (&mut self.library, &mut self.snapshot);
         if let Command::Action { action, revision } = &command
             && indexed(*action)
             && *revision != snapshot.revision
         {
             snapshot.message = "Resource pack list changed; select the pack again.".into();
             let _ = outgoing.send(Event::Snapshot(snapshot.clone()));
-            continue;
+            return;
         }
         let changes_lists = matches!(
             &command,
             Command::Import(_)
+                | Command::ImportArchive(..)
                 | Command::Action {
                     action: Action::Activate(_)
                         | Action::Deactivate(_)
@@ -99,6 +168,7 @@ fn run(
         let performs_work = matches!(
             &command,
             Command::Import(_)
+                | Command::ImportArchive(..)
                 | Command::Commit(_)
                 | Command::Action {
                     action: Action::Import | Action::Apply,
@@ -116,12 +186,13 @@ fn run(
                 snapshot.message.clear();
                 result
             }
-            Command::Import(path) => import(&mut library, path, &mut snapshot, &icon_root),
+            Command::Import(path) => import(library, path, snapshot),
+            Command::ImportArchive(name, bytes) => import_archive(library, &name, bytes, snapshot),
             Command::Action {
                 action: Action::Import,
                 ..
             } => match super::picker::pick() {
-                Ok(Some(path)) => import(&mut library, path, &mut snapshot, &icon_root),
+                Ok(Some(path)) => import(library, path, snapshot),
                 Ok(None) => {
                     snapshot.message.clear();
                     Ok(())
@@ -131,7 +202,7 @@ fn run(
                     Ok(())
                 }
             },
-            Command::Action { action, .. } => act(&mut library, &mut snapshot, action, &outgoing),
+            Command::Action { action, .. } => act(library, snapshot, action, outgoing),
         };
         if let Err(error) = result {
             snapshot.message = error.to_string();
@@ -140,7 +211,7 @@ fn run(
         if changes_lists {
             snapshot.revision += 1;
         }
-        refresh(&library, &mut snapshot);
+        refresh(library, snapshot);
         let _ = outgoing.send(Event::Snapshot(snapshot.clone()));
     }
 }
@@ -182,23 +253,47 @@ fn refresh(library: &GlobalPackLibrary, snapshot: &mut Snapshot) {
         .collect();
 }
 
-/// Imports all resource halves and reports skipped behavior or unsupported entries.
+/// Imports all resource halves of the file at `path` and reports skipped behavior or
+/// unsupported entries.
 fn import(
     library: &mut GlobalPackLibrary,
     path: PathBuf,
     snapshot: &mut Snapshot,
-    icon_root: &std::path::Path,
 ) -> Result<(), LibraryError> {
     let report = library.import(&path)?;
+    imported(library, &report, snapshot);
+    Ok(())
+}
+
+/// [`import`] for the file `name`'s `bytes`, which a browser's picker or drop delivers.
+fn import_archive(
+    library: &mut GlobalPackLibrary,
+    name: &str,
+    bytes: Vec<u8>,
+    snapshot: &mut Snapshot,
+) -> Result<(), LibraryError> {
+    if !resource_pack::is_pack_import_path(std::path::Path::new(name)) {
+        return Err(LibraryError::UnsupportedExtension);
+    }
+    let report = library.import_archive(bytes)?;
+    imported(library, &report, snapshot);
+    Ok(())
+}
+
+/// Publishes an import's outcome.
+fn imported(
+    library: &mut GlobalPackLibrary,
+    report: &resource_pack::ImportReport,
+    snapshot: &mut Snapshot,
+) {
     clear_indexed(snapshot);
-    super::icons::refresh(library, snapshot, icon_root);
+    super::icons::refresh(library, snapshot);
     snapshot.message = format!(
         "Imported {} resource packs; skipped {} behavior packs. {}",
         report.imported.len(),
         report.skipped_behavior,
         report.rejected.join("; ")
     );
-    Ok(())
 }
 
 fn clear_indexed(snapshot: &mut Snapshot) {
@@ -450,7 +545,6 @@ mod tests {
             &mut library,
             write_fixture(fixture.path(), 3),
             &mut snapshot,
-            &root.join("icons"),
         )
         .unwrap();
         assert_eq!(snapshot.selected, None);

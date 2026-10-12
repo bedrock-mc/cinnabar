@@ -6,8 +6,8 @@ impl Directory {
     fn new() -> Self {
         // macOS clocks are microsecond-grained, so parallel tests need the counter too.
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        let unique = web_time::SystemTime::now()
+            .duration_since(web_time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

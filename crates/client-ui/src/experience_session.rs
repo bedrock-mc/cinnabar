@@ -72,7 +72,7 @@ impl ExperienceSession {
 
 /// Uses wall time only for signed expiration, never for media presentation.
 pub fn unix_seconds() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .map_or(u64::MAX, |time| time.as_secs())
 }

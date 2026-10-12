@@ -10,11 +10,11 @@ fn wait(
     local: &mut crate::player_skin::LocalPlayerSkin,
     world: &mut Option<chunk_pipeline::WorldStream>,
 ) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let deadline = web_time::Instant::now() + std::time::Duration::from_secs(5);
     while menu.dressing_room.busy {
         menu.poll_dressing_room(Some(&mut *local), world.as_mut(), None, 0);
         assert!(
-            std::time::Instant::now() < deadline,
+            web_time::Instant::now() < deadline,
             "skin worker did not publish"
         );
         std::thread::yield_now();

@@ -33,7 +33,10 @@ pub(crate) mod unix {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let listener = UnixListener::bind(bridge::session_endpoint_path(&dir)).unwrap();
-        let (reader, frames) = bridge::connect_session(&dir).await.unwrap();
+        let (reader, frames) =
+            bridge::connect_session(&bridge::CoreEndpoint::SocketDir(dir.clone()))
+                .await
+                .unwrap();
         let (peer, _) = listener.accept().await.unwrap();
         Pair {
             transport: SessionTransport::new(reader, frames, startup),

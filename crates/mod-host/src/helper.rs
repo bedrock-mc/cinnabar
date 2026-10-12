@@ -14,8 +14,9 @@ use std::{
     io::{Read, Write},
     path::Path,
     sync::{Mutex, mpsc},
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 mod supervisor;
 

@@ -9,6 +9,7 @@ pub mod emotes;
 pub mod keybindings;
 pub mod language;
 pub mod persistence;
+pub mod platform_defaults;
 pub mod render_distance;
 pub mod reset;
 pub mod runtime;
@@ -53,6 +54,9 @@ pub struct SettingsOptions {
     anti_aliasing_support: ui::AntiAliasingSupport,
     #[serde(skip)]
     render_distance_defaults: ui::RenderDistanceDefaults,
+    /// Untouched options read [`platform_defaults::BROWSER_DEFAULTS`].
+    #[serde(skip)]
+    performance_defaults: bool,
     keys: BTreeMap<String, u16>,
     language: Option<String>,
     /// None means no macro command has been stored yet.
@@ -69,6 +73,7 @@ impl Default for SettingsOptions {
             values: BTreeMap::new(),
             anti_aliasing_support: ui::AntiAliasingSupport::default(),
             render_distance_defaults: ui::RenderDistanceDefaults::default(),
+            performance_defaults: platform_defaults::PREFERS_PERFORMANCE,
             keys: BTreeMap::new(),
             language: None,
             command_macros: None,

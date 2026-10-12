@@ -8,8 +8,9 @@ use std::{
     process::{Child, ChildStdin, Command, Stdio},
     sync::mpsc,
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use developer_control::endpoint::Endpoint;
 

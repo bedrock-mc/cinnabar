@@ -13,8 +13,8 @@ mod error;
 pub use error::AssetStartupError;
 mod loading;
 pub use loading::{
-    CarrierLoadObserver, atmosphere_asset_path, entity_asset_path, font_asset_path,
-    load_runtime_assets, load_runtime_assets_observed, local_font_asset_path,
+    CarrierLoadObserver, Started, atmosphere_asset_path, entity_asset_path, font_asset_path, join,
+    load_runtime_assets, load_runtime_assets_observed, local_font_asset_path, start,
 };
 mod world_provenance;
 
@@ -143,7 +143,9 @@ pub use lang_carrier::{
     LANG_ASSETS_COMPILE_COMMAND, LoadedLangAssets, lang_asset_path, lang_assets_rebuild_command,
     require_lang_assets,
 };
-pub use lang_carrier::{active_language, load_optional_language};
+pub use lang_carrier::{
+    active_language, language_carrier_dir, language_carrier_path, load_optional_language,
+};
 
 impl LoadedFontAssets {
     #[must_use]

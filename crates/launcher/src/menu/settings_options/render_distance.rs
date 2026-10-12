@@ -1,6 +1,6 @@
 //! Device recommendations supply defaults without replacing saved choices.
 
-use super::{SettingDefinition, SettingsOptions};
+use super::SettingsOptions;
 
 impl SettingsOptions {
     /// Updates the runtime recommendation without persisting a guessed user preference.
@@ -16,15 +16,6 @@ impl SettingsOptions {
     /// Returns the recommendation and the unextended device levels for settings hosts.
     pub fn render_distance_defaults(&self) -> ui::RenderDistanceDefaults {
         self.render_distance_defaults
-    }
-
-    /// Resolves device-sensitive defaults for untouched options and resets.
-    pub(super) fn option_default(&self, option: &SettingDefinition) -> i32 {
-        if option.name == "render_distance" {
-            self.render_distance_defaults.recommended as i32
-        } else {
-            option.default
-        }
     }
 }
 

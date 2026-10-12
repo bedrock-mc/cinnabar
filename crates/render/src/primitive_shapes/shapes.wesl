@@ -133,10 +133,13 @@ fn text_vertex(@builtin(vertex_index) vertex:u32,@builtin(instance_index) index:
 // Background and glyph backfaces have separate controls; geometry never alpha-blends.
 @fragment
 fn shape_fragment(input:VertexOutput,@builtin(front_facing) front:bool) -> @location(0) vec4<f32> {
+    // WebGPU allows implicit-derivative sampling only in uniform control flow.
+    let uv_dx=dpdx(input.uv);
+    let uv_dy=dpdy(input.uv);
     if !front&&input.backface==0u { discard; }
     var color=input.color;
     if input.textured==1u {
-        var texel=textureSample(atlas,atlas_sampler,input.uv);
+        var texel=textureSampleGrad(atlas,atlas_sampler,input.uv,uv_dx,uv_dy);
         @if(TEXT_ALPHA_TEST)
         if texel.a<0.5 { discard; }
         @if(SHAPE_GAMMA)

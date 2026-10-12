@@ -1,9 +1,5 @@
-use std::{
-    cell::RefCell,
-    collections::BTreeMap,
-    hint::black_box,
-    time::{Duration, Instant},
-};
+use std::{cell::RefCell, collections::BTreeMap, hint::black_box, time::Duration};
+use web_time::Instant;
 
 use super::*;
 

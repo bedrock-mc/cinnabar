@@ -11,7 +11,8 @@ use client_runtime::inventory::{
 use client_runtime::network::NetworkHandle;
 use client_runtime::pack_admission::ResourcePackAdmissionState;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 #[cfg(feature = "acceptance")]
 use {
     crate::runtime::phase3_evidence::Phase3EvidenceEmitter,

@@ -147,8 +147,12 @@ fn block_entity_solid(input: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn block_entity_overlay(input: VertexOutput) -> @location(0) vec4<f32> {
+    // WebGPU allows implicit-derivative sampling only in uniform control flow, so derivatives
+    // are taken before any per-pixel branch and the branches sample with them.
+    let uv_dx = dpdx(input.uv);
+    let uv_dy = dpdy(input.uv);
     if (input.uv.x < 0.0) { return input.color; }
-    let texel = textureSample(atlas, atlas_sampler, input.uv);
+    let texel = textureSampleGrad(atlas, atlas_sampler, input.uv, uv_dx, uv_dy);
     let alpha = texel.a * input.color.a;
     if (alpha < 0.02) {
         discard;
@@ -164,8 +168,12 @@ fn block_entity_additive(input: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn block_entity_crack(input: VertexOutput) -> @location(0) vec4<f32> {
+    // WebGPU allows implicit-derivative sampling only in uniform control flow, so derivatives
+    // are taken before any per-pixel branch and the branches sample with them.
+    let uv_dx = dpdx(input.uv);
+    let uv_dy = dpdy(input.uv);
     if (input.uv.x < 0.0) { return input.color; }
-    let texel = textureSample(atlas, atlas_sampler, input.uv);
+    let texel = textureSampleGrad(atlas, atlas_sampler, input.uv, uv_dx, uv_dy);
     if (texel.a < 0.02) {
         discard;
     }
@@ -213,11 +221,17 @@ fn portal_vertex(@builtin(vertex_index) vertex_index: u32) -> PortalOutput {
 @fragment
 fn portal_fragment(input: PortalOutput) -> @location(0) vec4<f32> {
     // One/OneMinusSrcAlpha clears the surface with the base, then adds the stars.
+    // WebGPU allows implicit-derivative sampling only in uniform control flow, so derivatives
+    // are taken before any per-pixel branch and the branches sample with them.
+    let uv = portal.star_rect.xy + fract(input.parallax_uv) * portal.star_rect.zw;
+    let uv_dx = dpdx(uv);
+    let uv_dy = dpdy(uv);
+    let color_uv_dx = dpdx(input.color_uv);
+    let color_uv_dy = dpdy(input.color_uv);
     if (input.phase * 32.0 > 31.0) {
         return vec4(portal.fog_color_start.rgb * input.fog, 1.0);
     }
-    let uv = portal.star_rect.xy + fract(input.parallax_uv) * portal.star_rect.zw;
-    let stars = textureSample(atlas, atlas_sampler, uv).rgb;
-    let palette = textureSample(atlas, atlas_sampler, input.color_uv).rgb;
+    let stars = textureSampleGrad(atlas, atlas_sampler, uv, uv_dx, uv_dy).rgb;
+    let palette = textureSampleGrad(atlas, atlas_sampler, input.color_uv, color_uv_dx, color_uv_dy).rgb;
     return vec4(stars * palette * (1.0 - input.phase) * (1.0 - input.fog), 0.0);
 }

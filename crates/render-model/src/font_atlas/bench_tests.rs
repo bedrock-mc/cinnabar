@@ -4,7 +4,8 @@ use crate::{
     FontAtlasFrame, UiRenderBatch, UiRenderInput, UiRenderVertex, UiScissor, UiTextureCatalog,
     UiTexturePage,
 };
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
+use web_time::Instant;
 
 #[test]
 fn font_atlas_latency_fixture() {

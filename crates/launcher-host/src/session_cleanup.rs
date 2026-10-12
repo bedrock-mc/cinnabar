@@ -34,10 +34,10 @@ use std::{
     fs,
     hash::{BuildHasher, Hasher},
     path::{Path, PathBuf},
-    process,
     sync::{Arc, Mutex, OnceLock, Weak},
-    time::{SystemTime, UNIX_EPOCH},
 };
+// File times are std's clock, which this native-only cleanup compares against.
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -285,7 +285,7 @@ impl SessionDirectoryGuard {
         }
         let marker = SessionOwnerMarker {
             token: fresh_token(),
-            pid: process::id(),
+            pid: launcher::install_layout::process_id(),
             kind: id.kind,
             generation: id.generation,
             created_unix: unix_now(),
@@ -340,7 +340,10 @@ impl SessionDirectoryGuard {
             return ReleaseOutcome::DirectoryMissing;
         }
         match load_marker(&self.directory) {
-            Ok(Some(on_disk)) if on_disk.token == self.token && on_disk.pid == process::id() => {
+            Ok(Some(on_disk))
+                if on_disk.token == self.token
+                    && on_disk.pid == launcher::install_layout::process_id() =>
+            {
                 // The marker is the deletion authority. It is deliberately
                 // rechecked after a failed removal before ownership is retained.
             }
@@ -365,7 +368,8 @@ impl SessionDirectoryGuard {
             }
             Err(_) => match load_marker(&self.directory) {
                 Ok(Some(on_disk))
-                    if on_disk.token == self.token && on_disk.pid == process::id() =>
+                    if on_disk.token == self.token
+                        && on_disk.pid == launcher::install_layout::process_id() =>
                 {
                     eprintln!(
                         "session-runtime: could not remove session directory {}; the still-proven owner may retry",
@@ -445,7 +449,7 @@ fn directory_proof(directory: &Path, token: &str) -> std::io::Result<(fs::File, 
     let mut bytes = Vec::new();
     marker.read_to_end(&mut bytes)?;
     let marker: SessionOwnerMarker = serde_json::from_slice(&bytes)?;
-    if marker.token != token || marker.pid != process::id() {
+    if marker.token != token || marker.pid != launcher::install_layout::process_id() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::PermissionDenied,
             "session identity changed",
@@ -505,7 +509,9 @@ fn take_over_dead_predecessor(directory: &Path) -> Result<(), SessionDirectoryEr
         // process id plus single-process pid uniqueness prove the previous
         // owner is gone.
         Ok(None) => replace_directory(directory),
-        Ok(Some(existing)) if existing.pid == process::id() => replace_directory(directory),
+        Ok(Some(existing)) if existing.pid == launcher::install_layout::process_id() => {
+            replace_directory(directory)
+        }
         Ok(Some(existing)) => Err(SessionDirectoryError::ForeignIdentity {
             directory: directory.to_owned(),
             pid: existing.pid,
@@ -592,7 +598,7 @@ impl StaleReclaimPolicy {
             now_unix: unix_now(),
             max_age_secs: STALE_SESSION_MAX_AGE_SECS,
             limit: MAX_STALE_RECLAIMS_PER_STARTUP,
-            current_pid: process::id(),
+            current_pid: launcher::install_layout::process_id(),
         }
     }
 }
@@ -820,7 +826,7 @@ fn log_line(message: &str) {
 /// without adding a randomness dependency.
 fn fresh_token() -> String {
     let mut high_hasher = RandomState::new().build_hasher();
-    high_hasher.write_u128(u128::from(process::id()));
+    high_hasher.write_u128(u128::from(launcher::install_layout::process_id()));
     let high = high_hasher.finish();
     let mut low_hasher = RandomState::new().build_hasher();
     low_hasher.write_u64(high);

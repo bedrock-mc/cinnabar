@@ -21,7 +21,13 @@ use client_extensions::server_experiences::consent::{can_disable, chrome};
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 #[cfg(test)]
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
-use {client_shell::menu::MenuRuntime, client_state::ClientFrameSet};
+use {
+    client_shell::menu::{
+        MenuRuntime,
+        escape_tips::{ESCAPE_CLOSES_SCREENS, EscapeTip},
+    },
+    client_state::ClientFrameSet,
+};
 
 #[derive(Resource)]
 pub(super) struct ExperienceService {
@@ -81,6 +87,8 @@ fn drive(
     driven: Option<Res<client_state::DrivenInput>>,
 ) {
     let now_ms = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    // A browser's Escape leaves the modal or prompt open and shows how to close it instead.
+    let mut escape_kept_open = false;
     let generation = runtime.session_id();
     let extension = &mut runtime.experiences;
     if service.generation != generation {
@@ -237,7 +245,9 @@ fn drive(
         for (control, text) in &edits.edits {
             live.text_changed(control, text);
         }
-        if escape && !edits.escape_consumed {
+        if escape && !edits.escape_consumed && !ESCAPE_CLOSES_SCREENS {
+            escape_kept_open = true;
+        } else if escape && !edits.escape_consumed {
             live.close_modal();
         } else {
             if let Some((id, index)) = press {
@@ -262,7 +272,8 @@ fn drive(
             } else if keys.just_pressed(KeyCode::F8) {
                 Some(Choice::Never)
             } else if keys.just_pressed(KeyCode::Escape) {
-                Some(Choice::Cancel)
+                escape_kept_open = !ESCAPE_CLOSES_SCREENS;
+                ESCAPE_CLOSES_SCREENS.then_some(Choice::Cancel)
             } else if mouse.just_pressed(MouseButton::Left) {
                 cursor.and_then(|point| presentation.experience_choice(point))
             } else {
@@ -328,6 +339,9 @@ fn drive(
         service.download = None;
         service.live = None;
         extension.active = false;
+    }
+    if escape_kept_open {
+        EscapeTip::Screen.show(&mut runtime, None, now_ms);
     }
 }
 

@@ -4,7 +4,7 @@
 //! and Windows on a high-resolution waitable timer, falling back to `std::thread::sleep`. The
 //! caller spins the last stretch, so a late wake costs latency only, never correctness.
 
-use std::time::Instant;
+use web_time::Instant;
 
 /// Sleeps until about `deadline`; returns early only on spurious OS wakes.
 pub(super) fn sleep_until(deadline: Instant) {

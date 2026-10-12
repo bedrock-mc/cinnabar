@@ -1,5 +1,4 @@
 use std::{
-    fs::File,
     io::Read,
     path::{Path, PathBuf},
     sync::Arc,
@@ -17,7 +16,7 @@ pub(crate) fn particle_asset_path(world_asset_path: &Path) -> PathBuf {
 /// Loads the particle carrier if present and valid; particles are simply absent otherwise.
 pub(crate) fn load_optional_carrier(world_asset_path: &Path) -> Option<Arc<RuntimeParticleAssets>> {
     let path = particle_asset_path(world_asset_path);
-    let file = match File::open(&path) {
+    let file = match assets::carriers::file::open(&path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             diagnostics::log_stderr!(

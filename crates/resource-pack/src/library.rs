@@ -6,14 +6,13 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    fs,
-    io::Read,
     path::{Path, PathBuf},
     sync::Arc,
 };
 use uuid::Uuid;
 
 mod storage;
+pub use storage::{DirectoryStorage, PackStorage};
 
 const CATALOG_FILE: &str = "global_packs.json";
 const MAX_CATALOG_BYTES: usize = 16 * 1024 * 1024;
@@ -110,9 +109,9 @@ struct Catalog {
     next_revision: u64,
 }
 
-/// Disk-backed library. Selection edits are staged until `apply` succeeds.
+/// Installed packs in a [`PackStorage`]. Selection edits are staged until `apply` succeeds.
 pub struct GlobalPackLibrary {
-    root: PathBuf,
+    storage: Box<dyn PackStorage>,
     engine_version: [u32; 3],
     catalog: Catalog,
     active: Vec<ActivePack>,
@@ -120,21 +119,28 @@ pub struct GlobalPackLibrary {
 }
 
 impl GlobalPackLibrary {
-    /// Opens install-owned pack storage without touching the base carriers.
+    /// Opens install-owned pack storage in the directory `root` without touching the base
+    /// carriers.
     pub fn open(root: impl Into<PathBuf>, engine_version: [u32; 3]) -> Result<Self, LibraryError> {
-        let root = root.into();
-        let path = root.join(CATALOG_FILE);
-        let catalog: Catalog = if path.exists() {
-            serde_json::from_slice(&read_bounded(&path, MAX_CATALOG_BYTES)?)?
-        } else {
-            Catalog::default()
+        Self::open_in(Box::new(DirectoryStorage::new(root)), engine_version)
+    }
+
+    /// Opens the packs kept in `storage`.
+    pub fn open_in(
+        storage: Box<dyn PackStorage>,
+        engine_version: [u32; 3],
+    ) -> Result<Self, LibraryError> {
+        let catalog: Catalog = match storage.read(CATALOG_FILE, MAX_CATALOG_BYTES) {
+            Ok(bytes) => serde_json::from_slice(&bytes)?,
+            Err(error) if storage::not_found(&error) => Catalog::default(),
+            Err(error) => return Err(error),
         };
         if catalog.active.len() > MAX_PACKS {
             return Err(AdmissionError::TooManyPacks.into());
         }
         let active = catalog.active.clone();
         Ok(Self {
-            root,
+            storage,
             engine_version,
             catalog,
             active,
@@ -171,12 +177,38 @@ impl GlobalPackLibrary {
         &self.active
     }
 
+    /// Where the library keeps its packs, for callers that store pack artwork beside them.
+    pub fn storage(&self) -> &dyn PackStorage {
+        self.storage.as_ref()
+    }
+
+    /// [`Self::storage`], to store pack artwork beside the packs.
+    pub fn storage_mut(&mut self) -> &mut dyn PackStorage {
+        self.storage.as_mut()
+    }
+
+    /// The stored archives a [`Self::preview`] of the staged selection reads.
+    pub fn staged_archives(&self) -> Vec<String> {
+        self.active
+            .iter()
+            .filter_map(|active| self.metadata(active))
+            .map(InstalledPack::filename)
+            .collect()
+    }
+
     /// Imports independently valid resource halves; behavior halves are skipped.
     pub fn import(&mut self, path: &Path) -> Result<ImportReport, LibraryError> {
         if !crate::is_pack_import_path(path) {
             return Err(LibraryError::UnsupportedExtension);
         }
-        let bytes = read_bounded(path, MAX_ARCHIVE_BYTES)?;
+        self.import_archive(storage::read_file(path, MAX_ARCHIVE_BYTES)?)
+    }
+
+    /// Imports the archive `bytes` of a file the player picked, as [`Self::import`] does.
+    pub fn import_archive(&mut self, bytes: Vec<u8>) -> Result<ImportReport, LibraryError> {
+        if bytes.len() > MAX_ARCHIVE_BYTES {
+            return Err(AdmissionError::ArchiveTooLarge.into());
+        }
         let (mut report, archives) = crate::import::read_import(bytes)?;
         let mut candidate = self.catalog.clone();
         let mut accepted = Vec::new();
@@ -199,10 +231,10 @@ impl GlobalPackLibrary {
         }
         let catalog_bytes = encode_catalog(&candidate)?;
         for (metadata, bytes) in accepted {
-            atomic_write(&self.root.join(metadata.filename()), &bytes)?;
+            self.storage.write(&metadata.filename(), &bytes)?;
             report.imported.push(metadata);
         }
-        atomic_write(&self.root.join(CATALOG_FILE), &catalog_bytes)?;
+        self.storage.write(CATALOG_FILE, &catalog_bytes)?;
         self.catalog = candidate;
         for active in &mut self.active {
             if let Some(pack) = self
@@ -226,7 +258,7 @@ impl GlobalPackLibrary {
 
     /// Reads one installed pack's own icon without activating it or consulting overlays.
     pub fn pack_icon(&self, metadata: &InstalledPack) -> Result<Option<Box<[u8]>>, LibraryError> {
-        let bytes = read_bounded(&self.root.join(metadata.filename()), MAX_ARCHIVE_BYTES)?;
+        let bytes = self.storage.read(&metadata.filename(), MAX_ARCHIVE_BYTES)?;
         let (pack, _) =
             validate_archive_parts(metadata.id, &metadata.version_text(), "", bytes, None, None)?;
         Ok(pack.read_file_with_limit("pack_icon.png", 4 * 1024 * 1024)?)
@@ -321,7 +353,7 @@ impl GlobalPackLibrary {
             {
                 return Err(LibraryError::NewerEngine);
             }
-            let bytes = read_bounded(&self.root.join(metadata.filename()), MAX_ARCHIVE_BYTES)?;
+            let bytes = self.storage.read(&metadata.filename(), MAX_ARCHIVE_BYTES)?;
             let (pack, _) = validate_archive_parts(
                 active.id,
                 &metadata.version_text(),
@@ -366,17 +398,15 @@ impl GlobalPackLibrary {
             return Err(error);
         }
         if selection == self.active {
-            storage::prune(&self.root, &mut self.catalog)?;
+            storage::prune(self.storage.as_mut(), &mut self.catalog)?;
         }
         Ok(())
     }
 
     /// Atomically publishes catalog changes while retaining the last applied selection.
-    fn persist(&self) -> Result<(), LibraryError> {
-        atomic_write(
-            &self.root.join(CATALOG_FILE),
-            &encode_catalog(&self.catalog)?,
-        )
+    fn persist(&mut self) -> Result<(), LibraryError> {
+        let bytes = encode_catalog(&self.catalog)?;
+        self.storage.write(CATALOG_FILE, &bytes)
     }
 }
 
@@ -387,34 +417,6 @@ fn encode_catalog(catalog: &Catalog) -> Result<Vec<u8>, LibraryError> {
         return Err(LibraryError::CatalogTooLarge);
     }
     Ok(bytes)
-}
-
-/// Caps reads before allocating, including files that grow during the read.
-fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, LibraryError> {
-    let file = fs::File::open(path)?;
-    if file.metadata()?.len() > limit as u64 {
-        return Err(AdmissionError::ArchiveTooLarge.into());
-    }
-    let mut bytes = Vec::new();
-    file.take(limit as u64 + 1).read_to_end(&mut bytes)?;
-    if bytes.len() > limit {
-        return Err(AdmissionError::ArchiveTooLarge.into());
-    }
-    Ok(bytes)
-}
-
-/// Uses a sibling temporary file so readers see either complete version.
-fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), LibraryError> {
-    use std::io::Write;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
-    let mut file = fs::File::create(&temporary)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    fs::rename(&temporary, path)?;
-    Ok(())
 }
 
 #[cfg(test)]

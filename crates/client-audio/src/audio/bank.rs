@@ -21,12 +21,19 @@ use serde_json::Value;
 use super::{server::ServerSoundPack, voice::Pcm};
 
 pub const SOUND_BANK_FILENAME: &str = assets::carriers::AUDIO_BANK.output;
-const HEADER_READ_BYTES: usize = 40;
+const HEADER_READ_BYTES: usize = assets::sound_bank::SOUND_BANK_HEADER_BYTES;
 const CACHE_BUDGET_BYTES: usize = 96 * 1024 * 1024;
 /// Worker threads decoding bank entries, so a streamed track cannot hold up every first-play sound.
 const DECODE_WORKERS: usize = 2;
 /// Decodes queued at once, and their compressed bytes; a lookup beyond either is `Busy`.
 pub(super) const MAX_QUEUED_DECODES: usize = 64;
+/// Finished decodes awaiting [`SoundBank::poll`]. A browser's downloads finish in any order and
+/// at any time, so it holds a result for every queued decode.
+const DECODED_RESULTS: usize = if cfg!(target_arch = "wasm32") {
+    MAX_QUEUED_DECODES
+} else {
+    DECODE_WORKERS
+};
 const MAX_QUEUED_DECODE_BYTES: usize = 32 * 1024 * 1024;
 const PREWARM_SOUNDS_PER_GROUP: usize = 4;
 const PREWARM_BYTES: usize = 1024 * 1024;
@@ -45,7 +52,7 @@ pub struct MusicEntry {
 }
 
 pub struct SoundBank {
-    file: Option<Arc<File>>,
+    file: Option<BankBytes>,
     index: SoundBankIndex,
     tables: SoundEventTables,
     catalog: Option<Arc<RuntimeAudioCatalog>>,
@@ -79,28 +86,54 @@ enum DecodeSource {
     Server,
 }
 
-/// A queued entry that keeps the bank file opened during loading alive.
+/// Where bank entries are read from: the bank file opened during loading, or in a browser, which
+/// has no files, the bank's preloaded bytes or its download URL.
+#[derive(Clone)]
+enum BankBytes {
+    File(Arc<File>),
+    Memory(Arc<[u8]>),
+    #[cfg(target_arch = "wasm32")]
+    Ranged(ranged::RangedBank),
+}
+
+/// A queued entry that keeps the bank opened during loading alive.
 struct BankEntry {
-    file: Arc<File>,
+    bytes: BankBytes,
     entry: SoundBankEntry,
 }
 
 impl BankEntry {
     /// Reads this entry by offset on a worker; returns None if its bytes cannot be read.
     fn read(&self) -> Option<Vec<u8>> {
+        let file = match &self.bytes {
+            BankBytes::File(file) => file,
+            BankBytes::Memory(bank) => {
+                let start = usize::try_from(self.entry.offset).ok()?;
+                let end = start.checked_add(self.entry.len as usize)?;
+                return bank.get(start..end).map(<[u8]>::to_vec);
+            }
+            // Downloads are asynchronous; `Decoder::run_queued` reads these.
+            #[cfg(target_arch = "wasm32")]
+            BankBytes::Ranged(_) => return None,
+        };
         let mut bytes = vec![0_u8; self.entry.len as usize];
         let mut consumed = 0;
         while consumed < bytes.len() {
             let offset = self.entry.offset.checked_add(consumed as u64)?;
             #[cfg(unix)]
             let result =
-                std::os::unix::fs::FileExt::read_at(&*self.file, &mut bytes[consumed..], offset);
+                std::os::unix::fs::FileExt::read_at(&**file, &mut bytes[consumed..], offset);
             #[cfg(windows)]
-            let result = std::os::windows::fs::FileExt::seek_read(
-                &*self.file,
-                &mut bytes[consumed..],
-                offset,
-            );
+            let result =
+                std::os::windows::fs::FileExt::seek_read(&**file, &mut bytes[consumed..], offset);
+            // Without positional reads, seek then read; these targets decode without threads.
+            #[cfg(not(any(unix, windows)))]
+            let result = {
+                use std::io::{Read, Seek, SeekFrom};
+                let mut file = &**file;
+                file.seek(SeekFrom::Start(offset))
+                    .and_then(|_| file.read(&mut bytes[consumed..]))
+            };
             match result {
                 Ok(0) => return None,
                 Ok(read) => consumed += read,
@@ -136,59 +169,53 @@ struct Decoder {
     generation: Arc<AtomicU64>,
     encoded_bytes: Arc<AtomicUsize>,
     server: CurrentServer,
+    /// A browser cannot start workers, so its queued jobs run in [`SoundBank::poll`].
+    #[cfg(target_arch = "wasm32")]
+    inline: InlineDecodes,
+}
+
+/// The queue and result ends a browser's decoder works through on the frame.
+#[cfg(target_arch = "wasm32")]
+struct InlineDecodes {
+    jobs: Mutex<Receiver<DecodeJob>>,
+    results: SyncSender<DecodeResult>,
 }
 
 impl Decoder {
     /// Starts the bounded pool shared by reads and decodes across pack generations.
     fn spawn(generation: u64, server: Option<Arc<ServerSoundPack>>) -> Option<Self> {
         let (jobs, job_queue) = sync_channel::<DecodeJob>(MAX_QUEUED_DECODES);
-        let (results, done) = sync_channel(DECODE_WORKERS);
-        let job_queue = Arc::new(Mutex::new(job_queue));
+        let (results, done) = sync_channel(DECODED_RESULTS);
         let server = Arc::new(Mutex::new((generation, server)));
         let generation = Arc::new(AtomicU64::new(generation));
-        for index in 0..DECODE_WORKERS {
-            let job_queue = Arc::clone(&job_queue);
-            let results = results.clone();
-            let generation = Arc::clone(&generation);
-            let server = Arc::clone(&server);
-            std::thread::Builder::new()
-                .name(format!("sound-decode-{index}"))
-                .spawn(move || {
-                    loop {
-                        let job = job_queue
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner)
-                            .recv();
-                        let Ok((epoch, path, source, permit)) = job else {
-                            return;
-                        };
-                        if generation.load(Ordering::Acquire) != epoch {
-                            continue;
-                        }
-                        let pcm = match source {
-                            DecodeSource::Bank(entry) => {
-                                entry.read().and_then(|bytes| decode_pcm(&bytes, &path))
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let job_queue = Arc::new(Mutex::new(job_queue));
+            for index in 0..DECODE_WORKERS {
+                let job_queue = Arc::clone(&job_queue);
+                let results = results.clone();
+                let generation = Arc::clone(&generation);
+                let server = Arc::clone(&server);
+                std::thread::Builder::new()
+                    .name(format!("sound-decode-{index}"))
+                    .spawn(move || {
+                        loop {
+                            let job = job_queue
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .recv();
+                            let Ok(job) = job else {
+                                return;
+                            };
+                            if let Some(result) = decode_job(job, &generation, &server)
+                                && results.send(result).is_err()
+                            {
+                                return;
                             }
-                            DecodeSource::Server => {
-                                let pack = {
-                                    let current = server
-                                        .lock()
-                                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                                    (current.0 == epoch).then(|| current.1.clone()).flatten()
-                                };
-                                pack.and_then(|pack| pack.decode(&path))
-                            }
-                        };
-                        drop(permit);
-                        if generation.load(Ordering::Acquire) != epoch {
-                            continue;
                         }
-                        if results.send((epoch, path, pcm)).is_err() {
-                            return;
-                        }
-                    }
-                })
-                .ok()?;
+                    })
+                    .ok()?;
+            }
         }
         Some(Self {
             jobs,
@@ -196,7 +223,69 @@ impl Decoder {
             generation,
             encoded_bytes: Arc::new(AtomicUsize::new(0)),
             server,
+            #[cfg(target_arch = "wasm32")]
+            inline: InlineDecodes {
+                jobs: Mutex::new(job_queue),
+                results,
+            },
         })
+    }
+
+    /// Decodes at most as many queued jobs as the result queue holds, on the calling thread.
+    #[cfg(target_arch = "wasm32")]
+    fn run_queued(&self) {
+        let jobs = self
+            .inline
+            .jobs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for _ in 0..DECODE_WORKERS {
+            let Ok(job) = jobs.try_recv() else {
+                return;
+            };
+            let (epoch, path, source, permit) = job;
+            let source = match source {
+                DecodeSource::Bank(BankEntry {
+                    bytes: BankBytes::Ranged(bank),
+                    entry,
+                }) => {
+                    self.download(epoch, path, bank, entry, permit);
+                    continue;
+                }
+                source => source,
+            };
+            if let Some(result) = decode_job(
+                (epoch, path, source, permit),
+                &self.generation,
+                &self.server,
+            ) {
+                let _ = self.inline.results.try_send(result);
+            }
+        }
+    }
+
+    /// Downloads and decodes one entry of a ranged bank, then queues its result for `poll`.
+    #[cfg(target_arch = "wasm32")]
+    fn download(
+        &self,
+        epoch: u64,
+        path: Box<str>,
+        bank: ranged::RangedBank,
+        entry: SoundBankEntry,
+        permit: EncodedPermit,
+    ) {
+        let results = self.inline.results.clone();
+        let generation = Arc::clone(&self.generation);
+        async_platform::spawn(async move {
+            let pcm = bank
+                .read(entry)
+                .await
+                .and_then(|bytes| decode_pcm(&bytes, &path));
+            drop(permit);
+            if generation.load(Ordering::Acquire) == epoch {
+                let _ = results.try_send((epoch, path, pcm));
+            }
+        });
     }
 
     /// Reserves encoded bytes until a worker finishes or discards the job.
@@ -212,6 +301,31 @@ impl Decoder {
             total: Arc::clone(&self.encoded_bytes),
         })
     }
+}
+
+/// Reads and decodes one job's sound, or `None` once its pack generation has been replaced.
+fn decode_job(
+    (epoch, path, source, permit): DecodeJob,
+    generation: &AtomicU64,
+    server: &CurrentServer,
+) -> Option<DecodeResult> {
+    if generation.load(Ordering::Acquire) != epoch {
+        return None;
+    }
+    let pcm = match source {
+        DecodeSource::Bank(entry) => entry.read().and_then(|bytes| decode_pcm(&bytes, &path)),
+        DecodeSource::Server => {
+            let pack = {
+                let current = server
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                (current.0 == epoch).then(|| current.1.clone()).flatten()
+            };
+            pack.and_then(|pack| pack.decode(&path))
+        }
+    };
+    drop(permit);
+    (generation.load(Ordering::Acquire) == epoch).then_some((epoch, path, pcm))
 }
 
 /// Decodes one sound into shared playback data on a worker.
@@ -248,31 +362,69 @@ fn parse_music(bytes: &[u8]) -> HashMap<Box<str>, MusicEntry> {
         .collect()
 }
 
+/// Reads the bank's index prefix from the start of `reader`.
+fn read_index(reader: &mut impl Read, path: &Path) -> Result<SoundBankIndex, String> {
+    let mut header = [0_u8; HEADER_READ_BYTES];
+    reader
+        .read_exact(&mut header)
+        .map_err(|error| format!("read {}: {error}", path.display()))?;
+    let prefix_len = sound_bank_prefix_len(&header).map_err(|error| error.to_string())?;
+    let mut prefix = vec![0_u8; prefix_len];
+    prefix[..HEADER_READ_BYTES].copy_from_slice(&header);
+    reader
+        .read_exact(&mut prefix[HEADER_READ_BYTES..])
+        .map_err(|error| format!("read {}: {error}", path.display()))?;
+    SoundBankIndex::decode_prefix(&prefix).map_err(|error| error.to_string())
+}
+
 impl SoundBank {
     /// Opens the bank file; `Ok(None)` when absent so audio stays silent instead of failing startup.
     pub fn open(
         path: &Path,
         catalog: Option<Arc<RuntimeAudioCatalog>>,
     ) -> Result<Option<Self>, String> {
-        let mut file = match File::open(path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(format!("open {}: {error}", path.display())),
+        #[cfg(target_arch = "wasm32")]
+        if let Some(bank) = assets::carriers::file::ranged(path) {
+            use sha2::Digest;
+            let index = read_index(&mut &bank.prefix[..], path)?;
+            let identity: String = sha2::Sha256::digest(&bank.prefix)[..16]
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
+            let bytes = BankBytes::Ranged(ranged::RangedBank {
+                url: bank.url,
+                identity: identity.into(),
+            });
+            return Ok(Some(Self::with_index(index, bytes, catalog)));
+        }
+        let (index, bytes) = if let Some(bank) = assets::carriers::file::preloaded(path) {
+            let index = read_index(&mut &bank[..], path)?;
+            (index, BankBytes::Memory(bank))
+        } else {
+            let mut file = match File::open(path) {
+                Ok(file) => file,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                Err(error) => return Err(format!("open {}: {error}", path.display())),
+            };
+            (
+                read_index(&mut file, path)?,
+                BankBytes::File(Arc::new(file)),
+            )
         };
-        let mut header = [0_u8; HEADER_READ_BYTES];
-        file.read_exact(&mut header)
-            .map_err(|error| format!("read {}: {error}", path.display()))?;
-        let prefix_len = sound_bank_prefix_len(&header).map_err(|error| error.to_string())?;
-        let mut prefix = vec![0_u8; prefix_len];
-        prefix[..HEADER_READ_BYTES].copy_from_slice(&header);
-        file.read_exact(&mut prefix[HEADER_READ_BYTES..])
-            .map_err(|error| format!("read {}: {error}", path.display()))?;
-        let index = SoundBankIndex::decode_prefix(&prefix).map_err(|error| error.to_string())?;
+        Ok(Some(Self::with_index(index, bytes, catalog)))
+    }
+
+    /// A bank over `index`, whose entries are read from `bytes`.
+    fn with_index(
+        index: SoundBankIndex,
+        bytes: BankBytes,
+        catalog: Option<Arc<RuntimeAudioCatalog>>,
+    ) -> Self {
         let json = |bytes: &[u8]| serde_json::from_slice::<Value>(bytes).unwrap_or(Value::Null);
         let tables =
             SoundEventTables::from_json(&json(index.sounds_json()), &json(index.materials_json()));
-        Ok(Some(Self {
-            file: Some(Arc::new(file)),
+        Self {
+            file: Some(bytes),
             music: parse_music(index.music_json()),
             index,
             tables,
@@ -288,7 +440,7 @@ impl SoundBank {
             in_flight: HashMap::new(),
             in_flight_bytes: 0,
             ready_streams: HashMap::new(),
-        }))
+        }
     }
 
     /// Queues a small set of finite UI, footstep and interaction sounds during loading.
@@ -440,9 +592,9 @@ impl SoundBank {
         let jobs = decoder.jobs.clone();
         let source = match server {
             true => Some(DecodeSource::Server),
-            false => entry.zip(self.file.as_ref()).map(|(entry, file)| {
+            false => entry.zip(self.file.as_ref()).map(|(entry, bytes)| {
                 DecodeSource::Bank(BankEntry {
-                    file: Arc::clone(file),
+                    bytes: bytes.clone(),
                     entry,
                 })
             }),
@@ -470,8 +622,12 @@ impl SoundBank {
         self.in_flight.contains_key(path)
     }
 
-    /// Collects finished decodes.
+    /// Collects finished decodes; a browser first decodes the next queued ones here.
     pub fn poll(&mut self) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(decoder) = &self.decoder {
+            decoder.run_queued();
+        }
         for _ in 0..DECODE_WORKERS {
             let finished = self.decoder.as_ref().and_then(|decoder| {
                 decoder
@@ -577,6 +733,9 @@ impl SoundBank {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+mod ranged;
+
 #[cfg(test)]
 mod prewarm_tests;
 #[cfg(test)]
@@ -643,7 +802,10 @@ mod tests {
         ));
         std::fs::write(&path, bytes).unwrap();
         let mut bank = SoundBank::open(&path, None).unwrap().unwrap();
-        let mut probe = bank.file.as_ref().unwrap().try_clone().unwrap();
+        let Some(BankBytes::File(file)) = &bank.file else {
+            panic!("a bank opened from disk reads its file");
+        };
+        let mut probe = file.try_clone().unwrap();
         let before = probe.stream_position().unwrap();
         let (jobs, job_queue) = sync_channel(MAX_QUEUED_DECODES);
         let (_results, done) = sync_channel(DECODE_WORKERS);

@@ -88,13 +88,13 @@ pub fn tnt_presentation(fuse: f32) -> (f32, bool) {
 
 impl ActorStore {
     pub(crate) fn block_entity_candidates(&self, partial_tick: f32) -> Vec<BlockEntityCandidate> {
-        self.block_entity_candidates_at(partial_tick, std::time::Instant::now())
+        self.block_entity_candidates_at(partial_tick, web_time::Instant::now())
     }
 
     pub(super) fn block_entity_candidates_at(
         &self,
         partial_tick: f32,
-        now: std::time::Instant,
+        now: web_time::Instant,
     ) -> Vec<BlockEntityCandidate> {
         let alpha = partial_tick.clamp(0.0, 1.0);
         self.effect_members
@@ -113,13 +113,13 @@ impl ActorStore {
 
     /// Falling blocks and primed TNT with interpolated centres.
     pub(crate) fn block_entities(&self, partial_tick: f32) -> Vec<BlockEntityView> {
-        self.block_entities_at(partial_tick, std::time::Instant::now())
+        self.block_entities_at(partial_tick, web_time::Instant::now())
     }
 
     pub(super) fn block_entities_at(
         &self,
         partial_tick: f32,
-        now: std::time::Instant,
+        now: web_time::Instant,
     ) -> Vec<BlockEntityView> {
         let alpha = partial_tick.clamp(0.0, 1.0);
         self.effect_members

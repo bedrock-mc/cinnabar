@@ -1,6 +1,8 @@
 //! Java-style F3 diagnostics requested for Cinnabar. This is a developer tool,
 //! not a Bedrock parity screen; its visual reference is the supplied 19w05a image.
 
+#[cfg(target_arch = "wasm32")]
+mod browser_gpu;
 use crate::runtime::network::resource_packs::PackApplication;
 use client_runtime::network::NetworkHandle;
 mod details;

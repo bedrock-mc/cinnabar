@@ -1,6 +1,7 @@
 use super::*;
 use crate::LayeredPackView;
 use std::{
+    fs,
     io::{Cursor, Write},
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -269,7 +270,7 @@ fn failed_apply_leaves_persisted_selection_and_composition_gives_higher_layer_pr
     library
         .select_subpack(Uuid::from_u128(1), "missing")
         .unwrap_err();
-    fs::remove_file(library.root.join(library.available()[0].filename())).unwrap();
+    fs::remove_file(library.storage.path(&library.available()[0].filename())).unwrap();
     assert!(library.apply().is_err());
     assert_eq!(fixture.library().active(), library.active());
     let empty = ValidatedPackStack {
@@ -411,7 +412,9 @@ fn catalog_larger_than_one_manifest_reopens_after_multiple_valid_imports() {
         assert_eq!(report.imported.len(), 1);
     }
     assert!(
-        fs::metadata(library.root.join(CATALOG_FILE)).unwrap().len()
+        fs::metadata(library.storage.path(CATALOG_FILE))
+            .unwrap()
+            .len()
             > crate::MAX_MANIFEST_BYTES as u64
     );
     assert_eq!(fixture.library().available().len(), 2);
@@ -438,7 +441,7 @@ fn catalog_limit_rejection_does_not_publish_metadata_or_archive() {
     ));
     assert_eq!(library.available().len(), 1);
     assert_eq!(library.available()[0].id, Uuid::from_u128(2));
-    assert!(!library.root.exists());
+    assert!(!library.storage.path("").exists());
 }
 
 #[test]
@@ -479,15 +482,17 @@ fn review_failed_archive_deletion_remains_retryable() {
     library
         .import(&fixture.write("second.zip", &zip(&[("manifest.json", text.as_bytes())])))
         .unwrap();
-    let obsolete = library.root.join(library.catalog.retained[0].filename());
+    let obsolete = library
+        .storage
+        .path(&library.catalog.retained[0].filename());
     let bytes = fs::read(&obsolete).unwrap();
     fs::remove_file(&obsolete).unwrap();
     fs::create_dir(&obsolete).unwrap();
-    assert!(storage::prune(&library.root, &mut library.catalog).is_err());
+    assert!(storage::prune(library.storage.as_mut(), &mut library.catalog).is_err());
     assert_eq!(library.catalog.retained.len(), 1);
     fs::remove_dir(&obsolete).unwrap();
     fs::write(&obsolete, bytes).unwrap();
-    storage::prune(&library.root, &mut library.catalog).unwrap();
+    storage::prune(library.storage.as_mut(), &mut library.catalog).unwrap();
     assert!(!obsolete.exists());
     assert!(library.catalog.retained.is_empty());
 }

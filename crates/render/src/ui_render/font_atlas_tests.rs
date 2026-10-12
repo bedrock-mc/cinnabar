@@ -364,7 +364,7 @@ fn font_upload_burst_measurement() {
         )]
         .into();
         input.validate().unwrap();
-        let started = std::time::Instant::now();
+        let started = web_time::Instant::now();
         atlas
             .prepare(&input, |_, origin, size, pixels| {
                 bytes_written += pixels.len();

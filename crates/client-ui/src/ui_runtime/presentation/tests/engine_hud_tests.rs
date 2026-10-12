@@ -1027,7 +1027,7 @@ fn hud_frame_timing() {
         [1920, 1080],
         1.0,
     );
-    let started = std::time::Instant::now();
+    let started = web_time::Instant::now();
     for frame in 0..frames {
         build_at(
             &player_runtime,
@@ -1039,7 +1039,7 @@ fn hud_frame_timing() {
         );
     }
     let steady = started.elapsed() / frames;
-    let started = std::time::Instant::now();
+    let started = web_time::Instant::now();
     for frame in 0..frames {
         runtime.hud.set_experience(12, frame as f32 / frames as f32);
         build_at(

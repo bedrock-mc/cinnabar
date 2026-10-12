@@ -14,8 +14,8 @@ impl Pack {
         let root = std::env::temp_dir().join(format!(
             "neutral-actor-test-{}-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
+            web_time::SystemTime::now()
+                .duration_since(web_time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos(),
             NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -414,7 +414,7 @@ fn replaced_base_artwork_without_a_session_pack_keeps_actors_drawn() {
             .unwrap(),
         (Vec3::new(0.0, 66.0, -12.0), Vec3::new(0.0, 64.0, 4.0)),
     );
-    let mut clock = std::time::Instant::now();
+    let mut clock = web_time::Instant::now();
     let mut drawn = |world: &mut World| {
         for _ in 0..4 {
             clock += std::time::Duration::from_millis(50);

@@ -1,7 +1,8 @@
 //! Main-thread cost of per-frame paths, old shape against new, at crowded-server loads.
 //! Run: `cargo test -p bedrock-client --features reports --lib frame_cost_bench -- --ignored --nocapture`.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use render_model::{
     ActorRigFrameBuilder, BlockEntityKind, BlockEntityScene, BlockEntitySubmission, SceneClock,

@@ -133,6 +133,7 @@ impl WorldStream {
             urgent_pass_budget: URGENT_PASS_BUDGET,
             frame_deadline: None,
             poll_budget: commit_budget::WORLD_POLL_BUDGET,
+            provisional_light_meshes: PROVISIONAL_LIGHT_MESHES,
             polling: false,
             poll_heavy_guarantee: false,
             service_yield: None,

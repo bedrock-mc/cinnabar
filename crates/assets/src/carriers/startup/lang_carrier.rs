@@ -7,7 +7,6 @@
 //! actionable error naming the rebuild command.
 
 use std::{
-    fs::File,
     io::{self, Read},
     path::{Path, PathBuf},
     sync::Arc,
@@ -104,14 +103,9 @@ pub fn load_optional_language(
     code: &str,
     vanilla_source_json: &str,
 ) -> Option<Arc<RuntimeLangCatalog>> {
-    if code == "en_US" {
-        return None;
-    }
-    let path = world_asset_path
-        .with_file_name("lang")
-        .join(format!("{code}.mcbelang"));
+    let path = language_carrier_path(world_asset_path, code)?;
     let mut bytes = Vec::new();
-    let read = File::open(&path).and_then(|file| {
+    let read = crate::carriers::file::open(&path).and_then(|file| {
         file.take(MAX_LANG_ASSET_BLOB_BYTES + 1)
             .read_to_end(&mut bytes)
     });
@@ -138,6 +132,21 @@ pub fn load_optional_language(
     loaded.map(Arc::new)
 }
 
+/// The optional carrier of language `code` beside `world_asset_path`; `None` for en_US, whose
+/// text is the base carrier's.
+#[must_use]
+pub fn language_carrier_path(world_asset_path: &Path, code: &str) -> Option<PathBuf> {
+    (code != "en_US")
+        .then(|| language_carrier_dir(world_asset_path).join(format!("{code}.mcbelang")))
+}
+
+/// The directory of the languages a player can switch to while playing, beside
+/// `world_asset_path`.
+#[must_use]
+pub fn language_carrier_dir(world_asset_path: &Path) -> PathBuf {
+    world_asset_path.with_file_name(crate::carriers::LANGUAGES.output)
+}
+
 #[must_use]
 pub fn lang_asset_path(world_asset_path: &Path) -> PathBuf {
     world_asset_path.with_file_name(LANG_ASSETS_FILENAME)
@@ -151,7 +160,7 @@ pub fn require_lang_assets(
     vanilla_source_json: &str,
 ) -> Result<LoadedLangAssets, AssetStartupError> {
     let path = lang_asset_path(world_asset_path);
-    let file = match File::open(&path) {
+    let file = match crate::carriers::file::open(&path) {
         Ok(file) => file,
         Err(source) if source.kind() == io::ErrorKind::NotFound => {
             let rebuild_command = lang_assets_rebuild_command(&path);

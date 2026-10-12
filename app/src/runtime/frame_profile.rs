@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowOccluded};
 use std::time::Duration;
 #[cfg(feature = "tracy")]
-use std::time::Instant;
+use web_time::Instant;
 use {
     render::FramePacing,
     render_scene::{FrameBudgets, RuntimeStageProfiler},
@@ -43,8 +43,8 @@ pub(crate) fn trace_frame_focus(
     if anchor.is_none_or(|last| last.elapsed() >= Duration::from_secs(1)) {
         *anchor = Some(Instant::now());
         let _window = bevy::log::info_span!("profile.clock_window").entered();
-        let unix_ns = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        let unix_ns = web_time::SystemTime::now()
+            .duration_since(web_time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos() as u64;
         let _zone = bevy::log::info_span!(

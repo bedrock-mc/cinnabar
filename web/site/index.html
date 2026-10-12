@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cinnabar</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="launcher">
+    <h1>Cinnabar</h1>
+    <p class="lede">A Minecraft: Bedrock Edition client, running in your browser.</p>
+
+    <section id="support" hidden>
+      <p class="error" id="support-reason"></p>
+    </section>
+
+    <section id="consent">
+      <h2>Minecraft EULA</h2>
+      <p id="eula-text">Cinnabar plays with game files made from Minecraft's official resource pack.
+        They download when you agree and are kept only in this browser. To play, agree to the
+        <a id="eula-link" href="https://www.minecraft.net/eula" target="_blank" rel="noopener">Minecraft EULA</a>.</p>
+      <p id="consent-state" class="muted" role="status"></p>
+      <div class="actions">
+        <button id="decline" type="button" class="secondary">Decline</button>
+        <button id="agree" type="button">Agree</button>
+      </div>
+      <p id="play-state" class="error" role="alert"></p>
+    </section>
+  </main>
+  <div id="startup" role="status" aria-live="polite" hidden>
+    <div class="spinner" aria-hidden="true"></div>
+    <p id="startup-label">Starting…</p>
+    <div class="progress" aria-hidden="true"><div id="startup-bar"></div></div>
+  </div>
+  <script type="module" src="boot.js"></script>
+</body>
+</html>

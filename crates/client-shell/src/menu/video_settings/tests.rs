@@ -215,7 +215,7 @@ fn malformed_and_oversized_files_return_errors_without_overwriting_them() {
 
 /// Waits for the worker's acknowledgment while driving the normal persistence system.
 fn wait_for_save(app: &mut App) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let deadline = web_time::Instant::now() + std::time::Duration::from_secs(2);
     loop {
         app.update();
         let menu = app.world().resource::<MenuRuntime>();
@@ -227,7 +227,7 @@ fn wait_for_save(app: &mut App) {
             return;
         }
         assert!(
-            std::time::Instant::now() < deadline,
+            web_time::Instant::now() < deadline,
             "video settings were not acknowledged"
         );
         std::thread::yield_now();

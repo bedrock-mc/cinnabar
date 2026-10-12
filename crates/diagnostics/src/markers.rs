@@ -193,6 +193,7 @@ pub fn world_publication_snapshot_marker(
         "value_changed_light_jobs": stats.value_changed_light_jobs,
         "provenance_only_light_jobs": stats.provenance_only_light_jobs,
         "light_mesh_invalidations": stats.light_mesh_invalidations,
+        "light_mesh_invalidations_skipped": stats.light_mesh_invalidations_skipped,
         "stale_light_jobs": stats.stale_light_jobs,
         "stale_mesh_jobs": stats.stale_mesh_jobs,
         "queued_decode_jobs": stats.queued_decode_jobs,

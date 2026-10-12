@@ -2,7 +2,6 @@
 
 use crate::runtime::network::resource_packs::PackApplication;
 use client_runtime::network::NetworkHandle;
-use std::path::PathBuf;
 
 pub type NetworkControlEvent = client_session::NetworkControlEvent<PackApplication>;
 
@@ -10,7 +9,10 @@ pub type NetworkControlEvent = client_session::NetworkControlEvent<PackApplicati
 #[derive(Debug, Clone)]
 pub struct NetworkConfig {
     pub session_generation: u64,
-    pub socket_dir: PathBuf,
+    /// Where the core's session endpoint is.
+    pub core: bridge::CoreEndpoint,
+    /// What the first Connect joins; `None` joins the core's selection, which follows a transfer.
+    pub target: Option<bridge::ConnectTarget>,
     pub display_name: String,
     /// The user storage owner's opaque persisted login identifier.
     pub client_random_id: protocol::ClientRandomId,
@@ -29,14 +31,15 @@ pub fn spawn_network(
     config: NetworkConfig,
 ) -> Result<NetworkHandle<PackApplication>, std::io::Error> {
     #[cfg(feature = "local-mods")]
-    let socket_dir = config.socket_dir.clone();
+    let bridge::CoreEndpoint::SocketDir(socket_dir) = config.core.clone();
     let actor_artwork = config.actor_artwork;
     let ui_catalog = config.ui_catalog;
     let physical_memory_bytes = launcher_host::memory::physical_bytes();
     client_session::spawn_network(
         client_session::NetworkConfig {
             session_generation: config.session_generation,
-            socket_dir: config.socket_dir,
+            core: config.core,
+            target: config.target,
             display_name: config.display_name,
             client_random_id: config.client_random_id,
             client_blob_cache: config.client_blob_cache,

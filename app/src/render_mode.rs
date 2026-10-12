@@ -36,12 +36,7 @@ struct GraphicsFile {
 
 /// Saved mode, or `None` when the file is absent, oversized, or unreadable.
 pub(crate) fn load_render_mode(path: &Path) -> Option<RenderMode> {
-    let mut bytes = Vec::new();
-    fs::File::open(path)
-        .ok()?
-        .take(MAX_GRAPHICS_FILE_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .ok()?;
+    let bytes = read_file(path)?;
     if bytes.len() as u64 > MAX_GRAPHICS_FILE_BYTES {
         return None;
     }
@@ -49,8 +44,41 @@ pub(crate) fn load_render_mode(path: &Path) -> Option<RenderMode> {
     RenderMode::parse(&file.render_mode)
 }
 
+/// The saved file's bytes, at most one past [`MAX_GRAPHICS_FILE_BYTES`].
+#[cfg(not(target_arch = "wasm32"))]
+fn read_file(path: &Path) -> Option<Vec<u8>> {
+    let mut bytes = Vec::new();
+    fs::File::open(path)
+        .ok()?
+        .take(MAX_GRAPHICS_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    Some(bytes)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn read_file(path: &Path) -> Option<Vec<u8>> {
+    launcher::browser_files::read(path, MAX_GRAPHICS_FILE_BYTES + 1).ok()
+}
+
 /// Atomically replace the small graphics extension settings file.
 pub(crate) fn save_render_mode(path: &Path, mode: RenderMode) -> Result<()> {
+    let bytes = serde_json::to_vec_pretty(&GraphicsFile {
+        render_mode: mode.as_str().to_owned(),
+    })?;
+    replace_file(path, &bytes)
+}
+
+/// Replaces the browser's stored file in one write.
+#[cfg(target_arch = "wasm32")]
+fn replace_file(path: &Path, bytes: &[u8]) -> Result<()> {
+    Context::with_context(launcher::browser_files::write(path, bytes), || {
+        format!("write {}", path.display())
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn replace_file(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -59,9 +87,6 @@ pub(crate) fn save_render_mode(path: &Path, mode: RenderMode) -> Result<()> {
             format!("create {}", parent.display())
         })?;
     }
-    let bytes = serde_json::to_vec_pretty(&GraphicsFile {
-        render_mode: mode.as_str().to_owned(),
-    })?;
     let temp = path.with_extension("json.tmp");
     Context::with_context(fs::write(&temp, bytes), || {
         format!("write {}", temp.display())

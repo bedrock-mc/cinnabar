@@ -45,6 +45,11 @@ pub trait AccountControl {
     fn friends(&mut self) -> Option<Vec<MenuFriendCard>>;
     /// `sign_out.v1`; `true` once the core accepted it.
     fn sign_out(&mut self) -> bool;
+    /// Starts a sign-in this surface runs itself, as a web relay does; the menu asks only
+    /// surfaces that sign in this way, and the device-code helper signs in for the rest.
+    fn start_sign_in(&mut self) {}
+    /// Cancels a sign-in [`AccountControl::start_sign_in`] started that still waits for its code.
+    fn cancel_sign_in(&mut self) {}
     /// The next pending account event, if any.
     fn poll_event(&mut self) -> Option<AccountEvent>;
     /// `featured_servers.v1`: cards plus their info-panel details, when fetched.

@@ -225,6 +225,7 @@ impl WorldStream {
             let mut batch_keys = HashSet::from([key]);
             let mut batch_inputs = vec![(key, pending, block_generation, bounds)];
             let mut lower = key;
+            let mut solid_sections = usize::from(self.light_section_has_blocks(key));
             while batch_inputs.len() < MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS {
                 let Some(next) = offset_sub_chunk_key(lower, [0, -1, 0]) else {
                     break;
@@ -262,6 +263,11 @@ impl WorldStream {
                     self.lighting.priority_wakeups.remove(&next);
                     break;
                 };
+                let next_solid = usize::from(self.light_section_has_blocks(next));
+                if solid_sections + next_solid > MAX_LIGHT_BATCH_SOLID_SECTIONS {
+                    break;
+                }
+                solid_sections += next_solid;
                 batch_keys.insert(next);
                 batch_inputs.push((next, next_pending, next_block_generation, next_bounds));
                 lower = next;
@@ -333,6 +339,16 @@ impl WorldStream {
         drop(dispatch);
         dispatched
     }
+    /// Whether `key` holds any block, so solving its light costs more than an all-air section.
+    fn light_section_has_blocks(&self, key: SubChunkKey) -> bool {
+        !self.known_air.contains(&key)
+            && self
+                .authority
+                .terrain()
+                .sub_chunk(key)
+                .is_some_and(|section| !self.classifier.is_sub_chunk_air(&section))
+    }
+
     fn take_prepared_light_job(
         &mut self,
         key: SubChunkKey,
@@ -562,6 +578,10 @@ impl WorldStream {
             light_revision: completion.identity.revision,
             mask: direct_sky,
         };
+        // Until a section's first solve is owned, provisional meshes read the default in its place.
+        let visible = (self.provisional_light_meshes
+            && !self.lighting.ownership.contains_key(&completion.key))
+        .then(|| self.first_light_visible_change(completion.key, &replacement));
         if !self.lighting.store.commit_if_generation(
             completion.key,
             completion.identity.previous_light_generation,
@@ -590,13 +610,27 @@ impl WorldStream {
         self.stats.max_light_duration = self.stats.max_light_duration.max(completion.duration);
         self.stats.accepted_light_jobs = self.stats.accepted_light_jobs.saturating_add(1);
         self.stats.value_changed_light_jobs = self.stats.value_changed_light_jobs.saturating_add(1);
-        self.stats.light_mesh_invalidations = self.stats.light_mesh_invalidations.saturating_add(1);
-        self.mark_changed_light_mesh_dependents(
-            completion.key,
-            changed_faces,
-            Instant::now(),
-            completion.identity.urgent,
-        );
+        match visible {
+            Some(visible) if !visible.interior => {
+                self.stats.light_mesh_invalidations_skipped = self
+                    .stats
+                    .light_mesh_invalidations_skipped
+                    .saturating_add(1);
+            }
+            visible => {
+                self.stats.light_mesh_invalidations =
+                    self.stats.light_mesh_invalidations.saturating_add(1);
+                let faces = visible.map_or(changed_faces, |visible| {
+                    std::array::from_fn(|face| changed_faces[face] && visible.faces[face])
+                });
+                self.mark_changed_light_mesh_dependents(
+                    completion.key,
+                    faces,
+                    Instant::now(),
+                    completion.identity.urgent,
+                );
+            }
+        }
 
         self.finish_accepted_light_completion_with_dominance(
             completion.key,

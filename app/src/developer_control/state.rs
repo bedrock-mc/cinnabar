@@ -1,6 +1,7 @@
 //! State queries and the conditions `wait_for` polls each frame.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use bevy::prelude::*;
 use client_shell::ui_resources::UiRuntimeResource;

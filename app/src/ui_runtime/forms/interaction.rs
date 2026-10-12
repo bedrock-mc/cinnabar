@@ -18,7 +18,10 @@ use bevy::{
     window::{CursorOptions, PrimaryWindow},
 };
 use client_shell::{
-    menu::MenuRuntime,
+    menu::{
+        MenuRuntime,
+        escape_tips::{ESCAPE_CLOSES_SCREENS, EscapeTip},
+    },
     physical_input::{keyboard_key, scroll_unit},
     ui_resources::{UiPresentationResource, UiRuntimeResource},
 };
@@ -186,6 +189,11 @@ pub(crate) fn drive_server_form_input(
         .active()
         .and_then(|entry| presentation.form_engine_frame(entry.identity))
         .cloned();
+    let now_millis = time.as_ref().map_or(0, |time| {
+        u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX)
+    });
+    // A browser's Escape leaves the form open (`escape_tips`); a gamepad's East still closes it.
+    let mut escape_kept_open = false;
     if input_available && let Some(frame) = engine_frame {
         let held: Vec<_> = keys.get_pressed().map(|key| keyboard_key(*key)).collect();
         let input = engine_input::EngineInput {
@@ -202,6 +210,11 @@ pub(crate) fn drive_server_form_input(
             typed: keyboard
                 .read()
                 .filter(|input| input.state == ButtonState::Pressed)
+                .filter(|input| {
+                    let kept_open = !ESCAPE_CLOSES_SCREENS && input.key_code == KeyCode::Escape;
+                    escape_kept_open |= kept_open;
+                    !kept_open
+                })
                 .map(|input| {
                     (
                         keyboard_key(input.key_code),
@@ -247,7 +260,8 @@ pub(crate) fn drive_server_form_input(
                 .scroll_rows((-pixels).clamp(-4096.0, 4096.0) as i32);
         }
         let action = if keys.just_pressed(KeyCode::Escape) {
-            Some((identity, LocalFormAction::Dismiss))
+            escape_kept_open = !ESCAPE_CLOSES_SCREENS;
+            ESCAPE_CLOSES_SCREENS.then_some((identity, LocalFormAction::Dismiss))
         } else if keys.just_pressed(KeyCode::Enter)
             || keys.just_pressed(KeyCode::NumpadEnter)
             || keys.just_pressed(KeyCode::Space)
@@ -283,6 +297,9 @@ pub(crate) fn drive_server_form_input(
     } else {
         wheel.clear();
         keyboard.clear();
+    }
+    if escape_kept_open {
+        EscapeTip::Screen.show(&mut runtime, menu.as_deref(), now_millis);
     }
     if had_active_form
         && runtime.server_forms().active().is_none()

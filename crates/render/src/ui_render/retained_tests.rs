@@ -138,7 +138,7 @@ fn retained_publication_switches_glint_uniforms_on_the_incoming_frame() {
     .clone();
     let initial_writes = world.resource::<UiGpu>().viewport_uploads.writes;
     world.resource_mut::<UiGpu>().started =
-        std::time::Instant::now() - std::time::Duration::from_secs(40);
+        web_time::Instant::now() - std::time::Duration::from_secs(40);
     for (revision, enabled) in [(2, true), (3, false)] {
         input.revision = revision;
         let mut vertices = input.vertices.to_vec();

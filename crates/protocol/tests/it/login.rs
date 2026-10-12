@@ -5,7 +5,8 @@ use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+use web_time::{Instant, SystemTime, UNIX_EPOCH};
 
 use protocol::LoginSequence;
 use valentine::bedrock::version::v1_26_51::McpePacketData;
@@ -32,7 +33,8 @@ async fn login_reaches_start_game_through_bds() {
     let (mut session, game_data) = tokio::time::timeout(
         LOGIN_TIMEOUT,
         LoginSequence::connect_session(
-            socket_dir.path(),
+            &bridge::CoreEndpoint::SocketDir(socket_dir.path().to_path_buf()),
+            None,
             "RustMCBEPhase0",
             protocol::ClientRandomId::new(-7).unwrap(),
             None,
@@ -140,7 +142,8 @@ async fn offline_core_session_preserves_startup_behaviour() {
         let login = tokio::time::timeout(
             LOGIN_TIMEOUT,
             LoginSequence::connect_session(
-                socket_dir.path(),
+                &bridge::CoreEndpoint::SocketDir(socket_dir.path().to_path_buf()),
+                None,
                 "StartupFixture",
                 protocol::ClientRandomId::new(-7).unwrap(),
                 None,

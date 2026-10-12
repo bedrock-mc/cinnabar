@@ -14,7 +14,6 @@ use crate::RuntimeAssets;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::{
-    fs::File,
     io::{self, Read},
     path::Path,
     sync::Arc,
@@ -64,10 +63,15 @@ pub fn load_runtime_assets_observed(
     let source: VanillaSource = serde_json::from_str(VANILLA_SOURCE_JSON)?;
     let path = selection.path.as_path();
     let (world, atmosphere, entities, fonts) = std::thread::scope(|scope| {
-        let atmosphere =
-            scope.spawn(|| observer.observe("atmosphere", || load_atmosphere_assets(path)));
-        let entities = scope.spawn(|| observer.observe("entity", || load_entity_assets(path)));
-        let fonts = scope.spawn(|| observer.observe("font", || load_font_assets(path)));
+        let atmosphere = start(scope, || {
+            observer.observe("atmosphere", || load_atmosphere_assets(path))
+        });
+        let entities = start(scope, || {
+            observer.observe("entity", || load_entity_assets(path))
+        });
+        let fonts = start(scope, || {
+            observer.observe("font", || load_font_assets(path))
+        });
         let world = observer.observe("world", || load_world_carrier(path));
         (world, join(atmosphere), join(entities), join(fonts))
     });
@@ -105,7 +109,7 @@ struct LoadedWorldAssets {
 
 /// The decoded world carrier and its SHA-256, or `None` when it is absent.
 fn load_world_carrier(path: &Path) -> Result<Option<LoadedWorldAssets>, AssetStartupError> {
-    let file = match File::open(path) {
+    let file = match crate::carriers::file::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(source) => {
@@ -175,11 +179,39 @@ impl CarrierLoadObserver for () {
     }
 }
 
-/// Joins a scoped load, re-raising its panic on this thread.
-fn join<T>(handle: std::thread::ScopedJoinHandle<'_, T>) -> T {
-    handle
-        .join()
-        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+/// A startup load running beside the others: a scoped thread, or in a browser, which cannot start
+/// threads, a load that already finished when it was started.
+pub enum Started<'scope, T> {
+    #[cfg(not(target_arch = "wasm32"))]
+    Thread(std::thread::ScopedJoinHandle<'scope, T>),
+    #[cfg(target_arch = "wasm32")]
+    Done(T, std::marker::PhantomData<&'scope ()>),
+}
+
+/// Starts `work` on a scoped thread; a browser runs it before returning.
+pub fn start<'scope, T: Send + 'scope>(
+    scope: &'scope std::thread::Scope<'scope, '_>,
+    work: impl FnOnce() -> T + Send + 'scope,
+) -> Started<'scope, T> {
+    #[cfg(not(target_arch = "wasm32"))]
+    return Started::Thread(scope.spawn(work));
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = scope;
+        Started::Done(work(), std::marker::PhantomData)
+    }
+}
+
+/// The result of a started load, resuming its panic on this thread.
+pub fn join<T>(started: Started<'_, T>) -> T {
+    match started {
+        #[cfg(not(target_arch = "wasm32"))]
+        Started::Thread(handle) => handle
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+        #[cfg(target_arch = "wasm32")]
+        Started::Done(value, _) => value,
+    }
 }
 
 /// Supplies diagnostic terrain while preserving the validated sibling carriers.

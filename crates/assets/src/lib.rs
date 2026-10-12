@@ -54,7 +54,7 @@ mod server_lang;
 mod session_entities;
 mod skin_geometry;
 mod skybox;
-mod sound_bank;
+pub mod sound_bank;
 mod sound_events;
 mod stair;
 pub mod starter_skins;

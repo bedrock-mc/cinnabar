@@ -8,6 +8,8 @@ publish = false
 [dependencies]
 simulation-clock = { path = "../simulation-clock" }
 actor-animation = { path = "../actor-animation" }
+async-platform = { path = "../async-platform" }
+web-time.workspace = true
 render-api = { path = "../render-api" }
 assets = { path = "../assets" }
 bytes.workspace = true

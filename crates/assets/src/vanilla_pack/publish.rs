@@ -3,8 +3,10 @@
 use std::{
     fs, io,
     path::{Path, PathBuf},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
+// File times are std's clock, which these native-only paths compare against.
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{UnpackError, rejected};
 

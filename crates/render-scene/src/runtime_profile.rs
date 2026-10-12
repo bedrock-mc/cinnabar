@@ -3,8 +3,9 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use bevy::prelude::{Res, ResMut, Resource};
 

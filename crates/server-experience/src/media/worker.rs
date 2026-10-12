@@ -310,10 +310,10 @@ pub(crate) mod tests {
             Arc::new(AtomicBool::new(false)),
         )
         .unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let deadline = web_time::Instant::now() + Duration::from_secs(10);
         let mut result = None;
         test_time::eventually_within(
-            deadline.saturating_duration_since(std::time::Instant::now()),
+            deadline.saturating_duration_since(web_time::Instant::now()),
             "a helper failure",
             || {
                 result = worker.poll();
@@ -324,7 +324,7 @@ pub(crate) mod tests {
         assert!(error.to_string().contains("media helper exited"), "{error}");
         drop(worker);
         test_time::eventually_within(
-            deadline.saturating_duration_since(std::time::Instant::now()),
+            deadline.saturating_duration_since(web_time::Instant::now()),
             "the decoder slot to be released",
             || !DECODER_ACTIVE.load(Ordering::Acquire),
         );

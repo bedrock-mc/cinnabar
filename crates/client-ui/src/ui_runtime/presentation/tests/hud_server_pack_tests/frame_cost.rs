@@ -1,7 +1,8 @@
 //! Offline timings through the installed font, server packs, HUD painter and scene publisher.
 
 use super::*;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 const SAMPLES: usize = 500;
 

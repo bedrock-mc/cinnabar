@@ -138,7 +138,7 @@ impl WorldStream {
             self.mark_dirty_exact(key, now);
         }
         if !retired.is_empty() || retired_indexes.is_some() {
-            rayon::spawn(move || drop((retired, retired_indexes)));
+            async_platform::spawn_pooled(move || drop((retired, retired_indexes)));
         }
     }
 

@@ -1182,3 +1182,18 @@ fn empty_offhand_content_preserves_known_equipment() {
     }));
     assert_eq!(state.offhand_stack().unwrap().network_id, 77);
 }
+
+/// A client tip repeated while it still shows is not queued again; once it is gone it may show
+/// again, and a different tip queues behind it.
+#[test]
+fn a_repeated_client_toast_waits_until_the_last_one_is_gone() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.show_client_toast("Tip", "Press E", 0);
+    runtime.show_client_toast("Tip", "Press E", 500);
+    assert_eq!(runtime.hud().toasts().len(), 1);
+    runtime.show_client_toast("Tip", "Choose Resume game", 600);
+    assert_eq!(runtime.hud().toasts().len(), 2);
+    let gone = runtime.hud().toasts()[0].expires_millis;
+    runtime.show_client_toast("Tip", "Press E", gone + 1);
+    assert_eq!(runtime.hud().toasts().len(), 3);
+}

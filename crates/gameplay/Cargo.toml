@@ -15,6 +15,7 @@ reads = [
 test-support = []
 
 [dependencies]
+web-time.workspace = true
 simulation-clock = { path = "../simulation-clock" }
 block-transform = { path = "../block-transform" }
 assets = { path = "../assets" }
@@ -32,6 +33,9 @@ sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["fs", "net", "rt-multi-thread"] }
 
 [dev-dependencies]
 protocol = { path = "../protocol", features = ["test-support"] }

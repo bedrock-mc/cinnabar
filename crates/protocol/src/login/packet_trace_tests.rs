@@ -39,7 +39,7 @@ fn packet_id_trace_incremental_drains_are_lifetime_bounded_with_one_terminal_ove
         "overflow alone must not emit marker spam"
     );
 
-    trace.started_at = Some(std::time::Instant::now() - PACKET_ID_TRACE_DURATION);
+    trace.started_at = Some(web_time::Instant::now() - PACKET_ID_TRACE_DURATION);
     trace.observe(McpePacketName::CommandOutputPacket);
     let terminal = trace.drain().expect("timeout is reported once");
     assert!(terminal.packet_ids.is_empty());

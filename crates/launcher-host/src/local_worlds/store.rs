@@ -311,10 +311,17 @@ fn valid_id(id: &str) -> bool {
             .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn random_bytes() -> Result<[u8; 8], WorldError> {
     let mut bytes = [0; 8];
     getrandom::fill(&mut bytes).map_err(|error| failed(error.to_string()))?;
     Ok(bytes)
+}
+
+/// Browsers run no local worlds, so they never name a new one.
+#[cfg(target_arch = "wasm32")]
+fn random_bytes() -> Result<[u8; 8], WorldError> {
+    Err(failed("local worlds are unavailable in the browser"))
 }
 
 /// Total bytes of the regular files under `dir`; unreadable entries count as empty.

@@ -138,7 +138,8 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P>(
         }
     };
     let (hooks, mut hook_rx) = mpsc::unbounded_channel();
-    let _outbound_task = OutboundTask(tokio::spawn(run_outbound(OutboundRuntime {
+    // Dropping the handle aborts the outbound task when the pump ends on any path.
+    let _outbound_task = async_platform::spawn_task(run_outbound(OutboundRuntime {
         outbound,
         commands: command_rx,
         control_event_tx: control_event_tx.clone(),
@@ -148,7 +149,7 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P>(
         trace_line,
         write_trace,
         fast_transfer_action_marker: observation.fast_transfer_action_marker,
-    })));
+    }));
     // Holds the command receiver after a write failure until the terminal event is queued.
     let mut _failed_commands = None;
     // Between arming a transfer trace and its write result, nothing inbound is decoded, so

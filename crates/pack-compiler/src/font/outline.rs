@@ -11,9 +11,12 @@ use super::{CompiledFontCarrier, FontCompileError, FontCompileReport, invalid};
 
 mod complete;
 mod mathematical;
+// FreeType rasterizes the shipped faces when the asset compiler builds their carriers.
+#[cfg(not(target_arch = "wasm32"))]
 mod native;
 mod providers;
 mod source;
+#[cfg(not(target_arch = "wasm32"))]
 pub use native::{NATIVE_SDF_EM_PIXELS, NATIVE_SDF_MIN_PIXELS, compile_native_outline_rasters};
 pub use providers::compile_outline_font_with_fallback;
 const ATLAS_PADDING: u32 = 1;

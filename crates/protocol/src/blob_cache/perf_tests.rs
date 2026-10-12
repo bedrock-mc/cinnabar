@@ -23,7 +23,7 @@ fn blob_cache_delta_cost() {
         let mut response_us = Vec::new();
         for index in entries..entries + 64 {
             let payload = index.to_le_bytes();
-            let start = std::time::Instant::now();
+            let start = web_time::Instant::now();
             cache.insert(&payload).unwrap();
             insert_us.push(start.elapsed().as_secs_f64() * 1e6);
             let payload = (index + 1_000_000).to_le_bytes();
@@ -41,7 +41,7 @@ fn blob_cache_delta_cost() {
                     blob_data: payload.to_vec(),
                 }],
             };
-            let start = std::time::Instant::now();
+            let start = web_time::Instant::now();
             resolver.accept_miss_response(response).unwrap();
             response_us.push(start.elapsed().as_secs_f64() * 1e6);
             let Some(BlobCacheReady::Packet(packet)) = resolver.pop_ready() else {
@@ -79,7 +79,7 @@ fn blob_cache_unpin_cost() {
         hashes.push(hash);
     }
     let before = cache.total_bytes();
-    let start = std::time::Instant::now();
+    let start = web_time::Instant::now();
     cache.unpin_all(&hashes);
     eprintln!(
         "BLOB_UNPIN before_bytes={before} after_bytes={} service_us={:.3}",

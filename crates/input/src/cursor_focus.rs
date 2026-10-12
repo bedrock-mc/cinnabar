@@ -1,5 +1,10 @@
 //! Retained desktop input ownership across focus and occlusion changes.
 
+/// How long a platform may take to grant a requested capture before the request counts as
+/// refused, in seconds. Browsers grant pointer lock within a few frames, and refuse one asked for
+/// too soon after the player left it or without a click or key press behind it.
+pub const CAPTURE_GRANT_SECONDS: f64 = 1.0;
+
 /// Focus loss requires an explicit gameplay return before pointer capture resumes.
 #[derive(Debug)]
 pub struct CursorFocus {
@@ -8,6 +13,9 @@ pub struct CursorFocus {
     lost_this_frame: bool,
     waiting_for_return: bool,
     activated: bool,
+    /// Whether the platform held the capture last observed, and since when it has not granted one.
+    platform_held: bool,
+    grant_requested_at: Option<f64>,
 }
 
 impl Default for CursorFocus {
@@ -18,6 +26,8 @@ impl Default for CursorFocus {
             lost_this_frame: false,
             waiting_for_return: false,
             activated: false,
+            platform_held: false,
+            grant_requested_at: None,
         }
     }
 }
@@ -42,6 +52,25 @@ impl CursorFocus {
     pub fn occlusion_changed(&mut self, occluded: bool) {
         self.occluded = occluded;
         if occluded {
+            self.lose_input();
+        }
+    }
+
+    /// Follows a platform that ends capture on its own, as a browser's Escape ends pointer lock
+    /// without a focus change. `requested` is whether the game asks for capture and `held` whether
+    /// the platform holds it. Losing a held capture, or no grant within
+    /// [`CAPTURE_GRANT_SECONDS`] of `now_seconds`, loses input as a focus loss does, so a click on
+    /// the game captures again.
+    pub fn platform_capture(&mut self, requested: bool, held: bool, now_seconds: f64) {
+        if !requested || held {
+            self.platform_held = requested;
+            self.grant_requested_at = None;
+            return;
+        }
+        let lost = std::mem::take(&mut self.platform_held);
+        let requested_at = *self.grant_requested_at.get_or_insert(now_seconds);
+        if lost || now_seconds - requested_at >= CAPTURE_GRANT_SECONDS {
+            self.grant_requested_at = None;
             self.lose_input();
         }
     }

@@ -126,7 +126,7 @@ impl Drop for SkinPreparationQueue {
         {
             let (_, idle) = mpsc::channel();
             let receiver = std::mem::replace(&mut self.receiver, Mutex::new(idle));
-            rayon::spawn(move || {
+            async_platform::spawn_pooled(move || {
                 let _span = tracing::info_span!("actor.skin_retire").entered();
                 drop((entries, allocations, cache, catalog, queued, receiver));
             });
@@ -175,7 +175,7 @@ impl SkinPreparationQueue {
             false
         });
         if !retired.is_empty() {
-            rayon::spawn(move || {
+            async_platform::spawn_pooled(move || {
                 let _span = tracing::info_span!("actor.skin_retire").entered();
                 drop(retired);
             });
@@ -285,7 +285,7 @@ impl SkinPreparationQueue {
         let cache = Arc::clone(&self.cache);
         let cancelled = Arc::clone(&self.cancelled);
         let send = self.sender.clone();
-        rayon::spawn(move || {
+        async_platform::spawn_pooled(move || {
             let _batch =
                 tracing::info_span!("actor.skin_prepare_batch", sources = queued.len()).entered();
             let mut sources = Vec::with_capacity(queued.len());
@@ -346,7 +346,7 @@ impl SkinPreparationQueue {
             retired.extend(self.settle(source, outcome, previous, unchanged));
         }
         if !retired.is_empty() {
-            rayon::spawn(move || {
+            async_platform::spawn_pooled(move || {
                 let _span = tracing::info_span!("actor.skin_retire").entered();
                 drop(retired);
             });

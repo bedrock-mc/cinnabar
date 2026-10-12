@@ -11,8 +11,8 @@ use assets::carriers::startup::{
 use assets::{LangEntry, VANILLA_EN_US_LANG_SHA256, encode_lang_catalog};
 
 fn temporary_directory(label: &str) -> PathBuf {
-    let unique = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let unique = web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     let path = std::env::temp_dir().join(format!(

@@ -42,7 +42,7 @@ fn ui_publication_capture_bench() {
         let mut times = Vec::with_capacity(1000);
         let allocations = thread_allocations();
         for _ in 0..1000 {
-            let started = std::time::Instant::now();
+            let started = web_time::Instant::now();
             drop(std::hint::black_box(
                 runtime.capture_presentation_inventory(&player_runtime),
             ));

@@ -1,7 +1,7 @@
 //! Terminal evidence decides when to request an ordinary runtime stop.
 use bevy::{log::error, prelude::AppExit};
 use diagnostics::metrics::{MetricsCollector, TransparentSortMetricsSnapshot};
-use std::time::Instant;
+use web_time::Instant;
 use {
     crate::{
         AcceptanceExitDecision, AcceptanceRun, Phase3TerminalDrainDecision,

@@ -1,8 +1,9 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use ::meshing::{BlockClassifier, Neighbourhood, PackedBiomeRecord, mesh_sub_chunk};
 use assets::{

@@ -13,6 +13,7 @@ reads = [
 ]
 
 [dependencies]
+web-time.workspace = true
 assets = { path = "../assets" }
 chunk-pipeline = { path = "../chunk-pipeline" }
 meshing = { path = "../meshing" }

@@ -22,6 +22,7 @@ reads = [
 ]
 
 [dependencies]
+web-time.workspace = true
 world = { path = "../world" }
 assets = { path = "../assets" }
 block-transform = { path = "../block-transform" }
@@ -37,6 +38,9 @@ tokio.workspace = true
 
 [build-dependencies]
 sha2.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["fs", "net", "rt-multi-thread"] }
 
 [dev-dependencies]
 image.workspace = true

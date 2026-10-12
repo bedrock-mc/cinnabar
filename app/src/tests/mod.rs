@@ -25,8 +25,9 @@ use render_model::{
 use std::{
     path::Path,
     sync::{Arc, mpsc},
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 use world::{ChunkKey, LightSolveError, SubChunkKey};
 use {
     render::ChunkRenderPlugin,

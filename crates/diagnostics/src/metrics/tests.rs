@@ -67,7 +67,7 @@ fn globally_folded_identity_removal_cannot_subtract_a_later_tracked_contribution
 
 #[test]
 fn gpu_pass_pair_sums_only_measurements_from_the_same_render_frame() {
-    let time = std::time::Instant::now();
+    let time = web_time::Instant::now();
     let (_, sample) = pair_gpu_pass_sample(
         None,
         Some(GpuPassMeasurement::new(time, 3.25)),
@@ -81,7 +81,7 @@ fn gpu_pass_pair_sums_only_measurements_from_the_same_render_frame() {
 
 #[test]
 fn gpu_pass_pair_does_not_reuse_a_stale_transparent_measurement() {
-    let transparent_time = std::time::Instant::now();
+    let transparent_time = web_time::Instant::now();
     let opaque_time = transparent_time + Duration::from_millis(1);
     let (_, sample) = pair_gpu_pass_sample(
         None,
@@ -95,7 +95,7 @@ fn gpu_pass_pair_does_not_reuse_a_stale_transparent_measurement() {
 
 #[test]
 fn gpu_pass_pair_records_each_async_measurement_timestamp_once() {
-    let time = std::time::Instant::now();
+    let time = web_time::Instant::now();
     assert!(
         pair_gpu_pass_sample(Some(time), Some(GpuPassMeasurement::new(time, 1.0)), None,).is_none()
     );
@@ -104,7 +104,7 @@ fn gpu_pass_pair_records_each_async_measurement_timestamp_once() {
 #[test]
 fn gpu_pass_histograms_reset_with_the_timed_session_and_report_quantiles() {
     let mut metrics = MetricsCollector::new();
-    let started = std::time::Instant::now();
+    let started = web_time::Instant::now();
     metrics.record_gpu_pass_sample(
         started,
         GpuPassSample {
@@ -140,7 +140,7 @@ fn timed_session_discards_pre_ready_frame_samples() {
     metrics.record_remesh_latency(Duration::from_secs(12));
     metrics.record_mutation_to_visible(Duration::from_secs(1));
 
-    metrics.begin_timed_session(std::time::Instant::now());
+    metrics.begin_timed_session(web_time::Instant::now());
 
     let report = metrics.report();
     assert_eq!(report.frame_count, 0);
@@ -150,7 +150,7 @@ fn timed_session_discards_pre_ready_frame_samples() {
 
 #[test]
 fn timed_session_freeze_excludes_grace_frames_but_accepts_final_presentation_metrics() {
-    let started = std::time::Instant::now();
+    let started = web_time::Instant::now();
     let mut metrics = MetricsCollector::new();
     metrics.begin_timed_session(started);
     metrics.record_frame(Duration::from_millis(16));
@@ -617,8 +617,8 @@ fn json_output_is_pretty_deterministic_and_newline_terminated() {
         visible_legacy_fixed_slot_quad_invocations_avoided: 1_341,
         assets: AssetMetrics::default(),
     };
-    let unique = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let unique = web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     let directory =
@@ -763,7 +763,7 @@ fn outbound_movement_telemetry_tracks_high_water_marks_and_latest_halt_state() {
 #[test]
 fn outbound_movement_telemetry_freezes_after_the_timed_session_deadline() {
     let mut metrics = MetricsCollector::new();
-    metrics.finish_timed_session(std::time::Instant::now());
+    metrics.finish_timed_session(web_time::Instant::now());
     metrics.record_outbound_movement_telemetry(7, 11, true);
     metrics.add_outbound_budget_drops(4);
 

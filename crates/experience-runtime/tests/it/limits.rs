@@ -3,7 +3,8 @@
 
 use crate::common;
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use common::{interact, looping_register_dir, outcome, probe, tell};
 use experience_runtime::limits::REGISTER_DEADLINE;

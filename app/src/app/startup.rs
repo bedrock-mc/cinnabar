@@ -1,13 +1,13 @@
 //! Startup carrier loading and required registry verification.
 mod timing;
-use timing::{LoadTimes, join};
+use timing::LoadTimes;
 
 use super::{PHYSICS_REGISTRY_GENERATION_GUIDANCE, PHYSICS_REGISTRY_SHA256};
 use crate::args;
 use anyhow::{Context, Result, bail};
 use assets::carriers::startup::{
     self as asset_startup, AssetSelection, AssetStartupError, LoadedAssets, LoadedHudAssets,
-    LoadedIconAssets, LoadedLangAssets,
+    LoadedIconAssets, LoadedLangAssets, join, start,
 };
 use assets::{
     RuntimeActorCatalog, RuntimeAudioCatalog, RuntimeAudioPcm, RuntimeBlockEntityAssets,
@@ -15,9 +15,9 @@ use assets::{
 };
 use client_interaction::movement::PhysicsCollisionRegistries;
 use launcher_host::session_cleanup::ScopedSessionDirectory;
-use sha2::Digest;
-use sha2::Sha256;
-use std::{fs, path::Path, sync::Arc, time::Instant};
+use sha2::{Digest, Sha256};
+use std::{fs, path::Path, sync::Arc};
+use web_time::Instant;
 
 /// Every carrier startup reads, each read and decoded exactly once. Results are checked by the
 /// caller in the serial order startup always used, so the first failure reported never changes.
@@ -68,39 +68,41 @@ fn load_with(
     let world = world.as_path();
     let manifest = asset_startup::vanilla_source_manifest_json();
     std::thread::scope(|scope| {
-        let hud = scope.spawn(|| times.time("hud", || asset_startup::require_hud_assets(world)));
-        let icons = scope.spawn(|| {
+        let hud = start(scope, || {
+            times.time("hud", || asset_startup::require_hud_assets(world))
+        });
+        let icons = start(scope, || {
             times.time("icon", || {
                 asset_startup::require_icon_assets(world, manifest)
             })
         });
-        let lang = scope.spawn(|| {
+        let lang = start(scope, || {
             times.time("lang", || {
                 asset_startup::require_lang_assets(world, manifest)
             })
         });
-        let audio = scope.spawn(|| load_audio(world, times));
-        let block_entities = scope.spawn(|| {
+        let audio = start(scope, || load_audio(world, times));
+        let block_entities = start(scope, || {
             times.time("block entity", || {
                 crate::block_entities::load_block_entity_carrier(world)
             })
         });
-        let particles = scope.spawn(|| {
+        let particles = start(scope, || {
             times.time("particle", || {
                 crate::particles::load_optional_carrier(world)
             })
         });
-        let ui = scope.spawn(|| {
+        let ui = start(scope, || {
             times.time("ui", || {
                 client_ui::ui_runtime::json_ui_assets::require_ui_assets(world)
             })
         });
-        let weather = scope.spawn(|| {
+        let weather = start(scope, || {
             times.time("weather", || {
                 crate::environment::load_optional_weather_textures(world)
             })
         });
-        let collision = scope.spawn(|| {
+        let collision = start(scope, || {
             times.time("physics", || {
                 load_collision_registries(physics_registry, world)
             })
@@ -130,7 +132,7 @@ fn load_core(
     crate::asset_bindings::install_world_sidecars(&mut assets);
     let (world, entities) = (assets.selected_path.as_path(), &assets.entities);
     let (actor, equipment) = std::thread::scope(|scope| {
-        let equipment = scope.spawn(|| {
+        let equipment = start(scope, || {
             times.time("equipment", || {
                 asset_startup::load_optional_equipment_assets(world, entities)
             })
@@ -234,7 +236,7 @@ pub(super) fn read_verified_physics_registry(
     expected_sha256: &str,
     expected_protocol: u32,
 ) -> Result<Vec<u8>> {
-    let bytes = fs::read(path).with_context(|| {
+    let bytes = assets::carriers::file::read(path).with_context(|| {
         format!(
             "read required protocol-{expected_protocol} physics registry {}; {}",
             path.display(),
@@ -261,6 +263,7 @@ mod carrier_tests {
         AssetPathSource, actor_asset_path, atmosphere_asset_path, entity_asset_path,
         test_carriers::{synthetic_atmosphere_blob, synthetic_entity_blob},
     };
+    use std::fs;
     use std::path::PathBuf;
 
     struct Directory(PathBuf);
@@ -269,8 +272,8 @@ mod carrier_tests {
             let path = std::env::temp_dir().join(format!(
                 "startup-carriers-{label}-{}-{}",
                 std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
+                web_time::SystemTime::now()
+                    .duration_since(web_time::UNIX_EPOCH)
                     .unwrap()
                     .as_nanos()
             ));

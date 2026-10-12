@@ -259,7 +259,7 @@ fn measure_frame_batch(
     presentation: &mut UiPresentationRuntime,
     mut host: Option<&mut mod_host::ModHost>,
 ) -> f64 {
-    let start = std::time::Instant::now();
+    let start = web_time::Instant::now();
     for _ in 0..BENCH_FRAMES {
         if let Some(host) = host.as_deref_mut() {
             host.frame(std::hint::black_box(false)).unwrap();

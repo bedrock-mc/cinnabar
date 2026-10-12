@@ -8,8 +8,9 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use bridge::{
     self, Account, AuthState as CoreAuth, ConnectProgress, ConnectStage, FeaturedServer, Friend,
@@ -541,7 +542,7 @@ fn button_art(message: &Message) -> ButtonArt {
 
 /// The core's account state as the menu's sign-in state; an offline core
 /// knows nothing about the account, so the auth supervisor's state stands.
-fn auth_state(account: &Account) -> Option<AuthState> {
+pub(crate) fn auth_state(account: &Account) -> Option<AuthState> {
     Some(match account.state {
         CoreAuth::Offline => return None,
         CoreAuth::SignedOut => AuthState::SignedOut,
@@ -554,7 +555,8 @@ fn auth_state(account: &Account) -> Option<AuthState> {
     })
 }
 
-fn join_stage(progress: &ConnectProgress) -> JoinStage {
+/// Names the launcher join stage a core connect progress report shows.
+pub fn join_stage(progress: &ConnectProgress) -> JoinStage {
     match progress.stage {
         ConnectStage::Realm => JoinStage::Realm,
         ConnectStage::Connecting => JoinStage::Connecting,
@@ -678,8 +680,8 @@ impl AccountControl for LauncherAccount {
 
     fn home(&mut self) -> Option<MenuHome> {
         let home = self.with(|snapshot| snapshot.home.take())?;
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        let now = web_time::SystemTime::now()
+            .duration_since(web_time::UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.as_secs() as i64);
         Some(menu_home(&home, now))
     }

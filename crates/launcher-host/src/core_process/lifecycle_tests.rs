@@ -2,8 +2,8 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    time::{Instant, SystemTime, UNIX_EPOCH},
 };
+use web_time::{Instant, SystemTime, UNIX_EPOCH};
 
 use super::*;
 

@@ -12,8 +12,9 @@ use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     io::Cursor,
     sync::Arc,
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use image::{ImageReader, Limits};
 use json_ui::{TextureMeta, parse_texture_meta};
@@ -366,7 +367,7 @@ impl Decodes {
             source.packed,
             self.sender.clone(),
         );
-        rayon::spawn(move || {
+        async_platform::spawn_pooled(move || {
             let _ = done.send((key, decode(&bytes, size)));
         });
         None

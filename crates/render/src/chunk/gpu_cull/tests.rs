@@ -376,7 +376,7 @@ fn fixed_draw_counts_cover_exactly_what_enabled_records_can_emit() {
 #[ignore = "offline CPU stage timing fixture"]
 fn gpu_cull_cpu_stage_bench() {
     use bevy::render::render_phase::ViewRangefinder3d;
-    use std::time::Instant;
+    use web_time::Instant;
 
     // A 12-chunk radius: 25 x 25 columns of 24 sub-chunks.
     let mut world = World::new();

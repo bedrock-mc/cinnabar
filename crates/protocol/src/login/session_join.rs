@@ -3,6 +3,8 @@
 
 use std::path::Path;
 
+use bridge::{ConnectTarget, CoreEndpoint};
+
 use crate::session_wire::{ConnectRequest, CoreMessage, HandoffPackReceiver, SessionHandoff};
 use bridge::{BridgeError, FramedReader};
 use futures::StreamExt;
@@ -18,23 +20,24 @@ use crate::{
 };
 
 impl LoginSequence {
-    /// Joins whatever the core has selected: a pending server transfer, the chosen server or the
-    /// open local world, using the caller's persisted login ID. The owner calls
-    /// `finish_loading` after presenting the world.
+    /// Joins `target`, or without one whatever the core has selected: a pending server transfer,
+    /// the chosen server or the open local world, using the caller's persisted login ID. The owner
+    /// calls `finish_loading` after presenting the world.
     pub async fn connect_session(
-        socket_dir: &Path,
+        core: &CoreEndpoint,
+        target: Option<ConnectTarget>,
         display_name: &str,
         client_random_id: ClientRandomId,
         cache: Option<ClientBlobCache>,
         skin: Option<ClientSkin>,
         settings: &LoginSettings,
     ) -> Result<(PlaySession, GameData), ProtocolError> {
-        let (mut reader, frames) = bridge::connect_session(socket_dir)
+        let (mut reader, frames) = bridge::connect_session(core)
             .await
             .map_err(ProtocolError::Bridge)?;
         let request = ConnectRequest {
             protocol: PROTOCOL_VERSION,
-            target: None,
+            target,
             client_cache: cache.is_some(),
             client_data: super::client_data::login_client_data(
                 display_name,
@@ -56,11 +59,12 @@ impl LoginSequence {
         let spawned = super::startup::await_spawn(&mut transport).await?;
         let runtime_id = spawned.runtime_id;
         let terrain_before_spawn = spawned.terrain_before_spawn;
-        let game_data = tokio::task::spawn_blocking(move || {
+        let game_data = async_platform::run_blocking(move || {
             GameData::from_wire(&spawned.start_game, &spawned.item_registry)
         })
         .await
-        .map_err(|_| unexpected("startup facts reader failed"))?;
+        .and_then(Result::ok)
+        .ok_or_else(|| unexpected("startup facts reader failed"))?;
         let session = PlaySession::new(transport, cache, packs, runtime_id, terrain_before_spawn);
         Ok((session, game_data))
     }
@@ -76,12 +80,13 @@ async fn receive_handoff(
         message => return Err(join_ended(message)),
     };
     let cache_root = cache_root.map(Path::to_path_buf);
-    let (handoff, receiver) = tokio::task::spawn_blocking(move || {
+    let (handoff, receiver) = async_platform::run_blocking(move || {
         let receiver = HandoffPackReceiver::new(&handoff, cache_root.as_deref());
         (handoff, receiver)
     })
     .await
-    .map_err(|_| unexpected("cache archive reader failed"))?;
+    .and_then(Result::ok)
+    .ok_or_else(|| unexpected("cache archive reader failed"))?;
     let mut receiver = receiver.map_err(bridge_error)?;
     while !receiver.is_complete() {
         match next_message(reader).await? {

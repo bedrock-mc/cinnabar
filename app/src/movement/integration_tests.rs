@@ -2,7 +2,8 @@
 use crate::acceptance::AcceptanceRun;
 #[cfg(feature = "acceptance")]
 use ::acceptance::AcceptanceRun;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use gameplay::movement::coordination::physics_authority_fault_for_frame;
 use protocol::PlayerInputMode;

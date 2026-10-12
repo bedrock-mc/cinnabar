@@ -256,6 +256,19 @@ struct Job {
     done: Sender<Completed>,
 }
 
+impl Job {
+    /// Decodes the sheet unless its owner has gone, and publishes the result to that owner.
+    fn run(self) {
+        if self.cancelled.load(Ordering::Acquire) {
+            return;
+        }
+        let sheet = decode(&self.bytes, &self.plan, &self.cancelled);
+        if !self.cancelled.load(Ordering::Acquire) {
+            let _ = self.done.try_send((self.key, sheet));
+        }
+    }
+}
+
 /// One process-wide decode and one queued input bound memory even during rapid pack reloads.
 fn worker() -> Option<&'static Sender<Job>> {
     static WORKER: OnceLock<Option<Sender<Job>>> = OnceLock::new();
@@ -266,13 +279,7 @@ fn worker() -> Option<&'static Sender<Job>> {
                 .name("ui-native-sheets".into())
                 .spawn(move || {
                     while let Ok(job) = receiver.recv() {
-                        if job.cancelled.load(Ordering::Acquire) {
-                            continue;
-                        }
-                        let sheet = decode(&job.bytes, &job.plan, &job.cancelled);
-                        if !job.cancelled.load(Ordering::Acquire) {
-                            let _ = job.done.try_send((job.key, sheet));
-                        }
+                        job.run();
                     }
                 })
                 .ok()?;
@@ -400,10 +407,6 @@ impl NativeSheets {
             self.fail(key.to_owned());
             return;
         }
-        let Some(worker) = worker() else {
-            self.fail(key.to_owned());
-            return;
-        };
         let job = Job {
             key: key.to_owned(),
             bytes: Arc::clone(&source.bytes),
@@ -411,7 +414,19 @@ impl NativeSheets {
             cancelled: Arc::clone(&self.cancelled),
             done: self.sender.clone(),
         };
-        self.submit(worker, job);
+        self.dispatch(job, worker());
+    }
+
+    /// Without a worker thread, as in a browser, the decode runs on this frame and stays pending
+    /// until `collect` receives it, so sibling requests wait as they would for a queued job.
+    fn dispatch(&mut self, job: Job, worker: Option<&Sender<Job>>) {
+        match worker {
+            Some(worker) => self.submit(worker, job),
+            None => {
+                self.pending = Some(job.key.clone());
+                job.run();
+            }
+        }
     }
 
     /// Retains one bounded request when another pack occupies the shared decode queue.

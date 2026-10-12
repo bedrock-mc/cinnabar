@@ -24,6 +24,7 @@ render-api = { path = "../render-api" }
 render-model = { path = "../render-model" }
 serde_json = "1"
 sha2.workspace = true
+web-time.workspace = true
 world = { path = "../world" }
 tracy-client = { version = "=0.19.0", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }
 

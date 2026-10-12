@@ -16,6 +16,8 @@ pub const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod accounts;
 pub mod branding;
+#[cfg(target_arch = "wasm32")]
+pub mod browser_files;
 pub mod dressing_room;
 pub mod global_resources;
 pub mod install_layout;

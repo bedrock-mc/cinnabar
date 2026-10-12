@@ -122,7 +122,7 @@ fn request(
     static NEXT_TOKEN: AtomicU32 = AtomicU32::new(0);
     let token = format!(
         "cinnabar_{}_{}",
-        std::process::id(),
+        launcher::install_layout::process_id(),
         NEXT_TOKEN.fetch_add(1, Ordering::Relaxed)
     );
     options.insert("handle_token", Value::from(token));

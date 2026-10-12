@@ -588,7 +588,7 @@ fn blob_trim_cost_for_small_blobs() {
         store
     };
     let mut store = fill();
-    let started = std::time::Instant::now();
+    let started = web_time::Instant::now();
     while store.total_bytes > limits.trim_floor_bytes {
         let Some((&evict, _)) = store
             .entries
@@ -602,7 +602,7 @@ fn blob_trim_cost_for_small_blobs() {
     }
     let old = started.elapsed();
     let mut store = fill();
-    let started = std::time::Instant::now();
+    let started = web_time::Instant::now();
     trim_if_needed(&mut store, limits, u64::MAX);
     let new = started.elapsed();
     eprintln!(

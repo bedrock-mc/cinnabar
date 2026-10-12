@@ -57,7 +57,7 @@ LOCAL_FONT_ASSET_COMPILE = $(ASSETC) font-assets --pack "$(FONT_PACK_DIR)" --sou
 LOCAL_HUD_ASSET_COMPILE = $(ASSETC) hud-assets --pack "$(HUD_PACK_DIR)" --source-manifest "$(HUD_SOURCE_MANIFEST)" --out "$(LOCAL_ASSET_DIR)/vanilla-v1.mcbehud" --report "$(LOCAL_ASSET_DIR)/hud-assets.json"
 
 .PHONY: help vanilla-assets assets font-assets-local hud-assets-local physics-assets local-server play dist-local
-.PHONY: registry-foundation-check jsonui-editor
+.PHONY: registry-foundation-check jsonui-editor web-relay web web-dev
 
 help:
 	@echo make registry-foundation-check - Validate the exact protocol-2193 registry foundation
@@ -72,6 +72,9 @@ help:
 	@echo make play TRACY=1    - Run with opt-in Tracy frame attribution
 	@echo make dist-local      - Stage an unsigned local-development-only bundle under .local/dist
 	@echo make jsonui-editor   - Build the static JSON-UI editor site into JSONUI_EDITOR_OUT
+	@echo make web-relay       - Build the browser build's sign-in and join relay into WEB_RELAY_OUT
+	@echo make web             - Build the browser client site into WEB_OUT
+	@echo make web-dev         - Run a local server and the relay for testing the browser build on this network
 	@echo Override optional settings with NO_VSYNC=1
 	@echo Set CINNABAR_CLOUDS_PNG to the exact local-only Bedrock 1.26.33.1 clouds.png
 
@@ -110,6 +113,19 @@ $(PACK_SENTINEL): $(VANILLA_SOURCE_MANIFEST)
 
 # A failed install or check leaves no target behind to look current.
 .DELETE_ON_ERROR:
+
+WEB_OUT ?= target/web-site
+
+web:
+	bash web/build.sh "$(abspath $(WEB_OUT))"
+
+web-dev:
+	bash web/dev.sh
+
+WEB_RELAY_OUT ?= target/release/bedrock-web-relay$(EXE)
+
+web-relay:
+	$(GO) -C core build -o "$(abspath $(WEB_RELAY_OUT))" ./cmd/bedrock-web-relay
 
 # Separate module: dragonfly needs a newer gophertunnel than the core, so it cannot join go.work.
 LOCAL_SERVER_OUT ?= target/release/bedrock-local-server$(if $(filter windows,$(DIST_PLATFORM)),.exe)

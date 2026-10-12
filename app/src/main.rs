@@ -5,6 +5,7 @@ use bedrock_client::{
 use std::io::Write;
 
 fn main() {
+    #[cfg(not(target_arch = "wasm32"))]
     if std::env::args_os()
         .nth(1)
         .is_some_and(|arg| arg == first_run::SETUP_FLAG)

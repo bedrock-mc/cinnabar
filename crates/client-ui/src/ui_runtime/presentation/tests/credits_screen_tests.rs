@@ -134,7 +134,7 @@ fn credits_request_and_paint_the_runtime_title_without_a_json_image_control() {
     runtime.credits_mut().open(41, 7, 0);
     runtime.credits_mut().observe(5_000, false);
     let mut presentation = fixture_with_options(false, true);
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let deadline = web_time::Instant::now() + std::time::Duration::from_secs(2);
     loop {
         presentation.sync_menu_artwork(Vec::new());
         let input = presentation
@@ -150,7 +150,7 @@ fn credits_request_and_paint_the_runtime_title_without_a_json_image_control() {
             break;
         }
         assert!(
-            std::time::Instant::now() < deadline,
+            web_time::Instant::now() < deadline,
             "custom credits rendering must request and paint its runtime title"
         );
         test_time::idle();
@@ -168,14 +168,14 @@ fn credits_logo_and_first_poem_row_have_a_content_separator() {
     let dpi = DpiScale::new(1.0).unwrap();
     let px = TextMetrics::for_viewport(viewport, dpi, None).scale.get()
         * FONT_DESIGN_PIXEL_TEXELS as f32;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let deadline = web_time::Instant::now() + std::time::Duration::from_secs(2);
     loop {
         presentation.sync_menu_artwork(Vec::new());
         let input = presentation
             .build(&player, &runtime, 10_000, viewport, dpi)
             .unwrap();
         if !draws_title_pixel(&input) {
-            assert!(std::time::Instant::now() < deadline);
+            assert!(web_time::Instant::now() < deadline);
             test_time::idle();
             continue;
         }

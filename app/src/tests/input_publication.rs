@@ -1,5 +1,6 @@
 //! Packet latency across the production preparation/publication boundary.
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use bevy::prelude::{App, IntoScheduleConfigs, ResMut, Resource, Update};
 use sha2::{Digest, Sha256};

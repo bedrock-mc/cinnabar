@@ -11,8 +11,9 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 const HEARTBEAT: Duration = Duration::from_secs(1);
 const POSITION_POLL: Duration = Duration::from_millis(50);

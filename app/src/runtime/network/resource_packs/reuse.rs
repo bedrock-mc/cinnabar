@@ -221,7 +221,7 @@ impl CompiledStacks {
     /// off the calling frame.
     pub(crate) fn release(&self) {
         let released = self.take();
-        rayon::spawn(move || drop(released));
+        async_platform::spawn_pooled(move || drop(released));
     }
 
     /// How many stacks are kept.

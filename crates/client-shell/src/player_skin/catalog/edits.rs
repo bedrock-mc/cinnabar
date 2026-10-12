@@ -81,7 +81,10 @@ pub(super) fn commit_deletion(
     path: &Path,
     remove_image: bool,
 ) -> Result<(), String> {
-    let tombstone = path.with_extension(format!("{}.deleted", std::process::id()));
+    let tombstone = path.with_extension(format!(
+        "{}.deleted",
+        launcher::install_layout::process_id()
+    ));
     let moved = if remove_image {
         match fs::rename(path, &tombstone) {
             Ok(()) => true,

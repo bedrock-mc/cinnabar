@@ -16,9 +16,9 @@ default = []
 developer-media = ["dep:matroska-demuxer", "dep:dav1d", "dep:opus"]
 
 [dependencies]
+web-time.workspace = true
 anyhow.workspace = true
 protocol = { path = "../protocol" }
-reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls"] }
 ring = "=0.17.14"
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.150"
@@ -32,6 +32,14 @@ opus = { version = "=0.4.0", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.186"
+
+# Browsers have no OS entropy source; ring reaches theirs through `getrandom`'s JavaScript backend.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+ring = { version = "=0.17.14", features = ["wasm32_unknown_unknown_js"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls"] }
+tokio = { workspace = true, features = ["fs", "net", "rt-multi-thread"] }
 
 [dev-dependencies]
 test-time = { path = "../test-time" }

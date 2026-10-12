@@ -31,6 +31,14 @@ impl MenuRuntime {
         if !self.language_pending {
             return;
         }
+        // A browser downloads a picked language first; English text stays until it arrives.
+        #[cfg(target_arch = "wasm32")]
+        if super::language_download::language_arriving(
+            &self.language_asset_path,
+            &assets::carriers::startup::active_language(self.settings_options.language()),
+        ) {
+            return;
+        }
         self.language_pending = false;
         let language = assets::carriers::startup::active_language(self.settings_options.language());
         pack_runtime::pack_language::set_active_language(&language);

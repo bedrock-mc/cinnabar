@@ -1,9 +1,12 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::{self, File, OpenOptions},
+    fs::{self, File},
     io::{self, Cursor, Read},
     path::{Path, PathBuf},
 };
+
+#[cfg(any(unix, windows))]
+use std::fs::OpenOptions;
 
 use assets::{
     FONT_CARRIER_SCHEMA, FontCatalogError, FontPixels, FontTexturePage, GlyphMetrics,
@@ -18,9 +21,10 @@ use thiserror::Error;
 mod outline;
 
 pub use outline::{
-    GlyphAdvances, NATIVE_SDF_EM_PIXELS, NATIVE_SDF_MIN_PIXELS, OutlineFontConfig,
-    compile_native_outline_rasters, compile_outline_font, compile_outline_font_with_fallback,
+    GlyphAdvances, OutlineFontConfig, compile_outline_font, compile_outline_font_with_fallback,
 };
+#[cfg(not(target_arch = "wasm32"))]
+pub use outline::{NATIVE_SDF_EM_PIXELS, NATIVE_SDF_MIN_PIXELS, compile_native_outline_rasters};
 
 const FONT_DESCRIPTOR_SCHEMA: u32 = 1;
 const DESCRIPTOR_PATH: &str = "font/catalog.json";
@@ -390,6 +394,8 @@ fn require_real_directory(path: &Path) -> Result<(), FontCompileError> {
 
 struct ResolvedSource {
     candidate: PathBuf,
+    // Held open so the font root cannot be swapped while the source is read.
+    #[cfg_attr(not(any(unix, windows)), allow(dead_code))]
     root_handle: File,
     #[cfg(unix)]
     file_name: Box<str>,

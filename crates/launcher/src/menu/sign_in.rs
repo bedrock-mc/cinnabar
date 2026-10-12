@@ -24,12 +24,7 @@ pub struct SignInLink {
 impl SignInLink {
     /// Dispatches a pre-filled URL once per code, or again on an explicit press.
     pub fn open(&mut self, code: &str, explicit: bool, dispatch: impl FnOnce(String, u64) -> bool) {
-        self.open_target(
-            code,
-            valid_code(code).then(|| format!("{SIGN_IN_PAGE}{code}")),
-            explicit,
-            dispatch,
-        );
+        self.open_target(code, sign_in_url(code), explicit, dispatch);
     }
 
     /// Dispatches a validated HTTPS Xbox signup URL once, or again on an explicit press.
@@ -86,6 +81,13 @@ impl SignInLink {
             BrowserState::Waiting
         }
     }
+}
+
+/// The Microsoft sign-in page with device `code` filled in, unless `code` holds characters a
+/// device code never has.
+#[must_use]
+pub fn sign_in_url(code: &str) -> Option<String> {
+    valid_code(code).then(|| format!("{SIGN_IN_PAGE}{code}"))
 }
 
 /// Only device-code characters may enter the pre-filled query parameter.

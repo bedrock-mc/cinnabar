@@ -3,7 +3,7 @@
 use super::{
     DecodeCompletion, DecodeJob, PreparedWorldEvent, prepare_block_mutations, prepare_sub_chunks,
 };
-use std::time::Instant;
+use web_time::Instant;
 use world::{
     BlockEntityKey, ChunkKey, DecodedBlockEntities, DecodedLevelChunk, decode_column_tail,
 };

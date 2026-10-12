@@ -5,8 +5,9 @@ use std::{
     collections::HashMap,
     path::Path,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use crate::remote_images::{ImageDirectory, LAUNCHER_ART};
 use crossbeam_channel::Sender;
@@ -351,7 +352,8 @@ mod tests {
     #[test]
     fn feed_rounds_publish_before_their_art_downloads() {
         use std::io::{Read, Write};
-        use std::time::{Duration, Instant};
+        use std::time::Duration;
+        use web_time::Instant;
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/tile.png", listener.local_addr().unwrap());
         std::thread::spawn(move || {

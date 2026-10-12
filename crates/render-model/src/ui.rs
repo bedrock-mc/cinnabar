@@ -239,31 +239,78 @@ impl UiRenderInput {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UiRenderRejectReason {
-    VertexLimitExceeded { actual: usize, limit: usize },
-    IndexLimitExceeded { actual: usize, limit: usize },
-    BatchLimitExceeded { actual: usize, limit: usize },
-    DrawByteLimitExceeded { actual: usize, limit: usize },
+    VertexLimitExceeded {
+        actual: usize,
+        limit: usize,
+    },
+    IndexLimitExceeded {
+        actual: usize,
+        limit: usize,
+    },
+    BatchLimitExceeded {
+        actual: usize,
+        limit: usize,
+    },
+    DrawByteLimitExceeded {
+        actual: usize,
+        limit: usize,
+    },
     InvalidViewport,
     InvalidSafeArea,
     NonFiniteVertex,
     VertexIndexOutOfBounds,
-    EmptyBatch { batch: usize },
-    BatchIndexRangeInvalid { batch: usize },
-    BatchOrderInvalid { batch: usize },
-    InvalidScissor { batch: usize },
-    TexturePageOutOfBounds { batch: usize },
-    UnsupportedBlendMode { batch: usize },
-    UnsupportedDepthTest { batch: usize },
-    UnsupportedDepthWrite { batch: usize },
-    UnsupportedWorldProjection { batch: usize },
-    InvalidIsolatedDepthScope { batch: usize },
+    EmptyBatch {
+        batch: usize,
+    },
+    BatchIndexRangeInvalid {
+        batch: usize,
+    },
+    BatchOrderInvalid {
+        batch: usize,
+    },
+    InvalidScissor {
+        batch: usize,
+    },
+    TexturePageOutOfBounds {
+        batch: usize,
+    },
+    UnsupportedBlendMode {
+        batch: usize,
+    },
+    UnsupportedDepthTest {
+        batch: usize,
+    },
+    UnsupportedDepthWrite {
+        batch: usize,
+    },
+    UnsupportedWorldProjection {
+        batch: usize,
+    },
+    InvalidIsolatedDepthScope {
+        batch: usize,
+    },
     InvalidTextureExtent,
-    TextureByteLengthInvalid { actual: usize, expected: usize },
-    TextureByteLimitExceeded { actual: usize, limit: usize },
+    TextureByteLengthInvalid {
+        actual: usize,
+        expected: usize,
+    },
+    TextureByteLimitExceeded {
+        actual: usize,
+        limit: usize,
+    },
     NoPublishedScene,
-    StaleRevision { current: u64, rejected: u64 },
-    RevisionConflict { revision: u64 },
-    TextureIdentityConflict { identity: [u8; 32] },
+    StaleRevision {
+        current: u64,
+        rejected: u64,
+    },
+    RevisionConflict {
+        revision: u64,
+    },
+    TextureIdentityConflict {
+        identity: [u8; 32],
+    },
+    /// The texture pages are still uploading over several frames; the UI draws once they are in.
+    TexturesUploading,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -377,6 +424,8 @@ pub struct UiRenderStatsSnapshot {
     pub rejected_revision: Option<u64>,
     pub rejected_reason: Option<UiRenderRejectReason>,
     pub rejection_count: u64,
+    /// Bytes of the UI texture pages written and in total; equal once every page is resident.
+    pub texture_upload: [u64; 2],
 }
 
 /// Shared handle: clones observe and update the same snapshot.

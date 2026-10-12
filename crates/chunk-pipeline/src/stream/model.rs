@@ -501,6 +501,8 @@ pub struct WorldStreamStats {
     pub value_changed_light_jobs: u64,
     pub provenance_only_light_jobs: u64,
     pub light_mesh_invalidations: u64,
+    /// First solved light that left every provisional mesh's sampled light unchanged.
+    pub light_mesh_invalidations_skipped: u64,
     pub received_radius_chunks: Option<i32>,
     pub publisher_radius_chunks: Option<i32>,
     pub resident_sub_chunks: usize,

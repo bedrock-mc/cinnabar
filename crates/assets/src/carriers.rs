@@ -17,6 +17,7 @@ pub const FONT_SEVEN_MANIFEST: &str = "assets/cinnangles-seven-source.json";
 pub const FONT_FIVE_MANIFEST: &str = "assets/cinnangles-five-source.json";
 pub const FONT_FIVE_BOLD_MANIFEST: &str = "assets/cinnangles-five-bold-source.json";
 
+pub mod file;
 mod fonts;
 pub use fonts::{AsciiBearing, FontFace};
 const HUD_MANIFEST: &str = "assets/hud-source-v2193.json";

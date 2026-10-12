@@ -20,6 +20,8 @@ pub(super) fn primary_window(
         title,
         present_mode,
         desired_maximum_frame_latency: Some(frame_latency),
+        // A browser page shows the canvas Bevy creates, sized to its container.
+        fit_canvas_to_parent: cfg!(target_arch = "wasm32"),
         ..Default::default()
     }
 }
@@ -29,6 +31,10 @@ pub(super) fn render_plugin() -> RenderPlugin {
     configure_render_settings(&mut settings);
     if let Some(backends) = preferred_render_backends(std::env::var_os("WGPU_BACKEND").as_deref()) {
         settings.backends = Some(backends);
+    }
+    // The renderer needs storage buffers in vertex shaders, which WebGL2 lacks.
+    if cfg!(target_arch = "wasm32") {
+        settings.backends = Some(Backends::BROWSER_WEBGPU);
     }
     #[cfg(windows)]
     {

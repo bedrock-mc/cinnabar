@@ -2,7 +2,6 @@
 use super::{AssetStartupError, LoadedAudioAssets};
 use crate::RuntimeAudioPcm;
 use std::{
-    fs::File,
     io::{self, Read},
     path::Path,
     sync::Arc,
@@ -18,7 +17,7 @@ pub fn load_audio_pcm_assets(
         path: path.clone(),
         detail,
     };
-    let mut file = match File::open(&path) {
+    let mut file = match crate::carriers::file::open(&path) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             eprintln!(

@@ -40,6 +40,7 @@ name = "cinnabar-media-helper"
 path = "src/bin/media_helper.rs"
 
 [dependencies]
+web-time.workspace = true
 experience-sdk = { path = "../experience-sdk", default-features = false, features = ["declarations"], optional = true }
 mod-api = { path = "../mod-api", optional = true }
 mod-render = { path = "../mod-render", optional = true }

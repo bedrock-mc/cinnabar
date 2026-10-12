@@ -1,38 +1,37 @@
-//! Installed pack artwork is decoded on the import worker and uses the menu atlas.
+//! Installed pack artwork is decoded on the import worker, stored beside the packs, and uses the
+//! menu atlas.
 
 use launcher::global_resources::Snapshot;
-use resource_pack::GlobalPackLibrary;
-use std::{
-    hash::{Hash, Hasher},
-    io::Cursor,
-    path::Path,
-};
+use resource_pack::{GlobalPackLibrary, InstalledPack};
+use std::io::Cursor;
 
-/// Refreshes bounded, validated icons independently of the active pack stack.
-pub(super) fn refresh(library: &GlobalPackLibrary, snapshot: &mut Snapshot, root: &Path) {
+/// Refreshes bounded, validated icons independently of the active pack stack. Each archive
+/// revision's thumbnail is made once and kept as `icons/<id>-<revision>.png`, so later refreshes
+/// read no archives; a browser holds only the archives it is reading.
+pub(super) fn refresh(library: &mut GlobalPackLibrary, snapshot: &mut Snapshot) {
     snapshot.icons.clear();
-    if std::fs::create_dir_all(root).is_err() {
-        return;
-    }
-    let packs = library.available().iter().chain(
-        library
-            .active()
-            .iter()
-            .filter_map(|active| library.metadata(active)),
-    );
+    let packs: Vec<InstalledPack> = library
+        .available()
+        .iter()
+        .chain(
+            library
+                .active()
+                .iter()
+                .filter_map(|active| library.metadata(active)),
+        )
+        .cloned()
+        .collect();
     for pack in packs {
-        let Some(bytes) = library.pack_icon(pack).ok().flatten() else {
-            continue;
+        let name = format!("icons/{}-{}.png", pack.id, pack.revision);
+        let stored = library.storage().contains(&name) || {
+            let png = library
+                .pack_icon(&pack)
+                .ok()
+                .flatten()
+                .and_then(|bytes| thumbnail(&bytes));
+            png.is_some_and(|png| library.storage_mut().write(&name, &png).is_ok())
         };
-        let Some(png) = thumbnail(&bytes) else {
-            continue;
-        };
-        let mut hash = std::collections::hash_map::DefaultHasher::new();
-        png.hash(&mut hash);
-        let path = root.join(format!("{}-{:016x}.png", pack.id, hash.finish()));
-        if (path.exists() || std::fs::write(&path, png).is_ok())
-            && let Some(path) = path.to_str()
-        {
+        if stored && let Some(path) = library.storage().path(&name).to_str() {
             snapshot
                 .icons
                 .insert((pack.id.to_string(), pack.revision), path.to_owned());

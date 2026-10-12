@@ -1,5 +1,6 @@
 use super::{AssetMetrics, MetricsCollector};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 #[test]
 fn fps_uses_the_recorded_window_and_the_slowest_mean_instead_of_reciprocal_p99() {

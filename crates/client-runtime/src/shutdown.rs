@@ -37,8 +37,19 @@ impl ShutdownWatchdog {
     /// Creates a watchdog that stops owned child processes before terminating the client.
     pub fn process(timeout: Duration) -> Self {
         Self::new(timeout, |code| {
-            launcher_host::lifecycle::children::stop_all(std::time::Duration::ZERO);
-            std::process::exit(code)
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                launcher_host::lifecycle::children::stop_all(std::time::Duration::ZERO);
+                std::process::exit(code)
+            }
+            // A browser tab has no process to end: reloading returns it to the page it started from.
+            #[cfg(target_arch = "wasm32")]
+            {
+                let _ = code;
+                if let Some(window) = web_sys::window() {
+                    let _ = window.location().reload();
+                }
+            }
         })
     }
 

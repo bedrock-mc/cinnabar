@@ -1,6 +1,7 @@
 //! Generation-fenced join progress independent of the menu and process owner.
 
-use std::{path::PathBuf, time::Instant};
+use std::path::PathBuf;
+use web_time::Instant;
 
 use bridge::bridge_endpoint_exists;
 

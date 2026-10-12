@@ -56,7 +56,7 @@ fn run_phase(
     };
     for frame in 0..frames {
         let (out, into) = stream(frame);
-        let started = std::time::Instant::now();
+        let started = web_time::Instant::now();
         report.deferred_uploads += into.len() - fixture.stream(&out, &into);
         report.upload_pass += started.elapsed();
         let (camera, forward) = view(frame);

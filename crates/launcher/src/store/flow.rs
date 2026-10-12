@@ -3,7 +3,7 @@
 //! press while one is running is ignored.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use web_time::{SystemTime, UNIX_EPOCH};
 
 use bridge::{
     ConfirmedPurchase, PendingPurchase, PurchaseOutcome, PurchaseStatus, StoreBalance, StoreOffer,

@@ -2,12 +2,14 @@
 //! Marketplace artwork persist on disk. Every surface downloads through the same policy-checked
 //! client and bounded body reader.
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::{net::SocketAddr, sync::Arc};
 use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    sync::Arc,
+    net::{IpAddr, Ipv4Addr},
     time::Duration,
 };
 
+#[cfg(not(target_arch = "wasm32"))]
 use reqwest::{StatusCode, redirect::Policy};
 use server_experience::fetch::public_address;
 use url::{Host, Url};
@@ -118,11 +120,14 @@ fn public_host(ip: IpAddr) -> bool {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 type ResolveError = Box<dyn std::error::Error + Send + Sync>;
 
 /// Resolves only hosts whose every address is public, so DNS cannot point a download inward.
+#[cfg(not(target_arch = "wasm32"))]
 struct PublicResolver;
 
+#[cfg(not(target_arch = "wasm32"))]
 impl reqwest::dns::Resolve for PublicResolver {
     fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
         let host = name.as_str().to_owned();
@@ -139,12 +144,21 @@ impl reqwest::dns::Resolve for PublicResolver {
     }
 }
 
+/// Browsers download no remote images: a page cannot pin a download to public addresses, and
+/// image hosts rarely allow cross-origin reads, so every surface keeps its fallback.
+#[cfg(target_arch = "wasm32")]
+pub fn client(_surface: &Surface) -> Option<reqwest::Client> {
+    None
+}
+
 /// A client enforcing `surface`'s timeout, agent, redirect bound and address policy.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn client(surface: &Surface) -> Option<reqwest::Client> {
     client_with(surface, Arc::new(PublicResolver))
 }
 
 /// [`client`] with the resolver public hosts go through; tests substitute one.
+#[cfg(not(target_arch = "wasm32"))]
 fn client_with<R: reqwest::dns::Resolve + 'static>(
     surface: &Surface,
     resolver: Arc<R>,
@@ -171,7 +185,19 @@ fn client_with<R: reqwest::dns::Resolve + 'static>(
     builder.build().ok()
 }
 
+/// Browsers have no client to download with; see [`client`].
+#[cfg(target_arch = "wasm32")]
+pub async fn download(
+    _client: &reqwest::Client,
+    _surface: &Surface,
+    _url: &str,
+    _only_ok: bool,
+) -> Option<Vec<u8>> {
+    None
+}
+
 /// The body of `url` within `surface`'s byte limit; `only_ok` refuses any status but 200.
+#[cfg(not(target_arch = "wasm32"))]
 pub async fn download(
     client: &reqwest::Client,
     surface: &Surface,

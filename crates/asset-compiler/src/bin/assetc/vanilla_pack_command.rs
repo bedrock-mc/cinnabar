@@ -69,7 +69,8 @@ fn download(url: &str, partial: &Path) -> Result<(), Box<dyn Error>> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, SystemTime};
+    use std::time::Duration;
+    use web_time::SystemTime;
 
     use super::*;
 

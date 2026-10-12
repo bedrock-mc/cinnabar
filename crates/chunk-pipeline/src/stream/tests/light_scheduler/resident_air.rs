@@ -176,3 +176,24 @@ fn resident_air_reclassifies_a_cached_geometry_candidate_while_old_worker_is_ret
     stream.accept_mesh_completion(old_completion);
     assert!(stream.mesh_changes.is_empty());
 }
+
+#[test]
+fn an_undrawn_section_meshes_before_its_light_only_with_provisional_meshes() {
+    let key = SubChunkKey::new(0, 0, 5, 0);
+    for (provisional, drawn, expected) in [(false, false, 0), (true, false, 1), (true, true, 0)] {
+        let mut stream = lit_stream(0);
+        stream.provisional_light_meshes = provisional;
+        resident(&mut stream, key, super::uniform_sub_chunk(1));
+        install_current_light(&mut stream, key, 0, 15, true);
+        stream.mark_light_dirty_exact(key).unwrap();
+        let generation = stream.mark_dirty_exact(key, Instant::now());
+        if drawn {
+            stream.register_mesh_dependency_mask(key, generation, MeshDependencyMask::default());
+        }
+        assert_eq!(
+            stream.dispatch_mesh_jobs_with_limits([8.0, 80.0, 8.0], 1, 1),
+            expected,
+            "provisional {provisional}, drawn {drawn}"
+        );
+    }
+}

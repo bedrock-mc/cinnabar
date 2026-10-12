@@ -1,9 +1,7 @@
 use anyhow::Context;
 use sha2::Digest;
-use std::{
-    path::PathBuf,
-    time::{Duration, Instant},
-};
+use std::{path::PathBuf, time::Duration};
+use web_time::Instant;
 
 use anyhow::{Result, bail};
 #[cfg(test)]
@@ -128,7 +126,7 @@ pub fn poll_transparent_witness_request(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use web_time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn request_json_decodes_exact_dimension_keys_and_revision() {
@@ -193,7 +191,7 @@ mod tests {
         std::fs::create_dir(&path).unwrap();
         app.world_mut()
             .resource_mut::<TransparentWitnessFileSource>()
-            .next_poll = std::time::Instant::now();
+            .next_poll = web_time::Instant::now();
         app.update();
         assert_eq!(
             app.world()
@@ -206,7 +204,7 @@ mod tests {
         std::fs::write(&path, valid).unwrap();
         app.world_mut()
             .resource_mut::<TransparentWitnessFileSource>()
-            .next_poll = std::time::Instant::now();
+            .next_poll = web_time::Instant::now();
         app.update();
         assert_eq!(
             app.world()

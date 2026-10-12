@@ -3,12 +3,8 @@
 //! client.
 #![cfg(feature = "execution")]
 
-use std::{
-    collections::BTreeSet,
-    path::Path,
-    sync::Once,
-    time::{Duration, Instant},
-};
+use std::{collections::BTreeSet, path::Path, sync::Once, time::Duration};
+use web_time::Instant;
 
 use mod_host::helper::{CallFailure, Dispatch, Event, FailureKind, Helper, Reply};
 use server_experience::{

@@ -3,7 +3,8 @@ use crate::world_ready::{SubChunkTimeoutProgress, WorldReadyWork};
 use chunk_pipeline::{
     ForcedRemeshManifest, ForcedRemeshManifestState, ViewCohortStatus, WorldStreamStats,
 };
-use std::{collections::BTreeSet, time::Instant};
+use std::collections::BTreeSet;
+use web_time::Instant;
 use world::{ChunkKey, SubChunkKey};
 
 /// One frame's world, transport and visibility observations.

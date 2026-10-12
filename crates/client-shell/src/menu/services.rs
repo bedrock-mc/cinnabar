@@ -11,6 +11,7 @@ impl MenuRuntime {
         in_session: bool,
         launcher: Option<ResMut<LauncherCoreSlot>>,
         launcher_account: Option<ResMut<launcher_account::LauncherAccount>>,
+        control_account: Option<ResMut<super::ControlAccount>>,
         mut local_worlds: Option<&mut crate::local_worlds::LocalWorlds>,
     ) {
         if let Some(mut slot) = launcher {
@@ -34,8 +35,8 @@ impl MenuRuntime {
             self.forget_launcher_trust();
             return;
         }
-        match launcher_account {
-            Some(mut account) => {
+        match (launcher_account, control_account) {
+            (Some(mut account), _) => {
                 account.set_xbox_presence(xbox_presence::state(
                     in_session,
                     player_runtime.facts.world_default_game_mode(),
@@ -44,7 +45,8 @@ impl MenuRuntime {
                 ));
                 self.sync_account_control(&mut account.0);
             }
-            None => {
+            (None, Some(mut control)) => self.sync_account_control(control.0.as_mut()),
+            (None, None) => {
                 self.forget_launcher_trust();
                 self.sign_out_locally();
             }

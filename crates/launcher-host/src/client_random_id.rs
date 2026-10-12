@@ -27,10 +27,7 @@ pub fn load_async(
 
 /// Reuses a nonzero signed ID or saves a new full-width OS-random value before returning it.
 pub fn load(root: &Path) -> io::Result<ClientRandomId> {
-    load_with_entropy(root, |bytes| {
-        getrandom::fill(bytes).map_err(|error| io::Error::other(error.to_string()))
-    })
-    .map_err(|error| {
+    load_with_entropy(root, fill_random).map_err(|error| {
         io::Error::new(
             error.kind(),
             format!(
@@ -39,6 +36,23 @@ pub fn load(root: &Path) -> io::Result<ClientRandomId> {
             ),
         )
     })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn fill_random(bytes: &mut [u8; 8]) -> io::Result<()> {
+    getrandom::fill(bytes).map_err(|error| io::Error::other(error.to_string()))
+}
+
+/// Draws from the browser's `crypto.getRandomValues`.
+#[cfg(target_arch = "wasm32")]
+fn fill_random(bytes: &mut [u8; 8]) -> io::Result<()> {
+    web_sys::window()
+        .ok_or_else(|| io::Error::other("no browser window"))?
+        .crypto()
+        .map_err(|error| io::Error::other(format!("{error:?}")))?
+        .get_random_values_with_u8_array(bytes)
+        .map(drop)
+        .map_err(|error| io::Error::other(format!("{error:?}")))
 }
 
 /// Initializes missing, zero or corrupt storage; I/O and entropy failures remain errors.

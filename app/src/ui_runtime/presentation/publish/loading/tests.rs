@@ -73,11 +73,11 @@ fn release_local_terrain(wait_for_actor_pipelines: bool) {
             WorldEvent::SubChunks(SubChunkBatchEvent { dimension, entries }),
         )
         .unwrap();
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let deadline = web_time::Instant::now() + Duration::from_secs(5);
     while !stream.dimension_transfer_presentable(position) {
         stream.poll(position, 128);
         assert!(
-            std::time::Instant::now() < deadline,
+            web_time::Instant::now() < deadline,
             "destination cells did not decode"
         );
         std::thread::yield_now();

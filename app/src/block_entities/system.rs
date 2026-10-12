@@ -54,9 +54,9 @@ pub(crate) fn load_block_entity_carrier(
     world_asset_path: &Path,
 ) -> Option<Arc<RuntimeBlockEntityAssets>> {
     let path = world_asset_path.with_file_name(BLOCK_ENTITY_ASSETS_FILENAME);
-    let bytes = match diagnostics::bounded_file::read(
+    let bytes = match assets::carriers::file::read_bounded(
         &path,
-        assets::MAX_BLOCK_ENTITY_CARRIER_BYTES as u64,
+        assets::MAX_BLOCK_ENTITY_CARRIER_BYTES,
     ) {
         Ok(bytes) => bytes,
         Err(error) => {

@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+web-time.workspace = true
 sha2.workspace = true
 hashbrown = "0.16"
 thiserror.workspace = true

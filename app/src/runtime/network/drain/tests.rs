@@ -4,7 +4,8 @@ use protocol::{
     ActorEvent, ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent,
     ActorPositionOrigin, LevelChunkEvent, LevelChunkMode, WorldEvent,
 };
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
+use web_time::Instant;
 use {
     chunk_pipeline::WorldStream,
     client_world::ingestion::{MAX_ADMITTED_HEAVY_EVENTS, MAX_ADMITTED_WORLD_EVENTS},

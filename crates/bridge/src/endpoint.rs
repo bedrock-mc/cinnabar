@@ -182,6 +182,16 @@ pub(crate) async fn connect(
     }
 }
 
+/// Relay sessions belong to browsers; a native client reaches a local core instead.
+pub(crate) async fn connect_relay(
+    _relay: &crate::RelaySession,
+) -> Result<PlatformStream, BridgeError> {
+    Err(BridgeError::Io(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "web relay sessions run only in browsers",
+    )))
+}
+
 fn validate_socket_dir(socket_dir: &Path) -> Result<(), BridgeError> {
     if socket_dir.as_os_str().is_empty() {
         return Err(invalid_endpoint(socket_dir, "socket directory is empty"));

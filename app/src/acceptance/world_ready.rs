@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use chunk_pipeline::{ForcedRemeshManifest, ForcedRemeshManifestState, WorldStream};
 use client_runtime::network::NetworkHandle;
 use render_scene::{ChunkRenderQueue, ChunkUploadAcknowledgements, PresentedFrameGate};
-use std::time::Instant;
+use web_time::Instant;
 use world::SubChunkKey;
 use {
     crate::runtime::{

@@ -69,6 +69,7 @@ impl MenuRuntime {
             // started on the menu. `--address` keeps the historical behaviour
             // of exiting the process when its one session fails.
             launcher: visible,
+            escape_tip: None,
             visible,
             screen: initial.screen,
             focused: 0,
@@ -121,7 +122,9 @@ impl MenuRuntime {
             friends: initial.friends,
             catalog_message: initial.catalog_message,
             catalog_started: false,
-            catalog: launcher_host::catalog::Catalog::new(layout.catalog_file(std::process::id())),
+            catalog: launcher_host::catalog::Catalog::new(
+                layout.catalog_file(launcher::install_layout::process_id()),
+            ),
             catalog_art: None,
             auth_process: None,
             auth_attempted: false,
@@ -148,6 +151,8 @@ impl MenuRuntime {
             sign_in_requested: false,
             sign_in_cancelled: false,
             sign_in_failure: None,
+            control_signs_in: false,
+            control_sign_in: None,
             #[cfg(feature = "developer-control")]
             sign_in_fixture,
             presentation_accounts: false,

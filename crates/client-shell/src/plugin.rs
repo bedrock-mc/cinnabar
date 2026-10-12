@@ -50,6 +50,7 @@ impl Plugin for ClientShellPlugin {
                 menu::screen_focus::publish_gameplay_screen_controls
                     .in_set(ShellFrameSet::GameplayControls),
             );
+        #[cfg(not(target_arch = "wasm32"))]
         crate::discord_presence::configure(app);
     }
 }

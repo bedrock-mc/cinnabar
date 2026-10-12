@@ -18,8 +18,8 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread::{self, JoinHandle},
-    time::Instant,
 };
+use web_time::Instant;
 
 use assets::RuntimeFontCatalog;
 use bevy::prelude::*;

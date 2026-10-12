@@ -289,7 +289,7 @@ fn save(layout: &InstallLayout, view: &DressingRoomView) -> Result<(), String> {
     };
     fs::create_dir_all(&layout.user_config_root).map_err(|error| error.to_string())?;
     let path = layout.skin_selection_file();
-    let temp = path.with_extension(format!("{}.tmp", std::process::id()));
+    let temp = path.with_extension(format!("{}.tmp", launcher::install_layout::process_id()));
     let bytes = serde_json::to_vec_pretty(&preferences).map_err(|error| error.to_string())?;
     if bytes.len() as u64 > MAX_PREFERENCES_BYTES {
         return Err("The skin library could not be saved because it is too large.".to_owned());

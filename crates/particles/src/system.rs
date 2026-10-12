@@ -546,7 +546,7 @@ mod tests {
             bound: Some((MAX_EMITTERS as u64 - 1, [1.0, 2.0, 3.0])),
             ..request("burst", 0.0)
         });
-        let started = std::time::Instant::now();
+        let started = web_time::Instant::now();
         for _ in 0..frames {
             old_bound_refresh(&mut old, std::hint::black_box(transform));
         }
@@ -557,7 +557,7 @@ mod tests {
             bound: Some((MAX_EMITTERS as u64 - 1, [1.0, 2.0, 3.0])),
             ..request("burst", 0.0)
         });
-        let started = std::time::Instant::now();
+        let started = web_time::Instant::now();
         for _ in 0..frames {
             new.update_bound_emitters(std::hint::black_box(transform));
         }

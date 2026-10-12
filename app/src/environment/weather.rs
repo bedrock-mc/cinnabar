@@ -38,7 +38,7 @@ pub(crate) fn load_optional_weather_textures(
     world_asset_path: &std::path::Path,
 ) -> render_scene::WeatherTextureAssets {
     let path = world_asset_path.with_file_name(WEATHER_TEXTURES_FILENAME);
-    let decoded = std::fs::read(&path)
+    let decoded = assets::carriers::file::read(&path)
         .map_err(|error| error.to_string())
         .and_then(|bytes| {
             assets::weather_textures::decode_weather_textures(&bytes)

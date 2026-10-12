@@ -1,9 +1,7 @@
 #[cfg(any(test, feature = "test-support"))]
 use std::sync::Arc;
-use std::{
-    collections::HashMap,
-    time::{Duration, Instant},
-};
+use std::{collections::HashMap, time::Duration};
+use web_time::Instant;
 
 use chunk_pipeline::ViewCohortStatus;
 use client_world::{CommittedControlEvent, ViewCohort};

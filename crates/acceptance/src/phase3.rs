@@ -1,4 +1,4 @@
-use std::time::Instant;
+use web_time::Instant;
 
 use super::{AcceptanceRun, TRANSPARENT_PRESENTATION_EXIT_GRACE};
 

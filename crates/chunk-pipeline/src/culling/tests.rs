@@ -594,7 +594,8 @@ fn incremental_history_rollover_and_grid_replacement_rebuild_exactly() {
 #[test]
 #[ignore = "offline cave traversal timing fixture"]
 fn cave_visibility_bench() {
-    use std::{hint::black_box, time::Instant};
+    use std::hint::black_box;
+    use web_time::Instant;
     fn spread(mut samples: Vec<u128>) -> [f64; 3] {
         samples.sort_unstable();
         [0, samples.len() / 2, samples.len() * 95 / 100].map(|index| samples[index] as f64 / 1e3)

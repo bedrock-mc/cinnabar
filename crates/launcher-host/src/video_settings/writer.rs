@@ -127,11 +127,11 @@ mod tests {
             seen_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
             snapshot(2)
         );
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let deadline = web_time::Instant::now() + Duration::from_secs(2);
         let mut completed = Vec::new();
         while completed.len() < 2 {
             completed.extend(writer.poll());
-            assert!(std::time::Instant::now() < deadline);
+            assert!(web_time::Instant::now() < deadline);
             std::thread::yield_now();
         }
         assert_eq!(

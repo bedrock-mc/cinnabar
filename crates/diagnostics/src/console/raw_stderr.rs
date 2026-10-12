@@ -8,8 +8,9 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{SyncSender, TrySendError},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 const READ_SIZE: usize = 4096;
 const POLL_INTERVAL: Duration = Duration::from_millis(5);
@@ -218,6 +219,27 @@ fn available(reader: &File) -> io::Result<usize> {
         return Err(io::Error::last_os_error());
     }
     Ok(count as usize)
+}
+
+/// Browsers have no stderr descriptor to keep, pipe or redirect, so capture never starts there.
+#[cfg(not(any(unix, windows)))]
+pub(super) fn original() -> io::Result<File> {
+    Err(io::ErrorKind::Unsupported.into())
+}
+
+#[cfg(not(any(unix, windows)))]
+fn pipe() -> io::Result<(File, File)> {
+    Err(io::ErrorKind::Unsupported.into())
+}
+
+#[cfg(not(any(unix, windows)))]
+fn redirect(_writer: &File) -> io::Result<()> {
+    Err(io::ErrorKind::Unsupported.into())
+}
+
+#[cfg(not(any(unix, windows)))]
+fn available(_reader: &File) -> io::Result<usize> {
+    Err(io::ErrorKind::Unsupported.into())
 }
 
 #[cfg(test)]

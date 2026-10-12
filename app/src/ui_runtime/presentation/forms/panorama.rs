@@ -6,7 +6,8 @@ use client_shell::menu::MenuRuntime;
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use render_model::panorama::{launcher_faces, launcher_view, overlay_tint};
 use render_scene::PanoramaScene;
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
+use web_time::Instant;
 /// Uploads the faces on first sight of the carrier and shows the panorama
 /// behind launcher screens; in-world Settings retains the game beneath it.
 pub(crate) fn drive_menu_panorama(

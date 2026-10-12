@@ -10,8 +10,10 @@ use std::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicU64, AtomicUsize, Ordering},
     },
-    time::{Duration, Instant, SystemTime},
+    // File times are std's clock; the rest reads web_time, which browsers support.
+    time::{Duration, SystemTime},
 };
+use web_time::Instant;
 
 use sha2::{Digest, Sha256};
 use tokio::sync::Semaphore;

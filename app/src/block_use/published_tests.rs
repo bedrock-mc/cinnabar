@@ -8,7 +8,8 @@ use bevy::prelude::*;
 use client_runtime::network::NetworkHandle;
 use client_ui::ui_runtime::UiRuntime;
 use protocol::{ContainerIdentity, InventoryEvent, InventorySlotEvent, SlotIdentity};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 use {
     super::*,
     client_presentation::local_player::{InteractionOriginSnapshot, LocalViewPose},

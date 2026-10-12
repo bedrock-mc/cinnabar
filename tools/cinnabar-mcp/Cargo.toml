@@ -10,6 +10,7 @@ name = "cinnabar-mcp"
 path = "src/main.rs"
 
 [dependencies]
+web-time.workspace = true
 developer-control = { path = "../../crates/developer-control" }
 image.workspace = true
 mcp-stdio = { path = "../mcp-stdio" }

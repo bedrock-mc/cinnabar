@@ -316,7 +316,7 @@ fn fetch_all_abandons_downloads_past_its_budget_but_keeps_finished_ones() {
         format!("{}/fast", server.base),
         format!("{}/stall", server.base),
     ];
-    let started = std::time::Instant::now();
+    let started = web_time::Instant::now();
     // The runtime stays alive but idle, as a worker's does between batches.
     let runtime = runtime();
     let results = runtime.block_on(cache.fetch_all(urls, Duration::from_millis(500)));

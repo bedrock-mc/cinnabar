@@ -10,8 +10,9 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
     sync::Mutex,
-    time::SystemTime,
 };
+// File times are std's clock.
+use std::time::SystemTime;
 
 /// The bundle cache under a client's per-user data root; cache seeding uses the same path.
 pub fn objects_dir(user_data_root: &Path) -> PathBuf {

@@ -29,6 +29,7 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window, WindowEvent},
 };
 
+use client_shell::menu::escape_tips::{ESCAPE_CLOSES_SCREENS, EscapeTip};
 use client_shell::menu::settings_options::control_bindings::{
     binding_gamepad, binding_key, binding_mouse, binding_mouse_button, binding_pressed,
     hotbar_control_slots,
@@ -634,6 +635,11 @@ pub(crate) fn drive_chat_keyboard_input(
             if runtime.screen_state().text_focused() && !mod_view {
                 // A text field owns typed text, including `e`.
                 match input.key_code {
+                    KeyCode::Escape if !ESCAPE_CLOSES_SCREENS => {
+                        let now_millis =
+                            u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+                        EscapeTip::Screen.show(&mut runtime, menu.as_deref(), now_millis);
+                    }
                     KeyCode::Escape => {
                         if runtime.commit_book(false) {
                             runtime.close_inventory(&mut player_runtime);
@@ -661,6 +667,10 @@ pub(crate) fn drive_chat_keyboard_input(
                 // screen's own keys do nothing under the view (`modding`).
                 KeyCode::Escape if mod_view => {}
                 _ if mod_view => {}
+                KeyCode::Escape if !ESCAPE_CLOSES_SCREENS => {
+                    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+                    EscapeTip::Inventory.show(&mut runtime, menu.as_deref(), now_millis);
+                }
                 KeyCode::Escape => {
                     runtime.close_inventory(&mut player_runtime);
                     inventory_ownership_changed = true;

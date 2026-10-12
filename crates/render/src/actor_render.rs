@@ -647,14 +647,14 @@ fn submit_actor_presented_frame(
         reserved: true,
         acknowledged: false,
     });
-    let present_returned_at = std::time::Instant::now();
+    let present_returned_at = web_time::Instant::now();
     let callback_gate = gate.clone();
     let callback_witness = witness.clone();
     crate::device_poll::on_frame_complete(&render_queue, move || {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!("actor.completion_callback").entered();
         let acknowledged =
-            callback_gate.publish_reserved(token, present_returned_at, std::time::Instant::now());
+            callback_gate.publish_reserved(token, present_returned_at, web_time::Instant::now());
         callback_witness.observe_submit(ActorSubmitWitness {
             drawn_frame: true,
             exact: true,

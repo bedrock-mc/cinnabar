@@ -1,4 +1,4 @@
-use std::time::Instant;
+use web_time::Instant;
 
 use protocol::WorldBootstrap;
 use world::{DecodedLevelChunk, MeshDependencyMask, NeighbourReach, SubChunkKey};

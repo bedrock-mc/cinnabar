@@ -123,7 +123,8 @@ async fn join(script: Script) -> Result<(PlaySession, GameData, Core), ProtocolE
         let _ = run_core(ScriptedCore { stream }, script, frames).await;
     });
     let joined = LoginSequence::connect_session(
-        dir.path(),
+        &bridge::CoreEndpoint::SocketDir(dir.path().to_path_buf()),
+        None,
         "RustClient",
         protocol::ClientRandomId::new(-7).unwrap(),
         script.cache_enabled.then(ClientBlobCache::default),

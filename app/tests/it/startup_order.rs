@@ -1,4 +1,5 @@
-use std::{fs, process::Command, time::SystemTime};
+use std::{fs, process::Command};
+use web_time::SystemTime;
 
 #[test]
 fn invalid_local_assets_fail_before_connection_startup() {

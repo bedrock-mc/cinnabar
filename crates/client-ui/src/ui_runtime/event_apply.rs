@@ -343,6 +343,23 @@ impl UiRuntime {
         Ok(())
     }
 
+    /// Queues a client toast, such as a tip, for as long as a server's toast shows; one with the
+    /// same text still queued or on screen is not repeated.
+    pub fn show_client_toast(&mut self, title: &str, message: &str, now_millis: u64) {
+        if self.hud.toasts().iter().any(|toast| {
+            toast.expires_millis > now_millis
+                && &*toast.title == title
+                && &*toast.message == message
+        }) {
+            return;
+        }
+        let mut toast = Toast::new(title.into(), message.into(), 0, now_millis);
+        toast.expires_millis = now_millis
+            .saturating_add(self.toast_display_millis)
+            .saturating_add(ui::TOAST_SLIDE_OUT_MILLIS);
+        self.hud.push_toast(toast);
+    }
+
     /// Stands a client toast that stays while its cause lasts.
     pub fn stand_toast(&mut self, toast: ui::StandingToast) {
         self.hud.stand_toast(toast);

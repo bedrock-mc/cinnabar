@@ -1,7 +1,5 @@
-use std::{
-    io::Write,
-    time::{Duration, Instant},
-};
+use std::{io::Write, time::Duration};
+use web_time::Instant;
 
 use render_scene::{PresentedFrameAck, TargetRenderExpectation};
 use world::SubChunkKey;

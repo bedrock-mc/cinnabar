@@ -2,7 +2,8 @@
 
 use anyhow::{Result, bail, ensure};
 use mod_host::{ModGrants, ModHost};
-use std::{hint::black_box, path::Path, time::Instant};
+use std::{hint::black_box, path::Path};
+use web_time::Instant;
 
 /// Dispatches packaging, an input smoke test, or the bounded callback benchmark.
 fn main() -> Result<()> {

@@ -10,8 +10,9 @@ use std::{
         atomic::{AtomicU64, Ordering},
         mpsc::{Receiver, SyncSender, TrySendError, sync_channel},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 /// Writes queued before a writer waits; bounds memory while the console is stalled.
 const QUEUED_WRITES: usize = 4096;

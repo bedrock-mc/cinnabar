@@ -4,8 +4,10 @@ use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
     input::{ButtonState, keyboard::KeyboardInput, mouse::AccumulatedMouseMotion},
     prelude::{
-        ButtonInput, KeyCode, Local, MessageReader, MouseButton, Res, ResMut, Single, Window, With,
+        ButtonInput, KeyCode, Local, MessageReader, MouseButton, Res, ResMut, Single, Time, Window,
+        With,
     },
+    time::Real,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow},
 };
 use client_runtime::network::NetworkHandle;
@@ -18,7 +20,10 @@ use {
         block_entities::{BlockEntityFont, BlockEntityRuntime},
         runtime::world::ClientWorld,
     },
-    client_shell::menu::MenuRuntime,
+    client_shell::menu::{
+        MenuRuntime,
+        escape_tips::{ESCAPE_CLOSES_SCREENS, EscapeTip},
+    },
 };
 
 /// Applies desktop ownership before accepting sign-editor input.
@@ -26,6 +31,7 @@ use {
 pub(crate) struct SignInputAuthority<'w> {
     focus: Option<ResMut<'w, client_state::CursorFocus>>,
     driven: Option<Res<'w, client_state::DrivenInput>>,
+    time: Option<Res<'w, Time<Real>>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -47,7 +53,11 @@ pub(crate) fn drive_sign_editor(
     collisions: Option<Res<client_interaction::movement::PhysicsCollisionRegistries>>,
     authority: SignInputAuthority,
 ) {
-    let SignInputAuthority { mut focus, driven } = authority;
+    let SignInputAuthority {
+        mut focus,
+        driven,
+        time,
+    } = authority;
     let (window, mut cursor) = window.into_inner();
     let input_available = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
@@ -105,6 +115,7 @@ pub(crate) fn drive_sign_editor(
     let mut measure = measure;
     let mut finish = runtime.sign_editor_mut().take_finish_request();
     let mut explicit_finish = false;
+    let mut escape_kept_open = false;
     if input_available {
         for event in keyboard
             .read()
@@ -114,6 +125,8 @@ pub(crate) fn drive_sign_editor(
                 break;
             };
             match event.key_code {
+                // A browser's Escape keeps the editor open and says how to finish (`escape_tips`).
+                KeyCode::Escape if !ESCAPE_CLOSES_SCREENS => escape_kept_open = true,
                 KeyCode::Escape => {
                     finish = true;
                     explicit_finish = true;
@@ -157,6 +170,12 @@ pub(crate) fn drive_sign_editor(
         }
     } else {
         keyboard.clear();
+    }
+    if escape_kept_open {
+        let now_millis = time.map_or(0, |time| {
+            u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX)
+        });
+        EscapeTip::Sign.show(&mut runtime, menu.as_deref(), now_millis);
     }
     if explicit_finish && let Some(focus) = focus.as_deref_mut() {
         focus.authorize_screen_return();

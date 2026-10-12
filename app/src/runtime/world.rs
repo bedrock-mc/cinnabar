@@ -17,6 +17,8 @@ use {
 mod committed_ui;
 mod control_apply;
 mod dimension;
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod frame_jobs;
 mod local_retention;
 mod respawn;
 pub(crate) use committed_ui::drain_committed_ui_before_authority;

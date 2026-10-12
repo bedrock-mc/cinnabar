@@ -3,6 +3,9 @@ use thiserror::Error;
 
 const APP_DIR: &str = crate::PRODUCT_NAME;
 
+mod browser;
+pub use browser::{BROWSER_ROOT, process_id};
+
 /// The pinned vanilla resource pack below a resource root, which mirrors `.local/`.
 pub fn vanilla_pack_relative() -> String {
     assets::vanilla_source().installed_pack_dir("resource_pack")
@@ -148,6 +151,7 @@ impl InstallLayout {
         })
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn discover() -> Result<Self, LayoutError> {
         let platform = current_platform();
         let home = std::env::var_os(home_variable(platform)).map(PathBuf::from);
@@ -362,6 +366,7 @@ impl InstallLayout {
 
 /// Cargo runs tests from its build directory, which `build-dir` puts outside the
 /// checkout; such a binary resolves as if it ran from its workspace's `target/debug`.
+#[cfg(not(target_arch = "wasm32"))]
 fn cargo_artifact_path(executable: PathBuf, manifest_dir: Option<&Path>) -> PathBuf {
     if development_root(&executable).is_some() {
         return executable;
@@ -541,6 +546,7 @@ const fn core_filename(platform: Platform) -> &'static str {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 const fn home_variable(platform: Platform) -> &'static str {
     match platform {
         Platform::Windows => "USERPROFILE",
@@ -548,6 +554,7 @@ const fn home_variable(platform: Platform) -> &'static str {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 const fn current_platform() -> Platform {
     #[cfg(target_os = "windows")]
     return Platform::Windows;

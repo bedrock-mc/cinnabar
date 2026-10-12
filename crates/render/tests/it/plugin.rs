@@ -6,8 +6,9 @@ use std::{
     mem::size_of,
     path::Path,
     sync::{Arc, OnceLock},
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use assets::{
     ANIMATION_FLAG_BLEND, Animation, AssetError, BlockFlags, BlockVisual, CompiledAssets,

@@ -8,6 +8,9 @@ use super::{
 use launcher::menu::{MenuAction, MenuScreen, MenuView};
 use ui_engine::engine::screen::PaintError;
 
+/// The pause screen's button that returns to the game.
+pub const RESUME_LABEL: &str = "Resume game";
+
 /// A uniform world overlay frames the actions and the interactive character together.
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
@@ -78,7 +81,7 @@ pub(super) fn draw(
         .min((bottom - vertical_pad - y - caption_height - gap * (count - 1.0)) / count);
     y += caption_height;
     for (label, variant, action) in [
-        ("Resume game", Variant::Hero, MenuAction::PauseResume),
+        (RESUME_LABEL, Variant::Hero, MenuAction::PauseResume),
         ("Settings", Variant::Secondary, MenuAction::PauseSettings),
     ] {
         widgets::button(

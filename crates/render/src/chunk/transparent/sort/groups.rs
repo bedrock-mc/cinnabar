@@ -109,7 +109,7 @@ pub(in crate::chunk) fn spawn_transparent_sort(
     work: TransparentSortWork,
     profiler: Option<RuntimeStageProfiler>,
 ) {
-    rayon::spawn(move || {
+    async_platform::spawn_pooled(move || {
         let _timer = profiler
             .as_ref()
             .map(|profiler| profiler.time(RuntimeStage::TransparentWorker));

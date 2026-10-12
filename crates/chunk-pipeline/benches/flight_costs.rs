@@ -1,11 +1,7 @@
 //! Main-thread cost of streaming while the camera flies over realistic synthetic terrain.
 
-use std::{
-    collections::VecDeque,
-    hint::black_box,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{collections::VecDeque, hint::black_box, sync::Arc, time::Duration};
+use web_time::Instant;
 
 use assets::{
     BlockFlags, BlockOverlay, BlockVisual, ContributorRole, LightProperties, Material,

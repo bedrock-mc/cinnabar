@@ -1,6 +1,7 @@
 //! Reports a synthetic per-shape baseline alongside retained steady state and 10% churn.
 use super::*;
-use std::{hint::black_box, time::Instant};
+use std::hint::black_box;
+use web_time::Instant;
 
 /// Returns the median CPU frame sample in microseconds, without asserting clock time in CI.
 fn measure(mut frame: impl FnMut()) -> f64 {

@@ -1,5 +1,6 @@
 //! Discord join invites: the secret Discord hands to a joining friend and the party it groups.
 
+#[cfg(not(target_arch = "wasm32"))]
 use sha2::{Digest, Sha256};
 
 /// Versions the secret so a future format can't be misread as an address.
@@ -8,6 +9,7 @@ const SECRET_PREFIX: &str = "cinnabar1:";
 const MAX_SECRET_BYTES: usize = 128;
 
 /// The join secret naming `address`, or `None` when it can't be carried.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn secret(address: &str) -> Option<String> {
     let secret = format!("{SECRET_PREFIX}{address}");
     (secret.len() <= MAX_SECRET_BYTES && plausible(address)).then_some(secret)
@@ -24,6 +26,7 @@ fn plausible(address: &str) -> bool {
 }
 
 /// Groups everyone on one destination without publishing its address.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn party_id(address: &str) -> String {
     Sha256::digest(address.as_bytes())[..16]
         .iter()

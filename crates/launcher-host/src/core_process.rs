@@ -7,8 +7,9 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use anyhow::{Context, Result, bail};
 use {

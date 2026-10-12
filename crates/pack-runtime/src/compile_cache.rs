@@ -4,8 +4,10 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
-    time::{Duration, SystemTime},
+    time::Duration,
 };
+// File times are std's clock.
+use std::time::SystemTime;
 
 use sha2::{Digest, Sha256};
 

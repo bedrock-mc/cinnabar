@@ -712,7 +712,7 @@ fn hovering_slots_never_lays_the_screen_out_again() {
             70.0 + (step / 8) as f32 * 18.0,
         ];
         runtime.set_inventory_pointer_gui(Some(point));
-        let started = std::time::Instant::now();
+        let started = web_time::Instant::now();
         presentation
             .build(&player_runtime, &runtime, 1_000 + frame, [1280, 720], dpi)
             .unwrap();
@@ -766,7 +766,7 @@ fn scrolling_the_creative_catalog_stays_interactive() {
             .screen_state_mut()
             .container_scroll
             .insert(key.clone(), step as f64 * 60.0);
-        let started = std::time::Instant::now();
+        let started = web_time::Instant::now();
         presentation
             .build(&player_runtime, &runtime, frame, [1280, 720], dpi)
             .unwrap();

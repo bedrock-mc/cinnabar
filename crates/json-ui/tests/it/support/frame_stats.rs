@@ -3,8 +3,9 @@
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     cell::Cell,
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 thread_local! {
     static COUNTS: Cell<Option<(usize, usize)>> = const { Cell::new(None) };

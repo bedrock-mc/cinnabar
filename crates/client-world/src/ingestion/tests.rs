@@ -243,7 +243,8 @@ fn normalized_terrain_keeps_heavy_admission_until_it_commits_as_light_work() {
 
 #[test]
 fn worker_decode_preserves_air_unavailable_and_sequence_without_assets() {
-    use std::{sync::Arc, time::Instant};
+    use std::sync::Arc;
+    use web_time::Instant;
 
     use assets::{NetworkIdMode, RuntimeAssets};
     use protocol::{SubChunkBatchEvent, SubChunkEntryEvent, SubChunkResult, SubChunkUnavailable};

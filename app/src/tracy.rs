@@ -29,10 +29,10 @@ pub(crate) const WGPU_SCOPE_FILTER: &str = ",wgpu_core=info,wgpu_hal=info";
 
 /// When this frame's local physics finished.
 #[derive(Resource, Default)]
-pub(crate) struct PhysicsEnd(Option<std::time::Instant>);
+pub(crate) struct PhysicsEnd(Option<web_time::Instant>);
 
 pub(crate) fn mark_physics_end(mut end: ResMut<PhysicsEnd>) {
-    end.0 = Some(std::time::Instant::now());
+    end.0 = Some(web_time::Instant::now());
 }
 
 /// Plots the wait from physics to the auth-input send; a Tracy zone cannot span two systems.

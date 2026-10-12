@@ -12,6 +12,7 @@ test-support = []
 [dependencies]
 simulation-clock = { path = "../simulation-clock" }
 assets = { path = "../assets" }
+async-platform = { path = "../async-platform" }
 protocol = { path = "../protocol" }
 rayon.workspace = true
 render-api = { path = "../render-api" }

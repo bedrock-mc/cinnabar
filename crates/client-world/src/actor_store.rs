@@ -170,7 +170,7 @@ impl ActorSnapshot {
 
     fn from_spawn(spawn: ActorSpawnEvent, spawn_revision: u64) -> Self {
         let terrain_interlock =
-            terrain_interlock::TerrainInterlock::attached(&spawn.kind, std::time::Instant::now());
+            terrain_interlock::TerrainInterlock::attached(&spawn.kind, web_time::Instant::now());
         let mut position = spawn.position;
         if matches!(&spawn.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:falling_block")
         {

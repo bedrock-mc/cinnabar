@@ -193,7 +193,7 @@ pub(super) fn observe(runtime: &mut UiPresentationRuntime, icons: Option<&Arc<Se
         _ => {
             let (sender, done) = crossbeam_channel::bounded(1);
             let source = Arc::clone(icons);
-            rayon::spawn(move || {
+            async_platform::spawn_pooled(move || {
                 let _ = sender.send(pack(&source, 0));
             });
             Packing {

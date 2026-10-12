@@ -1,6 +1,6 @@
 //! Shipped compiled faces used by OreUI's semantic text styles.
 
-use std::{collections::BTreeMap, fs::File, io::Read, path::Path, sync::Arc};
+use std::{collections::BTreeMap, io::Read, path::Path, sync::Arc};
 
 use assets::{FontRendering, RuntimeFontCatalog};
 
@@ -74,8 +74,10 @@ fn shared_fallback(
         .map_err(|e| e.to_string())
 }
 
+/// Reads a face carrier through [`carriers::file`], so a browser's preloaded copy reads as the
+/// file does.
 fn read_bounded(path: &Path) -> Result<Vec<u8>, String> {
-    let file = File::open(path).map_err(|e| e.to_string())?;
+    let file = carriers::file::open(path).map_err(|e| e.to_string())?;
     let mut bytes = Vec::new();
     file.take(assets::MAX_FONT_CARRIER_BYTES as u64 + 1)
         .read_to_end(&mut bytes)

@@ -1,6 +1,7 @@
 //! Bounded ingress drains shared by the network runtime and acceptance tests.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 /// One frame's world ingress time; terrain is bounded by admission, not by this.
 pub const WORLD_INGRESS_DRAIN_BUDGET: Duration = Duration::from_millis(2);

@@ -9,8 +9,9 @@ use std::{
     path::PathBuf,
     sync::{Condvar, Mutex},
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use assets::carriers::{self, COMPILED_DIR, Carrier, Input, Recipe, Sources, VANILLA_MANIFEST};
 use serde_json::json;

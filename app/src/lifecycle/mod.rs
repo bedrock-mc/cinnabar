@@ -1,15 +1,20 @@
 //! Process lifecycle around the client: crash capture, first-run asset preparation, update checks.
 
-use anyhow::{Context, Result};
-use launcher_host::lifecycle::{crash, update};
+use anyhow::Result;
+#[cfg(not(target_arch = "wasm32"))]
+use {
+    anyhow::Context,
+    launcher::install_layout::InstallLayout,
+    launcher_host::lifecycle::{crash, update},
+};
 
+#[cfg(not(target_arch = "wasm32"))]
 mod client_logs;
-
-use launcher::install_layout::InstallLayout;
 
 /// Runs pre-window duties for a packaged install; a no-op for development checkouts.
 /// `assets_overridden` skips asset preparation when the caller supplied its own carrier path.
 /// Returns `false` when the user quit first-time setup, so the client should exit quietly.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn before_run(assets_overridden: bool) -> Result<bool> {
     let layout = InstallLayout::discover().context("resolve install layout")?;
     client_logs::capture(&layout);
@@ -30,5 +35,11 @@ pub fn before_run(assets_overridden: bool) -> Result<bool> {
             notice.current
         );
     }
+    Ok(true)
+}
+
+/// Browsers have no packaged install to prepare, crash-capture or update.
+#[cfg(target_arch = "wasm32")]
+pub fn before_run(_assets_overridden: bool) -> Result<bool> {
     Ok(true)
 }

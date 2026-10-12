@@ -239,6 +239,44 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - Deterministic activation regressions and full-client default/custom recordings pass,
   including main-hand fallback, retriggering and remote/empty exclusions. Broader item action,
   particle emission and performance gates remain open.
+## Browser build
+- `web-client` compiles the client to WebAssembly and renders through WebGPU. The page asks only
+  for Minecraft EULA consent before it downloads the game files; the client then starts at its
+  own menu, where the player signs in, keeps a server list and joins through
+  `bedrock-web-relay`, which runs Microsoft device-code sign-in and the core's session protocol
+  per browser, in memory, over WebSockets. It dials public RakNet servers only; see
+  `docs/web.md`.
+- Settings, video and graphics choices and saved servers persist in the page's local storage
+  (`launcher::browser_files`), keyed by their desktop paths.
+- Relay tests cover session creation and resumption, origin and address refusal, session and
+  rate limits, idle expiry, and a real join carried over a WebSocket.
+- A failed or ended browser session shows the disconnect screen; Reconnect joins the same
+  server through the relay again, and OK returns to the menu.
+- The relay sends the site and development carriers zstd- or gzip-compressed, cutting a first
+  Play from about 201 MB to 46 MB with the `play` client module. The page keeps the module and
+  carriers in Cache Storage and revalidates them, so a repeat Play downloads about 0.2 MB.
+- Sounds from a served bank download by byte range on first play, then come from Cache
+  Storage, as does the bank's index while its hash matches; a sound's first play starts late.
+- Global Resources import, order and apply packs as on desktop, kept in the page's IndexedDB;
+  an archive is in memory only while the library reads it. Provisional: compiled pack stacks
+  are not cached across visits, so the active stack recompiles at each start, and the memory
+  tier is the lowest automatic one, since browsers do not report installed memory.
+- Browser terrain meshes before its light is solved, reading missing light as the dimension
+  default (sky 15 in the Overworld). A section's first solved light remeshes only what it
+  changes in cells a mesh can read; provisional: solid-render cells that emit nothing count as
+  unread, which a quad whose four light samples are all such cells would not satisfy. The saving
+  in mesh jobs is unmeasured.
+- Provisional and incomplete: only a relay that serves compiled carriers (`-dev-assets`) can
+  start the client, since the browser does not compile the pinned pack itself; Realms, friends'
+  worlds and featured experiences cannot be joined, the relay naming the account only (no
+  profile details or multiple accounts) and the signed-out name staying the default; imported
+  skins, server-experience trust and the store settings do not persist; Quit ends the client and
+  leaves the page blank; there is no clipboard, gamepad, server experience, remote form image or
+  default cape; world, mesh and light work runs on the frame thread in the time each frame's
+  other work leaves, light a few sections at a time; the language list reads the vanilla pack's `language_names.json` from disk, so it is empty and
+  text stays English (picked languages would download on demand); Escape leaves in-game screens
+  open, because browsers recapture the mouse only for a click or key; transfers to other servers
+  are untested in a browser. No frame, join or parity gate closes for the browser build.
 
 ## Xbox Minecraft activity
 

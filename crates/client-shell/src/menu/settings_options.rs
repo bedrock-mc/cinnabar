@@ -4,6 +4,8 @@ mod actions;
 mod chat;
 pub mod control_bindings;
 mod language;
+#[cfg(target_arch = "wasm32")]
+mod language_download;
 mod reset;
 mod runtime;
 #[cfg(test)]

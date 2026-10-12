@@ -155,7 +155,7 @@ fn server_packs_restyle_the_engine_hud() {
             "Objective"
         };
         let runtime = session(&mut player_runtime, objective);
-        let started = std::time::Instant::now();
+        let started = web_time::Instant::now();
         presentation
             .build(
                 &player_runtime,

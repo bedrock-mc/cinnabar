@@ -2,7 +2,8 @@
 
 use render_scene::RuntimeStage;
 use render_scene::gpu_times::{SpanValidity, span_validity};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct StageHealth {

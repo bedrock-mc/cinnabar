@@ -18,6 +18,7 @@ pub(crate) fn drive_menu_services(
     mut runtime: ResMut<UiRuntimeResource>,
     launcher: Option<ResMut<LauncherCoreSlot>>,
     launcher_account: Option<ResMut<launcher_account::LauncherAccount>>,
+    control_account: Option<ResMut<client_shell::menu::ControlAccount>>,
     mut local_worlds: Option<ResMut<client_shell::local_worlds::LocalWorlds>>,
     audio_settings: Option<ResMut<client_audio::audio::AudioSettings>>,
     settings: Option<ResMut<client_state::RuntimeSettings>>,
@@ -38,7 +39,7 @@ pub(crate) fn drive_menu_services(
         send.as_ref().map(|send| send as &dyn Fn(_, _) -> _),
         runtime.session_id(),
     );
-    menu.poll_catalog(launcher_account.is_some());
+    menu.poll_catalog(launcher_account.is_some() || control_account.is_some());
     menu.poll_saves();
     menu.poll_accounts();
     sync_audio_settings(&menu, audio_settings);
@@ -54,6 +55,7 @@ pub(crate) fn drive_menu_services(
         client_world.stream.is_some(),
         launcher,
         launcher_account,
+        control_account,
         local_worlds.as_deref_mut(),
     );
 }

@@ -1,10 +1,14 @@
+mod frame_budget;
 mod priority;
+
+pub use frame_budget::FrameJobBudget;
 
 use std::cell::Cell;
 use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Condvar, LazyLock, Mutex, MutexGuard};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use crossbeam_channel::Sender;
 
@@ -26,6 +30,22 @@ pub(super) enum Lane {
     Decode,
     Light,
 }
+
+impl Lane {
+    /// This lane's place in per-lane arrays, in scheduling order.
+    const fn index(self) -> usize {
+        match self {
+            Self::Mesh => 0,
+            Self::Decode => 1,
+            Self::Light => 2,
+        }
+    }
+}
+
+/// Urgent jobs a browser runs inline per call of [`run_urgent_world_jobs`]: one block change's
+/// light batch and the meshes of its section and neighbours.
+#[cfg(target_arch = "wasm32")]
+const MAX_INLINE_URGENT_JOBS: usize = 8;
 
 /// Thread split for one machine; only background threads take light, so they cap its width.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,6 +119,54 @@ impl Queues {
     }
 }
 
+/// Shares of a browser frame's job time for mesh, decode and light when all three have work:
+/// terrain goes on screen first, and its light follows at a quarter.
+const LANE_WEIGHTS: [u32; 3] = [3, 3, 1];
+
+impl Queues {
+    /// Next job for a frame that runs every lane on one thread, given each lane's recent time
+    /// and `fits`, whether a lane's typical job fits the time left. The lane least served for
+    /// its weight that fits goes first, so no lane waits behind another's backlog; ties go to mesh, then decode,
+    /// then light, the order in which they put terrain on screen. Without a fitting lane,
+    /// `must_run` takes the least-served one anyway, and otherwise nothing runs.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    fn take_least_served(
+        &mut self,
+        served: &[Duration; 3],
+        fits: impl Fn(usize) -> bool,
+        must_run: bool,
+    ) -> Option<(usize, Job)> {
+        if let Some((lane, job)) = self.urgent.pop_front() {
+            return Some((lane.index(), job));
+        }
+        let mut lanes = [0, 1, 2];
+        lanes.sort_by_key(|&lane| served[lane] / LANE_WEIGHTS[lane]);
+        let ready = lanes.map(|lane| (!self.lane(lane).is_empty()).then_some(lane));
+        let lane = ready
+            .into_iter()
+            .flatten()
+            .find(|&lane| fits(lane))
+            .or_else(|| ready.into_iter().flatten().next().filter(|_| must_run))?;
+        self.lane_mut(lane).pop_front().map(|(_, job)| (lane, job))
+    }
+
+    fn lane(&self, lane: usize) -> &Queue {
+        match lane {
+            0 => &self.mesh,
+            1 => &self.decode,
+            _ => &self.light,
+        }
+    }
+
+    fn lane_mut(&mut self, lane: usize) -> &mut Queue {
+        match lane {
+            0 => &mut self.mesh,
+            1 => &mut self.decode,
+            _ => &mut self.light,
+        }
+    }
+}
+
 #[derive(Default)]
 struct Shared {
     queues: Mutex<Queues>,
@@ -149,7 +217,15 @@ pub fn on_idle_world_cores<T: Send>(work: impl FnOnce() -> T + Send) -> T {
     }
 }
 
+/// Cores a browser's pool is sized for. Its frame runs the jobs on its only thread under a time
+/// budget, so admission only has to keep that budget fed, as this many workers would be.
+#[cfg(target_arch = "wasm32")]
+const FRAME_DRIVEN_CORES: usize = 14;
+
 pub(super) static WORKERS: LazyLock<WorldPool> = LazyLock::new(|| {
+    #[cfg(target_arch = "wasm32")]
+    let cores = FRAME_DRIVEN_CORES;
+    #[cfg(not(target_arch = "wasm32"))]
     let cores = std::thread::available_parallelism().map_or(1, usize::from);
     WorldPool::new(PoolSize::for_cores(cores))
 });
@@ -157,6 +233,8 @@ pub(super) static WORKERS: LazyLock<WorldPool> = LazyLock::new(|| {
 impl WorldPool {
     fn new(size: PoolSize) -> Self {
         let shared = Arc::new(Shared::default());
+        // Browsers have no threads; the frame runs queued jobs through `run_queued_world_jobs`.
+        #[cfg(not(target_arch = "wasm32"))]
         for (name, count, background) in [
             ("world", size.foreground, false),
             ("world-bg", size.background, true),
@@ -246,6 +324,74 @@ impl Drop for WorldPool {
     }
 }
 
+/// Runs queued world jobs on the calling thread until none remain or the next would overrun
+/// `budget`, judged by each lane's recent job times; the first always runs, so a busy frame
+/// still makes progress. Returns the time spent. WebAssembly has no worker threads, so the frame
+/// drives the pool through this. Results arrive on the stream's channels for its next poll.
+#[cfg(target_arch = "wasm32")]
+pub fn run_queued_world_jobs(budget: Duration) -> Duration {
+    thread_local! {
+        /// Recent job time per lane, for judging whether the next job fits.
+        static TYPICAL: Cell<[Duration; 3]> = const { Cell::new([Duration::ZERO; 3]) };
+        /// Each lane's recent share of frame time, decaying every frame, so a lane whose jobs
+        /// rarely fit what is left of a frame still leads the next one.
+        static SERVED: Cell<[Duration; 3]> = const { Cell::new([Duration::ZERO; 3]) };
+    }
+    let started = Instant::now();
+    let mut served = SERVED.get().map(|served| served - served / 8);
+    let mut must_run = true;
+    // Light is taken too: this thread stands in for the background workers as well.
+    loop {
+        let typical = TYPICAL.get();
+        let left = budget.saturating_sub(started.elapsed());
+        let Some((lane, job)) = WORKERS.shared.lock().take_least_served(
+            &served,
+            |lane| typical[lane] <= left,
+            must_run,
+        ) else {
+            break;
+        };
+        must_run = false;
+        let job_started = Instant::now();
+        FRAME_SCRATCH.with_borrow_mut(|scratch| job(scratch));
+        let took = job_started.elapsed();
+        served[lane] += took;
+        let mut typical = typical;
+        typical[lane] = if took > typical[lane] {
+            typical[lane] + (took - typical[lane]) / 4
+        } else {
+            typical[lane] - (typical[lane] - took) / 4
+        };
+        TYPICAL.set(typical);
+    }
+    SERVED.set(served);
+    started.elapsed()
+}
+
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    /// Light scratch buffers for the jobs a browser's only thread runs.
+    static FRAME_SCRATCH: std::cell::RefCell<world::LightSolverScratch> =
+        std::cell::RefCell::default();
+}
+
+/// Runs queued urgent jobs on the calling thread, at most [`MAX_INLINE_URGENT_JOBS`], so a
+/// browser, which has no workers to run them meanwhile, shows the local player's block change
+/// in the frame that made it rather than after the next frame's job pass. Returns the jobs run.
+#[cfg(target_arch = "wasm32")]
+pub(super) fn run_urgent_world_jobs() -> usize {
+    let mut ran = 0;
+    while ran < MAX_INLINE_URGENT_JOBS {
+        let Some((_, job)) = WORKERS.shared.lock().urgent.pop_front() else {
+            break;
+        };
+        FRAME_SCRATCH.with_borrow_mut(|scratch| job(scratch));
+        ran += 1;
+    }
+    ran
+}
+
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn work(shared: &Shared, name: &str, background: bool) {
     if background
         && !LOWER_PER_JOB

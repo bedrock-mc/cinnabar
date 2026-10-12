@@ -349,7 +349,7 @@ fn deleting_the_extracted_pack_rebuilds_nothing() {
 fn an_input_with_unchanged_size_and_mtime_is_not_rehashed() {
     let dir = checkout();
     let font = dir.path().join("assets/fonts/Font.ttf");
-    let modified = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1 << 30);
+    let modified = web_time::UNIX_EPOCH + std::time::Duration::from_secs(1 << 30);
     let set = |bytes: &[u8]| {
         fs::write(&font, bytes).unwrap();
         fs::File::options()

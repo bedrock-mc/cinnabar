@@ -70,8 +70,8 @@ pub(super) fn draw(
     )?;
     let start = list_top - scroll.offset;
     let mut y = start;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let now = web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .map_or(0, |time| (time.as_secs() / 86_400) as i64);
     let mut items: Vec<_> = view
         .feeds

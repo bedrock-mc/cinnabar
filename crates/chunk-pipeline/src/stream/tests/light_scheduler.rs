@@ -1,8 +1,5 @@
-use std::{
-    collections::BTreeSet,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{collections::BTreeSet, sync::Arc, time::Duration};
+use web_time::Instant;
 
 use assets::{
     BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, ContributorRole, LightProperties,
@@ -266,6 +263,7 @@ mod resident_air;
 mod startup_lanes;
 mod transfer_priority;
 mod uniform_air;
+mod visible_light;
 
 /// Retired workers without tracked completions must release their slots before convergence retries.
 #[test]

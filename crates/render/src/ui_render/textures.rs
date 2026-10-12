@@ -58,6 +58,10 @@ pub(super) struct TextureUploadState {
     static_identity: Option<[u8; 32]>,
     plan: Option<UiTexturePlan>,
     uploaded: Vec<[u8; 32]>,
+    /// Pages written since the last commit, with the identity each was written with, and the
+    /// plan they were written under.
+    round: Vec<(usize, [u8; 32])>,
+    round_plan: Option<UiTexturePlan>,
 }
 
 impl TextureUploadState {
@@ -84,27 +88,80 @@ impl TextureUploadState {
 
     /// The executor is shared by device preparation and deterministic recording
     /// tests. Only successful issuance of ALL writes commits content IDs.
+    #[cfg(test)]
     fn execute<E>(
         &mut self,
         catalog: &UiTextureCatalog,
         dirty: &[usize],
-        mut write: impl FnMut(usize, &UiTexturePage, UiTextureLocation) -> Result<(), E>,
+        write: impl FnMut(usize, &UiTexturePage, UiTextureLocation) -> Result<(), E>,
     ) -> Result<(), E> {
-        for &index in dirty {
-            write(
-                index,
-                &catalog.pages()[index],
-                catalog.plan().locations()[index],
-            )?;
+        self.execute_within(catalog, dirty, usize::MAX, write)
+            .map(|_| ())
+    }
+
+    /// [`Self::execute`] spread over calls: writes `dirty` pages not yet written this round until
+    /// `budget` bytes are issued (at least one page), and commits once every page is written.
+    /// `Ok(false)` while pages remain; a refused write discards the round.
+    fn execute_within<E>(
+        &mut self,
+        catalog: &UiTextureCatalog,
+        dirty: &[usize],
+        budget: usize,
+        mut write: impl FnMut(usize, &UiTexturePage, UiTextureLocation) -> Result<(), E>,
+    ) -> Result<bool, E> {
+        if self.round_plan.as_ref() != Some(catalog.plan()) {
+            self.round.clear();
+            self.round_plan = Some(catalog.plan().clone());
         }
+        let mut issued = 0usize;
+        for &index in dirty {
+            let page = &catalog.pages()[index];
+            if self.round.contains(&(index, page.identity())) {
+                continue;
+            }
+            if issued > 0 && issued >= budget {
+                return Ok(false);
+            }
+            if let Err(error) = write(index, page, catalog.plan().locations()[index]) {
+                self.round.clear();
+                return Err(error);
+            }
+            issued += page.pixels().len();
+            self.round.push((index, page.identity()));
+        }
+        self.round.clear();
         self.uploaded.clear();
         self.uploaded
             .extend(catalog.pages().iter().map(UiTexturePage::identity));
         self.static_identity = Some(catalog.static_identity());
         self.plan = Some(catalog.plan().clone());
-        Ok(())
+        Ok(true)
+    }
+
+    /// Bytes of `catalog`'s pages written, committed or this round, and in total.
+    fn progress(&self, catalog: &UiTextureCatalog, dirty: &[usize]) -> [u64; 2] {
+        let size = |index: usize| catalog.pages()[index].pixels().len() as u64;
+        let total: u64 = (0..catalog.pages().len()).map(size).sum();
+        let pending: u64 = dirty
+            .iter()
+            .filter(|&&index| {
+                !self
+                    .round
+                    .contains(&(index, catalog.pages()[index].identity()))
+            })
+            .map(|&index| size(index))
+            .sum();
+        [total - pending, total]
     }
 }
+
+/// Bytes of UI texture pages written per frame. Browsers copy each write on the page's only
+/// thread, so a first frame uploading every page would freeze it for seconds.
+const UPLOAD_BUDGET: usize = if cfg!(target_arch = "wasm32") {
+    16 << 20
+} else {
+    usize::MAX
+};
 
 #[derive(Default)]
 pub(super) struct UiGpuTextures {
@@ -246,52 +303,67 @@ impl UiGpuTextures {
             return Ok(());
         }
         let buckets = &self.buckets;
-        self.state.execute(catalog, &dirty, |_, page, location| {
-            if page.font_atlas_side().is_some() {
-                return Ok(());
-            }
-            let [width, height] = page.dimensions();
-            #[cfg(feature = "tracy")]
-            let _span = bevy::log::info_span!(
-                "ui.texture_write",
-                bucket = location.bucket,
-                layer = location.layer,
-                width,
-                height,
-                bytes = page.pixels().len(),
-            )
-            .entered();
-            if let Some(profile) = profile {
-                profile.record_upload(
-                    super::profile::UploadKind::Texture,
-                    page.pixels().len() as u64,
-                );
-            }
-            queue.write_texture(
-                TexelCopyTextureInfo {
-                    texture: &buckets[location.bucket].texture,
-                    mip_level: 0,
-                    origin: Origin3d {
-                        x: 0,
-                        y: 0,
-                        z: location.layer,
-                    },
-                    aspect: Default::default(),
-                },
-                page.pixels(),
-                TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(width * page.format().bytes_per_texel() as u32),
-                    rows_per_image: Some(height),
-                },
-                Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-            );
-            Ok::<(), UiRenderRejectReason>(())
-        })
+        let complete =
+            self.state
+                .execute_within(catalog, &dirty, UPLOAD_BUDGET, |_, page, location| {
+                    if page.font_atlas_side().is_some() {
+                        return Ok(());
+                    }
+                    let [width, height] = page.dimensions();
+                    #[cfg(feature = "tracy")]
+                    let _span = bevy::log::info_span!(
+                        "ui.texture_write",
+                        bucket = location.bucket,
+                        layer = location.layer,
+                        width,
+                        height,
+                        bytes = page.pixels().len(),
+                    )
+                    .entered();
+                    if let Some(profile) = profile {
+                        profile.record_upload(
+                            super::profile::UploadKind::Texture,
+                            page.pixels().len() as u64,
+                        );
+                    }
+                    queue.write_texture(
+                        TexelCopyTextureInfo {
+                            texture: &buckets[location.bucket].texture,
+                            mip_level: 0,
+                            origin: Origin3d {
+                                x: 0,
+                                y: 0,
+                                z: location.layer,
+                            },
+                            aspect: Default::default(),
+                        },
+                        page.pixels(),
+                        TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(width * page.format().bytes_per_texel() as u32),
+                            rows_per_image: Some(height),
+                        },
+                        Extent3d {
+                            width,
+                            height,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                    Ok::<(), UiRenderRejectReason>(())
+                })?;
+        if complete {
+            Ok(())
+        } else {
+            Err(UiRenderRejectReason::TexturesUploading)
+        }
+    }
+
+    /// Bytes of `catalog`'s texture pages resident on the device and in total.
+    pub(super) fn upload_progress(&self, catalog: &UiTextureCatalog) -> [u64; 2] {
+        match self.state.dirty(catalog) {
+            Ok(dirty) => self.state.progress(catalog, &dirty),
+            Err(_) => [0, self.state.progress(catalog, &[])[1]],
+        }
     }
 }
 
@@ -495,6 +567,40 @@ mod tests {
         )
         .unwrap();
         assert!(state.dirty(&different_static).is_err());
+    }
+
+    #[test]
+    fn budgeted_issuance_spreads_pages_over_calls_and_commits_once_all_are_written() {
+        let catalog = catalog(0);
+        let mut state = TextureUploadState::default();
+        let dirty = state.dirty(&catalog).unwrap();
+        assert_eq!(dirty, [0, 1]);
+        let mut written = Vec::new();
+        // A budget below one page still writes one page per call.
+        let mut write = |index: usize, _: &UiTexturePage, _| {
+            written.push(index);
+            Ok::<_, ()>(())
+        };
+        assert!(
+            !state
+                .execute_within(&catalog, &dirty, 1, &mut write)
+                .unwrap()
+        );
+        assert_eq!(
+            state.dirty(&catalog).unwrap(),
+            [0, 1],
+            "nothing commits mid-round"
+        );
+        let [done, total] = state.progress(&catalog, &dirty);
+        assert!(0 < done && done < total, "{done} of {total}");
+        assert!(
+            state
+                .execute_within(&catalog, &dirty, 1, &mut write)
+                .unwrap()
+        );
+        assert_eq!(written, [0, 1], "each page is written once");
+        assert!(state.dirty(&catalog).unwrap().is_empty());
+        assert_eq!(state.progress(&catalog, &[]), [total, total]);
     }
 
     #[test]

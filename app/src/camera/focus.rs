@@ -18,6 +18,8 @@ use client_state::CursorFocus;
 
 use {client_presentation::camera::AutoFly, client_state::DrivenInput};
 
+#[cfg(target_arch = "wasm32")]
+mod browser;
 #[cfg(any(windows, test))]
 mod native;
 
@@ -25,6 +27,8 @@ mod native;
 pub(super) fn install(app: &mut App) {
     #[cfg(all(windows, not(test)))]
     native::install(app);
+    #[cfg(target_arch = "wasm32")]
+    browser::install_click_capture();
     app.init_resource::<CursorFocus>()
         .add_message::<WindowFocused>()
         .add_message::<WindowOccluded>()
@@ -47,11 +51,25 @@ fn track_focus(
     mut motion: ResMut<AccumulatedMouseMotion>,
     gamepads: Query<&Gamepad>,
     touches: Option<Res<Touches>>,
+    #[cfg(target_arch = "wasm32")] time: Res<bevy::prelude::Time<bevy::time::Real>>,
 ) {
     let (entity, window, mut cursor) = window.into_inner();
     focus.begin_frame(window.focused);
     for event in focused.read().filter(|event| event.window == entity) {
         focus.focus_changed(event.focused);
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let requested = cursor.grab_mode == bevy::window::CursorGrabMode::Locked;
+        let locked = browser::pointer_locked();
+        let now = time.elapsed_secs_f64();
+        focus.platform_capture(requested, locked, now);
+        browser::release_unclaimed_lock(requested, locked, now);
+        // The click that captured the mouse returns to gameplay without also attacking.
+        if browser::take_capture_click() {
+            let _ = focus.allow_capture(false, true);
+            buttons.reset(MouseButton::Left);
+        }
     }
     for event in occluded.read().filter(|event| event.window == entity) {
         focus.occlusion_changed(event.occluded);
@@ -83,6 +101,14 @@ fn track_focus(
     }
 }
 
+/// Whether the browser holds pointer lock; always true outside browsers.
+fn browser_holds_capture() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    return browser::pointer_locked();
+    #[cfg(not(target_arch = "wasm32"))]
+    true
+}
+
 /// Includes controller ownership without requesting a physical OS cursor grab.
 pub(crate) fn mouse_input_active(
     window: &Window,
@@ -90,9 +116,11 @@ pub(crate) fn mouse_input_active(
     focus: Option<&CursorFocus>,
     driven: bool,
 ) -> bool {
+    // A browser can show the game a capture it has not granted or has since ended.
     driven
         || (client_presentation::camera::input_is_active(window, cursor)
-            && focus.is_none_or(|focus| focus.capture_allowed()))
+            && focus.is_none_or(|focus| focus.capture_allowed())
+            && (cfg!(not(target_arch = "wasm32")) || browser_holds_capture()))
 }
 
 /// Samples UI cursor authority immediately before presentation updates capture.
@@ -116,6 +144,8 @@ pub(crate) fn update_cursor_capture(
         absorbs_input: screen_focus.absorbs_input,
         steals_mouse: screen_focus.steals_mouse,
     };
+    #[cfg(target_arch = "wasm32")]
+    let focus_available = focus.as_deref().is_none_or(|focus| focus.available());
     if let Some(mut focus) = focus {
         policy.capture_allowed = focus.allow_capture(
             policy.absorbs_input,
@@ -126,6 +156,16 @@ pub(crate) fn update_cursor_capture(
     {
         policy.capture_allowed &= native.0;
     }
+    #[cfg(target_arch = "wasm32")]
+    browser::set_capture_on_click(
+        client_presentation::camera::capture_on_click(
+            &policy,
+            window.0.focused && focus_available,
+            client_presentation::camera::input_is_active(window.0, &window.1)
+                && browser::pointer_locked(),
+        ),
+        screen_focus.resume_hovered,
+    );
     apply_cursor_policy(policy, window, keys, mouse_buttons, mouse_motion, auto_fly);
 }
 

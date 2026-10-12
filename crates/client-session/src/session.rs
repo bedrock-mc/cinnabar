@@ -1,13 +1,13 @@
 use std::{
     io::Write,
-    path::PathBuf,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread::{self, JoinHandle},
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use bytes::Bytes;
 use protocol::{
@@ -31,7 +31,10 @@ const NETWORK_PUMP_TERMINAL_MARKER: &str = "RUST_MCBE_NETWORK_PUMP_TERMINAL";
 #[derive(Debug, Clone)]
 pub struct NetworkConfig {
     pub session_generation: u64,
-    pub socket_dir: PathBuf,
+    /// Where the core's session endpoint is.
+    pub core: bridge::CoreEndpoint,
+    /// What the first Connect joins; `None` joins the core's selection, which follows a transfer.
+    pub target: Option<bridge::ConnectTarget>,
     pub display_name: String,
     /// The user storage owner's opaque persisted login identifier.
     pub client_random_id: protocol::ClientRandomId,

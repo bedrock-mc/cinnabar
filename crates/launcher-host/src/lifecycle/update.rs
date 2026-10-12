@@ -4,8 +4,9 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
+use web_time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 

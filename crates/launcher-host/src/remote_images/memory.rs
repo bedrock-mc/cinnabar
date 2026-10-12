@@ -5,8 +5,9 @@
 use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, Mutex, Weak},
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use tokio::sync::mpsc::{Receiver, Sender, error::TrySendError};
 

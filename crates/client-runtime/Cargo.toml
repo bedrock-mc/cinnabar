@@ -13,6 +13,8 @@ test-support = ["client-session/test-support"]
 anyhow.workspace = true
 bevy.workspace = true
 bridge = { path = "../bridge" }
+web-time.workspace = true
+async-platform = { path = "../async-platform" }
 chunk-pipeline = { path = "../chunk-pipeline" }
 client-session = { path = "../client-session" }
 client-state = { path = "../client-state" }
@@ -27,6 +29,9 @@ render = { path = "../render" }
 render-scene = { path = "../render-scene" }
 render-api = { path = "../render-api" }
 tokio.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { workspace = true, features = ["Location", "Window"] }
 
 [dev-dependencies]
 client-session = { path = "../client-session", features = ["test-support"] }

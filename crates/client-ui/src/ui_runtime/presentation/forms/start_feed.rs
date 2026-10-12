@@ -2,7 +2,7 @@
 //! Store buttons, the inbox badge, the Realms invite count and the live-event
 //! button with its countdown caption.
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use web_time::{SystemTime, UNIX_EPOCH};
 
 use json_ui::{DataSource, Scalar};
 

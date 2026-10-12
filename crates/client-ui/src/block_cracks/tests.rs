@@ -84,7 +84,7 @@ fn committed_column(stream: &mut WorldStream, sequence: u64, runtime_id: u32, bi
             }),
         )
         .unwrap();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let deadline = web_time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         stream.poll([0.0; 3], 0);
         assert!(stream.take_fatal_error().is_none());
@@ -96,7 +96,7 @@ fn committed_column(stream: &mut WorldStream, sequence: u64, runtime_id: u32, bi
             break;
         }
         assert!(
-            std::time::Instant::now() < deadline,
+            web_time::Instant::now() < deadline,
             "column commit timed out"
         );
         std::thread::yield_now();
@@ -156,7 +156,7 @@ fn block_crack_production_unload_reload_identical_target_retires_start() {
             }),
         )
         .unwrap();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let deadline = web_time::Instant::now() + std::time::Duration::from_secs(5);
     while stream
         .collision_store()
         .sub_chunk(world::SubChunkKey::new(0, 0, -4, 0))
@@ -165,7 +165,7 @@ fn block_crack_production_unload_reload_identical_target_retires_start() {
         stream.poll([0.0; 3], 0);
         assert!(stream.take_fatal_error().is_none());
         assert!(
-            std::time::Instant::now() < deadline,
+            web_time::Instant::now() < deadline,
             "eviction commit timed out"
         );
         std::thread::yield_now();

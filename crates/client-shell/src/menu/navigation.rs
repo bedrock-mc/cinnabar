@@ -194,6 +194,9 @@ impl MenuRuntime {
                 self.history.reset(MenuScreen::Death);
                 self.show_top();
             }
+            MenuScreen::Pause if !super::escape_tips::ESCAPE_CLOSES_SCREENS => {
+                self.keep_open_on_escape(super::escape_tips::EscapeTip::Pause);
+            }
             MenuScreen::Pause => self.set_visible(false),
             _ => {}
         }

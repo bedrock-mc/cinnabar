@@ -132,7 +132,7 @@ pub(crate) fn refresh_cave_visibility(
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::CaveVisibility));
     #[cfg(feature = "developer-control")]
-    let started = std::time::Instant::now();
+    let started = web_time::Instant::now();
     let work = match (client_world.stream.as_ref(), camera.single()) {
         (Some(stream), Ok(camera)) => refresh_visible(
             stream,

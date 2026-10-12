@@ -1,5 +1,6 @@
 use super::*;
-use std::{io::Read, time::Instant};
+use std::io::Read;
+use web_time::Instant;
 
 #[test]
 fn prepared_screen_settings_survive_repeated_pack_publication() {

@@ -1,8 +1,16 @@
 //! Global pack management. Live application is a Cinnabar extension to Bedrock.
 
+#[cfg(target_arch = "wasm32")]
+mod browser;
 mod icons;
 mod picker;
 mod worker;
+
+/// Imports the pack file `name` the player dropped on a browser page.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn import_dropped(name: String, bytes: Vec<u8>) {
+    browser::queue(worker::Command::ImportArchive(name, bytes));
+}
 
 use bevy::prelude::*;
 use std::{path::PathBuf, sync::Arc};

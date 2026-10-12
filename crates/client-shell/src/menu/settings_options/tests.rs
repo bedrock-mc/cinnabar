@@ -286,7 +286,7 @@ fn a_failed_settings_save_remains_pending_until_storage_recovers() {
     menu.sync_user_settings(None);
     assert!(menu.settings_dirty);
     std::fs::remove_file(&blocked).unwrap();
-    menu.settings_retry_at = Some(std::time::Instant::now());
+    menu.settings_retry_at = Some(web_time::Instant::now());
     menu.sync_user_settings(None);
     assert!(!menu.settings_dirty);
     assert_eq!(
@@ -308,7 +308,7 @@ fn review_ui_failed_settings_save_does_not_retry_on_the_next_frame() {
     let mut menu = crate::menu::MenuRuntime::new(true, 2, "Steve".into());
     menu.config_path = root.join("servers.json");
     menu.set_option(index("gamma") as u16, 70);
-    let attempted_at = std::time::Instant::now();
+    let attempted_at = web_time::Instant::now();
     menu.sync_user_settings(None);
     assert!(menu.settings_dirty);
     let retry_at = menu
@@ -324,7 +324,7 @@ fn review_ui_failed_settings_save_does_not_retry_on_the_next_frame() {
     assert!(menu.settings_dirty);
     assert!(!path.exists());
     // Advance the retry deadline without sleeping, and persist the latest edit.
-    menu.settings_retry_at = Some(std::time::Instant::now());
+    menu.settings_retry_at = Some(web_time::Instant::now());
     menu.sync_user_settings(None);
     assert!(!menu.settings_dirty);
     assert!(menu.settings_retry_at.is_none());

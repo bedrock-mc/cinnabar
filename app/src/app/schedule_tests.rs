@@ -7,7 +7,8 @@ fn network_config_call_sites_share_the_process_blob_cache() {
     let owner = ClientBlobCacheOwner::default();
     let first = NetworkConfig {
         session_generation: 7,
-        socket_dir: std::path::PathBuf::from("first-core.sock"),
+        core: bridge::CoreEndpoint::SocketDir(std::path::PathBuf::from("first-core.sock")),
+        target: None,
         display_name: "cache-owner".to_owned(),
         client_random_id: protocol::ClientRandomId::new(-7).unwrap(),
         client_blob_cache: owner.cache(),
@@ -22,7 +23,8 @@ fn network_config_call_sites_share_the_process_blob_cache() {
         .expect("seed verified blob before replacement");
     let replacement = NetworkConfig {
         session_generation: 8,
-        socket_dir: std::path::PathBuf::from("replacement-core.sock"),
+        core: bridge::CoreEndpoint::SocketDir(std::path::PathBuf::from("replacement-core.sock")),
+        target: None,
         display_name: "cache-owner".to_owned(),
         client_random_id: protocol::ClientRandomId::new(-7).unwrap(),
         client_blob_cache: owner.cache(),

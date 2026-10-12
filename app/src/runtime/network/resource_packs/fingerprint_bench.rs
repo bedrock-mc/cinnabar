@@ -33,7 +33,8 @@ fn fixture_stack(payload: &[u8]) -> Arc<resource_pack::ValidatedPackStack> {
 #[test]
 #[ignore = "offline cache timing fixture"]
 fn shared_stack_fingerprint_timing() {
-    use std::{hint::black_box, time::Instant};
+    use std::hint::black_box;
+    use web_time::Instant;
     let stack = fixture_stack(&vec![17; 32 * 1024 * 1024]);
     let view = LayeredPackView::new(Arc::clone(&stack));
     let blocks = protocol::CustomBlocks::default();
@@ -177,7 +178,7 @@ fn join_fixture(test: &str) -> Option<std::ffi::OsString> {
 /// CINNABAR_JOIN_THREADS selects a pool width; CINNABAR_JOIN_NO_REUSE disables retention.
 #[test]
 fn join_preparation_timing() {
-    use std::time::Instant;
+    use web_time::Instant;
     let Some(paths) = join_fixture("join_preparation_timing") else {
         return;
     };
@@ -230,7 +231,7 @@ fn join_preparation_timing() {
 /// Times each part of a join's compile of `CINNABAR_JOIN_PACKS` alone, on one thread.
 #[test]
 fn join_part_timing() {
-    use std::time::Instant;
+    use web_time::Instant;
     let Some(paths) = join_fixture("join_part_timing") else {
         return;
     };

@@ -138,7 +138,7 @@ fn pack_overlay_routes_a_marked_title_to_the_pack_layout() {
         text: &ApproxText,
         textures: &AnyTexture,
     };
-    let started = std::time::Instant::now();
+    let started = web_time::Instant::now();
     let root = json_ui::resolve(
         &catalog,
         "server_form.zeqa_main_content",
@@ -149,14 +149,14 @@ fn pack_overlay_routes_a_marked_title_to_the_pack_layout() {
         started.elapsed(),
         root.diagnostics.len()
     );
-    let started = std::time::Instant::now();
+    let started = web_time::Instant::now();
     let bound = json_ui::bind_form(&model, &catalog, &Context::desktop()).expect("binds");
     eprintln!("bind_form took {:?}", started.elapsed());
     if let Ok(target) = std::env::var("CINNABAR_FORM_TRACE") {
         let (laid, _) = json_ui::layout_with(&bound, [427.0, 240.0], &env, &Default::default());
         trace(&laid, &target, &mut Vec::new());
     }
-    let started = std::time::Instant::now();
+    let started = web_time::Instant::now();
     let render = json_ui::render_bound(bound, [427.0, 240.0], &env, &Default::default());
     eprintln!("layout+emit took {:?}", started.elapsed());
     let _ = render_form;

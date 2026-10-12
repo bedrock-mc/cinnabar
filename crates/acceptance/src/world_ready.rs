@@ -1,5 +1,5 @@
 use std::io::Write;
-use std::time::Instant;
+use web_time::Instant;
 
 use bevy::{
     log::{debug, error, info},

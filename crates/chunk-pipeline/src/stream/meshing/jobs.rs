@@ -218,7 +218,15 @@ impl WorldStream {
                 }
                 continue;
             };
-            let Some(light_halo) = self.mesh_light_halo(key) else {
+            // Only a section with nothing drawn yet meshes before its light is solved; one
+            // already on screen waits for its whole halo, so it remeshes once rather than as
+            // each neighbour's light lands.
+            let first_draw =
+                self.provisional_light_meshes && !self.mesh_dependency_masks.contains_key(&key);
+            let Some(light_halo) = self
+                .mesh_light_halo(key)
+                .or_else(|| first_draw.then(|| self.provisional_mesh_light_halo(key)))
+            else {
                 if queued {
                     self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
                         .deferred
@@ -481,6 +489,14 @@ impl WorldStream {
                     let key =
                         offset_sub_chunk_key(center, [i32::from(dx), i32::from(dy), i32::from(dz)]);
                     let slot = halo.slots[mesh_offset_index(offset)].as_ref();
+                    // Light still being solved invalidates the mesh once it lands.
+                    if self.provisional_light_meshes
+                        && key.is_some_and(|key| {
+                            matches!(self.light_source_state(key), LightSourceState::Stale)
+                        })
+                    {
+                        continue;
+                    }
                     match (key, slot) {
                         (Some(key), None) if self.light_source_is_known(key) => return false,
                         (None, Some(_)) => return false,

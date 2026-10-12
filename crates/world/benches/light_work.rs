@@ -5,7 +5,8 @@ mod allocations;
 #[path = "light_work/fixtures.rs"]
 mod fixtures;
 
-use std::{hint::black_box, time::Instant};
+use std::hint::black_box;
+use web_time::Instant;
 
 use fixtures::{Fixture, Prior, Scene};
 use world::{

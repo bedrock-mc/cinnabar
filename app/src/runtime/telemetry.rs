@@ -16,10 +16,8 @@ pub(crate) use attribution::refresh_diagnostic_attribution;
 use bevy::prelude::{Transform, With};
 #[cfg(feature = "acceptance")]
 use meshing::biome_lattice::{BIOME_BLEND_RADIUS, BLEND_SAMPLE_COUNT};
-use std::{
-    fmt::Write as _,
-    time::{Duration, Instant},
-};
+use std::{fmt::Write as _, time::Duration};
+use web_time::Instant;
 
 use bevy::{
     diagnostic::{DiagnosticPath, DiagnosticsStore},
@@ -564,8 +562,8 @@ pub(crate) fn record_metrics(
         ) {
             let mut stdout = diagnostics::console::stdout();
             write_stdout_marker(&mut stdout, &marker);
-            let observed_unix_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
+            let observed_unix_ms = web_time::SystemTime::now()
+                .duration_since(web_time::UNIX_EPOCH)
                 .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
                 .unwrap_or(0);
             write_stdout_marker(

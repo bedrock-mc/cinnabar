@@ -10,7 +10,6 @@ use super::{
 };
 use crate::{RuntimeAtmosphereAssets, RuntimeEntityAssets, RuntimeFontCatalog};
 use std::{
-    fs::File,
     io::{self, Read},
     path::Path,
     sync::Arc,
@@ -23,7 +22,7 @@ pub(super) fn load_material_keys(
     material_count: usize,
 ) -> Option<crate::MaterialKeys> {
     let path = world_asset_path.with_extension("matkeys.json");
-    let file = File::open(&path).ok()?;
+    let file = crate::carriers::file::open(&path).ok()?;
     let mut bytes = Vec::new();
     file.take(crate::MAX_MATERIAL_KEYS_BYTES + 1)
         .read_to_end(&mut bytes)
@@ -46,7 +45,7 @@ pub(super) fn load_vanilla_entity_refs(
     world_asset_path: &Path,
 ) -> Option<crate::VanillaEntityRefs> {
     let path = entity_asset_path(world_asset_path).with_extension("vanillarefs.json");
-    let file = File::open(&path).ok()?;
+    let file = crate::carriers::file::open(&path).ok()?;
     let mut bytes = Vec::new();
     file.take(crate::MAX_VANILLA_REFS_BYTES + 1)
         .read_to_end(&mut bytes)
@@ -65,10 +64,12 @@ pub(super) fn load_entity_assets(
     world_asset_path: &Path,
 ) -> Result<LoadedEntityAssets, AssetStartupError> {
     let path = entity_asset_path(world_asset_path);
-    let file = File::open(&path).map_err(|source| AssetStartupError::EntityAssetsRead {
-        path: path.clone(),
-        source,
-        rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
+    let file = crate::carriers::file::open(&path).map_err(|source| {
+        AssetStartupError::EntityAssetsRead {
+            path: path.clone(),
+            source,
+            rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
+        }
     })?;
     let length = file
         .metadata()
@@ -145,7 +146,7 @@ pub(super) fn load_font_assets(
     ];
     let mut selected = None;
     for (path, source_manifest, rebuild_command) in candidates {
-        match File::open(&path) {
+        match crate::carriers::file::open(&path) {
             Ok(file) => {
                 selected = Some((path, file, source_manifest, rebuild_command));
                 break;
@@ -236,11 +237,12 @@ pub(super) fn load_atmosphere_assets(
     world_asset_path: &Path,
 ) -> Result<LoadedAtmosphereAssets, AssetStartupError> {
     let path = atmosphere_asset_path(world_asset_path);
-    let file = File::open(&path).map_err(|source| AssetStartupError::AtmosphereRead {
-        path: path.clone(),
-        source,
-        rebuild_command: ATMOSPHERE_COMPILE_COMMAND,
-    })?;
+    let file =
+        crate::carriers::file::open(&path).map_err(|source| AssetStartupError::AtmosphereRead {
+            path: path.clone(),
+            source,
+            rebuild_command: ATMOSPHERE_COMPILE_COMMAND,
+        })?;
     let length = file
         .metadata()
         .map_err(|source| AssetStartupError::AtmosphereRead {

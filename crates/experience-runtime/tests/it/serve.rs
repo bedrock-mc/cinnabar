@@ -8,7 +8,8 @@ use std::path::Path;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use common::{
     edit_manifest, interact, looping_register_dir, p, probe_dir, probe_dir_with, server_items, tell,

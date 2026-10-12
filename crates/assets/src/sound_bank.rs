@@ -10,8 +10,12 @@ use thiserror::Error;
 
 pub const SOUND_BANK_MAGIC: &[u8; 8] = b"MCBESND1";
 const SCHEMA: u32 = 1;
-const HEADER_BYTES: usize = 40;
-const HASH_BYTES: usize = 32;
+/// Header bytes that hold the lengths [`sound_bank_prefix_len`] needs.
+pub const SOUND_BANK_HEADER_BYTES: usize = 40;
+const HEADER_BYTES: usize = SOUND_BANK_HEADER_BYTES;
+/// Bytes of the SHA-256 that ends a bank's prefix, over everything before it.
+pub const SOUND_BANK_HASH_BYTES: usize = 32;
+const HASH_BYTES: usize = SOUND_BANK_HASH_BYTES;
 pub const MAX_SOUND_BANK_PREFIX_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_SOUND_BANK_FILES: usize = 16_384;
 pub const MAX_SOUND_BANK_PATH_BYTES: usize = 256;

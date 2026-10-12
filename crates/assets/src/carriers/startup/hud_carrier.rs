@@ -2,7 +2,6 @@
 //! honor the production module line budget.
 
 use std::{
-    fs::File,
     io::{self, Read},
     path::{Path, PathBuf},
     sync::Arc,
@@ -88,7 +87,7 @@ pub fn load_hud_assets(
     world_asset_path: &Path,
 ) -> Result<Option<LoadedHudAssets>, AssetStartupError> {
     let path = hud_asset_path(world_asset_path);
-    let file = match File::open(&path) {
+    let file = match crate::carriers::file::open(&path) {
         Ok(file) => file,
         Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(source) => {

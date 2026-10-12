@@ -2,3 +2,7 @@
 # Intermediates live outside the checkout, one directory per worktree: workspace crates hash
 # the same in every checkout and freshness is mtime-based, so a shared directory serves stale crates.
 build-dir = "{cargo-cache-home}/build/cinnabar/{workspace-path-hash}"
+
+# Every browser with WebGPU also runs WebAssembly SIMD; light and mesh loops vectorize with it.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "target-feature=+simd128"]

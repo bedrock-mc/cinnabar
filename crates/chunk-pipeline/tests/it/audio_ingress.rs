@@ -1,7 +1,5 @@
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
+use web_time::Instant;
 
 use client_world::COMMITTED_AUDIO_CAPACITY;
 use protocol::{

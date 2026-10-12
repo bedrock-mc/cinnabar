@@ -15,6 +15,7 @@ reads = [
 test-support = []
 
 [dependencies]
+web-time.workspace = true
 simulation-clock = { path = "../simulation-clock" }
 anyhow.workspace = true
 assets = { path = "../assets" }

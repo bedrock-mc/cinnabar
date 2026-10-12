@@ -2,7 +2,6 @@
 //! items and no worn armor; it never blocks startup.
 
 use std::{
-    fs::File,
     io::Read,
     path::{Path, PathBuf},
     sync::Arc,
@@ -31,7 +30,7 @@ pub fn load_optional_equipment_assets(
         shell_quote_path(&path)
     );
     let mut bytes = Vec::new();
-    let read = File::open(&path).and_then(|file| {
+    let read = crate::carriers::file::open(&path).and_then(|file| {
         file.take(MAX_EQUIPMENT_CARRIER_BYTES as u64 + 1)
             .read_to_end(&mut bytes)
     });

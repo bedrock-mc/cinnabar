@@ -7,7 +7,6 @@
 
 use std::{
     collections::{BTreeSet, HashMap, VecDeque},
-    fs::File,
     io::{Cursor, Read},
     path::Path,
     sync::Arc,
@@ -120,17 +119,30 @@ pub(super) struct ArtworkLoader {
     gallery: Option<request_cache::GalleryRequest>,
     /// The installed atlas's refs, page-relative, for rebasing.
     pub(super) relative: HashMap<String, IconRef>,
+    /// A browser has no thread for the worker; [`Self::poll`] does its work a batch per frame.
+    #[cfg(target_arch = "wasm32")]
+    inline: Inline,
 }
 
 impl Default for ArtworkLoader {
     fn default() -> Self {
         let (requests, jobs) = crossbeam_channel::unbounded();
         let (done, results) = crossbeam_channel::unbounded();
-        let spawned = std::thread::Builder::new()
-            .name("menu-artwork".to_owned())
-            .spawn(move || serve(&jobs, &done));
-        if let Err(error) = spawned {
-            tracing::warn!("menu artwork worker unavailable: {error}");
+        #[cfg(target_arch = "wasm32")]
+        let inline = Inline {
+            jobs,
+            done,
+            cache: DecodeCache::default(),
+            pending: None,
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let spawned = std::thread::Builder::new()
+                .name("menu-artwork".to_owned())
+                .spawn(move || serve(&jobs, &done));
+            if let Err(error) = spawned {
+                tracing::warn!("menu artwork worker unavailable: {error}");
+            }
         }
         // The title is packed before the first frame so the pack's own never flashes.
         let title = pack(&ArtworkSet::default(), &DecodeCache::default(), 0, true);
@@ -141,7 +153,50 @@ impl Default for ArtworkLoader {
             relative: HashMap::new(),
             ready: Some(title),
             gallery: None,
+            #[cfg(target_arch = "wasm32")]
+            inline,
         }
+    }
+}
+
+/// The worker's loop for a browser: the newest request and how much of it is decoded.
+#[cfg(target_arch = "wasm32")]
+struct Inline {
+    jobs: Receiver<Request>,
+    done: Sender<Packed>,
+    cache: DecodeCache,
+    pending: Option<(Request, usize)>,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Inline {
+    /// Decodes one batch of the newest request, sending the partial and complete atlases the
+    /// worker would.
+    fn step(&mut self) {
+        while let Ok(newer) = self.jobs.try_recv() {
+            self.pending = Some((newer, 0));
+        }
+        let Some((request, decoded)) = &mut self.pending else {
+            return;
+        };
+        let missing = self.cache.missing(&request.set);
+        if let Some(batch) = missing.chunks(FIRST_BATCH).next() {
+            self.cache.decode(batch, &request.set);
+            *decoded += batch.len();
+            if missing.len() > batch.len() {
+                if *decoded == FIRST_BATCH {
+                    let _ = self
+                        .done
+                        .send(pack(&request.set, &self.cache, request.id, false));
+                }
+                return;
+            }
+        }
+        let _ = self
+            .done
+            .send(pack(&request.set, &self.cache, request.id, true));
+        self.cache.trim(&request.set);
+        self.pending = None;
     }
 }
 
@@ -159,6 +214,8 @@ impl ArtworkLoader {
 
     /// Whether an atlas for the latest request (or a partial one) is ready to install.
     pub(super) fn poll(&mut self) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        self.inline.step();
         while let Ok(packed) = self.results.try_recv() {
             if packed.id == self.requested {
                 self.ready = Some(packed);
@@ -241,6 +298,7 @@ const MAX_FAILED: usize = 256;
 /// Art decoded before the first partial atlas goes out, so visible rows fill early.
 const FIRST_BATCH: usize = 8;
 
+#[cfg(not(target_arch = "wasm32"))]
 fn serve(jobs: &Receiver<Request>, done: &Sender<Packed>) {
     let mut cache = DecodeCache::default();
     while let Ok(mut request) = jobs.recv() {
@@ -389,7 +447,8 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
 }
 
 fn decode(path: &Path, max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
-    let file = File::open(path).ok()?;
+    // A browser's pack icons are in memory; elsewhere this is the file.
+    let file = assets::carriers::file::open(path).ok()?;
     let mut bytes = Vec::new();
     file.take((MAX_SOURCE_BYTES + 1) as u64)
         .read_to_end(&mut bytes)

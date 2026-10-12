@@ -7,7 +7,6 @@
 //! deliberately not added to the required-at-startup carrier set.
 
 use std::{
-    fs::File,
     io::{self, Read},
     path::{Path, PathBuf},
     sync::Arc,
@@ -108,7 +107,7 @@ pub fn load_audio_assets(
     world_asset_path: &Path,
 ) -> Result<Option<LoadedAudioAssets>, AssetStartupError> {
     let path = audio_asset_path(world_asset_path);
-    let file = match File::open(&path) {
+    let file = match crate::carriers::file::open(&path) {
         Ok(file) => file,
         Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(source) => {

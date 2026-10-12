@@ -10,8 +10,9 @@ use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use resource_pack::{PackAdmission, ValidatedPackStack};
 use std::{
     sync::{Arc, Mutex, mpsc},
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use pack_runtime::PackInputs;
 
@@ -169,7 +170,7 @@ impl PackReload {
             generation,
             result: Mutex::new(rx),
         });
-        std::thread::spawn(move || {
+        async_platform::spawn_thread("pack-reload", move || {
             let start = Instant::now();
             let result = ValidatedPackStack::compose(&globals, &server)
                 .map_err(|error| error.to_string())
@@ -264,7 +265,8 @@ impl PackReload {
                     }
                 });
             let _ = tx.send(result);
-        });
+        })
+        .expect("start the pack reload");
     }
 }
 

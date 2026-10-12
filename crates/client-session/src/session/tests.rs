@@ -6,8 +6,9 @@ use std::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 type NetworkControlEvent = super::NetworkControlEvent<()>;
 type NetworkHandle = super::NetworkHandle<()>;
 

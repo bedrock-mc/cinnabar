@@ -1,7 +1,7 @@
 use super::terrain_interlock::{FALLING_VISIBILITY_FALLBACK, TerrainInterlock};
 use super::*;
 
-fn fixture() -> (ActorStore, std::time::Instant) {
+fn fixture() -> (ActorStore, web_time::Instant) {
     let mut store = ActorStore::new(1, 0);
     let ActorEvent::Spawn(mut spawn) = super::tests::spawn(7, -2) else {
         unreachable!()

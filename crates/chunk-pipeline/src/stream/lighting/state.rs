@@ -87,7 +87,7 @@ impl Lighting {
             std::mem::take(last_dispatched_batch),
             std::mem::take(waiters),
         );
-        rayon::spawn(move || drop(retired));
+        async_platform::spawn_pooled(move || drop(retired));
     }
 
     /// Forgets one source in every index without invalidating dependent meshes; stale scan
@@ -442,6 +442,51 @@ impl WorldStream {
             center: Some(center),
             slots,
         })
+    }
+    /// A halo for meshing before every neighbour's light is solved: a section whose light is
+    /// being solved lends its previous light, or none, which reads as the dimension's default
+    /// (block 0, sky 15 in the Overworld) like an absent chunk. When that light lands it
+    /// invalidates whatever it changes, so the mesh is redone with the solved light.
+    pub(in crate::stream) fn provisional_mesh_light_halo(
+        &self,
+        center: SubChunkKey,
+    ) -> MeshLightHalo {
+        let mut slots = std::array::from_fn(|_| None);
+        for dx in -1_i8..=1 {
+            for dy in -1_i8..=1 {
+                for dz in -1_i8..=1 {
+                    let offset = [dx, dy, dz];
+                    let Some(key) =
+                        offset_sub_chunk_key(center, [i32::from(dx), i32::from(dy), i32::from(dz)])
+                    else {
+                        continue;
+                    };
+                    let (ownership, light) = match self.light_source_state(key) {
+                        LightSourceState::Unknown => continue,
+                        LightSourceState::Current { ownership, light } => (ownership, light),
+                        LightSourceState::Stale => {
+                            let (Some(&ownership), Some((_, light))) = (
+                                self.lighting.ownership.get(&key),
+                                self.lighting.store.entry(key),
+                            ) else {
+                                continue;
+                            };
+                            (ownership, light)
+                        }
+                    };
+                    slots[mesh_offset_index(offset)] = Some(MeshLightSlot {
+                        key,
+                        block_generation: ownership.block_generation,
+                        light_revision: ownership.light_revision,
+                        light: Arc::clone(light),
+                    });
+                }
+            }
+        }
+        MeshLightHalo {
+            center: Some(center),
+            slots,
+        }
     }
     pub(in crate::stream) fn light_block_snapshot(&self, key: SubChunkKey) -> LightBlockSnapshot {
         let mut blocks = SectionSnapshot::default();

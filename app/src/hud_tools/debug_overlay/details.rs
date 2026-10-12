@@ -256,12 +256,25 @@ impl DebugContext<'_, '_> {
                 settings.horizontal_fov_degrees()
             ));
         }
-        if let Some(graphics) = self
+        // WebGPU hides the adapter's name from pages; the browser still names it to WebGL.
+        #[cfg(target_arch = "wasm32")]
+        let browser_gpu = super::browser_gpu::name();
+        #[cfg(not(target_arch = "wasm32"))]
+        let browser_gpu: Option<&str> = None;
+        let graphics = self
             .graphics
             .as_deref()
-            .and_then(|graphics| graphics.graphics_adapter_ref())
+            .and_then(|graphics| graphics.graphics_adapter_ref());
+        if graphics.is_none()
+            && let Some(gpu) = browser_gpu
         {
-            right.push(format_args!("GPU: {}", graphics.adapter));
+            right.push(format_args!("GPU: {gpu}"));
+        }
+        if let Some(graphics) = graphics {
+            right.push(format_args!(
+                "GPU: {}",
+                browser_gpu.unwrap_or(&graphics.adapter)
+            ));
             right.push(format_args!("Renderer: {}", graphics.backend));
             if !graphics.driver.is_empty() {
                 right.push(format_args!("Driver: {}", graphics.driver));

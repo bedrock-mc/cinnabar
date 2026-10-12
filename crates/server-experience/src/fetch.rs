@@ -1,15 +1,14 @@
 //! Host-only HTTPS fetches with pinned public DNS answers and no redirects.
 
 use anyhow::{Result, ensure};
+#[cfg(not(target_arch = "wasm32"))]
 use reqwest::{
     Client, StatusCode,
     header::{CONTENT_ENCODING, CONTENT_RANGE, RANGE},
 };
-use std::{
-    collections::BTreeSet,
-    net::{IpAddr, SocketAddr},
-    time::Duration,
-};
+use std::{collections::BTreeSet, net::IpAddr};
+#[cfg(not(target_arch = "wasm32"))]
+use std::{net::SocketAddr, time::Duration};
 use url::Url;
 
 /// PEM file of the CA that a developer loopback media origin presents.
@@ -84,6 +83,7 @@ pub fn public_address(ip: IpAddr) -> bool {
 }
 
 /// Fetches one immutable object or exact byte range; dropping the future cancels it.
+#[cfg(not(target_arch = "wasm32"))]
 pub async fn fetch(
     text: &str,
     origins: &BTreeSet<String>,
@@ -183,6 +183,18 @@ pub async fn fetch(
     }
     ensure!(bytes.len() == expected_bytes, "truncated download");
     Ok(bytes)
+}
+
+/// Always fails: browsers cannot pin the resolved public addresses or see the connected peer,
+/// so this fetch policy cannot be enforced there.
+#[cfg(target_arch = "wasm32")]
+pub async fn fetch(
+    _text: &str,
+    _origins: &BTreeSet<String>,
+    _expected_bytes: usize,
+    _range: Option<(u64, u64, u64)>,
+) -> Result<Vec<u8>> {
+    anyhow::bail!("server experience downloads are unavailable in the browser")
 }
 
 #[cfg(test)]

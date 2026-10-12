@@ -51,6 +51,9 @@ pub struct ScreenFocus {
     pub absorbs_input: bool,
     /// The UI's cursor request, absent when there is no UI runtime.
     pub steals_mouse: Option<bool>,
+    /// Whether a primary click now would resume the game from the pause menu; a browser must
+    /// request mouse capture inside that click's own event.
+    pub resume_hovered: bool,
 }
 
 /// Menu-configured controls sampled by the shell for gameplay consumers.

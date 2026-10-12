@@ -16,6 +16,7 @@ pub fn publish_screen_focus(
 ) {
     *focus = ScreenFocus {
         menu_visible: menu.as_deref().is_some_and(MenuRuntime::is_visible),
+        resume_hovered: menu.as_deref().is_some_and(MenuRuntime::resume_hovered),
         ui_focused: ui.as_deref().is_some_and(|ui| ui.ui_focused(&player)),
         absorbs_input: crate::screen_policy::absorbs_input(
             &player,

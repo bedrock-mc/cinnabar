@@ -1,8 +1,6 @@
 //! Optional evidence and control adapters over committed runtime observations.
-use std::{
-    path::PathBuf,
-    time::{Duration, Instant},
-};
+use std::{path::PathBuf, time::Duration};
+use web_time::Instant;
 
 use bevy::prelude::Resource;
 use chunk_pipeline::ViewCohortStatus;

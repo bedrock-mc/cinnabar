@@ -12,7 +12,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
-use std::time::Instant;
+use web_time::Instant;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use sha2::{Digest, Sha256};

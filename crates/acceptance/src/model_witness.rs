@@ -13,7 +13,7 @@ use render_scene::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::time::Instant;
+use web_time::Instant;
 use world::SubChunkKey;
 
 use super::teleport::render_view_cohort;
@@ -103,7 +103,7 @@ pub fn decode_request(bytes: &[u8]) -> Result<ModelWitnessRequest> {
 #[derive(Resource)]
 pub struct ModelWitnessFileSource {
     path: Option<PathBuf>,
-    next_poll: std::time::Instant,
+    next_poll: web_time::Instant,
     last_digest: Option<[u8; 32]>,
     was_missing: bool,
 }
@@ -112,7 +112,7 @@ impl ModelWitnessFileSource {
     pub fn new(path: Option<PathBuf>) -> Self {
         Self {
             path,
-            next_poll: std::time::Instant::now(),
+            next_poll: web_time::Instant::now(),
             last_digest: None,
             was_missing: true,
         }
@@ -128,7 +128,7 @@ pub fn poll_model_witness_request(
     mut request: ResMut<ModelWitnessRequest>,
     evidence: Res<ModelWitnessEvidence>,
 ) {
-    let now = std::time::Instant::now();
+    let now = web_time::Instant::now();
     if now < source.next_poll {
         return;
     }
@@ -180,7 +180,7 @@ pub fn poll_model_witness_request(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use web_time::{SystemTime, UNIX_EPOCH};
 
     fn request_json(revision: u64, sub_chunks: &[ModelWitnessSubChunk]) -> Vec<u8> {
         let file = ModelWitnessFile {
@@ -271,7 +271,7 @@ mod tests {
         std::fs::create_dir(&path).unwrap();
         app.world_mut()
             .resource_mut::<ModelWitnessFileSource>()
-            .next_poll = std::time::Instant::now();
+            .next_poll = web_time::Instant::now();
         app.update();
         assert_eq!(app.world().resource::<ModelWitnessRequest>().revision(), 0);
 
@@ -279,7 +279,7 @@ mod tests {
         std::fs::write(&path, &valid).unwrap();
         app.world_mut()
             .resource_mut::<ModelWitnessFileSource>()
-            .next_poll = std::time::Instant::now();
+            .next_poll = web_time::Instant::now();
         app.update();
         assert_eq!(app.world().resource::<ModelWitnessRequest>().revision(), 7);
 

@@ -137,7 +137,10 @@ mod tests {
 
     #[test]
     fn accepted_membership_survives_the_account_catalog_snapshot() {
-        let dir = std::env::temp_dir().join(format!("realm-worker-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "realm-worker-{}",
+            launcher::install_layout::process_id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let listener = UnixListener::bind(dir.join("control.sock")).unwrap();
         let fixture = thread::spawn(move || {

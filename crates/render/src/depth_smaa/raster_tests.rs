@@ -16,7 +16,8 @@ use bevy::{
     },
     window::WindowPlugin,
 };
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 #[path = "composed_tests.rs"]
 mod composed_tests;

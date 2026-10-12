@@ -339,7 +339,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
                 sort_order_independent: view_displaces_water(enhanced),
             },
         );
-    std::thread::spawn(move || {
+    async_platform::spawn_thread("chunk-textures", move || {
         let result =
             build_chunk_texture_assets(&candidate, &device, &queue).and_then(|(atlas, stats)| {
                 let geometry = match geometry {
@@ -351,7 +351,8 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
                 Some((atlas, stats, geometry))
             });
         let _ = sender.send(result);
-    });
+    })
+    .expect("start the chunk texture build");
 }
 
 /// Builds replacement GPU tables off the render thread, retaining the previous generation until ready.

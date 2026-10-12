@@ -110,3 +110,8 @@ pub(crate) fn create_world_link(link: &Path, target: &Path) -> io::Result<()> {
 #[cfg(test)]
 #[path = "junction_tests.rs"]
 mod tests;
+/// Browsers have no file system to link worlds in.
+#[cfg(not(any(unix, windows)))]
+pub(crate) fn create_world_link(_link: &Path, _target: &Path) -> io::Result<()> {
+    Err(io::ErrorKind::Unsupported.into())
+}

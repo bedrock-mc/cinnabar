@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 use std::future::{Future, poll_fn};
-use std::path::Path;
 use std::pin::Pin;
 use std::sync::Mutex;
 use std::task::{Context, Poll, ready};
@@ -18,9 +17,13 @@ use futures::StreamExt;
 /// The core already bounds pack transfers before they reach this hop.
 pub(crate) const MAX_SESSION_BATCH_BYTES: usize = 256 * 1024 * 1024;
 
-/// Best-effort: tells the core whether this client applied (or reverted) the
-/// newest attempt's handed-off packs; returns whether the core recorded it.
-pub async fn report_pack_application(socket_dir: &Path, applied: bool) -> bool {
+/// Best-effort: tells a local core whether this client applied (or reverted) the newest
+/// attempt's handed-off packs; returns whether the core recorded it. A web relay keeps no
+/// pack status, so it records nothing.
+pub async fn report_pack_application(core: &bridge::CoreEndpoint, applied: bool) -> bool {
+    let bridge::CoreEndpoint::SocketDir(socket_dir) = core else {
+        return false;
+    };
     let Ok(status) = bridge::read_status(socket_dir).await else {
         return false;
     };

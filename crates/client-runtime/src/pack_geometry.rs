@@ -87,7 +87,7 @@ impl GeometryPreparation {
         let assets = candidate.assets().clone();
         let (sender, receiver) = mpsc::sync_channel(1);
         self.pending = Some((candidate.identity(), Mutex::new(receiver)));
-        std::thread::spawn(move || {
+        async_platform::spawn_thread("pack-geometry", move || {
             let Some(meshes) = snapshot.build(&assets) else {
                 return;
             };
@@ -105,7 +105,8 @@ impl GeometryPreparation {
                 })
                 .collect::<Vec<_>>();
             let _ = sender.send(Arc::from(instances));
-        });
+        })
+        .expect("start the pack geometry build");
         Ok(())
     }
 

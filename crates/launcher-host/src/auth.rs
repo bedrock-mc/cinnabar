@@ -7,8 +7,9 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use anyhow::{Context, Result};
 use crossbeam_channel::{Receiver, Sender, TryRecvError, bounded};

@@ -29,7 +29,10 @@ fn snapshot_core_home_promo() {
         }
     };
     assert!(!home.live_events.is_empty(), "fixture has no promo tile");
-    let scratch = std::env::temp_dir().join(format!("cinnabar-home-promo-{}", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!(
+        "cinnabar-home-promo-{}",
+        launcher::install_layout::process_id()
+    ));
     std::fs::create_dir_all(&scratch).unwrap();
     let badge = scratch.join("offline-promo-badge.png");
     image::RgbaImage::from_pixel(256, 128, image::Rgba([40, 90, 200, 255]))

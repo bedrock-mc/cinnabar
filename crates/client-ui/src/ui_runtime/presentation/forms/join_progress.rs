@@ -251,7 +251,8 @@ mod tests {
     // Once the rate steadies, the download adds its speed and time left.
     #[test]
     fn a_steady_download_shows_rate_and_eta() {
-        use std::time::{Duration, Instant};
+        use std::time::Duration;
+        use web_time::Instant;
 
         let stage = |received| JoinStage::Packs {
             done: 0,

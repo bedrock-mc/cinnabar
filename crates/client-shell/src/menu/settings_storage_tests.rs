@@ -7,8 +7,8 @@ fn fixture() -> PathBuf {
     let path = std::env::temp_dir().join(format!(
         "cinnabar-storage-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        web_time::SystemTime::now()
+            .duration_since(web_time::UNIX_EPOCH)
             .unwrap()
             .as_nanos()
     ));

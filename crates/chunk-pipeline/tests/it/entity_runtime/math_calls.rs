@@ -235,7 +235,7 @@ fn math_call_arguments_bench() {
         .authority()
         .actor_animation_stats()
         .evaluated_molang_ops;
-    let start = std::time::Instant::now();
+    let start = web_time::Instant::now();
     for _ in 0..100 {
         stream.advance_actor_interpolation_ticks(1);
     }

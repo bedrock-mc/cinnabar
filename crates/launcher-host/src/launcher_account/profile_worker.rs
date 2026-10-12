@@ -127,7 +127,10 @@ mod tests {
 
     #[test]
     fn profile_loading_ends_when_control_accepts_without_reply() {
-        let dir = std::env::temp_dir().join(format!("profile-timeout-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "profile-timeout-{}",
+            launcher::install_layout::process_id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let listener = UnixListener::bind(dir.join("control.sock")).unwrap();
         let fixture = thread::spawn(move || {

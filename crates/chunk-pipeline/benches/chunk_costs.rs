@@ -1,8 +1,5 @@
-use std::{
-    hint::black_box,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{hint::black_box, sync::Arc, time::Duration};
+use web_time::Instant;
 
 use assets::{
     BlockFlags, BlockOverlay, BlockVisual, ContributorRole, LightProperties, Material,

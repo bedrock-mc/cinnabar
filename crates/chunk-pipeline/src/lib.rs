@@ -8,10 +8,12 @@ pub use culling::{CaveVisibilityScratch, CaveVisibilityWork, CaveVisibleSet};
 #[cfg(feature = "benchmark-support")]
 #[doc(hidden)]
 pub use stream::benchmark_support;
+#[cfg(target_arch = "wasm32")]
+pub use stream::run_queued_world_jobs;
 pub use stream::{
     ActiveBlockCrack, ActorBlockSyncFence, BlockCrackSnapshot, BlockCrackStatus,
     BuildProfileIdentity, CohortManifestIdentity, CohortProgress, DECODE_DISPATCH_BUDGET_PER_POLL,
-    DEFERRED_RETRY_CAPACITY, ForcedRemeshManifest, ForcedRemeshManifestState,
+    DEFERRED_RETRY_CAPACITY, ForcedRemeshManifest, ForcedRemeshManifestState, FrameJobBudget,
     LIGHT_DISPATCH_BUDGET_PER_POLL, MAX_ACTIVE_BLOCK_CRACKS, MAX_IN_FLIGHT_DECODE_JOBS,
     MAX_IN_FLIGHT_LIGHT_JOBS, MAX_LOCAL_RESET_DISPATCH_EVIDENCE, MAX_PENDING_MESH_CHANGES,
     MAX_SUB_CHUNK_RETRIES, OUTBOUND_REQUEST_CAPACITY, PendingSubChunkRequest, PresentModeIdentity,

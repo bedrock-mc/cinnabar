@@ -46,7 +46,7 @@ fn merge_entries(view: &mut DressingRoomView, defaults: Vec<DressingRoomCape>) {
     }
 }
 
-#[cfg(not(test))]
+#[cfg(all(not(test), not(target_arch = "wasm32")))]
 pub fn refresh(layout: &InstallLayout) {
     if default_capes::JAVA_CAPES.is_empty() {
         return;
@@ -120,7 +120,10 @@ pub fn refresh(layout: &InstallLayout) {
                 static NEXT_FILE: std::sync::atomic::AtomicU64 =
                     std::sync::atomic::AtomicU64::new(0);
                 let nonce = NEXT_FILE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let temp = path.with_extension(format!("{}.{nonce}.tmp", std::process::id()));
+                let temp = path.with_extension(format!(
+                    "{}.{nonce}.tmp",
+                    launcher::install_layout::process_id()
+                ));
                 if fs::write(&temp, bytes).is_ok() {
                     let _ = fs::rename(&temp, &path);
                 }
@@ -130,6 +133,10 @@ pub fn refresh(layout: &InstallLayout) {
         while jobs.join_next().await.is_some() {}
     });
 }
+
+/// Browsers have no install directory to cache downloaded capes in.
+#[cfg(all(not(test), target_arch = "wasm32"))]
+pub fn refresh(_layout: &InstallLayout) {}
 
 fn cache_path(layout: &InstallLayout, hash: &str) -> PathBuf {
     layout

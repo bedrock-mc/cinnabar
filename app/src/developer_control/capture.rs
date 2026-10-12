@@ -7,8 +7,9 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use bevy::{prelude::*, render::render_resource::TextureFormat, time::TimeUpdateStrategy};
 use developer_control::{

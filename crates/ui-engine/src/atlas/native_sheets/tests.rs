@@ -106,3 +106,31 @@ fn source_limit_regions_keep_clamped_and_constant_sampling_covered() {
         assert_eq!(allocations, 0);
     }
 }
+
+#[test]
+fn inline_decode_stays_pending_until_collected() {
+    let mut sheets = NativeSheets::default();
+    let source = Source {
+        bytes: Arc::from([0u8; 4].as_slice()),
+        size: [16, 16],
+        packed: [16, 16],
+    };
+    let job = Job {
+        key: "first".into(),
+        bytes: Arc::clone(&source.bytes),
+        plan: Plan::new(source.size).unwrap(),
+        cancelled: Arc::clone(&sheets.cancelled),
+        done: sheets.sender.clone(),
+    };
+    sheets.dispatch(job, None);
+    assert_eq!(sheets.pending.as_deref(), Some("first"));
+    sheets.request("second", &source);
+    assert!(sheets.collect());
+    assert!(sheets.failed("first"), "undecodable bytes fail once");
+    assert!(
+        !sheets.failed("second"),
+        "the sibling waited instead of decoding"
+    );
+    assert!(sheets.pending.is_none());
+    assert!(!sheets.collect());
+}

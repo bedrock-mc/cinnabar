@@ -24,6 +24,7 @@ pub(super) const LINKS_API: &str =
 const AGENT: &str = "Cinnabar-local-worlds";
 const MAX_ZIP_BYTES: u64 = 1 << 30;
 const MAX_LINKS_BYTES: usize = 1 << 20;
+#[cfg(not(target_arch = "wasm32"))]
 const MAX_REDIRECTS: usize = 10;
 pub(super) const DEFAULT_STALL_TIMEOUT: Duration = Duration::from_secs(30);
 /// How often a pending request checks for cancellation.
@@ -123,6 +124,7 @@ async fn bounded<T>(
 
 impl Provisioner {
     /// A client that sends only to accepted hosts, redirects included.
+    #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn client(&self) -> Result<reqwest::Client, WorldError> {
         let allowed = self.allow_host.clone();
         reqwest::Client::builder()
@@ -138,6 +140,14 @@ impl Provisioner {
             }))
             .build()
             .map_err(|error| failed(format!("download client: {error}")))
+    }
+
+    /// Browsers cannot police redirects, so they download no dedicated server.
+    #[cfg(target_arch = "wasm32")]
+    pub(super) fn client(&self) -> Result<reqwest::Client, WorldError> {
+        Err(failed(
+            "dedicated server downloads are unavailable in the browser",
+        ))
     }
 
     /// Fetches `link` from byte `from` onwards; a ranged request also accepts 206 and 416.
@@ -200,7 +210,7 @@ impl Provisioner {
             .map_err(Fetch::into_error)?;
         let mut body = Vec::new();
         while body.len() < MAX_LINKS_BYTES {
-            let chunk = bounded(response.chunk(), self.stall_timeout, cancel)
+            let chunk = bounded(next_chunk(&mut response), self.stall_timeout, cancel)
                 .await
                 .map_err(Fetch::into_error)?
                 .map_err(|error| failed(format!("read download links: {error}")))?;
@@ -310,7 +320,7 @@ impl Provisioner {
             let total = total.unwrap_or(0);
             let mut done = offset;
             self.set_op(Some(SetupState::Downloading), Some(version), done, total);
-            while let Some(chunk) = bounded(response.chunk(), self.stall_timeout, cancel)
+            while let Some(chunk) = bounded(next_chunk(&mut response), self.stall_timeout, cancel)
                 .await?
                 .map_err(|error| Fetch::Other(error.to_string()))?
             {
@@ -330,6 +340,18 @@ impl Provisioner {
             return Ok(done);
         }
     }
+}
+
+/// The response's next body chunk. A browser's reqwest cannot stream a body, and no browser gets
+/// this far: its [`Provisioner::client`] always fails.
+#[cfg(not(target_arch = "wasm32"))]
+async fn next_chunk(response: &mut reqwest::Response) -> reqwest::Result<Option<bytes::Bytes>> {
+    response.chunk().await
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn next_chunk(_response: &mut reqwest::Response) -> reqwest::Result<Option<bytes::Bytes>> {
+    Ok(None)
 }
 
 fn open_part(path: &Path) -> io::Result<File> {
