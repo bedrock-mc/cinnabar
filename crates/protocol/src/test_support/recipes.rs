@@ -247,8 +247,7 @@ impl CraftingDataFixture {
 
 /// Admits the first packet of an uncompressed batch as a CraftingData update; panics on bad wire.
 pub fn recipe_update_from_batch(batch: &'static [u8]) -> RecipeUpdate {
-    let mut batch = Bytes::from_static(batch);
-    let raw = jolyne::batch::decode_batch_raw(&mut batch, false, Some(4096))
+    let raw = crate::raw_packet::decode_batch(Bytes::from_static(batch), 4096)
         .expect("fixture batch frames")
         .remove(0);
     decode_recipe_update(raw.body()).expect("fixture CraftingData decodes")

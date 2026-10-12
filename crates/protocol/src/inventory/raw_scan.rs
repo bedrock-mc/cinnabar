@@ -6,7 +6,7 @@ use valentine::bedrock::version::v1_26_51::McpePacketName;
 use super::*;
 
 pub(crate) fn validate_raw_inventory_packet(
-    raw: &jolyne::raw::RawPacket,
+    raw: &crate::raw_packet::RawPacket,
 ) -> Result<(), InventoryPacketError> {
     let mut body = raw.body().clone();
     let mut semantic_error = None;

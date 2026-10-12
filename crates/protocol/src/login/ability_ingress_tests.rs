@@ -3,7 +3,7 @@ use valentine::bedrock::version::v1_26_51::{
     SerializedAbilitiesData, SerializedAbilitiesDataSerializedLayer, UpdateAbilitiesPacket,
 };
 
-fn raw(count: usize) -> jolyne::raw::RawPacket {
+fn raw(count: usize) -> crate::raw_packet::RawPacket {
     let packet: crate::Packet = crate::Packet::new(UpdateAbilitiesPacket {
         data: SerializedAbilitiesData {
             target_player_raw_id: 42,
@@ -16,7 +16,7 @@ fn raw(count: usize) -> jolyne::raw::RawPacket {
         .data
         .encode_inner_bytes_mut(&mut frame, 0, 0)
         .unwrap();
-    jolyne::raw::decode_packet_raw(&mut frame.freeze()).unwrap()
+    crate::raw_packet::decode_packet_raw(&mut frame.freeze()).unwrap()
 }
 
 #[test]
@@ -50,5 +50,5 @@ fn malformed_raw_ability_frame_is_not_a_skippable_semantic_packet() {
     let mut skipped = 0;
     assert!(super::skip_semantic_world_error(error, &mut skipped).is_err());
     assert_eq!(skipped, 0);
-    assert!(jolyne::raw::decode_packet_raw(&mut bytes::Bytes::from(frame)).is_err());
+    assert!(crate::raw_packet::decode_packet_raw(&mut bytes::Bytes::from(frame)).is_err());
 }

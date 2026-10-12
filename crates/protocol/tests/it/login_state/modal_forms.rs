@@ -3,27 +3,16 @@ use disconnect_reason::{EPILOGUE_SENTINEL_TIME, PlayEpilogue};
 
 const DRAIN_LIMIT: usize = 32;
 
-fn scripted_form_transport(epilogue: PlayEpilogue) -> ScriptTransport {
-    let mut script = ServerScript::new(
-        CompressionMode::Deflate,
-        SpawnOrder::RadiusThenSpawn,
-        false,
-        false,
-        false,
-        CachePlayScript::ResolveValid,
-    );
-    script.epilogue = epilogue;
-    ScriptTransport {
-        script: Arc::new(Mutex::new(script)),
+fn form_script(epilogue: PlayEpilogue) -> Script {
+    Script {
+        epilogue,
+        ..Script::default()
     }
 }
 
 #[tokio::test]
 async fn semantically_invalid_form_json_is_skipped_counted_and_survivable() {
-    let transport = scripted_form_transport(PlayEpilogue::OddModalForm);
-    let (mut session, _) = LoginSequence::connect_transport(transport, "RustClient")
-        .await
-        .expect("scripted login");
+    let (mut session, core) = joined(form_script(PlayEpilogue::OddModalForm)).await;
 
     for _ in 0..DRAIN_LIMIT {
         let event = session
@@ -40,6 +29,7 @@ async fn semantically_invalid_form_json_is_skipped_counted_and_survivable() {
             // form JSON adds exactly one more.
             assert_eq!(session.world_skip_count(), 2);
             assert_eq!(session.decode_error_count(), 0);
+            core.finish(session).await;
             return;
         }
     }
@@ -48,10 +38,7 @@ async fn semantically_invalid_form_json_is_skipped_counted_and_survivable() {
 
 #[tokio::test]
 async fn truncated_modal_form_request_wire_stays_fatal_in_play_ingress() {
-    let transport = scripted_form_transport(PlayEpilogue::TruncatedModalFormRequest);
-    let (mut session, _) = LoginSequence::connect_transport(transport, "RustClient")
-        .await
-        .expect("scripted login");
+    let (mut session, core) = joined(form_script(PlayEpilogue::TruncatedModalFormRequest)).await;
 
     for _ in 0..DRAIN_LIMIT {
         match session.recv_world_event(0).await {
@@ -63,6 +50,7 @@ async fn truncated_modal_form_request_wire_stays_fatal_in_play_ingress() {
                 // surfaces the truncation as a valentine decode failure.
                 assert!(matches!(error, ProtocolError::Decode(_)));
                 assert_eq!(session.world_skip_count(), 1);
+                core.finish(session).await;
                 return;
             }
         }

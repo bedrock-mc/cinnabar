@@ -280,3 +280,10 @@ gate is closed by the ownership change.
 ## Session biome climate and environment
 
 Admitted live biome identifiers and climate now travel with the session tint registry. Weather, fog precipitation, camera temperature and environment routes read that registry, including custom biome routes. Registry replacement clears removed routes. No existing completion entry is advanced by this change; the remaining gates are recorded in `plan.md`.
+
+## Protocol session layer
+
+`protocol::login` runs the spawn sequence and play stream over the core's session endpoint, and
+the vendored client session crate is removed. Startup ordering, terminal transfers and
+disconnects, and the one-shot initialization keep their regression coverage through a scripted
+core; those tests have not been executed locally. No existing completion entry is advanced.

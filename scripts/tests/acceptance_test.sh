@@ -61,29 +61,18 @@ assert_protocol_dependency_provenance "$protocol_fixture"
 
 cp "$protocol_fixture/crates/protocol/Cargo.toml" "$protocol_fixture/protocol.Cargo.toml.clean"
 cp -R "$protocol_fixture/crates/protocol/vendor/valentine" "$protocol_fixture/crates/protocol/vendor/valentine-decoy"
-cp -R "$protocol_fixture/crates/protocol/vendor/jolyne" "$protocol_fixture/crates/protocol/vendor/jolyne-decoy"
-python3 - "$protocol_fixture/crates/protocol/Cargo.toml" "$protocol_fixture/crates/protocol/vendor/jolyne-decoy/Cargo.toml" <<'PY'
+python3 - "$protocol_fixture/crates/protocol/Cargo.toml" <<'PY'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
-jolyne_decoy = pathlib.Path(sys.argv[2])
-jolyne_text = jolyne_decoy.read_text(encoding="utf-8")
-jolyne_text = jolyne_text.replace('path = "../valentine"', 'path = "../valentine-decoy"', 1)
-jolyne_decoy.write_text(jolyne_text, encoding="utf-8")
 text = path.read_text(encoding="utf-8")
 text = text.replace(
     'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }',
     '"valentine" = { path = "vendor/valentine-decoy", default-features = false, features = ["bedrock_1_26_51"] }',
     1,
 )
-text = text.replace(
-    'jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_51"] }',
-    '"jolyne" = { path = "vendor/jolyne-decoy", default-features = false, features = ["client", "bedrock_1_26_51"] }',
-    1,
-)
 decoys = '''description = """
 [dependencies]
 valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }
-jolyne = { path = "vendor/jolyne", default-features = false, features = ["client", "bedrock_1_26_51"] }
 """'''
 text = text.replace("publish = false", "publish = false\n" + decoys, 1)
 path.write_text(text, encoding="utf-8")
@@ -110,10 +99,10 @@ python3 - "$protocol_fixture/Cargo.lock" <<'PY'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
-needle = 'name = "jolyne"\nversion = "0.1.0"'
+needle = 'name = "valentine"\nversion = "0.1.0"'
 replacement = needle + '\n   checksum = "' + ('2' * 64) + '"'
 if needle not in text:
-    raise SystemExit('Bash checksum fixture did not find Jolyne lock package')
+    raise SystemExit('Bash checksum fixture did not find the Valentine lock package')
 path.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
 PY
 if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; then

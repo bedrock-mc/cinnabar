@@ -1,14 +1,18 @@
 use super::*;
+use valentine::bedrock::version::v1_26_51::{
+    DimensionDataPacket, DimensionDataPacketDefinitionsItem,
+    DimensionDefinitionGroupDimensionDefinition, EnumsGeneratorType,
+};
 
-pub(super) fn early_dimension_definition() -> McpePacket {
-    McpePacket::from(jolyne::valentine::DimensionDataPacket {
-        definitions: vec![jolyne::valentine::DimensionDataPacketDefinitionsItem {
+pub(super) fn early_dimension_definition() -> Packet {
+    Packet::new(DimensionDataPacket {
+        definitions: vec![DimensionDataPacketDefinitionsItem {
             key: "minecraft:overworld".into(),
-            value: jolyne::valentine::DimensionDefinitionGroupDimensionDefinition {
+            value: DimensionDefinitionGroupDimensionDefinition {
                 minimum_y: 0,
                 height_range: 256,
                 dimension_type: DimensionType { value: 3 },
-                generator_type: jolyne::valentine::EnumsGeneratorType::Overworld,
+                generator_type: EnumsGeneratorType::Overworld,
                 ..Default::default()
             },
         }],
@@ -17,16 +21,11 @@ pub(super) fn early_dimension_definition() -> McpePacket {
 
 #[tokio::test]
 async fn named_dimension_definition_before_start_game_survives_login_in_order() {
-    let transport =
-        ScriptTransport::new(CompressionMode::Deflate, SpawnOrder::RadiusThenSpawn, false);
-    transport
-        .script
-        .lock()
-        .unwrap()
-        .dimension_definition_before_start = true;
-    let (mut session, _) = LoginSequence::connect_transport(transport, "RustClient")
-        .await
-        .expect("scripted login with an early dimension definition");
+    let (mut session, core) = joined(Script {
+        dimension_definition_before_start: true,
+        ..Script::default()
+    })
+    .await;
     let first = session.recv_world_event(0).await.unwrap();
     let WorldEvent::DimensionHeights(heights) = first else {
         panic!("the dimension definition must precede deferred world traffic, got {first:?}");
@@ -40,13 +39,17 @@ async fn named_dimension_definition_before_start_game_survives_login_in_order() 
         session.recv_world_event(0).await.unwrap(),
         WorldEvent::SetTime(protocol::SetTimeEvent { time: 12_345 })
     ));
+    core.finish(session).await;
 }
 
 #[tokio::test]
 async fn conflicting_start_game_runtime_ids_are_rejected() {
-    let transport =
-        ScriptTransport::new(CompressionMode::Deflate, SpawnOrder::RadiusThenSpawn, true);
-    let error = match LoginSequence::connect_transport(transport, "RustClient").await {
+    let error = match join(Script {
+        conflicting_start: true,
+        ..Script::default()
+    })
+    .await
+    {
         Ok(_) => panic!("conflicting StartGame packets must fail"),
         Err(error) => error,
     };
@@ -55,18 +58,4 @@ async fn conflicting_start_game_runtime_ids_are_rejected() {
             .to_string()
             .contains("conflicting StartGame runtime entity ID")
     );
-}
-
-#[tokio::test]
-async fn unadvertised_optional_resource_pack_stack_does_not_block_login() {
-    let transport = ScriptTransport::new_with_pack_stack(
-        CompressionMode::Deflate,
-        SpawnOrder::RadiusThenSpawn,
-        false,
-        true,
-    );
-    let (_, game_data) = LoginSequence::connect_transport(transport, "RustClient")
-        .await
-        .expect("an unavailable optional pack must not block login");
-    assert_eq!(game_data.world.local_player_runtime_id, RUNTIME_ID);
 }

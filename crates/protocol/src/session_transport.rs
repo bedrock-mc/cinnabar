@@ -1,16 +1,22 @@
 use std::collections::VecDeque;
-use std::future::Future;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::future::{Future, poll_fn};
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Mutex;
 use std::task::{Context, Poll, ready};
 
-use crate::session_wire::CoreMessage;
+use crate::codec::SessionFailure;
+use crate::raw_packet::{MAX_RAW_BATCH_PACKETS, RawPacket, decode_batch_body};
+use crate::session_wire::{CoreMessage, SessionDisconnect, SessionTransfer};
+use crate::{Packet, ProtocolError, SessionError};
 use bridge::{BridgeError, FrameQueue, FramedReader};
-use bytes::Bytes;
-use futures::Stream;
-use jolyne::stream::transport::{Transport, TransportMessage, TransportRecvMessage};
+use bytes::{BufMut, Bytes, BytesMut};
+use futures::StreamExt;
+
+/// A server may batch a whole pack transfer, or a large item registry, into one batch,
+/// so the local leg accepts batches far larger than a typical client's 16 MiB default.
+/// The core already bounds pack transfers before they reach this hop.
+pub(crate) const MAX_SESSION_BATCH_BYTES: usize = 256 * 1024 * 1024;
 
 /// Best-effort: tells the core whether this client applied (or reverted) the
 /// newest attempt's handed-off packs; returns whether the core recorded it.
@@ -23,26 +29,36 @@ pub async fn report_pack_application(socket_dir: &Path, applied: bool) -> bool {
         .is_ok()
 }
 
-/// Jolyne transport over a handed-off session's raw batches.
+/// What the core delivers next: a server packet, or the terminal message that ends the session.
+pub(crate) enum Inbound {
+    Packet(RawPacket),
+    Terminal(Terminal),
+}
+
+/// The core's last message on a session, standing for the server's own Transfer or Disconnect.
+pub(crate) enum Terminal {
+    Transfer(SessionTransfer),
+    Disconnect(SessionDisconnect),
+}
+
+/// A handed-off session's packets and its send FIFO.
 ///
-/// Batch frames reach Jolyne as uncompressed Bedrock batches without copying. The core's terminal
-/// Transfer and Disconnect messages arrive as the server's own packets, then the stream ends, so play
-/// handles them exactly as it handles a server's packet. A spawned writer owns the write half, so
-/// sends never wait on a receive in progress.
-pub struct SessionTransport {
+/// The handed-off startup packets come first; each later Batch frame is split in place, without
+/// copying. A terminal Transfer or Disconnect ends the stream. A send is retained from its first
+/// poll until flushed, strictly in order, so cancellation neither loses nor repeats it.
+pub(crate) struct SessionTransport {
     reader: FramedReader,
     frames: FrameQueue,
-    pending: VecDeque<Bytes>, // Bedrock batches delivered before the next core frame
+    startup: VecDeque<Bytes>, // startup batch bodies, read before any core frame
+    received: VecDeque<RawPacket>, // packets split from a batch but not yet read
     ended: bool,              // a terminal message was delivered
-    sending: VecDeque<InFlightSend>, // accepted sends, flushed strictly in order
-    peer_addr: SocketAddr,
+    sending: VecDeque<InFlightSend>,
 }
 
 type FrameSend = Pin<Box<dyn Future<Output = Result<(), BridgeError>> + Send>>;
 
 /// A send retained across cancellation until its frame is flushed.
 struct InFlightSend {
-    buffer: Bytes,
     // Only reached through `&mut`; the mutex just keeps the transport `Sync`.
     write: Mutex<FrameSend>,
 }
@@ -57,20 +73,16 @@ impl InFlightSend {
     }
 }
 
-fn same_buffer(left: &Bytes, right: &Bytes) -> bool {
-    left.len() == right.len() && left.as_ptr() == right.as_ptr()
-}
-
 impl SessionTransport {
-    /// Continues a handed-off session; the `startup` Bedrock batches are delivered first, in order.
-    pub(crate) fn new(reader: FramedReader, frames: FrameQueue, startup: Vec<Bytes>) -> Self {
+    /// Continues a handed-off session; the `startup` packets, each with its header, come first.
+    pub(crate) fn new(reader: FramedReader, frames: FrameQueue, startup: &[Bytes]) -> Self {
         Self {
             reader,
             frames,
-            pending: VecDeque::from(startup),
+            startup: startup_batches(startup).into(),
+            received: VecDeque::new(),
             ended: false,
             sending: VecDeque::new(),
-            peer_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
         }
     }
 
@@ -79,118 +91,138 @@ impl SessionTransport {
         self.frames.clone()
     }
 
-    /// Maps one core frame onto what Jolyne reads: a batch, or the server packet a terminal message stands for.
-    fn receive(&mut self, frame: Bytes) -> Result<TransportRecvMessage, BridgeError> {
-        if let Some(body) = crate::session_wire::batch_frame_body(&frame) {
-            return Ok(TransportRecvMessage::SplitFirst {
-                first: crate::codec::BATCH_HEADER,
-                rest: body,
-            });
-        }
-        let packet = match crate::session_wire::decode_core_message(frame)? {
-            CoreMessage::Transfer(transfer) => {
-                crate::login::session_join::transfer_packet(&transfer)
+    /// Returns the next packet or terminal message; cancelling the wait loses nothing.
+    pub(crate) async fn recv(&mut self) -> Result<Inbound, SessionError> {
+        loop {
+            if let Some(packet) = self.received.pop_front() {
+                return Ok(Inbound::Packet(packet));
             }
-            CoreMessage::Disconnect(disconnect) => {
-                crate::login::session_join::disconnect_packet(&disconnect)
+            if let Some(batch) = self.startup.pop_front() {
+                self.received
+                    .extend(decode_batch_body(batch, MAX_SESSION_BATCH_BYTES)?);
+                continue;
             }
-            CoreMessage::Handoff(_) | CoreMessage::PackData { .. } | CoreMessage::Batch(_) => {
-                return Err(BridgeError::InvalidSessionMessage {
-                    reason: "setup message after the handoff",
-                });
+            if self.ended {
+                return Err(SessionFailure::ConnectionClosed.into());
             }
-        };
-        self.ended = true;
-        crate::codec::encode(&packet)
-            .map(TransportRecvMessage::Contiguous)
-            .map_err(|_| BridgeError::InvalidSessionMessage {
-                reason: "terminal message does not encode",
-            })
-    }
-}
-
-impl Transport for SessionTransport {
-    type Error = BridgeError;
-
-    const USES_BATCH_PREFIX: bool = true;
-
-    /// Retains the frame from the first poll until it is flushed, so a cancelled send can
-    /// neither lose nor repeat it; frames retained earlier finish first.
-    fn poll_send(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        message: TransportMessage,
-    ) -> Poll<Result<(), Self::Error>> {
-        let this = self.get_mut();
-        if !this
-            .sending
-            .iter()
-            .any(|sending| same_buffer(&sending.buffer, &message.buffer))
-        {
-            let frame = match crate::session_wire::batch_frame_from_bedrock(&message.buffer) {
-                Ok(frame) => frame,
-                Err(error) => return Poll::Ready(Err(error)),
+            let frame = match self.reader.next().await {
+                Some(Ok(frame)) => frame,
+                Some(Err(error)) => return Err(SessionFailure::Transport(error).into()),
+                None => return Err(SessionFailure::ConnectionClosed.into()),
             };
-            let frames = this.frames.clone();
-            this.sending.push_back(InFlightSend {
-                buffer: message.buffer.clone(),
-                write: Mutex::new(Box::pin(async move { frames.send(frame).await })),
-            });
-        }
-        while let Some(front) = this.sending.front_mut() {
-            let result = ready!(front.poll(cx));
-            let finished = this
-                .sending
-                .pop_front()
-                .expect("the polled send is retained");
-            if result.is_err() {
-                this.sending.clear();
-                return Poll::Ready(result);
+            if let Some(body) = crate::session_wire::batch_frame_body(&frame) {
+                self.received
+                    .extend(decode_batch_body(body, MAX_SESSION_BATCH_BYTES)?);
+                continue;
             }
-            if same_buffer(&finished.buffer, &message.buffer) {
-                return Poll::Ready(Ok(()));
-            }
+            let terminal = match crate::session_wire::decode_core_message(frame)
+                .map_err(SessionFailure::Transport)?
+            {
+                CoreMessage::Transfer(transfer) => Terminal::Transfer(transfer),
+                CoreMessage::Disconnect(disconnect) => Terminal::Disconnect(disconnect),
+                CoreMessage::Handoff(_) | CoreMessage::PackData { .. } | CoreMessage::Batch(_) => {
+                    return Err(
+                        SessionFailure::Transport(BridgeError::InvalidSessionMessage {
+                            reason: "setup message after the handoff",
+                        })
+                        .into(),
+                    );
+                }
+            };
+            self.ended = true;
+            return Ok(Inbound::Terminal(terminal));
         }
-        unreachable!("the current frame is retained until it finishes")
     }
 
-    fn poll_drain_send(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<(), Self::Error>> {
-        let this = self.get_mut();
-        while let Some(front) = this.sending.front_mut() {
+    /// Puts `packets` back ahead of every unread packet, in their order.
+    pub(crate) fn prepend(&mut self, packets: Vec<RawPacket>) {
+        let mut restored = VecDeque::from(packets);
+        restored.append(&mut self.received);
+        self.received = restored;
+    }
+
+    /// Writes `packets` as one Batch frame after every send retained before it, resolving once
+    /// it is flushed. An empty list sends nothing.
+    pub(crate) async fn send(&mut self, packets: &[Packet]) -> Result<(), ProtocolError> {
+        if packets.is_empty() {
+            return Ok(());
+        }
+        let frame = batch_frame(packets)?;
+        let frames = self.frames.clone();
+        self.sending.push_back(InFlightSend {
+            write: Mutex::new(Box::pin(async move { frames.send(frame).await })),
+        });
+        self.drain_send().await
+    }
+
+    /// Completes every send retained across cancellation, in order.
+    pub(crate) async fn drain_send(&mut self) -> Result<(), ProtocolError> {
+        poll_fn(|cx| self.poll_drain_send(cx))
+            .await
+            .map_err(|error| SessionFailure::Transport(error).into())
+    }
+
+    fn poll_drain_send(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), BridgeError>> {
+        while let Some(front) = self.sending.front_mut() {
             let result = ready!(front.poll(cx));
-            this.sending.pop_front();
+            self.sending.pop_front();
             if result.is_err() {
-                this.sending.clear();
+                self.sending.clear();
                 return Poll::Ready(result);
             }
         }
         Poll::Ready(Ok(()))
     }
+}
 
-    fn poll_recv(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<TransportRecvMessage, Self::Error>>> {
-        if let Some(batch) = self.pending.pop_front() {
-            return Poll::Ready(Some(Ok(TransportRecvMessage::Contiguous(batch))));
-        }
-        if self.ended {
-            return Poll::Ready(None);
-        }
-        match ready!(Pin::new(&mut self.reader).poll_next(cx)) {
-            Some(Ok(frame)) => Poll::Ready(Some(self.receive(frame))),
-            Some(Err(error)) => Poll::Ready(Some(Err(error))),
-            None => Poll::Ready(None),
-        }
+/// One Batch frame holding `packets`, each length-prefixed as a Bedrock batch carries it.
+pub(crate) fn batch_frame(packets: &[Packet]) -> Result<Bytes, ProtocolError> {
+    let mut frame = BytesMut::new();
+    frame.put_u8(bridge::contract::KIND_BATCH);
+    for packet in packets {
+        packet.data.encode_inner_bytes_mut(
+            &mut frame,
+            packet.header.from_subclient,
+            packet.header.to_subclient,
+        )?;
     }
+    Ok(frame.freeze())
+}
 
-    fn peer_addr(&self) -> SocketAddr {
-        self.peer_addr
+/// Groups the startup packets, which may span many upstream batches, into batch bodies that each
+/// stay within the per-batch packet and byte bounds; a packet larger than the byte bound keeps a
+/// body of its own, which is refused as it would be from the server.
+fn startup_batches(packets: &[Bytes]) -> Vec<Bytes> {
+    let mut batches = Vec::new();
+    let mut batch = BytesMut::new();
+    let mut count = 0;
+    for packet in packets {
+        let length = u32::try_from(packet.len()).expect("a frame bounds its packets");
+        let entry = varuint32_len(length) + packet.len();
+        if count != 0
+            && (count == MAX_RAW_BATCH_PACKETS || batch.len() + entry > MAX_SESSION_BATCH_BYTES)
+        {
+            batches.push(std::mem::take(&mut batch).freeze());
+            count = 0;
+        }
+        let mut length = length;
+        while length >= 0x80 {
+            batch.put_u8(length as u8 | 0x80);
+            length >>= 7;
+        }
+        batch.put_u8(length as u8);
+        batch.extend_from_slice(packet);
+        count += 1;
     }
+    if count != 0 {
+        batches.push(batch.freeze());
+    }
+    batches
+}
+
+fn varuint32_len(value: u32) -> usize {
+    (32 - value.max(1).leading_zeros() as usize).div_ceil(7)
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

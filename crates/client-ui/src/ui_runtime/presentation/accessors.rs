@@ -28,12 +28,6 @@ impl UiPresentationRuntime {
     }
 
     pub fn set_menu_view(&mut self, view: Option<MenuView>) {
-        if let Some(requests) = self.base_font.glyph_requests()
-            && let Some(view) = &view
-        {
-            requests.set_locale(view.settings_options.language().unwrap_or(""));
-        }
-        self.poll_font_fallback();
         if let (Some(current), Some(incoming)) = (&self.menu_view, &view)
             && current.as_ref() == incoming
         {

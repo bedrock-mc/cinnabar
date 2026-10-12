@@ -33,8 +33,9 @@ sits outside that directory. Publication serializes and retains five releases.
 A bounded, read-only BusyBox container runs the Go server as an unprivileged user.
 Its small supervisor restarts only its own Go child when the release pointer changes,
 so server code updates deploy with the page without giving the account privileged
-restart access. Forwardme keeps routing `cinnabar.restartfu.com` to
-`http://cinnabar-site:80` and owns HTTPS. There is no nginx process or image.
+restart access. The shared Caddy proxy routes `cinnabar.restartfu.com` to
+`http://cinnabar-site:80` and owns HTTPS through `website/deploy/Caddyfile`.
+There is no nginx process or image.
 The stdlib Go handler preserves the page, MIME types, HEAD and byte-range behavior;
 directories, dotfiles and files outside the public root return 404. The workflow
 waits for the exact release at `/healthz`, then byte-compares all public assets.
@@ -45,3 +46,8 @@ Compose file under `/home/danick/deployments/cinnabar-site/deploy/`. Changes to 
 receiver or container supervisor/Compose settings require a deliberate administrator installation;
 normal publication updates the static files and server binary together. Roll back the page and server together by repointing
 `/home/cinnabar/site/current` to a retained release as the account owner.
+
+Install `website/deploy/Caddyfile` in the shared proxy’s imported app directory,
+validate the combined configuration, and reload Caddy. TLS credentials and
+certificate storage stay in the shared deployment. Normal website publication
+continues to update only the static files and origin server.

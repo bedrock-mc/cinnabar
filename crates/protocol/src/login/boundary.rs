@@ -1,10 +1,11 @@
-use jolyne::{raw::RawPacket, stream::transport::Transport};
 use valentine::bedrock::version::v1_26_51::McpePacketName;
 
 use super::{PlaySession, reset_cache_for_immediate_boundary};
+use crate::raw_packet::RawPacket;
+use crate::session_transport::Terminal;
 use crate::{Packet, ProtocolError, ServerDisconnectEvent, ServerTransferEvent};
 
-impl<T: Transport> PlaySession<T> {
+impl PlaySession {
     /// Retains a decoded disconnect and reports whether it ended the session.
     fn retain_server_disconnect(&mut self, packet: &Packet) -> bool {
         if let Some(event) = ServerDisconnectEvent::from_packet_data(&packet.data) {
@@ -37,8 +38,8 @@ impl<T: Transport> PlaySession<T> {
         raw: RawPacket,
         name: McpePacketName,
     ) -> Result<bool, ProtocolError> {
-        let packet = match self.stream.decode_raw_packet(raw) {
-            Ok(packet) => Packet::new(packet),
+        let packet = match raw.decode() {
+            Ok(packet) => packet,
             Err(error) => return Err(self.fail_session(error)),
         };
         let retained =
@@ -47,6 +48,38 @@ impl<T: Transport> PlaySession<T> {
             reset_cache_for_immediate_boundary(resolver, name)?;
         }
         Ok(retained)
+    }
+
+    /// Retains the core's terminal message as the server packet it stands for, returning whether
+    /// it ended the session; an unusable transfer target is a counted skip instead.
+    pub(super) fn absorb_terminal(&mut self, terminal: Terminal) -> Result<bool, ProtocolError> {
+        let name = match terminal {
+            Terminal::Transfer(transfer) => {
+                self.packet_id_trace.observe(McpePacketName::TransferPacket);
+                match ServerTransferEvent::from_target(
+                    &transfer.address,
+                    transfer.port,
+                    transfer.reload_world,
+                ) {
+                    Ok(event) => self.server_transfer = Some(event),
+                    Err(_) => {
+                        self.transfer_skips = self.transfer_skips.saturating_add(1);
+                        return Ok(false);
+                    }
+                }
+                McpePacketName::TransferPacket
+            }
+            Terminal::Disconnect(disconnect) => {
+                self.packet_id_trace
+                    .observe(McpePacketName::DisconnectPacket);
+                self.server_disconnect = Some(ServerDisconnectEvent::from_session(&disconnect));
+                McpePacketName::DisconnectPacket
+            }
+        };
+        if let Some(resolver) = self.blob_cache.as_mut() {
+            reset_cache_for_immediate_boundary(resolver, name)?;
+        }
+        Ok(true)
     }
 }
 

@@ -5,8 +5,8 @@ use super::*;
 use crate::BlobCacheReady;
 
 use crate::WorldEvent;
+use crate::raw_packet::decode_packet_raw;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use jolyne::raw::decode_packet_raw;
 use valentine::bedrock::codec::Nbt;
 
 use valentine::bedrock::version::v1_26_51::{
@@ -106,7 +106,7 @@ fn cached_level_chunk(hashes: Vec<u64>) -> LevelChunkPacket {
     }
 }
 
-fn raw_packet(id: McpePacketName, body: &[u8]) -> jolyne::raw::RawPacket {
+fn raw_packet(id: McpePacketName, body: &[u8]) -> crate::raw_packet::RawPacket {
     let mut payload = BytesMut::new();
     wire::write_var_u32(&mut payload, id as u32);
     payload.put_slice(body);

@@ -19,7 +19,6 @@ mod fallback;
 mod merge_tests;
 mod rendering;
 mod runtime;
-pub use fallback::FontGlyphRequests;
 pub use rendering::{FONT_STYLE_COVERAGE_GAMMA, FONT_STYLE_SDF, FontRendering};
 
 pub const FONT_CARRIER_MAGIC: [u8; 9] = *b"MCBEFONT1";
@@ -33,7 +32,6 @@ pub const MAX_FONT_PATH_BYTES: usize = 512;
 /// Default raster em for the shipped Sans face. Semantic faces own their raster em.
 pub const FONT_RASTER_EM_PIXELS: u32 = crate::carriers::FONT.font_face.unwrap().raster_em_pixels();
 pub const FONT_FALLBACK_ATLAS_SIDE: u32 = 1024;
-pub const MAX_FONT_FALLBACK_PAGES: usize = 16;
 
 const MAX_FONT_DECODED_BYTES: usize = MAX_FONT_SOURCE_BYTES as usize;
 pub const MAX_FONT_CARRIER_BYTES: usize = 128 * 1024 * 1024;
@@ -145,7 +143,6 @@ pub struct CompiledFontCatalog {
     line_metrics: Option<FontLineMetrics>,
     kerning_64: Arc<BTreeMap<(char, char), i32>>,
     fallback: Option<Arc<Self>>,
-    requests: Option<Arc<FontGlyphRequests>>,
 }
 
 pub type RuntimeFontCatalog = CompiledFontCatalog;
@@ -182,7 +179,6 @@ impl CompiledFontCatalog {
             line_metrics: None,
             kerning_64: Arc::default(),
             fallback: None,
-            requests: None,
         })
     }
 
@@ -232,7 +228,6 @@ impl CompiledFontCatalog {
             line_metrics: self.line_metrics,
             kerning_64: Arc::clone(&self.kerning_64),
             fallback: self.fallback.clone(),
-            requests: self.requests.clone(),
         }
     }
 

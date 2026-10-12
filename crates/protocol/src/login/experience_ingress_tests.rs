@@ -1,7 +1,7 @@
 //! Optional experience envelopes must pass through encoded world ingress.
 use super::*;
+use crate::raw_packet::decode_packet_raw;
 use bytes::Buf;
-use jolyne::raw::decode_packet_raw;
 use valentine::bedrock::version::v1_26_51::ScriptMessagePacket;
 
 /// Encodes a packet and traverses the same raw admission path as the socket reader.

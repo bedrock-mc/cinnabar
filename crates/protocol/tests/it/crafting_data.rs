@@ -1,7 +1,5 @@
 use bytes::Bytes;
-use jolyne::batch::{decode_batch_raw, encode_batch_multi};
-use jolyne::valentine::{McpePacketArgs, McpePacketData};
-use valentine::bedrock::context::BedrockSession;
+use valentine::bedrock::version::v1_26_51::{McpePacketArgs, McpePacketData};
 
 // Regenerated for protocol 2168 from gophertunnel at commit
 // be6713da4dc051a4197f897d04835e89e9c54321:
@@ -36,13 +34,15 @@ const GOPHERTUNNEL_ONE_CELL_SHAPED_RECIPE: &[u8] = &[
     0x00,
 ];
 
-fn raw_crafting_data() -> jolyne::raw::RawPacket {
-    let mut batch = Bytes::from_static(GOPHERTUNNEL_ONE_CELL_SHAPED_RECIPE);
-    decode_batch_raw(&mut batch, false, Some(1024))
-        .expect("raw batch decode")
-        .into_iter()
-        .next()
-        .expect("one packet")
+fn raw_crafting_data() -> crate::raw_packet::RawPacket {
+    crate::raw_packet::decode_batch(
+        Bytes::from_static(GOPHERTUNNEL_ONE_CELL_SHAPED_RECIPE),
+        1024,
+    )
+    .expect("raw batch decode")
+    .into_iter()
+    .next()
+    .expect("one packet")
 }
 
 fn assert_one_cell_shaped_recipe(data: &McpePacketData) {
@@ -78,10 +78,10 @@ fn assert_one_cell_shaped_recipe(data: &McpePacketData) {
 #[test]
 fn pinned_gophertunnel_shaped_recipe_owned_decodes_and_round_trips_exactly() {
     let packet = raw_crafting_data()
-        .decode(&BedrockSession { shield_item_id: 0 })
+        .decode()
         .expect("owned CraftingData decode");
     assert_one_cell_shaped_recipe(&packet.data);
-    let encoded = encode_batch_multi(&[packet], false, 0, 0, true).expect("re-encode");
+    let encoded = crate::encode(&packet).expect("re-encode");
     assert_eq!(encoded.as_ref(), GOPHERTUNNEL_ONE_CELL_SHAPED_RECIPE);
 }
 
@@ -117,7 +117,7 @@ fn pinned_gophertunnel_shaped_recipe_borrowed_materializes() {
 #[test]
 fn shaped_recipe_dimensions_do_not_drive_the_ingredient_count() {
     let mut packet = raw_crafting_data()
-        .decode(&BedrockSession { shield_item_id: 0 })
+        .decode()
         .expect("owned CraftingData decode");
     let McpePacketData::CraftingDataPacket(content) = &mut packet.data else {
         panic!("expected CraftingData");
@@ -126,16 +126,14 @@ fn shaped_recipe_dimensions_do_not_drive_the_ingredient_count() {
     recipe.width = -1;
     recipe.height = -1;
 
-    let encoded =
-        encode_batch_multi(&[packet], false, 0, 0, true).expect("negative dimensions still encode");
+    let encoded = crate::encode(&packet).expect("negative dimensions still encode");
 
-    let mut batch = encoded.clone();
-    let round_tripped = decode_batch_raw(&mut batch, false, Some(1024))
+    let round_tripped = crate::raw_packet::decode_batch(encoded.clone(), 1024)
         .expect("raw batch decode")
         .into_iter()
         .next()
         .expect("one packet")
-        .decode(&BedrockSession { shield_item_id: 0 })
+        .decode()
         .expect("negative dimensions must not derail the ingredient read");
 
     let McpePacketData::CraftingDataPacket(content) = &round_tripped.data else {
@@ -151,7 +149,6 @@ fn shaped_recipe_dimensions_do_not_drive_the_ingredient_count() {
     assert_eq!(recipe.results.len(), 1);
     assert_eq!(recipe.tag, "crafting_table");
 
-    let re_encoded =
-        encode_batch_multi(&[round_tripped], false, 0, 0, true).expect("stable re-encode");
+    let re_encoded = crate::encode(&round_tripped).expect("stable re-encode");
     assert_eq!(re_encoded, encoded);
 }

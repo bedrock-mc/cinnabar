@@ -221,7 +221,6 @@ if len(protocol_packages) != 1:
     )
 expected_dependencies = {
     "valentine": ["bedrock_1_26_51"],
-    "jolyne": ["client", "bedrock_1_26_51"],
 }
 for dependency_name, expected_features in expected_dependencies.items():
     matches = [
@@ -301,7 +300,7 @@ for block in re.split(r"(?m)^\s*\[\[package\]\]\s*$", lock)[1:]:
     if not name_match:
         continue
     name = name_match.group(1)
-    if name != "jolyne" and not name.startswith("valentine"):
+    if not name.startswith("valentine"):
         continue
     resolved.add(name)
     resolution_key = re.search(r"(?m)^\s*(source|checksum)\s*=", block)
@@ -309,7 +308,7 @@ for block in re.split(r"(?m)^\s*\[\[package\]\]\s*$", lock)[1:]:
         raise SystemExit(
             f"Cargo.lock local package {name} has a {resolution_key.group(1)} entry"
         )
-for dependency in ("valentine", "jolyne"):
+for dependency in ("valentine",):
     if dependency not in resolved:
         raise SystemExit(f"Cargo.lock does not contain local package {dependency}")
 PY

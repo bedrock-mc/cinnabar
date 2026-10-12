@@ -2779,11 +2779,19 @@ texture, tint and sample point are unmatched), pack attachables (held/worn on pl
 (pack bindings win by item identifier; pack property defaults seed only from `entities/` in
 resource packs), rigs depending on vanilla clips are attributed as fallbacks; pack precedence follows the Bedrock stack (last entry wins). No vanilla acceptance gate is closed by this change.
 
+2026-10-12 protocol session layer: `protocol::login` owns the play stream on the core's session
+endpoint. Its spawn sequence keeps the first item registry, defers every other packet to play in
+order, records whether terrain preceded spawn and sends loading-end and initialization once the
+app presents the world. The core's terminal Transfer and Disconnect are retained directly rather
+than as server packets. The vendored client session crate and its crypto dependencies are gone;
+Valentine stays the only codec until the generated contract crate replaces it. Behaviour and
+parity are unchanged; the ported startup and play tests are unexecuted until CI.
+
 2026-10-12 protocol boundary: `protocol` exposes only Cinnabar-owned types: an opaque
 `Packet`, owned `GameData` startup facts, the login skin and version constants, the pack
 handoff, transfer and error types. Other crates' tests use `protocol::test_support`; wire-layout
-tests compile inside the crate. Valentine and Jolyne remain its codec and session layer, and the
-architecture gate rejects any other crate depending on them. Behaviour and parity are unchanged.
+tests compile inside the crate. Valentine remains its codec, and the architecture gate rejects
+any other crate depending on it. Behaviour and parity are unchanged.
 
 2026-09-30 protocol-2193 wire target (owner decision): Cinnabar moves from
 Bedrock 1.26.44 / protocol 2168 to 1.26.50 / protocol 2193, because Gophertunnel
@@ -5479,8 +5487,8 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
     `zenomc.org:19197`, following the same candidate/free-camera scenario and five-minute
     minimum used by the other external targets. Zeno is the low-population official-BDS
     server-authority target for movement rejection and correction checks.
-  - Pre-existing, out-of-scope observation: adding `--all-features` to Clippy fails in the
-    vendored `crates/protocol/vendor/jolyne` crate because optional dependencies are not
+  - Pre-existing, out-of-scope observation: adding `--all-features` to Clippy failed in the
+    since-removed vendored client session crate because its optional dependencies were not
     vendored. This work did not cause that failure, and CI does not use `--all-features`.
 
 - **Phase 3 local BDS smoke findings (2026-07-26, four runs at BDS 1.26.32.2).**

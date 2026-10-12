@@ -1,29 +1,20 @@
 use bridge::FrameQueue;
-use jolyne::stream::transport::BatchEncoder;
 
 use super::PlaySession;
-use crate::session_transport::SessionTransport;
 use crate::{Packet, ProtocolError};
 
 /// The write half of a play session: frames whole batches without borrowing the session.
 pub struct PlayOutbound {
-    encoder: BatchEncoder,
     frames: FrameQueue,
     finish_loading: Vec<Packet>,
 }
 
-impl PlaySession<SessionTransport> {
+impl PlaySession {
     /// Detaches the write half; batches it sends share the session's own send FIFO.
     pub fn outbound(&mut self) -> Result<PlayOutbound, ProtocolError> {
         Ok(PlayOutbound {
-            encoder: self.stream.transport().batch_encoder()?,
-            frames: self.stream.transport().inner().frame_queue(),
-            finish_loading: self
-                .stream
-                .take_finish_loading_packets()
-                .into_iter()
-                .map(Packet::new)
-                .collect(),
+            frames: self.transport.frame_queue(),
+            finish_loading: self.take_finish_loading_packets(),
         })
     }
 }
@@ -38,13 +29,7 @@ impl PlayOutbound {
         for packet in &packets {
             crate::codec::validate_packet(packet)?;
         }
-        let packets = packets
-            .into_iter()
-            .map(Packet::into_wire)
-            .collect::<Vec<_>>();
-        let batch = self.encoder.encode(&packets)?;
-        let frame = crate::session_wire::batch_frame_from_bedrock(&batch)
-            .map_err(|error| ProtocolError::Bridge(error.into()))?;
+        let frame = crate::session_transport::batch_frame(&packets)?;
         self.frames
             .send(frame)
             .await

@@ -1,5 +1,5 @@
+use crate::raw_packet::decode_packet_raw;
 use bytes::Buf;
-use jolyne::raw::decode_packet_raw;
 use valentine::bedrock::version::v1_26_51::{
     ActorRuntimeId, EnumsPlayerActionType, PlayerActionPacket,
 };

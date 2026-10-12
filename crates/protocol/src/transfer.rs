@@ -38,7 +38,21 @@ impl ServerTransferEvent {
         let McpePacketData::TransferPacket(packet) = data else {
             return Ok(None);
         };
-        let host = packet.server_address.trim();
+        Self::from_target(
+            &packet.server_address,
+            packet.server_port,
+            packet.reload_world,
+        )
+        .map(Some)
+    }
+
+    /// Validates a destination, from a packet or the core's terminal Transfer, before it is kept.
+    pub(crate) fn from_target(
+        address: &str,
+        port: u16,
+        reload_world: bool,
+    ) -> Result<Self, ServerTransferRejection> {
+        let host = address.trim();
         if host.is_empty() {
             return Err(ServerTransferRejection::EmptyHost);
         }
@@ -48,14 +62,14 @@ impl ServerTransferEvent {
         if host.chars().any(is_forbidden_host_character) {
             return Err(ServerTransferRejection::InvalidHostCharacter);
         }
-        if packet.server_port == 0 {
+        if port == 0 {
             return Err(ServerTransferRejection::ZeroPort);
         }
-        Ok(Some(Self {
+        Ok(Self {
             host: host.to_owned(),
-            port: packet.server_port,
-            reload_world: packet.reload_world,
-        }))
+            port,
+            reload_world,
+        })
     }
 }
 
@@ -69,13 +83,9 @@ impl crate::ProtocolError {
     /// Returns the validated destination when a Transfer ends any login phase.
     pub fn server_transfer(&self) -> Option<ServerTransferEvent> {
         match self {
-            Self::Session(crate::SessionError(jolyne::error::JolyneError::Protocol(
-                jolyne::error::ProtocolError::ServerTransfer(target),
-            ))) => Some(ServerTransferEvent {
-                host: target.host.clone(),
-                port: target.port,
-                reload_world: target.reload_world,
-            }),
+            Self::Session(crate::SessionError(crate::codec::SessionFailure::ServerTransfer(
+                target,
+            ))) => Some(target.clone()),
             _ => None,
         }
     }

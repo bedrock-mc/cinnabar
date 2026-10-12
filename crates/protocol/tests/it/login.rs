@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use jolyne::valentine::McpePacketData;
 use protocol::LoginSequence;
+use valentine::bedrock::version::v1_26_51::McpePacketData;
 
 const EXTERNAL_HARNESS_TEST: &str = "^TestProxyExternalRustClientHarness$";
 const ENDPOINT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -202,15 +202,20 @@ async fn offline_core_session_preserves_startup_behaviour() {
                     assert_core_frame_payloads(&mut session).await;
                 }
                 if scenario == "transfer-play" {
-                    let packet = tokio::time::timeout(LOGIN_TIMEOUT, session.recv())
+                    // The core ends the session with its Transfer message, retained as play's target.
+                    let ended = tokio::time::timeout(LOGIN_TIMEOUT, session.recv())
                         .await
-                        .expect("transfer timeout")
-                        .unwrap_or_else(|error| panic!("{error}\n{}", harness.output()));
-                    let McpePacketData::TransferPacket(transfer) = packet.data else {
-                        panic!("play transfer arrived as {:?}", packet.data.packet_id())
-                    };
+                        .expect("transfer timeout");
+                    assert!(
+                        matches!(ended, Err(protocol::ProtocolError::SessionBoundary)),
+                        "the play transfer must end the session\n{}",
+                        harness.output()
+                    );
+                    let transfer = session
+                        .take_server_transfer()
+                        .expect("the play transfer target is retained");
                     assert_eq!(
-                        (transfer.server_address.as_str(), transfer.server_port),
+                        (transfer.host.as_str(), transfer.port),
                         ("play.example.test", 19134)
                     );
                 }
@@ -278,10 +283,12 @@ async fn wait_for_startup_marker(
 
 /// Builds an application-owned barrier that the upstream can observe on the wire.
 fn startup_marker(timestamp: u64) -> protocol::Packet {
-    protocol::Packet::new(jolyne::valentine::NetworkStackLatencyPacket {
-        creation_time: timestamp,
-        is_from_server: false,
-    })
+    protocol::Packet::new(
+        valentine::bedrock::version::v1_26_51::NetworkStackLatencyPacket {
+            creation_time: timestamp,
+            is_from_server: false,
+        },
+    )
 }
 
 /// Waits for the external harness in a blocking context on the tests' multithreaded runtime.
@@ -684,7 +691,7 @@ impl Drop for TestSocketDir {
 
 /// Carries binary and 1 MiB payloads both ways through the real core after its startup handshake.
 async fn assert_core_frame_payloads(session: &mut protocol::PlaySession) {
-    use jolyne::valentine::ScriptMessagePacket;
+    use valentine::bedrock::version::v1_26_51::ScriptMessagePacket;
     for payload in [
         vec![0, 0xfe, 0, 1, 0xff, 0],
         (0..1024 * 1024).map(|index| (index % 251) as u8).collect(),

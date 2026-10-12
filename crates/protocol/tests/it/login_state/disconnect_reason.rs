@@ -1,11 +1,10 @@
 use super::*;
-use jolyne::stream::transport::Transport;
-use jolyne::valentine::{
+use valentine::bedrock::codec::ZigZag32;
+use valentine::bedrock::version::v1_26_51::{
     ActorUniqueId, CameraInstruction, CameraInstructionOptionsSplineInstruction,
     CameraInstructionPacket, CameraPacket, CameraShakePacket, EnumsCameraShakeAction,
-    EnumsCameraShakeType, McpePacketName, ModalFormRequestPacket, TransferPacket,
+    EnumsCameraShakeType, ModalFormRequestPacket, TransferPacket,
 };
-use protocol::PlaySession;
 
 const EPILOGUE_ITERATION_LIMIT: usize = 32;
 
@@ -29,29 +28,28 @@ pub(super) enum PlayEpilogue {
 /// The transfer target the well-formed transfer epilogues advertise.
 pub(super) const TRANSFER_EPILOGUE_HOST: &str = "game.example.net";
 pub(super) const TRANSFER_EPILOGUE_PORT: u16 = 19133;
+const DISCONNECT_EPILOGUE_MESSAGE: &str = "We've detected movement cheats";
 
 pub(super) const EPILOGUE_SENTINEL_TIME: i32 = 45_678;
 pub(super) const CAMERA_INTERLEAVED_SENTINEL_TIME: i32 = 56_789;
 
-pub(super) fn camera_instruction_epilogue_packets(epilogue: PlayEpilogue) -> Vec<McpePacket> {
+pub(super) fn camera_instruction_epilogue_packets(epilogue: PlayEpilogue) -> Vec<Packet> {
     match epilogue {
         PlayEpilogue::CameraInstructions => vec![
-            McpePacket::from(CameraInstructionPacket {
+            Packet::new(CameraInstructionPacket {
                 camera_instruction: CameraInstruction {
                     clear: Some(true),
                     ..Default::default()
                 },
             }),
-            McpePacket::from(SetTimePacket {
-                time: EPILOGUE_SENTINEL_TIME,
-            }),
-            McpePacket::from(CameraShakePacket {
+            set_time(EPILOGUE_SENTINEL_TIME),
+            Packet::new(CameraShakePacket {
                 intensity: 0.25,
                 seconds: 3.0,
                 shake_type: EnumsCameraShakeType::Rotational,
                 shake_action: EnumsCameraShakeAction::Add,
             }),
-            McpePacket::from(CameraPacket {
+            Packet::new(CameraPacket {
                 camera_id: ActorUniqueId {
                     actor_unique_id: -11,
                 },
@@ -59,29 +57,23 @@ pub(super) fn camera_instruction_epilogue_packets(epilogue: PlayEpilogue) -> Vec
                     actor_unique_id: -22,
                 },
             }),
-            McpePacket::from(SetTimePacket {
-                time: CAMERA_INTERLEAVED_SENTINEL_TIME,
-            }),
+            set_time(CAMERA_INTERLEAVED_SENTINEL_TIME),
         ],
         PlayEpilogue::OddCameraInstruction => vec![
-            McpePacket::from(CameraInstructionPacket {
+            Packet::new(CameraInstructionPacket {
                 camera_instruction: CameraInstruction {
                     spline: Some(CameraInstructionOptionsSplineInstruction::default()),
                     ..Default::default()
                 },
             }),
-            McpePacket::from(SetTimePacket {
-                time: EPILOGUE_SENTINEL_TIME,
-            }),
+            set_time(EPILOGUE_SENTINEL_TIME),
         ],
         PlayEpilogue::OddModalForm => vec![
-            McpePacket::from(ModalFormRequestPacket {
+            Packet::new(ModalFormRequestPacket {
                 form_id: 5,
                 form_uijson: r#"{"type":"form","title""#.to_owned(),
             }),
-            McpePacket::from(SetTimePacket {
-                time: EPILOGUE_SENTINEL_TIME,
-            }),
+            set_time(EPILOGUE_SENTINEL_TIME),
         ],
         _ => Vec::new(),
     }
@@ -103,100 +95,101 @@ pub(super) fn truncated_epilogue_wire(
     }
 }
 
-impl ScriptTransport {
-    pub(super) fn new_with_epilogue(
-        mode: CompressionMode,
-        order: SpawnOrder,
-        epilogue: PlayEpilogue,
-    ) -> Self {
-        let mut script = ServerScript::new(
-            mode,
-            order,
-            false,
-            false,
-            false,
-            CachePlayScript::ResolveValid,
-        );
-        script.epilogue = epilogue;
-        Self {
-            script: Arc::new(Mutex::new(script)),
-        }
-    }
-
-    pub(super) fn new_with_cache_and_epilogue(
-        mode: CompressionMode,
-        order: SpawnOrder,
-        epilogue: PlayEpilogue,
-    ) -> Self {
-        let mut script = ServerScript::new(
-            mode,
-            order,
-            false,
-            false,
-            true,
-            CachePlayScript::ResolveValid,
-        );
-        script.epilogue = epilogue;
-        Self {
-            script: Arc::new(Mutex::new(script)),
-        }
-    }
+/// The core's code for a disconnect reason, as it would forward the server's.
+fn reason_code(reason: EnumsConnectionDisconnectFailReason) -> i32 {
+    let mut encoded = BytesMut::new();
+    reason.encode(&mut encoded).expect("a reason encodes");
+    ZigZag32::decode(&mut encoded.freeze(), ())
+        .expect("a reason is a signed varint")
+        .0
 }
 
-pub(super) fn boundary_epilogue_packets(epilogue: PlayEpilogue) -> Vec<McpePacket> {
-    match epilogue {
-        PlayEpilogue::Default => Vec::new(),
-        PlayEpilogue::ServerDisconnect => vec![
-            McpePacket::from(DisconnectPacket {
-                reason: EnumsConnectionDisconnectFailReason::Kicked,
-                hide_disconnection_screen: false,
-                messages: DisconnectPacketMessages {
-                    message: "We've detected movement cheats".into(),
-                    filtered_message: String::new(),
-                },
-            }),
-            McpePacket::from(SetTimePacket {
-                time: EPILOGUE_SENTINEL_TIME,
-            }),
-        ],
+/// The packets a boundary epilogue adds to the play batch and, when the script delivers the
+/// boundary as the core does, the terminal message standing for its Disconnect or Transfer.
+pub(super) fn boundary_epilogue(script: &Script) -> (Vec<Packet>, Option<Bytes>) {
+    let sentinel = set_time(EPILOGUE_SENTINEL_TIME);
+    match script.epilogue {
+        PlayEpilogue::ServerDisconnect if script.terminal_boundary => (
+            Vec::new(),
+            Some(terminal_frame(
+                KIND_DISCONNECT,
+                &serde_json::json!({
+                    "reason": reason_code(EnumsConnectionDisconnectFailReason::Kicked),
+                    "message": DISCONNECT_EPILOGUE_MESSAGE,
+                    "filtered_message": "",
+                    "hide_screen": false,
+                }),
+            )),
+        ),
+        PlayEpilogue::ServerDisconnect => (
+            vec![
+                Packet::new(DisconnectPacket {
+                    reason: EnumsConnectionDisconnectFailReason::Kicked,
+                    hide_disconnection_screen: false,
+                    messages: DisconnectPacketMessages {
+                        message: DISCONNECT_EPILOGUE_MESSAGE.into(),
+                        filtered_message: String::new(),
+                    },
+                }),
+                sentinel,
+            ],
+            None,
+        ),
+        PlayEpilogue::ServerTransfer if script.terminal_boundary => (
+            Vec::new(),
+            Some(terminal_frame(
+                KIND_TRANSFER,
+                &serde_json::json!({
+                    "address": TRANSFER_EPILOGUE_HOST,
+                    "port": TRANSFER_EPILOGUE_PORT,
+                    "reload_world": false,
+                }),
+            )),
+        ),
+        // The core forwards an unusable target in a batch rather than ending the session.
         PlayEpilogue::ServerTransfer
         | PlayEpilogue::OddTransferEmptyHost
         | PlayEpilogue::OddTransferZeroPort => {
-            let server_address = match epilogue {
+            let server_address = match script.epilogue {
                 PlayEpilogue::OddTransferEmptyHost => String::new(),
                 _ => TRANSFER_EPILOGUE_HOST.to_owned(),
             };
-            let server_port = match epilogue {
+            let server_port = match script.epilogue {
                 PlayEpilogue::OddTransferZeroPort => 0,
                 _ => TRANSFER_EPILOGUE_PORT,
             };
             // The sentinel SetTime proves the session survives (or observes)
             // each transfer boundary in FIFO order before any later traffic.
-            vec![
-                McpePacket::from(TransferPacket {
-                    server_address,
-                    server_port,
-                    reload_world: false,
-                    ..Default::default()
-                }),
-                McpePacket::from(SetTimePacket {
-                    time: EPILOGUE_SENTINEL_TIME,
-                }),
-            ]
+            (
+                vec![
+                    Packet::new(TransferPacket {
+                        server_address,
+                        server_port,
+                        reload_world: false,
+                        ..Default::default()
+                    }),
+                    sentinel,
+                ],
+                None,
+            )
         }
-        PlayEpilogue::TruncatedDisconnect
-        | PlayEpilogue::TruncatedTransfer
-        | PlayEpilogue::CameraInstructions
-        | PlayEpilogue::OddCameraInstruction
-        | PlayEpilogue::TruncatedCameraShake
-        | PlayEpilogue::OddModalForm
-        | PlayEpilogue::TruncatedModalFormRequest => vec![],
+        _ => (Vec::new(), None),
     }
 }
 
-/// Drains the ordinary login epilogue until the decoded terminal packet wakes
-/// the receiver with the play-boundary sentinel.
-async fn expect_session_boundary<T: Transport>(session: &mut PlaySession<T>) {
+/// A script ending with `epilogue`, delivered in a batch or as the core's terminal message.
+fn epilogue_script(epilogue: PlayEpilogue, cache_enabled: bool, terminal_boundary: bool) -> Script {
+    Script {
+        epilogue,
+        cache_enabled,
+        terminal_boundary,
+        ..Script::default()
+    }
+}
+
+/// Drains the ordinary epilogue until the retained terminal event wakes the receiver with the
+/// play-boundary sentinel.
+async fn expect_session_boundary(session: &mut PlaySession) {
     for _ in 0..EPILOGUE_ITERATION_LIMIT {
         match session.recv_world_event(0).await {
             Err(ProtocolError::SessionBoundary) => return,
@@ -207,73 +200,48 @@ async fn expect_session_boundary<T: Transport>(session: &mut PlaySession<T>) {
     panic!("terminal epilogue never surfaced its session boundary");
 }
 
+/// A server disconnect, in a batch or as the core's terminal message, is retained once with
+/// its normalized reason, with and without a resolver.
 #[tokio::test]
 async fn play_ingress_retains_a_normalized_server_disconnect_reason() {
-    let transport = ScriptTransport::new_with_epilogue(
-        CompressionMode::Deflate,
-        SpawnOrder::RadiusThenSpawn,
-        PlayEpilogue::ServerDisconnect,
-    );
-    let (mut session, _) = LoginSequence::connect_transport(transport, "RustClient")
-        .await
-        .expect("scripted login");
+    for cache_enabled in [false, true] {
+        for terminal_boundary in [false, true] {
+            let (mut session, core) = joined(epilogue_script(
+                PlayEpilogue::ServerDisconnect,
+                cache_enabled,
+                terminal_boundary,
+            ))
+            .await;
 
-    expect_session_boundary(&mut session).await;
+            expect_session_boundary(&mut session).await;
 
-    let disconnect = session
-        .take_server_disconnect()
-        .expect("server disconnect reason is retained");
-    assert_eq!(disconnect.reason, "Kicked");
-    assert_eq!(
-        disconnect.message.as_deref(),
-        Some("We've detected movement cheats")
-    );
-    assert_eq!(disconnect.filtered_message, None);
-    assert_eq!(session.decode_error_count(), 0);
-    assert!(
-        session.take_server_disconnect().is_none(),
-        "the retained reason is one-shot"
-    );
-}
-
-#[tokio::test]
-async fn cached_play_ingress_retains_a_normalized_server_disconnect_reason() {
-    let transport = ScriptTransport::new_with_cache_and_epilogue(
-        CompressionMode::Deflate,
-        SpawnOrder::RadiusThenSpawn,
-        PlayEpilogue::ServerDisconnect,
-    );
-    let (mut session, _) = LoginSequence::connect_transport_with_blob_cache(
-        transport,
-        "RustClient",
-        ClientBlobCache::default(),
-    )
-    .await
-    .expect("scripted cache login");
-
-    expect_session_boundary(&mut session).await;
-
-    let disconnect = session
-        .take_server_disconnect()
-        .expect("cached sessions retain the server disconnect reason");
-    assert_eq!(
-        disconnect.message.as_deref(),
-        Some("We've detected movement cheats")
-    );
-    assert_eq!(session.decode_error_count(), 0);
-    assert!(session.take_server_disconnect().is_none());
+            let disconnect = session
+                .take_server_disconnect()
+                .expect("server disconnect reason is retained");
+            assert_eq!(disconnect.reason, "Kicked");
+            assert_eq!(
+                disconnect.message.as_deref(),
+                Some(DISCONNECT_EPILOGUE_MESSAGE)
+            );
+            assert_eq!(disconnect.filtered_message, None);
+            assert_eq!(session.decode_error_count(), 0);
+            assert!(
+                session.take_server_disconnect().is_none(),
+                "the retained reason is one-shot"
+            );
+            core.finish(session).await;
+        }
+    }
 }
 
 #[tokio::test]
 async fn truncated_disconnect_wire_stays_fatal_without_a_resolver() {
-    let transport = ScriptTransport::new_with_epilogue(
-        CompressionMode::Deflate,
-        SpawnOrder::RadiusThenSpawn,
+    let (mut session, core) = joined(epilogue_script(
         PlayEpilogue::TruncatedDisconnect,
-    );
-    let (mut session, _) = LoginSequence::connect_transport(transport, "RustClient")
-        .await
-        .expect("scripted login");
+        false,
+        false,
+    ))
+    .await;
 
     for _ in 0..5 {
         session.recv_world_event(0).await.expect("login prelude");
@@ -284,9 +252,10 @@ async fn truncated_disconnect_wire_stays_fatal_without_a_resolver() {
         .expect_err("truncated DisconnectPacket wire must stay fatal");
     assert!(matches!(error, ProtocolError::Session(_)));
     assert_eq!(session.decode_error_count(), 1);
+    core.finish(session).await;
 }
 
-async fn drain_until_transfer_sentinel<T: Transport>(session: &mut PlaySession<T>) {
+async fn drain_until_transfer_sentinel(session: &mut PlaySession) {
     for _ in 0..EPILOGUE_ITERATION_LIMIT {
         match session
             .recv_world_event(0)
@@ -304,69 +273,46 @@ async fn drain_until_transfer_sentinel<T: Transport>(session: &mut PlaySession<T
     panic!("transfer epilogue sentinel never arrived");
 }
 
+/// A server transfer, in a batch or as the core's terminal message, is retained once with its
+/// normalized target, with and without a resolver.
 #[tokio::test]
 async fn play_ingress_retains_a_normalized_server_transfer_target() {
-    let transport = ScriptTransport::new_with_epilogue(
-        CompressionMode::Deflate,
-        SpawnOrder::RadiusThenSpawn,
-        PlayEpilogue::ServerTransfer,
-    );
-    let (mut session, _) = LoginSequence::connect_transport(transport, "RustClient")
-        .await
-        .expect("scripted login");
+    for cache_enabled in [false, true] {
+        for terminal_boundary in [false, true] {
+            let (mut session, core) = joined(epilogue_script(
+                PlayEpilogue::ServerTransfer,
+                cache_enabled,
+                terminal_boundary,
+            ))
+            .await;
 
-    expect_session_boundary(&mut session).await;
+            expect_session_boundary(&mut session).await;
 
-    let transfer = session
-        .take_server_transfer()
-        .expect("the server transfer target is retained");
-    assert_eq!(transfer.host, TRANSFER_EPILOGUE_HOST);
-    assert_eq!(transfer.port, TRANSFER_EPILOGUE_PORT);
-    assert!(!transfer.reload_world);
-    assert_eq!(session.decode_error_count(), 0);
-    assert_eq!(session.transfer_skip_count(), 0);
-    assert!(
-        session.take_server_transfer().is_none(),
-        "the retained transfer target is one-shot"
-    );
-}
-
-#[tokio::test]
-async fn cached_play_ingress_retains_a_normalized_server_transfer_target() {
-    let transport = ScriptTransport::new_with_cache_and_epilogue(
-        CompressionMode::Deflate,
-        SpawnOrder::RadiusThenSpawn,
-        PlayEpilogue::ServerTransfer,
-    );
-    let (mut session, _) = LoginSequence::connect_transport_with_blob_cache(
-        transport,
-        "RustClient",
-        ClientBlobCache::default(),
-    )
-    .await
-    .expect("scripted cache login");
-
-    expect_session_boundary(&mut session).await;
-
-    let transfer = session
-        .take_server_transfer()
-        .expect("cached sessions retain the server transfer target");
-    assert_eq!(transfer.host, TRANSFER_EPILOGUE_HOST);
-    assert_eq!(transfer.port, TRANSFER_EPILOGUE_PORT);
-    assert_eq!(session.decode_error_count(), 0);
-    assert!(session.take_server_transfer().is_none());
+            let transfer = session
+                .take_server_transfer()
+                .expect("the server transfer target is retained");
+            assert_eq!(transfer.host, TRANSFER_EPILOGUE_HOST);
+            assert_eq!(transfer.port, TRANSFER_EPILOGUE_PORT);
+            assert!(!transfer.reload_world);
+            assert_eq!(session.decode_error_count(), 0);
+            assert_eq!(session.transfer_skip_count(), 0);
+            assert!(
+                session.take_server_transfer().is_none(),
+                "the retained transfer target is one-shot"
+            );
+            core.finish(session).await;
+        }
+    }
 }
 
 #[tokio::test]
 async fn truncated_transfer_wire_stays_fatal() {
-    let transport = ScriptTransport::new_with_epilogue(
-        CompressionMode::Deflate,
-        SpawnOrder::RadiusThenSpawn,
+    let (mut session, core) = joined(epilogue_script(
         PlayEpilogue::TruncatedTransfer,
-    );
-    let (mut session, _) = LoginSequence::connect_transport(transport, "RustClient")
-        .await
-        .expect("scripted login");
+        false,
+        false,
+    ))
+    .await;
 
     for _ in 0..5 {
         session.recv_world_event(0).await.expect("login prelude");
@@ -378,60 +324,30 @@ async fn truncated_transfer_wire_stays_fatal() {
     assert!(matches!(error, ProtocolError::Session(_)));
     assert_eq!(session.decode_error_count(), 1);
     assert!(session.take_server_transfer().is_none());
+    core.finish(session).await;
 }
 
 #[tokio::test]
 async fn well_formed_but_unusable_transfer_targets_are_counted_semantic_skips() {
-    for epilogue in [
-        PlayEpilogue::OddTransferEmptyHost,
-        PlayEpilogue::OddTransferZeroPort,
-    ] {
-        let transport = ScriptTransport::new_with_epilogue(
-            CompressionMode::Deflate,
-            SpawnOrder::RadiusThenSpawn,
-            epilogue,
-        );
-        let (mut session, _) = LoginSequence::connect_transport(transport, "RustClient")
-            .await
-            .expect("scripted login");
+    for cache_enabled in [false, true] {
+        for epilogue in [
+            PlayEpilogue::OddTransferEmptyHost,
+            PlayEpilogue::OddTransferZeroPort,
+        ] {
+            let (mut session, core) = joined(epilogue_script(epilogue, cache_enabled, false)).await;
 
-        // The sentinel SetTime after the odd transfer proves the session
-        // survives the semantic rejection and keeps FIFO order.
-        drain_until_transfer_sentinel(&mut session).await;
+            // The sentinel SetTime after the odd transfer proves the session
+            // survives the semantic rejection and keeps FIFO order.
+            drain_until_transfer_sentinel(&mut session).await;
 
-        assert_eq!(
-            session.transfer_skip_count(),
-            1,
-            "{epilogue:?} must count exactly one semantic transfer skip"
-        );
-        assert!(session.take_server_transfer().is_none());
-        assert_eq!(session.decode_error_count(), 0);
-    }
-}
-
-#[tokio::test]
-async fn cached_unusable_transfer_targets_are_counted_semantic_skips() {
-    for epilogue in [
-        PlayEpilogue::OddTransferEmptyHost,
-        PlayEpilogue::OddTransferZeroPort,
-    ] {
-        let transport = ScriptTransport::new_with_cache_and_epilogue(
-            CompressionMode::Deflate,
-            SpawnOrder::RadiusThenSpawn,
-            epilogue,
-        );
-        let (mut session, _) = LoginSequence::connect_transport_with_blob_cache(
-            transport,
-            "RustClient",
-            ClientBlobCache::default(),
-        )
-        .await
-        .expect("scripted cache login");
-
-        drain_until_transfer_sentinel(&mut session).await;
-
-        assert_eq!(session.transfer_skip_count(), 1);
-        assert!(session.take_server_transfer().is_none());
-        assert_eq!(session.decode_error_count(), 0);
+            assert_eq!(
+                session.transfer_skip_count(),
+                1,
+                "{epilogue:?} must count exactly one semantic transfer skip"
+            );
+            assert!(session.take_server_transfer().is_none());
+            assert_eq!(session.decode_error_count(), 0);
+            core.finish(session).await;
+        }
     }
 }

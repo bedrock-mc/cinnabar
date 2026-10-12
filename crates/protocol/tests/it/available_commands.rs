@@ -1,11 +1,9 @@
 use bytes::{Bytes, BytesMut};
-use jolyne::{
-    batch::{decode_batch_raw, encode_batch_multi},
-    error::JolyneError,
-    raw::{RawPacket, decode_packet_raw},
-    valentine::{McpePacketArgs, McpePacketData, McpePacketName},
-};
-use valentine::bedrock::context::BedrockSession;
+use valentine::bedrock::version::v1_26_51::{McpePacketArgs, McpePacketData, McpePacketName};
+
+use crate::codec::SessionFailure;
+use crate::raw_packet::{RawPacket, decode_packet_raw};
+use crate::{ProtocolError, SessionError};
 use valentine::bedrock::error::DecodeError;
 use valentine::protocol::wire;
 
@@ -16,8 +14,7 @@ const LIVE_BODY_LENGTH_REGRESSION: &[u8] =
 const MAX_COMMAND_VALUES: usize = 4_096;
 
 fn raw_fixture(fixture: &'static [u8]) -> RawPacket {
-    let mut batch = Bytes::from_static(fixture);
-    decode_batch_raw(&mut batch, false, Some(1024 * 1024))
+    crate::raw_packet::decode_batch(Bytes::from_static(fixture), 1024 * 1024)
         .expect("raw batch decode")
         .into_iter()
         .next()
@@ -58,10 +55,10 @@ fn assert_every_section(data: &McpePacketData) {
 #[test]
 fn pinned_gophertunnel_available_commands_owned_decodes_every_section_and_round_trips() {
     let packet = raw_fixture(GOPHERTUNNEL_AVAILABLE_COMMANDS)
-        .decode(&BedrockSession { shield_item_id: 0 })
+        .decode()
         .expect("owned AvailableCommands decode");
     assert_every_section(&packet.data);
-    let encoded = encode_batch_multi(&[packet], false, 0, 0, true).expect("re-encode");
+    let encoded = crate::encode(&packet).expect("re-encode");
     assert_eq!(encoded.as_ref(), GOPHERTUNNEL_AVAILABLE_COMMANDS);
 }
 
@@ -82,24 +79,24 @@ fn observed_356513_byte_live_body_decodes_and_round_trips_exactly() {
     let raw = raw_fixture(LIVE_BODY_LENGTH_REGRESSION);
     assert_eq!(raw.body().len(), 356_513);
     let packet = raw
-        .decode(&BedrockSession { shield_item_id: 0 })
+        .decode()
         .expect("large live-length AvailableCommands decode");
     assert_every_section(&packet.data);
-    let encoded = encode_batch_multi(&[packet], false, 0, 0, true).expect("re-encode");
+    let encoded = crate::encode(&packet).expect("re-encode");
     assert_eq!(encoded.as_ref(), LIVE_BODY_LENGTH_REGRESSION);
 }
 
 #[test]
 fn available_commands_rejects_malformed_shared_count() {
     let error = raw_available_commands_body(&[0x02, 0x01, b'a'])
-        .decode(&BedrockSession { shield_item_id: 0 })
+        .decode()
         .expect_err("count declaring a missing second string must fail");
     assert!(matches!(
         error,
-        JolyneError::PacketDecode {
+        SessionError(SessionFailure::PacketDecode {
             source: DecodeError::UnexpectedEof { .. },
             ..
-        }
+        })
     ));
 }
 
@@ -109,9 +106,9 @@ fn available_commands_rejects_malformed_shared_count() {
 #[test]
 fn available_commands_rejects_count_above_gophertunnel_slice_limit() {
     let error = raw_available_commands_body(&[0x81, 0x20])
-        .decode(&BedrockSession { shield_item_id: 0 })
+        .decode()
         .expect_err("4,097 values must not decode");
-    let JolyneError::PacketDecode { source, .. } = &error else {
+    let SessionError(SessionFailure::PacketDecode { source, .. }) = &error else {
         panic!("unexpected error: {error:?}");
     };
     assert!(matches!(
@@ -138,7 +135,7 @@ fn available_commands_rejects_count_above_gophertunnel_slice_limit() {
 #[test]
 fn available_commands_encoding_no_longer_rejects_more_than_gophertunnel_slice_limit() {
     let mut packet = raw_fixture(GOPHERTUNNEL_AVAILABLE_COMMANDS)
-        .decode(&BedrockSession { shield_item_id: 0 })
+        .decode()
         .expect("decode fixture before mutation");
     let McpePacketData::AvailableCommandsPacket(content) = &mut packet.data else {
         panic!("expected AvailableCommands");
@@ -147,9 +144,11 @@ fn available_commands_encoding_no_longer_rejects_more_than_gophertunnel_slice_li
         .enum_values
         .resize(MAX_COMMAND_VALUES + 1, "overflow".to_owned());
 
-    match encode_batch_multi(&[packet], false, 0, 0, true) {
+    match crate::encode(&packet) {
         Ok(_) => {}
-        Err(JolyneError::Io(ref error)) if error.kind() == std::io::ErrorKind::InvalidInput => {
+        Err(ProtocolError::Encode(ref error))
+            if error.kind() == std::io::ErrorKind::InvalidInput =>
+        {
             panic!(
                 "valentine_gen appears to enforce encode-side slice ceilings again: restore the \
                  `expect_err` assertion here"

@@ -1,7 +1,7 @@
 //! `BlockEvent` ingress: container cues reach the world stream with their dimension.
 
+use crate::raw_packet::decode_packet_raw;
 use bytes::Buf;
-use jolyne::raw::decode_packet_raw;
 
 use valentine::bedrock::version::v1_26_51::{
     ActorUniqueId, BlockEventPacket, BlockPos, ClientboundMapItemDataPacket, OpenSignPacket,

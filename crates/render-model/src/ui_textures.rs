@@ -13,7 +13,7 @@ use crate::ui::{
 /// Buckets bind independently; page count and byte limits bound their residency.
 pub const MAX_UI_TEXTURE_BUCKETS: usize = MAX_UI_TEXTURE_LAYERS as usize;
 /// Replaceable pages after static UI: models, session glyphs, server UI, then a local font.
-pub const MAX_UI_DYNAMIC_PAGES: usize = UI_FALLBACK_FONT_PAGE_OFFSET + MAX_UI_FALLBACK_FONT_PAGES;
+pub const MAX_UI_DYNAMIC_PAGES: usize = UI_LOCAL_FONT_PAGE_OFFSET + 1;
 /// Side length shared by general dynamic UI pages outside original-resolution model slots.
 pub const UI_DYNAMIC_PAGE_SIDE: u32 = 256;
 /// Fixed dynamic slot carrying the original player skin, not a projected thumbnail.
@@ -26,9 +26,6 @@ pub const UI_MODEL_ATLAS_SIDE: u32 = 512;
 /// Dedicated bounded local-font slot, outside the server glyph and UI allocations.
 pub const UI_LOCAL_FONT_PAGE_OFFSET: usize = 34;
 pub const UI_LOCAL_FONT_PAGE_SIDE: u32 = 512;
-pub const UI_FALLBACK_FONT_PAGE_OFFSET: usize = UI_LOCAL_FONT_PAGE_OFFSET + 1;
-pub const MAX_UI_FALLBACK_FONT_PAGES: usize = assets::MAX_FONT_FALLBACK_PAGES;
-pub const UI_FALLBACK_FONT_PAGE_SIDE: u32 = assets::FONT_FALLBACK_ATLAS_SIDE;
 /// Replaceable full-resolution pages after the small ones, for menu artwork.
 pub const MAX_UI_ART_PAGES: usize = 2;
 pub const UI_ART_PAGE_SIDE: u32 = 1024;
@@ -359,9 +356,7 @@ impl UiTextureCatalog {
             || art > MAX_UI_ART_PAGES
             || native > MAX_UI_NATIVE_SHEET_PAGES
             || dynamic.iter().enumerate().any(|(offset, page)| {
-                (matches!(&page.pixels, Pixels::Font { .. })
-                    && offset != UI_LOCAL_FONT_PAGE_OFFSET
-                    && !(UI_FALLBACK_FONT_PAGE_OFFSET..MAX_UI_DYNAMIC_PAGES).contains(&offset))
+                (matches!(&page.pixels, Pixels::Font { .. }) && offset != UI_LOCAL_FONT_PAGE_OFFSET)
                     || !valid_dynamic_dimensions(offset, page.dimensions)
             })
         {
@@ -493,9 +488,6 @@ fn valid_dynamic_dimensions(offset: usize, [width, height]: [u32; 2]) -> bool {
             && height > 0
             && width <= MAX_UI_TEXTURE_SIDE
             && height <= MAX_UI_TEXTURE_SIDE;
-    }
-    if (UI_FALLBACK_FONT_PAGE_OFFSET..MAX_UI_DYNAMIC_PAGES).contains(&offset) {
-        return [width, height] == [UI_FALLBACK_FONT_PAGE_SIDE; 2];
     }
     if offset == UI_LOCAL_FONT_PAGE_OFFSET {
         return [width, height] == [UI_LOCAL_FONT_PAGE_SIDE; 2];

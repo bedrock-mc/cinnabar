@@ -3,7 +3,11 @@
 use bytes::BytesMut;
 use valentine::bedrock::version::v1_26_51::*;
 
-fn raw_packet(mode: EnumsGameType, actor_unique_id: i64, tick: u64) -> jolyne::raw::RawPacket {
+fn raw_packet(
+    mode: EnumsGameType,
+    actor_unique_id: i64,
+    tick: u64,
+) -> crate::raw_packet::RawPacket {
     let packet: crate::Packet = crate::Packet::new(UpdatePlayerGameTypePacket {
         player_game_type: mode,
         targetplayer: ActorUniqueId { actor_unique_id },
@@ -14,7 +18,7 @@ fn raw_packet(mode: EnumsGameType, actor_unique_id: i64, tick: u64) -> jolyne::r
         .data
         .encode_inner_bytes_mut(&mut frame, 0, 0)
         .unwrap();
-    jolyne::raw::decode_packet_raw(&mut frame.freeze()).unwrap()
+    crate::raw_packet::decode_packet_raw(&mut frame.freeze()).unwrap()
 }
 
 #[test]
@@ -68,7 +72,7 @@ fn truncated_targeted_game_mode_is_a_fatal_wire_fault_not_an_ignored_packet() {
     let mut frame = BytesMut::new();
     valentine::protocol::wire::write_var_u32(&mut frame, payload.len() as u32);
     frame.extend_from_slice(&payload);
-    let raw = jolyne::raw::decode_packet_raw(&mut frame.freeze()).unwrap();
+    let raw = crate::raw_packet::decode_packet_raw(&mut frame.freeze()).unwrap();
     let result = super::decode_world_raw_with(raw, 0, super::decode_test_raw);
     assert!(result.is_err());
     let mut skipped = 0;

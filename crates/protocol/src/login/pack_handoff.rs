@@ -95,21 +95,4 @@ impl ResourcePackHandoff {
     pub fn into_archives(self) -> Vec<ResourcePackArchive> {
         self.archives
     }
-
-    /// Moves the archives the vendored handshake captured, copying only their keys.
-    pub(crate) fn from_session(handoff: jolyne::stream::ResourcePackHandoff) -> Self {
-        let required = handoff.required();
-        let archives = handoff
-            .into_archives()
-            .into_iter()
-            .map(|archive| ResourcePackArchive {
-                content_key: ResourcePackContentKey(archive.content_key.expose().to_vec()),
-                pack_id: archive.pack_id,
-                version: archive.version,
-                sub_pack_name: archive.sub_pack_name,
-                archive: archive.archive,
-            })
-            .collect();
-        Self::from_archives(archives).with_required(required)
-    }
 }

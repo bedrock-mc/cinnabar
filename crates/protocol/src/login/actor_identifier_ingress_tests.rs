@@ -1,5 +1,5 @@
+use crate::raw_packet::decode_packet_raw;
 use bytes::{Bytes, BytesMut};
-use jolyne::raw::decode_packet_raw;
 use valentine::bedrock::{codec::Nbt, version::v1_26_51::AvailableActorIdentifiersPacket};
 
 /// Network NBT for an `idlist` holding one custom actor built on a native one.

@@ -50,9 +50,4 @@ impl Packet {
     pub const fn kind(&self) -> PacketKind {
         PacketKind(self.header.id)
     }
-
-    /// The generated value the vendored session layer sends.
-    pub(crate) fn into_wire(self) -> McpePacket {
-        McpePacket::new(self.header, self.data)
-    }
 }

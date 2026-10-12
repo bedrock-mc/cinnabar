@@ -1,25 +1,12 @@
 use super::*;
 
 async fn assert_level_chunk_wire_failure(cache_enabled: bool, script: CachePlayScript) {
-    let transport = ScriptTransport::new_with_options(
-        CompressionMode::Deflate,
-        SpawnOrder::RadiusThenSpawn,
-        false,
-        false,
+    let (mut session, core) = joined(Script {
         cache_enabled,
-        script,
-    );
-    let connected = if cache_enabled {
-        LoginSequence::connect_transport_with_blob_cache(
-            transport,
-            "RustClient",
-            ClientBlobCache::default(),
-        )
-        .await
-    } else {
-        LoginSequence::connect_transport(transport, "RustClient").await
-    };
-    let (mut session, _) = connected.expect("scripted login");
+        cache_play_script: script,
+        ..Script::default()
+    })
+    .await;
     for _ in 0..3 {
         session.recv_world_event(0).await.expect("login prelude");
     }
@@ -41,11 +28,11 @@ async fn assert_level_chunk_wire_failure(cache_enabled: bool, script: CachePlayS
     match (script, error.0) {
         (
             CachePlayScript::MalformedLevelChunk,
-            jolyne::error::JolyneError::PacketDecode { packet_id, .. },
+            crate::codec::SessionFailure::PacketDecode { packet_id, .. },
         ) => assert_eq!(packet_id, McpePacketName::LevelChunkPacket),
         (
             CachePlayScript::TrailingLevelChunk,
-            jolyne::error::JolyneError::PacketTrailingBytes { packet_id, .. },
+            crate::codec::SessionFailure::PacketTrailingBytes { packet_id, .. },
         ) => assert_eq!(packet_id, McpePacketName::LevelChunkPacket),
         (_, other) => panic!("unexpected LevelChunk failure: {other:?}"),
     }
@@ -65,6 +52,7 @@ async fn assert_level_chunk_wire_failure(cache_enabled: bool, script: CachePlayS
     } else {
         assert_eq!(session.blob_cache_stats().pending_transactions, 0);
     }
+    core.finish(session).await;
 }
 
 #[tokio::test]

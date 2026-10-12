@@ -12,15 +12,9 @@ fn rgba(dimensions: [u32; 2]) -> UiTexturePage {
 fn near_fixed_limit() -> UiTextureCatalog {
     let small = rgba([UI_DYNAMIC_PAGE_SIDE; 2]);
     let local = rgba([UI_LOCAL_FONT_PAGE_SIDE; 2]);
-    let fallback = UiTexturePage::coverage(
-        [UI_FALLBACK_FONT_PAGE_SIDE; 2],
-        vec![0; (UI_FALLBACK_FONT_PAGE_SIDE * UI_FALLBACK_FONT_PAGE_SIDE) as usize].into(),
-    )
-    .unwrap();
     let mut dynamic = (0..MAX_UI_DYNAMIC_PAGES)
         .map(|offset| match offset {
             UI_LOCAL_FONT_PAGE_OFFSET => local.clone(),
-            UI_FALLBACK_FONT_PAGE_OFFSET.. => fallback.clone(),
             _ => small.clone(),
         })
         .collect::<Vec<_>>();

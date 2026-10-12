@@ -297,19 +297,13 @@ fn item_stack_damage_reads_the_root_damage_tag_and_fails_closed_on_junk() {
 
 #[test]
 fn world_bootstrap_carries_the_local_player_unique_id() {
-    let mut game_data = jolyne::GameData {
-        start_game: Default::default(),
-        item_registry: Default::default(),
-        biome_definitions: None,
-        entity_identifiers: None,
-        creative_content: None,
-    };
+    let mut start_game = valentine::bedrock::version::v1_26_51::StartGamePacket::default();
     // 1.26.40 wraps both StartGame ids in named newtypes.
-    game_data.start_game.entity_id = ActorUniqueId {
+    start_game.entity_id = ActorUniqueId {
         actor_unique_id: -3,
     };
-    game_data.start_game.runtime_id = runtime_id(3);
-    let bootstrap = protocol::WorldBootstrap::from_start_game(&game_data.start_game);
+    start_game.runtime_id = runtime_id(3);
+    let bootstrap = protocol::WorldBootstrap::from_start_game(&start_game);
     assert_eq!(bootstrap.local_player_unique_id, -3);
     assert_eq!(bootstrap.local_player_runtime_id, 3);
 }

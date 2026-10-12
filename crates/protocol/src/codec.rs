@@ -70,19 +70,88 @@ pub enum ProtocolError {
     World(#[from] WorldPacketError),
 }
 
-/// A failure in the vendored session layer; `Display` carries its detail.
+/// A failure in the play session or its startup; `Display` carries its detail.
 #[derive(Debug, Error)]
 #[error(transparent)]
-pub struct SessionError(pub(crate) jolyne::error::JolyneError);
+pub struct SessionError(pub(crate) SessionFailure);
+
+/// Why a session failed; packet failures name the packet and keep a bounded body preview.
+#[derive(Debug, Error)]
+pub(crate) enum SessionFailure {
+    #[error(
+        "decode packet {packet_id:?} (body_len={body_len}, body_preview={body_preview:02x?}): {source}"
+    )]
+    PacketDecode {
+        packet_id: McpePacketName,
+        body_len: usize,
+        body_preview: Vec<u8>,
+        #[source]
+        source: valentine::bedrock::error::DecodeError,
+    },
+    #[error(
+        "decode packet {packet_id:?} (body_len={body_len}) left {remaining} trailing body bytes"
+    )]
+    PacketTrailingBytes {
+        packet_id: McpePacketName,
+        body_len: usize,
+        remaining: usize,
+    },
+    #[error("malformed packet entry: {0}")]
+    MalformedEntry(#[source] std::io::Error),
+    #[error("declared packet length {declared} exceeds available {available}")]
+    TruncatedEntry { declared: usize, available: usize },
+    #[error("unknown packet ID {0}")]
+    UnknownPacketId(u32),
+    #[error("batch payload exceeds max size ({actual} > {max})")]
+    BatchTooLarge { actual: usize, max: usize },
+    #[error("batch contains more than {max} packets")]
+    TooManyPackets { max: usize },
+    #[error("unexpected startup packet: {0}")]
+    UnexpectedStartup(String),
+    /// A Disconnect ended the join; the texts are the server's own, unbounded.
+    #[error("server disconnected during {stage}: {reason}")]
+    ServerDisconnect {
+        stage: &'static str,
+        reason: String,
+        message: String,
+        filtered_message: String,
+    },
+    /// A usable Transfer hands the join back to the reconnect owner.
+    #[error("server transferred to {}:{}", .0.host, .0.port)]
+    ServerTransfer(crate::ServerTransferEvent),
+    #[error("session transport failed: {0}")]
+    Transport(#[source] bridge::BridgeError),
+    #[error("connection closed")]
+    ConnectionClosed,
+}
+
+impl SessionFailure {
+    /// Whether this is a malformed-input failure, which play counts, rather than a closed link.
+    pub(crate) const fn is_decode(&self) -> bool {
+        !matches!(self, Self::Transport(_) | Self::ConnectionClosed)
+    }
+}
+
+impl From<SessionFailure> for SessionError {
+    fn from(failure: SessionFailure) -> Self {
+        Self(failure)
+    }
+}
 
 /// A packet body the codec could not decode; `Display` carries its detail.
 #[derive(Debug, Error)]
 #[error(transparent)]
 pub struct PacketDecodeError(pub(crate) valentine::bedrock::error::DecodeError);
 
-impl From<jolyne::error::JolyneError> for ProtocolError {
-    fn from(error: jolyne::error::JolyneError) -> Self {
-        Self::Session(SessionError(error))
+impl From<SessionError> for ProtocolError {
+    fn from(error: SessionError) -> Self {
+        Self::Session(error)
+    }
+}
+
+impl From<SessionFailure> for ProtocolError {
+    fn from(failure: SessionFailure) -> Self {
+        Self::Session(SessionError(failure))
     }
 }
 

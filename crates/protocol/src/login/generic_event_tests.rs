@@ -1,7 +1,7 @@
 //! LevelEventGeneric ingress: its event data is loose NBT tags to the end of the packet.
 
+use crate::raw_packet::decode_packet_raw;
 use bytes::{BufMut, BytesMut};
-use jolyne::raw::decode_packet_raw;
 
 use valentine::bedrock::version::v1_26_51::McpePacketName;
 

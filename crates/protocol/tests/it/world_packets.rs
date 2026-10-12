@@ -79,13 +79,14 @@ fn biome_packet(
 #[path = "world_packets/seasonal_biomes.rs"]
 mod seasonal_biomes;
 
-fn game_data() -> jolyne::GameData {
-    jolyne::GameData {
+/// The StartGame packet the startup facts below normalize from.
+struct StartupPackets {
+    start_game: valentine::bedrock::version::v1_26_51::StartGamePacket,
+}
+
+fn game_data() -> StartupPackets {
+    StartupPackets {
         start_game: Default::default(),
-        item_registry: Default::default(),
-        biome_definitions: None,
-        entity_identifiers: None,
-        creative_content: None,
     }
 }
 

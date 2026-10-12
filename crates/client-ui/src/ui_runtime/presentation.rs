@@ -17,7 +17,6 @@ mod accessors;
 mod construction;
 pub mod debug_overlay;
 pub mod dynamic_textures;
-mod font_fallback;
 pub mod forms;
 mod frame;
 pub mod gui_models;
@@ -114,7 +113,6 @@ pub struct UiPresentationRuntime {
     /// The startup font without the session's glyph sheets.
     base_font: Arc<RuntimeFontCatalog>,
     mod_panel_font: Option<mod_panel_font::InstalledFont>,
-    fallback_font: Option<Arc<RuntimeFontCatalog>>,
     textures: Arc<UiRenderTextureArray>,
     texture_session: Option<u64>,
     blank_dynamic_page: render_model::UiTexturePage,

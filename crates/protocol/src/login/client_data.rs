@@ -354,10 +354,7 @@ mod tests {
 
     /// Login validation requires a supported memory tier and explicit gameplay editor claims.
     #[test]
-    fn session_and_self_signed_logins_report_supported_client_capabilities() {
-        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-        use jolyne::auth::client::generate_self_signed_chain;
-
+    fn session_logins_report_supported_client_capabilities() {
         let settings = LoginSettings::default();
         let skin = ClientSkin {
             rgba8: vec![255; 64 * 64 * 4],
@@ -367,49 +364,22 @@ mod tests {
             cape: None,
             geometry: None,
         };
-        // The vendored handshake signs its own copy of the same skin.
-        let handshake_skin = jolyne::stream::client::ClientSkin {
-            rgba8: skin.rgba8.clone(),
-            width: skin.width,
-            height: skin.height,
-            arm_size: skin.arm_size.clone(),
-            cape: None,
-            geometry: None,
-        };
-        let key = p384::SecretKey::random(&mut p384::elliptic_curve::rand_core::OsRng);
-        for (skin, handshake_skin) in [(None, None), (Some(&skin), Some(&handshake_skin))] {
-            let session_claims =
+        for skin in [None, Some(&skin)] {
+            let claims =
                 login_client_data("Fixture", ClientRandomId::new(-7).unwrap(), skin, &settings);
-            let (_, client_jwt) =
-                generate_self_signed_chain(&key, "Fixture", Uuid::new_v4(), handshake_skin)
-                    .unwrap();
-            let jwt_claims: Value = serde_json::from_slice(
-                &URL_SAFE_NO_PAD
-                    .decode(client_jwt.split('.').nth(1).unwrap())
-                    .unwrap(),
-            )
-            .unwrap();
-            for claims in [session_claims, jwt_claims] {
-                let tier = claims["MemoryTier"]
-                    .as_u64()
-                    .expect("an unsigned enum value");
-                assert!(
-                    tier <= u64::from(SUPER_HIGH_MEMORY_TIER),
-                    "unsupported memory tier {tier} rejects otherwise valid login claims"
-                );
-                assert_eq!(claims["ClientIsEditorCapable"], false);
-                assert_eq!(
-                    claims["ClientEditorConnectionIntent"],
-                    NON_EDITOR_CONNECTION_INTENT
-                );
-            }
+            let tier = claims["MemoryTier"]
+                .as_u64()
+                .expect("an unsigned enum value");
+            assert!(
+                tier <= u64::from(SUPER_HIGH_MEMORY_TIER),
+                "unsupported memory tier {tier} rejects otherwise valid login claims"
+            );
+            assert_eq!(claims["ClientIsEditorCapable"], false);
+            assert_eq!(
+                claims["ClientEditorConnectionIntent"],
+                NON_EDITOR_CONNECTION_INTENT
+            );
         }
-    }
-
-    /// The vendored handshake advertises its own copy until it is removed; the two must agree.
-    #[test]
-    fn game_version_matches_the_vendored_handshake() {
-        assert_eq!(GAME_VERSION, jolyne::GAME_VERSION);
     }
 
     // Each tier boundary is exclusive: exactly 1.5, 2, 4 and 8 GiB stay in the lower tier.

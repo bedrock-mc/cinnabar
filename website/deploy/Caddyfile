@@ -1,0 +1,6 @@
+cinnabar.restartfu.com {
+	reverse_proxy http://cinnabar-site:80 {
+		header_up Host {upstream_hostport}
+		header_up X-Real-IP {remote_host}
+	}
+}

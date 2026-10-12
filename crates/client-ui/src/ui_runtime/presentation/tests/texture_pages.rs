@@ -163,10 +163,7 @@ fn mixed_native_font_pages_keep_source_pixels_with_bounded_gpu_residency() {
     let page_bytes = |side: u32| side as usize * side as usize * 4;
     let small_page_bytes = page_bytes(render_model::UI_DYNAMIC_PAGE_SIDE);
     let dynamic_bytes = render_model::UI_LOCAL_FONT_PAGE_OFFSET * small_page_bytes
-        + page_bytes(render_model::UI_LOCAL_FONT_PAGE_SIDE)
-        + render_model::MAX_UI_FALLBACK_FONT_PAGES
-            * render_model::UI_FALLBACK_FONT_PAGE_SIDE as usize
-            * render_model::UI_FALLBACK_FONT_PAGE_SIDE as usize;
+        + page_bytes(render_model::UI_LOCAL_FONT_PAGE_SIDE);
     assert_eq!(
         presentation.textures.plan().bytes(),
         font_bytes
@@ -180,6 +177,19 @@ fn mixed_native_font_pages_keep_source_pixels_with_bounded_gpu_residency() {
         assert_eq!(page.dimensions(), [source.width, source.height]);
         assert_eq!(page.pixels().as_ptr(), source.pixels.bytes().as_ptr());
     }
+}
+
+/// A font without coverage pages leaves no blank coverage layers resident on the GPU.
+#[test]
+fn rgba_font_reserves_no_coverage_texture_layers() {
+    let presentation = UiPresentationRuntime::new(independent_font(&[256])).unwrap();
+    let buckets = presentation.textures.plan().buckets();
+    assert!(
+        buckets
+            .iter()
+            .all(|bucket| bucket.format != render_model::UiTextureFormat::Coverage),
+        "{buckets:?}"
+    );
 }
 
 #[test]
@@ -809,15 +819,11 @@ fn coverage_font_pages_fit_the_bucket_budget_with_every_reserved_slot() {
     let plan = presentation.textures.plan();
     assert!(plan.buckets().len() <= render_model::MAX_UI_TEXTURE_BUCKETS);
     for (index, page) in presentation.textures.pages().iter().enumerate() {
-        let fallback_start =
-            presentation.textures.dynamic_start() + render_model::UI_FALLBACK_FONT_PAGE_OFFSET;
-        let fallback_end = fallback_start + render_model::MAX_UI_FALLBACK_FONT_PAGES;
-        let expected =
-            if index < font.pages().len() || (fallback_start..fallback_end).contains(&index) {
-                render_model::UiTextureFormat::Coverage
-            } else {
-                render_model::UiTextureFormat::Rgba8
-            };
+        let expected = if index < font.pages().len() {
+            render_model::UiTextureFormat::Coverage
+        } else {
+            render_model::UiTextureFormat::Rgba8
+        };
         assert_eq!(page.format(), expected, "page {index}");
     }
     let local = presentation.textures.dynamic_start() + render_model::UI_LOCAL_FONT_PAGE_OFFSET;

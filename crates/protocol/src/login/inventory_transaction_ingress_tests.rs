@@ -12,13 +12,13 @@ fn pickup_body() -> Vec<u8> {
         .collect();
     let mut frame = Bytes::from(batch);
     frame.advance(1); // Strip the uncompressed fixture's batch marker.
-    jolyne::raw::decode_packet_raw(&mut frame)
+    crate::raw_packet::decode_packet_raw(&mut frame)
         .unwrap()
         .body()
         .to_vec()
 }
 
-fn raw(body: &[u8]) -> jolyne::raw::RawPacket {
+fn raw(body: &[u8]) -> crate::raw_packet::RawPacket {
     let mut payload = BytesMut::new();
     valentine::protocol::wire::write_var_u32(
         &mut payload,
@@ -28,7 +28,7 @@ fn raw(body: &[u8]) -> jolyne::raw::RawPacket {
     let mut frame = BytesMut::new();
     valentine::protocol::wire::write_var_u32(&mut frame, payload.len() as u32);
     frame.extend_from_slice(&payload);
-    jolyne::raw::decode_packet_raw(&mut frame.freeze()).unwrap()
+    crate::raw_packet::decode_packet_raw(&mut frame.freeze()).unwrap()
 }
 
 #[test]

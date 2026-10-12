@@ -23,6 +23,7 @@ mod packet;
 mod particle;
 mod permissions;
 mod primitive_shapes;
+mod raw_packet;
 mod raw_text;
 mod respawn;
 mod settings;
@@ -199,7 +200,7 @@ pub use render_api::primitive_shapes::{
     PrimitiveShapeChange, PrimitiveShapeData, PrimitiveShapeKind, PrimitiveShapeUpdate,
     PrimitiveShapesEvent, PrimitiveText,
 };
-pub use session_transport::{SessionTransport, report_pack_application};
+pub use session_transport::report_pack_application;
 pub use settings::request_chunk_radius_packet;
 pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
 pub use translation_parameter::localize_parameter_prefix;

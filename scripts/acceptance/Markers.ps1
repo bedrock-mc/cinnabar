@@ -214,7 +214,6 @@ function Assert-ProtocolDependencyProvenance {
     $protocolPackage = $protocolPackages[0]
     $expectedDependencies = [ordered]@{
         valentine = @('bedrock_1_26_51')
-        jolyne = @('client', 'bedrock_1_26_51')
     }
     foreach ($dependencyName in $expectedDependencies.Keys) {
         $matches = @($protocolPackage.dependencies | Where-Object {
@@ -290,7 +289,7 @@ function Assert-ProtocolDependencyProvenance {
         $nameMatch = [regex]::Match($body, '(?m)^name\s*=\s*"(?<name>[^"]+)"\r?$')
         if (-not $nameMatch.Success) { continue }
         $name = $nameMatch.Groups['name'].Value
-        if ($name -eq 'jolyne' -or $name.StartsWith('valentine', [StringComparison]::Ordinal)) {
+        if ($name.StartsWith('valentine', [StringComparison]::Ordinal)) {
             $null = $resolvedLocalPackages.Add($name)
             $resolutionKey = [regex]::Match($body, '(?m)^\s*(?<key>source|checksum)\s*=')
             if ($resolutionKey.Success) {
@@ -298,7 +297,7 @@ function Assert-ProtocolDependencyProvenance {
             }
         }
     }
-    foreach ($dependency in @('valentine', 'jolyne')) {
+    foreach ($dependency in @('valentine')) {
         if (-not $resolvedLocalPackages.Contains($dependency)) {
             throw "Cargo.lock does not contain local package $dependency"
         }

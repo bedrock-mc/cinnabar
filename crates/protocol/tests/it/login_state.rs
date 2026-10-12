@@ -1,39 +1,25 @@
-use std::collections::VecDeque;
-use std::io;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
+//! Joins a scripted core over the session endpoint, then checks what play makes of its traffic.
 
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
-use bytes::{Bytes, BytesMut};
-use flate2::Compression;
-use flate2::write::DeflateEncoder;
-use jolyne::batch::decode_batch;
-use jolyne::stream::transport::{Transport, TransportMessage, TransportRecvMessage};
-use jolyne::valentine::EnumsConnectionDisconnectFailReason;
-use jolyne::valentine::{
-    ActorRuntimeId, ChunkPos, ChunkRadiusUpdatedPacket, ClientCacheBlobStatusPacket,
-    ClientCacheMissResponsePacket, ClientCacheStatusPacket, ClientToServerHandshakePacket,
-    DimensionType, DisconnectPacket, DisconnectPacketMessages, ItemData, ItemRegistryPacket,
-    LevelChunkPacket, LevelChunkPacketPayloadSubChunkMetadata, McpePacket, McpePacketData,
-    McpePacketName, MissingBlobData, NetworkSettingsPacket,
-    NetworkSettingsPacketCompressionAlgorithm, NetworkStackLatencyPacket, PackInstanceId,
-    PlayStatusPacket, PlayStatusPacketStatus, RequestChunkRadiusPacket,
-    RequestNetworkSettingsPacket, ResourcePackClientResponsePacketResponse,
-    ResourcePackStackPacket, ResourcePacksInfoPacket, ServerToClientHandshakePacket,
-    ServerboundLoadingScreenPacket, ServerboundLoadingScreenPacketLoadingScreenPacketType,
-    SetLocalPlayerAsInitializedPacket, SetTimePacket, StartGamePacket,
+use std::time::Duration;
+
+use bridge::contract::{KIND_BATCH, KIND_CONNECT, KIND_DISCONNECT, KIND_HANDOFF, KIND_TRANSFER};
+use bytes::{BufMut, Bytes, BytesMut};
+use futures::{SinkExt, StreamExt};
+use protocol::{
+    ClientBlobCache, GameData, LoginSequence, Packet, PlaySession, ProtocolError, WorldEvent,
 };
-use jsonwebtoken::{Algorithm, EncodingKey, Header};
-use p384::pkcs8::{DecodePublicKey, EncodePrivateKey, EncodePublicKey};
-use p384::{PublicKey, SecretKey};
-use protocol::{ClientBlobCache, LoginSequence, Packet, ProtocolError, WorldEvent};
-use serde::Serialize;
-use sha2::{Digest, Sha256};
+use tokio::sync::mpsc;
 use valentine::bedrock::codec::BedrockCodec;
-use valentine::bedrock::context::BedrockSession;
+use valentine::bedrock::version::v1_26_51::{
+    ActorRuntimeId, ChunkPos, ChunkRadiusUpdatedPacket, ClientCacheBlobStatusPacket,
+    ClientCacheMissResponsePacket, ClientCacheStatusPacket, DimensionType, DisconnectPacket,
+    DisconnectPacketMessages, EnumsConnectionDisconnectFailReason, EnumsPlayStatus,
+    EnumsServerboundLoadingScreenPacketType, ItemData, ItemRegistryPacket, LevelChunkPacket,
+    LevelChunkPacketPayloadSubChunkMetadata, McpePacketData, McpePacketName, MissingBlobData,
+    NetworkStackLatencyPacket, PlayStatusPacket, RequestChunkRadiusPacket,
+    ServerboundLoadingScreenPacket, SetLocalPlayerAsInitializedPacket, SetTimePacket,
+    StartGamePacket,
+};
 use valentine::protocol::wire;
 
 #[path = "login_state/camera_instructions.rs"]
@@ -46,44 +32,13 @@ mod item_registry;
 mod level_chunk_wire_failure;
 #[path = "login_state/modal_forms.rs"]
 mod modal_forms;
-#[path = "login_state/script_crypto.rs"]
-mod script_crypto;
 use disconnect_reason::{
-    PlayEpilogue, boundary_epilogue_packets, camera_instruction_epilogue_packets,
-    truncated_epilogue_wire,
+    PlayEpilogue, boundary_epilogue, camera_instruction_epilogue_packets, truncated_epilogue_wire,
 };
-use script_crypto::ScriptCrypto;
 
 const RUNTIME_ID: u64 = 0x1234_5678;
 const OTHER_RUNTIME_ID: u64 = 0x7654_3210;
-const MAX_DECOMPRESSED: usize = 16 * 1024 * 1024;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CompressionMode {
-    Deflate,
-    Snappy,
-    None,
-}
-
-impl CompressionMode {
-    fn marker(self) -> u8 {
-        match self {
-            Self::Deflate => 0,
-            Self::Snappy => 1,
-            Self::None => 0xff,
-        }
-    }
-
-    fn network_value(self) -> NetworkSettingsPacketCompressionAlgorithm {
-        match self {
-            // gophertunnel calls the zlib/deflate compressor `CompressionAlgorithmFlate`;
-            // the 1.26.40 generated enum spells the same wire value `ZLib`.
-            Self::Deflate => NetworkSettingsPacketCompressionAlgorithm::Zlib,
-            Self::Snappy => NetworkSettingsPacketCompressionAlgorithm::Snappy,
-            Self::None => NetworkSettingsPacketCompressionAlgorithm::Unknown(u16::MAX),
-        }
-    }
-}
+const CORE_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Copy)]
 enum SpawnOrder {
@@ -91,7 +46,7 @@ enum SpawnOrder {
     SpawnThenRadius,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CachePlayScript {
     ResolveValid,
     TruncatedMissResponse,
@@ -100,744 +55,453 @@ enum CachePlayScript {
     TrailingLevelChunk,
 }
 
-struct ScriptTransport {
-    script: Arc<Mutex<ServerScript>>,
-}
-
-impl ScriptTransport {
-    fn new(mode: CompressionMode, order: SpawnOrder, conflicting_start: bool) -> Self {
-        Self::new_with_options(
-            mode,
-            order,
-            conflicting_start,
-            false,
-            false,
-            CachePlayScript::ResolveValid,
-        )
-    }
-
-    fn new_with_pack_stack(
-        mode: CompressionMode,
-        order: SpawnOrder,
-        conflicting_start: bool,
-        non_empty_pack_stack: bool,
-    ) -> Self {
-        Self::new_with_options(
-            mode,
-            order,
-            conflicting_start,
-            non_empty_pack_stack,
-            false,
-            CachePlayScript::ResolveValid,
-        )
-    }
-
-    fn new_with_cache(mode: CompressionMode, order: SpawnOrder) -> Self {
-        Self::new_with_cache_script(mode, order, CachePlayScript::ResolveValid)
-    }
-
-    fn new_with_cache_script(
-        mode: CompressionMode,
-        order: SpawnOrder,
-        cache_play_script: CachePlayScript,
-    ) -> Self {
-        Self::new_with_options(mode, order, false, false, true, cache_play_script)
-    }
-
-    fn new_with_options(
-        mode: CompressionMode,
-        order: SpawnOrder,
-        conflicting_start: bool,
-        non_empty_pack_stack: bool,
-        cache_enabled: bool,
-        cache_play_script: CachePlayScript,
-    ) -> Self {
-        Self {
-            script: Arc::new(Mutex::new(ServerScript::new(
-                mode,
-                order,
-                conflicting_start,
-                non_empty_pack_stack,
-                cache_enabled,
-                cache_play_script,
-            ))),
-        }
-    }
-
-    /// Answers Login with LoginSuccess directly, as the core's private listener does.
-    fn without_encryption(self) -> Self {
-        self.script.lock().expect("script lock").skip_encryption = true;
-        self
-    }
-}
-
-impl Transport for ScriptTransport {
-    type Error = io::Error;
-
-    const USES_BATCH_PREFIX: bool = true;
-
-    fn poll_send(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        message: TransportMessage,
-    ) -> Poll<Result<(), Self::Error>> {
-        assert!(message.reliable, "login traffic must use reliable delivery");
-        self.script
-            .lock()
-            .expect("script lock")
-            .on_client_frame(message.buffer);
-        Poll::Ready(Ok(()))
-    }
-
-    fn poll_recv(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<TransportRecvMessage, Self::Error>>> {
-        let next = self.script.lock().expect("script lock").inbound.pop_front();
-        match next {
-            Some(bytes) => Poll::Ready(Some(Ok(TransportRecvMessage::Contiguous(bytes)))),
-            None => Poll::Pending,
-        }
-    }
-
-    fn peer_addr(&self) -> SocketAddr {
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)
-    }
-}
-
-struct ServerScript {
-    mode: CompressionMode,
+/// What the scripted core sends around the client's spawn and play.
+#[derive(Clone, Copy)]
+struct Script {
     order: SpawnOrder,
     conflicting_start: bool,
-    non_empty_pack_stack: bool,
+    dimension_definition_before_start: bool,
     cache_enabled: bool,
     cache_play_script: CachePlayScript,
     epilogue: PlayEpilogue,
-    dimension_definition_before_start: bool,
-    stage: u8,
-    inbound: VecDeque<Bytes>,
-    crypto: Option<ScriptCrypto>,
-    skip_encryption: bool,
+    terminal_boundary: bool, // a boundary epilogue arrives as the core's terminal message
 }
 
-impl ServerScript {
-    fn new(
-        mode: CompressionMode,
-        order: SpawnOrder,
-        conflicting_start: bool,
-        non_empty_pack_stack: bool,
-        cache_enabled: bool,
-        cache_play_script: CachePlayScript,
-    ) -> Self {
+impl Default for Script {
+    fn default() -> Self {
         Self {
-            mode,
-            order,
-            conflicting_start,
-            non_empty_pack_stack,
-            cache_enabled,
-            cache_play_script,
-            epilogue: PlayEpilogue::Default,
+            order: SpawnOrder::RadiusThenSpawn,
+            conflicting_start: false,
             dimension_definition_before_start: false,
-            stage: 0,
-            inbound: VecDeque::new(),
-            crypto: None,
-            skip_encryption: false,
+            cache_enabled: false,
+            cache_play_script: CachePlayScript::ResolveValid,
+            epilogue: PlayEpilogue::Default,
+            terminal_boundary: false,
         }
-    }
-
-    fn on_client_frame(&mut self, frame: Bytes) {
-        match self.stage {
-            0 => {
-                let packets = decode_clear(frame, false);
-                assert!(matches!(
-                    packets.as_slice(),
-                    [McpePacket {
-                        data: McpePacketData::RequestNetworkSettingsPacket(
-                            RequestNetworkSettingsPacket { .. }
-                        ),
-                        ..
-                    }]
-                ));
-                self.enqueue_clear(
-                    &[McpePacket::from(NetworkSettingsPacket {
-                        compression_threshold: 0,
-                        compression_algorithm: self.mode.network_value(),
-                        ..Default::default()
-                    })],
-                    false,
-                );
-                self.stage = 1;
-            }
-            1 => {
-                let packets = decode_clear(frame, true);
-                let login = match packets.as_slice() {
-                    [
-                        McpePacket {
-                            data: McpePacketData::LoginPacket(login),
-                            ..
-                        },
-                    ] => login,
-                    other => panic!("expected Login, got {other:?}"),
-                };
-                if self.skip_encryption {
-                    self.enqueue_encrypted(&[
-                        McpePacket::from(PlayStatusPacket {
-                            status: PlayStatusPacketStatus::Loginsuccess,
-                        }),
-                        McpePacket::from(ResourcePacksInfoPacket::default()),
-                    ]);
-                    self.stage = 3;
-                    return;
-                }
-                let client_public_key =
-                    login_public_key(&identity_chain(&login.connection_request));
-                let (handshake, crypto) = server_handshake(client_public_key);
-                self.crypto = Some(crypto);
-                self.enqueue_clear(&[McpePacket::from(handshake)], true);
-                self.stage = 2;
-            }
-            2 => {
-                let clear = self.crypto.as_mut().expect("crypto").decrypt_client(frame);
-                assert_eq!(
-                    clear.get(1).copied(),
-                    Some(self.mode.marker()),
-                    "encrypted acknowledgement must use the negotiated compressor"
-                );
-                let packets = decode_clear(clear, true);
-                assert!(matches!(
-                    packets.as_slice(),
-                    [McpePacket {
-                        data: McpePacketData::ClientToServerHandshakePacket(
-                            ClientToServerHandshakePacket {}
-                        ),
-                        ..
-                    }]
-                ));
-                self.enqueue_encrypted(&[
-                    McpePacket::from(PlayStatusPacket {
-                        status: PlayStatusPacketStatus::Loginsuccess,
-                    }),
-                    McpePacket::from(ResourcePacksInfoPacket::default()),
-                ]);
-                self.stage = 3;
-            }
-            3 => {
-                let packets = self.decode_encrypted_client(frame);
-                assert!(matches!(
-                    packets.as_slice(),
-                    [McpePacket {
-                        data: McpePacketData::ClientCacheStatusPacket(ClientCacheStatusPacket {
-                            iscachesupported
-                        }),
-                        ..
-                    }] if *iscachesupported == self.cache_enabled
-                ));
-                self.stage = 4;
-            }
-            4 => {
-                let packets = self.decode_encrypted_client(frame);
-                assert!(matches!(
-                    packets.as_slice(),
-                    [McpePacket {
-                        // 1.26.40 turns the flat `response_status` enum into a
-                        // payload-carrying union whose body repeats the response
-                        // name as a string; gophertunnel writes the same string
-                        // from `resourcePackResponseToString`
-                        // (packet/resource_pack_client_response.go).
-                        // `HaveAllPacks` is `PackResponseAllPacksDownloaded`,
-                        // i.e. `DownloadingFinished` here.
-                        data: McpePacketData::ResourcePackClientResponsePacket(response),
-                        ..
-                    }] if matches!(
-                        &response.response,
-                        ResourcePackClientResponsePacketResponse::DownloadingFinished(payload)
-                            if payload.response_type == "downloadingfinished"
-                    )
-                ));
-                // `resource_packs` is `texture_pack_list`, whose entries are
-                // `PackInstanceId { pack_id, version, sub_pack_name }`; the
-                // display name the 1001 model carried is not on the wire.
-                let texture_pack_list = self
-                    .non_empty_pack_stack
-                    .then(|| PackInstanceId {
-                        pack_id: "pack-id".into(),
-                        version: "1.0.0".into(),
-                        sub_pack_name: "test pack".into(),
-                    })
-                    .into_iter()
-                    .collect();
-                self.enqueue_encrypted(&[McpePacket::from(ResourcePackStackPacket {
-                    texture_pack_list,
-                    ..Default::default()
-                })]);
-                self.stage = 5;
-            }
-            5 => {
-                let packets = self.decode_encrypted_client(frame);
-                assert!(matches!(
-                    packets.as_slice(),
-                    [McpePacket {
-                        // `Completed` is gophertunnel's `PackResponseCompleted`,
-                        // spelled `ResourcePackStackFinished` in 1.26.40.
-                        data: McpePacketData::ResourcePackClientResponsePacket(response),
-                        ..
-                    }] if matches!(
-                        &response.response,
-                        ResourcePackClientResponsePacketResponse::ResourcePackStackFinished(payload)
-                            if payload.response_type == "resourcepackstackfinished"
-                    )
-                ));
-                if self.dimension_definition_before_start {
-                    self.enqueue_encrypted(&[start_game::early_dimension_definition()]);
-                }
-                if self.conflicting_start {
-                    self.enqueue_encrypted(&[start_game(RUNTIME_ID), start_game(OTHER_RUNTIME_ID)]);
-                } else {
-                    self.enqueue_encrypted(&[
-                        start_game(RUNTIME_ID),
-                        McpePacket::from(SetTimePacket { time: 12_345 }),
-                        McpePacket::from(SetTimePacket { time: 23_456 }),
-                    ]);
-                }
-                self.stage = 6;
-            }
-            6 => {
-                let packets = self.decode_encrypted_client(frame);
-                assert!(matches!(
-                    packets.as_slice(),
-                    [
-                        McpePacket {
-                            data: McpePacketData::RequestChunkRadiusPacket(
-                                RequestChunkRadiusPacket {
-                                    chunk_radius: 16,
-                                    max_chunk_radius: 16,
-                                }
-                            ),
-                            ..
-                        },
-                        McpePacket {
-                            // The raw `type_` int is a named enum in 1.26.40;
-                            // 1 was StartLoadingScreen.
-                            data: McpePacketData::ServerboundLoadingScreenPacket(
-                                ServerboundLoadingScreenPacket {
-                                    loading_screen_packet_type:
-                                        ServerboundLoadingScreenPacketLoadingScreenPacketType::Startloadingscreen,
-                                    ..
-                                }
-                            ),
-                            ..
-                        }
-                    ]
-                ));
-                let radius = McpePacket::from(ChunkRadiusUpdatedPacket { chunk_radius: 16 });
-                let spawn = McpePacket::from(PlayStatusPacket {
-                    status: PlayStatusPacketStatus::Playerspawn,
-                });
-                match self.order {
-                    SpawnOrder::RadiusThenSpawn => {
-                        self.enqueue_encrypted(&[item_registry(), radius, spawn])
-                    }
-                    SpawnOrder::SpawnThenRadius => {
-                        self.enqueue_encrypted(&[item_registry(), spawn, radius])
-                    }
-                }
-                self.stage = 7;
-            }
-            7 => {
-                let packets = self.decode_encrypted_client(frame);
-                assert!(matches!(
-                    packets.as_slice(),
-                    [
-                        McpePacket {
-                            data: McpePacketData::ServerboundLoadingScreenPacket(
-                                ServerboundLoadingScreenPacket {
-                                    loading_screen_packet_type:
-                                        ServerboundLoadingScreenPacketLoadingScreenPacketType::Endloadingscreen,
-                                    ..
-                                }
-                            ),
-                            ..
-                        },
-                        McpePacket {
-                            // `runtime_entity_id` is the `player_id:
-                            // ActorRuntimeId` wrapper in 1.26.40.
-                            data: McpePacketData::SetLocalPlayerAsInitializedPacket(
-                                SetLocalPlayerAsInitializedPacket {
-                                    player_id: ActorRuntimeId {
-                                        actor_runtime_id: RUNTIME_ID
-                                    }
-                                }
-                            ),
-                            ..
-                        }
-                    ]
-                ));
-                if self.cache_enabled
-                    && matches!(
-                        self.cache_play_script,
-                        CachePlayScript::MalformedLevelChunk | CachePlayScript::TrailingLevelChunk
-                    )
-                {
-                    let hash = protocol::client_blob_hash(b"pending-before-wire-failure");
-                    self.enqueue_encrypted(&[
-                        McpePacket::from(cached_level_chunk(6, -7, vec![hash], b"pending")),
-                        McpePacket::from(SetTimePacket { time: 45_678 }),
-                    ]);
-                }
-                if matches!(self.cache_play_script, CachePlayScript::MalformedLevelChunk) {
-                    self.enqueue_encrypted_raw_packet(McpePacketName::LevelChunkPacket, &[0xff]);
-                } else if matches!(self.cache_play_script, CachePlayScript::TrailingLevelChunk) {
-                    let mut body = BytesMut::new();
-                    LevelChunkPacket::default()
-                        .encode(&mut body)
-                        .expect("encode trailing LevelChunk body");
-                    body.extend_from_slice(&[0xaa]);
-                    self.enqueue_encrypted_raw_packet(McpePacketName::LevelChunkPacket, &body);
-                }
-                if self.cache_enabled
-                    && matches!(
-                        self.cache_play_script,
-                        CachePlayScript::MalformedLevelChunk | CachePlayScript::TrailingLevelChunk
-                    )
-                {
-                    self.enqueue_encrypted(&[McpePacket::from(LevelChunkPacket {
-                        chunk_position: ChunkPos { x: 7, z: -8 },
-                        dimension_id: DimensionType { value: 0 },
-                        subchunks_count: 0,
-                        serialized_chunk_data: vec![0x4d; 4096],
-                        ..Default::default()
-                    })]);
-                } else if !matches!(
-                    self.cache_play_script,
-                    CachePlayScript::MalformedLevelChunk | CachePlayScript::TrailingLevelChunk
-                ) && self.cache_enabled
-                {
-                    match self.cache_play_script {
-                        CachePlayScript::ResolveValid => {
-                            let payload = b"cached-column";
-                            let hash = protocol::client_blob_hash(payload);
-                            let mut traffic = vec![
-                                McpePacket::from(LevelChunkPacket {
-                                    chunk_position: ChunkPos { x: 8, z: -10 },
-                                    dimension_id: DimensionType { value: 0 },
-                                    subchunks_count: 0,
-                                    serialized_chunk_data: vec![0x6b; 1024 * 1024],
-                                    ..Default::default()
-                                }),
-                                McpePacket::from(cached_level_chunk(9, -11, vec![hash], b"tail")),
-                                McpePacket::from(SetTimePacket { time: 34_567 }),
-                            ];
-                            traffic.extend(boundary_epilogue_packets(self.epilogue));
-                            self.enqueue_encrypted(&traffic);
-                        }
-                        CachePlayScript::TruncatedMissResponse => {
-                            self.enqueue_encrypted_raw_packet(
-                                McpePacketName::ClientCacheMissResponsePacket,
-                                &[0x01],
-                            );
-                        }
-                        CachePlayScript::InvalidMissResponseThenTraffic => {
-                            let hash = protocol::client_blob_hash(b"semantic-response-wanted");
-                            self.enqueue_encrypted(&[McpePacket::from(cached_level_chunk(
-                                31,
-                                -47,
-                                vec![hash],
-                                b"",
-                            ))]);
-                        }
-                        CachePlayScript::MalformedLevelChunk
-                        | CachePlayScript::TrailingLevelChunk => unreachable!(),
-                    }
-                } else {
-                    // A semantically invalid world packet (negative request limit)
-                    // must be skipped, not disconnect the session; the following
-                    // SetTime still arrives in order.
-                    // Latency probes ride the same batch: only the from-server
-                    // probe is answered, with native timestamp scaling and its
-                    // from-server flag preserved.
-                    let mut traffic = vec![
-                        McpePacket::from(LevelChunkPacket {
-                            client_request_sub_chunk_limit: Some(-3),
-                            ..Default::default()
-                        }),
-                        McpePacket::from(LevelChunkPacket {
-                            chunk_position: ChunkPos { x: 7, z: -9 },
-                            dimension_id: DimensionType { value: 0 },
-                            subchunks_count: 0,
-                            serialized_chunk_data: vec![0x5a; 1024 * 1024],
-                            ..Default::default()
-                        }),
-                        McpePacket::from(NetworkStackLatencyPacket {
-                            creation_time: 777,
-                            is_from_server: true,
-                        }),
-                        McpePacket::from(NetworkStackLatencyPacket {
-                            creation_time: 888,
-                            is_from_server: false,
-                        }),
-                        McpePacket::from(SetTimePacket { time: 34_567 }),
-                    ];
-                    traffic.extend(boundary_epilogue_packets(self.epilogue));
-                    traffic.extend(camera_instruction_epilogue_packets(self.epilogue));
-                    self.enqueue_encrypted(&traffic);
-                    if let Some((name, body)) = truncated_epilogue_wire(self.epilogue) {
-                        self.enqueue_encrypted_raw_packet(name, body);
-                    }
-                }
-                self.stage = 8;
-            }
-            8 => {
-                let packets = self.decode_encrypted_client(frame);
-                // Vanilla preserves the from-server flag in its echo.
-                if let [
-                    McpePacket {
-                        data:
-                            McpePacketData::NetworkStackLatencyPacket(NetworkStackLatencyPacket {
-                                creation_time: 777_000_000,
-                                is_from_server: true,
-                            }),
-                        ..
-                    },
-                ] = packets.as_slice()
-                {
-                    return;
-                }
-                if self.cache_enabled {
-                    let expected_hash = match self.cache_play_script {
-                        CachePlayScript::ResolveValid => {
-                            protocol::client_blob_hash(b"cached-column")
-                        }
-                        CachePlayScript::InvalidMissResponseThenTraffic => {
-                            protocol::client_blob_hash(b"semantic-response-wanted")
-                        }
-                        CachePlayScript::TruncatedMissResponse => {
-                            panic!("truncated response script sends no cached request")
-                        }
-                        CachePlayScript::MalformedLevelChunk
-                        | CachePlayScript::TrailingLevelChunk => return,
-                    };
-                    assert!(matches!(
-                        packets.as_slice(),
-                        [McpePacket {
-                            data: McpePacketData::ClientCacheBlobStatusPacket(
-                                ClientCacheBlobStatusPacket {
-                                    missing_ids,
-                                    found_ids
-                                }
-                            ),
-                            ..
-                        }] if missing_ids == &[expected_hash] && found_ids.is_empty()
-                    ));
-                    let response_payload = match self.cache_play_script {
-                        CachePlayScript::ResolveValid => b"cached-column".as_slice(),
-                        CachePlayScript::InvalidMissResponseThenTraffic => {
-                            b"semantic-response-poison".as_slice()
-                        }
-                        CachePlayScript::TruncatedMissResponse => unreachable!(),
-                        CachePlayScript::MalformedLevelChunk
-                        | CachePlayScript::TrailingLevelChunk => unreachable!(),
-                    };
-                    let mut response = vec![McpePacket::from(ClientCacheMissResponsePacket {
-                        missing_blobs: vec![MissingBlobData {
-                            blob_id: expected_hash,
-                            blob_data: response_payload.to_vec(),
-                        }],
-                    })];
-                    if matches!(
-                        self.cache_play_script,
-                        CachePlayScript::InvalidMissResponseThenTraffic
-                    ) {
-                        response.push(McpePacket::from(SetTimePacket { time: 45_678 }));
-                    }
-                    response.extend(boundary_epilogue_packets(self.epilogue));
-                    self.enqueue_encrypted(&response);
-                    self.stage = 9;
-                    return;
-                }
-                assert!(matches!(
-                    packets.as_slice(),
-                    [McpePacket {
-                        data: McpePacketData::ClientCacheStatusPacket(ClientCacheStatusPacket {
-                            iscachesupported: true
-                        }),
-                        ..
-                    }]
-                ));
-                self.enqueue_session_frame(Bytes::from_static(&[0xfe, 0x7f]));
-                self.stage = 9;
-            }
-            other => panic!("unexpected client frame in server stage {other}"),
-        }
-    }
-
-    fn enqueue_clear(&mut self, packets: &[McpePacket], compressed: bool) {
-        self.inbound.push_back(encode_server_batch(
-            packets,
-            compressed.then_some(self.mode),
-        ));
-    }
-
-    // The `encrypted` helpers stay clear when the script skipped the handshake.
-    fn enqueue_encrypted(&mut self, packets: &[McpePacket]) {
-        let clear = encode_server_batch(packets, Some(self.mode));
-        self.enqueue_session_frame(clear);
-    }
-
-    fn enqueue_encrypted_raw_packet(&mut self, id: McpePacketName, body: &[u8]) {
-        let clear = encode_server_raw_packet(id, body, self.mode);
-        self.enqueue_session_frame(clear);
-    }
-
-    fn enqueue_session_frame(&mut self, clear: Bytes) {
-        let frame = match self.crypto.as_mut() {
-            Some(crypto) => crypto.encrypt_server(clear),
-            None => clear,
-        };
-        self.inbound.push_back(frame);
-    }
-
-    fn decode_encrypted_client(&mut self, frame: Bytes) -> Vec<McpePacket> {
-        let clear = match self.crypto.as_mut() {
-            Some(crypto) => crypto.decrypt_client(frame),
-            None => frame,
-        };
-        decode_clear(clear, true)
     }
 }
 
-fn decode_clear(mut frame: Bytes, compressed: bool) -> Vec<McpePacket> {
-    decode_batch(
-        &mut frame,
-        &BedrockSession { shield_item_id: 0 },
-        compressed,
-        Some(MAX_DECOMPRESSED),
+/// A scripted core serving one session; frames sent through it follow the scripted traffic.
+struct Core {
+    extra: mpsc::UnboundedSender<Bytes>,
+    task: tokio::task::JoinHandle<()>,
+    _dir: tempfile::TempDir,
+}
+
+impl Core {
+    fn send_batch(&self, packets: &[Packet]) {
+        self.extra
+            .send(batch(packets))
+            .expect("the core is running");
+    }
+
+    fn send_raw_packet(&self, id: McpePacketName, body: &[u8]) {
+        self.extra
+            .send(raw_packet_batch(id, body))
+            .expect("the core is running");
+    }
+
+    /// Ends the session and fails on any check the core made of the client's packets.
+    async fn finish(self, session: PlaySession) {
+        drop(session);
+        tokio::time::timeout(CORE_TIMEOUT, self.task)
+            .await
+            .expect("the core ends with the session")
+            .expect("the core's checks of the client pass");
+    }
+}
+
+/// Joins a scripted core and, as the app does once the world is presented, finishes loading.
+async fn join(script: Script) -> Result<(PlaySession, GameData, Core), ProtocolError> {
+    let dir = tempfile::tempdir().expect("socket directory");
+    let listener = bridge::SessionListener::bind(dir.path())
+        .await
+        .expect("session endpoint");
+    let (extra, frames) = mpsc::unbounded_channel();
+    let task = tokio::spawn(async move {
+        let stream = listener.accept().await.expect("the client connects");
+        let _ = run_core(ScriptedCore { stream }, script, frames).await;
+    });
+    let joined = LoginSequence::connect_session(
+        dir.path(),
+        "RustClient",
+        protocol::ClientRandomId::new(-7).unwrap(),
+        script.cache_enabled.then(ClientBlobCache::default),
+        None,
+        &protocol::LoginSettings::default(),
     )
-    .expect("decode client batch")
+    .await;
+    let core = Core {
+        extra,
+        task,
+        _dir: dir,
+    };
+    let (mut session, game_data) = joined?;
+    session.finish_loading().await?;
+    Ok((session, game_data, core))
 }
 
-fn encode_server_batch(packets: &[McpePacket], mode: Option<CompressionMode>) -> Bytes {
-    let mut payload = BytesMut::new();
-    for packet in packets {
-        packet
-            .data
-            .encode_inner_bytes_mut(
-                &mut payload,
-                packet.header.from_subclient,
-                packet.header.to_subclient,
-            )
-            .expect("encode server packet");
+/// Joins a script that must spawn.
+async fn joined(script: Script) -> (PlaySession, Core) {
+    match join(script).await {
+        Ok((session, _, core)) => (session, core),
+        Err(error) => panic!("scripted join failed: {error}"),
     }
-    encode_server_payload(&payload, mode)
 }
 
-fn encode_server_raw_packet(id: McpePacketName, body: &[u8], mode: CompressionMode) -> Bytes {
+struct ScriptedCore {
+    stream: bridge::FramedStream,
+}
+
+impl ScriptedCore {
+    /// Writes one frame; `None` once the client has gone.
+    async fn send(&mut self, frame: Bytes) -> Option<()> {
+        self.stream.send(frame).await.ok()
+    }
+
+    async fn receive(&mut self) -> Option<Bytes> {
+        self.stream.next().await?.ok()
+    }
+
+    async fn receive_packets(&mut self) -> Option<Vec<Packet>> {
+        let frame = self.receive().await?;
+        Some(client_packets(&frame))
+    }
+}
+
+/// Decodes a client Batch frame.
+fn client_packets(frame: &[u8]) -> Vec<Packet> {
+    assert_eq!(
+        frame[0], KIND_BATCH,
+        "the client sends only batches after its Connect"
+    );
+    let mut bedrock = BytesMut::from(&[0xfe][..]);
+    bedrock.extend_from_slice(&frame[1..]);
+    crate::codec::decode_batch(bedrock.freeze()).expect("client batch decodes")
+}
+
+/// A Batch frame holding `packets`.
+fn batch(packets: &[Packet]) -> Bytes {
+    crate::session_transport::batch_frame(packets).expect("server packets encode")
+}
+
+/// A Batch frame holding one entry with `body` written verbatim after the packet ID.
+fn raw_packet_batch(id: McpePacketName, body: &[u8]) -> Bytes {
     let mut packet = BytesMut::new();
     wire::write_var_u32(&mut packet, id as u32);
     packet.extend_from_slice(body);
-    let mut payload = BytesMut::new();
-    wire::write_var_u32(&mut payload, packet.len() as u32);
-    payload.extend_from_slice(&packet);
-    encode_server_payload(&payload, Some(mode))
-}
-
-fn encode_server_payload(payload: &[u8], mode: Option<CompressionMode>) -> Bytes {
-    let mut frame = BytesMut::from(&b"\xfe"[..]);
-    match mode {
-        None => frame.extend_from_slice(payload),
-        Some(CompressionMode::Deflate) => {
-            use std::io::Write;
-            let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(6));
-            encoder.write_all(payload).expect("deflate payload");
-            frame.extend_from_slice(&[0]);
-            frame.extend_from_slice(&encoder.finish().expect("finish deflate"));
-        }
-        Some(CompressionMode::Snappy) => {
-            frame.extend_from_slice(&[1]);
-            frame.extend_from_slice(
-                &snap::raw::Encoder::new()
-                    .compress_vec(payload)
-                    .expect("snappy payload"),
-            );
-        }
-        Some(CompressionMode::None) => {
-            frame.extend_from_slice(&[0xff]);
-            frame.extend_from_slice(payload);
-        }
-    }
+    let mut frame = BytesMut::from(&[KIND_BATCH][..]);
+    wire::write_var_u32(&mut frame, packet.len() as u32);
+    frame.extend_from_slice(&packet);
     frame.freeze()
 }
 
-/// Extracts the identity chain from a Login connection request.
-///
-/// Protocol 1001 modelled the request as two `LittleString`s and exposed them
-/// as `login.tokens.identity` / `.client`. 1.26.40 types the whole request as
-/// one opaque byte slice - gophertunnel does the same
-/// (`packet/login.go` writes `io.ByteSlice(&pk.ConnectionRequest)` and
-/// `minecraft/protocol/login/request.go` splits it) - so the framing is decoded
-/// here: a little-endian `u32` length and then that many bytes, twice.
-fn identity_chain(connection_request: &[u8]) -> String {
-    let (length, rest) = connection_request
-        .split_first_chunk::<4>()
-        .expect("connection request carries an identity chain length");
-    let length = u32::from_le_bytes(*length) as usize;
-    let chain = rest
-        .get(..length)
-        .expect("identity chain length must fit the connection request");
-    String::from_utf8(chain.to_vec()).expect("identity chain is UTF-8 JSON")
+/// The handoff ending at the `startup` packets, with no packs.
+fn handoff_frame(client_cache: bool, startup: &[Packet]) -> Bytes {
+    let metadata = serde_json::to_vec(&serde_json::json!({
+        "identity": {"display_name": "RustClient", "xuid": "", "uuid": "00000000-0000-4000-8000-000000000001"},
+        "client_cache": client_cache,
+        "packs_required": false,
+        "packs": [],
+    }))
+    .unwrap();
+    let mut frame = BytesMut::new();
+    frame.put_u8(KIND_HANDOFF);
+    frame.put_u32(metadata.len() as u32);
+    frame.extend_from_slice(&metadata);
+    frame.extend_from_slice(&batch(startup)[1..]);
+    frame.freeze()
 }
 
-fn login_public_key(chain_json: &str) -> PublicKey {
-    let value: serde_json::Value = serde_json::from_str(chain_json).expect("login chain JSON");
-    let token = value["chain"][0].as_str().expect("self-signed token");
-    let header = jsonwebtoken::decode_header(token).expect("JWT header");
-    let der = STANDARD.decode(header.x5u.expect("x5u")).expect("x5u DER");
-    PublicKey::from_public_key_der(&der).expect("P-384 client key")
+/// A terminal core message of `kind` with its JSON body.
+fn terminal_frame(kind: u8, body: &serde_json::Value) -> Bytes {
+    let mut frame = vec![kind];
+    frame.extend_from_slice(&serde_json::to_vec(body).unwrap());
+    frame.into()
 }
 
-#[derive(Serialize)]
-struct HandshakeClaims {
-    salt: String,
-}
-
-fn server_handshake(client_public_key: PublicKey) -> (ServerToClientHandshakePacket, ScriptCrypto) {
-    let mut scalar = [0u8; 48];
-    scalar[47] = 7;
-    let server_key = SecretKey::from_slice(&scalar).expect("deterministic server key");
-    let salt = [0x5au8; 16];
-    let shared = p384::ecdh::diffie_hellman(
-        server_key.to_nonzero_scalar(),
-        client_public_key.as_affine(),
+async fn run_core(
+    mut core: ScriptedCore,
+    script: Script,
+    mut extra: mpsc::UnboundedReceiver<Bytes>,
+) -> Option<()> {
+    let connect = core.receive().await?;
+    assert_eq!(connect[0], KIND_CONNECT, "the first frame is the Connect");
+    let request: serde_json::Value = serde_json::from_slice(&connect[1..]).unwrap();
+    assert_eq!(
+        request["client_cache"], script.cache_enabled,
+        "the client offers its cache only with a resolver installed"
     );
-    let mut digest = Sha256::new();
-    digest.update(salt);
-    digest.update(shared.raw_secret_bytes());
-    let key: [u8; 32] = digest.finalize().into();
 
-    let public_der = server_key
-        .public_key()
-        .to_public_key_der()
-        .expect("server public key DER");
-    let private_der = server_key.to_pkcs8_der().expect("server private key DER");
-    let mut header = Header::new(Algorithm::ES384);
-    header.x5u = Some(STANDARD.encode(public_der.as_bytes()));
-    let token = jsonwebtoken::encode(
-        &header,
-        &HandshakeClaims {
-            salt: STANDARD.encode(salt),
-        },
-        &EncodingKey::from_ec_der(private_der.as_bytes()),
-    )
-    .expect("server handshake JWT");
-    (
-        ServerToClientHandshakePacket {
-            handshake_web_token: token,
-        },
-        ScriptCrypto::new(key),
-    )
+    let mut startup = Vec::new();
+    if script.dimension_definition_before_start {
+        startup.push(start_game::early_dimension_definition());
+    }
+    startup.push(start_game(RUNTIME_ID));
+    core.send(handoff_frame(script.cache_enabled, &startup))
+        .await?;
+    if script.conflicting_start {
+        core.send(batch(&[start_game(OTHER_RUNTIME_ID)])).await?;
+    } else {
+        core.send(batch(&[set_time(12_345), set_time(23_456)]))
+            .await?;
+    }
+
+    let spawn_request = core.receive_packets().await?;
+    assert!(
+        matches!(
+            spawn_request.as_slice(),
+            [
+                Packet {
+                    data: McpePacketData::RequestChunkRadiusPacket(RequestChunkRadiusPacket {
+                        chunk_radius: 16,
+                        max_chunk_radius: 16,
+                    }),
+                    ..
+                },
+                Packet {
+                    data: McpePacketData::ServerboundLoadingScreenPacket(
+                        ServerboundLoadingScreenPacket {
+                            loading_screen_packet_type:
+                                EnumsServerboundLoadingScreenPacketType::Startloadingscreen,
+                            ..
+                        }
+                    ),
+                    ..
+                },
+            ]
+        ),
+        "the client requests its radius and starts loading after StartGame: {spawn_request:?}"
+    );
+    let radius = Packet::new(ChunkRadiusUpdatedPacket { chunk_radius: 16 });
+    let spawn = Packet::new(PlayStatusPacket {
+        status: EnumsPlayStatus::Playerspawn,
+    });
+    let prerequisites = match script.order {
+        SpawnOrder::RadiusThenSpawn => [item_registry(), radius, spawn],
+        SpawnOrder::SpawnThenRadius => [item_registry(), spawn, radius],
+    };
+    core.send(batch(&prerequisites)).await?;
+
+    let finish = core.receive_packets().await?;
+    assert!(
+        matches!(
+            finish.as_slice(),
+            [
+                Packet {
+                    data: McpePacketData::ServerboundLoadingScreenPacket(
+                        ServerboundLoadingScreenPacket {
+                            loading_screen_packet_type:
+                                EnumsServerboundLoadingScreenPacketType::Endloadingscreen,
+                            ..
+                        }
+                    ),
+                    ..
+                },
+                Packet {
+                    data: McpePacketData::SetLocalPlayerAsInitializedPacket(
+                        SetLocalPlayerAsInitializedPacket {
+                            player_id: ActorRuntimeId {
+                                actor_runtime_id: RUNTIME_ID
+                            }
+                        }
+                    ),
+                    ..
+                },
+            ]
+        ),
+        "loading ends with one initialization: {finish:?}"
+    );
+    for frame in play_traffic(&script) {
+        core.send(frame).await?;
+    }
+
+    let mut answered = false;
+    loop {
+        tokio::select! {
+            frame = core.receive() => {
+                let packets = client_packets(&frame?);
+                answer(&mut core, &script, &packets, &mut answered).await?;
+            }
+            Some(frame) = extra.recv() => core.send(frame).await?,
+        }
+    }
 }
 
-fn start_game(runtime_entity_id: u64) -> McpePacket {
-    McpePacket::from(StartGamePacket {
+/// The frames the core sends once the client has initialized.
+fn play_traffic(script: &Script) -> Vec<Bytes> {
+    let wire_failure = matches!(
+        script.cache_play_script,
+        CachePlayScript::MalformedLevelChunk | CachePlayScript::TrailingLevelChunk
+    );
+    let mut frames = Vec::new();
+    if script.cache_enabled && wire_failure {
+        let hash = protocol::client_blob_hash(b"pending-before-wire-failure");
+        frames.push(batch(&[
+            Packet::new(cached_level_chunk(6, -7, vec![hash], b"pending")),
+            set_time(45_678),
+        ]));
+    }
+    match script.cache_play_script {
+        CachePlayScript::MalformedLevelChunk => {
+            frames.push(raw_packet_batch(McpePacketName::LevelChunkPacket, &[0xff]));
+        }
+        CachePlayScript::TrailingLevelChunk => {
+            let mut body = BytesMut::new();
+            LevelChunkPacket::default()
+                .encode(&mut body)
+                .expect("encode trailing LevelChunk body");
+            body.extend_from_slice(&[0xaa]);
+            frames.push(raw_packet_batch(McpePacketName::LevelChunkPacket, &body));
+        }
+        _ => {}
+    }
+    let (boundary, terminal) = boundary_epilogue(script);
+    if script.cache_enabled && wire_failure {
+        frames.push(batch(&[level_chunk(7, -8, 0x4d, 4096)]));
+    } else if script.cache_enabled {
+        match script.cache_play_script {
+            CachePlayScript::ResolveValid => {
+                let hash = protocol::client_blob_hash(b"cached-column");
+                let mut traffic = vec![
+                    level_chunk(8, -10, 0x6b, 1024 * 1024),
+                    Packet::new(cached_level_chunk(9, -11, vec![hash], b"tail")),
+                    set_time(34_567),
+                ];
+                traffic.extend(boundary);
+                frames.push(batch(&traffic));
+                frames.extend(terminal);
+            }
+            CachePlayScript::TruncatedMissResponse => frames.push(raw_packet_batch(
+                McpePacketName::ClientCacheMissResponsePacket,
+                &[0x01],
+            )),
+            CachePlayScript::InvalidMissResponseThenTraffic => {
+                let hash = protocol::client_blob_hash(b"semantic-response-wanted");
+                frames.push(batch(&[Packet::new(cached_level_chunk(
+                    31,
+                    -47,
+                    vec![hash],
+                    b"",
+                ))]));
+            }
+            CachePlayScript::MalformedLevelChunk | CachePlayScript::TrailingLevelChunk => {
+                unreachable!("wire failures are scripted above")
+            }
+        }
+    } else {
+        // A semantically invalid world packet (negative request limit) must be skipped, not
+        // end the session; the following SetTime still arrives in order. Latency probes ride
+        // the same batch: only the from-server probe is answered, scaled, with its flag kept.
+        let mut traffic = vec![
+            Packet::new(LevelChunkPacket {
+                client_request_sub_chunk_limit: Some(-3),
+                ..Default::default()
+            }),
+            level_chunk(7, -9, 0x5a, 1024 * 1024),
+            Packet::new(NetworkStackLatencyPacket {
+                creation_time: 777,
+                is_from_server: true,
+            }),
+            Packet::new(NetworkStackLatencyPacket {
+                creation_time: 888,
+                is_from_server: false,
+            }),
+            set_time(34_567),
+        ];
+        traffic.extend(boundary);
+        traffic.extend(camera_instruction_epilogue_packets(script.epilogue));
+        frames.push(batch(&traffic));
+        frames.extend(terminal);
+        if let Some((name, body)) = truncated_epilogue_wire(script.epilogue) {
+            frames.push(raw_packet_batch(name, body));
+        }
+    }
+    frames
+}
+
+/// Answers one client batch sent during play.
+async fn answer(
+    core: &mut ScriptedCore,
+    script: &Script,
+    packets: &[Packet],
+    answered: &mut bool,
+) -> Option<()> {
+    // Vanilla preserves the from-server flag in its echo.
+    if let [
+        Packet {
+            data:
+                McpePacketData::NetworkStackLatencyPacket(NetworkStackLatencyPacket {
+                    creation_time: 777_000_000,
+                    is_from_server: true,
+                }),
+            ..
+        },
+    ] = packets
+    {
+        return Some(());
+    }
+    if script.cache_enabled {
+        let (expected, response_payload) = match script.cache_play_script {
+            CachePlayScript::ResolveValid => (&b"cached-column"[..], &b"cached-column"[..]),
+            CachePlayScript::InvalidMissResponseThenTraffic => (
+                &b"semantic-response-wanted"[..],
+                &b"semantic-response-poison"[..],
+            ),
+            CachePlayScript::TruncatedMissResponse => {
+                panic!("the truncated response script sends no cached chunk")
+            }
+            CachePlayScript::MalformedLevelChunk | CachePlayScript::TrailingLevelChunk => {
+                return Some(());
+            }
+        };
+        assert!(!*answered, "unexpected client packets: {packets:?}");
+        *answered = true;
+        let expected_hash = protocol::client_blob_hash(expected);
+        assert!(
+            matches!(
+                packets,
+                [Packet {
+                    data: McpePacketData::ClientCacheBlobStatusPacket(ClientCacheBlobStatusPacket {
+                        missing_ids,
+                        found_ids
+                    }),
+                    ..
+                }] if missing_ids == &[expected_hash] && found_ids.is_empty()
+            ),
+            "the client asks for exactly the missing blob: {packets:?}"
+        );
+        let mut response = vec![Packet::new(ClientCacheMissResponsePacket {
+            missing_blobs: vec![MissingBlobData {
+                blob_id: expected_hash,
+                blob_data: response_payload.to_vec(),
+            }],
+        })];
+        if script.cache_play_script == CachePlayScript::InvalidMissResponseThenTraffic {
+            response.push(set_time(45_678));
+        }
+        return core.send(batch(&response)).await;
+    }
+    assert!(!*answered, "unexpected client packets: {packets:?}");
+    *answered = true;
+    assert!(
+        matches!(
+            packets,
+            [Packet {
+                data: McpePacketData::ClientCacheStatusPacket(ClientCacheStatusPacket {
+                    iscachesupported: true
+                }),
+                ..
+            }]
+        ),
+        "the test's own play send arrives: {packets:?}"
+    );
+    // A batch whose only entry declares more bytes than it carries.
+    core.send(Bytes::from_static(&[KIND_BATCH, 0x7f])).await
+}
+
+fn start_game(runtime_entity_id: u64) -> Packet {
+    Packet::new(StartGamePacket {
         runtime_id: ActorRuntimeId {
             actor_runtime_id: runtime_entity_id,
         },
@@ -845,12 +509,25 @@ fn start_game(runtime_entity_id: u64) -> McpePacket {
     })
 }
 
+fn set_time(time: i32) -> Packet {
+    Packet::new(SetTimePacket { time })
+}
+
+/// An uncached overworld column at `x, z` whose payload is `len` copies of `fill`.
+fn level_chunk(x: i32, z: i32, fill: u8, len: usize) -> Packet {
+    Packet::new(LevelChunkPacket {
+        chunk_position: ChunkPos { x, z },
+        dimension_id: DimensionType { value: 0 },
+        subchunks_count: 0,
+        serialized_chunk_data: vec![fill; len],
+        ..Default::default()
+    })
+}
+
 /// Builds a cache-enabled LevelChunk for one column referencing `hashes`.
 ///
-/// 1.26.40 writes the blob hashes unconditionally and states cache
-/// participation with `cache_enabled`, so the protocol-1001 `blobs: Some(..)`
-/// literal has no equivalent. gophertunnel `packet/level_chunk.go` expects
-/// `SubChunkCount + 1` hashes, and the `-1` request-mode sentinel is gone.
+/// 1.26.40 writes the blob hashes unconditionally and states cache participation with
+/// `cache_enabled`; gophertunnel `packet/level_chunk.go` expects `SubChunkCount + 1` hashes.
 fn cached_level_chunk(x: i32, z: i32, hashes: Vec<u64>, tail: &[u8]) -> LevelChunkPacket {
     let subchunks_count = u32::try_from(hashes.len().saturating_sub(1)).expect("fixture count");
     LevelChunkPacket {
@@ -867,10 +544,8 @@ fn cached_level_chunk(x: i32, z: i32, hashes: Vec<u64>, tail: &[u8]) -> LevelChu
     }
 }
 
-fn item_registry() -> McpePacket {
-    // `itemstates` is `item_data`, and its entries lost the prismarine
-    // `name`/`runtime_id` spelling for gophertunnel's `Name`/`RuntimeID`.
-    McpePacket::from(ItemRegistryPacket {
+fn item_registry() -> Packet {
+    Packet::new(ItemRegistryPacket {
         item_data: vec![ItemData {
             item_name: "minecraft:shield".into(),
             item_id: 355,
@@ -879,95 +554,93 @@ fn item_registry() -> McpePacket {
     })
 }
 
-async fn assert_success(mode: CompressionMode, order: SpawnOrder) {
-    assert_transport_success(ScriptTransport::new(mode, order, false)).await;
-}
-
-async fn assert_transport_success(transport: ScriptTransport) {
-    let (mut session, game_data) = LoginSequence::connect_transport(transport, "RustClient")
+/// Deferred startup packets keep their order, semantic world oddities are skipped and counted,
+/// and malformed wire ends the session, whichever order the spawn prerequisites arrive in.
+#[tokio::test]
+async fn play_keeps_startup_order_and_skips_semantic_world_errors() {
+    for order in [SpawnOrder::RadiusThenSpawn, SpawnOrder::SpawnThenRadius] {
+        let (mut session, game_data, core) = match join(Script {
+            order,
+            ..Script::default()
+        })
         .await
-        .expect("scripted login");
-    assert_eq!(game_data.world.local_player_runtime_id, RUNTIME_ID);
-    assert_eq!(session.decode_error_count(), 0);
+        {
+            Ok(joined) => joined,
+            Err(error) => panic!("scripted join failed: {error}"),
+        };
+        assert_eq!(game_data.world.local_player_runtime_id, RUNTIME_ID);
+        assert_eq!(session.decode_error_count(), 0);
 
-    for expected_time in [12_345, 23_456] {
-        let deferred = tokio::time::timeout(
-            std::time::Duration::from_secs(1),
-            session.recv_world_event(0),
+        for expected_time in [12_345, 23_456] {
+            let deferred =
+                tokio::time::timeout(Duration::from_secs(1), session.recv_world_event(0))
+                    .await
+                    .expect("pre-spawn packet was discarded")
+                    .expect("pre-spawn packet must normalize in Play");
+            assert_eq!(
+                deferred,
+                WorldEvent::SetTime(protocol::SetTimeEvent {
+                    time: expected_time,
+                }),
+                "pre-spawn SetTime packets must retain FIFO order"
+            );
+        }
+        let initial_radius =
+            tokio::time::timeout(Duration::from_secs(1), session.recv_world_event(0))
+                .await
+                .expect("initial chunk radius acknowledgement was discarded")
+                .expect("initial chunk radius acknowledgement must decode in Play");
+        assert!(matches!(initial_radius, WorldEvent::ChunkRadiusUpdated(16)));
+
+        let chunk = tokio::time::timeout(
+            Duration::from_secs(1),
+            session.recv_world_event_mapped(0, |_| None, |event, payload| Some((event, payload))),
         )
         .await
-        .expect("pre-spawn packet was discarded")
-        .expect("pre-spawn packet must normalize in Play");
+        .expect("uncached LevelChunk was discarded")
+        .expect("uncached LevelChunk must normalize in Play")
+        .expect("mapped ingress must select LevelChunk bytes");
+        assert_eq!((chunk.0.x, chunk.0.z), (7, -9));
+        assert!(chunk.0.payload.is_empty());
+        assert_eq!(chunk.1.len(), 1024 * 1024);
+        assert!(chunk.1.iter().all(|byte| *byte == 0x5a));
+
         assert_eq!(
-            deferred,
-            WorldEvent::SetTime(protocol::SetTimeEvent {
-                time: expected_time,
-            }),
-            "pre-spawn SetTime packets must retain FIFO order"
+            session
+                .recv_world_event(0)
+                .await
+                .expect("post-spawn SetTime must normalize in Play"),
+            WorldEvent::SetTime(protocol::SetTimeEvent { time: 34_567 })
         );
-    }
+        // The preceding malformed chunk was skipped, not fatal.
+        assert_eq!(session.world_skip_count(), 1);
 
-    let initial_radius = tokio::time::timeout(
-        std::time::Duration::from_secs(1),
-        session.recv_world_event(0),
-    )
-    .await
-    .expect("initial chunk radius acknowledgement was discarded")
-    .expect("initial chunk radius acknowledgement must decode in Play");
-    assert!(matches!(initial_radius, WorldEvent::ChunkRadiusUpdated(16)));
-
-    let chunk = tokio::time::timeout(
-        std::time::Duration::from_secs(1),
-        session.recv_world_event_mapped(0, |_| None, |event, payload| Some((event, payload))),
-    )
-    .await
-    .expect("uncached LevelChunk was discarded")
-    .expect("uncached LevelChunk must normalize in Play")
-    .expect("mapped ingress must select LevelChunk bytes");
-    assert_eq!((chunk.0.x, chunk.0.z), (7, -9));
-    assert!(chunk.0.payload.is_empty());
-    assert_eq!(chunk.1.len(), 1024 * 1024);
-    assert!(chunk.1.iter().all(|byte| *byte == 0x5a));
-
-    let post_spawn_time = session
-        .recv_world_event(0)
-        .await
-        .expect("post-spawn SetTime must normalize in Play");
-    assert_eq!(
-        post_spawn_time,
-        WorldEvent::SetTime(protocol::SetTimeEvent { time: 34_567 })
-    );
-    // The preceding malformed chunk was skipped, not fatal: the session stayed
-    // alive and counted one skip.
-    assert_eq!(session.world_skip_count(), 1);
-
-    let mut invalid = Packet::new(ClientCacheStatusPacket {
-        iscachesupported: true,
-    });
-    invalid.header.id = McpePacketName::PlayStatusPacket;
-    let error = session
-        .send(invalid)
-        .await
-        .expect_err("play send must validate the public header");
-    assert!(matches!(error, ProtocolError::HeaderIdMismatch { .. }));
-
-    session
-        .send(Packet::new(ClientCacheStatusPacket {
+        let mut invalid = Packet::new(ClientCacheStatusPacket {
             iscachesupported: true,
-        }))
-        .await
-        .expect("play send");
-    let error = session.recv().await.expect_err("malformed batch must fail");
-    assert!(matches!(error, ProtocolError::Session(_)));
-    assert_eq!(session.decode_error_count(), 1);
+        });
+        invalid.header.id = McpePacketName::PlayStatusPacket;
+        let error = session
+            .send(invalid)
+            .await
+            .expect_err("play send must validate the public header");
+        assert!(matches!(error, ProtocolError::HeaderIdMismatch { .. }));
+
+        session
+            .send(Packet::new(ClientCacheStatusPacket {
+                iscachesupported: true,
+            }))
+            .await
+            .expect("play send");
+        let error = session.recv().await.expect_err("malformed batch must fail");
+        assert!(matches!(error, ProtocolError::Session(_)));
+        assert_eq!(session.decode_error_count(), 1);
+        core.finish(session).await;
+    }
 }
 
 #[tokio::test]
 async fn mapped_world_ingress_exposes_latency_before_following_world_events() {
-    let transport = ScriptTransport::new(CompressionMode::None, SpawnOrder::RadiusThenSpawn, false);
-    let (mut session, _) = LoginSequence::connect_transport(transport, "RustClient")
-        .await
-        .unwrap();
+    let (mut session, core) = joined(Script::default()).await;
     for _ in 0..4 {
         session.recv_world_event(0).await.unwrap();
     }
@@ -984,59 +657,22 @@ async fn mapped_world_ingress_exposes_latency_before_following_world_events() {
         session.recv_world_event(0).await.unwrap(),
         WorldEvent::SetTime(protocol::SetTimeEvent { time: 34_567 })
     );
+    core.finish(session).await;
 }
 
 #[tokio::test]
-async fn deflate_login_waits_for_radius_then_spawn_and_enters_play() {
-    assert_success(CompressionMode::Deflate, SpawnOrder::RadiusThenSpawn).await;
-}
-
-#[tokio::test]
-async fn snappy_login_waits_for_spawn_then_radius_and_emits_encrypted_snappy_ack() {
-    assert_success(CompressionMode::Snappy, SpawnOrder::SpawnThenRadius).await;
-}
-
-#[tokio::test]
-async fn no_compression_login_uses_the_uncompressed_batch_marker() {
-    assert_success(CompressionMode::None, SpawnOrder::RadiusThenSpawn).await;
-}
-
-/// The core's private listener never sends ServerToClientHandshake; login must still reach Play.
-#[tokio::test]
-async fn login_without_server_handshake_stays_clear_and_enters_play() {
-    assert_transport_success(
-        ScriptTransport::new(CompressionMode::None, SpawnOrder::RadiusThenSpawn, false)
-            .without_encryption(),
-    )
+async fn the_join_advertises_the_client_cache_only_with_a_resolver() {
+    let (session, core) = joined(Script {
+        cache_enabled: true,
+        ..Script::default()
+    })
     .await;
-}
-
-#[tokio::test]
-async fn encrypted_login_advertises_client_cache_only_when_resolver_is_installed() {
-    let transport =
-        ScriptTransport::new_with_cache(CompressionMode::Deflate, SpawnOrder::RadiusThenSpawn);
-    let (session, _) = LoginSequence::connect_transport_with_blob_cache(
-        transport,
-        "RustClient",
-        ClientBlobCache::default(),
-    )
-    .await
-    .expect("cache-enabled scripted login");
     assert!(session.blob_cache_enabled());
+    core.finish(session).await;
 }
 
-#[tokio::test]
-async fn encrypted_play_keeps_normal_output_moving_while_cached_chunk_resolves() {
-    let transport =
-        ScriptTransport::new_with_cache(CompressionMode::Deflate, SpawnOrder::RadiusThenSpawn);
-    let (mut session, _) = LoginSequence::connect_transport_with_blob_cache(
-        transport,
-        "RustClient",
-        ClientBlobCache::default(),
-    )
-    .await
-    .expect("cache-enabled scripted login");
-
+/// The login prelude every cache-enabled play script starts with.
+async fn expect_cached_prelude(session: &mut PlaySession) {
     for expected in [
         WorldEvent::SetTime(protocol::SetTimeEvent { time: 12_345 }),
         WorldEvent::SetTime(protocol::SetTimeEvent { time: 23_456 }),
@@ -1047,6 +683,16 @@ async fn encrypted_play_keeps_normal_output_moving_while_cached_chunk_resolves()
             expected
         );
     }
+}
+
+#[tokio::test]
+async fn play_keeps_normal_output_moving_while_a_cached_chunk_resolves() {
+    let (mut session, core) = joined(Script {
+        cache_enabled: true,
+        ..Script::default()
+    })
+    .await;
+    expect_cached_prelude(&mut session).await;
 
     let (ordinary, ordinary_payload) = session
         .recv_world_event_mapped(0, |_| None, |event, payload| Some((event, payload)))
@@ -1082,67 +728,33 @@ async fn encrypted_play_keeps_normal_output_moving_while_cached_chunk_resolves()
     assert_eq!(stats.reconstructed_level_chunks, 1);
     assert_eq!(stats.pending_transactions, 0);
     assert_eq!(stats.pending_bytes, 0);
+    core.finish(session).await;
 }
 
 #[tokio::test]
 async fn miss_response_wire_failure_is_fatal_but_semantic_failure_keeps_session_alive() {
-    let transport = ScriptTransport::new_with_cache_script(
-        CompressionMode::Deflate,
-        SpawnOrder::RadiusThenSpawn,
-        CachePlayScript::TruncatedMissResponse,
-    );
-    let (mut malformed_session, _) = LoginSequence::connect_transport_with_blob_cache(
-        transport,
-        "RustClient",
-        ClientBlobCache::default(),
-    )
-    .await
-    .expect("cache-enabled malformed-wire session");
-    for expected in [
-        WorldEvent::SetTime(protocol::SetTimeEvent { time: 12_345 }),
-        WorldEvent::SetTime(protocol::SetTimeEvent { time: 23_456 }),
-        WorldEvent::ChunkRadiusUpdated(16),
-    ] {
-        assert_eq!(
-            malformed_session
-                .recv_world_event(0)
-                .await
-                .expect("login prelude"),
-            expected
-        );
-    }
+    let (mut malformed_session, core) = joined(Script {
+        cache_enabled: true,
+        cache_play_script: CachePlayScript::TruncatedMissResponse,
+        ..Script::default()
+    })
+    .await;
+    expect_cached_prelude(&mut malformed_session).await;
     let error = malformed_session
         .recv_world_event(0)
         .await
         .expect_err("truncated miss-response wire must terminate the session");
     assert!(matches!(error, ProtocolError::Session(_)));
     assert_eq!(malformed_session.decode_error_count(), 1);
+    core.finish(malformed_session).await;
 
-    let transport = ScriptTransport::new_with_cache_script(
-        CompressionMode::Deflate,
-        SpawnOrder::RadiusThenSpawn,
-        CachePlayScript::InvalidMissResponseThenTraffic,
-    );
-    let (mut semantic_session, _) = LoginSequence::connect_transport_with_blob_cache(
-        transport,
-        "RustClient",
-        ClientBlobCache::default(),
-    )
-    .await
-    .expect("cache-enabled semantic-rejection session");
-    for expected in [
-        WorldEvent::SetTime(protocol::SetTimeEvent { time: 12_345 }),
-        WorldEvent::SetTime(protocol::SetTimeEvent { time: 23_456 }),
-        WorldEvent::ChunkRadiusUpdated(16),
-    ] {
-        assert_eq!(
-            semantic_session
-                .recv_world_event(0)
-                .await
-                .expect("login prelude"),
-            expected
-        );
-    }
+    let (mut semantic_session, core) = joined(Script {
+        cache_enabled: true,
+        cache_play_script: CachePlayScript::InvalidMissResponseThenTraffic,
+        ..Script::default()
+    })
+    .await;
+    expect_cached_prelude(&mut semantic_session).await;
     assert_eq!(
         semantic_session
             .recv_world_event(0)
@@ -1170,6 +782,7 @@ async fn miss_response_wire_failure_is_fatal_but_semantic_failure_keeps_session_
     assert_eq!(stats.abandoned_cached_transactions, 1);
     assert_eq!(stats.recovery_requests, 1);
     assert_eq!(semantic_session.decode_error_count(), 0);
+    core.finish(semantic_session).await;
 }
 
 #[path = "login_state_cases/start_game.rs"]

@@ -4,8 +4,8 @@
 //! non-finite components are semantic skips rather than session failures,
 //! and truncated wire stays fatal per the malformed-wire contract.
 
+use crate::raw_packet::decode_packet_raw;
 use bytes::{Buf, BufMut, BytesMut};
-use jolyne::raw::decode_packet_raw;
 
 use valentine::bedrock::version::v1_26_51::{
     ActorRuntimeId, EnumsMovementEffectType, McpePacketName, MoveActorAbsoluteData,
@@ -65,7 +65,7 @@ fn movement_effect_packets_normalize_through_the_world_allowlist() {
     );
 }
 
-fn raw_motion_packet(body: &[u8]) -> jolyne::raw::RawPacket {
+fn raw_motion_packet(body: &[u8]) -> crate::raw_packet::RawPacket {
     let mut payload = BytesMut::new();
     wire::write_var_u32(&mut payload, McpePacketName::SetActorMotionPacket as u32);
     payload.put_slice(body);

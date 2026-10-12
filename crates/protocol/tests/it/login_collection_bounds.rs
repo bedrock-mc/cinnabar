@@ -5,16 +5,14 @@
 //! without imposing a global 4,096-element ceiling.
 
 use bytes::{Bytes, BytesMut};
-use jolyne::valentine::{
+use valentine::bedrock::codec::{BedrockCodec, U32LE, VarInt};
+use valentine::bedrock::error::DecodeError;
+use valentine::bedrock::version::v1_26_51::{
     BiomeDefinitionListPacket, BiomeDefinitionListPacketMapofBiomenamestodataItem,
     CerealizerExperimentsAnonExperimentToggle, CreativeContentPacket, CreativeGroupInfoPayload,
     CreativeItemEntryPayload, GameRule, ItemData, ItemRegistryPacket, ItemRegistryPacketView,
     PackInfoData, PackInstanceId, ResourcePackStackPacket, ResourcePacksInfoPacket,
     ServerBlockProperty, StartGamePacket,
-    bedrock::{
-        codec::{BedrockCodec, U32LE, VarInt},
-        error::DecodeError,
-    },
 };
 
 const MAX_LOGIN_COLLECTION_ELEMENTS: usize = 4096;
