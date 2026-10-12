@@ -280,7 +280,10 @@ The registration worker and direct environment startup also call
 Use `PanelUiOwner::Environment(index)` for each startup component or
 `PanelUiOwner::Registration` for the independently registered component. Remove
 that owner's entry with `None` when it unloads. Standalone integrations prepare
-and install their owner entry outside rendering. Prepared routes retain their catalogs and
+and install their owner entry outside rendering, then publish accepted values
+with `ModUi::set_mod_panel(owner, host.panel())` using that same owner. Passing
+`None` clears that owner's active panel without clearing another owner's panel.
+Prepared routes retain their catalogs and
 resolved roots; returning to a route reuses its binding and measurement caches.
 Route changes continue to release pointer capture and reset the scroll position.
 
