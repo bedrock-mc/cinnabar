@@ -684,7 +684,7 @@ fn long_formatted_lines_keep_the_aggregate_multiline_budget() {
     .unwrap();
     assert_eq!(tag.lines.len(), 2);
     assert!(tag.lines.iter().map(|line| line.len()).sum::<usize>() > ui::UiLimits::MAX_TEXT_BYTES);
-    for line in &tag.lines {
+    for line in tag.lines.iter() {
         assert!(line.len() <= ui::UiLimits::MAX_TEXT_BYTES);
         assert!(
             ui::parse_bedrock_text(line, ui::UiLimits::MAX_TEXT_BYTES)
