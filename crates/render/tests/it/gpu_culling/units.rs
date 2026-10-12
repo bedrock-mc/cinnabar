@@ -152,7 +152,9 @@ fn batched_direct_units_preserve_seams_cutout_tails_and_depth_precedence() {
         let expected = read_texture(&gpu, &expected_target.color, 0);
         assert!(
             expected
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|pixel| pixel != &expected[..4])
         );
         for page_units in [2, u64::from(u32::MAX)] {
@@ -173,8 +175,10 @@ fn batched_direct_units_preserve_seams_cutout_tails_and_depth_precedence() {
             }
             let actual = read_texture(&gpu, &actual_target.color, 0);
             let differences = expected
-                .chunks_exact(4)
-                .zip(actual.chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(actual.as_chunks::<4>().0)
                 .filter(|(a, b)| a != b)
                 .count();
             gpu_snapshot::save(&format!("terrain_units_before_{index}"), &expected);
