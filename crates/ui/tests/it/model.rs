@@ -859,7 +859,9 @@ fn private_use_glyphs_keep_sheet_colors_and_text_alpha() {
     });
     let colors = draw
         .vertices
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|quad| quad[0].color)
         .collect::<Vec<_>>();
     assert_eq!(

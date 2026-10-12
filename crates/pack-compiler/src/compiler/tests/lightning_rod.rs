@@ -103,7 +103,12 @@ fn compile_rods_with_state(
         .enumerate()
     {
         let mut artwork = pixels.clone();
-        for pixel in artwork.chunks_exact_mut(4).filter(|p| p[3] != 0) {
+        for pixel in artwork
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .filter(|p| p[3] != 0)
+        {
             pixel[2] = 50 + variant as u8 * 40;
         }
         write_png(
@@ -114,7 +119,12 @@ fn compile_rods_with_state(
         );
     }
     let mut powered_art = pixels.clone();
-    for pixel in powered_art.chunks_exact_mut(4).filter(|p| p[3] != 0) {
+    for pixel in powered_art
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .filter(|p| p[3] != 0)
+    {
         pixel[0] = 230;
         pixel[2] = 230;
     }

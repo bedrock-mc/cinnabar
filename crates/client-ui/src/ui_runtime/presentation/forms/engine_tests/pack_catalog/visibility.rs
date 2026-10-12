@@ -313,8 +313,10 @@ fn admitted_chat_pack_filters_open_chat_without_losing_translated_glyphs() {
             .iter()
             .any(|batch| input.textures.pages()[batch.texture_page as usize]
                 .pixels()
-                .chunks_exact(4)
-                .any(|pixel| pixel == [255, 80, 30, 255])),
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel == &[255, 80, 30, 255])),
         "the visible glyph must use the pack's colored sheet pixels"
     );
 }
