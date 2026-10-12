@@ -338,9 +338,10 @@ fn remote_swing_frames(
 ) -> Vec<f32> {
     let mut java = JavaSwing::default();
     let mut frames = Vec::new();
+    let first_sequence = store.latest_sequence + 1;
     for tick in 0..ticks {
         if requests.contains(&tick) {
-            swing_arm(store, 100 + u64::from(tick));
+            swing_arm(store, first_sequence + u64::from(tick));
             java.request(length);
         }
         store.advance_interpolation_ticks(1);
