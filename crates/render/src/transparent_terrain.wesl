@@ -1,11 +1,11 @@
 // One pipeline for sorted transparent terrain: water and model draws alternate back to front,
 // and every program switch between them costs the GPU as much as the drawing itself. A draw whose
 // first instance carries TRANSPARENT_WATER_DRAW_FLAG shades its instances as transparent liquid,
-// sorted refs or direct records as `liquid_draw_ref` selects; any other draw shades model draw
+// sorted refs or direct records as `liquid_record` selects; any other draw shades model draw
 // refs. Both paths run the liquid and model programs' own vertex and shading functions on their
 // own outputs, so the picture matches drawing each family through its own pipeline.
 import render::chunk_bindings::TRANSPARENT_WATER_DRAW_FLAG;
-import render::liquid::{VertexOutput as LiquidOutput, liquid_draw_ref, vertex_for_ref, shade_liquid};
+import render::liquid::{VertexOutput as LiquidOutput, liquid_record, vertex_for_record, shade_liquid};
 import render::model::{VertexOutput as ModelOutput, model_vertex, shade_blend};
 
 struct VertexOutput {
@@ -41,8 +41,8 @@ fn vertex(
 ) -> VertexOutput {
     var out: VertexOutput;
     if ((instance_index & TRANSPARENT_WATER_DRAW_FLAG) != 0u) {
-        let draw_ref = liquid_draw_ref(vertex_index, instance_index & ~TRANSPARENT_WATER_DRAW_FLAG);
-        let liquid = vertex_for_ref(draw_ref, vertex_index);
+        let record = liquid_record(instance_index & ~TRANSPARENT_WATER_DRAW_FLAG);
+        let liquid = vertex_for_record(record, vertex_index);
         out.clip_position = liquid.clip_position;
         out.routing.x = 1u;
         out.textures.x = liquid.current_texture;

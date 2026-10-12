@@ -1,5 +1,5 @@
 use crate::chunk::*;
-use meshing::liquid::TRANSPARENT_WATER_DRAW_FLAG;
+use meshing::liquid::{TRANSPARENT_WATER_DRAW_FLAG, TRANSPARENT_WATER_RECORD_FLAG};
 use render_scene::{RuntimeStageProfiler, VisibilityDiagnosticsInput};
 
 pub(in crate::chunk) const MODEL_INDEX_COUNT: u32 = 6;
@@ -53,15 +53,17 @@ pub(in crate::chunk) fn direct_stream_addresses(
         liquid_lighting: allocation.liquid_lighting_range.clone(),
     }
 }
-pub(in crate::chunk) fn absolutize_liquid_lighting_indices(
+
+/// Points every liquid record at its sub-chunk's origin slot. Meshing stores each record's own
+/// ordinal in this word as its lighting index; shaders derive lighting from the origin's liquid
+/// bases instead, so every draw route reads the origin from the record rather than encoding it in
+/// the draw.
+pub(in crate::chunk) fn stamp_liquid_metadata_index(
     liquid_quads: &mut [[u32; 4]],
-    lighting_word_start: u32,
+    metadata_index: u32,
 ) {
-    let lighting_record_base = lighting_word_start / 2;
     for words in liquid_quads {
-        words[3] = words[3]
-            .checked_add(lighting_record_base)
-            .expect("atomic liquid-lighting arena plan fits u32 record addressing");
+        words[3] = metadata_index;
     }
 }
 
@@ -396,9 +398,9 @@ pub(in crate::chunk) fn depth_liquid_direct_draw_command(
     depth_liquid_draw_command(allocation)
 }
 
-/// Draws water records directly through the transparent pipeline: first_instance selects a
-/// record and carries [`TRANSPARENT_WATER_DRAW_FLAG`]; base_vertex encodes
-/// (metadata index + 1) * 4.
+/// Draws water records directly through the transparent pipeline at base vertex zero:
+/// first_instance selects a record and carries [`TRANSPARENT_WATER_DRAW_FLAG`] and
+/// [`TRANSPARENT_WATER_RECORD_FLAG`]; each record names its own origin slot.
 pub(in crate::chunk) fn transparent_liquid_direct_draw_command(
     allocation: &GpuChunkAllocation,
 ) -> Option<DrawIndexedIndirectArgs> {
@@ -416,14 +418,18 @@ pub(in crate::chunk) fn transparent_liquid_direct_draw_command(
         .as_ref()
         .map_or(liquid.end / 4, |depth| depth.start);
     let instance_count = end.checked_sub(first_instance)?;
-    // Every flagged instance must still name its record below the flag bit.
-    (instance_count != 0 && end <= TRANSPARENT_WATER_DRAW_FLAG).then_some(DrawIndexedIndirectArgs {
-        index_count: STATIC_QUAD_INDICES.len() as u32,
-        instance_count,
-        first_index: 0,
-        base_vertex: metadata_base_vertex(allocation.metadata_index.checked_add(1)?)?,
-        first_instance: first_instance | TRANSPARENT_WATER_DRAW_FLAG,
-    })
+    // Every flagged instance must still name its record below both flag bits.
+    (instance_count != 0 && end <= TRANSPARENT_WATER_RECORD_FLAG).then_some(
+        DrawIndexedIndirectArgs {
+            index_count: STATIC_QUAD_INDICES.len() as u32,
+            instance_count,
+            first_index: 0,
+            base_vertex: 0,
+            first_instance: first_instance
+                | TRANSPARENT_WATER_DRAW_FLAG
+                | TRANSPARENT_WATER_RECORD_FLAG,
+        },
+    )
 }
 
 pub(in crate::chunk) fn depth_liquid_mdi_draw_command(
@@ -442,7 +448,9 @@ pub(in crate::chunk) fn metadata_base_vertex(metadata_index: u32) -> Option<i32>
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub(in crate::chunk) struct GpuChunkOrigin {
     pub(in crate::chunk) value: [i32; 4],
-    pub(in crate::chunk) cube_bases: [u32; 4],
+    /// The sub-chunk's first cube quad, cube lighting record, liquid record and liquid lighting
+    /// record, so shaders find a quad's lighting from its own index.
+    pub(in crate::chunk) stream_bases: [u32; 4],
 }
 
 const _: () = assert!(std::mem::size_of::<GpuChunkOrigin>() == CHUNK_ORIGIN_BYTES as usize);
@@ -452,8 +460,13 @@ pub(in crate::chunk) fn gpu_chunk_origin(
     biome_start: u32,
     cube_quad_base: u32,
     cube_lighting_word_start: u32,
+    liquid_word_start: u32,
+    liquid_lighting_word_start: u32,
 ) -> Option<GpuChunkOrigin> {
-    if !cube_lighting_word_start.is_multiple_of(2) {
+    if !cube_lighting_word_start.is_multiple_of(2)
+        || !liquid_word_start.is_multiple_of(4)
+        || !liquid_lighting_word_start.is_multiple_of(2)
+    {
         return None;
     }
     Some(GpuChunkOrigin {
@@ -463,11 +476,11 @@ pub(in crate::chunk) fn gpu_chunk_origin(
             origin[2],
             i32::try_from(biome_start).ok()?,
         ],
-        cube_bases: [
+        stream_bases: [
             cube_quad_base,
-            cube_lighting_word_start.checked_div(2)?,
-            0,
-            0,
+            cube_lighting_word_start / 2,
+            liquid_word_start / 4,
+            liquid_lighting_word_start / 2,
         ],
     })
 }

@@ -156,6 +156,13 @@ material ownership and malformed selectors. Geometry uses the carrier's existing
 position and UV precision. Rendered/input acceptance and reported server-version
 placement remain incomplete; broader parity gates stay open.
 
+## Transparent water draws at base vertex zero
+
+Unsorted transparent water draws at base vertex zero: each liquid record names its own
+chunk origin slot, and the origin carries the sub-chunk's liquid and liquid-lighting
+bases. The previous base-vertex encoding drew flat water a block off on Honeykrisp,
+which misreports the builtin vertex index under nonzero base vertices.
+
 ## RakNet transport compatibility
 
 The Go core, local server, and fixture generator share a reviewed transport revision with

@@ -832,13 +832,21 @@ fn shared_geometry_layout_keeps_both_model_draw_routes_contiguous_and_bounded() 
 }
 
 #[test]
-fn cube_lighting_layout_rejects_overflow_and_origin_abi_carries_both_bases() {
+fn cube_lighting_layout_rejects_overflow_and_origin_abi_carries_every_stream_base() {
     assert_eq!(std::mem::size_of::<GpuChunkOrigin>(), 32);
     assert_eq!(CHUNK_ORIGIN_BYTES, 32);
-    let origin = gpu_chunk_origin([1, -2, 3], 7, 11, 24).expect("even light word base");
+    let origin = gpu_chunk_origin([1, -2, 3], 7, 11, 24, 40, 64).expect("aligned stream bases");
     assert_eq!(origin.value, [1, -2, 3, 7]);
-    assert_eq!(origin.cube_bases, [11, 12, 0, 0]);
-    assert!(gpu_chunk_origin([0; 3], 0, 0, 3).is_none());
+    assert_eq!(origin.stream_bases, [11, 12, 10, 32]);
+    assert!(gpu_chunk_origin([0; 3], 0, 0, 3, 0, 0).is_none());
+    assert!(
+        gpu_chunk_origin([0; 3], 0, 0, 0, 2, 0).is_none(),
+        "liquid records are 4 words"
+    );
+    assert!(
+        gpu_chunk_origin([0; 3], 0, 0, 0, 0, 1).is_none(),
+        "lighting records are 2 words"
+    );
     assert!(
         GeometryStreamCounts {
             cube_lighting: u32::MAX,

@@ -19,7 +19,7 @@ struct PackedQuad {
 
 struct ChunkOrigin {
     value: vec4<i32>,
-    cube_bases: vec4<u32>,
+    stream_bases: vec4<u32>,
 }
 
 
@@ -301,8 +301,8 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     let metadata_index = vertex_index / 4u;
     let corner = vertex_index & 3u;
     let chunk_origin = chunk_origins[metadata_index];
-    let local_quad_index = instance_index - chunk_origin.cube_bases.x;
-    let lighting_record_index = chunk_origin.cube_bases.y + local_quad_index;
+    let local_quad_index = instance_index - chunk_origin.stream_bases.x;
+    let lighting_record_index = chunk_origin.stream_bases.y + local_quad_index;
     let lighting_word = geometry_streams[lighting_record_index * 2u + corner / 2u];
     let light_sample = select(
         lighting_word & 0xffffu,

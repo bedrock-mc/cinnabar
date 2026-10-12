@@ -5,15 +5,18 @@ use crate::shader_source;
 
 use bevy::math::Vec3;
 use gpu_snapshot::{Draw, Gpu, RasterState};
-use meshing::liquid::LIQUID_TOP_INSET_BIT;
+use meshing::liquid::{LIQUID_TOP_INSET_BIT, TRANSPARENT_WATER_RECORD_FLAG};
 use meshing::{Face, PackedLiquidQuad};
 
-/// One liquid face at chunk-local `origin`, with every exposed top lowered as in a lake.
+/// One liquid face at chunk-local `origin` in the water chunk, with every exposed top lowered as
+/// in a lake.
 fn face(origin: [u8; 3], face: Face, heights: [u8; 4]) -> [u32; 4] {
     let mut words = PackedLiquidQuad::try_pack(origin, face, heights, 0, 0, [0; 2], false)
         .unwrap()
         .words();
     words[2] |= LIQUID_TOP_INSET_BIT;
+    // The upload names the record's origin slot in its last word.
+    words[3] = METADATA_INDEX;
     words
 }
 
@@ -24,14 +27,14 @@ fn surface() -> Vec<[u32; 4]> {
         .collect()
 }
 
-/// Renders production liquid selection and blending; base_vertex zero uses sorted refs.
-/// A direct draw passes (metadata index + 1) * 4 as base_vertex.
+/// Renders production liquid selection and blending; instances name sorted ref slots, or their
+/// records directly when `instance_flags` carries the record flag.
 fn render(
     gpu: &Gpu,
     source: &str,
     records: &[[u32; 4]],
     refs: &[[u32; 2]],
-    base_vertex: u32,
+    instance_flags: u32,
 ) -> Vec<u8> {
     let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("white water texel"),
@@ -99,7 +102,7 @@ fn render(
         wgpu::BufferUsages::STORAGE,
     );
     let refs_buffer = gpu.words(&non_empty(refs.concat(), 2), wgpu::BufferUsages::STORAGE);
-    let draw = gpu.words(&[base_vertex, 0, 0, 0], wgpu::BufferUsages::UNIFORM);
+    let draw = gpu.words(&[instance_flags, 0, 0, 0], wgpu::BufferUsages::UNIFORM);
     let bindings = [
         wgpu::BindGroupEntry {
             binding: 0,
@@ -183,10 +186,8 @@ fn witness_source() -> String {
     .replace("@group(1) @binding(0)", "@group(0) @binding(20)")
 }
 
-/// The water chunk's metadata index; a direct draw passes it plus one, times four, as its
-/// base vertex.
+/// The water chunk's metadata index, which its records name.
 const METADATA_INDEX: u32 = 1;
-const DIRECT_BASE_VERTEX: u32 = (METADATA_INDEX + 1) * 4;
 
 /// Refs to `records` in `order`, all in the water chunk.
 fn refs(order: impl IntoIterator<Item = usize>) -> Vec<[u32; 2]> {
@@ -204,7 +205,7 @@ fn flat_water_draws_the_same_pixels_from_records_as_from_any_sorted_order() {
     let source = witness_source();
     let records = surface();
     let count = records.len();
-    let direct = render(&gpu, &source, &records, &[], DIRECT_BASE_VERTEX);
+    let direct = render(&gpu, &source, &records, &[], TRANSPARENT_WATER_RECORD_FLAG);
     let background = render(&gpu, &source, &[], &[], 0);
     assert!(direct != background, "the surface drew nothing");
     gpu_snapshot::save("liquid_order_flat", &direct);
@@ -245,16 +246,16 @@ const WITNESS: &str = r#"
 /// Draws production liquid geometry with per-record colors that expose blend order.
 @vertex fn order_witness(@builtin(vertex_index) index: u32) -> VertexOutput {
     let corner = RASTER_INDICES[index % 6u];
-    let draw_ref = liquid_draw_ref(raster_draw.x + corner, index / 6u);
-    let word = draw_ref.liquid_record_index * 4u;
+    let record = liquid_record(raster_draw.x | (index / 6u));
+    let word = record * 4u;
     let local = liquid_corner(
         geometry_streams[word],
         geometry_streams[word + 1u],
         corner,
         geometry_streams[word + 2u],
     );
-    let world = vec3<f32>(chunk_origins[draw_ref.metadata_index].value.xyz) + local;
-    let shade = f32(draw_ref.liquid_record_index % 7u) / 7.0;
+    let world = vec3<f32>(chunk_origins[geometry_streams[word + 3u]].value.xyz) + local;
+    let shade = f32(record % 7u) / 7.0;
     var out: VertexOutput;
     out.clip_position = view.clip_from_world * vec4(world, 1.0);
     out.world_position = world;

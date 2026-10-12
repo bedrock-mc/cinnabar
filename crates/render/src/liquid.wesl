@@ -1,8 +1,9 @@
 import render::chunk_bindings::{
     view, chunk_origins, block_textures_page_0, block_textures_page_1, block_sampler,
     terrain_gamma_page_0, terrain_gamma_page_1, animations, animation_frames, clock,
-    geometry_streams, atmosphere, transparent_refs, TransparentDrawRef,
+    geometry_streams, atmosphere, transparent_refs,
     LIQUID_FACE_INSET, LIQUID_TOP_INSET_BIT, LIQUID_DEPTH_WRITE_BIT, LIQUID_TWO_SIDED_BIT,
+    TRANSPARENT_WATER_RECORD_FLAG,
 };
 import render::material::{MaterialGpu, materials, positional_material, texture_layer, texture_uv_scale, texture_gradient_scale};
 import render::world_projection::{section_camera_offset, camera_offset_clip};
@@ -162,15 +163,16 @@ fn liquid_vertex_alpha(alpha: f32, camera_distance: f32, fade_distance: f32) -> 
     return alpha;
 }
 
-/// Selects sorted refs at base vertex zero, or direct records at (metadata index + 1) * 4.
-/// Both paths share projection code so shared edges reach identical positions. Transparent
-/// liquid draws through `transparent_terrain.wgsl`, which calls this with the instance index
-/// stripped of `TRANSPARENT_WATER_DRAW_FLAG`.
-fn liquid_draw_ref(vertex_index: u32, instance_index: u32) -> TransparentDrawRef {
-    if (vertex_index < 4u) {
-        return transparent_refs[instance_index];
+/// The liquid record a transparent water instance draws: the record itself when the draw carries
+/// `TRANSPARENT_WATER_RECORD_FLAG`, else the record its sorted ref slot names. Both routes draw at
+/// base vertex zero, since some drivers misreport the builtin vertex index under other base
+/// vertices. Transparent liquid draws through `transparent_terrain.wesl`, which calls this with
+/// the instance index stripped of `TRANSPARENT_WATER_DRAW_FLAG`.
+fn liquid_record(instance_index: u32) -> u32 {
+    if ((instance_index & TRANSPARENT_WATER_RECORD_FLAG) != 0u) {
+        return instance_index & ~TRANSPARENT_WATER_RECORD_FLAG;
     }
-    return TransparentDrawRef(instance_index, vertex_index / 4u - 1u);
+    return transparent_refs[instance_index].liquid_record_index;
 }
 
 // Fetches the vertex index and first instance from vertex buffer 0, as `chunk.wgsl` describes.
@@ -183,17 +185,20 @@ fn vertex_depth(
 }
 
 fn depth_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
-    let draw_ref = TransparentDrawRef(instance_index, vertex_index / 4u);
-    return vertex_for_ref(draw_ref, vertex_index);
+    return vertex_for_record(instance_index, vertex_index);
 }
 
-fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutput {
+/// Projects corner `vertex_index & 3` of liquid record `record_index`. The record names its own
+/// origin slot, and its lighting record sits at the same offset from the origin's liquid lighting
+/// base as the record does from its liquid base.
+fn vertex_for_record(record_index: u32, vertex_index: u32) -> VertexOutput {
     let corner = vertex_index & 3u;
-    let liquid_word = draw_ref.liquid_record_index * 4u;
+    let liquid_word = record_index * 4u;
     let geometry = geometry_streams[liquid_word];
     let height_word = geometry_streams[liquid_word + 1u];
     let packed_material = geometry_streams[liquid_word + 2u];
-    let lighting_record_index = geometry_streams[liquid_word + 3u];
+    let chunk_origin = chunk_origins[geometry_streams[liquid_word + 3u]];
+    let lighting_record_index = chunk_origin.stream_bases.w + record_index - chunk_origin.stream_bases.z;
     let lighting_word = geometry_streams[lighting_record_index * 2u + corner / 2u];
     let light_sample = select(
         lighting_word & 0xffffu,
@@ -202,7 +207,6 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
     );
     let face = (geometry >> 12u) & 7u;
     let local_position = liquid_corner(geometry, height_word, corner, packed_material);
-    let chunk_origin = chunk_origins[draw_ref.metadata_index];
     let world_position = vec3<f32>(chunk_origin.value.xyz) + local_position;
     let camera_offset = section_camera_offset(chunk_origin.value.xyz, local_position, view.world_position);
     let block_coordinate = vec3<u32>(

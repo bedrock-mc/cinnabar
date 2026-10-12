@@ -306,10 +306,10 @@ fn any_partial_model_triplet_is_expected_as_model_but_cannot_draw() {
 }
 
 #[test]
-fn liquid_lighting_index_patches_to_shared_arena_records_without_mutating_other_words() {
-    let mut quads = vec![[0x432, 7, 0b101, 0], [0x765, 8, 0b110, 2]];
-    absolutize_liquid_lighting_indices(&mut quads, 20);
-    assert_eq!(quads, [[0x432, 7, 0b101, 10], [0x765, 8, 0b110, 12]]);
+fn liquid_records_name_their_origin_slot_without_mutating_other_words() {
+    let mut quads = vec![[0x432, 7, 0b101, 0], [0x765, 8, 0b110, 1]];
+    stamp_liquid_metadata_index(&mut quads, 9);
+    assert_eq!(quads, [[0x432, 7, 0b101, 9], [0x765, 8, 0b110, 9]]);
 }
 
 #[test]
