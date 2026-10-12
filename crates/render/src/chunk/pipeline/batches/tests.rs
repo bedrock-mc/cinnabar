@@ -5,12 +5,15 @@ use crate::chunk::gpu_cull::app_tests::{
     KEYS, camera_transform, chunk_app, frame, insert_meshes, noop_render_plugin,
 };
 
+/// Builds a visible class in the main-entity order required by Bevy's lookup.
 fn class(entities: &[Entity]) -> RenderVisibleEntitiesClass {
+    let mut entities = entities
+        .iter()
+        .map(|&entity| (entity, MainEntity::from(entity)))
+        .collect::<Vec<_>>();
+    entities.sort_unstable_by_key(|(_, main)| *main);
     RenderVisibleEntitiesClass {
-        entities_cpu_culling: entities
-            .iter()
-            .map(|&entity| (entity, MainEntity::from(entity)))
-            .collect(),
+        entities_cpu_culling: entities,
         ..default()
     }
 }
@@ -124,7 +127,9 @@ fn indirect_cubes_sort_again_only_for_a_moved_view_and_requeue_only_for_a_new_or
 
     let (matrix, rangefinder) = pose(east(-16.0));
     let first = lists.indirect_lists(matrix, &rangefinder, false);
-    assert_eq!(first.visible.as_deref(), Some(&[near, far][..]));
+    let mut entity_order = [near, far];
+    entity_order.sort();
+    assert_eq!(first.visible.as_deref(), Some(&entity_order[..]));
     assert_eq!(first.cubes.as_deref(), Some(&[near, far][..]));
     let still = lists.indirect_lists(matrix, &rangefinder, false);
     assert!(still.visible.is_none() && still.cubes.is_none() && !still.sorted);
@@ -264,6 +269,10 @@ fn a_still_indirect_view_keeps_its_commands_and_a_plane_crossing_rebuilds_only_s
         Msaa::Off,
         camera_transform(),
     );
+    app.sub_app_mut(RenderApp)
+        .world_mut()
+        .resource_mut::<super::super::units::TerrainUnitBatches>()
+        .disabled = true;
     // The lowest camera takes the GPU cull, so this one plans its batches on the CPU.
     let secondary = spawn_camera(&mut app, camera_transform(), 1);
     insert_meshes(&mut app, &KEYS);
