@@ -556,7 +556,7 @@ impl Content<'_, '_> {
                             MenuAction::SettingsOption(index as u16, visible[choice] as i32),
                         )?;
                     }
-                    for choice in 0..labels.len() {
+                    for (choice, &option_choice) in visible.iter().enumerate() {
                         widgets::choice_focus(
                             self.canvas,
                             self.view,
@@ -566,8 +566,8 @@ impl Content<'_, '_> {
                                 left + (choice + 1) as f32 * cell_width,
                                 control[3],
                             ],
-                            visible[choice] == value as usize,
-                            MenuAction::SettingsOption(index as u16, visible[choice] as i32),
+                            option_choice == value as usize,
+                            MenuAction::SettingsOption(index as u16, option_choice as i32),
                         )?;
                     }
                 }
