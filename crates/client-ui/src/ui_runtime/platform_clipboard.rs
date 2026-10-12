@@ -1,6 +1,6 @@
 //! Arboard-backed bounded clipboard adapter for chat paste and copy.
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError, TryLockError};
 
 use ui::ChatClipboard;
 
@@ -9,7 +9,7 @@ use ui::ChatClipboard;
 /// Every handle shares one long-lived arboard clipboard. On X11 the copied
 /// selection is served by that clipboard object, so it must outlive each copy
 /// for other applications to paste the text when no clipboard manager runs.
-/// The application's exit hooks release it during shutdown.
+/// The application releases it during shutdown.
 #[derive(Default)]
 pub struct PlatformClipboard;
 
@@ -40,10 +40,16 @@ impl PlatformClipboard {
         PLATFORM_CLIPBOARD.write_text(text)
     }
 
-    /// Releases the retained connection so its destructor can hand copied text
-    /// to the clipboard manager, and prevents further access during shutdown.
+    /// Releases the retained connection on graceful exit so its destructor can
+    /// hand copied text to the clipboard manager, and prevents further access.
     pub fn shutdown() {
         PLATFORM_CLIPBOARD.shutdown();
+    }
+
+    /// Releases the connection on forced exit unless clipboard I/O holds its lock.
+    /// A busy connection skips the handoff so process termination can proceed.
+    pub fn shutdown_if_idle() {
+        PLATFORM_CLIPBOARD.shutdown_if_idle();
     }
 }
 
@@ -98,6 +104,17 @@ impl<B: ClipboardBackend> ClipboardOwner<B> {
     /// Drops the connection once and prevents another operation from reopening it.
     fn shutdown(&self) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.shutting_down = true;
+        state.backend = None;
+    }
+
+    /// Drops an idle connection without waiting for an operation holding its lock.
+    fn shutdown_if_idle(&self) {
+        let mut state = match self.state.try_lock() {
+            Ok(state) => state,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(TryLockError::WouldBlock) => return,
+        };
         state.shutting_down = true;
         state.backend = None;
     }
@@ -226,7 +243,7 @@ mod tests {
         let owner = Arc::new(ClipboardOwner::<SelectionServingBackend>::new());
         let children = launcher_host::lifecycle::children::Children::new();
         let exit_owner = Arc::clone(&owner);
-        let _exit = children.on_exit(move || exit_owner.shutdown());
+        let _exit = children.on_exit(move || exit_owner.shutdown_if_idle());
         owner
             .write_text("copied text".to_owned())
             .expect("write succeeds");
@@ -258,6 +275,34 @@ mod tests {
 
         assert_eq!(OPENED_CONNECTIONS.load(Ordering::SeqCst), 0);
         assert_eq!(DROPPED_CONNECTIONS.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn forced_exit_skips_a_busy_clipboard_and_runs_the_remaining_hooks() {
+        let _platform = reset_platform();
+        let owner = Arc::new(ClipboardOwner::<SelectionServingBackend>::new());
+        let children = launcher_host::lifecycle::children::Children::new();
+        let exit_owner = Arc::clone(&owner);
+        let _exit = children.on_exit(move || exit_owner.shutdown_if_idle());
+        let remaining_hook_ran = Arc::new(AtomicBool::new(false));
+        let ran = Arc::clone(&remaining_hook_ran);
+        let _remaining = children.on_exit(move || ran.store(true, Ordering::SeqCst));
+        owner
+            .write_text("copied text".to_owned())
+            .expect("write succeeds");
+
+        let state = owner.state.lock().unwrap_or_else(PoisonError::into_inner);
+        children.stop_all(std::time::Duration::ZERO);
+
+        assert!(remaining_hook_ran.load(Ordering::SeqCst));
+        assert_eq!(DROPPED_CONNECTIONS.load(Ordering::SeqCst), 0);
+        assert_eq!(served_selection().as_deref(), Some("copied text"));
+        drop(state);
+
+        owner.shutdown();
+
+        assert_eq!(DROPPED_CONNECTIONS.load(Ordering::SeqCst), 1);
+        assert_eq!(served_selection(), None);
     }
 
     #[test]

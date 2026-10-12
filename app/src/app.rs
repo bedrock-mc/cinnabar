@@ -396,7 +396,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     )?;
     crate::thread_budget::ThreadBudget::configure_global_rayon();
     // Keep the clipboard hook registered until the child guard runs on return or unwind.
-    let _clipboard_exit = launcher_host::lifecycle::children::on_exit(PlatformClipboard::shutdown);
+    let _clipboard_exit =
+        launcher_host::lifecycle::children::on_exit(PlatformClipboard::shutdown_if_idle);
     // Drop after all process owners so every spawned child is stopped before `run` ends.
     let _children = launcher_host::lifecycle::children::StopOnDrop;
     launcher_host::lifecycle::children::install_exit_hooks(|| {
@@ -966,6 +967,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .add_systems(First, crate::lifecycle::acknowledge_startup);
     startup::install_first_frame_log(&mut app);
     let exit = app.run();
+    PlatformClipboard::shutdown();
     client_shell::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app
         .world_mut()
