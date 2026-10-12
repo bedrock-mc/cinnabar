@@ -1,3 +1,6 @@
+use crate::chunk::pipeline::batches::{
+    DrawableTerrain, RetainedTerrainBatches, retain_indirect_views,
+};
 use crate::chunk::transparent::liquid::transparent_liquid_phase_distance;
 use crate::chunk::*;
 use render_scene::{
@@ -16,7 +19,7 @@ type ChunkViewQuery = (
     Read<bevy::render::camera::ExtractedCamera>,
 );
 
-/// Each indirect draw path's batches, cleared and refilled every queue.
+/// Each indirect draw path's batches, kept while their view stays on the CPU-planned path.
 type IndirectBatches = (
     ResMut<'static, ChunkIndirectBatches>,
     ResMut<'static, ChunkModelIndirectBatches>,
@@ -34,7 +37,7 @@ pub(in crate::chunk) fn queue_chunks(
     views: Query<ChunkViewQuery>,
     instances: Query<(Entity, &ChunkRenderInstance)>,
     allocations: Query<&GpuChunkAllocation>,
-    arena: Res<ChunkGpuArena>,
+    (arena, mut retained): (Res<ChunkGpuArena>, ResMut<RetainedTerrainBatches>),
     biome_tints: Res<ChunkBiomeTints>,
     mut model_witness_resources: ParamSet<(
         Res<PresentedFrameGate>,
@@ -52,13 +55,14 @@ pub(in crate::chunk) fn queue_chunks(
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::OpaqueQueue));
     let frame_probe = &probes.frame_probe;
+    let changes = retained.begin_frame();
     let diagnostic_timer = probes
         .profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::OpaqueDiagnostics));
-    model_witness_resources
-        .p2()
-        .begin_frame(summarize_model_workload(allocations.iter()));
+    let resident_models =
+        retained.resident_models(&changes, || summarize_model_workload(allocations.iter()));
+    model_witness_resources.p2().begin_frame(resident_models);
     drop(diagnostic_timer);
     let draw_mode = select_chunk_draw_mode(
         render_adapter.get_downlevel_capabilities().flags,
@@ -116,11 +120,10 @@ pub(in crate::chunk) fn queue_chunks(
     let model_indirect_draw = draw_functions.id::<DrawModelIndirectCommands>();
     let depth_liquid_direct_draw = draw_functions.id::<DrawDepthLiquidCommands>();
     let depth_liquid_indirect_draw = draw_functions.id::<DrawDepthLiquidIndirectCommands>();
-    indirect_batch_sets.p0().0.clear();
-    indirect_batch_sets.p1().0.clear();
-    indirect_batch_sets.p2().0.clear();
-    indirect_batch_sets.p3().0.clear();
+    // Views keep their indirect batches only while queued through the CPU-planned path.
+    let mut indirect_views = Vec::new();
     if draw_mode == ChunkDrawMode::Unsupported {
+        retain_queued_indirect_views(&mut indirect_batch_sets, &indirect_views, &mut retained);
         frame_probe.clear();
         if !*unsupported_reported {
             bevy::log::error!(
@@ -160,6 +163,9 @@ pub(in crate::chunk) fn queue_chunks(
         frame_probe.clear();
     }
     let probing = frame_probe.is_active() || probes.input.enabled();
+    // A frame probe filters the lists by its own manifest, so they are neither reused nor kept.
+    let reusable = !frame_probe.is_active();
+    let direct_streams = draw_mode == ChunkDrawMode::Direct;
     let gpu_cull_view = gpu_culling.select(
         draw_mode,
         probing,
@@ -202,29 +208,42 @@ pub(in crate::chunk) fn queue_chunks(
             continue;
         };
 
+        let lists = retained.refresh_view(
+            view_entity,
+            visible_entities.get::<ChunkRenderInstance>(),
+            &changes,
+            reusable,
+        );
         let diagnostic_timer = probes
             .profiler
             .as_deref()
             .map(|profiler| profiler.time(RuntimeStage::OpaqueDiagnostics));
-        model_witness_resources
-            .p2()
-            .record_visible(summarize_model_workload(
-                visible_entities
-                    .get::<ChunkRenderInstance>()
-                    .into_iter()
-                    .flat_map(|class| class.iter_visible())
-                    .filter_map(|(render_entity, _)| {
-                        let allocation = allocations.get(*render_entity).ok()?;
-                        drawable_allocation_identity(
-                            frame_probe,
-                            *render_entity,
-                            allocation,
-                            biome_tints.table_identity(),
-                        )?;
-                        Some(allocation)
-                    }),
-            ));
+        let visible_models = lists.visible_models(|source| {
+            summarize_model_workload(source.iter().filter_map(|(render_entity, _)| {
+                let allocation = allocations.get(*render_entity).ok()?;
+                drawable_allocation_identity(
+                    frame_probe,
+                    *render_entity,
+                    allocation,
+                    biome_tints.table_identity(),
+                )?;
+                Some(allocation)
+            }))
+        });
+        model_witness_resources.p2().record_visible(visible_models);
         drop(diagnostic_timer);
+        let admit = |entity: Entity, main: MainEntity| {
+            let allocation = allocations.get(entity).ok()?;
+            let identity = drawable_allocation_identity(
+                frame_probe,
+                entity,
+                allocation,
+                biome_tints.table_identity(),
+            )?;
+            frame_probe
+                .record_visible(entity, identity)
+                .then(|| DrawableTerrain::new(entity, main, allocation, direct_streams))
+        };
 
         if gpu_cull_view == Some(view_entity) {
             let pipelines = [
@@ -265,87 +284,40 @@ pub(in crate::chunk) fn queue_chunks(
                 .profiler
                 .as_deref()
                 .map(|profiler| profiler.time(RuntimeStage::OpaqueBatchPlanning));
-            let visible = sorted_visible_entities(
-                visible_entities
-                    .get::<ChunkRenderInstance>()
-                    .into_iter()
-                    .flat_map(|class| class.iter_visible())
-                    .map(|(entity, main)| (*entity, *main)),
-            )
-            .into_iter()
-            .filter(|(entity, _)| {
-                let Ok(allocation) = allocations.get(*entity) else {
-                    return false;
-                };
-                let Some(identity) = drawable_allocation_identity(
-                    frame_probe,
-                    *entity,
-                    allocation,
-                    biome_tints.table_identity(),
-                ) else {
-                    return false;
-                };
-                frame_probe.record_visible(*entity, identity)
-            })
-            .collect::<Vec<_>>();
-
-            if visible.is_empty() {
+            if lists.drawable(admit).is_empty() {
                 continue;
             }
-            let cube_entities = front_to_back_cube_entities(
-                visible.iter().filter_map(|(entity, _)| {
-                    allocations
-                        .get(*entity)
-                        .ok()
-                        .map(|item| (*entity, item.key))
-                }),
+            let requeue = !indirect_batch_sets.p0().0.contains_key(&view_entity);
+            let update = lists.indirect_lists(
+                view.world_from_view.to_matrix(),
                 &view.rangefinder3d(),
+                requeue,
             );
-            indirect_batch_sets.p3().0.insert(
-                view_entity,
-                pipeline::solid::ChunkSolidIndirectBatch {
-                    camera: pipeline::solid::solid_cull_camera(view, enhanced.is_some()),
-                    cubes: ChunkIndirectBatch {
-                        visible_entities: cube_entities.clone(),
-                        drawn_allocations: Vec::new(),
-                        indirect_offset: 0,
-                        command_count: 0,
-                    },
-                },
-            );
-            indirect_batch_sets.p0().0.insert(
-                view_entity,
-                ChunkIndirectBatch {
-                    visible_entities: cube_entities,
-                    drawn_allocations: Vec::new(),
-                    indirect_offset: 0,
-                    command_count: 0,
-                },
-            );
-            indirect_batch_sets.p1().0.insert(
-                view_entity,
-                ChunkIndirectBatch {
-                    visible_entities: visible
-                        .iter()
-                        .map(|(render_entity, _)| *render_entity)
-                        .collect(),
-                    drawn_allocations: Vec::new(),
-                    indirect_offset: 0,
-                    command_count: 0,
-                },
-            );
-            indirect_batch_sets.p2().0.insert(
-                view_entity,
-                ChunkIndirectBatch {
-                    visible_entities: visible
-                        .iter()
-                        .map(|(render_entity, _)| *render_entity)
-                        .collect(),
-                    drawn_allocations: Vec::new(),
-                    indirect_offset: 0,
-                    command_count: 0,
-                },
-            );
+            retained.stats.cube_sorts += u64::from(update.sorted);
+            if let Some(visible) = update.visible {
+                indirect_batch_sets
+                    .p1()
+                    .0
+                    .insert(view_entity, ChunkIndirectBatch::new(visible.clone()));
+                indirect_batch_sets
+                    .p2()
+                    .0
+                    .insert(view_entity, ChunkIndirectBatch::new(visible));
+            }
+            if let Some(cubes) = update.cubes {
+                indirect_batch_sets
+                    .p0()
+                    .0
+                    .insert(view_entity, ChunkIndirectBatch::new(cubes.clone()));
+                indirect_batch_sets.p3().0.insert(
+                    view_entity,
+                    pipeline::solid::ChunkSolidIndirectBatch::new(cubes),
+                );
+            }
+            if let Some(solid) = indirect_batch_sets.p3().0.get_mut(&view_entity) {
+                solid.camera = pipeline::solid::solid_cull_camera(view, enhanced.is_some());
+            }
+            indirect_views.push(view_entity);
 
             phase.add(
                 Opaque3dBatchSetKey {
@@ -424,44 +396,21 @@ pub(in crate::chunk) fn queue_chunks(
         } else {
             None
         };
-        for (render_entity, main_entity) in visible_entities
-            .get::<ChunkRenderInstance>()
-            .into_iter()
-            .flat_map(|class| class.iter_visible())
-            .map(|(entity, main)| (*entity, *main))
-        {
-            let Ok(allocation) = allocations.get(render_entity) else {
-                continue;
-            };
-            let Some(identity) = drawable_allocation_identity(
-                frame_probe,
-                render_entity,
-                allocation,
-                biome_tints.table_identity(),
-            ) else {
-                continue;
-            };
-            if !frame_probe.record_visible(render_entity, identity) {
-                continue;
-            }
-            let solid = cube_stream_drawable(allocation);
+        for terrain in lists.drawable(admit) {
+            let (render_entity, main_entity) = (terrain.entity, terrain.main);
             if terrain_pass.is_some()
                 && let Some(frame) = gpu_culling.direct_frame()
             {
-                frame.push(render_entity, solid);
+                frame.push(render_entity, terrain.solid);
             }
             // Solid before cutout, so the cutout bin follows it in insertion order.
             let cube_draws = [
                 (
-                    solid && terrain_pass != Some(true),
+                    terrain.solid && terrain_pass != Some(true),
                     solid_direct_draw,
                     solid_pipeline_id,
                 ),
-                (
-                    cutout_indirect_command(allocation).is_some(),
-                    direct_draw,
-                    pipeline_id,
-                ),
+                (terrain.cutout, direct_draw, pipeline_id),
             ];
             for (_, draw_function, pipeline) in cube_draws.into_iter().filter(|draw| draw.0) {
                 phase.add(
@@ -480,7 +429,7 @@ pub(in crate::chunk) fn queue_chunks(
                     BinnedRenderPhaseType::NonMesh,
                 );
             }
-            if model_direct_draw_command(allocation).is_some() {
+            if terrain.model {
                 phase.add(
                     Opaque3dBatchSetKey {
                         draw_function: model_direct_draw,
@@ -497,7 +446,7 @@ pub(in crate::chunk) fn queue_chunks(
                     BinnedRenderPhaseType::NonMesh,
                 );
             }
-            if depth_liquid_direct_draw_command(allocation).is_some() {
+            if terrain.depth_liquid {
                 phase.add(
                     Opaque3dBatchSetKey {
                         draw_function: depth_liquid_direct_draw,
@@ -516,6 +465,20 @@ pub(in crate::chunk) fn queue_chunks(
             }
         }
     }
+    retain_queued_indirect_views(&mut indirect_batch_sets, &indirect_views, &mut retained);
+}
+
+/// Drops the indirect batches of views not in `views`, so the next prepare lays the rest out again.
+fn retain_queued_indirect_views(
+    sets: &mut ParamSet<'_, '_, IndirectBatches>,
+    views: &[Entity],
+    retained: &mut RetainedTerrainBatches,
+) {
+    let mut dropped = retain_indirect_views(&mut sets.p0().0, views);
+    dropped |= retain_indirect_views(&mut sets.p1().0, views);
+    dropped |= retain_indirect_views(&mut sets.p2().0, views);
+    dropped |= retain_indirect_views(&mut sets.p3().0, views);
+    retained.layout_changed |= dropped;
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -104,10 +104,8 @@ fn missing_or_empty_indirect_batch_has_no_draw_arguments() {
     batches.0.insert(
         view,
         ChunkIndirectBatch {
-            visible_entities: Vec::new(),
-            drawn_allocations: Vec::new(),
             indirect_offset: 40,
-            command_count: 0,
+            ..ChunkIndirectBatch::new(Vec::new())
         },
     );
     assert_eq!(indirect_batch_draw_args(&batches, view), None);

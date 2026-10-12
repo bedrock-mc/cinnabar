@@ -500,6 +500,24 @@ pub(in crate::chunk) struct ChunkIndirectBatch {
     pub(in crate::chunk) drawn_allocations: Vec<(Entity, FrameAllocationIdentity)>,
     pub(in crate::chunk) indirect_offset: u64,
     pub(in crate::chunk) command_count: u32,
+    /// Commands built from `visible_entities`, kept until `stale`.
+    pub(in crate::chunk) commands: Vec<DrawIndexedIndirectArgs>,
+    /// The list, its allocations or its face selection changed since `commands` was built.
+    pub(in crate::chunk) stale: bool,
+}
+
+impl ChunkIndirectBatch {
+    /// A batch over `visible_entities` whose commands the next prepare builds.
+    pub(in crate::chunk) fn new(visible_entities: Vec<Entity>) -> Self {
+        Self {
+            visible_entities,
+            drawn_allocations: Vec::new(),
+            indirect_offset: 0,
+            command_count: 0,
+            commands: Vec::new(),
+            stale: true,
+        }
+    }
 }
 
 #[derive(Resource, Default)]

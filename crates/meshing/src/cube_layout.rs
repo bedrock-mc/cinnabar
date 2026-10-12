@@ -50,6 +50,26 @@ pub fn sub_chunk_facing_faces(origin: [i32; 3], camera: [f64; 3]) -> FaceMask {
     facing
 }
 
+/// Where `camera` sits among sub-chunk face planes, as `(plane index, on the plane)` per axis.
+/// Equal cells give equal [`sub_chunk_facing_faces`] for every sub-chunk; `None` keeps every face.
+#[must_use]
+pub fn facing_cell(camera: [f64; 3]) -> Option<[(f64, bool); 3]> {
+    if !camera.iter().all(|value| value.is_finite()) {
+        return None;
+    }
+    let side = SIDE as f64;
+    Some(camera.map(|value| {
+        let mut plane = (value / side).floor();
+        // Division can underflow across the zero plane; settle on the plane at or below.
+        if plane * side > value {
+            plane -= 1.0;
+        } else if (plane + 1.0) * side <= value {
+            plane += 1.0;
+        }
+        (plane, plane * side == value)
+    }))
+}
+
 /// Whether every positional variant of material `id` is opaque and single-sided, so
 /// back-face culling replaces both of its fragment discards.
 #[must_use]
@@ -213,6 +233,38 @@ mod tests {
             sub_chunk_facing_faces([0, 0, 0], [f64::NAN, 0.0, 0.0]),
             FaceMask::ALL
         );
+    }
+
+    /// A retained solid batch is reused only while its facing cell holds, so a cell must
+    /// never merge cameras that select different faces.
+    #[test]
+    fn cameras_in_one_facing_cell_select_the_same_faces_for_every_sub_chunk() {
+        let positions = [
+            -32.0, -16.5, -16.0, -15.5, -0.25, -5.0e-324, -0.0, 0.0, 5.0e-324, 0.25, 7.0, 15.999,
+            16.0, 16.5, 31.0, 32.0,
+        ];
+        let origins = (-3..=3).map(|plane| [plane * 16, 0, 0]).collect::<Vec<_>>();
+        for left in positions {
+            for right in positions {
+                let (a, b) = ([left, 8.0, 8.0], [right, 8.0, 8.0]);
+                if facing_cell(a) != facing_cell(b) {
+                    continue;
+                }
+                for &origin in &origins {
+                    assert_eq!(
+                        sub_chunk_facing_faces(origin, a),
+                        sub_chunk_facing_faces(origin, b),
+                        "{left} and {right} share a cell but not the faces of {origin:?}"
+                    );
+                }
+            }
+        }
+        let cell = |x: f64| facing_cell([x, 8.0, 8.0]);
+        assert_ne!(cell(15.9), cell(16.0));
+        assert_ne!(cell(16.0), cell(16.1));
+        assert_eq!(cell(-5.0e-324), cell(-0.25));
+        assert_eq!(cell(-0.0), cell(0.0));
+        assert_eq!(facing_cell([f64::INFINITY, 0.0, 0.0]), None);
     }
 
     #[test]

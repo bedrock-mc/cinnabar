@@ -87,7 +87,7 @@ pub(super) fn mesh() -> meshing::ChunkMesh {
     )
 }
 
-pub(super) fn frame(app: &mut App) {
+pub(in crate::chunk) fn frame(app: &mut App) {
     app.update();
     app.sub_app(RenderApp)
         .world()
@@ -97,7 +97,11 @@ pub(super) fn frame(app: &mut App) {
 }
 
 /// The chunk renderer on `render`'s device, with a camera at `transform` drawing to an image.
-pub(super) fn chunk_app(render: RenderPlugin, msaa: Msaa, transform: Transform) -> (App, Entity) {
+pub(in crate::chunk) fn chunk_app(
+    render: RenderPlugin,
+    msaa: Msaa,
+    transform: Transform,
+) -> (App, Entity) {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(WindowPlugin {
@@ -138,10 +142,10 @@ pub(super) fn chunk_app(render: RenderPlugin, msaa: Msaa, transform: Transform) 
     (app, camera)
 }
 
-pub(super) const KEYS: [SubChunkKey; 2] =
+pub(in crate::chunk) const KEYS: [SubChunkKey; 2] =
     [SubChunkKey::new(0, 0, 0, 0), SubChunkKey::new(0, 1, 0, 0)];
 
-pub(super) fn insert_meshes(app: &mut App, keys: &[SubChunkKey]) {
+pub(in crate::chunk) fn insert_meshes(app: &mut App, keys: &[SubChunkKey]) {
     for &key in keys {
         app.world_mut()
             .resource_mut::<ChunkRenderQueue>()
@@ -150,7 +154,7 @@ pub(super) fn insert_meshes(app: &mut App, keys: &[SubChunkKey]) {
     }
 }
 
-pub(super) fn camera_transform() -> Transform {
+pub(in crate::chunk) fn camera_transform() -> Transform {
     Transform::from_xyz(-6.0, 20.0, -6.0).looking_at(Vec3::new(8.0, 8.0, 8.0), Vec3::Y)
 }
 

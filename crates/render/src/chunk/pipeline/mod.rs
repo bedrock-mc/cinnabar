@@ -1,3 +1,4 @@
+pub(in crate::chunk) mod batches;
 pub(in crate::chunk) mod commands;
 pub(crate) mod layouts;
 pub(in crate::chunk) mod liquid;
