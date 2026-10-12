@@ -208,7 +208,7 @@ fn legacy_elytra_resolves_native_armor_texture_slots_and_reference_sidecar() {
     );
     write(
         pack.path(),
-        &format!("{}.png", assets::ITEM_GLINT_TEXTURE_IDENTIFIER),
+        &format!("{}.png", assets::entity::ITEM_GLINT_TEXTURE_IDENTIFIER),
         &synthetic_raster([220, 220, 220, 255]),
     );
     write(pack.path(), "render_controllers/armor.json", br#"{
@@ -304,7 +304,8 @@ fn legacy_elytra_resolves_native_armor_texture_slots_and_reference_sidecar() {
     assert_eq!(
         textures
             .iter()
-            .find(|texture| texture.identifier.as_ref() == assets::ITEM_GLINT_TEXTURE_IDENTIFIER)
+            .find(|texture| texture.identifier.as_ref()
+                == assets::entity::ITEM_GLINT_TEXTURE_IDENTIFIER)
             .expect("equipment must retain the held-item enchantment raster")
             .rgba8
             .as_ref(),
