@@ -142,7 +142,7 @@ fn liquid_shader_cpu_and_wgsl_decode_share_task12_winding_and_height_scale() {
 #[test]
 fn liquid_shader_cpu_and_wgsl_uv_rules_cover_still_flow_side_and_falling() {
     let contract = LiquidShaderContract::parse(SHADER);
-    let mut face_uvs = [
+    let face_uvs = [
         [[0.0, 1.0], [0.0, 0.498_039_22], [1.0, 0.0], [1.0, 1.0]],
         [[0.0, 1.0], [0.0, 0.498_039_22], [1.0, 0.0], [1.0, 1.0]],
         [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]],
@@ -150,11 +150,6 @@ fn liquid_shader_cpu_and_wgsl_uv_rules_cover_still_flow_side_and_falling() {
         [[0.0, 1.0], [0.0, 0.498_039_22], [1.0, 0.0], [1.0, 1.0]],
         [[0.0, 1.0], [0.0, 0.498_039_22], [1.0, 0.0], [1.0, 1.0]],
     ];
-    for face in [0, 1, 4, 5] {
-        for corner in &mut face_uvs[face] {
-            *corner = corner.map(|value| value / 2.0);
-        }
-    }
     for (face, expected) in face_uvs.into_iter().enumerate() {
         let heights = [0, 128, 255, 0];
         for (corner, expected) in expected.into_iter().enumerate() {
@@ -169,19 +164,39 @@ fn liquid_shader_cpu_and_wgsl_uv_rules_cover_still_flow_side_and_falling() {
         contract.uv(3, 2, 128, [0, 0], false, [0.0, 0.0]),
         [1.0, 1.0]
     );
+    // Cardinal flows rotate the whole tile; flipbook tiles already hold what one block shows.
     let cardinal_flow = [
-        ([1, 0], [0.75, 0.25]),
-        ([0, 1], [0.25, 0.25]),
-        ([-1, 0], [0.25, 0.75]),
-        ([0, -1], [0.75, 0.75]),
+        ([1, 0], [1.0, 0.0]),
+        ([0, 1], [0.0, 0.0]),
+        ([-1, 0], [0.0, 1.0]),
+        ([0, -1], [1.0, 1.0]),
     ];
     for (flow, expected) in cardinal_flow {
         let actual = contract.uv(3, 0, 128, flow, false, [0.0, 0.0]);
         assert!((actual[0] - expected[0]).abs() < 1.0e-6, "flow {flow:?}");
         assert!((actual[1] - expected[1]).abs() < 1.0e-6, "flow {flow:?}");
     }
+    // A diagonal flow shrinks until its corners touch the tile edges, never past them.
+    for corner in 0..4 {
+        let [u, v] = contract.uv(3, corner, 128, [1, 1], false, [0.0, 0.0]);
+        assert!(
+            (-1.0e-6..=1.0 + 1.0e-6).contains(&u),
+            "diagonal corner {corner} u {u}"
+        );
+        assert!(
+            (-1.0e-6..=1.0 + 1.0e-6).contains(&v),
+            "diagonal corner {corner} v {v}"
+        );
+        assert!(
+            u.abs() < 1.0e-6
+                || v.abs() < 1.0e-6
+                || (u - 1.0).abs() < 1.0e-6
+                || (v - 1.0).abs() < 1.0e-6,
+            "diagonal corner {corner} touches an edge: {u}, {v}"
+        );
+    }
     let side = contract.uv(1, 3, 128, [0, 0], false, [0.0, 0.0]);
-    assert_eq!(side, [0.5, (1.0 - 128.0 / 255.0) / 2.0]);
+    assert_eq!(side, [1.0, 1.0 - 128.0 / 255.0]);
     let falling = contract.uv(1, 3, 128, [0, 0], true, [4.0, 0.0]);
     assert_eq!(
         falling, side,

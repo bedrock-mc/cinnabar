@@ -214,9 +214,15 @@ pub(crate) fn compile_animation_plan_selected(
             selected_atlas_tiles.is_none_or(|selected| selected.contains(&flipbook.atlas_tile))
         })
         .collect::<Vec<_>>();
-    let animation_sources = selected_flipbooks
+    // Native flipbooks draw each frame `replicate` times the tile's size, so a replicated source
+    // compiles to different tiles than the same strip at replicate one.
+    let animation_strips = selected_flipbooks
         .iter()
-        .map(|flipbook| flipbook.texture_path.clone())
+        .map(|flipbook| (flipbook.texture_path.clone(), flipbook.replicate))
+        .collect::<BTreeSet<_>>();
+    let animation_sources = animation_strips
+        .iter()
+        .map(|(source_path, _)| source_path.clone())
         .collect::<BTreeSet<_>>();
     let catalog_static_sources = pack
         .terrain
@@ -260,14 +266,14 @@ pub(crate) fn compile_animation_plan_selected(
         static_refs_by_source.insert(source_path.clone(), texture);
     }
 
-    let mut physical_by_source = BTreeMap::<Box<str>, Box<[TextureRef]>>::new();
+    let mut physical_by_strip = BTreeMap::<(Box<str>, u32), Box<[TextureRef]>>::new();
     let mut physical_animation_frames = 0_u32;
     let mut animation_refs = BTreeSet::new();
-    for source_path in &animation_sources {
+    for (source_path, replicate) in &animation_strips {
         let image = decoded
             .get(source_path)
             .expect("animation source presence checked above");
-        let frames = slice_frames(image)?;
+        let frames = slice_frames(image, *replicate)?;
         let overlay_mask = overlay_mask_sources.contains(source_path);
         physical_animation_frames = physical_animation_frames
             .checked_add(
@@ -284,15 +290,15 @@ pub(crate) fn compile_animation_plan_selected(
             animation_refs.insert(texture);
             refs.push(texture);
         }
-        physical_by_source.insert(source_path.clone(), refs.into_boxed_slice());
+        physical_by_strip.insert((source_path.clone(), *replicate), refs.into_boxed_slice());
     }
 
     let mut animations = Vec::with_capacity(selected_flipbooks.len());
     let mut timeline_frames = Vec::new();
     for (animation_index, flipbook) in selected_flipbooks.iter().enumerate() {
-        let physical = physical_by_source
-            .get(&flipbook.texture_path)
-            .expect("animation source was compiled");
+        let physical = physical_by_strip
+            .get(&(flipbook.texture_path.clone(), flipbook.replicate))
+            .expect("animation strip was compiled");
         let frame_start =
             u32::try_from(timeline_frames.len()).map_err(|_| AssetError::BlobSizeOverflow {
                 section: "animation timeline frame offset",
@@ -381,10 +387,13 @@ pub(crate) fn compile_animation_plan_selected(
         max_layers_per_page: limits.max_layers_per_page,
         max_pages: limits.max_pages,
     };
-    let strip_first_refs = physical_by_source
-        .iter()
-        .filter_map(|(path, frames)| frames.first().copied().map(|frame| (path.clone(), frame)))
-        .collect();
+    // A strip compiled at several replicates keeps its lowest replicate's first frame.
+    let mut strip_first_refs = BTreeMap::new();
+    for ((path, _), frames) in &physical_by_strip {
+        if let Some(&frame) = frames.first() {
+            strip_first_refs.entry(path.clone()).or_insert(frame);
+        }
+    }
 
     Ok(AnimationPlan {
         animations: animations.into_boxed_slice(),
@@ -440,7 +449,10 @@ fn validate_decoded_image(image: &DecodedImage) -> Result<(), AssetError> {
     Ok(())
 }
 
-fn slice_frames(image: &DecodedImage) -> Result<Vec<Box<[u8]>>, AssetError> {
+/// Splits a flipbook strip into square frames, each holding what the native atlas tile holds.
+/// Native draws a frame `replicate` times the tile's size from its upper-left corner, so the tile
+/// shows the frame's upper-left `1 / replicate` square at full resolution.
+fn slice_frames(image: &DecodedImage, replicate: u32) -> Result<Vec<Box<[u8]>>, AssetError> {
     let frame_size = image.width.min(image.height);
     let long_side = image.width.max(image.height);
     if frame_size == 0 || !long_side.is_multiple_of(frame_size) {
@@ -480,13 +492,31 @@ fn slice_frames(image: &DecodedImage) -> Result<Vec<Box<[u8]>>, AssetError> {
             let end = start + (frame_size * 4) as usize;
             pixels.extend_from_slice(&image.rgba8[start..end]);
         }
-        frames.push(normalize_texture_tile(
-            pixels.into_boxed_slice(),
-            frame_size,
-            &image.source_path,
-        )?);
+        let (tile, tile_size) = replicated_tile(&pixels, frame_size, replicate);
+        frames.push(normalize_texture_tile(tile, tile_size, &image.source_path)?);
     }
     Ok(frames)
+}
+
+/// The upper-left `size / replicate` square of a `size`-pixel frame, enlarged by whole pixels to
+/// at least one tile when that square is smaller.
+fn replicated_tile(frame: &[u8], size: u32, replicate: u32) -> (Box<[u8]>, u32) {
+    let crop = (size / replicate.max(1)).max(1);
+    let tile_size = if crop.is_power_of_two() && crop >= assets::TILE_SIZE {
+        crop
+    } else {
+        assets::TILE_SIZE
+    };
+    let mut tile = Vec::with_capacity((tile_size * tile_size * 4) as usize);
+    for y in 0..tile_size {
+        let source_y = y * crop / tile_size;
+        for x in 0..tile_size {
+            let source_x = x * crop / tile_size;
+            let start = ((source_y * size + source_x) * 4) as usize;
+            tile.extend_from_slice(&frame[start..start + 4]);
+        }
+    }
+    (tile.into_boxed_slice(), tile_size)
 }
 
 #[cfg(test)]
@@ -646,6 +676,39 @@ mod tests {
         assert_eq!(timeline.len(), 2);
         assert_eq!(first_pixel(&plan, timeline[0]), [30, 40, 200, 255]);
         assert_eq!(first_pixel(&plan, timeline[1]), [220, 210, 20, 255]);
+    }
+
+    /// Native draws a replicated frame across `replicate` tiles from its upper-left corner, so a
+    /// 32-pixel water_flow frame at replicate 2 leaves its upper-left 16 pixels in the tile at
+    /// full resolution rather than the whole frame shrunk.
+    #[test]
+    fn replicated_flipbook_frames_keep_their_upper_left_square_at_full_resolution() {
+        let (_directory, pack) = synthetic_pack(
+            r#""flow":{"textures":"textures/blocks/flow"}"#,
+            r#"[{"flipbook_texture":"textures/blocks/flow","atlas_tile":"flow","replicate":2}]"#,
+        );
+        let size = TILE_SIZE * 2;
+        // Each opaque pixel names its own coordinates, so any resampling changes the tile.
+        let pixel = |x: u32, y: u32| [x as u8 * 8, y as u8 * 8, 100, 255];
+        let rgba8 = (0..size)
+            .flat_map(|y| (0..size).flat_map(move |x| pixel(x, y)))
+            .collect::<Box<[u8]>>();
+        let image = DecodedImage {
+            source_path: "textures/blocks/flow".into(),
+            width: size,
+            height: size,
+            rgba8,
+        };
+
+        let plan = compile_animation_plan(&pack, &[image], limits(16, 2)).expect("compile plan");
+
+        let frame = plan.frames[plan.animations[0].frame_start as usize];
+        let base = &plan.layer(frame).expect("referenced layer").mips[0];
+        assert_eq!(base.size, TILE_SIZE);
+        let expected = (0..TILE_SIZE)
+            .flat_map(|y| (0..TILE_SIZE).flat_map(move |x| pixel(x, y)))
+            .collect::<Vec<_>>();
+        assert_eq!(&*base.rgba8, &expected[..]);
     }
 
     #[test]

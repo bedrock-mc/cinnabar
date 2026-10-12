@@ -80,14 +80,14 @@ impl LiquidShaderContract {
         if self.side_face_mask & (1 << face) != 0 {
             uv[1] = self.side_height_bias
                 + self.side_scale_operator * self.side_height_scale * f32::from(height) / 255.0;
-            uv = uv.map(|component| component / 2.0);
         }
         if face == self.flow_face && flow != [0, 0] {
             let radians = self.flow_direction_operator
                 * self.flow_angle_direction
                 * f32::from(flow[1]).atan2(f32::from(flow[0]))
                 + self.flow_offset_operator * self.flow_angle_offset;
-            let centered = [(uv[0] - 0.5) / 2.0, (uv[1] - 0.5) / 2.0];
+            let fit = radians.cos().abs() + radians.sin().abs();
+            let centered = [(uv[0] - 0.5) / fit, (uv[1] - 0.5) / fit];
             uv = [
                 0.5 + centered[0] * radians.cos() - centered[1] * radians.sin(),
                 0.5 + centered[0] * radians.sin() + centered[1] * radians.cos(),
@@ -149,8 +149,11 @@ fn validate_structural_wiring(shader: &str) {
             1,
         ),
         ("((SIDE_FACE_MASK>>face)&1u)!=0u", "side-face mask test", 1),
-        ("uv*=uv_scale", "side replicate footprint", 1),
-        ("(uv-vec2(0.5))*uv_scale", "top replicate footprint", 1),
+        (
+            "(uv-vec2(0.5))/(abs(cosine)+abs(sine))",
+            "rotated flow fit",
+            1,
+        ),
         ("face==FLOW_FACE", "flow-face test", 1),
         (
             "local_position.y-f32(block_coordinate.y)",
@@ -310,8 +313,10 @@ mod tests {
         );
         assert_rejects_mutation("SIDE_FACE_MASK >> face", "SIDE_FACE_MASK >> corner");
         assert_rejects_mutation("face == FLOW_FACE", "face != FLOW_FACE");
-        assert_rejects_mutation("uv *= uv_scale", "uv /= uv_scale");
-        assert_rejects_mutation("(uv - vec2(0.5)) * uv_scale", "(uv - vec2(0.5)) / uv_scale");
+        assert_rejects_mutation(
+            "(uv - vec2(0.5)) / (abs(cosine) + abs(sine))",
+            "(uv - vec2(0.5)) * (abs(cosine) + abs(sine))",
+        );
         assert_rejects_mutation(
             "f32((height_word >> (corner * 8u)) & 255u) / 255.0",
             "f32((height_word >> (corner * 8u)) & 255u) / 256.0",

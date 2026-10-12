@@ -13,7 +13,7 @@ import render::enhanced::common::CLASS_WATER;
 @if(ENHANCED)
 import render::enhanced::view::{sky_illumination, material_class, shade_surface, shade_water, waved_water_position};
 
-struct FrameSample { current: u32, next: u32, blend: f32, uv_scale: f32 }
+struct FrameSample { current: u32, next: u32, blend: f32 }
 
 // These literal tables are the GPU half of the packed-liquid stream contract.
 // Four entries per face in Face's numeric order, then packed corner order.
@@ -67,13 +67,13 @@ struct VertexOutput {
 
 fn animation_sample(material: MaterialGpu) -> FrameSample {
     if (material.animation == 0xffffffffu) {
-        return FrameSample(material.texture, material.texture, 0.0, 1.0);
+        return FrameSample(material.texture, material.texture, 0.0);
     }
     let animation = animations[material.animation];
     let current_index = (clock.tick / animation.ticks_per_frame) % animation.frame_count;
     let current = animation_frames[animation.frame_start + current_index];
     if ((animation.flags & 1u) == 0u || animation.frame_count == 1u) {
-        return FrameSample(current, current, 0.0, animation.uv_scale);
+        return FrameSample(current, current, 0.0);
     }
     let next_index = (current_index + 1u) % animation.frame_count;
     let next = animation_frames[animation.frame_start + next_index];
@@ -81,7 +81,7 @@ fn animation_sample(material: MaterialGpu) -> FrameSample {
         f32(clock.tick % animation.ticks_per_frame) +
         clamp(clock.partial_tick, 0.0, 0.99999994)
     ) / f32(animation.ticks_per_frame);
-    return FrameSample(current, next, blend, animation.uv_scale);
+    return FrameSample(current, next, blend);
 }
 
 fn signed_i8(word: u32, shift: u32) -> i32 {
@@ -123,25 +123,26 @@ fn face_normal(face: u32) -> vec3<f32> {
     }
 }
 
+/// Texture coordinates of a liquid corner. Flipbook tiles already hold what a block shows (the
+/// pack compiler crops replicated frames), so axis-aligned faces span the whole tile. A rotated
+/// flow shrinks just enough to keep its corners inside the tile.
 fn liquid_uv(
     face: u32,
     corner: u32,
     height: f32,
     flow_x: i32,
     flow_z: i32,
-    uv_scale: f32,
 ) -> vec2<f32> {
     var uv = LIQUID_BASE_UV[face * 4u + corner];
     if (((SIDE_FACE_MASK >> face) & 1u) != 0u) {
         uv.y = SIDE_HEIGHT_BIAS + SIDE_HEIGHT_SCALE * height;
-        uv *= uv_scale;
     }
     if (face == FLOW_FACE) {
         if (flow_x != 0 || flow_z != 0) {
             let radians = FLOW_ANGLE_DIRECTION * atan2(f32(flow_z), f32(flow_x)) + FLOW_ANGLE_OFFSET;
-            let centered = (uv - vec2(0.5)) * uv_scale;
             let cosine = cos(radians);
             let sine = sin(radians);
+            let centered = (uv - vec2(0.5)) / (abs(cosine) + abs(sine));
             uv = vec2(
                 centered.x * cosine - centered.y * sine,
                 centered.x * sine + centered.y * cosine,
@@ -222,7 +223,6 @@ fn vertex_for_ref(draw_ref: TransparentDrawRef, vertex_index: u32) -> VertexOutp
         local_position.y - f32(block_coordinate.y),
         signed_i8(geometry, 16u),
         signed_i8(geometry, 24u),
-        frame.uv_scale,
     );
     out.current_texture = frame.current;
     out.next_texture = frame.next;

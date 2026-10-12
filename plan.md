@@ -166,6 +166,14 @@ Full transport parity remains incomplete. Host-resolver timing and address admis
 absolute monotonic timestamp origin, and discovery-peer reuse remain provisional across
 platforms. These limits and the unresolved server-routing behavior remain open gates.
 
+## Flowing water texels
+
+Replicated flipbooks compile the frame's upper-left `1 / replicate` square at full
+resolution, matching the native flipbook blit, which draws a frame `replicate` times the
+tile's size from its upper-left corner. Liquid faces then span the whole tile. The
+native liquid tessellator's UV extent for rotated flow is unverified: diagonal flow
+shrinks until its corners meet the tile edges, an approximation that keeps parity open.
+
 ## Launcher crate ownership
 
 - `launcher` owns menu models and settings definitions. Control types come directly from
