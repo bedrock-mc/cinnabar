@@ -147,14 +147,15 @@ fn hand_vertex(
         bitcast<f32>(vertex_words[vertex_base + 1u]),
         bitcast<f32>(vertex_words[vertex_base + 2u]),
     );
-    out.uv.xy = vec2(
+    let artwork_uv = vec2(
         bitcast<f32>(vertex_words[vertex_base + 6u]),
         bitcast<f32>(vertex_words[vertex_base + 7u]),
     );
-    out.uv.zw = vec2(
+    let glint_origin = vec2(
         bitcast<f32>(vertex_words[vertex_base + ACTOR_RIG_VERTEX_WORDS - 2u]),
         bitcast<f32>(vertex_words[vertex_base + ACTOR_RIG_VERTEX_WORDS - 1u]),
     );
+    out.uv = vec4(artwork_uv, glint_origin);
     out.back_uv = vec2(
         bitcast<f32>(vertex_words[vertex_base + 8u]),
         bitcast<f32>(vertex_words[vertex_base + 9u]),

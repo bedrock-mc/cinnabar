@@ -309,7 +309,7 @@ fn crack_after_a_delayed_dimension_change_waits_for_its_new_column() {
         |job| matches!(job, super::DecodeJob::InlineLevelChunk { event, .. } if event.dimension == 0),
     );
     complete_decode_job(&mut stream, old_dimension);
-    stream.apply_ready();
+    settle_ready_commits(&mut stream);
     assert!(
         stream.order.is_finished(2),
         "the dimension change committed"
