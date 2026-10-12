@@ -93,12 +93,7 @@ fn install(app: &mut App) {
         return;
     }
     app.add_plugins(ExtractResourcePlugin::<DroppedItemScene>::default());
-    load_internal_asset!(
-        app,
-        ITEM_SHADER_HANDLE,
-        "dropped_item.wesl",
-        crate::shader_safety::from_wesl
-    );
+    load_internal_asset!(app, ITEM_SHADER_HANDLE, "dropped_item.wesl", item_shader);
     crate::pipeline_warmup::register::<ItemPipeline>(app);
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
@@ -121,6 +116,11 @@ fn install(app: &mut App) {
                     .in_set(RenderSystems::Queue),
             ),
         );
+}
+
+/// Resolves shared material constants before loading the dropped-item shader.
+pub(crate) fn item_shader(source: &str, path: impl Into<String>) -> bevy::shader::Shader {
+    crate::shader_safety::from_wesl(crate::material_shader::source(source), path)
 }
 
 /// Per-copy vertex-rate data: three affine rows, then model index, light levels and overlay,
