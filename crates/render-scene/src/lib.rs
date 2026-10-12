@@ -127,7 +127,7 @@ pub use screen_overlay::{
 };
 pub use skybox::SkyboxSettings;
 pub use ui::{UiRenderSceneResource, UiRenderStatsResource};
-pub use ui_glint::UiGlintSettings;
+pub use ui_glint::{UiGlintSettings, UiItemGlintTexture};
 pub use viewmodel::{
     MAX_VIEWMODEL_DEPTH_BYTES, ViewmodelCompletionGate, ViewmodelMode, ViewmodelScene,
     ViewmodelToken, viewmodel_depth_bytes,

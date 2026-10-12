@@ -14,6 +14,8 @@ pub struct CompiledItemUseOverlay {
     pub duration_ticks: Option<u32>,
     pub food_can_always_eat: Option<bool>,
     pub consumption: Option<ItemConsumption>,
+    /// Whether the authored item declares a valid `minecraft:use_modifiers` object.
+    pub use_modifiers_present: bool,
     pub movement_modifier_bits: Option<u64>,
     pub cooldown: Option<ItemUseCategory>,
 }

@@ -17,7 +17,9 @@ pub fn compile_item_use_profiles(
     Ok(item_attack::components(behavior_pack)?
         .into_iter()
         .map(|(identifier, components)| {
-            let modifiers = components.get("minecraft:use_modifiers");
+            let modifiers = components
+                .get("minecraft:use_modifiers")
+                .filter(|modifiers| modifiers.is_object());
             let duration_ticks = durations.get(identifier.as_ref()).copied();
             let food_can_always_eat = components
                 .get("minecraft:food")
@@ -64,6 +66,7 @@ pub fn compile_item_use_profiles(
                 duration_ticks,
                 food_can_always_eat,
                 consumption,
+                use_modifiers_present: modifiers.is_some(),
                 movement_modifier_bits,
                 cooldown,
             }
@@ -103,6 +106,7 @@ mod tests {
         assert_eq!(profile.duration_ticks, Some(32));
         assert_eq!(profile.food_can_always_eat, Some(true));
         assert_eq!(profile.consumption, Some(ItemConsumption::Drink));
+        assert!(profile.use_modifiers_present);
         assert_eq!(profile.movement_modifier_bits, Some(0.75_f64.to_bits()));
         assert_eq!(
             profile.cooldown.as_ref().unwrap().category.as_ref(),
@@ -111,5 +115,76 @@ mod tests {
         assert_eq!(profile.cooldown.as_ref().unwrap().ticks, 10);
         assert_eq!(profiles[1].duration_ticks, None);
         assert_eq!(profiles[1].consumption, None);
+        assert!(!profiles[1].use_modifiers_present);
+    }
+
+    #[test]
+    fn authored_use_modifiers_presence_preserves_missing_and_invalid_movement_values() {
+        for (name, declaration, present, movement) in [
+            ("absent", None, false, None),
+            ("empty", Some(serde_json::json!({})), true, None),
+            (
+                "duration",
+                Some(serde_json::json!({"use_duration": 1.6})),
+                true,
+                None,
+            ),
+            (
+                "zero",
+                Some(serde_json::json!({"movement_modifier": 0.0})),
+                true,
+                Some(0.0_f64),
+            ),
+            (
+                "fraction",
+                Some(serde_json::json!({"movement_modifier": 0.75})),
+                true,
+                Some(0.75_f64),
+            ),
+            ("scalar", Some(serde_json::json!(0.75)), false, None),
+            (
+                "array",
+                Some(serde_json::json!([{"movement_modifier": 0.75}])),
+                false,
+                None,
+            ),
+            (
+                "invalid_movement",
+                Some(serde_json::json!({"movement_modifier": "0.75"})),
+                true,
+                None,
+            ),
+            (
+                "negative",
+                Some(serde_json::json!({"movement_modifier": -1.0})),
+                true,
+                None,
+            ),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let directory = root.path().join("items");
+            std::fs::create_dir(&directory).unwrap();
+            let mut components = serde_json::Map::new();
+            if let Some(declaration) = declaration {
+                components.insert("minecraft:use_modifiers".into(), declaration);
+            }
+            let item = serde_json::json!({"minecraft:item": {
+                "description": {"identifier": format!("fixture:{name}")},
+                "components": components,
+            }});
+            std::fs::write(
+                directory.join("fixture.json"),
+                serde_json::to_vec(&item).unwrap(),
+            )
+            .unwrap();
+            let profiles = compile_item_use_profiles(root.path()).unwrap();
+            assert_eq!(profiles.len(), 1, "{name}");
+            assert_eq!(profiles[0].use_modifiers_present, present, "{name}");
+            assert_eq!(
+                profiles[0].movement_modifier_bits,
+                movement.map(f64::to_bits),
+                "{name}"
+            );
+        }
     }
 }

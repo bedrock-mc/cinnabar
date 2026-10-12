@@ -143,6 +143,7 @@ pub(crate) fn container_frame(frame: &HudFrame) -> ContainerFrame<'_> {
         crafting_icons: &frame.crafting.icons,
         crafting_output: frame.crafting.output.as_ref(),
         armor_icons: &frame.armor_icons,
+        armor_durability: &frame.armor_durability,
         offhand_icon: frame.offhand_icon,
         offhand_durability: frame.offhand_durability,
         cursor_icon: frame.cursor_icon,

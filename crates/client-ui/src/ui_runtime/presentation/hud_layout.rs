@@ -65,6 +65,7 @@ pub struct HudFrame {
     pub window_text: WindowText,
     pub cursor_icon: Option<IconRef>,
     pub armor_icons: [Option<IconRef>; 4],
+    pub armor_durability: [Option<f32>; 4],
     pub offhand_icon: Option<IconRef>,
     /// Geometry-rendered offhand carrier; the original icon remains reserved
     /// for the compact hotbar slot.

@@ -518,3 +518,75 @@ fn admitted_intrinsic_glint_changes_the_production_shader_pixels() {
         }
     }
 }
+
+#[test]
+fn item_glint_tints_grayscale_purple_and_restores_pack_pixels_without_changing_alpha() {
+    let mut input = scene();
+    input.vertices = Arc::from([]);
+    input.indices = Arc::from([]);
+    input.batches = Arc::from([]);
+    quad(&mut input, [8.0, 8.0, 56.0, 56.0], [0, 0, 0, 128], 0, None);
+    let Some(raster) = Raster::with_glint(&input, 1.0) else {
+        return;
+    };
+    let output = target(&raster.gpu, false);
+    raster.draw(&input, &output, None);
+    let plain = raster.pixels(&output);
+    for vertex in Arc::make_mut(&mut input.vertices) {
+        vertex.style_flags = render_model::UI_STYLE_GLINT;
+    }
+    let mut first = None;
+    for color in [
+        [100, 0, 0, 255],
+        [0, 100, 0, 255],
+        [100, 0, 0, 255],
+        [100, 100, 100, 255],
+        [255, 255, 255, 0],
+    ] {
+        raster.gpu.queue.write_texture(
+            raster.item_glint.as_image_copy(),
+            &color,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+        raster.draw(&input, &output, None);
+        let pixels = raster.pixels(&output);
+        assert!(
+            pixels
+                .chunks_exact(4)
+                .zip(plain.chunks_exact(4))
+                .all(|(a, b)| a[3] == b[3])
+        );
+        assert_eq!(
+            &pixels[..4],
+            &[0; 4],
+            "glint keeps transparent item coverage"
+        );
+        let center = &pixels[((32 * SIDE + 32) * 4) as usize..][..4];
+        if color[3] == 0 {
+            assert_eq!(pixels, plain);
+        } else if color[0] == color[1] && color[1] == color[2] {
+            assert!(
+                center[2] > center[0] && center[0] > center[1] && center[1] > 0,
+                "grayscale artwork must retain the purple enchantment tint: {center:?}"
+            );
+        } else if color[0] != 0 {
+            assert!(center[0] > 0 && center[1] == 0 && center[2] == 0);
+            if let Some(first) = &first {
+                assert_eq!(&pixels, first);
+            } else {
+                first = Some(pixels);
+            }
+        } else {
+            assert!(center[1] > 0 && center[0] == 0 && center[2] == 0);
+        }
+    }
+}
