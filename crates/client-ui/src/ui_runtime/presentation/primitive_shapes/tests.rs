@@ -43,7 +43,7 @@ fn apply(store: &mut PrimitiveShapeStore, update: PrimitiveShapeUpdate) {
 }
 
 #[test]
-fn primitive_text_centers_lines_and_uses_one_multiline_background() {
+fn primitive_text_centers_lines_and_gives_each_its_own_background() {
     let lines = [
         AtlasLine {
             cell: [0, 0, 24, 16],
@@ -61,16 +61,29 @@ fn primitive_text_centers_lines_and_uses_one_multiline_background() {
     style.depth_test = true;
     style.use_rotation = true;
     let output = records(&style, &lines);
-    assert_eq!(output.len(), 3);
-    assert_eq!(output[0].rect, [-3.0, -1.0, 3.0, LINE_PITCH_PX * 2.0 - 1.0]);
+    assert_eq!(output.len(), 4);
+    assert_eq!(
+        output[0].rect,
+        [-3.0, -1.0, 3.0, NAMETAG_LINE_PITCH_PX - 1.0]
+    );
+    assert_eq!(
+        output[1].rect,
+        [
+            -2.0,
+            NAMETAG_LINE_PITCH_PX - 1.0,
+            2.0,
+            2.0 * NAMETAG_LINE_PITCH_PX - 1.0
+        ]
+    );
     assert_eq!(output[0].color, style.background_color.unwrap());
-    assert_eq!(output[1].rect[0], -2.0);
-    assert_eq!(output[1].rect[1], -1.0);
-    assert_eq!(output[2].rect[0], -1.0);
-    assert_eq!(output[2].rect[1], LINE_PITCH_PX);
-    assert_eq!(output[1].color, [1.0; 4]);
-    assert_eq!(output[1].meta[2], 1 | 2 | 8);
-    assert_eq!(f32::from_bits(output[1].meta[3]), EXTRA_LINE_LIFT);
+    assert_eq!(output[1].color, style.background_color.unwrap());
+    assert_eq!(output[2].rect[0], -2.0);
+    assert_eq!(output[2].rect[1], -1.0);
+    assert_eq!(output[3].rect[0], -1.0);
+    assert_eq!(output[3].rect[1], NAMETAG_LINE_PITCH_PX);
+    assert_eq!(output[2].color, [1.0; 4]);
+    assert_eq!(output[2].meta[2], 1 | 2 | 8);
+    assert_eq!(f32::from_bits(output[2].meta[3]), EXTRA_LINE_LIFT);
 }
 
 #[test]
@@ -104,7 +117,7 @@ fn primitive_text_steady_and_movement_frames_keep_atlas_and_quad_slots() {
         update(1, PrimitiveShapeData::Text(text("A\\n\\nB"))),
     );
     presentation.prepare_primitive_text(&mut store, &runtime);
-    assert_eq!(store.text_records.values.len(), 3);
+    assert_eq!(store.text_records.values.len(), 4);
     let atlas = Arc::clone(&store.atlas);
     let quads = store.text_records.values.clone();
     store.drain_uploads(|_, _, _, _| {});

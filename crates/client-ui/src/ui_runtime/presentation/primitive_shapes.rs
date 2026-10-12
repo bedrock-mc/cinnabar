@@ -4,12 +4,14 @@ use std::sync::Arc;
 
 use assets::RuntimeFontCatalog;
 use render_api::primitive_shapes::PrimitiveText;
-use render_model::NAMETAG_ATLAS_SIDE;
 use render_model::primitive_shapes::{PrimitiveShapeStore, PrimitiveTextRecord};
+use render_model::{
+    NAMETAG_ATLAS_SIDE, NAMETAG_LINE_PITCH_PX, nametag_line_backgrounds, nametag_line_left,
+};
 use ui::{FONT_DESIGN_PIXEL_TEXELS, FormattingPalette, TextLayoutCache};
 
 use super::nametag_atlas::{AtlasLine, GlyphPage, NametagAtlas, font_page};
-use super::nametags::{EXTRA_LINE_LIFT, LINE_PITCH_PX, PLATE_COLOR};
+use super::nametags::{EXTRA_LINE_LIFT, PLATE_COLOR};
 use super::{UiPresentationRuntime, UiRuntime};
 
 /// One retained atlas, invalidated only by changed text, font or formatting colors.
@@ -104,31 +106,23 @@ fn records(text: &PrimitiveText, lines: &[AtlasLine]) -> Vec<PrimitiveTextRecord
         | (u32::from(text.use_rotation) << 3);
     let lift = EXTRA_LINE_LIFT * lines.len().saturating_sub(1) as f32;
     let meta = [0, 1, flags, lift.to_bits()];
-    let half = lines
-        .iter()
-        .map(|line| line.width_px as u32 / 2)
-        .max()
-        .unwrap_or(0) as f32;
-    let mut records = Vec::with_capacity(lines.len() + 1);
-    if lines.len() > 1 || half > 0.0 {
-        records.push(PrimitiveTextRecord {
-            rect: [
-                -(half + 1.0),
-                -1.0,
-                half + 1.0,
-                LINE_PITCH_PX * lines.len() as f32 - 1.0,
-            ],
-            uv: [0.0, 0.0, -1.0, -1.0],
-            color: text.background_color.unwrap_or(PLATE_COLOR),
-            meta,
-        });
-    }
+    let mut records = Vec::with_capacity(2 * lines.len());
+    records.extend(
+        nametag_line_backgrounds(lines.iter().map(|line| line.width_px)).map(|rect| {
+            PrimitiveTextRecord {
+                rect,
+                uv: [0.0, 0.0, -1.0, -1.0],
+                color: text.background_color.unwrap_or(PLATE_COLOR),
+                meta,
+            }
+        }),
+    );
     let texels = FONT_DESIGN_PIXEL_TEXELS as f32;
     let side = NAMETAG_ATLAS_SIDE as f32;
     for (index, line) in lines.iter().enumerate() {
-        let left = -((line.width_px as u32 / 2) as f32);
+        let left = nametag_line_left(line.width_px);
         let [x, y, width, height] = line.cell.map(|value| value as f32);
-        let top = LINE_PITCH_PX * index as f32 + line.top_px;
+        let top = NAMETAG_LINE_PITCH_PX * index as f32 + line.top_px;
         records.push(PrimitiveTextRecord {
             rect: [left, top, left + width / texels, top + height / texels],
             uv: [x / side, y / side, (x + width) / side, (y + height) / side],

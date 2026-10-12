@@ -510,12 +510,7 @@ fn compile_pack_inner(
     )?;
     let mut materials = materials.into_vec();
     let mut visuals = visuals.into_vec();
-    for (record, facts) in records
-        .iter()
-        .zip(material_facts::compile(records, registry_protocol)?)
-    {
-        visuals[record.sequential_id as usize].native_material = facts;
-    }
+    material_facts::install(records, &mut visuals, registry_protocol)?;
     destroy_facts::install(records, &mut visuals, registry_protocol)?;
     let lily_pad_textures::Installed {
         pages: texture_pages,

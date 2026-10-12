@@ -12,6 +12,34 @@ pub const NAMETAG_TEXT_REVERSE_Z_BIAS: i32 = 32;
 pub const NAMETAG_ATLAS_SIDE: u32 = 2048;
 /// Most plate and text quads drawn in one frame.
 pub const MAX_NAMETAG_RECORDS: usize = 1024;
+/// Font-pixel distance between stacked lines; each line's background is exactly this tall.
+pub const NAMETAG_LINE_PITCH_PX: f32 = 10.0;
+/// Background margin left, right and above a line's centred text, in font pixels.
+const NAMETAG_BACKGROUND_PADDING_PX: f32 = 1.0;
+
+/// Left edge of a line centred on the anchor: its width halved with integer truncation, negated.
+#[must_use]
+pub fn nametag_line_left(width_px: f32) -> f32 {
+    -((width_px as u32 / 2) as f32)
+}
+
+/// One `[x0, y0, x1, y1]` background per line, each padded around its own centred width and
+/// stacked edge to edge. A lone line under two font pixels wide gets none.
+pub fn nametag_line_backgrounds(
+    widths_px: impl ExactSizeIterator<Item = f32>,
+) -> impl Iterator<Item = [f32; 4]> {
+    let multiline = widths_px.len() > 1;
+    widths_px.enumerate().filter_map(move |(index, width)| {
+        let half = -nametag_line_left(width);
+        let top = NAMETAG_LINE_PITCH_PX * index as f32 - NAMETAG_BACKGROUND_PADDING_PX;
+        (multiline || half > 0.0).then_some([
+            -(half + NAMETAG_BACKGROUND_PADDING_PX),
+            top,
+            half + NAMETAG_BACKGROUND_PADDING_PX,
+            top + NAMETAG_LINE_PITCH_PX,
+        ])
+    })
+}
 
 /// One quad of a tag as the GPU reads it: a plate when `uv[2] < 0`, else a text line.
 #[repr(C)]
@@ -118,4 +146,28 @@ pub struct NametagScene {
     /// All live cells, sharing unchanged pixels across publications.
     pub atlas: Arc<[NametagAtlasRect]>,
     pub atlas_revision: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A short second line gets its own narrow background, not a slab sized to the widest line.
+    #[test]
+    fn each_line_gets_its_own_background_stacked_without_overlap() {
+        let backgrounds: Vec<_> = nametag_line_backgrounds([41.0, 12.0].into_iter()).collect();
+        assert_eq!(
+            backgrounds,
+            [[-21.0, -1.0, 21.0, 9.0], [-7.0, 9.0, 7.0, 19.0]]
+        );
+        assert_eq!(backgrounds[0][3], backgrounds[1][1]);
+    }
+
+    #[test]
+    fn single_line_background_keeps_its_padded_half_width() {
+        let single: Vec<_> = nametag_line_backgrounds([41.0].into_iter()).collect();
+        assert_eq!(single, [[-21.0, -1.0, 21.0, 9.0]]);
+        assert_eq!(nametag_line_backgrounds([1.0].into_iter()).count(), 0);
+        assert_eq!(nametag_line_backgrounds([1.0, 1.0].into_iter()).count(), 2);
+    }
 }

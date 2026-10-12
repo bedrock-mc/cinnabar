@@ -35,8 +35,11 @@ glyphs do. Sneak tags additionally test world depth, while ordinary tags use Alw
 | Below-name score distance squared | `<100` blocks squared |
 
 For each nonempty LF-separated line the native font width is halved with integer truncation.
-Every line starts at its own negative half-width. The plate uses the maximum half-width,
-plus one design pixel on each side, and spans `-1 .. 10 * line_count - 1` vertically.
+Every line starts at its own negative half-width. Each line gets its own plate,
+padded one design pixel beyond its own half-width on each side and spanning
+`10 * index - 1 .. 10 * index + 9`, so plates stack edge to edge. This is an accepted Java
+Edition deviation: vanilla Bedrock draws one plate sized to the widest line. A lone line
+narrower than two design pixels has no plate. Primitive-shape text uses the same layout.
 The billboard rotation uses the original eye-minus-base-anchor direction, while its position
 is lifted by `0.125 * (line_count - 1)`. Local X and Y are both negated by the world scale.
 There is no text shadow. The accepted open-font deviation remains: our font atlas is converted
