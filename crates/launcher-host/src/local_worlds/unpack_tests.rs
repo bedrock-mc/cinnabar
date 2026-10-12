@@ -47,7 +47,8 @@ fn listings_over_the_limits_write_nothing() {
     getrandom::fill(&mut random).expect("random bytes");
     let squeezable = vec![b'z'; 1000];
     let one: &[u8] = b"1";
-    let cases: [(&str, Vec<(&str, &[u8])>); 6] = [
+    type ArchiveCase<'a> = (&'a str, Vec<(&'a str, &'a [u8])>);
+    let cases: [ArchiveCase<'_>; 6] = [
         (
             "entries",
             vec![("a", one), ("b", one), ("c", one), ("d", one)],
