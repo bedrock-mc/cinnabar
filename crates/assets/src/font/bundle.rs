@@ -97,7 +97,9 @@ pub fn decode_font_face_bundle(
         pages += entry_pages;
         decoded += entry_bytes;
         if pages > MAX_FONT_PAGES || decoded > MAX_FONT_DECODED_BYTES {
-            return Err(invalid("face bundle pages exceed the shared decoded budget"));
+            return Err(invalid(
+                "face bundle pages exceed the shared decoded budget",
+            ));
         }
         entries.push((em, rendering, offset..end));
         offset = end;

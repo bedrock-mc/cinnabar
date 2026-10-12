@@ -14,7 +14,9 @@ pub fn install(base: Arc<RuntimeFontCatalog>, compiled_dir: &Path) -> Arc<Runtim
     let fallback = match shared_fallback(&mut combined, compiled_dir) {
         Ok(fallback) => fallback,
         Err(reason) => {
-            eprintln!("OreUI faces unavailable without their Sans fallback ({reason}); using default font");
+            eprintln!(
+                "OreUI faces unavailable without their Sans fallback ({reason}); using default font"
+            );
             return base;
         }
     };
@@ -112,7 +114,10 @@ fn load(
             FontRendering::Coverage => return Err("face bundle holds a pixel-grid raster".into()),
         }
     }
-    Ok((font.ok_or("face bundle has no distance-field raster")?, sizes))
+    Ok((
+        font.ok_or("face bundle has no distance-field raster")?,
+        sizes,
+    ))
 }
 
 /// Reads the generated pair spacing, in thousandths of an em, from the pinned manifest.

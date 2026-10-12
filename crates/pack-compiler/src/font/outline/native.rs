@@ -87,9 +87,17 @@ fn compile(
     let mut glyphs = Vec::with_capacity(rasterized.len());
     let mut pages = Vec::with_capacity(packed.len());
     for page in packed {
-        let width = page.iter().map(|&(i, [x, _])| x + rasterized[i].width).max().unwrap_or(0)
+        let width = page
+            .iter()
+            .map(|&(i, [x, _])| x + rasterized[i].width)
+            .max()
+            .unwrap_or(0)
             + ATLAS_PADDING;
-        let height = page.iter().map(|&(i, [_, y])| y + rasterized[i].height).max().unwrap_or(0)
+        let height = page
+            .iter()
+            .map(|&(i, [_, y])| y + rasterized[i].height)
+            .max()
+            .unwrap_or(0)
             + ATLAS_PADDING;
         let mut coverage = vec![0; width as usize * height as usize];
         for &(index, [x, y]) in &page {
@@ -103,8 +111,7 @@ fn compile(
             glyphs.push(GlyphMetrics {
                 codepoint: glyph.codepoint,
                 page: pages.len() as u16,
-                uv: [x, y, x + glyph.width, y + glyph.height]
-                    .map(|value| value as u16),
+                uv: [x, y, x + glyph.width, y + glyph.height].map(|value| value as u16),
                 bearing: glyph.bearing,
                 advance_64: glyph.advance_64,
             });
@@ -132,7 +139,12 @@ fn compile(
 /// glyph indices and their top-left texels.
 fn shelves(glyphs: &[RasterizedGlyph], width: u32, height: u32) -> Vec<Vec<(usize, [u32; 2])>> {
     let mut order: Vec<_> = (0..glyphs.len()).collect();
-    order.sort_by_key(|&index| (std::cmp::Reverse(glyphs[index].height), glyphs[index].codepoint));
+    order.sort_by_key(|&index| {
+        (
+            std::cmp::Reverse(glyphs[index].height),
+            glyphs[index].codepoint,
+        )
+    });
     let mut pages = vec![Vec::new()];
     let (mut x, mut y, mut row) = (ATLAS_PADDING, ATLAS_PADDING, 0);
     for index in order {
