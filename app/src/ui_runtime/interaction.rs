@@ -342,6 +342,28 @@ pub(crate) fn drive_world_inventory_keys(
         .begin_world_drop(slot, (!control).then_some(1));
 }
 
+/// Drops keyboard input another owner handles while keeping inventory modifiers in step
+/// with the physical keys: observed edges still update them, and when input is unavailable
+/// (an unfocused window) every modifier counts as released.
+fn discard_keyboard(
+    runtime: &mut UiRuntime,
+    keyboard_messages: &mut MessageReader<KeyboardInput>,
+    input_available: bool,
+) {
+    let inventory_keys = runtime.inventory_keys_mut();
+    if input_available {
+        for input in keyboard_messages.read() {
+            inventory_keys.track_modifier(
+                keyboard_key(input.key_code),
+                input.state == ButtonState::Pressed,
+            );
+        }
+    } else {
+        keyboard_messages.clear();
+        inventory_keys.release_modifiers();
+    }
+}
+
 #[allow(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -428,7 +450,7 @@ pub(crate) fn drive_chat_keyboard_input(
             focus.authorize_screen_return();
         }
         modifiers.reset_all();
-        keyboard_messages.clear();
+        discard_keyboard(&mut runtime, &mut keyboard_messages, input_available);
         keys.reset_all();
         mouse_buttons.reset_all();
         mouse_motion.delta = Vec2::ZERO;
@@ -438,7 +460,7 @@ pub(crate) fn drive_chat_keyboard_input(
     }
     if !input_available {
         modifiers.reset_all();
-        keyboard_messages.clear();
+        discard_keyboard(&mut runtime, &mut keyboard_messages, false);
         keys.reset_all();
         mouse_buttons.reset_all();
         mouse_motion.delta = Vec2::ZERO;
@@ -455,7 +477,7 @@ pub(crate) fn drive_chat_keyboard_input(
             .is_some_and(|view| view.mod_ui().mod_panel_open())
     {
         modifiers.reset_all();
-        keyboard_messages.clear();
+        discard_keyboard(&mut runtime, &mut keyboard_messages, true);
         return;
     }
     if menu.as_ref().is_some_and(|menu| menu.is_visible()) {
@@ -463,7 +485,7 @@ pub(crate) fn drive_chat_keyboard_input(
         if runtime.inventory_open() {
             runtime.close_inventory(&mut player_runtime);
         }
-        keyboard_messages.clear();
+        discard_keyboard(&mut runtime, &mut keyboard_messages, true);
         // The menu system runs next and must see the original button state.
         // It consumes keyboard/pointer input after handling its own actions.
         mouse_motion.delta = Vec2::ZERO;

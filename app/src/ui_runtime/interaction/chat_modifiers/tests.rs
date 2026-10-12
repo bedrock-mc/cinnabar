@@ -5,6 +5,8 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+mod focus;
+
 struct Harness {
     app: App,
     window: Entity,
@@ -78,6 +80,26 @@ impl Harness {
 
     fn release(&mut self, key: KeyCode) {
         self.key(key, ButtonState::Released, None);
+    }
+
+    /// This frame's inventory Shift and Control state, as gameplay reads it.
+    fn inventory_modifiers(&mut self) -> (bool, bool) {
+        let (_, shift, control) = self
+            .app
+            .world_mut()
+            .resource_mut::<UiRuntimeResource>()
+            .inventory_keys_mut()
+            .take_frame();
+        (shift, control)
+    }
+
+    /// Sets whether the window has keyboard focus.
+    fn set_focused(&mut self, focused: bool) {
+        self.app
+            .world_mut()
+            .get_mut::<Window>(self.window)
+            .unwrap()
+            .focused = focused;
     }
 
     fn text(&self) -> &str {
