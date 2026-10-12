@@ -490,9 +490,9 @@ fn baseline_zone<'a>(base: &'a [Zone], head: &[Zone], zone: &Zone) -> Option<&'a
             .to_owned()
     };
     let same = |other: &Zone| other.name == zone.name && file(other) == file(zone);
-    let candidates: Vec<_> = base.iter().filter(|previous| same(*previous)).collect();
+    let candidates: Vec<_> = base.iter().filter(|previous| same(previous)).collect();
     if let [previous] = candidates[..]
-        && head.iter().filter(|other| same(*other)).count() == 1
+        && head.iter().filter(|other| same(other)).count() == 1
     {
         return Some(previous);
     }
@@ -594,6 +594,7 @@ impl Drop for OwnedChild {
 }
 
 /// Runs build and capture tools and preserves their failure status.
+#[cfg(unix)]
 fn checked(command: &mut Command) -> Result<(), DevtoolError> {
     let status = command.status().map_err(io_error)?;
     if status.success() {
