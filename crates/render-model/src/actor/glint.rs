@@ -59,7 +59,7 @@ impl ActorGlint {
 impl ActorGlint {
     /// Native glint layer words: both scroll offsets divided by the UV scale (as vanilla
     /// divides them before scaling), strength, the UV scale and the raster selector.
-    pub(crate) fn parameters(self) -> [f32; 6] {
+    pub fn parameters(self) -> [f32; 6] {
         let time = if self.time_seconds.is_finite() {
             self.time_seconds.max(0.0)
         } else {

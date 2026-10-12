@@ -21,6 +21,7 @@ mod shader_source;
 mod ui_shader;
 
 mod actor_colour;
+mod actor_item_glint;
 mod actor_rig;
 mod actor_sidedness;
 mod actor_skin_classes;

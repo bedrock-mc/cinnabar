@@ -1018,8 +1018,9 @@ fn glinting_held_items_draw_the_item_glint_across_their_sprite_in_every_view() {
     );
     let glint_materials = materials(&glinting);
     assert_eq!(glint_materials.len(), 4);
-    for material in glint_materials {
-        assert_eq!(material.kind, assets::EntityRenderMaterial::Glint);
+    for (material, plain) in glint_materials.into_iter().zip(plain_materials) {
+        assert_eq!(material.kind, plain.kind);
+        assert_eq!(material.state, plain.state);
         assert_eq!(material.glint.texture, render_model::GlintTexture::Item);
         assert!(
             material
