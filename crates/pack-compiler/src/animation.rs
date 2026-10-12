@@ -492,16 +492,20 @@ fn slice_frames(image: &DecodedImage, replicate: u32) -> Result<Vec<Box<[u8]>>, 
             let end = start + (frame_size * 4) as usize;
             pixels.extend_from_slice(&image.rgba8[start..end]);
         }
-        let (tile, tile_size) = replicated_tile(&pixels, frame_size, replicate);
+        let (tile, tile_size) = replicated_tile(pixels, frame_size, replicate);
         frames.push(normalize_texture_tile(tile, tile_size, &image.source_path)?);
     }
     Ok(frames)
 }
 
 /// The upper-left `size / replicate` square of a `size`-pixel frame, enlarged by whole pixels to
-/// at least one tile when that square is smaller.
-fn replicated_tile(frame: &[u8], size: u32, replicate: u32) -> (Box<[u8]>, u32) {
-    let crop = (size / replicate.max(1)).max(1);
+/// at least one tile when that square is smaller. Unreplicated frames and frames outside the tile
+/// size contract pass through unchanged for `normalize_texture_tile` to check.
+fn replicated_tile(frame: Vec<u8>, size: u32, replicate: u32) -> (Box<[u8]>, u32) {
+    if replicate <= 1 || size < assets::TILE_SIZE || !size.is_power_of_two() {
+        return (frame.into_boxed_slice(), size);
+    }
+    let crop = (size / replicate).max(1);
     let tile_size = if crop.is_power_of_two() && crop >= assets::TILE_SIZE {
         crop
     } else {
@@ -709,6 +713,29 @@ mod tests {
             .flat_map(|y| (0..TILE_SIZE).flat_map(move |x| pixel(x, y)))
             .collect::<Vec<_>>();
         assert_eq!(&*base.rgba8, &expected[..]);
+    }
+
+    /// Cropping a replicated frame must not admit strips whose frames break the tile size contract.
+    #[test]
+    fn replicated_flipbooks_still_reject_non_power_of_two_frames() {
+        let (_directory, pack) = synthetic_pack(
+            r#""flow":{"textures":"textures/blocks/flow"}"#,
+            r#"[{"flipbook_texture":"textures/blocks/flow","atlas_tile":"flow","replicate":2}]"#,
+        );
+        let size = TILE_SIZE + TILE_SIZE / 2;
+        let image = DecodedImage {
+            source_path: "textures/blocks/flow".into(),
+            width: size,
+            height: size,
+            rgba8: vec![255; (size * size * 4) as usize].into_boxed_slice(),
+        };
+
+        let error = compile_animation_plan(&pack, &[image], limits(16, 2))
+            .expect_err("a 24-pixel frame is not a power of two");
+        assert!(matches!(
+            error,
+            AssetError::AnimationTextureDimensions { .. }
+        ));
     }
 
     #[test]
