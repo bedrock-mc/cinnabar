@@ -85,7 +85,7 @@ fn solid_lines_share_the_legacy_ribbon_budget() {
     let line = wit::Line {
         points: ribbon.points.clone(),
         width: 1.,
-        color: ribbon.color.clone(),
+        color: ribbon.color,
         pattern: wit::LinePattern::Solid,
     };
     state.draw_lines(vec![line.clone()]).unwrap().unwrap();
