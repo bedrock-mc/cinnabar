@@ -24,7 +24,7 @@ impl super::UiPresentationRuntime {
 pub(in crate::ui_runtime) fn carrier_texture(
     assets: &assets::RuntimeUiAssets,
 ) -> Option<Arc<UiTexturePage>> {
-    let path = format!("{}.png", assets::ITEM_GLINT_TEXTURE_PATH);
+    let path = format!("{}.png", assets::entity::ITEM_GLINT_TEXTURE_IDENTIFIER);
     let bytes = assets.ui_file(&path)?;
     let mut reader = image::ImageReader::with_format(Cursor::new(bytes), image::ImageFormat::Png);
     let mut limits = image::Limits::default();
@@ -54,7 +54,7 @@ mod tests {
             &[],
             &[],
             &[assets::UiFile {
-                path: format!("{}.png", assets::ITEM_GLINT_TEXTURE_PATH).into(),
+                path: format!("{}.png", assets::entity::ITEM_GLINT_TEXTURE_IDENTIFIER).into(),
                 bytes: png.into_inner().into(),
             }],
         )
