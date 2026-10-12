@@ -593,7 +593,7 @@ impl Drop for OwnedChild {
     }
 }
 
-/// Runs build and capture tools and preserves their failure status.
+/// Runs an owned Unix process's termination command and preserves its failure status.
 #[cfg(unix)]
 fn checked(command: &mut Command) -> Result<(), DevtoolError> {
     let status = command.status().map_err(io_error)?;

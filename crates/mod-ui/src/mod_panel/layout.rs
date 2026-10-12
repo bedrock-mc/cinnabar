@@ -258,6 +258,7 @@ mod capacity_tests {
             dark: true,
             controls,
             capture_key: false,
+            motion: false,
             sections,
         };
         panel.validate().unwrap();

@@ -61,6 +61,73 @@ fn optional_imports_deny_without_explicit_grants() {
     assert_eq!(state.controls.interaction, InteractionOutput::default());
 }
 
+/// Updates are visible only after callback commit and cannot partially apply a bad batch.
+#[test]
+fn panel_patch_obeys_transaction_boundaries() {
+    let mut state = state(ModGrants {
+        controls: true,
+        ..Default::default()
+    });
+    state.set_content(panel()).unwrap().unwrap();
+    state.controls.commit();
+    let before = state.controls.panel.clone();
+    state
+        .update_content(r#"{"controls":[{"id":"enabled","value":true}]}"#.into())
+        .unwrap()
+        .unwrap();
+    assert_eq!(state.controls.panel, before);
+    assert!(
+        state
+            .update_content(
+                r#"{"controls":[{"id":"enabled","value":false},{"id":"unknown","value":true}]}"#
+                    .into()
+            )
+            .unwrap()
+            .is_err()
+    );
+    state.controls.commit();
+    assert!(matches!(
+        state.controls.panel.as_ref().unwrap().controls[0],
+        ui::mod_panel::Control::Toggle { value: true, .. }
+    ));
+    state
+        .update_content(r#"{"controls":[{"id":"enabled","value":false}]}"#.into())
+        .unwrap()
+        .unwrap();
+    state.controls.revoke();
+    state.controls.commit();
+    assert!(state.controls.panel.is_none());
+}
+
+/// A legacy replacement cannot select routes validated against a different control schema.
+#[test]
+fn registered_panel_routes_reject_a_replaced_schema() {
+    let mut state = state(ModGrants {
+        controls: true,
+        ..Default::default()
+    });
+    let bundle = serde_json::json!({"panel":serde_json::from_str::<serde_json::Value>(&panel()).unwrap(),"surfaces":{}}).to_string();
+    state.controls.bundle = Some(std::sync::Arc::new(
+        ui::mod_panel::PanelBundle::parse(&bundle).unwrap(),
+    ));
+    state.set_content(panel()).unwrap().unwrap();
+    state.controls.commit();
+    state
+        .update_content(r#"{"controls":[{"id":"enabled","label":"New label"}]}"#.into())
+        .unwrap()
+        .unwrap();
+    state.controls.commit();
+    state
+        .set_content(
+            r#"{"title":"Changed","toggle_key":"ShiftRight","dark":true,"controls":[]}"#.into(),
+        )
+        .unwrap()
+        .unwrap();
+    state.controls.commit();
+    assert!(state.update_content("{}".into()).unwrap().is_err());
+    assert!(state.controls.panel.as_ref().unwrap().controls.is_empty());
+}
+
 /// Supplies distinguishable keys and event ordering with every current control flag set.
 fn control_frame() -> ControlFrame {
     ControlFrame {

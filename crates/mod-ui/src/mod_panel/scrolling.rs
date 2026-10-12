@@ -41,6 +41,21 @@ impl ModUi {
         } else {
             current.offset_for_wheel(delta)
         };
+        if panel.panel.motion && !pixels {
+            let target = panel.motion.scroll_target(&region.key, current.offset);
+            let pending = ScrollMetrics {
+                offset: target,
+                ..current.clone()
+            };
+            panel.motion.scroll(
+                &region.key,
+                current.offset,
+                pending.offset_for_wheel(delta) - target,
+                current.max_offset(),
+            );
+            return true;
+        }
+        panel.motion.cancel_scroll(&region.key);
         panel.view.scroll.insert(region.key.clone(), offset);
         true
     }
@@ -53,6 +68,7 @@ impl ModPanel {
             return false;
         };
         if let Some((key, last)) = self.scroll_drag.clone() {
+            self.motion.cancel_scroll(&key);
             if let Some(metrics) = frame.report.scrolls.get(&key) {
                 let at = along(metrics, point);
                 let current = ScrollMetrics {
@@ -99,6 +115,7 @@ impl ModPanel {
             return false;
         };
         if region.kind == HitKind::ScrollBox && metrics.box_drag != Draggable::NotDraggable {
+            self.motion.cancel_scroll(&view.key);
             self.scroll_drag = Some((view.key.clone(), along(metrics, point)));
             return true;
         }
@@ -106,6 +123,7 @@ impl ModPanel {
             && region.pressed.is_some()
             && region.pressed == metrics.track_button
         {
+            self.motion.cancel_scroll(&view.key);
             self.view
                 .scroll
                 .insert(view.key.clone(), metrics.offset_for_track(point));
