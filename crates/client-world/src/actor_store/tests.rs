@@ -1192,3 +1192,26 @@ fn brightness_sample_uses_interpolated_feet_and_body_height() {
         assert!((sample[1] - (feet[1] + 0.66 * height)).abs() < 1e-6);
     }
 }
+
+#[test]
+fn server_swings_for_the_local_player_reach_its_swing_tracker() {
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(42);
+    store.apply(1, 1, spawn(42, -7));
+    store.apply_item_actor(
+        1,
+        2,
+        protocol::ItemActorEvent::Action(protocol::ActorActionEvent {
+            actor_runtime_ids: Arc::from([42_u64]),
+            kind: protocol::ActorActionKind::SwingArm,
+            data: 0.0,
+            swing_source: None,
+        }),
+    );
+    assert_eq!(store.take_local_server_swings(), 1);
+    assert_eq!(
+        store.take_local_server_swings(),
+        0,
+        "each swing is taken once"
+    );
+}

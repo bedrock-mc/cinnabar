@@ -105,6 +105,7 @@ impl ActorStore {
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
             pending_local_health: None,
+            local_server_swings: 0,
             pending_local_damage: None,
             local_health_skips: 0,
             local_player_spawned: false,
@@ -138,6 +139,11 @@ impl ActorStore {
             particle_effects: Default::default(),
             synchronized_audio: Default::default(),
         }
+    }
+
+    /// Arm swings the server sent for the local player since the last call.
+    pub(crate) fn take_local_server_swings(&mut self) -> u8 {
+        std::mem::take(&mut self.local_server_swings)
     }
 
     pub(crate) fn exclude_remote_state_for(&mut self, runtime_id: u64) {
@@ -902,6 +908,13 @@ impl ActorStore {
                 let mut seen = HashSet::with_capacity(action.actor_runtime_ids.len());
                 let mut targets = Vec::with_capacity(action.actor_runtime_ids.len());
                 for runtime_id in action.actor_runtime_ids.iter().copied() {
+                    // The native handler swings whichever mob the packet names, the local player
+                    // included; its swing plays through the local swing tracker.
+                    if self.remote_state_excluded_runtime_id == Some(runtime_id)
+                        && matches!(action.kind, protocol::ActorActionKind::SwingArm)
+                    {
+                        self.local_server_swings = self.local_server_swings.saturating_add(1);
+                    }
                     if (self.remote_state_excluded_runtime_id == Some(runtime_id)
                         && !matches!(action.kind, protocol::ActorActionKind::Custom { .. }))
                         || !seen.insert(runtime_id)

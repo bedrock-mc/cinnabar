@@ -262,10 +262,24 @@ pub(crate) fn prepare_actor_render_frame(
         .as_deref()
         .and_then(|player| crate::melee::selected_attack_timing(player, &world))
         .and_then(|timing| timing.swing_duration_ticks);
+    let server_swings = world
+        .stream
+        .as_mut()
+        .map_or(0, |stream| stream.take_local_server_swings());
     let stream = world.stream.as_ref();
     let swing_progress = stream.and_then(|_| {
         let movement = movement.as_deref()?;
         let swings = swings.as_deref_mut()?;
+        // A server swing for the local arm starts on the next simulated tick; a swing already
+        // under way is not restarted.
+        if server_swings > 0 {
+            swings.try_swing(
+                movement.completed_tick() + 1,
+                item_swing_ticks
+                    .and_then(|ticks| i32::try_from(ticks).ok())
+                    .unwrap_or(actor_animation::ACTOR_SWING_TICKS),
+            );
+        }
         if let Some(effects) = effects.as_deref() {
             swings.sync_ticks_for_item(
                 movement.interaction_authority_identity(),
