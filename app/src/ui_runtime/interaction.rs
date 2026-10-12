@@ -609,7 +609,7 @@ pub(crate) fn drive_chat_keyboard_input(
             && presentation.chat_link_confirmation_open()
         {
             consumed_gameplay = true;
-            if input.key_code == KeyCode::Escape {
+            if input.key_code == KeyCode::Escape && !input.repeat {
                 presentation.cancel_chat_link();
             }
             continue;
@@ -618,7 +618,7 @@ pub(crate) fn drive_chat_keyboard_input(
             && presentation.chat_settings_open()
         {
             consumed_gameplay = true;
-            if input.key_code == KeyCode::Escape {
+            if input.key_code == KeyCode::Escape && !input.repeat {
                 presentation.set_chat_settings_open(false);
             }
             continue;
@@ -635,12 +635,14 @@ pub(crate) fn drive_chat_keyboard_input(
             if runtime.screen_state().text_focused() && !mod_view {
                 // A text field owns typed text, including `e`.
                 match input.key_code {
-                    KeyCode::Escape => {
+                    KeyCode::Escape if !input.repeat => {
                         if runtime.commit_book(false) {
                             runtime.close_inventory(&mut player_runtime);
                             inventory_ownership_changed = true;
                         }
                     }
+                    // An OS repeat of a held key is not a new press, so it never closes a screen.
+                    KeyCode::Escape => {}
                     KeyCode::Backspace => runtime.screen_state_mut().backspace_text(),
                     key if runtime.book_key(&mut player_runtime, keyboard_key(key)) => {}
                     _ => {
@@ -654,6 +656,10 @@ pub(crate) fn drive_chat_keyboard_input(
                 continue;
             }
             match input.key_code {
+                // An OS repeat of a held key is not a new press, so it never toggles the screen.
+                key if input.repeat
+                    && (key == KeyCode::Escape
+                        || binding_key(menu.as_deref(), "key.inventory", key)) => {}
                 key if binding_key(menu.as_deref(), "key.inventory", key) => {
                     runtime.toggle_inventory(&mut player_runtime);
                     inventory_ownership_changed = true;
@@ -672,8 +678,9 @@ pub(crate) fn drive_chat_keyboard_input(
             continue;
         }
         if runtime.local_sleeping() && !runtime.chat_focused() {
-            // The bed screen: Escape leaves the bed, T opens chat over it.
+            // The bed screen: Escape leaves the bed, T opens chat over it. Key repeats do nothing.
             match input.key_code {
+                _ if input.repeat => {}
                 KeyCode::Escape => {
                     runtime.request_wake();
                     if let Some(focus) = focus.as_deref_mut() {
@@ -770,6 +777,8 @@ pub(crate) fn drive_chat_keyboard_input(
             continue;
         }
         match input.key_code {
+            // Repeats keep editing the draft, but only a fresh press cancels or sends it.
+            KeyCode::Escape | KeyCode::Enter | KeyCode::NumpadEnter if input.repeat => {}
             KeyCode::Escape => {
                 runtime.close_chat();
             }
