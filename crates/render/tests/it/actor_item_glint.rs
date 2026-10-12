@@ -20,6 +20,7 @@ fn item_glint_keeps_visible_low_alpha_texels_and_discards_empty_texels() {
         glint: render_model::ActorGlint::item(0.0, [1.0; 2]),
         ..plain
     };
+    let background = gpu.render(&actor_raster::source(false), "actor_vertex", &[]);
     for alpha in [0, 64, 255] {
         let texels = [[128, 192, 64, alpha]; 2];
         let original = actor_raster::raster_material(&gpu, &plane, plain, false, texels);
@@ -35,7 +36,7 @@ fn item_glint_keeps_visible_low_alpha_texels_and_discards_empty_texels() {
             coverage(&original),
             "alpha {alpha} coverage"
         );
-        assert_eq!(original.iter().any(|&byte| byte != 0), alpha != 0);
+        assert_eq!(original != background, alpha != 0);
         if alpha != 0 {
             assert_ne!(
                 glinting, original,

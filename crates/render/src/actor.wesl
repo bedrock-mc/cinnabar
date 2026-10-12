@@ -36,7 +36,8 @@ struct BoneMatrix {
 struct VertexOutput {
     @builtin(position) @invariant position: vec4<f32>,
     @location(0) uv: vec2<f32>,
-    @location(1) @interpolate(flat) skin_info: vec2<u32>,
+    // Texture layer, geometry validity and optional glint instance index.
+    @location(1) @interpolate(flat) skin_info: vec3<u32>,
     @location(2) world_normal: vec3<f32>,
     @location(3) back_uv: vec2<f32>,
     @location(4) @interpolate(flat) tint: u32,
@@ -50,7 +51,6 @@ struct VertexOutput {
     @location(12) @interpolate(flat) dissolve_multiplier: f32,
     @location(13) @interpolate(flat) surface: u32,
     @location(14) back_native_lighting: vec3<f32>,
-    @location(15) @interpolate(flat) glint_instance: u32,
 }
 
 fn word_f32(index: u32) -> f32 {
@@ -122,7 +122,7 @@ fn actor_vertex(
     out.material = instance_words[instance_base + 27u];
     if ((out.material & ACTOR_MATERIAL_DISABLE_OVERLAY_FLAG) != 0u) { out.overlay = vec4(0.0); }
     let has_glint = (out.material & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT || word_f32(instance_base + 35u) != 0.0;
-    out.glint_instance = select(0xffffffffu, instance_index, has_glint);
+    out.skin_info.z = select(0xffffffffu, instance_index, has_glint);
     out.dissolve_multiplier = word_f32(instance_base + 28u);
     let light_color_multiplier = word_f32(instance_base + 29u);
     // Render-controller uv_anim, applied as vanilla's entity shader does: offset + uv * scale.
@@ -305,8 +305,8 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     let native_lighting = select(input.native_lighting, input.back_native_lighting, !front && input.surface != 0u);
     let lighting = select(native_lighting, mix(vec3(1.0), native_lighting, color.a), emissive);
     var lit_gamma = mix(color.rgb, overlay.rgb, overlay.a) * lighting;
-    if (input.glint_instance != 0xffffffffu) {
-        let base = input.glint_instance * ACTOR_GPU_INSTANCE_WORDS;
+    if (input.skin_info.z != 0xffffffffu) {
+        let base = input.skin_info.z * ACTOR_GPU_INSTANCE_WORDS;
         let offsets = vec2(word_f32(base + 30u), word_f32(base + 31u));
         let strength = word_f32(base + 32u);
         let glint_scale = vec2(word_f32(base + 33u), word_f32(base + 34u));
