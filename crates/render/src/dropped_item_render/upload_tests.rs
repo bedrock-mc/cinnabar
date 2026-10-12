@@ -346,3 +346,32 @@ fn glinting_copies_carry_the_item_glint_scale_across_their_sprite() {
     );
     assert_eq!(glint::pack_instance(&instance(false)).glint, [0.0; 4]);
 }
+
+#[test]
+fn reshaped_dropped_glint_reuploads_shared_pixels_and_retains_unchanged_shapes() {
+    let mut world = item_world();
+    let device = world.resource::<RenderDevice>().clone();
+    let queue = world.resource::<RenderQueue>().clone();
+    let mut gpu = world.remove_resource::<ItemGpu>().unwrap();
+    let mut scene = DroppedItemScene::default();
+    let pixels: Arc<[u8]> = vec![255; 4 * 2 * 4].into();
+    let mut previous = None;
+    for (width, height) in [(4, 2), (2, 4), (2, 4)] {
+        scene.set_glint(
+            Some(render_model::EquipmentRaster {
+                width,
+                height,
+                rgba8: Arc::clone(&pixels),
+            }),
+            [0.0; 3],
+        );
+        glint::upload(&scene, &device, &queue, &mut gpu);
+        let texture = &gpu.glint.as_ref().unwrap().0;
+        let size = [texture.width(), texture.height()];
+        assert_eq!(size, [u32::from(width), u32::from(height)]);
+        if let Some((previous_size, id)) = previous {
+            assert_eq!(texture.id() == id, size == previous_size);
+        }
+        previous = Some((size, texture.id()));
+    }
+}

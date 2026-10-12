@@ -44,7 +44,7 @@ pub(super) fn sampler(device: &RenderDevice) -> Sampler {
 }
 
 /// Uploads the scene's item glint, or a transparent texel without one, keeping the texture
-/// while its pixels are unchanged.
+/// while its dimensions and pixels are unchanged.
 pub(super) fn upload(
     scene: &DroppedItemScene,
     device: &RenderDevice,
@@ -54,8 +54,12 @@ pub(super) fn upload(
     let raster = scene.glint.as_ref().filter(|raster| {
         u32::from(raster.width.max(raster.height)) <= device.limits().max_texture_dimension_2d
     });
+    let size = raster.map_or([1, 1], |raster| {
+        [u32::from(raster.width), u32::from(raster.height)]
+    });
     let pixels = raster.map(|raster| Arc::clone(&raster.rgba8));
-    if let Some((_, _, current)) = &gpu.glint
+    if let Some((texture, _, current)) = &gpu.glint
+        && [texture.width(), texture.height()] == size
         && match (current, &pixels) {
             (Some(current), Some(pixels)) => Arc::ptr_eq(current, pixels),
             (None, None) => true,

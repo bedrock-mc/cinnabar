@@ -25,9 +25,12 @@ fn native_light(table: &[[f32; 4]; 256], block: u8, sky: u8) -> [f32; 3] {
 }
 
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn items_and_particles_compose_native_rgb_in_darkness_and_daylight() {
-    let gpu = Gpu::new().expect("native GPU");
+    let Some(gpu) =
+        Gpu::for_fixture("items_and_particles_compose_native_rgb_in_darkness_and_daylight")
+    else {
+        return;
+    };
     let view = gpu.buffer(
         &gpu_snapshot::view(bevy::math::Mat4::IDENTITY, bevy::math::Vec3::ZERO),
         wgpu::BufferUsages::UNIFORM,
@@ -37,6 +40,8 @@ fn items_and_particles_compose_native_rgb_in_darkness_and_daylight() {
     atmosphere[20] = 200.0;
     let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
     let sampler = gpu.device.create_sampler(&Default::default());
+    let glint = gpu.blank_texture_view();
+    let environment = gpu.buffer(&[1.0_f32, 0.0, 0.0, 0.0], wgpu::BufferUsages::UNIFORM);
     let mut item_source =
         shader_source::standalone(include_str!("../../src/dropped_item.wesl"), &[])
             .replace("@vertex\nfn item_vertex", "fn item_vertex");
@@ -207,6 +212,18 @@ fn items_and_particles_compose_native_rgb_in_darkness_and_daylight() {
                                 resource: wgpu::BindingResource::Sampler(&sampler),
                             },
                             wgpu::BindGroupEntry {
+                                binding: 3,
+                                resource: environment.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 4,
+                                resource: wgpu::BindingResource::TextureView(&glint),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 5,
+                                resource: wgpu::BindingResource::Sampler(&sampler),
+                            },
+                            wgpu::BindGroupEntry {
                                 binding: 19,
                                 resource: case.as_entire_binding(),
                             },
@@ -265,7 +282,7 @@ const ITEM_VERTEX: &str = r#"
     return item_vertex(VertexInput(
         vec3(corners[index], 0.5), vec2(0.5), vec3(0.0, 1.0, 0.0),
         vec4(1.0, 0.0, 0.0, 0.0), vec4(0.0, 1.0, 0.0, 0.0), vec4(0.0, 0.0, 1.0, 0.0),
-        vec4(0u, u32(witness[0].x), u32(witness[0].y), 0u), 0u, witness[1],
+        vec4(0u, u32(witness[0].x), u32(witness[0].y), 0u), 0u, witness[1], vec4(0.0), vec2(0.0),
     ));
 }
 "#;
