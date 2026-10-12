@@ -147,7 +147,7 @@ fn ui_glint_uses_the_winning_raster_and_restores_the_lower_pack_on_removal() {
             .unwrap();
         encoded.into_inner()
     };
-    let path = format!("{}.png", assets::ITEM_GLINT_TEXTURE_PATH);
+    let path = format!("{}.png", assets::entity::ITEM_GLINT_TEXTURE_IDENTIFIER);
     let low = encode(3, 2, [200, 0, 0, 255]);
     let high = encode(640, 617, [0, 200, 0, 255]);
     let lower = archive(1, &[(&path, &low)]);
