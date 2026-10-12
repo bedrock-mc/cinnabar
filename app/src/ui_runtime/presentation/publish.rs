@@ -44,7 +44,7 @@ fn hand_first_person(
 }
 
 /// Resources beyond Bevy's sixteen-parameter limit.
-type PublishExtras<'w> = (
+type PublishExtras<'w, 's> = (
     Res<'w, WorldStreamFramePoll>,
     Res<'w, client_shell::menu::MenuRuntime>,
     Res<'w, client_presentation::actor_publication::ActorFrameState>,
@@ -53,7 +53,7 @@ type PublishExtras<'w> = (
     Option<Res<'w, render_scene::ActorPipelineReadiness>>,
     Option<Res<'w, render_scene::PipelineWarmupReadiness>>,
     Option<Res<'w, client_presentation::camera::ServerCameraView>>,
-    Local<'w, nametags::NametagTextCache>,
+    Local<'s, nametags::NametagTextCache>,
     (
         Res<'w, client_presentation::actor_publication::ActorFramePartialTick>,
         Res<'w, client_presentation::local_player::LocalPlayerFrameCarrier>,
@@ -128,8 +128,6 @@ pub(crate) fn prepare_ui_runtime(
         hand.clear();
         return;
     }
-    let logical_width = physical_size[0] as f32 / window.scale_factor();
-    let logical_height = physical_size[1] as f32 / window.scale_factor();
     let dpi_scale = match DpiScale::new(window.scale_factor()) {
         Ok(scale) => scale,
         Err(error) => {

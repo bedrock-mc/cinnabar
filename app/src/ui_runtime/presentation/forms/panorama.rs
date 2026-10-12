@@ -21,6 +21,8 @@ pub(crate) fn drive_menu_panorama(
     let Some(mut scene) = scene else {
         return;
     };
+    // The renderer keeps the faces on the GPU; their pixels are only needed until then.
+    scene.release_uploaded_faces();
     scene.set_game_visible(client_shell::screen_policy::renders_game(
         &player_runtime,
         runtime.as_deref().map(|runtime| &runtime.0),

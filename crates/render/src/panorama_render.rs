@@ -179,7 +179,11 @@ fn prepare_panorama(
 ) {
     if gpu.faces_revision != Some(scene.faces_revision) {
         let (texture, view) = match &scene.faces {
-            Some(faces) => texture_array(&device, &queue, faces.side(), faces.layer_major()),
+            Some(faces) => {
+                let uploaded = texture_array(&device, &queue, faces.side(), faces.layer_major());
+                scene.mark_uploaded(scene.faces_revision);
+                uploaded
+            }
             None => texture_array(&device, &queue, 1, &[0; 24]),
         };
         gpu._texture = texture;
@@ -187,7 +191,7 @@ fn prepare_panorama(
         gpu.faces_revision = Some(scene.faces_revision);
         gpu.bind_group = None;
     }
-    let (Some(view), true) = (scene.view, scene.faces.is_some()) else {
+    let (Some(view), true) = (scene.view, scene.has_faces()) else {
         gpu.visible = false;
         return;
     };
@@ -365,7 +369,7 @@ fn queue_panorama(
         &Msaa,
     )>,
 ) {
-    if scene.view.is_none() || scene.faces.is_none() {
+    if scene.view.is_none() || !scene.has_faces() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawPanoramaCommands>();

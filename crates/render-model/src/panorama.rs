@@ -26,6 +26,14 @@ impl PanoramaFaces {
         })
     }
 
+    /// The six faces already laid one after another; rejects any other length.
+    pub fn from_layer_major(side: u32, pixels: Vec<u8>) -> Option<Self> {
+        if side == 0 || side > MAX_PANORAMA_FACE_SIDE {
+            return None;
+        }
+        (pixels.len() == side as usize * side as usize * 4 * 6).then_some(Self { side, pixels })
+    }
+
     #[must_use]
     pub const fn side(&self) -> u32 {
         self.side
