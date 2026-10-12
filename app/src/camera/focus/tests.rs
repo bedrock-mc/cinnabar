@@ -361,10 +361,8 @@ fn credits_keyboard_skip_retains_return_until_completion_delivery() {
 fn leave_bed_retains_return_until_server_wakes_player() {
     use crate::ui_runtime::interaction::drive_chat_ui_actions;
     use bevy::time::Real;
-    use client_ui::{
-        test_support::{fixture_font, fixture_hud},
-        ui_runtime::presentation::UiPresentationRuntime,
-    };
+    use client_ui::{test_support::fixture_hud, ui_runtime::presentation::UiPresentationRuntime};
+    use ui_engine::test_support::fixture_font;
     let (mut app, window) = focus_app();
     let player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
     let mut runtime = UiRuntime::new(1);
@@ -387,10 +385,7 @@ fn leave_bed_retains_return_until_server_wakes_player() {
                 .step_by(8)
                 .map(move |x| ui::UiPoint::new(x as f32, y as f32).unwrap())
         })
-        .find(|point| {
-            presentation.hit_test_bed(*point)
-                == Some(client_ui::ui_runtime::presentation::BedHit::LeaveBed)
-        })
+        .find(|point| presentation.hit_test_bed(*point) == Some(oreui::BedHit::LeaveBed))
         .unwrap();
     let centre = Vec2::new(point.x(), point.y());
     app.insert_resource(player)
@@ -444,7 +439,8 @@ fn touch_resume_returns_capture_after_focus_loss() {
         InputPlugin,
         touch::{TouchInput, TouchPhase},
     };
-    use client_ui::{test_support::fixture_font, ui_runtime::presentation::UiPresentationRuntime};
+    use client_ui::ui_runtime::presentation::UiPresentationRuntime;
+    use ui_engine::test_support::fixture_font;
     use {
         client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
         launcher::menu::MenuAction,
@@ -567,10 +563,8 @@ fn keyboard_wake_retains_return_until_server_acknowledgment() {
 fn sign_finish_retains_return_until_transport_accepts_edit() {
     use crate::ui_runtime::drive_sign_editor;
     use bevy::input::keyboard::KeyboardInput;
-    use client_ui::{
-        test_support::fixture_font,
-        ui_runtime::{presentation::UiPresentationRuntime, sign_editor::SignEdit},
-    };
+    use client_ui::ui_runtime::{presentation::UiPresentationRuntime, sign_editor::SignEdit};
+    use ui_engine::test_support::fixture_font;
     let (mut app, window) = focus_app();
     app.add_message::<KeyboardInput>()
         .init_resource::<crate::runtime::world::ClientWorld>()
@@ -615,7 +609,8 @@ fn sign_finish_retains_return_until_transport_accepts_edit() {
 #[test]
 fn remapped_side_button_inventory_dismissal_returns_capture() {
     use bevy::{input::keyboard::KeyboardInput, time::Real};
-    use client_ui::{test_support::fixture_font, ui_runtime::presentation::UiPresentationRuntime};
+    use client_ui::ui_runtime::presentation::UiPresentationRuntime;
+    use ui_engine::test_support::fixture_font;
     use {
         crate::ui_runtime::interaction::drive_chat_keyboard_input,
         client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
@@ -690,7 +685,8 @@ fn remapped_side_button_inventory_dismissal_returns_capture() {
 #[test]
 fn explicit_join_keeps_return_authorization_across_loading() {
     use bevy::input::keyboard::KeyboardInput;
-    use client_ui::{test_support::fixture_font, ui_runtime::presentation::UiPresentationRuntime};
+    use client_ui::ui_runtime::presentation::UiPresentationRuntime;
+    use ui_engine::test_support::fixture_font;
     use {
         client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
         launcher::menu::{MenuAction, MenuScreen},

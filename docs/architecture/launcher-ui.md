@@ -11,6 +11,9 @@ network transports. This migration does not introduce a frame of command latency
 | `launcher` | Menu actions and views, screen identities, account state, settings models, local-world forms/progress, store state and installation paths | `MenuRuntime`, account/core processes, filesystem operations and store/world service drivers |
 | `client-ui` | Retained HUD/chat/forms/screens, JSON-UI bindings, UI gesture state, item/player previews and presentation | Existing Bevy input, transport, world-query and publication systems |
 | `ui-engine` | The portable JSON-UI engine: screen registration, catalog policy, layout caches, painting, texture lookup and the on-demand atlas | `client-ui` supplies the installed vanilla pack and remote downloads through its source interfaces |
+| `oreui` | OreUI screens drawn in our own code: design canvas, widgets, motion, transitions, presentation state, artwork loading and shipped fonts | `client-ui` projects menu, loading and bed state into its typed inputs and applies its hits, focus and geometry |
+| `ui-screens` | Vanilla screen families over the engine: container screens with their recipe and furnace books and hit vocabulary, and the HUD with its native renderers and catalog patches | `client-ui` adapters project runtime authority into `ContainerSource`, `ContainerFrame` and `HudInput`, and supply preview and mod renderers |
+| `mod-ui` | Presentation of mod- and server-experience-owned surfaces: consent chrome, the client part's modal, player-mod screens, the personal panel and HUD editor, personal HUD cards and label, package templates and the cosmetic cursor renderer | `client-ui` resolves item icons and container layouts, chooses scene order and passes paint frames |
 | `player-state` | The shared composition of inventory authority and local-player facts | `PlayerRuntime` wraps it as the existing Bevy resource |
 
 `UiRuntime` borrows `PlayerState` for projections and commands. It cannot contain

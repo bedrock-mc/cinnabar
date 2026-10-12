@@ -3,9 +3,6 @@ use std::hint::black_box;
 use chunk_pipeline::benchmark_support::DispatchFixture;
 use criterion::{BenchmarkId, Criterion, Throughput};
 
-#[path = "../../src/stream/tests/allocation_count.rs"]
-mod allocation_count;
-
 /// Isolates job input capture and destruction from queue waits, solving and meshing.
 pub fn benches(c: &mut Criterion) {
     let mut group = c.benchmark_group("pipeline/dispatch_inputs");
@@ -22,9 +19,9 @@ pub fn benches(c: &mut Criterion) {
             ),
         ] {
             capture(&fixture);
-            let before = allocation_count::thread_allocations();
+            let before = test_alloc::thread_allocations();
             capture(&fixture);
-            let allocations = allocation_count::thread_allocations() - before;
+            let allocations = test_alloc::thread_allocations() - before;
             eprintln!("DISPATCH_INPUTS kind={name} jobs={count} allocations={allocations}");
             group.throughput(Throughput::Elements(count as u64));
             group.bench_with_input(BenchmarkId::new(name, count), &fixture, |b, fixture| {

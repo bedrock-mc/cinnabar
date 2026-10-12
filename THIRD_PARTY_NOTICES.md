@@ -16,6 +16,12 @@ directory. This notice is checked in and is not rewritten by the acquisition scr
 - Files: `assets/branding/` (`title.png`)
 - Provenance: original, generated for Cinnabar; not Mojang content.
 
+## OreUI artwork
+
+- Files: `assets/oreui-icons/`
+- Provenance: original pixel art drawn for Cinnabar by `tools/oreui_icons/build.py`; not Mojang
+  content.
+
 ## Window and installer icon
 
 - Files: `packaging/icons/cinnabar.svg`, `assets/branding/icon.png`

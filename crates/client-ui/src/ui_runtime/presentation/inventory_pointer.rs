@@ -1,38 +1,9 @@
 use protocol::WindowKind;
 use ui::UiPoint;
 
-use super::screens::{self, Widget};
+use super::screens;
 use super::{HudGeometry, UiPresentationRuntime};
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum InventoryCellHit {
-    Player(u8),
-    Storage(u8),
-    Armor(u8),
-    Offhand,
-    /// A screen input or crafting cell by UI inventory slot.
-    Craft(u8),
-    /// The created-output cell of a crafting-style screen.
-    CraftOutput,
-    Widget(Widget),
-    /// A creative catalog grid cell by position on the current page.
-    CreativeGrid(u8),
-    CreativeTab(u8),
-    CreativeSearch,
-    /// An entry of the engine-drawn recipe book (the creative catalog in
-    /// creative) by position in its list.
-    RecipeBook(u16),
-}
-
-impl InventoryCellHit {
-    /// Whether the hit is a cell holding an item (not a control or tab).
-    pub const fn is_item_cell(self) -> bool {
-        !matches!(
-            self,
-            Self::Widget(_) | Self::CreativeTab(_) | Self::CreativeSearch
-        )
-    }
-}
+use ui_screens::container_actions::{InventoryCellHit, SEARCH_TAB, Widget};
 
 /// Which inventory screen is drawn.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -52,7 +23,7 @@ impl InventoryScreen {
         let cells = ledger.storage_slot_count();
         match (ledger.window_kind(), cells) {
             (Some(WindowKind::Storage), Some(count))
-                if super::forms::supported_storage_slots(count) =>
+                if ui_screens::container_kinds::supported_storage_slots(count) =>
             {
                 Self::Storage(count)
             }
@@ -185,7 +156,7 @@ impl UiPresentationRuntime {
         screen: InventoryScreen,
     ) -> bool {
         if let Some(frame) = self.engine_container_frame() {
-            return super::forms::engine_panel_contains(frame, gui);
+            return ui_screens::containers::engine_panel_contains(frame, gui);
         }
         let Some(geometry) = self.inventory_geometry(physical_size, dpi_scale) else {
             return false;
@@ -233,7 +204,7 @@ fn cell_hit(
     if let InventoryScreen::Creative = screen
         && let Some(tab) = screens::tab_at(local)
     {
-        return Some(if tab == screens::SEARCH_TAB {
+        return Some(if tab == SEARCH_TAB {
             InventoryCellHit::CreativeSearch
         } else {
             InventoryCellHit::CreativeTab(tab)

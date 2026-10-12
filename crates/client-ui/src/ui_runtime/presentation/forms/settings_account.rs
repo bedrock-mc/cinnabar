@@ -11,7 +11,7 @@ pub(super) fn bind(view: &MenuView, data: &mut DataSource) {
     data.set_global("#not_logged_in", Scalar::Bool(!signed_in));
     data.set_global(
         "#gamertag_label",
-        Scalar::Text(super::accounts::current_name(view).to_owned()),
+        Scalar::Text(launcher::menu::profile::current_name(view).to_owned()),
     );
     data.set_global("#ad_account_name", Scalar::Text(view.display_name.clone()));
     data.set_global("#player_name", Scalar::Text(view.display_name.clone()));

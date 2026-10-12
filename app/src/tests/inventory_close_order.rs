@@ -29,7 +29,7 @@ use {
     },
     client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
     client_state::ClientFrameSet,
-    client_ui::test_support::fixture_font,
+    ui_engine::test_support::fixture_font,
 };
 
 fn app() -> (App, Entity) {

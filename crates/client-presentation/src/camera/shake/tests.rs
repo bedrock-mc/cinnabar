@@ -46,12 +46,12 @@ fn sampling_and_expiry_allocate_nothing() {
     let mut state = ShakeState::default();
     state.add(ShakeKind::Positional, 1.0, 1.0);
     state.add(ShakeKind::Rotational, 2.0, 2.0);
-    let before = crate::test_allocations::count();
+    let before = test_alloc::thread_allocations();
     for _ in 0..1000 {
         state.advance(0.01);
         std::hint::black_box(state.offset());
     }
-    assert_eq!(crate::test_allocations::count() - before, 0);
+    assert_eq!(test_alloc::thread_allocations() - before, 0);
 }
 
 #[test]

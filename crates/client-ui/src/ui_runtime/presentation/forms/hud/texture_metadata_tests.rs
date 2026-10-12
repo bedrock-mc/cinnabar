@@ -1,7 +1,8 @@
 use super::*;
-use json_ui::{Context, ViewState};
+use json_ui::{Context, DataSource, ViewState};
 use ui_engine::{
     atlas::ServerAtlas,
+    cached_screen::CachedScreen,
     textures::{TextureSet, Textures},
 };
 
@@ -41,6 +42,7 @@ fn texture_only_reload_remeasures_shared_screens_without_resetting_bindings() {
     let mut set = TextureSet::new(
         0,
         crate::ui_runtime::presentation::forms::texture_sources::downloads(),
+        crate::ui_runtime::presentation::forms::texture_sources::image_work(),
     );
     let mut screen = CachedScreen::default();
     let (context, view) = (Context::desktop(), ViewState::default());
@@ -115,7 +117,7 @@ fn texture_only_reload_remeasures_shared_screens_without_resetting_bindings() {
                 "texture-only reload preserves once bindings across subsequent data refresh"
             );
         }
-        let (_, allocations) = crate::allocation_count::count(|| {
+        let (_, allocations) = test_alloc::count(|| {
             screen
                 .render_shared_with(
                     "measure.root",

@@ -151,7 +151,7 @@ fn harness() -> Option<(UiPresentationRuntime, chunk_pipeline::WorldStream)> {
         RuntimeEntityAssets::decode(&std::fs::read(root.join("vanilla-v1.mcbeent")).ok()?).ok()?,
     );
     let world = Arc::new(RuntimeAssets::diagnostic());
-    let fixtures = client_ui::test_support::fixture_font();
+    let fixtures = ui_engine::test_support::fixture_font();
     let hud = client_ui::test_support::fixture_hud();
     let mut presentation = UiPresentationRuntime::with_hud_and_icons(fixtures, hud, icons).ok()?;
     presentation

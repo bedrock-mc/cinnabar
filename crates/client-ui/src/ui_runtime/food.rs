@@ -47,10 +47,10 @@ mod tests {
             [2; 32],
             &[],
             &[],
-            &[],
-            &[],
-            &[],
-            &[food],
+            assets::EquipmentItemFacts {
+                item_food: &[food],
+                ..Default::default()
+            },
         )
         .unwrap();
         let mut runtime = UiRuntime::new(1);

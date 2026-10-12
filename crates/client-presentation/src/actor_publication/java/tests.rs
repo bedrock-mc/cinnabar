@@ -796,9 +796,9 @@ fn java_frames_between_ticks_allocate_only_published_poses() {
             &mut scratch,
         ));
         scratch.begin_frame();
-        let before = crate::test_allocations::count();
+        let before = test_alloc::thread_allocations();
         let posed = third_person(&stream, &rig, actor, Some(&equipment), 0.5, &mut scratch);
-        let allocations = crate::test_allocations::count() - before;
+        let allocations = test_alloc::thread_allocations() - before;
         let layers = posed.unwrap().posed.skin_layers.len() as u64;
         assert_eq!(layers, u64::from(animated));
         let published = 1 + if layers > 0 { 1 + layers } else { 0 };

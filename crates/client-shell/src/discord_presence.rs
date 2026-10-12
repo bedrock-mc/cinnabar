@@ -5,9 +5,9 @@ use std::time::Duration;
 use crate::menu::MenuRuntime;
 use crate::ui_resources::UiRuntimeResource;
 use bevy::prelude::*;
-use client_ui::ui_runtime::presentation::LoadingStage;
 use launcher::menu::settings_options::DISCORD_PRESENCE_OPTION;
 use rich_presence::{Presence, State};
+use ui::LoadingStage;
 
 #[derive(Resource)]
 struct DiscordPresence {

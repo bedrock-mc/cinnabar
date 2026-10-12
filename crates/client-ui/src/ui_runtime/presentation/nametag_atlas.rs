@@ -475,7 +475,7 @@ mod tests {
 
     /// Builds the labels used by the original full-atlas timing fixture.
     fn sample_atlas() -> (NametagAtlas, std::time::Duration) {
-        let font = super::super::tests::fixture_font();
+        let font = ui_engine::test_support::fixture_font();
         let mut layouts = TextLayoutCache::new(256, 1 << 20);
         let mut atlas = NametagAtlas::default();
         let started = std::time::Instant::now();
@@ -549,7 +549,7 @@ mod tests {
 
     #[test]
     fn palette_change_rerasterizes_retained_name_lines() {
-        let font = super::super::tests::fixture_font();
+        let font = ui_engine::test_support::fixture_font();
         let mut layouts = TextLayoutCache::new(8, 1 << 20);
         let mut atlas = NametagAtlas::default();
         let text = Arc::from("§2Player");
@@ -580,7 +580,7 @@ mod tests {
 
     #[test]
     fn rectangles_preserve_skipped_publications_reset_and_old_readers() {
-        let font = super::super::tests::fixture_font();
+        let font = ui_engine::test_support::fixture_font();
         let mut layouts = TextLayoutCache::new(8, 1 << 20);
         let mut atlas = NametagAtlas::default();
         assert!(atlas.publish().0.is_empty());

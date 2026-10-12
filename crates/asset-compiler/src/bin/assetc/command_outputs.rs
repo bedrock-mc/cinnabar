@@ -126,6 +126,10 @@ pub(super) fn validate_command_outputs(command: &Command) -> Result<(), AssetErr
             source_manifest,
             out,
             ..
+        }
+        | OreuiIconsAssets {
+            source_manifest,
+            out,
         } => {
             inputs.push(source_manifest);
             outputs.push(out);

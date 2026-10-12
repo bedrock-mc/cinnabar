@@ -55,7 +55,7 @@ impl UiPresentationRuntime {
         self.mod_panel_font = installed;
         self.textures = Arc::new(textures);
         self.font = session_glyphs::font(self);
-        self.invalidate_mod_panel_font();
+        self.screens.mod_ui.invalidate_mod_panel_font();
         Ok(())
     }
 }

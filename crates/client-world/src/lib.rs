@@ -45,3 +45,7 @@ pub use authority::{
 };
 pub use authority::{ActorCombatEvidence, ActorCombatKind, BiomeCommitReport};
 pub use protocol::ItemAttackTiming;
+
+#[cfg(test)]
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;

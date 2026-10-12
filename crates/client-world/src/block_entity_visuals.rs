@@ -11,10 +11,12 @@ pub struct BackingBlockIdentity {
     sequential_id: u32,
     network_hash: Option<u32>,
     visual_kind: VisualKind,
+    full_cube_model: bool,
     known: bool,
 }
 
 impl BackingBlockIdentity {
+    /// Resolves the state identity and validates model geometry used by static barrel routes.
     #[must_use]
     pub fn from_runtime(value: u32, mode: NetworkIdMode, assets: &RuntimeAssets) -> Self {
         let resolved = assets.resolve(mode, value);
@@ -29,13 +31,19 @@ impl BackingBlockIdentity {
             sequential_id,
             network_hash,
             visual_kind: resolved.kind(),
+            full_cube_model: assets::gui_item::full_cube_model_quads(
+                assets,
+                assets::BlockVisualId(sequential_id),
+            )
+            .is_some(),
             known: resolved.is_known(),
         }
     }
 
     fn matches(self, expected: StaticSource) -> bool {
         self.known
-            && self.visual_kind == VisualKind::Cube
+            && (self.visual_kind == VisualKind::Cube
+                || (expected == StaticSource::Barrel && self.full_cube_model))
             && static_backing(self.sequential_id).is_some_and(|record| {
                 record.source == expected && Some(record.hash) == self.network_hash
             })

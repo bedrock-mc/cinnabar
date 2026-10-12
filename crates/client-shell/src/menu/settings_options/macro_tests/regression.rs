@@ -5,7 +5,7 @@ use bevy::input::touch::{TouchInput, TouchPhase, touch_screen_input_system};
 /// Builds a native command field and finds a visible point inside its existing text.
 fn command_field() -> (App, Entity, ui::UiPoint, usize) {
     let mut presentation =
-        UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap();
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation
         .enable_json_ui(client_ui::test_support::mini_carrier())
         .unwrap();

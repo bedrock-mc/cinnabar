@@ -757,9 +757,9 @@ mod tests {
             .expect("open")
             .expect("present");
         assert!(bank.pcm("sounds/warm", false).is_some(), "workers started");
-        let before = crate::test_allocations::bytes();
+        let before = test_alloc::thread_allocated_bytes();
         let lookup = bank.lookup("sounds/large", false);
-        let copied = crate::test_allocations::bytes() - before;
+        let copied = test_alloc::thread_allocated_bytes() - before;
         assert!(matches!(lookup, PcmLookup::Pending));
         assert!(
             copied < (LARGE / 16) as u64,

@@ -189,6 +189,7 @@ mod tests {
         let mut combined = tempfile::tempfile().unwrap();
         let status = Command::new("cargo")
             .current_dir(temp.path())
+            .env("CARGO_TERM_COLOR", "never")
             .env("CARGO_TARGET_DIR", temp.path().join("target"))
             .env("CARGO_BUILD_BUILD_DIR", temp.path().join("build"))
             .args([

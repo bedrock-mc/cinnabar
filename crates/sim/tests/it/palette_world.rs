@@ -207,7 +207,7 @@ fn camera_lenient_query_keeps_real_walls_while_skipping_unknown_cells() {
     assert_eq!(lenient.skipped.unloaded_chunk, 0);
     let mut visited = [None; 4];
     let mut count = 0;
-    let (skipped, allocations) = crate::allocation_count::measure(|| {
+    let (skipped, allocations) = test_alloc::count(|| {
         world
             .visit_collision_boxes_camera_lenient(query, &mut |shape| {
                 visited[count] = Some(shape);
@@ -885,7 +885,7 @@ fn camera_segment_cost_is_linear_in_length_even_through_unloaded_space() {
     let (origin, delta) = (Vec3::new(0.3, 64.7, 0.45), Vec3::new(100.0, 30.0, 70.0));
 
     let ((entry, skipped), allocations) =
-        crate::allocation_count::measure(|| world.camera_segment_entry(origin, delta).unwrap());
+        test_alloc::count(|| world.camera_segment_entry(origin, delta).unwrap());
     assert_eq!(entry, None);
     assert_eq!(allocations, 0);
     // One cell per boundary crossing plus the start, each with its one-cell-tall halo.

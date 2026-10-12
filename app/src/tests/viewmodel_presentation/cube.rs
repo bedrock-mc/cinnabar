@@ -75,10 +75,11 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         ecs::system::RunSystemOnce,
         prelude::*,
     };
-    use client_ui::test_support::{fixture_font, fixture_hud};
+    use client_ui::test_support::fixture_hud;
     use client_ui::ui_runtime::presentation::{UiPresentationRuntime, refresh_hud_frame};
     use protocol::WorldBootstrap;
     use std::sync::Arc;
+    use ui_engine::test_support::fixture_font;
     use {
         crate::{presentation::viewmodel::ViewmodelPublish, runtime::world::ClientWorld},
         client_presentation::{

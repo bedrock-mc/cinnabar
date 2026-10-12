@@ -5,6 +5,9 @@ use render_model::{DroppedItemModel, DroppedItemSpawnPose, MAX_ITEM_LAYERS};
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(super) enum ModelKey {
+    PottedBlock {
+        id: u32,
+    },
     Block {
         hashed: bool,
         id: u32,
@@ -180,7 +183,9 @@ impl ModelCache {
             Some(entry) => entry.layers,
             None => {
                 let estimate = cost();
-                if estimate.is_none() && matches!(key, ModelKey::Block { .. }) {
+                if estimate.is_none()
+                    && matches!(key, ModelKey::Block { .. } | ModelKey::PottedBlock { .. })
+                {
                     self.remember_rejection(key.clone(), None);
                 }
                 estimate
@@ -195,7 +200,7 @@ impl ModelCache {
             return None;
         }
         let Some(model) = build() else {
-            if matches!(key, ModelKey::Block { .. }) {
+            if matches!(key, ModelKey::Block { .. } | ModelKey::PottedBlock { .. }) {
                 self.remember_rejection(key, None);
             }
             return None;

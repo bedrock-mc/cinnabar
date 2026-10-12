@@ -5,12 +5,14 @@ pub mod death;
 pub mod disconnect;
 pub mod inbox;
 pub mod invite;
+pub mod join_progress;
 pub mod join_requests;
 pub mod profile;
 pub mod profile_achievements;
 pub mod realm_membership;
 pub mod server_list;
 pub mod settings_options;
+pub mod settings_sections;
 pub mod settings_storage;
 pub mod settings_support;
 pub mod sign_in;
@@ -194,6 +196,11 @@ impl MenuAction {
             _ => None,
         }
     }
+}
+
+/// Joining the featured-list entry at `index`.
+pub fn play_featured(view: &MenuView, index: usize) -> Option<MenuAction> {
+    (index < view.featured.len()).then_some(MenuAction::PlayFeatured(index))
 }
 
 /// The vanilla screen family used by both menu history and scene composition.

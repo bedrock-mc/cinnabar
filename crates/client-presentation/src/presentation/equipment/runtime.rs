@@ -158,11 +158,7 @@ impl EquipmentRuntime {
         block_entities: Option<Arc<RuntimeBlockEntityAssets>>,
         artwork: ActorArtworkPages,
     ) -> (Self, ActorArtworkPages, Vec<u32>) {
-        let BlockSheets {
-            sheets,
-            by_visual,
-            models: block_models,
-        } = world.as_deref().map_or_else(
+        let mut blocks = world.as_deref().map_or_else(
             || BlockSheets {
                 sheets: Vec::new(),
                 by_visual: BTreeMap::new(),
@@ -170,6 +166,14 @@ impl EquipmentRuntime {
             },
             |world| render_model::equipment::blocks::collect(world, &assets),
         );
+        if let Some(world) = world.as_deref() {
+            blocks.prefer_carried_faces(world, &icons);
+        }
+        let BlockSheets {
+            sheets,
+            by_visual,
+            models: block_models,
+        } = blocks;
         let icon_count = icons.sprites().len();
         let mut block_sheets = by_visual
             .into_iter()

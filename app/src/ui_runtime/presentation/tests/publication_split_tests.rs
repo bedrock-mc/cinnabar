@@ -15,7 +15,7 @@ fn catalog_runtime(player_runtime: &mut client_state::PlayerRuntime) -> UiRuntim
 #[test]
 #[ignore = "measures the added pre-send UI snapshot cost without rendering"]
 fn ui_publication_capture_bench() {
-    use crate::tests::alloc_count::thread_allocations;
+    use test_alloc::thread_allocations;
     let labels = vec!["Action"; 128];
     let cases = [
         (

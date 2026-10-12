@@ -66,9 +66,9 @@ fn unchanged_frames_upload_and_allocate_nothing() {
     system.run((), &mut world).unwrap();
     let first = world.resource::<EntityShadowGpu>().uploads;
     assert_eq!(first, 2, "casters and parameters upload once");
-    let before = crate::alloc_count::thread_allocations();
+    let before = test_alloc::thread_allocations();
     system.run((), &mut world).unwrap();
-    assert_eq!(crate::alloc_count::thread_allocations() - before, 0);
+    assert_eq!(test_alloc::thread_allocations() - before, 0);
     assert_eq!(world.resource::<EntityShadowGpu>().uploads, first);
 
     publish(&mut world, &[caster(1.0), caster(2.0)]);

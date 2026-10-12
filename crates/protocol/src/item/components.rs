@@ -42,6 +42,10 @@ pub struct ItemComponents {
     pub hand_equipped: Option<bool>,
     /// Distinguishes a malformed declaration from an absent hand component.
     pub hand_equipped_declared: bool,
+    /// Explicit offhand permission; absent or malformed values remain unresolved.
+    pub allow_off_hand: Option<bool>,
+    /// Distinguishes a malformed offhand declaration from an absent one.
+    pub allow_off_hand_declared: bool,
     pub max_durability: Option<u32>,
     /// Retains declaration presence when its maximum is absent or invalid.
     pub durability_declared: bool,
@@ -239,6 +243,15 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
             }
         },
         durability_declared: component("minecraft:durability").is_some(),
+        allow_off_hand_declared: property("allow_off_hand").is_some()
+            || component("minecraft:allow_off_hand").is_some(),
+        allow_off_hand: component("minecraft:allow_off_hand")
+            .or(property("allow_off_hand"))
+            .and_then(|value| match value.field("value").unwrap_or(value) {
+                Nbt::Byte(value) => Some(*value != 0),
+                Nbt::Int(value) => Some(*value != 0),
+                _ => None,
+            }),
         max_durability: count(
             component("minecraft:durability")
                 .and_then(|durability| durability.field("max_durability")),
@@ -634,5 +647,37 @@ mod tests {
             parse_components(&payload(Some(compound("minecraft:hand_equipped", &[])))).unwrap();
         assert_eq!(malformed.hand_equipped, None);
         assert!(malformed.hand_equipped_declared);
+    }
+
+    #[test]
+    fn offhand_permission_keeps_denied_missing_and_malformed_distinct() {
+        let payload = |entries: &[Vec<u8>]| compound("", &[compound("components", entries)]);
+        let absent = parse_components(&payload(&[])).unwrap();
+        assert!(!absent.allow_off_hand_declared);
+        assert_eq!(absent.allow_off_hand, None);
+        for (entry, expected) in [
+            (byte("minecraft:allow_off_hand", 1), Some(true)),
+            (
+                compound("minecraft:allow_off_hand", &[byte("value", 0)]),
+                Some(false),
+            ),
+            (
+                compound("item_properties", &[int("allow_off_hand", 1)]),
+                Some(true),
+            ),
+            (string("minecraft:allow_off_hand", "true"), None),
+            (float("minecraft:allow_off_hand", 1.0), None),
+            (compound("minecraft:allow_off_hand", &[]), None),
+        ] {
+            let components = parse_components(&payload(&[entry])).unwrap();
+            assert!(components.allow_off_hand_declared);
+            assert_eq!(components.allow_off_hand, expected);
+        }
+        let overridden = parse_components(&payload(&[
+            compound("item_properties", &[byte("allow_off_hand", 1)]),
+            compound("minecraft:allow_off_hand", &[byte("value", 0)]),
+        ]))
+        .unwrap();
+        assert_eq!(overridden.allow_off_hand, Some(false));
     }
 }

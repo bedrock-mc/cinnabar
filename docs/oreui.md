@@ -3,8 +3,8 @@
 Vanilla draws some screens with OreUI (a web UI bundle, `data/gui/dist/hbui`) instead of JSON-UI.
 Cinnabar uses the target's OreUI Settings layout, including its category sidebar and grouped
 controls. The other routes below retain their documented selection policy. OreUI is drawn in our
-own code with vanilla component geometry, states, spacing and type metrics. Installed runtime
-assets supply native images. Text uses shipped Cinnangles faces; Minecraft content is never
+own code with vanilla component geometry, states, spacing and type metrics, using shipped original
+artwork. Text uses shipped Cinnangles faces; Minecraft content is never
 bundled or committed.
 
 OreUI body text uses Cinnangles Seven and headings use Cinnangles Ten, both derived from the
@@ -119,20 +119,24 @@ their native artwork. Live animation review remains open.
 
 ## Runtime artwork
 
-- An available installed bundle supplies its atlases, standalone artwork and animations at
-  runtime. `CINNABAR_OREUI_LOCAL_ASSETS=<install root or its data/gui/dist/hbui>` selects a bundle
-  explicitly. Native button faces use the original state-specific nine-slice images. Switches,
-  sliders, segmented controls and radio diamonds use their native role fills and bevel geometry.
+- Shipped original artwork supplies every OreUI icon, control face, animation and illustration at
+  its native key and dimensions. `tools/oreui_icons` generates the PNG sources and
+  `assets/oreui-icons-source.json`; `make oreui-icons-assets` compiles the hash-checked carrier.
+  Button faces keep the native state-specific nine-slice insets. Switches, sliders, segmented
+  controls and radio diamonds use their native role fills and bevel geometry.
+- An installed bundle supplies only the profile banners and Create New World preview.
+  `CINNABAR_OREUI_LOCAL_ASSETS=<install root or its data/gui/dist/hbui>` instead loads all of its
+  artwork, for comparison captures only.
 - Cinnangles Seven supplies body text and Cinnangles Ten supplies headings. The compiled
   carriers retain each face's em and vertical metrics for semantic sizes, line heights and
   letter spacing. The default HUD and JSON-UI font remains independently selectable.
-- Without a native bundle, drawn artwork remains a diagnostic fallback.
-  The renderer uses that artwork only when a runtime bundle is unavailable. This fallback does not
-  satisfy the native artwork parity gate. One rem is five GUI pixels; one texel is 0.2rem.
+- Without the carrier, drawn artwork remains a diagnostic fallback. Neither look satisfies the
+  native artwork parity gate. One rem is five GUI pixels; one texel is 0.2rem.
 
-Code: `crates/client-ui/src/ui_runtime/presentation/forms/oreui/` (theme, paint, grid, icons,
-widgets, one file per screen) and `crates/client-ui/src/ui_runtime/oreui_assets.rs`
-(the runtime loader). The saved-accounts picker, which vanilla lacks, is an OreUI modal menu. Profile models, feed projections, and value formatting live in
+Code: the `oreui` crate, `crates/oreui/src/` (paint, grid, icons, widgets, one file per screen,
+`images.rs` for the runtime artwork loader and `fonts.rs` for the shipped faces). Its adapters in
+`crates/client-ui/src/ui_runtime/presentation/forms/oreui_runtime.rs` project runtime state into
+its typed inputs. The saved-accounts picker, which vanilla lacks, is an OreUI modal menu. Profile models, feed projections, and value formatting live in
 `crates/launcher/src/menu/`; app owns service polling and command dispatch.
 
 ## Screenshot checks still needed

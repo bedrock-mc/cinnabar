@@ -78,8 +78,8 @@ fn saved_volumes_reach_the_mixer() {
 
 #[test]
 fn shared_hotbar_press_swaps_each_bound_slot_in_order() {
-    use client_ui::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
     use semantic_input::Action;
+    use ui_screens::container_actions::InventoryCellHit;
     use {
         protocol::ContainerIdentity, protocol::InventoryContentEvent, protocol::InventoryEvent,
         protocol::NetworkItemStack,

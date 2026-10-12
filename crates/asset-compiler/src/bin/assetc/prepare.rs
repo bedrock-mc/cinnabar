@@ -371,6 +371,10 @@ pub(super) fn command(carrier: &Carrier, context: &Context) -> Result<Command, B
         },
         Recipe::Weather => Command::WeatherAssets { pack, out },
         Recipe::HudExtras => Command::HudExtrasAssets { pack, out },
+        Recipe::OreUiIcons => Command::OreuiIconsAssets {
+            source_manifest: manifest(),
+            out,
+        },
         Recipe::StarterSkins => Command::StarterSkinAssets { pack, out },
         Recipe::AudioPcm => Command::AudioPcmAssets {
             pack,

@@ -280,6 +280,13 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
         } => {
             compile_hud_assets_command(&pack, &source_manifest, &out, &report)?;
         }
+        Command::OreuiIconsAssets {
+            source_manifest,
+            out,
+        } => {
+            let count = pack_compiler::compile_oreui_icons_to_file(&source_manifest, &out)?;
+            println!("compiled {count} OreUI images to {}", out.display());
+        }
         Command::HudExtrasAssets { pack, out } => {
             pack_compiler::compile_hud_extras_to_file(&pack, &out)?;
             println!("compiled HUD extras to {}", out.display());

@@ -98,7 +98,7 @@ fn gamepad_sign_in_focus_selects_the_cancel_button_and_cancels() {
             1,
         )))
         .insert_resource(UiPresentationResource(
-            UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap(),
+            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap(),
         ))
         .add_systems(Update, drive_menu_input);
     app.world_mut().spawn((

@@ -305,7 +305,7 @@ pub fn capture_hud_frame(
                     .as_deref()
                     .and_then(|id| presentation.item_icon(id, stack.metadata))
             };
-            if super::forms::furnace_book::active(player_runtime) {
+            if ui_screens::furnace_book::active(player_runtime) {
                 window_icons.furnace_entries = super::forms::furnace_book::icons(
                     player_runtime,
                     runtime,
@@ -358,7 +358,7 @@ pub fn capture_hud_frame(
                 let outputs: Vec<_> = runtime
                     .stonecutter_options(player_runtime)
                     .iter()
-                    .take(super::screens::STONECUTTER_CELLS)
+                    .take(ui_screens::container_actions::STONECUTTER_CELLS)
                     .map(|recipe| recipe.output)
                     .collect();
                 for (cell, output) in outputs.into_iter().enumerate() {
@@ -420,6 +420,7 @@ pub fn capture_hud_frame(
                 name.as_deref(),
             );
             if presentation
+                .mod_ui()
                 .mod_hunger_overlay()
                 .is_some_and(|style| style.tooltips)
             {
@@ -660,7 +661,7 @@ pub fn hovered_stack(
     runtime: &UiRuntime,
 ) -> Option<(protocol::NetworkItemStack, Option<std::sync::Arc<str>>)> {
     runtime.screen_state().hover.and_then(|hit| {
-        use super::inventory_pointer::InventoryCellHit as Hit;
+        use ui_screens::container_actions::InventoryCellHit as Hit;
         let ledger = runtime.inventory_ledger(player_runtime);
         let (stack, name) = match hit {
             Hit::Player(slot) => (
@@ -690,7 +691,7 @@ pub fn hovered_stack(
                     crate::ui_runtime::inventory_actions::visible_creative_entries(ledger, runtime);
                 (entries.get(position).map(|item| &item.stack), None)
             }
-            Hit::Widget(super::screens::Widget::BookRecipe(index)) => {
+            Hit::Widget(ui_screens::container_actions::Widget::BookRecipe(index)) => {
                 let skip = runtime.screen_state().book_page * super::screens::BOOK_CELLS
                     + usize::from(index);
                 let output = runtime

@@ -15,7 +15,7 @@ use client_ui::ui_runtime::{UiRuntime, flush_form_response, presentation::UiPres
 use {
     crate::ui_runtime::{drive_chat_keyboard_input, drive_server_form_input},
     client_shell::menu::{MenuClipboard, MenuRuntime, drive_menu_input},
-    client_ui::test_support::fixture_font,
+    ui_engine::test_support::fixture_font,
 };
 
 #[test]

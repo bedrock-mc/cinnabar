@@ -262,11 +262,19 @@ fn remap_argument(argument: &str, head: &Path, base: &Path) -> Result<String, De
     Ok(argument.replace(&*head.to_string_lossy(), &base.to_string_lossy()))
 }
 
-/// Encodes only file-path bytes, preserving URL separators on Unix and Windows.
+/// Encodes only file-path bytes as Cargo's URL path, dropping Windows' verbatim prefix.
 fn url_path(path: &Path) -> String {
-    path.to_string_lossy()
-        .replace('\\', "/")
-        .bytes()
+    let text = path.to_string_lossy();
+    let text = text
+        .strip_prefix(r"\\?\")
+        .unwrap_or(&text)
+        .replace('\\', "/");
+    let text = if text.as_bytes().get(1) == Some(&b':') {
+        format!("/{text}")
+    } else {
+        text
+    };
+    text.bytes()
         .map(|byte| {
             if byte.is_ascii_alphanumeric() || b"/-_.~:".contains(&byte) {
                 char::from(byte).to_string()
@@ -527,6 +535,7 @@ fn output(command: &CommandSpec, root: &Path) -> Result<Output, DevtoolError> {
     Command::new(&command.program)
         .args(&command.args)
         .current_dir(root)
+        .env("CARGO_TERM_COLOR", "never")
         .envs(command.env.iter().map(|(key, value)| (key, value)))
         .output()
         .map_err(|source| DevtoolError::Spawn {
@@ -625,6 +634,10 @@ mod tests {
             )
             .unwrap(),
             "path+file:///D:/base/crate"
+        );
+        assert_eq!(
+            url_path(Path::new(r"\\?\C:\Temp\head space")),
+            "/C:/Temp/head%20space"
         );
         assert!(
             remap_argument(

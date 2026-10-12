@@ -94,7 +94,7 @@ fn prepare_artwork(world: &mut World, trial: usize) {
         .clone()
         .expect("benchmark session pack");
     let prepared = std::thread::spawn(move || {
-        let allocated = crate::tests::alloc_count::thread_allocations();
+        let allocated = test_alloc::thread_allocations();
         let started = Instant::now();
         let cpu_started = thread_cpu_time();
         let prepared = PreparedActorArtwork::new(&base, &pack);
@@ -102,7 +102,7 @@ fn prepare_artwork(world: &mut World, trial: usize) {
         let cpu = thread_cpu_time()
             .zip(cpu_started)
             .map(|(after, before)| (after - before).as_secs_f64() * 1e3);
-        let allocations = crate::tests::alloc_count::thread_allocations() - allocated;
+        let allocations = test_alloc::thread_allocations() - allocated;
         eprintln!(
             "LOBBY_JOIN_ARTWORK_PREP {}",
             serde_json::json!({
@@ -123,7 +123,7 @@ fn prepare_artwork(world: &mut World, trial: usize) {
 
 /// Measures only publication; hashes outside the timed region cover every geometry and artwork page.
 fn measure_setup(world: &mut World, trial: usize, phase: &str) {
-    let allocated = crate::tests::alloc_count::thread_allocations();
+    let allocated = test_alloc::thread_allocations();
     let started = Instant::now();
     let cpu_started = thread_cpu_time();
     prepare_offline_actor_frame(world);
@@ -132,7 +132,7 @@ fn measure_setup(world: &mut World, trial: usize, phase: &str) {
     let cpu = thread_cpu_time()
         .zip(cpu_started)
         .map(|(after, before)| (after - before).as_secs_f64() * 1e3);
-    let allocations = crate::tests::alloc_count::thread_allocations() - allocated;
+    let allocations = test_alloc::thread_allocations() - allocated;
     let snapshot = world
         .resource::<RuntimeStageProfiler>()
         .take_snapshot_if_due(Duration::ZERO)

@@ -45,10 +45,6 @@ impl CapeArtwork {
     }
 }
 
-pub(crate) fn cape_thumbnail_key(id: &str) -> String {
-    format!("cape-thumbnail:{id}")
-}
-
 pub(crate) fn cape_texture_key(cape: &CapeImage) -> String {
     format!(
         "cape-texture:{}x{}:{:p}",

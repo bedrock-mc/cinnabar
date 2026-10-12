@@ -271,7 +271,7 @@ mod tests {
     #[test]
     fn changed_preview_models_prepare_off_the_frame_thread_and_keep_the_previous_model() {
         let mut runtime =
-            super::super::UiPresentationRuntime::new(super::super::super::tests::fixture_font())
+            super::super::UiPresentationRuntime::new(ui_engine::test_support::fixture_font())
                 .unwrap();
         let before = BUILT_ON_THIS_THREAD.with(std::cell::Cell::get);
         let wide = skin(4.0);
@@ -334,7 +334,7 @@ mod tests {
     #[test]
     fn cape_changes_keep_the_body_model_and_unchanged_cape_keeps_the_render_cache() {
         let mut runtime =
-            super::super::UiPresentationRuntime::new(super::super::super::tests::fixture_font())
+            super::super::UiPresentationRuntime::new(ui_engine::test_support::fixture_font())
                 .expect("diagnostic presentation");
         let mut skin = skin(4.0);
         select(&mut runtime, &skin);

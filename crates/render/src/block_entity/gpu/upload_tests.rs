@@ -18,9 +18,9 @@ fn steady_uploads_portal_parameters_skip_unused_and_equal_frames() {
     system.run((), &mut world).unwrap();
     assert_eq!(world.resource::<BlockEntityGpu>().portal_uploads, 0);
     let buffer = world.resource::<BlockEntityGpu>().portal_uniform.id();
-    let allocated = crate::alloc_count::thread_allocations();
+    let allocated = test_alloc::thread_allocations();
     system.run((), &mut world).unwrap();
-    assert_eq!(crate::alloc_count::thread_allocations() - allocated, 0);
+    assert_eq!(test_alloc::thread_allocations() - allocated, 0);
 
     let portal: Arc<[BlockEntityVertex]> = Arc::from([BlockEntityVertex::default(); 3]);
     {
@@ -30,10 +30,10 @@ fn steady_uploads_portal_parameters_skip_unused_and_equal_frames() {
     }
     system.run((), &mut world).unwrap();
     assert_eq!(world.resource::<BlockEntityGpu>().portal_uploads, 1);
-    let allocated = crate::alloc_count::thread_allocations();
+    let allocated = test_alloc::thread_allocations();
     system.run((), &mut world).unwrap();
     assert_eq!(world.resource::<BlockEntityGpu>().portal_uploads, 1);
-    assert_eq!(crate::alloc_count::thread_allocations() - allocated, 0);
+    assert_eq!(test_alloc::thread_allocations() - allocated, 0);
     world
         .resource_mut::<render_scene::BlockEntityFrameResource>()
         .portal_time_seconds = 1.0;

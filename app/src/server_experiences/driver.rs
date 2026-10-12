@@ -88,12 +88,12 @@ fn drive(
         service.attempted = false;
         service.download = None;
         service.live = None;
-        let _ = presentation.set_experience_chrome(None, false);
+        let _ = presentation.mod_ui_mut().set_experience_chrome(None, false);
     }
     if world.fatal_error.is_some()
         || world.transfer_notice.is_some()
         || network.experience_failed()
-        || presentation.experience_chrome_failed()
+        || presentation.mod_ui().experience_chrome_failed()
     {
         extension.session.disable();
     }
@@ -141,12 +141,13 @@ fn drive(
         .tick(client_ui::experience_session::unix_seconds(), now_ms);
     let (text, wants_prompt) = chrome(&extension.session);
     if presentation
+        .mod_ui_mut()
         .set_experience_chrome(text.as_deref(), wants_prompt)
         .is_err()
     {
         extension.session.disable();
     }
-    let prompt = wants_prompt && presentation.experience_prompt_visible();
+    let prompt = wants_prompt && presentation.mod_ui().experience_prompt_visible();
     let wheel_events: Vec<_> = wheel.read().map(|event| (event.y, event.unit)).collect();
     let wheel_delta: f64 = wheel_events
         .iter()
@@ -165,20 +166,26 @@ fn drive(
         } else {
             0.0
         };
-        presentation.scroll_experience(pages + wheel_delta);
-        presentation.hover_experience(cursor);
+        presentation
+            .mod_ui_mut()
+            .scroll_experience(pages + wheel_delta);
+        presentation.mod_ui_mut().hover_experience(cursor);
     }
-    let approval_ready = presentation.experience_approval_ready();
+    let approval_ready = presentation.mod_ui().experience_approval_ready();
     let focused = driven.is_some()
         || (window.is_some_and(|window| window.focused)
             && focus.as_ref().is_none_or(|focus| focus.available()));
-    let modal_focus =
-        focused && !wants_prompt && service.live.is_some() && presentation.experience_modal_shown();
+    let modal_focus = focused
+        && !wants_prompt
+        && service.live.is_some()
+        && presentation.mod_ui().experience_modal_shown();
     if let Some(live) = service.live.as_mut() {
-        live.set_modal_size(presentation.experience_modal_size());
-        for (view, range) in presentation.experience_modal_scrolls() {
+        live.set_modal_size(presentation.mod_ui().experience_modal_size());
+        for (view, range) in presentation.mod_ui().experience_modal_scrolls() {
             if live.scroll_changed(&view, range) {
-                presentation.accept_experience_modal_scroll(&view, range);
+                presentation
+                    .mod_ui_mut()
+                    .accept_experience_modal_scroll(&view, range);
             }
         }
     }
@@ -190,8 +197,8 @@ fn drive(
                 bevy::input::mouse::MouseScrollUnit::Pixel => -f64::from(*y) / 16.0,
             })
             .sum();
-        presentation.hover_experience_modal(cursor);
-        presentation.scroll_experience_modal(notches);
+        presentation.mod_ui_mut().hover_experience_modal(cursor);
+        presentation.mod_ui_mut().scroll_experience_modal(notches);
         let (mut pressed, mut released) = (false, false);
         let (mut secondary_pressed, mut secondary_released) = (false, false);
         for input in buttons.read() {
@@ -226,13 +233,17 @@ fn drive(
             .collect();
         let escape = keys.just_pressed(KeyCode::Escape);
         let now = time.elapsed_secs_f64();
-        let press = presentation.press_experience_modal(cursor, pressed, released);
-        let secondary = presentation.secondary_press_experience_modal(
+        let press = presentation
+            .mod_ui_mut()
+            .press_experience_modal(cursor, pressed, released);
+        let secondary = presentation.mod_ui_mut().secondary_press_experience_modal(
             cursor,
             secondary_pressed,
             secondary_released,
         );
-        let edits = presentation.edit_experience_modal(cursor, pressed, &typed, escape, now);
+        let edits = presentation
+            .mod_ui_mut()
+            .edit_experience_modal(cursor, pressed, &typed, escape, now);
         let live = service.live.as_mut().expect("modal focus needs a runtime");
         for (control, text) in &edits.edits {
             live.text_changed(control, text);
@@ -264,7 +275,7 @@ fn drive(
             } else if keys.just_pressed(KeyCode::Escape) {
                 Some(Choice::Cancel)
             } else if mouse.just_pressed(MouseButton::Left) {
-                cursor.and_then(|point| presentation.experience_choice(point))
+                cursor.and_then(|point| presentation.mod_ui().experience_choice(point))
             } else {
                 None
             }
@@ -312,14 +323,19 @@ fn drive(
         bevy::log::warn!(%error, "server experience runtime disabled");
     }
     let (text, prompt) = chrome(&extension.session);
-    if let Err(error) = presentation.set_experience_chrome(text.as_deref(), prompt) {
+    if let Err(error) = presentation
+        .mod_ui_mut()
+        .set_experience_chrome(text.as_deref(), prompt)
+    {
         extension.session.disable();
         bevy::log::warn!(%error, "server experience trusted UI unavailable");
     }
     let labels = service.live.as_ref().map(super::live::Live::labels);
-    presentation.set_experience_labels(labels.as_deref().unwrap_or_default());
+    presentation
+        .mod_ui_mut()
+        .set_experience_labels(labels.as_deref().unwrap_or_default());
     presentation.set_experience_modal(service.live.as_ref().and_then(super::live::Live::modal));
-    if let Some(error) = presentation.experience_modal_failure() {
+    if let Some(error) = presentation.mod_ui().experience_modal_failure() {
         bevy::log::warn!(%error, "client part screen rejected; server code disabled");
         extension.session.disable();
     }

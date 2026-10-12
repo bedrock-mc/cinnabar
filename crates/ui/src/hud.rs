@@ -13,6 +13,14 @@ pub const TOAST_SLIDE_IN_MILLIS: u64 = 500;
 pub const TOAST_DISPLAY_MILLIS: u64 = 3_000;
 pub const TOAST_SLIDE_OUT_MILLIS: u64 = 400;
 
+/// Which world-entry operation the loading screen reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LoadingStage {
+    Connecting,
+    BuildingTerrain,
+    ChangingDimension,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BoundedStat {
     current: u16,

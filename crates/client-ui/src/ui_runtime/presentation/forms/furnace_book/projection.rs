@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-use protocol::ScreenRecipe;
-
 use super::{UiRuntime, category};
 use ui::IconRef;
+use ui_screens::furnace_book::{Entries, output_stack};
 
 #[derive(Debug, Default)]
 pub(crate) struct ProjectionCache {
@@ -97,29 +96,6 @@ pub fn projection(player: &player_state::PlayerState, runtime: &UiRuntime) -> Ar
     Arc::clone(&cache.positions)
 }
 
-/// A shared projection borrowed against its unchanged recipe catalog.
-pub struct Entries<'a> {
-    catalog: &'a [ScreenRecipe],
-    positions: Arc<[usize]>,
-}
-
-impl<'a> Entries<'a> {
-    pub fn len(&self) -> usize {
-        self.positions.len()
-    }
-    pub fn is_empty(&self) -> bool {
-        self.positions.is_empty()
-    }
-    pub fn get(&self, index: usize) -> Option<&'a ScreenRecipe> {
-        self.catalog.get(*self.positions.get(index)?)
-    }
-    pub fn iter(&self) -> impl Iterator<Item = &'a ScreenRecipe> + '_ {
-        self.positions
-            .iter()
-            .filter_map(|index| self.catalog.get(*index))
-    }
-}
-
 pub fn icons(
     player: &player_state::PlayerState,
     runtime: &UiRuntime,
@@ -129,15 +105,15 @@ pub fn icons(
     let entries = entries(player, runtime);
     let mut cache = runtime.furnace_projection.lock().unwrap();
     if !cache.icons.as_ref().is_some_and(|cached| {
-        Arc::ptr_eq(&cached.positions, &entries.positions)
+        Arc::ptr_eq(&cached.positions, entries.positions())
             && cached.generation == installed_generation
     }) {
         cache.icons = Some(Icons {
-            positions: Arc::clone(&entries.positions),
+            positions: Arc::clone(entries.positions()),
             generation: installed_generation,
             values: entries
                 .iter()
-                .map(|recipe| icon(&super::output_stack(recipe)))
+                .map(|recipe| icon(&output_stack(recipe)))
                 .collect(),
         });
     }
@@ -145,11 +121,11 @@ pub fn icons(
 }
 
 pub fn entries<'a>(player: &'a player_state::PlayerState, runtime: &UiRuntime) -> Entries<'a> {
-    Entries {
-        catalog: player
+    Entries::new(
+        player
             .inventory
             .screen_catalog()
             .map_or(&[], |catalog| catalog.screen_recipe_entries()),
-        positions: projection(player, runtime),
-    }
+        projection(player, runtime),
+    )
 }

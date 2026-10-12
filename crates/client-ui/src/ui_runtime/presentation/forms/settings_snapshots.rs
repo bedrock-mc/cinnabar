@@ -76,7 +76,7 @@ fn section_with(variable: &str, name: &str, adjust: impl FnOnce(&mut launcher::m
     view.language_choices =
         launcher::menu::settings_options::SettingsOptions::language_choices(&local);
     view.screen = MenuScreen::Settings;
-    view.settings_section = super::menu_screens::SETTINGS_SECTIONS
+    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == variable).then_some(*index))
         .expect("known settings section");
@@ -132,7 +132,7 @@ fn open_graphics_mode_rows_select_their_own_choice() {
         .unwrap() as u16;
     let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
     view.screen = MenuScreen::Settings;
-    view.settings_section = super::menu_screens::SETTINGS_SECTIONS
+    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, at)| (*name == "video_forced_index").then_some(*at))
         .unwrap();
@@ -170,7 +170,7 @@ fn settings_video_graphics_options_pack_before() {
 
     let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
     view.screen = MenuScreen::Settings;
-    view.settings_section = super::menu_screens::SETTINGS_SECTIONS
+    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
         .unwrap();
@@ -215,7 +215,7 @@ fn graphics_options_expander_uses_full_settings_button_height() {
     super::graphics_expander::install(&mut catalog);
     let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
     view.screen = MenuScreen::Settings;
-    view.settings_section = super::menu_screens::SETTINGS_SECTIONS
+    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
         .unwrap();
@@ -265,7 +265,7 @@ fn video_toggles_admit_pointer_and_keyboard_focus() {
     };
     let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
     view.screen = MenuScreen::Settings;
-    view.settings_section = super::menu_screens::SETTINGS_SECTIONS
+    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
         .unwrap();
@@ -317,7 +317,7 @@ fn animations_selector_and_choices_admit_pointer_and_navigation_focus() {
         .expect("animations selector") as u16;
     let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
     view.screen = MenuScreen::Settings;
-    view.settings_section = super::menu_screens::SETTINGS_SECTIONS
+    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
         .unwrap();
@@ -431,7 +431,7 @@ fn native_skybox_offset_video_toggle_is_reachable_in_both_states() {
         .position(|o| o.name == NATIVE_SKYBOX_OFFSET_OPTION.name)
         .unwrap() as u16;
     let mut view = crate::test_support::settings_view();
-    view.settings_section = super::menu_screens::SETTINGS_SECTIONS
+    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
         .unwrap();

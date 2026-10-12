@@ -440,11 +440,21 @@ pub fn encode_equipment_catalog_with_attack_timings(
         entity_blob_sha256,
         bindings,
         textures,
-        item_use,
-        item_attack,
-        &[],
-        &[],
+        EquipmentItemFacts {
+            item_use,
+            item_attack,
+            ..Default::default()
+        },
     )
+}
+
+/// Per-item facts carried beside the equipment bindings; empty slices mean none were authored.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct EquipmentItemFacts<'a> {
+    pub item_use: &'a [ItemUseDuration],
+    pub item_attack: &'a [CompiledItemAttackTiming],
+    pub item_use_overlays: &'a [CompiledItemUseOverlay],
+    pub item_food: &'a [CompiledItemFood],
 }
 
 /// Encodes complete authored use facts alongside nutrition, duration and attack timing.
@@ -453,11 +463,14 @@ pub fn encode_equipment_catalog_with_use_profiles(
     entity_blob_sha256: [u8; 32],
     bindings: &[EquipmentBinding],
     textures: &[EquipmentTexture],
-    item_use: &[ItemUseDuration],
-    item_attack: &[CompiledItemAttackTiming],
-    item_use_overlays: &[CompiledItemUseOverlay],
-    item_food: &[CompiledItemFood],
+    items: EquipmentItemFacts<'_>,
 ) -> Result<Vec<u8>, AssetError> {
+    let EquipmentItemFacts {
+        item_use,
+        item_attack,
+        item_use_overlays,
+        item_food,
+    } = items;
     validate(&source_manifest_sha256, &entity_blob_sha256, bindings)?;
     validate_textures(textures)?;
     validate_item_use(item_use)?;

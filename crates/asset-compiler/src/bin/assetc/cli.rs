@@ -111,6 +111,13 @@ pub(super) enum Command {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Compile the shipped original OreUI artwork named by its source manifest.
+    OreuiIconsAssets {
+        #[arg(long)]
+        source_manifest: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Compile the optional hardcore-heart sprite carrier.
     HudExtrasAssets {
         #[arg(long)]

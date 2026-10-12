@@ -1,31 +1,11 @@
 //! Geometry of the book reader and editor panel.
 
+use ui_screens::container_actions::ReaderButton;
+
 pub const READER_PANEL: [f32; 2] = [192.0, 192.0];
 /// Page text box: origin and width in GUI pixels.
 pub const PAGE_TEXT_ORIGIN: [f32; 2] = [36.0, 18.0];
 pub const PAGE_TEXT_WIDTH: f32 = 114.0;
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum ReaderButton {
-    Prev,
-    Next,
-    Done,
-    Sign,
-    Finalize,
-    Cancel,
-    /// The two-page spread's arrows.
-    PrevSpread,
-    NextSpread,
-    /// Edits of the spread's left (`0`) or right (`1`) page; `EditPage`
-    /// shows or hides that page's edit controls.
-    EditPage(u8),
-    InsertPage(u8),
-    DeletePage(u8),
-    SwapLeft(u8),
-    SwapRight(u8),
-    /// Typing goes to the spread's left (`0`) or right (`1`) page.
-    FocusPage(u8),
-}
 
 /// The buttons the current mode shows, panel-relative `(button, position, size)`.
 pub fn reader_buttons(editable: bool, signing: bool) -> Vec<(ReaderButton, [f32; 2], [f32; 2])> {

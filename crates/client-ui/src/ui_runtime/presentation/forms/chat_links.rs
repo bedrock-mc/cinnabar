@@ -251,7 +251,7 @@ mod tests {
     }
     #[test]
     fn multiple_links_hit_their_own_glyphs_and_wrapped_links_keep_one_target() {
-        let font = super::super::super::tests::fixture_font();
+        let font = ui_engine::test_support::fixture_font();
         let metrics =
             TextMetrics::for_viewport([800, 600], ui::DpiScale::new(1.0).unwrap(), Some(1));
         let scale = metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
@@ -328,7 +328,7 @@ mod tests {
         use ui_engine::engine::{FormEngine, ScreenArt, screen::PaintFrame};
 
         for named in [false, true] {
-            let base = crate::test_support::fixture_font();
+            let base = ui_engine::test_support::fixture_font();
             let font = if named {
                 Arc::new(base.with_named_font("alternative", &base).unwrap())
             } else {
@@ -349,6 +349,7 @@ mod tests {
                     0,
                     super::super::screen_registry::registry(),
                     crate::ui_runtime::presentation::forms::texture_sources::downloads(),
+                    crate::ui_runtime::presentation::forms::texture_sources::image_work(),
                 );
                 let mut node = history_node("https://example.com", 600.0);
                 if let Draw::Text { options, .. } = &mut node.draw {
@@ -440,7 +441,7 @@ mod tests {
 
     #[test]
     fn clipped_and_non_history_text_never_produce_background_link_hits() {
-        let font = super::super::super::tests::fixture_font();
+        let font = ui_engine::test_support::fixture_font();
         let metrics =
             TextMetrics::for_viewport([800, 600], ui::DpiScale::new(1.0).unwrap(), Some(1));
         let scale = metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
@@ -510,7 +511,7 @@ mod tests {
     }
     #[test]
     fn extension_annotation_hits_only_the_selected_glyph_span() {
-        let font = super::super::super::tests::fixture_font();
+        let font = ui_engine::test_support::fixture_font();
         let metrics =
             TextMetrics::for_viewport([800, 600], ui::DpiScale::new(1.0).unwrap(), Some(1));
         let scale = metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;

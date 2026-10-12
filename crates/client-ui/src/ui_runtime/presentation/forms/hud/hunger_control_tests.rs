@@ -1,12 +1,21 @@
-use super::super::hud_renderers::HudRenderer;
 use super::super::screen_registry::registry;
-use crate::test_support::{fixture_font, mini_carrier};
+use crate::test_support::mini_carrier;
 use crate::ui_runtime::SequencedLocalAttributes;
-use json_ui::Context;
+use json_ui::{Context, DataSource};
 use ui::{DpiScale, SafeArea, TextLayoutCache};
 use ui_engine::atlas::ServerAtlas;
-use ui_engine::engine::{FormEngine, screen::PaintFrame};
+use ui_engine::cached_screen::CachedScreen;
+use ui_engine::engine::{FormEngine, ScreenArt, screen::PaintFrame};
+use ui_engine::test_support::fixture_font;
+use ui_screens::hud_renderers::{HUNGER_RENDERER, HudRenderer, HungerAnimation};
 use {super::*, ui::FONT_DESIGN_PIXEL_TEXELS};
+
+/// The HUD screen and the hunger motion its native renderer advances, kept across draws.
+#[derive(Default)]
+struct HudScreens {
+    hud: CachedScreen,
+    hunger_animation: HungerAnimation,
+}
 
 /// A server pack placing independently visible hunger controls on separate rows.
 fn engine() -> FormEngine {
@@ -15,17 +24,17 @@ fn engine() -> FormEngine {
         "namespace":"hud",
         "food_template":{"type":"custom", "size":[1,1], "offset":[160,30],
             "anchor_from":"top_left", "anchor_to":"top_left",
-            "renderer":super::super::hud_renderers::HUNGER_RENDERER},
+            "renderer":HUNGER_RENDERER},
         "root":{"type":"panel", "controls":[
             {"factory":{"type":"factory", "factory":{"name":"food_factory",
                 "control_ids":{"food":"hud.food_template"}}}},
             {"first":{"type":"custom", "size":[1,1], "offset":[160,30],
                 "anchor_from":"top_left", "anchor_to":"top_left",
-                "renderer":super::super::hud_renderers::HUNGER_RENDERER,
+                "renderer":HUNGER_RENDERER,
                 "bindings":[{"binding_name":"#first_visible", "binding_name_override":"#visible"}]}},
             {"second":{"type":"custom", "size":[1,1], "offset":[160,60],
                 "anchor_from":"top_left", "anchor_to":"top_left",
-                "renderer":super::super::hud_renderers::HUNGER_RENDERER,
+                "renderer":HUNGER_RENDERER,
                 "bindings":[{"binding_name":"#second_visible", "binding_name_override":"#visible"}]}}
         ]}
     }).to_string());
@@ -35,6 +44,7 @@ fn engine() -> FormEngine {
         2,
         registry(),
         crate::ui_runtime::presentation::forms::texture_sources::downloads(),
+        crate::ui_runtime::presentation::forms::texture_sources::image_work(),
     );
     let mut png = Vec::new();
     image::RgbaImage::from_pixel(9, 9, image::Rgba([255, 0, 0, 255]))

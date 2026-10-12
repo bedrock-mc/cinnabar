@@ -5,8 +5,9 @@ use bevy::{
 use client_shell::ui_resources::UiPresentationResource;
 use ui::{DpiScale, UiPoint};
 
-use client_ui::test_support::{engine_presentation, fixture_font, fixture_hud};
+use client_ui::test_support::{engine_presentation, fixture_hud};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use ui_engine::test_support::fixture_font;
 use {
     client_shell::{menu::MenuRuntime, settings_runtime::gui_scale::apply_gui_scale_setting},
     launcher::menu::{MenuAction, MenuScreen},

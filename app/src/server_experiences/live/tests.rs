@@ -921,8 +921,8 @@ fn an_unchanged_media_scene_is_presented_without_rebuilding() {
     };
     live.media_mut().set_frame("bundle0", INTRO, Some(frame));
     assert_eq!(live.changed_screens().map(<[_]>::len), Some(1));
-    let before = crate::tests::alloc_count::thread_allocations();
+    let before = test_alloc::thread_allocations();
     let unchanged = live.changed_screens().is_none();
-    assert_eq!(crate::tests::alloc_count::thread_allocations() - before, 0);
+    assert_eq!(test_alloc::thread_allocations() - before, 0);
     assert!(unchanged);
 }

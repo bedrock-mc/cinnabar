@@ -327,12 +327,12 @@ mod tests {
         let mut slots = SkinSlots::default();
         slots.assign(&skins);
         slots.residency();
-        let before = crate::alloc_count::thread_allocations();
+        let before = test_alloc::thread_allocations();
         for _ in 0..8 {
             std::hint::black_box(slots.assign(&skins));
             std::hint::black_box(slots.residency());
         }
-        assert_eq!(crate::alloc_count::thread_allocations() - before, 0);
+        assert_eq!(test_alloc::thread_allocations() - before, 0);
     }
 
     #[test]
@@ -491,12 +491,12 @@ mod tests {
             let resident = slots.residency().resident(slot).unwrap();
             assert_eq!(unpack_skin_slot(slot).0, class);
             assert!(Arc::ptr_eq(&resident.texels, skin.pixels()));
-            let allocations = crate::alloc_count::thread_allocations();
+            let allocations = test_alloc::thread_allocations();
             for _ in 0..3 {
                 slots.assign(std::slice::from_ref(&skin));
                 slots.residency();
             }
-            assert_eq!(crate::alloc_count::thread_allocations(), allocations);
+            assert_eq!(test_alloc::thread_allocations(), allocations);
         }
     }
 }

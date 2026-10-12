@@ -3,23 +3,24 @@
 //! sidecar shadows the carrier's independently. Each image is read, decoded and
 //! shelf-packs into the reserved 256x256 dynamic pages only when a rendered
 //! screen draws it; one larger than a page packs downscaled. A frame decodes
-//! inline only within a small budget and hands the rest to workers; decoded
-//! pixels are kept (bounded) so an evicted texture repacks without decoding
-//! again. Undecodable images are skipped and remembered.
+//! inline only within a small budget on the host's clock and hands the rest to
+//! workers, or to a later frame when the host has none; decoded pixels are kept
+//! (bounded) so an evicted texture repacks without decoding again. Undecodable
+//! images are skipped and remembered.
 
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet, VecDeque},
     io::Cursor,
     sync::Arc,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use image::{ImageReader, Limits};
 use json_ui::{TextureMeta, parse_texture_meta};
 use render_model::UiTexturePage;
 
-use crate::sources::{LocalPack, RemoteImage, RemoteSource, is_remote};
+use crate::sources::{ImageWork, LocalPack, RemoteImage, RemoteSource, is_remote};
 
 mod frame_sidecars;
 mod local_sources;
@@ -81,11 +82,17 @@ impl PackTextures {
     /// Resolves small sources inline and queues large archive entries using only indexed sizes.
     #[cfg(test)]
     fn image(&self, key: &str) -> Option<Source> {
-        self.image_capped(key, || self.read_limit())
+        self.image_capped(key, true, || self.read_limit())
     }
 
-    /// Shares the large-source allowance with installed image fallbacks.
-    fn image_capped(&self, key: &str, limit: impl FnOnce() -> u64) -> Option<Source> {
+    /// Shares the large-source allowance with installed image fallbacks; without `workers` a
+    /// large entry reads on this thread.
+    fn image_capped(
+        &self,
+        key: &str,
+        workers: bool,
+        limit: impl FnOnce() -> u64,
+    ) -> Option<Source> {
         if let Some(found) = self.loaded.borrow().get(key) {
             return found.clone();
         }
@@ -96,8 +103,15 @@ impl PackTextures {
             .filter_map(|layer| layer.file_size(path))
             .max()?;
         if size > MAX_PACK_TEXTURE_BYTES {
-            self.reads.request(key, path, &self.view, limit());
-            return None;
+            if workers {
+                self.reads.request(key, path, &self.view, limit());
+                return None;
+            }
+            let found = read_source(&self.view, key, path, limit());
+            self.loaded
+                .borrow_mut()
+                .insert(key.to_owned(), found.clone());
+            return found;
         }
         self.read_image(key)
     }
@@ -281,9 +295,10 @@ pub struct ServerAtlas {
     decodes: Decodes,
     native_enabled: bool,
     native: native_sheets::NativeSheets,
+    work: ImageWork,
 }
 
-/// Decode time a frame spends inline before spilling misses to workers.
+/// Decode time a frame spends inline before spilling misses to workers or a later frame.
 const INLINE_DECODE_BUDGET: Duration = Duration::from_millis(2);
 /// Decoded pixels kept for repacking evicted textures.
 const MAX_DECODED_BYTES: usize = 32 * 1024 * 1024;
@@ -317,6 +332,28 @@ impl Default for Decodes {
     }
 }
 
+/// Where a missing texture's decode runs this frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DecodeOn {
+    Inline,
+    Worker,
+    /// Past the inline budget with no workers: a later frame decodes it.
+    Later,
+}
+
+impl DecodeOn {
+    /// Small encodings decode inline within the budget; workers take the rest, and without
+    /// workers everything decodes inline once the budget allows.
+    fn choose(workers: bool, within_budget: bool, encoded_bytes: usize) -> Self {
+        match (workers, within_budget) {
+            (true, true) if encoded_bytes as u64 <= MAX_PACK_TEXTURE_BYTES => Self::Inline,
+            (true, _) => Self::Worker,
+            (false, true) => Self::Inline,
+            (false, false) => Self::Later,
+        }
+    }
+}
+
 impl Decodes {
     /// Files finished worker decodes.
     fn collect(&mut self) {
@@ -346,18 +383,22 @@ impl Decodes {
         }
     }
 
-    /// `key`'s pixels at `size`: cached, decoded inline while `inline`, else
-    /// queued on a worker (`None` until a later frame).
-    fn get(&mut self, key: &str, source: &Source, inline: bool) -> Option<Arc<Vec<u8>>> {
+    /// `key`'s pixels at `size`: cached, decoded inline, queued on a worker,
+    /// or left for a later frame (`None` until then).
+    fn get(&mut self, key: &str, source: &Source, decode_on: DecodeOn) -> Option<Arc<Vec<u8>>> {
         if let Some(pixels) = self.pixels.get(key) {
             return Some(Arc::clone(pixels));
         }
         if self.failed.iter().any(|failed| failed == key) || self.pending.contains(key) {
             return None;
         }
-        if inline {
-            self.store(key.to_owned(), decode(&source.bytes, source.packed));
-            return self.pixels.get(key).cloned();
+        match decode_on {
+            DecodeOn::Inline => {
+                self.store(key.to_owned(), decode(&source.bytes, source.packed));
+                return self.pixels.get(key).cloned();
+            }
+            DecodeOn::Later => return None,
+            DecodeOn::Worker => {}
         }
         self.pending.insert(key.to_owned());
         let (key, bytes, size, done) = (
@@ -426,6 +467,12 @@ impl ServerAtlas {
 
     pub fn with_carrier(mut self, carrier: Option<Arc<assets::RuntimeUiAssets>>) -> Self {
         self.carrier = carrier;
+        self
+    }
+
+    /// Runs image work on the host's clock and threads.
+    pub fn with_image_work(mut self, work: ImageWork) -> Self {
+        self.work = work;
         self
     }
 
@@ -517,7 +564,7 @@ impl ServerAtlas {
             None => self
                 .pack
                 .as_ref()?
-                .image_capped(key, || self.source_read_limit()),
+                .image_capped(key, self.work.workers, || self.source_read_limit()),
         }
     }
 
@@ -647,7 +694,7 @@ impl ServerAtlas {
                 let Some(source) = self.native_source(key) else {
                     continue;
                 };
-                self.native.request(key, &source);
+                self.native.request(key, &source, self.work.workers);
                 // One-sprite consumers share original pages when possible and retain their
                 // bounded fitted artwork fallback for images spanning multiple tiles.
                 if native_sheets::fits_single_tile(source.size) || !preview_allowed(source.size) {
@@ -669,11 +716,11 @@ impl ServerAtlas {
                 });
             (area, *key)
         });
-        let inline_until = Instant::now() + INLINE_DECODE_BUDGET;
+        let deadline = self.work.deadline(INLINE_DECODE_BUDGET);
         let mut changed = Vec::new();
         for key in missing {
             if !self.resident.contains_key(key)
-                && let Some(page) = self.place(key, Instant::now() < inline_until)
+                && let Some(page) = self.place(key, self.work.before(deadline))
             {
                 changed.push(page);
             }
@@ -699,8 +746,8 @@ impl ServerAtlas {
     }
 
     /// Pack `key`'s decoded pixels, returning the page it landed on; `None`
-    /// while its decode is still on a worker.
-    fn place(&mut self, key: &str, inline: bool) -> Option<usize> {
+    /// while its decode is still on a worker or waits for a later frame.
+    fn place(&mut self, key: &str, within_budget: bool) -> Option<usize> {
         let source = match self.image(key) {
             Some(source) => source,
             None => self.fallback(key)?,
@@ -710,8 +757,8 @@ impl ServerAtlas {
                 .insert(key.to_owned(), std::sync::Arc::clone(&source.bytes));
         }
         let size = source.packed;
-        let inline = inline && source.bytes.len() as u64 <= MAX_PACK_TEXTURE_BYTES;
-        let rgba = self.decodes.get(key, &source, inline)?;
+        let decode_on = DecodeOn::choose(self.work.workers, within_budget, source.bytes.len());
+        let rgba = self.decodes.get(key, &source, decode_on)?;
         let (index, origin) = self.slot(size)?;
         let page = &mut self.pages[index];
         let row_bytes = PAGE_SIDE as usize * 4;

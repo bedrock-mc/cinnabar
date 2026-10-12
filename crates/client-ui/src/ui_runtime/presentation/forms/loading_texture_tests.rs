@@ -4,9 +4,10 @@ use std::io::Cursor;
 
 use ui::DpiScale;
 
-use super::super::{LoadingStage, UiPresentationRuntime};
+use super::super::UiPresentationRuntime;
 use super::{pack_harness, snapshot};
 use crate::ui_runtime::UiRuntime;
+use ui::LoadingStage;
 
 mod carrier;
 

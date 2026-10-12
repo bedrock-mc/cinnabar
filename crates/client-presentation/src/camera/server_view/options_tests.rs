@@ -420,11 +420,11 @@ fn inactive_targets_advance_and_remove_target_only_affects_the_selected_camera()
         })),
         &context,
     );
-    let before = crate::test_allocations::count();
+    let before = test_alloc::thread_allocations();
     for _ in 0..1000 {
         view.advance_target(0.001, &context);
     }
-    assert_eq!(crate::test_allocations::count() - before, 0);
+    assert_eq!(test_alloc::thread_allocations() - before, 0);
     let mut select = selection();
     let CameraEvent::Instruction(instruction) = &mut select else {
         unreachable!()

@@ -30,7 +30,7 @@ fn presentation() -> UiPresentationRuntime {
     }));
     let bytes = assets::encode_icon_catalog([1; 32], &sprites, &entries).unwrap();
     UiPresentationRuntime::with_hud_and_icons(
-        client_ui::test_support::fixture_font(),
+        ui_engine::test_support::fixture_font(),
         client_ui::test_support::fixture_hud(),
         Arc::new(assets::RuntimeIconCatalog::decode(&bytes).unwrap()),
     )

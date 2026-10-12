@@ -229,7 +229,7 @@ fn chat_position_dropdown_rows_select_their_own_choice() {
     let player = PlayerState::new(1);
     let mut view = MenuView::new(true, "Steve".into());
     view.screen = MenuScreen::Settings;
-    view.settings_section = super::super::menu_screens::SETTINGS_SECTIONS
+    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
         .iter()
         .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
         .unwrap();

@@ -67,7 +67,7 @@ pub(in crate::ui_runtime::presentation) fn anchor(name: &str) -> NametagAnchor {
 }
 
 fn scene(anchors: &[NametagAnchor]) -> NametagScene {
-    let font = super::super::tests::fixture_font();
+    let font = ui_engine::test_support::fixture_font();
     build_nametag_scene(
         anchors,
         &font,

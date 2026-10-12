@@ -29,7 +29,7 @@ fn compose() -> ScreenRegistry {
     catalog.layer_builtin(super::skybox_setting::install);
     catalog.layer_builtin(super::discord_presence_setting::install);
     catalog.layer_builtin(super::crosshair_settings::install);
-    super::hud::register(&mut registry);
+    ui_screens::hud::register(&mut registry);
     let catalog = registry.catalog_mut();
     catalog.layer_builtin(super::menu_renderers::install_brand_overlays);
     catalog.layer_builtin(super::loading_screen::install_brand_layout);
@@ -38,6 +38,6 @@ fn compose() -> ScreenRegistry {
     catalog.layer_builtin(super::chat_position::install);
     super::chat_screen::register(&mut registry);
     super::death_screen::register(&mut registry);
-    super::oreui::OreUiScreen::register(&mut registry);
+    oreui::OreUiScreen::register(&mut registry);
     registry
 }

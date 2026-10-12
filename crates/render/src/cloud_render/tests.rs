@@ -106,10 +106,10 @@ fn steady_uploads_cloud_colour_ignores_clock_only_changes() {
     system.run((), &mut world).unwrap();
     assert_eq!(world.resource::<CloudGpu>().colour_uploads, 1);
     world.insert_resource(frame.with_cloud_renderer_ticks(123.0));
-    let allocated = crate::alloc_count::thread_allocations();
+    let allocated = test_alloc::thread_allocations();
     system.run((), &mut world).unwrap();
     assert_eq!(world.resource::<CloudGpu>().colour_uploads, 1);
-    assert_eq!(crate::alloc_count::thread_allocations() - allocated, 0);
+    assert_eq!(test_alloc::thread_allocations() - allocated, 0);
 
     world.insert_resource(AtmosphereFrame::from_bedrock_time(6_000.0, 1.0, 1.0));
     system.run((), &mut world).unwrap();

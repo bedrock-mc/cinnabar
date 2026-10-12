@@ -10,6 +10,7 @@ use assets::{
 use world::MeshNeighbourhood;
 
 use super::opaque::face_offset;
+mod bubble_column;
 mod fire;
 use crate::{
     BlockClassifier, Face, SIDE,
@@ -35,6 +36,15 @@ pub(crate) fn select_model_templates<'a>(
     entry: ResolvedPaletteEntry,
 ) -> ([u32; MAX_SELECTED_MODEL_TEMPLATES], u8) {
     let flags = model_template_flags(context.visuals, entry);
+    if flags & assets::MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN != 0 {
+        return (
+            [
+                bubble_column::select_template(context, coordinate, entry),
+                NO_MODEL_TEMPLATE,
+            ],
+            1,
+        );
+    }
     if flags & assets::MODEL_TEMPLATE_FLAG_FIRE != 0 {
         return (
             [

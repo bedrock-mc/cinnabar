@@ -281,7 +281,7 @@ fn worker() -> Option<&'static Sender<Job>> {
         .as_ref()
 }
 
-/// Decodes on the worker, releasing its temporary image after copying original texels into tiles.
+/// Decodes on the worker or inline, releasing the temporary image once texels are tiled.
 fn decode(bytes: &[u8], plan: &Plan, cancelled: &AtomicBool) -> Option<Sheet> {
     (bytes.len() as u64 <= resource_pack::MAX_FILE_BYTES).then_some(())?;
     let mut reader = super::reader(bytes)?;
@@ -360,14 +360,7 @@ impl NativeSheets {
         while let Ok((key, sheet)) = self.receiver.try_recv() {
             completed = true;
             self.pending = None;
-            if let Some(sheet) = sheet {
-                self.pages
-                    .extend(sheet.tiles.iter().map(|tile| tile.page.clone()));
-                self.loaded.push((key, sheet));
-                self.dirty = true;
-            } else {
-                self.fail(key);
-            }
+            self.publish(key, sheet);
         }
         if let Some(job) = self.retry.take() {
             if let Some(worker) = worker() {
@@ -380,8 +373,9 @@ impl NativeSheets {
         completed
     }
 
-    /// Requests one original image while keeping decoded bytes and page count within the pack budget.
-    pub(super) fn request(&mut self, key: &str, source: &Source) {
+    /// Requests one original image while keeping decoded bytes and page count within the pack
+    /// budget; without `workers` it decodes on this thread.
+    pub(super) fn request(&mut self, key: &str, source: &Source, workers: bool) {
         if self.loaded.iter().any(|(name, _)| name == key)
             || self.failed.contains(key)
             || self.pending.is_some()
@@ -400,6 +394,11 @@ impl NativeSheets {
             self.fail(key.to_owned());
             return;
         }
+        if !workers {
+            let sheet = decode(&source.bytes, &plan, &self.cancelled);
+            self.publish(key.to_owned(), sheet);
+            return;
+        }
         let Some(worker) = worker() else {
             self.fail(key.to_owned());
             return;
@@ -412,6 +411,18 @@ impl NativeSheets {
             done: self.sender.clone(),
         };
         self.submit(worker, job);
+    }
+
+    /// Appends a decoded sheet's pages after those already published, or records its failure.
+    fn publish(&mut self, key: String, sheet: Option<Sheet>) {
+        if let Some(sheet) = sheet {
+            self.pages
+                .extend(sheet.tiles.iter().map(|tile| tile.page.clone()));
+            self.loaded.push((key, sheet));
+            self.dirty = true;
+        } else {
+            self.fail(key);
+        }
     }
 
     /// Retains one bounded request when another pack occupies the shared decode queue.

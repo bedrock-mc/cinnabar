@@ -2,10 +2,9 @@
 //! of recipes the inventory can supply.
 
 use super::{HudFrame, HudLayout, UiPresentationError, UiRuntime};
-use crate::ui_runtime::presentation::inventory_pointer::{InventoryCellHit, InventoryScreen};
-use crate::ui_runtime::presentation::screens::{
-    self, BOOK_CELL_SIZE, BOOK_CELLS, BOOK_PANEL, Widget,
-};
+use crate::ui_runtime::presentation::inventory_pointer::InventoryScreen;
+use crate::ui_runtime::presentation::screens::{self, BOOK_CELL_SIZE, BOOK_CELLS, BOOK_PANEL};
+use ui_screens::container_actions::{InventoryCellHit, Widget};
 
 impl HudLayout<'_> {
     /// Draws the book toggle and, while open, the recipe panel.

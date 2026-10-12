@@ -103,9 +103,9 @@ fn retained_publication_plans_no_vertex_or_index_uploads() {
         .unwrap()
         .clone();
     let mut gpu = world.resource_mut::<UiGpu>();
-    let before = crate::alloc_count::thread_allocations();
+    let before = test_alloc::thread_allocations();
     let plan = gpu.uploads.plan(&input, false, false);
-    let allocations = crate::alloc_count::thread_allocations() - before;
+    let allocations = test_alloc::thread_allocations() - before;
     assert!(plan.vertices.is_empty());
     assert!(plan.indices.is_empty());
     assert_eq!(allocations, 0);

@@ -44,7 +44,7 @@ impl ServerUiPack {
                 .catalog()
                 .layer(base, &self.ui_layers),
         );
-        let textures = super::hud::prepared::prepare(&catalog);
+        let textures = super::hud::prepare(&catalog);
         if let Some(view) = &self.view {
             ui_engine::prepared::keep_textures(&catalog, PrereadTextures::read(view, &textures));
         }

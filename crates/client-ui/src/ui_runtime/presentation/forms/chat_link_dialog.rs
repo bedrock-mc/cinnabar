@@ -108,7 +108,7 @@ mod tests {
     #[test]
     fn pending_target_survives_frame_replacement_and_cancel_blocks_background_scroll() {
         let mut presentation =
-            UiPresentationRuntime::new(super::super::super::tests::fixture_font()).unwrap();
+            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
         presentation
             .screens
             .chat

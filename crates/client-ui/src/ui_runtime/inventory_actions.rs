@@ -1,20 +1,20 @@
 //! Dispatch of resolved inventory-screen gestures onto the ledger: cells,
 //! screen widgets, result cells and the creative catalog.
 
-use protocol::{CreativeGroup, CreativeItem, NetworkItemStack, RecipeHandle, WindowKind};
+use protocol::{CreativeItem, NetworkItemStack, RecipeHandle, WindowKind};
 
 use super::UiRuntime;
 use super::inventory_drag::PointerAction;
-use super::presentation::inventory_pointer::InventoryCellHit;
-use super::presentation::screens::{
-    BEACON_LEVEL_FOR, BOOK_CELLS, GRID_CELLS, GRID_COLUMNS, LOOM_COLUMNS, ReaderButton, Widget,
-};
-use super::screen_recipes::LOOM_PATTERNS;
+use super::presentation::screens::{BOOK_CELLS, GRID_CELLS, GRID_COLUMNS, LOOM_COLUMNS};
 use super::screen_state::creative_entries;
 use inventory::inventory_ledger::{
     CellGesture, CraftSink, CreativeDestination, DistributeMode, InventoryGestureError,
     InventoryTarget, PlayerInventoryLedger, ScreenCraft,
 };
+use ui_screens::container_actions::{
+    BEACON_LEVEL_FOR, InventoryCellHit, LOOM_PATTERNS, ReaderButton, SEARCH_TAB, Widget,
+};
+use ui_screens::recipe_book::BookEntry;
 
 type Outcome = Result<i32, InventoryGestureError>;
 
@@ -55,44 +55,6 @@ pub(super) const fn gesture_target(hit: InventoryCellHit) -> Option<InventoryTar
     })
 }
 
-/// One entry of the recipe book: in creative a catalog item or a named group's
-/// head, else a recipe the player can craft now.
-pub enum BookEntry<'a> {
-    Creative {
-        item: &'a CreativeItem,
-        /// Listed under an expanded group's head.
-        grouped: bool,
-    },
-    Group {
-        index: u32,
-        group: &'a CreativeGroup,
-        expanded: bool,
-    },
-    Recipe(RecipeHandle),
-    Furnace(&'a protocol::ScreenRecipe),
-}
-
-impl BookEntry<'_> {
-    /// The stack the entry shows; a group head shows its icon.
-    pub fn stack(&self) -> NetworkItemStack {
-        match self {
-            Self::Creative { item, .. } => item.stack.clone(),
-            Self::Group { group, .. } => group.icon.clone().unwrap_or_default(),
-            Self::Recipe(recipe) => {
-                let output = recipe.output();
-                NetworkItemStack {
-                    network_id: output.network_id,
-                    metadata: u32::from(output.aux),
-                    count: u16::from(output.count),
-                    block_runtime_id: i32::try_from(output.block_runtime_id).unwrap_or(0),
-                    ..NetworkItemStack::empty()
-                }
-            }
-            Self::Furnace(recipe) => super::presentation::forms::furnace_book::output_stack(recipe),
-        }
-    }
-}
-
 /// What the engine-drawn recipe book lists on the current tab: the creative
 /// catalog in creative (a named group folds into its head until expanded;
 /// search lists flat), else the craftable recipes whose output the catalog
@@ -101,7 +63,7 @@ pub fn recipe_book_entries<'a>(
     player_runtime: &'a player_state::PlayerState,
     runtime: &UiRuntime,
 ) -> Vec<BookEntry<'a>> {
-    if super::presentation::forms::furnace_book::active(player_runtime) {
+    if ui_screens::furnace_book::active(player_runtime) {
         return super::presentation::forms::furnace_book::entries(player_runtime, runtime)
             .iter()
             .map(BookEntry::Furnace)
@@ -113,7 +75,7 @@ pub fn recipe_book_entries<'a>(
         && let Some(catalog) = ledger.creative_catalog()
     {
         let items = visible_creative_entries(ledger, runtime);
-        if state.creative_tab == super::presentation::screens::SEARCH_TAB {
+        if state.creative_tab == SEARCH_TAB {
             return items
                 .iter()
                 .map(|item| BookEntry::Creative {
@@ -211,8 +173,7 @@ impl UiRuntime {
     pub fn observe_inventory_search_focus(&mut self, player: &player_state::PlayerState) {
         if super::presentation::inventory_pointer::InventoryScreen::of_runtime(player, self)
             != super::presentation::inventory_pointer::InventoryScreen::Creative
-            && !(super::presentation::forms::furnace_book::active(player)
-                && self.screen_state().furnace_book_open)
+            && !(ui_screens::furnace_book::active(player) && self.screen_state().furnace_book_open)
         {
             self.screen_state_mut().search_focused = false;
         }
@@ -232,7 +193,7 @@ impl UiRuntime {
                 entries.get(position).map(|item| item.creative_network_id)
             }
             InventoryCellHit::RecipeBook(index) => {
-                if super::presentation::forms::furnace_book::active(player_runtime) {
+                if ui_screens::furnace_book::active(player_runtime) {
                     return None;
                 }
                 match recipe_book_entries(player_runtime, self).get(usize::from(index))? {
@@ -349,8 +310,7 @@ impl UiRuntime {
                 Ok(0)
             }
             InventoryCellHit::CreativeSearch => {
-                self.screen_state_mut()
-                    .select_tab(super::presentation::screens::SEARCH_TAB);
+                self.screen_state_mut().select_tab(SEARCH_TAB);
                 Ok(0)
             }
             InventoryCellHit::CreativeGrid(index) => {
@@ -694,7 +654,7 @@ impl UiRuntime {
             }
             Widget::CrafterSlot(slot) => self.set_crafter_slot(player_runtime, slot, false),
             Widget::InventoryLayout(layout) => {
-                if super::presentation::forms::furnace_book::active(player_runtime) {
+                if ui_screens::furnace_book::active(player_runtime) {
                     let state = self.screen_state_mut();
                     state.furnace_book_open = layout == 2;
                     if !state.furnace_book_open {
@@ -767,7 +727,7 @@ impl UiRuntime {
         index: u16,
         into_inventory: bool,
     ) -> Outcome {
-        if super::presentation::forms::furnace_book::active(player_runtime) {
+        if ui_screens::furnace_book::active(player_runtime) {
             let recipe = super::presentation::forms::furnace_book::entries(player_runtime, self)
                 .get(usize::from(index))
                 .cloned()

@@ -214,7 +214,7 @@ fn world_ingress_cursor_leaves_zero_admission_events_queued() {
 
 #[test]
 fn world_ingress_cursor_receives_without_allocating() {
-    use crate::tests::alloc_count::thread_allocations;
+    use test_alloc::thread_allocations;
 
     let (sender, mut receiver) = tokio::sync::mpsc::channel(3);
     // Warm Tokio's semaphore mutex, which allocates on first use on macOS.

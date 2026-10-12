@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use json_ui::{DataSource, Scalar, ViewState};
-use ui::UiNode;
+use ui::{LoadingStage, UiNode};
 
 use crate::ui_runtime::UiRuntime;
 use ui_engine::engine::{ScreenArt, screen::PaintFrame};
@@ -62,14 +62,6 @@ const BRAND_LAYOUT: &str = r##"{
     ]
   }
 }"##;
-
-/// Which world-entry operation the loading screen reports.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LoadingStage {
-    Connecting,
-    BuildingTerrain,
-    ChangingDimension,
-}
 
 impl UiPresentationRuntime {
     /// Draw the world-loading screen for `stage`; `Ok(false)` when nothing drew.

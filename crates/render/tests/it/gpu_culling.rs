@@ -355,7 +355,7 @@ fn cull_counts_and_commands_stay_inside_their_regions() {
             .unwrap()
         })
         .collect::<Vec<_>>();
-    let mut culler = Culler::new(&gpu, &records, &vec![u32::MAX; 16]);
+    let mut culler = Culler::new(&gpu, &records, &[u32::MAX; 16]);
     let capacity = culler.storage.capacity;
     assert_eq!(capacity, 512);
     culler.set_history(&vec![1; records.len()]);

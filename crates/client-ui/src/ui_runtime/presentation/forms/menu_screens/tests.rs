@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use json_ui::RectOut;
 use launcher::menu::split_address;
 use {

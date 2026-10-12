@@ -501,11 +501,17 @@ fn install(world: &mut World, update: Update) {
                             presentation
                                 .set_mod_panel_font(candidate.font.clone())
                                 .map_err(|error| error.to_string())?;
-                            presentation.set_mod_label(candidate.host.label())?;
+                            presentation
+                                .mod_ui_mut()
+                                .set_mod_label(candidate.host.label())?;
                             presentation.set_mod_hud(candidate.host.hud())?;
-                            presentation.set_mod_crosshair(candidate.host.crosshair())?;
-                            presentation.set_mod_panel(candidate.host.panel())?;
-                            presentation.set_mod_panel_open(false);
+                            presentation
+                                .mod_ui_mut()
+                                .set_mod_crosshair(candidate.host.crosshair())?;
+                            presentation
+                                .mod_ui_mut()
+                                .set_mod_panel(candidate.host.panel())?;
+                            presentation.mod_ui_mut().set_mod_panel_open(false);
                             Ok(())
                         })
                 });

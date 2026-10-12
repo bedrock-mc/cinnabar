@@ -599,8 +599,8 @@ the new instance.
 
 Verification: `cargo test -p mod-host --locked --lib` (real components for every callback,
 fuel, traps, caps, revisions, permissions and reload), `cargo test -p experience-sdk --lib`
-(the manifest) and `cargo test -p client-ui --lib mod_screens session_data` (clipping, the
-lifted held stack, hit filtering, session data). The overlay has not been checked on a
+(the manifest), `cargo test -p mod-ui --lib mod_screens` (clipping, the lifted held stack, hit
+filtering) and `cargo test -p client-ui --lib mod_surfaces session_data` (session data). The overlay has not been checked on a
 rendered frame yet; see `plan.md`.
 
 ## Loaded block highlights

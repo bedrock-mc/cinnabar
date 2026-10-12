@@ -1,8 +1,10 @@
 //! Launcher frame adapter around the extracted JSON-UI presentation.
 #[cfg(test)]
+use client_ui::ui_runtime::presentation::forms::ServerUiPack;
+#[cfg(test)]
 use client_ui::ui_runtime::presentation::forms::snapshot;
 #[cfg(test)]
-use client_ui::ui_runtime::presentation::forms::{LoadingStage, ServerUiPack};
+use ui::LoadingStage;
 pub mod panorama;
 pub(crate) use panorama::drive_menu_panorama;
 

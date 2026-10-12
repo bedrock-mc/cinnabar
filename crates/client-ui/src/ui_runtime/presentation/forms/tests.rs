@@ -1,9 +1,10 @@
 //! Form presentation paths: the fallback without the carrier, and the engine's
 //! render caching over a minimal in-memory carrier.
-use super::super::{UiPresentationRuntime, tests::fixture_font};
+use super::super::UiPresentationRuntime;
 use crate::ui_runtime::UiRuntime;
 use protocol::{FormKind, FormRequestEvent, ModalDialogForm, ServerFormModel};
 use std::sync::Arc;
+use ui_engine::test_support::fixture_font;
 
 pub use crate::test_support::{mini_carrier, mini_engine_presentation};
 
@@ -910,12 +911,16 @@ fn fallback_form_preserves_host_owned_presentation_state() {
     let runtime = super::pack_harness::action_form(&mut player_runtime, "Menu", &["A"]);
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation
+        .mod_ui_mut()
         .set_experience_chrome(Some("Trusted status"), false)
         .unwrap();
-    presentation.set_mod_label(Some("Extension label")).unwrap();
+    presentation
+        .mod_ui_mut()
+        .set_mod_label(Some("Extension label"))
+        .unwrap();
     super::pack_harness::render(&mut presentation, &runtime, [1280, 720], 1.0);
-    assert!(presentation.screens.experience.is_some());
-    assert!(presentation.screens.mod_hud.is_some());
+    assert!(presentation.mod_ui().experience_chrome_installed());
+    assert!(presentation.mod_ui().mod_label_passes().is_some());
 }
 
 #[test]
@@ -969,7 +974,7 @@ fn paper_doll_keeps_vanilla_placement_under_the_java_hud_overlay() {
     };
     for java in [false, true] {
         if java {
-            for (path, _, bytes) in super::hud::JAVA_HUD_PACK {
+            for (path, _, bytes) in ui_screens::hud::JAVA_HUD_PACK {
                 let text = std::str::from_utf8(bytes).unwrap();
                 if path.ends_with("_global_variables.json") {
                     catalog.overlay_globals_text(text);

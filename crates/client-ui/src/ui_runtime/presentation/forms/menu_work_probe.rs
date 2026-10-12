@@ -62,7 +62,7 @@ fn oreui_work_probe() {
                     }
                     _ => {}
                 }
-                let (elapsed, count) = crate::allocation_count::count(|| bench.frame());
+                let (elapsed, count) = test_alloc::count(|| bench.frame());
                 samples.push(elapsed);
                 allocations += count;
             }

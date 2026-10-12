@@ -431,7 +431,7 @@ mod review_tests {
             favorite: false,
             last_joined_unix: 0,
         };
-        let font = crate::ui_runtime::presentation::tests::fixture_font();
+        let font = ui_engine::test_support::fixture_font();
         let metrics =
             TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
         let (mut nodes, mut hits, mut next, mut layouts) = (

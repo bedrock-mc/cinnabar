@@ -277,3 +277,170 @@ fn overlay_sheet_preserves_source_resolution_when_physical_page_is_larger() {
     );
     assert_eq!(&sheet.rgba8[4..8], &[0, 0, 255, 255]);
 }
+
+/// Binds original barrel item definitions to compiled world states, without carried sheets.
+fn barrel_entities(
+    world: &RuntimeAssets,
+    records: &[assets::RegistryRecord],
+) -> RuntimeEntityAssets {
+    RuntimeEntityAssets::from_compiled(
+        assets::CompiledEntityAssets {
+            source_manifest_sha256: world.provenance().source_manifest_sha256,
+            block_visual_count: world.visual_count() as u32,
+            sources: vec![assets::EntityAssetSource {
+                path: "entity/fixture.entity.json".into(),
+                source_bytes: 2,
+                source_sha256: [1; 32],
+            }]
+            .into(),
+            symbols: vec![assets::EntityAssetSymbol {
+                mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
+                kind: assets::EntityAssetKind::Entity,
+                identifier: "test:fixture".into(),
+                source_index: 0,
+                dependencies: Box::new([]),
+            }]
+            .into(),
+            geometries: Box::new([]),
+            animation_clips: Box::new([]),
+            animation_channels: Box::new([]),
+            animation_keyframes: Box::new([]),
+            molang_symbols: Box::new([]),
+            molang_expressions: Box::new([]),
+            molang_ops: Box::new([]),
+            molang_collections: Box::new([]),
+            molang_collection_items: Box::new([]),
+            controllers: Box::new([]),
+            controller_states: Box::new([]),
+            controller_animations: Box::new([]),
+            controller_transitions: Box::new([]),
+            rig_bindings: Box::new([]),
+            rig_geometries: Box::new([]),
+            rig_animations: Box::new([]),
+            rig_controllers: Box::new([]),
+            item_visual_aliases: Box::new([]),
+            interaction_traits: Box::new([]),
+            item_use_profiles: Box::new([]),
+            seat_layouts: Box::new([]),
+            item_visuals: records
+                .iter()
+                .filter(|r| r.name.as_ref() == "minecraft:barrel")
+                .enumerate()
+                .map(|(metadata, record)| assets::ItemVisualDefinition {
+                    key: assets::ItemVisualKey {
+                        identifier: "minecraft:barrel".into(),
+                        metadata: metadata as u32,
+                    },
+                    source: 0,
+                    route: ItemVisualDefinitionRoute::BlockItem {
+                        block_visual: assets::BlockVisualId(record.sequential_id),
+                    },
+                    grip: assets::item::grip::ItemGrip::Unresolved,
+                    fuel: assets::item::fuel::ItemFuel::Unresolved,
+                    armour: assets::item::armour::ItemArmour::Unresolved,
+                    durability: assets::item::durability::ItemDurability::Unresolved,
+                    first_person: assets::ItemDisplayTransform::identity(),
+                    third_person: assets::ItemDisplayTransform::identity(),
+                    dropped: assets::ItemDisplayTransform::identity(),
+                })
+                .collect(),
+            render: Default::default(),
+        }
+        .with_unresolved_item_use()
+        .with_unresolved_seats()
+        .with_unresolved_interactions(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn barrel_equipment_fallback_preserves_normalized_faces_and_model_uvs() {
+    let (compiled, records) = crate::viewmodel::cube::tests::barrels_with_size(32);
+    let world = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
+    let entities = barrel_entities(&world, &records);
+    let sheets = collect(&world, &entities);
+    assert_eq!(
+        sheets.by_visual.len(),
+        12,
+        "32-pixel barrels retain cube equipment without authored carried sheets"
+    );
+    for record in records
+        .iter()
+        .filter(|r| r.name.as_ref() == "minecraft:barrel")
+    {
+        let visual = record.sequential_id;
+        let vertices = sheets
+            .models
+            .get(&visual)
+            .expect("equipment retains directional model UVs");
+        let quads =
+            assets::gui_item::full_cube_model_quads(&world, assets::BlockVisualId(visual)).unwrap();
+        assert_eq!(vertices.len(), 36);
+        for (face, (quad, vertices)) in quads.iter().zip(vertices.chunks_exact(6)).enumerate() {
+            let rect = face_rects([0., 0., 1., 1.])[face];
+            for (corner, vertex) in [0, 1, 2, 0, 2, 3].into_iter().zip(vertices) {
+                assert_eq!(
+                    vertex.position,
+                    quad.positions[corner].map(|p| f32::from(p) / 256. - 0.5)
+                );
+                let expected = std::array::from_fn::<_, 2, _>(|axis| {
+                    rect[axis]
+                        + f32::from(quad.uvs[corner][axis]) / 4096. * (rect[axis + 2] - rect[axis])
+                });
+                assert_eq!(vertex.uv, expected);
+            }
+        }
+        let sheet = &sheets.sheets[sheets.by_visual[&visual]];
+        assert_eq!([sheet.width, sheet.height], assets::BLOCK_ITEM_SHEET_SIZE);
+        assert!(
+            sheet
+                .rgba8
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|p| p[0] == 20 && p[3] == 255)
+        );
+    }
+}
+
+#[test]
+fn barrel_equipment_prefers_matching_authored_carried_faces() {
+    let (compiled, records) = crate::viewmodel::cube::tests::barrels();
+    let world = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
+    let entities = barrel_entities(&world, &records);
+    let visual = entities.item_visuals()[0].route;
+    let ItemVisualDefinitionRoute::BlockItem { block_visual } = visual else {
+        panic!("barrel block route");
+    };
+    let tiles = std::array::from_fn(|face| IconSprite {
+        width: BLOCK_ITEM_FACE_SIDE,
+        height: BLOCK_ITEM_FACE_SIDE,
+        rgba8: [91 + face as u8, 40, 80, 255].repeat(TILE * TILE).into(),
+    });
+    let sprite = assets::compose_block_item_sheet(&tiles).unwrap();
+    for matches in [false, true] {
+        let source = if matches {
+            world.provenance().source_manifest_sha256
+        } else {
+            [8; 32]
+        };
+        let icons = assets::RuntimeIconCatalog::decode(
+            &assets::encode_icon_catalog_with_block_sheets(
+                source,
+                std::slice::from_ref(&sprite),
+                &[],
+                &[assets::IconBlockSheet {
+                    visual: block_visual,
+                    sprite: 0,
+                }],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let mut sheets = collect(&world, &entities);
+        assert_eq!(sheets.models.len(), 12);
+        sheets.prefer_carried_faces(&world, &icons);
+        assert_eq!(sheets.models.contains_key(&block_visual.0), !matches);
+        assert_eq!(sheets.models.len(), if matches { 11 } else { 12 });
+    }
+}

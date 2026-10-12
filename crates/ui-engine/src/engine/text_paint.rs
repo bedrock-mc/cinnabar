@@ -59,10 +59,7 @@ pub struct TextPaint {
 }
 
 /// A label's text after vanilla localization; empty lines drop as the vanilla label drops them.
-pub(super) fn localized<'a>(
-    text: &'a str,
-    translate: &dyn Fn(&str) -> Option<Arc<str>>,
-) -> Cow<'a, str> {
+pub fn localized<'a>(text: &'a str, translate: &dyn Fn(&str) -> Option<Arc<str>>) -> Cow<'a, str> {
     let text = json_ui::localize_text(text, translate);
     if text.contains("\n\n") || text.starts_with('\n') || text.ends_with('\n') {
         let lines: Vec<&str> = text.split('\n').filter(|line| !line.is_empty()).collect();
@@ -116,12 +113,13 @@ pub fn width_64(logical: f64) -> u32 {
     (logical.clamp(1.0, UNWRAPPED_LOGICAL) * 64.0).ceil() as u32
 }
 
-pub(super) struct Measure<'a, 'b> {
-    pub(super) layouts: &'b RefCell<&'a mut TextLayoutCache>,
-    pub(super) font: &'a RuntimeFontCatalog,
-    pub(super) metrics: TextMetrics,
-    pub(super) px: f32,
-    pub(super) translate: &'a dyn Fn(&str) -> Option<Arc<str>>,
+/// Vanilla label measurement through the font's shared layout cache; `px` is logical px per GUI px.
+pub struct Measure<'a, 'b> {
+    pub layouts: &'b RefCell<&'a mut TextLayoutCache>,
+    pub font: &'a RuntimeFontCatalog,
+    pub metrics: TextMetrics,
+    pub px: f32,
+    pub translate: &'a dyn Fn(&str) -> Option<Arc<str>>,
 }
 
 impl Measure<'_, '_> {

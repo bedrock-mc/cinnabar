@@ -191,16 +191,18 @@ impl Session {
         ];
         let index = self.index();
         let textures = Textures::new(&mut self.workspace, &mut self.textures);
-        let measure = self.fonts.measure(px as f32);
-        let env = LayoutEnv {
-            text: &measure,
-            textures: &textures,
-        };
-        let (laid, _) = json_ui::layout_with(&tree, root_size, &env, &Default::default());
-        let nodes = json_ui::emit(&laid, &env);
-        let mut boxes = Vec::new();
-        flatten(&laid, None, &mut Vec::new(), &mut boxes);
-        drop(laid);
+        let metrics = crate::text::metrics(view.size, px);
+        let (nodes, boxes) = self.fonts.with_measure(metrics, |measure| {
+            let env = LayoutEnv {
+                text: measure,
+                textures: &textures,
+            };
+            let (laid, _) = json_ui::layout_with(&tree, root_size, &env, &Default::default());
+            let nodes = json_ui::emit(&laid, &env);
+            let mut boxes = Vec::new();
+            flatten(&laid, None, &mut Vec::new(), &mut boxes);
+            (nodes, boxes)
+        });
         let wanted: Vec<(usize, String)> = textures.wanted.borrow().iter().cloned().collect();
         let missing: Vec<String> = textures.missing.borrow().iter().cloned().collect();
         drop(textures);
@@ -259,7 +261,7 @@ impl Session {
         let textures = Textures::new(&mut self.workspace, &mut self.textures);
         let input = PaintInput {
             nodes: &frame.nodes,
-            px: frame.px as f32,
+            px: frame.px,
             size: frame.size,
             now,
             clocks: &frame.clocks,

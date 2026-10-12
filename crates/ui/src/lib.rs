@@ -29,7 +29,7 @@ pub use geometry::{
     UiScale, gui_scale,
 };
 pub use hud::{
-    BoundedStat, HudExperience, HudPlayerStatus, HudStore, HudViewNode, HudViewRole,
+    BoundedStat, HudExperience, HudPlayerStatus, HudStore, HudViewNode, HudViewRole, LoadingStage,
     MAX_TOAST_RETAINED_BYTES, MAX_TOASTS, ShownToast, StandingToast, TOAST_DISPLAY_MILLIS,
     TOAST_SLIDE_IN_MILLIS, TOAST_SLIDE_OUT_MILLIS, TimedText, TitleDurations, Toast, ToastPress,
 };

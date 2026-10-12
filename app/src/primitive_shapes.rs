@@ -197,7 +197,7 @@ mod tests {
             .init_resource::<LocalViewPose>()
             .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
             .insert_resource(UiPresentationResource(
-                UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap(),
+                UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap(),
             ))
             .insert_resource(ClientWorld {
                 stream: Some(stream()),

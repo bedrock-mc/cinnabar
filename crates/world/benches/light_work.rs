@@ -1,7 +1,5 @@
 //! Synthetic solver diagnostics; this does not measure scheduler skips or live frame budgets.
 
-#[path = "light_work/allocations.rs"]
-mod allocations;
 #[path = "light_work/fixtures.rs"]
 mod fixtures;
 
@@ -14,7 +12,7 @@ use world::{
 };
 
 #[global_allocator]
-static ALLOCATOR: allocations::CountedAllocator = allocations::CountedAllocator;
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
 struct Options {
     samples: usize,
@@ -145,8 +143,13 @@ fn run(options: &Options, scene: Scene, sections: usize, retained: bool) {
             options.full,
         )));
     }
-    let (output, allocations, allocated_bytes) =
-        allocations::measure(|| solve(&fixture, &prior, &mut scratch, options.full));
+    let (
+        output,
+        test_alloc::Allocations {
+            calls: allocations,
+            bytes: allocated_bytes,
+        },
+    ) = test_alloc::measure(|| solve(&fixture, &prior, &mut scratch, options.full));
     let stats = output.stats();
     let hash = fingerprint(&fixture, &output);
     if scene == Scene::Removal || scene == Scene::Solid {

@@ -1,0 +1,1090 @@
+{
+  "schema": 1,
+  "generator": "tools/oreui_icons/build.py",
+  "images": [
+    {
+      "key": "assets/general-icon-8ce31666e00cf3491940.png",
+      "frames": [
+        {
+          "file": "oreui-icons/world_category/general-icon.png",
+          "sha256": "28371bb0d99ac7bd17105ad8c5ed23d2199d8e4d3c89f7c2fcf6248cdc1a15c9"
+        }
+      ]
+    },
+    {
+      "key": "assets/advanced-icon-1b6c5b572a777772a78e.png",
+      "frames": [
+        {
+          "file": "oreui-icons/world_category/advanced-icon.png",
+          "sha256": "1960bccbb8d31b84a475beb885dd714fc53f1e3c4bc5d07c750c68a7b05690a6"
+        }
+      ]
+    },
+    {
+      "key": "assets/multiplayer-icon-d7d04b2a5d3ae87f5ed5.png",
+      "frames": [
+        {
+          "file": "oreui-icons/world_category/multiplayer-icon.png",
+          "sha256": "16838dc09bb17b68ad032ae5ed2dcc1ad5f3ada6f51e0d930577038f474a119e"
+        }
+      ]
+    },
+    {
+      "key": "assets/cheats-icon-33f132756175c43752b8.png",
+      "frames": [
+        {
+          "file": "oreui-icons/world_category/cheats-icon.png",
+          "sha256": "1f071a51169ed914ca978ef7a31f24561f90a5bce615705d6d7236071984a248"
+        }
+      ]
+    },
+    {
+      "key": "assets/resource-packs-icon-e08f710fbdadb2f3a5a5.png",
+      "frames": [
+        {
+          "file": "oreui-icons/world_category/resource-packs-icon.png",
+          "sha256": "17ba1147d09bf0a20c072bdd894328967a5e382fb3d4095c997837599cb5477e"
+        }
+      ]
+    },
+    {
+      "key": "assets/behaviour-packs-icon-2f4af74c62b42f1fb412.png",
+      "frames": [
+        {
+          "file": "oreui-icons/world_category/behaviour-packs-icon.png",
+          "sha256": "fbaf989810a245c8a9360f94969190475c79ea045b423c31374e9846cff37ca1"
+        }
+      ]
+    },
+    {
+      "key": "assets/experimental-features-icon-dca93f83a503a8e269eb.png",
+      "frames": [
+        {
+          "file": "oreui-icons/world_category/experimental-features-icon.png",
+          "sha256": "e07b40b1c534c3a1ae961266f86fce3c2cab0478a4f5a7aeadbab9481e427bbf"
+        }
+      ]
+    },
+    {
+      "key": "assets/hardcore-heart-engraved-75556ce94d9bfdecca12.png",
+      "frames": [
+        {
+          "file": "oreui-icons/hardcore_icon/hardcore-heart-engraved.png",
+          "sha256": "5aacaa18a7f156bea32b2cd6970052cb6dae453a36ab7fd1185fd0a1cd5b6762"
+        }
+      ]
+    },
+    {
+      "key": "assets/animation-074ed0ba8c16bb30e36c.gif",
+      "frames": [
+        {
+          "file": "oreui-icons/loading_animation/animation-00.png",
+          "sha256": "8b9da49bbfc74e71fb6465d734898de1cea18848884c3fc7ce7c450b6bfb9553",
+          "millis": 100
+        },
+        {
+          "file": "oreui-icons/loading_animation/animation-01.png",
+          "sha256": "859840c995899a0a91d01e4e3bd52e6d1d7e8bafa084287ea19d3563e52b061f",
+          "millis": 100
+        },
+        {
+          "file": "oreui-icons/loading_animation/animation-02.png",
+          "sha256": "13569b74bad2b50d76cd63ec156d6b844634c288a6282c74ffe1007e7be55825",
+          "millis": 100
+        },
+        {
+          "file": "oreui-icons/loading_animation/animation-03.png",
+          "sha256": "425ff2fc01f1be9aac6a01f34b2bef051e12e1904c304ca75347d290c1fb51df",
+          "millis": 100
+        },
+        {
+          "file": "oreui-icons/loading_animation/animation-04.png",
+          "sha256": "425ff2fc01f1be9aac6a01f34b2bef051e12e1904c304ca75347d290c1fb51df",
+          "millis": 100
+        },
+        {
+          "file": "oreui-icons/loading_animation/animation-05.png",
+          "sha256": "01a228d0e94ba922c0301ed63585de2506205720aae3ecafb1df31d223a55071",
+          "millis": 100
+        },
+        {
+          "file": "oreui-icons/loading_animation/animation-06.png",
+          "sha256": "c5eff00e3c1a6af1c96cdf8257cd6f13548d87d7a0f566ff5a28d41fd648bb95",
+          "millis": 100
+        },
+        {
+          "file": "oreui-icons/loading_animation/animation-07.png",
+          "sha256": "6cd1b9119a983f2d7e5ae3d0f6e5f4985a7b4fd1a5674faab288eb369ed68717",
+          "millis": 100
+        },
+        {
+          "file": "oreui-icons/loading_animation/animation-08.png",
+          "sha256": "981c12e92ba20d477f4e6210ab135fec7220e5d02b38b5ba71dc73bc17e1e628",
+          "millis": 100
+        },
+        {
+          "file": "oreui-icons/loading_animation/animation-09.png",
+          "sha256": "981c12e92ba20d477f4e6210ab135fec7220e5d02b38b5ba71dc73bc17e1e628",
+          "millis": 100
+        }
+      ]
+    },
+    {
+      "key": "assets/onImage-b40d0be137ba09eb7464.png",
+      "frames": [
+        {
+          "file": "oreui-icons/switch_on/onImage.png",
+          "sha256": "909788003da66f435244b6475ab3ab00670e0d7b94c7ad24a2079281ee7ffda7"
+        }
+      ]
+    },
+    {
+      "key": "assets/offImage-cc9095b148d166ec7212.png",
+      "frames": [
+        {
+          "file": "oreui-icons/switch_off/offImage.png",
+          "sha256": "edc7a3c898cc1249069d32320fb52242d5871173343c874764726458545a1eb7"
+        }
+      ]
+    },
+    {
+      "key": "assets/chevron-left@0.5x.icon-bd82feed3671c96ec201568975cb9b29.png",
+      "frames": [
+        {
+          "file": "oreui-icons/chevron_left/chevron-left-0.5x.icon.png",
+          "sha256": "41418daeaf777c479d57b8f8a419544a5d39510a8f4f3cc219b4482e3f32e942"
+        }
+      ]
+    },
+    {
+      "key": "assets/chevron-up@0.5x.icon-bb53390a6964767e019a190f32bf1661.png",
+      "frames": [
+        {
+          "file": "oreui-icons/chevron_up/chevron-up-0.5x.icon.png",
+          "sha256": "b9cc3cbc0e0673521be6e649ae42eeccac90f868daa81e0e96d67ec198cc4b13"
+        }
+      ]
+    },
+    {
+      "key": "assets/chevron-down@0.5x.icon-0034ec5c85502861a7fba88e1f17681e.png",
+      "frames": [
+        {
+          "file": "oreui-icons/chevron_down/chevron-down-0.5x.icon.png",
+          "sha256": "9d334b51befc133846fe4bd81dcd32da0858ab0a47b9c35a398095a2068f1aa9"
+        }
+      ]
+    },
+    {
+      "key": "assets/minecraft-texture-pack-4c96be5bfdd5a55edf09.png",
+      "frames": [
+        {
+          "file": "oreui-icons/base_pack/minecraft-texture-pack.png",
+          "sha256": "5b7948f03a5299eb5044c2aa5d8e32aafa51eeac546d95f1fae2c3b61d197d7f"
+        }
+      ]
+    },
+    {
+      "key": "assets/missing-pack-icon-010c87c773e1a21c8ac7.png",
+      "frames": [
+        {
+          "file": "oreui-icons/missing_pack/missing-pack-icon.png",
+          "sha256": "0f726baca1de25a48eee810fcc16c688104231f865db0fece9ca9da0eeeb47f6"
+        }
+      ]
+    },
+    {
+      "key": "assets/grass_block-fbea7d7f754c51b4ea00.png",
+      "frames": [
+        {
+          "file": "oreui-icons/overworld_block/grass_block.png",
+          "sha256": "2227d5cc52693e7b639b0010a4661840e513bc7484b18f85e78c09cb4277bb42"
+        }
+      ]
+    },
+    {
+      "key": "assets/icon-highlight-spritesheet-87ec62988bf89f63558d.png",
+      "frames": [
+        {
+          "file": "oreui-icons/settings_icon_highlight/icon-highlight-spritesheet.png",
+          "sha256": "0bb54d3b5a1f7b1ff7a5c2e251a4198e5a80e324ab932586df62c52476e77d7a"
+        }
+      ]
+    },
+    {
+      "key": "assets/pingGreen-7f77ca04def817211b2a.png",
+      "frames": [
+        {
+          "file": "oreui-icons/server_ping/pingGreen.png",
+          "sha256": "e3f22536e8194d46f5ffed70cb04bcf43906c5c82733caa8d1b10bbb3a2fb119"
+        }
+      ]
+    },
+    {
+      "key": "assets/pingYellow-62e787f8117760a86807.png",
+      "frames": [
+        {
+          "file": "oreui-icons/server_ping/pingYellow.png",
+          "sha256": "8d454d063de155bd78158a40962564a800005393900f0521d6653224c47c5159"
+        }
+      ]
+    },
+    {
+      "key": "assets/pingRed-9496c1bbb587d63e1dbe.png",
+      "frames": [
+        {
+          "file": "oreui-icons/server_ping/pingRed.png",
+          "sha256": "68e9257b53c72769b4567a05531accb8905ec452a88420b8a7985c2c667f81e8"
+        }
+      ]
+    },
+    {
+      "key": "assets/pingAnimation-4d7a029e5f864843c958.png",
+      "frames": [
+        {
+          "file": "oreui-icons/server_ping/pingAnimation.png",
+          "sha256": "7c3d28a3c9cbed8dc81ba01eb494386e91ebd6c33cb999cf4d144be043576e53"
+        }
+      ]
+    },
+    {
+      "key": "assets/player-online-icon-b63b81863545d7c6a444.png",
+      "frames": [
+        {
+          "file": "oreui-icons/server_players/player-online-icon.png",
+          "sha256": "6e3cbd990796f7f7ff3a38298de5d7f2cf30dfdd9626797ba658712581e46dab"
+        }
+      ]
+    },
+    {
+      "key": "assets/plus@1x.icon-bb0896fb794b5ac908344f0de1cc54f0.png",
+      "frames": [
+        {
+          "file": "oreui-icons/server_add/plus-1x.icon.png",
+          "sha256": "0854eba3b5424d2b18d2da7d13ee547713b17569b7a2a802c46d1b2bd8bd4b7a"
+        }
+      ]
+    },
+    {
+      "key": "assets/UI_Menu_WorldsTab-dfd408c83c4cf07814b8.png",
+      "frames": [
+        {
+          "file": "oreui-icons/play_tab/UI_Menu_WorldsTab.png",
+          "sha256": "4e9da13e0840550866137b04dc0a60ad66d2881eaa4fb509a919a57b57361cfd"
+        }
+      ]
+    },
+    {
+      "key": "assets/UI_Menu_RealmsTab-c7419af9abd527149fcc.png",
+      "frames": [
+        {
+          "file": "oreui-icons/play_tab/UI_Menu_RealmsTab.png",
+          "sha256": "7a05cd1d815a93c177f007b64cce26c0361a00fa8becfb7b85686698f19dad9d"
+        }
+      ]
+    },
+    {
+      "key": "assets/UI_Menu_ServerTab-e7c3c035b7d6ba5a414b.png",
+      "frames": [
+        {
+          "file": "oreui-icons/play_tab/UI_Menu_ServerTab.png",
+          "sha256": "232c3bfb467ac79599b7cad343355a2b810ff5c9b340cfe816140040e1ef2ff6"
+        }
+      ]
+    },
+    {
+      "key": "assets/News-f81489154ff3c38f5b5f.png",
+      "frames": [
+        {
+          "file": "oreui-icons/inbox/News.png",
+          "sha256": "842b3db81d3370acd73e6f391b921c8d6d26d0579fe17df847a90dd36263930c"
+        }
+      ]
+    },
+    {
+      "key": "assets/Realms-c7419af9abd527149fcc.png",
+      "frames": [
+        {
+          "file": "oreui-icons/inbox/Realms.png",
+          "sha256": "7a05cd1d815a93c177f007b64cce26c0361a00fa8becfb7b85686698f19dad9d"
+        }
+      ]
+    },
+    {
+      "key": "assets/Invites-6a62211ac071c98b2994.png",
+      "frames": [
+        {
+          "file": "oreui-icons/inbox/Invites.png",
+          "sha256": "f0a54bef3125255d17d2429d538e28caa5a76e93ccf1c860bf6666598dd2b875"
+        }
+      ]
+    },
+    {
+      "key": "assets/MarketplacePass-8eb08ee1dd714dd15307.png",
+      "frames": [
+        {
+          "file": "oreui-icons/inbox/MarketplacePass.png",
+          "sha256": "3f9cfef2b638d5ac0dfbc61df4fa7aa351b74341db4626605dd4bb23102a0c9e"
+        }
+      ]
+    },
+    {
+      "key": "assets/Feedback-ecfce4d670046c25d3df.png",
+      "frames": [
+        {
+          "file": "oreui-icons/inbox/Feedback.png",
+          "sha256": "b8f1aa644f66b5b34a310218d3ac945131e02a8537b57e98553d2b76be6af47d"
+        }
+      ]
+    },
+    {
+      "key": "assets/Inbox_NoNews-c959e7726f6bab89cf50.png",
+      "frames": [
+        {
+          "file": "oreui-icons/inbox_empty/Inbox_NoNews.png",
+          "sha256": "cf3f72ead6b6495f9d37f6ba036dbfca2e75a34bb7eb7d6a14275552e120f761"
+        }
+      ]
+    },
+    {
+      "key": "assets/Inbox_NoRealmsNews-714f9275b786d6ffa804.png",
+      "frames": [
+        {
+          "file": "oreui-icons/inbox_empty/Inbox_NoRealmsNews.png",
+          "sha256": "1f2bfb17fe480f58857f1f905db1a6bb55f9b2a1b4a956d9278927fa08e4f4d2"
+        }
+      ]
+    },
+    {
+      "key": "assets/Inbox_NoInvites-d82f3107d60a8e227c18.png",
+      "frames": [
+        {
+          "file": "oreui-icons/inbox_empty/Inbox_NoInvites.png",
+          "sha256": "f9fab7b3364d27e5112ca40263140ead561b5f6543dda0d34c47afbcdc2d59c1"
+        }
+      ]
+    },
+    {
+      "key": "assets/Inbox_NoMarketplacePass-a2fc4019bcd55acf2183.png",
+      "frames": [
+        {
+          "file": "oreui-icons/inbox_empty/Inbox_NoMarketplacePass.png",
+          "sha256": "7b42515c924a74e4fcd48b2b33c29c1e21a2d00b67a511174f84b0dc6fce026c"
+        }
+      ]
+    },
+    {
+      "key": "assets/Inbox_NoFeedback-85b4273f92f8e5f1b44a.png",
+      "frames": [
+        {
+          "file": "oreui-icons/inbox_empty/Inbox_NoFeedback.png",
+          "sha256": "01332552f0ede0d47b401dbcc6532f3713c601cd4c65844528ec9fa14267dc71"
+        }
+      ]
+    },
+    {
+      "key": "assets/accessibility-41a033eee6f8f8726f5e.png",
+      "frames": [
+        {
+          "file": "oreui-icons/settings/accessibility.png",
+          "sha256": "ef30f88990350ce4a783589b0b0d8438d5be6a5aacdfbf8c92c12bf4345422ea"
+        }
+      ]
+    },
+    {
+      "key": "assets/keyboard-mouse-58d767999df54b704830.png",
+      "frames": [
+        {
+          "file": "oreui-icons/settings/keyboard-mouse.png",
+          "sha256": "7f8f0c60eed3eee91c1546ed20c81ec280dded49c2564c3076bf348b9c8fdbc7"
+        }
+      ]
+    },
+    {
+      "key": "assets/controls-5b4a0c8bc7ac0539b349.png",
+      "frames": [
+        {
+          "file": "oreui-icons/settings/controls.png",
+          "sha256": "b77955e8f1e1720948e4ea4921eb91a8dc0d3caa61498675db041d76d882a4b7"
+        }
+      ]
+    },
+    {
+      "key": "assets/touch-e5c085e0d79f26deb0c9.png",
+      "frames": [
+        {
+          "file": "oreui-icons/settings/touch.png",
+          "sha256": "c1eba567c460cd3ba132245d667bc225ccc12a6f881b4e5f2d2aaf1346b335d3"
+        }
+      ]
+    },
+    {
+      "key": "assets/party-cc4b74f40b6ecac45aaf.png",
+      "frames": [
+        {
+          "file": "oreui-icons/settings/party.png",
+          "sha256": "c65d38e0853afeedda71409cb7033ea01b2170cace3935d9f645c8e8300d2fcd"
+        }
+      ]
+    },
+    {
+      "key": "assets/work-bench-e18a3804944464e2d854.png",
+      "frames": [
+        {
+          "file": "oreui-icons/settings/work-bench.png",
+          "sha256": "01c0d9177efd9e29a30569172587f1a21e589b1e1ded2c860965d483d875d5fe"
+        }
+      ]
+    },
+    {
+      "key": "assets/painting-c9fe53a4df86136c1e14.png",
+      "frames": [
+        {
+          "file": "oreui-icons/settings/painting.png",
+          "sha256": "8fd771db44980f11df288e72ca92ab38dd2587033b9ae5738c969b344f8bdc60"
+        }
+      ]
+    },
+    {
+      "key": "assets/sound-block-0abbefc33b0871e358ac.png",
+      "frames": [
+        {
+          "file": "oreui-icons/settings/sound-block.png",
+          "sha256": "fd217bb7d35d3c69bc2e21bb08954a927f55a308b6e94b74979f10a43c0cb931"
+        }
+      ]
+    },
+    {
+      "key": "assets/account-46c198f87391d9c79cf7.png",
+      "frames": [
+        {
+          "file": "oreui-icons/settings/account.png",
+          "sha256": "e7ef8c71051de606db5a6e38547ed9efaed4c8fa0aa22f5aa93e8016b85f0932"
+        }
+      ]
+    },
+    {
+      "key": "assets/subscriptions-ad5676c80eb176fff46a.png",
+      "frames": [
+        {
+          "file": "oreui-icons/settings/subscriptions.png",
+          "sha256": "4d300ef997bacefcf4599bcb476883d7916e6a5e2eb737c4f2a172e8fea83a5b"
+        }
+      ]
+    },
+    {
+      "key": "assets/chest-67b965a3181be3553287.png",
+      "frames": [
+        {
+          "file": "oreui-icons/settings/chest.png",
+          "sha256": "00b31cb0e9ceea464f37a44fe0630776fb5bc9a6a7711e24a3956e7ee4a6fdc4"
+        }
+      ]
+    },
+    {
+      "key": "assets/storage-101411b344fe42108e57.png",
+      "frames": [
+        {
+          "file": "oreui-icons/settings/storage.png",
+          "sha256": "df56d4ba7be141ae47923b9c0c0ef8d68a962773afac776a1c211864a72db8de"
+        }
+      ]
+    },
+    {
+      "key": "assets/language-47127a2e274f540f09de.png",
+      "frames": [
+        {
+          "file": "oreui-icons/settings/language.png",
+          "sha256": "5a7269ce8f236b3d840057384ed42f2d79e2048ecd6081e19c016c9cf77a1bf2"
+        }
+      ]
+    },
+    {
+      "key": "assets/command-block-0c312a997f65ebda04a3.png",
+      "frames": [
+        {
+          "file": "oreui-icons/settings/command-block.png",
+          "sha256": "d9eb1e66fe6d305a9e7acb48afa51a039bc2b5a20f697ceaa55c32f7a6734b36"
+        }
+      ]
+    },
+    {
+      "key": "assets/IconClockGrey-ea5642bd84ad58714dd4.png",
+      "frames": [
+        {
+          "file": "oreui-icons/profile_stat/IconClockGrey.png",
+          "sha256": "03eecf6d0175cd978d25bcaa1b32116f886c323d6ea9aadd5453c274d04f4a1e"
+        }
+      ]
+    },
+    {
+      "key": "assets/IconPickaxeGrey-cb118f7d544ff4fce2e2.png",
+      "frames": [
+        {
+          "file": "oreui-icons/profile_stat/IconPickaxeGrey.png",
+          "sha256": "586128a0c42b4468ef88c09314414c6f219d06370d06fe389c808a5fd9b05dc5"
+        }
+      ]
+    },
+    {
+      "key": "assets/IconSwordGrey-9087f66e9056b3b959aa.png",
+      "frames": [
+        {
+          "file": "oreui-icons/profile_stat/IconSwordGrey.png",
+          "sha256": "9a29f19100f7ee47eed246197aa27d2edf7a7db13da73df9de5abd2d9ebba7f0"
+        }
+      ]
+    },
+    {
+      "key": "assets/IconBootsGrey-142a375cbe9eecc3879d.png",
+      "frames": [
+        {
+          "file": "oreui-icons/profile_stat/IconBootsGrey.png",
+          "sha256": "eb54a3b1e968ebbc706ac512d78f97629475d594aedfabf9b1f76f326758db99"
+        }
+      ]
+    },
+    {
+      "key": "assets/nothing_to_see-1107fc6902173eb98f28.png",
+      "frames": [
+        {
+          "file": "oreui-icons/profile_errors/nothing_to_see.png",
+          "sha256": "550925de45c6d27f747b782824148a37b8176ae28848a98055fc5666830186a8"
+        }
+      ]
+    },
+    {
+      "key": "assets/generic_error-aa90619c4c1746eb7ac0.png",
+      "frames": [
+        {
+          "file": "oreui-icons/profile_errors/generic_error.png",
+          "sha256": "04fe36ad10756438aa8bcd39d07023d4f1a0f4c6a27c4a19c245673ed57cace1"
+        }
+      ]
+    },
+    {
+      "key": "assets/connection_error-01bc20883b3a2f7e5fb3.png",
+      "frames": [
+        {
+          "file": "oreui-icons/profile_errors/connection_error.png",
+          "sha256": "2d157d710f14bd132ce5d60a0d101112c04eca38aa76dc6accfcf963ee8fd542"
+        }
+      ]
+    },
+    {
+      "key": "assets/friends-9e435522a799e248f3c5.png",
+      "frames": [
+        {
+          "file": "oreui-icons/profile_summary/friends.png",
+          "sha256": "f41228020cf8dd1c57f6fea2b32f7146d977ac13dae500306854fd9edcff2a5c"
+        }
+      ]
+    },
+    {
+      "key": "assets/followers-bec3d954895866890570.png",
+      "frames": [
+        {
+          "file": "oreui-icons/profile_summary/followers.png",
+          "sha256": "6037ce4e114e5da9bbd2343ce0cd94b77fef3780239488cb9ee975600fecd6a1"
+        }
+      ]
+    },
+    {
+      "key": "assets/gallery-10d21b3ca655e32b1ac8.png",
+      "frames": [
+        {
+          "file": "oreui-icons/profile_summary/gallery.png",
+          "sha256": "2b731ceb2c6ee2ede980775d8a6de118347e69352b078f6ebc6d6faea9e4ffcf"
+        }
+      ]
+    },
+    {
+      "key": "assets/achievements-a42ab3d4b8e49c24b217.png",
+      "frames": [
+        {
+          "file": "oreui-icons/profile_summary/achievements.png",
+          "sha256": "576b1c5149119d190763dacde4bbda32b6580f9a16f667f7caf2558a059a71c7"
+        }
+      ]
+    },
+    {
+      "key": "assets/gamerscore_icon-53b10130cb6f6c0271cb.png",
+      "frames": [
+        {
+          "file": "oreui-icons/profile_gamerscore/gamerscore_icon.png",
+          "sha256": "cc0e37804cb468520d07566497b0eacdea199e9982ebc1168eab5748e7d7c1f0"
+        }
+      ]
+    },
+    {
+      "key": "assets/arrow-left@0.5x.icon-32012c9c1d3e6debaaf8ce01da9815de.png",
+      "frames": [
+        {
+          "file": "oreui-icons/action/arrow-left-0.5x.icon.png",
+          "sha256": "44c4b57577c18d78c73fb9d2508a9c64cdf81e0734c4b348c904c6a4658d337a"
+        }
+      ]
+    },
+    {
+      "key": "assets/cross@0.5x.icon-a30f9556f5895c0d6996af977c6fbb91.png",
+      "frames": [
+        {
+          "file": "oreui-icons/action/cross-0.5x.icon.png",
+          "sha256": "5707711bad08e202d7feb95cda58a563ea38d6573f83dda9ed2ebbf813f7eefd"
+        }
+      ]
+    },
+    {
+      "key": "assets/search@0.5x.icon-57e5a707535fd5959a31271ce38e0b7f.png",
+      "frames": [
+        {
+          "file": "oreui-icons/action/search-0.5x.icon.png",
+          "sha256": "d428ea58852818fe3660ecded9d8e586c16cf0d090c9b1aaf5873ba9b5cf03f1"
+        }
+      ]
+    },
+    {
+      "key": "assets/player@0.5x.icon-5f2efe885c1189f09a5388b6e6b07c9f.png",
+      "frames": [
+        {
+          "file": "oreui-icons/action/player-0.5x.icon.png",
+          "sha256": "14e7a71ea78c60fe5f82a945e65fc4614f8400b50e6129b6f535d80c6239560a"
+        }
+      ]
+    },
+    {
+      "key": "assets/edit@0.5x.icon-a786502003e9894de25c9a2b274fbcbb.png",
+      "frames": [
+        {
+          "file": "oreui-icons/action/edit-0.5x.icon.png",
+          "sha256": "f1431ed522374a3f059e5e77def84ba9f53eac1db7d5c137835fbd9f04ea56b5"
+        }
+      ]
+    },
+    {
+      "key": "assets/checkmark@0.5x.icon-3a1f3dd3866716c7bc33ad20204c68ca.png",
+      "frames": [
+        {
+          "file": "oreui-icons/action/checkmark-0.5x.icon.png",
+          "sha256": "271be1a1b54e4433899e5b20cf8ffa399b4dc2812a2b67f7352207840973088e"
+        }
+      ]
+    },
+    {
+      "key": "assets/filter@0.5x.icon-4d527e67d899c241675338c67277d157.png",
+      "frames": [
+        {
+          "file": "oreui-icons/action/filter-0.5x.icon.png",
+          "sha256": "e7ec778b63f95e071c9b7a25e43341cad66e45c7e844b950ff083a95fd991af8"
+        }
+      ]
+    },
+    {
+      "key": "assets/pressable_elevated_disabled-d849d4185836b2229b5a.png",
+      "frames": [
+        {
+          "file": "oreui-icons/button_disabled/pressable_elevated_disabled.png",
+          "sha256": "8ba21416f625c8d8f10661ad6cf97ffc892ba8c0c722fa6701ea56cc7b702176"
+        }
+      ]
+    },
+    {
+      "key": "assets/pressable_elevated_primary_default-7a6e2edf98a626b182c2.png",
+      "frames": [
+        {
+          "file": "oreui-icons/button_primary/pressable_elevated_primary_default.png",
+          "sha256": "44c404cd4b7de23a95a8a11a530f2b1e3912d3bef58b438d736e402c392318a7"
+        }
+      ]
+    },
+    {
+      "key": "assets/pressable_elevated_primary_hovered-bcb21ab092446cbcecb6.png",
+      "frames": [
+        {
+          "file": "oreui-icons/button_primary/pressable_elevated_primary_hovered.png",
+          "sha256": "c1860122ee1c136fc095658f7c870e91869650abb3918cafead236b2f3a587fd"
+        }
+      ]
+    },
+    {
+      "key": "assets/pressable_elevated_primary_focused-cc7df0bf833f92bb08dd.png",
+      "frames": [
+        {
+          "file": "oreui-icons/button_primary/pressable_elevated_primary_focused.png",
+          "sha256": "cc6a96c2a66f233ffc3f188daf4d7163750827043bf282b20e7efba381a7d0e4"
+        }
+      ]
+    },
+    {
+      "key": "assets/pressable_primary_pressed-13b0f01c6c00e07322ca.png",
+      "frames": [
+        {
+          "file": "oreui-icons/button_primary/pressable_primary_pressed.png",
+          "sha256": "0e0505ca8d8f2787ba2c019afaab73dbb9636196b3462fdae1879737a1ac8c6a"
+        }
+      ]
+    },
+    {
+      "key": "assets/pressable_elevated_secondary_default-0aacffbfa726a8184fc5.png",
+      "frames": [
+        {
+          "file": "oreui-icons/button_secondary/pressable_elevated_secondary_default.png",
+          "sha256": "076d67a046c729e1a306a90562a16778e6c2fe218118bd0e038a1d781338bbf9"
+        }
+      ]
+    },
+    {
+      "key": "assets/pressable_elevated_secondary_hovered-758970b376da9eb299da.png",
+      "frames": [
+        {
+          "file": "oreui-icons/button_secondary/pressable_elevated_secondary_hovered.png",
+          "sha256": "2b220f7d9fabfce6bc4646ba76e7d5708fbf16b952552e67c4f10367821c3eaf"
+        }
+      ]
+    },
+    {
+      "key": "assets/pressable_elevated_secondary_focused-05d59cd4654230c9b01d.png",
+      "frames": [
+        {
+          "file": "oreui-icons/button_secondary/pressable_elevated_secondary_focused.png",
+          "sha256": "b59f5ff21ef06ee5b7753dab4314141133eb6c93ec4c3aba32a1f1e2e9e5ff70"
+        }
+      ]
+    },
+    {
+      "key": "assets/pressable_secondary_pressed-87bba1faba891ebfa7fc.png",
+      "frames": [
+        {
+          "file": "oreui-icons/button_secondary/pressable_secondary_pressed.png",
+          "sha256": "587d56969120a35483b1c929a18e1fef629cb2ec0615ad32c2bb75746448388f"
+        }
+      ]
+    },
+    {
+      "key": "assets/pressable_elevated_neutral_default-48cdf8535bfd48b47c2a.png",
+      "frames": [
+        {
+          "file": "oreui-icons/button_neutral/pressable_elevated_neutral_default.png",
+          "sha256": "f88b4283a18aee8bdf1fb72e42b12d69d63764fe3f6493e4d214e5e616b51398"
+        }
+      ]
+    },
+    {
+      "key": "assets/pressable_elevated_neutral_hovered-dcbd873ad9e83d24dc7a.png",
+      "frames": [
+        {
+          "file": "oreui-icons/button_neutral/pressable_elevated_neutral_hovered.png",
+          "sha256": "cd6b1fd7ee90384def4e1a22776d49420d43653b19799d580b86e64a5d6fa631"
+        }
+      ]
+    },
+    {
+      "key": "assets/pressable_elevated_neutral_focused-b28fc482cadde858740c.png",
+      "frames": [
+        {
+          "file": "oreui-icons/button_neutral/pressable_elevated_neutral_focused.png",
+          "sha256": "fafa1c205cce8525f91c20fdf1339fcb83b5a850d281b47e1f10238aef906f7c"
+        }
+      ]
+    },
+    {
+      "key": "assets/pressable_neutral_pressed-aad8b64fc0f155676218.png",
+      "frames": [
+        {
+          "file": "oreui-icons/button_neutral/pressable_neutral_pressed.png",
+          "sha256": "4d5985b9206b41f2c9a62548c2ef7cf3d2dc464278435378ccd0354aa3997e41"
+        }
+      ]
+    },
+    {
+      "key": "assets/pressable_elevated_destructive_default-a5fb3f173720065fcc13.png",
+      "frames": [
+        {
+          "file": "oreui-icons/button_destructive/pressable_elevated_destructive_default.png",
+          "sha256": "c7eaa670d33c7514b9b67287091ec8a28e6d414917e2f96baf2245add4ad57cb"
+        }
+      ]
+    },
+    {
+      "key": "assets/pressable_elevated_destructive_hovered-63736c555d7fc6479755.png",
+      "frames": [
+        {
+          "file": "oreui-icons/button_destructive/pressable_elevated_destructive_hovered.png",
+          "sha256": "5a0c259af04b4c6ed038dc67c62bed9aeb89f2c6e86235a271b6a454b6c6f818"
+        }
+      ]
+    },
+    {
+      "key": "assets/pressable_elevated_destructive_focused-cfa496a1b2e3a06a9db4.png",
+      "frames": [
+        {
+          "file": "oreui-icons/button_destructive/pressable_elevated_destructive_focused.png",
+          "sha256": "29a94a45a13f3cae3aa6edd51a2a5c5f16d7655f7f5b0815c703781d9fffb392"
+        }
+      ]
+    },
+    {
+      "key": "assets/pressable_destructive_pressed-d5d4943d1b774ef42f85.png",
+      "frames": [
+        {
+          "file": "oreui-icons/button_destructive/pressable_destructive_pressed.png",
+          "sha256": "2fff3f43bde1e7c8bd29d190719395a97672e6c6dc19f79ae1437a3631c07d9a"
+        }
+      ]
+    },
+    {
+      "key": "assets/tabBar_neutral_default-40e26ac9318c12909f42.png",
+      "frames": [
+        {
+          "file": "oreui-icons/play_tab/tabBar_neutral_default.png",
+          "sha256": "f88b4283a18aee8bdf1fb72e42b12d69d63764fe3f6493e4d214e5e616b51398"
+        }
+      ]
+    },
+    {
+      "key": "assets/tabBar_neutral_hovered-b73d7029874500714b0f.png",
+      "frames": [
+        {
+          "file": "oreui-icons/play_tab/tabBar_neutral_hovered.png",
+          "sha256": "365f23f2f2a4b8025357c64231fee8fca2eb4079c27092d8b0661250c0f39416"
+        }
+      ]
+    },
+    {
+      "key": "assets/tabBar_neutral_pressed-9d14d8d1343a1fc3836d.png",
+      "frames": [
+        {
+          "file": "oreui-icons/play_tab/tabBar_neutral_pressed.png",
+          "sha256": "9f2d6facb190a0cd4db48d957dbda0fd6e76d72d9d7aba5048c825659b1518db"
+        }
+      ]
+    },
+    {
+      "key": "assets/tabBar_neutral_default_focused-812a9fcda5a4e49d93d5.png",
+      "frames": [
+        {
+          "file": "oreui-icons/play_tab/tabBar_neutral_default_focused.png",
+          "sha256": "fafa1c205cce8525f91c20fdf1339fcb83b5a850d281b47e1f10238aef906f7c"
+        }
+      ]
+    },
+    {
+      "key": "assets/tabBar_neutral_pressed_focused-c05012af3863c527b0a2.png",
+      "frames": [
+        {
+          "file": "oreui-icons/play_tab/tabBar_neutral_pressed_focused.png",
+          "sha256": "64f880dad2e8cd4ab810c365af3a3c1dc8da56a7d4bf36645bb18f3ac4bff620"
+        }
+      ]
+    },
+    {
+      "key": "assets/external-link@0.5x.icon-28016636e9d767b57dffe6e45fa749aa.png",
+      "frames": [
+        {
+          "file": "oreui-icons/external_link_icon/external-link-0.5x.icon.png",
+          "sha256": "1d3c24d6e455f78569f2ffa3535cbf24805accbbfbfb13f6c5d94c25a233179f"
+        }
+      ]
+    },
+    {
+      "key": "assets/reset@0.5x.icon-4fc2a8ff6f440b4d14293bb8e833a1bc.png",
+      "frames": [
+        {
+          "file": "oreui-icons/reset_icon/reset-0.5x.icon.png",
+          "sha256": "97bb0bee960a169f206a7cd0c65bc4096693a5f3a37afa9ff1e73037a76f595a"
+        }
+      ]
+    },
+    {
+      "key": "assets/sleep_steve-5b5b685f51e1ff074190.gif",
+      "frames": [
+        {
+          "file": "oreui-icons/sleep/steve-00.png",
+          "sha256": "c1f520ad5d5b7414827d8bdc76474b607ab60c87b40ba68378fc37acc10ef5a0",
+          "millis": 500
+        },
+        {
+          "file": "oreui-icons/sleep/steve-01.png",
+          "sha256": "f9cfdf78d98d13e0968725dd91ae86da5f4a467551c045698491b45b04b9baaf",
+          "millis": 500
+        }
+      ]
+    },
+    {
+      "key": "assets/sleep_steve_still-2a5f77b5a8a28ee33767.png",
+      "frames": [
+        {
+          "file": "oreui-icons/sleep/steve-still.png",
+          "sha256": "c1f520ad5d5b7414827d8bdc76474b607ab60c87b40ba68378fc37acc10ef5a0"
+        }
+      ]
+    },
+    {
+      "key": "assets/sleep_alex-fc863dc2c2fab9e7bc28.gif",
+      "frames": [
+        {
+          "file": "oreui-icons/sleep/alex-00.png",
+          "sha256": "fe277b040761af52ce024ceee59804a07cb61dcacc7d55822fee6401072e3877",
+          "millis": 500
+        },
+        {
+          "file": "oreui-icons/sleep/alex-01.png",
+          "sha256": "c4190439dc4801456070f40453956ce127f72a0db4292bd618d1570756fc26b9",
+          "millis": 500
+        }
+      ]
+    },
+    {
+      "key": "assets/sleep_alex_still-03a8457d32eafa1b1b05.png",
+      "frames": [
+        {
+          "file": "oreui-icons/sleep/alex-still.png",
+          "sha256": "fe277b040761af52ce024ceee59804a07cb61dcacc7d55822fee6401072e3877"
+        }
+      ]
+    },
+    {
+      "key": "assets/sleep_dream_apple-d5fc732fee97c54947d0.gif",
+      "frames": [
+        {
+          "file": "oreui-icons/sleep/apple-00.png",
+          "sha256": "f4602d6dd6a52ae04f8cd554afed83b59520eadfa55dafd756e5f32241ef7fbb",
+          "millis": 500
+        },
+        {
+          "file": "oreui-icons/sleep/apple-01.png",
+          "sha256": "174ec33e06d7c5edc3dca8f0532f7d0ee37d6337f8eea7bed10790bc8f8e8e93",
+          "millis": 500
+        }
+      ]
+    },
+    {
+      "key": "assets/sleep_dream_apple_still-326c4b99ab6651cfb463.png",
+      "frames": [
+        {
+          "file": "oreui-icons/sleep/apple-still.png",
+          "sha256": "f4602d6dd6a52ae04f8cd554afed83b59520eadfa55dafd756e5f32241ef7fbb"
+        }
+      ]
+    },
+    {
+      "key": "assets/sleep_dream_creeper-40220c8f629d9c72a3d1.gif",
+      "frames": [
+        {
+          "file": "oreui-icons/sleep/creeper-00.png",
+          "sha256": "97e3cc4421d2b45fd53237718dc8ad00eecd9ef7fa29554616ba7a57ed724aa1",
+          "millis": 500
+        },
+        {
+          "file": "oreui-icons/sleep/creeper-01.png",
+          "sha256": "ad34b1c1af7f700ce81911e028971f925a0f095d60c11563d564e503530c1797",
+          "millis": 500
+        }
+      ]
+    },
+    {
+      "key": "assets/sleep_dream_creeper_still-3769b288b3a9ec33dd2c.png",
+      "frames": [
+        {
+          "file": "oreui-icons/sleep/creeper-still.png",
+          "sha256": "97e3cc4421d2b45fd53237718dc8ad00eecd9ef7fa29554616ba7a57ed724aa1"
+        }
+      ]
+    },
+    {
+      "key": "assets/sleep_dream_diamond-638b3a14282031c9db66.gif",
+      "frames": [
+        {
+          "file": "oreui-icons/sleep/diamond-00.png",
+          "sha256": "75c9191d8a85d4734d74535297d8624e3fa97276b4245f20b1cabba6fd64e585",
+          "millis": 500
+        },
+        {
+          "file": "oreui-icons/sleep/diamond-01.png",
+          "sha256": "af5e15d2f0ceb46489d47455acae5256024931e174cfd58be1e56cdd59f5ce30",
+          "millis": 500
+        }
+      ]
+    },
+    {
+      "key": "assets/sleep_dream_diamond_still-2565c29be34f7c4e711c.png",
+      "frames": [
+        {
+          "file": "oreui-icons/sleep/diamond-still.png",
+          "sha256": "75c9191d8a85d4734d74535297d8624e3fa97276b4245f20b1cabba6fd64e585"
+        }
+      ]
+    },
+    {
+      "key": "assets/sleep_dream_dirthut-88c2fdbcf83a4a1b272a.gif",
+      "frames": [
+        {
+          "file": "oreui-icons/sleep/dirthut-00.png",
+          "sha256": "2b47bf00de78aab673ca34caef51ed52ea39cbd1dc47830760a3d3a0cde6dc05",
+          "millis": 500
+        },
+        {
+          "file": "oreui-icons/sleep/dirthut-01.png",
+          "sha256": "1cd0e5c1f1b71ec4a4d73e19266e928a4106553ae21fed692d684707eb7f9b1d",
+          "millis": 500
+        }
+      ]
+    },
+    {
+      "key": "assets/sleep_dream_dirthut_still-b48a2d94356013a9e4dd.png",
+      "frames": [
+        {
+          "file": "oreui-icons/sleep/dirthut-still.png",
+          "sha256": "2b47bf00de78aab673ca34caef51ed52ea39cbd1dc47830760a3d3a0cde6dc05"
+        }
+      ]
+    },
+    {
+      "key": "assets/sleep_dream_pickaxe-52045d79bd091ad561e7.gif",
+      "frames": [
+        {
+          "file": "oreui-icons/sleep/pickaxe-00.png",
+          "sha256": "9f27d5df0dee0978d1b709ee2545aef90a992f17b38b3e4acf68073e8658ff22",
+          "millis": 500
+        },
+        {
+          "file": "oreui-icons/sleep/pickaxe-01.png",
+          "sha256": "0569cfa0e92a93c25d7402970edffae7bfac48ac90ca59e9185f131d6fb28a6f",
+          "millis": 500
+        }
+      ]
+    },
+    {
+      "key": "assets/sleep_dream_pickaxe_still-6613aa8d49affe4d26a8.png",
+      "frames": [
+        {
+          "file": "oreui-icons/sleep/pickaxe-still.png",
+          "sha256": "9f27d5df0dee0978d1b709ee2545aef90a992f17b38b3e4acf68073e8658ff22"
+        }
+      ]
+    },
+    {
+      "key": "assets/sleep_dream_poppy-30c798bd4883d33e12b0.gif",
+      "frames": [
+        {
+          "file": "oreui-icons/sleep/poppy-00.png",
+          "sha256": "a33a28447f2a5e7f120a51e0562b88a555b8f5e4b2673b31caaf3949cf2456d4",
+          "millis": 500
+        },
+        {
+          "file": "oreui-icons/sleep/poppy-01.png",
+          "sha256": "86defe290f95d4ab4aa90bcd0db891afd6323d5ebd5f6ea5030214bf058fc2e2",
+          "millis": 500
+        }
+      ]
+    },
+    {
+      "key": "assets/sleep_dream_poppy_still-3ca37e5ab78ed5b85b98.png",
+      "frames": [
+        {
+          "file": "oreui-icons/sleep/poppy-still.png",
+          "sha256": "a33a28447f2a5e7f120a51e0562b88a555b8f5e4b2673b31caaf3949cf2456d4"
+        }
+      ]
+    }
+  ]
+}

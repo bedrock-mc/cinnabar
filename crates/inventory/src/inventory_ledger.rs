@@ -6,6 +6,9 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
+/// Canonical item identity shared by inventory and activation presentation.
+pub const TOTEM_IDENTIFIER: &str = "minecraft:totem_of_undying";
+
 mod admission;
 mod auto_craft;
 mod bundles;
@@ -15,6 +18,7 @@ mod crafting_close;
 #[cfg(test)]
 mod crafting_tests;
 mod distribute;
+mod equipment;
 #[cfg(test)]
 mod fixed_window_tests;
 mod fuel;
@@ -36,6 +40,8 @@ mod merge_tests;
 mod moves;
 #[cfg(test)]
 mod moves_tests;
+#[cfg(test)]
+mod offhand_quick_move_tests;
 mod overlay;
 #[cfg(test)]
 mod overlay_tests;

@@ -1,32 +1,4 @@
-//! The current saved account's name and picture for the start screen; the picker itself
-//! is the OreUI modal in `oreui/accounts.rs`.
-
-use launcher::menu::MenuView;
-
-pub(super) fn current_name(view: &MenuView) -> &str {
-    if !view.feeds.profile.gamertag.is_empty() {
-        return &view.feeds.profile.gamertag;
-    }
-    view.feeds
-        .accounts
-        .iter()
-        .find(|account| Some(&account.id) == view.feeds.account_active_id.as_ref())
-        .map_or(view.display_name.as_str(), |account| {
-            account.gamertag.as_str()
-        })
-}
-
-pub(super) fn current_picture(view: &MenuView) -> Option<&str> {
-    if !view.feeds.profile.picture_path.is_empty() {
-        return Some(&view.feeds.profile.picture_path);
-    }
-    view.feeds
-        .accounts
-        .iter()
-        .find(|account| Some(&account.id) == view.feeds.account_active_id.as_ref())
-        .and_then(|account| account.picture_path.as_deref())
-        .filter(|path| !path.is_empty())
-}
+//! The OreUI account picker drawn through the presentation runtime.
 
 #[cfg(test)]
 mod tests {
@@ -34,43 +6,8 @@ mod tests {
         pack_harness::{drawn_texts, engine_presentation, menu_nodes},
         test_support::draw_menu_actions,
     };
-    use launcher::menu::{MenuAction, MenuDialog, MenuScreen, auth::AuthState};
-    use {super::*, launcher::menu::MenuView};
-
-    fn manager_view() -> MenuView {
-        let mut view = MenuView::new(true, "First".into());
-        view.auth_state = AuthState::Authenticated;
-        view.dialog = Some(MenuDialog::Accounts);
-        view.feeds.account_active_id = Some("first".into());
-        view.feeds.accounts = vec![
-            launcher::accounts::AccountProfile {
-                id: "first".into(),
-                gamertag: "First".into(),
-                picture_path: Some("first.png".into()),
-            },
-            launcher::accounts::AccountProfile {
-                id: "second".into(),
-                gamertag: "Second".into(),
-                picture_path: Some("second.png".into()),
-            },
-        ];
-        view
-    }
-
-    #[test]
-    fn home_portrait_uses_the_saved_xbox_picture_until_profile_arrives() {
-        let mut view = manager_view();
-        assert_eq!(current_picture(&view), Some("first.png"));
-        assert_eq!(current_name(&view), "First");
-        view.feeds.profile.picture_path = "fresh.png".into();
-        assert_eq!(current_picture(&view), Some("fresh.png"));
-        view.feeds.profile.picture_path.clear();
-        view.feeds.account_active_id = Some("second".into());
-        assert_eq!(current_picture(&view), Some("second.png"));
-        assert_eq!(current_name(&view), "Second");
-        view.feeds.profile.gamertag = "Fresh name".into();
-        assert_eq!(current_name(&view), "Fresh name");
-    }
+    use launcher::menu::{MenuAction, MenuScreen, auth::AuthState};
+    use launcher::test_support::saved_accounts_view;
 
     #[test]
     fn account_picker_draws_cached_gamerpic_pixels() {
@@ -100,7 +37,7 @@ mod tests {
                 .save(&picture)
                 .unwrap();
         }
-        let mut view = manager_view();
+        let mut view = saved_accounts_view();
         let path = picture.to_string_lossy().into_owned();
         view.feeds.accounts[0].picture_path = Some(path.clone());
         presentation.sync_menu_artwork(super::super::super::menu_artwork::view_paths(&view));
@@ -138,7 +75,7 @@ mod tests {
         let actions = draw_menu_actions(
             &player_state::PlayerState::new(1),
             &mut presentation,
-            &manager_view(),
+            &saved_accounts_view(),
         );
         let texts = drawn_texts(menu_nodes(&presentation));
         assert!(texts.iter().any(|text| text.contains("First")), "{texts:?}");
@@ -173,7 +110,7 @@ mod tests {
             eprintln!("skipping pending account popup test: missing local UI carrier; make assets");
             return;
         };
-        let mut view = manager_view();
+        let mut view = saved_accounts_view();
         view.feeds.account_adding = true;
         view.auth_state = AuthState::AwaitingCode {
             uri: "https://example.invalid/link".into(),
@@ -203,7 +140,7 @@ mod tests {
             return;
         };
         let player = player_state::PlayerState::new(1);
-        let mut view = manager_view();
+        let mut view = saved_accounts_view();
         view.feeds.account_adding = true;
         view.auth_state = AuthState::AwaitingCode {
             uri: "https://example.invalid/link".into(),

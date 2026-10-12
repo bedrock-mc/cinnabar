@@ -1,7 +1,6 @@
 use super::*;
 use render_api::primitive_shapes::*;
 
-use crate::alloc_count;
 #[path = "bench.rs"]
 mod bench;
 
@@ -46,14 +45,14 @@ fn steady_state_does_no_allocations_uploads_or_instance_rebuilds() {
     }
     flush(&mut store);
     let rebuilds = store.instance_rebuilds;
-    let allocations = alloc_count::thread_allocations();
+    let allocations = test_alloc::thread_allocations();
     for _ in 0..1_000 {
         assert!(!store.has_changes());
         assert_eq!(flush(&mut store), PrimitiveUploadStats::default());
         assert!(store.take_text_changes().is_empty());
         store.update_actors(|_| panic!("no actors are attached"));
     }
-    assert_eq!(alloc_count::thread_allocations(), allocations);
+    assert_eq!(test_alloc::thread_allocations(), allocations);
     assert_eq!(store.instance_rebuilds, rebuilds);
 }
 

@@ -16,9 +16,9 @@ fn depth_smaa_unchanged_filter_sync_allocates_nothing() {
         sync.initialize(&mut world);
         sync.run((), &mut world).unwrap();
         sync.run((), &mut world).unwrap();
-        let before = crate::alloc_count::thread_allocations();
+        let before = test_alloc::thread_allocations();
         sync.run((), &mut world).unwrap();
-        assert_eq!(crate::alloc_count::thread_allocations(), before);
+        assert_eq!(test_alloc::thread_allocations(), before);
     }
 }
 

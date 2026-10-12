@@ -64,7 +64,7 @@ mod tests {
         )));
         world.insert_resource(UiRuntimeResource(UiRuntime::new(1)));
         let mut presentation =
-            UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap();
+            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
         presentation.set_menu_view(Some(launcher::menu::MenuView::new(true, "Fixture".into())));
         world.insert_resource(UiPresentationResource(presentation));
         world.init_resource::<PreparedUiPublication>();

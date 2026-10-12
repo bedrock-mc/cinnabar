@@ -356,6 +356,9 @@ fn cohort_benches(c: &mut Criterion) {
     group.finish();
 }
 
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
 #[path = "chunk_costs/dispatch.rs"]
 mod dispatch;
 

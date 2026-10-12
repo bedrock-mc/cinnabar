@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use assets::{
-    AssetError, EntityDependencyResolution, EquipmentCategory, EquipmentTransform,
-    encode_entity_blob, encode_equipment_catalog_with_use_profiles,
+    AssetError, EntityDependencyResolution, EquipmentCategory, EquipmentItemFacts,
+    EquipmentTransform, encode_entity_blob, encode_equipment_catalog_with_use_profiles,
 };
 use pack_compiler::{
     compile_entity_assets_with_behavior_report, compile_entity_assets_with_report,
@@ -100,10 +100,12 @@ pub(super) fn compile_equipment_assets_command(
         entity_blob_sha256,
         bindings,
         &textures,
-        &item_use,
-        &item_attack,
-        &use_profiles,
-        &item_food,
+        EquipmentItemFacts {
+            item_use: &item_use,
+            item_attack: &item_attack,
+            item_use_overlays: &use_profiles,
+            item_food: &item_food,
+        },
     )?;
     let counts = EquipmentCounts {
         bindings: bindings.len(),

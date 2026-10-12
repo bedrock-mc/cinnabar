@@ -1,6 +1,5 @@
 mod aabb;
 mod actor_fluids;
-mod allocation_count;
 mod bamboo;
 mod bedsim_strata;
 mod block_effects;
@@ -31,3 +30,6 @@ mod surfaces;
 mod swim_jump_native;
 mod terrain;
 mod vertical_effects;
+
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;

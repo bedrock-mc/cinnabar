@@ -423,7 +423,7 @@ fn settings_first_frame_publishes_navigation_and_edit_controls() {
             bench.frame();
         }
         bench.view.screen = MenuScreen::Settings;
-        bench.view.settings_section = super::menu_screens::SETTINGS_SECTIONS
+        bench.view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
             .iter()
             .find_map(|(name, index)| (*name == "accessibility_forced_index").then_some(*index))
             .expect("registered accessibility section");

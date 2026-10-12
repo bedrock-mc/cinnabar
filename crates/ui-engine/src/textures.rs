@@ -15,7 +15,7 @@ use assets::RuntimeUiAssets;
 use json_ui::{NineSlice, TextureMeta, TextureSource};
 
 use crate::atlas::{ServerAtlas, native_sheets::Quads};
-use crate::sources::{LocalPack, RemoteSource, is_remote};
+use crate::sources::{ImageWork, LocalPack, RemoteSource, is_remote};
 use ui::IconRef;
 
 /// The start screen's title texture, which Cinnabar's own logo replaces.
@@ -37,6 +37,8 @@ pub struct TextureSet {
     /// Encoded carrier images too large for its sprite atlas.
     carrier: Option<Arc<RuntimeUiAssets>>,
     pub remote: Arc<dyn RemoteSource>,
+    /// The host's clock and threads every installed atlas runs its image work on.
+    work: ImageWork,
     /// Full-resolution art-page copies of server textures too big for a server page.
     full_res: HashMap<String, IconRef>,
     /// A client part's screen: only portable `textures/` paths, never a URL.
@@ -44,11 +46,16 @@ pub struct TextureSet {
 }
 
 impl TextureSet {
-    /// An empty set over carrier pages from `first_page`, downloading URLs through `remote`.
-    pub fn new(first_page: u16, remote: Arc<dyn RemoteSource>) -> Self {
+    /// An empty set over carrier pages from `first_page`, downloading URLs through `remote` and
+    /// running image work as `work` allows.
+    pub fn new(first_page: u16, remote: Arc<dyn RemoteSource>, work: ImageWork) -> Self {
         let pages = crate::pages::SERVER_UI_PAGES;
         Self {
-            atlas: Mutex::new(ServerAtlas::new(&[], None, pages).with_native_sheets(true)),
+            atlas: Mutex::new(
+                ServerAtlas::new(&[], None, pages)
+                    .with_native_sheets(true)
+                    .with_image_work(work.clone()),
+            ),
             metadata_base: 0,
             icons: HashMap::new(),
             first_page,
@@ -56,6 +63,7 @@ impl TextureSet {
             vanilla: None,
             carrier: None,
             remote,
+            work,
             full_res: HashMap::new(),
             confined: false,
         }
@@ -91,7 +99,8 @@ impl TextureSet {
     pub fn confined(&self, files: &[(String, Vec<u8>)], page: u16, pages: usize) -> Self {
         let atlas = ServerAtlas::new(files, None, pages)
             .with_fallbacks(self.vanilla.clone(), None)
-            .with_carrier(self.carrier.clone());
+            .with_carrier(self.carrier.clone())
+            .with_image_work(self.work.clone());
         Self {
             atlas: Mutex::new(atlas),
             metadata_base: self.metadata_revision().wrapping_add(1),
@@ -101,6 +110,7 @@ impl TextureSet {
             vanilla: self.vanilla.clone(),
             carrier: self.carrier.clone(),
             remote: Arc::clone(&self.remote),
+            work: self.work.clone(),
             full_res: HashMap::new(),
             confined: true,
         }
@@ -116,7 +126,8 @@ impl TextureSet {
         let atlas = atlas
             .with_native_sheets(!self.confined)
             .with_fallbacks(self.vanilla.clone(), Some(self.remote.clone()))
-            .with_carrier(self.carrier.clone());
+            .with_carrier(self.carrier.clone())
+            .with_image_work(self.work.clone());
         self.atlas = Mutex::new(atlas);
         self.server_page = server_page;
         self.full_res.clear();
@@ -437,7 +448,7 @@ mod review_tests {
             .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
             .unwrap();
         let assets = test_carrier();
-        let set = TextureSet::new(0, Arc::new(NoDownloads));
+        let set = TextureSet::new(0, Arc::new(NoDownloads), ImageWork::default());
         let atlas = ServerAtlas::new(&[("textures/ui/test.png".into(), png)], None, 1);
         let images = HashMap::from([(
             "textures/ui/test".into(),
@@ -467,7 +478,7 @@ mod review_tests {
     #[test]
     fn an_unpacked_local_file_is_not_missing() {
         let assets = test_carrier();
-        let set = TextureSet::new(0, Arc::new(NoDownloads));
+        let set = TextureSet::new(0, Arc::new(NoDownloads), ImageWork::default());
         let atlas = ServerAtlas::new(&[], None, 1);
         let textures = Textures {
             assets: &assets,

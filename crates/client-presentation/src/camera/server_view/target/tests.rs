@@ -84,9 +84,9 @@ fn missing_targets_wait_until_acquired_and_release_after_removal_or_far_distance
 fn target_updates_allocate_nothing_after_initialization() {
     let mut focus = TargetFocus::new(1, Vec3::ZERO, Quat::IDENTITY, TargetSettings::default());
     focus.advance(0.01, Vec3::ZERO, Some(actor(Vec3::X)));
-    let before = crate::test_allocations::count();
+    let before = test_alloc::thread_allocations();
     for _ in 0..1000 {
         focus.advance(0.01, Vec3::ZERO, Some(actor(Vec3::X)));
     }
-    assert_eq!(crate::test_allocations::count() - before, 0);
+    assert_eq!(test_alloc::thread_allocations() - before, 0);
 }

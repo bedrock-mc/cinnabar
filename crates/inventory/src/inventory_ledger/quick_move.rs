@@ -2,7 +2,8 @@
 
 use protocol::{NetworkItemStack, WindowKind};
 
-use super::cells::Cell;
+use super::cells::{Cell, Held};
+use super::equipment::equipment_admission;
 use super::gesture::{
     InventoryTarget, StackRequestActionKind, Submission, counted_merge, counted_transfer,
     has_meaningful_overlay,
@@ -23,7 +24,7 @@ pub(super) struct FurnaceRoute {
 
 /// Cells that hold one item however large the item's stack size is.
 fn slot_limit(cell: Cell) -> Option<u16> {
-    matches!(cell, Cell::Craft(14 | 27)).then_some(1)
+    matches!(cell, Cell::Armor(_) | Cell::Craft(14 | 27)).then_some(1)
 }
 
 impl PlayerInventoryLedger {
@@ -103,7 +104,7 @@ impl PlayerInventoryLedger {
             .ok_or(InventoryGestureError::EmptyGesture)?;
         let address = self.window_address();
         let candidates = destinations.map_or_else(
-            || self.quick_move_candidates(source, &from.stack, permits_storage),
+            || self.quick_move_candidates(source, &from, permits_storage),
             <[Cell]>::to_vec,
         );
         let furnace_route = destinations
@@ -254,9 +255,10 @@ impl PlayerInventoryLedger {
     fn quick_move_candidates(
         &self,
         source: Cell,
-        stack: &NetworkItemStack,
+        from: &Held,
         permits_storage: impl Fn(u8) -> bool,
     ) -> Vec<Cell> {
+        let stack = &from.stack;
         let id = self
             .negotiated_item_entry(stack.network_id)
             .map_or("", |entry| &*entry.identifier);
@@ -267,13 +269,16 @@ impl PlayerInventoryLedger {
                 .collect()
         };
         let Cell::Inventory(slot) = source else {
+            if source == Cell::Offhand {
+                return player(0..protocol::PLAYER_INVENTORY_SLOTS);
+            }
             let mut cells = player(protocol::HOTBAR_SLOT_COUNT..protocol::PLAYER_INVENTORY_SLOTS);
             cells.extend(player(0..protocol::HOTBAR_SLOT_COUNT));
             return cells;
         };
         let mut cells = match self.quick_move_window() {
             Some(kind) => self.window_destinations(kind, id, stack.network_id, stack.metadata),
-            None => self.equipment_destinations(id),
+            None => self.equipment_destinations(from),
         };
         cells.retain(|cell| !matches!(cell, Cell::Storage(slot) if !permits_storage(*slot)));
         if !cells.is_empty() {
@@ -286,18 +291,35 @@ impl PlayerInventoryLedger {
         }
     }
 
-    /// The empty armor or offhand cell an item equips into on the personal screen.
-    fn equipment_destinations(&self, id: &str) -> Vec<Cell> {
-        let cell = match item_roles::armor_row(id) {
-            Some(row) => Cell::Armor(row),
-            None if item_roles::bare(id) == "shield" => Cell::Offhand,
-            None => return Vec::new(),
-        };
-        if self.view().get(cell).is_none() && self.confirmed.contains(cell) {
-            vec![cell]
-        } else {
-            Vec::new()
-        }
+    /// The first equipment cell that admits an empty placement or a compatible merge.
+    fn equipment_destinations(&self, from: &Held) -> Vec<Cell> {
+        let stack = &from.stack;
+        let admission = equipment_admission(self.negotiated_item_entry(stack.network_id));
+        admission
+            .armor
+            .map(Cell::Armor)
+            .into_iter()
+            .chain((admission.offhand == Some(true)).then_some(Cell::Offhand))
+            .find(|cell| {
+                self.confirmed.contains(*cell)
+                    && self.view().get(*cell).is_none_or(|held| {
+                        if self.awaiting_identity(held)
+                            || has_meaningful_overlay(from.overlay.as_ref())
+                            || has_meaningful_overlay(held.overlay.as_ref())
+                        {
+                            return false;
+                        }
+                        match self.occupied_stack_relation(stack, &held.stack) {
+                            OccupiedStackRelation::Compatible { capacity } => {
+                                let capacity = slot_limit(*cell).unwrap_or(capacity).min(capacity);
+                                held.stack.count < capacity
+                            }
+                            _ => false,
+                        }
+                    })
+            })
+            .into_iter()
+            .collect()
     }
 
     /// The window cells a stack of `id` shift-clicks into.

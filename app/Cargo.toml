@@ -94,6 +94,8 @@ actor-animation = { path = "../crates/actor-animation" }
 image.workspace = true
 json-ui = { path = "../crates/json-ui" }
 meshing = { path = "../crates/meshing" }
+oreui = { path = "../crates/oreui" }
+mod-ui = { path = "../crates/mod-ui" }
 mod-host = { path = "../crates/mod-host", default-features = false }
 particles = { path = "../crates/particles" }
 protocol = { path = "../crates/protocol" }
@@ -114,6 +116,7 @@ url = "2"
 tokio.workspace = true
 ui = { path = "../crates/ui" }
 ui-engine = { path = "../crates/ui-engine" }
+ui-screens = { path = "../crates/ui-screens" }
 wgpu.workspace = true
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 world = { path = "../crates/world" }
@@ -132,6 +135,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+test-alloc = { path = "../crates/test-alloc" }
 client-shell = { path = "../crates/client-shell", features = ["test-support"] }
 client-interaction = { path = "../crates/client-interaction", features = ["test-support"] }
 assets = { path = "../crates/assets", features = ["test-support"] }
@@ -149,6 +153,7 @@ client-presentation = { path = "../crates/client-presentation", features = ["tes
 gameplay = { path = "../crates/gameplay", features = ["test-support"] }
 client-session = { path = "../crates/client-session", features = ["test-support"] }
 client-ui = { path = "../crates/client-ui", features = ["test-support"] }
+ui-engine = { path = "../crates/ui-engine", features = ["test-support"] }
 protocol = { path = "../crates/protocol", features = ["test-support"] }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 pack-compiler = { path = "../crates/pack-compiler" }

@@ -15,9 +15,9 @@ pub(super) fn cancel(
     presentation: &mut UiPresentationRuntime,
     deliver: bool,
 ) {
-    presentation.cancel_mod_hud_editor();
+    presentation.mod_ui_mut().cancel_mod_hud_editor();
     // Ownership loss cancels even an undelivered Save from the previous presentation.
-    let _ = presentation.take_mod_hud_editor_result();
+    let _ = presentation.mod_ui_mut().take_mod_hud_editor_result();
     if let Some(owner) = runtime.hud_editor_owner.take()
         && deliver
         && owner.host < runtime.hosts.host_count()
@@ -56,17 +56,17 @@ pub(super) fn guard(
         if !focused || absorbed || session != Some(owner.session) {
             let panel_owner = runtime.hosts.panel_owner();
             runtime.hosts.host_mut(panel_owner).set_panel_open(false);
-            presentation.set_mod_panel_open(false);
+            presentation.mod_ui_mut().set_mod_panel_open(false);
         }
     }
 }
 
 /// Routes a native result before the requesting guest receives its next callback.
 pub(super) fn collect(runtime: &mut ModRuntime, presentation: &mut UiPresentationRuntime) {
-    if let Some(result) = presentation.take_mod_hud_editor_result()
+    if let Some(result) = presentation.mod_ui_mut().take_mod_hud_editor_result()
         && let Some(owner) = runtime.hud_editor_owner
     {
-        if !presentation.mod_hud_editor_open() {
+        if !presentation.mod_ui().mod_hud_editor_open() {
             runtime.hud_editor_owner = None;
         }
         let _ = runtime
@@ -95,7 +95,10 @@ pub(super) fn publish(
             && index == panel_owner
             && runtime.hosts.host(index).panel_open()
             && runtime.hud_editor_owner.is_none()
-            && presentation.open_mod_hud_editor(&preview).is_ok()
+            && presentation
+                .mod_ui_mut()
+                .open_mod_hud_editor(&preview)
+                .is_ok()
         {
             runtime.hud_editor_owner = Some(Owner {
                 host: index,

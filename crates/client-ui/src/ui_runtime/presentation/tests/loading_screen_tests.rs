@@ -4,7 +4,7 @@ use json_ui::Draw;
 
 use super::engine_hud_tests::{engine_presentation, engine_presentation_with};
 use super::*;
-use crate::ui_runtime::presentation::LoadingStage;
+use ui::LoadingStage;
 
 fn texts(presentation: &UiPresentationRuntime) -> Vec<String> {
     presentation

@@ -291,7 +291,7 @@ fn diagnostics_sample_once_per_tick_and_skip_hidden_frames() {
 
 #[test]
 fn diagnostic_formatting_and_unchanged_target_states_reuse_storage() {
-    use crate::tests::alloc_count::thread_allocations;
+    use test_alloc::thread_allocations;
     let mut states = spatial::BlockStates::default();
     let mut retained = DebugLines::default();
     let mut spare = [Vec::new(), Vec::new()];
@@ -324,7 +324,7 @@ fn diagnostic_formatting_and_unchanged_target_states_reuse_storage() {
 
 #[test]
 fn diagnostic_rows_reuse_tail_buffers_after_row_counts_change() {
-    use crate::tests::alloc_count::thread_allocations;
+    use test_alloc::thread_allocations;
     let mut retained = DebugLines::default();
     let mut spare = [Vec::new(), Vec::new()];
     for _ in 0..2 {
@@ -351,8 +351,8 @@ fn diagnostic_rows_reuse_tail_buffers_after_row_counts_change() {
 
 #[test]
 fn warmed_diagnostic_publication_allocates_nothing_when_values_stay_equal() {
-    use crate::tests::alloc_count::thread_allocations;
     use bevy::ecs::system::{IntoSystem, System};
+    use test_alloc::thread_allocations;
 
     let mut world = World::new();
     world.insert_resource(ButtonInput::<KeyCode>::default());
@@ -394,7 +394,7 @@ fn warmed_diagnostic_publication_allocates_nothing_when_values_stay_equal() {
 
 #[test]
 fn gpu_diagnostics_rank_passes_without_allocating_or_discarding_zero_samples() {
-    use crate::tests::alloc_count::thread_allocations;
+    use test_alloc::thread_allocations;
     let passes = [
         (RuntimeStage::GpuFrame, Duration::from_millis(20)),
         (RuntimeStage::GpuUi, Duration::ZERO),
@@ -415,8 +415,9 @@ fn gpu_diagnostics_rank_passes_without_allocating_or_discarding_zero_samples() {
 
 #[test]
 fn covering_screens_skip_expensive_diagnostic_gathers() {
-    use client_ui::ui_runtime::{UiRuntime, presentation::LoadingStage};
+    use client_ui::ui_runtime::UiRuntime;
     use launcher::menu::{MenuScreen, MenuView};
+    use ui::LoadingStage;
     let mut app = App::new();
     app.insert_resource(ButtonInput::<KeyCode>::default())
         .insert_resource(Time::<Real>::default())
@@ -501,9 +502,9 @@ fn first_unchanged_diagnostic_tick_allocates_nothing() {
     world
         .resource_mut::<Time<Real>>()
         .advance_by(simulation_clock::TICK_DURATION);
-    let before = crate::tests::alloc_count::thread_allocations();
+    let before = test_alloc::thread_allocations();
     system.run((), &mut world).unwrap();
-    let allocations = crate::tests::alloc_count::thread_allocations() - before;
+    let allocations = test_alloc::thread_allocations() - before;
     assert_eq!(allocations, 0);
     assert!(
         !world
@@ -609,8 +610,8 @@ fn first_eligible_publication_samples_frame_counters() {
 }
 #[test]
 fn changed_diagnostic_rows_warm_both_buffers_before_the_next_unchanged_tick() {
-    use crate::tests::alloc_count::thread_allocations;
     use bevy::ecs::system::{IntoSystem, System};
+    use test_alloc::thread_allocations;
 
     let mut world = World::new();
     world.insert_resource(ButtonInput::<KeyCode>::default());

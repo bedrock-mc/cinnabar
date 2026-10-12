@@ -5,7 +5,8 @@ use std::{io::Cursor, sync::Arc};
 use assets::RuntimeUiAssets;
 
 use super::{frame, png, snapshot};
-use crate::ui_runtime::presentation::{LoadingStage, UiPresentationRuntime};
+use crate::ui_runtime::presentation::UiPresentationRuntime;
+use ui::LoadingStage;
 
 fn carrier() -> Arc<RuntimeUiAssets> {
     let root = super::pack_harness::scratch_dir("loading-carrier");
@@ -164,7 +165,8 @@ fn layout_pixel_scale(presentation: &UiPresentationRuntime) -> f32 {
 #[test]
 fn texture_only_pack_replacement_updates_loading_background_tile_sizes() {
     let player = player_state::PlayerState::new(1);
-    let mut presentation = UiPresentationRuntime::new(crate::test_support::fixture_font()).unwrap();
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.enable_json_ui(carrier()).unwrap();
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
     settled(&player, &mut presentation);
@@ -202,7 +204,8 @@ fn texture_only_pack_replacement_updates_loading_background_tile_sizes() {
 #[test]
 fn loading_frame_draws_brand_backdrop_and_animation_without_source_files() {
     let player = player_state::PlayerState::new(1);
-    let mut presentation = UiPresentationRuntime::new(crate::test_support::fixture_font()).unwrap();
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.enable_json_ui(carrier()).unwrap();
     presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
     let input = settled(&player, &mut presentation);

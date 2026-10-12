@@ -87,10 +87,9 @@ fn aggregate_state_and_byte_budgets_reject_before_expansion_without_spending_cre
 fn compiled_state_consumers_allocate_nothing() {
     let block = block();
     let expected = block.hashed_states();
-    let (fresh, before) = crate::test_allocations::measure(|| block.compile_states());
-    let ((shared, values), after) = crate::test_allocations::measure(|| {
-        (block.hashed_states(), block.state_values(1).unwrap())
-    });
+    let (fresh, before) = test_alloc::count(|| block.compile_states());
+    let ((shared, values), after) =
+        test_alloc::count(|| (block.hashed_states(), block.state_values(1).unwrap()));
     assert_eq!(fresh.len(), shared.len());
     assert_eq!(expected.as_ptr(), shared.as_ptr());
     assert!(Arc::ptr_eq(&shared[1].values, &values));
@@ -106,7 +105,7 @@ fn unsupported_definitions_share_an_empty_result_without_cache_admission() {
     Arc::make_mut(&mut next.visual).state_identity_incomplete = true;
     let _ = SharedStates::empty();
     let ((first, next), allocations) =
-        crate::test_allocations::measure(|| (first.hashed_states(), next.hashed_states()));
+        test_alloc::count(|| (first.hashed_states(), next.hashed_states()));
     assert!(first.is_empty() && next.is_empty());
     assert_eq!(allocations, 0);
 }

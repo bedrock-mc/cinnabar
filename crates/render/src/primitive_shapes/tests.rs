@@ -266,11 +266,11 @@ fn retained_renderer_has_zero_steady_work_and_changed_slot_bounded_churn() {
     let first = world.resource::<gpu::ShapeGpu>().work;
     assert_eq!(first.bytes, 1000 * gpu::INSTANCE_BYTES);
     assert_eq!(first.mesh_rebuilds, 1);
-    let allocated = crate::alloc_count::thread_allocations();
+    let allocated = test_alloc::thread_allocations();
     for _ in 0..10 {
         prepare.run((), &mut world).unwrap();
     }
-    assert_eq!(crate::alloc_count::thread_allocations() - allocated, 0);
+    assert_eq!(test_alloc::thread_allocations() - allocated, 0);
     assert_eq!(world.resource::<gpu::ShapeGpu>().work, first);
     world
         .resource::<PrimitiveShapesScene>()
@@ -434,7 +434,7 @@ fn retained_bind_groups_allocate_nothing() {
             .len(),
         1
     );
-    let before = crate::alloc_count::thread_allocations();
+    let before = test_alloc::thread_allocations();
     bind.run((), world).unwrap();
-    assert_eq!(crate::alloc_count::thread_allocations() - before, 0);
+    assert_eq!(test_alloc::thread_allocations() - before, 0);
 }

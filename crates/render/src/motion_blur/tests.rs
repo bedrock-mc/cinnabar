@@ -95,9 +95,9 @@ fn exposure_uses_real_elapsed_time_and_history_allocates_nothing() {
     assert!((projected_velocity(1.0 / 60.0) - projected_velocity(1.0 / 240.0)).abs() < 0.00001);
     let mut previous = history(Vec3::ZERO, 0.0, 0);
     let current = history(Vec3::X, 0.1, 0);
-    let start = crate::alloc_count::thread_allocations();
+    let start = test_alloc::thread_allocations();
     std::hint::black_box(previous.advance(current, settings()));
-    assert_eq!(crate::alloc_count::thread_allocations(), start);
+    assert_eq!(test_alloc::thread_allocations(), start);
 }
 
 #[test]
@@ -127,9 +127,9 @@ fn disabled_or_unprepared_exposure_encodes_nothing_across_toggles() {
     crate::ui_render::install_overlay_graph(&mut world);
     for enabled in [false, true, true, false, false] {
         configure_graph(&mut world, enabled);
-        let before = crate::alloc_count::thread_allocations();
+        let before = test_alloc::thread_allocations();
         configure_graph(&mut world, enabled);
-        assert_eq!(before, crate::alloc_count::thread_allocations());
+        assert_eq!(before, test_alloc::thread_allocations());
         crate::render_test_support::assert_empty_render(&mut world);
     }
 }

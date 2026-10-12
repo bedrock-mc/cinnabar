@@ -1,6 +1,35 @@
 use super::*;
 use assets::*;
 
+#[test]
+fn barrel_models_still_read_carried_texture_overrides() {
+    let (compiled, records, directory) =
+        crate::compiler::tests::barrel::compile_barrels_with(None, false, false);
+    let path = directory.path().join("blocks.json");
+    let mut entries: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    entries["barrel"]["carried_textures"] = "trapdoor".into();
+    std::fs::write(path, serde_json::to_vec(&entries).unwrap()).unwrap();
+    let runtime = RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap();
+    let blocks = super::blocks::IconBlocks::read(directory.path()).unwrap();
+    let record = records
+        .iter()
+        .find(|r| r.name.as_ref() == "minecraft:barrel")
+        .unwrap();
+    let visual = BlockVisualId(record.sequential_id);
+    assert!(
+        blocks.is_carried_cube(&runtime, visual),
+        "full-cube barrel admits carried artwork"
+    );
+    let tiles = blocks
+        .carried_cube_tiles(directory.path(), visual)
+        .unwrap()
+        .unwrap();
+    for tile in tiles {
+        assert_eq!(tile.rgba8[0], 50, "carried sprite overrides world artwork");
+    }
+}
+
 fn cube_source(flags: u32) -> CompiledAssets {
     let side = u32::from(BLOCK_ITEM_FACE_SIDE);
     CompiledAssets {

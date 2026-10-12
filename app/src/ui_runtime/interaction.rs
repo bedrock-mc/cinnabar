@@ -35,10 +35,9 @@ use client_shell::menu::settings_options::control_bindings::{
 };
 use ui::{ChatEditor, PointerPhase, UiAction, UiPoint};
 
-use client_ui::ui_runtime::presentation::{
-    UiPresentationRuntime, inventory_pointer::InventoryCellHit,
-};
+use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 use client_ui::ui_runtime::{PlatformClipboard, UiRuntime};
+use ui_screens::container_actions::InventoryCellHit;
 
 use client_shell::{
     physical_input::{keyboard_key, keyboard_usage},
@@ -237,14 +236,15 @@ fn route_press(
         && button == MouseButton::Left
         && let Some(view) = presentation.as_deref_mut()
     {
-        view.focus_mod_screen_pointer(pointer.0, pointer.1);
+        view.mod_ui_mut()
+            .focus_mod_screen_pointer(pointer.0, pointer.1);
     }
     let mod_text = presentation
         .as_deref()
-        .is_some_and(UiPresentationRuntime::mod_text_focused);
+        .is_some_and(|view| view.mod_ui().mod_text_focused());
     let mod_view = presentation
         .as_deref()
-        .is_some_and(UiPresentationRuntime::mod_view_shown);
+        .is_some_and(|view| view.mod_ui().mod_view_shown());
     if !runtime.chat_focused() && (!runtime.screen_state().text_focused() || mod_view) && !mod_text
     {
         if binding_mouse_button(menu, "key.inventory", button) {
@@ -452,7 +452,7 @@ pub(crate) fn drive_chat_keyboard_input(
         || emote_input.is_some_and(|consumed| consumed.0)
         || presentation
             .as_ref()
-            .is_some_and(|view| view.mod_panel_open())
+            .is_some_and(|view| view.mod_ui().mod_panel_open())
     {
         modifiers.reset_all();
         keyboard_messages.clear();
@@ -509,14 +509,15 @@ pub(crate) fn drive_chat_keyboard_input(
         && mouse_buttons.just_pressed(MouseButton::Left)
         && let Some(view) = presentation.as_deref_mut()
     {
-        view.focus_mod_screen_pointer(pointer.0, pointer.1);
+        view.mod_ui_mut()
+            .focus_mod_screen_pointer(pointer.0, pointer.1);
     }
     let mod_text = presentation
         .as_deref()
-        .is_some_and(|view| view.mod_text_focused());
+        .is_some_and(|view| view.mod_ui().mod_text_focused());
     let mod_view = presentation
         .as_deref()
-        .is_some_and(|view| view.mod_view_shown());
+        .is_some_and(|view| view.mod_ui().mod_view_shown());
     if !runtime.chat_focused() && (!runtime.screen_state().text_focused() || mod_view) && !mod_text
     {
         if (mouse_bindings && binding_mouse(menu.as_deref(), "key.inventory", &mouse_buttons))
@@ -626,7 +627,7 @@ pub(crate) fn drive_chat_keyboard_input(
             consumed_gameplay = true;
             if presentation
                 .as_deref()
-                .is_some_and(|view| view.mod_text_focused())
+                .is_some_and(|view| view.mod_ui().mod_text_focused())
             {
                 // A player mod's edit box takes typing and Escape (`modding`).
                 continue;

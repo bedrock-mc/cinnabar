@@ -89,6 +89,8 @@ impl UiPresentationRuntime {
             },
         );
         if let Some(style) = self
+            .screens
+            .mod_ui
             .mod_actor_style()
             .and_then(|style| style.nametags.as_ref())
         {

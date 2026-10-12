@@ -42,7 +42,8 @@ mod tree;
 mod widgets;
 
 #[cfg(test)]
-mod allocation_count;
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
 pub use anim::{
     AnimEvent, AnimGraph, AnimKind, AnimNode, Animated, Animator, ControlAnims, Easing, FlipWrite,

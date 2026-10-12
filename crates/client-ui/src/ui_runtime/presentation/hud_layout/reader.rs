@@ -3,10 +3,9 @@
 use ui::{TextLayoutRequest, TextStyle};
 
 use super::{HudFrame, HudLayout, UiPresentationError, UiRuntime};
-use crate::ui_runtime::presentation::inventory_pointer::{InventoryCellHit, InventoryScreen};
-use crate::ui_runtime::presentation::screens::{
-    self, PAGE_TEXT_ORIGIN, PAGE_TEXT_WIDTH, ReaderButton, Widget,
-};
+use crate::ui_runtime::presentation::inventory_pointer::InventoryScreen;
+use crate::ui_runtime::presentation::screens::{self, PAGE_TEXT_ORIGIN, PAGE_TEXT_WIDTH};
+use ui_screens::container_actions::{InventoryCellHit, ReaderButton, Widget};
 
 const PAGE_COLOR: [u8; 4] = [229, 213, 170, 255];
 const PAGE_EDGE: [u8; 4] = [128, 96, 56, 255];

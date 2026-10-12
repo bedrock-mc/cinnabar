@@ -520,9 +520,9 @@ mod tests {
             (gpu.texture_uploads, gpu.uniform_uploads, gpu.bind_rebuilds),
             (1, 1, 1)
         );
-        let before = crate::alloc_count::thread_allocations();
+        let before = test_alloc::thread_allocations();
         system.run((), app.world_mut()).unwrap();
-        assert_eq!(crate::alloc_count::thread_allocations() - before, 0);
+        assert_eq!(test_alloc::thread_allocations() - before, 0);
         let gpu = app.world().resource::<HighlightGpu>();
         assert_eq!(
             (gpu.texture_uploads, gpu.uniform_uploads, gpu.bind_rebuilds),
@@ -613,7 +613,7 @@ mod tests {
                     output: None,
                 };
                 pipeline.prewarm(cache, warm, &mut ids).unwrap();
-                let before = crate::alloc_count::thread_allocations();
+                let before = test_alloc::thread_allocations();
                 for occluded in [true, false] {
                     let key = PipelineKey {
                         msaa,
@@ -623,7 +623,7 @@ mod tests {
                     let drawn = pipeline.variants.specialize(cache, key).unwrap();
                     assert!(ids.contains(&drawn));
                 }
-                assert_eq!(crate::alloc_count::thread_allocations() - before, 0);
+                assert_eq!(test_alloc::thread_allocations() - before, 0);
             });
     }
 

@@ -39,6 +39,7 @@ fn sprite_sidecar_advances_authored_frames_and_loops() {
     let mut set = TextureSet::new(
         0,
         crate::ui_runtime::presentation::forms::texture_sources::downloads(),
+        crate::ui_runtime::presentation::forms::texture_sources::image_work(),
     );
     set.set_atlas(ServerAtlas::new(&files, None, 1), 0);
     let atlas = set.lock();

@@ -435,7 +435,7 @@ fn native_hand_unchanged_sampling_reuses_the_owned_pose_without_work() {
         ..Default::default()
     });
     let stats = stream.authority().actor_animation_stats();
-    let allocated = crate::test_allocations::count();
+    let allocated = test_alloc::thread_allocations();
     let [previous, current] = cache
         .native_pose
         .sample(
@@ -448,7 +448,7 @@ fn native_hand_unchanged_sampling_reuses_the_owned_pose_without_work() {
         )
         .expect("retained sampled native pose");
     assert_eq!(
-        crate::test_allocations::count() - allocated,
+        test_alloc::thread_allocations() - allocated,
         0,
         "unchanged sampling must reuse its conversion"
     );

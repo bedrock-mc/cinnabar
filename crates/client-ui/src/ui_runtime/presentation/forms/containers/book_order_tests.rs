@@ -5,7 +5,11 @@ use std::sync::Arc;
 use json_ui::{BindState, EmptyLibrary, ResolvedControl, bind_stateful};
 use serde_json::{Value, json};
 
-use super::*;
+use protocol::NetworkItemStack;
+use ui::IconRef;
+use ui_screens::containers::{ScreenLayout, screen_data};
+
+use super::{ContainerAuthority, HudFrame, UiRuntime, container_frame};
 
 const BOOK: &str = "recipe_book";
 
@@ -111,9 +115,8 @@ fn moving_an_inventory_item_keeps_the_recipe_book_icons_and_layout() {
             ));
         let mut icons = Vec::new();
         let data = screen_data(
-            &player,
-            &runtime,
-            &frame,
+            &ContainerAuthority::new(&player, &runtime),
+            &container_frame(&frame),
             ScreenLayout::Personal { book: true },
             "",
             &mut icons,

@@ -1,14 +1,16 @@
-//! Installed-pack image lookup with bounded worker reads for large sources.
+//! Installed-pack image lookup with bounded worker reads for large sources, or inline reads when
+//! the host has no workers.
 
 use super::{IMAGE_EXTENSIONS, MAX_EXTRA, MAX_PACK_TEXTURE_BYTES, ServerAtlas, Source, source};
 use crate::sources::LocalPack;
 
-/// Tries extensions in precedence order; an inline lookup stops before reading a large file.
+/// Tries extensions in precedence order; with `defer_large` it stops before reading a large file
+/// and reports the lookup unsettled.
 pub(super) fn read(
     root: &dyn LocalPack,
     relative: &str,
     limit: u64,
-    inline: bool,
+    defer_large: bool,
 ) -> (Option<Source>, bool) {
     for extension in IMAGE_EXTENSIONS {
         let path = format!("{relative}{extension}");
@@ -18,7 +20,7 @@ pub(super) fn read(
         if len > resource_pack::MAX_FILE_BYTES {
             continue;
         }
-        if inline && len > MAX_PACK_TEXTURE_BYTES {
+        if defer_large && len > MAX_PACK_TEXTURE_BYTES {
             return (None, false);
         }
         if len > limit {
@@ -26,7 +28,7 @@ pub(super) fn read(
         }
         #[cfg(test)]
         super::LOCAL_READS.with(|reads| reads.borrow_mut().push(path.clone()));
-        let limit = if inline {
+        let limit = if defer_large {
             limit.min(MAX_PACK_TEXTURE_BYTES)
         } else {
             limit
@@ -42,7 +44,8 @@ pub(super) fn read(
 }
 
 impl ServerAtlas {
-    /// Resolves carrier bytes first and defers newly large installed images without caching a miss.
+    /// Resolves carrier bytes first and defers newly large installed images to a worker without
+    /// caching a miss; a host without workers reads them here.
     pub(super) fn local_source(&self, key: &str) -> (Option<Source>, bool) {
         let relative = key.strip_prefix(super::VANILLA_IN_PACKAGE).unwrap_or(key);
         if !key.starts_with("textures/") && relative == key {
@@ -59,7 +62,7 @@ impl ServerAtlas {
             return (None, true);
         };
         let limit = self.source_read_limit();
-        let result = read(root.as_ref(), relative, limit, true);
+        let result = read(root.as_ref(), relative, limit, self.work.workers);
         if !result.1 {
             self.local_reads.request_local(key, root, relative, limit);
         }

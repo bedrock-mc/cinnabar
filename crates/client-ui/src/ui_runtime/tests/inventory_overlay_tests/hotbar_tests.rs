@@ -170,7 +170,7 @@ fn session_reset_presents_no_hotbar_cells_from_either_store() {
 #[test]
 fn resolved_hotbar_shortcut_swaps_both_cells_without_waiting_for_a_response() {
     use crate::ui_runtime::interaction::dispatch_inventory_key;
-    use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
+    use ui_screens::container_actions::InventoryCellHit;
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = drained_inventory_runtime(&mut player);
     let hit = Some(InventoryCellHit::Player(3));
@@ -227,7 +227,7 @@ fn resolved_hotbar_shortcut_swaps_both_cells_without_waiting_for_a_response() {
 #[test]
 fn focused_inventory_text_does_not_dispatch_drop_requests() {
     use crate::ui_runtime::interaction::dispatch_inventory_key;
-    use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
+    use ui_screens::container_actions::InventoryCellHit;
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = drained_inventory_runtime(&mut player);
     runtime.screen_state_mut().search_focused = true;

@@ -50,7 +50,7 @@ use {
     },
     client_shell::menu::{MenuClipboard, MenuRuntime},
     client_state::{RuntimeSettings, SemanticInputSnapshot},
-    client_ui::test_support::fixture_font,
+    ui_engine::test_support::fixture_font,
 };
 
 mod boss_lifetime;

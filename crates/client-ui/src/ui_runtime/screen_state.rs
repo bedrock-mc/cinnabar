@@ -8,8 +8,8 @@ use creative_filter::CreativeFilterCache;
 pub use creative_filter::{CreativeEntries, creative_entries};
 
 use super::inventory_drag::InventoryPointer;
-use super::presentation::inventory_pointer::InventoryCellHit;
-use super::presentation::screens::{GRID_CELLS, GRID_COLUMNS, SEARCH_TAB};
+use super::presentation::screens::{GRID_CELLS, GRID_COLUMNS};
+use ui_screens::container_actions::{InventoryCellHit, SEARCH_TAB};
 
 /// Longest creative search text.
 const MAX_SEARCH_CHARS: usize = 32;

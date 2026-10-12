@@ -40,11 +40,10 @@ impl NetworkSession for ReplaySession {
         let sent = self.sent.clone();
         Ok(PacketOutbound::new(move |packet| {
             let selected = Instant::now();
-            let allocations = crate::session::tests::alloc_count::thread_allocations();
+            let allocations = test_alloc::thread_allocations();
             let wire = protocol::encode(&packet).unwrap();
             let completed = Instant::now();
-            let allocations =
-                crate::session::tests::alloc_count::thread_allocations() - allocations;
+            let allocations = test_alloc::thread_allocations() - allocations;
             sent.send(Sent {
                 selected,
                 completed,
@@ -61,11 +60,11 @@ impl NetworkSession for ReplaySession {
         let Some(wire) = self.wire.as_ref() else {
             return future::pending().await;
         };
-        let allocations = crate::session::tests::alloc_count::thread_allocations();
+        let allocations = test_alloc::thread_allocations();
         let started = Instant::now();
         let event = decode_event(wire.clone(), dimension);
         let elapsed = started.elapsed();
-        let allocations = crate::session::tests::alloc_count::thread_allocations() - allocations;
+        let allocations = test_alloc::thread_allocations() - allocations;
         self.decoded.lock().unwrap().push(Decoded {
             elapsed,
             allocations,
