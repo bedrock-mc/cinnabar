@@ -17,13 +17,14 @@ pub(super) fn collect_server_ui(view: &LayeredPackView) -> Option<Arc<ServerUiPa
     let mut total = 0usize;
     let mut declared = BTreeSet::new();
     let mut pack = ServerUiPack::default();
-    pack.item_glint =
-        pack_runtime::pack_textures::decode_pack_texture(view, assets::ITEM_GLINT_TEXTURE_PATH)
-            .and_then(|image| {
-                render_model::UiTexturePage::owned([image.width, image.height], image.rgba8.into())
-                    .ok()
-            })
-            .map(Arc::new);
+    pack.item_glint = pack_runtime::pack_textures::decode_pack_texture(
+        view,
+        assets::entity::ITEM_GLINT_TEXTURE_IDENTIFIER,
+    )
+    .and_then(|image| {
+        render_model::UiTexturePage::owned([image.width, image.height], image.rgba8.into()).ok()
+    })
+    .map(Arc::new);
     pack.splashes = view
         .read_layers_capped(SPLASH_RESOURCE_PATH, MAX_SPLASH_SOURCE_BYTES)
         .filter_map(|bytes| {
