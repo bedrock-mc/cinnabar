@@ -18,8 +18,8 @@ use client_ui::ui_runtime::UiRuntime;
 use {
     crate::{
         app::{
-            configure_acceptance_finish_system, configure_client_frame_schedule,
-            configure_client_production_frame_systems,
+            configure_client_frame_schedule, configure_client_production_frame_systems,
+            session::configure_finish_system,
         },
         runtime::world::{ClientWorld, TransferNotice, reconcile_world_stream_before_physics},
         session::{drive_session, follow_server_transfer, recover_session_failure},
@@ -454,7 +454,7 @@ fn production_schedule_reads_session_audio_after_the_world_stream_writer() {
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
     configure_client_production_frame_systems(&mut app);
-    configure_acceptance_finish_system(&mut app);
+    configure_finish_system(&mut app);
     let schedules = app.world().resource::<bevy::ecs::schedule::Schedules>();
     let graph = schedules
         .get(Update)
