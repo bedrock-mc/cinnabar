@@ -6,10 +6,7 @@
 use super::{SLOTS, mark, readback::ReadbackRing};
 use crate::device_poll::FrameSubmissions;
 use bevy::{
-    prelude::{
-        IntoScheduleConfigs, Local, Res, ResMut, Resource, Result, SubApp, World, info,
-        resource_exists,
-    },
+    prelude::{IntoScheduleConfigs, Res, ResMut, Resource, SubApp, World, info, resource_exists},
     render::{
         Render, RenderStartup, RenderSystems,
         renderer::{RenderContext, RenderDevice, RenderQueue},
