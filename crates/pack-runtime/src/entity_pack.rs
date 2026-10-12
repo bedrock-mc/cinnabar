@@ -121,21 +121,22 @@ fn compile_encoded(
             "server pack entities are incomplete"
         );
     }
-    let equipment = if compiled.equipment_bindings.is_empty() {
-        None
-    } else {
-        match RuntimeEquipmentCatalog::from_parts(
-            compiled.identity,
-            compiled.equipment_bindings,
-            compiled.equipment_textures,
-        ) {
-            Ok(catalog) => Some(Arc::new(catalog)),
-            Err(error) => {
-                tracing::warn!(%error, "server pack attachables were rejected");
-                None
+    let equipment =
+        if compiled.equipment_bindings.is_empty() && compiled.equipment_textures.is_empty() {
+            None
+        } else {
+            match RuntimeEquipmentCatalog::from_parts(
+                compiled.identity,
+                compiled.equipment_bindings,
+                compiled.equipment_textures,
+            ) {
+                Ok(catalog) => Some(Arc::new(catalog)),
+                Err(error) => {
+                    tracing::warn!(%error, "server pack attachables were rejected");
+                    None
+                }
             }
-        }
-    };
+        };
     let built = if encode {
         RuntimeEntityAssets::from_compiled_encoded(compiled.entities)
     } else {

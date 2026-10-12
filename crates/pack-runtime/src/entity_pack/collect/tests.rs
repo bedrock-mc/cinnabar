@@ -3,6 +3,35 @@ use std::io::Write;
 use serde_json::json;
 
 #[test]
+fn shared_glint_overrides_are_collected_without_json_references() {
+    let base = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(base.path().join("textures/misc")).unwrap();
+    for identifier in assets::entity::GLINT_TEXTURE_IDENTIFIERS {
+        let png = format!("{identifier}.png");
+        let tga = format!("{identifier}.tga");
+        std::fs::write(base.path().join(&png), b"startup glint").unwrap();
+        let view = resource_pack::LayeredPackView::tracked(crate::test_support::stack(&[(
+            tga.as_str(),
+            b"server glint",
+        )]));
+        let files = super::collect_files(&view, None, Some(base.path()));
+        assert!(
+            files
+                .iter()
+                .any(|(path, bytes)| path.as_ref() == tga && bytes == b"server glint")
+        );
+        assert!(!files.iter().any(|(path, _)| path.as_ref() == png));
+        let removed = resource_pack::LayeredPackView::new(crate::test_support::stack(&[]));
+        let files = super::collect_files(&removed, None, Some(base.path()));
+        assert!(
+            files
+                .iter()
+                .any(|(path, bytes)| path.as_ref() == png && bytes == b"startup glint")
+        );
+    }
+}
+
+#[test]
 fn resource_pack_texture_only_armor_inherits_its_vanilla_attachable() {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir(root.path().join("attachables")).unwrap();

@@ -18,6 +18,8 @@ pub struct ServerUiPack {
     pub splashes: Arc<[ui_screens::menu_renderers::splashes::SplashSource]>,
     /// Winning texture files read up front (fixture packs).
     pub textures: Vec<(String, Vec<u8>)>,
+    /// Item glint pixels decoded on the pack worker, independent of item icon pages.
+    pub item_glint: Option<Arc<render_model::UiTexturePage>>,
     /// The session's pack stack, which texture files read from on first draw.
     pub view: Option<resource_pack::LayeredPackView>,
     pub catalog: Option<Arc<json_ui::Catalog>>,

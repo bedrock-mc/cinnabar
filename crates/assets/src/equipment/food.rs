@@ -57,6 +57,7 @@ mod tests {
             identifier: food.identifier.clone(),
             duration_ticks: Some(20),
             food_can_always_eat: Some(false),
+            use_modifiers_present: true,
             ..Default::default()
         };
         let bytes = encode_equipment_catalog_with_use_profiles(

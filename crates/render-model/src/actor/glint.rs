@@ -40,6 +40,9 @@ impl Default for ActorGlint {
 }
 
 impl ActorGlint {
+    /// Shared purple modulation for actor and UI item enchantment textures.
+    pub const TINT_RGB: [f32; 3] = [0.38, 0.19, 0.608];
+
     /// Item glint over a sprite spanning `span` of its texture in UV units, as vanilla scales
     /// atlas sprites: the glint covers each sprite at [`ITEM_GLINT_UV_SCALE`].
     #[must_use]

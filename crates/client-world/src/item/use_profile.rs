@@ -2,8 +2,8 @@
 
 use super::*;
 use assets::item_use::{
-    ItemConsumption, ItemProjectileRole, ItemUseDurationRule, ItemUseKind, ItemUseProfile,
-    ItemUseRequirement,
+    DEFAULT_USE_MOVEMENT_MODIFIER, ItemConsumption, ItemProjectileRole, ItemUseDurationRule,
+    ItemUseKind, ItemUseProfile, ItemUseRequirement,
 };
 
 /// A category identity belongs to one effective registry admission, never a leaked string.
@@ -199,6 +199,7 @@ fn overlay_components(profile: &mut ItemUseProfile, components: &protocol::ItemC
                 _ => ItemConsumption::None,
             })
             .or_else(|| components.food.then_some(ItemConsumption::Eat)),
+        use_modifiers_present: components.use_modifiers_present,
         movement_modifier_bits: components.use_movement_modifier_bits,
         cooldown: components.use_cooldown.as_ref().map(|cooldown| {
             assets::item_use::ItemUseCategory {
@@ -222,7 +223,7 @@ fn overlay_authored(
             duration: ItemUseDurationRule::Declared,
             requirement: ItemUseRequirement::Nothing,
             consumption: ItemConsumption::Unresolved,
-            movement_bits: 1.0_f64.to_bits(),
+            movement_bits: DEFAULT_USE_MOVEMENT_MODIFIER.to_bits(),
             cooldown: None,
             projectile: ItemProjectileRole::None,
             duration_alias: None,
@@ -254,6 +255,8 @@ fn overlay_authored(
     }
     if let Some(bits) = overlay.movement_modifier_bits {
         *movement_bits = bits;
+    } else if overlay.use_modifiers_present {
+        *movement_bits = 1.0_f64.to_bits();
     }
     if let Some(authored) = &overlay.cooldown {
         *cooldown = Some(authored.clone());
@@ -418,6 +421,84 @@ mod tests {
         assert_eq!(profile.requirement, ItemUseRequirement::Nothing);
         assert_eq!(profile.consumption, ItemConsumption::Unresolved);
         assert_eq!(store.item_use_profile(15001).kind, None);
+    }
+
+    #[test]
+    fn custom_food_without_use_modifiers_keeps_the_default_slowdown() {
+        let mut store = ItemStateStore::diagnostic();
+        assert!(store.apply_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([entry(
+                15000,
+                "fixture:custom_food",
+                protocol::ItemComponents {
+                    food: true,
+                    food_can_always_eat: Some(true),
+                    use_duration_ticks: Some(32),
+                    ..Default::default()
+                },
+            )]),
+        }));
+        let profile = store.item_use_profile(15000);
+        assert_eq!(profile.kind, Some(ItemUseKind::Hold));
+        assert_eq!(profile.consumption, ItemConsumption::Eat);
+        assert_eq!(profile.ticks, Some(32));
+        assert_eq!(profile.movement, DEFAULT_USE_MOVEMENT_MODIFIER);
+    }
+
+    #[test]
+    fn a_present_use_modifiers_component_supplies_its_neutral_default() {
+        let mut store = ItemStateStore::diagnostic();
+        for (network_id, identifier) in [
+            (15000, "fixture:custom_food"),
+            (15001, "minecraft:golden_apple"),
+        ] {
+            assert!(store.apply_registry(protocol::ItemRegistryEvent {
+                entries: Arc::from([entry(
+                    network_id,
+                    identifier,
+                    protocol::ItemComponents {
+                        food: true,
+                        food_can_always_eat: Some(true),
+                        use_duration_ticks: Some(32),
+                        use_modifiers_present: true,
+                        ..Default::default()
+                    },
+                )]),
+            }));
+            let profile = store.item_use_profile(network_id);
+            assert_eq!(profile.kind, Some(ItemUseKind::Hold));
+            assert_eq!(profile.movement, 1.0);
+        }
+    }
+
+    #[test]
+    fn authored_food_uses_the_same_component_presence_defaults_as_wire_food() {
+        for (present, modifier, expected) in [
+            (false, None, DEFAULT_USE_MOVEMENT_MODIFIER),
+            (true, None, 1.0),
+            (true, Some(0.0_f64.to_bits()), 0.0),
+            (true, Some(0.75_f64.to_bits()), 0.75),
+        ] {
+            let mut store = ItemStateStore::diagnostic();
+            assert!(store.apply_registry(protocol::ItemRegistryEvent {
+                entries: Arc::from([entry(15000, "fixture:authored_food", Default::default())]),
+            }));
+            store.set_use_overlays(Arc::new(BTreeMap::from([(
+                Box::from("fixture:authored_food"),
+                assets::equipment::CompiledItemUseOverlay {
+                    identifier: Box::from("fixture:authored_food"),
+                    duration_ticks: Some(32),
+                    food_can_always_eat: Some(true),
+                    consumption: Some(ItemConsumption::Eat),
+                    use_modifiers_present: present,
+                    movement_modifier_bits: modifier,
+                    cooldown: None,
+                },
+            )])));
+            let profile = store.item_use_profile(15000);
+            assert_eq!(profile.kind, Some(ItemUseKind::Hold));
+            assert_eq!(profile.movement, expected);
+        }
     }
 
     #[test]

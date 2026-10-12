@@ -4,10 +4,14 @@ mod armor;
 mod atlas;
 mod display;
 mod first_person;
+#[cfg(any(test, feature = "test-support"))]
+mod frame_raster;
 #[cfg(test)]
 mod frames;
 mod input;
 mod runtime;
+#[cfg(feature = "test-support")]
+pub mod test_support;
 #[cfg(test)]
 mod tests;
 

@@ -246,6 +246,12 @@ fn raster(
         min_filter: FilterMode::Linear,
         ..Default::default()
     });
+    let glint_view = texture.create_view(&TextureViewDescriptor {
+        dimension: Some(TextureViewDimension::D2),
+        base_array_layer: 0,
+        array_layer_count: Some(1),
+        ..Default::default()
+    });
     let bindings = [
         BindGroupEntry {
             binding: 0,
@@ -266,6 +272,14 @@ fn raster(
         BindGroupEntry {
             binding: 4,
             resource: format.as_entire_binding(),
+        },
+        BindGroupEntry {
+            binding: 5,
+            resource: BindingResource::TextureView(&glint_view),
+        },
+        BindGroupEntry {
+            binding: 6,
+            resource: BindingResource::Sampler(&linear),
         },
     ];
     let values = |position: bool| {

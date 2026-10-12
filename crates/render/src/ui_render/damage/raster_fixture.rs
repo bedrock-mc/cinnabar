@@ -15,6 +15,7 @@ const FORMAT: wgpu::TextureFormat = super::super::super::composite::UI_LAYER_FOR
 pub(super) struct Raster {
     pub(super) gpu: Gpu,
     pub(super) binding: wgpu::BindGroup,
+    pub(super) item_glint: wgpu::Texture,
     pub(super) materials: [wgpu::RenderPipeline; 4],
     pub(super) clear: wgpu::RenderPipeline,
 }
@@ -205,6 +206,33 @@ impl Raster {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+        let item_glint = gpu.device.create_texture_with_data(
+            &gpu.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("synthetic UI item glint"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: FORMAT,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            &[80, 40, 120, 255],
+        );
+        let glint_view = item_glint.create_view(&Default::default());
+        let glint_sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
         let binding = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &bindings,
@@ -229,6 +257,14 @@ impl Raster {
                     binding: 4,
                     resource: format.as_entire_binding(),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&glint_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::Sampler(&glint_sampler),
+                },
             ],
         });
         Some(Self {
@@ -237,6 +273,7 @@ impl Raster {
             clear: pipeline(&gpu, &clear_shader, &layout, (false, false), true),
             gpu,
             binding,
+            item_glint,
         })
     }
 }

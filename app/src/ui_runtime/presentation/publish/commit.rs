@@ -1,5 +1,6 @@
 //! Pure UI rasterization, layout and publication after input enqueue.
 use super::*;
+use std::sync::Arc;
 
 /// Publishes the UI captured during preparation.
 #[allow(clippy::too_many_arguments)]
@@ -14,6 +15,7 @@ pub(crate) fn publish_ui_runtime(
     nametag_scene: Option<ResMut<render_scene::NametagSceneResource>>,
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
     profiler: Option<Res<render_scene::RuntimeStageProfiler>>,
+    mut item_glint: Option<ResMut<render_scene::UiItemGlintTexture>>,
 ) {
     let Some(prepared) = prepared.0.take() else {
         return;
@@ -47,6 +49,16 @@ pub(crate) fn publish_ui_runtime(
     if let Err(error) = scene.publish(input, &stats) {
         hand.clear();
         presentation.record_frame_failure(&UiPresentationError::Render(error));
+    } else if let Some(item_glint) = item_glint.as_mut() {
+        let next = presentation.item_glint_texture();
+        let same = match (item_glint.0.as_ref(), next) {
+            (Some(current), Some(next)) => Arc::ptr_eq(current, next),
+            (None, None) => true,
+            _ => false,
+        };
+        if !same {
+            item_glint.0 = next.cloned();
+        }
     }
 }
 

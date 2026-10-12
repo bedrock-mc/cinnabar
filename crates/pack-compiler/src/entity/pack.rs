@@ -263,11 +263,23 @@ fn compile_selected(
         });
         payloads.insert(path, bytes.into());
     }
-    // Attachables alone (custom armor and held models) still make a pack worth compiling.
+    // Attachables and shared glint raster overrides work without a client entity definition.
     let has_attachables = sources
         .iter()
         .any(|source| source.path.starts_with("attachables/"));
+    let has_glint = sources.iter().any(|source| {
+        assets::entity::GLINT_TEXTURE_IDENTIFIERS
+            .iter()
+            .any(|identifier| {
+                source
+                    .path
+                    .strip_suffix(".png")
+                    .or_else(|| source.path.strip_suffix(".tga"))
+                    == Some(*identifier)
+            })
+    });
     if !has_attachables
+        && !has_glint
         && !symbols
             .keys()
             .any(|(kind, ..)| *kind == EntityAssetKind::Entity)
