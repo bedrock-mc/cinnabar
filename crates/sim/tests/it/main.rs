@@ -5,6 +5,7 @@ mod bedsim_strata;
 mod block_effects;
 mod block_inside;
 mod block_interaction_ray;
+mod camera_shape_cache;
 mod climb;
 mod cobweb_volume;
 mod conformance;

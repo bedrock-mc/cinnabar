@@ -4,7 +4,10 @@ use assets::{
 };
 use chunk_pipeline::WorldStream;
 use particles::{BlockIdentity, Fluid, ParticleWorld};
-use sim::{Aabb, BlockPhysicsFlags, CollisionRegistry, CollisionWorld, PaletteWorld, Vec3};
+use sim::{
+    Aabb, BlockPhysicsFlags, CameraShapeCache, CollisionRegistry, CollisionWorld, PaletteWorld,
+    Vec3,
+};
 use world::SubChunkKey;
 
 /// Live-session world access for particle collision, lighting and fluid checks.
@@ -12,6 +15,8 @@ pub(super) struct StreamParticleWorld<'a> {
     stream: &'a WorldStream,
     registry: &'a CollisionRegistry,
     identities: Option<&'a client_interaction::movement::PhysicsCollisionRegistries>,
+    /// Block cells' collision shapes, read once for every particle this frame collides.
+    shapes: std::cell::RefCell<CameraShapeCache>,
 }
 
 impl<'a> StreamParticleWorld<'a> {
@@ -25,6 +30,7 @@ impl<'a> StreamParticleWorld<'a> {
             stream,
             registry,
             identities,
+            shapes: std::cell::RefCell::default(),
         }
     }
 
@@ -91,18 +97,22 @@ impl ParticleWorld for StreamParticleWorld<'_> {
             Vec3::new(f64::from(min[0]), f64::from(min[1]), f64::from(min[2])),
             Vec3::new(f64::from(max[0]), f64::from(max[1]), f64::from(max[2])),
         );
-        if let Ok(found) = self.palette().collision_boxes_camera_lenient(query) {
-            out.extend(found.value.iter().map(|shape| {
-                [
+        // Every particle queries each tick, so cells are read once a frame and shapes go straight
+        // into `out`.
+        let _ = self.palette().visit_camera_colliders_cached(
+            query,
+            &mut self.shapes.borrow_mut(),
+            &mut |shape| {
+                out.push([
                     shape.min.x as f32,
                     shape.min.y as f32,
                     shape.min.z as f32,
                     shape.max.x as f32,
                     shape.max.y as f32,
                     shape.max.z as f32,
-                ]
-            }));
-        }
+                ]);
+            },
+        );
     }
 
     fn light(&self, block: [i32; 3]) -> (u8, u8) {

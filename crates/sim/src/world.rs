@@ -13,6 +13,7 @@ mod current;
 mod door;
 mod flow;
 mod selection;
+pub use camera_collision::CameraShapeCache;
 pub use contracts::CollisionWorld;
 pub use flow::FlowBlockFacts;
 mod liquid_probe;
