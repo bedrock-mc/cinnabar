@@ -29,7 +29,9 @@ fn beam_snapshot(model: BeaconModel) -> UiRenderInput {
     );
     let vertices = frame
         .overlay
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .filter(|triangle| {
             triangle[0].position[2] < 0.5
                 && triangle
