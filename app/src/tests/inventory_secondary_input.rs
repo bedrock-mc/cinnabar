@@ -1005,11 +1005,11 @@ fn review_remapped_drop_does_not_keep_q_active_in_inventory() {
             ))
         );
         menu.set_visible(false);
-        app.insert_resource(personal_runtime(
+        app.insert_resource(UiRuntimeResource(personal_runtime(
             &mut player_runtime,
             Some(stack(9, 92)),
             None,
-        ));
+        )));
         app.insert_resource(player_runtime.clone());
         if control {
             press_key(&mut app, KeyCode::ControlLeft);

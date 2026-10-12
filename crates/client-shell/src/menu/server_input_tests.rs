@@ -130,7 +130,9 @@ impl Harness {
             .insert_resource(UiPresentationResource(presentation))
             .insert_resource(menu)
             .insert_resource(Frame(frame))
-            .insert_resource(client_ui::test_support::pack_harness::menu_runtime())
+            .insert_resource(UiRuntimeResource(
+                client_ui::test_support::pack_harness::menu_runtime(),
+            ))
             .init_resource::<FrameTime>()
             .insert_resource(MenuClipboard::with_access(
                 move |limit| {

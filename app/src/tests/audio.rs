@@ -1,5 +1,6 @@
 use crate::runtime::network::resource_packs::PackApplication;
 use client_runtime::network::NetworkHandle;
+use client_shell::ui_resources::UiRuntimeResource;
 use client_state::PlayerRuntime;
 use std::sync::Arc;
 
