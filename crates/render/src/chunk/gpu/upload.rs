@@ -444,7 +444,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             .copied()
             .map(PackedLiquidQuad::words)
             .collect::<Vec<_>>();
-        absolutize_liquid_lighting_indices(&mut liquid_words, plan.liquid_lighting_start);
+        stamp_liquid_metadata_index(&mut liquid_words, metadata_index);
         let liquid_lighting_words = packed_lighting_records(&instance.liquid_lighting);
         let cube_lighting_words = packed_lighting_records(&instance.cube_lighting);
         let origin = gpu_chunk_origin(
@@ -452,6 +452,8 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             plan.biome_start,
             plan.quad_start,
             plan.cube_lighting_start,
+            plan.liquid_start,
+            plan.liquid_lighting_start,
         )
         .expect("aligned arena layout and bounded biome offset produce a valid origin record");
         writes.quads.push((plan.quad_start, words));

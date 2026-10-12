@@ -49,8 +49,13 @@ fn liquid_shader_parses_validates_and_uses_shared_address_contract() {
     assert!(shader.contains("struct TransparentDrawRef"));
     assert!(shader.contains("liquid_record_index: u32"));
     assert!(shader.contains("metadata_index: u32"));
-    assert!(shader.contains("let liquid_word = draw_ref.liquid_record_index * 4u"));
-    assert!(shader.contains("let lighting_record_index = geometry_streams[liquid_word + 3u]"));
+    assert!(shader.contains("let liquid_word = record_index * 4u"));
+    assert!(
+        shader.contains("let chunk_origin = chunk_origins[geometry_streams[liquid_word + 3u]]")
+    );
+    assert!(
+        shader.contains("chunk_origin.stream_bases.w + record_index - chunk_origin.stream_bases.z")
+    );
     assert!(shader.contains("geometry_streams[lighting_record_index * 2u + corner / 2u]"));
 }
 
@@ -266,9 +271,7 @@ fn liquid_shader_has_mutually_exclusive_water_and_depth_writing_entries() {
         SHADER
             .contains("let material = positional_material(packed_material & LIQUID_MATERIAL_MASK,")
     );
-    assert!(
-        SHADER.contains("let draw_ref = TransparentDrawRef(instance_index, vertex_index / 4u)")
-    );
+    assert!(SHADER.contains("return vertex_for_record(instance_index, vertex_index)"));
     assert!(SHADER.contains("out.depth_write_route = packed_material >> 31u"));
     assert!(SHADER.contains("if (in.depth_write_route != 0u)"));
     assert!(SHADER.contains("if (in.depth_write_route == 0u)"));

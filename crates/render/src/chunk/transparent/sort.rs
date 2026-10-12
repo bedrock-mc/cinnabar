@@ -1,8 +1,12 @@
 use crate::chunk::*;
-use meshing::liquid::TRANSPARENT_WATER_DRAW_FLAG;
+use meshing::liquid::{TRANSPARENT_WATER_DRAW_FLAG, TRANSPARENT_WATER_RECORD_FLAG};
 
 /// Hard 16 MiB ceiling for one committed transparent indirection snapshot.
 pub const MAX_TRANSPARENT_DRAW_REFS: usize = 2_097_152;
+// Every sorted ref slot stays below the direct-record flag, which the shader tests first.
+const _: () = assert!(
+    (u8::MAX as usize + 1) * MAX_TRANSPARENT_DRAW_REFS <= TRANSPARENT_WATER_RECORD_FLAG as usize
+);
 pub const MAX_TRANSPARENT_VIEWS: usize = 1;
 /// The largest one slot of the double-buffered ref buffer grows to.
 pub const TRANSPARENT_REF_SLOT_BYTES: usize =
