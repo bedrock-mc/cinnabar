@@ -78,20 +78,51 @@ pub(super) fn capture() -> Vec<u8> {
 /// Builds an original resource pack; a wrapper exercises the existing one-level ZIP behavior.
 pub(super) fn pack(nested: bool) -> Vec<u8> {
     let manifest = br#"{"format_version":2,"header":{"name":"Replay test","description":"Synthetic fixture","uuid":"87ad314d-1b7e-4a06-8a7d-882798c777cf","version":[1,0,0]},"modules":[{"type":"resources","uuid":"86fad15a-f775-4d45-bd27-bd2e420a3325","version":[1,0,0]}]}"#;
-    let bytes = archive("manifest.json", manifest);
+    let bytes = archive(&[("manifest.json", manifest)]);
     if nested {
-        archive("inner.zip", &bytes)
+        archive(&[("inner.zip", &bytes)])
     } else {
         bytes
     }
 }
 
-/// Builds a ZIP without changing the supplied file bytes.
-fn archive(name: &str, data: &[u8]) -> Vec<u8> {
+pub(super) const ENCRYPTED_PACK_KEY: &str = "0123456789abcdefghijklmnopqrstuv";
+
+/// Builds an original pack whose text file is AES-CFB8 encrypted with the fixture key.
+pub(super) fn encrypted_pack() -> Vec<u8> {
+    let manifest = serde_json::to_vec(&serde_json::json!({
+        "format_version": 2,
+        "header": {
+            "name": "Encrypted replay test", "description": "Synthetic fixture",
+            "uuid": uuid::Uuid::from_u128(1).to_string(), "version": [1, 0, 0]
+        },
+        "modules": [{
+            "type": "resources", "uuid": uuid::Uuid::from_u128(2).to_string(),
+            "version": [1, 0, 0]
+        }]
+    }))
+    .unwrap();
+    let contents = serde_json::to_vec(&serde_json::json!({
+        "content": [{"path": "texts/en_US.lang", "key": ENCRYPTED_PACK_KEY}]
+    }))
+    .unwrap();
+    // Original "replay test\n" text, encrypted with the key's first 16 bytes as the IV.
+    let encrypted = [133, 211, 72, 129, 76, 47, 25, 131, 192, 251, 74, 195];
+    archive(&[
+        ("manifest.json", &manifest),
+        ("contents.json", &contents),
+        ("texts/en_US.lang", &encrypted),
+    ])
+}
+
+/// Builds a ZIP without changing the supplied entries' bytes.
+fn archive(entries: &[(&str, &[u8])]) -> Vec<u8> {
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-    zip.start_file(name, zip::write::SimpleFileOptions::default())
-        .unwrap();
-    zip.write_all(data).unwrap();
+    for (name, data) in entries {
+        zip.start_file(*name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(data).unwrap();
+    }
     zip.finish().unwrap().into_inner()
 }
 

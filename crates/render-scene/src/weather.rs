@@ -14,6 +14,7 @@ pub struct PrecipitationMixResource(pub render_model::PrecipitationMix);
 #[extract_app(bevy::render::RenderApp)]
 pub struct WeatherTextureAssets {
     textures: Option<Arc<assets::weather_textures::WeatherTextures>>,
+    end_sky: Option<Arc<assets::weather_textures::WeatherImage>>,
     identity: [u8; 32],
 }
 
@@ -25,6 +26,7 @@ impl WeatherTextureAssets {
     ) -> Self {
         Self {
             textures: Some(textures),
+            end_sky: None,
             identity,
         }
     }
@@ -32,6 +34,24 @@ impl WeatherTextureAssets {
     #[must_use]
     pub fn textures(&self) -> Option<&Arc<assets::weather_textures::WeatherTextures>> {
         self.textures.as_ref()
+    }
+
+    /// Applies a bounded decoded End sky without changing startup carrier validation.
+    pub fn with_end_sky(
+        mut self,
+        image: assets::weather_textures::WeatherImage,
+        identity: [u8; 32],
+    ) -> Self {
+        self.end_sky = Some(Arc::new(image));
+        self.identity = identity;
+        self
+    }
+
+    /// Resolves the runtime override first, then the immutable startup End sky.
+    pub fn end_sky(&self) -> Option<&assets::weather_textures::WeatherImage> {
+        self.end_sky
+            .as_deref()
+            .or_else(|| self.textures.as_ref().map(|textures| &textures.end_sky))
     }
 
     #[must_use]

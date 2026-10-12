@@ -45,9 +45,17 @@ pub(super) fn draw(
         )
     };
     let title = word(sections::option_label(option.name, option.label));
-    let labels: Vec<_> = choices.iter().map(|choice| word(choice.label)).collect();
+    let visible: Vec<_> = (0..choices.len())
+        .filter(|choice| view.setting_choice_visible(option, *choice))
+        .collect();
+    let labels: Vec<_> = visible
+        .iter()
+        .map(|choice| word(choices[*choice].label))
+        .collect();
     let value = view.settings_options.get(usize::from(index));
-    let actions = (0..labels.len())
+    let actions = visible
+        .iter()
+        .copied()
         .map(|choice| MenuAction::SettingsOption(index, choice as i32))
         .collect();
     draw_choices(
@@ -58,7 +66,10 @@ pub(super) fn draw(
             title,
             labels,
             actions,
-            selected: value as usize,
+            selected: visible
+                .iter()
+                .position(|choice| *choice == value as usize)
+                .unwrap_or(usize::MAX),
             close: MenuAction::SettingsDropdown(index),
             scroll_key: format!("oreui_settings_picker/{index}"),
         },

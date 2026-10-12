@@ -43,12 +43,24 @@ impl TextureBindings {
         bindings
     }
 
-    /// Legacy textures supply only cubes with no component-owned geometry or materials.
+    /// Legacy textures supply cubes whose component set declares no
+    /// `minecraft:material_instances`, whether or not it names the built-in
+    /// full-block geometry. A pack's `blocks.json` is the documented fallback for
+    /// such blocks, matching vanilla, which only lets `minecraft:material_instances`
+    /// override it.
     pub(super) fn apply(&self, name: &str, components: &mut CustomVisualComponents) {
-        if components.geometry.is_none() && components.materials.is_none() {
+        if components.materials.is_none() && uses_legacy_cube(components.geometry.as_deref()) {
             components.materials = self.materials.get(name).cloned();
         }
     }
+}
+
+/// Whether the named geometry is a built-in cube the legacy binding can drive:
+/// absent, or one of vanilla's full-block identifiers. A pack's own geometry
+/// keeps its per-face material instances, since a single legacy texture cannot
+/// address its faces.
+fn uses_legacy_cube(geometry: Option<&str>) -> bool {
+    geometry.is_none_or(|identifier| matches!(identifier, super::FULL_BLOCK | super::FULL_BLOCK_V1))
 }
 
 fn parse_textures(textures: &Value) -> Option<Box<[CustomMaterialInstance]>> {

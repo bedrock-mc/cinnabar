@@ -116,7 +116,7 @@ class PrepKitTests(unittest.TestCase):
     def check_payload(self, platform, root):
         return subprocess.run(
             ["bash", str(ROOT / "packaging/check-payload.sh"), platform, str(root)],
-            env={**os.environ, "CINNABAR_SOURCE_ROOT": str(ROOT), "CINNABAR_UPDATE_URL": ""},
+            env={**os.environ, "CINNABAR_SOURCE_ROOT": str(ROOT)},
             capture_output=True,
             text=True,
         )

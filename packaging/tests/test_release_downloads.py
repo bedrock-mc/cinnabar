@@ -29,14 +29,20 @@ class ReleaseDownloadsTests(unittest.TestCase):
         self.config["repository"] = "fixture/download-contract"
         self.config["checksums"] = "fixture-" + self.config["checksums"]
         self.config["install_script"] = "fixture-" + self.config["install_script"]
-        self.config["update_manifest"] = "fixture-" + self.config["update_manifest"]
+        self.config["update_payload_prefix"] = "fixture-" + self.config["update_payload_prefix"]
+        self.config["update_channels"] = {
+            channel: {**release, **({"tag": "fixture-" + release["tag"]} if "tag" in release else {}),
+                      "manifest": "fixture-" + release["manifest"]}
+            for channel, release in self.config["update_channels"].items()
+        }
         self.config["assets"] = {
             platform: {arch: "fixture-" + name for arch, name in arches.items()}
             for platform, arches in self.config["assets"].items()
         }
-        self.config["additional_assets"] = [
-            "fixture-" + name for name in self.config["additional_assets"]
-        ]
+        self.config["update_assets"] = {
+            platform: {arch: "fixture-" + name for arch, name in arches.items()}
+            for platform, arches in self.config["update_assets"].items()
+        }
         (self.tools / "release-assets.json").write_text(json.dumps(self.config))
         self.dist = self.root / "dist"
         self.dist.mkdir()
@@ -50,7 +56,7 @@ class ReleaseDownloadsTests(unittest.TestCase):
     def required_assets(self):
         return [
             name for arches in self.config["assets"].values() for name in arches.values()
-        ] + self.config["additional_assets"] + [self.config["install_script"]]
+        ] + [name for arches in self.config["update_assets"].values() for name in arches.values()] + [self.config["install_script"]]
 
     def populate(self):
         for name in self.required_assets():
@@ -81,7 +87,7 @@ class ReleaseDownloadsTests(unittest.TestCase):
 
     def test_final_checksum_includes_metadata_and_is_deterministic_on_rerun(self):
         self.populate()
-        (self.dist / self.config["update_manifest"]).write_text('{"signed": "fixture"}\n')
+        (self.dist / "signed-fixture.json").write_text('{"signed": "fixture"}\n')
         (self.dist / "extra-artifact.fixture").write_bytes(b"extra artifact")
         (self.dist / "artifact-directory").mkdir()
         checksum = self.dist / self.config["checksums"]
@@ -124,8 +130,8 @@ class ReleaseDownloadsTests(unittest.TestCase):
     def test_workflow_environment_filenames_follow_the_manifest(self):
         common = {
             "INSTALL_SCRIPT": self.config["install_script"],
-            "UPDATE_MANIFEST": self.config["update_manifest"],
             "CHECKSUM_ASSET": self.config["checksums"],
+            "UPDATE_PAYLOAD_PREFIX": self.config["update_payload_prefix"],
         }
         result = self.run_helper("env")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -137,24 +143,51 @@ class ReleaseDownloadsTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     expected = dict(common, RELEASE_ASSET=name)
                     if platform == "windows":
-                        expected["AUXILIARY_ASSET"] = self.config["additional_assets"][0]
+                        expected["AUXILIARY_ASSET"] = self.config["update_assets"][platform][arch]
                     self.assertEqual(
                         dict(line.split("=", 1) for line in result.stdout.splitlines()), expected,
                     )
 
-    def test_updater_specs_pair_download_urls_with_the_same_local_assets(self):
+    def test_each_channel_names_its_manifest_and_release(self):
+        for channel, release in self.config["update_channels"].items():
+            with self.subTest(channel=channel):
+                result = self.run_helper("env", "--channel", channel, "--tag", "v1.2.3")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                values = dict(line.split("=", 1) for line in result.stdout.splitlines())
+                self.assertEqual(values["UPDATE_MANIFEST"], release["manifest"])
+                self.assertEqual(values["UPDATE_MANIFEST_TAG"],
+                                 "v1.2.3" if release["track"] == "tagged" else release["tag"])
+
+    def test_unpublished_stable_and_missing_version_tags_are_rejected(self):
+        for args in [("env", "--channel", "stable", "--tag", "v1.2.3"),
+                     ("env", "--channel", "beta")]:
+            result = self.run_helper(*args)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn("UPDATE_MANIFEST=", result.stdout)
+
+    def test_update_payloads_are_content_addressed_copies_of_native_artifacts(self):
         base = "https://download-contract.invalid/releases/test-version"
         directory = self.root / "artifact directory with spaces"
-        result = self.run_helper("update-artifacts", base, directory)
+        self.dist = directory
+        directory.mkdir()
+        self.populate()
+        out = self.root / "payloads"
+        result = self.run_helper("update-payloads", base, directory, out)
         self.assertEqual(result.returncode, 0, result.stderr)
         specs = [line.split("=", 2) for line in result.stdout.splitlines()]
-        expected = {
-            f"{platform}-{arch}": (base + "/" + name, str(directory / name))
-            for platform, arches in self.config["assets"].items()
-            for arch, name in arches.items()
-        }
+        expected, copies = {}, []
+        for platform, arches in self.config["assets"].items():
+            for arch, name in arches.items():
+                selected = self.config["update_assets"].get(platform, {}).get(arch, name)
+                digest = hashlib.sha256((directory / selected).read_bytes()).hexdigest()
+                payload = f'{self.config["update_payload_prefix"]}{digest[:16]}-{selected}'
+                expected[f"{platform}-{arch}"] = (base + "/" + payload, str(out / payload))
+                # A byte-identical copy, so its name changes whenever its content does.
+                copies.append((out / payload, directory / selected))
         self.assertEqual(len(specs), len(expected))
         self.assertEqual({platform: (url, local) for platform, url, local in specs}, expected)
+        for copy, source in copies:
+            self.assertEqual(copy.read_bytes(), source.read_bytes())
 
     def test_windows_job_retains_the_workflow_source_working_directory(self):
         workflow = (PACKAGING.parent / ".github/workflows/package.yml").read_text()

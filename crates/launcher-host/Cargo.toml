@@ -29,8 +29,10 @@ serde_json = "1"
 server-experience = { path = "../server-experience" }
 sha2.workspace = true
 thiserror.workspace = true
+time = { version = "0.3", default-features = false, features = ["std"] }
 tokio.workspace = true
 tracing.workspace = true
+update-installer = { path = "../update-installer" }
 update-manifest = { path = "../update-manifest" }
 url = "2"
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
@@ -51,6 +53,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_IO",
     "Win32_System_Ioctl",
     "Win32_System_SystemInformation",
+    "Win32_System_Threading",
     "Win32_UI_Controls_Dialogs",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",

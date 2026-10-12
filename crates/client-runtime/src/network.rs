@@ -11,6 +11,7 @@ use std::path::PathBuf;
 pub struct NetworkHandle<P: Send + Sync + 'static> {
     #[deref]
     inner: client_session::NetworkHandle<P>,
+    pending_world_ingress: Option<client_session::WorldIngress>,
     #[cfg(feature = "local-mods")]
     core_socket_dir: Option<PathBuf>, // Set only while a joined session is live.
 }
@@ -19,6 +20,7 @@ impl<P: Send + Sync + 'static> From<client_session::NetworkHandle<P>> for Networ
     fn from(inner: client_session::NetworkHandle<P>) -> Self {
         Self {
             inner,
+            pending_world_ingress: None,
             #[cfg(feature = "local-mods")]
             core_socket_dir: None,
         }
@@ -26,11 +28,32 @@ impl<P: Send + Sync + 'static> From<client_session::NetworkHandle<P>> for Networ
 }
 
 impl<P: Send + Sync + 'static> NetworkHandle<P> {
+    /// Borrows the session FIFO and its blocked head, retained until admission reopens.
+    pub fn world_ingress_mut(
+        &mut self,
+    ) -> (
+        &mut tokio::sync::mpsc::Receiver<client_session::WorldIngress>,
+        &mut Option<client_session::WorldIngress>,
+    ) {
+        (
+            self.inner.world_events_mut(),
+            &mut self.pending_world_ingress,
+        )
+    }
+
+    /// Counts every unconsumed event, including the head retained outside the channel.
+    pub fn pending_event_count(&self) -> usize {
+        self.inner
+            .pending_event_count()
+            .saturating_add(usize::from(self.pending_world_ingress.is_some()))
+    }
+
     /// Adopts the domain queues and the endpoint used by this live session.
     #[cfg(feature = "local-mods")]
     pub fn connected(inner: client_session::NetworkHandle<P>, socket_dir: PathBuf) -> Self {
         Self {
             inner,
+            pending_world_ingress: None,
             core_socket_dir: Some(socket_dir),
         }
     }

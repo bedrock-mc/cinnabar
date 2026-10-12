@@ -304,47 +304,6 @@ pub fn encode_particle_catalog(
     Ok(bytes)
 }
 
-/// Removes `//` line and `/* */` block comments outside string literals, which vanilla
-/// particle json permits.
-#[must_use]
-pub fn strip_json_comments(source: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(source.len());
-    let mut index = 0;
-    let mut in_string = false;
-    while index < source.len() {
-        let byte = source[index];
-        if in_string {
-            out.push(byte);
-            if byte == b'\\' && index + 1 < source.len() {
-                out.push(source[index + 1]);
-                index += 1;
-            } else if byte == b'"' {
-                in_string = false;
-            }
-        } else if byte == b'"' {
-            in_string = true;
-            out.push(byte);
-        } else if byte == b'/' && source.get(index + 1) == Some(&b'/') {
-            while index < source.len() && source[index] != b'\n' {
-                index += 1;
-            }
-            continue;
-        } else if byte == b'/' && source.get(index + 1) == Some(&b'*') {
-            index += 2;
-            while index + 1 < source.len() && !(source[index] == b'*' && source[index + 1] == b'/')
-            {
-                index += 1;
-            }
-            index += 2;
-            continue;
-        } else {
-            out.push(byte);
-        }
-        index += 1;
-    }
-    out
-}
-
 fn read_key(bytes: &[u8], cursor: &mut usize, payload_end: usize) -> Result<String, AssetError> {
     let length = usize::from(read_u16(bytes, *cursor)?);
     *cursor += 2;
@@ -441,12 +400,6 @@ mod tests {
             bytes: Arc::from(br#"{"particle_effect":{}}"#.to_vec()),
         }];
         (textures, effects)
-    }
-
-    #[test]
-    fn strips_comments_outside_strings_only() {
-        let stripped = strip_json_comments(b"{\"a\": \"x//y\", // note\n \"b\": 1 /* c */}");
-        assert_eq!(stripped, b"{\"a\": \"x//y\", \n \"b\": 1 }".to_vec());
     }
 
     #[test]

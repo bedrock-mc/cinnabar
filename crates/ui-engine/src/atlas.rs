@@ -187,7 +187,7 @@ impl PackTextures {
         }
         let found = self.sidecars.get(key).and_then(|path| {
             let bytes = self.view.read_capped(path, MAX_PACK_TEXTURE_BYTES)?;
-            let text = resource_pack::normalize_jsonc(&bytes)?;
+            let text = pack_json::normalize_jsonc(&bytes)?;
             parse_texture_meta(&serde_json::from_slice(&text).ok()?)
         });
         self.loaded_sidecars
@@ -430,7 +430,7 @@ impl ServerAtlas {
             .iter()
             .filter_map(|(path, bytes)| {
                 let stem = path.strip_suffix(".json")?;
-                let value = serde_json::from_slice(bytes).ok()?;
+                let value = pack_json::parse_jsonc(bytes).ok()?;
                 Some((stem.to_owned(), parse_texture_meta(&value)?))
             })
             .collect();
@@ -629,7 +629,7 @@ impl ServerAtlas {
                 let path = format!("{relative}.json");
                 (root.file_size(&path)? <= MAX_PACK_TEXTURE_BYTES).then_some(())?;
                 let bytes = root.read(&path, MAX_PACK_TEXTURE_BYTES)?;
-                let text = resource_pack::normalize_jsonc(&bytes)?;
+                let text = pack_json::normalize_jsonc(&bytes)?;
                 let value = serde_json::from_slice(&text).ok()?;
                 parse_texture_meta(&value)
             })

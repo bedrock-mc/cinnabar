@@ -194,6 +194,22 @@ fn hurt_closes_a_top_container_that_asks() {
     assert!(!runtime.inventory_open());
 }
 
+// Being hit leaves chat open even though the chat screen asks to close when hurt.
+#[test]
+fn hurt_keeps_chat_open() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let mut table = vanilla_like_table().as_ref().0.clone();
+    table.insert(
+        ui_screens::chat_screen::CHAT_SCREEN,
+        settings(json!({"close_on_player_hurt": true})),
+    );
+    let mut runtime = in_world(&mut player_runtime, Arc::new(ScreenSettingsTable(table)));
+    runtime.open_chat(&mut player_runtime);
+    runtime.note_player_hurt();
+    runtime.close_scenes_on_player_hurt(&mut player_runtime, None);
+    assert!(runtime.chat_focused());
+}
+
 // The real carrier's HUD passes input through and a container absorbs it.
 #[test]
 fn carrier_settings_route_input_like_vanilla() {

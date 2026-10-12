@@ -25,6 +25,8 @@ use crate::hud_renderers::{HudPaint, HudRenderer, HungerAnimation};
 
 mod chat;
 #[cfg(test)]
+mod crisp_tests;
+#[cfg(test)]
 mod image_tests;
 pub mod prepared;
 mod titles;
@@ -189,6 +191,7 @@ impl HudScreens {
         let advance_hunger =
             |key: &str, instance| hunger_animation.borrow_mut().advance(key, instance);
         let art = ScreenArt {
+            nearest_sampling: true,
             clocks: Some(&self.clocks),
             ..ScreenArt::default()
         };

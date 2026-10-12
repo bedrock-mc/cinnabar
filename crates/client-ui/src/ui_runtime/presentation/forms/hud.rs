@@ -71,7 +71,9 @@ impl UiPresentationRuntime {
         let Some(renderer) = self.engine.as_deref() else {
             return Ok(false);
         };
-        if self.screens.chat.settings.options().value("hide_hud") != 0 {
+        if self.screens.chat.settings.options().value("hide_hud") != 0
+            || self.hud_frame.death_screen
+        {
             return Ok(true);
         }
         let context = ui_screens::chat_position::context(

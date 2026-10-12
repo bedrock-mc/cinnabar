@@ -5,6 +5,7 @@ use futures::StreamExt;
 use protocol::session_wire::{
     ConnectRequest, CoreMessage, HandoffPackReceiver, decode_core_message, encode_connect,
 };
+use protocol::{ResourcePackArchive, ResourcePackHandoff};
 use std::{
     future::pending,
     io::{self, Write},
@@ -55,18 +56,37 @@ fn connect() -> Bytes {
 #[tokio::test]
 async fn session_round_trip_preserves_packets_packs_reports_and_shutdown() {
     for end in ["client_exit", "fixture_end"] {
-        for with_pack in [false, true] {
+        for pack_count in 0..=2 {
             let dir = tempfile::tempdir().unwrap();
             let mut opts = options(dir.path());
             if end == "fixture_end" {
                 opts.hold = Duration::from_millis(10);
             }
-            let pack = fixtures::pack(false);
-            if with_pack {
-                let path = dir.path().join("fixture.mcpack");
-                std::fs::write(&path, &pack).unwrap();
-                opts.packs.push(path);
+            let packs = [fixtures::pack(false), fixtures::encrypted_pack()];
+            let mut pack_args = Vec::new();
+            for (index, pack) in packs.iter().take(pack_count).enumerate() {
+                let path = dir.path().join(format!("fixture-{index}.mcpack"));
+                std::fs::write(&path, pack).unwrap();
+                pack_args.extend([
+                    "-resource-pack".to_owned(),
+                    path.to_str().unwrap().to_owned(),
+                ]);
             }
+            if pack_count == 2 {
+                pack_args.extend(
+                    [
+                        "-content-key=",
+                        "-content-key",
+                        fixtures::ENCRYPTED_PACK_KEY,
+                    ]
+                    .map(str::to_owned),
+                );
+            }
+            let pack_options = Options::parse(arguments().into_iter().chain(pack_args))
+                .unwrap()
+                .unwrap();
+            opts.packs = pack_options.packs;
+            opts.pack_keys = pack_options.pack_keys;
             let expected = read_capture(io::Cursor::new(fixtures::capture())).unwrap();
             let report_path = opts.report.clone();
             let socket_dir = opts.socket_dir.clone();
@@ -84,7 +104,16 @@ async fn session_round_trip_preserves_packets_packs_reports_and_shutdown() {
                 else {
                     panic!("handoff");
                 };
-                assert_eq!(handoff.packs.len(), usize::from(with_pack));
+                assert_eq!(handoff.packs.len(), pack_count);
+                if pack_count > 0 {
+                    assert_eq!(handoff.packs[0].content_key.expose(), "");
+                }
+                if pack_count == 2 {
+                    assert_eq!(
+                        handoff.packs[1].content_key.expose(),
+                        fixtures::ENCRYPTED_PACK_KEY
+                    );
+                }
                 let mut receiver = HandoffPackReceiver::new(&handoff, None).unwrap();
                 while !receiver.is_complete() {
                     let CoreMessage::PackData { index, data } =
@@ -95,8 +124,32 @@ async fn session_round_trip_preserves_packets_packs_reports_and_shutdown() {
                     receiver.accept(index, &data).unwrap();
                 }
                 let archives = receiver.into_archives().unwrap();
-                if with_pack {
-                    assert_eq!(archives, [pack.clone()]);
+                assert_eq!(archives, packs[..pack_count]);
+                if pack_count == 2 {
+                    let stack =
+                        resource_pack::validate_handoff(ResourcePackHandoff::from_archives(
+                            handoff
+                                .packs
+                                .iter()
+                                .zip(archives)
+                                .map(|(pack, archive)| {
+                                    ResourcePackArchive::with_content_key(
+                                        pack.uuid.parse().unwrap(),
+                                        pack.version.clone(),
+                                        pack.sub_pack.clone(),
+                                        archive,
+                                        pack.content_key.expose().as_bytes().to_vec(),
+                                    )
+                                })
+                                .collect(),
+                        ));
+                    assert!(stack.rejections().is_empty(), "{:?}", stack.rejections());
+                    assert_eq!(stack.packs().len(), pack_count);
+                    let view = resource_pack::LayeredPackView::new(stack);
+                    assert_eq!(
+                        view.read("texts/en_US.lang").unwrap().as_ref(),
+                        b"replay test\n"
+                    );
                 }
                 let mut packets = handoff.startup;
                 while packets.len() < expected.packets.len() {
@@ -131,12 +184,14 @@ async fn session_round_trip_preserves_packets_packs_reports_and_shutdown() {
             assert!(report.get("error").is_none());
             assert_eq!(report["replay"]["sha256"], expected.summary.replay_sha256);
             assert_eq!(report["replay"]["bursts"].as_array().unwrap().len(), 4);
-            if with_pack {
+            if pack_count > 0 {
                 use sha2::{Digest, Sha256};
-                assert_eq!(
-                    report["packs"][0]["SHA256"],
-                    format!("{:x}", Sha256::digest(&pack))
-                );
+                for (index, pack) in packs.iter().take(pack_count).enumerate() {
+                    assert_eq!(
+                        report["packs"][index]["SHA256"],
+                        format!("{:x}", Sha256::digest(pack))
+                    );
+                }
             } else {
                 assert!(report["packs"].is_null());
             }
@@ -224,7 +279,7 @@ fn nested_pack_keeps_input_hash_and_delivers_the_inner_archive() {
     let path = dir.path().join("nested.zip");
     let bytes = fixtures::pack(true);
     std::fs::write(&path, &bytes).unwrap();
-    let pack = crate::packs::read_pack(&path).unwrap();
+    let pack = crate::packs::read_pack(&path, "").unwrap();
     assert_eq!(pack.archive.as_ref(), fixtures::pack(false));
     assert_eq!(pack.metadata.version, "1.0.0");
     assert_eq!(pack.summary.sha256, format!("{:x}", Sha256::digest(bytes)));

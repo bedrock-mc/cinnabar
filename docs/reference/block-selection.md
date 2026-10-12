@@ -19,10 +19,11 @@ The outline has its own pipeline and vertex buffer. Camera movement transforms
 retained world-space endpoints without rebuilding or uploading their geometry.
 Losing the target clears the buffer.
 
-Cinnabar currently expands each edge on the GPU to a two-physical-pixel stroke.
-This provisional coverage compensates for its full-screen FXAA softening thin black
-lines, especially diagonals. Bounds and colour retain the vanilla rules; matching
-vanilla sample anti-aliasing and stroke coverage remains incomplete.
+Cinnabar expands each edge on the GPU to a one-physical-pixel stroke. Vanilla
+draws the twelve edges as a line list, which rasterizes one pixel wide; only its
+deferred renderer below 100% upscaling builds a thicker camera-facing outline.
+Bounds and colour retain the vanilla rules; how the stroke looks under our
+anti-aliasing has not been compared with vanilla's.
 
 Incomplete parity: the depth-displacement witness is from the installed neighbouring
 client version; its matching-backend numeric value is unresolved. Exact wall

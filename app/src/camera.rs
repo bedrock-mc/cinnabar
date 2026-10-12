@@ -65,6 +65,7 @@ impl Plugin for FlyCameraPlugin {
         .init_resource::<SemanticRouteState>()
         .init_resource::<SemanticTouchTargets>()
         .init_resource::<RuntimeSettings>()
+        .init_resource::<client_presentation::camera::LocalPlayerDeath>()
         .add_systems(
             Startup,
             (
@@ -110,6 +111,9 @@ impl Plugin for FlyCameraPlugin {
                 update_cursor_capture
                     .before(client_interaction::camera::update_perspective)
                     .in_set(FlyCameraUpdateSet),
+                publish_local_player_death
+                    .after(ClientFrameSet::SemanticFinalize)
+                    .before(FlyCameraUpdateSet),
                 (
                     facts::collect_portal_contact,
                     presentation::advance_presentation_state,
@@ -148,3 +152,16 @@ fn axis(positive: bool, negative: bool) -> f32 {
 
 #[cfg(test)]
 mod tests;
+
+/// Publishes whether the local player is dead, for the camera's death view.
+fn publish_local_player_death(
+    world: Option<Res<crate::runtime::world::ClientWorld>>,
+    mut death: ResMut<client_presentation::camera::LocalPlayerDeath>,
+) {
+    let dead = world
+        .as_deref()
+        .and_then(|world| world.stream.as_ref())
+        .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
+        .is_some_and(|actor| actor.status.dead);
+    death.set_if_neq(client_presentation::camera::LocalPlayerDeath(dead));
+}

@@ -7,6 +7,120 @@ use {
 };
 
 #[test]
+fn keyboard_overlay_rows_show_readable_bindings_and_reset_controls() {
+    use launcher::menu::settings_options::{
+        DEBUG_OVERLAY_KEY, EXTRA_KEYS, KEY_BINDINGS, PLAYER_LIST_KEY,
+    };
+    use semantic_input::PhysicalControl;
+    use std::sync::Arc;
+
+    let row = |name| {
+        KEY_BINDINGS
+            .iter()
+            .map(|(_, name)| *name)
+            .chain(EXTRA_KEYS.iter().map(|(name, _)| *name))
+            .position(|candidate| candidate == name)
+            .unwrap() as u16
+    };
+    let mut view = MenuView::new(true, "Player".into());
+    for remapped in [false, true] {
+        if remapped {
+            assert!(Arc::make_mut(&mut view.settings_options).remap(
+                row(DEBUG_OVERLAY_KEY) as usize,
+                PhysicalControl::KeyboardUsage(0x3d)
+            ));
+            assert!(Arc::make_mut(&mut view.settings_options).remap(
+                row(PLAYER_LIST_KEY) as usize,
+                PhysicalControl::MouseButton(4)
+            ));
+        }
+        let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
+            let mut content = Content {
+                canvas,
+                view: &view,
+                span: [100.0, 1100.0],
+                column_width: 1000.0,
+                y: 100.0,
+                translate: &|_| None,
+                nested: false,
+            };
+            sections::draw(&mut content, "keyboard_and_mouse_forced_index").unwrap();
+        });
+        let labels: Vec<_> = nodes
+            .iter()
+            .filter_map(|node| match node.visual() {
+                ui::UiVisual::Text { layout, .. } => Some(
+                    layout
+                        .glyphs()
+                        .iter()
+                        .map(|glyph| glyph.codepoint)
+                        .collect::<String>()
+                        .replace(' ', ""),
+                ),
+                _ => None,
+            })
+            .collect();
+        for label in ["DebugOverlay", "PlayerList"] {
+            assert!(labels.iter().any(|text| text == label));
+        }
+        for name in [DEBUG_OVERLAY_KEY, PLAYER_LIST_KEY] {
+            assert!(
+                hits.iter()
+                    .any(|(action, _)| *action == MenuAction::SettingsKey(row(name)))
+            );
+            assert_eq!(
+                hits.iter()
+                    .any(|(action, _)| *action == MenuAction::SettingsResetKey(row(name))),
+                remapped
+            );
+        }
+        for key in if remapped {
+            ["F4", "Mouse4"]
+        } else {
+            ["F3", "Tab"]
+        } {
+            assert!(labels.iter().any(|text| text == key));
+        }
+    }
+}
+
+#[test]
+fn passive_clients_have_no_update_settings_actions() {
+    use launcher::menu::settings_options::{
+        AUTO_UPDATE_OPTION, INSTALL_ON_QUIT_OPTION, UPDATE_CHANNEL_OPTION,
+    };
+    let mut view = MenuView::new(true, "Player".into());
+    view.updates.active = false;
+    let (_, hits, _) = paint(HashMap::new(), |canvas| {
+        let mut content = Content {
+            canvas,
+            view: &view,
+            span: [100.0, 900.0],
+            column_width: 800.0,
+            y: 100.0,
+            translate: &|_| None,
+            nested: false,
+        };
+        sections::draw(&mut content, "general_forced_index").unwrap();
+    });
+    let update_options = [
+        AUTO_UPDATE_OPTION,
+        INSTALL_ON_QUIT_OPTION,
+        UPDATE_CHANNEL_OPTION,
+    ];
+    assert!(!hits.iter().any(|(action, _)| {
+        match action {
+            MenuAction::SettingsOption(index, _) => update_options
+                .iter()
+                .any(|option| SETTINGS_OPTIONS[*index as usize].name == option.name),
+            MenuAction::Update(_) => true,
+            _ => false,
+        }
+    }));
+    assert!(!hits.is_empty());
+}
+
+#[test]
 fn graphics_group_rows_keep_the_same_horizontal_gutters_as_regular_rows() {
     let index = |name: &str| {
         SETTINGS_OPTIONS

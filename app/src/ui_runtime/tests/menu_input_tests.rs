@@ -86,6 +86,23 @@ fn release_key(app: &mut App, window: Entity, key_code: KeyCode) {
     app.update();
 }
 
+/// Delivers one OS auto-repeat of a held key the way Bevy's keyboard system leaves it, including
+/// re-marking a key the previous frame's owner reset as just pressed.
+fn repeat_key(app: &mut App, window: Entity, key_code: KeyCode) {
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(key_code);
+    app.world_mut().write_message(KeyboardInput {
+        key_code,
+        logical_key: Key::Unidentified(bevy::input::keyboard::NativeKey::Unidentified),
+        state: ButtonState::Pressed,
+        text: None,
+        repeat: true,
+        window,
+    });
+    app.update();
+}
+
 fn queue_key(app: &mut App, window: Entity, key_code: KeyCode, text: Option<&str>) {
     app.world_mut()
         .resource_mut::<ButtonInput<KeyCode>>()
@@ -338,6 +355,27 @@ fn arrows_move_focus_when_no_text_box_is_focused() {
     let view = app.world().resource::<MenuRuntime>().view();
     assert_eq!(view.focused_action, Some(MenuAction::AddPort));
     assert_eq!(view.field, Some(MenuField::Port));
+}
+
+#[test]
+fn held_escape_opens_pause_once_and_its_repeats_neither_close_nor_reopen_it() {
+    let (mut app, window) = menu_input_app(MenuClipboard::default());
+    app.world_mut().resource_mut::<MenuRuntime>().show_world();
+    press_key(&mut app, window, KeyCode::Escape, None);
+    assert!(app.world().resource::<MenuRuntime>().is_visible());
+    for repeat in 0..4 {
+        repeat_key(&mut app, window, KeyCode::Escape);
+        let menu = app.world().resource::<MenuRuntime>();
+        assert!(menu.is_visible(), "repeat {repeat}");
+        assert_eq!(menu.screen(), MenuScreen::Pause, "repeat {repeat}");
+    }
+    release_key(&mut app, window, KeyCode::Escape);
+    press_key(&mut app, window, KeyCode::Escape, None);
+    assert!(!app.world().resource::<MenuRuntime>().is_visible());
+
+    // An Escape still held after a screen closed does not open pause on its repeats.
+    repeat_key(&mut app, window, KeyCode::Escape);
+    assert!(!app.world().resource::<MenuRuntime>().is_visible());
 }
 
 #[test]

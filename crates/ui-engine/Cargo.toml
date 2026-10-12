@@ -9,6 +9,7 @@ publish = false
 test-support = ["resource-pack/test-support"]
 
 [dependencies]
+pack-json = { path = "../pack-json" }
 assets = { path = "../assets" }
 crossbeam-channel = "0.5"
 image.workspace = true

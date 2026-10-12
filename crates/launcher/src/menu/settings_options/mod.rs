@@ -29,14 +29,17 @@ pub use control_bindings::{
     EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, gamepad_icon,
 };
 pub use definitions::{
-    ANIMATION_CHOICES, ANIMATIONS_OPTION, DISCORD_PRESENCE_OPTION, FRAME_RATE_UNLIMITED,
-    INVERT_CROSSHAIR_OPTION, MAX_FIXED_FRAME_RATE, MIN_FIXED_FRAME_RATE, MOTION_BLUR_CHOICES,
-    MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION, NATIVE_SKYBOX_OFFSET_OPTION, SETTINGS_OPTIONS,
-    SMAA_CHOICES, SMAA_OPTION, SettingDefinition, SettingKind, THIRD_PERSON_CROSSHAIR_OPTION,
-    VRR_CHOICES, VRR_OPTION,
+    ANIMATION_CHOICES, ANIMATIONS_OPTION, AUTO_UPDATE_OPTION, DISCORD_PRESENCE_OPTION,
+    FRAME_RATE_UNLIMITED, INSTALL_ON_QUIT_OPTION, INVERT_CROSSHAIR_OPTION, MAX_FIXED_FRAME_RATE,
+    MIN_FIXED_FRAME_RATE, MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION,
+    NATIVE_SKYBOX_OFFSET_OPTION, SETTINGS_OPTIONS, SMAA_CHOICES, SMAA_OPTION, SettingDefinition,
+    SettingKind, THIRD_PERSON_CROSSHAIR_OPTION, UPDATE_CHANNEL_OPTION, VRR_CHOICES, VRR_OPTION,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
-pub use keybindings::{KEY_BINDINGS, OPEN_NOTIFICATION_KEY, key_name};
+pub use keybindings::{
+    DEBUG_OVERLAY_KEY, KEY_BINDINGS, OPEN_NOTIFICATION_KEY, PLAYER_LIST_KEY, custom_key_label,
+    key_name,
+};
 pub use persistence::{SETTINGS_FILE, SETTINGS_SCHEMA};
 pub use runtime::{frame_rate_label, frame_rate_limit};
 
@@ -79,6 +82,19 @@ impl Default for SettingsOptions {
 }
 
 impl SettingsOptions {
+    /// The saved check preference, quit-time opt-in and selected release channel.
+    pub fn update_preferences(&self) -> super::updates::Preferences {
+        super::updates::Preferences {
+            checks: self.value(AUTO_UPDATE_OPTION.name) != 0,
+            install_on_quit: self.value(INSTALL_ON_QUIT_OPTION.name) != 0,
+            channel: update_manifest::channel::Channel::ALL
+                .get(self.value(UPDATE_CHANNEL_OPTION.name) as usize)
+                .copied()
+                .filter(|channel| channel.is_published())
+                .unwrap_or_default(),
+        }
+    }
+
     pub fn server_list(&self) -> &super::server_list::ServerListPreferences {
         &self.server_list
     }

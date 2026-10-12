@@ -21,7 +21,7 @@ use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 
 use prepare::prepare;
-use status::{Phase, Status};
+use status::Status;
 pub use window::{SETUP_FLAG, run_setup_process};
 use {
     launcher::install_layout::InstallLayout,
@@ -46,6 +46,8 @@ pub fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
     if !needs_preparation(layout) {
         return Ok(Outcome::NotNeeded);
     }
+    // An earlier run's report must not describe this one.
+    let _ = fs::remove_file(progress_file(layout));
     match window::run_in_child() {
         window::ChildOutcome::Prepared => Ok(Outcome::Prepared),
         window::ChildOutcome::Quit => Ok(Outcome::Quit),
@@ -96,12 +98,22 @@ fn record_consent(layout: &InstallLayout) -> Result<()> {
     fs::write(&marker, consent_identity()).context("record consent")
 }
 
+/// The status file setup rewrites on every progress report, from either setup process.
+pub fn progress_file(layout: &InstallLayout) -> PathBuf {
+    layout.log_dir().join("first-run-status.json")
+}
+
+/// Whether `report`, read from [`progress_file`], says setup is waiting on the user.
+pub fn awaiting_user(report: &[u8]) -> bool {
+    status::awaiting_user(report)
+}
+
 /// Mirrors each report to the status file, then hands it to `forward`.
 fn reporter<'a>(
     layout: &InstallLayout,
     mut forward: impl FnMut(&Status) + 'a,
 ) -> impl FnMut(Status) + 'a {
-    let path = layout.log_dir().join("first-run-status.json");
+    let path = progress_file(layout);
     move |status| {
         let _ = status::write(&path, &status);
         forward(&status);
@@ -126,13 +138,8 @@ fn ensure_with(
     }
     let title = setup_title(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref());
     let mut report = reporter(layout, |_| {});
-    report(Status::new(
-        Phase::AwaitingConsent,
-        0,
-        0,
-        "Waiting for consent",
-    ));
     if !env_consent && !consent_recorded(layout) {
+        report(Status::awaiting_consent());
         match prompter.confirm(&title, CONSENT_BODY) {
             Consent::Accepted => {}
             Consent::Declined => {
@@ -151,6 +158,7 @@ fn ensure_with(
             }
         }
     }
+    report(Status::starting());
     let is_update = updating(layout);
     record_consent(layout)?;
     prompter.info(

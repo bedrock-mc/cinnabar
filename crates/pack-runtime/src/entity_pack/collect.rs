@@ -101,7 +101,7 @@ pub fn collect_files(
     let attachables = attachables::collect(view, vanilla_pack_dir);
     let mut references = References::default();
     for (_, bytes) in entities.iter().chain(&attachables) {
-        if let Ok(actor) = serde_json::from_slice::<Value>(bytes) {
+        if let Ok(actor) = pack_json::parse_jsonc::<Value>(bytes) {
             references.read(&actor);
         }
     }
