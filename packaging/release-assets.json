@@ -13,9 +13,15 @@
       "x86_64": "Cinnabar-x86_64.dmg"
     }
   },
-  "additional_assets": [
-    "Cinnabar-x64.msi"
-  ],
   "install_script": "install.sh",
-  "update_manifest": "update-stable.json"
+  "update_payload_prefix": "update-payload-",
+  "update_channels": {
+    "beta": { "track": "tagged", "manifest": "update-beta.json" },
+    "nightly": { "track": "rolling", "tag": "nightly", "manifest": "update-nightly.json" }
+  },
+  "update_assets": {
+    "windows": {
+      "x86_64": "Cinnabar-x64.msi"
+    }
+  }
 }

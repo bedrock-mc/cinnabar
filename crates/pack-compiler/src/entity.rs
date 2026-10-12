@@ -446,8 +446,15 @@ fn assemble(
     validate_reference_coverage(&symbols, &animation)?;
     let seat_layouts = seats::compile(&symbols, &sources, source_payloads, &mut molang_compiler)?;
     let mut molang = molang_compiler.finish()?;
-    let equipment_bindings =
-        attachable::compile_bindings(source_payloads, &symbols, &sources, !include_items)?;
+    let controller_resources =
+        attachable::controller_resources(&animation, &symbols, &sources, &geometries);
+    let equipment_bindings = attachable::compile_bindings(
+        source_payloads,
+        &symbols,
+        &sources,
+        &controller_resources,
+        !include_items,
+    )?;
     let items = if include_items {
         let item_transforms = attachable::transform_lookup(&equipment_bindings);
         item::compile(root, source_payloads, &sources, &item_transforms)?

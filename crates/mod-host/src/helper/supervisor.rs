@@ -76,6 +76,13 @@ impl Process {
     fn launch(&self, executable: PathBuf) -> Result<(ChildStdin, ChildStdout, ChildStderr)> {
         ensure!(!self.0.lock().unwrap().revoked, "helper startup revoked");
         let mut command = Command::new(executable);
+        #[cfg(all(windows, not(debug_assertions)))]
+        {
+            use std::os::windows::process::CommandExt;
+            use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
+
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
         command
             .arg("server-helper")
             .env_clear()

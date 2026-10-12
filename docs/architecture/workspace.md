@@ -80,6 +80,7 @@ coordinates work that crosses these owners.
 | --- | --- | --- | --- |
 | `crates/bridge` | `bridge` | Framing and I/O for the local stream to the Go core; use its bounded bridge messages. | The Go core owns upstream transports; `protocol` interprets Bedrock packets. |
 | `crates/protocol` | `protocol` | Bedrock packet codecs, shared wire contracts and session adapters; use its packet and codec APIs. | `bridge` owns local framing; `client-session` owns client transport; the codec lives in its vendored tree. |
+| `crates/pack-json` | `pack-json` | Shared pack text decoding and JSONC parsing; use its decoder before reading authored pack documents. | Pack admission, compilers and UI readers share this format policy. |
 | `crates/resource-pack` | `resource-pack` | Bounded archive admission, decryption and pack-stack views; use its read-only admitted packs. | The Go core downloads packs; `pack-runtime` prepares them; `pack-compiler` compiles them. |
 | `crates/assets` | `assets` | Pack source readers and compiled carrier formats; use bounded loaders and typed asset data. | `pack-compiler` writes carriers; `pack-runtime` prepares active session stacks. |
 | `crates/pack-compiler` | `pack-compiler` | Reusable pack compilation; use its compiler APIs from tools and runtime loading. | `assets` owns formats; `asset-compiler` owns the CLI; `pack-runtime` owns admission and reloads. |
@@ -127,7 +128,8 @@ the prepared visual data to the GPU.
 | `crates/launcher-host` | `launcher-host` | Launcher processes, platform services, persistence and background work; use its service APIs without Bevy. | `launcher` owns models; the Go core owns authentication and upstream services; `client-shell` owns ECS adapters. |
 | `crates/first-run` | `first-run` | Consent, download and preparation of local asset carriers; use its setup runner before launching the game window. | `asset-compiler` builds carriers; `launcher-host` owns ordinary launcher services. |
 | `crates/rich-presence` | `rich-presence` | Optional Discord desktop activity and RPC worker; use its presence and join-request APIs. | `client-shell` projects menu/session state; `launcher` owns product identity. |
-| `crates/update-manifest` | `update-manifest` | Signed release manifest format, verification and version comparison; use its manifest APIs for update decisions. | `release-manifest` signs releases; `launcher-host` downloads and applies updates. |
+| `crates/update-manifest` | `update-manifest` | Signed release manifest format, channels, verification and build comparison; use its manifest APIs for update decisions. | `release-manifest` signs releases; `launcher-host` downloads them; `update-installer` verifies staged payloads. |
+| `crates/update-installer` | `update-installer` | Resumable verified files and the offline native apply helper; use its staging API for downloads and its executable after client exit. | `update-manifest` owns trust and ordering; `launcher-host` owns consent and helper handoff. |
 
 ### Extensions and examples
 

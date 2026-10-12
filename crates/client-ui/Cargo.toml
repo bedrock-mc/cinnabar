@@ -17,12 +17,13 @@ test-support = ["oreui/test-support", "ui-engine/test-support", "ui-screens/test
 tracy = ["oreui/tracy"]
 
 [dependencies]
+pack-json = { path = "../pack-json" }
 env-compat = { path = "../env-compat" }
 simulation-clock = { path = "../simulation-clock" }
 launcher-host = { path = "../launcher-host" }
 bridge = { path = "../bridge" }
 anyhow.workspace = true
-arboard = { version = "3", default-features = false }
+arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
 assets = { path = "../assets" }
 chunk-pipeline = { path = "../chunk-pipeline" }
 client-world = { path = "../client-world" }

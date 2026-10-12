@@ -75,7 +75,8 @@ struct SelectionLineOutput {
     @location(0) color: vec4<f32>,
 }
 
-const SELECTION_STROKE_PIXELS: f32 = 2.0;
+// Vanilla draws the outline as a line list, which GPUs rasterize one pixel wide.
+const SELECTION_STROKE_PIXELS: f32 = 1.0;
 
 fn selection_endpoint(index: u32) -> vec4<f32> {
     let base = index * BLOCK_ENTITY_VERTEX_WORDS;

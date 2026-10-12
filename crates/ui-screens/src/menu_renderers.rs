@@ -16,6 +16,8 @@ use ui_engine::engine::{
     text_paint::{UNWRAPPED_LOGICAL, scaled_request, width_64},
 };
 
+pub mod splashes;
+
 /// Title panels shaped to the aspect of `assets/branding/title.png` rather than the pack's
 /// title, so it draws unstretched and the splash meets its right edge.
 const TITLE_PANEL_OVERLAY: &[u8] = br#"{
@@ -59,33 +61,20 @@ pub fn install_brand_overlays(catalog: &mut json_ui::Catalog) {
     );
 }
 
-/// The splash for this launch: the line of the pack's `splashes.json` that `seed` picks,
-/// else `menu.beta` as the preview client (whose pack has none) shows.
+/// Picks from the startup title list and prepared pack layers, falling back to `menu.beta`.
 pub fn pick_splash(
     assets: &RuntimeUiAssets,
     translate: &dyn Fn(&str) -> Option<Arc<str>>,
+    layers: &[splashes::SplashSource],
     seed: usize,
 ) -> Option<String> {
-    let lines: Vec<String> = assets
-        .ui_file("splashes.json")
+    let base = assets
+        .ui_file(assets::SPLASH_RESOURCE_PATH)
         .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok())
-        .and_then(|json| {
-            let lines = json.get("splashes")?.as_array()?;
-            Some(
-                lines
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .filter(|line| !line.is_empty())
-                    .map(str::to_owned)
-                    .collect(),
-            )
-        })
-        .unwrap_or_default();
-    if lines.is_empty() {
-        return translate("menu.beta").map(|text| text.to_string());
-    }
-    let pick = seed % lines.len();
-    lines.into_iter().nth(pick)
+        .and_then(|json| splashes::SplashSource::from_json(&json));
+    splashes::select_splash(base.iter().chain(layers), seed)
+        .map(str::to_owned)
+        .or_else(|| translate("menu.beta").map(|text| text.to_string()))
 }
 
 /// `text` split at the last space within `limit` characters, once.

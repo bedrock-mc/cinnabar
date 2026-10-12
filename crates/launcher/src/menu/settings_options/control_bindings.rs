@@ -13,6 +13,10 @@ pub const EXTRA_KEYS: &[(&str, PhysicalControl)] = &[
     ("key.fullscreen", PhysicalControl::KeyboardUsage(0x44)),
     // Vanilla's key.emote defaults to B.
     ("key.emote", PhysicalControl::KeyboardUsage(0x05)),
+    (
+        super::DEBUG_OVERLAY_KEY,
+        PhysicalControl::KeyboardUsage(0x3c),
+    ),
 ];
 pub const SECONDARY_KEYS: &[(&str, PhysicalControl)] =
     &[("key.chat", PhysicalControl::KeyboardUsage(0x28))];

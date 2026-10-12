@@ -464,7 +464,7 @@ fn sapling_variant(name: &str) -> Option<usize> {
 }
 
 pub(super) fn read_blocks(path: &Path) -> Result<BlockTextureMap, AssetError> {
-    let document: BoundedUniqueMap<Value, { MAX_TEXTURE_KEYS + 1 }> = read_json(path, false)?;
+    let document: BoundedUniqueMap<Value, { MAX_TEXTURE_KEYS + 1 }> = read_json(path)?;
     let mut document = match document.issue {
         Some(BoundedMapIssue::Duplicate(key)) => {
             return Err(AssetError::DuplicateBlockKey {

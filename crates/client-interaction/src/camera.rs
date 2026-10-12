@@ -2,8 +2,8 @@
 use bevy::{prelude::*, window::PrimaryWindow};
 use client_presentation::{
     camera::{
-        AutoFly, CameraSettingsAuthority, FlyCamera, FlyCameraUpdateSet, ServerCameraView, fov,
-        look,
+        AutoFly, CameraSettingsAuthority, FlyCamera, FlyCameraUpdateSet, LocalPlayerDeath,
+        ServerCameraView, fov, look,
     },
     local_player::LocalViewPose,
 };
@@ -52,10 +52,14 @@ pub fn apply_runtime_camera_settings(
 #[allow(clippy::too_many_arguments)]
 pub fn update_perspective(
     input: Res<SemanticInputSnapshot>,
+    death: Option<Res<LocalPlayerDeath>>,
+    view: Res<LocalViewPose>,
     settings: ResMut<CameraSettingsAuthority>,
 ) {
     client_presentation::camera::update_perspective(
         client_presentation::observations::InputObservation(input.snapshot()),
+        death.is_some_and(|death| death.0),
+        view.rotation(),
         settings,
     );
 }

@@ -2,7 +2,8 @@ use std::{fs, io::Cursor, path::Path};
 
 use ::image::{ImageFormat, ImageReader};
 use assets::weather_textures::{
-    END_SKY_SIDE, WEATHER_SHEET_SIDE, WeatherImage, WeatherTextures, encode_weather_textures,
+    END_SKY_SIDE, END_SKY_TEXTURE_PATH, WEATHER_SHEET_SIDE, WeatherImage, WeatherTextures,
+    encode_weather_textures,
 };
 
 const MAX_SOURCE_BYTES: u64 = 64 * 1024;
@@ -39,7 +40,7 @@ fn read_png(root: &Path, relative: &str, side: u32) -> Result<WeatherImage, Stri
 pub fn compile_weather_textures(pack: &Path) -> Result<Vec<u8>, String> {
     let textures = WeatherTextures {
         weather: read_png(pack, "textures/environment/weather.png", WEATHER_SHEET_SIDE)?,
-        end_sky: read_png(pack, "textures/environment/end_sky.png", END_SKY_SIDE)?,
+        end_sky: read_png(pack, &format!("{END_SKY_TEXTURE_PATH}.png"), END_SKY_SIDE)?,
     };
     encode_weather_textures(&textures).map_err(|error| error.to_string())
 }

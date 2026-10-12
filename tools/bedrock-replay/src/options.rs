@@ -11,6 +11,9 @@ pub struct Options {
     pub socket_dir: PathBuf,
     pub report: PathBuf,
     pub packs: Vec<PathBuf>,
+    /// AES content keys in pack order. Either this list is empty, or every pack
+    /// has an entry, with an empty string for each unencrypted pack.
+    pub pack_keys: Vec<String>,
     pub burst_packets: usize,
     pub burst_bytes: usize,
     pub interval: Duration,
@@ -26,6 +29,7 @@ impl Options {
             socket_dir: PathBuf::new(),
             report: PathBuf::new(),
             packs: Vec::new(),
+            pack_keys: Vec::new(),
             burst_packets: 32,
             burst_bytes: MAX_BURST_BYTES,
             interval: Duration::from_millis(50),
@@ -58,6 +62,7 @@ impl Options {
                 "socket-dir" => result.socket_dir = value.into(),
                 "report" => result.report = value.into(),
                 "resource-pack" => result.packs.push(value.into()),
+                "content-key" => result.pack_keys.push(value),
                 "burst-packets" => result.burst_packets = value.parse()?,
                 "burst-bytes" => result.burst_bytes = value.parse()?,
                 "burst-interval" => result.interval = parse_duration(&value)?,
@@ -77,6 +82,10 @@ impl Options {
                 && (1..=MAX_BURST_BYTES).contains(&result.burst_bytes)
                 && !result.timeout.is_zero(),
             "invalid replay bounds"
+        );
+        ensure!(
+            result.pack_keys.is_empty() || result.pack_keys.len() == result.packs.len(),
+            "provide one content key per resource pack, using -content-key= for plain packs"
         );
         Ok(Some(result))
     }
@@ -148,4 +157,4 @@ fn parse_duration(text: &str) -> Result<Duration> {
     Ok(Duration::from_nanos(nanos as u64))
 }
 
-pub const HELP: &str = "bedrock-replay -capture raw.bin -socket-dir DIR -report report.json\n  -resource-pack FILE (repeat in stack order)\n  -burst-packets 32 -burst-bytes 8388608 -burst-interval 50ms\n  -timeout 2m -hold 0s\n";
+pub const HELP: &str = "bedrock-replay -capture raw.bin -socket-dir DIR -report report.json\n  -resource-pack FILE (repeat in stack order)\n  -content-key KEY (one per resource pack, in stack order; use -content-key= for plain packs)\n    Omit all content keys when every pack is plain.\n  -burst-packets 32 -burst-bytes 8388608 -burst-interval 50ms\n  -timeout 2m -hold 0s\n";

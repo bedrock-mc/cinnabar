@@ -168,6 +168,40 @@ fn ui_index_loads_custom_paths_and_extensions() {
 }
 
 #[test]
+fn root_splashes_load_without_ui_definitions_and_track_removal() {
+    use assets::SPLASH_RESOURCE_PATH;
+    use ui_screens::menu_renderers::splashes::select_splash;
+    let lower = archive(1, &[(SPLASH_RESOURCE_PATH, br#"{"splashes":["lower"]}"#)]);
+    let upper = archive(
+        2,
+        &[(
+            SPLASH_RESOURCE_PATH,
+            br#"{"canMerge":true,"splashes":["upper"]}"#,
+        )],
+    );
+    let stack =
+        resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![
+            upper, lower,
+        ]));
+    let view = resource_pack::LayeredPackView::tracked(stack);
+    let pack = super::collect_server_ui(&view).unwrap();
+    assert_eq!(select_splash(pack.splashes.iter(), 0), Some("lower"));
+    assert_eq!(select_splash(pack.splashes.iter(), 1), Some("upper"));
+    assert!(!pack.is_empty());
+    let dependencies = [(
+        pack_runtime::reload_diff::Subscriber::Ui,
+        view.dependencies().unwrap().snapshot(),
+    )]
+    .into();
+    let removed = resource_pack::validate_handoff(protocol::ResourcePackHandoff::default());
+    let admission = resource_pack::PackAdmission::Validated(view.shared_stack());
+    assert!(
+        pack_runtime::reload_diff::Changes::between(&removed, Some((&admission, &dependencies))).ui
+    );
+    assert!(super::collect_server_ui(&resource_pack::LayeredPackView::new(removed)).is_none());
+}
+
+#[test]
 fn ui_custom_definition_overrides_across_layers_without_relisting() {
     let path = "custom/inventory.uidx";
     let lower = archive(

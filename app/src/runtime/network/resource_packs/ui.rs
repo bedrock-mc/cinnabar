@@ -2,9 +2,11 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
+use assets::SPLASH_RESOURCE_PATH;
 use resource_pack::LayeredPackView;
 
 use super::ServerUiPack;
+use ui_screens::menu_renderers::splashes::{MAX_SPLASH_SOURCE_BYTES, SplashSource};
 
 /// Bound on definition bytes handed to the form engine across the whole stack.
 const MAX_SERVER_UI_BYTES: usize = 16 * 1024 * 1024;
@@ -15,6 +17,17 @@ pub(super) fn collect_server_ui(view: &LayeredPackView) -> Option<Arc<ServerUiPa
     let mut total = 0usize;
     let mut declared = BTreeSet::new();
     let mut pack = ServerUiPack::default();
+    pack.splashes = view
+        .read_layers_capped(SPLASH_RESOURCE_PATH, MAX_SPLASH_SOURCE_BYTES)
+        .filter_map(|bytes| {
+            total += bytes.len();
+            (total <= MAX_SERVER_UI_BYTES)
+                .then(|| pack_runtime::pack_textures::parse_pack_json(&bytes))
+                .flatten()
+                .and_then(|root| SplashSource::from_json(&root))
+        })
+        .collect::<Vec<_>>()
+        .into();
     for layer in view.layers() {
         let remaining = MAX_SERVER_UI_BYTES.saturating_sub(total) as u64;
         if let Some(index) = layer.read_file_with_limit(INDEX, remaining).ok().flatten()

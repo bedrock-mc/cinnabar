@@ -1,6 +1,6 @@
 //! Retained player preferences and camera-rig configuration.
 
-use bevy::prelude::{Resource, Vec3};
+use bevy::prelude::{EulerRot, Quat, Resource, Vec3};
 use semantic_input::PerspectiveMode;
 use ui::UserSettings;
 
@@ -22,6 +22,7 @@ pub struct CameraSettingsAuthority {
     perspective: PerspectiveMode,
     configured_perspective: PerspectiveMode,
     pub(super) freelook: bool,
+    death_rotation: Option<Quat>,
     feel: CameraFeelSettings,
     game_sensitivity: super::look::GameSensitivity,
     rig: Option<CameraRig>,
@@ -88,6 +89,7 @@ impl Default for CameraSettingsAuthority {
             perspective: settings.gameplay.default_perspective,
             configured_perspective: settings.gameplay.default_perspective,
             freelook: false,
+            death_rotation: None,
             feel: CameraFeelSettings::from_settings(&settings),
             game_sensitivity: Default::default(),
             rig: None,
@@ -161,13 +163,42 @@ impl CameraSettingsAuthority {
     }
 
     /// A rig or held freelook presents third-person-back so the local body renders and the viewmodel hides.
+    /// While the death view is on, first person also presents third-person-back so the body's death
+    /// shows; a chosen third-person mode is kept.
     #[must_use]
     pub const fn perspective(&self) -> PerspectiveMode {
-        if self.rig.is_some() || self.freelook {
+        if self.rig.is_some()
+            || self.freelook
+            || (self.death_rotation.is_some()
+                && matches!(self.perspective, PerspectiveMode::FirstPerson))
+        {
             PerspectiveMode::ThirdPersonBack
         } else {
             self.perspective
         }
+    }
+
+    /// Whether the local player's death currently overrides first person.
+    #[must_use]
+    pub const fn death_view(&self) -> bool {
+        self.death_rotation.is_some()
+    }
+
+    /// The fixed camera heading while the local player is dead: level, facing the way the body
+    /// faced when it died. Look input does not turn it.
+    #[must_use]
+    pub const fn death_rotation(&self) -> Option<Quat> {
+        self.death_rotation
+    }
+
+    /// Turns the death view on while the local player is dead, snapping the camera to a level
+    /// heading from `body_rotation`'s yaw. The stored perspective is untouched, so clearing it
+    /// restores the player's own mode.
+    pub fn set_death_view(&mut self, body_rotation: Option<Quat>) {
+        self.death_rotation = body_rotation.map(|rotation| {
+            let (yaw, _, _) = rotation.to_euler(EulerRot::YXZ);
+            Quat::from_rotation_y(yaw)
+        });
     }
 
     #[must_use]
@@ -242,6 +273,7 @@ impl CameraSettingsAuthority {
     pub fn reset_perspective(&mut self) {
         self.perspective = PerspectiveMode::FirstPerson;
         self.freelook = false;
+        self.death_rotation = None;
         self.preserve_teleport_rotation = false;
         self.view_scale = [1.0, 1.0];
     }

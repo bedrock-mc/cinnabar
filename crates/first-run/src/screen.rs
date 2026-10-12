@@ -148,6 +148,7 @@ pub(super) fn from_status(status: &Status, meter: &mut Meter, now: Instant) -> S
                 bytes_per_second: meter.sample(now, received),
             }
         }
+        Phase::Running if status.total == 0 => Screen::Starting,
         Phase::Running => Screen::Preparing {
             step: status.step,
             total: status.total,
@@ -233,6 +234,10 @@ mod tests {
                 total: 19,
                 label: "Compiling entity assets".into()
             }
+        );
+        assert_eq!(
+            from_status(&Status::starting(), &mut meter, now),
+            Screen::Starting
         );
         assert_eq!(
             from_status(&status(Phase::Done), &mut meter, now),

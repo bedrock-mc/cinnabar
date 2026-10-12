@@ -261,6 +261,12 @@ fn death_fov_samples_this_frames_actor_clock_and_clears_on_recovery_and_session_
     assert!((projection(&mut app).fov.to_degrees() - 84.0).abs() < 1e-4);
     assert_eq!(
         app.world()
+            .resource::<CameraSettingsAuthority>()
+            .perspective(),
+        semantic_input::PerspectiveMode::ThirdPersonBack
+    );
+    assert_eq!(
+        app.world()
             .resource::<client_presentation::camera::CameraFovInputs>()
             .death_ticks,
         Some(125.25)
@@ -284,6 +290,12 @@ fn death_fov_samples_this_frames_actor_clock_and_clears_on_recovery_and_session_
     assert!((projection(&mut app).fov.to_degrees() - base).abs() < 1e-4);
     assert_eq!(
         app.world()
+            .resource::<CameraSettingsAuthority>()
+            .perspective(),
+        semantic_input::PerspectiveMode::FirstPerson
+    );
+    assert_eq!(
+        app.world()
             .resource::<client_presentation::camera::CameraFovInputs>()
             .death_ticks,
         None
@@ -301,9 +313,21 @@ fn death_fov_samples_this_frames_actor_clock_and_clears_on_recovery_and_session_
         .unwrap();
     app.update();
     assert!((projection(&mut app).fov.to_degrees() - 84.0).abs() < 1e-4);
+    assert_eq!(
+        app.world()
+            .resource::<CameraSettingsAuthority>()
+            .perspective(),
+        semantic_input::PerspectiveMode::ThirdPersonBack
+    );
     app.world_mut().resource_mut::<ClientWorld>().stream = None;
     app.update();
     assert!((projection(&mut app).fov.to_degrees() - base).abs() < 1e-4);
+    assert_eq!(
+        app.world()
+            .resource::<CameraSettingsAuthority>()
+            .perspective(),
+        semantic_input::PerspectiveMode::FirstPerson
+    );
     assert_eq!(
         app.world()
             .resource::<client_presentation::camera::CameraFovInputs>()

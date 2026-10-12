@@ -1,11 +1,12 @@
 //! Bounded import of ordinary pack archives and resource halves of add-on bundles.
 
+use pack_json::{normalize_jsonc, parse_jsonc};
+
 use crate::{
     AdmissionError, MAX_ARCHIVE_BYTES, MAX_DECLARED_BYTES_PER_PACK, MAX_FILE_BYTES,
     MAX_MANIFEST_BYTES, MAX_PACKS,
     library::{ImportReport, InstalledPack, LibraryError},
     manifest::{Version, read_manifest},
-    normalize_jsonc,
     parser::{
         MANIFEST_NAMES, canonical_path, is_regular_file, prepare_zip_bytes, validate_archive_parts,
     },
@@ -38,10 +39,16 @@ pub fn is_pack_import_path(path: &Path) -> bool {
 /// Reads each pack separately so a behavior or malformed half cannot hide a valid resource half.
 pub(crate) fn read_import(
     bytes: Vec<u8>,
+    source: &Path,
 ) -> Result<(ImportReport, ImportedArchives), LibraryError> {
     let mut report = ImportReport::default();
     let mut imported = Vec::new();
-    read_bundle(bytes, 0, &mut report, &mut imported)?;
+    let source = source
+        .file_name()
+        .unwrap_or(source.as_os_str())
+        .to_string_lossy();
+    read_bundle(bytes, &source, 0, &mut report, &mut imported)
+        .map_err(|error| file_error(&source, error))?;
     if imported.iter().map(|(_, bytes)| bytes.len()).sum::<usize>() > crate::MAX_STACK_ARCHIVE_BYTES
     {
         return Err(AdmissionError::StackArchiveTooLarge.into());
@@ -52,6 +59,7 @@ pub(crate) fn read_import(
 /// Splits directory bundles or one level of nested pack archives without filesystem extraction.
 fn read_bundle(
     mut bytes: Vec<u8>,
+    source: &str,
     depth: usize,
     report: &mut ImportReport,
     imported: &mut ImportedArchives,
@@ -87,7 +95,7 @@ fn read_bundle(
         match result {
             Ok(Some(pack)) => imported.push(pack),
             Ok(None) => report.skipped_behavior += 1,
-            Err(error) => report.rejected.push(error.to_string()),
+            Err(error) => report.rejected.push(format!("{source}: {error}")),
         }
     }
     if depth == 0 {
@@ -99,7 +107,7 @@ fn read_bundle(
                 let bytes = match read_entry(&mut archive, *index, MAX_ARCHIVE_BYTES as u64) {
                     Ok(bytes) => bytes,
                     Err(error) => {
-                        report.rejected.push(error.to_string());
+                        report.rejected.push(format!("{source}/{path}: {error}"));
                         continue;
                     }
                 };
@@ -107,8 +115,10 @@ fn read_bundle(
                 if nested_bytes > crate::MAX_STACK_ARCHIVE_BYTES {
                     return Err(AdmissionError::StackArchiveTooLarge.into());
                 }
-                if let Err(error) = read_bundle(bytes, depth + 1, report, imported) {
-                    report.rejected.push(error.to_string());
+                let nested_source = format!("{source}/{path}");
+                if let Err(error) = read_bundle(bytes, &nested_source, depth + 1, report, imported)
+                {
+                    report.rejected.push(format!("{nested_source}: {error}"));
                 }
             }
         }
@@ -170,7 +180,7 @@ fn read_candidate(
     root: &str,
     roots: &[String],
 ) -> Result<Option<(InstalledPack, Vec<u8>)>, LibraryError> {
-    let (_, manifest_index) = MANIFEST_NAMES
+    let (manifest_name, manifest_index) = MANIFEST_NAMES
         .into_iter()
         .find_map(|name| {
             paths
@@ -179,15 +189,21 @@ fn read_candidate(
                 .map(|(index, _)| (name, *index))
         })
         .ok_or(AdmissionError::MissingManifest)?;
-    let manifest = read_entry(archive, manifest_index, MAX_MANIFEST_BYTES as u64)?;
-    let Some(mut metadata) = read_metadata(&manifest)? else {
+    let manifest_path = format!("{root}{manifest_name}");
+    let manifest = read_entry(archive, manifest_index, MAX_MANIFEST_BYTES as u64)
+        .map_err(|error| file_error(&manifest_path, error))?;
+    let Some(mut metadata) =
+        read_metadata(&manifest).map_err(|error| file_error(&manifest_path, error))?
+    else {
         return Ok(None);
     };
-    if let Some((index, _)) = paths
+    if let Some((index, path)) = paths
         .iter()
         .find(|(_, path)| path == &format!("{root}contents.json"))
     {
-        reject_encrypted_index(&read_entry(archive, *index, MAX_MANIFEST_BYTES as u64)?)?;
+        let result = read_entry(archive, *index, MAX_MANIFEST_BYTES as u64)
+            .and_then(|bytes| reject_encrypted_index(&bytes));
+        result.map_err(|error| file_error(path, error))?;
     }
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
     for (index, path) in paths {
@@ -218,7 +234,8 @@ fn read_candidate(
         bytes.clone(),
         None,
         None,
-    )?;
+    )
+    .map_err(|error| file_error(&manifest_path, error.into()))?;
     if let Ok(Some(language)) =
         validated.read_file_with_limit("texts/en_US.lang", MAX_MANIFEST_BYTES as u64)
     {
@@ -243,9 +260,7 @@ fn reject_encrypted_index(bytes: &[u8]) -> Result<(), LibraryError> {
 
 /// Reads manifest display fields after the shared identity/module validation.
 fn read_metadata(bytes: &[u8]) -> Result<Option<InstalledPack>, LibraryError> {
-    let normalized = normalize_jsonc(bytes).ok_or(AdmissionError::MalformedManifest)?;
-    let root: Value =
-        serde_json::from_slice(&normalized).map_err(|_| AdmissionError::MalformedManifest)?;
+    let root: Value = parse_jsonc(bytes).map_err(LibraryError::PackJson)?;
     if root["modules"].as_array().is_some_and(|modules| {
         !modules.iter().any(|module| module["type"] == "resources")
             && modules
@@ -282,6 +297,14 @@ fn read_metadata(bytes: &[u8]) -> Result<Option<InstalledPack>, LibraryError> {
         subpacks: manifest.subpacks,
         revision: 0,
     }))
+}
+
+/// Adds the source file to an import failure without changing its underlying reason.
+fn file_error(path: &str, source: LibraryError) -> LibraryError {
+    LibraryError::PackFile {
+        path: path.to_owned(),
+        source: Box::new(source),
+    }
 }
 
 /// Enforces the actual inflated size as well as the ZIP directory's size.

@@ -68,7 +68,11 @@ pub(super) fn draw(
     canvas.text_line("GAME MENU", [x, y], right - x, HEADER5, TEXT)?;
     y += heading_height;
     canvas.text_line(
-        "Pick up where you left off.",
+        if view.updates.ready.is_some() {
+            "Update ready"
+        } else {
+            "Pick up where you left off."
+        },
         [x, y],
         right - x,
         CAPTION,

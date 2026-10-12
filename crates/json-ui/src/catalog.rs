@@ -206,7 +206,7 @@ impl Catalog {
     }
 
     fn load_file(&mut self, entry: &str, path: &Path) {
-        let text = match std::fs::read_to_string(path) {
+        let text = match read(path) {
             Ok(text) => text,
             Err(error) => {
                 self.diagnostics
@@ -388,10 +388,12 @@ pub(crate) fn parse_ui_defs(path: &Path, text: &str) -> Result<Vec<String>, Load
 }
 
 fn read(path: &Path) -> Result<String, LoadError> {
-    std::fs::read_to_string(path).map_err(|source| LoadError::Read {
-        path: path.to_path_buf(),
-        source,
-    })
+    std::fs::read(path)
+        .map(|bytes| pack_json::decode_text(&bytes).into_owned())
+        .map_err(|source| LoadError::Read {
+            path: path.to_path_buf(),
+            source,
+        })
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -434,6 +436,20 @@ mod overlay_tests {
 mod document_tests {
     use super::Catalog;
     use crate::{Context, resolve};
+
+    #[test]
+    fn pack_bytes_preserve_legacy_formatting_and_utf8_text() {
+        let catalog = Catalog::from_files([
+            ("ui/_global_variables.json", b"{}".as_slice()),
+            ("ui/_ui_defs.json", br#"{"ui_defs":["ui/text.json"]}"#.as_slice()),
+            ("ui/text.json", b"\xef\xbb\xbf{/* label */\"namespace\":\"n\",\"label\":{\"text\":\"\xa7rExample\"}}".as_slice()),
+        ]).unwrap();
+        assert_eq!(
+            catalog.lookup("n", "label").unwrap().props["text"],
+            "§rExample"
+        );
+        assert!(catalog.diagnostics().is_empty());
+    }
 
     fn catalog(defs: &str, files: &[(&str, &str)]) -> Catalog {
         let mut all = vec![

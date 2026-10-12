@@ -47,7 +47,6 @@ case "$platform" in
 esac
 require_file "$prep_kit_list" "$prep_kit_hint"
 while IFS= read -r file; do required+=("$resources$file"); done < <(resource_manifest "$platform")
-optional+=("${resources}update-url")
 
 allowed="$(printf '%s\n' "${required[@]}" "${optional[@]}" | sort -u)"
 actual="$(cd "$root" && find . ! -type d | sed 's|^\./||' | sort)"

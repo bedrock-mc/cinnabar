@@ -21,7 +21,7 @@ pub(super) fn prepare_atmosphere_textures(
     };
     let end_sky = weather_textures.as_deref().and_then(|assets| {
         assets
-            .textures()
+            .end_sky()
             .map(|textures| (assets.identity(), textures))
     });
     let end_sky_identity = end_sky.map(|(identity, _)| identity);
@@ -49,12 +49,12 @@ pub(super) fn prepare_atmosphere_textures(
         "pinned vanilla moon phases",
     );
     let (end_sky_texture, end_sky_view) = match end_sky {
-        Some((_, textures)) => upload_rgba(
+        Some((_, image)) => upload_rgba(
             &render_device,
             &render_queue,
-            textures.end_sky.width,
-            textures.end_sky.height,
-            &textures.end_sky.rgba8,
+            image.width,
+            image.height,
+            &image.rgba8,
             "vanilla End sky",
         ),
         None => upload_rgba(

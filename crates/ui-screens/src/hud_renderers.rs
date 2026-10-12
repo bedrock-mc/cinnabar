@@ -438,5 +438,6 @@ fn crosshair(canvas: &mut Canvas<'_>, sprite: SheetSprite, dest: [f32; 4], blend
             color: [255; 4],
         },
     };
-    let _ = canvas.push(visual, [x, y, x + side, y + side]);
+    let bounds = canvas.snap_sprite_bounds([x, y, x + side, y + side]);
+    let _ = canvas.push(visual, bounds);
 }

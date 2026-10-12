@@ -318,6 +318,8 @@ pub(crate) fn prepare_ui_runtime(
         [feet.x, feet.y, feet.z].map(|axis| axis.floor() as i32)
     });
     presentation.hud_frame_mut().thunderstorm = weather.lightning_level() > 0.0;
+    presentation.hud_frame_mut().death_screen =
+        menu_runtime.is_visible() && menu_runtime.screen() == launcher::menu::MenuScreen::Death;
     presentation.hud_frame_mut().dimension = client_world
         .stream
         .as_ref()

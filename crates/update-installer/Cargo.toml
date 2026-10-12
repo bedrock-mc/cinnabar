@@ -1,0 +1,33 @@
+[package]
+name = "update-installer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[package.metadata.cinnabar]
+platform-specific = ["macos", "windows"]
+
+[lib]
+doctest = false
+
+[[bin]]
+name = "cinnabar-updater"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+serde_json = "1"
+sha2.workspace = true
+tempfile = "3"
+time = { version = "0.3", default-features = false, features = ["std"] }
+update-manifest = { path = "../update-manifest" }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", default-features = false, features = ["fs", "process", "std"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_SystemInformation"] }
+
+[lints]
+workspace = true
