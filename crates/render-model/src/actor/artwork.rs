@@ -159,7 +159,7 @@ impl ActorArtworkPages {
     /// Installs the shared actor glint image once, independently of skin and armor pages.
     #[must_use]
     pub fn with_actor_glint(mut self, raster: EquipmentRaster) -> Self {
-        if self.hash_glint(&raster) {
+        if self.hash_glint(b"actor", &raster) {
             self.actor_glint = Some(raster);
         }
         self
@@ -168,14 +168,14 @@ impl ActorArtworkPages {
     /// Installs the held-item glint image beside the actor glint.
     #[must_use]
     pub fn with_item_glint(mut self, raster: EquipmentRaster) -> Self {
-        if self.hash_glint(&raster) {
+        if self.hash_glint(b"item", &raster) {
             self.item_glint = Some(raster);
         }
         self
     }
 
-    /// Folds a well-formed glint raster into the snapshot identity; `false` rejects it.
-    fn hash_glint(&mut self, raster: &EquipmentRaster) -> bool {
+    /// Folds a glint slot and well-formed raster into the snapshot identity; `false` rejects it.
+    fn hash_glint(&mut self, slot: &[u8], raster: &EquipmentRaster) -> bool {
         if raster.width == 0
             || raster.height == 0
             || raster.rgba8.len() != usize::from(raster.width) * usize::from(raster.height) * 4
@@ -184,6 +184,7 @@ impl ActorArtworkPages {
         }
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
+        hasher.update(slot);
         hasher.update(raster.width.to_le_bytes());
         hasher.update(raster.height.to_le_bytes());
         hasher.update(&raster.rgba8);
@@ -567,6 +568,24 @@ impl ActorArtworkPages {
 mod tests {
     use super::*;
     use crate::MAX_RENDERED_PLAYERS;
+
+    #[test]
+    fn identical_glint_pixels_in_different_slots_have_different_identities() {
+        let base = ActorArtworkPages::default();
+        let raster = EquipmentRaster {
+            width: 1,
+            height: 1,
+            rgba8: Arc::from([128, 128, 128, 255]),
+        };
+        let actor = base.clone().with_actor_glint(raster.clone());
+        let item = base.with_item_glint(raster);
+
+        assert_eq!(
+            actor.actor_glint().unwrap().rgba8,
+            item.item_glint().unwrap().rgba8
+        );
+        assert_ne!(actor.identity(), item.identity());
+    }
 
     /// Route-only changes can retain the pixel identity but must invalidate prepared artwork.
     #[test]

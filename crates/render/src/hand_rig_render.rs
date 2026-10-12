@@ -17,14 +17,13 @@ use bevy::{
         extract_resource::ExtractResourcePlugin,
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
-            BindGroupLayoutEntry, BindingResource, BindingType, BlendState, Buffer,
-            BufferBindingType, BufferInitDescriptor, BufferSize, BufferUsages,
-            CachedRenderPipelineId, ColorTargetState, ColorWrites, CompareFunction,
-            DepthStencilState, Extent3d, FilterMode, FragmentState, PipelineCache,
-            RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
-            Texture, TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
-            TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
-            TextureViewDimension, VertexState,
+            BindGroupLayoutEntry, BindingType, BlendState, Buffer, BufferBindingType,
+            BufferInitDescriptor, BufferSize, BufferUsages, CachedRenderPipelineId,
+            ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, Extent3d,
+            FilterMode, FragmentState, PipelineCache, RenderPipelineDescriptor, Sampler,
+            SamplerBindingType, SamplerDescriptor, ShaderStages, Texture, TextureDataOrder,
+            TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages,
+            TextureView, TextureViewDescriptor, TextureViewDimension, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         view::ExtractedView,
@@ -40,6 +39,7 @@ use {
     render_scene::HandRigScene,
 };
 
+pub(crate) mod bindings;
 mod gpu;
 mod node;
 use gpu::*;
