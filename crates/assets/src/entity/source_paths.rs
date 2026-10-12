@@ -1,6 +1,13 @@
 use super::{AssetError, EntityAssetKind, MAX_ENTITY_ASSET_PATH_BYTES, invalid};
 
 pub const ACTOR_GLINT_TEXTURE_IDENTIFIER: &str = "textures/misc/enchanted_actor_glint";
+/// The brighter glint raster vanilla draws over held and dropped items.
+pub const ITEM_GLINT_TEXTURE_IDENTIFIER: &str = "textures/misc/enchanted_item_glint";
+/// Every shared glint raster the entity carrier keeps beside equipment art.
+pub const GLINT_TEXTURE_IDENTIFIERS: [&str; 2] = [
+    ACTOR_GLINT_TEXTURE_IDENTIFIER,
+    ITEM_GLINT_TEXTURE_IDENTIFIER,
+];
 pub const BED_GEOMETRY_IDENTIFIER: &str = "geometry.bed";
 pub const CAPE_GEOMETRY_IDENTIFIER: &str = "geometry.cape";
 pub const ELYTRA_GEOMETRY_IDENTIFIER: &str = "geometry.elytra";
