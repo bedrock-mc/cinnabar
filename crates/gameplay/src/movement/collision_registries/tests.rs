@@ -14,6 +14,9 @@ mod custom_shapes;
 #[path = "tests/admission.rs"]
 mod admission;
 
+#[path = "tests/multipart.rs"]
+mod multipart;
+
 /// Reads the checkout's shared target manifest for registry fixtures.
 fn active_content_registry_protocol() -> u32 {
     serde_json::from_str::<serde_json::Value>(include_str!(

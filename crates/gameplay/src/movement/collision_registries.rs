@@ -12,6 +12,7 @@ use sim::{
 };
 use thiserror::Error;
 
+mod multipart;
 mod selection;
 mod session_palette;
 mod tags;
@@ -33,6 +34,8 @@ struct InteractionBlock {
         bool,
         Option<u32>,
     )>,
+    /// Offset to the other block of a two-block structure such as a door or bed.
+    second_part: Option<[i32; 3]>,
 }
 
 type InteractionBlocks = BTreeMap<u32, InteractionBlock>;
@@ -175,6 +178,10 @@ impl PhysicsCollisionRegistries {
             let full_cube = shapes
                 .flags
                 .contains(assets::block_shapes::ShapeFlags::FULL_CUBE);
+            let states = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(
+                &record.canonical_state,
+            )
+            .ok();
             let binding = InteractionBlock {
                 identifier: Arc::from(record.name.as_ref()),
                 full_cube,
@@ -195,15 +202,16 @@ impl PhysicsCollisionRegistries {
                         .contains(assets::BlockFlags::OCCLUDES_FULL_FACE),
                     record.model_state.get(assets::ModelStateField::Orientation),
                 )),
+                second_part: states
+                    .as_ref()
+                    .and_then(|states| multipart::second_part_offset(&record.name, states)),
             };
             interaction_blocks.insert(record.sequential_id, binding.clone());
             hashed_interaction_blocks.insert(record.network_hash, binding);
             let state: Arc<str> = Arc::from(record.canonical_state.as_ref());
             canonical_states.insert(record.sequential_id, Arc::clone(&state));
             hashed_canonical_states.insert(record.network_hash, state);
-            if let Ok(states) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(
-                &record.canonical_state,
-            ) {
+            if let Some(states) = states {
                 state_ids
                     .entry(Arc::from(record.name.as_ref()))
                     .or_default()
@@ -363,6 +371,7 @@ impl PhysicsCollisionRegistries {
                         shape_flags: assets::block_shapes::ShapeFlags::empty(),
                         tags: Arc::clone(&block.tags),
                         connections: None,
+                        second_part: None,
                     },
                 );
                 let boxes = custom_block_boxes(&effective);
@@ -413,6 +422,7 @@ impl PhysicsCollisionRegistries {
                             shape_flags: assets::block_shapes::ShapeFlags::empty(),
                             tags: Arc::clone(&block.tags),
                             connections: None,
+                            second_part: None,
                         },
                     );
                     apply_selection(
@@ -437,6 +447,20 @@ impl PhysicsCollisionRegistries {
             assets::NetworkIdMode::Hashed => &self.hashed_interaction_blocks,
         };
         map.get(&runtime_id).map(|block| block.identifier.as_ref())
+    }
+
+    /// The offset from `runtime_id`'s block to the other block of its two-block structure
+    /// (door halves, double plants, pitcher crops, bed ends), if it is part of one.
+    pub fn second_part_offset(
+        &self,
+        mode: assets::NetworkIdMode,
+        runtime_id: u32,
+    ) -> Option<[i32; 3]> {
+        let map = match mode {
+            assets::NetworkIdMode::Sequential => &self.interaction_blocks,
+            assets::NetworkIdMode::Hashed => &self.hashed_interaction_blocks,
+        };
+        map.get(&runtime_id)?.second_part
     }
 
     /// The runtime id of `identifier` in exactly `states`, compared as parsed JSON.

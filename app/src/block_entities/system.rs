@@ -22,7 +22,7 @@ use {
 
 use super::{
     containers::{ContainerKind, ContainerLids, cue_is_open},
-    cracks::{CrackShapeCache, crack_instances, crack_shape},
+    cracks::{CrackLayers, CrackShapeCache, crack_instances, crack_shape, with_second_parts},
     describe::{HeldItem, Template, describe},
     sign_text,
     state::BlockState,
@@ -279,6 +279,33 @@ fn block_info(
         .clone()
 }
 
+/// The other block of `entry`'s two-block structure and its layers, while that block is still
+/// the same kind (a lone door half has no partner to crack).
+fn second_crack_part(
+    collisions: &PhysicsCollisionRegistries,
+    store: &world::ChunkStore,
+    mode: assets::NetworkIdMode,
+    dimension: i32,
+    entry: &chunk_pipeline::ActiveBlockCrack,
+) -> Option<([i32; 3], CrackLayers)> {
+    let id = entry.layers[0]?;
+    let offset = collisions.second_part_offset(mode, id)?;
+    let position: [i32; 3] = std::array::from_fn(|axis| entry.position[axis] + offset[axis]);
+    let side = SUB_CHUNK_SIDE as i32;
+    let key = world::SubChunkKey::new(
+        dimension,
+        position[0].div_euclid(side),
+        position[1].div_euclid(side),
+        position[2].div_euclid(side),
+    );
+    let chunk = store.sub_chunk(key)?;
+    let [x, y, z] = position.map(|value| value.rem_euclid(side) as u8);
+    let layers: CrackLayers = std::array::from_fn(|layer| chunk.runtime_id(layer, x, y, z));
+    let other = layers[0]?;
+    (collisions.block_identifier(mode, other) == collisions.block_identifier(mode, id))
+        .then_some((position, layers))
+}
+
 /// The portal surface `runtime_id` draws, if any.
 fn portal_kind(
     runtime: &mut BlockEntityRuntime,
@@ -394,7 +421,10 @@ pub(crate) fn update_block_entity_scene(
         .map_or_else(Vec::new, |snapshot| {
             let assets = stream.runtime_assets();
             let shapes = &mut runtime.shapes;
-            crack_instances(&snapshot.entries, |entry| {
+            let entries = with_second_parts(&snapshot.entries, |entry| {
+                second_crack_part(&collisions, store, mode, dimension, entry)
+            });
+            crack_instances(&entries, |entry| {
                 crack_shape(
                     shapes,
                     assets,
