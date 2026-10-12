@@ -455,7 +455,10 @@ fn prepare_actor_bind_group(
         gpu.bind_group = None;
         return;
     };
-    let Some((_, glint_view)) = gpu.artwork.glint.as_ref() else {
+    let (Some((_, glint_view)), Some((_, item_glint_view))) = (
+        gpu.artwork.glint.texture.as_ref(),
+        gpu.artwork.item_glint.texture.as_ref(),
+    ) else {
         gpu.bind_group = None;
         return;
     };
@@ -541,6 +544,10 @@ fn prepare_actor_bind_group(
                         resource: BindingResource::Sampler(&gpu.glint_sampler),
                     },
                     BindGroupEntry {
+                        binding: 14,
+                        resource: BindingResource::TextureView(item_glint_view),
+                    },
+                    BindGroupEntry {
                         binding: 11,
                         resource: BindingResource::TextureView(&gpu.skins.placeholder),
                     },
@@ -603,6 +610,10 @@ fn prepare_actor_bind_group(
             BindGroupEntry {
                 binding: 13,
                 resource: BindingResource::Sampler(&gpu.glint_sampler),
+            },
+            BindGroupEntry {
+                binding: 14,
+                resource: BindingResource::TextureView(item_glint_view),
             },
             BindGroupEntry {
                 binding: 11,

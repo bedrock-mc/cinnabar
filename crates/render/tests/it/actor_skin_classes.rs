@@ -167,6 +167,7 @@ fn raster(
             binding: 13,
             resource: wgpu::BindingResource::Sampler(&sampler),
         },
+        texture(14, &glint),
         buffer(20, &lightmap),
         buffer(21, &atmosphere),
     ];

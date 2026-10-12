@@ -956,3 +956,78 @@ fn sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
         assert_eq!(layer.submission.overlay_rgba8, expected);
     }
 }
+
+#[test]
+fn glinting_held_items_draw_the_item_glint_across_their_sprite_in_every_view() {
+    use super::runtime::{ActorEquipmentInput, HeldKind, StagedSessionIcons, WornItem};
+    let (mut runtime, pages) = pack_runtime(crown_pack());
+    let body = player_body(&mut runtime);
+    let plain = WornItem {
+        use_facts: client_world::EffectiveItemUse::default(),
+        grip: assets::item::grip::builtin_item_grip("test:gem"),
+        identifier: Arc::from("test:gem"),
+        metadata: 0,
+        damage: None,
+        kind: HeldKind::Other,
+        dye_rgb: None,
+        enchanted: false,
+    };
+    let items = session_items(vec![("test:gem", Default::default())], vec!["test:gem"]);
+    let staged = StagedSessionIcons::stage(Some(&items)).unwrap();
+    let (_, locations) = pages.with_equipment_rasters(staged.rasters());
+    runtime.set_session_items(Some(&items), Some(staged), locations);
+    let glinting = WornItem {
+        enchanted: true,
+        ..plain.clone()
+    };
+    let mut materials = |item: &WornItem| {
+        let input = ActorEquipmentInput {
+            main: Some(item.clone()),
+            off: Some(item.clone()),
+            ..Default::default()
+        };
+        let mut materials = runtime
+            .layers_for(&body, &input, None)
+            .into_iter()
+            .map(|layer| layer.submission.material)
+            .collect::<Vec<_>>();
+        materials.push(
+            runtime
+                .first_person_item(&body, item, actor_animation::ItemAnimationState::default())
+                .unwrap()
+                .presentation
+                .submission
+                .material,
+        );
+        materials.push(
+            runtime
+                .first_person_offhand(&body, item)
+                .unwrap()
+                .presentation
+                .submission
+                .material,
+        );
+        materials
+    };
+    let plain_materials = materials(&plain);
+    assert_eq!(plain_materials.len(), 4);
+    assert!(
+        plain_materials
+            .iter()
+            .all(|material| material.kind != assets::EntityRenderMaterial::Glint)
+    );
+    let glint_materials = materials(&glinting);
+    assert_eq!(glint_materials.len(), 4);
+    for material in glint_materials {
+        assert_eq!(material.kind, assets::EntityRenderMaterial::Glint);
+        assert_eq!(material.glint.texture, render_model::GlintTexture::Item);
+        assert!(
+            material
+                .glint
+                .uv_scale
+                .iter()
+                .all(|&scale| scale > render_model::ITEM_GLINT_UV_SCALE),
+            "an atlas sprite spans less than its page, so the glint scale exceeds 0.5"
+        );
+    }
+}

@@ -380,6 +380,10 @@ fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
                 resource: wgpu::BindingResource::Sampler(&sampler),
             },
             wgpu::BindGroupEntry {
+                binding: 14,
+                resource: wgpu::BindingResource::TextureView(&glint),
+            },
+            wgpu::BindGroupEntry {
                 binding: 20,
                 resource: lightmap.as_entire_binding(),
             },

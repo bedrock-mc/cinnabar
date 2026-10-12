@@ -56,7 +56,7 @@ pub use artwork::{
 };
 pub use cull::{ACTOR_CANDIDATE_RADIUS_BLOCKS, ActorCullView, MAX_ACTOR_RENDER_DISTANCE_BLOCKS};
 
-pub use glint::ActorGlint;
+pub use glint::{ActorGlint, GlintTexture, ITEM_GLINT_UV_SCALE};
 
 pub use frame::{
     ACTOR_BONE_MATRIX_BYTES, ACTOR_GPU_INSTANCE_WORDS, ACTOR_LAYER_BODY, ActorDrawManifestEntry,

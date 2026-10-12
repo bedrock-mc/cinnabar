@@ -45,11 +45,8 @@ pub(super) fn attach(
                 }
             }),
         );
-        if let Some(settings) = glint_settings {
-            for layer in layers.iter_mut() {
-                layer.submission.material.glint.strength = settings.strength;
-                layer.submission.material.glint.speed = settings.speed;
-            }
+        for layer in layers.iter_mut() {
+            animate_glint(&mut layer.submission, partial_tick, glint_settings);
         }
         layers
     });
@@ -66,5 +63,23 @@ pub(super) fn local_equipment(
         sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
         sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
         ..inventory.clone()
+    }
+}
+
+/// Applies the glint accessibility settings and starts held-item glint scrolling at the
+/// draw's interpolated tick; worn equipment keeps the clock its own layer set.
+pub(super) fn animate_glint(
+    submission: &mut render_model::ActorRigSubmission,
+    partial_tick: f32,
+    settings: Option<&render_scene::UiGlintSettings>,
+) {
+    let glint = &mut submission.material.glint;
+    if let Some(settings) = settings {
+        glint.strength = settings.strength;
+        glint.speed = settings.speed;
+    }
+    if glint.texture == render_model::GlintTexture::Item {
+        glint.time_seconds = (submission.input.completed_tick as f32 + partial_tick)
+            * simulation_clock::TICK_DURATION.as_secs_f32();
     }
 }

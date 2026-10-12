@@ -287,6 +287,7 @@ pub fn prepare_actor_render_frame(
         hand_camera_fov,
         hand_light,
         step.partial_tick,
+        params.glint_settings.as_deref(),
     );
 }
 

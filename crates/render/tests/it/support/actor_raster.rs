@@ -287,6 +287,10 @@ pub(super) fn raster_material_with_overlay(
         binding: 13,
         resource: wgpu::BindingResource::Sampler(&sampler),
     });
+    bindings.push(wgpu::BindGroupEntry {
+        binding: 14,
+        resource: wgpu::BindingResource::TextureView(&glint_view),
+    });
     let draws = [Draw {
         fragment: "actor_fragment",
         vertices: 0..vertices.len() as u32,

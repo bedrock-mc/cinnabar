@@ -6303,7 +6303,12 @@ hover colours, durability maxima, stack-merge capacity, held grip, wearable
 slots and use durations. Item glint (provisional): stacks vanilla
 marks as glinting (an `ench` list, the glint component, always-glinting vanilla items)
 draw a procedural scrolling purple overlay in HUD and JSON-UI item cells, not
-the retail glint texture; held items and the item viewmodel do not glint.
+the retail glint texture. Held items in both views draw vanilla's item glint:
+the `enchanted_item_glint` raster, colour (0.38, 0.19, 0.608) scaled by strength,
+1375/3750 ms scrolls, -20/80 degree layers, and a 0.5 UV scale across each atlas
+sprite with the scroll divided by that scale, as the native item-in-hand renderer
+sets them. Attachables take the item raster at unit scale. Exact pixel comparison
+remains open.
 `minecraft:render_offsets` is not applied.
 Initial negotiated item-registry binding for world item visuals is also separate
 from the inventory-ledger bootstrap fix. The visual resolver still starts from

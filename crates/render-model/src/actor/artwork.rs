@@ -140,6 +140,8 @@ pub struct ActorArtworkPages {
     pub identity: [u8; 32],
     pub entity_identity: [u8; 32],
     pub actor_glint: Option<EquipmentRaster>,
+    /// The brighter glint drawn over held items.
+    pub item_glint: Option<EquipmentRaster>,
     pub pages: Arc<[ActorTexturePage]>,
     routes: Arc<BTreeMap<EntityRigId, ActorArtworkLocation>>,
     /// Location of every catalog texture by entity-catalog source index.
@@ -157,11 +159,28 @@ impl ActorArtworkPages {
     /// Installs the shared actor glint image once, independently of skin and armor pages.
     #[must_use]
     pub fn with_actor_glint(mut self, raster: EquipmentRaster) -> Self {
+        if self.hash_glint(&raster) {
+            self.actor_glint = Some(raster);
+        }
+        self
+    }
+
+    /// Installs the held-item glint image beside the actor glint.
+    #[must_use]
+    pub fn with_item_glint(mut self, raster: EquipmentRaster) -> Self {
+        if self.hash_glint(&raster) {
+            self.item_glint = Some(raster);
+        }
+        self
+    }
+
+    /// Folds a well-formed glint raster into the snapshot identity; `false` rejects it.
+    fn hash_glint(&mut self, raster: &EquipmentRaster) -> bool {
         if raster.width == 0
             || raster.height == 0
             || raster.rgba8.len() != usize::from(raster.width) * usize::from(raster.height) * 4
         {
-            return self;
+            return false;
         }
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
@@ -169,8 +188,7 @@ impl ActorArtworkPages {
         hasher.update(raster.height.to_le_bytes());
         hasher.update(&raster.rgba8);
         self.identity = hasher.finalize().into();
-        self.actor_glint = Some(raster);
-        self
+        true
     }
 
     pub fn new(catalog: &RuntimeActorCatalog) -> Self {
@@ -256,6 +274,7 @@ impl ActorArtworkPages {
             identity: catalog.identity(),
             entity_identity: catalog.entity_identity(),
             actor_glint: None,
+            item_glint: None,
             pages: pages.into(),
             routes: Arc::new(routes),
             equipment: Arc::new(BTreeSet::new()),
@@ -495,6 +514,9 @@ impl ActorArtworkPages {
     }
     pub fn actor_glint(&self) -> Option<&EquipmentRaster> {
         self.actor_glint.as_ref()
+    }
+    pub fn item_glint(&self) -> Option<&EquipmentRaster> {
+        self.item_glint.as_ref()
     }
 
     /// Recognizes clones of the exact artwork snapshot without scanning pixels or routes.

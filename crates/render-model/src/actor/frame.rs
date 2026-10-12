@@ -167,7 +167,7 @@ pub struct ActorGpuInstance {
     pub material: u32,
     pub dissolve_multiplier: f32,
     pub light_color_multiplier: f32,
-    pub glint: [f32; 3],
+    pub glint: [f32; 6],
 }
 
 impl Default for ActorGpuInstance {

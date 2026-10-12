@@ -30,7 +30,7 @@ fn publication_of_one_new_page_retains_existing_textures_and_glint() {
     let mut gpu = GpuArtwork::default();
     assert!(gpu.prepare(&original, &device, &queue));
     let base = gpu.pages[0]._texture.id();
-    let glint = gpu.glint.as_ref().unwrap().0.id();
+    let glint = gpu.glint.texture.as_ref().unwrap().0.id();
     let (extended, _) = original
         .clone()
         .with_equipment_rasters(&[render_model::EquipmentRaster {
@@ -45,7 +45,7 @@ fn publication_of_one_new_page_retains_existing_textures_and_glint() {
         base,
         "unchanged pages must not allocate or upload again"
     );
-    assert_eq!(gpu.glint.as_ref().unwrap().0.id(), glint);
+    assert_eq!(gpu.glint.texture.as_ref().unwrap().0.id(), glint);
     assert!(gpu.prepare(&original, &device, &queue));
     assert_eq!(gpu.pages.len(), 1);
     assert_eq!(gpu.pages[0]._texture.id(), base);
@@ -76,7 +76,7 @@ fn equal_pixels_in_independent_allocations_reuse_textures_after_material_changes
     let mut gpu = GpuArtwork::default();
     assert!(gpu.prepare(&pages, &device, &queue));
     let texture = gpu.pages[0]._texture.id();
-    let glint = gpu.glint.as_ref().unwrap().0.id();
+    let glint = gpu.glint.texture.as_ref().unwrap().0.id();
     let mut page = pages.pages[0].clone();
     page.rgba8 = Arc::from(page.rgba8.to_vec());
     page.color_mask = true;
@@ -85,7 +85,7 @@ fn equal_pixels_in_independent_allocations_reuse_textures_after_material_changes
     assert!(gpu.prepare(&pages, &device, &queue));
     assert_eq!(gpu.pages[0]._texture.id(), texture);
     assert!(gpu.pages[0].color_mask);
-    assert_eq!(gpu.glint.as_ref().unwrap().0.id(), glint);
+    assert_eq!(gpu.glint.texture.as_ref().unwrap().0.id(), glint);
 }
 
 #[test]
@@ -95,7 +95,7 @@ fn changed_glint_and_pixels_invalidate_only_their_own_texture() {
     let mut gpu = GpuArtwork::default();
     assert!(gpu.prepare(&pages, &device, &queue));
     let texture = gpu.pages[0]._texture.id();
-    let glint = gpu.glint.as_ref().unwrap().0.id();
+    let glint = gpu.glint.texture.as_ref().unwrap().0.id();
     pages = pages.with_actor_glint(render_model::EquipmentRaster {
         width: 1,
         height: 1,
@@ -103,15 +103,15 @@ fn changed_glint_and_pixels_invalidate_only_their_own_texture() {
     });
     assert!(gpu.prepare(&pages, &device, &queue));
     assert_eq!(gpu.pages[0]._texture.id(), texture);
-    assert_ne!(gpu.glint.as_ref().unwrap().0.id(), glint);
-    let changed_glint = gpu.glint.as_ref().unwrap().0.id();
+    assert_ne!(gpu.glint.texture.as_ref().unwrap().0.id(), glint);
+    let changed_glint = gpu.glint.texture.as_ref().unwrap().0.id();
     let mut page = pages.pages[0].clone();
     page.rgba8 = vec![43; page.rgba8.len()].into();
     pages.pages = Arc::from([page]);
     pages.entity_identity = [9; 32];
     assert!(gpu.prepare(&pages, &device, &queue));
     assert_ne!(gpu.pages[0]._texture.id(), texture);
-    assert_eq!(gpu.glint.as_ref().unwrap().0.id(), changed_glint);
+    assert_eq!(gpu.glint.texture.as_ref().unwrap().0.id(), changed_glint);
 }
 
 #[test]
@@ -124,5 +124,5 @@ fn rejected_generic_pages_keep_glint_available_for_player_bindings() {
     let mut gpu = GpuArtwork::default();
     assert!(!gpu.prepare(&pages, &device, &queue));
     assert!(gpu.pages.is_empty());
-    assert!(gpu.glint.is_some());
+    assert!(gpu.glint.texture.is_some());
 }

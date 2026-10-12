@@ -31,6 +31,7 @@ struct BoneMatrix {
 
 @group(0) @binding(12) var actor_glint: texture_2d<f32>;
 @group(0) @binding(13) var glint_sampler: sampler;
+@group(0) @binding(14) var item_glint: texture_2d<f32>;
 
 struct VertexOutput {
     @builtin(position) @invariant position: vec4<f32>,
@@ -53,6 +54,17 @@ struct VertexOutput {
 
 fn word_f32(index: u32) -> f32 {
     return bitcast<f32>(instance_words[index]);
+}
+
+// Native glint layers: each UV turns about the centre, scrolls along u, then takes the glint
+// UV scale; the two samples (actor or item raster) are summed.
+fn glint_layers(uv: vec2<f32>, offsets: vec2<f32>, scale: vec2<f32>, item: bool) -> vec3<f32> {
+    let centered_uv = uv - vec2(0.5);
+    let first_uv = (vec2(0.9396926 * centered_uv.x + 0.34202015 * centered_uv.y, -0.34202015 * centered_uv.x + 0.9396926 * centered_uv.y) + vec2(offsets.x + 0.5, 0.5)) * scale;
+    let second_uv = (vec2(0.17364818 * centered_uv.x - 0.9848077 * centered_uv.y, 0.9848077 * centered_uv.x + 0.17364818 * centered_uv.y) + vec2(offsets.y + 0.5, 0.5)) * scale;
+    let actor_layers = tint_to_gamma(textureSampleLevel(actor_glint, glint_sampler, first_uv, 0.0)).rgb + tint_to_gamma(textureSampleLevel(actor_glint, glint_sampler, second_uv, 0.0)).rgb;
+    let item_layers = tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, first_uv, 0.0)).rgb + tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, second_uv, 0.0)).rgb;
+    return select(actor_layers, item_layers, item);
 }
 
 fn instance_row(base: u32, row: u32) -> vec4<f32> {
@@ -294,13 +306,11 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
         let base = input.multitexture_layers.x * ACTOR_GPU_INSTANCE_WORDS;
         let offsets = vec2(word_f32(base + 30u), word_f32(base + 31u));
         let strength = word_f32(base + 32u);
-        let centered_uv = uv - vec2(0.5);
-        let first_uv = vec2(0.9396926 * centered_uv.x + 0.34202015 * centered_uv.y, -0.34202015 * centered_uv.x + 0.9396926 * centered_uv.y) + vec2(offsets.x + 0.5, 0.5);
-        let second_uv = vec2(0.17364818 * centered_uv.x - 0.9848077 * centered_uv.y, 0.9848077 * centered_uv.x + 0.17364818 * centered_uv.y) + vec2(offsets.y + 0.5, 0.5);
-        let first = tint_to_gamma(textureSampleLevel(actor_glint, glint_sampler, first_uv, 0.0)).rgb;
-        let second = tint_to_gamma(textureSampleLevel(actor_glint, glint_sampler, second_uv, 0.0)).rgb;
+        let glint_scale = vec2(word_f32(base + 33u), word_f32(base + 34u));
+        let item = word_f32(base + 35u) != 0.0;
+        let foil_tex = glint_layers(uv, offsets, glint_scale, item);
         let foil_light = select(vec3(1.0), actor_light_colour(input.light), (input.light & ACTOR_LIGHT_WORLD_FLAG) != 0u);
-        let foil = (first + second) * vec3(0.38, 0.19, 0.608) * strength * foil_light;
+        let foil = foil_tex * vec3(0.38, 0.19, 0.608) * strength * foil_light;
         lit_gamma += foil * foil;
     }
     @if(ALPHA_TO_COVERAGE)

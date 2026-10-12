@@ -148,17 +148,20 @@ impl EquipmentRuntime {
             rig
         };
         Some(FirstPersonItem {
-            presentation: layer_presentation(
-                body,
-                if input.off_hand {
-                    LAYER_OFF_HAND
-                } else {
-                    LAYER_MAIN_HAND
-                },
-                rig,
-                placed,
-                location,
-                0,
+            presentation: super::push::attachable_glint(
+                layer_presentation(
+                    body,
+                    if input.off_hand {
+                        LAYER_OFF_HAND
+                    } else {
+                        LAYER_MAIN_HAND
+                    },
+                    rig,
+                    placed,
+                    location,
+                    0,
+                ),
+                item,
             ),
             camera_space: java_camera.is_some(),
             alpha_mode: render_model::HandItemAlphaMode::Cutout,

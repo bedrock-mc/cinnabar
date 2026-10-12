@@ -50,7 +50,7 @@ impl EquipmentRuntime {
         ) else {
             return false;
         };
-        let Some((mesh, location, block)) = self.held_mesh(item, true) else {
+        let Some((mesh, location, block, span)) = self.held_mesh(item, true) else {
             return false;
         };
         let grip_kind = if block {
@@ -77,13 +77,10 @@ impl EquipmentRuntime {
         let poses = self
             .poses
             .share(body, LAYER_MAIN_HAND, [&[previous], &[current]]);
-        layers.push(layer_presentation(
-            body,
-            LAYER_MAIN_HAND,
-            mesh,
-            poses,
-            location,
-            0,
+        layers.push(super::push::held_glint(
+            layer_presentation(body, LAYER_MAIN_HAND, mesh, poses, location, 0),
+            item,
+            span,
         ));
         true
     }
@@ -106,14 +103,18 @@ impl EquipmentRuntime {
         item: &WornItem,
         hand: JavaHand,
     ) -> Option<FirstPersonItem> {
-        let (mesh, location, block) = self.held_mesh(item, true)?;
+        let (mesh, location, block, span) = self.held_mesh(item, true)?;
         let camera = java::first_person_item(hand, mesh_kind(block), item.grip.mirrored_art());
         let rest = [rest_bone([0.0; 3])];
         let poses = self
             .poses
             .share(body, FIRST_PERSON_ITEM_LAYER, [&rest, &rest]);
         Some(FirstPersonItem {
-            presentation: layer_presentation(body, LAYER_MAIN_HAND, mesh, poses, location, 0),
+            presentation: super::push::held_glint(
+                layer_presentation(body, LAYER_MAIN_HAND, mesh, poses, location, 0),
+                item,
+                span,
+            ),
             camera_space: true,
             alpha_mode: self.first_person_alpha_mode(item, block),
             java_camera: camera.is_finite().then_some(camera),

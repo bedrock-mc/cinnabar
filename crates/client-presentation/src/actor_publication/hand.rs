@@ -58,6 +58,7 @@ pub(super) fn publish_hand_rig(
     fov_radians: Option<f32>,
     mut light: HandRigLight,
     partial_tick: f32,
+    glint: Option<&render_scene::UiGlintSettings>,
 ) {
     let (Some(source), Some(fov)) = (source, fov_radians) else {
         scene.clear();
@@ -67,7 +68,10 @@ pub(super) fn publish_hand_rig(
         scene.clear();
         return;
     };
-    let submissions = source.submissions();
+    let mut submissions = source.submissions();
+    for submission in submissions.iter_mut().flatten() {
+        super::equipment_layers::animate_glint(submission, partial_tick, glint);
+    }
     let mut atlases = [None, None];
     for (index, entry) in source.items.into_iter().enumerate() {
         if let Some((layer, atlas)) = entry {
@@ -79,6 +83,7 @@ pub(super) fn publish_hand_rig(
     *revision = revision.wrapping_add(1).max(1);
     if scene.publish(frame, skin, light, fov, *revision) {
         scene.set_item_atlases(atlases);
+        scene.set_item_glint(source.item_glint);
     }
 }
 
@@ -110,6 +115,8 @@ pub(super) struct HandSource {
     pub(super) presentation: ActorRigPresentation,
     pub(super) body: Option<ActorRigSubmission>,
     pub(super) items: [Option<(FirstPersonItem, HandItemAtlas)>; 2],
+    /// The held-item glint raster, bound whenever an item draws with the glint material.
+    pub(super) item_glint: Option<render_model::EquipmentRaster>,
     /// View-space hurt tilt, walk bob and sway applied before the rig placement.
     pub(super) motion: Mat4,
     /// Camera from the body's rig frame under Java's empty-hand stack.
@@ -246,6 +253,7 @@ pub(super) fn vanilla_hand_source(
         presentation,
         body,
         items,
+        item_glint: artwork.item_glint().cloned(),
         motion,
         java_body_camera: None,
     })

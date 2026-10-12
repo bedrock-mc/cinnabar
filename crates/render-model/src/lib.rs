@@ -145,7 +145,6 @@ pub mod lightmap;
 pub mod native_trig;
 pub mod viewmodel;
 pub mod weather;
-pub use actor::ActorGlint;
 pub use actor::ActorRigVertexSegments;
 pub use actor::{
     ACTOR_BONE_MATRIX_BYTES, ACTOR_GPU_INSTANCE_WORDS, ACTOR_LAYER_BODY, ActorDrawManifestEntry,
@@ -160,6 +159,7 @@ pub use actor::{
     ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
     MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
 };
+pub use actor::{ActorGlint, GlintTexture, ITEM_GLINT_UV_SCALE};
 pub use actor::{ActorSkinResidency, ResidentSkin, pack_skin_slot};
 pub use block_entity::BeaconModel;
 pub use block_entity::ConduitModel;

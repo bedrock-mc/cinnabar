@@ -64,6 +64,9 @@ impl PreparedSessionResources {
             if let Some(glint) = EquipmentRuntime::actor_glint(catalog) {
                 resources.pages = resources.pages.with_actor_glint(glint);
             }
+            if let Some(glint) = EquipmentRuntime::item_glint(catalog) {
+                resources.pages = resources.pages.with_item_glint(glint);
+            }
             let _span = bevy::log::info_span!(
                 "actor.pack_equipment_meshes",
                 bindings = catalog.bindings().len()
