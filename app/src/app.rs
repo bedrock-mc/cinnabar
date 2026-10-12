@@ -54,7 +54,7 @@ use client_presentation::{
     local_player::{LocalPlayerFrameSet, publish_interaction_origin},
 };
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
-use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use client_ui::ui_runtime::{PlatformClipboard, UiRuntime, presentation::UiPresentationRuntime};
 use diagnostics::markers::SHUTDOWN_COMPLETED;
 use diagnostics::metrics::MetricsCollector;
 use launcher::install_layout::InstallLayout;
@@ -395,7 +395,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         args.address.is_some() || args.socket_dir_explicit,
     )?;
     crate::thread_budget::ThreadBudget::configure_global_rayon();
-    // Declared first so it drops last: every spawned child is gone before `run` returns or unwinds.
+    // Keep the clipboard hook registered until the child guard runs on return or unwind.
+    let _clipboard_exit = launcher_host::lifecycle::children::on_exit(PlatformClipboard::shutdown);
+    // Drop after all process owners so every spawned child is stopped before `run` ends.
     let _children = launcher_host::lifecycle::children::StopOnDrop;
     launcher_host::lifecycle::children::install_exit_hooks(|| {
         diagnostics::console::flush_before_exit();

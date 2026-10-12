@@ -9,6 +9,7 @@ use ui::ChatClipboard;
 /// Every handle shares one long-lived arboard clipboard. On X11 the copied
 /// selection is served by that clipboard object, so it must outlive each copy
 /// for other applications to paste the text when no clipboard manager runs.
+/// The application's exit hooks release it during shutdown.
 #[derive(Default)]
 pub struct PlatformClipboard;
 
@@ -18,6 +19,8 @@ pub enum PlatformClipboardError {
     Platform(#[from] arboard::Error),
     #[error("clipboard text exceeds the {maximum}-byte chat insertion bound")]
     TooLong { maximum: usize },
+    #[error("platform clipboard is shutting down")]
+    ShuttingDown,
 }
 
 static PLATFORM_CLIPBOARD: ClipboardOwner<arboard::Clipboard> = ClipboardOwner::new();
@@ -35,6 +38,12 @@ impl PlatformClipboard {
     /// this call returns.
     pub fn write_text(&mut self, text: String) -> Result<(), PlatformClipboardError> {
         PLATFORM_CLIPBOARD.write_text(text)
+    }
+
+    /// Releases the retained connection so its destructor can hand copied text
+    /// to the clipboard manager, and prevents further access during shutdown.
+    pub fn shutdown() {
+        PLATFORM_CLIPBOARD.shutdown();
     }
 }
 
@@ -66,15 +75,31 @@ impl ClipboardBackend for arboard::Clipboard {
 /// Lazily opened clipboard connection that stays alive for the owner's
 /// lifetime, so selection ownership survives past each write.
 struct ClipboardOwner<B> {
-    backend: Mutex<Option<B>>,
+    state: Mutex<ClipboardState<B>>,
+}
+
+/// Connection and shutdown authority, updated under the same lock.
+struct ClipboardState<B> {
+    backend: Option<B>,
+    shutting_down: bool,
 }
 
 impl<B: ClipboardBackend> ClipboardOwner<B> {
     /// An owner with no connection opened yet.
     const fn new() -> Self {
         Self {
-            backend: Mutex::new(None),
+            state: Mutex::new(ClipboardState {
+                backend: None,
+                shutting_down: false,
+            }),
         }
+    }
+
+    /// Drops the connection once and prevents another operation from reopening it.
+    fn shutdown(&self) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.shutting_down = true;
+        state.backend = None;
     }
 
     /// Runs `action` on the retained connection, opening it on first use.
@@ -85,15 +110,18 @@ impl<B: ClipboardBackend> ClipboardOwner<B> {
         &self,
         action: impl FnOnce(&mut B) -> Result<R, arboard::Error>,
     ) -> Result<R, PlatformClipboardError> {
-        let mut slot = self.backend.lock().unwrap_or_else(PoisonError::into_inner);
-        let result = match &mut *slot {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.shutting_down {
+            return Err(PlatformClipboardError::ShuttingDown);
+        }
+        let result = match &mut state.backend {
             Some(backend) => action(backend),
             empty => B::open().and_then(|backend| action(empty.insert(backend))),
         };
         if let Err(error) = &result
             && !matches!(error, arboard::Error::ContentNotAvailable)
         {
-            *slot = None;
+            state.backend = None;
             tracing::warn!(%error, "platform clipboard failed");
         }
         Ok(result?)
@@ -136,6 +164,7 @@ mod tests {
 
     static SERVED_SELECTION: Mutex<Option<String>> = Mutex::new(None);
     static OPENED_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
+    static DROPPED_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
     static FAIL_NEXT_READ: AtomicBool = AtomicBool::new(false);
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -154,6 +183,7 @@ mod tests {
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = None;
         OPENED_CONNECTIONS.store(0, Ordering::SeqCst);
+        DROPPED_CONNECTIONS.store(0, Ordering::SeqCst);
         FAIL_NEXT_READ.store(false, Ordering::SeqCst);
         guard
     }
@@ -183,10 +213,51 @@ mod tests {
 
     impl Drop for SelectionServingBackend {
         fn drop(&mut self) {
+            DROPPED_CONNECTIONS.fetch_add(1, Ordering::SeqCst);
             *SERVED_SELECTION
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner) = None;
         }
+    }
+
+    #[test]
+    fn application_exit_releases_the_retained_connection_once() {
+        let _platform = reset_platform();
+        let owner = Arc::new(ClipboardOwner::<SelectionServingBackend>::new());
+        let children = launcher_host::lifecycle::children::Children::new();
+        let exit_owner = Arc::clone(&owner);
+        let _exit = children.on_exit(move || exit_owner.shutdown());
+        owner
+            .write_text("copied text".to_owned())
+            .expect("write succeeds");
+        assert_eq!(DROPPED_CONNECTIONS.load(Ordering::SeqCst), 0);
+
+        children.stop_all(std::time::Duration::ZERO);
+        children.stop_all(std::time::Duration::ZERO);
+        owner.shutdown();
+
+        assert_eq!(served_selection(), None);
+        assert_eq!(DROPPED_CONNECTIONS.load(Ordering::SeqCst), 1);
+        assert!(matches!(
+            owner.write_text("late copy".to_owned()),
+            Err(PlatformClipboardError::ShuttingDown)
+        ));
+        assert!(matches!(
+            owner.read_text_bounded(64),
+            Err(PlatformClipboardError::ShuttingDown)
+        ));
+        assert_eq!(OPENED_CONNECTIONS.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn shutdown_without_clipboard_access_opens_no_connection() {
+        let _platform = reset_platform();
+        let owner = ClipboardOwner::<SelectionServingBackend>::new();
+
+        owner.shutdown();
+
+        assert_eq!(OPENED_CONNECTIONS.load(Ordering::SeqCst), 0);
+        assert_eq!(DROPPED_CONNECTIONS.load(Ordering::SeqCst), 0);
     }
 
     #[test]
