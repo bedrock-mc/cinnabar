@@ -103,6 +103,7 @@ pub struct ContainerFrame<'a> {
     pub crafting_icons: &'a [Option<IconRef>; 9],
     pub crafting_output: Option<&'a (Option<IconRef>, NetworkItemStack)>,
     pub armor_icons: &'a [Option<IconRef>; 4],
+    pub armor_durability: &'a [Option<f32>; 4],
     pub offhand_icon: Option<IconRef>,
     pub offhand_durability: Option<f32>,
     /// The held stack's icon.

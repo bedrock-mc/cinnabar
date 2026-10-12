@@ -111,6 +111,7 @@ pub fn capture_hud_frame(
     frame.window_text = window_text;
     frame.cursor_icon = cursor_icon;
     frame.armor_icons = equipment.armor_icons;
+    frame.armor_durability = equipment.armor_durability;
     frame.offhand_icon = equipment.offhand_icon;
     frame.offhand_viewmodel_icon = None;
     frame.held_item_icon = None;

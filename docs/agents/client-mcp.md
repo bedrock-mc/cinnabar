@@ -26,7 +26,8 @@ schemas document every argument. Agents drive the client only through this endpo
 - `global_packs` stages and applies global resource packs as the settings screen does; import
   packs with `launch_client` args `["--import-pack", path]`, then poll it until `pending` clears.
 - `state.player_motion` includes the simulation tick, velocity, accepted motion sequence, jump
-  eligibility and physical jump state. With `local-mods`, `state.local_mods` also reports bounded
+  eligibility, physical jump state, processed sprint state, active item use and the selected
+  item's resolved use profile. With `local-mods`, `state.local_mods` also reports bounded
   host status and validated panel controls, so tests can verify module toggles and settings
   directly before sending a stimulus. These diagnostics do not grant movement authority.
 - `record_start` needs `ffmpeg` on PATH. Its default fixed clock steps game time exactly 1/fps per

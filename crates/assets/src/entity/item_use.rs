@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, sync::OnceLock};
 
+/// Movement factor for an active item use without a `minecraft:use_modifiers` component.
+pub const DEFAULT_USE_MOVEMENT_MODIFIER: f64 = 0.35;
+
 /// Compatibility maximum duration shared by long-held weapon actions and animation.
 pub const LONG_WEAPON_USE_TICKS: u32 = 72_000;
 

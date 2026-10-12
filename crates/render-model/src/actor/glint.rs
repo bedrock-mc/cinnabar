@@ -19,6 +19,9 @@ impl Default for ActorGlint {
 }
 
 impl ActorGlint {
+    /// Shared purple modulation for actor and UI item enchantment textures.
+    pub const TINT_RGB: [f32; 3] = [0.38, 0.19, 0.608];
+
     /// Native actor glint offsets, each wrapping at its own millisecond period.
     pub(crate) fn parameters(self) -> [f32; 3] {
         let time = if self.time_seconds.is_finite() {

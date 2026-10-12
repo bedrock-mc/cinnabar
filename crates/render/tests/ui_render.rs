@@ -202,8 +202,8 @@ fn composite_shader_blends_in_gamma_space() {
 #[test]
 fn pipeline_is_one_depth_neutral_premultiplied_overlay_family() {
     let layout = ui_bind_group_layout();
-    // Viewport, pages, the nearest and `bilinear` samplers, and the page format.
-    assert_eq!(layout.entries.len(), 5);
+    // Viewport, pages, UI samplers, page format, and the independent item glint pair.
+    assert_eq!(layout.entries.len(), 7);
     let descriptor = ui_pipeline_descriptor(layout);
     assert!(
         descriptor.depth_stencil.is_none(),

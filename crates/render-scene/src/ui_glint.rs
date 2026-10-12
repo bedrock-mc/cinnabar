@@ -2,13 +2,18 @@
 
 use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 
-/// Normalized accessibility factors, independent of the provisional glint artwork.
+/// Normalized accessibility factors, independent of the glint artwork.
 #[derive(Resource, ExtractResource, Clone, Copy, Debug, PartialEq)]
 #[extract_app(bevy::render::RenderApp)]
 pub struct UiGlintSettings {
     pub strength: f32,
     pub speed: f32,
 }
+
+/// Immutable item glint artwork published with the accepted UI pack state.
+#[derive(Resource, ExtractResource, Clone, Debug, Default, PartialEq)]
+#[extract_app(bevy::render::RenderApp)]
+pub struct UiItemGlintTexture(pub Option<std::sync::Arc<render_model::UiTexturePage>>);
 
 impl Default for UiGlintSettings {
     fn default() -> Self {

@@ -1,6 +1,8 @@
 use bevy::prelude::DetectChanges;
 use bevy::prelude::IntoScheduleConfigs;
-use render_scene::{UiGlintSettings, UiRenderSceneResource, UiRenderStatsResource};
+use render_scene::{
+    UiGlintSettings, UiItemGlintTexture, UiRenderSceneResource, UiRenderStatsResource,
+};
 use std::{
     mem::size_of,
     sync::{Arc, Weak},
@@ -40,6 +42,8 @@ mod font_atlas;
 #[cfg(test)]
 #[path = "ui_render/font_atlas_tests.rs"]
 mod font_atlas_tests;
+#[path = "ui_render/item_glint.rs"]
+mod item_glint;
 #[path = "ui_render/textures.rs"]
 mod textures;
 pub(crate) use textures::DeviceObservation;
@@ -107,6 +111,7 @@ fn install_ui_render(app: &mut App) {
     crate::upload_staging::install(app);
     app.init_resource::<UiRenderSceneResource>()
         .init_resource::<UiGlintSettings>()
+        .init_resource::<UiItemGlintTexture>()
         .init_resource::<UiRenderStatsResource>();
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
@@ -121,6 +126,7 @@ fn install_ui_render(app: &mut App) {
     app.add_plugins((
         ExtractResourcePlugin::<UiRenderSceneResource>::default(),
         ExtractResourcePlugin::<UiGlintSettings>::default(),
+        ExtractResourcePlugin::<UiItemGlintTexture>::default(),
     ));
     load_internal_asset!(app, UI_SHADER_HANDLE, "ui.wgsl", shader::from_wgsl);
     load_internal_asset!(
@@ -178,6 +184,7 @@ pub(crate) struct UiGpu {
     sampler: Sampler,
     /// `bilinear` sprites sample through this instead.
     linear_sampler: Sampler,
+    item_glint: item_glint::GpuItemGlint,
     batches: Arc<[UiRenderBatch]>,
     accepted_revision: Option<u64>,
     /// The accepted revision draws glint, which animates without a new revision.
