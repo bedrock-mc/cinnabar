@@ -31,10 +31,10 @@ render-model = { path = "../render-model" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 server-experience = { path = "../server-experience" }
+ui = { path = "../ui" }
 sha2 = { workspace = true, optional = true }
 
 [dev-dependencies]
-ui = { path = "../ui" }
 tempfile = "3"
 
 [lints]

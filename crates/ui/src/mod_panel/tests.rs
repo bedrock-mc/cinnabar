@@ -19,12 +19,114 @@ fn panel() -> Panel {
         }],
         sections: Vec::new(),
         capture_key: false,
+        motion: false,
     }
 }
 
 #[test]
 fn finite_slider_and_physical_key_are_accepted() {
     assert!(panel().validate().is_ok());
+}
+
+/// Route and scalar changes preserve the schema, and invalid batches leave it untouched.
+#[test]
+fn sparse_panel_updates_validate_every_change_before_replacement() {
+    let mut original = panel();
+    original.controls.extend([
+        Control::Toggle {
+            id: "enabled".into(),
+            label: "Enabled".into(),
+            value: false,
+        },
+        Control::Keybind {
+            id: "key".into(),
+            label: "Key".into(),
+            key: "KeyA".into(),
+            capturing: false,
+        },
+        Control::Choice {
+            id: "choice".into(),
+            label: "Choice".into(),
+            index: 0,
+            options: vec!["A".into(), "B".into()],
+        },
+    ]);
+    let patch = PanelPatch::parse(r#"{"controls":[{"id":"enabled","value":true},{"id":"key","key":"KeyC","capturing":true},{"id":"choice","index":1}],"capture_key":true}"#).unwrap();
+    let changed = patch.apply(&original, &Default::default()).unwrap();
+    assert_eq!(changed.controls[0], original.controls[0]);
+    assert!(matches!(
+        changed.controls[1],
+        Control::Toggle { value: true, .. }
+    ));
+    assert!(
+        matches!(&changed.controls[2], Control::Keybind { key, capturing: true, .. } if key == "KeyC")
+    );
+    assert!(matches!(
+        changed.controls[3],
+        Control::Choice { index: 1, .. }
+    ));
+    assert!(changed.capture_key);
+    for invalid in [
+        r#"{"controls":[{"id":"enabled","value":true},{"id":"missing","value":1}]}"#,
+        r#"{"controls":[{"id":"enabled","value":1}]}"#,
+        r#"{"controls":[{"id":"distance","value":8}]}"#,
+        r#"{"controls":[{"id":"distance","key":"KeyB"}]}"#,
+        r#"{"controls":[{"id":"choice","index":9}]}"#,
+        r#"{"controls":[{"id":"enabled","value":true},{"id":"enabled","value":false}]}"#,
+        r#"{"surface":"missing"}"#,
+    ] {
+        assert!(
+            PanelPatch::parse(invalid)
+                .unwrap()
+                .apply(&original, &Default::default())
+                .is_err()
+        );
+    }
+    assert!(matches!(
+        original.controls[1],
+        Control::Toggle { value: false, .. }
+    ));
+}
+
+/// Prepared routes admit only actions from their shared declared schema.
+#[test]
+fn local_panel_bundle_checks_routes_and_replaces_custom_bindings() {
+    let document = |action: &str| {
+        serde_json::json!({"namespace":"local","panel":{"type":"screen","controls":[{"button":{"type":"button","button_mappings":[{"from_button_id":"button.menu_select","mapping_type":"pressed","to_button_id":action}]}}]}}).to_string()
+    };
+    let bundle = |action: &str| {
+        serde_json::json!({"panel":panel(),"surfaces":{"main":{"screen":"local.panel","document":document(action)}}}).to_string()
+    };
+    assert!(PanelBundle::parse(&bundle("mod.control:9")).is_err());
+    let bundle = PanelBundle::parse(&bundle("mod.control:0")).unwrap();
+    assert!(bundle.matches_schema(&bundle.panel));
+    let mut relabeled = bundle.panel.clone();
+    if let Control::Slider { label, .. } = &mut relabeled.controls[0] {
+        *label = "Updated distance".into();
+    }
+    assert!(bundle.matches_schema(&relabeled));
+    relabeled.controls.clear();
+    assert!(!bundle.matches_schema(&relabeled));
+    let patch = PanelPatch::parse(r##"{"surface":"main","bindings":{"#custom":true}}"##).unwrap();
+    let changed = patch.apply(&bundle.panel, &bundle.surfaces).unwrap();
+    assert_eq!(
+        changed.surface.as_ref().unwrap().bindings["#custom"],
+        SurfaceValue::Bool(true)
+    );
+    let unchanged = PanelPatch::parse(r#"{"surface":"main"}"#)
+        .unwrap()
+        .apply(&changed, &bundle.surfaces)
+        .unwrap();
+    assert_eq!(
+        unchanged.surface.as_ref().unwrap().bindings["#custom"],
+        SurfaceValue::Bool(true)
+    );
+    assert!(
+        PanelPatch::parse(r##"{"surface":"main","bindings":{"bad":true}}"##)
+            .unwrap()
+            .apply(&bundle.panel, &bundle.surfaces)
+            .is_err()
+    );
 }
 
 #[test]

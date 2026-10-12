@@ -48,6 +48,8 @@ struct Registration {
     #[serde(default)]
     font: Option<PathBuf>,
     #[serde(default)]
+    ui: Option<PathBuf>,
+    #[serde(default)]
     grants: ModGrants,
 }
 
@@ -64,8 +66,9 @@ impl Registration {
         }
         if !self.component.is_absolute()
             || self.font.as_ref().is_some_and(|font| !font.is_absolute())
+            || self.ui.as_ref().is_some_and(|ui| !ui.is_absolute())
         {
-            return Err("registration component and font paths must be absolute".into());
+            return Err("registration component, font and UI paths must be absolute".into());
         }
         Ok(())
     }
@@ -74,6 +77,7 @@ impl Registration {
 struct Candidate {
     host: ModHost,
     font: Option<Arc<RuntimeFontCatalog>>,
+    panel_ui: Option<Arc<mod_ui::PreparedPanelUi>>,
     identity: [u8; 32],
     registration: Registration,
 }
@@ -92,6 +96,7 @@ fn build_candidate_with_settings(
         identity,
         component,
         font: font_bytes,
+        ui,
     } = snapshot;
     let grants = registration.grants.clone();
     let font = if grants.controls {
@@ -103,16 +108,26 @@ fn build_candidate_with_settings(
     } else {
         None
     };
-    let host = ModHost::prepare_snapshot_with_grants(
+    let mut host = ModHost::prepare_snapshot_with_grants(
         &registration.component,
         &component,
         grants,
         settings.map(|settings| (settings.path.as_path(), settings.json.as_str())),
     )
     .map_err(|error| format!("{error:#}"))?;
+    if let Some(ui) = ui {
+        let json = std::str::from_utf8(&ui).map_err(|error| error.to_string())?;
+        host.set_panel_bundle(json)
+            .map_err(|error| format!("{error:#}"))?;
+    }
+    let panel_ui = host
+        .panel_bundle()
+        .map(mod_ui::PreparedPanelUi::prepare)
+        .transpose()?;
     Ok(Candidate {
         host,
         font,
+        panel_ui,
         identity,
         registration,
     })
@@ -143,6 +158,7 @@ struct SourceSnapshot {
     identity: [u8; 32],
     component: Vec<u8>,
     font: Option<Vec<u8>>,
+    ui: Option<Vec<u8>>,
 }
 
 enum Message {
@@ -499,19 +515,19 @@ fn install(world: &mut World, update: Update) {
                         .ok_or_else(|| "extension presentation is unavailable".to_owned())
                         .and_then(|mut presentation| {
                             presentation
-                                .set_mod_panel_font(candidate.font.clone())
-                                .map_err(|error| error.to_string())?;
-                            presentation
                                 .mod_ui_mut()
                                 .set_mod_label(candidate.host.label())?;
                             presentation.set_mod_hud(candidate.host.hud())?;
                             presentation
                                 .mod_ui_mut()
                                 .set_mod_crosshair(candidate.host.crosshair())?;
-                            presentation
-                                .mod_ui_mut()
-                                .set_mod_panel(candidate.host.panel())?;
-                            presentation.mod_ui_mut().set_mod_panel_open(false);
+                            presentation.mod_ui_mut().set_prepared_panel_ui(
+                                mod_ui::PanelUiOwner::Registration,
+                                candidate.panel_ui.clone(),
+                            );
+                            if let Some(panel) = candidate.host.panel() {
+                                panel.validate_values()?;
+                            }
                             Ok(())
                         })
                 });

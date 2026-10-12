@@ -8,21 +8,27 @@ use super::{
 };
 
 pub(crate) fn same_shape(a: &Panel, b: &Panel) -> bool {
-    a.title == b.title
-        && a.reference_size == b.reference_size
-        && a.style == b.style
-        && a.theme == b.theme
-        && a.dark == b.dark
-        && a.sections == b.sections
+    same_template(a, b)
         && match (&a.surface, &b.surface) {
             (Some(a), Some(b)) => a.screen == b.screen && a.document == b.document,
             (None, None) => true,
             _ => false,
         }
+}
+
+/// Facts determining the host wrapper, control kinds and native editor geometry.
+pub(super) fn same_template(a: &Panel, b: &Panel) -> bool {
+    a.title == b.title
+        && a.toggle_key == b.toggle_key
+        && a.reference_size == b.reference_size
+        && a.motion == b.motion
+        && a.style == b.style
+        && a.theme == b.theme
+        && a.dark == b.dark
+        && a.sections == b.sections
         && a.controls.len() == b.controls.len()
         && a.controls.iter().zip(&b.controls).all(|(a, b)| {
             a.id() == b.id()
-                && a.label() == b.label()
                 && match (a, b) {
                     (Control::Toggle { .. }, Control::Toggle { .. })
                     | (Control::Keybind { .. }, Control::Keybind { .. })
@@ -57,8 +63,24 @@ pub(super) fn catalog(
     rows: usize,
     editor: Option<&super::edit::Editor>,
 ) -> Result<(Catalog, usize), String> {
+    catalog_prepared(panel, viewport, category, page, rows, editor, None)
+}
+
+/// Builds native editor chrome over a prepared route without reparsing the local document.
+pub(super) fn catalog_prepared(
+    panel: &Panel,
+    viewport: [f64; 2],
+    category: usize,
+    page: usize,
+    rows: usize,
+    editor: Option<&super::edit::Editor>,
+    prepared: Option<&Catalog>,
+) -> Result<(Catalog, usize), String> {
     if let Some(surface) = &panel.surface {
-        let mut catalog = super::surface::catalog(surface)?;
+        let mut catalog = match prepared {
+            Some(catalog) => catalog.clone(),
+            None => super::surface::catalog(surface)?,
+        };
         let mut document = json!({"namespace":"cinnabar_personal", "panel": {
             "type":"screen", "size":["100%", "100%"], "render_game_behind":true,
             "absorbs_input":true, "should_steal_mouse":false,

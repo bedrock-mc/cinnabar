@@ -80,11 +80,24 @@ pub(super) fn source_snapshot(registration: Registration) -> Result<SourceSnapsh
     if let Some(font) = &font {
         digest.update(Sha256::digest(font));
     }
+    let ui = if registration.grants.controls {
+        registration
+            .ui
+            .as_deref()
+            .map(|path| read_bounded_source(path, ui::mod_panel::MAX_PANEL_BUNDLE_BYTES))
+            .transpose()?
+    } else {
+        None
+    };
+    if let Some(ui) = &ui {
+        digest.update(Sha256::digest(ui));
+    }
     Ok(SourceSnapshot {
         registration,
         identity: digest.finalize().into(),
         component,
         font,
+        ui,
     })
 }
 

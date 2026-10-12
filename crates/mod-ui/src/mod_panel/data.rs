@@ -29,6 +29,7 @@ pub(super) fn control_data(panel: &Panel) -> DataSource {
             Scalar::Text(control.label().to_owned()),
         );
         data.set_global(format!("#row_{index}_value"), Scalar::Text(value));
+        data.set_global(format!("#row_{index}_hover"), Scalar::Num(0.0));
         match control {
             Control::Slider {
                 value, min, max, ..
@@ -37,6 +38,10 @@ pub(super) fn control_data(panel: &Panel) -> DataSource {
                 Scalar::Num(f64::from((value - min) / (max - min))),
             ),
             Control::Toggle { value, .. } => {
+                data.set_global(
+                    format!("#row_{index}_toggle_progress"),
+                    Scalar::Num(f64::from(u8::from(*value))),
+                );
                 data.set_global(
                     format!("#row_{index}_toggle_color"),
                     Scalar::Json(json!(if *value {

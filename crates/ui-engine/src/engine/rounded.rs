@@ -6,7 +6,7 @@ use ui::{UiBlendMode, UiMesh, UiMeshBatch, UiMeshVertex, UiVisual};
 
 use super::Canvas;
 
-const MAX_CACHED_SHAPES: usize = 128;
+const MAX_CACHED_SHAPES: usize = 512;
 const CORNER_STEPS: usize = 8;
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
@@ -25,7 +25,37 @@ struct Key {
     border_color: [u8; 4],
 }
 
-thread_local! { static SHAPES: RefCell<HashMap<Key, Arc<UiMesh>>> = RefCell::default(); }
+#[derive(Default)]
+struct ShapeCache {
+    entries: HashMap<Key, (u64, Arc<UiMesh>)>,
+    clock: u64,
+}
+
+impl ShapeCache {
+    /// Evicts only the least recently used shape, preserving hot geometry during transitions.
+    fn get_or_create(&mut self, key: Key) -> Option<Arc<UiMesh>> {
+        self.clock = self.clock.saturating_add(1);
+        if let Some((used, mesh)) = self.entries.get_mut(&key) {
+            *used = self.clock;
+            return Some(Arc::clone(mesh));
+        }
+        let mesh = Arc::new(mesh(key)?);
+        if self.entries.len() == MAX_CACHED_SHAPES {
+            let oldest = self
+                .entries
+                .iter()
+                .min_by_key(|(_, (used, _))| *used)
+                .map(|(key, _)| *key);
+            if let Some(oldest) = oldest {
+                self.entries.remove(&oldest);
+            }
+        }
+        self.entries.insert(key, (self.clock, Arc::clone(&mesh)));
+        Some(mesh)
+    }
+}
+
+thread_local! { static SHAPES: RefCell<ShapeCache> = RefCell::default(); }
 
 impl Canvas<'_> {
     /// Draws an antialiased rounded rectangle. `color2` with `gradient_direction`
@@ -80,15 +110,7 @@ impl Canvas<'_> {
         };
         SHAPES.with(|shapes| {
             let mut shapes = shapes.borrow_mut();
-            if let Some(mesh) = shapes.get(&key) {
-                return Some(UiVisual::Mesh(Arc::clone(mesh)));
-            }
-            if shapes.len() == MAX_CACHED_SHAPES {
-                shapes.clear();
-            }
-            let mesh = Arc::new(mesh(key)?);
-            shapes.insert(key, Arc::clone(&mesh));
-            Some(UiVisual::Mesh(mesh))
+            shapes.get_or_create(key).map(UiVisual::Mesh)
         })
     }
 }
@@ -235,6 +257,35 @@ mod tests {
             border: border.to_bits(),
             border_color,
         }
+    }
+
+    /// A cold insertion preserves recently used shapes instead of clearing the whole cache.
+    #[test]
+    fn rounded_geometry_cache_evicts_only_the_coldest_entry() {
+        let mut cache = ShapeCache::default();
+        let first = key([255; 4], [255; 4], 0.0, [0; 4]);
+        let retained = cache.get_or_create(first).unwrap();
+        for index in 1..MAX_CACHED_SHAPES {
+            cache
+                .get_or_create(Key {
+                    width: (40.0 + index as f32).to_bits(),
+                    ..first
+                })
+                .unwrap();
+        }
+        assert!(Arc::ptr_eq(&cache.get_or_create(first).unwrap(), &retained));
+        cache
+            .get_or_create(Key {
+                width: 5000f32.to_bits(),
+                ..first
+            })
+            .unwrap();
+        assert_eq!(cache.entries.len(), MAX_CACHED_SHAPES);
+        assert!(Arc::ptr_eq(&cache.get_or_create(first).unwrap(), &retained));
+        assert!(!cache.entries.contains_key(&Key {
+            width: 41f32.to_bits(),
+            ..first
+        }));
     }
 
     /// Opaque vertices as (pixel position, color).

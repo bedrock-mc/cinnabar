@@ -1,3 +1,4 @@
+use mod_ui::PanelUiOwner;
 use ui::mod_panel::{Control, Event};
 
 use super::mod_panel::{frame, point};
@@ -9,7 +10,7 @@ fn opened() -> UiPresentationRuntime {
     let mut presentation = mini_engine_presentation();
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&panel()))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel()))
         .unwrap();
     presentation.mod_ui_mut().set_mod_panel_open(true);
     frame(&mut presentation, [1280, 720]);
@@ -158,7 +159,7 @@ fn number_input_commits_only_valid_bounded_values_and_respects_step() {
     }
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&spec))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&spec))
         .unwrap();
     frame(&mut presentation, [1280, 720]);
     let value = point(&presentation, "mod.edit:1", 0.5);
@@ -252,7 +253,7 @@ fn guest_key_capture_prevents_opening_a_competing_text_editor() {
     spec.capture_key = true;
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&spec))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&spec))
         .unwrap();
     frame(&mut presentation, [1280, 720]);
     let value = point(&presentation, "mod.edit:1", 0.5);
@@ -281,7 +282,7 @@ fn number_open_and_enter_preserves_sub_cent_precision() {
     }
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&spec))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&spec))
         .unwrap();
     frame(&mut presentation, [1280, 720]);
     let value = point(&presentation, "mod.edit:1", 0.5);
@@ -305,7 +306,7 @@ fn eight_dropdown_options_remain_inside_small_viewport_and_route_individually() 
     }];
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&spec))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&spec))
         .unwrap();
     frame(&mut presentation, [320, 320]);
     let choice = point(&presentation, "mod.control:0", 0.5);
@@ -346,7 +347,7 @@ fn same_shape_guest_updates_keep_draft_but_shape_changes_cancel_it() {
     }
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&spec))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&spec))
         .unwrap();
     frame(&mut presentation, [1280, 720]);
     assert!(presentation.mod_ui().mod_panel_editing());
@@ -371,7 +372,7 @@ fn same_shape_guest_updates_keep_draft_but_shape_changes_cancel_it() {
     presentation.mod_ui_mut().mod_panel_key("End", None);
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&spec))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&spec))
         .unwrap();
     frame(&mut presentation, [1280, 720]);
     assert_eq!(
@@ -391,7 +392,7 @@ fn same_shape_guest_updates_keep_draft_but_shape_changes_cancel_it() {
     }
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&spec))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&spec))
         .unwrap();
     assert!(!presentation.mod_ui().mod_panel_editing());
     assert!(

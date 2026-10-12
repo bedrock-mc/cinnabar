@@ -468,10 +468,10 @@ pub(super) fn prepare_mod_input(
             presentation.mod_ui_mut().cancel_mod_panel_edit();
             let owner = extension.hosts.panel_owner();
             let _ = presentation.set_mod_panel_font(extension.panel_fonts[owner].clone());
-            if let Err(error) = presentation
-                .mod_ui_mut()
-                .set_mod_panel(extension.hosts.host(owner).panel())
-            {
+            if let Err(error) = presentation.mod_ui_mut().set_mod_panel(
+                extension.panel_ui_owner(owner),
+                extension.hosts.host(owner).panel(),
+            ) {
                 eprintln!("Cinnabar extension panel rejected: {error}");
             }
             presentation.mod_ui_mut().set_mod_panel_open(false);

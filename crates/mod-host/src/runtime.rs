@@ -591,6 +591,24 @@ impl Instance {
     pub(super) fn panel(&self) -> Option<&ui::mod_panel::Panel> {
         self.store.data().controls.panel.as_ref()
     }
+    /// Installs a validated local catalog outside guest callbacks.
+    pub(super) fn set_panel_bundle(
+        &mut self,
+        bundle: Arc<ui::mod_panel::PanelBundle>,
+    ) -> Result<()> {
+        anyhow::ensure!(
+            self.active && self.store.data().grants.controls,
+            "controls capability denied"
+        );
+        let controls = &mut self.store.data_mut().controls;
+        controls.panel = Some(bundle.panel.clone());
+        controls.bundle = Some(bundle);
+        Ok(())
+    }
+    /// Keeps the local catalog available when a component reload creates a fresh instance.
+    pub(super) fn panel_bundle(&self) -> Option<Arc<ui::mod_panel::PanelBundle>> {
+        self.store.data().controls.bundle.clone()
+    }
     pub(super) fn panel_open(&self) -> bool {
         self.store.data().controls.open
     }

@@ -5,7 +5,11 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 mod surface;
+mod update;
 pub use surface::{Surface, SurfaceValue};
+pub use update::{
+    MAX_PANEL_BUNDLE_BYTES, MAX_PANEL_PATCH_BYTES, MAX_PANEL_SURFACES, PanelBundle, PanelPatch,
+};
 
 pub const MAX_PANEL_BYTES: usize = 128 * 1024;
 pub const MAX_PANEL_CONTROLS: usize = 512;
@@ -65,6 +69,9 @@ pub struct Panel {
     /// Lets a binding control receive Escape instead of dismissing the panel.
     #[serde(default)]
     pub capture_key: bool,
+    /// Opts into native hover/toggle easing and smooth discrete wheel scrolling.
+    #[serde(default)]
+    pub motion: bool,
     #[serde(default)]
     pub sections: Vec<Section>,
 }
@@ -149,6 +156,16 @@ impl Control {
 impl Panel {
     /// Validates before retaining any guest-controlled text or input geometry.
     pub fn validate(&self) -> Result<(), String> {
+        self.validate_inner(true)
+    }
+
+    /// Checks changing values after the caller proves the schema and document are unchanged.
+    pub fn validate_values(&self) -> Result<(), String> {
+        self.validate_inner(false)
+    }
+
+    /// Keeps static action checks separate from bounded value-only updates.
+    fn validate_inner(&self, document: bool) -> Result<(), String> {
         text(&self.title, "title")?;
         if let Some(size) = self.reference_size
             && (self.surface.is_none()
@@ -161,8 +178,16 @@ impl Panel {
             );
         }
         if let Some(surface) = &self.surface {
-            surface.validate()?;
-            for action in surface.actions()? {
+            if document {
+                surface.validate()?;
+            } else {
+                surface.validate_bindings()?;
+            }
+            for action in if document {
+                surface.actions()?
+            } else {
+                Vec::new()
+            } {
                 if action == "mod.close" {
                     continue;
                 }

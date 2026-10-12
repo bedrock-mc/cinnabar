@@ -1,3 +1,4 @@
+use mod_ui::PanelUiOwner;
 use std::sync::Arc;
 
 use mod_ui::test_support::{card_dimensions, card_origin};
@@ -14,7 +15,9 @@ pub(super) fn panel() -> ui::mod_panel::Panel {
     .unwrap()
 }
 fn editor(p: &mut UiPresentationRuntime, hud: &Hud) {
-    p.mod_ui_mut().set_mod_panel(Some(&panel())).unwrap();
+    p.mod_ui_mut()
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel()))
+        .unwrap();
     p.mod_ui_mut().set_mod_panel_open(true);
     p.mod_ui_mut().open_mod_hud_editor(hud).unwrap();
 }
