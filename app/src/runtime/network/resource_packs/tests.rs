@@ -138,6 +138,39 @@ fn files_pack(files: &[(&str, &[u8])]) -> resource_pack::LayeredPackView {
 }
 
 #[test]
+fn ui_glint_uses_the_winning_raster_and_restores_the_lower_pack_on_removal() {
+    use std::io::Cursor;
+    let encode = |width, height, color| {
+        let mut encoded = Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(width, height, image::Rgba(color))
+            .write_to(&mut encoded, image::ImageFormat::Png)
+            .unwrap();
+        encoded.into_inner()
+    };
+    let path = format!("{}.png", assets::ITEM_GLINT_TEXTURE_PATH);
+    let low = encode(3, 2, [200, 0, 0, 255]);
+    let high = encode(640, 617, [0, 200, 0, 255]);
+    let lower = archive(1, &[(&path, &low)]);
+    let upper = archive(2, &[(&path, &high)]);
+    let read = |archives| {
+        let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
+            protocol::ResourcePackHandoff::from_archives(archives),
+        ));
+        super::collect_server_ui(&view).and_then(|pack| pack.item_glint.clone())
+    };
+    let base = read(vec![lower.clone()]).unwrap();
+    let winner = read(vec![lower.clone(), upper]).unwrap();
+    assert_eq!(winner.dimensions(), [640, 617]);
+    assert_eq!(&winner.pixels()[..4], &[0, 200, 0, 255]);
+    assert_ne!(winner.identity(), base.identity());
+    let restored = read(vec![lower]).unwrap();
+    assert_eq!(restored, base);
+    assert!(read(Vec::new()).is_none());
+    let malformed = read(vec![archive(3, &[(&path, b"invalid image")])]);
+    assert!(malformed.is_none());
+}
+
+#[test]
 fn ui_index_loads_custom_paths_and_extensions() {
     let path = "custom/inventory.uidx";
     let view = files_pack(&[

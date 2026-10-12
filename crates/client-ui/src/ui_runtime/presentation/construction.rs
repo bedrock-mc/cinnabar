@@ -50,6 +50,7 @@ impl UiPresentationRuntime {
             blank_dynamic_page: textures.pages()[textures.dynamic_start()].clone(),
             textures,
             texture_session: None,
+            item_glint: Default::default(),
             solid_texture_page,
             hud_textures,
             icon_catalog: icons,

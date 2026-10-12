@@ -106,6 +106,7 @@ pub(super) struct EquipmentCapture {
     pub offhand_durability: Option<f32>,
     pub offhand_icon: Option<IconRef>,
     pub armor_icons: [Option<IconRef>; 4],
+    pub armor_durability: [Option<f32>; 4],
     pub held_item_icon: Option<IconRef>,
     pub selected_item_name: Option<Arc<str>>,
     pub holding_filled_map: bool,
@@ -127,15 +128,18 @@ pub(super) fn equipment(
         .gameplay_hud()
         .offhand_stack()
         .and_then(|stack| items.icon(stack, None));
-    let armor_icons = {
+    let (armor_icons, armor_durability) = {
         let armor = runtime.local_armor(player_runtime);
-        [
+        let worn = [
             &armor.helmet,
             &armor.chestplate,
             &armor.leggings,
             &armor.boots,
-        ]
-        .map(|stack| items.icon(stack, None))
+        ];
+        (
+            worn.map(|stack| items.icon(stack, None)),
+            worn.map(|stack| items.durability(stack, None)),
+        )
     };
     let held_item_icon = selected
         .stack
@@ -161,6 +165,7 @@ pub(super) fn equipment(
         offhand_durability,
         offhand_icon,
         armor_icons,
+        armor_durability,
         held_item_icon,
         selected_item_name,
         holding_filled_map,

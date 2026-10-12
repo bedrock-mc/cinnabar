@@ -206,8 +206,32 @@ fn player_motion(world: &World) -> Option<Value> {
         .get_resource::<client_state::SemanticInputSnapshot>()
         .and_then(|input| input.snapshot())
         .map(|input| input.phases[semantic_input::Action::Jump as usize].held);
+    let item_use = world.get_resource::<client_interaction::item_use::ItemUseRuntime>();
+    let selected_item = player.selected_stack().map(|stack| {
+        let profile = authority.item_use_profile(stack.network_id);
+        json!({
+            "network_id": stack.network_id,
+            "identifier": authority.canonical_item_stack(stack)
+                .and_then(|item| item.identifier)
+                .map(|identifier| identifier.to_string()),
+            "use_profile": {
+                "kind": profile.kind.map(|kind| format!("{kind:?}")),
+                "ticks": profile.ticks,
+                "consumption": format!("{:?}", profile.consumption),
+                "movement_modifier": profile.movement,
+            },
+        })
+    });
     Some(json!({
         "mode": format!("{:?}", physics.mode()),
+        "sprinting": physics.latest_sneak_sprint().map(|(_, sprinting)| sprinting),
+        "always_sprint": world.get_resource::<client_state::RuntimeSettings>()
+            .map(|settings| settings.user_settings_update().1.gameplay.always_sprint),
+        "item_use": {
+            "active": item_use.map(|item_use| item_use.is_using()),
+            "movement_modifier": item_use.and_then(|item_use| item_use.movement_modifier()),
+        },
+        "selected_item": selected_item,
         "on_ground": state.map(|state| state.on_ground),
         "tick": state.map(|state| state.tick),
         "velocity": state.map(|state| [state.velocity.x, state.velocity.y, state.velocity.z]),

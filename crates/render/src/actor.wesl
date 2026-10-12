@@ -317,7 +317,7 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
         let item_extent = word_f32(base + 35u);
         let foil_tex = glint_layers(uv, input.uv.zw, offsets, glint_scale, item_extent);
         let foil_light = select(vec3(1.0), actor_light_colour(input.light), (input.light & ACTOR_LIGHT_WORLD_FLAG) != 0u);
-        let foil = foil_tex * vec3(0.38, 0.19, 0.608) * strength * foil_light;
+        let foil = foil_tex * GLINT_TINT_RGB * strength * foil_light;
         lit_gamma += foil * foil;
     }
     @if(ALPHA_TO_COVERAGE)
