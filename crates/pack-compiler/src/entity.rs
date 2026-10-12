@@ -158,7 +158,7 @@ fn compile_with_behavior(
         &["json", "png", "tga"],
         &mut selected,
     )?;
-    for identifier in assets::GLINT_TEXTURE_IDENTIFIERS {
+    for identifier in assets::entity::GLINT_TEXTURE_IDENTIFIERS {
         for extension in ["png", "tga"] {
             let path = format!("{identifier}.{extension}");
             collect_optional_file(root, &path, &mut selected)?;
