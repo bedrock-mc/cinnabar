@@ -132,7 +132,9 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
     let sub_chunk = neighbourhood
         .sub_chunk([0, 0, 0])
         .expect("MeshNeighbourhood always contains its center");
-    let facts = PaletteFacts::new(*classifier, visuals, network_id_mode, sub_chunk);
+    let mut facts = PaletteFacts::new(*classifier, visuals, network_id_mode, sub_chunk);
+    // Every pass below asks about each voxel and its neighbours, so the section decodes once.
+    facts.decode_voxels();
     let connectivity = cave_connectivity(&facts);
     if facts.is_air() {
         return ChunkMesh {
