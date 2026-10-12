@@ -251,6 +251,9 @@ impl UiPresentationRuntime {
         engine.textures.server_page =
             (self.textures.dynamic_start() + dynamic_textures::SERVER_UI_PAGE) as u16;
         self.engine = Some(Box::new(engine));
+        // A new carrier reads its own credits files and splashes.
+        self.screens.credits.forget_content();
+        self.screens.splash = std::sync::OnceLock::new();
         self.refresh_menu_title();
         self.refresh_screen_settings();
         self.hud_frame.engine_containers = true;

@@ -223,6 +223,10 @@ impl UiPresentationRuntime {
             next,
             renderers: &mut [],
         };
+        // New credits start without the previous run's skip regions, even if painting fails.
+        if self.screens.credits.identity != Some(input.identity) {
+            self.screens.credits_hits.clear();
+        }
         let output = self.screens.credits.paint(input, &mut frame)?;
         self.screens.credits_hits = output.hits;
         Ok(output.frame.is_some())
