@@ -14,6 +14,7 @@ use crate::ui_runtime::presentation::{HudFrame, hud_layout};
 mod absorption;
 mod boss_removal_tests;
 mod crosshair_options;
+mod death_screen;
 mod effects;
 mod experience_spacing;
 mod geometry;
