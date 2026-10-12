@@ -149,14 +149,15 @@ fn actor_vertex(
         bitcast<f32>(vertex_words[vertex_base + 4u]),
         bitcast<f32>(vertex_words[vertex_base + 5u]),
     );
-    out.uv.xy = uv_offset + vec2(
+    let artwork_uv = uv_offset + vec2(
         bitcast<f32>(vertex_words[vertex_base + 6u]),
         bitcast<f32>(vertex_words[vertex_base + 7u]),
     ) * uv_scale;
-    out.uv.zw = uv_offset + vec2(
+    let glint_origin = uv_offset + vec2(
         bitcast<f32>(vertex_words[vertex_base + ACTOR_RIG_VERTEX_WORDS - 2u]),
         bitcast<f32>(vertex_words[vertex_base + ACTOR_RIG_VERTEX_WORDS - 1u]),
     ) * uv_scale;
+    out.uv = vec4(artwork_uv, glint_origin);
     let raw_back_uv = vec2(
         bitcast<f32>(vertex_words[vertex_base + 8u]),
         bitcast<f32>(vertex_words[vertex_base + 9u]),
