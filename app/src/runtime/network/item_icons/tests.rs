@@ -12,7 +12,7 @@ fn png(width: u32, height: u32) -> Vec<u8> {
     bytes.into_inner()
 }
 
-fn view() -> LayeredPackView {
+pub(super) fn view() -> LayeredPackView {
     let id = "00000000-0000-0000-0000-000000000002";
     let manifest = format!(
         r#"{{"format_version":2,"header":{{"uuid":"{id}","version":[1,0,0]}},"modules":[{{"type":"resources"}}]}}"#

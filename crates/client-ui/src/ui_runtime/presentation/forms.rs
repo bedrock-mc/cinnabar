@@ -175,12 +175,29 @@ pub(super) struct FormProjection {
 pub struct PreparedJsonUi {
     assets: Arc<RuntimeUiAssets>,
     catalog: PreparedCatalog,
+    item_glint: Option<Arc<render_model::UiTexturePage>>,
 }
 
 impl PreparedJsonUi {
     /// Parses every definition the carrier lists; needs no runtime, so startup runs it off the
     /// main thread.
     pub fn new(assets: Arc<RuntimeUiAssets>) -> Result<Self, String> {
+        let item_glint = super::item_glint::carrier_texture(&assets);
+        Self::with_item_glint(assets, item_glint)
+    }
+
+    /// Prepares a validated startup carrier without decoding its glint artwork again.
+    pub fn from_loaded(
+        loaded: crate::ui_runtime::json_ui_assets::LoadedUiAssets,
+    ) -> Result<Self, String> {
+        Self::with_item_glint(loaded.assets, Some(loaded.item_glint))
+    }
+
+    /// Parses the catalog while retaining artwork already decoded by the caller.
+    fn with_item_glint(
+        assets: Arc<RuntimeUiAssets>,
+        item_glint: Option<Arc<render_model::UiTexturePage>>,
+    ) -> Result<Self, String> {
         let catalog = json_ui::Catalog::from_files(
             assets
                 .ui_files()
@@ -189,6 +206,7 @@ impl PreparedJsonUi {
         )
         .map_err(|error| format!("ui catalog: {error}"))?;
         Ok(Self {
+            item_glint,
             catalog: PreparedCatalog::new(catalog, screen_registry::registry()),
             assets,
         })
@@ -211,10 +229,15 @@ impl UiPresentationRuntime {
 
     /// [`Self::enable_json_ui`] with the carrier's catalog already parsed.
     pub fn enable_prepared_json_ui(&mut self, prepared: PreparedJsonUi) -> Result<(), String> {
-        let PreparedJsonUi { assets, catalog } = prepared;
+        let PreparedJsonUi {
+            assets,
+            catalog,
+            item_glint,
+        } = prepared;
         let (textures, first_page) = pages::with_ui_pages(&self.textures, &assets)
             .map_err(|error| format!("ui atlas pages: {error}"))?;
         self.textures = Arc::new(textures);
+        self.item_glint.base = item_glint;
         // Dynamic pages moved up; their references rebuild from the new start.
         self.preview_dirty = true;
         self.menu_artwork_dirty = true;
@@ -244,6 +267,7 @@ impl UiPresentationRuntime {
     /// carrier's from reserved dynamic pages, so the static texture identity the
     /// renderer pins never changes. An empty pack restores vanilla.
     pub fn set_server_ui_pack(&mut self, pack: &ServerUiPack) {
+        self.item_glint.overlay = pack.item_glint.clone();
         let first = self.textures.dynamic_start() + pages::SERVER_UI_PAGE;
         let Some(engine) = self.engine.as_mut() else {
             return;

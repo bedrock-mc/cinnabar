@@ -91,7 +91,7 @@ impl HudLayout<'_> {
             let slot = [origin[0] + 8.0, origin[1] + 8.0 + row as f32 * SLOT_SIZE];
             self.inventory_slot(slot)?;
             if let Some(icon) = frame.armor_icons[row] {
-                self.inventory_item(Some(icon), slot, None, None)?;
+                self.inventory_item(Some(icon), slot, None, frame.armor_durability[row])?;
             } else if stack.is_empty() {
                 self.ghost_icon(
                     frame.window_icons.ghost_armor[row],
