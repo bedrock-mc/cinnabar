@@ -90,6 +90,17 @@ fn compiler_enumerates_entity_authority_and_dependencies_deterministically() {
             .count(),
         SYNTHETIC_PACK_SOURCE_COUNT
     );
+    let mount_source = first
+        .sources
+        .iter()
+        .find(|source| source.path.as_ref() == assets::entity::mount::MOUNT_EQUIPMENT_SOURCE_PATH)
+        .expect("mount equipment catalog source");
+    let mount_bytes = assets::entity::mount::MOUNT_EQUIPMENT_SOURCE_BYTES;
+    assert_eq!(mount_source.source_bytes as usize, mount_bytes.len());
+    assert_eq!(
+        mount_source.source_sha256,
+        <[u8; 32]>::from(Sha256::digest(mount_bytes))
+    );
     assert!(
         first
             .sources

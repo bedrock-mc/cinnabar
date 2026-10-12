@@ -1,4 +1,5 @@
-use bridge::{SetupState, WorldState, WorldStatus};
+use super::world::{SetupState, WorldStatus};
+use bridge::WorldState;
 
 /// A step of opening a local world, in the order they run.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -109,7 +110,8 @@ pub fn progress(status: Option<&WorldStatus>, world: &str) -> Progress {
 
 #[cfg(test)]
 mod tests {
-    use bridge::{Backend, Setup};
+    use crate::local_worlds::world::Setup;
+    use bridge::Backend;
 
     use super::*;
 

@@ -10,6 +10,7 @@
     {"rust_name": "KIND_PACK_DATA", "go_name": "SessionKindPackData", "value": 4, "rust_type": "u8", "doc": "Core resource-pack index followed by archive bytes."},
     {"rust_name": "KIND_TRANSFER", "go_name": "SessionKindTransfer", "value": 5, "rust_type": "u8", "doc": "Terminal core transfer message."},
     {"rust_name": "KIND_DISCONNECT", "go_name": "SessionKindDisconnect", "value": 6, "rust_type": "u8", "doc": "Terminal core disconnect message."},
-    {"rust_name": "PACK_CHUNK_BYTES", "go_name": "SessionPackChunkBytes", "value": 4194304, "rust_type": "usize", "doc": "Archive bytes in one resource-pack data frame."}
+    {"rust_name": "PACK_CHUNK_BYTES", "go_name": "SessionPackChunkBytes", "value": 4194304, "rust_type": "usize", "doc": "Archive bytes in one resource-pack data frame."},
+    {"rust_name": "HOSTED_WORLD_MAX_PLAYERS", "go_name": "HostedWorldMaxPlayers", "value": 8, "rust_type": "u32", "doc": "Vanilla's player limit for a hosted local world, the host included."}
   ]
 }

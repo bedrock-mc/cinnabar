@@ -193,8 +193,7 @@ pub(crate) fn prepare_ui_runtime(
                 .stream
                 .as_ref()?
                 .authority()
-                .canonical_item_stack(stack)?
-                .identifier
+                .canonical_item_stack(stack)
         });
     }
     let doll_state = client_world

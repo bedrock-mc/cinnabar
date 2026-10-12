@@ -179,7 +179,7 @@ impl EquipmentRuntime {
             if block {
                 held_block_display()
             } else {
-                held_sprite_display(self.hand_equipped(&item.identifier))
+                held_sprite_display(item.grip.upright().unwrap_or(false))
             }
         });
         let (Some(previous), Some(current)) = (

@@ -1,5 +1,109 @@
 use super::test_support::{draw, source};
 use super::*;
+use std::sync::Arc;
+
+/// Packs an original-art preview mesh for the existing offline UI rasterizer.
+fn grip_snapshot(mesh: &ui::UiMesh) -> render_model::UiRenderInput {
+    use render_model::{
+        UI_BLEND_ALPHA, UiRenderBatch, UiRenderTextureArray, UiRenderVertex, UiScissor,
+        UiTexturePage,
+    };
+    let size = [384, 576];
+    let vertices = mesh
+        .vertices()
+        .iter()
+        .map(|vertex| UiRenderVertex {
+            position: [
+                vertex.position[0] * size[0] as f32,
+                vertex.position[1] * size[1] as f32,
+            ],
+            clip_z: vertex.clip_z,
+            clip_w: vertex.clip_w,
+            uv: vertex.uv,
+            color: vertex.color,
+            style_flags: u32::from(vertex.style_flags),
+            alpha_cutoff: 0.5,
+            model_light: vertex.model_light,
+            overlay_color: vertex.overlay_color,
+        })
+        .collect::<Vec<_>>();
+    let batches = mesh
+        .batches()
+        .iter()
+        .map(|batch| {
+            UiRenderBatch::new(
+                u32::from(batch.texture_page),
+                UiScissor::new(0, 0, size[0], size[1]),
+                batch.index_range.start,
+                batch.index_range.end - batch.index_range.start,
+                UI_BLEND_ALPHA,
+            )
+        })
+        .collect::<Vec<_>>();
+    let pages = (0..9)
+        .map(|index| {
+            let mut rgba = vec![0; 64 * 64 * 4];
+            for y in 0..64 {
+                for x in 0..64 {
+                    let pixel = if index == 8 {
+                        if (16..20).contains(&x) && (20..36).contains(&y) {
+                            [235, 177, 65, 255]
+                        } else {
+                            [0; 4]
+                        }
+                    } else {
+                        [95, 125, 155, 255]
+                    };
+                    rgba[(y * 64 + x) * 4..(y * 64 + x + 1) * 4].copy_from_slice(&pixel);
+                }
+            }
+            UiTexturePage::owned([64, 64], rgba.into()).unwrap()
+        })
+        .collect::<Vec<_>>();
+    let fixed_pages = pages.len();
+    render_model::UiRenderInput {
+        revision: 1,
+        viewport_size: size,
+        safe_area: [0; 4],
+        vertices: vertices.into(),
+        indices: Arc::from(mesh.indices()),
+        batches: batches.into(),
+        textures: Arc::new(UiRenderTextureArray::new(pages, fixed_pages).unwrap()),
+    }
+}
+
+#[test]
+fn unresolved_grips_do_not_borrow_the_cached_upright_placement() {
+    let mut rgba = vec![0; 16 * 16 * 4];
+    for y in 0..16 {
+        for x in 6..10 {
+            rgba[(y * 16 + x) * 4..(y * 16 + x + 1) * 4].copy_from_slice(&[235, 177, 65, 255]);
+        }
+    }
+    let cached = model(
+        render_model::held_sprite_vertices(16, 16, &rgba, [0.0, 0.0, 1.0, 1.0]).unwrap(),
+        PreviewHeldPlacement::Sprite {
+            hand_equipped: true,
+        },
+    );
+    let resolved = cached.with_grip(Some(assets::item::grip::builtin_item_grip(
+        "custom:diamond_sword",
+    )));
+    let mesh = draw([Some(&resolved), None]);
+    let input = grip_snapshot(&mesh);
+    crate::ui_runtime::presentation::forms::snapshot::write(&input, "unknown-item-grip");
+    assert!(matches!(
+        resolved.placements[0],
+        PreviewHeldPlacement::Sprite {
+            hand_equipped: false
+        }
+    ));
+    assert_ne!(
+        placement(&cached, 0).unwrap().0.rotation,
+        placement(&resolved, 0).unwrap().0.rotation
+    );
+    assert!(Arc::ptr_eq(&cached.vertices, &resolved.vertices));
+}
 
 fn model(
     vertices: Vec<render_model::ActorRigVertex>,

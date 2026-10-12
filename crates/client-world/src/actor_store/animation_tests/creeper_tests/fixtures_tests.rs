@@ -167,6 +167,7 @@ pub(super) fn pack_swell_fixture_with(
         symbols.insert(
             2,
             assets::EntityAssetSymbol {
+                mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
                 kind: assets::EntityAssetKind::Geometry,
                 identifier: geometry.identifier.clone(),
                 source_index: geometry.source_index,
@@ -286,6 +287,7 @@ pub(super) fn swell_controller_fixture_with(
             symbols.insert(
                 3,
                 EntityAssetSymbol {
+                    mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
                     kind: EntityAssetKind::AnimationController,
                     identifier: "controller.animation.test".into(),
                     source_index: 0,

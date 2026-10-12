@@ -37,6 +37,7 @@ pub fn compiled_fixture() -> CompiledEntityAssets {
     ]
     .into_iter()
     .map(|(kind, identifier, source_index)| EntityAssetSymbol {
+        mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
         kind,
         identifier: identifier.into(),
         source_index,

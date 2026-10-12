@@ -19,6 +19,8 @@ pub(super) struct JavaRasterFrame {
 /// One stack an actor wears or holds, reduced to what drawing needs.
 #[derive(Clone, Debug)]
 pub struct WornItem {
+    /// Grip admitted by the numeric item registry, copied from the canonical stack.
+    pub grip: assets::item::grip::ItemGrip,
     pub identifier: Arc<str>,
     pub metadata: u32,
     /// Durability damage, when the stack carries it separately from its visual data value.

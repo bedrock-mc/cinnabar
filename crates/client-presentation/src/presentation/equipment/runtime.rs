@@ -47,7 +47,7 @@ use {
             head_block_display, view_bone,
         },
     },
-    render_model::equipment::{self as attachable, blocks::BlockSheets, is_rod},
+    render_model::equipment::{self as attachable, blocks::BlockSheets},
 };
 
 fn body_bones(names: Vec<Box<str>>) -> BodyBones {
@@ -560,7 +560,7 @@ impl EquipmentRuntime {
             FirstPersonShape::Block
         } else {
             FirstPersonShape::Sprite {
-                mirrored_art: is_rod(&item.identifier),
+                mirrored_art: item.grip.mirrored_art(),
             }
         };
         let hand = hand.into();
@@ -597,7 +597,7 @@ impl EquipmentRuntime {
         item: &WornItem,
     ) -> Option<FirstPersonItem> {
         let (mesh, location, block) = self.held_mesh(item, true)?;
-        let equipped = self.hand_equipped(&item.identifier);
+        let equipped = item.grip.upright().unwrap_or(false);
         let bone = if block {
             super::first_person::offhand_pose(equipped, true)
         } else {

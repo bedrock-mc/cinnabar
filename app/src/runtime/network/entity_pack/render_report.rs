@@ -10,8 +10,6 @@ use protocol::{
 };
 use {render_model::ActorArtworkPages, render_scene::ActorRenderScene};
 
-use client_presentation::presentation::actors;
-
 const SIDE: u32 = 320;
 
 /// `CINNABAR_RENDER_PACK` names a `<uuid>_<version>.zip`, `CINNABAR_RENDER_OUT` a directory and

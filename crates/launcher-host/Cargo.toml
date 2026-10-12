@@ -33,6 +33,7 @@ tokio.workspace = true
 tracing.workspace = true
 update-manifest = { path = "../update-manifest" }
 url = "2"
+zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", default-features = false, features = ["fs", "process", "std", "stdio"] }
@@ -45,7 +46,10 @@ zbus = "5"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_Storage_FileSystem",
     "Win32_System_Com",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
     "Win32_System_SystemInformation",
     "Win32_UI_Controls_Dialogs",
     "Win32_UI_Shell",

@@ -29,3 +29,6 @@ pub const KIND_DISCONNECT: u8 = 6;
 
 /// Archive bytes in one resource-pack data frame.
 pub const PACK_CHUNK_BYTES: usize = 4194304;
+
+/// Vanilla's player limit for a hosted local world, the host included.
+pub const HOSTED_WORLD_MAX_PLAYERS: u32 = 8;

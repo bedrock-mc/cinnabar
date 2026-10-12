@@ -14,9 +14,7 @@ use render_model::{ActorRigVertex, RenderBoneTransform};
 use crate::presentation::actors::{actor_rig_presentation, rig_world_from_actor};
 use {
     super::display::{FirstPersonHand, FirstPersonShape, first_person_display, view_bone},
-    render_model::equipment::{
-        attach_to_bone, held_block_display, held_sprite_display, is_hand_equipped, is_rod,
-    },
+    render_model::equipment::{attach_to_bone, held_block_display, held_sprite_display},
 };
 
 const WIDTH: usize = 854;
@@ -361,11 +359,16 @@ fn render_first_person_held_item_frames() {
                 )
                 .unwrap();
                 let display = if third {
-                    held_sprite_display(is_hand_equipped(identifier))
+                    held_sprite_display(
+                        assets::item::grip::builtin_item_grip(identifier)
+                            .upright()
+                            .unwrap_or(false),
+                    )
                 } else {
                     first_person_display(
                         FirstPersonShape::Sprite {
-                            mirrored_art: is_rod(identifier),
+                            mirrored_art: assets::item::grip::builtin_item_grip(identifier)
+                                .mirrored_art(),
                         },
                         REST,
                     )

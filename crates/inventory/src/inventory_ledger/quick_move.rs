@@ -34,7 +34,7 @@ impl PlayerInventoryLedger {
         if !self.confirmed.contains(Cell::Storage(0)) {
             return Err(InventoryGestureError::InvalidRequest);
         }
-        self.begin_quick_move_into(source, Some(&[Cell::Storage(0)]), None)
+        self.begin_quick_move_into(source, Some(&[Cell::Storage(0)]), None, |_| true)
     }
 
     /// Moves a hovered stack across every cell that accepts it: compatible
@@ -43,7 +43,18 @@ impl PlayerInventoryLedger {
         &mut self,
         target: InventoryTarget,
     ) -> Result<i32, InventoryGestureError> {
-        self.begin_quick_move_into(target, None, None)
+        self.begin_quick_move_with_storage_filter(target, |_| true)
+    }
+
+    /// Moves a stack only into permitted storage cells, falling back to player
+    /// inventory when no window destination is permitted. Other surfaces keep
+    /// their usual routing.
+    pub fn begin_quick_move_with_storage_filter(
+        &mut self,
+        target: InventoryTarget,
+        permits_storage: impl Fn(u8) -> bool,
+    ) -> Result<i32, InventoryGestureError> {
+        self.begin_quick_move_into(target, None, None, permits_storage)
     }
 
     pub(crate) fn begin_restore_furnace_source(
@@ -56,6 +67,7 @@ impl PlayerInventoryLedger {
             InventoryTarget::Storage(source),
             Some(&[Cell::Inventory(destination)]),
             Some(amount),
+            |_| true,
         )
     }
 
@@ -67,14 +79,21 @@ impl PlayerInventoryLedger {
             .filter(|slot| self.known[usize::from(*slot)])
             .map(Cell::Inventory)
             .collect();
-        self.begin_quick_move_into(InventoryTarget::Storage(source), Some(&destinations), None)
+        self.begin_quick_move_into(
+            InventoryTarget::Storage(source),
+            Some(&destinations),
+            None,
+            |_| true,
+        )
     }
 
+    /// Builds one request across explicit cells or filtered quick-move destinations.
     pub(super) fn begin_quick_move_into(
         &mut self,
         target: InventoryTarget,
         destinations: Option<&[Cell]>,
         amount: Option<u16>,
+        permits_storage: impl Fn(u8) -> bool,
     ) -> Result<i32, InventoryGestureError> {
         let source = target.cell();
         let personal_generation = self.gesture_preflight(!matches!(source, Cell::Storage(_)))?;
@@ -84,7 +103,7 @@ impl PlayerInventoryLedger {
             .ok_or(InventoryGestureError::EmptyGesture)?;
         let address = self.window_address();
         let candidates = destinations.map_or_else(
-            || self.quick_move_candidates(source, &from.stack),
+            || self.quick_move_candidates(source, &from.stack, permits_storage),
             <[Cell]>::to_vec,
         );
         let furnace_route = destinations
@@ -232,7 +251,12 @@ impl PlayerInventoryLedger {
     }
 
     /// Candidate destinations, in order, for a quick move out of `source`.
-    fn quick_move_candidates(&self, source: Cell, stack: &NetworkItemStack) -> Vec<Cell> {
+    fn quick_move_candidates(
+        &self,
+        source: Cell,
+        stack: &NetworkItemStack,
+        permits_storage: impl Fn(u8) -> bool,
+    ) -> Vec<Cell> {
         let id = self
             .negotiated_item_entry(stack.network_id)
             .map_or("", |entry| &*entry.identifier);
@@ -247,10 +271,11 @@ impl PlayerInventoryLedger {
             cells.extend(player(0..protocol::HOTBAR_SLOT_COUNT));
             return cells;
         };
-        let cells = match self.quick_move_window() {
+        let mut cells = match self.quick_move_window() {
             Some(kind) => self.window_destinations(kind, id, stack.network_id, stack.metadata),
             None => self.equipment_destinations(id),
         };
+        cells.retain(|cell| !matches!(cell, Cell::Storage(slot) if !permits_storage(*slot)));
         if !cells.is_empty() {
             return cells;
         }

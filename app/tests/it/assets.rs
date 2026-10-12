@@ -181,6 +181,7 @@ fn synthetic_entity_blob_with_manifest(seed: u8, source_manifest_sha256: [u8; 32
             identifier: "minecraft:allay".into(),
             source_index: 0,
             dependencies: Box::new([]),
+            mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
         }]
         .into_boxed_slice(),
         geometries: Box::new([]),

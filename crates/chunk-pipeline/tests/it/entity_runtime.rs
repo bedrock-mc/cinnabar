@@ -46,18 +46,21 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
     .into_boxed_slice();
     let symbols = vec![
         EntityAssetSymbol {
+            mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
             kind: EntityAssetKind::Entity,
             identifier: "minecraft:bee".into(),
             source_index: 2,
             dependencies: Box::new([]),
         },
         EntityAssetSymbol {
+            mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
             kind: EntityAssetKind::Geometry,
             identifier: "geometry.base".into(),
             source_index: 3,
             dependencies: Box::new([]),
         },
         EntityAssetSymbol {
+            mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
             kind: EntityAssetKind::Geometry,
             identifier: "geometry.bee".into(),
             source_index: 3,
@@ -69,18 +72,21 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             .into_boxed_slice(),
         },
         EntityAssetSymbol {
+            mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
             kind: EntityAssetKind::Animation,
             identifier: "animation.bee.move".into(),
             source_index: 1,
             dependencies: Box::new([]),
         },
         EntityAssetSymbol {
+            mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
             kind: EntityAssetKind::AnimationController,
             identifier: "controller.animation.bee".into(),
             source_index: 0,
             dependencies: Box::new([]),
         },
         EntityAssetSymbol {
+            mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
             kind: EntityAssetKind::RenderController,
             identifier: "controller.render.bee".into(),
             source_index: 4,

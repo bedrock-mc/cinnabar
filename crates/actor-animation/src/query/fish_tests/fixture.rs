@@ -32,6 +32,7 @@ pub(super) fn assets(identifier: &str) -> Arc<RuntimeEntityAssets> {
     ]
     .into_iter()
     .map(|(kind, identifier, source_index)| EntityAssetSymbol {
+        mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
         kind,
         identifier: identifier.into(),
         source_index,

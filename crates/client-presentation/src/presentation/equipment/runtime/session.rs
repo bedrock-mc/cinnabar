@@ -1,7 +1,7 @@
 //! The session's server items: component facts and pack icons, so custom items draw in the
 //! hand and on the body as the vanilla client draws component items.
 
-use {super::*, render_model::equipment::is_hand_equipped};
+use super::*;
 
 use crate::session_assets::SessionItems;
 
@@ -89,7 +89,6 @@ impl StagedSessionIcons {
 /// Installed session items: facts by identifier and placed icon sprites.
 #[derive(Default)]
 pub(super) struct SessionLayer {
-    hand_equipped: BTreeMap<Box<str>, bool>,
     wearable: BTreeMap<Box<str>, ArmorSlot>,
     sprites: Vec<IconSprite>,
     by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>>,
@@ -127,9 +126,6 @@ impl EquipmentRuntime {
         let mut item_attack = (*self.base_item_attack).clone();
         for (identifier, components) in items.into_iter().flat_map(|items| items.components.iter())
         {
-            layer
-                .hand_equipped
-                .insert(Box::from(identifier.as_ref()), components.hand_equipped);
             if let Some(slot) = components.wearable_slot.as_deref().and_then(armor_slot) {
                 layer.wearable.insert(Box::from(identifier.as_ref()), slot);
             }
@@ -151,16 +147,6 @@ impl EquipmentRuntime {
         self.item_use = Arc::new(item_use);
         self.item_attack = Arc::new(item_attack);
         self.session = layer;
-    }
-
-    /// Whether `identifier` is held upright: a custom item's `hand_equipped` component, else
-    /// vanilla's per-item choice.
-    pub(super) fn hand_equipped(&self, identifier: &str) -> bool {
-        match self.session.hand_equipped.get(identifier) {
-            Some(&component) if !identifier.starts_with("minecraft:") => component,
-            Some(&component) => component || is_hand_equipped(identifier),
-            None => is_hand_equipped(identifier),
-        }
     }
 
     /// The armor slot a custom item's `minecraft:wearable` names.

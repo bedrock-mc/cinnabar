@@ -13,6 +13,7 @@ ctrlc = { version = "3.4", features = ["termination"] }
 quick-xml = "0.39"
 regex = "1"
 tempfile = "3"
+zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 thiserror.workspace = true
 workspace-declarations = { path = "../workspace-declarations" }
 

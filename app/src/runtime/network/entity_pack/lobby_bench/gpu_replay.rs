@@ -82,7 +82,7 @@ fn gpu_app(camera: Transform) -> App {
 
 /// Loads the real font, HUD and JSON-UI carriers used by offline screen snapshots.
 fn ui_presentation() -> client_ui::ui_runtime::presentation::UiPresentationRuntime {
-    use crate::ui_runtime::presentation::forms::pack_harness;
+    use client_ui::test_support::pack_harness;
     use client_ui::ui_runtime::presentation::UiPresentationRuntime;
     let world_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")

@@ -3,7 +3,8 @@
 //! presses to the module, an opened world is joined through the launcher core
 //! and closed when its session ends, and the pause menu pauses it.
 
-use bridge::{Backend, Difficulty, GameMode};
+use bridge::{Backend, GameMode};
+use launcher::local_worlds::world::Difficulty;
 
 use {
     super::MenuRuntime,

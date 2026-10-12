@@ -263,6 +263,26 @@ pub(super) fn validate_envelope(
     Ok(envelope)
 }
 
+/// Returns a sealed carrier's page count and decoded page bytes without decompressing it.
+pub(super) fn decoded_extent(
+    bytes: &[u8],
+    expected_source_manifest_sha256: [u8; 32],
+) -> Result<(usize, usize), FontCatalogError> {
+    let envelope = validate_envelope(bytes, expected_source_manifest_sha256)?;
+    validate_page_offsets(bytes, envelope)?;
+    let mut total = 0usize;
+    for index in 0..envelope.page_count {
+        let base = record_offset(envelope.page_offset, index, PAGE_BYTES)?;
+        let length = decoded_length(
+            u32_at(bytes, base + 12)?,
+            u32_at(bytes, base + 16)?,
+            u32_at(bytes, base + 104)?,
+        )?;
+        total = checked_add(total, length, invalid_carrier)?;
+    }
+    Ok((envelope.page_count, total))
+}
+
 pub(super) fn validate_page_offsets(
     bytes: &[u8],
     envelope: Envelope,

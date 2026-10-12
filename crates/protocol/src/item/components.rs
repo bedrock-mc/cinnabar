@@ -29,7 +29,10 @@ pub struct ItemComponents {
     pub display_name: Option<Arc<str>>,
     /// `foil` / `minecraft:glint`.
     pub glint: bool,
-    pub hand_equipped: bool,
+    /// Explicit finite hand flag; absence or malformed data remains unresolved.
+    pub hand_equipped: Option<bool>,
+    /// Distinguishes a malformed declaration from an absent hand component.
+    pub hand_equipped_declared: bool,
     pub max_durability: Option<u32>,
     /// Retains declaration presence when its maximum is absent or invalid.
     pub durability_declared: bool,
@@ -135,8 +138,24 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
             component("minecraft:display_name").and_then(|name| name.field("value")),
         ),
         glint: flag(property("foil")) || flag(component("minecraft:glint")),
-        hand_equipped: flag(property("hand_equipped"))
-            || flag(component("minecraft:hand_equipped")),
+        hand_equipped_declared: property("hand_equipped").is_some()
+            || component("minecraft:hand_equipped").is_some(),
+        hand_equipped: {
+            let property = property("hand_equipped");
+            let component = component("minecraft:hand_equipped");
+            let declared = |value: &Nbt| {
+                value_of(value)
+                    .filter(|value| value.is_finite())
+                    .map(|value| value != 0.0)
+            };
+            match (property, component) {
+                (None, None) => None,
+                (Some(value), None) | (None, Some(value)) => declared(value),
+                (Some(property), Some(component)) => declared(property)
+                    .zip(declared(component))
+                    .map(|(property, component)| property || component),
+            }
+        },
         durability_declared: component("minecraft:durability").is_some(),
         max_durability: count(
             component("minecraft:durability")
@@ -377,7 +396,7 @@ mod tests {
             components.display_name.as_deref(),
             Some("item.zeqa.sword.name")
         );
-        assert!(components.glint && components.hand_equipped);
+        assert!(components.glint && components.hand_equipped == Some(true));
         assert_eq!(components.max_durability, Some(250));
         assert_eq!(components.max_stack_size, Some(16));
         assert_eq!(components.use_animation.as_deref(), Some("eat"));
@@ -416,7 +435,7 @@ mod tests {
             )],
         );
         let components = parse_components(&nbt).unwrap();
-        assert!(components.glint && !components.hand_equipped);
+        assert!(components.glint && components.hand_equipped == Some(false));
         assert_eq!(components.max_stack_size, Some(1));
         assert_eq!(components.use_duration_ticks, Some(32));
         assert_eq!(components.use_animation.as_deref(), Some("drink"));
@@ -424,5 +443,32 @@ mod tests {
         assert_eq!(components.hover_text_color.as_deref(), Some("gold"));
         assert_eq!(components.block_placer.as_deref(), Some("test:ore"));
         assert!(parse_components(&compound("", &[])).is_none());
+    }
+
+    #[test]
+    fn hand_grip_flag_presence_keeps_false_distinct_from_missing_or_malformed() {
+        let payload = |flag: Option<Vec<u8>>| {
+            compound(
+                "",
+                &[compound(
+                    "components",
+                    &flag.into_iter().collect::<Vec<_>>(),
+                )],
+            )
+        };
+        let missing = parse_components(&payload(None)).unwrap();
+        assert_eq!(missing.hand_equipped, None);
+        assert!(!missing.hand_equipped_declared);
+        let flat = parse_components(&payload(Some(compound(
+            "minecraft:hand_equipped",
+            &[byte("value", 0)],
+        ))))
+        .unwrap();
+        assert_eq!(flat.hand_equipped, Some(false));
+        assert!(flat.hand_equipped_declared);
+        let malformed =
+            parse_components(&payload(Some(compound("minecraft:hand_equipped", &[])))).unwrap();
+        assert_eq!(malformed.hand_equipped, None);
+        assert!(malformed.hand_equipped_declared);
     }
 }

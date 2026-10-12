@@ -70,6 +70,7 @@ fn fixture(multiple_geometry: bool, fail_selected: bool) -> Arc<RuntimeEntityAss
         symbols.insert(
             1,
             EntityAssetSymbol {
+                mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
                 kind: EntityAssetKind::Geometry,
                 identifier: "geometry.preview".into(),
                 source_index: 2,

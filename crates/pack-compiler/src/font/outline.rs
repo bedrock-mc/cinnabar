@@ -11,8 +11,10 @@ use super::{CompiledFontCarrier, FontCompileError, FontCompileReport, invalid};
 
 mod complete;
 mod mathematical;
+mod native;
 mod providers;
 mod source;
+pub use native::{NATIVE_SDF_EM_PIXELS, NATIVE_SDF_MIN_PIXELS, compile_native_outline_rasters};
 pub use providers::compile_outline_font_with_fallback;
 const ATLAS_PADDING: u32 = 1;
 const FIXED_POINT_DENOMINATOR: i64 = 64;
@@ -209,19 +211,7 @@ fn rasterize_checked(
         // same amount, in this y-down bearing convention.
         .and_then(|bearing| bearing.checked_add(trim_y))
         .ok_or_else(|| metric_error(codepoint, "bearing_y"))?;
-    // A bitmap carrier addresses whole texels, so a pen advance is rounded to
-    // one. A pixel font whose design grid does not divide its em exactly would
-    // otherwise land a fraction of a texel out per glyph, and that drift
-    // accumulates across a line until a glyph sits a whole pixel from where it
-    // belongs. Exact pixel grids round to themselves.
-    let source_advance_64 =
-        f64::from(metrics.advance_width).round() * FIXED_POINT_DENOMINATOR as f64;
-    if !source_advance_64.is_finite()
-        || source_advance_64 < f64::from(i16::MIN)
-        || source_advance_64 > f64::from(i16::MAX)
-    {
-        return Err(metric_error(codepoint, "advance"));
-    }
+    let source_advance_64 = fixed_advance(codepoint, metrics.advance_width)?;
     // A blank glyph has no ink to measure, so its source advance is the only
     // width available and stays authoritative in either mode.
     let (bearing_x, advance_64) = match advances {
@@ -236,13 +226,13 @@ fn rasterize_checked(
                 // only ever tightens: a glyph whose ink already fills its cell
                 // keeps the advance the font gave it rather than gaining the
                 // gap.
-                .map(|advance| advance.min(source_advance_64 as i16))
+                .map(|advance| advance.min(source_advance_64))
                 .ok_or_else(|| metric_error(codepoint, "advance"))?,
         ),
         GlyphAdvances::InkPlusGap {
             blank_advance_px: Some(blank_advance_px),
             ..
-        } if source_advance_64 > 0.0 => (
+        } if source_advance_64 > 0 => (
             0,
             i64::from(blank_advance_px)
                 .checked_mul(FIXED_POINT_DENOMINATOR)
@@ -255,7 +245,7 @@ fn rasterize_checked(
                 .checked_add(trim_x)
                 .and_then(|bearing| i16::try_from(bearing).ok())
                 .ok_or_else(|| metric_error(codepoint, "bearing_x"))?,
-            source_advance_64 as i16,
+            source_advance_64,
         ),
     };
     Ok(RasterizedGlyph {
@@ -269,6 +259,15 @@ fn rasterize_checked(
         advance_64,
         alpha,
     })
+}
+
+/// Quantizes source spacing to the carrier's 1/64-texel units, rejecting overflow.
+fn fixed_advance(codepoint: char, pixels: f32) -> Result<i16, FontCompileError> {
+    let fixed = (f64::from(pixels) * FIXED_POINT_DENOMINATOR as f64).round();
+    if !fixed.is_finite() || fixed < f64::from(i16::MIN) || fixed > f64::from(i16::MAX) {
+        return Err(metric_error(codepoint, "advance"));
+    }
+    Ok(fixed as i16)
 }
 
 struct InkExtent {

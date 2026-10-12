@@ -24,6 +24,7 @@ fn alternate_geometry_assets() -> Arc<RuntimeEntityAssets> {
             identifier: geometry.identifier.clone(),
             source_index: geometry.source_index,
             dependencies: Box::new([]),
+            mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
         },
     );
     compiled.symbols = symbols.into();

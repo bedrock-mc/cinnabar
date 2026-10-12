@@ -17,6 +17,31 @@ mod spawn_eggs;
 mod beds;
 
 #[test]
+fn independent_retail_inventory_has_explicit_compiled_grips() {
+    let compiled = compile_entity_assets(item_pack(false).path(), MANIFEST).unwrap();
+    let retail = include_str!("../../../protocol/data/retail_items_1_26_50.tsv");
+    for identifier in retail.lines().filter_map(|line| line.split('\t').nth(1)) {
+        let visual = compiled
+            .item_visuals
+            .iter()
+            .find(|visual| visual.key.identifier.as_ref() == identifier && visual.key.metadata == 0)
+            .unwrap_or_else(|| panic!("missing grip identity {identifier}"));
+        assert!(matches!(
+            visual.grip,
+            assets::item::grip::ItemGrip::Provisional { .. }
+        ));
+    }
+    assert!(
+        compiled
+            .item_visuals
+            .iter()
+            .filter(|visual| visual.key.identifier.starts_with("test:"))
+            .all(|visual| visual.grip == assets::item::grip::ItemGrip::Unresolved)
+    );
+    assets::RuntimeEntityAssets::decode(&encode_entity_blob(&compiled).unwrap()).unwrap();
+}
+
+#[test]
 fn independent_retail_inventory_has_explicit_compiled_fuel_facts() {
     let pack = item_pack(false);
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();

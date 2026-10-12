@@ -57,7 +57,9 @@ pub(super) fn prepare(
                     hand_pivots,
                     vertices: vertices.into(),
                     placements: [PreviewHeldPlacement::Sprite {
-                        hand_equipped: render_model::equipment::is_hand_equipped(&entry.identifier),
+                        hand_equipped: definition
+                            .and_then(|definition| definition.grip.upright())
+                            .unwrap_or(false),
                     }; 2],
                 })
             }

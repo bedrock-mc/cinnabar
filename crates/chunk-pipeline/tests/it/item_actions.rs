@@ -59,12 +59,14 @@ fn item_assets() -> Arc<RuntimeEntityAssets> {
         .into_boxed_slice(),
         symbols: vec![
             EntityAssetSymbol {
+                mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
                 kind: EntityAssetKind::Entity,
                 identifier: "minecraft:item_frame".into(),
                 source_index: 1,
                 dependencies: Box::new([]),
             },
             EntityAssetSymbol {
+                mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
                 kind: EntityAssetKind::Animation,
                 identifier: "animation.catalog_only".into(),
                 source_index: 0,
@@ -102,6 +104,7 @@ fn item_assets() -> Arc<RuntimeEntityAssets> {
         rig_controllers: Box::new([]),
         item_visuals: vec![
             ItemVisualDefinition {
+                grip: assets::item::grip::ItemGrip::Unresolved,
                 fuel: assets::item::fuel::ItemFuel::Unresolved,
                 durability: assets::item::durability::ItemDurability::Unresolved,
                 armour: assets::item::armour::ItemArmour::Unresolved,
@@ -121,6 +124,7 @@ fn item_assets() -> Arc<RuntimeEntityAssets> {
                 dropped: ItemDisplayTransform::identity(),
             },
             ItemVisualDefinition {
+                grip: assets::item::grip::ItemGrip::Unresolved,
                 fuel: assets::item::fuel::ItemFuel::Unresolved,
                 durability: assets::item::durability::ItemDurability::Unresolved,
                 armour: assets::item::armour::ItemArmour::Unresolved,

@@ -2,9 +2,6 @@
 
 use crate::FontLineMetrics;
 
-/// Font units in one source-grid texel of every shipped pixel face.
-const PIXEL_GRID_UNITS: u32 = 64;
-
 /// Added ASCII left bearings in atlas texels; closing applies to `)` and `}`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AsciiBearing {
@@ -28,18 +25,22 @@ pub struct FontFace {
     pub name: &'static str,
     pub manifest: &'static [u8],
     pub units_per_em: u32,
+    /// Carrier raster height, independent of the source design grid.
+    pub raster_em: u32,
     /// Semantic space width in thousandths of an em; None retains the source advance.
     pub space_em_1000: Option<u32>,
     pub ascii_bearing: Option<AsciiBearing>,
+    /// Ships a bundle of FreeType distance-field and small exact-size rasters, not a pixel grid.
+    pub native_raster: bool,
     /// Source hhea ascent and positive descent, in font units.
     pub ascent: u32,
     pub descent: u32,
 }
 
 impl FontFace {
-    /// Raster em that puts every 64-unit source-grid texel on one atlas texel.
+    /// Returns the pinned carrier raster height.
     pub const fn raster_em_pixels(self) -> u32 {
-        self.units_per_em / PIXEL_GRID_UNITS
+        self.raster_em
     }
 
     /// Converts the semantic space width to the carrier's fixed-point pen units.
@@ -52,7 +53,12 @@ impl FontFace {
 
     /// Converts the source hhea metrics to the carrier's raster em.
     pub fn line_metrics(self) -> FontLineMetrics {
-        let em_64 = self.raster_em_pixels() * 64;
+        self.line_metrics_at(self.raster_em_pixels())
+    }
+
+    /// Converts the source hhea metrics to a raster em of `em_pixels`.
+    pub fn line_metrics_at(self, em_pixels: u32) -> FontLineMetrics {
+        let em_64 = em_pixels * 64;
         let fixed = |units| (units * em_64 + self.units_per_em / 2) / self.units_per_em;
         FontLineMetrics {
             em_64,

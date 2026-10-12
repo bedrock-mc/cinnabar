@@ -3172,6 +3172,7 @@ dependencies = [
  "thiserror 2.0.18",
  "wait-timeout",
  "workspace-declarations",
+ "zip",
 ]
 
 [[package]]
@@ -3680,6 +3681,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
+]
+
+[[package]]
+name = "freetype-sys"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd0d341537074ac3189847977d23d00989e77f8fb54cdfa33a25407bb7d1db78"
+dependencies = [
+ "cc",
+ "pkg-config",
 ]
 
 [[package]]
@@ -4713,6 +4724,7 @@ dependencies = [
  "url",
  "windows-sys 0.61.2",
  "zbus",
+ "zip",
 ]
 
 [[package]]
@@ -5817,6 +5829,7 @@ dependencies = [
  "cap-fs-ext",
  "cap-std",
  "fontdue",
+ "freetype-sys",
  "image",
  "serde",
  "serde_json",

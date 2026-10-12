@@ -570,6 +570,7 @@ mod tests {
         entries
             .iter()
             .map(|(kind, identifier, source_index)| EntityAssetSymbol {
+                mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
                 kind: *kind,
                 identifier: (*identifier).into(),
                 source_index: *source_index,

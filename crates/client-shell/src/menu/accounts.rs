@@ -308,11 +308,10 @@ impl MenuRuntime {
             .is_none_or(|retry| std::time::Instant::now() >= retry)
             && self.accounts.remember.is_none()
             && self.accounts.remembered.as_ref() != Some(&identity)
+            && let Some(receiver) = remember(self.account_store(), profile.clone())
         {
-            if let Some(receiver) = remember(self.account_store(), profile.clone()) {
-                self.accounts.remembered = Some(identity);
-                self.accounts.remember = Some(receiver);
-            }
+            self.accounts.remembered = Some(identity);
+            self.accounts.remember = Some(receiver);
         }
     }
 

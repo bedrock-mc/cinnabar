@@ -332,6 +332,7 @@ impl UiPresentationRuntime {
                         metadata: 0,
                     })
                 })
+                .map(|model| model.with_grip(hand.grip))
         });
         let unposed = [None; 6];
         let body = if self.player_preview_view == player_preview::PreviewView::Hud {
@@ -359,7 +360,7 @@ impl UiPresentationRuntime {
             skin,
             &self.player_preview_gear,
             armor,
-            held,
+            held.each_ref().map(Option::as_ref),
             true, // Current desktop default is the native Fancy material group.
             self.gui_fire_frame(),
             if self.player_preview_view == player_preview::PreviewView::Hud {

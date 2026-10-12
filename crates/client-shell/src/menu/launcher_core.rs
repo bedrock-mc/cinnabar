@@ -153,7 +153,7 @@ impl LauncherCoreSlot {
                 ),
             ));
             if let Some(worlds) = worlds
-                && let Err(error) = worlds.attach(core.socket_dir.clone())
+                && let Err(error) = worlds.attach(core.socket_dir.clone(), &menu.layout)
             {
                 bevy::log::warn!("local worlds unavailable: {error}");
             }

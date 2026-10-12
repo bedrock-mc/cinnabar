@@ -26,6 +26,30 @@ impl CompiledFontCatalog {
         font: &Self,
         sizes: &BTreeMap<u32, Self>,
     ) -> Result<Self, FontCatalogError> {
+        self.with_named_face(name, font, sizes, None)
+    }
+
+    /// As [`Self::with_named_font_sizes`], resolving characters the face lacks through
+    /// `fallback`, whose glyphs must already index this catalog's pages and whose line metrics
+    /// scale them to the face's em.
+    pub fn with_named_face(
+        &self,
+        name: &str,
+        font: &Self,
+        sizes: &BTreeMap<u32, Self>,
+        fallback: Option<&Arc<Self>>,
+    ) -> Result<Self, FontCatalogError> {
+        if fallback.is_some_and(|fallback| {
+            fallback.line_metrics.is_none()
+                || fallback
+                    .glyphs
+                    .iter()
+                    .any(|glyph| usize::from(glyph.page) >= self.pages.len())
+        }) {
+            return Err(invalid_catalog(
+                "face fallback lacks line metrics or shared pages",
+            ));
+        }
         if name.is_empty()
             || name.len() > MAX_FONT_PATH_BYTES
             || sizes.iter().any(|(&size, font)| {
@@ -52,9 +76,18 @@ impl CompiledFontCatalog {
             hash.update(size.to_le_bytes());
             hash.update(alternative.identity.carrier_sha256);
         }
+        if let Some(fallback) = &fallback {
+            hash.update(fallback.identity.carrier_sha256);
+        }
         alias.identity.carrier_sha256 = hash.finalize().into();
         alias.sizes = Arc::new(alternatives);
         let pages: Arc<[FontTexturePage]> = pages.into();
+        if let Some(fallback) = fallback {
+            alias.fallback = Some(Arc::clone(fallback));
+            for alternative in Arc::make_mut(&mut alias.sizes).values_mut() {
+                alternative.fallback = Some(Arc::clone(fallback));
+            }
+        }
         share_pages(&mut alias, &pages);
         let mut aliases = (*self.named).clone();
         for alias in aliases.values_mut() {

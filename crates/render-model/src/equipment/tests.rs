@@ -1,8 +1,6 @@
 //! Pure placement invariants shared by world equipment and UI previews.
 
-use super::{
-    ItemDisplay, attach_to_bone, held_block_display, held_sprite_display, is_hand_equipped,
-};
+use super::{ItemDisplay, attach_to_bone, held_block_display, held_sprite_display};
 use crate::RenderBoneTransform;
 use glam::{Quat, Vec3};
 
@@ -71,8 +69,6 @@ fn held_item_placements_follow_the_reference_scales() {
     assert!((sprite.scale - 0.5625).abs() < 1e-5, "{}", sprite.scale);
     assert!((sword.scale - 0.9375).abs() < 1e-5, "{}", sword.scale);
     assert!((block.scale - 0.375).abs() < 1e-5, "{}", block.scale);
-    assert!(is_hand_equipped("minecraft:diamond_sword") && is_hand_equipped("minecraft:stick"));
-    assert!(!is_hand_equipped("minecraft:name_tag"));
 }
 
 #[test]

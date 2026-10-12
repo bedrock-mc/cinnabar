@@ -3,7 +3,7 @@
 
 use std::{
     io,
-    process::{Child, ChildStdout, Command, ExitStatus},
+    process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     thread,
     time::{Duration, Instant},
@@ -31,7 +31,15 @@ pub enum StopOutcome {
     Unreaped,
 }
 
-type Entry = Arc<Mutex<Child>>;
+/// A child and how long it may take to exit once asked to stop, before any signal reaches it.
+#[derive(Debug)]
+struct Tracked {
+    child: Mutex<Child>,
+    grace: Duration,
+}
+
+type Entry = Arc<Tracked>;
+type ExitHook = Arc<dyn Fn() + Send + Sync>;
 
 /// A registry of unreaped children.
 pub struct Children {
@@ -42,6 +50,22 @@ pub struct Children {
 struct Registry {
     entries: Vec<Entry>,
     shutting_down: bool,
+    hooks: Vec<(u64, ExitHook)>,
+    next_hook: u64,
+}
+
+/// Unregisters its exit hook when dropped.
+pub struct ExitHookGuard<'a> {
+    children: &'a Children,
+    id: u64,
+}
+
+impl Drop for ExitHookGuard<'_> {
+    fn drop(&mut self) {
+        lock(&self.children.live)
+            .hooks
+            .retain(|(id, _)| *id != self.id);
+    }
 }
 
 /// One tracked child. Dropping it unreaped leaves the child to the registry's exit sweep.
@@ -54,41 +78,83 @@ impl Children {
             live: Mutex::new(Registry {
                 entries: Vec::new(),
                 shutting_down: false,
+                hooks: Vec::new(),
+                next_hook: 0,
             }),
         }
     }
 
     pub fn track(&self, child: Child) -> Spawned {
-        let entry = Arc::new(Mutex::new(child));
+        self.track_with(child, Duration::ZERO)
+    }
+
+    /// [`Self::track`] for a child that needs up to `grace` to exit after its stop request.
+    fn track_with(&self, child: Child, grace: Duration) -> Spawned {
+        let entry = Arc::new(Tracked {
+            child: Mutex::new(child),
+            grace,
+        });
         let mut live = lock(&self.live);
-        live.entries.retain(|entry| running(&mut lock(entry)));
+        live.entries
+            .retain(|entry| running(&mut lock(&entry.child)));
         if live.shutting_down {
             escalate(std::slice::from_ref(&entry), Duration::ZERO);
         }
-        if running(&mut lock(&entry)) {
+        if running(&mut lock(&entry.child)) {
             live.entries.push(Arc::clone(&entry));
         }
         Spawned(entry)
     }
 
-    /// Spawns and registers under the same lock that revokes shutdown authority.
-    fn spawn(&self, command: &mut Command) -> io::Result<Spawned> {
+    /// Spawns and registers under the same lock that revokes shutdown authority; exit sweeps wait
+    /// `grace` for the child before signalling it.
+    fn spawn(&self, command: &mut Command, grace: Duration) -> io::Result<Spawned> {
         let mut live = lock(&self.live);
         if live.shutting_down {
             return Err(io::Error::other("client is shutting down"));
         }
-        let entry = Arc::new(Mutex::new(command.spawn()?));
-        live.entries.retain(|entry| running(&mut lock(entry)));
+        let entry = Arc::new(Tracked {
+            child: Mutex::new(command.spawn()?),
+            grace,
+        });
+        live.entries
+            .retain(|entry| running(&mut lock(&entry.child)));
         live.entries.push(Arc::clone(&entry));
         Ok(Spawned(entry))
     }
 
-    /// Ends every tracked child: close stdin and wait `graceful`, then SIGTERM, then SIGKILL.
-    pub fn stop_all(&self, graceful: Duration) {
+    /// Runs `hook` once at the start of [`Self::stop_all`], until the guard drops, so a child can
+    /// be asked to stop its own way (a server's save command) before the signals; registered
+    /// during shutdown, it runs at once.
+    pub fn on_exit(&self, hook: impl Fn() + Send + Sync + 'static) -> ExitHookGuard<'_> {
         let mut live = lock(&self.live);
-        live.shutting_down = true;
+        let id = live.next_hook;
+        live.next_hook += 1;
+        if live.shutting_down {
+            drop(live);
+            hook();
+        } else {
+            live.hooks.push((id, Arc::new(hook)));
+        }
+        ExitHookGuard { children: self, id }
+    }
+
+    /// Ends every tracked child: run the exit hooks, close stdin and wait `graceful`, then
+    /// SIGTERM, then SIGKILL.
+    pub fn stop_all(&self, graceful: Duration) {
+        let hooks: Vec<ExitHook> = {
+            let mut live = lock(&self.live);
+            live.shutting_down = true;
+            live.hooks.drain(..).map(|(_, hook)| hook).collect()
+        };
+        // Outside the lock: a hook may drop the last owner of another hook's guard.
+        for hook in hooks {
+            hook();
+        }
+        let mut live = lock(&self.live);
         escalate(&live.entries, graceful);
-        live.entries.retain(|entry| running(&mut lock(entry)));
+        live.entries
+            .retain(|entry| running(&mut lock(&entry.child)));
     }
 
     /// Counts the children still registered by the Unix process-lifecycle tests.
@@ -113,12 +179,24 @@ impl From<Child> for Spawned {
 /// Spawns `command` as a tracked child that knows to exit with this process.
 pub fn spawn(command: &mut Command) -> io::Result<Spawned> {
     command.env(PARENT_ENV, std::process::id().to_string());
-    CHILDREN.spawn(command)
+    CHILDREN.spawn(command, Duration::ZERO)
+}
+
+/// [`spawn`] for a child that saves after its stop request: exit sweeps wait up to `save_budget`
+/// for it to exit before signalling it.
+pub fn spawn_saving(command: &mut Command, save_budget: Duration) -> io::Result<Spawned> {
+    command.env(PARENT_ENV, std::process::id().to_string());
+    CHILDREN.spawn(command, save_budget)
 }
 
 /// Ends every child this process spawned; for exit paths.
 pub fn stop_all(graceful: Duration) {
     CHILDREN.stop_all(graceful);
+}
+
+/// Runs `hook` when this process's children are stopped on exit, until the guard drops.
+pub fn on_exit(hook: impl Fn() + Send + Sync + 'static) -> ExitHookGuard<'static> {
+    CHILDREN.on_exit(hook)
 }
 
 /// Stops every child when dropped, including while unwinding out of `run`.
@@ -154,20 +232,28 @@ impl Spawned {
     /// Returns the tracked child PID for process-lifetime fixtures.
     #[cfg(any(test, feature = "test-support"))]
     pub fn id(&self) -> u32 {
-        lock(&self.0).id()
+        lock(&self.0.child).id()
     }
 
     pub fn try_wait(&self) -> io::Result<Option<ExitStatus>> {
-        lock(&self.0).try_wait()
+        lock(&self.0.child).try_wait()
     }
 
     pub fn take_stdout(&self) -> Option<ChildStdout> {
-        lock(&self.0).stdout.take()
+        lock(&self.0.child).stdout.take()
+    }
+
+    pub fn take_stdin(&self) -> Option<ChildStdin> {
+        lock(&self.0.child).stdin.take()
+    }
+
+    pub fn take_stderr(&self) -> Option<ChildStderr> {
+        lock(&self.0.child).stderr.take()
     }
 
     /// Sends SIGKILL without waiting; a no-op once reaped.
     pub fn kill(&self) {
-        let _ = lock(&self.0).kill();
+        let _ = lock(&self.0.child).kill();
     }
 
     /// Waits for exit by polling, so an exit sweep can still lock this child meanwhile.
@@ -189,7 +275,7 @@ impl Spawned {
 fn escalate(entries: &[Entry], graceful: Duration) -> Vec<StopOutcome> {
     let mut outcomes = vec![StopOutcome::Unreaped; entries.len()];
     for entry in entries {
-        drop(lock(entry).stdin.take());
+        drop(lock(&entry.child).stdin.take());
     }
     let steps = [
         (StopOutcome::Exited, graceful),
@@ -197,17 +283,27 @@ fn escalate(entries: &[Entry], graceful: Duration) -> Vec<StopOutcome> {
         (StopOutcome::Killed, KILL_WAIT),
     ];
     for (step, (outcome, wait)) in steps.into_iter().enumerate() {
+        // Nothing is signalled before every child's own grace, so a saving server finishes; the
+        // longest grace bounds the whole sweep.
+        let wait = if step == 0 {
+            entries
+                .iter()
+                .map(|entry| entry.grace)
+                .fold(wait, Duration::max)
+        } else {
+            wait
+        };
         if step > 0 {
             for (entry, done) in entries.iter().zip(&outcomes) {
                 if *done == StopOutcome::Unreaped {
-                    signal(&mut lock(entry), outcome);
+                    signal(&mut lock(&entry.child), outcome);
                 }
             }
         }
         let deadline = Instant::now() + wait;
         loop {
             for (entry, done) in entries.iter().zip(outcomes.iter_mut()) {
-                if *done == StopOutcome::Unreaped && !running(&mut lock(entry)) {
+                if *done == StopOutcome::Unreaped && !running(&mut lock(&entry.child)) {
                     *done = outcome;
                 }
             }
@@ -349,6 +445,52 @@ mod tests {
         assert!(gone(pid));
         assert!(started.elapsed() < Duration::from_secs(2));
         assert_eq!(reaper.join().unwrap(), StopOutcome::Exited);
+    }
+
+    // A saving child is never signalled before its budget, so a slow save still completes.
+    #[test]
+    fn saving_children_exit_on_their_own_within_their_budget() {
+        let children = Children::new();
+        let saving = children.track_with(
+            sh("trap '' TERM; sleep 0.5; exit 7"),
+            Duration::from_secs(10),
+        );
+        let started = Instant::now();
+        children.stop_all(Duration::ZERO);
+        assert_eq!(
+            saving.try_wait().unwrap().and_then(|status| status.code()),
+            Some(7)
+        );
+        assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[test]
+    fn exit_hooks_run_once_before_the_sweep_until_dropped() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let children = Children::new();
+        let runs = Arc::new(AtomicUsize::new(0));
+        let count = |amount: usize| {
+            let runs = Arc::clone(&runs);
+            move || {
+                runs.fetch_add(amount, Ordering::SeqCst);
+            }
+        };
+        let kept = children.on_exit(count(1));
+        drop(children.on_exit(count(10)));
+        children.stop_all(Duration::ZERO);
+        children.stop_all(Duration::ZERO);
+        assert_eq!(
+            runs.load(Ordering::SeqCst),
+            1,
+            "hooks run once and dropped ones never"
+        );
+        let late = children.on_exit(count(100));
+        assert_eq!(
+            runs.load(Ordering::SeqCst),
+            101,
+            "a hook registered during shutdown runs at once"
+        );
+        drop((kept, late));
     }
 
     #[test]

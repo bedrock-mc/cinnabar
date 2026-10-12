@@ -53,6 +53,8 @@ impl Default for InventoryIcons {
 /// registry immediately before presentation.
 #[derive(Clone, Debug, Default)]
 pub struct HudFrame {
+    /// Equipment capabilities used by the painted mount layout and its pointer hits.
+    pub mount_equipment: assets::entity::mount::MountEquipment,
     pub now_millis: u64,
     /// The crosshair is a first-person-only surface in the reference.
     pub first_person: bool,

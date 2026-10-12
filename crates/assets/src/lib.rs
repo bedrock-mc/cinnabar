@@ -20,7 +20,7 @@ pub mod compiled;
 pub mod dye;
 mod effects;
 mod encoding;
-mod entity;
+pub mod entity;
 mod environment_settings;
 mod equipment;
 mod error;
@@ -180,7 +180,9 @@ pub use fire::{fire_attachment_template_offset, fire_template_quad_count};
 pub use fog_layers::resolve_fog_layers;
 pub use fog_transition::FogTransition;
 pub use font::{
-    CompiledFontCatalog, FONT_CARRIER_MAGIC, FONT_CARRIER_SCHEMA, FONT_FALLBACK_ATLAS_SIDE,
+    CompiledFontCatalog, FONT_CARRIER_MAGIC, FONT_CARRIER_SCHEMA, FONT_FACE_BUNDLE_MAGIC,
+    FONT_FACE_BUNDLE_SCHEMA, FONT_FALLBACK_ATLAS_SIDE, FontFaceRaster, decode_font_face_bundle,
+    encode_font_face_bundle,
     FONT_RASTER_EM_PIXELS, FONT_STYLE_COVERAGE_GAMMA, FONT_STYLE_SDF, FontCatalogError,
     FontCatalogIdentity, FontGlyphRequests, FontLineMetrics, FontPixels, FontRendering,
     FontTexturePage, GlyphMetrics, MAX_FONT_CARRIER_BYTES, MAX_FONT_FALLBACK_PAGES,

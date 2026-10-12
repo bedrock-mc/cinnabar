@@ -93,3 +93,6 @@ fn vanilla_pickup_replaces_closed_inventory_and_hud_before_the_next_drop() {
     assert_eq!(predicted.count, 63);
     assert_eq!(predicted.stack_network_id, request);
 }
+
+#[path = "mount_quick_move_tests.rs"]
+mod mount_quick_move_tests;

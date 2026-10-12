@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "equipment": {
+    "minecraft:camel": {
+      "Provisional": {
+        "saddle": true,
+        "body": "None"
+      }
+    },
+    "minecraft:camel_husk": {
+      "Provisional": {
+        "saddle": true,
+        "body": "None"
+      }
+    },
+    "minecraft:donkey": {
+      "Provisional": {
+        "saddle": true,
+        "body": "None"
+      }
+    },
+    "minecraft:horse": {
+      "Provisional": {
+        "saddle": true,
+        "body": "HorseArmor"
+      }
+    },
+    "minecraft:llama": {
+      "Provisional": {
+        "saddle": false,
+        "body": "Carpet"
+      }
+    },
+    "minecraft:mule": {
+      "Provisional": {
+        "saddle": true,
+        "body": "None"
+      }
+    },
+    "minecraft:nautilus": {
+      "Provisional": {
+        "saddle": true,
+        "body": "NautilusArmor"
+      }
+    },
+    "minecraft:skeleton_horse": {
+      "Provisional": {
+        "saddle": false,
+        "body": "None"
+      }
+    },
+    "minecraft:trader_llama": {
+      "Provisional": {
+        "saddle": false,
+        "body": "Carpet"
+      }
+    },
+    "minecraft:zombie_horse": {
+      "Provisional": {
+        "saddle": true,
+        "body": "HorseArmor"
+      }
+    },
+    "minecraft:zombie_nautilus": {
+      "Provisional": {
+        "saddle": true,
+        "body": "NautilusArmor"
+      }
+    }
+  }
+}

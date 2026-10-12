@@ -159,6 +159,7 @@ fn source_for_use(
     );
     let input = ActorEquipmentInput {
         main: identifier.map(|identifier| WornItem {
+            grip: assets::item::grip::builtin_item_grip(identifier),
             identifier: identifier.into(),
             metadata: 0,
             damage: None,

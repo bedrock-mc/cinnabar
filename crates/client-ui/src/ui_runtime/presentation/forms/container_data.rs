@@ -7,10 +7,10 @@
 use json_ui::{CollectionItem, DataSource, HitKind, HitRegion, Scalar};
 use protocol::WindowKind;
 
-use super::container_kinds::{MountBody, mount_slots};
 use crate::ui_runtime::UiRuntime;
 use crate::ui_runtime::presentation::screens::{BEACON_LEVEL_FOR, STONECUTTER_CELLS, Widget};
 use crate::ui_runtime::screen_recipes::LOOM_PATTERNS;
+use assets::entity::mount::{MountBody, MountEquipment, MountSlots};
 use inventory::inventory_ledger::InventoryTarget;
 use {super::super::HudFrame, ui::IconRef};
 
@@ -72,7 +72,13 @@ pub fn observe_station_block(
                 protocol::ActorKind::Entity { identifier } => Some(identifier.clone()),
                 protocol::ActorKind::Player { .. } => None,
             });
+        let equipment = ledger
+            .window_actor()
+            .map_or(MountEquipment::Unresolved, |unique| {
+                stream.authority().actor_mount_equipment(unique)
+            });
         runtime.screen_state_mut().mount_identifier = identifier;
+        runtime.screen_state_mut().mount_equipment = equipment;
         return;
     }
     let nbt = stream.block_entity_compound(position);
@@ -143,7 +149,8 @@ pub(super) fn station_globals(
         }
         WindowKind::Horse => {
             let chest = ledger.storage_slot_count().unwrap_or(2).saturating_sub(2);
-            let slots = mount_slots(runtime.screen_state().mount_identifier.as_deref());
+            let equipment = runtime.screen_state().mount_equipment;
+            let slots = equipment.slots().unwrap_or(MountSlots::EMPTY);
             let worn = slots.body != MountBody::None;
             let equip = u32::from(slots.saddle) + u32::from(worn);
             data.set_grid_dimensions("#equip_grid_dimensions", [1, equip]);

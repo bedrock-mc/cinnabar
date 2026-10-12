@@ -311,6 +311,12 @@ impl InstallLayout {
         self.user_data_root.join("worlds")
     }
 
+    /// Downloaded Bedrock Dedicated Server builds, beside the worlds they host.
+    #[must_use]
+    pub fn bds_dir(&self) -> PathBuf {
+        self.user_data_root.join("bds")
+    }
+
     #[must_use]
     pub fn server_file(&self) -> PathBuf {
         self.user_config_root.join("servers.json")

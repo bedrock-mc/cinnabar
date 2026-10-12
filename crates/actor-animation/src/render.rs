@@ -114,9 +114,8 @@ pub(super) fn pose_layers(
         {
             Some(earlier) => Some(Arc::clone(&earlier.pose)),
             None => sample_layer_local(evaluator, variables, skeletons, clips, geometry, budget)
-                .map_err(|error| {
-                    failure.get_or_insert(error);
-                    error
+                .inspect_err(|error| {
+                    failure.get_or_insert(*error);
                 })
                 .ok()
                 .and_then(|local| {

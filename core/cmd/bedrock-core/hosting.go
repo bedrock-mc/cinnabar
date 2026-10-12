@@ -18,7 +18,7 @@ const friendHostRetry = 30 * time.Second
 // friendHosting hosts each running dedicated-server world to Xbox friends for as long as it runs.
 type friendHosting struct {
 	account *authcache.Account
-	worlds  *localworld.Manager
+	worlds  *localworld.Local
 	target  proxy.LocalTargetFunc
 	log     *slog.Logger
 

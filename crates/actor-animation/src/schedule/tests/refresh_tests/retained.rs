@@ -30,6 +30,7 @@ fn controller(compiled: &mut CompiledEntityAssets) {
     symbols.insert(
         4,
         EntityAssetSymbol {
+            mount_equipment: assets::entity::mount::MountEquipment::Unresolved,
             kind: EntityAssetKind::AnimationController,
             identifier: "controller.animation.counter".into(),
             source_index: 0,

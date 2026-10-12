@@ -126,7 +126,14 @@ impl UiPresentationRuntime {
             return self.engine_container_hit(gui);
         }
         let geometry = self.inventory_geometry(physical_size, dpi_scale)?;
-        cell_hit(gui, geometry, screen)
+        let hit = cell_hit(gui, geometry, screen)?;
+        if matches!((screen, hit),
+            (InventoryScreen::Window(WindowKind::Horse, _), InventoryCellHit::Storage(index))
+            if !self.hud_frame.mount_equipment.permits_inventory_slot(index))
+        {
+            return None;
+        }
+        Some(hit)
     }
 
     /// The recipe-book control under a GUI point, if the screen has a book.
