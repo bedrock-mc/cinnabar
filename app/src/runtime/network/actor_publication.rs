@@ -270,21 +270,21 @@ pub(crate) fn prepare_actor_render_frame(
     let swing_progress = stream.and_then(|_| {
         let movement = movement.as_deref()?;
         let swings = swings.as_deref_mut()?;
-        // A server swing for the local arm starts on the next simulated tick; a swing already
-        // under way is not restarted.
-        if server_swings > 0 {
-            swings.try_swing(
-                movement.completed_tick() + 1,
-                item_swing_ticks
-                    .and_then(|ticks| i32::try_from(ticks).ok())
-                    .unwrap_or(actor_animation::ACTOR_SWING_TICKS),
-            );
-        }
         if let Some(effects) = effects.as_deref() {
             swings.sync_ticks_for_item(
                 movement.interaction_authority_identity(),
                 movement.completed_tick(),
                 effects,
+                item_swing_ticks,
+            );
+        }
+        // Admission for the next tick uses each animation's own effect-aware restart guard.
+        if server_swings > 0 {
+            swings.try_swing_before_tick_for_item(
+                movement.completed_tick().saturating_add(1),
+                effects
+                    .as_deref()
+                    .map_or_default(|effects| effects.mining_effects()),
                 item_swing_ticks,
             );
         }
