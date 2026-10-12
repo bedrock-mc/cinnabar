@@ -273,8 +273,7 @@ fn a_still_indirect_view_keeps_its_commands_and_a_plane_crossing_rebuilds_only_s
         .world_mut()
         .resource_mut::<super::super::units::TerrainUnitBatches>()
         .disabled = true;
-    // The lowest camera takes the GPU cull, so this one plans its batches on the CPU.
-    let secondary = spawn_camera(&mut app, camera_transform(), 1);
+    spawn_camera(&mut app, camera_transform(), 1);
     insert_meshes(&mut app, &KEYS);
     for _ in 0..8 {
         frame(&mut app);
@@ -283,6 +282,8 @@ fn a_still_indirect_view_keeps_its_commands_and_a_plane_crossing_rebuilds_only_s
     let solid = render_world.resource::<pipeline::solid::ChunkSolidIndirectBatches>();
     let cutout = render_world.resource::<ChunkIndirectBatches>();
     assert_eq!((solid.0.len(), cutout.0.len()), (1, 1));
+    let cpu_view = *solid.0.keys().next().unwrap();
+    let cpu_camera = render_world.get::<MainEntity>(cpu_view).unwrap().id();
     let commands = solid
         .0
         .values()
@@ -293,7 +294,10 @@ fn a_still_indirect_view_keeps_its_commands_and_a_plane_crossing_rebuilds_only_s
             .values()
             .map(|batch| batch.command_count)
             .sum::<u32>();
-    assert!(commands > 0, "the secondary view draws through its batches");
+    assert!(
+        commands > 0,
+        "the CPU-planned view draws through its batches"
+    );
 
     let settled = stats(&app);
     for _ in 0..4 {
@@ -305,7 +309,7 @@ fn a_still_indirect_view_keeps_its_commands_and_a_plane_crossing_rebuilds_only_s
 
     let translate = |app: &mut App, x: f32| {
         app.world_mut()
-            .get_mut::<Transform>(secondary)
+            .get_mut::<Transform>(cpu_camera)
             .unwrap()
             .translation
             .x = x;
