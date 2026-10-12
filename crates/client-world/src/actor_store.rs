@@ -770,6 +770,8 @@ pub(crate) struct ActorStore {
     remote_state_excluded_runtime_id: Option<u64>,
     /// Health admitted before the client-fed local actor is created.
     pending_local_health: Option<ActorAttribute>,
+    /// Arm swings the server sent for the local player, waiting for its swing tracker.
+    local_server_swings: u8,
     pending_local_damage: Option<local_health::PendingLocalDamage>,
     local_health_skips: u64,
     /// Server PlayerSpawn has enabled local health-drop animations in this session.
