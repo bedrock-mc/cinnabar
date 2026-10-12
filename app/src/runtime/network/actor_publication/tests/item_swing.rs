@@ -144,3 +144,61 @@ fn final_publication_preserves_authored_swing_ticks_without_attack_input() {
         );
     }
 }
+
+#[test]
+fn server_swings_preserve_the_independent_java_restart_guard() {
+    let mut world = custom_emotes::fixture();
+    let authored_ticks = 19;
+    select_authored_swing(&mut world, authored_ticks);
+    world.init_resource::<client_interaction::movement::MovementTicker>();
+    world.init_resource::<client_interaction::movement::LocalMovementEffectTimeline>();
+    world.init_resource::<client_interaction::melee::SwingTracker>();
+    let mut java = gameplay::melee::SwingTracker::default();
+    for tick in 1..=8_u64 {
+        *world.resource_mut::<client_interaction::movement::MovementTicker>() = {
+            let mut ticker = client_interaction::movement::MovementTicker::default();
+            *ticker = gameplay::test_support::survival_mining::ticker_with_ticks(tick);
+            ticker
+        };
+        let mut effects =
+            world.resource_mut::<client_interaction::movement::LocalMovementEffectTimeline>();
+        effects.begin_frame();
+        MovementEffectSource::commit_successful_tick(&mut **effects);
+        world
+            .resource_mut::<Time<bevy::time::Real>>()
+            .advance_by(Duration::from_millis(50));
+        world.run_system_cached(super::advance_actor_frame).unwrap();
+        if matches!(tick, 1 | 5) {
+            let mut client = world.resource_mut::<ClientWorld>();
+            let stream = client.stream.as_mut().unwrap();
+            stream
+                .submit(
+                    stream.committed_sequence() + 1,
+                    protocol::WorldEvent::ItemActor(protocol::ItemActorEvent::Action(
+                        protocol::ActorActionEvent {
+                            actor_runtime_ids: Arc::from([1_u64]),
+                            kind: protocol::ActorActionKind::SwingArm,
+                            data: 0.0,
+                            swing_source: None,
+                        },
+                    )),
+                )
+                .unwrap();
+            java.try_swing(tick + 1, actor_animation::ACTOR_SWING_TICKS);
+        }
+        world.run_system_cached(prepare_actor_render_frame).unwrap();
+        let rig = world
+            .resource::<ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap()
+            .authority()
+            .actor_rig(1)
+            .unwrap();
+        assert_eq!(
+            rig.java.swing,
+            java.published_progress(tick).java,
+            "server swing at tick {tick} must retain the Java restart guard"
+        );
+    }
+}

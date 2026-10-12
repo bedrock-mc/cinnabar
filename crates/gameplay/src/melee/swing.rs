@@ -148,9 +148,22 @@ impl SwingTracker {
         tick: u64,
         effects: crate::movement::MiningEffects,
     ) -> bool {
+        self.try_swing_before_tick_for_item(tick, effects, None)
+    }
+
+    /// Uses the selected item's Bedrock duration while keeping the effect-based Java guard.
+    pub fn try_swing_before_tick_for_item(
+        &mut self,
+        tick: u64,
+        effects: crate::movement::MiningEffects,
+        item_duration: Option<u32>,
+    ) -> bool {
         self.try_swing_guarded(
             tick,
-            swing_duration(effects),
+            item_duration.map_or_else(
+                || swing_duration(effects),
+                |ticks| i32::try_from(ticks).unwrap_or(i32::MAX).max(1),
+            ),
             Some(java_swing_duration(effects)),
         )
     }
@@ -400,6 +413,34 @@ mod tests {
                 bedrock.published_progress(tick).bedrock,
                 "tick {tick}"
             );
+        }
+    }
+    #[test]
+    fn authored_pre_tick_swings_keep_each_effect_aware_counter_independent() {
+        for effects in [
+            MiningEffects::default(),
+            MiningEffects {
+                haste: Some(1),
+                ..Default::default()
+            },
+            MiningEffects {
+                conduit_power: Some(1),
+                ..Default::default()
+            },
+        ] {
+            let mut authored = SwingTracker::default();
+            let mut bedrock = SwingTracker::default();
+            let mut java = SwingTracker::default();
+            for tick in 1..20 {
+                assert_eq!(
+                    authored.try_swing_before_tick_for_item(tick, effects, Some(19)),
+                    bedrock.try_swing(tick, 19)
+                );
+                java.try_swing(tick, super::super::java_swing_duration(effects));
+                let progress = authored.published_progress(tick);
+                assert_eq!(progress.bedrock, bedrock.published_progress(tick).bedrock);
+                assert_eq!(progress.java, java.published_progress(tick).java);
+            }
         }
     }
 }
