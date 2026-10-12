@@ -375,6 +375,7 @@ pub(super) fn attachable_glint(
     )
 }
 
+/// Adds the requested glint material when the item's stack is enchanted.
 fn with_glint(
     mut presentation: EquipmentPresentation,
     item: &WornItem,
