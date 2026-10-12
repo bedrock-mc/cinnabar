@@ -54,28 +54,36 @@ fn item_glint_layers_keep_their_shape_across_rectangular_atlas_regions() {
         return;
     };
     let scroll = [0.125, -0.25];
-    let square = glint_coordinates(&gpu, [1.0; 2], [0.0; 2], scroll);
-    for span in [[0.5, 1.0], [1.0, 0.5], [0.25, 0.125]] {
-        for origin in [[0.0; 2], [0.25, 0.5], [0.125, 0.0625]] {
-            assert_eq!(
-                glint_coordinates(&gpu, span, origin, scroll),
-                square,
-                "{span:?} at {origin:?}"
-            );
+    for extent in [render_model::ITEM_GLINT_UV_SCALE, 1.0] {
+        let square = glint_coordinates(&gpu, [1.0; 2], [0.0; 2], scroll, extent);
+        for span in [[0.5, 1.0], [1.0, 0.5], [0.25, 0.125]] {
+            for origin in [[0.0; 2], [0.25, 0.5], [0.125, 0.0625]] {
+                assert_eq!(
+                    glint_coordinates(&gpu, span, origin, scroll, extent),
+                    square,
+                    "{span:?} at {origin:?}, extent {extent}"
+                );
+            }
         }
+        assert_ne!(
+            glint_coordinates(&gpu, [1.0; 2], [0.0; 2], [0.0; 2], extent),
+            square
+        );
     }
-    assert_ne!(
-        glint_coordinates(&gpu, [1.0; 2], [0.0; 2], [0.0; 2]),
-        square
-    );
 }
 
 /// Rasters both production foil coordinate layers over one full sprite region.
-fn glint_coordinates(gpu: &Gpu, span: [f32; 2], origin: [f32; 2], scroll: [f32; 2]) -> Vec<u8> {
+fn glint_coordinates(
+    gpu: &Gpu,
+    span: [f32; 2],
+    origin: [f32; 2],
+    scroll: [f32; 2],
+    extent: f32,
+) -> Vec<u8> {
     let source = shader_source::standalone(
         r#"
 import render::glint::glint_layer_uvs;
-struct Parameters { span: vec2<f32>, scale: vec2<f32>, scroll: vec2<f32>, origin: vec2<f32> }
+struct Parameters { span: vec2<f32>, scale: vec2<f32>, scroll: vec2<f32>, origin: vec2<f32>, extent: vec4<f32> }
 @group(0) @binding(0) var<uniform> parameters: Parameters;
 struct VertexOutput { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> }
 @vertex fn vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
@@ -85,7 +93,7 @@ struct VertexOutput { @builtin(position) position: vec4<f32>, @location(0) uv: v
     return out;
 }
 @fragment fn fragment(input: VertexOutput) -> @location(0) vec4<f32> {
-    let layers = glint_layer_uvs(parameters.origin + input.uv * parameters.span, parameters.origin, parameters.scale, parameters.scroll, true);
+    let layers = glint_layer_uvs(parameters.origin + input.uv * parameters.span, parameters.origin, parameters.scale, parameters.scroll, parameters.extent.x);
     return fract(vec4(layers[0], layers[1]));
 }
 "#,
@@ -95,12 +103,16 @@ struct VertexOutput { @builtin(position) position: vec4<f32>, @location(0) uv: v
         &[
             span[0],
             span[1],
-            render_model::ITEM_GLINT_UV_SCALE / span[0],
-            render_model::ITEM_GLINT_UV_SCALE / span[1],
+            extent / span[0],
+            extent / span[1],
             scroll[0],
             scroll[1],
             origin[0],
             origin[1],
+            extent,
+            0.0,
+            0.0,
+            0.0,
         ],
         wgpu::BufferUsages::UNIFORM,
     );

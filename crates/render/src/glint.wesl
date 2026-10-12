@@ -1,6 +1,7 @@
 // Shared glint coordinates: normalize padded atlas UVs before either rotation.
-fn glint_layer_uvs(uv: vec2<f32>, origin: vec2<f32>, scale: vec2<f32>, scroll: vec2<f32>, item: bool) -> array<vec2<f32>, 2> {
-    let extent = select(vec2(1.0), vec2(ITEM_GLINT_UV_SCALE), item);
+fn glint_layer_uvs(uv: vec2<f32>, origin: vec2<f32>, scale: vec2<f32>, scroll: vec2<f32>, item_extent: f32) -> array<vec2<f32>, 2> {
+    let item = item_extent > 0.0;
+    let extent = select(vec2(1.0), vec2(item_extent), item);
     let center = extent * 0.5;
     let normalized_uv = (uv - select(vec2(0.0), origin, item)) * select(vec2(1.0), scale, item) - center;
     let rotation_scale = select(scale, vec2(1.0), item);

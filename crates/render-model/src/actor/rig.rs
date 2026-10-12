@@ -84,6 +84,9 @@ pub struct ActorRigVertex {
 
 pub const ACTOR_RIG_VERTEX_WORDS: usize = std::mem::size_of::<ActorRigVertex>() / 4;
 const _: () = assert!(std::mem::size_of::<ActorRigVertex>() == ACTOR_RIG_VERTEX_WORDS * 4);
+// Both vertex pullers read the origin from the final two storage words.
+const _: () =
+    assert!(std::mem::offset_of!(ActorRigVertex, glint_origin) == (ACTOR_RIG_VERTEX_WORDS - 2) * 4);
 
 #[derive(Clone, Debug)]
 pub struct ActorRigGeometry {
