@@ -1,6 +1,16 @@
-//! Validation of callback-scoped native motion, food, actor and combat evidence.
-use crate::ModuleObservations;
+//! Callback-scoped native motion, food, actor and combat evidence, and its validation.
+use crate::{ActorObservation, CombatObservation, MotionObservation, VitalsObservation};
 use anyhow::{Result, ensure};
+
+/// Callback-scoped read-only facts captured by native owning adapters.
+#[derive(Clone, Default)]
+pub struct ModuleObservations {
+    pub motion: Option<MotionObservation>,
+    pub vitals: Option<VitalsObservation>,
+    pub ping_ms: Option<u32>,
+    pub actors: Vec<ActorObservation>,
+    pub combat: Vec<CombatObservation>,
+}
 
 /// Checks one finite world vector without inventing missing native evidence.
 fn finite(point: (f32, f32, f32)) -> bool {
@@ -76,7 +86,7 @@ pub(super) fn validate(facts: &ModuleObservations) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ActorObservation, ActorObservationBounds, CombatKind, CombatObservation};
+    use crate::{ActorObservationBounds, CombatKind};
     /// Creates native facts whose actor and event share an explicit session fence.
     fn facts() -> ModuleObservations {
         ModuleObservations {

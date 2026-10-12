@@ -182,11 +182,21 @@ struct Literals {
 }
 
 impl Literals {
-    /// Macro bodies are not parsed, so their string literals are read from the tokens.
+    /// Macro bodies are not parsed, so their string literals and nested `include_str!`/
+    /// `include_bytes!` paths are read from the tokens.
     fn tokens(&mut self, tokens: TokenStream) {
-        for tree in tokens {
+        let trees = tokens.into_iter().collect::<Vec<_>>();
+        for (index, tree) in trees.iter().enumerate() {
             match tree {
-                TokenTree::Group(group) => self.tokens(group.stream()),
+                TokenTree::Group(group) => {
+                    if index >= 2
+                        && opens_include(&trees[index - 2], &trees[index - 1])
+                        && let Ok(path) = syn::parse2::<LitStr>(group.stream())
+                    {
+                        self.included.push(path.value());
+                    }
+                    self.tokens(group.stream());
+                }
                 TokenTree::Literal(literal) => {
                     if let Ok(literal) = syn::parse_str::<LitStr>(&literal.to_string()) {
                         self.literals.push(literal.value());
@@ -196,6 +206,12 @@ impl Literals {
             }
         }
     }
+}
+
+/// Whether `name` and `bang` begin an `include_str!` or `include_bytes!` call.
+fn opens_include(name: &TokenTree, bang: &TokenTree) -> bool {
+    matches!(name, TokenTree::Ident(ident) if ident == "include_str" || ident == "include_bytes")
+        && matches!(bang, TokenTree::Punct(punct) if punct.as_char() == '!')
 }
 
 impl<'ast> Visit<'ast> for Literals {

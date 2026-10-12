@@ -108,6 +108,7 @@ fn portable_code_needs_no_declaration() {
         "#[cfg(target_arch = \"aarch64\")] fn native() {}",
         "const DOC: &str = \"#[cfg(windows)] use windows_sys::Win32;\";",
         "// #[cfg(target_os = \"macos\")]\nfn portable() { let windows = 2; let _ = windows; }",
+        "mod windows { pub struct Text; }\npub use windows::Text;",
     ] {
         assert!(findings(source, "").is_empty(), "{source}");
     }

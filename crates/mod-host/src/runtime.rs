@@ -347,7 +347,7 @@ impl Instance {
     /// Validates native cosmetic facts before exposing any current callback data.
     pub(super) fn observe_modules(
         &mut self,
-        observations: crate::ModuleObservations,
+        observations: crate::module_observations::ModuleObservations,
     ) -> Result<()> {
         super::module_observations::validate(&observations)?;
         self.store.data_mut().player_state.observations = observations;

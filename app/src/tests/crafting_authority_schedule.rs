@@ -1077,14 +1077,7 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
             runtime_entity_id: -1,
         }));
         assert_eq!(ledger.begin_click(0), Ok(-3));
-        let mut encoded = bytes::BytesMut::new();
-        ledger
-            .pending_batch()
-            .unwrap()
-            .unwrap()
-            .0
-            .encode_bytes_mut(&mut encoded)
-            .unwrap();
+        let encoded = protocol::encode(&ledger.pending_batch().unwrap().unwrap().0).unwrap();
         let player = ledger.displayed_stack(0).unwrap().count;
         let cursor = ledger.cursor_stack().unwrap().count;
         assert_eq!(player + cursor, 93);

@@ -8,7 +8,7 @@ pub use grants::ModGrants;
 #[cfg(feature = "execution")]
 mod load;
 #[cfg(feature = "execution")]
-mod module_observations;
+pub mod module_observations;
 #[cfg(feature = "execution")]
 mod outputs;
 #[cfg(feature = "execution")]
@@ -43,17 +43,6 @@ pub use runtime::cinnabar::extension::player_state::{
 pub use runtime::cinnabar::extension::{
     events::Cue as ModCue, input::Controls as ControlFrame, panel::Event as ControlEvent,
 };
-
-/// Callback-scoped read-only facts captured by native owning adapters.
-#[cfg(feature = "execution")]
-#[derive(Clone, Default)]
-pub struct ModuleObservations {
-    pub motion: Option<MotionObservation>,
-    pub vitals: Option<VitalsObservation>,
-    pub ping_ms: Option<u32>,
-    pub actors: Vec<ActorObservation>,
-    pub combat: Vec<CombatObservation>,
-}
 
 /// Successfully committed local interaction requests, consumed once per frame.
 #[cfg(feature = "execution")]

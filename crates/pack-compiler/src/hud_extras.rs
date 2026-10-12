@@ -1,7 +1,7 @@
 use std::{fs, io::Cursor, path::Path};
 
 use ::image::{ImageFormat, ImageReader};
-use assets::{HUD_EXTRA_SIDE, HudExtraRole, HudExtras, encode_hud_extras};
+use assets::hud_extras::{HUD_EXTRA_SIDE, HudExtraRole, HudExtras, encode_hud_extras};
 
 const MAX_SOURCE_BYTES: u64 = 16 * 1024;
 

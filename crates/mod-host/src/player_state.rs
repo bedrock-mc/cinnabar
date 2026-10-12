@@ -16,7 +16,7 @@ pub(super) struct PlayerState {
     current_revision: Option<u64>,
     revision: u64,
     reads: u32,
-    pub observations: crate::ModuleObservations,
+    pub observations: crate::module_observations::ModuleObservations,
     pub world: Option<crate::WorldObservation>,
     pub fps: Option<f32>,
     pub sidebar: Option<crate::SidebarSnapshot>,

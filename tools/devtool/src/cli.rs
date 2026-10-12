@@ -79,13 +79,14 @@ pub fn run(options: &Options) -> Result<(), DevtoolError> {
     let changed = changed_paths(Path::new("."), &options.base)?;
     let changed_refs = changed.iter().map(String::as_str).collect::<Vec<_>>();
     match options.subcommand {
-        Subcommand::VerifyAffected => verify_affected(options, &changed_refs, &packages),
+        Subcommand::VerifyAffected => verify_affected(options, &metadata, &changed_refs, &packages),
         Subcommand::CiPlan => ci_plan(&changed_refs, &packages),
     }
 }
 
 fn verify_affected(
     options: &Options,
+    metadata: &str,
     changed_refs: &[&str],
     packages: &[Package],
 ) -> Result<(), DevtoolError> {
@@ -122,7 +123,7 @@ fn verify_affected(
     }
     let mut commands = verification_commands(&selection, runner, packages);
     commands.extend(extra_commands(&extra));
-    let mut baseline = crate::baseline::Comparison::new(&options.base, &metadata)?;
+    let mut baseline = crate::baseline::Comparison::new(&options.base, metadata)?;
     let mut failures = Vec::new();
     for command in commands {
         println!("$ {command}");

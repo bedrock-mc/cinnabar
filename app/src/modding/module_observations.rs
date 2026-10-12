@@ -2,8 +2,8 @@
 use super::gameplay::GameplayContext;
 use client_ui::ui_runtime::UiRuntime;
 use mod_host::{
-    ActorObservation, ActorObservationBounds, CombatKind, CombatObservation, ModuleObservations,
-    MotionObservation, VitalsObservation, WorldObservation,
+    ActorObservation, ActorObservationBounds, CombatKind, CombatObservation, MotionObservation,
+    VitalsObservation, WorldObservation, module_observations::ModuleObservations,
 };
 use std::{
     collections::VecDeque,
