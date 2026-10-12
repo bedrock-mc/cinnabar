@@ -4,116 +4,29 @@ use assets::AssetError;
 use serde::{Deserialize, Deserializer, de};
 use serde_json::{Map, Value};
 
-use super::invalid;
-
+/// Parses a pack object while rejecting duplicate root members.
 pub(super) fn parse_unique_json(path: &Path, bytes: &[u8]) -> Result<Value, AssetError> {
-    let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
-    let uncommented = strip_json_comments(bytes)?;
-    let mut deserializer = serde_json::Deserializer::from_slice(&uncommented);
-    let UniqueRootValue(value) =
-        UniqueRootValue::deserialize(&mut deserializer).map_err(|source| AssetError::Json {
+    pack_json::parse_jsonc::<UniqueRootValue>(bytes)
+        .map(|root| root.0)
+        .map_err(|source| AssetError::Json {
             path: path.to_path_buf(),
             source,
-        })?;
-    deserializer.end().map_err(|source| AssetError::Json {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    Ok(value)
+        })
 }
 
+/// Parses a pack document while rejecting duplicate members at every depth.
 pub(crate) fn parse_fully_unique_json(path: &Path, bytes: &[u8]) -> Result<Value, AssetError> {
-    let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
-    let uncommented = strip_json_comments(bytes)?;
-    let mut deserializer = serde_json::Deserializer::from_slice(&uncommented);
-    let UniqueNestedValue(value) =
-        UniqueNestedValue::deserialize(&mut deserializer).map_err(|source| AssetError::Json {
+    pack_json::parse_jsonc::<UniqueNestedValue>(bytes)
+        .map(|root| root.0)
+        .map_err(|source| AssetError::Json {
             path: path.to_path_buf(),
             source,
-        })?;
-    deserializer.end().map_err(|source| AssetError::Json {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    Ok(value)
+        })
 }
 
-/// Parses payloads whose nested maps now have runtime meaning. Once a family
-/// is compiled, duplicate nested keys are ambiguous rather than opaque.
+/// Parses payloads whose nested maps have runtime meaning and must be unambiguous.
 pub(super) fn parse_semantic_json(path: &Path, bytes: &[u8]) -> Result<Value, AssetError> {
     parse_fully_unique_json(path, bytes)
-}
-
-fn strip_json_comments(bytes: &[u8]) -> Result<Vec<u8>, AssetError> {
-    #[derive(Clone, Copy)]
-    enum State {
-        Normal,
-        String,
-        LineComment,
-        BlockComment,
-    }
-
-    let mut output = bytes.to_vec();
-    let mut state = State::Normal;
-    let mut index = 0;
-    while index < bytes.len() {
-        match state {
-            State::Normal => match bytes[index] {
-                b'"' => {
-                    state = State::String;
-                    index += 1;
-                }
-                b'/' if bytes.get(index + 1) == Some(&b'/') => {
-                    output[index] = b' ';
-                    output[index + 1] = b' ';
-                    state = State::LineComment;
-                    index += 2;
-                }
-                b'/' if bytes.get(index + 1) == Some(&b'*') => {
-                    output[index] = b' ';
-                    output[index + 1] = b' ';
-                    state = State::BlockComment;
-                    index += 2;
-                }
-                _ => index += 1,
-            },
-            State::String => match bytes[index] {
-                b'\\' => index = (index + 2).min(bytes.len()),
-                b'"' => {
-                    state = State::Normal;
-                    index += 1;
-                }
-                _ => index += 1,
-            },
-            State::LineComment => match bytes[index] {
-                b'\n' | b'\r' => {
-                    state = State::Normal;
-                    index += 1;
-                }
-                _ => {
-                    output[index] = b' ';
-                    index += 1;
-                }
-            },
-            State::BlockComment => {
-                if bytes[index] == b'*' && bytes.get(index + 1) == Some(&b'/') {
-                    output[index] = b' ';
-                    output[index + 1] = b' ';
-                    state = State::Normal;
-                    index += 2;
-                } else {
-                    if bytes[index] != b'\n' && bytes[index] != b'\r' {
-                        output[index] = b' ';
-                    }
-                    index += 1;
-                }
-            }
-        }
-    }
-    if matches!(state, State::BlockComment) {
-        return Err(invalid("unterminated block comment in entity JSON source"));
-    }
-    Ok(output)
 }
 
 struct UniqueRootValue(Value);
@@ -231,5 +144,30 @@ impl<'de> de::Visitor<'de> for UniqueNestedValueVisitor {
             }
         }
         Ok(UniqueNestedValue(Value::Object(values)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_semantic_json, parse_unique_json};
+    use std::path::Path;
+
+    #[test]
+    fn material_reader_accepts_comments_and_legacy_text() {
+        let path = Path::new("example/materials/ui.material");
+        let source = b"\xef\xbb\xbf{\"materials\":{/* note */\"example:ui\":{\"label\":\"\xa7rExample\",}, // tail\n}}";
+        let value = parse_semantic_json(path, source).unwrap();
+        assert_eq!(value["materials"]["example:ui"]["label"], "§rExample");
+    }
+
+    #[test]
+    fn shared_decoder_keeps_duplicate_key_validation_and_file_context() {
+        let path = Path::new("example/entity/test.json");
+        let duplicate_root = br#"{/* c */"a":1,"a":2,}"#;
+        assert!(parse_unique_json(path, duplicate_root).is_err());
+        let duplicate_nested = br#"{"a":{"b":1,"b":2,},}"#;
+        assert!(parse_semantic_json(path, duplicate_nested).is_err());
+        let error = parse_semantic_json(path, b"{/* open").unwrap_err();
+        assert!(error.to_string().contains("example/entity/test.json"));
     }
 }

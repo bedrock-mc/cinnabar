@@ -55,8 +55,7 @@ fn fixture_pack(paths: &str) -> ServerUiPack {
                 .read_to_end(&mut manifest)
                 .unwrap();
             let manifest: serde_json::Value =
-                serde_json::from_slice(&resource_pack::normalize_jsonc(&manifest).unwrap())
-                    .unwrap();
+                serde_json::from_slice(&pack_json::normalize_jsonc(&manifest).unwrap()).unwrap();
             let header = &manifest["header"];
             let id = header["uuid"].as_str().unwrap().parse().unwrap();
             let version = header["version"]

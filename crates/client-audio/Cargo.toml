@@ -12,6 +12,7 @@ platform-specific = ["windows"]
 test-support = ["dep:test-time"]
 
 [dependencies]
+pack-json = { path = "../pack-json" }
 simulation-clock = { path = "../simulation-clock" }
 anyhow.workspace = true
 assets = { path = "../assets" }

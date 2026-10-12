@@ -698,6 +698,7 @@ dependencies = [
  "objc2-app-kit 0.3.2",
  "oreui",
  "pack-compiler",
+ "pack-json",
  "pack-runtime",
  "particles",
  "player-state",
@@ -757,6 +758,7 @@ dependencies = [
  "bridge",
  "bytes",
  "futures",
+ "pack-json",
  "protocol",
  "resource-pack",
  "serde",
@@ -2272,6 +2274,7 @@ dependencies = [
  "client-world",
  "crossbeam-queue",
  "inventory 0.1.16",
+ "pack-json",
  "particles",
  "player-state",
  "protocol",
@@ -2502,6 +2505,7 @@ dependencies = [
  "mod-ui",
  "oreui",
  "pack-compiler",
+ "pack-json",
  "player-state",
  "protocol",
  "rayon",
@@ -4479,6 +4483,7 @@ dependencies = [
 name = "json-ui"
 version = "0.1.16"
 dependencies = [
+ "pack-json",
  "serde",
  "serde_json",
  "test-alloc",
@@ -5705,12 +5710,21 @@ dependencies = [
  "fontdue",
  "freetype-sys",
  "image",
+ "pack-json",
  "serde",
  "serde_json",
  "sha2",
  "simulation-clock",
  "tempfile",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "pack-json"
+version = "0.1.16"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -5722,6 +5736,7 @@ dependencies = [
  "image",
  "json-ui",
  "pack-compiler",
+ "pack-json",
  "protocol",
  "rayon",
  "resource-pack",
@@ -5779,6 +5794,7 @@ version = "0.1.16"
 dependencies = [
  "assets",
  "bytemuck",
+ "pack-json",
  "render-model",
  "serde_json",
 ]
@@ -6489,6 +6505,7 @@ name = "resource-pack"
 version = "0.1.16"
 dependencies = [
  "aes",
+ "pack-json",
  "protocol",
  "serde",
  "serde_json",
@@ -7673,6 +7690,7 @@ dependencies = [
  "crossbeam-channel",
  "image",
  "json-ui",
+ "pack-json",
  "rayon",
  "render-model",
  "resource-pack",

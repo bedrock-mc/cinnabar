@@ -51,6 +51,7 @@ tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "dep:profiling", "chun
 reports = []
 
 [dependencies]
+pack-json = { path = "../crates/pack-json" }
 env-compat = { path = "../crates/env-compat" }
 simulation-clock = { path = "../crates/simulation-clock" }
 render-scene = { path = "../crates/render-scene" }

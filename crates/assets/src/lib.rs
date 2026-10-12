@@ -247,7 +247,7 @@ pub use particle::{
     ACTOR_FLAME_TEXTURE, MAX_PARTICLE_CARRIER_BYTES, MAX_PARTICLE_EFFECT_BYTES,
     MAX_PARTICLE_EFFECTS, MAX_PARTICLE_KEY_BYTES, MAX_PARTICLE_TEXTURE_SIDE, MAX_PARTICLE_TEXTURES,
     PARTICLE_CARRIER_MAGIC, PARTICLE_CARRIER_VERSION, ParticleEffectFile, ParticleTexture,
-    RuntimeParticleAssets, encode_particle_catalog, strip_json_comments,
+    RuntimeParticleAssets, encode_particle_catalog,
 };
 pub use physics_registry::{
     BlockPhysicsFlags, BlockPhysicsRecord, PhysicsRegistry, SurfaceResponse,

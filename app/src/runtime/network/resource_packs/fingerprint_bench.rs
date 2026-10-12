@@ -83,14 +83,10 @@ fn join_stack(paths: &std::ffi::OsStr) -> Arc<resource_pack::ValidatedPackStack>
         .map(|path| {
             let bytes = std::fs::read(&path).unwrap();
             let mut zip = zip::ZipArchive::new(Cursor::new(&bytes)).unwrap();
-            let mut manifest = String::new();
-            std::io::Read::read_to_string(
-                &mut zip.by_name("manifest.json").unwrap(),
-                &mut manifest,
-            )
-            .unwrap();
-            let manifest: serde_json::Value =
-                serde_json::from_str(manifest.trim_start_matches('\u{feff}')).unwrap();
+            let mut manifest = Vec::new();
+            std::io::Read::read_to_end(&mut zip.by_name("manifest.json").unwrap(), &mut manifest)
+                .unwrap();
+            let manifest: serde_json::Value = pack_json::parse_jsonc(&manifest).unwrap();
             let header = &manifest["header"];
             let version = header["version"]
                 .as_array()

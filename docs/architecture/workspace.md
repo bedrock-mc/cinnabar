@@ -80,6 +80,7 @@ coordinates work that crosses these owners.
 | --- | --- | --- | --- |
 | `crates/bridge` | `bridge` | Framing and I/O for the local stream to the Go core; use its bounded bridge messages. | The Go core owns upstream transports; `protocol` interprets Bedrock packets. |
 | `crates/protocol` | `protocol` | Bedrock packet codecs, shared wire contracts and session adapters; use its packet and codec APIs. | `bridge` owns local framing; `client-session` owns client transport; the codec lives in its vendored tree. |
+| `crates/pack-json` | `pack-json` | Shared pack text decoding and JSONC parsing; use its decoder before reading authored pack documents. | Pack admission, compilers and UI readers share this format policy. |
 | `crates/resource-pack` | `resource-pack` | Bounded archive admission, decryption and pack-stack views; use its read-only admitted packs. | The Go core downloads packs; `pack-runtime` prepares them; `pack-compiler` compiles them. |
 | `crates/assets` | `assets` | Pack source readers and compiled carrier formats; use bounded loaders and typed asset data. | `pack-compiler` writes carriers; `pack-runtime` prepares active session stacks. |
 | `crates/pack-compiler` | `pack-compiler` | Reusable pack compilation; use its compiler APIs from tools and runtime loading. | `assets` owns formats; `asset-compiler` owns the CLI; `pack-runtime` owns admission and reloads. |

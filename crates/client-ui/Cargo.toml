@@ -17,6 +17,7 @@ test-support = ["oreui/test-support", "ui-engine/test-support", "ui-screens/test
 tracy = ["oreui/tracy"]
 
 [dependencies]
+pack-json = { path = "../pack-json" }
 env-compat = { path = "../env-compat" }
 simulation-clock = { path = "../simulation-clock" }
 launcher-host = { path = "../launcher-host" }

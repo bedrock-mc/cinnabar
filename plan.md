@@ -952,10 +952,11 @@ these changes do not close the movement, camera, or actor parity gates.
   opaque, unlit, depth-writing pass. Unchanged targets retain their geometry and
   upload revision across camera movement.
 - The live outline was too faint. A Metal rendering diagnostic confirms FXAA
-  dilutes thin black lines more strongly on diagonals. GPU expansion now supplies
-  consistent two-physical-pixel coverage. This is provisional compensation for
-  Cinnabar's FXAA; matching vanilla sample anti-aliasing and stroke coverage
-  remains incomplete.
+  dilutes thin black lines more strongly on diagonals. GPU expansion once supplied
+  two-physical-pixel coverage as provisional compensation. The native outline is a
+  twelve-edge line list, which rasterizes one pixel wide (a thicker outline is
+  built only by the deferred renderer below 100% upscaling), so the stroke is now
+  one physical pixel. Matching vanilla's anti-aliasing of it remains incomplete.
 - Fence and wall selection use visual bounds independently of taller movement
   collision. Wall selection retains its state-dependent visual height and insets.
 - Incomplete parity: the matching-version material depth offset, scaled deferred
@@ -2372,6 +2373,10 @@ Incomplete: native frame/GPU/process-memory acceptance, full remote gates,
 TTFMSDF/precomputed MSDF rendering, contextual item icon routes, verified retail
 missing-icon fallback, and native font alias/metric comparison. Outline MSDF
 fonts currently use provisional alpha rasterization. No visual gate is closed.
+Pack readers share BOM, UTF-8 and Latin-1 text decoding and JSONC normalization;
+UI documents retain their existing parser recovery. Incomplete: native display
+comparison for legacy pack labels and arbitrary malformed UTF-8, and a full
+comparison of syntax tolerances across document families.
 Custom item icons and components follow the admitted registry, so an empty
 duplicate cannot replace a populated item's texture key. Missing custom icons
 report their identifier and requested atlas key during pack preparation.

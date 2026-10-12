@@ -17,6 +17,7 @@ members = [
     "crates/gameplay",
     "crates/client-session",
     "crates/chunk-pipeline",
+    "crates/pack-json",
     "crates/pack-compiler",
     "crates/pack-runtime",
     "crates/experience-sdk",
