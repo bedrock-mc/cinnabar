@@ -10,6 +10,7 @@ use super::*;
 /// Builds distinct stone, grass face and diagnostic layers without external carriers.
 fn fixture() -> RuntimeAssets {
     let cube = BlockVisual {
+        native_material: assets::native_material::NativeMaterialFacts::Unresolved,
         faces: [1; 6],
         flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
         kind: VisualKind::Cube,

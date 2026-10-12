@@ -32,6 +32,7 @@ pub struct PackApplication {
     pub(crate) item_components:
         Option<Arc<client_ui::ui_runtime::item_facts::SessionItemComponents>>,
     pub(crate) glyph_sheets: Option<Arc<SessionGlyphSheets>>,
+    pub(crate) block_entity_art: Option<Arc<render_model::PreparedBlockEntityArtwork>>,
     pub(crate) entities: Option<Arc<assets::SessionEntityPack>>,
     pub(super) entity_artwork: Option<Arc<render_model::ActorArtworkPages>>,
     pub(crate) prepared_actor_artwork:
@@ -55,6 +56,7 @@ impl Default for PackApplication {
             item_icons: None,
             item_components: None,
             glyph_sheets: None,
+            block_entity_art: super::block_entity_art::base().cloned(),
             entities: None,
             entity_artwork: None,
             prepared_actor_artwork: None,
@@ -251,9 +253,20 @@ fn compile_application(
     let (mut blocks, mut icons, mut language, mut glyphs) = (None, None, None, None);
     let (mut entities, mut artwork, mut ui, mut sounds) = (None, None, None, None);
     let mut aim_assist = None;
+    let mut block_entity_art = None;
     // The entity compile checks cancellation between its own steps, as it outlasts the rest.
     let mut entities_stopped = false;
     rayon::scope(|scope| {
+        scope.spawn(|_| {
+            block_entity_art = compile_part(
+                &stack,
+                cancelled,
+                changes.block_entity_art,
+                Subscriber::BlockEntityArt,
+                previous.and_then(|old| old.block_entity_art.clone()),
+                super::block_entity_art::prepare,
+            );
+        });
         scope.spawn(|_| {
             aim_assist = compile_part(
                 &stack,
@@ -400,6 +413,11 @@ fn compile_application(
         }
         output
     }
+    let block_entity_art = record(
+        &mut dependencies,
+        Subscriber::BlockEntityArt,
+        block_entity_art?,
+    );
     let aim_assist_textures = record(&mut dependencies, Subscriber::AimAssist, aim_assist?);
     let block_overlay = record(&mut dependencies, Subscriber::Blocks, blocks?);
     let item_icons = record(&mut dependencies, Subscriber::Icons, icons?);
@@ -445,6 +463,7 @@ fn compile_application(
         item_icons,
         item_components: None,
         glyph_sheets,
+        block_entity_art,
         entities,
         entity_artwork,
         server_ui,

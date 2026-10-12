@@ -208,6 +208,24 @@ impl RuntimeBlockEntityAssets {
         self.source_manifest_sha256
     }
 
+    /// Validates a repacked atlas while retaining this carrier's source manifest identity.
+    pub fn repack(
+        &self,
+        width: u32,
+        height: u32,
+        rgba8: &[u8],
+        placements: &[BlockEntityPlacement],
+    ) -> Result<Self, AssetError> {
+        let bytes = encode_with_digest(
+            self.source_manifest_sha256,
+            width,
+            height,
+            rgba8,
+            placements,
+        )?;
+        Self::decode(&bytes)
+    }
+
     #[must_use]
     pub const fn atlas_size(&self) -> [u32; 2] {
         [self.atlas_width, self.atlas_height]
@@ -249,7 +267,23 @@ pub fn encode_block_entity_catalog(
     rgba8: &[u8],
     placements: &[BlockEntityPlacement],
 ) -> Result<Vec<u8>, AssetError> {
-    let source_manifest_sha256 = canonical_source_manifest_sha256(source_manifest);
+    encode_with_digest(
+        canonical_source_manifest_sha256(source_manifest),
+        atlas_width,
+        atlas_height,
+        rgba8,
+        placements,
+    )
+}
+
+/// Seals an atlas using the already verified source manifest identity.
+fn encode_with_digest(
+    source_manifest_sha256: [u8; 32],
+    atlas_width: u32,
+    atlas_height: u32,
+    rgba8: &[u8],
+    placements: &[BlockEntityPlacement],
+) -> Result<Vec<u8>, AssetError> {
     if atlas_width == 0
         || atlas_height == 0
         || atlas_width > MAX_BLOCK_ENTITY_ATLAS_SIDE

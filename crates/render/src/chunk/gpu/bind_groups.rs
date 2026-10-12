@@ -66,11 +66,14 @@ pub(in crate::chunk) struct BiomeTintGpu {
     pub(in crate::chunk) water: u32,
     pub(in crate::chunk) flags: u32,
     pub(in crate::chunk) water_opacity: f32,
-    pub(in crate::chunk) seasonal_foliage: [[f32; 4]; assets::SEASONAL_FOLIAGE_COUNT],
+    pub(in crate::chunk) seasonal_foliage:
+        [[f32; 4]; assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT],
 }
 
-const _: () =
-    assert!(std::mem::size_of::<BiomeTintGpu>() == 8 * 4 + assets::SEASONAL_FOLIAGE_COUNT * 16);
+const _: () = assert!(
+    std::mem::size_of::<BiomeTintGpu>()
+        == 8 * 4 + assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT * 16
+);
 
 pub(in crate::chunk) fn pack_linear_rgb10(rgb: [f32; 3]) -> u32 {
     let component = |value: f32| {

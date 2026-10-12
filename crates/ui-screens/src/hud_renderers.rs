@@ -17,9 +17,11 @@ use ui_engine::engine::{
 };
 
 mod hunger_animation;
+mod mob_effects;
 mod status;
 mod status_motion;
 pub use hunger_animation::HungerAnimation;
+pub use mob_effects::{EffectIcon, MobEffects};
 pub use status::{HEART_COLUMNS, HEART_ROW_PITCH, HeartPaint, HungerPaint};
 
 /// The pack's standalone crosshair art, used ahead of the HUD icons sheet.
@@ -27,6 +29,8 @@ pub const CROSSHAIR_TEXTURE: &str = "textures/ui/cross_hair";
 /// The standalone crosshair's side in GUI px.
 pub const CROSSHAIR_SIDE: f32 = 16.0;
 pub const HUNGER_RENDERER: &str = "hunger_renderer";
+/// The built-in Java pack's effect rows; vanilla's `mob_effects_renderer` draws the column.
+const JAVA_MOB_EFFECTS_RENDERER: &str = "java_mob_effects_renderer";
 
 /// One sprite a renderer draws, relative to its control's origin, in GUI px.
 #[derive(Clone, Debug, PartialEq)]
@@ -86,8 +90,10 @@ pub struct HudPaint {
     pub hunger: HungerPaint,
     pub bubbles: Vec<Cell>,
     pub mount_hearts: Vec<Cell>,
-    /// Relative to the effects control's top-right corner.
-    pub effects: Vec<Cell>,
+    /// The vanilla column `mob_effects_renderer` draws.
+    pub effects: MobEffects,
+    /// The Java rows `java_mob_effects_renderer` draws, relative to its control's top-right corner.
+    pub java_effects: Vec<Cell>,
     /// Jump-bar background and fill (with its filled GUI width) over the XP bar.
     pub mount_jump: Option<(SheetSprite, SheetSprite, f32)>,
     pub hotbar_cooldowns: [f32; 9],
@@ -102,11 +108,12 @@ impl HudPaint {
             &self.armor,
             &self.bubbles,
             &self.mount_hearts,
-            &self.effects,
+            &self.java_effects,
         ]
         .into_iter()
         .flatten()
         .flat_map(|cell| cell.preferred.into_iter().chain([cell.texture]))
+        .chain(self.effects.textures())
         .chain(self.hearts.textures())
         .chain(self.hunger.textures())
         .chain(SLOT_ART)
@@ -182,7 +189,11 @@ fn paint(
         }
         "bubbles_renderer" => (&hud.bubbles, top_left),
         "horse_heart_renderer" => (&hud.mount_hearts, top_left),
-        "mob_effects_renderer" => (&hud.effects, [dest[2], dest[1]]),
+        JAVA_MOB_EFFECTS_RENDERER => (&hud.java_effects, [dest[2], dest[1]]),
+        "mob_effects_renderer" => {
+            mob_effects::paint(canvas, &hud.effects, dest, alpha);
+            return true;
+        }
         "hotbar_renderer" => {
             slot_art(canvas, data, dest, alpha);
             return true;
@@ -302,6 +313,28 @@ fn paint_cell(
     let x = origin[0] + cell.at[0] * px;
     let y = origin[1] + cell.at[1] * px;
     let bounds = [x, y, x + cell.size[0] * px, y + cell.size[1] * px];
+    paint_sprite(
+        canvas,
+        cell.preferred,
+        cell.texture,
+        bounds,
+        [cell.tint[0], cell.tint[1], cell.tint[2], cell.alpha],
+        visible,
+        alpha,
+    );
+}
+
+/// Draws `texture` (or `preferred`, when the pack holds it) at logical `bounds` with the
+/// straight `color`, when they intersect the visible region.
+fn paint_sprite(
+    canvas: &mut Canvas<'_>,
+    preferred: Option<&str>,
+    texture: &str,
+    bounds: [f32; 4],
+    color: [u8; 4],
+    visible: [f32; 4],
+    alpha: &dyn Fn([u8; 4]) -> [u8; 4],
+) {
     if bounds[2] <= visible[0]
         || bounds[3] <= visible[1]
         || bounds[0] >= visible[2]
@@ -309,18 +342,10 @@ fn paint_cell(
     {
         return;
     }
-    let color = alpha([cell.tint[0], cell.tint[1], cell.tint[2], cell.alpha]);
-    let visual = cell
-        .preferred
+    let color = alpha(color);
+    let visual = preferred
         .and_then(|path| canvas.sprite(path, json_ui::UvRect::full(), color, Default::default()))
-        .or_else(|| {
-            canvas.sprite(
-                cell.texture,
-                json_ui::UvRect::full(),
-                color,
-                Default::default(),
-            )
-        });
+        .or_else(|| canvas.sprite(texture, json_ui::UvRect::full(), color, Default::default()));
     if let Some(visual) = visual {
         let _ = canvas.push(visual, bounds);
     }

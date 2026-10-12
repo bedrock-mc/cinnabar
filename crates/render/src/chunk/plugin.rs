@@ -6,7 +6,12 @@ use crate::chunk::*;
 use crate::chunk::{
     draw::{queue_chunks, queue_transparent_chunks},
     extract::install_chunk_extraction,
-    pipeline::install_chunk_commands,
+    pipeline::{
+        batches::{
+            RetainedTerrainBatches, prepare_chunk_indirect_batches, track_terrain_batch_changes,
+        },
+        install_chunk_commands,
+    },
 };
 use render_scene::RuntimeStageProfiler;
 use render_scene::{
@@ -84,6 +89,7 @@ impl Plugin for ChunkRenderPlugin {
 
         app.init_resource::<ChunkTextureReload>();
         install_chunk_extraction(app);
+        crate::upload_staging::install_terrain(app);
 
         crate::lighting::install(app);
         load_internal_asset!(
@@ -168,6 +174,7 @@ impl Plugin for ChunkRenderPlugin {
             .init_resource::<ChunkIndirectBatches>()
             .init_resource::<ChunkModelIndirectBatches>()
             .init_resource::<ChunkDepthLiquidIndirectBatches>()
+            .init_resource::<RetainedTerrainBatches>()
             .init_resource::<ActiveFrameProbe>()
             .init_resource::<ActiveVisibilityFrameProbe>()
             .init_resource::<VisibilityCompletionFence>()
@@ -196,6 +203,9 @@ impl Plugin for ChunkRenderPlugin {
                 Render,
                 (
                     publish_graphics_runtime_metadata.in_set(GraphicsMetadataPublication),
+                    track_terrain_batch_changes
+                        .in_set(RenderSystems::Queue)
+                        .before(queue_chunks),
                     queue_chunks
                         .run_if(render_scene::panorama::world_passes_enabled)
                         .in_set(RenderSystems::Queue),

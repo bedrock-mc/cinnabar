@@ -5,6 +5,7 @@ fn layout_fixture_assets() -> RuntimeAssets {
     let mut page = base.texture_array().clone();
     page.layers = 1;
     let visual = |material: u32| BlockVisual {
+        native_material: assets::native_material::NativeMaterialFacts::Unresolved,
         faces: [material; 6],
         flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
         kind: VisualKind::Cube,

@@ -1,6 +1,6 @@
 //! Native ambient sampling, its shared random stream, and leaf/fire admission.
 
-use assets::BlockFlags;
+use assets::native_material::NativeMaterialFacts;
 
 mod fire;
 mod random;
@@ -15,20 +15,11 @@ pub use sampler::{MIN_SAMPLES, SamplePlan, Sampler};
 pub const LEAF_EFFECT: &str = "minecraft:biome_tinted_leaves_particle";
 pub const LEAF_CHANCE_DENOMINATOR: u32 = 100;
 
-/// Vanilla materials air(0) and plant(8) are neither solid nor liquid. TallGrass, Flower,
-/// Mushroom use plant; do not infer this from collision/Cross shape.
+/// Reads the admitted solid/liquid disposition without inspecting block names or geometry.
 #[must_use]
-pub fn material_allows_leaf(flags: BlockFlags, identifier: Option<&str>) -> bool {
-    flags.contains(BlockFlags::AIR)
-        || matches!(
-            identifier,
-            Some(
-                "minecraft:short_grass"
-                    | "minecraft:fern"
-                    | "minecraft:poppy"
-                    | "minecraft:dandelion"
-                    | "minecraft:brown_mushroom"
-                    | "minecraft:red_mushroom"
-            )
-        )
+pub const fn material_allows_leaf(material: NativeMaterialFacts) -> bool {
+    matches!(
+        material,
+        NativeMaterialFacts::NonSolidNonLiquid | NativeMaterialFacts::ProvisionalNonSolidNonLiquid
+    )
 }

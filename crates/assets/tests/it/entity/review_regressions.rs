@@ -543,6 +543,7 @@ fn compiled_item_facts_admit_only_hash_checked_missing_retail_visuals() {
     compiled.item_visuals = carrier_v4_fixture().item_visuals;
     compiled.item_visuals[0].source = source as u32;
     compiled.item_visuals[0].route = item::ItemVisualDefinitionRoute::Missing;
+    let compiled = compiled.with_unresolved_item_use();
     let blob = entity::encode_entity_blob(&compiled).unwrap();
     RuntimeEntityAssets::decode(&blob).unwrap();
 
@@ -560,6 +561,8 @@ fn compiled_item_facts_admit_only_hash_checked_missing_retail_visuals() {
             }
             _ => unreachable!(),
         }
+        // Item-use coverage follows the forged inventory, so only the facts source can reject it.
+        let invalid = invalid.with_unresolved_item_use();
         assert!(
             invalid.validate().is_err(),
             "accepted invalid facts source: {case}"

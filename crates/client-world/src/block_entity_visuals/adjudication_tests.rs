@@ -104,6 +104,7 @@ fn compiled_block_identity(
         BlockFlags::empty()
     };
     let visual = BlockVisual {
+        native_material: assets::native_material::NativeMaterialFacts::Unresolved,
         support: if kind == VisualKind::Diagnostic {
             assets::VisualSupport::Diagnostic
         } else {

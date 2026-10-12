@@ -39,7 +39,7 @@ fn seasonal_shader_uses_bounded_species_cells_and_direct_biome_lookup() {
     assert!(direct < source.find("let lattice_words").unwrap());
     assert!(source.contains(&format!(
         "const SEASONAL_FOLIAGE_COUNT: u32 = {}u;",
-        assets::SEASONAL_FOLIAGE_COUNT
+        assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT
     )));
     for (name, flags) in [
         (
@@ -51,7 +51,7 @@ fn seasonal_shader_uses_bounded_species_cells_and_direct_biome_lookup() {
     ] {
         assert!(source.contains(&format!(
             "const {name}: u32 = {}u;",
-            assets::seasonal_foliage_palette_index(flags, false),
+            assets::seasonal_foliage::seasonal_foliage_palette_index(flags, false),
         )));
     }
     let standalone = shader_source::standalone(&source, &[]);

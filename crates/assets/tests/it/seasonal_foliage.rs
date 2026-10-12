@@ -1,6 +1,6 @@
 use assets::{
-    BIOME_TINT_FLAG_SEASONAL_FOLIAGE, CompiledBiomeAssets, LiveBiomeDefinition,
-    SEASONAL_FOLIAGE_EXPOSED_OFFSET, TINT_MAP_SIZE, TintMapId,
+    BIOME_TINT_FLAG_SEASONAL_FOLIAGE, CompiledBiomeAssets, LiveBiomeDefinition, TINT_MAP_SIZE,
+    TintMapId, seasonal_foliage::SEASONAL_FOLIAGE_EXPOSED_OFFSET,
 };
 
 #[test]
@@ -81,7 +81,11 @@ fn native_snow_eligibility_is_independent_of_palette_snow_fraction() {
         (-0.5, Some(0.0), false),
         (-0.5, None, false),
         (-0.5, Some(f32::NAN), false),
-        (assets::SEASONAL_FOLIAGE_COLD_THRESHOLD, Some(1.0), false),
+        (
+            assets::seasonal_foliage::SEASONAL_FOLIAGE_COLD_THRESHOLD,
+            Some(1.0),
+            false,
+        ),
         (0.8, Some(1.0), false),
     ] {
         let resolved = assets

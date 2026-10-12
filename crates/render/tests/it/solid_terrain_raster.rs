@@ -138,7 +138,10 @@ fn culled_solid_runs_match_the_two_sided_discard_path_from_every_side() {
     let clock = gpu.words(&[0; 4], wgpu::BufferUsages::UNIFORM);
     let streams = gpu.words(&lighting_words(quads.len()), storage);
     let records = gpu.buffer(&[0.0], storage);
-    let tints = gpu.buffer(&[0.0; 8 + assets::SEASONAL_FOLIAGE_COUNT * 4], storage);
+    let tints = gpu.buffer(
+        &[0.0; 8 + assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT * 4],
+        storage,
+    );
     let query_tables = gpu.words(
         &meshing::biome_lattice::query_table_words(),
         wgpu::BufferUsages::UNIFORM,

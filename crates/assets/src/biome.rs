@@ -270,7 +270,7 @@ pub struct LinearBiomeTints {
     pub water: [f32; 4],
     pub dry_foliage: [f32; 4],
     /// Covered evergreen/birch/default, then exposed evergreen/birch/default.
-    pub seasonal_foliage: [[f32; 4]; crate::SEASONAL_FOLIAGE_COUNT],
+    pub seasonal_foliage: [[f32; 4]; crate::seasonal_foliage::SEASONAL_FOLIAGE_COUNT],
 }
 
 /// Climate and environment name admitted with the corresponding tint record.
@@ -485,7 +485,7 @@ impl CompiledBiomeAssets {
         // Vanilla leaves render layer: snow eligibility and palette blend strength are independent. The
         // remaining altitude/regional temperature path is tracked in plan.md.
         let seasonal = max_snow_accumulation.is_some_and(|maximum| maximum > 0.0)
-            && temperature < crate::SEASONAL_FOLIAGE_COLD_THRESHOLD;
+            && temperature < crate::seasonal_foliage::SEASONAL_FOLIAGE_COLD_THRESHOLD;
         let seasonal_foliage = std::array::from_fn(|index| {
             let map = crate::seasonal_foliage::seasonal_palette_map(index);
             let source = TintSource::map(map);
@@ -494,7 +494,7 @@ impl CompiledBiomeAssets {
                 .expect("validated tint maps and finite climate");
             crate::seasonal_foliage::seasonal_palette_colour(
                 rgb,
-                if index >= crate::SEASONAL_FOLIAGE_EXPOSED_OFFSET {
+                if index >= crate::seasonal_foliage::SEASONAL_FOLIAGE_EXPOSED_OFFSET {
                     snow_foliage
                 } else {
                     0.0

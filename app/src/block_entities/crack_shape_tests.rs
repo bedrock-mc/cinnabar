@@ -104,6 +104,7 @@ fn custom_compound_cracks_follow_each_admitted_column_displacement() {
     };
     let overlay = assets::BlockOverlay {
         visuals: vec![assets::BlockVisual {
+            native_material: assets::native_material::NativeMaterialFacts::Unresolved,
             faces: [0; 6],
             flags: assets::BlockFlags::empty(),
             kind: assets::VisualKind::Model,
@@ -184,6 +185,7 @@ fn custom_compound_cracks_follow_each_admitted_column_displacement() {
 fn overlay_surface(height: i16) -> Arc<assets::RuntimeAssets> {
     let overlay = assets::BlockOverlay {
         visuals: vec![assets::BlockVisual {
+            native_material: assets::native_material::NativeMaterialFacts::Unresolved,
             faces: [0; 6],
             flags: assets::BlockFlags::empty(),
             kind: assets::VisualKind::Model,

@@ -66,6 +66,7 @@ pub(super) fn light_test_assets() -> RuntimeAssets {
         ),
     ]
     .map(|(flags, kind, contributor_role)| BlockVisual {
+        native_material: assets::native_material::NativeMaterialFacts::Unresolved,
         support: assets::VisualSupport::Exact,
         faces: [0; 6],
         flags,

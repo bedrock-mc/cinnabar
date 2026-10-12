@@ -9,7 +9,8 @@ impl WorldStream {
         {
             const MAX_SEASONAL_DIAGNOSTICS: usize = 32;
             let eligible = definitions.iter().filter(|row| {
-                row.temperature < assets::SEASONAL_FOLIAGE_COLD_THRESHOLD || row.snow_foliage > 0.0
+                row.temperature < assets::seasonal_foliage::SEASONAL_FOLIAGE_COLD_THRESHOLD
+                    || row.snow_foliage > 0.0
             });
             let count = eligible.clone().count();
             eprintln!(

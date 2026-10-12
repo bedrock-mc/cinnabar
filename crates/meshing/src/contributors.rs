@@ -1,7 +1,7 @@
 use assets::{
     BLOCK_VISUAL_VARIANT_TOP_SNOW, BlockFace, BlockFlags, ContributorRole, DIAGNOSTIC_MATERIAL,
-    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, SeasonalFoliageBlock, VisualKind,
-    seasonal_foliage_cell_shelters,
+    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, VisualKind,
+    seasonal_foliage::SeasonalFoliageBlock, seasonal_foliage::seasonal_foliage_cell_shelters,
 };
 use world::{PalettedStorage, SubChunk};
 

@@ -74,7 +74,7 @@ fn seasonal_scheduled_palette_update_reaches_render_resource_with_same_mesh_iden
     assert_eq!(stream.biome_tint_identity(), table);
     assert_eq!(after.raw_id_to_dense, before.raw_id_to_dense);
     let dense = after.dense_index(7) as usize;
-    let exposed = assets::SEASONAL_FOLIAGE_EXPOSED_OFFSET;
+    let exposed = assets::seasonal_foliage::SEASONAL_FOLIAGE_EXPOSED_OFFSET;
     let colour = after.records[dense].seasonal_foliage[exposed];
     assert_eq!(
         active.entries()[dense].seasonal_foliage[exposed],

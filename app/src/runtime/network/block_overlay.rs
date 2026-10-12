@@ -302,6 +302,7 @@ impl Builder<'_> {
             })
         });
         BlockVisual {
+            native_material: assets::native_material::NativeMaterialFacts::Unresolved,
             faces,
             flags,
             kind: VisualKind::Cube,
@@ -383,6 +384,7 @@ impl Builder<'_> {
         }
         self.overlay.model_quads.extend(quads);
         BlockVisual {
+            native_material: assets::native_material::NativeMaterialFacts::Unresolved,
             faces: [material; 6],
             flags: BlockFlags::empty(),
             kind: VisualKind::Model,

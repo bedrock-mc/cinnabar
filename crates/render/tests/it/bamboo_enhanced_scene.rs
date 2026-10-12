@@ -215,6 +215,7 @@ fn overridden_assets(
         });
         overlay.model_random_offsets.push((index as u32, component));
         overlay.visuals.push(assets::BlockVisual {
+            native_material: assets::native_material::NativeMaterialFacts::Unresolved,
             faces,
             flags: visual.flags(),
             kind: visual.kind(),

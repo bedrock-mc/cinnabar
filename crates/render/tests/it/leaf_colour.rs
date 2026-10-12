@@ -52,7 +52,10 @@ fn cases() -> Vec<Case> {
         }])
         .unwrap();
     let snow_palette = palette.records[palette.dense_index(0) as usize].seasonal_foliage
-        [assets::seasonal_foliage_palette_index(assets::MATERIAL_FLAG_EVERGREEN_FOLIAGE, true)];
+        [assets::seasonal_foliage::seasonal_foliage_palette_index(
+            assets::MATERIAL_FLAG_EVERGREEN_FOLIAGE,
+            true,
+        )];
     let snow = [snow_palette[0], snow_palette[1], snow_palette[2]].map(linear_to_gamma);
     let seasonal = assets::MATERIAL_FLAG_SEASONAL_FOLIAGE | assets::MATERIAL_FLAG_FOLIAGE_TINT;
     let mut cases = Vec::new();

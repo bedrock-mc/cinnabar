@@ -60,6 +60,11 @@ impl ResolvedBlock {
     pub const fn is_known(self) -> bool {
         self.known
     }
+    /// Returns the admitted material disposition, including unresolved support.
+    #[must_use]
+    pub const fn native_material(self) -> crate::native_material::NativeMaterialFacts {
+        self.visual.native_material
+    }
     /// Returns admitted destroy facts without resolving names or source text.
     pub const fn destroy(self) -> crate::compiled::block_destroy::BlockDestroyFacts {
         self.visual.destroy
@@ -114,6 +119,7 @@ impl ResolvedBlock {
 
 const fn diagnostic_visual() -> BlockVisual {
     BlockVisual {
+        native_material: crate::native_material::NativeMaterialFacts::Unresolved,
         faces: [DIAGNOSTIC_MATERIAL; 6],
         flags: BlockFlags::empty(),
         kind: VisualKind::Diagnostic,

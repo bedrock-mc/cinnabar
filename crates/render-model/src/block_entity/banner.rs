@@ -44,58 +44,7 @@ pub struct BannerModel {
     pub layers: Vec<BannerLayer>,
 }
 
-/// Maximum pattern layers drawn per banner, as in vanilla's crafting limit plus slack.
-pub const MAX_BANNER_LAYERS: usize = 16;
-
-/// The pattern texture stem for a Bedrock banner pattern id.
-#[must_use]
-pub fn pattern_texture(id: &str) -> Option<&'static str> {
-    Some(match id {
-        "bo" => "border",
-        "bri" => "bricks",
-        "mc" => "circle",
-        "cre" => "creeper",
-        "cr" => "cross",
-        "cbo" => "curly_border",
-        "lud" => "diagonal_left",
-        "rd" => "diagonal_right",
-        "ld" => "diagonal_up_left",
-        "rud" => "diagonal_up_right",
-        "flo" => "flower",
-        "gra" => "gradient",
-        "gru" => "gradient_up",
-        "hh" => "half_horizontal",
-        "hhb" => "half_horizontal_bottom",
-        "vh" => "half_vertical",
-        "vhr" => "half_vertical_right",
-        "moj" => "mojang",
-        "mr" => "rhombus",
-        "sku" => "skull",
-        "ss" => "small_stripes",
-        "bl" => "square_bottom_left",
-        "br" => "square_bottom_right",
-        "tl" => "square_top_left",
-        "tr" => "square_top_right",
-        "sc" => "straight_cross",
-        "bs" => "stripe_bottom",
-        "cs" => "stripe_center",
-        "dls" => "stripe_downleft",
-        "drs" => "stripe_downright",
-        "ls" => "stripe_left",
-        "ms" => "stripe_middle",
-        "rs" => "stripe_right",
-        "ts" => "stripe_top",
-        "bt" => "triangle_bottom",
-        "tt" => "triangle_top",
-        "bts" => "triangles_bottom",
-        "tts" => "triangles_top",
-        "glb" => "globe",
-        "pig" => "piglin",
-        "flw" => "flow",
-        "gus" => "guster",
-        _ => return None,
-    })
-}
+use assets::banner::MAX_BANNER_LAYERS;
 
 pub(super) fn emit(
     builder: &mut MeshBuilder,
@@ -188,6 +137,7 @@ fn sway_degrees(block: [i32; 3], clock: SceneClock) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assets::banner::pattern_texture;
 
     #[test]
     fn pattern_ids_resolve_and_unknown_ids_do_not() {

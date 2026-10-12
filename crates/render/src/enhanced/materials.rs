@@ -114,6 +114,7 @@ mod tests {
     /// Builds a cube visual for the shared-material regression.
     fn cube(faces: [u32; 6]) -> assets::BlockVisual {
         assets::BlockVisual {
+            native_material: assets::native_material::NativeMaterialFacts::Unresolved,
             faces,
             flags: assets::BlockFlags::CUBE_GEOMETRY | assets::BlockFlags::OCCLUDES_FULL_FACE,
             kind: VisualKind::Cube,
@@ -130,6 +131,7 @@ mod tests {
     #[test]
     fn shared_materials_glow_only_when_every_user_emits() {
         let air = assets::BlockVisual {
+            native_material: assets::native_material::NativeMaterialFacts::Unresolved,
             faces: [0; 6],
             flags: assets::BlockFlags::AIR,
             kind: VisualKind::Invisible,

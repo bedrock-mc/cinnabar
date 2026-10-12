@@ -14,9 +14,13 @@ pub(super) fn parse(path: &Path, bytes: &[u8]) -> Result<Font, FontCompileError>
             }
         })
     };
+    // The source parses before its tables are walked, so malformed artwork reports as a font error.
+    let mut font = parse(bytes)?;
     let unicode = unicode_source(bytes)?;
+    if let Some(unicode) = &unicode {
+        font = parse(unicode)?;
+    }
     let bytes = unicode.as_deref().unwrap_or(bytes);
-    let font = parse(bytes)?;
     let Some((record, cmap)) = cmap_table(bytes)? else {
         return Ok(font);
     };

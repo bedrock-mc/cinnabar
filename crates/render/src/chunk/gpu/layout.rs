@@ -1,4 +1,5 @@
 use crate::chunk::*;
+use crate::upload_staging::{BufferWrite, TerrainUploadStaging};
 use render_scene::ChunkUploadBudget;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -349,12 +350,52 @@ pub(in crate::chunk) fn begin_arena_migration(
     super::telemetry::log_arena_capacity(arena, "migration started");
 }
 
+/// Render device, queue and retained terrain staging, the path every arena write takes.
+#[derive(SystemParam)]
+pub(in crate::chunk) struct TerrainUploadQueue<'w> {
+    pub(in crate::chunk) device: Res<'w, RenderDevice>,
+    pub(in crate::chunk) queue: Res<'w, RenderQueue>,
+    staging: Option<Res<'w, TerrainUploadStaging>>,
+}
+
+impl TerrainUploadQueue<'_> {
+    pub(in crate::chunk) fn uploads(&self) -> TerrainUploads<'_> {
+        TerrainUploads {
+            device: &self.device,
+            queue: &self.queue,
+            staging: self.staging.as_deref(),
+        }
+    }
+}
+
+/// Without staging, as in an isolated arena build, writes take the queue path directly.
+#[derive(Clone, Copy)]
+pub(in crate::chunk) struct TerrainUploads<'a> {
+    pub(in crate::chunk) device: &'a RenderDevice,
+    pub(in crate::chunk) queue: &'a RenderQueue,
+    pub(in crate::chunk) staging: Option<&'a TerrainUploadStaging>,
+}
+
+impl TerrainUploads<'_> {
+    /// Stages what fits and passes the unstaged rest to `fallback`, after older overlapping
+    /// staged copies submit; without staging every write takes `fallback`.
+    pub(in crate::chunk) fn write(
+        self,
+        writes: &[BufferWrite<'_>],
+        fallback: impl FnOnce(&[BufferWrite<'_>]),
+    ) {
+        match self.staging {
+            Some(staging) => staging.write_batch_or(self.device, self.queue, writes, fallback),
+            None => fallback(writes),
+        }
+    }
+}
+
 /// Copies at most `allowance` bytes of the active migration and swaps the
 /// buffers once complete; returns the bytes copied.
 pub(in crate::chunk) fn advance_arena_migration(
     arena: &mut ChunkGpuArena,
-    render_device: &RenderDevice,
-    render_queue: &RenderQueue,
+    uploads: TerrainUploads<'_>,
     allowance: u64,
 ) -> u64 {
     let Some(mut migration) = arena.migration.take() else {
@@ -372,9 +413,15 @@ pub(in crate::chunk) fn advance_arena_migration(
             offset = migration.copied_bytes,
         )
         .entered();
-        let mut encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("migrate packed chunk arena"),
-        });
+        let mut encoder = uploads
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("migrate packed chunk arena"),
+            });
+        // Staged writes precede the slice, as queued writes would, so it carries their bytes.
+        if let Some(staging) = uploads.staging {
+            staging.encode_pending(&mut encoder);
+        }
         encoder.copy_buffer_to_buffer(
             buffer,
             migration.copied_bytes,
@@ -386,7 +433,7 @@ pub(in crate::chunk) fn advance_arena_migration(
         {
             #[cfg(feature = "tracy")]
             let _span = bevy::log::info_span!("terrain.migration_submit", bytes = slice).entered();
-            render_queue.submit([command]);
+            uploads.queue.submit([command]);
         }
         migration.copied_bytes += slice;
     }
@@ -403,21 +450,26 @@ pub(in crate::chunk) fn advance_arena_migration(
 /// Writes geometry-stream words, mirrored into an in-flight migration target.
 pub(in crate::chunk) fn write_geometry_stream_words(
     arena: &ChunkGpuArena,
-    render_queue: &RenderQueue,
+    uploads: TerrainUploads<'_>,
     offset_bytes: u64,
     bytes: &[u8],
 ) {
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!("terrain.geometry_write", offset_bytes, bytes = bytes.len())
         .entered();
-    render_queue.write_buffer(&arena.geometry_stream_buffer, offset_bytes, bytes);
-    if let Some(migration) = arena
+    let current = (&*arena.geometry_stream_buffer, offset_bytes, bytes);
+    let mirror = arena
         .migration
         .as_ref()
         .filter(|migration| migration.stream == ArenaStream::GeometryStreams)
-    {
-        render_queue.write_buffer(&migration.buffer, offset_bytes, bytes);
-    }
+        .map(|migration| (&*migration.buffer, offset_bytes, bytes));
+    let writes = [current, mirror.unwrap_or(current)];
+    let writes = &writes[..1 + usize::from(mirror.is_some())];
+    uploads.write(writes, |rest| {
+        for &(buffer, offset, bytes) in rest {
+            uploads.queue.write_buffer(buffer, offset, bytes);
+        }
+    });
 }
 
 pub(in crate::chunk) fn account_chunk_gpu_uploads(

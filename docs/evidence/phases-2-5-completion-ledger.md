@@ -292,6 +292,14 @@ the vendored client session crate is removed. Startup ordering, terminal transfe
 disconnects, and the one-shot initialization keep their regression coverage through a scripted
 core; those tests have not been executed locally. No existing completion entry is advanced.
 
+## Active block-entity artwork
+
+The resource-pack transaction now builds the block-entity atlas on its worker and publishes it with the accepted pack result on join and reload. Missing or invalid overrides retain the validated startup tile. Texture and UV publication advance together. No existing completion entry is advanced by this change; the remaining gates are recorded in `plan.md`.
+
+## Loom banner previews
+
+JSON-UI banner controls draw ordered front-cloth layers from the active artwork. Loom pattern choices and results publish bounded pattern and dye bindings, including existing banner layers. No existing completion entry is advanced by this change; the remaining gates are recorded in `plan.md`.
+
 ## Protocol codec swap
 
 `protocol` uses protocolgen's vendored contract crate as its only codec; Valentine and its

@@ -84,12 +84,12 @@ pub fn obstructs_placement(actor: &ActorSnapshot) -> bool {
         || actor.interaction_traits.obstructs_placement() == Some(true)
 }
 
-/// Only actors with selectable collision boxes can consume the crosshair.
-/// Whether native attack picking admits this actor class and metadata.
+/// Whether attack picking admits this actor; only a resolved non-pickable class is excluded,
+/// so unresolved custom identities keep their collision box or server hitboxes.
 pub fn actor_is_pickable(actor: &ActorSnapshot) -> bool {
     match &actor.kind {
         protocol::ActorKind::Player { .. } => true,
-        protocol::ActorKind::Entity { .. } => actor.interaction_traits.pickable() == Some(true),
+        protocol::ActorKind::Entity { .. } => actor.interaction_traits.pickable() != Some(false),
     }
 }
 

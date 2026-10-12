@@ -20,6 +20,7 @@ fn draw_lists_keep_separate_centroids_and_use_the_camera_when_empty() {
                     ..Default::default()
                 },
             ],
+            cave_hidden: 3,
             add: vec![ParticleInstance {
                 center_light: [1.0, 3.0, -5.0, 0.0],
                 ..Default::default()
@@ -34,8 +35,10 @@ fn draw_lists_keep_separate_centroids_and_use_the_camera_when_empty() {
         (1, 2, 1)
     );
     assert_eq!(frame.instance_count(), 4);
+    assert_eq!(frame.cave_hidden, 3);
     frame.set_lists(DrawLists::default(), camera);
     assert_eq!(frame.blend_centroid, camera);
     assert_eq!(frame.add_centroid, camera);
     assert_eq!(frame.instance_count(), 0);
+    assert_eq!(frame.cave_hidden, 0);
 }

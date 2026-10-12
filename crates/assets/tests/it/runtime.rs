@@ -68,6 +68,7 @@ fn compiled_assets() -> CompiledAssets {
     CompiledAssets {
         visuals: vec![
             BlockVisual {
+                native_material: assets::native_material::NativeMaterialFacts::Unresolved,
                 faces: [DIAGNOSTIC_MATERIAL; 6],
                 flags: BlockFlags::empty(),
                 kind: VisualKind::Diagnostic,
@@ -79,6 +80,7 @@ fn compiled_assets() -> CompiledAssets {
                 destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
             },
             BlockVisual {
+                native_material: assets::native_material::NativeMaterialFacts::Unresolved,
                 faces: [1, 1, 1, 1, 1, 1],
                 flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
                 kind: VisualKind::Cube,
@@ -160,6 +162,7 @@ fn runtime_light_properties_follow_visual_index_in_sequential_and_hash_modes() {
 
 fn synthetic_air_visual() -> BlockVisual {
     BlockVisual {
+        native_material: assets::native_material::NativeMaterialFacts::Unresolved,
         faces: [DIAGNOSTIC_MATERIAL; 6],
         flags: BlockFlags::AIR,
         kind: VisualKind::Invisible,

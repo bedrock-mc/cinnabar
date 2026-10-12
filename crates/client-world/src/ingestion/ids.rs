@@ -238,6 +238,7 @@ mod tests {
         let base = RuntimeAssets::diagnostic();
         let overlay = BlockOverlay {
             visuals: vec![BlockVisual {
+                native_material: assets::native_material::NativeMaterialFacts::Unresolved,
                 faces: [0; 6],
                 flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
                 kind: VisualKind::Cube,

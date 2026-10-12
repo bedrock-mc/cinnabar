@@ -222,6 +222,7 @@ fn custom_block_sheet_material_flags_survive_session_icon_compilation() {
     ] {
         let overlay = BlockOverlay {
             visuals: vec![BlockVisual {
+                native_material: assets::native_material::NativeMaterialFacts::Unresolved,
                 faces: [1; 6],
                 flags: BlockFlags::CUBE_GEOMETRY,
                 kind: VisualKind::Cube,

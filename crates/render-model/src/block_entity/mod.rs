@@ -4,6 +4,7 @@
 //! sign text share the same vertex path. Geometry the pinned pack does not define is
 //! marked provisional in its module and needs native measurement.
 
+mod artwork;
 mod atlas;
 mod banner;
 mod beam;
@@ -31,8 +32,9 @@ mod skull;
 mod spawner;
 mod statue;
 
-pub use atlas::{AtlasRect, BlockEntityAtlas, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef};
-pub use banner::{BannerLayer, BannerModel, BannerMount, MAX_BANNER_LAYERS, pattern_texture};
+pub use artwork::{BlockEntityArtworkPreparer, PreparedBlockEntityArtwork};
+pub use atlas::{AtlasRect, BlockEntityAtlas, MAP_CELL, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef};
+pub use banner::{BannerLayer, BannerModel, BannerMount};
 pub use beam::BeaconModel;
 pub use bed::{BedModel, bed_color};
 pub use bell::{BellAttachment, BellModel, swing_degrees};
@@ -54,8 +56,8 @@ pub use mesh::{
 pub use mob::SPAWNER_MOBS;
 pub use pot::{DecoratedPotModel, sherd_pattern};
 pub use scene::{
-    BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind, BlockEntityLight, BlockEntityScene,
-    BlockEntitySubmission, CrackInstance, SceneClock,
+    BLOCK_ENTITY_REACH_BLOCKS, BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind,
+    BlockEntityLight, BlockEntityScene, BlockEntitySubmission, CrackInstance, SceneClock,
 };
 pub use selection::{BLOCK_SELECTION_VERTICES_PER_EDGE, BlockSelectionFrame, BlockSelectionTarget};
 pub use shulker::ShulkerModel;

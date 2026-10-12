@@ -15,7 +15,7 @@ const TEXTURE_SIDE: u32 = 4;
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct TintRow {
     packed: [u32; 8],
-    seasonal: [[f32; 4]; assets::SEASONAL_FOLIAGE_COUNT],
+    seasonal: [[f32; 4]; assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT],
 }
 
 /// Covers uniform fast paths, the full lattice and direct seasonal-biome lookup.

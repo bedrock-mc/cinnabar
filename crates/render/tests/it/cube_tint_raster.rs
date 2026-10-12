@@ -66,7 +66,7 @@ fn tint_words() -> Vec<u32> {
             flags,
             1.0_f32.to_bits(),
         ]);
-        for cell in 0..assets::SEASONAL_FOLIAGE_COUNT {
+        for cell in 0..assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT {
             words.extend(
                 [
                     0.12 + cell as f32 * 0.23,

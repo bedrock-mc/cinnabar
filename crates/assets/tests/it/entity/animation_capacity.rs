@@ -95,6 +95,7 @@ fn geometry_specialized_animation_instances_round_trip() {
     compiled.item_visuals = Box::new([]);
     compiled.item_visual_aliases = Box::new([]);
     compiled.render = Default::default();
+    let compiled = compiled.with_unresolved_item_use();
 
     let runtime = entity::RuntimeEntityAssets::from_compiled(compiled.clone())
         .expect("geometry-specific animation instances fit the retained carrier budget");

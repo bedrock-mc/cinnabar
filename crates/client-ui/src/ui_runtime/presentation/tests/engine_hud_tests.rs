@@ -14,6 +14,7 @@ use crate::ui_runtime::presentation::{HudFrame, hud_layout};
 mod absorption;
 mod boss_removal_tests;
 mod crosshair_options;
+mod effects;
 mod experience_spacing;
 mod geometry;
 mod pack_snapshots;
@@ -351,7 +352,8 @@ fn game_mode_matrix_gates_each_surface_exactly() {
             stats,
             "{mode:?}"
         );
-        assert_eq!(customs(nodes, "mob_effects_renderer").len(), 1, "{mode:?}");
+        let effects = customs(nodes, "java_mob_effects_renderer");
+        assert_eq!(effects.len(), 1, "{mode:?}");
         let paint = hud_layout::capture_hud_paint(
             &player_runtime,
             &runtime,
@@ -359,8 +361,7 @@ fn game_mode_matrix_gates_each_surface_exactly() {
             None,
             &Default::default(),
         );
-        // Background plus icon for the one effect.
-        assert_eq!(paint.effects.len(), 2, "{mode:?}");
+        assert_eq!(paint.effects.icons.len(), 1, "{mode:?}");
         assert_eq!(paint.hearts.len(), if stats { 20 } else { 0 }, "{mode:?}");
     }
 }

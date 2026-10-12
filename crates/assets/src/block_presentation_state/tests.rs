@@ -121,7 +121,7 @@ fn admitted_portal_axis_lookup_allocates_nothing() {
         .iter()
         .find(|record| record.name.as_ref() == crate::NETHER_PORTAL_IDENTIFIER)
         .unwrap();
-    let states = crate::pinned_block_presentation_states();
+    let states = crate::block_presentation_state::pinned_block_presentation_states();
     let (old, old_allocations) = test_alloc::count(|| {
         serde_json::from_str::<serde_json::Value>(&record.canonical_state).unwrap()
     });

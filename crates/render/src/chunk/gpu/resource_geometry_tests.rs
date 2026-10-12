@@ -355,6 +355,7 @@ fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
     let mut arena = ChunkGpuArena::new(&device);
     arena.geometry_stream_buffer = create_storage_buffer(&device, "test model stream", 1024);
     app.insert_resource(arena)
+        .insert_resource(device.clone())
         .insert_resource(RenderQueue::new(queue))
         .init_resource::<ChunkTextureAssets>()
         .init_resource::<TransparentSortRuntime>()

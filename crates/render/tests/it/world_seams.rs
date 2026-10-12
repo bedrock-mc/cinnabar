@@ -269,7 +269,10 @@ impl Fixture {
             materials: gpu.words(&[0, 0, assets::NO_ANIMATION, 0, 0, 0], storage),
             zeros: gpu.words(&UNUSED, storage),
             clock: gpu.words(&[0; 4], uniform),
-            tints: gpu.buffer(&[0.0; 8 + assets::SEASONAL_FOLIAGE_COUNT * 4], storage),
+            tints: gpu.buffer(
+                &[0.0; 8 + assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT * 4],
+                storage,
+            ),
             query_tables: gpu.words(
                 &meshing::biome_lattice::query_table_words(),
                 wgpu::BufferUsages::UNIFORM,

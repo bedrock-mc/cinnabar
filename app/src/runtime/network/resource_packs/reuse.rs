@@ -26,7 +26,7 @@ pub(in crate::runtime::network) struct CompileEnvironment {
     max_layers: u32,
     /// Material keys, terrain aliases, item routes and actor artwork: each is installed once at
     /// startup and never changes afterwards.
-    carrier_tables: [bool; 4],
+    carrier_tables: [bool; 5],
     /// Entity compiles resolve against these vanilla definitions and rasters.
     vanilla_refs: Option<Arc<assets::VanillaEntityRefs>>,
     vanilla_pack_dir: Option<PathBuf>,
@@ -41,6 +41,7 @@ impl CompileEnvironment {
             max_layers: super::overlay_texture_layer_limit(),
             carrier_tables: [
                 super::BASE_MATERIAL_KEYS.get().is_some(),
+                crate::runtime::network::block_entity_art::base().is_some(),
                 pack_runtime::pack_textures::base_terrain_catalog_installed(),
                 item_icons::vanilla_item_paths_installed(),
                 entity_texture_reload::base_actor_artwork_installed(),

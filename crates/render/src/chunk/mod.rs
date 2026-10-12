@@ -149,9 +149,10 @@ use gpu::bind_groups::{
 use gpu::layout::{
     ARENA_MIGRATION_FRAME_BYTES, ArenaGrowthError, ArenaGrowthPlan, ArenaMigration,
     ArenaRequiredLengths, ArenaStream, GeometryStreamCounts, GeometryStreamLayout,
-    GpuUploadReservation, SHARED_GEOMETRY_ALIGNMENT_WORDS, account_chunk_gpu_uploads,
-    advance_arena_migration, arena_capacities, begin_arena_migration, buffer_byte_len,
-    checked_align_up, first_arena_growth, plan_arena_growth, write_geometry_stream_words,
+    GpuUploadReservation, SHARED_GEOMETRY_ALIGNMENT_WORDS, TerrainUploadQueue, TerrainUploads,
+    account_chunk_gpu_uploads, advance_arena_migration, arena_capacities, begin_arena_migration,
+    buffer_byte_len, checked_align_up, first_arena_growth, plan_arena_growth,
+    write_geometry_stream_words,
 };
 #[allow(unused_imports)]
 use gpu::types::{
@@ -186,10 +187,10 @@ use pipeline::commands::{
     DrawTransparentLiquidDirectCommands, DrawTransparentLiquidIndirect,
     DrawTransparentLiquidIndirectCommands, DrawTransparentModelCommands, OpaqueChunkViewQuery,
     drawable_allocation_identity, front_to_back_cube_entities, indirect_batch_draw_args,
-    prepare_chunk_indirect_batches, prepare_depth_liquid_indirect_batch_draws,
-    prepare_indirect_batch_draws, prepare_model_indirect_batch_draws,
-    record_visibility_direct_submission, record_visibility_mdi_submissions,
-    sorted_visible_entities, upload_indirect_commands_if_changed,
+    prepare_depth_liquid_indirect_batch_draws, prepare_indirect_batch_draws,
+    prepare_model_indirect_batch_draws, record_visibility_direct_submission,
+    record_visibility_mdi_submissions, sorted_visible_entities,
+    upload_indirect_commands_if_changed,
 };
 #[allow(unused_imports)]
 use pipeline::layouts::{ChunkPipeline, ChunkPipelineKey, ChunkPipelineSpecializer};

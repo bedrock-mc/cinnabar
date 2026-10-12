@@ -54,7 +54,8 @@ pub use audio_pcm::{
 };
 pub use biome::compile_biome_assets;
 pub use block_entity::{
-    BlockEntityCompileReport, CompiledBlockEntityCarrier, compile_block_entity_assets,
+    BlockEntityCompileReport, BlockEntityTexture, CompiledBlockEntityCarrier,
+    compile_block_entity_assets, overlay_block_entity_assets,
 };
 pub use compiler::{
     compile_pack, compile_pack_with_biomes, compile_pack_with_material_keys,

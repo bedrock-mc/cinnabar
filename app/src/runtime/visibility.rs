@@ -93,17 +93,37 @@ impl CaveVisibilityCache {
         low: [f32; 3],
         high: [f32; 3],
     ) -> bool {
-        if !self.initialized
-            || self.camera != Some(camera)
-            || self.graph_generation != Some(generation)
-            || low.iter().chain(&high).any(|value| !value.is_finite())
-        {
+        if low.iter().chain(&high).any(|value| !value.is_finite()) {
             return false;
         }
         let section = |value: f32| (value.floor() as i32).div_euclid(16);
-        for x in section(low[0])..=section(high[0]) {
-            for y in section(low[1])..=section(high[1]) {
-                for z in section(low[2])..=section(high[2]) {
+        self.hides_sections(
+            camera,
+            generation,
+            known,
+            low.map(section),
+            high.map(section),
+        )
+    }
+
+    /// [`Self::hides_box`] over the sub-chunk coordinates `low..=high` on each axis.
+    pub(crate) fn hides_sections(
+        &self,
+        camera: SubChunkKey,
+        generation: u64,
+        known: impl Fn(SubChunkKey) -> bool,
+        low: [i32; 3],
+        high: [i32; 3],
+    ) -> bool {
+        if !self.initialized
+            || self.camera != Some(camera)
+            || self.graph_generation != Some(generation)
+        {
+            return false;
+        }
+        for x in low[0]..=high[0] {
+            for y in low[1]..=high[1] {
+                for z in low[2]..=high[2] {
                     let key = SubChunkKey::new(camera.dimension, x, y, z);
                     if !known(key) || self.visible.contains(&key) {
                         return false;

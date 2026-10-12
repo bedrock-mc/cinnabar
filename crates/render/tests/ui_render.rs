@@ -42,6 +42,7 @@ mod shader_safety;
 )]
 pub mod ui_render;
 #[path = "../src/upload_staging.rs"]
+#[allow(dead_code, reason = "the UI fixture installs only the frame pool")]
 mod upload_staging;
 
 // This standalone UI fixture installs no camera-effect scene. Production's

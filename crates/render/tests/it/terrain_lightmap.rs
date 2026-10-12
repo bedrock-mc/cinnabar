@@ -74,7 +74,7 @@ fn terrain_fragments_sample_interpolated_levels_not_interpolated_light_rgb() {
     let view = gpu.buffer(&[0.0; 104], wgpu::BufferUsages::UNIFORM);
     let records = gpu.buffer(&[0.0], wgpu::BufferUsages::STORAGE);
     let tints = gpu.buffer(
-        &[0.0; 8 + assets::SEASONAL_FOLIAGE_COUNT * 4],
+        &[0.0; 8 + assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT * 4],
         wgpu::BufferUsages::STORAGE,
     );
     let query_tables = gpu.words(

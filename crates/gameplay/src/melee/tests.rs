@@ -140,6 +140,11 @@ fn nearest_pickable_actor_wins_and_reports_the_inflated_entry_point() {
 
 /// A zombie whose only hitbox is a 1×1×1 cube centred 3 blocks above its feet.
 fn zombie_with_raised_hitbox(feet: [f32; 3]) -> ActorSnapshot {
+    actor_with_raised_hitbox("minecraft:zombie", Some(""), feet)
+}
+
+/// An actor, after an optional advertised base, whose only hitbox is a raised unit cube.
+fn actor_with_raised_hitbox(identifier: &str, base: Option<&str>, feet: [f32; 3]) -> ActorSnapshot {
     let mut entry = world::NbtCompound::default();
     for (name, value) in [
         ("MinX", -0.5),
@@ -160,9 +165,10 @@ fn zombie_with_raised_hitbox(feet: [f32; 3]) -> ActorSnapshot {
         world::NbtValue::List(vec![world::NbtValue::Compound(entry)]),
     );
     let bytes = root.encode_root().unwrap();
-    actor_with(
+    actor_with_base(
         5,
-        "minecraft:zombie",
+        identifier,
+        base,
         feet,
         HashMap::from([(
             client_world::HITBOX_METADATA_KEY,
@@ -187,9 +193,28 @@ fn custom_hitbox_replaces_the_collision_box_for_picks() {
     assert!((hit.distance - 1.4).abs() < 1e-6, "{}", hit.distance);
 }
 
+/// Unresolved custom identities keep their server hitboxes pickable.
+#[test]
+fn unresolved_custom_actor_is_picked_through_its_server_hitbox() {
+    for base in [None, Some("example:unadmitted_base")] {
+        let npc = actor_with_raised_hitbox("example:hub_npc", base, [0.0, 0.0, -2.0]);
+        let hit = pick_actor([&npc].into_iter(), None, [0.0, 3.0, 0.0], NORTH, 3.0)
+            .unwrap_or_else(|| panic!("base {base:?}: the ray enters the server hitbox"));
+        assert_eq!(hit.runtime_id, 5);
+        assert!((hit.distance - 1.4).abs() < 1e-6, "{}", hit.distance);
+    }
+}
+
 #[test]
 fn custom_npc_without_size_metadata_sends_attack_for_picked_world_point() {
-    let npc = actor(70, "example:game_selection_npc", [10.0, 20.0, 28.0], None);
+    // Spawned without an identifier advertisement, so its interaction class stays unresolved.
+    let npc = actor_with_base(
+        70,
+        "example:game_selection_npc",
+        None,
+        [10.0, 20.0, 28.0],
+        HashMap::new(),
+    );
     let origin = [10.0, 21.0, 30.0];
     let hit = pick_actor([npc].iter(), None, origin, NORTH, 3.0)
         .expect("a custom NPC retains its default collision box before size metadata arrives");

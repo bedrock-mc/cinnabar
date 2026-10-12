@@ -915,6 +915,7 @@ fn arrow_target_yaw_uses_interpolated_absolute_rotation_not_the_latest_packet() 
     };
     actor.yaw = 135.0;
     let mut input = ActorTickInput {
+        placement_frame: assets::placement::builtin_placement_frame("minecraft:arrow"),
         yaw: 135.0,
         body_yaw: 25.0,
         head_yaw: -40.0,

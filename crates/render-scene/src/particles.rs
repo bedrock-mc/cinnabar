@@ -22,6 +22,8 @@ pub struct ParticleGpuFrame {
     pub add: Arc<[ParticleInstance]>,
     pub blend_centroid: [f32; 3],
     pub add_centroid: [f32; 3],
+    /// Drawable particles hidden by the current cave graph this frame.
+    pub cave_hidden: usize,
 }
 
 impl ParticleGpuFrame {
@@ -32,6 +34,7 @@ impl ParticleGpuFrame {
 
     /// Replaces draw lists and computes their sorting centers, using the camera for empty lists.
     fn set_lists(&mut self, lists: DrawLists, camera: [f32; 3]) {
+        self.cave_hidden = lists.cave_hidden;
         self.blend_centroid = draw_centroid(&lists.blend, camera);
         self.add_centroid = draw_centroid(&lists.add, camera);
         self.blend = lists.blend.into();
@@ -75,17 +78,33 @@ pub fn particle_view(transform: &GlobalTransform, projection: &Projection) -> Pa
     }
 }
 
-/// Ticks the simulation and refreshes the extracted draw data; call once per frame.
+/// Ticks the simulation and refreshes draw data, using the caller's conservative
+/// world-box visibility test only for instance building; call once per frame.
 pub fn update_particle_frame(
     system: &mut ParticleSystem,
     frame: &mut ParticleGpuFrame,
     dt: f32,
     view: &ParticleView,
     world: &dyn ParticleWorld,
+    hides_box: impl FnMut([f32; 3], [f32; 3]) -> bool,
 ) {
     system.set_camera(view.position);
     system.tick(dt, world);
-    let lists = system.build_draw(view, world);
+    let lists = {
+        let span = bevy::log::info_span!(
+            "particle.instance_build",
+            cave_hidden = bevy::log::tracing::field::Empty,
+            submitted = bevy::log::tracing::field::Empty,
+        );
+        let _zone = span.enter();
+        let lists = system.build_draw_with_visibility(view, world, hides_box);
+        span.record("cave_hidden", lists.cave_hidden);
+        span.record(
+            "submitted",
+            lists.opaque.len() + lists.blend.len() + lists.add.len(),
+        );
+        lists
+    };
     frame.set_lists(lists, view.position);
     let base = system.atlas_base();
     if frame

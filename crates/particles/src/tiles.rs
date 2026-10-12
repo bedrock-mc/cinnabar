@@ -6,7 +6,7 @@ use assets::{
     BlockFace, LinearBiomeTints, MATERIAL_FLAG_BIRCH_FOLIAGE, MATERIAL_FLAG_DRY_FOLIAGE,
     MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT,
     MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_WATER_TINT, NetworkIdMode,
-    RuntimeAssets, RuntimeIconCatalog, seasonal_foliage_palette_index,
+    RuntimeAssets, RuntimeIconCatalog, seasonal_foliage::seasonal_foliage_palette_index,
 };
 
 use crate::emitter::TileRequest;

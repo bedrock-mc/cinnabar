@@ -298,7 +298,8 @@ fn validate_fixed(
         }
         let contributor_role = ContributorRole::read(record[26])?;
         let support = VisualSupport::from_raw(record[28])?;
-        if record[29..32] != [0; 3] {
+        crate::native_material::NativeMaterialFacts::from_raw(record[29])?;
+        if record[30..32] != [0; 2] {
             return Err(invalid("visual reserved bytes are non-zero"));
         }
         if !visual_semantics_are_valid(kind, support, flags, contributor_role) {
@@ -734,6 +735,7 @@ fn decode_visuals(bytes: &[u8]) -> Result<Box<[BlockVisual]>, AssetError> {
                 *v = u32_at(r, i * 4);
             }
             Ok(BlockVisual {
+                native_material: crate::native_material::NativeMaterialFacts::from_raw(r[29])?,
                 faces,
                 flags: BlockFlags::from_bits(r[24]).expect("validated"),
                 kind: VisualKind::from_raw(r[25])?,

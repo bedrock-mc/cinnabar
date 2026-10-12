@@ -36,7 +36,7 @@ impl AmbientParticles {
         // Native consumes the portal ambient sound roll before selecting its
         // particle effect. Keep the random stream aligned with later samples.
         let _sound_roll = self.random.bounded(10);
-        let axis = assets::pinned_block_presentation_states()
+        let axis = assets::block_presentation_state::pinned_block_presentation_states()
             .get(mode, runtime_id)
             .portal_axis
             .unwrap_or_default();
@@ -50,10 +50,11 @@ impl AmbientParticles {
 }
 
 /// Selects the effect for a predecoded axis, retaining the unknown-axis route.
-fn effect_for_axis(axis: assets::PortalAxis) -> &'static str {
+fn effect_for_axis(axis: assets::block_presentation_state::PortalAxis) -> &'static str {
     match axis {
-        assets::PortalAxis::X => NORTH_SOUTH,
-        assets::PortalAxis::Z | assets::PortalAxis::Unknown => EAST_WEST,
+        assets::block_presentation_state::PortalAxis::X => NORTH_SOUTH,
+        assets::block_presentation_state::PortalAxis::Z
+        | assets::block_presentation_state::PortalAxis::Unknown => EAST_WEST,
     }
 }
 
@@ -73,9 +74,18 @@ mod tests {
 
     #[test]
     fn portal_axis_routes_keep_the_cross_plane_effect_names() {
-        assert_eq!(effect_for_axis(assets::PortalAxis::X), NORTH_SOUTH);
-        assert_eq!(effect_for_axis(assets::PortalAxis::Z), EAST_WEST);
-        assert_eq!(effect_for_axis(assets::PortalAxis::Unknown), EAST_WEST);
+        assert_eq!(
+            effect_for_axis(assets::block_presentation_state::PortalAxis::X),
+            NORTH_SOUTH
+        );
+        assert_eq!(
+            effect_for_axis(assets::block_presentation_state::PortalAxis::Z),
+            EAST_WEST
+        );
+        assert_eq!(
+            effect_for_axis(assets::block_presentation_state::PortalAxis::Unknown),
+            EAST_WEST
+        );
     }
 
     #[test]

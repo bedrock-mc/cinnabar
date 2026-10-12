@@ -864,7 +864,10 @@ impl Raster {
             storage,
         );
         let records = gpu.buffer(&[0.0], storage);
-        let tints = gpu.buffer(&[0.0; 8 + assets::SEASONAL_FOLIAGE_COUNT * 4], storage);
+        let tints = gpu.buffer(
+            &[0.0; 8 + assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT * 4],
+            storage,
+        );
         let query_tables = gpu.words(
             &meshing::biome_lattice::query_table_words(),
             wgpu::BufferUsages::UNIFORM,

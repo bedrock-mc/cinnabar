@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use assets::BlockFlags;
+use assets::native_material::NativeMaterialFacts;
 
 use super::{
     material_allows_leaf,
@@ -86,31 +86,96 @@ fn gaussian_samples_consume_native_z_y_x_order_and_split_near_far_loops() {
 }
 
 #[test]
-fn native_under_material_is_not_inferred_from_passability_or_cross_geometry() {
-    assert!(material_allows_leaf(BlockFlags::AIR, Some("minecraft:air")));
-    for name in [
-        "short_grass",
-        "fern",
-        "poppy",
-        "dandelion",
-        "brown_mushroom",
-        "red_mushroom",
+fn leaf_admission_reads_material_facts_and_denies_unresolved_support() {
+    assert!(material_allows_leaf(NativeMaterialFacts::NonSolidNonLiquid));
+    assert!(material_allows_leaf(
+        NativeMaterialFacts::ProvisionalNonSolidNonLiquid
+    ));
+    for material in [
+        NativeMaterialFacts::Unresolved,
+        NativeMaterialFacts::Solid,
+        NativeMaterialFacts::Liquid,
+        NativeMaterialFacts::SolidAndLiquid,
     ] {
-        assert!(material_allows_leaf(
-            BlockFlags::empty(),
-            Some(&format!("minecraft:{name}"))
-        ));
+        assert!(!material_allows_leaf(material));
     }
-    for name in [
-        "water",
-        "flowing_water",
-        "lava",
-        "oak_leaves",
-        "snow_layer",
-        "stone",
-        "custom:plant",
-    ] {
-        assert!(!material_allows_leaf(BlockFlags::empty(), Some(name)));
+}
+
+#[test]
+fn admitted_flower_material_emits_a_particle_draw_instance() {
+    let registry = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let flower = registry
+        .iter()
+        .find(|record| record.name.as_ref() == "minecraft:azure_bluet")
+        .unwrap();
+    let source: serde_json::Value =
+        serde_json::from_slice(assets::native_material::NATIVE_MATERIAL_SOURCE_BYTES).unwrap();
+    let material: NativeMaterialFacts =
+        serde_json::from_value(source["materials"][flower.name.as_ref()].clone()).unwrap();
+    let allowed = material_allows_leaf(material);
+    let effect = serde_json::json!({"particle_effect": {
+        "description": {"identifier": super::LEAF_EFFECT, "basic_render_parameters": {
+            "material": "particles_alpha", "texture": "fixture:original_leaf"}},
+        "components": {
+            "minecraft:emitter_rate_manual": {"max_particles": 1},
+            "minecraft:emitter_lifetime_expression": {},
+            "minecraft:emitter_shape_point": {"offset": [0, 0, 0]},
+            "minecraft:particle_lifetime_expression": {"max_lifetime": 15},
+            "minecraft:particle_appearance_billboard": {"size": [0.15, 0.1], "facing_camera_mode": "rotate_xyz"},
+            "minecraft:particle_appearance_tinting": {
+                "color": ["variable.color.r", "variable.color.g", "variable.color.b", 1]}
+        }
+    }});
+    let mut system = crate::ParticleSystem::default();
+    assert!(system.register_effect(&serde_json::to_vec(&effect).unwrap()));
+    if allowed {
+        assert!(
+            system
+                .spawn_biome_tinted(super::LEAF_EFFECT, [0, 0, 0], [0.3, 0.7, 0.2, 1.0])
+                .is_some()
+        );
     }
-    assert!(!material_allows_leaf(BlockFlags::empty(), None));
+    let view = crate::ParticleView {
+        position: [0.5, 0.5, 3.0],
+        right: [1.0, 0.0, 0.0],
+        up: [0.0, 1.0, 0.0],
+        forward: [0.0, 0.0, -1.0],
+        half_diagonal: 1.0,
+    };
+    let draw = system.build_draw(&view, &crate::EmptyWorld);
+    write_material_preview(&draw);
+    assert!(
+        allowed,
+        "the admitted flower material allows foliage particles"
+    );
+    assert_eq!(draw.opaque.len(), 1);
+    assert_eq!(draw.opaque[0].color, [0.3, 0.7, 0.2, 1.0]);
+}
+
+/// Saves production particle instances for the optional original-art CPU preview.
+fn write_material_preview(draw: &crate::DrawLists) {
+    let Some(folder) = std::env::var_os("CINNABAR_FORM_SNAPSHOT_DIR") else {
+        return;
+    };
+    let folder = std::path::PathBuf::from(folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    let instances: Vec<_> = draw
+        .opaque
+        .iter()
+        .chain(&draw.blend)
+        .chain(&draw.add)
+        .map(|instance| {
+            serde_json::json!({"center": instance.center_light, "axis_x": instance.axis_x,
+            "axis_y": instance.axis_y, "color": instance.color})
+        })
+        .collect();
+    std::fs::write(
+        folder.join("falling-leaf-preview.json"),
+        serde_json::to_vec(&instances).unwrap(),
+    )
+    .unwrap();
 }

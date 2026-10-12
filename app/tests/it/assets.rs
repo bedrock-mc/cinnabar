@@ -74,6 +74,7 @@ fn synthetic_blob() -> Box<[u8]> {
         .into_boxed_slice();
     encode_blob(&CompiledAssets {
         visuals: vec![BlockVisual {
+            native_material: assets::native_material::NativeMaterialFacts::Unresolved,
             faces: [1; 6],
             flags: BlockFlags::CUBE_GEOMETRY,
             kind: VisualKind::Cube,

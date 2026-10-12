@@ -153,7 +153,7 @@ pub(crate) fn station_controls(
         }
         WindowKind::Stonecutter => data.set_collection("stones", stones(source, frame)),
         WindowKind::Beacon => beacon_buttons(data, source),
-        WindowKind::Loom => data.set_collection("patterns", patterns(source)),
+        WindowKind::Loom => loom_controls(source, data),
         WindowKind::Cartography => data.set_global("#is_none_mode", Scalar::Bool(true)),
         WindowKind::Crafter => crafter_controls(data, source, frame),
         _ => {}
@@ -414,32 +414,270 @@ fn stones(source: &dyn ContainerSource, frame: &ContainerFrame<'_>) -> Vec<Colle
         .collect()
 }
 
-/// The loom's pattern cells once a banner and a dye are in, the chosen one
-/// inverted. The banner preview renderer is not drawn.
-fn patterns(source: &dyn ContainerSource) -> Vec<CollectionItem> {
+/// Publishes pattern-cell artwork and the selected banner result from the current inventory.
+fn loom_controls(source: &dyn ContainerSource, data: &mut DataSource) {
     let ledger = source.player().inventory.ledger();
-    let loaded = |slot: u8| ledger.target_stack(InventoryTarget::Craft(slot)).is_some();
-    if !(loaded(9) && loaded(10)) {
-        return Vec::new();
-    }
+    let banner = ledger
+        .target_stack(InventoryTarget::Craft(9))
+        .filter(|stack| {
+            ledger
+                .negotiated_item_entry(stack.network_id)
+                .is_some_and(|entry| entry.identifier.as_ref() == "minecraft:banner")
+        });
+    let dye = ledger
+        .target_stack(InventoryTarget::Craft(10))
+        .and_then(|stack| {
+            let identifier = ledger
+                .negotiated_item_entry(stack.network_id)?
+                .identifier
+                .as_ref();
+            assets::banner::dye_color(identifier).or_else(|| {
+                (identifier == "minecraft:dye")
+                    .then(|| {
+                        u8::try_from(stack.metadata)
+                            .ok()
+                            .filter(|color| *color < 16)
+                    })
+                    .flatten()
+            })
+        });
     let chosen = source.screen().loom_pattern;
-    let total = LOOM_PATTERNS.len() as f64;
-    LOOM_PATTERNS
-        .iter()
-        .map(|pattern| {
-            let texture = if chosen == Some(*pattern) {
+    let mut cells = Vec::new();
+    let mut result = (String::new(), String::new());
+    if let (Some(banner), Some(dye)) = (banner, dye) {
+        let base = u8::try_from(banner.metadata)
+            .ok()
+            .filter(|color| *color < 16)
+            .unwrap_or(15);
+        let current = protocol::item_banner_patterns(&banner.extra_data);
+        result = banner_bindings(base, &current, chosen.map(|code| (code, dye)));
+        for pattern in LOOM_PATTERNS {
+            let texture = if chosen == Some(pattern) {
                 CELL_SELECTED
             } else {
                 CELL_NORMAL
             };
-            CollectionItem::default()
-                .with(
-                    "#pattern_cell_background_texture",
-                    Scalar::Text(texture.to_owned()),
-                )
-                .with("#pattern_selector_total_items", Scalar::Num(total))
+            let (patterns, colors) = banner_bindings(15, &[], Some((pattern, 0)));
+            cells.push(
+                CollectionItem::default()
+                    .with(
+                        "#pattern_cell_background_texture",
+                        Scalar::Text(texture.to_owned()),
+                    )
+                    .with(
+                        "#pattern_selector_total_items",
+                        Scalar::Num(LOOM_PATTERNS.len() as f64),
+                    )
+                    .with("#banner_patterns", Scalar::Text(patterns))
+                    .with("#banner_colors", Scalar::Text(colors)),
+            );
+        }
+    }
+    data.set_collection("patterns", cells);
+    data.set_global("#result_patterns", Scalar::Text(result.0));
+    data.set_global("#result_colors", Scalar::Text(result.1));
+}
+
+/// Encodes the base, existing overlays and selected overlay in native UI order.
+fn banner_bindings(
+    base: u8,
+    current: &[protocol::ItemBannerPattern],
+    selected: Option<(&str, u8)>,
+) -> (String, String) {
+    let mut patterns = vec!["0".to_owned()];
+    let mut colors = vec![base.to_string()];
+    for (code, color) in current
+        .iter()
+        .map(|layer| (layer.pattern.as_ref(), layer.color))
+        .chain(selected)
+        .take(assets::banner::MAX_BANNER_LAYERS)
+    {
+        if let Some(id) = assets::banner::pattern_ui_id(code) {
+            patterns.push(id.to_string());
+            colors.push(color.to_string());
+        }
+    }
+    (patterns.join("_"), colors.join("_"))
+}
+
+#[cfg(test)]
+mod banner_tests {
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        sync::Arc,
+    };
+
+    use super::*;
+    use crate::container_source::{NameSources, ScreenView};
+
+    static EXPANDED: BTreeSet<u32> = BTreeSet::new();
+    static SCROLL: BTreeMap<String, f64> = BTreeMap::new();
+
+    /// Answers only what the loom bindings read.
+    struct LoomSource {
+        player: player_state::PlayerState,
+        screen: ScreenView<'static>,
+    }
+
+    impl ContainerSource for LoomSource {
+        fn player(&self) -> &player_state::PlayerState {
+            &self.player
+        }
+        fn screen(&self) -> &ScreenView<'_> {
+            &self.screen
+        }
+        fn translation(&self, _: &str) -> Option<Arc<str>> {
+            None
+        }
+        fn experience_level(&self) -> u32 {
+            0
+        }
+        fn enchantment_name(&self, _: i16, _: u8) -> String {
+            String::new()
+        }
+        fn recipe_filtering(&self) -> bool {
+            false
+        }
+        fn item_name_generation(&self) -> u64 {
+            0
+        }
+        fn book_entries(&self) -> Vec<crate::recipe_book::BookEntry<'_>> {
+            Vec::new()
+        }
+        fn furnace_entries(&self) -> crate::furnace_book::Entries<'_> {
+            unreachable!("the loom reads no furnace entries")
+        }
+        fn furnace_projection(&self) -> Arc<[usize]> {
+            Arc::from([])
+        }
+        fn furnace_category(&self, _: &protocol::ScreenRecipe) -> u8 {
+            0
+        }
+        fn name_sources(&self) -> NameSources {
+            NameSources {
+                components: None,
+                lang: None,
+            }
+        }
+    }
+
+    /// Supplies authoritative loom input slots and negotiated item identities.
+    fn loom_fixture() -> LoomSource {
+        let mut player = player_state::PlayerState::new(1);
+        player
+            .inventory
+            .publish_inventory_authority(protocol::InventoryAuthority::Server);
+        let entries = [
+            "minecraft:banner",
+            "minecraft:yellow_dye",
+            "minecraft:stone",
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, name)| protocol::ItemRegistryEntry {
+            components: None,
+            identifier: name.into(),
+            network_id: index as i32 + 1,
+            component_based: false,
+            version: protocol::ItemRegistryVersion::None,
+            component_digest: [0; 32],
+            negotiated_max_stack_size: Some(64),
+            canonical_empty_component_data: true,
+            item_tags: Arc::from([]),
         })
-        .collect()
+        .collect::<Vec<_>>();
+        let ledger = player.inventory.ledger_mut();
+        ledger.apply_registry(&protocol::ItemRegistryEvent {
+            entries: entries.into(),
+        });
+        ledger.apply(&protocol::InventoryEvent::Open(
+            protocol::ContainerOpenEvent {
+                container: protocol::ContainerIdentity::window(7),
+                window_type: protocol::WINDOW_TYPE_LOOM,
+                position: [0, 64, 0],
+                runtime_entity_id: -1,
+            },
+        ));
+        LoomSource {
+            player,
+            screen: ScreenView {
+                mount_equipment: Default::default(),
+                anvil_name: "",
+                recipe_choice: None,
+                beacon: (0, 0),
+                beacon_level: None,
+                loom_pattern: Some("bo"),
+                crafter_disabled: [false; 9],
+                crafter_powered: None,
+                furnace_book_open: false,
+                furnace_tab: None,
+                creative_tab: 0,
+                creative_wide: false,
+                creative_expanded: &EXPANDED,
+                search: "",
+                container_scroll: &SCROLL,
+                text_focused: false,
+                book: None,
+            },
+        }
+    }
+
+    #[test]
+    fn loom_preview_requires_negotiated_banner_and_dye_inputs() {
+        let mut source = loom_fixture();
+        let mut empty = DataSource::new();
+        loom_controls(&source, &mut empty);
+        for (banner, dye, shown) in [(1, 2, true), (3, 2, false), (1, 3, false), (0, 2, false)] {
+            let mut slots = vec![protocol::NetworkItemStack::empty(); protocol::UI_SLOT_COUNT];
+            for (slot, network_id) in [(9, banner), (10, dye)] {
+                slots[slot] = protocol::NetworkItemStack {
+                    network_id,
+                    count: u16::from(network_id != 0),
+                    metadata: 15,
+                    ..protocol::NetworkItemStack::empty()
+                };
+            }
+            source
+                .player
+                .inventory
+                .ledger_mut()
+                .apply(&protocol::InventoryEvent::Content(
+                    protocol::InventoryContentEvent {
+                        container: protocol::ContainerIdentity {
+                            window_id: Some(protocol::UI_INVENTORY_WINDOW_ID),
+                            slot_type: Some(0),
+                            dynamic_id: None,
+                        },
+                        slots: slots.into(),
+                        storage_item: protocol::NetworkItemStack::empty(),
+                    },
+                ));
+            let mut data = DataSource::new();
+            loom_controls(&source, &mut data);
+            assert_eq!(data != empty, shown, "banner={banner} dye={dye}");
+        }
+    }
+
+    #[test]
+    fn loom_result_preserves_existing_layers_and_adds_the_selected_pattern() {
+        let current = [protocol::ItemBannerPattern {
+            pattern: "bs".into(),
+            color: 1,
+        }];
+        assert_eq!(
+            banner_bindings(15, &current, Some(("bo", 4))),
+            ("0_28_1".into(), "15_1_4".into())
+        );
+        assert_eq!(banner_bindings(0, &[], None), ("0".into(), "0".into()));
+        let full = vec![current[0].clone(); assets::banner::MAX_BANNER_LAYERS];
+        let (patterns, colors) = banner_bindings(15, &full, Some(("bo", 4)));
+        assert_eq!(patterns.split('_').count(), full.len() + 1);
+        assert_eq!(colors.split('_').count(), full.len() + 1);
+        assert_eq!(
+            banner_bindings(15, &current, Some(("custom:unknown", 4))),
+            ("0_28".into(), "15_1".into())
+        );
+    }
 }
 
 /// One collection per beacon button, as the controller names them.

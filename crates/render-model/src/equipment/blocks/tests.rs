@@ -20,6 +20,7 @@ fn overlay(flags: BlockFlags, material_flags: u32, size: u32) -> BlockOverlay {
     }
     BlockOverlay {
         visuals: vec![assets::BlockVisual {
+            native_material: assets::native_material::NativeMaterialFacts::Unresolved,
             faces: [1; 6],
             flags,
             kind: VisualKind::Cube,

@@ -9,6 +9,7 @@ const SIDE_MATERIAL: u32 = 3;
 
 fn grass_fixture(side_flags: u32) -> RuntimeAssets {
     let mut grass = BlockVisual {
+        native_material: assets::native_material::NativeMaterialFacts::Unresolved,
         faces: [SIDE_MATERIAL; 6],
         flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
         kind: VisualKind::Cube,

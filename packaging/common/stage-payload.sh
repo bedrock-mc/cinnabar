@@ -15,6 +15,9 @@ stage_prep_kit() {
     cp -R "$repo_root/assets/fonts" "$repo_root/assets/oreui-icons" "$kit/assets/"
     # The whole data directory: carrier compilers read files from it that no list would track.
     cp "$repo_root"/crates/assets/data/* "$kit/data/"
+    # Inputs outside the kit layout resolve at their checkout path below the kit.
+    mkdir -p "$kit/crates/protocol/data"
+    cp "$repo_root/crates/protocol/data/retail_items_1_26_50.tsv" "$kit/crates/protocol/data/"
 }
 
 # stage_resources <resource_root> <assetc_binary>: physics registry, notices, licenses, UI font, prep kit.
@@ -55,6 +58,7 @@ resource_manifest() {
     for file in "$repo_root"/assets/fonts/*; do printf 'prep-kit/assets/fonts/%s\n' "${file##*/}"; done
     (cd "$repo_root/assets" && find oreui-icons -type f | LC_ALL=C sort | sed 's|^|prep-kit/assets/|')
     for file in "$repo_root"/crates/assets/data/*; do printf 'prep-kit/data/%s\n' "${file##*/}"; done
+    printf '%s\n' prep-kit/crates/protocol/data/retail_items_1_26_50.tsv
 }
 
 # require_file <path> <hint>

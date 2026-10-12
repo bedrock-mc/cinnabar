@@ -79,7 +79,7 @@ impl AmbientParticles {
                     self.try_fire(block, stream, world, collisions, system);
                 }
                 if leaf_effect_present {
-                    self.try_leaf(block, stream, world, collisions, system);
+                    self.try_leaf(block, stream, world, system);
                 }
                 // Legacy block callbacks use only the nearest sample cohort.
                 if index < particles::ambient::MIN_SAMPLES {
@@ -121,7 +121,6 @@ impl AmbientParticles {
         block: [i32; 3],
         stream: &WorldStream,
         world: &StreamParticleWorld<'_>,
-        collisions: &PhysicsCollisionRegistries,
         system: &mut ParticleSystem,
     ) {
         let Some(runtime_id) = world.block_runtime_id(block) else {
@@ -151,8 +150,7 @@ impl AmbientParticles {
             return;
         };
         let below = stream.runtime_assets().resolve(mode, below_id);
-        let identifier = collisions.block_identifier(mode, below_id);
-        if !below.is_known() || !material_allows_leaf(below.flags(), identifier) {
+        if !material_allows_leaf(below.native_material()) {
             return;
         }
         if self.diagnostics.enabled {

@@ -268,8 +268,9 @@
     "to": 0
   },
 
-  // Status effects hang from the screen's top-right corner.
+  // Status effects hang from the screen's top-right corner in Java's rows.
   "root_panel/mob_effects_renderer": {
+    "renderer": "java_mob_effects_renderer",
     "size": [ "100%", "100%" ],
     "offset": [ 0, 0 ],
     "anchor_from": "top_left",

@@ -178,6 +178,7 @@ pub(crate) fn receive_network_events(
     mut resource_pack_admission: ResMut<ResourcePackAdmissionState>,
     mut pack_reload: Option<ResMut<PackReload>>,
     mut chunk_textures: Option<ResMut<ChunkTextureAssets>>,
+    mut block_entity_scene: Option<ResMut<render_scene::BlockEntitySceneResource>>,
     state: AppWorldState,
     #[cfg(feature = "acceptance")] mut acceptance: ResMut<AcceptanceRun>,
     #[cfg(feature = "acceptance")] metrics: Res<AppMetrics>,
@@ -419,6 +420,11 @@ pub(crate) fn receive_network_events(
                     )
                 }));
                 stream.seed_property_defaults(&packs.property_defaults);
+                if let (Some(scene), Some(art)) =
+                    (block_entity_scene.as_mut(), packs.block_entity_art.as_ref())
+                {
+                    scene.install_prepared_assets(art);
+                }
                 client_world.pack_entities = packs.entities.clone();
                 client_world.prepared_actor_artwork = packs.prepared_actor_artwork.clone();
                 client_world.session_items = Some(Arc::new(
@@ -956,6 +962,7 @@ mod pack_reload_tests;
 #[cfg(test)]
 mod pack_reload_world_witness;
 pub(crate) use entity_texture_reload::set_base_actor_artwork;
+pub(crate) mod block_entity_art;
 pub(crate) mod reload_environment;
 pub(crate) mod resource_packs;
 pub(crate) mod session;

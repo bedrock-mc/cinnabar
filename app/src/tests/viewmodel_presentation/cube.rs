@@ -12,6 +12,7 @@ fn cube_world_assets(
     let count = entities.block_visual_count() as usize;
     let mut visuals = vec![
         BlockVisual {
+            native_material: assets::native_material::NativeMaterialFacts::Unresolved,
             faces: [1; 6],
             flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
             kind: VisualKind::Cube,

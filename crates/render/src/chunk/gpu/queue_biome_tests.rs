@@ -33,7 +33,7 @@ fn biome_gpu_entries_pack_all_six_tint_classes_and_flags() {
         evergreen: [0.4, 0.5, 0.6],
         dry_foliage: [0.5, 0.6, 0.7],
         seasonal_foliage: std::array::from_fn(|index| {
-            [index as f32 / assets::SEASONAL_FOLIAGE_COUNT as f32; 3]
+            [index as f32 / assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT as f32; 3]
         }),
         water: [0.6, 0.7, 0.8],
         water_opacity: 165.0 / 255.0,
@@ -90,7 +90,7 @@ fn seasonal_palette_content_rebuilds_gpu_buffer_without_revising_dense_table() {
     let table = ChunkBiomeTintIdentity::new(4, 7);
     let first = ChunkBiomeTints::with_identity(Arc::from([BiomeTint::default()]), table);
     let mut entry = BiomeTint::default();
-    entry.seasonal_foliage[assets::SEASONAL_FOLIAGE_EXPOSED_OFFSET] = [1.0; 3];
+    entry.seasonal_foliage[assets::seasonal_foliage::SEASONAL_FOLIAGE_EXPOSED_OFFSET] = [1.0; 3];
     let next = ChunkBiomeTints::with_identity(Arc::from([entry]), table);
     assert_eq!(first.table_identity(), next.table_identity());
     assert_ne!(
@@ -110,7 +110,7 @@ fn seasonal_palette_content_rebuilds_gpu_buffer_without_revising_dense_table() {
 #[test]
 fn world_seasonal_gpu_tints_preserve_channels_above_one() {
     let mut entry = BiomeTint::default();
-    let index = assets::SEASONAL_FOLIAGE_EXPOSED_OFFSET;
+    let index = assets::seasonal_foliage::SEASONAL_FOLIAGE_EXPOSED_OFFSET;
     entry.seasonal_foliage[index] = [1.25, 2.0, 3.5];
     let gpu = prepare_biome_tint_entries(&[entry])[0];
     assert_eq!(gpu.seasonal_foliage[index], [1.25, 2.0, 3.5, 1.0]);

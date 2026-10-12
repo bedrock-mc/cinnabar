@@ -611,6 +611,7 @@ fn projectile_animation_rotation_is_not_multiplied_by_mob_body_yaw() {
             }];
             for body_yaw in [-120.0, 0.0, 90.0] {
                 let rig = ActorRigSnapshot {
+                    placement_frame: assets::placement::builtin_placement_frame(identifier),
                     previous_body_yaw: body_yaw,
                     body_yaw,
                     ..rig(42, &bones, &bones)

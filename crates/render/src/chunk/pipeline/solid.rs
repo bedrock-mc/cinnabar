@@ -27,7 +27,20 @@ pub(in crate::chunk) fn solid_cull_camera(
 
 pub(in crate::chunk) struct ChunkSolidIndirectBatch {
     pub(in crate::chunk) camera: Option<[f64; 3]>,
+    /// The [`meshing::facing_cell`] of the camera `cubes`' commands were built for.
+    pub(in crate::chunk) facing: Option<[(f64, bool); 3]>,
     pub(in crate::chunk) cubes: ChunkIndirectBatch,
+}
+
+impl ChunkSolidIndirectBatch {
+    /// A batch over `cubes` whose commands the next prepare builds for its camera.
+    pub(in crate::chunk) fn new(cubes: Vec<Entity>) -> Self {
+        Self {
+            camera: None,
+            facing: None,
+            cubes: ChunkIndirectBatch::new(cubes),
+        }
+    }
 }
 
 #[derive(Resource, Default)]

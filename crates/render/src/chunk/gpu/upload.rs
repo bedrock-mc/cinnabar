@@ -42,8 +42,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     biome_tints: Res<ChunkBiomeTints>,
     texture_assets: Res<ChunkTextureAssets>,
     publication: ChunkUploadPublication,
-    render_device: Res<RenderDevice>,
-    render_queue: Res<RenderQueue>,
+    upload_queue: TerrainUploadQueue,
     retirement_fence: Res<TransparentRetirementFence>,
     mut fairness: ResMut<GpuUpdateFairness>,
     profiler: Option<Res<RuntimeStageProfiler>>,
@@ -126,10 +125,10 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     let mut applied_publication_permits = Vec::new();
     let mut successful_updates = Vec::new();
     let mut upload_reservation = GpuUploadReservation::default();
+    let uploads = upload_queue.uploads();
     upload_reservation.growth_copy_bytes = advance_arena_migration(
         &mut arena,
-        &render_device,
-        &render_queue,
+        uploads,
         upload_reservation.migration_allowance(),
     );
     let all_instances = instances.queries.p0();
@@ -284,17 +283,16 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
                 Ok(None) => break true,
                 Ok(Some((stream, growth))) => {
                     if arena.migration.is_none() {
-                        begin_arena_migration(&mut arena, &render_device, stream, growth);
+                        begin_arena_migration(&mut arena, uploads.device, stream, growth);
                     }
                     // A slice copy is submitted at once; stage this frame's earlier
                     // writes first so the copy carries them into the new buffer.
                     if !writes.is_empty() {
-                        writes.issue(&arena, &render_queue);
+                        writes.issue(&arena, uploads);
                     }
                     upload_reservation.growth_copy_bytes += advance_arena_migration(
                         &mut arena,
-                        &render_device,
-                        &render_queue,
+                        uploads,
                         upload_reservation.migration_allowance(),
                     );
                     if arena.migration.is_some() {
@@ -561,7 +559,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     }
     fairness.finish_frame(&selected, &successful_updates, &urgent_updates);
 
-    writes.issue(&arena, &render_queue);
+    writes.issue(&arena, uploads);
     let applied_at = Instant::now();
     for (key, token, uploaded_bytes) in applied_tokens {
         acknowledgements.complete_with_bytes(key, token, applied_at, uploaded_bytes);

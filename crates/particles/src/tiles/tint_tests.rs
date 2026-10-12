@@ -1,7 +1,8 @@
 use assets::{
     BLOCK_VISUAL_VARIANT_TOP_SNOW, BlockFlags, CompiledBiomeAssets, MATERIAL_FLAG_BIRCH_FOLIAGE,
-    MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_TINT, SeasonalFoliageBlock, VisualKind,
-    seasonal_foliage_cell_shelters, seasonal_foliage_palette_index,
+    MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_TINT, VisualKind,
+    seasonal_foliage::SeasonalFoliageBlock, seasonal_foliage::seasonal_foliage_cell_shelters,
+    seasonal_foliage::seasonal_foliage_palette_index,
 };
 
 use super::{column_exposed, seasonal_tint};
@@ -47,7 +48,8 @@ fn cpu_particle_colour_clamps_the_world_palettes_overbright_channels_like_native
     // its chunk seasonal shader multiplies it into the texture unclamped.
     let tints = CompiledBiomeAssets::diagnostic().resolve_live(&[]).unwrap();
     let mut record = tints.records[0];
-    record.seasonal_foliage = [[3.5, 2.0, 1.25, 1.0]; assets::SEASONAL_FOLIAGE_COUNT];
+    record.seasonal_foliage =
+        [[3.5, 2.0, 1.25, 1.0]; assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT];
     for exposed in [false, true] {
         let colour = seasonal_tint(&record, 0, exposed);
         // The sRGB transfer can round white one ULP below 1. Keep the

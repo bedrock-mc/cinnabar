@@ -633,3 +633,280 @@ fn lobby_block_entity_frame_cost() {
         );
     }
 }
+
+#[test]
+fn replaced_atlas_keeps_frame_revision_monotonic_and_refreshes_uvs() {
+    let mut scene = scene();
+    let submissions = [chest(0, 1.0)];
+    let first = scene
+        .update(SceneClock::default(), &[], &submissions)
+        .clone();
+    scene.install_assets(&assets_with_chest_offset(384));
+    let second = scene
+        .update(SceneClock::default(), &[], &submissions)
+        .clone();
+    assert_ne!(first.revision, second.revision);
+    assert_ne!(first.solid, second.solid);
+    assert_ne!(
+        first.atlas.unwrap().identity,
+        second.atlas.unwrap().identity
+    );
+    let unchanged = scene.update(SceneClock::default(), &[], &submissions);
+    assert_eq!(unchanged.revision, second.revision);
+    assert!(Arc::ptr_eq(&unchanged.solid, &second.solid));
+}
+
+#[test]
+fn identical_atlas_reinstalls_publish_fresh_sign_and_map_pixels() {
+    let mut scene = scene();
+    let assets = assets_with_chest_offset(0);
+    let mut previous = None::<BlockEntityFrame>;
+    let [text_width, text_height] = super::super::atlas::TEXT_CELL;
+    let [map_width, map_height] = super::super::atlas::MAP_CELL;
+    let text_bytes = (text_width * text_height * 4) as usize;
+    let map_bytes = (map_width * map_height * 4) as usize;
+    for value in [64, 128, 192] {
+        scene.install_assets(&assets);
+        scene.text_rect(1, || vec![value; text_bytes]).unwrap();
+        scene.map_rect(1, || vec![value; map_bytes]).unwrap();
+        let frame = scene.update(SceneClock::default(), &[], &[]).clone();
+        if let Some(previous) = previous {
+            let atlas = frame.atlas.as_ref().unwrap();
+            let old_atlas = previous.atlas.as_ref().unwrap();
+            assert_eq!(atlas.identity, old_atlas.identity);
+            assert_eq!(atlas.size, old_atlas.size);
+            assert_ne!(frame.dynamic_rgba8, previous.dynamic_rgba8);
+            assert!(frame.dynamic_revision > previous.dynamic_revision);
+        }
+        previous = Some(frame);
+    }
+    // Resetting also clears an unpublished canvas and advances the upload identity.
+    scene.text_rect(2, || vec![255; text_bytes]).unwrap();
+    let revision = scene.text.as_ref().unwrap().revision();
+    scene.install_assets(&assets);
+    let empty = scene.update(SceneClock::default(), &[], &[]);
+    assert!(empty.dynamic_revision > revision);
+    assert!(empty.dynamic_rgba8.iter().all(|pixel| *pixel == 0));
+    let revision = empty.dynamic_revision;
+    let unchanged = scene.update(SceneClock::default(), &[], &[]);
+    assert_eq!(unchanged.dynamic_revision, revision);
+}
+
+#[test]
+fn live_chest_artwork_reload_keeps_every_cached_sign_visible() {
+    use super::super::atlas::{MAP_CELL, MAX_NEW_CELLS_PER_FRAME, TEXT_CELL, TEXT_SLOT_COUNT};
+
+    // Cover both the reported burst and a scene whose text spans multiple pages.
+    for count in [32, TEXT_SLOT_COUNT + 32] {
+        let mut scene = scene();
+        let mut rects = vec![AtlasRect::default(); count];
+        for _ in 0..count.div_ceil(MAX_NEW_CELLS_PER_FRAME) {
+            for (key, rect) in rects.iter_mut().enumerate() {
+                if let Some(cached) = scene.text_rect(key as u64, || {
+                    vec![key as u8 + 1; (TEXT_CELL[0] * TEXT_CELL[1] * 4) as usize]
+                }) {
+                    *rect = cached;
+                }
+            }
+            scene.update(SceneClock::default(), &[], &[]);
+        }
+        let map_rect = scene
+            .map_rect(1, || vec![240; (MAP_CELL[0] * MAP_CELL[1] * 4) as usize])
+            .unwrap();
+        let before = scene.update(SceneClock::default(), &[], &[]).clone();
+        let pages = scene.atlas().unwrap().text_pages();
+        let replacement = pack_compiler::overlay_block_entity_assets(
+            &assets_with_chest_offset(0),
+            |_| true,
+            |name| {
+                (name == "textures/entity/chest/normal").then(|| {
+                    pack_compiler::BlockEntityTexture {
+                        width: 128,
+                        height: 512,
+                        rgba8: vec![64; 128 * 512 * 4].into_boxed_slice(),
+                    }
+                })
+            },
+        )
+        .unwrap();
+        scene.reload_assets(&replacement);
+        assert_eq!(scene.atlas().unwrap().text_pages(), pages);
+        let shift = scene.atlas().unwrap().static_height() as f32
+            - before.atlas.as_ref().unwrap().static_height as f32;
+        assert_ne!(shift, 0.0, "the replacement moves the dynamic strips");
+        for tick in 0..3 {
+            let mut rasterized = 0;
+            let submissions: Vec<_> = rects
+                .iter()
+                .enumerate()
+                .filter_map(|(key, previous)| {
+                    let rect = scene.text_rect(key as u64, || {
+                        rasterized += 1;
+                        vec![key as u8 + 1; (TEXT_CELL[0] * TEXT_CELL[1] * 4) as usize]
+                    })?;
+                    assert_eq!(
+                        rect,
+                        AtlasRect {
+                            y: previous.y + shift,
+                            ..*previous
+                        }
+                    );
+                    Some(BlockEntitySubmission {
+                        block: [key as i32, 64, 0],
+                        light: 1.0.into(),
+                        kind: BlockEntityKind::Sign(SignModel {
+                            mount: SignMount::Wall(Facing::North),
+                            front: Some(SignFace {
+                                rect,
+                                glowing: true,
+                            }),
+                            back: None,
+                        }),
+                    })
+                })
+                .collect();
+            assert_eq!(
+                submissions.len(),
+                count,
+                "every cached sign must draw on frame {tick}"
+            );
+            assert_eq!(
+                rasterized, 0,
+                "cached signs must not consume the raster budget"
+            );
+            assert_eq!(
+                scene.map_rect(1, || panic!("cached maps must survive")),
+                Some(AtlasRect {
+                    y: map_rect.y + shift,
+                    ..map_rect
+                })
+            );
+            let frame = scene.update(
+                SceneClock {
+                    ticks: f64::from(tick),
+                },
+                &[],
+                &submissions,
+            );
+            assert_eq!(frame.solid.len(), count * 6);
+            assert_eq!(frame.dynamic_rgba8, before.dynamic_rgba8);
+            assert_eq!(frame.dynamic_revision, before.dynamic_revision);
+            assert_ne!(
+                frame.atlas.as_ref().unwrap().identity,
+                before.atlas.as_ref().unwrap().identity
+            );
+        }
+    }
+}
+
+/// Creates four base tiles that valid replacements can expand near the atlas height limit.
+fn replacement_base() -> assets::RuntimeBlockEntityAssets {
+    let placements: Vec<_> = (0..4)
+        .map(|index| assets::BlockEntityPlacement {
+            name: format!("textures/entity/chest/tile_{index}").into(),
+            x: index * 64,
+            y: 0,
+            width: 64,
+            height: 64,
+        })
+        .collect();
+    let bytes = assets::encode_block_entity_catalog(
+        b"{}",
+        1024,
+        64,
+        &vec![255; 1024 * 64 * 4],
+        &placements,
+    )
+    .unwrap();
+    assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap()
+}
+
+/// Snapshots one mob texture with enough appended rows to exercise the GPU height limit.
+fn mob_artwork_preparer() -> BlockEntityArtworkPreparer {
+    BlockEntityArtworkPreparer::new(&[super::super::mob::MobTexture {
+        name: "mob/test".into(),
+        width: 64,
+        height: 64,
+        rgba8: Arc::from(vec![7; 64 * 64 * 4]),
+    }])
+}
+
+#[test]
+fn replacement_admission_reserves_mobs_and_all_text_pages() {
+    use super::super::{
+        artwork::MAX_ATLAS_SIDE,
+        atlas::{MAX_TEXT_PAGES, dynamic_height},
+    };
+    let base = replacement_base();
+    let preparer = mob_artwork_preparer();
+    let limit = MAX_ATLAS_SIDE;
+    let last_admitted = limit - dynamic_height(MAX_TEXT_PAGES as u32) - 64;
+    for height in [last_admitted, last_admitted + 1, 4090] {
+        let replacement = pack_compiler::overlay_block_entity_assets(
+            &base,
+            |size| preparer.accepts_size(size),
+            |name| {
+                // Three full-width 1024-row shelves plus three gutters precede the last tile.
+                let height = if name.ends_with("tile_3") {
+                    height - 3 * (1024 + 1)
+                } else {
+                    1024
+                };
+                Some(pack_compiler::BlockEntityTexture {
+                    width: 1024,
+                    height,
+                    rgba8: vec![64; (1024 * height * 4) as usize].into_boxed_slice(),
+                })
+            },
+        )
+        .unwrap();
+        let prepared = preparer.prepare(&replacement).unwrap();
+        let mut scene = BlockEntityScene::default();
+        scene.install_prepared_assets(&prepared);
+        let atlas = Arc::make_mut(scene.atlas.as_mut().unwrap());
+        atlas.set_text_pages(MAX_TEXT_PAGES as u32);
+        assert!(atlas.size()[1] <= limit);
+        if height == last_admitted {
+            assert_eq!(atlas.size()[1], limit);
+            assert_eq!(
+                atlas.texel("textures/entity/chest/tile_3", 0, 0),
+                Some([64; 4])
+            );
+        } else {
+            assert_eq!(
+                atlas.texel("textures/entity/chest/tile_3", 0, 0),
+                Some([255; 4])
+            );
+        }
+        assert_eq!(atlas.texel("mob/test", 0, 0), Some([7; 4]));
+    }
+}
+
+#[test]
+fn artwork_publication_shares_prepared_static_pixels() {
+    let assets = replacement_base();
+    let preparer = mob_artwork_preparer();
+    let prepared = std::thread::spawn(move || preparer.prepare(&assets).unwrap())
+        .join()
+        .unwrap();
+    let mut scene = BlockEntityScene::default();
+    scene.install_prepared_assets(&prepared);
+    assert!(Arc::ptr_eq(
+        prepared.atlas().static_rgba8(),
+        scene.atlas().unwrap().static_rgba8()
+    ));
+    assert_eq!(
+        scene.atlas().unwrap().identity(),
+        prepared.atlas().identity()
+    );
+    scene.reload_prepared_assets(&prepared);
+    assert!(Arc::ptr_eq(
+        prepared.atlas().static_rgba8(),
+        scene.atlas().unwrap().static_rgba8()
+    ));
+    assert_eq!(
+        scene.atlas().unwrap().identity(),
+        prepared.atlas().identity()
+    );
+    assert_eq!(scene.atlas().unwrap().texel("mob/test", 0, 0), Some([7; 4]));
+}

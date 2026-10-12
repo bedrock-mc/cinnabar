@@ -630,3 +630,43 @@ fn the_same_blocks_share_the_extended_carrier_and_its_texture_identity() {
         "the carrier pins no extension"
     );
 }
+
+#[test]
+fn block_entity_art_reads_texture_sets_and_tracks_missing_overrides() {
+    let name = "textures/entity/chest/normal";
+    let placement = assets::BlockEntityPlacement {
+        name: name.into(),
+        x: 0,
+        y: 0,
+        width: 1,
+        height: 1,
+    };
+    let bytes =
+        assets::encode_block_entity_catalog(b"{}", 1, 1, &[10, 20, 30, 255], &[placement]).unwrap();
+    let base = assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap();
+    let view = files_pack(&[(
+        "textures/entity/chest/normal.texture_set.json",
+        br#"{"minecraft:texture_set":{"color":[200,100,50]}}"#,
+    )]);
+    let view = resource_pack::LayeredPackView::tracked(view.shared_stack());
+    let changed = super::super::block_entity_art::prepare_over(
+        &view,
+        &base,
+        &render_model::BlockEntityArtworkPreparer::default(),
+    )
+    .unwrap();
+    assert_eq!(changed.atlas().texel(name, 0, 0), Some([200, 100, 50, 255]));
+    let inputs = view.dependencies().unwrap().snapshot();
+    assert!(inputs.iter().any(|input| matches!(input,
+        resource_pack::PackDependency::File { path, .. }
+            if path == "textures/entity/chest/normal.png"
+    )));
+    let empty = files_pack(&[]);
+    let restored = super::super::block_entity_art::prepare_over(
+        &empty,
+        &base,
+        &render_model::BlockEntityArtworkPreparer::default(),
+    )
+    .unwrap();
+    assert_eq!(restored.atlas().texel(name, 0, 0), Some([10, 20, 30, 255]));
+}

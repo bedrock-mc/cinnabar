@@ -576,6 +576,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .map_err(|error| {
         anyhow::anyhow!("prepare validated runtime entity geometry for actor rendering: {error:?}")
     })?;
+    crate::runtime::network::block_entity_art::install_base(
+        carriers.block_entities.clone(),
+        &block_entity_scene,
+    );
     crate::runtime::network::set_base_actor_artwork(actor_artwork.clone(), entity_runtime.clone());
     actor_render_scene.configure_artwork(actor_artwork.clone());
     // A dedicated single-instance builder for the local player's first-person rig, sharing the

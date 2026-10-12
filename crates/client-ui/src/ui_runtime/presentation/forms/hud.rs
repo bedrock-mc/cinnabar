@@ -28,6 +28,8 @@ mod cooldown_tests;
 mod crosshair_tests;
 #[cfg(test)]
 mod hunger_control_tests;
+#[cfg(test)]
+mod mob_effects_tests;
 
 /// Java's per-line chat background opacity.
 const CHAT_BACKGROUND_OPACITY: f64 = 0.5;
@@ -148,6 +150,7 @@ impl UiPresentationRuntime {
         }
         if self.screens.mod_ui.mod_effect_icons_hidden() {
             paint.effects.clear();
+            paint.java_effects.clear();
         }
         let crosshair_spec = if self.mod_hud_visible(player_runtime, runtime) {
             self.screens.mod_ui.mod_crosshair().cloned()

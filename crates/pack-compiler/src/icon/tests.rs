@@ -36,6 +36,7 @@ fn cube_source(flags: u32) -> CompiledAssets {
         visuals: vec![
             BlockVisual::diagnostic(BlockFlags::empty(), ContributorRole::Primary),
             BlockVisual {
+                native_material: assets::native_material::NativeMaterialFacts::Unresolved,
                 faces: [1; BlockFace::ALL.len()],
                 flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
                 kind: VisualKind::Cube,

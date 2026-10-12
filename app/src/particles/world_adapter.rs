@@ -1,4 +1,7 @@
-use assets::{BlockFlags, SeasonalFoliageBlock, seasonal_foliage_cell_shelters};
+use assets::{
+    BlockFlags, seasonal_foliage::SeasonalFoliageBlock,
+    seasonal_foliage::seasonal_foliage_cell_shelters,
+};
 use chunk_pipeline::WorldStream;
 use particles::{BlockIdentity, Fluid, ParticleWorld};
 use sim::{Aabb, BlockPhysicsFlags, CollisionRegistry, CollisionWorld, PaletteWorld, Vec3};

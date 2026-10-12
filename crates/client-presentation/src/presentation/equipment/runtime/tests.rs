@@ -276,6 +276,7 @@ fn carried_cube_alpha_mode_follows_world_materials_for_both_hands() {
     let overlay = BlockOverlay {
         visuals: (0..flags.len())
             .map(|material| BlockVisual {
+                native_material: assets::native_material::NativeMaterialFacts::Unresolved,
                 faces: [material as u32; 6],
                 flags: BlockFlags::CUBE_GEOMETRY,
                 kind: VisualKind::Cube,

@@ -17,6 +17,7 @@ use ui::{TextLayoutCache, TextShadow, UiNode, UiNodeId, UiPoint, UiRect, UiVisua
 
 use {crate::text_metrics::TextMetrics, ui::FONT_DESIGN_PIXEL_TEXELS};
 
+mod banner_renderer;
 mod fill_renderers;
 mod formatting_colors;
 pub mod host_edit;
@@ -479,6 +480,13 @@ fn render_with<R: Borrow<FormRender>>(
             paths.insert(path);
         });
     }
+    for node in laid() {
+        if let Draw::Custom { renderer, data } = &node.draw
+            && renderer == banner_renderer::RENDERER
+        {
+            paths.extend(banner_renderer::texture_paths(data));
+        }
+    }
     let drawn = Textures {
         assets: textures.assets,
         set: textures.set,
@@ -734,7 +742,8 @@ impl Canvas<'_> {
     }
 
     /// Hands `node` to the frame's renderers, then to the engine's own: vector icons, rounded
-    /// chrome, fills, messaging art, named profile images and name tags. Others draw nothing.
+    /// chrome, fills, messaging art, named profile images, name tags and banners. Others draw
+    /// nothing.
     fn custom(
         &mut self,
         node: &CustomDraw<'_>,
@@ -762,6 +771,10 @@ impl Canvas<'_> {
             "animated_gif_renderer" => self.animated_gif(data, dest, &alpha),
             "profile_image_renderer" => self.named_profile_image(data, dest, &alpha),
             "name_tag_renderer" => self.name_tag(data, dest, &alpha),
+            banner_renderer::RENDERER => {
+                self.banner_pattern(data, dest, &alpha)?;
+                None
+            }
             _ => None,
         };
         match drawn {

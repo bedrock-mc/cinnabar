@@ -436,7 +436,7 @@ pub(in crate::chunk) fn prepare_transparent_model_sorts(
     allocations: Query<&GpuChunkAllocation>,
     texture_assets: Res<ChunkTextureAssets>,
     arena: Res<ChunkGpuArena>,
-    render_queue: Res<RenderQueue>,
+    upload_queue: TerrainUploadQueue,
     transparent_runtime: Res<TransparentSortRuntime>,
     mut upload_budget: ResMut<TransparentUploadBudget>,
     mut runtime: ResMut<TransparentModelSortRuntime>,
@@ -568,7 +568,7 @@ pub(in crate::chunk) fn prepare_transparent_model_sorts(
         for batch in batches {
             write_geometry_stream_words(
                 &arena,
-                &render_queue,
+                upload_queue.uploads(),
                 u64::from(batch.draw_range.start) * GEOMETRY_STREAM_WORD_BYTES,
                 bytemuck::cast_slice(&batch.words),
             );

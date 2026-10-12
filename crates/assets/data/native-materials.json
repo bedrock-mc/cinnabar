@@ -1,0 +1,24 @@
+{
+  "format_version": 1,
+  "materials": {
+    "minecraft:air": "ProvisionalNonSolidNonLiquid",
+    "minecraft:allium": "NonSolidNonLiquid",
+    "minecraft:azure_bluet": "NonSolidNonLiquid",
+    "minecraft:blue_orchid": "NonSolidNonLiquid",
+    "minecraft:brown_mushroom": "NonSolidNonLiquid",
+    "minecraft:cornflower": "NonSolidNonLiquid",
+    "minecraft:crimson_roots": "NonSolidNonLiquid",
+    "minecraft:dandelion": "NonSolidNonLiquid",
+    "minecraft:fern": "NonSolidNonLiquid",
+    "minecraft:lily_of_the_valley": "NonSolidNonLiquid",
+    "minecraft:orange_tulip": "NonSolidNonLiquid",
+    "minecraft:oxeye_daisy": "NonSolidNonLiquid",
+    "minecraft:pink_tulip": "NonSolidNonLiquid",
+    "minecraft:poppy": "NonSolidNonLiquid",
+    "minecraft:red_mushroom": "NonSolidNonLiquid",
+    "minecraft:red_tulip": "NonSolidNonLiquid",
+    "minecraft:short_grass": "NonSolidNonLiquid",
+    "minecraft:warped_roots": "NonSolidNonLiquid",
+    "minecraft:white_tulip": "NonSolidNonLiquid"
+  }
+}

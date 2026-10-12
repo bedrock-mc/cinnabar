@@ -55,6 +55,7 @@ fn world(entity: &CompiledEntityAssets) -> CompiledAssets {
             panic!("real block route required")
         };
         visuals[block_visual.0 as usize] = BlockVisual {
+            native_material: assets::native_material::NativeMaterialFacts::Unresolved,
             faces: [1, 2, 3, 4, 5, 6],
             flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
             kind: VisualKind::Cube,

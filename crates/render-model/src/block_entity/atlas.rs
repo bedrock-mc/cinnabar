@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use assets::RuntimeBlockEntityAssets;
 
-use super::mob::MobTexture;
+use super::{artwork::appended_layout, mob::MobTexture};
 
 /// Size of one text canvas cell in atlas pixels.
 pub const TEXT_CELL: [u32; 2] = [96, 48];
@@ -16,7 +16,7 @@ const TEXT_PAGE_HEIGHT: u32 = TEXT_CELL[1] * TEXT_PAGE_ROWS;
 /// Text cells per page.
 pub const TEXT_SLOT_COUNT: usize = (TEXT_COLUMNS * TEXT_PAGE_ROWS) as usize;
 /// Memory safety cap on text pages (800 distinct texts, about 16 MB at a 1024-wide atlas).
-const MAX_TEXT_PAGES: usize = 8;
+pub(super) const MAX_TEXT_PAGES: usize = 8;
 /// Size of one map image cell: a full 128x128 map.
 pub const MAP_CELL: [u32; 2] = [128, 128];
 const MAP_COLUMNS: u32 = 8;
@@ -27,7 +27,7 @@ const MAP_STRIP_HEIGHT: u32 = MAP_CELL[1] * MAP_ROWS;
 pub(crate) const MAX_NEW_CELLS_PER_FRAME: usize = 16;
 
 /// Height of the dynamic strips below the static atlas: maps, then `text_pages` text pages.
-const fn dynamic_height(text_pages: u32) -> u32 {
+pub(super) const fn dynamic_height(text_pages: u32) -> u32 {
     MAP_STRIP_HEIGHT + text_pages * TEXT_PAGE_HEIGHT
 }
 
@@ -160,68 +160,47 @@ impl BlockEntityAtlas {
     /// Shelf-packs `textures` into new static rows below the packed ones, moving the dynamic
     /// strips down; textures wider than the atlas or already present are skipped.
     pub fn append_textures(&mut self, textures: &[MobTexture]) {
-        let previous_count = self.placements.len();
+        let Some((added_height, placements)) = appended_layout(self.size[0], textures, |name| {
+            self.placements.contains_key(name)
+        }) else {
+            return;
+        };
+        if placements.is_empty() {
+            return;
+        }
         let width = self.size[0];
+        let height = self.static_height + added_height;
         let mut pixels = self.static_rgba8.to_vec();
-        let (mut x, mut y, mut shelf) = (0u32, self.static_height, 0u32);
-        for texture in textures {
-            let expected = texture.width as usize * texture.height as usize * 4;
-            if texture.width == 0
-                || texture.width > width
-                || texture.height == 0
-                || texture.rgba8.len() != expected
-                || self.placements.contains_key(texture.name.as_str())
-            {
-                continue;
-            }
-            if x + texture.width > width {
-                x = 0;
-                y += shelf + 1;
-                shelf = 0;
-            }
-            let needed = (y + texture.height) as usize * width as usize * 4;
-            if pixels.len() < needed {
-                pixels.resize(needed, 0);
-            }
+        pixels.resize(height as usize * width as usize * 4, 0);
+        for (texture, mut rect) in placements {
+            rect.y += self.static_height as f32;
             for row in 0..texture.height {
-                let target = ((y + row) as usize * width as usize + x as usize) * 4;
+                let target =
+                    ((rect.y as u32 + row) as usize * width as usize + rect.x as usize) * 4;
                 let source = row as usize * texture.width as usize * 4;
                 let length = texture.width as usize * 4;
                 pixels[target..target + length]
                     .copy_from_slice(&texture.rgba8[source..source + length]);
             }
-            self.placements.insert(
-                texture.name.as_str().into(),
-                AtlasRect {
-                    x: x as f32,
-                    y: y as f32,
-                    width: texture.width as f32,
-                    height: texture.height as f32,
-                },
-            );
-            x += texture.width + 1;
-            shelf = shelf.max(texture.height);
+            self.placements.insert(texture.name.as_str().into(), rect);
         }
-        let height = (pixels.len() / (width as usize * 4)) as u32;
         self.static_height = height;
         self.size[1] = height + dynamic_height(self.text_pages);
         self.static_rgba8 = Arc::from(pixels);
-        if self.placements.len() != previous_count {
-            use sha2::{Digest, Sha256};
-            let mut hash = Sha256::new();
-            hash.update(self.identity);
-            hash.update(width.to_le_bytes());
-            hash.update(height.to_le_bytes());
-            hash.update(&self.static_rgba8);
-            for (name, rect) in &self.placements {
-                hash.update((name.len() as u64).to_le_bytes());
-                hash.update(name.as_bytes());
-                for value in [rect.x, rect.y, rect.width, rect.height] {
-                    hash.update(value.to_bits().to_le_bytes());
-                }
+        use sha2::{Digest, Sha256};
+        let mut hash = Sha256::new();
+        hash.update(self.identity);
+        hash.update(width.to_le_bytes());
+        hash.update(height.to_le_bytes());
+        hash.update(&self.static_rgba8);
+        for (name, rect) in &self.placements {
+            hash.update((name.len() as u64).to_le_bytes());
+            hash.update(name.as_bytes());
+            for value in [rect.x, rect.y, rect.width, rect.height] {
+                hash.update(value.to_bits().to_le_bytes());
             }
-            self.identity = hash.finalize().into();
         }
+        self.identity = hash.finalize().into();
     }
 
     /// One RGBA8 texel of a packed texture, in the texture's own pixel coordinates.
@@ -306,6 +285,28 @@ impl CellPool {
         self.last_used.resize(self.keys.len(), 0);
     }
 
+    /// Changes each page's row stride while retaining its slots, pixels and usage history.
+    fn resize_width(&mut self, width: usize) {
+        if self.width == width {
+            return;
+        }
+        let old_stride = self.width * 4;
+        let new_stride = width * 4;
+        let copied = old_stride.min(new_stride);
+        for page in &mut self.pages {
+            let mut resized = vec![0; new_stride * self.cell[1] * self.rows_per_page];
+            for (source, target) in page
+                .chunks_exact(old_stride)
+                .zip(resized.chunks_exact_mut(new_stride))
+            {
+                target[..copied].copy_from_slice(&source[..copied]);
+            }
+            *page = resized;
+        }
+        self.width = width;
+        self.revision = self.revision.wrapping_add(1);
+    }
+
     /// Returns the slot for key, rasterizing make on a miss with bounded per-frame work.
     /// Evicts only unused slots; returns None for invalid canvases or exhausted page/raster budgets.
     fn slot(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<usize> {
@@ -384,6 +385,19 @@ impl DynamicCells {
             ),
             maps: CellPool::new(atlas_width, MAP_CELL, MAP_COLUMNS, MAP_ROWS, 1),
         }
+    }
+
+    /// Clears all canvases while advancing the upload revision beyond the previous contents.
+    pub fn reset(&mut self, atlas_width: u32) {
+        let revision = self.revision().wrapping_add(1);
+        *self = Self::new(atlas_width);
+        self.text.revision = revision;
+    }
+
+    /// Fits retained sign and map pages to a replacement atlas without rasterizing them again.
+    pub fn resize_width(&mut self, atlas_width: u32) {
+        self.text.resize_width(atlas_width as usize);
+        self.maps.resize_width(atlas_width as usize);
     }
 
     /// Ends the frame whose rects were just submitted; their slots become evictable again and
@@ -575,6 +589,40 @@ mod tests {
         // The map strip opens the upload block so growing text pages never move it.
         assert_eq!(cells.pixels()[0], 5);
         assert_eq!(cells.pixels().len(), 1024 * dynamic_height(1) as usize * 4);
+    }
+
+    #[test]
+    fn changed_atlas_width_preserves_cached_signs_maps_and_page_rows() {
+        let mut cells = DynamicCells::new(1024);
+        let keys: Vec<_> = (0..32).collect();
+        let slots = settle(&mut cells, &keys, 128);
+        cells
+            .map_slot(1, || vec![64; (MAP_CELL[0] * MAP_CELL[1] * 4) as usize])
+            .unwrap();
+        let before = cells.pixels();
+        let revision = cells.revision();
+        cells.resize_width(2048);
+        assert_ne!(cells.revision(), revision);
+        let wide = cells.pixels();
+        for (source, target) in before
+            .chunks_exact(1024 * 4)
+            .zip(wide.chunks_exact(2048 * 4))
+        {
+            assert_eq!(&target[..source.len()], source);
+            assert!(target[source.len()..].iter().all(|pixel| *pixel == 0));
+        }
+        cells.resize_width(1024);
+        assert_eq!(cells.pixels(), before);
+        for (key, slot) in keys.into_iter().zip(slots) {
+            assert_eq!(
+                cells.text_slot(key, || panic!("retained signs must not rasterize")),
+                Some(slot)
+            );
+        }
+        assert_eq!(
+            cells.map_slot(1, || panic!("retained maps must not rasterize")),
+            Some(0)
+        );
     }
 
     #[test]

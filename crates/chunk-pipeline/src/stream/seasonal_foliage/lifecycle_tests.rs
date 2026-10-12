@@ -50,7 +50,7 @@ fn seasonal_palette_refresh_changes_colours_not_dense_identity_or_meshes() {
     assert_eq!(after.records[dense].grass, before.records[dense].grass);
     assert_eq!(after.records[dense].foliage, before.records[dense].foliage);
     assert_eq!(after.records[dense].water, before.records[dense].water);
-    let covered = assets::SEASONAL_FOLIAGE_EXPOSED_OFFSET;
+    let covered = assets::seasonal_foliage::SEASONAL_FOLIAGE_EXPOSED_OFFSET;
     assert_eq!(
         after.records[dense].seasonal_foliage[..covered],
         before.records[dense].seasonal_foliage[..covered]

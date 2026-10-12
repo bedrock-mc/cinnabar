@@ -20,6 +20,7 @@ use crate::inventory::{InventoryPacketError, VerifiedNetworkItemStack};
 #[cfg(test)]
 mod animation_tests;
 mod attack;
+mod banner;
 mod components;
 mod display;
 mod facts;
@@ -28,6 +29,7 @@ pub use facts::{ItemStackFacts, ItemStackFactsCache};
 mod registry_capacity;
 
 pub use attack::{ItemAttackCooldown, ItemAttackTiming, KineticWeaponTiming};
+pub use banner::{ItemBannerPattern, item_banner_patterns};
 pub(crate) use components::item_components;
 pub use components::{FoodProperties, ItemComponents, ItemUseCooldown};
 pub use display::{

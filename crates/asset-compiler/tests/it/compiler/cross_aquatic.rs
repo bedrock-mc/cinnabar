@@ -143,7 +143,10 @@ fn compiler_compiles_exact_terrestrial_cross_alias_tint_and_crop_variants() {
         let template = compiled.model_templates[visual.model_template as usize];
         assert_eq!(
             template.quad_count,
-            if records[index].name.as_ref() == "minecraft:wheat" {
+            if matches!(
+                records[index].name.as_ref(),
+                "minecraft:wheat" | "minecraft:carrots"
+            ) {
                 4
             } else {
                 2

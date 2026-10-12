@@ -67,16 +67,16 @@ pub(super) fn heart_role(
     })
 }
 
-/// Ticks per blink cycle in the final seconds. Needs independent measurement.
-const BLINK_PERIOD_TICKS: f32 = 10.0;
-/// Blink swing around the resting opacity, growing toward expiry. Needs independent measurement.
-const BLINK_MIN_SWING: f32 = 0.1;
-const BLINK_MAX_SWING: f32 = 0.25;
-const BLINK_CENTER: f32 = 0.75;
+/// Ticks per Java blink cycle in the final seconds. Needs independent measurement.
+const JAVA_BLINK_PERIOD_TICKS: f32 = 10.0;
+/// Java blink swing around the resting opacity, growing toward expiry. Needs independent measurement.
+const JAVA_BLINK_MIN_SWING: f32 = 0.1;
+const JAVA_BLINK_MAX_SWING: f32 = 0.25;
+const JAVA_BLINK_CENTER: f32 = 0.75;
 
-/// Alpha for an effect entry: solid normally; through the final ten seconds it pulses on a fixed
+/// Java-layout alpha: solid normally; through the final ten seconds it pulses on a fixed
 /// period with a swing that widens as the effect runs out.
-pub(super) fn effect_blink_alpha(effect: &HudEffect, now_tick: Option<u64>) -> u8 {
+pub(super) fn java_effect_blink_alpha(effect: &HudEffect, now_tick: Option<u64>) -> u8 {
     let Some(remaining) = effect.remaining_ticks(now_tick) else {
         return 255;
     };
@@ -84,9 +84,22 @@ pub(super) fn effect_blink_alpha(effect: &HudEffect, now_tick: Option<u64>) -> u
         return 255;
     }
     let urgency = 1.0 - remaining as f32 / EFFECT_BLINK_TICKS as f32;
-    let swing = BLINK_MIN_SWING + (BLINK_MAX_SWING - BLINK_MIN_SWING) * urgency;
-    let wave = (remaining as f32 * std::f32::consts::TAU / BLINK_PERIOD_TICKS).cos();
-    ((BLINK_CENTER + swing * wave).clamp(0.0, 1.0) * 255.0) as u8
+    let swing = JAVA_BLINK_MIN_SWING + (JAVA_BLINK_MAX_SWING - JAVA_BLINK_MIN_SWING) * urgency;
+    let wave = (remaining as f32 * std::f32::consts::TAU / JAVA_BLINK_PERIOD_TICKS).cos();
+    ((JAVA_BLINK_CENTER + swing * wave).clamp(0.0, 1.0) * 255.0) as u8
+}
+
+/// Vanilla icon alpha: solid, except a non-ambient effect in its final ten seconds
+/// pulses between 0.25 and 0.75 on a ten-tick period.
+pub(super) fn effect_blink_alpha(effect: &HudEffect, now_tick: Option<u64>) -> u8 {
+    let Some(remaining) = effect.remaining_ticks(now_tick) else {
+        return 255;
+    };
+    if effect.ambient || remaining >= EFFECT_BLINK_TICKS {
+        return 255;
+    }
+    let wave = (remaining as f32 * std::f32::consts::PI / 5.0).cos();
+    ((wave * 0.25 + 0.5) * 255.0) as u8
 }
 
 /// Durability hue: green at full durability sweeping to red, matching the
@@ -133,10 +146,10 @@ mod tests {
     }
 
     #[test]
-    fn blink_pulses_within_bounds_and_widens_toward_expiry() {
+    fn java_blink_pulses_within_bounds_and_widens_toward_expiry() {
         let range = |from: u64, to: u64| {
             let alphas: Vec<u8> = (from..to)
-                .map(|now| effect_blink_alpha(&effect(1_000), Some(now)))
+                .map(|now| java_effect_blink_alpha(&effect(1_000), Some(now)))
                 .collect();
             (*alphas.iter().min().unwrap(), *alphas.iter().max().unwrap())
         };
@@ -144,5 +157,19 @@ mod tests {
         let (late_low, late_high) = range(980, 1_000);
         assert!(late_high - late_low > early_high - early_low);
         assert!(late_low >= 120);
+    }
+
+    #[test]
+    fn blink_pulses_between_a_quarter_and_three_quarters_every_ten_ticks() {
+        let alphas: Vec<u8> = (990..1_000)
+            .map(|now| effect_blink_alpha(&effect(1_000), Some(now)))
+            .collect();
+        assert_eq!(*alphas.iter().max().unwrap(), 191);
+        assert_eq!(*alphas.iter().min().unwrap(), 63);
+        let ambient = HudEffect {
+            ambient: true,
+            ..effect(1_000)
+        };
+        assert_eq!(effect_blink_alpha(&ambient, Some(995)), 255);
     }
 }

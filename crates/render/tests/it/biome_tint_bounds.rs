@@ -56,14 +56,14 @@ fn edge_record() -> meshing::PackedBiomeRecord {
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct TintRow {
     packed: [u32; 8],
-    seasonal_foliage: [[f32; 4]; assets::SEASONAL_FOLIAGE_COUNT],
+    seasonal_foliage: [[f32; 4]; assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT],
 }
 
 /// Grass tint rows for tint indices 0 (red) and 1 (green), laid out as `BiomeTintGpu`.
 fn tint_table() -> [TintRow; 2] {
     [0x3ff, 0x3ff << 10].map(|grass| TintRow {
         packed: [grass, 0, 0, 0, 0, 0, 0, 0],
-        seasonal_foliage: [[0.0; 4]; assets::SEASONAL_FOLIAGE_COUNT],
+        seasonal_foliage: [[0.0; 4]; assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT],
     })
 }
 

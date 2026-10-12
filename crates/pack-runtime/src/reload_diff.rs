@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Subscriber {
     Blocks,
+    BlockEntityArt,
     Atmosphere,
     Particles,
     Icons,
@@ -60,6 +61,7 @@ pub struct Changes {
     /// Whether any file may read differently, so whole-stack facts are read again.
     pub contents: bool,
     pub blocks: bool,
+    pub block_entity_art: bool,
     pub atmosphere: bool,
     pub particles: bool,
     pub icons: bool,
@@ -77,6 +79,7 @@ impl Changes {
         Self {
             contents: true,
             blocks: true,
+            block_entity_art: true,
             atmosphere: true,
             particles: true,
             icons: true,
@@ -95,6 +98,7 @@ impl Changes {
         Self {
             contents: false,
             blocks: !next.same_blocks(previous),
+            block_entity_art: false,
             atmosphere: false,
             particles: false,
             icons: !next.same_icons(previous),
@@ -143,6 +147,7 @@ impl Changes {
         Self {
             contents: true,
             blocks,
+            block_entity_art: changed(Subscriber::BlockEntityArt),
             atmosphere: changed(Subscriber::Atmosphere),
             particles: changed(Subscriber::Particles),
             icons: blocks || changed(Subscriber::Icons),

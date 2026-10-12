@@ -129,7 +129,7 @@ impl Fixture {
         let templates = gpu.words(&templates, storage);
         let empty = gpu.words(&[0; 64], storage);
         // Biome tint 0 is the fallback: a blue water tint at half opacity.
-        let mut tint = [0.0_f32; 8 + assets::SEASONAL_FOLIAGE_COUNT * 4];
+        let mut tint = [0.0_f32; 8 + assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT * 4];
         tint[5] = f32::from_bits(0xff_80_40);
         tint[7] = 0.5;
         let tints = gpu.buffer(&tint, storage);
