@@ -1,6 +1,7 @@
 //! Equipment publication keeps authored worn poses beneath the selected player body.
 
 use super::*;
+use crate::presentation::equipment::remote_input;
 use crate::presentation::{actors::ActorPresentationBatch, equipment::ActorEquipmentInput};
 
 /// Adds held and worn layers before cape artwork can replace a worn wing texture.

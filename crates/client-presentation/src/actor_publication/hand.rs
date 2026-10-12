@@ -2,6 +2,12 @@
 
 use super::*;
 use crate::presentation::equipment::ActorEquipmentInput;
+use crate::presentation::{
+    actors::{ActorRigPresentation, rig_world_from_actor},
+    equipment::{FirstPersonArms, FirstPersonHand, FirstPersonItem},
+};
+use bevy::math::Mat4;
+use render_model::{ActorRigSubmission, HandItemAtlas, HandRigLight};
 
 #[cfg(test)]
 mod lighting_tests;
