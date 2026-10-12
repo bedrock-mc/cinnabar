@@ -134,7 +134,7 @@ mod tests {
         facts.actors[0].boxes[0].min.0 = f32::NAN;
         assert!(validate(&facts).is_err());
         facts.actors.clear();
-        facts.combat.push(facts.combat[0].clone());
+        facts.combat.push(facts.combat[0]);
         assert!(validate(&facts).is_err());
     }
 }
