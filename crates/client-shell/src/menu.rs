@@ -407,6 +407,9 @@ impl MenuRuntime {
 
     /// Shows local join errors in the world menu and remote errors on the disconnect screen.
     pub fn show_join_failure(&mut self, message: String) {
+        if launcher::menu::disconnect::requires_client_update(&message) {
+            launcher_host::lifecycle::update::protocol_required();
+        }
         if self.feeds.join.kind == JoinKind::Local || !self.launcher {
             self.message = Some(message);
         } else {
@@ -550,6 +553,11 @@ impl MenuRuntime {
             MenuAction::OpenExitDialog => {
                 self.dialog = Some(MenuDialog::Exit);
                 self.focused = 0;
+            }
+            MenuAction::Update(action) => {
+                if !self.over_world() && launcher_host::lifecycle::update::act(action) {
+                    self.intents.exit = true;
+                }
             }
             MenuAction::ConfirmExit => {
                 self.dialog = None;

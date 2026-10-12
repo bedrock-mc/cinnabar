@@ -5,6 +5,8 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+mod focus;
+
 struct Harness {
     app: App,
     window: Entity,
@@ -80,6 +82,26 @@ impl Harness {
         self.key(key, ButtonState::Released, None);
     }
 
+    /// This frame's inventory Shift and Control state, as gameplay reads it.
+    fn inventory_modifiers(&mut self) -> (bool, bool) {
+        let (_, shift, control) = self
+            .app
+            .world_mut()
+            .resource_mut::<UiRuntimeResource>()
+            .inventory_keys_mut()
+            .take_frame();
+        (shift, control)
+    }
+
+    /// Sets whether the window has keyboard focus.
+    fn set_focused(&mut self, focused: bool) {
+        self.app
+            .world_mut()
+            .get_mut::<Window>(self.window)
+            .unwrap()
+            .focused = focused;
+    }
+
     fn text(&self) -> &str {
         self.app
             .world()
@@ -130,7 +152,7 @@ fn modifier_sides_release_independently_and_alt_excludes_paste() {
     h.press(KeyCode::ControlRight, None);
     h.release(KeyCode::ControlLeft);
     h.press(KeyCode::AltRight, None);
-    h.press(KeyCode::KeyV, Some("v"));
+    h.press(KeyCode::KeyV, None);
     assert_eq!(h.text(), "");
     assert_eq!(h.reads.load(Ordering::Relaxed), 0);
     h.release(KeyCode::AltRight);
@@ -329,8 +351,8 @@ fn alt_excludes_select_all_and_copy_shortcuts() {
     h.press(KeyCode::KeyX, Some("draft"));
     h.press(KeyCode::ControlLeft, None);
     h.press(KeyCode::AltLeft, None);
-    h.press(KeyCode::KeyA, Some("a"));
-    h.press(KeyCode::KeyC, Some("c"));
+    h.press(KeyCode::KeyA, None);
+    h.press(KeyCode::KeyC, None);
     assert!(
         h.app
             .world()
@@ -341,4 +363,29 @@ fn alt_excludes_select_all_and_copy_shortcuts() {
     );
     assert_eq!(*h.clipboard.lock().unwrap(), "pasted 🦀");
     assert_eq!(h.text(), "draft");
+}
+
+#[test]
+fn altgr_and_option_characters_type_but_control_and_command_text_does_not() {
+    let mut h = Harness::new();
+    h.press(KeyCode::KeyT, Some("t"));
+    h.press(KeyCode::AltRight, None);
+    h.press(KeyCode::KeyQ, Some("@"));
+    h.press(KeyCode::KeyA, Some("ą"));
+    h.release(KeyCode::AltRight);
+    h.press(KeyCode::AltLeft, None);
+    h.press(KeyCode::KeyL, Some("@"));
+    h.release(KeyCode::AltLeft);
+    // Windows reports AltGr as Ctrl+Alt.
+    h.press(KeyCode::ControlLeft, None);
+    h.press(KeyCode::AltRight, None);
+    h.press(KeyCode::Digit7, Some("{"));
+    h.release(KeyCode::AltRight);
+    h.press(KeyCode::KeyX, Some("x"));
+    h.release(KeyCode::ControlLeft);
+    h.press(KeyCode::SuperLeft, None);
+    h.press(KeyCode::KeyX, Some("x"));
+    h.release(KeyCode::SuperLeft);
+    assert_eq!(h.text(), "@ą@{");
+    assert_eq!(h.reads.load(Ordering::Relaxed), 0);
 }

@@ -448,7 +448,7 @@ fn compile_application(
             .or_default()
             .extend(inputs);
     }
-    client_runtime::item_diagnostics::session_icons(icon_keys.len(), item_icons.as_deref());
+    client_runtime::item_diagnostics::session_icons(icon_keys, item_icons.as_deref());
     if entities_stopped || cancelled() {
         return None;
     }

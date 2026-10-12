@@ -63,6 +63,7 @@ members = [
     "crates/simulation-clock",
     "crates/env-compat",
     "crates/update-manifest",
+    "crates/update-installer",
     "tools/architecture",
     "tools/bedrock-replay",
     "tools/devtool",

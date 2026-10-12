@@ -1,6 +1,6 @@
 # Builds the Windows payload, MSI and self-contained setup EXE. Requires WiX v5,
 # WixToolset.BootstrapperApplications.wixext v5, and ImageMagick.
-# Usage: build-installer.ps1 [-Out <dir>]. Env: CINNABAR_UPDATE_URL (optional).
+# Usage: build-installer.ps1 [-Out <dir>].
 param([string]$Out = ".local/dist/windows-release", [string]$Binaries = "",
       [string]$Root = (Join-Path $PSScriptRoot "../.."))
 $ErrorActionPreference = "Stop"
@@ -37,7 +37,6 @@ $fontSource = Get-Content -Raw (Join-Path $root "assets/cinnangles-sans-source.j
 $font = Join-Path $root "assets/fonts/$($fontSource.font_file)"
 if (-not (Test-Path $font)) { throw "missing $font" }
 Copy-Item $font (Join-Path $resources "fonts")
-if ($env:CINNABAR_UPDATE_URL) { [System.IO.File]::WriteAllText((Join-Path $resources "update-url"), $env:CINNABAR_UPDATE_URL) }
 
 $icon = Join-Path $outPath "cinnabar.ico"
 magick -background none -density 384 (Join-Path $PSScriptRoot "../icons/cinnabar.svg") -define icon:auto-resize=256,128,64,48,32,16 $icon

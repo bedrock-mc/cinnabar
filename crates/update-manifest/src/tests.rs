@@ -1,4 +1,5 @@
 use super::*;
+use crate::select::{Check, evaluate, evaluate_build, newer, newer_build};
 use time::Duration;
 
 const SEED: [u8; KEY_BYTES] = [7; KEY_BYTES];
@@ -17,6 +18,7 @@ fn manifest() -> Manifest {
         schema: SCHEMA,
         channel: "stable".to_owned(),
         version: "0.2.0".to_owned(),
+        build_number: 2,
         expires: now() + Duration::hours(1),
         notes_url: String::new(),
         artifacts: BTreeMap::from([(
@@ -268,4 +270,50 @@ fn signing_needs_a_full_seed() {
     ));
     assert!(matches!(public_key(&[1; 31]), Err(Error::SigningKey)));
     assert_ne!(generate_seed().unwrap(), generate_seed().unwrap());
+}
+
+#[test]
+fn successive_nightlies_and_numeric_prereleases_are_ordered_correctly() {
+    assert!(newer("1.0.0-beta.10", "1.0.0-beta.2").unwrap());
+    assert!(!newer("1.0.0+other", "1.0.0+first").unwrap());
+    assert!(newer_build("1.0.0-nightly", 102, "1.0.0-nightly", 101).unwrap());
+    assert!(!newer_build("1.0.0-beta", 100, "1.0.0-nightly", 101).unwrap());
+    assert!(!newer_build("1.0.0", 0, "1.0.0-nightly", 101).unwrap());
+    assert!(!newer_build("0.9.0", 200, "1.0.0", 101).unwrap());
+    assert!(newer_build("1.0.1", 1, "1.0.0", 101).unwrap());
+}
+
+#[test]
+fn slower_channel_waits_and_only_an_explicit_switch_permits_its_older_build() {
+    let release = manifest();
+    let check = Check {
+        channel: "stable",
+        platform: "macos-arm64",
+        current: "0.2.0-nightly",
+        current_build: 3,
+        switch_now: false,
+    };
+    assert!(!evaluate_build(&release, check).unwrap().available);
+    assert!(
+        evaluate_build(
+            &release,
+            Check {
+                switch_now: true,
+                ..check
+            }
+        )
+        .unwrap()
+        .available
+    );
+    assert!(
+        evaluate_build(
+            &release,
+            Check {
+                channel: "beta",
+                switch_now: true,
+                ..check
+            }
+        )
+        .is_err()
+    );
 }

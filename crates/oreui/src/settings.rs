@@ -397,6 +397,12 @@ impl Content<'_, '_> {
             (self.translate)(&description_key).map_or_else(String::new, |text| text.to_string());
         let description = if name == launcher::menu::settings_options::VRR_OPTION.name {
             "Automatic uses display detection. Choose On if variable refresh is enabled in your display and system settings, or Off to disable the VRR frame cap.".to_owned()
+        } else if name == launcher::menu::settings_options::AUTO_UPDATE_OPTION.name {
+            "Check the selected channel and download verified updates in the background.".to_owned()
+        } else if name == launcher::menu::settings_options::INSTALL_ON_QUIT_OPTION.name {
+            "Install a downloaded update and restart when you quit. Later defers it for this session.".to_owned()
+        } else if name == launcher::menu::settings_options::UPDATE_CHANNEL_OPTION.name {
+            "A slower channel waits until its version passes your installed build. Stable appears after its first signed release.".to_owned()
         } else if name == "screen_animations" {
             "Smooth highlights, button presses and screen transitions. Turn off for an instant interface.".to_owned()
         } else if (name == "render_clouds"
@@ -486,12 +492,15 @@ impl Content<'_, '_> {
             }
             SettingKind::Dropdown(choices) => {
                 let [left, right] = self.inset();
-                let labels: Vec<_> = choices
-                    .iter()
-                    .map(|choice| self.word(choice.label))
+                let visible: Vec<_> = (0..choices.len())
+                    .filter(|choice| self.view.setting_choice_visible(option, *choice))
                     .collect();
-                let picker = choices.len() > 5
-                    || self.column_width < self.canvas.r(15.0 * choices.len() as f32)
+                let labels: Vec<_> = visible
+                    .iter()
+                    .map(|choice| self.word(choices[*choice].label))
+                    .collect();
+                let picker = labels.len() > 5
+                    || self.column_width < self.canvas.r(15.0 * labels.len() as f32)
                     || labels.iter().any(|label| {
                         label.encode_utf16().count()
                             > if self.column_width < self.canvas.r(70.0) {
@@ -543,8 +552,8 @@ impl Content<'_, '_> {
                                 control[3],
                             ],
                             label,
-                            choice == value as usize,
-                            MenuAction::SettingsOption(index as u16, choice as i32),
+                            visible[choice] == value as usize,
+                            MenuAction::SettingsOption(index as u16, visible[choice] as i32),
                         )?;
                     }
                     for choice in 0..labels.len() {
@@ -557,8 +566,8 @@ impl Content<'_, '_> {
                                 left + (choice + 1) as f32 * cell_width,
                                 control[3],
                             ],
-                            choice == value as usize,
-                            MenuAction::SettingsOption(index as u16, choice as i32),
+                            visible[choice] == value as usize,
+                            MenuAction::SettingsOption(index as u16, visible[choice] as i32),
                         )?;
                     }
                 }

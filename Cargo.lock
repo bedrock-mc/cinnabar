@@ -729,6 +729,7 @@ dependencies = [
  "ui",
  "ui-engine",
  "ui-screens",
+ "update-manifest",
  "url",
  "wgpu",
  "windows-sys 0.61.2",
@@ -4543,6 +4544,7 @@ dependencies = [
  "sha2",
  "thiserror 2.0.18",
  "ui",
+ "update-manifest",
  "zip",
 ]
 
@@ -4568,8 +4570,10 @@ dependencies = [
  "tempfile",
  "test-time",
  "thiserror 2.0.18",
+ "time",
  "tokio",
  "tracing",
+ "update-installer",
  "update-manifest",
  "url",
  "windows-sys 0.61.2",
@@ -6335,6 +6339,7 @@ name = "release-manifest"
 version = "0.1.16"
 dependencies = [
  "base64",
+ "serde_json",
  "sha2",
  "tempfile",
  "time",
@@ -7743,6 +7748,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
+name = "update-installer"
+version = "0.1.16"
+dependencies = [
+ "anyhow",
+ "rustix 1.1.4",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "time",
+ "update-manifest",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "update-manifest"
 version = "0.1.16"
 dependencies = [
@@ -7750,6 +7769,7 @@ dependencies = [
  "ring",
  "serde",
  "serde_json",
+ "semver",
  "thiserror 2.0.18",
  "time",
  "url",

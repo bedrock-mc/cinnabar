@@ -76,6 +76,9 @@ pub(super) struct Compiler<'a> {
     pub log: Option<File>,
     /// Set to stop the running compiler and the run.
     pub cancel: &'a AtomicBool,
+    /// Leads its own process group so cancellation reaches its descendants. Under the update
+    /// helper it stays in the helper's group instead, so a rollback stops it too.
+    pub own_group: bool,
 }
 
 impl Compiler<'_> {
@@ -154,7 +157,7 @@ impl Compiler<'_> {
         #[cfg(all(windows, not(debug_assertions)))]
         launcher_host::desktop::windows::hide_console(&mut command);
         #[cfg(unix)]
-        {
+        if self.own_group {
             use std::os::unix::process::CommandExt;
             command.process_group(0);
         }
@@ -349,6 +352,7 @@ mod tests {
             workspace: dir.into(),
             log: Some(File::create(dir.join("log")).unwrap()),
             cancel,
+            own_group: true,
         }
     }
 
@@ -394,6 +398,29 @@ mod tests {
             let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
         }
         assert!(!alive, "setup left its descendant running");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn under_the_updater_the_compiler_stays_where_a_rollback_can_stop_it() {
+        let dir = Dir::new("compiler-group");
+        let cancel = AtomicBool::new(false);
+        let ours = rustix::process::getpgrp()
+            .as_raw_nonzero()
+            .get()
+            .to_string();
+        for own_group in [true, false] {
+            let mut compiler = shell_compiler(dir.path(), &cancel);
+            compiler.own_group = own_group;
+            let mut groups = Vec::new();
+            compiler
+                .run(&script("ps -o pgid= -p $$"), |line| {
+                    groups.push(line.to_owned())
+                })
+                .unwrap();
+            assert_eq!(groups.len(), 1);
+            assert_eq!(groups[0] == ours, !own_group, "own group: {own_group}");
+        }
     }
 
     #[cfg(unix)]

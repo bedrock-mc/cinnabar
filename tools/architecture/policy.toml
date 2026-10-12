@@ -165,7 +165,7 @@ test_support_features = ["test-support"]
 name = "launcher"
 path = "crates/launcher"
 test_support_features = ["test-support"]
-allowed_dependencies = ["assets", "bridge", "render-api", "resource-pack", "semantic-input", "ui"]
+allowed_dependencies = ["assets", "bridge", "render-api", "resource-pack", "semantic-input", "ui", "update-manifest"]
 forbidden_dependencies = ["protocol", "server-experience"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "player-state", "inventory", "client-world", "world", "sim", "render", "asset-compiler", "pack-compiler", "bevy", "bevy_*", "wgpu*"]
 
@@ -1150,7 +1150,7 @@ exports = [
 [[crates]]
 name = "launcher-host"
 path = "crates/launcher-host"
-allowed_dependencies = ["bridge", "launcher", "protocol", "server-experience", "test-time", "update-manifest"]
+allowed_dependencies = ["bridge", "launcher", "protocol", "server-experience", "test-time", "update-manifest", "update-installer"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
@@ -1174,3 +1174,9 @@ path = "crates/simulation-clock"
 allowed_dependencies = []
 dependency_free = true
 forbidden_dependencies = ["bevy", "wgpu"]
+
+[[crates]]
+name = "update-installer"
+path = "crates/update-installer"
+allowed_dependencies = ["update-manifest"]
+forbidden_dependencies = ["bevy", "wgpu", "reqwest", "tokio"]
