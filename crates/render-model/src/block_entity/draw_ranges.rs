@@ -103,7 +103,7 @@ mod tests {
             glam::camera::rh::proj::directx::perspective_infinite_reverse(1.0, 1.0, 0.1);
         assert_eq!(
             visible_ranges(&runs, projection).collect::<Vec<_>>(),
-            [0..vertices.len() as u32]
+            std::iter::once(0..vertices.len() as u32).collect::<Vec<_>>()
         );
         assert_eq!(
             visible_ranges(
