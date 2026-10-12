@@ -46,8 +46,8 @@ impl PlatformClipboard {
         PLATFORM_CLIPBOARD.shutdown();
     }
 
-    /// Releases the connection on forced exit unless clipboard I/O holds its lock.
-    /// A busy connection skips the handoff so process termination can proceed.
+    /// Abandons the connection on forced exit unless clipboard I/O holds its lock.
+    /// Skips destruction and handoff so process termination cannot wait on them.
     pub fn shutdown_if_idle() {
         PLATFORM_CLIPBOARD.shutdown_if_idle();
     }
@@ -108,7 +108,7 @@ impl<B: ClipboardBackend> ClipboardOwner<B> {
         state.backend = None;
     }
 
-    /// Drops an idle connection without waiting for an operation holding its lock.
+    /// Forgets an idle connection without waiting for its lock or destructor.
     fn shutdown_if_idle(&self) {
         let mut state = match self.state.try_lock() {
             Ok(state) => state,
@@ -116,7 +116,8 @@ impl<B: ClipboardBackend> ClipboardOwner<B> {
             Err(TryLockError::WouldBlock) => return,
         };
         state.shutting_down = true;
-        state.backend = None;
+        // The process is exiting; the OS reclaims the connection without clipboard I/O.
+        std::mem::forget(state.backend.take());
     }
 
     /// Runs `action` on the retained connection, opening it on first use.
@@ -249,6 +250,7 @@ mod tests {
             .expect("write succeeds");
         assert_eq!(DROPPED_CONNECTIONS.load(Ordering::SeqCst), 0);
 
+        owner.shutdown();
         children.stop_all(std::time::Duration::ZERO);
         children.stop_all(std::time::Duration::ZERO);
         owner.shutdown();
@@ -275,6 +277,33 @@ mod tests {
 
         assert_eq!(OPENED_CONNECTIONS.load(Ordering::SeqCst), 0);
         assert_eq!(DROPPED_CONNECTIONS.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn forced_exit_abandons_the_backend_without_running_its_destructor() {
+        let _platform = reset_platform();
+        let owner = Arc::new(ClipboardOwner::<SelectionServingBackend>::new());
+        let children = launcher_host::lifecycle::children::Children::new();
+        let exit_owner = Arc::clone(&owner);
+        let _exit = children.on_exit(move || exit_owner.shutdown_if_idle());
+        owner
+            .write_text("copied text".to_owned())
+            .expect("write succeeds");
+
+        children.stop_all(std::time::Duration::ZERO);
+        children.stop_all(std::time::Duration::ZERO);
+        owner.shutdown();
+
+        assert_eq!(DROPPED_CONNECTIONS.load(Ordering::SeqCst), 0);
+        assert!(matches!(
+            owner.read_text_bounded(64),
+            Err(PlatformClipboardError::ShuttingDown)
+        ));
+        assert_eq!(OPENED_CONNECTIONS.load(Ordering::SeqCst), 1);
+        drop(owner);
+
+        assert_eq!(DROPPED_CONNECTIONS.load(Ordering::SeqCst), 0);
+        assert_eq!(served_selection().as_deref(), Some("copied text"));
     }
 
     #[test]
