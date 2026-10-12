@@ -1,6 +1,9 @@
 //! Real held meshes and authored hand placements, independent of GUI icon projection.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, OnceLock},
+};
 
 use assets::{
     EquipmentCategory, ItemDisplayScalar, ItemVisualDefinitionRoute, ItemVisualKey,
@@ -14,6 +17,50 @@ use {
     ui::IconRef,
 };
 
+/// One item's held model. A sprite item's extruded mesh is built the first time a preview holds
+/// it, since every item has one and most are never held.
+pub(super) struct HeldModel {
+    model: PreviewHeldModel,
+    /// The item sprite extruded on first use; `None` for models built up front.
+    sprite: Option<usize>,
+    extruded: OnceLock<Option<Arc<[render_model::ActorRigVertex]>>>,
+}
+
+impl HeldModel {
+    const fn ready(model: PreviewHeldModel) -> Self {
+        Self {
+            model,
+            sprite: None,
+            extruded: OnceLock::new(),
+        }
+    }
+
+    /// The model with its mesh, extruding a sprite item's sprite from `icons` on first use;
+    /// `None` when that sprite has no mesh.
+    pub(super) fn model(&self, icons: &RuntimeIconCatalog) -> Option<PreviewHeldModel> {
+        let Some(sprite) = self.sprite else {
+            return Some(self.model.clone());
+        };
+        let vertices = self
+            .extruded
+            .get_or_init(|| {
+                let sprite = icons.sprites().get(sprite)?;
+                held_sprite_vertices(
+                    usize::from(sprite.width),
+                    usize::from(sprite.height),
+                    &sprite.rgba8,
+                    [0.0, 0.0, 1.0, 1.0],
+                )
+                .map(Into::into)
+            })
+            .clone()?;
+        Some(PreviewHeldModel {
+            vertices,
+            ..self.model.clone()
+        })
+    }
+}
+
 pub(super) fn prepare(
     atlas: &mut atlas::Atlas,
     entities: &RuntimeEntityAssets,
@@ -21,7 +68,7 @@ pub(super) fn prepare(
     icon_refs: &[IconRef],
     equipment: Option<&RuntimeEquipmentCatalog>,
     blocks: &BTreeMap<u32, IconRef>,
-) -> Result<BTreeMap<ItemVisualKey, PreviewHeldModel>, UiPresentationError> {
+) -> Result<BTreeMap<ItemVisualKey, HeldModel>, UiPresentationError> {
     let Some(hand_pivots) = player_hands(entities) else {
         // A model without native item bones cannot safely manufacture a grip origin.
         return Ok(BTreeMap::new());
@@ -35,45 +82,46 @@ pub(super) fn prepare(
             Some(ItemVisualDefinitionRoute::BlockItem { block_visual })
                 if blocks.contains_key(&block_visual.0) =>
             {
-                Some(block(blocks[&block_visual.0], hand_pivots))
+                Some((block(blocks[&block_visual.0], hand_pivots), None))
             }
             Some(ItemVisualDefinitionRoute::EmptyHand) => None,
             _ => {
-                let Some(sprite) = icons.sprites().get(entry.sprite as usize) else {
+                if icons.sprites().get(entry.sprite as usize).is_none() {
                     continue;
-                };
+                }
                 // Sprite texels already live in the item atlas; keep their original region.
                 let source = *icon_refs
                     .get(entry.sprite as usize)
                     .ok_or(UiPresentationError::InvalidFontTexture)?;
-                held_sprite_vertices(
-                    usize::from(sprite.width),
-                    usize::from(sprite.height),
-                    &sprite.rgba8,
-                    [0.0, 0.0, 1.0, 1.0],
-                )
-                .map(|vertices| PreviewHeldModel {
+                let model = PreviewHeldModel {
                     source,
                     hand_pivots,
-                    vertices: vertices.into(),
+                    vertices: Arc::from([]),
                     placements: [PreviewHeldPlacement::Sprite {
                         hand_equipped: definition
                             .and_then(|definition| definition.grip.upright())
                             .unwrap_or(false),
                     }; 2],
-                })
+                };
+                Some((model, Some(entry.sprite as usize)))
             }
         };
-        if let Some(model) = model {
+        if let Some((model, sprite)) = model {
             models.insert(
                 ItemVisualKey {
                     identifier: entry.identifier.clone(),
                     metadata: entry.metadata,
                 },
-                model
-                    .with_glint(Some(definition.is_some_and(|definition| {
-                        definition.glint.enabled().unwrap_or(false)
-                    }))),
+                HeldModel {
+                    sprite,
+                    ..HeldModel::ready(model.with_glint(
+                        Some(
+                            definition.is_some_and(|definition| {
+                                definition.glint.enabled().unwrap_or(false)
+                            }),
+                        ),
+                    ))
+                },
             );
         }
     }
@@ -87,11 +135,13 @@ pub(super) fn prepare(
                     identifier: binding.identifier.clone(),
                     metadata: 0,
                 },
-                model.with_glint(Some(entities.item_visuals().iter().any(|definition| {
-                    definition.key.identifier == binding.identifier
-                        && definition.key.metadata == 0
-                        && definition.glint.enabled().unwrap_or(false)
-                }))),
+                HeldModel::ready(model.with_glint(Some(entities.item_visuals().iter().any(
+                    |definition| {
+                        definition.key.identifier == binding.identifier
+                            && definition.key.metadata == 0
+                            && definition.glint.enabled().unwrap_or(false)
+                    },
+                )))),
             );
         }
     }
