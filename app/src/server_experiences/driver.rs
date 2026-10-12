@@ -18,6 +18,8 @@ use server_experience::{
 };
 
 use client_extensions::server_experiences::consent::{can_disable, chrome};
+use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
+#[cfg(test)]
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use {client_shell::menu::MenuRuntime, client_state::ClientFrameSet};
 
@@ -63,8 +65,8 @@ pub(crate) fn configure(app: &mut App) {
 #[allow(clippy::too_many_arguments, reason = "Bevy system parameters")]
 fn drive(
     mut service: ResMut<ExperienceService>,
-    mut runtime: ResMut<UiRuntime>,
-    mut presentation: ResMut<UiPresentationRuntime>,
+    mut runtime: ResMut<UiRuntimeResource>,
+    mut presentation: ResMut<UiPresentationResource>,
     network: Res<NetworkHandle<PackApplication>>,
     world: Res<crate::runtime::world::ClientWorld>,
     windows: Query<&Window, With<PrimaryWindow>>,
@@ -216,7 +218,7 @@ fn drive(
             .filter(|input| input.state.is_pressed())
             .filter_map(|input| {
                 client_ui::ui_runtime::forms::engine_input::typed_text(
-                    input.key_code,
+                    client_shell::physical_input::keyboard_key(input.key_code),
                     input.text.as_deref(),
                     control,
                 )

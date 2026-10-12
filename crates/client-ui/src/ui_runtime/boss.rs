@@ -39,7 +39,7 @@ impl Responses {
                 return;
             } else {
                 self.dropped = self.dropped.saturating_add(1);
-                bevy::log::warn!(
+                tracing::warn!(
                     dropped = self.dropped,
                     "boss subscription response capacity exceeded"
                 );
@@ -55,7 +55,7 @@ impl UiRuntime {
     pub fn retain_boss_actors(&mut self, has_actor: impl FnMut(i64) -> bool) {
         let retired = self.boss_bars.retain_actors(has_actor);
         if retired != 0 {
-            bevy::log::info!(
+            tracing::info!(
                 session = self.session_id(),
                 retired,
                 "boss bars retired after actor lifetime ended"
@@ -90,7 +90,7 @@ impl UiRuntime {
             action,
             protocol::BossAction::Show | protocol::BossAction::Hide
         ) {
-            bevy::log::info!(
+            tracing::info!(
                 session = self.session_id(),
                 sequence,
                 target_entity_id,
@@ -113,7 +113,7 @@ impl UiRuntime {
                 .expect("queued boss subscription lifecycle event");
             match send(packet) {
                 Ok(()) => {
-                    bevy::log::info!(
+                    tracing::info!(
                         session = self.session_id(),
                         target_entity_id = event.target_entity_id,
                         registered = event.action == protocol::BossAction::Show,

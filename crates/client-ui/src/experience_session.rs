@@ -48,7 +48,7 @@ impl ExperienceSession {
             return;
         }
         if let Err(error) = self.session.receive(bytes, unix_seconds(), now_ms) {
-            bevy::log::warn!(%error, "server experience control rejected");
+            tracing::warn!(%error, "server experience control rejected");
         }
     }
 

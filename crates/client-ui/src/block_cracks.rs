@@ -66,11 +66,11 @@ impl BlockCracks {
         }
         self.reported_status = Some(status);
         if status.capacity_rejections > previous.map_or(0, |status| status.capacity_rejections) {
-            bevy::log::warn!(target: "bedrock_client::block_cracks",
+            tracing::warn!(target: "bedrock_client::block_cracks",
                 active = status.active, rejected = status.capacity_rejections,
                 "block crack active capacity exhausted");
         }
-        bevy::log::debug!(target: "bedrock_client::block_cracks", session_id,
+        tracing::debug!(target: "bedrock_client::block_cracks", session_id,
             active = status.active, server_value_sum = status.server_value_sum,
             consumed = status.consumed, orphan_updates = status.orphan_updates,
             capacity_rejections = status.capacity_rejections,

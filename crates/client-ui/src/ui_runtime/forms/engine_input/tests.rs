@@ -43,7 +43,7 @@ fn complete_large_menu_final_button_sends_its_original_wire_index() {
                 &frame,
                 EngineInput {
                     cursor: Some(cursor),
-                    keys: &ButtonInput::default(),
+                    keys: &[],
                     pointer: PointerButtons {
                         pressed: down,
                         released: !down,
@@ -121,7 +121,7 @@ fn review_escape_dispatches_the_vanilla_form_screen_cancel() {
     let identity = runtime.server_forms().active().unwrap().identity;
     let frame = presentation.form_engine_frame(identity).unwrap().clone();
     assert_eq!(frame.cancel_target.as_deref(), Some("button.menu_exit"));
-    let events = keyboard(&mut runtime, &frame, KeyCode::Escape, None, false, 0.0);
+    let events = keyboard(&mut runtime, &frame, KeyboardKey::Escape, None, false, 0.0);
     assert!(events.iter().any(|event| matches!(event,
         ScreenEvent::Button(button) if mapped_action(&runtime.server_forms().active().unwrap().model, button) == Some(LocalFormAction::Dismiss)
             && button.down && button.interacted
@@ -155,7 +155,7 @@ fn screen_cancel_ignores_unmapped_any_events_but_respects_a_consuming_control() 
     region.input.mappings.clear();
     region.input.any = Some(json_ui::MappingScope::Global);
     frame.hits = vec![region].into();
-    let events = keyboard(&mut runtime, &frame, KeyCode::Escape, None, false, 0.0);
+    let events = keyboard(&mut runtime, &frame, KeyboardKey::Escape, None, false, 0.0);
     assert!(events.iter().any(
         |event| matches!(event, ScreenEvent::Button(button) if button.id == "button.menu_exit")
     ));
@@ -166,7 +166,7 @@ fn screen_cancel_ignores_unmapped_any_events_but_respects_a_consuming_control() 
     let region = &mut std::sync::Arc::make_mut(&mut frame.hits)[0];
     region.widget.consume = true;
     region.input.mappings = vec![mapping];
-    let events = keyboard(&mut runtime, &frame, KeyCode::Escape, None, false, 1.0);
+    let events = keyboard(&mut runtime, &frame, KeyboardKey::Escape, None, false, 1.0);
     assert!(events.iter().any(|event| matches!(event, ScreenEvent::Button(button) if button.id == "button.dropdown_exit" && button.down)));
     assert!(!events.iter().any(
         |event| matches!(event, ScreenEvent::Button(button) if button.id == "button.menu_exit")
@@ -248,7 +248,7 @@ fn review_pointer_release_then_press_keeps_the_second_capture() {
         &frame,
         EngineInput {
             cursor: Some(UiPoint::new(gui[0], gui[1]).unwrap()),
-            keys: &ButtonInput::default(),
+            keys: &[],
             pointer: PointerButtons {
                 pressed: true,
                 released: true,
@@ -298,7 +298,7 @@ fn review_ui_release_applies_the_final_control_drag_position() {
             &frame,
             EngineInput {
                 cursor: Some(cursor),
-                keys: &ButtonInput::default(),
+                keys: &[],
                 pointer: PointerButtons {
                     pressed: down,
                     released: !down,
@@ -356,7 +356,7 @@ fn review_ui_release_applies_the_final_scrollbar_position() {
             cursor: Some(
                 UiPoint::new(frame.origin[0], frame.origin[1] + 30.0 * frame.scale).unwrap(),
             ),
-            keys: &ButtonInput::default(),
+            keys: &[],
             pointer: PointerButtons {
                 released: true,
                 ..Default::default()

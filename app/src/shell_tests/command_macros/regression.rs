@@ -38,7 +38,7 @@ fn command_macro_ignores_os_repeats() {
     app.update();
     assert_eq!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<UiRuntimeResource>()
             .pending_chat_sends()
             .len(),
         1
@@ -48,7 +48,7 @@ fn command_macro_ignores_os_repeats() {
     app.update();
     assert_eq!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<UiRuntimeResource>()
             .pending_chat_sends()
             .len(),
         1
@@ -64,7 +64,10 @@ fn command_macro_repeat_filter_preserves_chat_text_repeats() {
     repeat(&mut app, KeyCode::KeyX, Some("x"));
     app.update();
     assert_eq!(
-        app.world().resource::<UiRuntime>().chat_editor().as_str(),
+        app.world()
+            .resource::<UiRuntimeResource>()
+            .chat_editor()
+            .as_str(),
         "x"
     );
 }
@@ -83,7 +86,7 @@ fn command_macro_cannot_run_while_editing_a_sign() {
         );
         app.update();
         app.world_mut()
-            .resource_mut::<UiRuntime>()
+            .resource_mut::<UiRuntimeResource>()
             .sign_editor_mut()
             .open(client_ui::ui_runtime::sign_editor::SignEdit::new(
                 [0, 0, 0],
@@ -97,7 +100,7 @@ fn command_macro_cannot_run_while_editing_a_sign() {
             key(&mut app, KeyCode::Space, ButtonState::Pressed, false);
         }
         app.update();
-        let runtime = app.world().resource::<UiRuntime>();
+        let runtime = app.world().resource::<UiRuntimeResource>();
         assert!(runtime.sign_editor().is_open());
         assert!(runtime.pending_chat_sends().is_empty(), "pointer={pointer}");
     }
@@ -109,7 +112,7 @@ fn command_macro_precedes_default_and_remapped_emote_bindings() {
         for alt_first in [false, true] {
             let mut app = crate::tests::gameplay_click::gameplay_app(false);
             let control = PhysicalControl::KeyboardUsage(
-                client_ui::physical_input::keyboard_usage(code).unwrap(),
+                client_shell::physical_input::keyboard_usage(code).unwrap(),
             );
             arm(&mut app, control);
             let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
@@ -128,7 +131,7 @@ fn command_macro_precedes_default_and_remapped_emote_bindings() {
                 key(&mut app, KeyCode::AltLeft, ButtonState::Pressed, false);
             }
             app.update();
-            let runtime = app.world().resource::<UiRuntime>();
+            let runtime = app.world().resource::<UiRuntimeResource>();
             assert_eq!(
                 runtime.pending_chat_sends().len(),
                 usize::from(alt_first),
@@ -166,7 +169,7 @@ fn command_macro_precedes_a_mouse_emote_binding() {
                 key(&mut app, KeyCode::AltLeft, ButtonState::Released, true);
             }
             app.update();
-            let runtime = app.world().resource::<UiRuntime>();
+            let runtime = app.world().resource::<UiRuntimeResource>();
             let macro_runs = !ordered || !release_first;
             assert_eq!(
                 runtime.pending_chat_sends().len(),
@@ -185,33 +188,48 @@ fn command_macro_keeps_an_open_emote_wheel_in_control() {
         arm(
             &mut app,
             PhysicalControl::KeyboardUsage(
-                client_ui::physical_input::keyboard_usage(code).unwrap(),
+                client_shell::physical_input::keyboard_usage(code).unwrap(),
             ),
         );
         app.update();
         key(&mut app, KeyCode::KeyB, ButtonState::Pressed, false);
         app.update();
-        assert!(app.world().resource::<UiRuntime>().emotes().is_open());
+        assert!(
+            app.world()
+                .resource::<UiRuntimeResource>()
+                .emotes()
+                .is_open()
+        );
         clear_edges(&mut app);
         key(&mut app, KeyCode::AltLeft, ButtonState::Pressed, false);
         key(&mut app, code, ButtonState::Pressed, false);
         app.update();
         assert!(
             app.world()
-                .resource::<UiRuntime>()
+                .resource::<UiRuntimeResource>()
                 .pending_chat_sends()
                 .is_empty()
         );
-        assert!(!app.world().resource::<UiRuntime>().emotes().is_open());
+        assert!(
+            !app.world()
+                .resource::<UiRuntimeResource>()
+                .emotes()
+                .is_open()
+        );
         if code == KeyCode::KeyB {
             // The wheel cleared the buttons it owned; a later press is an ordinary binding.
             clear_edges(&mut app);
             key(&mut app, code, ButtonState::Pressed, false);
             app.update();
-            assert!(app.world().resource::<UiRuntime>().emotes().is_open());
             assert!(
                 app.world()
-                    .resource::<UiRuntime>()
+                    .resource::<UiRuntimeResource>()
+                    .emotes()
+                    .is_open()
+            );
+            assert!(
+                app.world()
+                    .resource::<UiRuntimeResource>()
                     .pending_chat_sends()
                     .is_empty()
             );

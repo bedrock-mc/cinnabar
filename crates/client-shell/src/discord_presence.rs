@@ -3,8 +3,9 @@
 use std::time::Duration;
 
 use crate::menu::MenuRuntime;
+use crate::ui_resources::UiRuntimeResource;
 use bevy::prelude::*;
-use client_ui::ui_runtime::{UiRuntime, presentation::LoadingStage};
+use client_ui::ui_runtime::presentation::LoadingStage;
 use launcher::menu::settings_options::DISCORD_PRESENCE_OPTION;
 use rich_presence::{Presence, State};
 
@@ -71,10 +72,10 @@ fn joining_screen(stage: Option<LoadingStage>) -> bool {
 fn update(
     mut discord: ResMut<DiscordPresence>,
     mut menu: ResMut<MenuRuntime>,
-    mut runtime: ResMut<UiRuntime>,
+    mut runtime: ResMut<UiRuntimeResource>,
     time: Res<Time<Real>>,
     world: Res<client_state::PresenceObservation>,
-    ui: Res<client_ui::ui_runtime::presentation::UiPresentationRuntime>,
+    ui: Res<crate::ui_resources::UiPresentationResource>,
 ) {
     let now = time.elapsed();
     if menu

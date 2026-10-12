@@ -34,7 +34,7 @@ impl UiPresentationRuntime {
         translate: Translate<'_>,
     ) -> Result<Option<Vec<(MenuAction, UiRect)>>, UiPresentationError> {
         #[cfg(feature = "tracy")]
-        let _screen_span = bevy::log::info_span!("ui.oreui_paint").entered();
+        let _screen_span = tracing::info_span!("ui.oreui_paint").entered();
         if !menu_screen::draws_menu(view) {
             return Ok(None);
         }

@@ -25,7 +25,8 @@ use render_scene::{
     ChunkRenderQueue, GpuFrameTimes, RuntimeStage, RuntimeStageProfiler, VisibilityDiagnostics,
 };
 
-use client_ui::ui_runtime::presentation::{DebugLines, UiPresentationRuntime};
+use client_shell::ui_resources::UiPresentationResource;
+use client_ui::ui_runtime::presentation::DebugLines;
 use {
     crate::{
         environment::{WeatherState, WorldClock},
@@ -156,7 +157,7 @@ struct DebugContext<'w, 's> {
     physics: Option<Res<'w, LocalPhysicsController>>,
     movement: Option<Res<'w, MovementTicker>>,
     player: Option<Res<'w, PlayerRuntime>>,
-    ui: Option<Res<'w, client_ui::ui_runtime::UiRuntime>>,
+    ui: Option<Res<'w, client_shell::ui_resources::UiRuntimeResource>>,
     clock: Option<Res<'w, WorldClock>>,
     weather: Option<Res<'w, WeatherState>>,
     network: Option<Res<'w, NetworkHandle<PackApplication>>>,
@@ -176,7 +177,7 @@ fn publish_debug_overlay(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time<Real>>,
     mut state: ResMut<DebugOverlayState>,
-    mut presentation: ResMut<UiPresentationRuntime>,
+    mut presentation: ResMut<UiPresentationResource>,
     gpu_detail: Option<ResMut<render::DetailedGpuTiming>>,
     context: DebugContext,
 ) {

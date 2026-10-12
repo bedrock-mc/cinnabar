@@ -496,7 +496,7 @@ pub(super) fn render_body_with_cape(
 
 /// A posed, viewer-facing biped.
 struct Rig {
-    parts: [Option<bevy::math::Affine3A>; 6],
+    parts: [Option<glam::Affine3A>; 6],
     body: f32,
     head_yaw: f32,
     head_pitch: f32,
@@ -538,7 +538,7 @@ impl Rig {
         let mut local = vertex.position;
         if let Some(Some(transform)) = self.parts.get(vertex.part as usize) {
             local = transform
-                .transform_point3(bevy::math::Vec3::from_array(local))
+                .transform_point3(glam::Vec3::from_array(local))
                 .to_array();
         } else {
             if self.sneaking {

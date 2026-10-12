@@ -1,7 +1,6 @@
 use std::{fmt, sync::Arc};
 
 use assets::{RuntimeFontCatalog, RuntimeHudCatalog, RuntimeIconCatalog};
-use bevy::prelude::Resource;
 use render_model::{UiRenderInput, UiRenderTextureArray};
 use sha2::{Digest, Sha256};
 
@@ -65,7 +64,7 @@ use primitives::{bounded_visible_text, rect, resolve_chat_line};
 pub use publish::commit::refresh_hud_frame;
 pub use publish::{
     capture_hud_frame,
-    commit::{PendingUiPublication, PreparedUiPublication, PreviewCapture, render_prepared_ui},
+    commit::{PendingUiPublication, PreviewCapture, render_prepared_ui},
     item_icons::ItemIconFrames,
 };
 use retained_hud::{PresentedScoreboardCache, ScoreboardOwnerNameAuthority};
@@ -110,7 +109,6 @@ impl From<forms::engine::screen::PaintError> for UiPresentationError {
     }
 }
 
-#[derive(Resource)]
 pub struct UiPresentationRuntime {
     font: Arc<RuntimeFontCatalog>,
     /// The startup font without the session's glyph sheets.

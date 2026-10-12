@@ -4,7 +4,7 @@ use bevy::{ecs::system::SystemParam, prelude::*};
 use client_presentation::{
     actor_publication::ActorFramePartialTick, primitive_shapes::PrimitiveShapePublisher,
 };
-use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use {
     crate::runtime::world::ClientWorld, client_presentation::local_player::LocalViewPose,
     client_state::ClientFrameSet,
@@ -39,8 +39,8 @@ fn publish(
     mut world: ResMut<ClientWorld>,
     scene: ResMut<PrimitiveShapesScene>,
     clock: FrameClock,
-    presentation: ResMut<UiPresentationRuntime>,
-    runtime: Res<UiRuntime>,
+    mut presentation: ResMut<UiPresentationResource>,
+    runtime: Res<UiRuntimeResource>,
     publisher: Local<PrimitiveShapePublisher>,
 ) {
     client_presentation::primitive_shapes::drive_primitive_shapes(
@@ -49,8 +49,8 @@ fn publish(
         clock.time.elapsed_secs(),
         clock.partial.0,
         &clock.view,
-        presentation,
-        runtime,
+        &mut presentation,
+        &runtime,
         publisher,
     );
 }
@@ -76,6 +76,7 @@ pub(crate) fn snapshot(world: &World) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use chunk_pipeline::WorldStream;
+    use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
     use protocol::{
         ActorEvent, ActorKind, ActorMoveEvent, ActorPositionOrigin, ActorSpawnEvent,
         PrimitiveShapeChange, PrimitiveShapeData, PrimitiveShapeKind, PrimitiveShapeUpdate,
@@ -194,10 +195,10 @@ mod tests {
             .init_resource::<PrimitiveShapesScene>()
             .init_resource::<ActorFramePartialTick>()
             .init_resource::<LocalViewPose>()
-            .insert_resource(UiRuntime::new(1))
-            .insert_resource(
+            .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
+            .insert_resource(UiPresentationResource(
                 UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap(),
-            )
+            ))
             .insert_resource(ClientWorld {
                 stream: Some(stream()),
                 ..Default::default()

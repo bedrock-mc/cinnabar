@@ -79,6 +79,7 @@ fn flush_pending_hotbar_selection(
 #[cfg(test)]
 mod tests {
     use bevy::input::mouse::AccumulatedMouseScroll;
+    use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
     use client_state::SemanticInputSnapshot;
     use client_ui::ui_runtime::UiRuntime;
     use std::sync::Arc;
@@ -189,7 +190,7 @@ mod tests {
         use bevy::{ecs::system::RunSystemOnce, prelude::*};
         let mut app = App::new();
         player_runtime.inventory.set_local_selected_slot(0);
-        app.insert_resource(runtime)
+        app.insert_resource(UiRuntimeResource(runtime))
             .insert_resource(player_runtime.clone())
             .insert_resource(menu_runtime)
             .insert_resource(SemanticInputSnapshot::default())
@@ -274,14 +275,14 @@ mod tests {
         use bevy::{ecs::system::RunSystemOnce, prelude::*};
         let mut app = App::new();
         player_runtime.inventory.set_local_selected_slot(0);
-        app.insert_resource(UiRuntime::new(1))
+        app.insert_resource(UiRuntimeResource(UiRuntime::new(1)))
             .insert_resource(player_runtime.clone())
             .insert_resource(client_shell::menu::MenuRuntime::new(
                 false,
                 2,
                 "Tester".into(),
             ))
-            .insert_resource(presentation)
+            .insert_resource(UiPresentationResource(presentation))
             .insert_resource(SemanticInputSnapshot::default())
             .insert_resource(AccumulatedMouseScroll {
                 delta: Vec2::new(0.0, -1.0),
@@ -304,7 +305,11 @@ mod tests {
             .remove_resource::<client_state::PlayerRuntime>()
             .unwrap();
         let slot = player_runtime.selected_hotbar_slot().unwrap();
-        (slot, app.world_mut().remove_resource().unwrap())
+        let presentation = app
+            .world_mut()
+            .remove_resource::<UiPresentationResource>()
+            .unwrap();
+        (slot, presentation.0)
     }
 
     /// A client part's modal screen is a screen like any other: while it is open the wheel and

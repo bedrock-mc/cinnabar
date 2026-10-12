@@ -11,14 +11,18 @@ mod commit;
 mod cooldowns;
 mod loading;
 use client_ui::ui_runtime::presentation::{
-    ItemIconFrames, PendingUiPublication, PreparedUiPublication, PreviewCapture, capture_hud_frame,
-    nametags, player_preview,
+    ItemIconFrames, PendingUiPublication, PreviewCapture, capture_hud_frame, nametags,
+    player_preview,
 };
 pub(crate) use commit::publish_ui_runtime;
 
+/// The UI authority captured before input enqueue, rendered once by `publish_ui_runtime`.
+#[derive(bevy::prelude::Resource, Default)]
+pub(crate) struct PreparedUiPublication(pub(crate) Option<PendingUiPublication>);
+
 pub(crate) fn observe_mount_jump_input(
     input: Res<client_state::SemanticInputSnapshot>,
-    mut runtime: ResMut<UiRuntime>,
+    mut runtime: ResMut<UiRuntimeResource>,
     time: Res<Time<Real>>,
 ) {
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -66,8 +70,8 @@ type PublishExtras<'w> = (
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare_ui_runtime(
     player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
-    mut runtime: ResMut<UiRuntime>,
-    mut presentation: ResMut<UiPresentationRuntime>,
+    mut runtime: ResMut<UiRuntimeResource>,
+    mut presentation: ResMut<UiPresentationResource>,
     mut prepared: ResMut<PreparedUiPublication>,
     visibility: Res<CaveVisibilityCache>,
     mut diagnostics_input: ResMut<VisibilityDiagnosticsInput>,
@@ -365,14 +369,13 @@ pub(crate) fn prepare_ui_runtime(
             cameras
                 .single()
                 .ok()
-                .map(|(camera, transform)| (camera, GlobalTransform::from(*transform))),
+                .map(|(_, transform)| GlobalTransform::from(*transform)),
         )
-        .map(|(stream, (camera, transform))| {
+        .map(|(stream, transform)| {
             let mut tags = nametags::project_nametags(
                 runtime.scoreboards(),
                 stream,
-                camera,
-                &transform,
+                transform.translation(),
                 [logical_width, logical_height],
                 picked_nametag_actor(stream, &transform, collisions.as_deref(), &player_runtime),
                 actor_partial.0,

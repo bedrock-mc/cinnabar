@@ -60,7 +60,7 @@ fn fixture(test: &str) -> Option<(App, Entity)> {
             1,
         )))
         .insert_resource(menu)
-        .insert_resource(presentation)
+        .insert_resource(UiPresentationResource(presentation))
         .add_systems(PreUpdate, touch_screen_input_system)
         .add_systems(Update, drive_menu_input);
     let window = app
@@ -79,7 +79,7 @@ fn fixture(test: &str) -> Option<(App, Entity)> {
     build(&mut app);
     let sections: Vec<_> = app
         .world()
-        .resource::<UiPresentationRuntime>()
+        .resource::<UiPresentationResource>()
         .visible_menu_actions()
         .filter(|action| matches!(action, MenuAction::SettingsSection(_)))
         .collect();
@@ -99,7 +99,7 @@ fn fixture(test: &str) -> Option<(App, Entity)> {
         build(&mut app);
         if app
             .world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .menu_action_bounds(action)
             .is_some()
         {
@@ -112,7 +112,7 @@ fn fixture(test: &str) -> Option<(App, Entity)> {
 fn build(app: &mut App) {
     let view = app.world().resource::<MenuRuntime>().view();
     app.world_mut()
-        .resource_scope(|world, mut presentation: Mut<UiPresentationRuntime>| {
+        .resource_scope(|world, mut presentation: Mut<UiPresentationResource>| {
             presentation.set_menu_view(Some(view));
             presentation
                 .build(
@@ -128,7 +128,7 @@ fn build(app: &mut App) {
 
 fn rail(app: &App) -> Rail {
     let option = &SETTINGS_OPTIONS[usize::from(gamma())];
-    let presentation = app.world().resource::<UiPresentationRuntime>();
+    let presentation = app.world().resource::<UiPresentationResource>();
     let first = presentation
         .menu_action_bounds(MenuAction::SettingsOption(gamma(), option.min))
         .unwrap();
@@ -237,7 +237,7 @@ fn native_slider_thumb_retains_raw_mouse_position_until_release() {
     let thumb = rail.point(selected, rail.middle);
     assert!(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .settings_slider_thumb_contains(gamma(), UiPoint::new(thumb.x, thumb.y).unwrap())
     );
     mouse(&mut app, window, thumb, Some(ButtonState::Pressed));
@@ -266,7 +266,7 @@ fn native_slider_thumb_retains_raw_mouse_position_until_release() {
     let edge = rail.point(0.3749, rail.middle) + Vec2::new(rail.half_thumb - 0.01, 0.0);
     assert!(
         app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .settings_slider_thumb_contains(gamma(), UiPoint::new(edge.x, edge.y).unwrap()),
         "relayout keeps the thumb at its raw position"
     );
@@ -302,7 +302,7 @@ fn native_slider_track_click_commits_on_release_without_capturing_motion() {
     let click = rail.point(0.8, rail.middle);
     assert!(
         !app.world()
-            .resource::<UiPresentationRuntime>()
+            .resource::<UiPresentationResource>()
             .settings_slider_thumb_contains(gamma(), UiPoint::new(click.x, click.y).unwrap())
     );
     mouse(&mut app, window, click, Some(ButtonState::Pressed));
@@ -379,7 +379,7 @@ fn native_slider_rail_hover_keeps_focus_and_thumb_hover_is_independent() {
     app.update();
     let category = app
         .world()
-        .resource::<UiPresentationRuntime>()
+        .resource::<UiPresentationResource>()
         .visible_menu_actions()
         .find(|action| matches!(action, MenuAction::SettingsSection(_)))
         .unwrap();

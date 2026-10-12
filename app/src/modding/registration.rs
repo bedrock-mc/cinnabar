@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
 use super::{ModRuntime, RELOAD_INTERVAL, VisualTimeOverride, interaction::ModInteraction};
-use client_ui::ui_runtime::presentation::UiPresentationRuntime;
+use client_shell::ui_resources::UiPresentationResource;
 
 const REGISTRATION_FILE: &str = "local-mod.json";
 const STATUS_FILE: &str = "local-mod.status.json";
@@ -496,7 +496,7 @@ fn install(world: &mut World, update: Update) {
                 .ok_or_else(|| "local extension limit reached".to_owned())
                 .and_then(|()| {
                     world
-                        .get_resource_mut::<UiPresentationRuntime>()
+                        .get_resource_mut::<UiPresentationResource>()
                         .ok_or_else(|| "extension presentation is unavailable".to_owned())
                         .and_then(|mut presentation| {
                             presentation

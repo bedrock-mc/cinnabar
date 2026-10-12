@@ -28,7 +28,7 @@ fn command_field() -> (App, Entity, ui::UiPoint, usize) {
         .resource::<client_state::PlayerRuntime>()
         .clone();
     let (point, byte) = {
-        let mut presentation = app.world_mut().resource_mut::<UiPresentationRuntime>();
+        let mut presentation = app.world_mut().resource_mut::<UiPresentationResource>();
         presentation.set_menu_view(Some(view));
         presentation
             .build(

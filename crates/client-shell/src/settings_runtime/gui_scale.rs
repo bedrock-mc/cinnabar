@@ -1,13 +1,13 @@
 use crate::menu::MenuRuntime;
+use crate::ui_resources::UiPresentationResource;
 use bevy::{
     prelude::{Query, ResMut, With},
     window::{PrimaryWindow, Window},
 };
-use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 
 pub fn apply_gui_scale_setting(
     mut menu: ResMut<MenuRuntime>,
-    mut presentation: ResMut<UiPresentationRuntime>,
+    mut presentation: ResMut<UiPresentationResource>,
     windows: Query<&Window, With<PrimaryWindow>>,
 ) {
     let Ok(window) = windows.single() else {

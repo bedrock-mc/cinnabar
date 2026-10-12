@@ -1,6 +1,6 @@
 //! Form input and transport systems; retained state lives in client-ui.
 use client_ui::ui_runtime::forms::{
-    FormTransportError, LocalFormAction, engine_focus, engine_input, flush_form_response,
+    FormTransportError, LocalFormAction, engine_input, flush_form_response,
 };
 mod interaction;
 mod network;

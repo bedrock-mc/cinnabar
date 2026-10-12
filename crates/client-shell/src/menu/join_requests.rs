@@ -4,8 +4,8 @@
 
 use std::{collections::VecDeque, ops::DerefMut, sync::Arc, time::Duration};
 
+use crate::ui_resources::UiRuntimeResource;
 use bevy::prelude::{Res, ResMut};
-use client_ui::ui_runtime::UiRuntime;
 use launcher::menu::{
     join_requests::{self, JoinRequests},
     settings_options::{OPEN_NOTIFICATION_KEY, key_name},
@@ -55,7 +55,11 @@ impl MenuRuntime {
     /// Stands the oldest request's toast while playing until Discord closes it, and slides the
     /// toast out once that request is answered, closed or shown as the popup. Touches `runtime`
     /// only on a change.
-    pub fn sync_join_toast(&self, runtime: &mut impl DerefMut<Target = UiRuntime>, now: Duration) {
+    pub fn sync_join_toast(
+        &self,
+        runtime: &mut impl DerefMut<Target = UiRuntimeResource>,
+        now: Duration,
+    ) {
         let millis = |at: Duration| u64::try_from(at.as_millis()).unwrap_or(u64::MAX);
         let now = millis(now);
         let standing = runtime.hud().standing_toast();

@@ -672,6 +672,7 @@ fn assert_attachable_readiness_clock(changed: bool) {
         },
         swing,
         |_, _, _, _| false,
+        None,
         params.get_mut(&mut world).unwrap(),
     );
     let scene = world.resource::<render_scene::HandRigScene>();

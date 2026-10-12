@@ -63,7 +63,7 @@ pub(super) fn dispatch_mouse(
         menu,
         runtime,
         alt,
-        client_ui::physical_input::mouse_button_code(button).map(PhysicalControl::MouseButton),
+        client_shell::physical_input::mouse_button_code(button).map(PhysicalControl::MouseButton),
         now_millis,
         semantic,
     )

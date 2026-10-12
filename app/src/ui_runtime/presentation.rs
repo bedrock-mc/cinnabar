@@ -10,6 +10,7 @@ use bevy::{
     time::Real,
     window::{PrimaryWindow, Window},
 };
+use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use render_scene::{
     ChunkRenderQueue, ChunkUploadAcknowledgements, VisibilityDiagnostics,
     VisibilityDiagnosticsInput,

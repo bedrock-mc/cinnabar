@@ -1,7 +1,7 @@
 //! The writable-book, written-book and lectern reading screens.
 
-use bevy::prelude::KeyCode;
 use protocol::{BookEdit, MAX_BOOK_PAGES, Packet};
+use semantic_input::KeyboardKey;
 
 use super::UiRuntime;
 
@@ -305,13 +305,13 @@ impl UiRuntime {
     pub fn book_key(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
-        key: KeyCode,
+        key: KeyboardKey,
     ) -> bool {
         let Some(book) = self.screen.book.as_mut() else {
             return false;
         };
         match key {
-            KeyCode::Enter | KeyCode::NumpadEnter if book.editable => {
+            KeyboardKey::Enter | KeyboardKey::NumpadEnter if book.editable => {
                 if book.signing {
                     self.finish_book(player_runtime, true);
                 } else {
@@ -319,8 +319,11 @@ impl UiRuntime {
                 }
                 true
             }
-            KeyCode::ArrowLeft | KeyCode::PageUp | KeyCode::ArrowRight | KeyCode::PageDown => {
-                let forward = matches!(key, KeyCode::ArrowRight | KeyCode::PageDown);
+            KeyboardKey::ArrowLeft
+            | KeyboardKey::PageUp
+            | KeyboardKey::ArrowRight
+            | KeyboardKey::PageDown => {
+                let forward = matches!(key, KeyboardKey::ArrowRight | KeyboardKey::PageDown);
                 if book.turn(if forward { 1 } else { -1 }) {
                     self.report_lectern_page();
                 }

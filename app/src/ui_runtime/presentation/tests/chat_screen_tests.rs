@@ -45,8 +45,8 @@ fn link_confirmation_consumes_typing_and_escape_preserves_chat_draft() {
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<bevy::input::mouse::AccumulatedMouseMotion>()
         .insert_resource(player)
-        .insert_resource(runtime)
-        .insert_resource(presentation)
+        .insert_resource(UiRuntimeResource(runtime))
+        .insert_resource(UiPresentationResource(presentation))
         .add_systems(Update, crate::ui_runtime::drive_chat_keyboard_input);
     let window = app
         .world_mut()
@@ -69,13 +69,13 @@ fn link_confirmation_consumes_typing_and_escape_preserves_chat_draft() {
             window,
         });
         app.update();
-        let runtime = app.world().resource::<UiRuntime>();
+        let runtime = app.world().resource::<UiRuntimeResource>();
         assert!(runtime.chat_focused());
         assert_eq!(runtime.chat_editor().as_str(), "unsent draft");
         assert!(runtime.pending_chat_sends().is_empty());
         assert_eq!(
             app.world()
-                .resource::<UiPresentationRuntime>()
+                .resource::<UiPresentationResource>()
                 .chat_link_confirmation_open(),
             key != KeyCode::Escape
         );
@@ -165,9 +165,9 @@ fn wheel_input_system_scrolls_the_open_chat() {
             delta: Vec2::new(0.0, 1000.0),
             ..Default::default()
         })
-        .insert_resource(runtime)
+        .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime)
-        .insert_resource(presentation)
+        .insert_resource(UiPresentationResource(presentation))
         .add_systems(Update, crate::ui_runtime::drive_chat_ui_actions);
     app.world_mut().spawn((
         Window {
@@ -181,10 +181,13 @@ fn wheel_input_system_scrolls_the_open_chat() {
         .world_mut()
         .remove_resource::<client_state::PlayerRuntime>()
         .unwrap();
-    let runtime = app.world_mut().remove_resource::<UiRuntime>().unwrap();
+    let runtime = app
+        .world_mut()
+        .remove_resource::<UiRuntimeResource>()
+        .unwrap();
     let mut presentation = app
         .world_mut()
-        .remove_resource::<UiPresentationRuntime>()
+        .remove_resource::<UiPresentationResource>()
         .unwrap();
     build(&player_runtime, &mut presentation, &runtime, 0);
     let oldest = text_node(presentation.chat_draw_nodes(), "line 1").unwrap();

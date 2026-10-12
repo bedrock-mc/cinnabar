@@ -439,7 +439,7 @@ impl<'a> Canvas<'a> {
         style: Type,
     ) -> Result<std::sync::Arc<ui::TextLayout>, PaintError> {
         #[cfg(feature = "tracy")]
-        let _text_span = bevy::log::info_span!("ui.text").entered();
+        let _text_span = tracing::info_span!("ui.text").entered();
         let request = self.text_request(value, width_64, style)?;
         self.layouts.layout(request).map_err(PaintError::Text)
     }
@@ -551,7 +551,7 @@ impl<'a> Canvas<'a> {
         style: Type,
     ) -> Result<Option<Arc<ui::TextLayout>>, PaintError> {
         #[cfg(feature = "tracy")]
-        let _text_span = bevy::log::info_span!("ui.label").entered();
+        let _text_span = tracing::info_span!("ui.label").entered();
         let request = self.text_request(value, MEASUREMENT_WIDTH_64, style)?;
         let layout = self
             .layouts
@@ -583,7 +583,7 @@ impl<'a> Canvas<'a> {
         style: Type,
     ) -> Result<f32, PaintError> {
         #[cfg(feature = "tracy")]
-        let _text_span = bevy::log::info_span!("ui.text").entered();
+        let _text_span = tracing::info_span!("ui.text").entered();
         let request = self.text_request(value, (width.max(1.0) * 64.0) as u32, style)?;
         let layout = self.layouts.layout(request).map_err(PaintError::Text)?;
         Ok(layout.size_64()[1] as f32 / 64.0)

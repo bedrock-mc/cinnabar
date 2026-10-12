@@ -19,7 +19,7 @@ use launcher_host::{
 };
 
 use client_shell::presence_target::presence_target;
-use client_ui::ui_runtime::UiRuntime;
+use client_shell::ui_resources::UiRuntimeResource;
 use {
     crate::runtime::{
         network::{CompiledStacks, session::NetworkConfig},
@@ -273,7 +273,7 @@ pub(crate) struct SessionResources<'w> {
     controller: ResMut<'w, SessionController>,
     network: ResMut<'w, NetworkHandle<PackApplication>>,
     resource_packs: ResMut<'w, ResourcePackAdmissionState>,
-    runtime: ResMut<'w, UiRuntime>,
+    runtime: ResMut<'w, UiRuntimeResource>,
     player_runtime: ResMut<'w, PlayerRuntime>,
     client_world: ResMut<'w, ClientWorld>,
     movement: ResMut<'w, MovementTicker>,

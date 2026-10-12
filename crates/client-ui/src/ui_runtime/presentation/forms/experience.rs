@@ -264,7 +264,7 @@ impl UiPresentationRuntime {
                 *next = rollback.1;
                 chrome.frame = None;
                 chrome.failed = true;
-                bevy::log::warn!(%error, "server experience chrome could not render");
+                tracing::warn!(%error, "server experience chrome could not render");
             }
         }
     }

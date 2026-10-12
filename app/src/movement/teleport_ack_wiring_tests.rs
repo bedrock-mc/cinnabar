@@ -10,6 +10,7 @@ use crate::runtime::network::resource_packs::PackApplication;
 use ::acceptance::AcceptanceRun;
 use bevy::prelude::{App, IntoScheduleConfigs, Update};
 use client_runtime::network::NetworkHandle;
+use client_shell::ui_resources::UiRuntimeResource;
 use protocol::{
     ChangeDimensionEvent, MovePlayerEvent, MovementCorrectionSubject, Packet, PlayerInputMode,
     PlayerMovementCorrectionEvent, RespawnEvent, WorldBootstrap, WorldEvent,
@@ -143,7 +144,7 @@ fn wiring_app(ticker: MovementTicker, physics: LocalPhysicsController) -> App {
         .init_resource::<client_interaction::movement::LocalMovementEffectTimeline>()
         .init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>()
         .insert_resource(fixture_registries())
-        .insert_resource(UiRuntime::new(1))
+        .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))

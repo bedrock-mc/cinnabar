@@ -131,7 +131,7 @@ fn throw_at_player(interact_text: &str) -> Vec<&'static str> {
         },
     );
     world
-        .resource_mut::<UiRuntime>()
+        .resource_mut::<UiRuntimeResource>()
         .apply_local_metadata(
             7,
             u64::MAX,

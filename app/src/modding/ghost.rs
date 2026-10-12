@@ -2,7 +2,7 @@
 
 use super::packet_delay::RealPositionSnapshot;
 use bevy::prelude::*;
-use client_ui::ui_runtime::UiRuntime;
+use client_shell::ui_resources::UiRuntimeResource;
 use render_scene::ModRenderScene;
 use {
     crate::runtime::world::ClientWorld, client_presentation::camera::FlyCamera,
@@ -63,7 +63,7 @@ pub(crate) fn publish(
     snapshot: Option<Res<RealPositionSnapshot>>,
     world: Option<Res<ClientWorld>>,
     menu: Option<Res<MenuRuntime>>,
-    ui: Option<Res<UiRuntime>>,
+    ui: Option<Res<UiRuntimeResource>>,
     player: Option<Res<client_state::PlayerRuntime>>,
     time: Option<Res<Time>>,
     cameras: Query<&Transform, With<FlyCamera>>,

@@ -173,7 +173,7 @@ fn lobby_ui_publication_cost() {
     let anchors: Vec<_> = (0..30u64)
         .map(|index| NametagAnchor {
             runtime_id: index + 10,
-            position: bevy::math::Vec3::new(index as f32 * 0.7, 66.0, 4.0 + index as f32),
+            position: glam::Vec3::new(index as f32 * 0.7, 66.0, 4.0 + index as f32),
             lines: vec![
                 Arc::from(format!("§a[Member] §fPlayer{index}")),
                 Arc::from(format!("§c{} ❤", 20 - index % 20)),

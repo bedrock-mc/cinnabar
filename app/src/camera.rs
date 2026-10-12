@@ -82,12 +82,15 @@ impl Plugin for FlyCameraPlugin {
         .add_systems(
             Update,
             (
+                presentation::collect_fov_inputs
+                    .after(client_interaction::camera::apply_runtime_camera_settings)
+                    .after(ClientFrameSet::SemanticFinalize)
+                    .before(FlyCameraUpdateSet),
                 (
                     antialiasing::apply_camera_antialiasing
                         .after(client_interaction::camera::apply_runtime_camera_settings)
-                        .before(client_interaction::camera::collect_fov_inputs),
-                    facts::collect_screen_effect_facts
-                        .after(client_interaction::camera::collect_fov_inputs),
+                        .before(presentation::collect_fov_inputs),
+                    facts::collect_screen_effect_facts.after(presentation::collect_fov_inputs),
                 )
                     .chain()
                     .after(ClientFrameSet::SemanticFinalize)

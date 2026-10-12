@@ -2,7 +2,7 @@
 use bevy::prelude::{Local, MessageReader, Res, ResMut, Time};
 use client_audio::audio::AudioEngine;
 use client_audio::audio::predicted::{ConsumeAudio, LocalBlockCue, MiningAudio};
-use client_ui::ui_runtime::UiRuntime;
+use client_shell::ui_resources::UiRuntimeResource;
 use {
     crate::{particles::ParticleInbox, runtime::world::ClientWorld},
     client_interaction::{
@@ -48,7 +48,7 @@ pub(crate) fn drive_block_cues(
 pub(crate) fn drive_consume_audio(
     player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     time: Res<Time>,
-    ui: Option<Res<UiRuntime>>,
+    ui: Option<Res<UiRuntimeResource>>,
     world: Res<ClientWorld>,
     view: Res<LocalViewPose>,
     engine: ResMut<AudioEngine>,
@@ -61,7 +61,7 @@ pub(crate) fn drive_consume_audio(
     client_audio::audio::predicted::drive_consume_audio(
         &player_runtime,
         time,
-        ui.as_deref(),
+        ui.as_deref().map(|ui| &ui.0),
         client_audio::observations::WorldObservation {
             stream: world.stream.as_ref(),
         },

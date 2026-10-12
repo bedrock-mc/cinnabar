@@ -21,7 +21,7 @@ impl UiPresentationRuntime {
             return Ok(());
         }
         #[cfg(feature = "tracy")]
-        let _span = bevy::log::info_span!("ui.f3.paint").entered();
+        let _span = tracing::info_span!("ui.f3.paint").entered();
         let metrics = debug_overlay::visible::fitted_metrics(metrics, content[1]);
         let scale = metrics.scale.get();
         self.debug_overlay.retain_font(&self.font);

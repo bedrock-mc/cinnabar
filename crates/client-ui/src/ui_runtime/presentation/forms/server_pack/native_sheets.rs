@@ -429,7 +429,7 @@ impl NativeSheets {
         if self.failed.len() >= super::MAX_FAILED {
             self.failed.pop_first();
         }
-        bevy::log::warn!(
+        tracing::warn!(
             texture = key,
             "skipping unusable or over-budget original UI sheet"
         );

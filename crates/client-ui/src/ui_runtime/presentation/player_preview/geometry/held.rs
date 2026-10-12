@@ -1,6 +1,6 @@
 //! Real held-item meshes in native hand-bone frames, projected with their owner.
 
-use bevy::math::{Quat, Vec3, Vec4};
+use glam::{Quat, Vec3, Vec4};
 use render_model::{ActorVertex, RenderBoneTransform};
 use ui::{UI_STYLE_GLINT, UiBlendMode, UiMeshBatch, UiMeshVertex};
 

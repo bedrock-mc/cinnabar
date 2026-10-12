@@ -20,9 +20,6 @@ pub struct PendingUiPublication {
     pub dpi_scale: DpiScale,
 }
 
-#[derive(Resource, Default)]
-pub struct PreparedUiPublication(pub Option<PendingUiPublication>);
-
 /// Renders the captured UI without observing this frame's post-capture inventory changes.
 pub fn render_prepared_ui(
     player_runtime: &player_state::PlayerState,

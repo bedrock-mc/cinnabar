@@ -5,7 +5,7 @@
 use bevy::prelude::{App, ButtonInput, KeyCode, MouseButton, Vec2, Window};
 use ui::{DpiScale, UiNode, UiVisual};
 
-use super::super::UiPresentationRuntime;
+use super::super::UiPresentationResource;
 use client_ui::test_support::pack_harness::{drawn_texts, engine_presentation};
 use client_ui::ui_runtime::UiRuntime;
 use {
@@ -20,7 +20,7 @@ const SIZE: [u32; 2] = [1280, 720];
 fn frame(app: &mut App, now_millis: u64) -> Vec<UiNode> {
     let view = app.world().resource::<MenuRuntime>().view();
     app.world_mut().resource_scope(
-        |world, mut presentation: bevy::prelude::Mut<UiPresentationRuntime>| {
+        |world, mut presentation: bevy::prelude::Mut<UiPresentationResource>| {
             presentation.set_menu_view(Some(view));
             let runtime = UiRuntime::new(1);
             let dpi = DpiScale::new(1.0).unwrap();
@@ -195,7 +195,7 @@ fn a_press_inside_a_box_places_the_caret_at_the_nearest_character() {
 
     let (_, h) = glyphs[0];
     let hits =
-        client_ui::test_support::menu_hit_targets(app.world().resource::<UiPresentationRuntime>())
+        client_ui::test_support::menu_hit_targets(app.world().resource::<UiPresentationResource>())
             .to_vec();
     let (_, name_box) = hits
         .iter()

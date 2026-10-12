@@ -2,11 +2,11 @@
 use super::dispatch_bound_inventory_hotbar;
 use bevy::{
     input::mouse::MouseScrollUnit,
-    prelude::{ButtonInput, KeyCode, MouseButton, Time},
+    prelude::{ButtonInput, MouseButton, Time},
     time::Real,
     window::Window,
 };
-use client_shell::menu::settings_options::control_bindings::binding_key;
+use client_shell::menu::settings_options::control_bindings::binding_keyboard_key;
 use client_ui::ui_runtime::interaction::dispatch_inventory_key;
 use ui::UiPoint;
 use {
@@ -65,7 +65,7 @@ pub(super) fn apply_inventory_pointer(
     menu: Option<&client_shell::menu::MenuRuntime>,
     mouse_buttons: &mut ButtonInput<MouseButton>,
     (raw_primary_release, raw_secondary_release): (bool, bool),
-    (presses, shift, control): (Vec<KeyCode>, bool, bool),
+    (presses, shift, control): (Vec<semantic_input::KeyboardKey>, bool, bool),
     notches: &[(f32, MouseScrollUnit)],
     mut focus: Option<&mut client_state::CursorFocus>,
     now_millis: u64,
@@ -78,7 +78,7 @@ pub(super) fn apply_inventory_pointer(
     let mouse_hotbar: Vec<_> = mouse_buttons
         .get_just_pressed()
         .filter_map(|button| {
-            client_ui::physical_input::mouse_button_code(*button)
+            client_shell::physical_input::mouse_button_code(*button)
                 .map(semantic_input::PhysicalControl::MouseButton)
         })
         .collect();
@@ -133,7 +133,7 @@ pub(super) fn apply_inventory_pointer(
         scroll_container(runtime, frame, gui, notches);
     }
     for key in presses {
-        if client_ui::physical_input::keyboard_usage(key).is_some_and(|code| {
+        if key.usage().is_some_and(|code| {
             dispatch_bound_inventory_hotbar(
                 menu,
                 semantic_input::PhysicalControl::KeyboardUsage(code),
@@ -144,7 +144,7 @@ pub(super) fn apply_inventory_pointer(
         }) {
             continue;
         }
-        let drop = binding_key(menu, "key.drop", key);
+        let drop = binding_keyboard_key(menu, "key.drop", key);
         let _ = dispatch_inventory_key(player_runtime, runtime, hit, key, control, None, drop);
     }
     for control in mouse_hotbar {

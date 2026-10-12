@@ -9,6 +9,7 @@ use bevy::{
 };
 use client_runtime::network::NetworkHandle;
 use client_shell::menu::test_support as menu_fixture;
+use client_shell::ui_resources::UiRuntimeResource;
 use protocol::{BlobCacheStats, PlayerInputMode, ServerDisconnectEvent};
 use sim::{CollisionIdSpace, CollisionRegistryIdentity, WorldCollisionIdentity};
 
@@ -189,7 +190,7 @@ fn pause_disconnect_retires_pending_movement_before_network_send() {
         .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
-        .insert_resource(runtime)
+        .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))
@@ -219,7 +220,7 @@ fn pause_disconnect_retires_pending_movement_before_network_send() {
     assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
     assert_eq!(
         app.world()
-            .resource::<UiRuntime>()
+            .resource::<UiRuntimeResource>()
             .localized_item_name("minecraft:stone"),
         "Stone"
     );
@@ -281,7 +282,7 @@ fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_laun
         .insert_resource(DelayedTerminal(Some(terminal_sender)))
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
-        .insert_resource(UiRuntime::new(1))
+        .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))
@@ -364,7 +365,7 @@ fn drive_once(
         .insert_resource(network)
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
-        .insert_resource(UiRuntime::new(1))
+        .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))

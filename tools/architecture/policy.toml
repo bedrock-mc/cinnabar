@@ -197,8 +197,8 @@ name = "client-ui"
 path = "crates/client-ui"
 # Extension edges support presentation adapters; render data comes from render-model, never render.
 allowed_dependencies = ["actor-animation", "launcher-host", "bridge", "assets", "chunk-pipeline", "client-world", "player-state", "launcher", "inventory", "json-ui", "protocol", "render-api", "render-model", "resource-pack", "semantic-input", "ui", "world", "mod-host", "server-experience", "test-time"]
-forbidden_dependencies = ["asset-compiler", "pack-compiler"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-session", "render"]
+forbidden_dependencies = ["asset-compiler", "pack-compiler", "bevy", "wgpu"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-session", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
 # Interaction systems consume the shared frame contract without sibling app plugin edges.

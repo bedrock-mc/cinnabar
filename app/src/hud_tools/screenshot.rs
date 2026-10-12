@@ -21,7 +21,7 @@ use bevy::{
 };
 use crossbeam_channel::{Receiver, Sender};
 
-use client_ui::ui_runtime::UiRuntime;
+use client_shell::ui_resources::UiRuntimeResource;
 
 mod offscreen;
 
@@ -184,7 +184,7 @@ fn capture_on_key(
 
 fn report_saved(
     channel: Res<ScreenshotChannel>,
-    mut runtime: ResMut<UiRuntime>,
+    mut runtime: ResMut<UiRuntimeResource>,
     time: Res<Time<Real>>,
 ) {
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);

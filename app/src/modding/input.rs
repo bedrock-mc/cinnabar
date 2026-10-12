@@ -13,6 +13,8 @@ use bevy::{
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow},
 };
+use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
+#[cfg(test)]
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
 /// Pointer messages and wheel accumulation routed while a personal panel owns input.
@@ -85,13 +87,13 @@ mod tests {
         keys.clear_just_pressed(KeyCode::ShiftLeft);
         app.insert_resource(runtime)
             .insert_resource(keys)
-            .insert_resource(UiRuntime::new(1))
+            .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
             .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
                 1,
             )))
-            .insert_resource(
+            .insert_resource(UiPresentationResource(
                 UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap(),
-            )
+            ))
             .add_systems(Update, prepare_mod_input);
         app.world_mut().spawn((
             Window {
@@ -353,10 +355,10 @@ pub(super) fn prepare_mod_input(
     mut mouse: Option<ResMut<ButtonInput<MouseButton>>>,
     mut motion: Option<ResMut<AccumulatedMouseMotion>>,
     mut windows: Query<(Entity, &Window, &mut CursorOptions), With<PrimaryWindow>>,
-    ui: Res<UiRuntime>,
+    ui: Res<UiRuntimeResource>,
     player: Res<client_state::PlayerRuntime>,
     menu: Option<Res<MenuRuntime>>,
-    mut presentation: ResMut<UiPresentationRuntime>,
+    mut presentation: ResMut<UiPresentationResource>,
     time: Option<Res<Time>>,
     mut focus: Option<ResMut<client_state::CursorFocus>>,
     driven: Option<Res<client_state::DrivenInput>>,
@@ -624,7 +626,7 @@ pub(super) fn prepare_mod_input(
         keys.reset(KeyCode::Escape);
     }
     if open {
-        client_ui::physical_input::release_cursor(&mut cursor);
+        client_shell::physical_input::release_cursor(&mut cursor);
         keys.clear();
         if let Some(motion) = motion.as_mut() {
             motion.delta = Vec2::ZERO;

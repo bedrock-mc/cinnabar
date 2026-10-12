@@ -12,10 +12,8 @@ use bevy::{
 };
 use ui::{DpiScale, UiPoint, UiVisual};
 
-use client_ui::ui_runtime::{
-    UiRuntime,
-    presentation::{UiPresentationRuntime, forms::snapshot},
-};
+use crate::ui_resources::{UiPresentationResource, UiRuntimeResource};
+use client_ui::ui_runtime::{UiRuntime, presentation::forms::snapshot};
 use {
     super::*,
     launcher::menu::{MenuAction, MenuField, MenuScreen},
@@ -70,9 +68,9 @@ fn idle_menu_does_not_repeat_cursor_os_notifications() {
 fn publish(
     player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     menu: Res<MenuRuntime>,
-    mut presentation: ResMut<UiPresentationRuntime>,
+    mut presentation: ResMut<UiPresentationResource>,
     mut frame: ResMut<Frame>,
-    runtime: Res<UiRuntime>,
+    runtime: Res<UiRuntimeResource>,
     mut time: ResMut<FrameTime>,
     windows: Query<&Window, With<PrimaryWindow>>,
 ) {
@@ -129,7 +127,7 @@ impl Harness {
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<Touches>()
             .insert_resource(player_runtime)
-            .insert_resource(presentation)
+            .insert_resource(UiPresentationResource(presentation))
             .insert_resource(menu)
             .insert_resource(Frame(frame))
             .insert_resource(client_ui::test_support::pack_harness::menu_runtime())
@@ -183,7 +181,7 @@ impl Harness {
 
     /// Finds a real hit region, moves the window cursor there and sends a left click.
     fn click(&mut self, action: MenuAction) {
-        let presentation = self.app.world().resource::<UiPresentationRuntime>();
+        let presentation = self.app.world().resource::<UiPresentationResource>();
         let point = (0..720)
             .step_by(2)
             .flat_map(|y| {
@@ -223,7 +221,7 @@ impl Harness {
 
     /// Checks each rendered field by its own hit rectangle, so swapped/stale text fails.
     fn fields(&self, expected: [&str; 3], focused: MenuField) {
-        let presentation = self.app.world().resource::<UiPresentationRuntime>();
+        let presentation = self.app.world().resource::<UiPresentationResource>();
         let nodes = client_ui::test_support::pack_harness::menu_nodes(presentation);
         let caret = self.app.world().resource::<MenuRuntime>().view().caret;
         let selected = caret.selection.is_some();
@@ -270,7 +268,7 @@ impl Harness {
                 _ => "",
             };
             let placeholder = client_ui::test_support::pack_harness::menu_translation(
-                self.app.world().resource::<UiRuntime>(),
+                self.app.world().resource::<UiRuntimeResource>(),
                 placeholder,
             );
             let wanted = if value.is_empty() && action != focused_action {

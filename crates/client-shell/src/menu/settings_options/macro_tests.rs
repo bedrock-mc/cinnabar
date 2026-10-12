@@ -1,5 +1,6 @@
 //! Command drafts and pointer editing use the production menu input driver.
 use crate::menu::{MenuClipboard, MenuRuntime, drive_menu_input};
+use crate::ui_resources::UiPresentationResource;
 use bevy::{
     input::{
         ButtonState,
@@ -27,7 +28,7 @@ fn menu_input_app_with(
     .init_resource::<ButtonInput<KeyCode>>()
     .init_resource::<ButtonInput<MouseButton>>()
     .init_resource::<Touches>()
-    .insert_resource(presentation)
+    .insert_resource(UiPresentationResource(presentation))
     .insert_resource(MenuRuntime::new(true, 2, "test".into()))
     .insert_resource(clipboard)
     .add_systems(Update, drive_menu_input);
@@ -110,7 +111,7 @@ fn command_macro_space_types_arguments_in_native_settings() {
         .resource::<client_state::PlayerRuntime>()
         .clone();
     {
-        let mut presentation = app.world_mut().resource_mut::<UiPresentationRuntime>();
+        let mut presentation = app.world_mut().resource_mut::<UiPresentationResource>();
         presentation.set_menu_view(Some(view));
         presentation
             .build(

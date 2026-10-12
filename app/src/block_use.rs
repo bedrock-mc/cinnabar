@@ -21,7 +21,7 @@ use protocol::{ItemUseTrigger, PlayerGameMode, PlayerInputMode};
 use semantic_input::Action;
 use sim::PaletteWorld;
 
-use client_ui::ui_runtime::UiRuntime;
+use client_shell::ui_resources::UiRuntimeResource;
 use {
     crate::runtime::world::ClientWorld,
     client_interaction::{
@@ -46,7 +46,7 @@ pub(crate) struct BlockUseContext<'w, 's> {
     frame: Res<'w, bevy::diagnostic::FrameCount>,
     origin: Res<'w, InteractionOriginSnapshot>,
     view: Res<'w, LocalViewPose>,
-    ui: Res<'w, UiRuntime>,
+    ui: Res<'w, UiRuntimeResource>,
     focus: Res<'w, client_state::ScreenFocus>,
     windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     client_world: ResMut<'w, ClientWorld>,

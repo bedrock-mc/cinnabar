@@ -250,6 +250,7 @@ pub fn prepare_actor_render_frame(
     mut client_world: ActorWorld<'_>,
     swing_progress: Option<actor_animation::LocalSwingProgress>,
     hides_box: impl Fn(&WorldStream, [f32; 3], [f32; 3], [f32; 3]) -> bool,
+    icons: Option<&client_ui::ui_runtime::presentation::UiPresentationRuntime>,
     params: ActorFramePublication,
 ) {
     let ActorFramePublication {
@@ -884,6 +885,7 @@ pub fn prepare_actor_render_frame(
         hand_light
     };
     dropped_items.publish(
+        icons,
         client_world.stream.as_deref(),
         client_world.collisions,
         camera_position.map(|position| {

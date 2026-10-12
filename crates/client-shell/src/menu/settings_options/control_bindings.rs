@@ -35,7 +35,16 @@ pub fn binding_key(
     name: &str,
     key: bevy::prelude::KeyCode,
 ) -> bool {
-    client_ui::physical_input::keyboard_usage(key).is_some_and(|code| {
+    binding_keyboard_key(menu, name, crate::physical_input::keyboard_key(key))
+}
+
+/// Matches a semantic key against the control named `name` and its secondary binding.
+pub fn binding_keyboard_key(
+    menu: Option<&crate::menu::MenuRuntime>,
+    name: &str,
+    key: semantic_input::KeyboardKey,
+) -> bool {
+    key.usage().is_some_and(|code| {
         let control = PhysicalControl::KeyboardUsage(code);
         named_control(menu, name) == Some(control)
             || menu.map_or_else(
@@ -64,7 +73,7 @@ pub fn binding_pressed(
     match named_control(menu, name) {
         Some(PhysicalControl::MouseButton(code)) => mouse
             .get_just_pressed()
-            .any(|button| client_ui::physical_input::mouse_button_code(*button) == Some(code)),
+            .any(|button| crate::physical_input::mouse_button_code(*button) == Some(code)),
         _ => false,
     }
 }
@@ -101,7 +110,7 @@ pub fn binding_mouse_button(
     button: bevy::prelude::MouseButton,
 ) -> bool {
     matches!(named_control(menu, name), Some(PhysicalControl::MouseButton(code))
-        if client_ui::physical_input::mouse_button_code(button) == Some(code))
+        if crate::physical_input::mouse_button_code(button) == Some(code))
 }
 
 /// Reads a gamepad UI action from the same persisted layout as the settings grid.
@@ -120,7 +129,7 @@ pub fn binding_gamepad(
     );
     pads.iter().any(|pad| match control {
         Some(PhysicalControl::GamepadButton(code)) => {
-            client_ui::physical_input::TRANSLATED_GAMEPAD_BUTTONS
+            crate::physical_input::TRANSLATED_GAMEPAD_BUTTONS
                 .iter()
                 .any(|(button_code, button)| *button_code == code && pad.just_pressed(*button))
         }
@@ -138,7 +147,7 @@ pub fn gamepad_button(
     settings: &launcher::menu::settings_options::SettingsOptions,
     button: bevy::input::gamepad::GamepadButton,
 ) -> bevy::input::gamepad::GamepadButton {
-    let table = client_ui::physical_input::TRANSLATED_GAMEPAD_BUTTONS;
+    let table = crate::physical_input::TRANSLATED_GAMEPAD_BUTTONS;
     let Some((code, _)) = table.iter().find(|(_, candidate)| *candidate == button) else {
         return button;
     };

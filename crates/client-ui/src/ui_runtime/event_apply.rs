@@ -124,7 +124,7 @@ impl UiRuntime {
                 UiApplyOutcome::Applied
             }
             UiEvent::Form(event) => {
-                bevy::log::info!(
+                tracing::info!(
                     target: "server_form",
                     form_id = event.form_id,
                     kind = ?event.kind,

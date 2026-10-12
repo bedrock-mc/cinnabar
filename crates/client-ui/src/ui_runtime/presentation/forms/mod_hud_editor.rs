@@ -151,7 +151,7 @@ impl UiPresentationRuntime {
                 }
                 Err(error) => {
                     editor.finish(false);
-                    bevy::log::warn!(%error, "HUD editor template rejected");
+                    tracing::warn!(%error, "HUD editor template rejected");
                     return;
                 }
             }
@@ -213,7 +213,7 @@ impl UiPresentationRuntime {
                 *next = rollback.1;
                 editor.finish(false);
                 if let Err(error) = result {
-                    bevy::log::warn!(%error, "HUD editor disabled after rendering failure");
+                    tracing::warn!(%error, "HUD editor disabled after rendering failure");
                 }
             }
         }

@@ -387,7 +387,9 @@ fn the_post_join_reload_publishes_the_join_outputs() {
         .begin_session(1, &joined);
     settle(&mut app, 1);
     assert!(app.world().resource::<PackReload>().error().is_none());
-    let ui = app.world().resource::<client_ui::ui_runtime::UiRuntime>();
+    let ui = app
+        .world()
+        .resource::<client_shell::ui_resources::UiRuntimeResource>();
     assert!(same(&ui.session_glyphs().cloned(), &joined.glyph_sheets));
     assert!(same(&ui.server_ui().cloned(), &joined.server_ui));
     let world = app.world().resource::<crate::runtime::world::ClientWorld>();

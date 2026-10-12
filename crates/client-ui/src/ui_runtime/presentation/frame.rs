@@ -48,7 +48,7 @@ impl UiPresentationRuntime {
     ) -> Result<UiRenderInput, UiPresentationError> {
         self.hud_frame.mount_equipment = runtime.screen_state().mount_equipment;
         #[cfg(feature = "tracy")]
-        let _build_span = bevy::log::info_span!("ui.build").entered();
+        let _build_span = tracing::info_span!("ui.build").entered();
         dynamic_textures::observe_session(self, runtime.session_id());
         session_icons::observe(self, runtime.session_icons());
         self.observe_server_ui(runtime.server_ui());
@@ -367,13 +367,13 @@ impl UiPresentationRuntime {
                 return Ok(input);
             }
             #[cfg(feature = "tracy")]
-            let _span = bevy::log::info_span!("ui.geometry_rebuild").entered();
+            let _span = tracing::info_span!("ui.geometry_rebuild").entered();
             #[cfg(test)]
             {
                 self.tree_builds += 1;
             }
             #[cfg(feature = "tracy")]
-            let _layout_span = bevy::log::info_span!("ui.layout_publish").entered();
+            let _layout_span = tracing::info_span!("ui.layout_publish").entered();
             let draw =
                 RetainedDraw::build(&nodes, viewport, UiScale::default(), safe_area, effects)
                     .map_err(UiPresentationError::Tree)?;
@@ -399,7 +399,7 @@ impl UiPresentationRuntime {
         if overflows > previous_overflows
             && overflows.checked_ilog2() != previous_overflows.checked_ilog2()
         {
-            bevy::log::warn!(
+            tracing::warn!(
                 text_overflows = overflows,
                 "wrapped UI text exceeds its control; clipping to the UI viewport"
             );

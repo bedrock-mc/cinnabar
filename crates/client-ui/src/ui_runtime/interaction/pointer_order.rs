@@ -1,27 +1,5 @@
 //! Routes a frame's mouse presses against the screen state in force when each arrived.
 
-use bevy::{input::ButtonState, prelude::MouseButton, window::WindowEvent};
-
-/// This frame's mouse presses in arrival order, each with the number of keyboard
-/// events that reached the window before it.
-pub fn ordered_pointer_presses<'a>(
-    events: impl IntoIterator<Item = &'a WindowEvent>,
-) -> Vec<(usize, MouseButton)> {
-    // Every event is consumed so the caller's cursor never replays this frame's keys.
-    let mut keys = 0;
-    let mut presses = Vec::new();
-    for event in events {
-        match event {
-            WindowEvent::KeyboardInput(_) => keys += 1,
-            WindowEvent::MouseButtonInput(input) if input.state == ButtonState::Pressed => {
-                presses.push((keys, input.button));
-            }
-            _ => {}
-        }
-    }
-    presses
-}
-
 /// Where a press went: a screen binding it triggered, gameplay, or the screen opening that was
 /// showing when it arrived (0 is the screen already open at the start of the frame).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,16 +11,16 @@ pub enum PressRoute {
 
 /// Hands each press out once, in arrival order, for the caller to route against the screen
 /// state in force at that point.
-#[derive(Debug, Default)]
-pub struct PointerRouter {
-    presses: Vec<(usize, MouseButton)>,
+#[derive(Debug)]
+pub struct PointerRouter<B> {
+    presses: Vec<(usize, B)>,
     next: usize,
     open: bool,
     opening: usize,
 }
 
-impl PointerRouter {
-    pub fn new(presses: Vec<(usize, MouseButton)>, open_at_start: bool) -> Self {
+impl<B: Copy> PointerRouter<B> {
+    pub fn new(presses: Vec<(usize, B)>, open_at_start: bool) -> Self {
         Self {
             presses,
             next: 0,
@@ -52,7 +30,7 @@ impl PointerRouter {
     }
 
     /// The next press that arrived before keyboard event `arrival`, if any is left.
-    pub fn next_before_key(&mut self, arrival: usize) -> Option<MouseButton> {
+    pub fn next_before_key(&mut self, arrival: usize) -> Option<B> {
         let (keys, button) = *self.presses.get(self.next)?;
         (keys <= arrival).then(|| {
             self.next += 1;
@@ -61,7 +39,7 @@ impl PointerRouter {
     }
 
     /// The next press left after the frame's last keyboard event.
-    pub fn next_rest(&mut self) -> Option<MouseButton> {
+    pub fn next_rest(&mut self) -> Option<B> {
         self.next_before_key(usize::MAX)
     }
 
@@ -105,19 +83,19 @@ pub const fn screen_after(open: bool, key: ScreenKey) -> bool {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FrameInput {
-    Press(MouseButton),
+pub enum FrameInput<B> {
+    Press(B),
     /// A press bound to the screen toggle: it toggles the screen and is never also a click.
-    BindingPress(MouseButton),
+    BindingPress(B),
     Key(ScreenKey),
 }
 
 /// Routes one frame's ordered inputs: every event's transition is observed where it happens, and
 /// every press goes once, to the state in force when it arrived.
-pub fn route_frame_presses(
-    inputs: &[FrameInput],
+pub fn route_frame_presses<B: Copy>(
+    inputs: &[FrameInput<B>],
     open_at_start: bool,
-) -> Vec<(MouseButton, PressRoute)> {
+) -> Vec<(B, PressRoute)> {
     let mut keys = 0;
     let mut presses = Vec::new();
     let mut bindings = Vec::new();
@@ -134,7 +112,7 @@ pub fn route_frame_presses(
     let mut bindings = bindings.into_iter();
     let mut open = open_at_start;
     let mut routed = Vec::new();
-    let mut route = |router: &mut PointerRouter, open: &mut bool, button| {
+    let mut route = |router: &mut PointerRouter<B>, open: &mut bool, button: B| {
         if bindings.next() == Some(true) {
             *open = screen_after(*open, ScreenKey::Toggle);
             router.observe(*open);
@@ -163,6 +141,13 @@ pub fn route_frame_presses(
 #[cfg(test)]
 mod tests {
     use super::{FrameInput::*, PressRoute::*, ScreenKey::*, *};
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum MouseButton {
+        Left,
+        Right,
+    }
+    type FrameInput = super::FrameInput<MouseButton>;
 
     const LEFT: FrameInput = Press(MouseButton::Left);
     const BIND: FrameInput = BindingPress(MouseButton::Right);
@@ -247,45 +232,6 @@ mod tests {
         for (name, open, inputs, expected) in cases {
             assert_eq!(&route_frame_presses(inputs, *open), expected, "{name}");
         }
-    }
-
-    #[test]
-    fn window_scan_counts_keys_before_each_press_and_reads_everything() {
-        use bevy::{
-            ecs::entity::Entity,
-            input::{
-                keyboard::{Key, KeyCode, KeyboardInput},
-                mouse::MouseButtonInput,
-            },
-        };
-        let window = Entity::PLACEHOLDER;
-        let key = WindowEvent::KeyboardInput(KeyboardInput {
-            key_code: KeyCode::Escape,
-            logical_key: Key::Escape,
-            state: ButtonState::Pressed,
-            text: None,
-            repeat: false,
-            window,
-        });
-        let press = |button| {
-            WindowEvent::MouseButtonInput(MouseButtonInput {
-                button,
-                state: ButtonState::Pressed,
-                window,
-            })
-        };
-        let events = [
-            press(MouseButton::Right),
-            key.clone(),
-            press(MouseButton::Left),
-            key,
-        ];
-        let mut iter = events.iter();
-        assert_eq!(
-            ordered_pointer_presses(&mut iter),
-            [(0, MouseButton::Right), (1, MouseButton::Left)]
-        );
-        assert!(iter.next().is_none());
     }
 
     /// Every short sequence: each click lands once, on the opening current when it arrived, or
