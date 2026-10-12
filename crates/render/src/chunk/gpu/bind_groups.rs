@@ -12,6 +12,9 @@ use render_scene::{
 #[cfg(test)]
 mod water_tint_tests;
 
+#[cfg(test)]
+mod clock_tests;
+
 #[derive(Clone, PartialEq, Eq)]
 pub(in crate::chunk) struct ChunkBindGroupBuffers {
     pub(in crate::chunk) view: BufferId,
