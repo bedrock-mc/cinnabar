@@ -168,6 +168,7 @@ pub(super) fn raster_material_with_overlay(
         material: material.gpu_word(),
         dissolve_multiplier: 1.0,
         light_color_multiplier: material.light_color_multiplier,
+        glint: material.glint.parameters(),
         ..Default::default()
     };
     let instance = gpu.buffer(

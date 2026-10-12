@@ -132,7 +132,8 @@ fn hand_vertex(
     out.skin_layer = texture_layer;
     out.shade = 1.0;
     let material = instance_words[instance_base + 27u];
-    out.glint_instance = select(0xffffffffu, instance_index, (material & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT);
+    let has_glint = (material & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT || word_f32(instance_base + 35u) != 0.0;
+    out.glint_instance = select(0xffffffffu, instance_index, has_glint);
     if (vertex_index >= span.vertex_count) {
         out.position = vec4(2.0, 2.0, 2.0, 1.0);
         out.uv = vec2(0.0);

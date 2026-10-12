@@ -101,7 +101,7 @@ pub struct ActorRigSubmission {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ActorMaterial {
-    /// Animated actor glint factors; unused by other material kinds.
+    /// Animated glint factors. Item glint overlays preserve the base material's coverage.
     pub glint: super::ActorGlint,
     pub kind: assets::EntityRenderMaterial,
     pub state: Option<assets::EntityRenderMaterialState>,

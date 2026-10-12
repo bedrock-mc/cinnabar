@@ -86,7 +86,7 @@ impl ActorGlint {
 
     /// Native glint layer words: both scroll offsets divided by the UV scale (as vanilla
     /// divides them before scaling), strength, the UV scale and the raster selector.
-    pub(crate) fn parameters(self) -> [f32; 6] {
+    pub fn parameters(self) -> [f32; 6] {
         let [first, second, strength] = self.scroll();
         let scale = self.uv_scale.map(|scale| {
             if scale.is_finite() && scale > 0.0 {

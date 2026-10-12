@@ -153,8 +153,8 @@ impl EquipmentRuntime {
         };
         let mesh = self.mesh_for(key, index, placement)?;
         let block = matches!(key, MeshKey::Block(_) | MeshKey::SessionBlock(_));
-        let [u0, v0, u1, v1] = placement.uv_rect();
-        Some((mesh, location, block, [u1 - u0, v1 - v0]))
+        let span = glint_span(placement.uv_rect(), block);
+        Some((mesh, location, block, span))
     }
 
     /// A held or worn sprite/cube on `bone`, placed by `display` or the kind's held placement.
@@ -345,6 +345,17 @@ impl EquipmentRuntime {
     }
 }
 
+/// Returns one sprite's UV span, or one face's span within a block's six-face sheet.
+fn glint_span([u0, v0, u1, v1]: [f32; 4], block: bool) -> [f32; 2] {
+    let mut span = [u1 - u0, v1 - v0];
+    if block {
+        for (span, divisions) in span.iter_mut().zip(assets::BLOCK_ITEM_SHEET_GRID) {
+            *span /= f32::from(divisions);
+        }
+    }
+    span
+}
+
 /// Draws `presentation` with vanilla's item glint over its `span` of the atlas when the held
 /// stack glints; the frame clock is applied at publication.
 pub(super) fn held_glint(
@@ -383,10 +394,27 @@ fn with_glint(
 ) -> EquipmentPresentation {
     if item.enchanted {
         presentation.submission.material = render_model::ActorMaterial {
-            kind: assets::EntityRenderMaterial::Glint,
             glint,
             ..presentation.submission.material
         };
     }
     presentation
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn block_sheet_glint_covers_one_face_at_the_sprite_scale() {
+        let face_span = 0.125;
+        let [columns, rows] = assets::BLOCK_ITEM_SHEET_GRID.map(f32::from);
+        let rect = [0.0, 0.0, face_span * columns, face_span * rows];
+        let glint = render_model::ActorGlint::item(0.0, glint_span(rect, true));
+        assert_eq!(
+            glint.uv_scale,
+            [render_model::ITEM_GLINT_UV_SCALE / face_span; 2]
+        );
+        assert_eq!(glint_span(rect, false), [rect[2], rect[3]]);
+    }
 }

@@ -440,6 +440,7 @@ struct ActorWitnessCase { normal: vec4<f32>, words: vec4<u32>, distance_multi: v
 @vertex fn actor_witness_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     let corners = array(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
     var out: VertexOutput;
+    out.glint_instance = 0xffffffffu;
     out.position = vec4(corners[index], 0.5, 1.0);
     out.uv = vec2(0.5);
     out.skin_info.x = actor_witness.words.x;
