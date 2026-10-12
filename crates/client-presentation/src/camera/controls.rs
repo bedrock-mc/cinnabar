@@ -120,12 +120,27 @@ pub fn look_at_target(position: Vec3, target: Vec3) -> Quat {
         .rotation
 }
 
-/// Cycles perspective when the routed action is pressed outside freelook.
+/// Whether the local player is dead, as the world's actor store last reported.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Resource)]
+pub struct LocalPlayerDeath(pub bool);
+
+/// Shows the local death in third person, except in the Java 1.7 animation mode, which keeps
+/// Java's first-person death roll. Then cycles perspective when the routed action is pressed
+/// outside freelook and the death view.
 pub fn update_perspective(
     input: crate::observations::InputObservation<'_>,
+    local_player_dead: bool,
+    body_rotation: Quat,
     mut settings: ResMut<CameraSettingsAuthority>,
 ) {
-    if !input.phase(Action::CyclePerspective).pressed || input.phase(Action::Freelook).held {
+    let death_view = local_player_dead && !settings.feel().java_animations;
+    if settings.death_view() != death_view {
+        settings.set_death_view(death_view.then_some(body_rotation));
+    }
+    if !input.phase(Action::CyclePerspective).pressed
+        || input.phase(Action::Freelook).held
+        || settings.death_view()
+    {
         return;
     }
     settings.cycle_perspective();

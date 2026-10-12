@@ -661,6 +661,9 @@ pub fn resolve_camera_pose(
         mut receipt,
     } = publication;
     let perspective = settings.perspective();
+    let rotation = settings
+        .death_rotation()
+        .unwrap_or_else(|| view.camera_rotation());
     let transform = if let Some(stream) = client_world.stream.as_ref() {
         let collision_world = sim::PaletteWorld::new(
             stream.collision_store(),
@@ -677,17 +680,13 @@ pub fn resolve_camera_pose(
             ),
             None => collision_safe_perspective_pose(
                 view.eye_translation(),
-                view.camera_rotation(),
+                rotation,
                 perspective,
                 &collision_world,
             ),
         }
     } else {
-        unavailable_world_perspective_pose(
-            view.eye_translation(),
-            view.camera_rotation(),
-            perspective,
-        )
+        unavailable_world_perspective_pose(view.eye_translation(), rotation, perspective)
     };
     *camera_transform.1 = transform;
     *published = CameraPose::new(transform);

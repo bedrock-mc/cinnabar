@@ -9,7 +9,9 @@ use std::{
 use uuid::Uuid;
 use zip::{CompressionMethod, ZipArchive};
 
-use crate::{AdmissionError, MAX_FILE_BYTES, crypto::ContentKey, normalize_jsonc};
+use pack_json::normalize_jsonc;
+
+use crate::{AdmissionError, MAX_FILE_BYTES, crypto::ContentKey};
 
 /// A parsed archive handle. Cloning shares the central directory (`Arc`) and
 /// only copies the cursor, so a per-read clone avoids re-parsing.

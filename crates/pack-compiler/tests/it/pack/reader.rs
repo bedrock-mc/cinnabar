@@ -456,7 +456,7 @@ fn pack_reader_rejects_missing_terrain_keys() {
 }
 
 #[test]
-fn pack_reader_rejects_invalid_json_utf8() {
+fn pack_reader_rejects_non_json_after_text_decoding() {
     let directory = minimal_pack();
     write_file(
         directory.path().join("textures/terrain_texture.json"),
@@ -465,23 +465,20 @@ fn pack_reader_rejects_invalid_json_utf8() {
 
     assert!(matches!(
         read_pack(directory.path()),
-        Err(AssetError::InvalidJsonUtf8 { .. })
+        Err(AssetError::Json { .. })
     ));
 }
 
 #[test]
-fn pack_reader_rejects_non_leading_json_comments() {
+fn pack_reader_accepts_comments_bom_trailing_commas_and_legacy_text() {
     let directory = minimal_pack();
     write_file(
         directory.path().join("textures/terrain_texture.json"),
-        r#"{"texture_data": {} // not a complete leading line
-        }"#,
+        b"\xef\xbb\xbf{\"texture_data\": {/* note */\"stone\":{\"textures\":\"textures/blocks/caf\xe9\",},} // tail\n}",
     );
 
-    assert!(matches!(
-        read_pack(directory.path()),
-        Err(AssetError::Json { .. })
-    ));
+    let pack = read_pack(directory.path()).unwrap();
+    assert_eq!(pack.terrain.get("stone"), Some("textures/blocks/café"));
 }
 
 #[test]

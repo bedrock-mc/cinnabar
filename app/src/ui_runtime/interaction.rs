@@ -342,6 +342,28 @@ pub(crate) fn drive_world_inventory_keys(
         .begin_world_drop(slot, (!control).then_some(1));
 }
 
+/// Drops keyboard input another owner handles while keeping inventory modifiers in step
+/// with the physical keys: observed edges still update them, and when input is unavailable
+/// (an unfocused window) every modifier counts as released.
+fn discard_keyboard(
+    runtime: &mut UiRuntime,
+    keyboard_messages: &mut MessageReader<KeyboardInput>,
+    input_available: bool,
+) {
+    let inventory_keys = runtime.inventory_keys_mut();
+    if input_available {
+        for input in keyboard_messages.read() {
+            inventory_keys.track_modifier(
+                keyboard_key(input.key_code),
+                input.state == ButtonState::Pressed,
+            );
+        }
+    } else {
+        keyboard_messages.clear();
+        inventory_keys.release_modifiers();
+    }
+}
+
 #[allow(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -428,7 +450,7 @@ pub(crate) fn drive_chat_keyboard_input(
             focus.authorize_screen_return();
         }
         modifiers.reset_all();
-        keyboard_messages.clear();
+        discard_keyboard(&mut runtime, &mut keyboard_messages, input_available);
         keys.reset_all();
         mouse_buttons.reset_all();
         mouse_motion.delta = Vec2::ZERO;
@@ -438,7 +460,7 @@ pub(crate) fn drive_chat_keyboard_input(
     }
     if !input_available {
         modifiers.reset_all();
-        keyboard_messages.clear();
+        discard_keyboard(&mut runtime, &mut keyboard_messages, false);
         keys.reset_all();
         mouse_buttons.reset_all();
         mouse_motion.delta = Vec2::ZERO;
@@ -455,7 +477,7 @@ pub(crate) fn drive_chat_keyboard_input(
             .is_some_and(|view| view.mod_ui().mod_panel_open())
     {
         modifiers.reset_all();
-        keyboard_messages.clear();
+        discard_keyboard(&mut runtime, &mut keyboard_messages, true);
         return;
     }
     if menu.as_ref().is_some_and(|menu| menu.is_visible()) {
@@ -463,7 +485,7 @@ pub(crate) fn drive_chat_keyboard_input(
         if runtime.inventory_open() {
             runtime.close_inventory(&mut player_runtime);
         }
-        keyboard_messages.clear();
+        discard_keyboard(&mut runtime, &mut keyboard_messages, true);
         // The menu system runs next and must see the original button state.
         // It consumes keyboard/pointer input after handling its own actions.
         mouse_motion.delta = Vec2::ZERO;
@@ -609,7 +631,7 @@ pub(crate) fn drive_chat_keyboard_input(
             && presentation.chat_link_confirmation_open()
         {
             consumed_gameplay = true;
-            if input.key_code == KeyCode::Escape {
+            if input.key_code == KeyCode::Escape && !input.repeat {
                 presentation.cancel_chat_link();
             }
             continue;
@@ -618,7 +640,7 @@ pub(crate) fn drive_chat_keyboard_input(
             && presentation.chat_settings_open()
         {
             consumed_gameplay = true;
-            if input.key_code == KeyCode::Escape {
+            if input.key_code == KeyCode::Escape && !input.repeat {
                 presentation.set_chat_settings_open(false);
             }
             continue;
@@ -635,12 +657,14 @@ pub(crate) fn drive_chat_keyboard_input(
             if runtime.screen_state().text_focused() && !mod_view {
                 // A text field owns typed text, including `e`.
                 match input.key_code {
-                    KeyCode::Escape => {
+                    KeyCode::Escape if !input.repeat => {
                         if runtime.commit_book(false) {
                             runtime.close_inventory(&mut player_runtime);
                             inventory_ownership_changed = true;
                         }
                     }
+                    // An OS repeat of a held key is not a new press, so it never closes a screen.
+                    KeyCode::Escape => {}
                     KeyCode::Backspace => runtime.screen_state_mut().backspace_text(),
                     key if runtime.book_key(&mut player_runtime, keyboard_key(key)) => {}
                     _ => {
@@ -654,6 +678,10 @@ pub(crate) fn drive_chat_keyboard_input(
                 continue;
             }
             match input.key_code {
+                // An OS repeat of a held key is not a new press, so it never toggles the screen.
+                key if input.repeat
+                    && (key == KeyCode::Escape
+                        || binding_key(menu.as_deref(), "key.inventory", key)) => {}
                 key if binding_key(menu.as_deref(), "key.inventory", key) => {
                     runtime.toggle_inventory(&mut player_runtime);
                     inventory_ownership_changed = true;
@@ -672,8 +700,9 @@ pub(crate) fn drive_chat_keyboard_input(
             continue;
         }
         if runtime.local_sleeping() && !runtime.chat_focused() {
-            // The bed screen: Escape leaves the bed, T opens chat over it.
+            // The bed screen: Escape leaves the bed, T opens chat over it. Key repeats do nothing.
             match input.key_code {
+                _ if input.repeat => {}
                 KeyCode::Escape => {
                     runtime.request_wake();
                     if let Some(focus) = focus.as_deref_mut() {
@@ -770,6 +799,8 @@ pub(crate) fn drive_chat_keyboard_input(
             continue;
         }
         match input.key_code {
+            // Repeats keep editing the draft, but only a fresh press cancels or sends it.
+            KeyCode::Escape | KeyCode::Enter | KeyCode::NumpadEnter if input.repeat => {}
             KeyCode::Escape => {
                 runtime.close_chat();
             }

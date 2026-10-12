@@ -205,6 +205,12 @@ impl InstallLayout {
         self.resource_root.join("prep-kit")
     }
 
+    /// Download staging, installer logs, and temporary startup signals for this install.
+    #[must_use]
+    pub fn update_dir(&self) -> PathBuf {
+        self.user_data_root.join("update")
+    }
+
     #[must_use]
     pub fn log_dir(&self) -> PathBuf {
         self.user_data_root.join("logs")

@@ -81,6 +81,59 @@ fn options_reject_invalid_runs_and_keep_go_flag_forms() {
     assert!(Options::parse(["-h".into()]).unwrap().is_none());
 }
 
+/// Empty placeholders keep encrypted pack keys aligned, and partial lists are rejected.
+#[test]
+fn content_keys_require_one_entry_per_pack_or_no_keys() {
+    let packs = [
+        "-resource-pack",
+        "plain.mcpack",
+        "-resource-pack",
+        "encrypted.mcpack",
+    ]
+    .map(str::to_owned);
+    let opts = Options::parse(
+        arguments()
+            .into_iter()
+            .chain(packs.clone())
+            .chain(["-content-key=", "--content-key=encrypted-key"].map(str::to_owned)),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(opts.packs.len(), 2);
+    assert_eq!(opts.pack_keys, ["", "encrypted-key"]);
+    let opts = Options::parse(arguments().into_iter().chain(packs.clone()))
+        .unwrap()
+        .unwrap();
+    assert!(opts.pack_keys.is_empty());
+    for keys in [
+        vec!["-content-key", "encrypted-key"],
+        vec!["-content-key", ""],
+        vec![
+            "-content-key=",
+            "-content-key=encrypted-key",
+            "-content-key=",
+        ],
+    ] {
+        assert!(
+            Options::parse(
+                arguments()
+                    .into_iter()
+                    .chain(packs.clone())
+                    .chain(keys.into_iter().map(str::to_owned))
+            )
+            .is_err()
+        );
+    }
+    assert!(
+        Options::parse(
+            arguments()
+                .into_iter()
+                .chain(["-content-key".into(), "dangling".into()])
+        )
+        .is_err()
+    );
+}
+
 #[test]
 fn capture_preserves_opaque_bodies_and_post_login_metadata() {
     let data: Vec<_> = [

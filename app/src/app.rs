@@ -54,7 +54,7 @@ use client_presentation::{
     local_player::{LocalPlayerFrameSet, publish_interaction_origin},
 };
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
-use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use client_ui::ui_runtime::{PlatformClipboard, UiRuntime, presentation::UiPresentationRuntime};
 use diagnostics::markers::SHUTDOWN_COMPLETED;
 use diagnostics::metrics::MetricsCollector;
 use launcher::install_layout::InstallLayout;
@@ -395,7 +395,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         args.address.is_some() || args.socket_dir_explicit,
     )?;
     crate::thread_budget::ThreadBudget::configure_global_rayon();
-    // Declared first so it drops last: every spawned child is gone before `run` returns or unwinds.
+    // Keep the clipboard hook registered until the child guard runs on return or unwind.
+    let _clipboard_exit =
+        launcher_host::lifecycle::children::on_exit(PlatformClipboard::shutdown_if_idle);
+    // Drop after all process owners so every spawned child is stopped before `run` ends.
     let _children = launcher_host::lifecycle::children::StopOnDrop;
     launcher_host::lifecycle::children::install_exit_hooks(|| {
         diagnostics::console::flush_before_exit();
@@ -735,6 +738,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .add_systems(Last, crate::frame_pacing::update_frame_pacing);
     #[cfg(target_os = "macos")]
     crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
+    #[cfg(target_os = "macos")]
+    crate::frame_pacing::macos_display_link::install(&mut app);
     app.add_systems(Update, crate::window_icon::apply);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {
         screenshots_dir,
@@ -821,11 +826,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(equipment_runtime)
     .insert_resource(hand_rig_builder)
     .insert_resource(AtmosphereFrame::default())
-    .insert_resource(weather_textures)
+    .insert_resource(weather_textures.clone())
     .insert_resource(
         crate::runtime::network::reload_environment::EnvironmentBase::new(
             atmosphere_assets.clone(),
             particle_assets.clone(),
+            weather_textures,
         ),
     )
     .insert_resource(atmosphere_assets)
@@ -960,8 +966,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     #[cfg(feature = "enhanced-diagnostics")]
     crate::enhanced_diagnostics::install(&mut app, diagnostic_budget);
     executor::configure_frame_schedule_executors(&mut app);
+    app.add_plugins(render::startup_presentation::StartupPresentationPlugin)
+        .add_systems(First, crate::lifecycle::acknowledge_startup);
     startup::install_first_frame_log(&mut app);
     let exit = app.run();
+    PlatformClipboard::shutdown();
     client_shell::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app
         .world_mut()

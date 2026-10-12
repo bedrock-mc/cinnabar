@@ -58,8 +58,7 @@ fn pinned_controller_annotation_inventory_has_no_dropped_references() {
     let mut annotations = Vec::new();
     for path in files {
         let source = std::fs::read_to_string(path).unwrap();
-        let root: Value =
-            serde_json::from_slice(&assets::strip_json_comments(source.as_bytes())).unwrap();
+        let root: Value = pack_json::parse_jsonc(source.as_bytes()).unwrap();
         bindings.insert_controllers(&root);
         for (controller, definition) in root["animation_controllers"]
             .as_object()

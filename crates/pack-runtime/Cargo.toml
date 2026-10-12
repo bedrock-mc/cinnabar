@@ -9,6 +9,7 @@ publish = false
 test-support = []
 
 [dependencies]
+pack-json = { path = "../pack-json" }
 assets = { path = "../assets" }
 image.workspace = true
 pack-compiler = { path = "../pack-compiler" }

@@ -134,7 +134,7 @@ fn reconnect_refills_a_full_cache_with_linear_eviction_work() {
     assert_eq!(cache.eviction_visits, MAX_CACHED_DEFINITIONS);
     assert_eq!(cache.entries.len(), MAX_CACHED_DEFINITIONS);
     assert_eq!(cache.eviction_order.len(), MAX_CACHED_DEFINITIONS);
-    assert_eq!(cache.states, MAX_AGGREGATE_STATES);
+    assert_eq!(cache.states, MAX_CACHED_DEFINITIONS);
     assert!(cache.bytes <= MAX_AGGREGATE_STATE_BYTES);
     assert_eq!(retained.len(), 1);
 }

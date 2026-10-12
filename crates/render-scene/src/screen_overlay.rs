@@ -10,6 +10,8 @@ use bevy::{
 pub const MAX_SCREEN_OVERLAY_LAYERS: usize = 8;
 /// Both overlay textures are square RGBA8 of this side.
 pub const SCREEN_OVERLAY_TEXTURE_SIDE: u32 = 256;
+pub const PUMPKIN_MASK_PATH: &str = "textures/misc/pumpkinblur.png";
+pub const SPYGLASS_MASK_PATH: &str = "textures/ui/spyglass_scope.png";
 const TEXTURE_BYTES: usize =
     (SCREEN_OVERLAY_TEXTURE_SIDE * SCREEN_OVERLAY_TEXTURE_SIDE * 4) as usize;
 
@@ -31,22 +33,50 @@ pub struct ScreenOverlayLayer {
     pub alpha: f32,
 }
 
-/// Pumpkin-blur and spyglass-scope pixels, RGBA8, exactly [`SCREEN_OVERLAY_TEXTURE_SIDE`] square.
-#[derive(Debug, PartialEq, Eq)]
+/// Available pumpkin and spyglass masks, each RGBA8 and [`SCREEN_OVERLAY_TEXTURE_SIDE`] square.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScreenOverlayTextures {
-    pumpkin: Vec<u8>,
-    spyglass: Vec<u8>,
+    pumpkin: Option<Vec<u8>>,
+    spyglass: Option<Vec<u8>>,
 }
 
 impl ScreenOverlayTextures {
     /// Rejects any payload that is not exactly one RGBA8 layer per texture.
     pub fn new(pumpkin: Vec<u8>, spyglass: Vec<u8>) -> Option<Self> {
-        (pumpkin.len() == TEXTURE_BYTES && spyglass.len() == TEXTURE_BYTES)
+        Self::from_layers(Some(pumpkin), Some(spyglass))
+    }
+
+    /// Admits independently available masks, retaining procedural art for absent layers.
+    pub fn from_layers(pumpkin: Option<Vec<u8>>, spyglass: Option<Vec<u8>>) -> Option<Self> {
+        let valid = |pixels: &Option<Vec<u8>>| {
+            pixels
+                .as_ref()
+                .is_none_or(|pixels| pixels.len() == TEXTURE_BYTES)
+        };
+        (valid(&pumpkin) && valid(&spyglass) && (pumpkin.is_some() || spyglass.is_some()))
             .then_some(Self { pumpkin, spyglass })
     }
 
+    /// Returns the pumpkin pixels, when that layer has an admitted image.
+    pub fn pumpkin(&self) -> Option<&[u8]> {
+        self.pumpkin.as_deref()
+    }
+
+    /// Returns the spyglass pixels, when that layer has an admitted image.
+    pub fn spyglass(&self) -> Option<&[u8]> {
+        self.spyglass.as_deref()
+    }
+
+    /// Packs both GPU layers, filling an absent layer with transparent pixels.
     pub fn layer_major(&self) -> Vec<u8> {
-        [self.pumpkin.as_slice(), self.spyglass.as_slice()].concat()
+        let mut pixels = vec![0; TEXTURE_BYTES * 2];
+        if let Some(pumpkin) = self.pumpkin() {
+            pixels[..TEXTURE_BYTES].copy_from_slice(pumpkin);
+        }
+        if let Some(spyglass) = self.spyglass() {
+            pixels[TEXTURE_BYTES..].copy_from_slice(spyglass);
+        }
+        pixels
     }
 }
 
@@ -162,6 +192,17 @@ mod tests {
             ScreenOverlayTextures::new(vec![0; TEXTURE_BYTES], vec![0; TEXTURE_BYTES]).is_some()
         );
         assert!(ScreenOverlayTextures::new(vec![0; 4], vec![0; TEXTURE_BYTES]).is_none());
+    }
+
+    #[test]
+    fn independent_masks_preserve_pixels_and_leave_absent_layers_transparent() {
+        let pumpkin = vec![0; TEXTURE_BYTES];
+        let masks = ScreenOverlayTextures::from_layers(Some(pumpkin.clone()), None).unwrap();
+        assert_eq!(masks.pumpkin(), Some(pumpkin.as_slice()));
+        assert!(masks.spyglass().is_none());
+        assert_eq!(masks.layer_major(), vec![0; TEXTURE_BYTES * 2]);
+        assert!(ScreenOverlayTextures::from_layers(None, None).is_none());
+        assert!(ScreenOverlayTextures::from_layers(Some(vec![0; 4]), None).is_none());
     }
 
     #[test]

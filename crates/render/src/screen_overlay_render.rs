@@ -299,8 +299,24 @@ fn prepare_overlay(
         header: [
             count as f32,
             scene.clock_seconds,
-            if scene.textures.is_some() { 1.0 } else { 0.0 },
-            0.0,
+            if scene
+                .textures
+                .as_ref()
+                .is_some_and(|textures| textures.pumpkin().is_some())
+            {
+                1.0
+            } else {
+                0.0
+            },
+            if scene
+                .textures
+                .as_ref()
+                .is_some_and(|textures| textures.spyglass().is_some())
+            {
+                1.0
+            } else {
+                0.0
+            },
         ],
         portal_frames: gpu.portal.as_ref().zip(assets.as_deref()).map_or(
             [0.0; 4],

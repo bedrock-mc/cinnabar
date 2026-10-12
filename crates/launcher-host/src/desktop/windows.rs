@@ -24,6 +24,14 @@ use windows_sys::Win32::{
 /// Room for a long (`\\?\`) path; the dialog fails rather than truncating.
 const PATH_CAPACITY: usize = 32_768;
 
+/// Runs console helpers without a console window while preserving their configured streams.
+pub fn hide_console(command: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
+
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
 /// Total physical RAM in bytes.
 pub fn physical_memory() -> Option<u64> {
     let mut status = MEMORYSTATUSEX {

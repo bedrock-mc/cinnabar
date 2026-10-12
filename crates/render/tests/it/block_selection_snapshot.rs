@@ -184,7 +184,7 @@ fn selection_pixels_show_black_edges_or_a_brighter_surface() {
 }
 
 #[test]
-fn selection_strokes_keep_visible_pixel_coverage_across_angles_and_depths() {
+fn selection_strokes_are_one_unbroken_pixel_wide_across_angles_and_depths() {
     let Some(gpu) = Gpu::for_fixture("block selection pixel coverage") else {
         return;
     };
@@ -229,9 +229,17 @@ fn selection_strokes_keep_visible_pixel_coverage_across_angles_and_depths() {
                 .iter()
                 .filter(|p| p[..3] == [0; 3])
                 .count();
+            // A one-pixel line fills one pixel per step along its longer screen axis.
+            let length =
+                f64::from(end[0].abs().max(end[1].abs())) * f64::from(gpu_snapshot::SNAPSHOT_SIDE);
+            let black = black as f64;
             assert!(
-                black >= 240,
+                black >= length * 0.9,
                 "stroke coverage must survive rasterization: {end:?}, {black}"
+            );
+            assert!(
+                black <= length * 1.5,
+                "the stroke stays one pixel wide like vanilla's lines: {end:?}, {black}"
             );
         }
     }

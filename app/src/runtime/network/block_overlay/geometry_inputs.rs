@@ -2,7 +2,8 @@
 use pack_compiler::block_geometry::{
     BlockGeometryCatalog, Geometry, MAX_GEOMETRY_FILE_BYTES, MAX_GEOMETRY_FILES,
 };
-use resource_pack::{LayeredPackView, normalize_jsonc};
+use pack_json::normalize_jsonc;
+use resource_pack::LayeredPackView;
 use std::collections::{HashMap, HashSet};
 
 /// Admits winning models and parent definitions before compiling requested block models.

@@ -42,13 +42,27 @@ pub(super) fn drain(
 ) {
     let mut drain = WorldIngressDrain::new(Instant::now() + WORLD_INGRESS_DRAIN_BUDGET);
     loop {
-        let admission_capacity = client_world
-            .stream
-            .as_ref()
-            .map_or(1, WorldStream::remaining_admission_capacity);
+        let (receiver, pending) = network.world_ingress_mut();
         let Some(ingress) = drain.next(
-            network.world_events_mut(),
-            admission_capacity,
+            receiver,
+            pending,
+            |ingress| {
+                client_world
+                    .stream
+                    .as_ref()
+                    .is_none_or(|stream| match ingress {
+                        client_session::WorldIngress::Event(sequenced) => {
+                            stream.can_admit(&sequenced.event)
+                        }
+                        client_session::WorldIngress::LevelChunk { event, .. } => {
+                            // The payload stays in its separate Bytes buffer; only metadata is cloned.
+                            stream.can_admit(&WorldEvent::LevelChunk(event.clone()))
+                        }
+                        client_session::WorldIngress::FastTransferBarrier { .. } => {
+                            stream.light_admission_capacity() > 0
+                        }
+                    })
+            },
             Instant::now(),
         ) else {
             break;

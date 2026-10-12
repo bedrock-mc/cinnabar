@@ -7,6 +7,11 @@ use {
 };
 
 impl MenuRuntime {
+    /// Whether binding capture currently owns desktop input.
+    pub fn is_remapping_key(&self) -> bool {
+        self.key_remap.is_some()
+    }
+
     /// Applies settings navigation and edits without starting a game session.
     pub(in crate::menu) fn activate_settings(&mut self, action: MenuAction) {
         match action {
