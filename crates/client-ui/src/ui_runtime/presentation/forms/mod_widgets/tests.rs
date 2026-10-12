@@ -42,7 +42,6 @@ pub(in super::super) fn installed_hud_presentation() -> Option<UiPresentationRun
         .enable_json_ui(super::super::pack_harness::carrier()?)
         .expect("enable installed JSON-UI fixture");
     presentation
-        .form_presentation
         .engine
         .as_mut()
         .unwrap()
@@ -124,7 +123,7 @@ fn cards_update_values_without_rebuilding_the_json_ui_catalog_and_revoke_cleanly
         snapshot::rasterize(&before) != snapshot::rasterize(&after),
         "published cards change the rendered frame"
     );
-    let catalog = Arc::clone(&p.form_presentation.mod_widgets.as_ref().unwrap().catalog);
+    let catalog = Arc::clone(&p.screens.mod_widgets.as_ref().unwrap().catalog);
     assert!(
         after == frame(&mut p, &runtime, [1280, 720], 1.),
         "unchanged content reuses the published frame"
@@ -134,7 +133,7 @@ fn cards_update_values_without_rebuilding_the_json_ui_catalog_and_revoke_cleanly
     p.set_mod_hud(Some(&hud)).unwrap();
     assert!(Arc::ptr_eq(
         &catalog,
-        &p.form_presentation.mod_widgets.as_ref().unwrap().catalog
+        &p.screens.mod_widgets.as_ref().unwrap().catalog
     ));
     let updated = frame(&mut p, &runtime, [1280, 720], 1.);
     assert!(
@@ -158,7 +157,7 @@ fn changed_card_layout_rebuilds_the_catalog_and_stacks_rendered_text() {
     hud.cards[0].rows[0].progress = None;
     hud.cards[0].rows[0].color = [1., 0., 0., 1.];
     p.set_mod_hud(Some(&hud)).unwrap();
-    let catalog = Arc::clone(&p.form_presentation.mod_widgets.as_ref().unwrap().catalog);
+    let catalog = Arc::clone(&p.screens.mod_widgets.as_ref().unwrap().catalog);
     let standard = frame(&mut p, &runtime, [1280, 720], 1.);
     hud.cards[0].row_layout = ui::mod_hud::RowLayout::StackedText;
     hud.cards[0].width = 128.;
@@ -167,7 +166,7 @@ fn changed_card_layout_rebuilds_the_catalog_and_stacks_rendered_text() {
     p.set_mod_hud(Some(&hud)).unwrap();
     assert!(!Arc::ptr_eq(
         &catalog,
-        &p.form_presentation.mod_widgets.as_ref().unwrap().catalog
+        &p.screens.mod_widgets.as_ref().unwrap().catalog
     ));
     let stacked = frame(&mut p, &runtime, [1280, 720], 1.);
     assert_ne!(
@@ -228,14 +227,11 @@ fn changed_card_layout_rebuilds_the_catalog_and_stacks_rendered_text() {
         "stacked text uses distinct lines"
     );
     assert_eq!(name.min().x(), value.min().x());
-    let catalog = Arc::clone(&p.form_presentation.mod_widgets.as_ref().unwrap().catalog);
+    let catalog = Arc::clone(&p.screens.mod_widgets.as_ref().unwrap().catalog);
     hud.cards[0].rows[0].value = "37%".into();
     p.set_mod_hud(Some(&hud)).unwrap();
     assert!(
-        Arc::ptr_eq(
-            &catalog,
-            &p.form_presentation.mod_widgets.as_ref().unwrap().catalog
-        ),
+        Arc::ptr_eq(&catalog, &p.screens.mod_widgets.as_ref().unwrap().catalog),
         "a changing value retains the selected row layout"
     );
 }
@@ -269,13 +265,13 @@ fn larger_row_text_rebuilds_the_catalog_and_fits_stacked_and_right_icon_bands() 
             [255, 0, 0, 255],
         );
         let base_scale = baseline_value.key().scale_1024;
-        let catalog = Arc::clone(&p.form_presentation.mod_widgets.as_ref().unwrap().catalog);
+        let catalog = Arc::clone(&p.screens.mod_widgets.as_ref().unwrap().catalog);
         hud.cards[0].text_scale = 1.75;
         assert_eq!(template::dimensions(&hud.cards[0]), dimensions);
         p.set_mod_hud(Some(&hud)).unwrap();
         assert!(!Arc::ptr_eq(
             &catalog,
-            &p.form_presentation.mod_widgets.as_ref().unwrap().catalog
+            &p.screens.mod_widgets.as_ref().unwrap().catalog
         ));
         let enlarged = frame(&mut p, &UiRuntime::new(1), [1280, 720], 1.);
         assert_ne!(
@@ -744,10 +740,7 @@ fn malformed_presentation_does_not_replace_the_existing_cards_or_crosshair() {
     let mut invalid = hud.clone();
     invalid.cards[0].scale = f32::NAN;
     assert!(p.set_mod_hud(Some(&invalid)).is_err());
-    assert_eq!(
-        p.form_presentation.mod_widgets.as_ref().unwrap().content,
-        hud
-    );
+    assert_eq!(p.screens.mod_widgets.as_ref().unwrap().content, hud);
     let cursor = Crosshair::default();
     p.set_mod_crosshair(Some(&cursor)).unwrap();
     let invalid = Crosshair {
@@ -755,9 +748,9 @@ fn malformed_presentation_does_not_replace_the_existing_cards_or_crosshair() {
         ..Default::default()
     };
     assert!(p.set_mod_crosshair(Some(&invalid)).is_err());
-    assert_eq!(p.form_presentation.mod_crosshair, Some(cursor));
+    assert_eq!(p.screens.mod_crosshair, Some(cursor));
     p.set_mod_crosshair(None).unwrap();
-    assert!(p.form_presentation.mod_crosshair.is_none());
+    assert!(p.screens.mod_crosshair.is_none());
 }
 
 #[test]
@@ -1036,14 +1029,14 @@ fn rectangular_cells_center_text_resize_and_update_without_rebuilding() {
     };
     p.set_mod_hud(Some(&hud)).unwrap();
     let before = frame(&mut p, &runtime, [1280, 720], 1.);
-    let catalog = Arc::clone(&p.form_presentation.mod_widgets.as_ref().unwrap().catalog);
+    let catalog = Arc::clone(&p.screens.mod_widgets.as_ref().unwrap().catalog);
     hud.cards[0].cells[0].background = [1., 1., 1., 0.44];
     hud.cards[0].cells[0].color = [0., 0., 0., 1.];
     hud.cards[0].cells[1].value = "9 CPS".into();
     p.set_mod_hud(Some(&hud)).unwrap();
     assert!(Arc::ptr_eq(
         &catalog,
-        &p.form_presentation.mod_widgets.as_ref().unwrap().catalog
+        &p.screens.mod_widgets.as_ref().unwrap().catalog
     ));
     let after = frame(&mut p, &runtime, [1280, 720], 1.);
     assert_ne!(snapshot::rasterize(&before), snapshot::rasterize(&after));

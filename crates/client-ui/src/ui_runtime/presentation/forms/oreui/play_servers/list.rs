@@ -17,7 +17,7 @@ pub(super) fn draw(
     mut y: f32,
     selected: Option<Selection>,
     images: &HashMap<String, IconRef>,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let groups: Vec<_> = view
         .settings_options
         .server_list()
@@ -156,7 +156,7 @@ fn entry(
     b: Bounds,
     selected: Option<Selection>,
     images: &HashMap<String, IconRef>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let pad = canvas.r(1.6);
     if group == ServerGroup::Saved {
         let server = &view.servers[index];
@@ -228,7 +228,7 @@ fn header(
     group: ServerGroup,
     count: usize,
     b: Bounds,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let action = MenuAction::ServerList(ServerListAction::Toggle(group));
     let state = canvas.interaction(view, Some(action));
     let expanded = !view.settings_options.server_list().collapsed(group);
@@ -276,7 +276,7 @@ fn header_label(
     count: usize,
     b: Bounds,
     expanded: f32,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let pad = canvas.r(1.6);
     let side = canvas.r(1.2);
     let top = (b[1] + b[3] - side) * 0.5;

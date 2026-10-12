@@ -116,7 +116,7 @@ impl UiPresentationRuntime {
     /// text drawn yet.
     pub(super) fn begin_menu_caret(&mut self, view: &mut MenuView) {
         let now = self.menu_seconds;
-        let state = &mut self.form_presentation.menu_caret;
+        let state = &mut self.screens.menu_caret;
         state.spots.clear();
         let since = match state.blink {
             Some((revision, since)) if revision == view.caret.revision => since,
@@ -132,14 +132,14 @@ impl UiPresentationRuntime {
     }
 
     pub(super) fn add_menu_text_spots(&mut self, spots: impl IntoIterator<Item = TextSpot>) {
-        self.form_presentation.menu_caret.spots.extend(spots);
+        self.screens.menu_caret.spots.extend(spots);
     }
 
     /// The byte of `text` a press at `point` inside `field` puts its caret at,
     /// measured as the last menu frame drew the box's text.
     pub fn menu_caret_at(&mut self, point: UiPoint, field: MenuField, text: &str) -> Option<usize> {
         let spot = self
-            .form_presentation
+            .screens
             .menu_caret
             .spots
             .iter()

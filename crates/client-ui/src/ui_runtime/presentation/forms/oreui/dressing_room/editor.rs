@@ -1,4 +1,4 @@
-use super::super::super::super::UiPresentationError;
+use super::super::super::engine::screen::PaintError;
 use super::super::{
     paint::Canvas,
     theme::{self, BODY, CAPTION, HEADER5, TEXT, TEXT_DIMMER},
@@ -12,7 +12,7 @@ pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let Some(editor) = view.dressing_room.editor.as_ref() else {
         return Ok(());
     };

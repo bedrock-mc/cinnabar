@@ -5,7 +5,7 @@
 
 use std::borrow::Cow;
 
-use super::super::super::UiPresentationError;
+use super::super::engine::screen::PaintError;
 use super::focus;
 use super::icons::{self, Icon};
 use super::motion::{Kind, Surface, opacity};
@@ -70,7 +70,7 @@ pub(super) fn draw(
     view: &MenuView,
     size: [f32; 2],
     modal: &Modal<'_>,
-) -> Result<Option<FocusedItem>, UiPresentationError> {
+) -> Result<Option<FocusedItem>, PaintError> {
     draw_inner(canvas, view, size, modal, false)
 }
 
@@ -80,7 +80,7 @@ pub(super) fn draw_picker(
     view: &MenuView,
     size: [f32; 2],
     modal: &Modal<'_>,
-) -> Result<Option<FocusedItem>, UiPresentationError> {
+) -> Result<Option<FocusedItem>, PaintError> {
     draw_inner(canvas, view, size, modal, true)
 }
 
@@ -90,7 +90,7 @@ fn draw_inner(
     size: [f32; 2],
     modal: &Modal<'_>,
     dismiss_overlay: bool,
-) -> Result<Option<FocusedItem>, UiPresentationError> {
+) -> Result<Option<FocusedItem>, PaintError> {
     canvas.hits.clear();
     canvas.overlay(size, OVERLAY_MODAL)?;
     let edge = canvas.r(EDGE);
@@ -289,7 +289,7 @@ fn title_bar(
     [left, top, right]: [f32; 3],
     modal: &Modal<'_>,
     show_close: bool,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let bar = [left, top, right, top + canvas.r(HEADER)];
     canvas.fill(bar, NEUTRAL.fill)?;
     canvas.specular(bar, NEUTRAL.specular[0], NEUTRAL.specular[1])?;
@@ -324,7 +324,7 @@ pub(super) fn close_button(
     view: &MenuView,
     b: Bounds,
     action: MenuAction,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let state = canvas.interaction(view, Some(action));
     let motion = canvas.feedback(state, true, false, Kind::Surface);
     let role = canvas.role(NEUTRAL);

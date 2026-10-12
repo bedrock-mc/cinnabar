@@ -108,10 +108,11 @@ fn prepared_server_catalogs_resolve_no_hud_on_the_frame() {
             (*super::super::ServerUiPack::default().prepare_catalog(&base)).clone()
         } else {
             super::super::ServerUiPack {
-                catalog: Some(Arc::new(super::super::engine::layer_pack_catalog(
-                    &base,
-                    &[],
-                ))),
+                catalog: Some(Arc::new(
+                    super::super::screen_registry::registry()
+                        .catalog()
+                        .layer(&base, &[]),
+                )),
                 ..super::super::ServerUiPack::default()
             }
         };
@@ -131,7 +132,7 @@ fn prepared_server_catalogs_resolve_no_hud_on_the_frame() {
                 ui::DpiScale::new(1.0).unwrap(),
             )
             .unwrap();
-        let screens = &presentation.form_presentation.hud;
+        let screens = &presentation.screens.hud;
         assert!(screens.hud.passes > 0, "the HUD bound");
         let resolves = screens.hud.resolves + screens.crosshair.resolves;
         assert_eq!(

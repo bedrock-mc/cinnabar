@@ -102,11 +102,11 @@ pub fn snapshot_menu_with_catalog(
     };
     if let Some(catalog) = catalog {
         presentation
-            .form_presentation
             .engine
             .as_mut()
             .unwrap()
             .install_pack_catalog(catalog);
+        presentation.refresh_menu_title();
     }
     let mut runtime = UiRuntime::new(1);
     let lang = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -152,7 +152,6 @@ pub fn screen_settings(
     reference: &str,
 ) -> json_ui::ScreenSettings {
     let engine = presentation
-        .form_presentation
         .engine
         .as_deref()
         .expect("fixture JSON-UI engine");

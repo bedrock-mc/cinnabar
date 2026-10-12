@@ -119,7 +119,10 @@ impl UiPresentationRuntime {
             menu_cape_thumbnail_indices: Vec::new(),
             settings_slider_drag_targets: Vec::new(),
             menu_scrolls: Default::default(),
-            form_presentation: forms::FormPresentation::default(),
+            engine: None,
+            screen_settings: Arc::default(),
+            screens: forms::ScreenStates::default(),
+            projections: forms::FrameProjections::default(),
             loading_stage: None,
             startup: StartupPresentationState::default(),
         })

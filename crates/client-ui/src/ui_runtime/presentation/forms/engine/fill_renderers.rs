@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 use ui::UiVisual;
 
-use super::Painter;
+use super::Canvas;
 
 type Data = BTreeMap<String, Value>;
 
@@ -22,7 +22,7 @@ fn flag(data: &Data, key: &str) -> bool {
     option(data, key).and_then(Value::as_bool).unwrap_or(false)
 }
 
-impl Painter<'_> {
+impl Canvas<'_> {
     /// Background then fill; a durability bar's fill sweeps red to green and a
     /// full storage bar takes `full_storage_color`. Returns nothing to push.
     pub(super) fn progress_bar(

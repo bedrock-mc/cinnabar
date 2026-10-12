@@ -11,7 +11,10 @@ use json_ui::{
 use serde_json::Value;
 use ui::{UiNode, UiPoint, UiRect};
 
-use super::engine::{EngineInputs, EngineOutput, ScreenArt};
+use super::engine::{
+    ScreenArt,
+    screen::{PaintFrame, ScreenRegistry},
+};
 use super::hud::CachedScreen;
 use super::menus::window_rect;
 use crate::ui_runtime::UiRuntime;
@@ -25,23 +28,25 @@ use {
 
 pub const CHAT_SCREEN: &str = "chat.chat_screen";
 
+/// The open chat keeps the built-in presentation whatever server packs layer.
+pub(super) fn register(registry: &mut ScreenRegistry) {
+    registry.builtin_screen(CHAT_SCREEN);
+}
+
 #[cfg(test)]
 impl UiPresentationRuntime {
     pub(in crate::ui_runtime::presentation) fn set_native_chat_fixture(
         &mut self,
         native: bool,
     ) -> Option<()> {
-        self.form_presentation
-            .engine
-            .as_deref_mut()?
-            .set_native_chat_fixture(native);
+        self.engine.as_deref_mut()?.set_native_chat_fixture(native);
         Some(())
     }
 
     pub(in crate::ui_runtime::presentation) fn chat_scene_settings(
         &self,
     ) -> Option<json_ui::ScreenSettings> {
-        let engine = self.form_presentation.engine.as_deref()?;
+        let engine = self.engine.as_deref()?;
         Some(engine.scene_settings(CHAT_SCREEN, engine.context()))
     }
 }
@@ -115,11 +120,11 @@ impl UiPresentationRuntime {
         content: [f32; 2],
         now_millis: u64,
     ) -> Result<bool, UiPresentationError> {
-        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+        let Some(renderer) = self.engine.as_deref() else {
             return Ok(false);
         };
         let annotations = self.mod_chat_actions().to_vec();
-        let chat = &mut self.form_presentation.chat;
+        let chat = &mut self.screens.chat;
         let messages = runtime.chat().messages().len();
         // The view jumps to the newest message on open and on every update.
         if !chat.open || messages != chat.messages {
@@ -150,7 +155,7 @@ impl UiPresentationRuntime {
         let catalog = Arc::clone(renderer.screen_catalog(CHAT_SCREEN));
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let translate = |key: &str| runtime.translation(key);
-        let inputs = EngineInputs {
+        let mut paint_frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
             metrics,
@@ -159,14 +164,12 @@ impl UiPresentationRuntime {
             content,
             translate: &translate,
             language: runtime.text_generation(),
-        };
-        let out = EngineOutput {
+            now: now_millis as f64 / 1_000.0,
             nodes,
             next,
-            overlay: &[],
+            renderers: &mut [],
         };
         let art = ScreenArt {
-            now: now_millis as f64 / 1_000.0,
             clocks: Some(&self.scene_clock),
             view: Some(&view),
             edit: Some(super::engine::host_edit::Feedback::from_chat(
@@ -175,7 +178,7 @@ impl UiPresentationRuntime {
             ..ScreenArt::default()
         };
         let screen = &mut chat.screen;
-        let frame = renderer.draw(art, inputs, out, |env, root| {
+        let frame = renderer.draw(art, &mut paint_frame, |env, root| {
             screen.render_with(
                 CHAT_SCREEN,
                 &catalog,
@@ -274,16 +277,12 @@ impl UiPresentationRuntime {
 
     /// Returns a displayed web target from the last chat frame.
     pub fn chat_link(&self, index: usize) -> Option<&str> {
-        self.form_presentation
-            .chat
-            .links
-            .get(index)
-            .map(String::as_str)
+        self.screens.chat.links.get(index).map(String::as_str)
     }
 
     /// Forget the open chat's scroll and hover once the screen closes.
     pub(in super::super) fn close_chat_screen(&mut self) {
-        let chat = &mut self.form_presentation.chat;
+        let chat = &mut self.screens.chat;
         chat.open = false;
         chat.settings.open = false;
         chat.hits.clear();
@@ -296,7 +295,7 @@ impl UiPresentationRuntime {
 
     /// What a press at the window-logical `position` hits on the open chat.
     pub fn hit_test_chat(&self, position: UiPoint) -> Option<ChatHit> {
-        self.form_presentation
+        self.screens
             .chat
             .hits
             .iter()
@@ -306,7 +305,7 @@ impl UiPresentationRuntime {
 
     /// Track the pointer for next frame's hover state.
     pub fn set_chat_pointer(&mut self, position: Option<UiPoint>) {
-        self.form_presentation.chat.pointer = position;
+        self.screens.chat.pointer = position;
     }
 
     /// Scroll the history by a wheel delta in notches, or logical px when
@@ -315,7 +314,7 @@ impl UiPresentationRuntime {
         if self.chat_settings_open() || self.chat_link_confirmation_open() {
             return;
         }
-        let chat = &mut self.form_presentation.chat;
+        let chat = &mut self.screens.chat;
         let Some(metrics) = chat.scroll.as_ref().map(|(_, metrics)| metrics.clone()) else {
             return;
         };
@@ -477,12 +476,12 @@ fn chat_hit(region: &HitRegion) -> Option<ChatHit> {
 impl UiPresentationRuntime {
     /// The open chat's last laid-out draw nodes, in virtual px.
     pub fn chat_draw_nodes(&self) -> &[json_ui::DrawNode] {
-        self.form_presentation.chat.screen.nodes()
+        self.screens.chat.screen.nodes()
     }
 
     /// The open chat's hit rects from the last frame.
     pub fn chat_hits(&self) -> Vec<(ChatHit, UiRect)> {
-        let hits = &self.form_presentation.chat.hits;
+        let hits = &self.screens.chat.hits;
         hits.iter()
             .map(|(hit, bounds, _)| (*hit, *bounds))
             .collect()
@@ -496,7 +495,7 @@ mod review_tests {
     fn review_chat_settings_own_wheel_input() {
         let mut presentation =
             UiPresentationRuntime::new(super::super::super::tests::fixture_font()).unwrap();
-        presentation.form_presentation.chat.scroll = Some((
+        presentation.screens.chat.scroll = Some((
             "history".to_owned(),
             ScrollMetrics {
                 content: 400.0,
@@ -506,16 +505,16 @@ mod review_tests {
         ));
         presentation.set_chat_settings_open(true);
         presentation.scroll_chat(40.0, true);
-        assert_eq!(presentation.form_presentation.chat.from_bottom, 0.0);
+        assert_eq!(presentation.screens.chat.from_bottom, 0.0);
         presentation.set_chat_settings_open(false);
         presentation.scroll_chat(40.0, true);
-        assert!(presentation.form_presentation.chat.from_bottom > 0.0);
+        assert!(presentation.screens.chat.from_bottom > 0.0);
     }
     #[test]
     fn chat_link_confirmation_owns_wheel_input() {
         let mut presentation =
             UiPresentationRuntime::new(super::super::super::tests::fixture_font()).unwrap();
-        presentation.form_presentation.chat.scroll = Some((
+        presentation.screens.chat.scroll = Some((
             "history".to_owned(),
             ScrollMetrics {
                 content: 400.0,
@@ -523,25 +522,25 @@ mod review_tests {
                 ..Default::default()
             },
         ));
-        presentation.form_presentation.chat.scale = 1.0;
+        presentation.screens.chat.scale = 1.0;
         presentation
-            .form_presentation
+            .screens
             .chat
             .links
             .push("https://example.com".into());
         presentation.request_chat_link(0);
         presentation.scroll_chat(40.0, true);
-        assert_eq!(presentation.form_presentation.chat.from_bottom, 0.0);
+        assert_eq!(presentation.screens.chat.from_bottom, 0.0);
         presentation.cancel_chat_link();
         presentation.scroll_chat(40.0, true);
-        assert!(presentation.form_presentation.chat.from_bottom > 0.0);
+        assert!(presentation.screens.chat.from_bottom > 0.0);
     }
 }
 
 impl UiPresentationRuntime {
     /// Records a native chat click as a bounded extension control event.
     pub fn request_chat_extension_action(&mut self, index: usize) {
-        let chat = &mut self.form_presentation.chat;
+        let chat = &mut self.screens.chat;
         if chat.extension_events.len() >= ui::mod_panel::MAX_PANEL_EVENTS {
             return;
         }
@@ -555,6 +554,6 @@ impl UiPresentationRuntime {
     }
     /// Consumes native chat actions once; the caller routes them to their cosmetic owner.
     pub fn take_chat_extension_actions(&mut self) -> Vec<String> {
-        std::mem::take(&mut self.form_presentation.chat.extension_events)
+        std::mem::take(&mut self.screens.chat.extension_events)
     }
 }

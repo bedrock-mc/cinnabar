@@ -279,7 +279,7 @@ pub fn engine_presentation() -> Option<UiPresentationRuntime> {
         UiPresentationRuntime::new(Arc::new((*font()).clone().with_coverage_pages())).unwrap();
     presentation.enable_json_ui(carrier).unwrap();
     let vanilla = local(&launcher::install_layout::vanilla_pack_relative());
-    let engine = presentation.form_presentation.engine.as_mut().unwrap();
+    let engine = presentation.engine.as_mut().unwrap();
     engine.textures.set_fallbacks(Default::default(), vanilla);
     Some(presentation)
 }
@@ -354,12 +354,7 @@ fn server_pack_form_renders_its_text_through_the_engine() {
         nodes.len(),
     );
     assert!(presentation.form_engine_frame(identity).is_some());
-    let (drawn, missing) = presentation
-        .form_presentation
-        .engine
-        .as_ref()
-        .unwrap()
-        .drawn_sprites();
+    let (drawn, missing) = presentation.engine.as_ref().unwrap().drawn_sprites();
     eprintln!(
         "server pages: {}, sprite textures drawn: {}, outside textures/ui: {:?}, unresolved: {missing:?}",
         presentation.server_ui_pages().len(),
@@ -478,19 +473,14 @@ fn vanilla_form_button_images_resolve() {
             Some(Url(url.as_str().into())),
         ],
     );
-    let engine = presentation.form_presentation.engine.as_ref().unwrap();
+    let engine = presentation.engine.as_ref().unwrap();
     let remote = engine.textures.remote.clone();
     render(&mut presentation, &runtime, [1280, 720], 1.0);
     test_time::wait_until(std::time::Duration::from_secs(5), || {
         remote.state(&url) != launcher_host::remote_images::RemoteState::Loading
     });
     render(&mut presentation, &runtime, [1280, 720], 1.0);
-    let (drawn, missing) = presentation
-        .form_presentation
-        .engine
-        .as_ref()
-        .unwrap()
-        .drawn_sprites();
+    let (drawn, missing) = presentation.engine.as_ref().unwrap().drawn_sprites();
     eprintln!("drawn {drawn:?}, unresolved {missing:?}");
     for image in [
         "textures/items/diamond",
@@ -753,12 +743,7 @@ fn snapshot_pack_image_grid() {
         .build(&player_runtime, &runtime, 0, [1280, 1440], dpi)
         .unwrap();
     super::snapshot::write(&input, "image-grid-hover");
-    let (drawn, missing) = presentation
-        .form_presentation
-        .engine
-        .as_ref()
-        .unwrap()
-        .drawn_sprites();
+    let (drawn, missing) = presentation.engine.as_ref().unwrap().drawn_sprites();
     eprintln!("drawn {drawn:?}, unresolved {missing:?}");
 }
 

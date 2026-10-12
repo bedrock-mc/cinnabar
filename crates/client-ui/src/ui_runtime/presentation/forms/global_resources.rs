@@ -208,8 +208,13 @@ pub(super) fn action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> 
     Some(MenuAction::GlobalResources(action))
 }
 
+/// Extends the carrier's global pack panel beneath the built-in packs.
+pub(super) fn register(registry: &mut super::engine::screen::ScreenRegistry) {
+    registry.catalog_mut().extend(extend_catalog);
+}
+
 /// Adds only Cinnabar's import/apply/status row to the vanilla global pack panel.
-pub(super) fn extend_catalog(catalog: &mut json_ui::Catalog) {
+fn extend_catalog(catalog: &mut json_ui::Catalog) {
     catalog.overlay_text("ui/cinnabar_global_resources.json", EXTENSION);
 }
 

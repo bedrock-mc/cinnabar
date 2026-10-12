@@ -7,7 +7,7 @@ use crate::ui_runtime::oreui_assets::{
 
 use super::super::motion::{Feedback, opacity};
 use super::super::theme::{BUTTON_DEPTH, GUI_PIXELS_PER_REM};
-use super::{Bounds, Canvas, Interaction, UiPresentationError, Variant};
+use super::{Bounds, Canvas, Interaction, PaintError, Variant};
 
 #[cfg(test)]
 mod tests;
@@ -28,7 +28,7 @@ pub(super) fn elevated_motion(
     state: Interaction,
     enabled: bool,
     motion: Feedback,
-) -> Result<bool, UiPresentationError> {
+) -> Result<bool, PaintError> {
     if canvas.appearance == super::super::theme::Appearance::Dark
         && (!enabled || matches!(variant, Variant::Secondary | Variant::Neutral))
     {
@@ -94,7 +94,7 @@ pub(super) fn elevated(
     variant: Variant,
     state: Interaction,
     enabled: bool,
-) -> Result<bool, UiPresentationError> {
+) -> Result<bool, PaintError> {
     if canvas.appearance == super::super::theme::Appearance::Dark
         && (!enabled || matches!(variant, Variant::Secondary | Variant::Neutral))
     {

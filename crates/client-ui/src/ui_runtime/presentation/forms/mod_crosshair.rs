@@ -1,6 +1,6 @@
 //! Cached cosmetic crosshair coverage drawn only by a visible JSON-UI cursor renderer.
 
-use super::Painter;
+use super::engine::Canvas;
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 use ui::{
     UiBlendMode, UiLimits, UiMesh, UiMeshBatch, UiMeshVertex, UiVisual,
@@ -24,42 +24,41 @@ struct Key {
 }
 thread_local! { static SHAPES: RefCell<HashMap<Key, Arc<UiMesh>>> = RefCell::default(); }
 
-impl Painter<'_> {
-    /// Returns false if the replacement cannot draw, so ordinary cursor art survives.
-    pub(super) fn mod_crosshair(&mut self, spec: &Crosshair, dest: [f32; 4]) -> bool {
-        let rgba = |color: [f32; 4]| color.map(|v| (v * 255.).round() as u8);
-        let key = Key {
-            shape: spec.shape,
-            size: spec.size.to_bits(),
-            gap: spec.gap.to_bits(),
-            thickness: spec.thickness.to_bits(),
-            outline: spec.outline.to_bits(),
-            px: self.px.to_bits(),
-            color: rgba(spec.color),
-            outline_color: rgba(spec.outline_color),
-            page: self.solid_page,
-        };
-        let mesh = SHAPES.with(|shapes| {
-            let mut shapes = shapes.borrow_mut();
-            if let Some(mesh) = shapes.get(&key) {
-                return Some(Arc::clone(mesh));
-            }
-            let mesh = Arc::new(mesh(key)?);
-            if shapes.len() >= MAX_CACHED_CROSSHAIRS {
-                shapes.clear();
-            }
-            shapes.insert(key, Arc::clone(&mesh));
-            Some(mesh)
-        });
-        let Some(mesh) = mesh else {
-            return false;
-        };
-        let side = extent(key) * 2.;
-        let x = (dest[0] + dest[2] - side) * 0.5;
-        let y = (dest[1] + dest[3] - side) * 0.5;
-        self.push(UiVisual::Mesh(mesh), [x, y, x + side, y + side])
-            .is_ok()
-    }
+/// Returns false if the replacement cannot draw, so ordinary cursor art survives.
+pub(super) fn paint(canvas: &mut Canvas<'_>, spec: &Crosshair, dest: [f32; 4]) -> bool {
+    let rgba = |color: [f32; 4]| color.map(|v| (v * 255.).round() as u8);
+    let key = Key {
+        shape: spec.shape,
+        size: spec.size.to_bits(),
+        gap: spec.gap.to_bits(),
+        thickness: spec.thickness.to_bits(),
+        outline: spec.outline.to_bits(),
+        px: canvas.px().to_bits(),
+        color: rgba(spec.color),
+        outline_color: rgba(spec.outline_color),
+        page: canvas.solid_page(),
+    };
+    let mesh = SHAPES.with(|shapes| {
+        let mut shapes = shapes.borrow_mut();
+        if let Some(mesh) = shapes.get(&key) {
+            return Some(Arc::clone(mesh));
+        }
+        let mesh = Arc::new(mesh(key)?);
+        if shapes.len() >= MAX_CACHED_CROSSHAIRS {
+            shapes.clear();
+        }
+        shapes.insert(key, Arc::clone(&mesh));
+        Some(mesh)
+    });
+    let Some(mesh) = mesh else {
+        return false;
+    };
+    let side = extent(key) * 2.;
+    let x = (dest[0] + dest[2] - side) * 0.5;
+    let y = (dest[1] + dest[3] - side) * 0.5;
+    canvas
+        .push(UiVisual::Mesh(mesh), [x, y, x + side, y + side])
+        .is_ok()
 }
 fn extent(key: Key) -> f32 {
     let [size, gap, thickness, outline, px] =

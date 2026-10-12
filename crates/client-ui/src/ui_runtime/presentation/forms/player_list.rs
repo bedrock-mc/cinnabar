@@ -6,7 +6,7 @@ use json_ui::{Catalog, CollectionItem, Context, DataSource, Scalar, ViewState};
 use ui::UiNode;
 
 use super::{
-    engine::{EngineInputs, EngineOutput, ScreenArt},
+    engine::{ScreenArt, screen::PaintFrame},
     hud::CachedScreen,
 };
 use crate::ui_runtime::UiRuntime;
@@ -113,24 +113,15 @@ impl UiPresentationRuntime {
             || runtime.ui_focused(player)
             || self.menu_view.is_some()
             || self.loading_stage.is_some()
-            || self
-                .form_presentation
-                .chat
-                .settings
-                .options
-                .value("hide_hud")
-                != 0
+            || self.screens.chat.settings.options.value("hide_hud") != 0
         {
             return Ok(());
         }
-        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+        let Some(renderer) = self.engine.as_deref() else {
             return Ok(());
         };
-        let list = self
-            .form_presentation
-            .player_list
-            .get_or_insert_with(PlayerList::new);
-        let inputs = EngineInputs {
+        let list = self.screens.player_list.get_or_insert_with(PlayerList::new);
+        let mut paint_frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
             metrics,
@@ -139,56 +130,51 @@ impl UiPresentationRuntime {
             content,
             translate: &|_| None,
             language: runtime.text_generation(),
+            now: 0.0,
+            nodes,
+            next,
+            renderers: &mut [],
         };
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
-        renderer.draw(
-            ScreenArt::default(),
-            inputs,
-            EngineOutput {
-                nodes,
-                next,
-                overlay: &[],
-            },
-            |env, root| {
-                let max_rows = ((root[1] - 40.0) / ROW_HEIGHT)
-                    .floor()
-                    .clamp(1.0, MAX_ROWS as f64) as usize;
-                let [columns, rows] = list.refresh(runtime.known_player_names(), max_rows);
-                let geometry = (root, px, runtime.text_generation());
-                if list.geometry != Some(geometry) {
-                    let widest = list
-                        .names
-                        .iter()
-                        .map(|name| env.text.extent(name)[0])
-                        .fold(60.0, f64::max);
-                    let width = (widest + 8.0).min((root[0] - 8.0).max(1.0) / columns as f64);
-                    let title = format!("Online players: {}", list.total);
-                    let panel_width = (width * columns as f64 + 4.0)
-                        .max(env.text.extent(&title)[0] + 4.0)
-                        .min(root[0]);
-                    list.context = Context::default()
-                        .with_var("row_height", serde_json::json!(ROW_HEIGHT))
-                        .with_var("row_background_height", serde_json::json!(ROW_HEIGHT - 1.0))
-                        .with_var("grid_top", serde_json::json!(ROW_HEIGHT + 3.0))
-                        .with_var("cell_width", serde_json::json!(width))
-                        .with_var("panel_width", serde_json::json!(panel_width))
-                        .with_var(
-                            "panel_height",
-                            serde_json::json!(ROW_HEIGHT + 5.0 + rows as f64 * ROW_HEIGHT),
-                        );
-                    list.geometry = Some(geometry);
-                }
-                list.screen.render_shared_with(
-                    SCREEN,
-                    &list.catalog,
-                    &list.context,
-                    Arc::clone(&list.data),
-                    (root, px, runtime.text_generation()),
-                    env,
-                    &ViewState::default(),
-                )
-            },
-        )?;
+        renderer.draw(ScreenArt::default(), &mut paint_frame, |env, root| {
+            let max_rows = ((root[1] - 40.0) / ROW_HEIGHT)
+                .floor()
+                .clamp(1.0, MAX_ROWS as f64) as usize;
+            let [columns, rows] = list.refresh(runtime.known_player_names(), max_rows);
+            let geometry = (root, px, runtime.text_generation());
+            if list.geometry != Some(geometry) {
+                let widest = list
+                    .names
+                    .iter()
+                    .map(|name| env.text.extent(name)[0])
+                    .fold(60.0, f64::max);
+                let width = (widest + 8.0).min((root[0] - 8.0).max(1.0) / columns as f64);
+                let title = format!("Online players: {}", list.total);
+                let panel_width = (width * columns as f64 + 4.0)
+                    .max(env.text.extent(&title)[0] + 4.0)
+                    .min(root[0]);
+                list.context = Context::default()
+                    .with_var("row_height", serde_json::json!(ROW_HEIGHT))
+                    .with_var("row_background_height", serde_json::json!(ROW_HEIGHT - 1.0))
+                    .with_var("grid_top", serde_json::json!(ROW_HEIGHT + 3.0))
+                    .with_var("cell_width", serde_json::json!(width))
+                    .with_var("panel_width", serde_json::json!(panel_width))
+                    .with_var(
+                        "panel_height",
+                        serde_json::json!(ROW_HEIGHT + 5.0 + rows as f64 * ROW_HEIGHT),
+                    );
+                list.geometry = Some(geometry);
+            }
+            list.screen.render_shared_with(
+                SCREEN,
+                &list.catalog,
+                &list.context,
+                Arc::clone(&list.data),
+                (root, px, runtime.text_generation()),
+                env,
+                &ViewState::default(),
+            )
+        })?;
         Ok(())
     }
 }

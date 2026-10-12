@@ -1,8 +1,7 @@
 use super::*;
 use crate::test_support::{fixture_font, mini_carrier};
-use crate::ui_runtime::presentation::forms::engine::{
-    EngineInputs, EngineOutput, FormEngine, ScreenArt,
-};
+use crate::ui_runtime::presentation::forms::engine::{FormEngine, ScreenArt, screen::PaintFrame};
+use crate::ui_runtime::presentation::forms::screen_registry::registry;
 use json_ui::{Catalog, Context, ViewState};
 use ui::{DpiScale, SafeArea, TextLayoutCache, UiNode};
 use {crate::ui_runtime::presentation::TextMetrics, ui::FONT_DESIGN_PIXEL_TEXELS};
@@ -31,7 +30,7 @@ fn draw(progress: f32, index: usize, opacity: f32) -> (Vec<UiNode>, f32) {
         })
         .to_string(),
     );
-    let engine = FormEngine::new(mini_carrier(), catalog, 2);
+    let engine = FormEngine::new(mini_carrier(), catalog, 2, registry());
     let font = fixture_font();
     let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), None);
     let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
@@ -49,11 +48,8 @@ fn draw(progress: f32, index: usize, opacity: f32) -> (Vec<UiNode>, f32) {
             }),
             &Context::default(),
             &ViewState::default(),
-            ScreenArt {
-                hud: Some(&hud),
-                ..Default::default()
-            },
-            EngineInputs {
+            ScreenArt::default(),
+            &mut PaintFrame {
                 layouts: &mut layouts,
                 font: &font,
                 metrics,
@@ -62,11 +58,13 @@ fn draw(progress: f32, index: usize, opacity: f32) -> (Vec<UiNode>, f32) {
                 content: [1280.0, 720.0],
                 translate: &|_| None,
                 language: [0; 3],
-            },
-            EngineOutput {
+                now: 0.0,
                 nodes: &mut nodes,
                 next: &mut next,
-                overlay: &[],
+                renderers: &mut [&mut HudRenderer {
+                    hud: &hud,
+                    hunger_update: None,
+                }],
             },
         )
         .unwrap()

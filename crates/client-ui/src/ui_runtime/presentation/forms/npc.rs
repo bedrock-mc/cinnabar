@@ -6,7 +6,7 @@ use protocol::NpcDialogueForm;
 use ui::UiNode;
 
 use super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime};
-use super::engine;
+use super::engine::{self, screen::PaintFrame};
 use crate::ui_runtime::{ServerFormIdentity, UiRuntime};
 
 pub const NPC_SCREEN: &str = "npc_interact.npc_screen";
@@ -25,14 +25,14 @@ impl UiPresentationRuntime {
         width: f32,
         height: f32,
     ) -> Result<bool, UiPresentationError> {
-        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+        let Some(renderer) = self.engine.as_deref() else {
             return Ok(false);
         };
         let data = npc_data(npc);
         let view: &ViewState = &runtime.server_forms().engine().view;
         let translate = |key: &str| runtime.translation(key);
         let rollback = (nodes.len(), *next);
-        let inputs = engine::EngineInputs {
+        let mut paint_frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
             metrics,
@@ -41,14 +41,12 @@ impl UiPresentationRuntime {
             content: [width, height],
             translate: &translate,
             language: runtime.text_generation(),
-        };
-        let out = engine::EngineOutput {
+            now: self.menu_seconds,
             nodes: &mut *nodes,
             next: &mut *next,
-            overlay: &[],
+            renderers: &mut [],
         };
         let art = engine::ScreenArt {
-            now: self.menu_seconds,
             clocks: Some(&self.scene_clock),
             ..engine::ScreenArt::default()
         };
@@ -58,12 +56,10 @@ impl UiPresentationRuntime {
             &super::menu_screens::retail_context(),
             view,
             art,
-            inputs,
-            out,
+            &mut paint_frame,
         ) {
-            Ok(Some(mut frame)) => {
-                frame.identity = Some(identity);
-                self.form_presentation.frame = Some(frame);
+            Ok(Some(frame)) => {
+                self.projections.form.frame = Some((identity, frame));
                 Ok(true)
             }
             Ok(None) | Err(_) => {

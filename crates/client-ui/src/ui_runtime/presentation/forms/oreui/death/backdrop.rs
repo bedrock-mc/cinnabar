@@ -1,6 +1,6 @@
 //! A single analytic gradient quad preserves the smooth elliptical death vignette.
 
-use super::super::super::super::UiPresentationError;
+use super::super::super::engine::screen::PaintError;
 use super::super::paint::Canvas;
 use launcher::menu::death::{BACKDROP_SECONDS, OVERLAY_FADE_SECONDS};
 use std::sync::Arc;
@@ -12,7 +12,7 @@ pub(super) fn draw(
     size: [f32; 2],
     age: f64,
     animations: bool,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let ease = |t| super::bezier(t, [0.25, 0.1, 0.25, 1.0]);
     let opacity = if age < 0.0 {
         0.0
@@ -53,6 +53,6 @@ pub(super) fn draw(
             alpha_cutoff: None,
         }]),
     )
-    .map_err(|_| UiPresentationError::Tree(ui::UiError::DrawIndexOverflow))?;
+    .map_err(|_| PaintError::Tree(ui::UiError::DrawIndexOverflow))?;
     canvas.mesh([0.0, 0.0, size[0], size[1]], Arc::new(mesh))
 }

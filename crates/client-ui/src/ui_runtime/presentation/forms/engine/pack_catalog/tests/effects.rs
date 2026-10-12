@@ -314,7 +314,7 @@ fn check_authored_timeline(
     presentation: &crate::ui_runtime::presentation::UiPresentationRuntime,
     path: &str,
 ) {
-    let engine = presentation.form_presentation.engine.as_deref().unwrap();
+    let engine = presentation.engine.as_deref().unwrap();
     let atlas = engine.textures.lock();
     let textures = Textures {
         assets: engine.assets(),
@@ -368,7 +368,7 @@ fn expected_sheet_uv(
     path: &str,
     now: f64,
 ) -> [u16; 4] {
-    let engine = presentation.form_presentation.engine.as_deref().unwrap();
+    let engine = presentation.engine.as_deref().unwrap();
     let atlas = engine.textures.lock();
     let textures = Textures {
         assets: engine.assets(),

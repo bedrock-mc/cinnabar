@@ -7,9 +7,14 @@ use super::modal::Modal;
 use super::theme::{DESTRUCTIVE_TINT, TEXT};
 use super::widgets::{MenuItem, Variant};
 use ui::IconRef;
-use ui::{UiNode, UiRect};
+use ui::UiRect;
 
-use super::super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime};
+use super::super::super::menu_scroll::MenuScrolls;
+use super::super::engine::{
+    rect,
+    screen::{PaintError, PaintFrame},
+};
+use super::OreUiScreen;
 use super::paint::Canvas;
 use launcher::menu::{MenuAction, MenuScreen, MenuView, auth::AuthState};
 
@@ -143,56 +148,53 @@ fn status(view: &MenuView) -> String {
     }
 }
 
-impl UiPresentationRuntime {
+impl OreUiScreen {
     /// Draws the saved-accounts picker over the current screen; returns its hit targets,
     /// the only ones that then count.
-    pub(in super::super) fn append_oreui_accounts(
+    pub(in super::super) fn paint_accounts(
         &mut self,
         view: &MenuView,
-        nodes: &mut Vec<UiNode>,
-        next: &mut u32,
-        metrics: TextMetrics,
         size: [f32; 2],
-    ) -> Result<Vec<(MenuAction, UiRect)>, UiPresentationError> {
+        artwork: &HashMap<String, IconRef>,
+        scrolls: &mut MenuScrolls,
+        frame: &mut PaintFrame<'_>,
+    ) -> Result<Vec<(MenuAction, UiRect)>, PaintError> {
         let originals = self
-            .form_presentation
-            .oreui_originals
+            .originals
             .clone()
-            .filter(|_| self.form_presentation.oreui_look == super::Look::Originals);
-        let picker = modal(view, &self.menu_artwork.refs);
-        let rollback = (nodes.len(), *next);
-        let mut offsets = self.menu_scrolls.offsets().clone();
+            .filter(|_| self.look == super::Look::Originals);
+        let picker = modal(view, artwork);
+        let rollback = (frame.nodes.len(), *frame.next);
+        let mut offsets = scrolls.offsets().clone();
         // A newly focused item off screen scrolls into view, then draws again there.
         let mut first = true;
         loop {
-            nodes.truncate(rollback.0);
-            *next = rollback.1;
+            frame.nodes.truncate(rollback.0);
+            *frame.next = rollback.1;
             let mut canvas = Canvas::new(
-                nodes,
-                next,
-                &mut self.layouts,
-                &self.font,
-                metrics,
-                self.solid_texture_page,
+                &mut *frame.nodes,
+                &mut *frame.next,
+                &mut *frame.layouts,
+                frame.font,
+                frame.metrics,
+                frame.solid_page,
                 originals.as_deref(),
             );
             canvas.appearance =
                 super::theme::Appearance::from_dark(view.settings_options.oreui_dark_mode());
-            canvas.seconds = self.menu_seconds;
-            canvas.transitions = Some(&mut self.form_presentation.oreui_transitions);
+            canvas.seconds = frame.now;
+            canvas.transitions = Some(&mut self.transitions);
             canvas.offsets = offsets.clone();
             let focused = super::modal::draw(&mut canvas, view, size, &picker)?;
-            let (hits, scrolls) = (canvas.hits, canvas.scrolls);
+            let (hits, areas) = (canvas.hits, canvas.scrolls);
             let used = offsets.get(super::modal::SCROLL).copied().unwrap_or(0.0);
             let revealed = focused.and_then(|item| {
-                let rect = |b: super::paint::Bounds| {
-                    super::super::super::rect(b[0], b[1], b[2], b[3]).ok()
-                };
-                Some(self.menu_scrolls.reveal_focus(
+                let bounds = |b: super::paint::Bounds| rect(b[0], b[1], b[2], b[3]).ok();
+                Some(scrolls.reveal_focus(
                     super::modal::SCROLL,
                     view.focused_action,
-                    rect(item.bounds),
-                    rect(item.viewport)?,
+                    bounds(item.bounds),
+                    bounds(item.viewport)?,
                     item.max,
                 ))
             });
@@ -202,7 +204,7 @@ impl UiPresentationRuntime {
                     first = false;
                 }
                 _ => {
-                    self.menu_scrolls.set_areas(scrolls);
+                    scrolls.set_areas(areas);
                     return Ok(hits);
                 }
             }
@@ -218,6 +220,7 @@ mod tests {
     use super::super::theme::{
         EDGE, MENU_ITEM, MENU_SECONDARY, NEUTRAL, NEUTRAL100, OVERLAY_MODAL, PRIMARY_ROLE,
     };
+    use crate::ui_runtime::presentation::{TextMetrics, UiPresentationRuntime};
     use launcher::menu::MenuDialog;
     use {
         super::*,

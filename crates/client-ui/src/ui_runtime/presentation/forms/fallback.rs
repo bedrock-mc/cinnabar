@@ -1,7 +1,7 @@
 //! The programmatic dialog used when the JSON-UI carrier is absent or a form's
 //! template cannot resolve: a clipped, scrollable text list on menu surfaces.
 use super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime, rect};
-use super::FormPresentation;
+use super::FormProjection;
 use crate::ui_runtime::{LocalFormAction, UiRuntime};
 use protocol::{MenuElement, ServerFormModel};
 use std::sync::Arc;
@@ -128,13 +128,13 @@ impl UiPresentationRuntime {
         let content_height = text_height + buttons.len() as f32 * row_height;
         let maximum = (content_height - list_height).max(0.0) as usize;
         let scroll = runtime.server_forms().scroll().min(maximum);
-        let mut state = FormPresentation {
+        let mut state = FormProjection {
             identity: Some(entry.identity),
             scroll,
             height: list_height as usize,
             maximum,
             row_height: row_height as usize,
-            ..FormPresentation::default()
+            ..FormProjection::default()
         };
         solid(
             nodes,
@@ -299,15 +299,7 @@ impl UiPresentationRuntime {
             LocalFormAction::Dismiss,
             window_rect(cancel, self.safe_area)?,
         ));
-        let retained = &mut self.form_presentation;
-        retained.identity = state.identity;
-        retained.scroll = state.scroll;
-        retained.height = state.height;
-        retained.maximum = state.maximum;
-        retained.row_height = state.row_height;
-        retained.offsets = state.offsets;
-        retained.hits = state.hits;
-        retained.frame = None;
+        self.projections.form = state;
         Ok(())
     }
 }

@@ -1,49 +1,55 @@
+//! The menus' title image: the pack's `common_art.title_image` when it defines one.
+
 use std::collections::HashMap;
 
-use crate::ui_runtime::presentation::menu_artwork::{SERVER_ART_PREFIX, TITLE_KEY};
+use crate::ui_runtime::presentation::{
+    UiPresentationRuntime,
+    menu_artwork::{SERVER_ART_PREFIX, TITLE_KEY},
+};
 use {
-    super::{FormEngine, Textures},
+    super::{engine::FormEngine, textures::Textures},
     ui::IconRef,
 };
 
+/// Where the active catalog's title image draws from; rebuilt with each installed catalog.
 pub(super) struct TitleSource {
     texture: String,
     artwork: String,
 }
 
 impl TitleSource {
-    pub(super) fn new(catalog: &json_ui::Catalog, context: &json_ui::Context) -> Self {
-        let resolved = json_ui::resolve(catalog, "common_art.title_image", context);
+    pub(super) fn new(engine: &FormEngine) -> Self {
+        let resolved =
+            json_ui::resolve(engine.catalog(), "common_art.title_image", engine.context());
         let path = resolved
             .control
             .as_ref()
             .and_then(|control| control.properties.get("texture"))
             .and_then(serde_json::Value::as_str)
             .unwrap_or(TITLE_KEY);
-        let texture = super::super::textures::texture_key(path).to_owned();
+        let texture = super::textures::texture_key(path).to_owned();
         let artwork = format!("{SERVER_ART_PREFIX}{texture}");
         Self { texture, artwork }
     }
-}
 
-impl FormEngine {
     /// Native menus use the same server-first title lookup as JSON screens.
-    pub(in super::super) fn menu_title(
+    pub(super) fn icon(
         &self,
+        engine: &FormEngine,
         images: &HashMap<String, IconRef>,
     ) -> Option<IconRef> {
-        let mut atlas = self.textures.lock();
-        let key = self.menu_title_source.texture.as_str();
+        let mut atlas = engine.textures.lock();
+        let key = self.texture.as_str();
         if !atlas.has_image(key) {
             return images.get(TITLE_KEY).copied();
         }
-        if let Some(icon) = images.get(&self.menu_title_source.artwork) {
+        if let Some(icon) = images.get(&self.artwork) {
             return Some(*icon);
         }
         atlas.require([key]);
         let textures = Textures {
-            assets: &self.assets,
-            set: &self.textures,
+            assets: engine.assets(),
+            set: &engine.textures,
             atlas: &atlas,
             images: None,
         };
@@ -53,6 +59,21 @@ impl FormEngine {
             uv: [x as u16, y as u16, (x + width) as u16, (y + height) as u16],
             glint: false,
         })
+    }
+}
+
+impl UiPresentationRuntime {
+    /// The installed catalog's title image; `None` without the JSON-UI engine.
+    pub(super) fn title_icon(&self, images: &HashMap<String, IconRef>) -> Option<IconRef> {
+        self.screens
+            .menu_title
+            .as_ref()?
+            .icon(self.engine.as_deref()?, images)
+    }
+
+    /// Follows the catalog the engine just installed.
+    pub(super) fn refresh_menu_title(&mut self) {
+        self.screens.menu_title = self.engine.as_deref().map(TitleSource::new);
     }
 }
 
@@ -90,23 +111,15 @@ mod tests {
             glint: false,
         };
         let artwork = HashMap::from([(TITLE_KEY.to_owned(), shipped)]);
-        let engine = presentation.form_presentation.engine.as_deref().unwrap();
-        let icon = engine
-            .menu_title(&artwork)
+        let icon = presentation
+            .title_icon(&artwork)
             .expect("small pack logo is immediately available");
         assert_ne!(icon, shipped);
         assert_eq!((icon.uv[2] - icon.uv[0], icon.uv[3] - icon.uv[1]), (8, 4));
+        let engine = presentation.engine.as_deref().unwrap();
         assert!(engine.textures.lock().placement(key).is_some());
         presentation.set_server_ui_pack(&super::super::super::ServerUiPack::default());
-        assert_eq!(
-            presentation
-                .form_presentation
-                .engine
-                .as_deref()
-                .unwrap()
-                .menu_title(&artwork),
-            Some(shipped)
-        );
+        assert_eq!(presentation.title_icon(&artwork), Some(shipped));
     }
 
     #[test]
@@ -141,21 +154,9 @@ mod tests {
                 ..Default::default()
             });
             test_time::eventually("oversized title available to icon consumers", || {
-                presentation
-                    .form_presentation
-                    .engine
-                    .as_deref()
-                    .unwrap()
-                    .menu_title(&artwork)
-                    .is_some()
+                presentation.title_icon(&artwork).is_some()
             });
-            let icon = presentation
-                .form_presentation
-                .engine
-                .as_deref()
-                .unwrap()
-                .menu_title(&artwork)
-                .unwrap();
+            let icon = presentation.title_icon(&artwork).unwrap();
             assert_ne!(icon, shipped);
             presentation.sync_server_ui_pages();
             let page = &presentation.textures.pages()[usize::from(icon.page)];
@@ -164,15 +165,7 @@ mod tests {
                 * 4;
             assert_eq!(&page.pixels()[offset..offset + 4], &[19, 53, 79, 255]);
             presentation.set_server_ui_pack(&super::super::super::ServerUiPack::default());
-            assert_eq!(
-                presentation
-                    .form_presentation
-                    .engine
-                    .as_deref()
-                    .unwrap()
-                    .menu_title(&artwork),
-                Some(shipped)
-            );
+            assert_eq!(presentation.title_icon(&artwork), Some(shipped));
         }
     }
 }

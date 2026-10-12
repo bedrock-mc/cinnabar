@@ -1,16 +1,14 @@
 //! Application-owned death-reason text policy layered over pack presentation.
-use json_ui::{CatalogLibrary, ControlLibrary, ControlRef, ResolvedControl};
+use json_ui::ResolvedControl;
 use serde_json::Value;
-use std::collections::BTreeMap;
+
+use super::engine::screen::ScreenRegistry;
 
 pub(super) const REASON_BINDING: &str = "#death_reason_text";
 
-/// Marks reason labels after variable substitution and inheritance resolution.
-pub(super) fn literal_tree(tree: Option<ResolvedControl>) -> Option<ResolvedControl> {
-    tree.map(|mut tree| {
-        literal_label(&mut tree);
-        tree
-    })
+/// Keeps resolved reason labels literal in every engine screen and factory-created control.
+pub(super) fn register(registry: &mut ScreenRegistry) {
+    registry.tree_hook(literal_label);
 }
 
 /// Recurses through authored controls and marks resolved reason labels as literal.
@@ -33,23 +31,5 @@ fn literal_label(control: &mut ResolvedControl) {
     }
     for child in &mut control.children {
         literal_label(child);
-    }
-}
-
-/// Applies the same text policy to labels created by factories and grids.
-pub(super) struct LiteralReasonLibrary<'a>(pub(super) CatalogLibrary<'a>);
-
-impl ControlLibrary for LiteralReasonLibrary<'_> {
-    fn resolve(&self, reference: &ControlRef) -> Option<ResolvedControl> {
-        literal_tree(self.0.resolve(reference))
-    }
-
-    fn resolve_with(
-        &self,
-        reference: &ControlRef,
-        key: &str,
-        vars: &dyn Fn() -> BTreeMap<String, Value>,
-    ) -> Option<ResolvedControl> {
-        literal_tree(self.0.resolve_with(reference, key, vars))
     }
 }

@@ -12,7 +12,7 @@ pub(super) fn draw(
     view: &MenuView,
     b: Bounds,
     artwork: &HashMap<String, IconRef>,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let profile = &view.feeds.profile;
     if !profile.achievements_loaded {
         super::loading(canvas, b)?;
@@ -80,7 +80,7 @@ fn achievement(
     entry: &ProfileAchievement,
     b: Bounds,
     artwork: &HashMap<String, IconRef>,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let left = b[0] + canvas.r(10.4);
     let score = entry
         .gamerscore

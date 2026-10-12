@@ -36,12 +36,7 @@ fn dimension_backgrounds_cover_each_window_without_stretching_or_bleeding_into_t
             source: None,
         })
         .unwrap();
-    let first_page = presentation
-        .form_presentation
-        .oreui_originals
-        .as_ref()
-        .unwrap()
-        .page;
+    let first_page = presentation.screens.oreui.originals.as_ref().unwrap().page;
     for physical in [[1280, 720], [720, 1280], [1800, 720]] {
         let size = physical.map(|value| value as f32);
         let metrics = TextMetrics::for_viewport(physical, ui::DpiScale::new(1.0).unwrap(), Some(2));

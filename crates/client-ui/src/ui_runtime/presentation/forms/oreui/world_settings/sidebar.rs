@@ -27,7 +27,7 @@ pub(super) fn draw(
     bounds: Bounds,
     route: Screen,
     narrow: bool,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let edge = canvas.r(EDGE);
     let pad = canvas.r(if narrow { 0.8 } else { 1.6 });
     let inner = [bounds[0] + edge + pad, bounds[2] - edge - pad];

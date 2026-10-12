@@ -3,7 +3,7 @@
 use ui::UiNode;
 
 use super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime, debug_overlay};
-use super::engine::{EngineInputs, EngineOutput, ScreenArt};
+use super::engine::{ScreenArt, screen::PaintFrame};
 
 impl UiPresentationRuntime {
     pub(in super::super) fn append_debug_overlay(
@@ -13,10 +13,8 @@ impl UiPresentationRuntime {
         metrics: TextMetrics,
         content: [f32; 2],
     ) -> Result<(), UiPresentationError> {
-        let (Some(lines), Some(engine)) = (
-            self.debug_lines.as_ref(),
-            self.form_presentation.engine.as_deref(),
-        ) else {
+        let (Some(lines), Some(engine)) = (self.debug_lines.as_ref(), self.engine.as_deref())
+        else {
             return Ok(());
         };
         if content.iter().any(|axis| *axis <= 0.0) {
@@ -54,7 +52,7 @@ impl UiPresentationRuntime {
         let mut painted = std::mem::take(&mut cache.painted);
         painted.nodes.clear();
         let mut paint_next = 1;
-        let inputs = EngineInputs {
+        let mut paint_frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
             metrics,
@@ -63,13 +61,12 @@ impl UiPresentationRuntime {
             content,
             translate: &|_| None,
             language: [0; 3],
-        };
-        let out = EngineOutput {
+            now: 0.0,
             nodes: &mut painted.nodes,
             next: &mut paint_next,
-            overlay: &[],
+            renderers: &mut [],
         };
-        engine.draw(ScreenArt::default(), inputs, out, |env, root| {
+        engine.draw(ScreenArt::default(), &mut paint_frame, |env, root| {
             Some(debug_overlay::render(cache, lines, (root, scale), env))
         })?;
         painted.key = Some(key);

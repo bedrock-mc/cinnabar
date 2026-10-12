@@ -8,7 +8,7 @@ fn point(x: f32, y: f32) -> ui::UiPoint {
 #[test]
 fn native_drag_fraction_uses_the_full_track_and_keeps_unsnapped_values() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
-    presentation.form_presentation.oreui_slider_tracks =
+    presentation.projections.oreui_slider_tracks =
         vec![(7, rect(100.0, 200.0, 300.0, 230.0).unwrap(), None)];
     assert_eq!(
         presentation.settings_slider_drag_fraction(7, point(174.0, -100.0)),
@@ -31,7 +31,7 @@ fn native_drag_fraction_uses_the_full_track_and_keeps_unsnapped_values() {
 #[test]
 fn only_visible_animated_thumb_pixels_capture_including_overshoot() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
-    presentation.form_presentation.oreui_slider_tracks = vec![
+    presentation.projections.oreui_slider_tracks = vec![
         (
             7,
             rect(100.0, 200.0, 300.0, 230.0).unwrap(),
@@ -56,8 +56,8 @@ fn only_visible_animated_thumb_pixels_capture_including_overshoot() {
 #[test]
 fn new_form_frame_clears_native_input_ownership_and_slider_capture() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
-    presentation.form_presentation.oreui_settings_input = true;
-    presentation.form_presentation.oreui_slider_tracks.push((
+    presentation.projections.oreui_settings_input = true;
+    presentation.projections.oreui_slider_tracks.push((
         7,
         rect(100.0, 200.0, 300.0, 230.0).unwrap(),
         Some(rect(150.0, 200.0, 180.0, 230.0).unwrap()),

@@ -10,7 +10,8 @@ use server_experience::screen::{self, GuiSize, ScreenLayout};
 use ui::UiNode;
 
 use super::{
-    engine::{EngineInputs, ScreenArt},
+    engine::{ScreenArt, screen::PaintFrame},
+    item_renderer::ItemRenderer,
     template_screen::{ModalEdits, TemplateArt, TemplateScreen},
 };
 use crate::ui_runtime::UiRuntime;
@@ -90,7 +91,7 @@ impl UiPresentationRuntime {
     pub fn set_mod_screens(&mut self, input: Option<ModScreensInput<'_>>) {
         let page =
             (self.textures.dynamic_start() + super::super::dynamic_textures::MOD_UI_PAGE) as u16;
-        let slot = &mut self.form_presentation.mod_screens;
+        let slot = &mut self.screens.mod_screens;
         let Some(input) = input else {
             *slot = None;
             return;
@@ -138,12 +139,12 @@ impl UiPresentationRuntime {
 
     /// The container screen the last build drew, as the mod's `screen.layout` reports it.
     pub fn mod_screen_layout(&self) -> Option<&ScreenLayout> {
-        self.form_presentation.mod_screens.as_ref()?.layout.as_ref()
+        self.screens.mod_screens.as_ref()?.layout.as_ref()
     }
 
     /// Whether the retained presentation belongs to this package snapshot.
     pub fn mod_screens_match(&self, id: &str, files: &Arc<screen::Files>) -> bool {
-        self.form_presentation
+        self.screens
             .mod_screens
             .as_ref()
             .is_some_and(|screens| screens.art.is(id, files))
@@ -151,13 +152,13 @@ impl UiPresentationRuntime {
 
     /// Why the mod's templates were refused, which quarantines the mod.
     pub fn mod_screens_failure(&self) -> Option<&str> {
-        self.form_presentation.mod_screens.as_ref()?.art.failure()
+        self.screens.mod_screens.as_ref()?.art.failure()
     }
 
     /// Whether the last build drew the mod's view, which then owns pointer and keyboard and
     /// hides the container screen.
     pub fn mod_view_shown(&self) -> bool {
-        self.form_presentation
+        self.screens
             .mod_screens
             .as_ref()
             .is_some_and(|screens| screens.view.frame.is_some())
@@ -165,7 +166,7 @@ impl UiPresentationRuntime {
 
     /// Whether one of the mod's edit boxes is selected and takes typing.
     pub fn mod_text_focused(&self) -> bool {
-        self.form_presentation
+        self.screens
             .mod_screens
             .as_ref()
             .is_some_and(|screens| screens.view.text_focused() || screens.overlay.text_focused())
@@ -175,7 +176,7 @@ impl UiPresentationRuntime {
     /// overlay control (which is never inside the container's panels). A press there is not
     /// vanilla's and never drops the held stack.
     pub fn mod_screens_own(&self, point: [f32; 2]) -> bool {
-        let Some(screens) = self.form_presentation.mod_screens.as_ref() else {
+        let Some(screens) = self.screens.mod_screens.as_ref() else {
             return false;
         };
         screens.view.frame.is_some() || screens.overlay.control_at(point).is_some()
@@ -185,7 +186,7 @@ impl UiPresentationRuntime {
     /// screen the pointer is over (the overlay beside an open view); what a declared key
     /// reports as its row.
     pub fn mod_screens_row(&mut self, point: [f32; 2]) -> Option<(String, u32)> {
-        let screens = self.form_presentation.mod_screens.as_mut()?;
+        let screens = self.screens.mod_screens.as_mut()?;
         let frame = screens.surface_at(point)?.frame.as_ref()?;
         let regions = frame.hits.iter().map(|hit| {
             let row = hit.collection.as_deref().zip(hit.collection_index);
@@ -200,7 +201,7 @@ impl UiPresentationRuntime {
 
     /// Routes hover and wheel positions to the drawn surface under the pointer.
     pub fn hover_mod_screens(&mut self, point: Option<[f32; 2]>) {
-        let Some(screens) = self.form_presentation.mod_screens.as_mut() else {
+        let Some(screens) = self.screens.mod_screens.as_mut() else {
             return;
         };
         screens.view.hover(None);
@@ -216,7 +217,7 @@ impl UiPresentationRuntime {
     /// takes them, else they are the mod's at the returned GUI point when the pointer is over
     /// the view or outside the container's panels and exclusions.
     pub fn scroll_mod_screens(&mut self, point: [f32; 2], notches: f64) -> Option<[f64; 2]> {
-        let screens = self.form_presentation.mod_screens.as_mut()?;
+        let screens = self.screens.mod_screens.as_mut()?;
         if notches == 0.0 {
             return None;
         }
@@ -238,7 +239,7 @@ impl UiPresentationRuntime {
         pressed: bool,
         released: bool,
     ) -> Option<(String, Option<usize>)> {
-        let screens = self.form_presentation.mod_screens.as_mut()?;
+        let screens = self.screens.mod_screens.as_mut()?;
         let (view, overlay) = screens.pointer_points(point);
         let view = screens.view.press(view, pressed, released);
         let overlay = screens.overlay.press(overlay, pressed, released);
@@ -253,7 +254,7 @@ impl UiPresentationRuntime {
         pressed: bool,
         released: bool,
     ) -> Option<(String, Option<usize>)> {
-        let screens = self.form_presentation.mod_screens.as_mut()?;
+        let screens = self.screens.mod_screens.as_mut()?;
         let (view, overlay) = screens.pointer_points(point);
         let view = screens.view.secondary_press(view, pressed, released);
         let overlay = screens.overlay.secondary_press(overlay, pressed, released);
@@ -263,7 +264,7 @@ impl UiPresentationRuntime {
     /// Applies pointer selection before vanilla shortcuts and retains edits for the mod adapter.
     pub fn focus_mod_screen_pointer(&mut self, point: Option<[f32; 2]>, now: f64) {
         let edits = self.edit_mod_screens(point, true, &[], false, now);
-        if let Some(screens) = self.form_presentation.mod_screens.as_mut() {
+        if let Some(screens) = self.screens.mod_screens.as_mut() {
             screens.pending_edits = edits;
         }
     }
@@ -279,7 +280,7 @@ impl UiPresentationRuntime {
         escape: bool,
         now: f64,
     ) -> ModalEdits {
-        let Some(screens) = self.form_presentation.mod_screens.as_mut() else {
+        let Some(screens) = self.screens.mod_screens.as_mut() else {
             return ModalEdits::default();
         };
         let (view, overlay) = screens.pointer_points(point);
@@ -310,7 +311,7 @@ impl UiPresentationRuntime {
         container_start: usize,
     ) {
         let Some(keys) = self
-            .form_presentation
+            .screens
             .mod_screens
             .as_ref()
             .map(|screens| screens.icon_keys.clone())
@@ -321,15 +322,14 @@ impl UiPresentationRuntime {
             self.item_icon(id, aux)
         });
         let screens = self
-            .form_presentation
+            .screens
             .mod_screens
             .as_mut()
             .expect("mod screens checked above");
         screens.begin_frame();
-        let (Some(renderer), Some((frame, _))) = (
-            self.form_presentation.engine.as_deref(),
-            self.form_presentation.container.as_ref(),
-        ) else {
+        let (Some(renderer), Some((frame, _))) =
+            (self.engine.as_deref(), self.projections.container.as_ref())
+        else {
             return;
         };
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
@@ -363,13 +363,13 @@ impl UiPresentationRuntime {
         let font = &self.font;
         let (solid_page, safe_area) = (self.solid_texture_page, self.safe_area);
         let layouts = &mut self.layouts;
-        let art = || ScreenArt {
+        let mut items = ItemRenderer {
+            icons: &[],
             id_aux: &id_aux,
-            ..ScreenArt::default()
         };
-        macro_rules! inputs {
+        macro_rules! frame {
             () => {
-                EngineInputs {
+                PaintFrame {
                     layouts: &mut *layouts,
                     font,
                     metrics,
@@ -378,16 +378,22 @@ impl UiPresentationRuntime {
                     content,
                     translate: &translate,
                     language: runtime.text_generation(),
+                    now: 0.0,
+                    nodes: &mut *nodes,
+                    next: &mut *next,
+                    renderers: &mut [&mut items],
                 }
             };
         }
         let mut view_tooltips = None;
         if screens.view.template.is_some() {
             let view_start = nodes.len();
-            if screens
-                .view
-                .draw(&mut screens.art, renderer, inputs!(), (nodes, next), art())
-            {
+            if screens.view.draw(
+                &mut screens.art,
+                renderer,
+                &mut frame!(),
+                ScreenArt::default(),
+            ) {
                 let hits = Arc::clone(&screens.view.frame.as_ref().expect("drawn view").hits);
                 screens.view.finish_input(&hits);
                 // The view's tooltips draw above the overlay and never widen what it keeps
@@ -402,10 +408,12 @@ impl UiPresentationRuntime {
             }
         }
         let start = nodes.len();
-        if screens
-            .overlay
-            .draw(&mut screens.art, renderer, inputs!(), (nodes, next), art())
-            && let Some(overlay) = screens.overlay.frame.as_mut()
+        if screens.overlay.draw(
+            &mut screens.art,
+            renderer,
+            &mut frame!(),
+            ScreenArt::default(),
+        ) && let Some(overlay) = screens.overlay.frame.as_mut()
         {
             let forbidden = layering::forbidden_logical(&layout, overlay.scale);
             layering::clip_overlay(nodes, start, &forbidden, &overlay.top, next);
@@ -422,7 +430,7 @@ impl UiPresentationRuntime {
 
     /// Copies the mod atlas's page images when they changed; `true` asks for a page rebuild.
     pub(super) fn refresh_mod_screen_pages(&mut self) -> bool {
-        self.form_presentation
+        self.screens
             .mod_screens
             .as_mut()
             .is_some_and(|screens| screens.art.refresh_pages())
@@ -430,7 +438,7 @@ impl UiPresentationRuntime {
 
     /// The mod atlas's pages, for the dynamic pages reserved to it.
     pub(in super::super) fn mod_screen_pages(&self) -> &[render_model::UiTexturePage] {
-        self.form_presentation
+        self.screens
             .mod_screens
             .as_ref()
             .map_or(&[], |screens| screens.art.pages())

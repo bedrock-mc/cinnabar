@@ -3,10 +3,10 @@ use super::*;
 impl UiPresentationRuntime {
     /// Releases pointer capture while preserving the panel and its editor draft.
     pub fn cancel_mod_panel_pointer_input(&mut self) {
-        if let Some(editor) = self.form_presentation.mod_hud_editor.as_mut() {
+        if let Some(editor) = self.screens.mod_hud_editor.as_mut() {
             editor.cancel_pointer_input();
         }
-        if let Some(panel) = self.form_presentation.mod_panel.as_mut() {
+        if let Some(panel) = self.screens.mod_panel.as_mut() {
             panel.cancel_pointer_input();
         }
     }

@@ -1,4 +1,4 @@
-use super::{Bounds, Canvas, LoadingStage, UiPresentationError, theme, widgets};
+use super::{Bounds, Canvas, LoadingStage, PaintError, theme, widgets};
 use crate::ui_runtime::oreui_assets::{OVERWORLD_BLOCK_IMAGE, dimensions};
 
 const TERRAIN_TINT: [[u8; 4]; 2] = [[18, 20, 24, 224], [25, 27, 32, 224]];
@@ -11,7 +11,7 @@ pub(super) fn backdrop(
     size: [f32; 2],
     stage: LoadingStage,
     destination: Option<i32>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     if stage == LoadingStage::ChangingDimension
         && let Some(art) = destination.and_then(dimensions::destination)
         && canvas.cover_sprite(art.background, [0.0, 0.0, size[0], size[1]])?
@@ -36,7 +36,7 @@ pub(super) fn panel(
     canvas: &mut Canvas<'_>,
     bounds: Bounds,
     stage: LoadingStage,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     if stage == LoadingStage::Connecting {
         return widgets::panel(canvas, bounds);
     }
@@ -59,7 +59,7 @@ pub(super) fn destination(
     canvas: &mut Canvas<'_>,
     bounds: Bounds,
     dimension: i32,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     if dimension == 0 && canvas.fitted_sprite(OVERWORLD_BLOCK_IMAGE, bounds)? {
         return Ok(());
     }

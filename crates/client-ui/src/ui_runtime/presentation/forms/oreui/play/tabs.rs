@@ -8,7 +8,7 @@ use crate::ui_runtime::oreui_assets::{
     PLAY_TAB_ICONS, PLAY_TAB_IMAGES, SETTINGS_ICON_HIGHLIGHT_IMAGE,
 };
 use {
-    super::UiPresentationError,
+    super::PaintError,
     launcher::menu::{MenuAction, MenuScreen, MenuView},
 };
 
@@ -20,7 +20,7 @@ pub(super) fn draw(
     view: &MenuView,
     b: Bounds,
     selected: usize,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     if let Some(transitions) = canvas.transitions.as_deref_mut() {
         transitions.begin_play(selected as u8);
     }
@@ -133,7 +133,7 @@ fn artwork(
     face: Bounds,
     motion: Feedback,
     down: f32,
-) -> Result<bool, UiPresentationError> {
+) -> Result<bool, PaintError> {
     if canvas.appearance == super::super::theme::Appearance::Dark {
         return Ok(false);
     }

@@ -1,4 +1,4 @@
-use super::super::super::UiPresentationError;
+use super::super::engine::screen::PaintError;
 use super::{
     modal,
     paint::{Bounds, Canvas},
@@ -12,7 +12,7 @@ pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     canvas.overlay(size, theme::OVERLAY_MODAL)?;
     let entrance = canvas.begin_entrance(super::motion::Surface::Dialog(modal::dialog_id(
         "server draft",
@@ -250,7 +250,7 @@ fn field(
     value: &str,
     placeholder: &str,
     action: MenuAction,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     canvas.text_line(
         label,
         [bounds[0], bounds[1]],

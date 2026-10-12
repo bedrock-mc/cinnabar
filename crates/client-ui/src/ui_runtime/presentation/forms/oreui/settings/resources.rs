@@ -1,6 +1,6 @@
 //! Global pack management uses OreUI cards over the staged library selection.
 
-use super::super::super::super::UiPresentationError;
+use super::super::super::engine::screen::PaintError;
 use super::super::paint::{Bounds, Canvas};
 use super::super::theme::{self, BODY, CAPTION, EDGE, TEXT, TEXT_DIMMER};
 use super::super::transitions::resources::{Group, Resources};
@@ -19,7 +19,7 @@ fn command(action: Action) -> MenuAction {
     MenuAction::GlobalResources(action)
 }
 
-pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
+pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     let mut motion = content
         .canvas
         .transitions
@@ -44,7 +44,7 @@ fn draw_sections(
     content: &mut Content<'_, '_>,
     snapshot: &Snapshot,
     motion: &Resources,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     content.heading("menu.globalpacks", "Change how your worlds look.")?;
     toolbar(content, snapshot)?;
     reveal(content, motion.pending_fraction, false, |content| {
@@ -97,8 +97,8 @@ fn reveal(
     content: &mut Content<'_, '_>,
     fraction: f32,
     interactive: bool,
-    draw: impl FnOnce(&mut Content<'_, '_>) -> Result<(), UiPresentationError>,
-) -> Result<(), UiPresentationError> {
+    draw: impl FnOnce(&mut Content<'_, '_>) -> Result<(), PaintError>,
+) -> Result<(), PaintError> {
     if fraction <= 0.0 {
         return Ok(());
     }
@@ -129,7 +129,7 @@ fn cards(
     snapshot: &Snapshot,
     motion: &Resources,
     group: Group,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     for card in motion.cards.iter().filter(|card| card.group == group) {
         let previous = content.canvas.surface;
         let active = group == Group::Active;
@@ -151,7 +151,7 @@ fn cards(
     Ok(())
 }
 
-fn toolbar(content: &mut Content<'_, '_>, snapshot: &Snapshot) -> Result<(), UiPresentationError> {
+fn toolbar(content: &mut Content<'_, '_>, snapshot: &Snapshot) -> Result<(), PaintError> {
     actions(
         content,
         &[
@@ -171,7 +171,7 @@ fn toolbar(content: &mut Content<'_, '_>, snapshot: &Snapshot) -> Result<(), UiP
     Ok(())
 }
 
-fn caption(content: &mut Content<'_, '_>, text: &str) -> Result<(), UiPresentationError> {
+fn caption(content: &mut Content<'_, '_>, text: &str) -> Result<(), PaintError> {
     let [left, right] = content.inset();
     let height = content.canvas.text(
         text,
@@ -185,11 +185,7 @@ fn caption(content: &mut Content<'_, '_>, text: &str) -> Result<(), UiPresentati
     Ok(())
 }
 
-fn note(
-    content: &mut Content<'_, '_>,
-    text: &str,
-    fill: theme::Rgba,
-) -> Result<(), UiPresentationError> {
+fn note(content: &mut Content<'_, '_>, text: &str, fill: theme::Rgba) -> Result<(), PaintError> {
     let [left, right] = content.inset();
     let pad = content.canvas.r(1.2);
     let height =
@@ -216,7 +212,7 @@ fn accordion(
     label: &str,
     fraction: f32,
     action: Action,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let [left, right] = content.inset();
     let bounds = [left, content.y, right, content.y + content.canvas.r(4.8)];
     let action = command(action);
@@ -260,11 +256,7 @@ fn accordion(
     Ok(())
 }
 
-fn chevron(
-    canvas: &mut Canvas<'_>,
-    centre: [f32; 2],
-    fraction: f32,
-) -> Result<(), UiPresentationError> {
+fn chevron(canvas: &mut Canvas<'_>, centre: [f32; 2], fraction: f32) -> Result<(), PaintError> {
     let pixel = canvas.r(EDGE);
     let bounds = [
         centre[0] - 3.5 * pixel,
@@ -308,7 +300,7 @@ fn thumbnail(
     content: &mut Content<'_, '_>,
     bounds: Bounds,
     snapshot: Option<(&Snapshot, &resource_pack::InstalledPack)>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     content.canvas.fill(bounds, theme::NEUTRAL80.fill)?;
     let icon = snapshot
         .and_then(|(snapshot, pack)| snapshot.icons.get(&(pack.id.to_string(), pack.revision)))
@@ -348,7 +340,7 @@ fn thumbnail(
     content.canvas.frame(bounds, EDGE, theme::BORDER)
 }
 
-fn base_card(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
+fn base_card(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     let [left, right] = content.inset();
     let height = content.canvas.r(7.2);
     let bounds = [left, content.y, right, content.y + height];
@@ -393,7 +385,7 @@ fn pack_card(
     index: usize,
     details: f32,
     interactive: bool,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let [left, right] = content.inset();
     let expanded = snapshot.details_expanded == Some((active, index));
     let action = command(Action::ReadMore(active, index));
@@ -549,7 +541,7 @@ fn pack_card(
     Ok(())
 }
 
-fn empty_library(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
+fn empty_library(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     let [left, right] = content.inset();
     let pad = content.canvas.r(1.2);
     let width = (right - left - 2.0 * pad).max(1.0);
@@ -584,7 +576,7 @@ fn empty_library(content: &mut Content<'_, '_>) -> Result<(), UiPresentationErro
 fn actions(
     content: &mut Content<'_, '_>,
     buttons: &[(&str, Variant, Option<Action>)],
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let [left, right] = content.inset();
     let gap = content.canvas.r(0.8);
     let width = (right - left).max(1.0);
@@ -619,7 +611,7 @@ pub(super) fn draw_picker(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
-) -> Result<bool, UiPresentationError> {
+) -> Result<bool, PaintError> {
     let Some(picker) = variant_picker(&view.global_resources) else {
         return Ok(false);
     };

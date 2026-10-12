@@ -3,7 +3,7 @@
 
 use crate::ui_runtime::oreui_assets::ACTION_ICONS;
 
-use super::super::super::UiPresentationError;
+use super::super::engine::screen::PaintError;
 use super::paint::{Bounds, Canvas};
 use super::theme::{EDGE, Rgba};
 
@@ -128,7 +128,7 @@ pub(super) fn draw(
     icon: Icon,
     at: [f32; 2],
     color: Rgba,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let color = canvas.appearance.ink(color);
     let texel = canvas.r(EDGE);
     let [width, height] = icon.texels();

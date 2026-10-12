@@ -16,6 +16,7 @@ pub mod furnace_book;
 pub(super) use container_kinds::supported_storage_slots;
 pub mod containers;
 pub(super) mod credits_content;
+mod credits_renderer;
 pub mod credits_screen;
 pub mod crosshair_settings;
 pub mod emote_screen;
@@ -27,9 +28,11 @@ pub mod fallback;
 mod formatting_tests;
 pub mod global_resources;
 pub mod hud;
+pub mod hud_renderers;
 #[cfg(test)]
 pub mod inbox_tests;
 mod invite_screen;
+mod item_renderer;
 pub mod java_animations_setting;
 pub mod join_progress;
 #[cfg(test)]
@@ -40,8 +43,11 @@ pub mod loading_texture_tests;
 pub(super) mod menu_caret;
 #[cfg(test)]
 pub mod menu_latency;
+mod menu_renderers;
 pub mod menu_screens;
+mod menu_title;
 pub mod menus;
+mod mod_crosshair;
 pub mod mod_hud;
 pub mod mod_hud_editor;
 pub mod mod_panel;
@@ -51,6 +57,7 @@ pub mod model;
 pub mod motion_blur_setting;
 pub mod npc;
 pub mod oreui;
+mod oreui_runtime;
 #[cfg(test)]
 mod retained_image_tests;
 mod retained_menu;
@@ -79,6 +86,7 @@ pub mod play_screen;
 mod player_list;
 pub mod recipe_book;
 pub mod scene_policy;
+mod screen_registry;
 pub mod server_pack;
 pub mod settings_account;
 pub mod settings_chat;
@@ -125,41 +133,27 @@ use crate::ui_runtime::scene_stack::ScreenSettingsTable;
 use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime, forms::EngineFrame};
 use assets::RuntimeUiAssets;
 pub use containers::{container_screen_reference, engine_panel_contains, engine_screen_for};
-pub use engine::hud_renderers;
+use engine::screen::PaintFrame;
 pub use recipe_book::{recipe_book_hover, recipe_book_icons, recipe_book_shown};
 
 pub use server_pack::ServerUiPack;
 use std::sync::Arc;
 use ui::{UiNode, UiPoint, UiRect};
 
+/// Each screen family's own state, carried across builds.
 #[derive(Default)]
-pub(super) struct FormPresentation {
-    identity: Option<ServerFormIdentity>,
-    pub(super) hits: Vec<(LocalFormAction, UiRect)>,
-    pub(super) offsets: Vec<usize>,
-    scroll: usize,
-    height: usize,
-    pub(super) maximum: usize,
-    row_height: usize,
-    /// The engine frame drawn this build, when the engine drew the form.
-    frame: Option<EngineFrame>,
-    /// The JSON-UI engine; carried across the per-frame reset.
-    engine: Option<Box<engine::FormEngine>>,
-    /// The container screen the engine drew this build, with its cell layout.
-    container: Option<(EngineFrame, containers::ScreenLayout)>,
+pub(super) struct ScreenStates {
     /// The engine menu's regions by action, for next frame's hover state.
     menu_keys: Vec<(launcher::menu::MenuAction, String)>,
-    /// Keyboard controls include rows outside the pointer's clipped viewports.
-    pub(super) menu_focus: Vec<launcher::menu::MenuAction>,
-    /// Screen and popup context owning the painted menu controls.
-    pub(super) menu_focus_context: Option<(launcher::menu::MenuScreen, bool)>,
-    pub(super) menu_focus_geometry: Vec<launcher::menu::view::SettingsFocusTarget>,
-    pub(super) menu_focus_landmarks: Vec<launcher::menu::view::SettingsFocusLandmark>,
-    /// The engine menu's press sounds by action; carried across the per-frame reset.
+    /// The engine menu's press sounds by action.
     menu_sounds: Vec<(launcher::menu::MenuAction, json_ui::ControlSound)>,
+    /// Where the installed catalog's title image draws from.
+    menu_title: Option<menu_title::TitleSource>,
+    /// The title splash, picked once per launch.
+    splash: std::sync::OnceLock<Option<String>>,
     /// The form whose render path was last logged, so each form logs once.
     logged: Option<ServerFormIdentity>,
-    /// The engine HUD's cached screens; carried across the per-frame reset.
+    /// The engine HUD's cached screens.
     hud: hud::HudScreens,
     mod_hud: Option<mod_hud::ModHud>,
     mod_hud_editor: Option<mod_hud_editor::HudEditor>,
@@ -168,43 +162,69 @@ pub(super) struct FormPresentation {
     player_list: Option<player_list::PlayerList>,
     mod_panel: Option<mod_panel::ModPanel>,
     experience: Option<experience::ExperienceChrome>,
-    /// A client part's modal screen; carried across the per-frame reset.
+    /// A client part's modal screen.
     experience_modal: Option<experience_modal::ModalScreen>,
-    /// A player mod's overlay and view; carried across the per-frame reset.
+    /// A player mod's overlay and view.
     mod_screens: Option<mod_screens::ModScreens>,
-    /// The last container screen's layout; carried across the per-frame reset.
+    /// The last container screen's layout.
     container_cache: Option<containers::ScreenCache>,
     /// Immutable creative rows reused across hover and scroll frames.
     book_cache: Option<recipe_book::BookCache>,
     furnace_cache: Option<furnace_book::FurnaceBookCache>,
-    /// The menu text caret's blink and its boxes' text; carried across the per-frame reset.
+    /// The menu text caret's blink and its boxes' text.
     menu_caret: menu_caret::MenuCaretState,
-    /// The open chat's cached screen; carried across the per-frame reset.
+    /// The open chat's cached screen.
     chat: chat_screen::ChatScreen,
     emote: emote_screen::EmoteScreen,
-    /// The bed screen's hits and pointer; carried across the per-frame reset.
+    /// The bed screen's hits and pointer.
     bed: oreui::BedScreen,
-    /// The sign editor's cached screen; carried across the per-frame reset.
+    /// The sign editor's cached screen.
     sign: sign_editor::SignScreen,
     credits: credits_screen::CreditsScreen,
-    /// Installed OreUI artwork, available in every build, and the selected screen look.
-    oreui_originals: Option<Arc<oreui::Originals>>,
-    oreui_look: oreui::Look,
-    oreui_dark_mode: bool,
-    oreui_transitions: oreui::Transitions,
-    pub(super) oreui_slider_tracks: Vec<(u16, UiRect, Option<UiRect>)>,
-    pub(super) oreui_settings_input: bool,
-    /// The engine catalog's screen settings; carried across the per-frame reset.
-    screen_settings: Arc<ScreenSettingsTable>,
+    /// The credits' skip regions from their last paint.
+    credits_hits: Vec<(credits_screen::CreditsAction, UiRect)>,
+    /// OreUI's artwork, look and motion.
+    oreui: oreui::OreUiScreen,
+}
+
+/// What the last build exposes to input and the next build; reset as each build starts.
+#[derive(Default)]
+pub(super) struct FrameProjections {
+    /// The server form drawn this build.
+    pub(super) form: FormProjection,
+    /// The container screen the engine drew this build, with its cell layout.
+    container: Option<(EngineFrame, containers::ScreenLayout)>,
     /// Last build's container frame, for this build's pointer hover.
     previous_container: Option<(EngineFrame, containers::ScreenLayout)>,
+    /// Keyboard controls include rows outside the pointer's clipped viewports.
+    pub(super) menu_focus: Vec<launcher::menu::MenuAction>,
+    /// Screen and popup context owning the painted menu controls.
+    pub(super) menu_focus_context: Option<(launcher::menu::MenuScreen, bool)>,
+    pub(super) menu_focus_geometry: Vec<launcher::menu::view::SettingsFocusTarget>,
+    pub(super) menu_focus_landmarks: Vec<launcher::menu::view::SettingsFocusLandmark>,
+    pub(super) oreui_slider_tracks: Vec<(u16, UiRect, Option<UiRect>)>,
+    pub(super) oreui_settings_input: bool,
+}
+
+/// The server form a build drew: the fallback dialog's rows, or the engine frame.
+#[derive(Default)]
+pub(super) struct FormProjection {
+    /// The form the fallback dialog drew.
+    identity: Option<ServerFormIdentity>,
+    pub(super) hits: Vec<(LocalFormAction, UiRect)>,
+    pub(super) offsets: Vec<usize>,
+    scroll: usize,
+    height: usize,
+    pub(super) maximum: usize,
+    row_height: usize,
+    /// The engine frame and the form it drew; input validates that identity.
+    frame: Option<(ServerFormIdentity, EngineFrame)>,
 }
 
 impl UiPresentationRuntime {
     /// Shares immutable carrier definitions with the optional-pack reload worker.
     pub fn pack_catalog_base(&self) -> Option<Arc<json_ui::Catalog>> {
-        self.form_presentation
-            .engine
+        self.engine
             .as_ref()
             .map(|engine| engine.pack_catalog_base())
     }
@@ -226,10 +246,12 @@ impl UiPresentationRuntime {
         self.preview_dirty = true;
         self.menu_artwork_dirty = true;
         self.rebuild_dynamic_textures();
-        let mut engine = engine::FormEngine::new(assets, catalog, first_page);
+        let mut engine =
+            engine::FormEngine::new(assets, catalog, first_page, screen_registry::registry());
         engine.textures.server_page =
             (self.textures.dynamic_start() + dynamic_textures::SERVER_UI_PAGE) as u16;
-        self.form_presentation.engine = Some(Box::new(engine));
+        self.engine = Some(Box::new(engine));
+        self.refresh_menu_title();
         self.refresh_screen_settings();
         self.hud_frame.engine_containers = true;
         Ok(())
@@ -241,7 +263,7 @@ impl UiPresentationRuntime {
     /// renderer pins never changes. An empty pack restores vanilla.
     pub fn set_server_ui_pack(&mut self, pack: &ServerUiPack) {
         let first = self.textures.dynamic_start() + dynamic_textures::SERVER_UI_PAGE;
-        let Some(engine) = self.form_presentation.engine.as_mut() else {
+        let Some(engine) = self.engine.as_mut() else {
             return;
         };
         engine.server_ui = pack.ui_layers.iter().any(|layer| !layer.is_empty());
@@ -272,8 +294,8 @@ impl UiPresentationRuntime {
         engine.set_server_atlas(atlas, first as u16);
         // A texture-only pack may retain the catalog while changing sprite
         // dimensions, UV metadata, or nine-slice borders used during layout.
-        self.form_presentation.hud.invalidate_textures();
-        if let Some(cache) = &mut self.form_presentation.container_cache {
+        self.screens.hud.invalidate_textures();
+        if let Some(cache) = &mut self.screens.container_cache {
             cache.invalidate_textures();
         }
         if let Some(settings) = pack
@@ -281,17 +303,18 @@ impl UiPresentationRuntime {
             .as_ref()
             .and_then(|settings| settings.for_inputs(engine.catalog(), engine.context()))
         {
-            self.form_presentation.screen_settings = settings;
+            self.screen_settings = settings;
         } else {
             self.refresh_screen_settings();
         }
+        self.refresh_menu_title();
         self.sync_server_ui_pages();
     }
 
     /// Draws oversized server textures from their server-page downscale again.
     #[cfg(test)]
     pub fn drop_full_res_art(&mut self) {
-        if let Some(engine) = self.form_presentation.engine.as_mut() {
+        if let Some(engine) = self.engine.as_mut() {
             engine.textures.set_full_res(Default::default());
         }
     }
@@ -307,7 +330,7 @@ impl UiPresentationRuntime {
                 Some((key.clone(), *self.menu_artwork.refs.get(&art)?))
             })
             .collect();
-        if let Some(engine) = self.form_presentation.engine.as_mut() {
+        if let Some(engine) = self.engine.as_mut() {
             engine.textures.set_full_res(full_res);
         }
     }
@@ -315,14 +338,13 @@ impl UiPresentationRuntime {
     /// Publishes completed original images before a saved menu frame can be reused.
     pub(super) fn poll_server_ui_images(&mut self) {
         if self
-            .form_presentation
             .engine
             .as_mut()
             .is_some_and(|engine| engine.poll_native_images())
         {
             self.retained_menu = None;
-            self.form_presentation.hud.invalidate_textures();
-            if let Some(cache) = &mut self.form_presentation.container_cache {
+            self.screens.hud.invalidate_textures();
+            if let Some(cache) = &mut self.screens.container_cache {
                 cache.invalidate_textures();
             }
             self.sync_server_ui_pages();
@@ -333,7 +355,6 @@ impl UiPresentationRuntime {
     /// after the frame's screens drew, before the frame publishes.
     pub(super) fn sync_server_ui_pages(&mut self) {
         let server = self
-            .form_presentation
             .engine
             .as_mut()
             .is_some_and(|engine| engine.take_server_pages().is_some());
@@ -379,7 +400,7 @@ impl UiPresentationRuntime {
                 icons.entry(path.to_owned()).or_insert(icon);
             }
         }
-        if let Some(engine) = self.form_presentation.engine.as_mut() {
+        if let Some(engine) = self.engine.as_mut() {
             engine.textures.set_fallbacks(icons, vanilla);
         }
     }
@@ -387,7 +408,7 @@ impl UiPresentationRuntime {
     /// Reads vanilla images the carrier lacks from the local pack at `vanilla`.
     #[cfg(test)]
     pub fn set_vanilla_texture_root(&mut self, vanilla: std::path::PathBuf) {
-        if let Some(engine) = self.form_presentation.engine.as_mut() {
+        if let Some(engine) = self.engine.as_mut() {
             engine.textures.set_fallbacks(Default::default(), vanilla);
         }
     }
@@ -395,52 +416,51 @@ impl UiPresentationRuntime {
     /// Retire animation state no paint touched this frame, so a control that
     /// comes back starts its animations afresh.
     pub(super) fn end_animation_frame(&mut self) {
-        if let Some(engine) = self.form_presentation.engine.as_ref() {
+        if let Some(engine) = self.engine.as_ref() {
             engine.animator().end_frame();
         }
-        self.form_presentation.oreui_transitions.end_frame();
+        self.screens.oreui.transitions.end_frame();
     }
 
     pub(super) fn configure_oreui_motion(&mut self) {
         if let Some(view) = &self.menu_view {
-            self.form_presentation.oreui_dark_mode = view.settings_options.oreui_dark_mode();
-            self.form_presentation
-                .oreui_transitions
+            self.screens.oreui.dark_mode = view.settings_options.oreui_dark_mode();
+            self.screens
+                .oreui
+                .transitions
                 .configure_motion(view.settings_options.value("screen_animations") != 0);
         }
     }
 
     /// Drawn engine textures too big for a server page, for the art pages.
     pub(super) fn oversized_ui_textures(&self) -> Vec<(String, Arc<[u8]>)> {
-        self.form_presentation
-            .engine
+        self.engine
             .as_ref()
             .map_or_else(Vec::new, |engine| engine.textures.oversized())
     }
 
     pub(super) fn server_ui_pages(&self) -> &[render_model::UiTexturePage] {
-        self.form_presentation
-            .engine
+        self.engine
             .as_ref()
             .map_or(&[], |engine| &engine.server_pages)
     }
 
     /// Immutable original-image tiles owned by the active resource-pack namespace.
     pub(super) fn server_ui_sheet_pages(&self) -> &[render_model::UiTexturePage] {
-        self.form_presentation
-            .engine
+        self.engine
             .as_ref()
             .map_or(&[], |engine| &engine.server_sheet_pages)
     }
 
     /// Applies the runtime's server UI pack when it changes identity.
     pub(super) fn observe_server_ui(&mut self, pack: Option<&Arc<ServerUiPack>>) {
-        let Some(engine) = self.form_presentation.engine.as_mut() else {
+        let Some(engine) = self.engine.as_mut() else {
             return;
         };
         if !engine.take_server_source(pack) {
             return;
         }
+        self.screens.credits.forget_content();
         match pack {
             Some(pack) => self.set_server_ui_pack(&Arc::clone(pack)),
             None => self.set_server_ui_pack(&ServerUiPack::default()),
@@ -449,15 +469,14 @@ impl UiPresentationRuntime {
 
     /// The text color table resolved from the currently installed UI pack stack.
     pub(super) fn formatting_palette(&self) -> Option<&ui::FormattingPalette> {
-        self.form_presentation
-            .engine
+        self.engine
             .as_ref()
             .map(|engine| &engine.formatting_palette)
     }
 
     /// The sound the engine menu's control for `action` plays when pressed.
     pub fn menu_sound(&self, action: launcher::menu::MenuAction) -> Option<&json_ui::ControlSound> {
-        self.form_presentation
+        self.screens
             .menu_sounds
             .iter()
             .find(|(candidate, _)| *candidate == action)
@@ -466,7 +485,7 @@ impl UiPresentationRuntime {
 
     /// The live catalog's screen settings; empty without the JSON-UI engine.
     pub fn screen_settings(&self) -> Arc<ScreenSettingsTable> {
-        Arc::clone(&self.form_presentation.screen_settings)
+        Arc::clone(&self.screen_settings)
     }
 
     /// Hands the runtime this frame's loading cover and the catalog's screen settings.
@@ -475,49 +494,53 @@ impl UiPresentationRuntime {
     }
 
     fn refresh_screen_settings(&mut self) {
-        if let Some(engine) = self.form_presentation.engine.as_deref() {
-            self.form_presentation.screen_settings = Arc::new(ScreenSettingsTable::for_catalog(
+        if let Some(engine) = self.engine.as_deref() {
+            self.screen_settings = Arc::new(ScreenSettingsTable::for_catalog(
                 engine.catalog(),
                 engine.context(),
             ));
         }
     }
 
-    /// The engine frame for `identity`, when the engine drew that form.
     /// The engine forms' animator, which input fires button events into.
     pub fn form_animator(&self) -> Option<std::sync::MutexGuard<'_, json_ui::Animator>> {
-        Some(self.form_presentation.engine.as_ref()?.animator())
+        Some(self.engine.as_ref()?.animator())
     }
 
+    /// The engine frame for `identity`, when the engine drew that form.
     pub fn form_engine_frame(&self, identity: ServerFormIdentity) -> Option<&EngineFrame> {
-        self.form_presentation
+        self.projections
+            .form
             .frame
             .as_ref()
-            .filter(|frame| frame.identity == Some(identity))
+            .filter(|(drawn, _)| *drawn == identity)
+            .map(|(_, frame)| frame)
     }
 
     pub fn form_button_count(&self, identity: ServerFormIdentity) -> Option<usize> {
-        (self.form_presentation.identity == Some(identity))
-            .then_some(self.form_presentation.offsets.len().saturating_sub(1))
+        (self.projections.form.identity == Some(identity))
+            .then_some(self.projections.form.offsets.len().saturating_sub(1))
     }
     pub fn form_button_visible(&self, identity: ServerFormIdentity, index: usize) -> bool {
-        self.form_presentation.identity == Some(identity)
+        self.projections.form.identity == Some(identity)
             && self
-                .form_presentation
+                .projections
+                .form
                 .hits
                 .iter()
                 .any(|(action, _)| *action == LocalFormAction::SubmitButton(index as u32))
     }
     pub fn hit_test_form(&self, point: UiPoint) -> Option<(ServerFormIdentity, LocalFormAction)> {
-        let identity = self.form_presentation.identity?;
-        self.form_presentation
+        let identity = self.projections.form.identity?;
+        self.projections
+            .form
             .hits
             .iter()
             .rev()
             .find_map(|(action, bounds)| bounds.contains(point).then_some((identity, *action)))
     }
     pub fn form_focus_scroll(&self, identity: ServerFormIdentity, index: usize) -> Option<usize> {
-        let state = &self.form_presentation;
+        let state = &self.projections.form;
         if state.identity != Some(identity) {
             return None;
         }
@@ -535,49 +558,24 @@ impl UiPresentationRuntime {
         )
     }
 
-    /// Starts a build's form state, keeping what is carried across builds.
+    /// Starts a build's projections; screen families keep their own state.
     pub(super) fn begin_form_frame(&mut self) {
-        let previous_container = self.form_presentation.container.take();
-        self.form_presentation.oreui_slider_tracks.clear();
-        self.form_presentation.menu_focus_geometry.clear();
-        self.form_presentation.menu_focus_landmarks.clear();
-        let state = std::mem::take(&mut self.form_presentation);
-        self.form_presentation = FormPresentation {
-            engine: state.engine,
-            menu_keys: state.menu_keys,
-            menu_sounds: state.menu_sounds,
-            logged: state.logged,
-            hud: state.hud,
-            mod_hud: state.mod_hud,
-            mod_hud_editor: state.mod_hud_editor,
-            mod_widgets: state.mod_widgets,
-            mod_crosshair: state.mod_crosshair,
-            player_list: state.player_list,
-            mod_panel: state.mod_panel,
-            experience: state.experience,
-            experience_modal: state.experience_modal,
-            mod_screens: state.mod_screens,
-            container_cache: state.container_cache,
-            book_cache: state.book_cache,
-            furnace_cache: state.furnace_cache,
-            menu_caret: state.menu_caret,
-            chat: state.chat,
-            emote: state.emote,
-            bed: state.bed,
-            sign: state.sign,
-            credits: state.credits,
-            oreui_originals: state.oreui_originals,
-            oreui_look: state.oreui_look,
-            oreui_dark_mode: state.oreui_dark_mode,
-            oreui_transitions: state.oreui_transitions,
-            oreui_slider_tracks: state.oreui_slider_tracks,
-            menu_focus_geometry: state.menu_focus_geometry,
-            menu_focus_landmarks: state.menu_focus_landmarks,
-            screen_settings: state.screen_settings,
+        let projections = &mut self.projections;
+        let previous_container = projections.container.take();
+        let mut menu_focus_geometry = std::mem::take(&mut projections.menu_focus_geometry);
+        let mut menu_focus_landmarks = std::mem::take(&mut projections.menu_focus_landmarks);
+        let mut oreui_slider_tracks = std::mem::take(&mut projections.oreui_slider_tracks);
+        menu_focus_geometry.clear();
+        menu_focus_landmarks.clear();
+        oreui_slider_tracks.clear();
+        *projections = FrameProjections {
             previous_container,
-            ..FormPresentation::default()
+            menu_focus_geometry,
+            menu_focus_landmarks,
+            oreui_slider_tracks,
+            ..FrameProjections::default()
         };
-        if let Some(screens) = self.form_presentation.mod_screens.as_mut() {
+        if let Some(screens) = self.screens.mod_screens.as_mut() {
             screens.begin_frame();
         }
     }
@@ -597,7 +595,7 @@ impl UiPresentationRuntime {
         width: f32,
         height: f32,
     ) -> Result<(), UiPresentationError> {
-        let previous = self.form_presentation.previous_container.take();
+        let previous = self.projections.previous_container.take();
         self.append_engine_container(
             player_runtime,
             runtime,
@@ -638,7 +636,7 @@ impl UiPresentationRuntime {
         {
             return Ok(());
         }
-        let reason = match self.form_presentation.engine.as_deref_mut() {
+        let reason = match self.engine.as_deref_mut() {
             None => "JSON-UI carrier not loaded".to_owned(),
             Some(renderer) => {
                 let translate = |key: &str| runtime.translation(key);
@@ -651,7 +649,7 @@ impl UiPresentationRuntime {
                     None => "form kind has no engine template".to_owned(),
                     Some(form) => {
                         let rollback = (nodes.len(), *next);
-                        let inputs = engine::EngineInputs {
+                        let mut frame = PaintFrame {
                             layouts: &mut self.layouts,
                             font: &self.font,
                             metrics,
@@ -660,25 +658,17 @@ impl UiPresentationRuntime {
                             content: [width, height],
                             translate: &translate,
                             language: runtime.text_generation(),
-                        };
-                        let out = engine::EngineOutput {
+                            now: self.menu_seconds,
                             nodes: &mut *nodes,
                             next: &mut *next,
-                            overlay: &[],
+                            renderers: &mut [],
                         };
                         let catalog = renderer.catalog_label();
-                        let now = self.menu_seconds;
-                        match renderer.render(
-                            &form,
-                            &state.view,
-                            (entry.identity, now),
-                            inputs,
-                            out,
-                        ) {
+                        match renderer.render(&form, &state.view, &mut frame) {
                             Ok(Some(frame)) => {
-                                self.form_presentation.frame = Some(frame);
+                                self.projections.form.frame = Some((entry.identity, frame));
                                 log_path(
-                                    &mut self.form_presentation.logged,
+                                    &mut self.screens.logged,
                                     entry.identity,
                                     "engine",
                                     &catalog,
@@ -703,7 +693,7 @@ impl UiPresentationRuntime {
             }
         };
         log_path(
-            &mut self.form_presentation.logged,
+            &mut self.screens.logged,
             entry.identity,
             "fallback",
             &reason,
@@ -743,10 +733,7 @@ fn log_path(
 impl UiPresentationRuntime {
     /// Borrows the loaded UI carrier for the app panorama adapter.
     pub fn ui_assets(&self) -> Option<&assets::RuntimeUiAssets> {
-        self.form_presentation
-            .engine
-            .as_deref()
-            .map(|engine| engine.assets())
+        self.engine.as_deref().map(|engine| engine.assets())
     }
 }
 

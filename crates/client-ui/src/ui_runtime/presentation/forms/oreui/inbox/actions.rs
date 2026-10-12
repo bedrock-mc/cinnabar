@@ -5,7 +5,7 @@ use super::super::motion::Surface;
 use super::super::theme::TEXT;
 use super::super::widgets::{Variant, button};
 use {
-    super::{Canvas, UiPresentationError, header, screen_overlay},
+    super::{Canvas, PaintError, header, screen_overlay},
     launcher::menu::{MenuAction, MenuView, inbox::Action},
 };
 
@@ -13,7 +13,7 @@ pub(super) fn settings(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     screen_overlay(canvas, size)?;
     let top = header(
         canvas,
@@ -59,7 +59,7 @@ pub(super) fn delete_dialog(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let Some(pending) = &view.feeds.inbox_state.delete_pending else {
         return Ok(());
     };

@@ -1,6 +1,6 @@
 //! Shared flat category faces keep press and selection brightness continuous.
 
-use super::super::super::UiPresentationError;
+use super::super::engine::screen::PaintError;
 use super::motion::{Feedback, mix};
 use super::paint::{Bounds, Canvas};
 use super::theme::{EDGE, NEUTRAL80};
@@ -9,7 +9,7 @@ pub(super) fn background(
     canvas: &mut Canvas<'_>,
     row: Bounds,
     motion: Feedback,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     background_on(canvas, row, motion, NEUTRAL80.fill)
 }
 
@@ -17,7 +17,7 @@ pub(super) fn transparent_background(
     canvas: &mut Canvas<'_>,
     row: Bounds,
     motion: Feedback,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     background_on(canvas, row, motion, [0; 4])
 }
 
@@ -26,7 +26,7 @@ fn background_on(
     row: Bounds,
     motion: Feedback,
     idle: super::theme::Rgba,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let role = canvas.role(NEUTRAL80);
     let idle = if idle[3] == 0 {
         [role.hovered[0], role.hovered[1], role.hovered[2], 0]

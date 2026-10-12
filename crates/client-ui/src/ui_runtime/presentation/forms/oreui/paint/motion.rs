@@ -2,8 +2,8 @@ use super::super::{
     motion::{Feedback, Kind, Surface, opacity},
     widgets::Interaction,
 };
-use super::{Canvas, UiPresentationError};
-use crate::ui_runtime::presentation::rect;
+use super::{Canvas, PaintError};
+use crate::ui_runtime::presentation::forms::engine::rect;
 use ui::{UiNode, UiVisual};
 
 mod effects;
@@ -25,7 +25,7 @@ impl Canvas<'_> {
         &mut self,
         size: [f32; 2],
         color: super::super::theme::Rgba,
-    ) -> Result<(), UiPresentationError> {
+    ) -> Result<(), PaintError> {
         let first = self.nodes.len();
         self.fill(
             [0.0, 0.0, size[0], size[1]],
@@ -81,7 +81,7 @@ impl Canvas<'_> {
         &mut self,
         scope: EntranceScope,
         size: [f32; 2],
-    ) -> Result<(), UiPresentationError> {
+    ) -> Result<(), PaintError> {
         let surface = self.surface;
         self.surface = scope.previous;
         self.entrance_active = scope.previous_active;
@@ -102,7 +102,7 @@ pub(in super::super) fn apply_entrance(
     scope: EntranceScope,
     rem: f32,
     size: [f32; 2],
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     if scope.progress >= 1.0 || scope.first >= nodes.len() {
         return Ok(());
     }
@@ -117,7 +117,7 @@ fn transform_nodes(
     alpha: f32,
     offset: f32,
     size: [f32; 2],
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     if first >= nodes.len() {
         return Ok(());
     }

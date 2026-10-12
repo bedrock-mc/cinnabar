@@ -4,7 +4,8 @@ use assets::{RuntimeUiAssets, UiAtlasPage, encode_ui_catalog};
 use json_ui::{Catalog, Draw, DrawNode, FormRender, RectOut, ResolvedControl};
 use ui::{DpiScale, SafeArea, TextLayoutCache, UiNode, UiVisual};
 
-use super::super::{EngineInputs, EngineOutput, FormEngine, ScreenArt};
+use super::super::super::screen_registry::registry;
+use super::super::{FormEngine, ScreenArt, screen::PaintFrame};
 use crate::ui_runtime::presentation::{TextMetrics, tests::fixture_font};
 use {super::*, ui::FONT_DESIGN_PIXEL_TEXELS};
 
@@ -80,7 +81,7 @@ fn engine() -> FormEngine {
     };
     let bytes = encode_ui_catalog([1; 32], &[page], &[], &[], &[]).unwrap();
     let assets = Arc::new(RuntimeUiAssets::decode(&bytes).unwrap());
-    let mut engine = FormEngine::new(assets, Catalog::default(), 2);
+    let mut engine = FormEngine::new(assets, Catalog::default(), 2, registry());
     let mut png = Vec::new();
     image::RgbaImage::from_pixel(16, 16, image::Rgba([22, 33, 44, 255]))
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
@@ -152,7 +153,7 @@ fn draw(engine: &FormEngine, text: &str, max_width: impl Into<Value>) -> (Vec<Ui
                 pointer: Some([80.0, 90.0]),
                 ..Default::default()
             },
-            EngineInputs {
+            &mut PaintFrame {
                 layouts: &mut layouts,
                 font: &font,
                 metrics,
@@ -161,11 +162,10 @@ fn draw(engine: &FormEngine, text: &str, max_width: impl Into<Value>) -> (Vec<Ui
                 content: [1280.0, 720.0],
                 translate: &|_| None,
                 language: [0; 3],
-            },
-            EngineOutput {
+                now: 0.0,
                 nodes: &mut nodes,
                 next: &mut next,
-                overlay: &[],
+                renderers: &mut [],
             },
             |_, _| Some(render),
         )

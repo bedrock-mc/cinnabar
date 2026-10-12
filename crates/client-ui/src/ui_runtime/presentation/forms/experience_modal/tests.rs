@@ -63,7 +63,7 @@ fn bundle_textures_draw_and_nothing_outside_textures_resolves() {
     let Some(presentation) = super::super::pack_harness::engine_presentation() else {
         return;
     };
-    let engine = presentation.form_presentation.engine.as_deref().unwrap();
+    let engine = presentation.engine.as_deref().unwrap();
     let files = vec![("textures/demo/panel.png".to_owned(), PIXEL.to_vec())];
     let set = engine.textures.confined(
         &files,

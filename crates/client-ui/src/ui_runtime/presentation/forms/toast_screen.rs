@@ -9,7 +9,7 @@ use json_ui::{DataSource, FactoryItem, Scalar};
 use serde_json::{Value, json};
 use ui::{ToastPress, UiNode, UiPoint};
 
-use super::engine::{EngineInputs, EngineOutput, ScreenArt};
+use super::engine::{ScreenArt, screen::PaintFrame};
 use crate::ui_runtime::UiRuntime;
 use {
     super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime, bounded_visible_text},
@@ -26,7 +26,7 @@ const TOAST_DISTANCE: f64 = 32.0;
 impl UiPresentationRuntime {
     /// What pressing the showing toast at `point` opens.
     pub fn toast_press_at(&self, point: UiPoint) -> Option<ToastPress> {
-        let (press, bounds) = self.form_presentation.hud.toast_press?;
+        let (press, bounds) = self.screens.hud.toast_press?;
         bounds.contains(point).then_some(press)
     }
 
@@ -40,8 +40,8 @@ impl UiPresentationRuntime {
         content: [f32; 2],
         now_millis: u64,
     ) -> Result<(), UiPresentationError> {
-        self.form_presentation.hud.toast_press = None;
-        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+        self.screens.hud.toast_press = None;
+        let Some(renderer) = self.engine.as_deref() else {
             return Ok(());
         };
         let Some(toast) = runtime.hud().showing_toast(now_millis) else {
@@ -56,7 +56,7 @@ impl UiPresentationRuntime {
         let catalog = Arc::clone(renderer.catalog());
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let translate = |key: &str| runtime.translation(key);
-        let inputs = EngineInputs {
+        let mut paint_frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
             metrics,
@@ -65,20 +65,17 @@ impl UiPresentationRuntime {
             content,
             translate: &translate,
             language: runtime.text_generation(),
-        };
-        let out = EngineOutput {
+            now: self.menu_seconds,
             nodes,
             next,
-            overlay: &[],
+            renderers: &mut [],
         };
-        let screen = &mut self.form_presentation.hud.toast;
+        let screen = &mut self.screens.hud.toast;
         let frame = renderer.draw(
             ScreenArt {
-                now: self.menu_seconds,
                 ..ScreenArt::default()
             },
-            inputs,
-            out,
+            &mut paint_frame,
             |env, root| {
                 screen.render_with(
                     TOAST_SCREEN,
@@ -95,7 +92,7 @@ impl UiPresentationRuntime {
             && let Some(frame) = frame
         {
             let origin = [self.safe_area.left(), self.safe_area.top()];
-            self.form_presentation.hud.toast_press = frame
+            self.screens.hud.toast_press = frame
                 .hits
                 .iter()
                 .filter(|region| region.enabled && region.pressed.as_deref() == Some(TOAST_PRESS))
@@ -136,6 +133,6 @@ fn toast_data(toast: &ui::ShownToast<'_>) -> DataSource {
 impl UiPresentationRuntime {
     /// The toast screen's last laid-out draw nodes, in virtual px.
     pub fn toast_draw_nodes(&self) -> &[json_ui::DrawNode] {
-        self.form_presentation.hud.toast.nodes()
+        self.screens.hud.toast.nodes()
     }
 }

@@ -32,14 +32,14 @@ impl ChatCoordinates {
 impl UiPresentationRuntime {
     /// Supplies current local feet and the same verified block target used by picking.
     pub fn set_chat_coordinates(&mut self, position: Option<[f32; 3]>, block: Option<[i32; 3]>) {
-        let coordinates = &mut self.form_presentation.chat.coordinates;
+        let coordinates = &mut self.screens.chat.coordinates;
         coordinates.position = position;
         coordinates.block = block;
     }
 
     /// Edits only the transient header selection; it never changes the chat draft.
     pub fn select_chat_coordinates(&mut self, facing: Option<bool>) {
-        let coordinates = &mut self.form_presentation.chat.coordinates;
+        let coordinates = &mut self.screens.chat.coordinates;
         if let Some(facing) = facing {
             coordinates.facing = facing;
             coordinates.dropdown = false;
@@ -50,7 +50,7 @@ impl UiPresentationRuntime {
 
     /// Returns copyable text only while the Creator control is enabled.
     pub fn chat_coordinate_text(&self) -> Option<String> {
-        let chat = &self.form_presentation.chat;
+        let chat = &self.screens.chat;
         (chat.settings.options.value("copy_coordinate_ui") != 0)
             .then(|| chat.coordinates.text())
             .flatten()
@@ -58,7 +58,7 @@ impl UiPresentationRuntime {
 
     /// Starts native feedback only after the platform clipboard accepted the copy.
     pub fn chat_coordinates_copied(&mut self, now_millis: u64) {
-        self.form_presentation.chat.coordinates.copied_at = Some(now_millis);
+        self.screens.chat.coordinates.copied_at = Some(now_millis);
     }
 }
 

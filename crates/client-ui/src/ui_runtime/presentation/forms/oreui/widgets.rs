@@ -18,7 +18,7 @@ use super::theme::{
     Role, SECONDARY, SECONDARY_BUTTON, TEXT, TEXT_DIMMER, TEXT_DIMMEST, Type,
 };
 use launcher::menu::{MenuAction, MenuView};
-use {super::super::super::UiPresentationError, ui::IconRef};
+use {super::super::engine::screen::PaintError, ui::IconRef};
 
 /// How a control is being interacted with this frame.
 #[derive(Clone, Copy, Default)]
@@ -76,10 +76,7 @@ impl Variant {
 }
 
 /// The dimming overlay every OreUI screen draws over the world or panorama.
-pub(super) fn screen_overlay(
-    canvas: &mut Canvas<'_>,
-    size: [f32; 2],
-) -> Result<(), UiPresentationError> {
+pub(super) fn screen_overlay(canvas: &mut Canvas<'_>, size: [f32; 2]) -> Result<(), PaintError> {
     canvas.overlay(size, OVERLAY_SCREEN)
 }
 
@@ -90,7 +87,7 @@ pub(super) fn header(
     title: &str,
     width: f32,
     back: Option<MenuAction>,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let role = canvas.role(NEUTRAL20);
     let row = canvas.r(4.4);
     let strip = canvas.r(0.4);
@@ -139,7 +136,7 @@ pub(super) fn button(
     variant: Variant,
     label: &str,
     action: Option<MenuAction>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let interaction = canvas.interaction(view, action);
     button_face(canvas, b, variant, label, interaction, action.is_some())?;
     if let Some(action) = action {
@@ -157,7 +154,7 @@ pub(super) fn button_face(
     label: &str,
     state: Interaction,
     enabled: bool,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let role = if enabled {
         variant.role(canvas.bundle)
     } else {
@@ -237,7 +234,7 @@ pub(super) fn button_face(
 }
 
 /// A neutral80 panel with the dark one-texel border.
-pub(super) fn panel(canvas: &mut Canvas<'_>, b: Bounds) -> Result<(), UiPresentationError> {
+pub(super) fn panel(canvas: &mut Canvas<'_>, b: Bounds) -> Result<(), PaintError> {
     canvas.fill(b, NEUTRAL80.fill)?;
     canvas.frame(b, EDGE, BORDER)
 }
@@ -248,7 +245,7 @@ pub(super) fn divider(
     left: f32,
     right: f32,
     y: f32,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let w = canvas.r(EDGE) * 0.5;
     canvas.fill([left, y, right, y + w], BEVEL_DARK)?;
     canvas.fill([left, y + w, right, y + w * 2.0], BEVEL_LIGHT)
@@ -271,7 +268,7 @@ fn bevelled(
     b: Bounds,
     bevel: &Bevel,
     front: bool,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     canvas.fill(b, BORDER)?;
     let edge = canvas.r(EDGE);
     let inner = [b[0] + edge, b[1] + edge, b[2] - edge, b[3] - edge];
@@ -296,7 +293,7 @@ pub(super) fn row(
     b: Bounds,
     selected: bool,
     action: Option<MenuAction>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let state = canvas.interaction(view, action);
     let motion = canvas.feedback(state, action.is_some(), selected, Kind::Surface);
     let role = canvas.role(NEUTRAL);
@@ -341,7 +338,7 @@ pub(super) fn menu_item(
     view: &MenuView,
     b: Bounds,
     item: &MenuItem<'_>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let action = item.action.filter(|_| item.enabled);
     let state = canvas.interaction(view, action);
     let motion = canvas.feedback(state, item.enabled, item.selected, Kind::Surface);
@@ -408,7 +405,7 @@ pub(super) fn tabs(
     b: Bounds,
     labels: &[(&str, Option<MenuAction>)],
     selected: usize,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     if labels.is_empty() {
         return Ok(());
     }
@@ -485,7 +482,7 @@ pub(super) fn tabs(
 }
 
 /// The translucent side menu panel with its border.
-pub(super) fn side_menu(canvas: &mut Canvas<'_>, b: Bounds) -> Result<(), UiPresentationError> {
+pub(super) fn side_menu(canvas: &mut Canvas<'_>, b: Bounds) -> Result<(), PaintError> {
     canvas.fill(b, [0, 0, 0, 153])?;
     canvas.frame(b, EDGE, BORDER)
 }
@@ -496,7 +493,7 @@ pub(super) fn section_label(
     label: &str,
     span: [f32; 2],
     top: f32,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let height = canvas.r(4.8);
     let pad = canvas.r(1.6);
     let text_top = top + height - canvas.r(0.8) - canvas.r(CAPTION.line);
@@ -523,7 +520,7 @@ pub(super) fn row_text(
     width: f32,
     title: &str,
     caption: &str,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let pad = (4.8 - BODY.line - CAPTION.line) * 0.5;
     canvas.text_line(title, [left, top + canvas.r(pad)], width, BODY, TEXT)?;
     canvas.text_line(
@@ -543,7 +540,7 @@ pub(super) fn tag(
     at: [f32; 2],
     fill: Rgba,
     text: Rgba,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let pad = canvas.r(0.4);
     let width = canvas.measure(label, BODY)? + pad * 2.0;
     let b = [at[0], at[1], at[0] + width, at[1] + canvas.r(2.0)];
@@ -561,7 +558,7 @@ pub(super) fn text_field(
     placeholder: &str,
     focused: bool,
     action: Option<MenuAction>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     field(
         canvas,
         view,
@@ -583,7 +580,7 @@ pub(super) fn text_field_on_panel(
     placeholder: &str,
     focused: bool,
     action: Option<MenuAction>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     field(
         canvas,
         view,
@@ -606,7 +603,7 @@ fn field(
     focused: bool,
     action: Option<MenuAction>,
     fill: Rgba,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let mut state = canvas.interaction(view, action);
     state.focused |= focused;
     let motion = canvas.feedback(state, action.is_some(), false, Kind::Field);
@@ -700,7 +697,7 @@ pub(super) fn segmented(
     view: &MenuView,
     b: Bounds,
     options: &[(&str, MenuAction, bool)],
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     if options.is_empty() {
         return Ok(());
     }

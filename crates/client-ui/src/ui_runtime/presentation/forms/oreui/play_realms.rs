@@ -2,7 +2,7 @@
 //! or join with pending invites, then your and joined Realms) and the selected
 //! Realm's details in eight (10:3 image, name and tags, the hero Play button).
 
-use super::super::super::UiPresentationError;
+use super::super::engine::screen::PaintError;
 use super::grid::{Grid, space};
 use super::paint::{Bounds, Canvas};
 use super::theme::{BODY, NEUTRAL80, NEUTRAL100, SECONDARY_BUTTON, TEXT, TEXT_DARK, TEXT_DIMMER};
@@ -19,7 +19,7 @@ pub(super) fn draw(
     view: &MenuView,
     grid: &Grid,
     body: Bounds,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let (menu_span, details_span) = if grid.narrow {
         ((0, 3), (3, 5))
     } else {

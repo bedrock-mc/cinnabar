@@ -17,7 +17,11 @@ use super::container_data;
 use super::container_kinds::{
     Cell, ContainerKind, mount_kind, mount_slots, storage_kind, window_kind,
 };
-use super::engine;
+use super::engine::{
+    self,
+    screen::{CustomRenderer, PaintFrame},
+};
+use super::{item_renderer::ItemRenderer, menu_renderers::PreviewRenderer};
 use {
     super::super::{HudFrame, TextMetrics, UiPresentationError, UiPresentationRuntime},
     ui::IconRef,
@@ -114,7 +118,7 @@ impl UiPresentationRuntime {
         else {
             return Ok(false);
         };
-        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+        let Some(renderer) = self.engine.as_deref() else {
             return Ok(false);
         };
         let (reference, title_key) = layout.screen();
@@ -156,8 +160,8 @@ impl UiPresentationRuntime {
             &title,
             &mut icons,
             (
-                &mut self.form_presentation.book_cache,
-                &mut self.form_presentation.furnace_cache,
+                &mut self.screens.book_cache,
+                &mut self.screens.furnace_cache,
             ),
         );
         let pointer = runtime.inventory_pointer_gui();
@@ -203,20 +207,26 @@ impl UiPresentationRuntime {
             .and_then(|_| tooltip_text(&self.hud_frame.window_text.tooltip));
         let preview_view = std::cell::Cell::new(None);
         let art = engine::ScreenArt {
-            icons: &icons,
-            id_aux: &id_aux,
             view: Some(&view),
             tooltip: tooltip.as_deref(),
-            preview: self.hud_frame.player_preview,
-            preview_view: Some(&preview_view),
             pointer,
-            now: self.menu_seconds,
             clocks: Some(&self.scene_clock),
+            overlay: &overlay,
             ..engine::ScreenArt::default()
         };
+        let mut items = ItemRenderer {
+            icons: &icons,
+            id_aux: &id_aux,
+        };
+        let mut preview = PreviewRenderer {
+            preview: self.hud_frame.player_preview,
+            view: Some(&preview_view),
+            ..PreviewRenderer::default()
+        };
+        let mut renderers: [&mut dyn CustomRenderer; 2] = [&mut items, &mut preview];
         let translate = |key: &str| runtime.translation(key);
         let rollback = (nodes.len(), *next);
-        let inputs = engine::EngineInputs {
+        let mut paint_frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
             metrics,
@@ -225,17 +235,16 @@ impl UiPresentationRuntime {
             content: [width, height],
             translate: &translate,
             language: runtime.text_generation(),
-        };
-        let out = engine::EngineOutput {
+            now: self.menu_seconds,
             nodes: &mut *nodes,
             next: &mut *next,
-            overlay: &overlay,
+            renderers: &mut renderers,
         };
-        let cache = &mut self.form_presentation.container_cache;
+        let cache = &mut self.screens.container_cache;
         let catalog = renderer.catalog();
         // Server ui files always come with a new catalog, which rebuilds the screen's binding.
         let server_ui = renderer.server_ui;
-        let drawn = renderer.draw(art, inputs, out, |env, root| {
+        let drawn = renderer.draw(art, &mut paint_frame, |env, root| {
             ScreenCache::render(
                 cache,
                 catalog,
@@ -254,7 +263,7 @@ impl UiPresentationRuntime {
         }
         match drawn {
             Ok(Some(frame)) => {
-                self.form_presentation.container = Some((frame, layout));
+                self.projections.container = Some((frame, layout));
                 Ok(true)
             }
             // A screen the engine cannot draw hands containers back to the Java path.
@@ -270,7 +279,7 @@ impl UiPresentationRuntime {
     /// Layouts the current container screen has run, for cache tests.
     #[cfg(test)]
     pub fn engine_container_layouts(&self) -> usize {
-        self.form_presentation
+        self.screens
             .container_cache
             .as_ref()
             .map_or(0, |cache| cache.layouts)
@@ -278,15 +287,12 @@ impl UiPresentationRuntime {
 
     /// The container frame the engine drew last build, if any.
     pub fn engine_container_frame(&self) -> Option<&EngineFrame> {
-        self.form_presentation
-            .container
-            .as_ref()
-            .map(|(frame, _)| frame)
+        self.projections.container.as_ref().map(|(frame, _)| frame)
     }
 
     /// The ledger cell under a container-screen point (virtual px equal GUI px).
     pub fn engine_container_hit(&self, gui: [f32; 2]) -> Option<InventoryCellHit> {
-        let (frame, layout) = self.form_presentation.container.as_ref()?;
+        let (frame, layout) = self.projections.container.as_ref()?;
         let region = hit_test(&frame.hits, [f64::from(gui[0]), f64::from(gui[1])])?;
         let widget = || match *layout {
             ScreenLayout::Station(kind) => {

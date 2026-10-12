@@ -54,7 +54,7 @@ impl UiPresentationRuntime {
         runtime: &UiRuntime,
         menu: &dyn MenuScene,
     ) -> bool {
-        let engine = self.form_presentation.engine.as_deref();
+        let engine = self.engine.as_deref();
         let settings = |reference: &str| {
             engine.map_or_else(ScreenSettings::default, |engine| {
                 engine.scene_settings(reference, engine.context())
@@ -93,7 +93,7 @@ impl UiPresentationRuntime {
         if view.screen == launcher::menu::MenuScreen::Death {
             return crate::ui_runtime::scene_stack::construction::death_settings();
         }
-        let Some(engine) = self.form_presentation.engine.as_deref() else {
+        let Some(engine) = self.engine.as_deref() else {
             return ScreenSettings::default();
         };
         let Some(mut screen) = menu_screens::screen_data(view, &|key| runtime.translation(key))

@@ -187,7 +187,7 @@ fn home_owns_oreui_actions_and_directional_focus() {
             hits.iter().any(|(found, _)| *found == action),
             "missing {action:?}"
         );
-        assert!(presentation.form_presentation.menu_focus.contains(&action));
+        assert!(presentation.projections.menu_focus.contains(&action));
     }
     assert!(presentation.menu_preview.control.is_some());
 }
@@ -290,7 +290,7 @@ fn play_tabs_do_not_inherit_sounds_from_the_previous_screen() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let mut view = MenuView::new(true, "Fixture".into());
     let tabs = [MenuScreen::Play, MenuScreen::Social, MenuScreen::Servers];
-    presentation.form_presentation.menu_sounds.push((
+    presentation.screens.menu_sounds.push((
         MenuAction::Navigate(MenuScreen::Profile),
         json_ui::ControlSound {
             name: "stale.screen.sound".into(),
@@ -360,10 +360,7 @@ fn add_server_dialog_owns_its_fields_and_blocks_background_controls() {
             Some(0)
         );
     }
-    assert_eq!(
-        presentation.form_presentation.menu_focus.len(),
-        expected.len()
-    );
+    assert_eq!(presentation.projections.menu_focus.len(), expected.len());
 }
 
 #[test]
@@ -684,11 +681,7 @@ fn play_tabs_draw_the_installed_native_icons() {
             &|_| None,
         )
         .unwrap();
-    let originals = presentation
-        .form_presentation
-        .oreui_originals
-        .as_ref()
-        .unwrap();
+    let originals = presentation.screens.oreui.originals.as_ref().unwrap();
     for key in PLAY_TAB_ICONS {
         let sprite = originals.sprites[key];
         assert!(
@@ -829,7 +822,7 @@ fn pause_loads_small_server_logos_without_an_oversized_artwork_copy() {
     presentation
         .append_oreui_screen(&view, &mut nodes, &mut 1, metrics, size, None, &|_| None)
         .unwrap();
-    let engine = presentation.form_presentation.engine.as_deref().unwrap();
+    let engine = presentation.engine.as_deref().unwrap();
     let atlas = engine.textures.lock();
     let resident = atlas
         .placement(TITLE_KEY)

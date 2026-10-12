@@ -8,12 +8,7 @@ impl UiPresentationRuntime {
     /// Scrolls the personal panel under a window-logical pointer. Positive wheel deltas
     /// move up; pixel deltas are converted through the panel's actual presentation scale.
     pub fn scroll_mod_panel(&mut self, position: [f32; 2], delta: f64, pixels: bool) -> bool {
-        let Some(panel) = self
-            .form_presentation
-            .mod_panel
-            .as_mut()
-            .filter(|panel| panel.open)
-        else {
+        let Some(panel) = self.screens.mod_panel.as_mut().filter(|panel| panel.open) else {
             return false;
         };
         if !delta.is_finite() || delta == 0.0 || !position.iter().all(|value| value.is_finite()) {

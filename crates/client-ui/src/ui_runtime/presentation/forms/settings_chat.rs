@@ -17,19 +17,19 @@ pub(super) struct ChatSettings {
 impl UiPresentationRuntime {
     /// Keeps gameplay chat bound to current settings without opening the launcher menu.
     pub fn set_chat_settings_snapshot(&mut self, snapshot: (Arc<SettingsOptions>, Option<u16>)) {
-        let settings = &mut self.form_presentation.chat.settings;
+        let settings = &mut self.screens.chat.settings;
         settings.options = snapshot.0;
         settings.dropdown = snapshot.1;
     }
 
     /// Opens or closes only the native chat settings popup, retaining the chat draft.
     pub fn set_chat_settings_open(&mut self, open: bool) {
-        self.form_presentation.chat.settings.open = open;
+        self.screens.chat.settings.open = open;
     }
 
     /// A modal consumes editing keys until it is closed.
     pub fn chat_settings_open(&self) -> bool {
-        self.form_presentation.chat.settings.open
+        self.screens.chat.settings.open
     }
 }
 

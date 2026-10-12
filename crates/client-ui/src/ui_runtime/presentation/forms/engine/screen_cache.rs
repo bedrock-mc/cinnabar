@@ -7,6 +7,8 @@ use std::sync::{Arc, Mutex};
 
 use json_ui::{Catalog, Context, DataSource, FormRender, ResolvedControl, ViewState};
 
+use super::screen::ScreenRegistry;
+
 /// Screens kept at once: a menu, its overlay and a dialog popup.
 const SLOTS: usize = 4;
 /// Resolved trees of `cache_screen` screens kept beyond [`SLOTS`].
@@ -131,12 +133,13 @@ impl ScreenCache {
         Some(rendered)
     }
 
-    /// An allow-listed screen's render for `key`: cached, else bound and laid
-    /// out over its cached resolved tree.
+    /// A registered screen's render for `key`: cached, else bound and laid
+    /// out over its cached resolved tree with the registry's binding hooks.
     pub(super) fn render(
         &self,
         key: ScreenKey<'_>,
         env: &json_ui::LayoutEnv,
+        registry: &ScreenRegistry,
     ) -> Option<Arc<FormRender>> {
         let (reference, catalog, context, data, view, root) = (
             key.reference,
@@ -147,19 +150,13 @@ impl ScreenCache {
             key.root,
         );
         self.get_or_render(key, || {
-            if !json_ui::is_engine_screen(reference) {
+            if !registry.allows(reference) {
                 return None;
             }
             let tree = self.resolved(reference, catalog, context, || {
-                super::super::death_screen::literal_tree(
-                    json_ui::resolve(catalog, reference, context).control,
-                )
+                registry.hooked(json_ui::resolve(catalog, reference, context).control)
             })?;
-            let library =
-                super::super::death_screen::LiteralReasonLibrary(json_ui::CatalogLibrary {
-                    catalog,
-                    context,
-                });
+            let library = registry.library(catalog, context);
             let bound = self.with_binding(reference, catalog, context, |state| {
                 json_ui::bind_stateful(&tree, data, &library, state).0
             });

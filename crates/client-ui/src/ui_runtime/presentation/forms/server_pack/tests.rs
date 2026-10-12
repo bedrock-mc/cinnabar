@@ -21,10 +21,11 @@ fn prepared_hud_textures_read_off_the_frame() {
             (*pack.prepare_catalog(&base)).clone()
         } else {
             ServerUiPack {
-                catalog: Some(Arc::new(super::super::engine::layer_pack_catalog(
-                    &base,
-                    &[],
-                ))),
+                catalog: Some(Arc::new(
+                    super::super::screen_registry::registry()
+                        .catalog()
+                        .layer(&base, &[]),
+                )),
                 ..pack
             }
         };

@@ -8,7 +8,7 @@ use json_ui::{DataSource, HitRegion, Scalar, ViewState};
 use serde_json::Value;
 use ui::{UiNode, UiPoint, UiRect};
 
-use super::engine::{EngineInputs, EngineOutput, ScreenArt};
+use super::engine::{ScreenArt, screen::PaintFrame};
 use super::hud::CachedScreen;
 use super::menus::window_rect;
 use crate::ui_runtime::{UiRuntime, sign_editor::SignEdit};
@@ -32,7 +32,7 @@ pub(super) struct SignScreen {
 impl UiPresentationRuntime {
     /// Whether a press at `point` lands outside the sign, which closes the editor.
     pub fn sign_editor_exit_hit(&self, point: UiPoint) -> bool {
-        self.form_presentation
+        self.screens
             .sign
             .hits
             .iter()
@@ -43,7 +43,7 @@ impl UiPresentationRuntime {
 
     /// Drops the hidden editor's hit regions.
     pub(in crate::ui_runtime::presentation) fn hide_sign_editor(&mut self) {
-        self.form_presentation.sign.hits.clear();
+        self.screens.sign.hits.clear();
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -57,11 +57,11 @@ impl UiPresentationRuntime {
         height: f32,
         now_millis: u64,
     ) -> Result<(), UiPresentationError> {
-        self.form_presentation.sign.hits.clear();
+        self.screens.sign.hits.clear();
         let Some(edit) = runtime.sign_editor().active() else {
             return Ok(());
         };
-        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+        let Some(renderer) = self.engine.as_deref() else {
             return Ok(());
         };
         let look = edit.look();
@@ -80,7 +80,7 @@ impl UiPresentationRuntime {
         let catalog = Arc::clone(renderer.catalog());
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let translate = |key: &str| runtime.translation(key);
-        let inputs = EngineInputs {
+        let mut paint_frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
             metrics,
@@ -89,22 +89,19 @@ impl UiPresentationRuntime {
             content: [width, height],
             translate: &translate,
             language: runtime.text_generation(),
-        };
-        let out = EngineOutput {
+            now: self.menu_seconds,
             nodes,
             next,
-            overlay: &[],
+            renderers: &mut [],
         };
-        let sign = &mut self.form_presentation.sign;
+        let sign = &mut self.screens.sign;
         let view = ViewState::default();
         let frame = renderer.draw(
             ScreenArt {
-                now: self.menu_seconds,
                 clocks: Some(&self.scene_clock),
                 ..ScreenArt::default()
             },
-            inputs,
-            out,
+            &mut paint_frame,
             |env, root| {
                 sign.screen.render_with(
                     SIGN_SCREEN,
@@ -166,6 +163,6 @@ fn sign_data(edit: &SignEdit, now_millis: u64) -> DataSource {
 impl UiPresentationRuntime {
     /// The sign screen's last laid-out draw nodes, in virtual px.
     pub fn sign_draw_nodes(&self) -> &[json_ui::DrawNode] {
-        self.form_presentation.sign.screen.nodes()
+        self.screens.sign.screen.nodes()
     }
 }

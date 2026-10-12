@@ -2,12 +2,12 @@
 use super::super::motion::{Kind, opacity};
 use super::super::theme::{EDGE, NEUTRAL20};
 use {
-    super::{Canvas, TEXT, UiPresentationError},
+    super::{Canvas, PaintError, TEXT},
     launcher::menu::{MenuAction, MenuView, inbox::Action},
 };
 
 /// Pixel outline of the trash glyph in the supplied vanilla capture.
-pub(super) fn trash_icon(canvas: &mut Canvas<'_>, at: [f32; 2]) -> Result<(), UiPresentationError> {
+pub(super) fn trash_icon(canvas: &mut Canvas<'_>, at: [f32; 2]) -> Result<(), PaintError> {
     let [x, y] = at;
     let p = canvas.r(0.2);
     for [a, b, c, d] in [
@@ -27,10 +27,7 @@ pub(super) fn trash_icon(canvas: &mut Canvas<'_>, at: [f32; 2]) -> Result<(), Ui
 }
 
 /// Three filter sliders, as in the supplied header capture.
-pub(super) fn filter_icon(
-    canvas: &mut Canvas<'_>,
-    at: [f32; 2],
-) -> Result<(), UiPresentationError> {
+pub(super) fn filter_icon(canvas: &mut Canvas<'_>, at: [f32; 2]) -> Result<(), PaintError> {
     super::super::icons::draw(
         canvas,
         super::super::icons::Icon::Filter,
@@ -44,7 +41,7 @@ pub(super) fn category_icon(
     canvas: &mut Canvas<'_>,
     index: usize,
     at: [f32; 2],
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let side = super::super::icons::native_side(canvas);
     if canvas.sprite(
         crate::ui_runtime::oreui_assets::INBOX_ICONS[index],
@@ -74,7 +71,7 @@ pub(super) fn filter_button(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     width: f32,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let edge = canvas.r(EDGE);
     let bounds = [
         width - canvas.r(4.0) - edge,

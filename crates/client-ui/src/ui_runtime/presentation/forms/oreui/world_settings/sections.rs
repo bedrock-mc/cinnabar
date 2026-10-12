@@ -8,8 +8,8 @@ pub(super) fn row(
     canvas: &mut Canvas<'_>,
     area: Bounds,
     y: f32,
-    draw: impl FnOnce(&mut Canvas<'_>, Bounds) -> Result<f32, UiPresentationError>,
-) -> Result<f32, UiPresentationError> {
+    draw: impl FnOnce(&mut Canvas<'_>, Bounds) -> Result<f32, PaintError>,
+) -> Result<f32, PaintError> {
     let edge = canvas.r(EDGE);
     let pad = canvas.r(2.4);
     let vertical = canvas.r(1.2);
@@ -28,7 +28,7 @@ pub(super) fn row(
     Ok(bounds[3])
 }
 
-pub(super) fn hardcore(canvas: &mut Canvas<'_>, area: Bounds) -> Result<f32, UiPresentationError> {
+pub(super) fn hardcore(canvas: &mut Canvas<'_>, area: Bounds) -> Result<f32, PaintError> {
     let width = canvas.r(6.4);
     let gap = canvas.r(1.6);
     let label_area = [area[0], area[1], area[2] - width - gap, area[3]];

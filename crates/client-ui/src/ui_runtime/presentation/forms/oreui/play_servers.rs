@@ -22,7 +22,7 @@ use super::paint::{Bounds, Canvas};
 use super::theme::{BODY, CAPTION, NEUTRAL80, NEUTRAL100, TEXT, TEXT_DIMMER};
 use super::widgets::{Variant, button, divider, side_menu};
 use launcher::menu::{MenuAction, MenuServerCard, MenuView, PingInfo, pingable};
-use {super::super::super::UiPresentationError, ui::IconRef};
+use {super::super::engine::screen::PaintError, ui::IconRef};
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
@@ -30,7 +30,7 @@ pub(super) fn draw(
     grid: &Grid,
     body: Bounds,
     images: &HashMap<String, IconRef>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     canvas.settings_scrollbars = true;
     let (menu_span, details_span) = if grid.narrow {
         ((0, 3), (3, 5))
@@ -92,11 +92,7 @@ pub(super) fn draw(
     Ok(())
 }
 
-fn add_server(
-    canvas: &mut Canvas<'_>,
-    view: &MenuView,
-    b: Bounds,
-) -> Result<(), UiPresentationError> {
+fn add_server(canvas: &mut Canvas<'_>, view: &MenuView, b: Bounds) -> Result<(), PaintError> {
     let action = Some(MenuAction::PlayAddServer);
     button(canvas, view, b, Variant::Secondary, "", action)?;
     let state = canvas.interaction(view, action);
@@ -171,7 +167,7 @@ fn server_row(
     b: Bounds,
     selected: bool,
     action: MenuAction,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let mut state = canvas.interaction(view, Some(action));
     state.pressed &= state.hovered;
     let motion = canvas.feedback(state, true, selected, super::motion::Kind::Surface);
@@ -192,7 +188,7 @@ fn server_text(
     b: Bounds,
     title: &str,
     caption: &str,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let height = canvas.r(BODY.line
         + if caption.is_empty() {
             0.0

@@ -56,7 +56,7 @@ pub(super) fn frame(presentation: &mut UiPresentationRuntime, size: [u32; 2]) ->
 
 pub(super) fn point(presentation: &UiPresentationRuntime, action: &str, fraction: f64) -> [f32; 2] {
     let frame = presentation
-        .form_presentation
+        .screens
         .mod_panel
         .as_ref()
         .unwrap()
@@ -178,7 +178,7 @@ fn value_updates_reuse_catalog_and_unchanged_frame_reuses_layout() {
     let original_frame = frame(&mut presentation, [1280, 720]);
     let original = Arc::clone(
         presentation
-            .form_presentation
+            .screens
             .mod_panel
             .as_ref()
             .unwrap()
@@ -187,7 +187,7 @@ fn value_updates_reuse_catalog_and_unchanged_frame_reuses_layout() {
             .unwrap(),
     );
     let before = presentation
-        .form_presentation
+        .screens
         .mod_panel
         .as_ref()
         .unwrap()
@@ -197,7 +197,7 @@ fn value_updates_reuse_catalog_and_unchanged_frame_reuses_layout() {
     assert_eq!(
         before,
         presentation
-            .form_presentation
+            .screens
             .mod_panel
             .as_ref()
             .unwrap()
@@ -213,7 +213,7 @@ fn value_updates_reuse_catalog_and_unchanged_frame_reuses_layout() {
     assert!(Arc::ptr_eq(
         &original,
         presentation
-            .form_presentation
+            .screens
             .mod_panel
             .as_ref()
             .unwrap()
@@ -247,7 +247,7 @@ fn pagination_keeps_bounded_controls_reachable_on_small_viewports() {
     let next = point(&presentation, "mod.next", 0.5);
     assert!(presentation.mod_panel_events(next, true, true).is_empty());
     frame(&mut presentation, [640, 480]);
-    let retained = presentation.form_presentation.mod_panel.as_ref().unwrap();
+    let retained = presentation.screens.mod_panel.as_ref().unwrap();
     assert_eq!(retained.page, 1);
     let index = retained.rows;
     let target = point(&presentation, &format!("mod.control:{index}"), 0.5);
@@ -261,7 +261,7 @@ fn pagination_keeps_bounded_controls_reachable_on_small_viewports() {
     presentation.set_mod_panel_open(false);
     assert!(
         presentation
-            .form_presentation
+            .screens
             .mod_panel
             .as_ref()
             .unwrap()
@@ -289,7 +289,7 @@ fn both_themes_render_and_invalid_replacement_preserves_valid_panel() {
     assert!(!presentation.mod_panel_open());
     assert!(
         presentation
-            .form_presentation
+            .screens
             .mod_panel
             .as_ref()
             .unwrap()
@@ -338,15 +338,7 @@ fn grouped_cards_render_solid_chrome_and_categories_route_locally() {
     assert!(presentation.mod_panel_events(tab, true, true).is_empty());
     frame(&mut presentation, [1280, 720]);
     assert_eq!(point(&presentation, "mod.category:1", 0.5), tab);
-    assert_eq!(
-        presentation
-            .form_presentation
-            .mod_panel
-            .as_ref()
-            .unwrap()
-            .category,
-        1
-    );
+    assert_eq!(presentation.screens.mod_panel.as_ref().unwrap().category, 1);
     let binding = point(&presentation, "mod.control:3", 0.5);
     assert_eq!(
         presentation.mod_panel_events(binding, true, true),
@@ -355,7 +347,7 @@ fn grouped_cards_render_solid_chrome_and_categories_route_locally() {
             value: 1.0
         }]
     );
-    let retained = presentation.form_presentation.mod_panel.as_ref().unwrap();
+    let retained = presentation.screens.mod_panel.as_ref().unwrap();
     assert!(
         !retained
             .frame
@@ -368,20 +360,12 @@ fn grouped_cards_render_solid_chrome_and_categories_route_locally() {
     settings.dark = false;
     presentation.set_mod_panel(Some(&settings)).unwrap();
     frame(&mut presentation, [1280, 720]);
-    assert_eq!(
-        presentation
-            .form_presentation
-            .mod_panel
-            .as_ref()
-            .unwrap()
-            .category,
-        1
-    );
+    assert_eq!(presentation.screens.mod_panel.as_ref().unwrap().category, 1);
     settings.capture_key = true;
     presentation.set_mod_panel(Some(&settings)).unwrap();
     assert!(
         presentation
-            .form_presentation
+            .screens
             .mod_panel
             .as_ref()
             .unwrap()
@@ -416,15 +400,10 @@ fn oversized_group_pages_keep_every_control_reachable_and_inside_the_viewport() 
     presentation.set_mod_panel(Some(&settings)).unwrap();
     presentation.set_mod_panel_open(true);
     frame(&mut presentation, [480, 360]);
-    let count = presentation
-        .form_presentation
-        .mod_panel
-        .as_ref()
-        .unwrap()
-        .pages;
+    let count = presentation.screens.mod_panel.as_ref().unwrap().pages;
     let mut seen = std::collections::HashSet::new();
     for page in 0..count {
-        let retained = presentation.form_presentation.mod_panel.as_ref().unwrap();
+        let retained = presentation.screens.mod_panel.as_ref().unwrap();
         let rendered = retained.frame.as_ref().unwrap();
         for region in rendered.hits.iter() {
             if let Some(index) = region
@@ -500,7 +479,7 @@ fn compact_keybind_updates_retain_geometry_and_emit_capture_event() {
     presentation.set_mod_panel(Some(&settings)).unwrap();
     presentation.set_mod_panel_open(true);
     frame(&mut presentation, [1280, 720]);
-    let retained = presentation.form_presentation.mod_panel.as_ref().unwrap();
+    let retained = presentation.screens.mod_panel.as_ref().unwrap();
     let catalog = retained.catalog.as_ref().unwrap().clone();
     let binding = point(&presentation, "mod.control:3", 0.5);
     let event = presentation.mod_panel_events(binding, true, true);
@@ -516,7 +495,7 @@ fn compact_keybind_updates_retain_geometry_and_emit_capture_event() {
         *capturing = true;
     }
     presentation.set_mod_panel(Some(&settings)).unwrap();
-    let retained = presentation.form_presentation.mod_panel.as_ref().unwrap();
+    let retained = presentation.screens.mod_panel.as_ref().unwrap();
     assert!(Arc::ptr_eq(&catalog, retained.catalog.as_ref().unwrap()));
     frame(&mut presentation, [1280, 720]);
     assert_eq!(point(&presentation, "mod.control:3", 0.5), binding);
@@ -619,16 +598,11 @@ fn compact_short_pages_keep_mixed_controls_inside_the_viewport_and_separate() {
         presentation.set_mod_panel(Some(&settings)).unwrap();
         presentation.set_mod_panel_open(true);
         frame(&mut presentation, size);
-        let count = presentation
-            .form_presentation
-            .mod_panel
-            .as_ref()
-            .unwrap()
-            .pages;
+        let count = presentation.screens.mod_panel.as_ref().unwrap().pages;
         let mut seen = std::collections::HashSet::new();
         for page in 0..count {
             let rendered = presentation
-                .form_presentation
+                .screens
                 .mod_panel
                 .as_ref()
                 .unwrap()
@@ -695,7 +669,7 @@ fn standard_keybind_displays_assigned_key_and_capture_state_without_rebuilding()
     presentation.set_mod_panel_open(true);
     let assigned = frame(&mut presentation, [1280, 720]);
     let catalog = presentation
-        .form_presentation
+        .screens
         .mod_panel
         .as_ref()
         .unwrap()
@@ -723,7 +697,7 @@ fn standard_keybind_displays_assigned_key_and_capture_state_without_rebuilding()
     assert!(Arc::ptr_eq(
         &catalog,
         presentation
-            .form_presentation
+            .screens
             .mod_panel
             .as_ref()
             .unwrap()
@@ -760,7 +734,7 @@ fn smallest_compact_viewport_keeps_four_category_targets_and_close_usable() {
     presentation.set_mod_panel_open(true);
     frame(&mut presentation, [240, 640]);
     let rendered = presentation
-        .form_presentation
+        .screens
         .mod_panel
         .as_ref()
         .unwrap()
@@ -798,12 +772,7 @@ fn smallest_compact_viewport_keeps_four_category_targets_and_close_usable() {
         presentation.mod_panel_events(target, true, true);
         frame(&mut presentation, [240, 640]);
         assert_eq!(
-            presentation
-                .form_presentation
-                .mod_panel
-                .as_ref()
-                .unwrap()
-                .category,
+            presentation.screens.mod_panel.as_ref().unwrap().category,
             category
         );
     }

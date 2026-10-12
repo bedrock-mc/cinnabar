@@ -16,14 +16,14 @@ use super::theme::{
 use super::widgets::{Variant, button, header, panel, row, screen_overlay, tag};
 use super::{play_realms, play_servers};
 use launcher::menu::{LocalWorldAction, MenuAction, MenuScreen, MenuView};
-use {super::super::super::UiPresentationError, ui::IconRef};
+use {super::super::engine::screen::PaintError, ui::IconRef};
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
     images: &HashMap<String, IconRef>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let selected = match view.screen {
         MenuScreen::Social => 1,
         MenuScreen::Servers => 2,
@@ -38,7 +38,7 @@ pub(super) fn draw_tab(
     size: [f32; 2],
     images: &HashMap<String, IconRef>,
     selected: usize,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let [width, height] = size;
     screen_overlay(canvas, size)?;
     let top = header(
@@ -68,11 +68,7 @@ pub(super) fn draw_tab(
     canvas.end_entrance(entrance, size)
 }
 
-fn worlds_tab(
-    canvas: &mut Canvas<'_>,
-    view: &MenuView,
-    body: Bounds,
-) -> Result<(), UiPresentationError> {
+fn worlds_tab(canvas: &mut Canvas<'_>, view: &MenuView, body: Bounds) -> Result<(), PaintError> {
     // Create buttons, right-aligned, each at most 25.6rem.
     let button_height = canvas.r(4.4);
     let gap = space(canvas, 2);
@@ -200,7 +196,7 @@ fn world_row(
     view: &MenuView,
     entry: &WorldEntry,
     b: Bounds,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     row(canvas, view, b, false, Some(entry.action))?;
     let pad = canvas.r(0.8);
     let thumb_width = canvas.r(12.0);
@@ -274,7 +270,7 @@ fn edit_action(
     view: &MenuView,
     b: Bounds,
     action: MenuAction,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     row(canvas, view, b, false, Some(action))?;
     let [w, h] = Icon::Pencil.texels();
     let texel = canvas.r(EDGE);

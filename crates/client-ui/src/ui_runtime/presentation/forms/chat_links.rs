@@ -324,7 +324,7 @@ mod tests {
     fn link_hits_follow_the_actual_default_and_named_label_paint_origin() {
         use std::sync::Arc;
 
-        use super::super::engine::{EngineInputs, EngineOutput, FormEngine, ScreenArt};
+        use super::super::engine::{FormEngine, ScreenArt, screen::PaintFrame};
         use crate::ui_runtime::presentation::UiPresentationRuntime;
 
         for named in [false, true] {
@@ -343,8 +343,12 @@ mod tests {
                 );
                 let px = metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
                 let mut presentation = UiPresentationRuntime::new(Arc::clone(&font)).unwrap();
-                let engine =
-                    FormEngine::new(crate::test_support::mini_carrier(), Default::default(), 0);
+                let engine = FormEngine::new(
+                    crate::test_support::mini_carrier(),
+                    Default::default(),
+                    0,
+                    super::super::screen_registry::registry(),
+                );
                 let mut node = history_node("https://example.com", 600.0);
                 if let Draw::Text { options, .. } = &mut node.draw {
                     options.font_type = named.then(|| "alternative".into());
@@ -370,7 +374,7 @@ mod tests {
                 engine
                     .draw(
                         ScreenArt::default(),
-                        EngineInputs {
+                        &mut PaintFrame {
                             layouts: &mut presentation.layouts,
                             font: &font,
                             metrics,
@@ -379,11 +383,10 @@ mod tests {
                             content: physical.map(|side| side as f32),
                             translate: &|_| None,
                             language: [0; 3],
-                        },
-                        EngineOutput {
+                            now: 0.0,
                             nodes: &mut painted,
                             next: &mut next,
-                            overlay: &[],
+                            renderers: &mut [],
                         },
                         |_, _| Some(render),
                     )

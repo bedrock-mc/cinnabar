@@ -6,7 +6,7 @@
 
 use ui::UiRect;
 
-use super::super::super::{UiPresentationError, rect};
+use super::super::engine::{rect, screen::PaintError};
 use super::paint::Canvas;
 use super::theme::{HEADER5, TEXT};
 use super::widgets::{Interaction, Variant, button_face};
@@ -80,7 +80,7 @@ pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     state: &Bedtime,
     size: [f32; 2],
-) -> Result<Vec<(BedHit, UiRect)>, UiPresentationError> {
+) -> Result<Vec<(BedHit, UiRect)>, PaintError> {
     let [width, height] = size;
     let elapsed = state.elapsed as f32;
     let band = height * ease_in(elapsed / BANDS_IN_MILLIS);

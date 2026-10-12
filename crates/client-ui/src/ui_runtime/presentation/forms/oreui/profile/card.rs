@@ -19,7 +19,7 @@ pub(super) fn draw(
     avatar: Option<IconRef>,
     featured: Option<IconRef>,
     narrow: bool,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let profile = &view.feeds.profile;
     let name = if profile.gamertag.is_empty() {
         &view.display_name

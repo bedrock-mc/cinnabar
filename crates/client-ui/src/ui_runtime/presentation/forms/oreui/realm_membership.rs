@@ -2,7 +2,7 @@
 
 use launcher::menu::realm_membership::{Action, Stage};
 
-use super::super::super::UiPresentationError;
+use super::super::engine::screen::PaintError;
 use super::{
     grid::Grid,
     modal,
@@ -17,7 +17,7 @@ pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let Some(state) = &view.realm_membership else {
         return Ok(());
     };

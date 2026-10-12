@@ -9,7 +9,11 @@ use server_experience::screen::{self, GuiSize};
 use ui::UiNode;
 
 use super::{
-    engine::{EngineInputs, ScreenArt},
+    engine::{
+        ScreenArt,
+        screen::{CustomRenderer, PaintFrame},
+    },
+    item_renderer::ItemRenderer,
     template_screen::{TemplateArt, TemplateScreen},
 };
 use crate::ui_runtime::UiRuntime;
@@ -46,7 +50,7 @@ impl UiPresentationRuntime {
     pub fn set_experience_modal(&mut self, modal: Option<ExperienceModal<'_>>) {
         let page =
             (self.textures.dynamic_start() + super::super::dynamic_textures::MODAL_UI_PAGE) as u16;
-        let slot = &mut self.form_presentation.experience_modal;
+        let slot = &mut self.screens.experience_modal;
         let Some(modal) = modal else {
             *slot = None;
             return;
@@ -82,7 +86,7 @@ impl UiPresentationRuntime {
 
     /// The drawn modal's root size in GUI units and the GUI scale; none while it is not drawn.
     pub fn experience_modal_size(&self) -> Option<GuiSize> {
-        let screen = &self.form_presentation.experience_modal.as_ref()?.screen;
+        let screen = &self.screens.experience_modal.as_ref()?.screen;
         screen.frame.as_ref().and(screen.size)
     }
 
@@ -96,7 +100,7 @@ impl UiPresentationRuntime {
         escape: bool,
         now: f64,
     ) -> ModalEdits {
-        match self.form_presentation.experience_modal.as_mut() {
+        match self.screens.experience_modal.as_mut() {
             Some(modal) => modal.screen.edit(point, pressed, typed, escape, now),
             None => ModalEdits::default(),
         }
@@ -105,7 +109,7 @@ impl UiPresentationRuntime {
     /// Returns named scroll ranges whose last drawn values have not been accepted for delivery.
     /// Undelivered ranges are retried, with only the latest drawn range for each view.
     pub fn experience_modal_scrolls(&self) -> Vec<(String, screen::ScrollRange)> {
-        let Some(screen) = self.form_presentation.experience_modal.as_ref() else {
+        let Some(screen) = self.screens.experience_modal.as_ref() else {
             return Vec::new();
         };
         let Some(frame) = &screen.screen.frame else {
@@ -136,24 +140,20 @@ impl UiPresentationRuntime {
 
     /// Records a range accepted by the modal event queue; later changes remain pending.
     pub fn accept_experience_modal_scroll(&mut self, view: &str, range: screen::ScrollRange) {
-        if let Some(screen) = self.form_presentation.experience_modal.as_mut() {
+        if let Some(screen) = self.screens.experience_modal.as_mut() {
             screen.scrolled.insert(view.to_owned(), range);
         }
     }
 
     /// Why the modal's templates were refused, which ends the client part.
     pub fn experience_modal_failure(&self) -> Option<&str> {
-        self.form_presentation
-            .experience_modal
-            .as_ref()?
-            .art
-            .failure()
+        self.screens.experience_modal.as_ref()?.art.failure()
     }
 
     /// Whether the client part has a screen open, drawn yet or not; Escape and
     /// `ui.close-screen` both close it.
     pub(super) fn experience_modal_open(&self) -> bool {
-        self.form_presentation
+        self.screens
             .experience_modal
             .as_ref()
             .is_some_and(|modal| modal.screen.template.is_some())
@@ -161,7 +161,7 @@ impl UiPresentationRuntime {
 
     /// Whether the last build drew the modal, which then owns pointer and keyboard.
     pub fn experience_modal_shown(&self) -> bool {
-        self.form_presentation
+        self.screens
             .experience_modal
             .as_ref()
             .is_some_and(|modal| modal.screen.frame.is_some())
@@ -169,14 +169,14 @@ impl UiPresentationRuntime {
 
     /// Lights the control under the pointer and remembers it for scrolling.
     pub fn hover_experience_modal(&mut self, point: Option<[f32; 2]>) {
-        if let Some(modal) = self.form_presentation.experience_modal.as_mut() {
+        if let Some(modal) = self.screens.experience_modal.as_mut() {
             modal.screen.hover(point);
         }
     }
 
     /// Scrolls the scroll view under the pointer by wheel `notches` (positive scrolls down).
     pub fn scroll_experience_modal(&mut self, notches: f64) {
-        if let Some(modal) = self.form_presentation.experience_modal.as_mut() {
+        if let Some(modal) = self.screens.experience_modal.as_mut() {
             modal.screen.scroll(notches);
         }
     }
@@ -189,7 +189,7 @@ impl UiPresentationRuntime {
         pressed: bool,
         released: bool,
     ) -> Option<(String, Option<usize>)> {
-        let modal = self.form_presentation.experience_modal.as_mut()?;
+        let modal = self.screens.experience_modal.as_mut()?;
         modal.screen.press(point, pressed, released)
     }
 
@@ -200,7 +200,7 @@ impl UiPresentationRuntime {
         pressed: bool,
         released: bool,
     ) -> Option<(String, Option<usize>)> {
-        let modal = self.form_presentation.experience_modal.as_mut()?;
+        let modal = self.screens.experience_modal.as_mut()?;
         modal.screen.secondary_press(point, pressed, released)
     }
 
@@ -217,10 +217,10 @@ impl UiPresentationRuntime {
         content: [f32; 2],
         over_gameplay: bool,
     ) {
-        let Some(modal) = self.form_presentation.experience_modal.as_mut() else {
+        let Some(modal) = self.screens.experience_modal.as_mut() else {
             return;
         };
-        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+        let Some(renderer) = self.engine.as_deref() else {
             modal.screen.frame = None;
             return;
         };
@@ -237,7 +237,12 @@ impl UiPresentationRuntime {
             modal.icons = icons;
         }
         let translate = |key: &str| runtime.translation(key);
-        let inputs = EngineInputs {
+        let mut items = ItemRenderer {
+            icons: &modal.icons,
+            id_aux: &[],
+        };
+        let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut items];
+        let mut paint_frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
             metrics,
@@ -246,16 +251,16 @@ impl UiPresentationRuntime {
             content,
             translate: &translate,
             language: runtime.text_generation(),
+            now: 0.0,
+            nodes,
+            next,
+            renderers: &mut renderers,
         };
         if modal.screen.draw(
             &mut modal.art,
             renderer,
-            inputs,
-            (nodes, next),
-            ScreenArt {
-                icons: &modal.icons,
-                ..ScreenArt::default()
-            },
+            &mut paint_frame,
+            ScreenArt::default(),
         ) {
             let hits = Arc::clone(&modal.screen.frame.as_ref().expect("drawn modal").hits);
             modal.screen.finish_input(&hits);
@@ -264,7 +269,7 @@ impl UiPresentationRuntime {
 
     /// Copies the modal atlas's page images when they changed; `true` asks for a page rebuild.
     pub(super) fn refresh_experience_modal_pages(&mut self) -> bool {
-        self.form_presentation
+        self.screens
             .experience_modal
             .as_mut()
             .is_some_and(|modal| modal.art.refresh_pages())
@@ -272,7 +277,7 @@ impl UiPresentationRuntime {
 
     /// The modal atlas's pages, for the dynamic pages reserved to it.
     pub(in super::super) fn experience_modal_pages(&self) -> &[render_model::UiTexturePage] {
-        self.form_presentation
+        self.screens
             .experience_modal
             .as_ref()
             .map_or(&[], |modal| modal.art.pages())

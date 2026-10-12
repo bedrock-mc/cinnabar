@@ -1,6 +1,6 @@
 //! Flat category rows and group dividers in the independently scrolling settings sidebar.
 
-use super::super::super::super::UiPresentationError;
+use super::super::super::engine::screen::PaintError;
 use super::super::super::menu_screens::Translate;
 use super::super::focus;
 use super::super::motion::Kind;
@@ -48,7 +48,7 @@ pub(super) fn draw(
     b: Bounds,
     translate: Translate<'_>,
     gamerpic: Option<IconRef>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let panel = [b[0], b[1], b[2] - canvas.r(1.6), b[3]];
     canvas.fill(panel, NEUTRAL80.fill)?;
     canvas.frame(panel, EDGE, theme::BORDER)?;
@@ -169,7 +169,7 @@ fn group_label(
     label: &str,
     span: [f32; 2],
     top: f32,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let bottom = top + canvas.r(4.8);
     let edge = canvas.r(EDGE);
     let pad = canvas.r(1.6);
@@ -191,7 +191,7 @@ fn group_label(
     Ok(bottom + edge)
 }
 
-fn icon(canvas: &mut Canvas<'_>, index: usize, at: [f32; 2]) -> Result<(), UiPresentationError> {
+fn icon(canvas: &mut Canvas<'_>, index: usize, at: [f32; 2]) -> Result<(), PaintError> {
     let side = super::super::icons::native_side(canvas);
     let b = [at[0], at[1], at[0] + side, at[1] + side];
     if canvas.sprite(SETTINGS_ICONS[index], b, [255; 4])? {

@@ -1,6 +1,6 @@
 //! Native artwork preserves original corners while its edges and center stretch.
 
-use super::{Bounds, Canvas, Rgba, UiPresentationError, UiVisual};
+use super::{Bounds, Canvas, PaintError, Rgba, UiVisual};
 use crate::ui_runtime::oreui_assets::OreUiSprite;
 
 impl Canvas<'_> {
@@ -38,7 +38,7 @@ impl Canvas<'_> {
         key: &str,
         b: Bounds,
         color: Rgba,
-    ) -> Result<bool, UiPresentationError> {
+    ) -> Result<bool, PaintError> {
         let Some((texture_page, sprite)) = self.native_sprite(key) else {
             return Ok(false);
         };
@@ -58,7 +58,7 @@ impl Canvas<'_> {
         &mut self,
         key: &str,
         bounds: Bounds,
-    ) -> Result<bool, UiPresentationError> {
+    ) -> Result<bool, PaintError> {
         let Some((texture_page, sprite)) = self.native_sprite(key) else {
             return Ok(false);
         };
@@ -84,7 +84,7 @@ impl Canvas<'_> {
         &mut self,
         key: &str,
         bounds: Bounds,
-    ) -> Result<bool, UiPresentationError> {
+    ) -> Result<bool, PaintError> {
         let Some((texture_page, sprite)) = self.native_sprite(key) else {
             return Ok(false);
         };
@@ -115,7 +115,7 @@ impl Canvas<'_> {
         color: Rgba,
         frame: u16,
         frames: u16,
-    ) -> Result<bool, UiPresentationError> {
+    ) -> Result<bool, PaintError> {
         let Some((texture_page, sprite)) = self.native_sprite(key) else {
             return Ok(false);
         };
@@ -143,7 +143,7 @@ impl Canvas<'_> {
         key: &str,
         b: Bounds,
         color: Rgba,
-    ) -> Result<bool, UiPresentationError> {
+    ) -> Result<bool, PaintError> {
         self.rotated_masked_sprite(key, b, color, 0.0)
     }
 
@@ -153,7 +153,7 @@ impl Canvas<'_> {
         b: Bounds,
         color: Rgba,
         angle_radians: f32,
-    ) -> Result<bool, UiPresentationError> {
+    ) -> Result<bool, PaintError> {
         let Some(originals) = self.originals else {
             return Ok(false);
         };
@@ -190,7 +190,7 @@ impl Canvas<'_> {
         widths: [f32; 4],
         fill: bool,
         color: Rgba,
-    ) -> Result<bool, UiPresentationError> {
+    ) -> Result<bool, PaintError> {
         let Some((texture_page, sprite)) = self.native_sprite(key) else {
             return Ok(false);
         };
@@ -358,12 +358,7 @@ mod tests {
         assert_eq!(runtime.textures.pages().len(), start + 2 + dynamic_count);
         assert_eq!(runtime.textures.pages()[start + 1].pixels(), &[1; 16]);
         assert_eq!(
-            runtime
-                .form_presentation
-                .oreui_originals
-                .as_ref()
-                .unwrap()
-                .page,
+            runtime.screens.oreui.originals.as_ref().unwrap().page,
             start as u16
         );
     }

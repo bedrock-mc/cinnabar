@@ -1,4 +1,6 @@
-use super::super::engine::FormEngine;
+use super::super::engine::{FormEngine, screen::PaintFrame};
+use super::super::hud_renderers::HudRenderer;
+use super::super::screen_registry::registry;
 use super::super::server_pack::ServerAtlas;
 use crate::test_support::{fixture_font, mini_carrier};
 use crate::ui_runtime::SequencedLocalAttributes;
@@ -26,7 +28,7 @@ fn engine() -> FormEngine {
                 "bindings":[{"binding_name":"#second_visible", "binding_name_override":"#visible"}]}}
         ]}
     }).to_string());
-    let mut engine = FormEngine::new(mini_carrier(), catalog, 2);
+    let mut engine = FormEngine::new(mini_carrier(), catalog, 2, registry());
     let mut png = Vec::new();
     image::RgbaImage::from_pixel(9, 9, image::Rgba([255, 0, 0, 255]))
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
@@ -92,12 +94,8 @@ fn draw_with_factory(
     let advance_hunger = |key: &str, instance| hunger_animation.borrow_mut().advance(key, instance);
     engine
         .draw(
-            ScreenArt {
-                hud: Some(&paint),
-                hunger_update: Some(&advance_hunger),
-                ..Default::default()
-            },
-            EngineInputs {
+            ScreenArt::default(),
+            &mut PaintFrame {
                 layouts: &mut layouts,
                 font: &fixture_font(),
                 metrics,
@@ -106,11 +104,13 @@ fn draw_with_factory(
                 content: [1280.0, 720.0],
                 translate: &|_| None,
                 language: [0; 3],
-            },
-            EngineOutput {
+                now: 0.0,
                 nodes: &mut nodes,
                 next: &mut next,
-                overlay: &[],
+                renderers: &mut [&mut HudRenderer {
+                    hud: &paint,
+                    hunger_update: Some(&advance_hunger),
+                }],
             },
             |env, root| {
                 screens.hud.render(

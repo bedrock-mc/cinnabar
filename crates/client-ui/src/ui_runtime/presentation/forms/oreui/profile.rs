@@ -11,7 +11,7 @@ use super::theme::{CAPTION, NEUTRAL80, SECONDARY_BUTTON, TEXT, TEXT_DIMMEST};
 use super::widgets::{Variant, button, header, screen_overlay, tabs};
 use launcher::menu::ProfileTab;
 use launcher::menu::{MenuAction, MenuView, auth::AuthState};
-use {super::super::super::UiPresentationError, ui::IconRef};
+use {super::super::engine::screen::PaintError, ui::IconRef};
 
 /// Draws fixed navigation above independently scrolling card and active tab content.
 pub(super) fn draw(
@@ -20,7 +20,7 @@ pub(super) fn draw(
     size: [f32; 2],
     portrait: Option<IconRef>,
     artwork: &std::collections::HashMap<String, IconRef>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let [width, height] = size;
     screen_overlay(canvas, size)?;
     let top = header(
@@ -133,7 +133,7 @@ fn error(
     view: &MenuView,
     b: Bounds,
     signed_out: bool,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let (title, text) = if signed_out {
         (
             "Profile Unavailable",
@@ -207,7 +207,7 @@ fn error(
 }
 
 /// Draws the reference's two-rem animation while the service is pending.
-fn loading(canvas: &mut Canvas<'_>, b: Bounds) -> Result<(), UiPresentationError> {
+fn loading(canvas: &mut Canvas<'_>, b: Bounds) -> Result<(), PaintError> {
     let side = canvas.r(2.0);
     let x = (b[0] + b[2] - side) * 0.5;
     let y = b[1] + canvas.r(6.4);

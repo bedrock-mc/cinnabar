@@ -11,7 +11,10 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 use ui::UiVisual;
 
-use super::Painter;
+use super::engine::{
+    Canvas,
+    screen::{CustomDraw, CustomRenderer, PaintError},
+};
 use crate::ui_runtime::presentation::hud_layout::{HeartPaint, HungerPaint};
 
 mod hunger_animation;
@@ -19,7 +22,7 @@ pub(in crate::ui_runtime::presentation) use hunger_animation::HungerAnimation;
 
 const CROSSHAIR_TEXTURE: &str = "textures/ui/cross_hair";
 const CROSSHAIR_SIDE: f32 = 16.0;
-pub(in super::super) const HUNGER_RENDERER: &str = "hunger_renderer";
+pub(super) const HUNGER_RENDERER: &str = "hunger_renderer";
 
 #[cfg(test)]
 mod cooldown_tests;
@@ -115,39 +118,64 @@ impl HudPaint {
     }
 }
 
-/// Draw `renderer` at `dest` when it is one of the HUD's; `false` otherwise.
-pub(super) fn paint(
-    painter: &mut Painter<'_>,
+/// Advance an admitted hunger control and return its render-update count.
+pub(super) type HungerUpdate<'a> = &'a dyn Fn(&str, Option<u64>) -> u64;
+
+/// The HUD's native renderers over this frame's captured state.
+pub(super) struct HudRenderer<'a> {
+    pub(super) hud: &'a HudPaint,
+    /// Per-control updates advance only when a hunger renderer reaches painting.
+    pub(super) hunger_update: Option<HungerUpdate<'a>>,
+}
+
+impl CustomRenderer for HudRenderer<'_> {
+    fn paint(
+        &mut self,
+        node: &CustomDraw<'_>,
+        canvas: &mut Canvas<'_>,
+    ) -> Result<bool, PaintError> {
+        Ok(paint(canvas, self.hud, self.hunger_update, node))
+    }
+
+    fn textures<'s>(&'s self, _drawn: &dyn Fn(&str) -> bool, texture: &mut dyn FnMut(&'s str)) {
+        for path in self.hud.textures() {
+            texture(path);
+        }
+    }
+}
+
+/// Draw `node` when it is one of the HUD's renderers; `false` otherwise.
+fn paint(
+    canvas: &mut Canvas<'_>,
     hud: &HudPaint,
-    key: &str,
-    renderer: &str,
-    data: &BTreeMap<String, Value>,
-    dest: [f32; 4],
-    alpha: &dyn Fn([u8; 4]) -> [u8; 4],
+    hunger_update: Option<HungerUpdate<'_>>,
+    node: &CustomDraw<'_>,
 ) -> bool {
+    let (key, data, dest) = (node.key, node.data, node.dest);
+    let alpha = &|color: [u8; 4]| node.alpha(color);
     let top_left = [dest[0], dest[1]];
-    let cells = match renderer {
+    let cells = match node.renderer {
         "heart_renderer" => {
-            let visible = visible_bounds(painter);
+            let visible = visible_bounds(canvas);
             if visible[0] < visible[2] && visible[1] < visible[3] {
-                for cell in hud.hearts.visible_cells(top_left, painter.px, visible) {
-                    paint_cell(painter, &cell, top_left, visible, alpha);
+                for cell in hud.hearts.visible_cells(top_left, canvas.px(), visible) {
+                    paint_cell(canvas, &cell, top_left, visible, alpha);
                 }
             }
             return true;
         }
         "armor_renderer" => (&hud.armor, top_left),
         HUNGER_RENDERER => {
-            let updates = painter.art.hunger_update.map_or(1, |advance| {
+            let updates = hunger_update.map_or(1, |advance| {
                 advance(
                     key,
                     data.get(json_ui::CUSTOM_CONTROL_INSTANCE_KEY)
                         .and_then(Value::as_u64),
                 )
             });
-            let visible = visible_bounds(painter);
+            let visible = visible_bounds(canvas);
             for cell in hud.hunger.cells(updates) {
-                paint_cell(painter, &cell, top_left, visible, alpha);
+                paint_cell(canvas, &cell, top_left, visible, alpha);
             }
             return true;
         }
@@ -155,13 +183,13 @@ pub(super) fn paint(
         "horse_heart_renderer" => (&hud.mount_hearts, top_left),
         "mob_effects_renderer" => (&hud.effects, [dest[2], dest[1]]),
         "hotbar_renderer" => {
-            slot_art(painter, data, dest, alpha);
+            slot_art(canvas, data, dest, alpha);
             return true;
         }
         "horse_jump_renderer" => {
             if let Some((background, fill, filled)) = hud.mount_jump {
-                let px = painter.px;
-                sheet(painter, background, dest, alpha);
+                let px = canvas.px();
+                sheet(canvas, background, dest, alpha);
                 let width = (filled * px).min(dest[2] - dest[0]);
                 if width > 0.0 {
                     let mut uv = fill.uv;
@@ -169,7 +197,7 @@ pub(super) fn paint(
                     uv[2] = uv[0] + (span * filled / 182.0).round() as u16;
                     let clipped = SheetSprite { uv, ..fill };
                     sheet(
-                        painter,
+                        canvas,
                         clipped,
                         [dest[0], dest[1], dest[0] + width, dest[3]],
                         alpha,
@@ -185,21 +213,21 @@ pub(super) fn paint(
                 .and_then(Value::as_f64)
                 .map_or(0, |notches| notches.clamp(0.0, 64.0) as u32);
             let width = dest[2] - dest[0];
-            let px = painter.px;
+            let px = canvas.px();
             for notch in 1..notches {
                 let x = dest[0] + width * notch as f32 / notches as f32;
-                let _ = painter.solid([x, dest[1], x + px, dest[3]], alpha([0, 0, 0, 255]));
+                let _ = canvas.solid([x, dest[1], x + px, dest[3]], alpha([0, 0, 0, 255]));
             }
             return true;
         }
         "cursor_renderer" => {
             if let Some(sprite) = hud.crosshair {
                 if let Some(spec) = &hud.custom_crosshair {
-                    if !painter.mod_crosshair(spec, dest) {
-                        crosshair(painter, sprite, dest, hud.crosshair_blend);
+                    if !super::mod_crosshair::paint(canvas, spec, dest) {
+                        crosshair(canvas, sprite, dest, hud.crosshair_blend);
                     }
                 } else {
-                    crosshair(painter, sprite, dest, hud.crosshair_blend);
+                    crosshair(canvas, sprite, dest, hud.crosshair_blend);
                 }
             }
             return true;
@@ -214,14 +242,14 @@ pub(super) fn paint(
                 && progress.is_finite()
                 && *progress > 0.0
             {
-                let px = painter.px;
+                let px = canvas.px();
                 let side = 16.0;
                 let left = (dest[0] + dest[2] - side * px) * 0.5;
                 let top = (dest[1] + dest[3] - side * px) * 0.5;
                 let progress = progress.min(1.0);
                 let start = (side * (1.0 - progress)).floor();
                 let height = (side * progress).ceil();
-                let _ = painter.solid(
+                let _ = canvas.solid(
                     [
                         left,
                         top + start * px,
@@ -245,35 +273,36 @@ pub(super) fn paint(
         _ => return false,
     };
     let (cells, origin) = cells;
-    let visible = visible_bounds(painter);
+    let visible = visible_bounds(canvas);
     if visible[0] < visible[2] && visible[1] < visible[3] {
         for cell in cells {
-            paint_cell(painter, cell, origin, visible, alpha);
+            paint_cell(canvas, cell, origin, visible, alpha);
         }
     }
     true
 }
 
 /// Intersects the inherited clip with the physical viewport.
-fn visible_bounds(painter: &Painter<'_>) -> [f32; 4] {
-    let clip = painter.clip.map_or(painter.screen, |(bounds, _)| bounds);
+fn visible_bounds(canvas: &Canvas<'_>) -> [f32; 4] {
+    let screen = canvas.screen();
+    let clip = canvas.clip().unwrap_or(screen);
     [
-        clip[0].max(painter.screen[0]),
-        clip[1].max(painter.screen[1]),
-        clip[2].min(painter.screen[2]),
-        clip[3].min(painter.screen[3]),
+        clip[0].max(screen[0]),
+        clip[1].max(screen[1]),
+        clip[2].min(screen[2]),
+        clip[3].min(screen[3]),
     ]
 }
 
 /// Emits one cell only when its animated bounds intersect the visible region.
 fn paint_cell(
-    painter: &mut Painter<'_>,
+    canvas: &mut Canvas<'_>,
     cell: &Cell,
     origin: [f32; 2],
     visible: [f32; 4],
     alpha: &dyn Fn([u8; 4]) -> [u8; 4],
 ) {
-    let px = painter.px;
+    let px = canvas.px();
     let x = origin[0] + cell.at[0] * px;
     let y = origin[1] + cell.at[1] * px;
     let bounds = [x, y, x + cell.size[0] * px, y + cell.size[1] * px];
@@ -287,9 +316,9 @@ fn paint_cell(
     let color = alpha([255, 255, 255, cell.alpha]);
     let visual = cell
         .preferred
-        .and_then(|path| painter.sprite(path, json_ui::UvRect::full(), color, Default::default()))
+        .and_then(|path| canvas.sprite(path, json_ui::UvRect::full(), color, Default::default()))
         .or_else(|| {
-            painter.sprite(
+            canvas.sprite(
                 cell.texture,
                 json_ui::UvRect::full(),
                 color,
@@ -297,13 +326,13 @@ fn paint_cell(
             )
         });
     if let Some(visual) = visual {
-        let _ = painter.push(visual, bounds);
+        let _ = canvas.push(visual, bounds);
     }
 }
 
 /// The hotbar slot background for the cell the control's collection index names.
 fn slot_art(
-    painter: &mut Painter<'_>,
+    canvas: &mut Canvas<'_>,
     data: &BTreeMap<String, Value>,
     dest: [f32; 4],
     alpha: &dyn Fn([u8; 4]) -> [u8; 4],
@@ -312,18 +341,18 @@ fn slot_art(
         .get("#collection_index")
         .and_then(Value::as_f64)
         .map_or(0, |index| index.clamp(0.0, 8.0) as usize);
-    if let Some(visual) = painter.sprite(
+    if let Some(visual) = canvas.sprite(
         SLOT_ART[index],
         json_ui::UvRect::full(),
         alpha([255; 4]),
         Default::default(),
     ) {
-        let _ = painter.push(visual, dest);
+        let _ = canvas.push(visual, dest);
     }
 }
 
 fn sheet(
-    painter: &mut Painter<'_>,
+    canvas: &mut Canvas<'_>,
     sprite: SheetSprite,
     bounds: [f32; 4],
     alpha: &dyn Fn([u8; 4]) -> [u8; 4],
@@ -333,20 +362,15 @@ fn sheet(
         uv: sprite.uv,
         color: alpha([255; 4]),
     };
-    let _ = painter.push(visual, bounds);
+    let _ = canvas.push(visual, bounds);
 }
 
 /// Centers the pack crosshair or built-in art with the selected color blending.
-fn crosshair(
-    painter: &mut Painter<'_>,
-    sprite: SheetSprite,
-    dest: [f32; 4],
-    blend: ui::UiBlendMode,
-) {
+fn crosshair(canvas: &mut Canvas<'_>, sprite: SheetSprite, dest: [f32; 4], blend: ui::UiBlendMode) {
     let role = assets::HudTextureRole::Crosshair;
     let standalone =
-        painter
-            .textures
+        canvas
+            .textures()
             .sprite(CROSSHAIR_TEXTURE)
             .map(|(page, [x, y, width, height])| {
                 (
@@ -359,7 +383,7 @@ fn crosshair(
             });
     let (sprite, gui_side) = standalone
         .or_else(|| {
-            let (page, [x, y, width, height]) = painter.textures.sprite(role.source_path())?;
+            let (page, [x, y, width, height]) = canvas.textures().sprite(role.source_path())?;
             let [crop_x, crop_y, crop_width, crop_height] = role.source_crop()?;
             let [native_width, native_height] = assets::HUD_ICONS_SHEET_SIZE;
             let scale_x = width / native_width as f32;
@@ -379,7 +403,7 @@ fn crosshair(
             ))
         })
         .unwrap_or((sprite, role.expected_size()[0] as f32));
-    let side = gui_side * painter.px;
+    let side = gui_side * canvas.px();
     let x = (dest[0] + dest[2] - side) * 0.5;
     let y = (dest[1] + dest[3] - side) * 0.5;
     let visual = match blend {
@@ -393,37 +417,5 @@ fn crosshair(
             color: [255; 4],
         },
     };
-    let _ = painter.push(visual, [x, y, x + side, y + side]);
-}
-
-/// Layers the built-in HUD and menu styling over vanilla before server packs.
-pub(super) fn with_java_hud(vanilla: &json_ui::Catalog) -> json_ui::Catalog {
-    let mut catalog = vanilla.clone();
-    let hud_files = super::super::hud::JAVA_HUD_PACK
-        .iter()
-        .map(|(path, _, bytes)| (*path, *bytes));
-    super::super::graphics_expander::install(&mut catalog);
-    super::super::always_sprint_setting::install(&mut catalog);
-    super::super::vsync_setting::install(&mut catalog);
-    super::super::vrr_setting::install(&mut catalog);
-    super::super::motion_blur_setting::install(&mut catalog);
-    super::super::smaa_setting::install(&mut catalog);
-    super::super::java_animations_setting::install(&mut catalog);
-    super::super::skybox_setting::install(&mut catalog);
-    super::super::discord_presence_setting::install(&mut catalog);
-    super::super::crosshair_settings::install(&mut catalog);
-    catalog.apply_pack(hud_files);
-    catalog.apply_pack(
-        [(
-            "ui/ui_art_assets_common.json",
-            super::menu_renderers::TITLE_PANEL_OVERLAY,
-        )]
-        .into_iter()
-        .chain(super::menu_renderers::NO_COPYRIGHT_OVERLAYS),
-    );
-    super::super::loading_screen::install_brand_layout(&mut catalog);
-    super::super::disconnect_retry::install(&mut catalog);
-    super::super::enhanced_setting::install(&mut catalog);
-    super::super::chat_position::install(&mut catalog);
-    catalog
+    let _ = canvas.push(visual, [x, y, x + side, y + side]);
 }

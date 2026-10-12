@@ -13,7 +13,7 @@ pub(super) fn draw(
     view: &MenuView,
     local_view: &WorldsView,
     area: Bounds,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let form = &local_view.create;
     let y = sections::row(canvas, area, area[1], |canvas, area| {
         let y = label(canvas, "World seed", area, area[1])?;

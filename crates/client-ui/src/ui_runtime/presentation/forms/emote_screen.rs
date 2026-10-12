@@ -4,7 +4,7 @@ use std::{collections::HashMap, sync::Arc};
 use json_ui::{DataSource, HitKind, InputMode, Scalar, ViewState};
 use ui::{UiNode, UiPoint};
 
-use super::engine::{EngineInputs, EngineOutput, ScreenArt};
+use super::engine::{ScreenArt, screen::PaintFrame};
 use super::hud::CachedScreen;
 use super::menus::window_rect;
 use crate::ui_runtime::{UiRuntime, emotes::EmoteState, forms::EngineFrame};
@@ -50,11 +50,11 @@ impl UiPresentationRuntime {
         // The native wheel authors image controls. Their dynamic texture marker
         // is replaced by the same animated player mesh used by the HUD doll.
         self.player_preview_view = super::super::player_preview::PreviewView::Hud;
-        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+        let Some(renderer) = self.engine.as_deref() else {
             return Ok(());
         };
         let state = runtime.emotes();
-        let emote = &mut self.form_presentation.emote;
+        let emote = &mut self.screens.emote;
         let hovered = emote.pointer.and_then(|point| {
             let frame = emote.frame.as_ref()?;
             frame
@@ -86,7 +86,7 @@ impl UiPresentationRuntime {
         let catalog = Arc::clone(renderer.catalog());
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let translate = |key: &str| runtime.translation(key);
-        let inputs = EngineInputs {
+        let mut paint_frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
             metrics,
@@ -95,16 +95,14 @@ impl UiPresentationRuntime {
             content,
             translate: &translate,
             language: runtime.text_generation(),
-        };
-        let out = EngineOutput {
+            now: now_millis as f64 / 1_000.0,
             nodes,
             next,
-            overlay: &[],
+            renderers: &mut [],
         };
         let art = ScreenArt {
             view: Some(&view),
             images: Some(&images),
-            now: now_millis as f64 / 1_000.0,
             ..Default::default()
         };
         let reference = if state.is_equipping() {
@@ -113,7 +111,7 @@ impl UiPresentationRuntime {
             EMOTE_SCREEN
         };
         let screen = &mut emote.screen;
-        emote.frame = renderer.draw(art, inputs, out, |env, root| {
+        emote.frame = renderer.draw(art, &mut paint_frame, |env, root| {
             screen.render_with(
                 reference,
                 &catalog,
@@ -128,7 +126,7 @@ impl UiPresentationRuntime {
     }
 
     pub fn hit_test_emote(&self, point: UiPoint) -> Option<EmoteHit> {
-        let frame = self.form_presentation.emote.frame.as_ref()?;
+        let frame = self.screens.emote.frame.as_ref()?;
         for region in frame.hits.iter().rev().filter(|region| region.enabled) {
             if !window_rect(region, frame.scale, frame.origin)
                 .is_some_and(|bounds| bounds.contains(point))
@@ -162,19 +160,19 @@ impl UiPresentationRuntime {
     }
 
     pub fn set_emote_pointer(&mut self, pointer: Option<UiPoint>) {
-        self.form_presentation.emote.pointer = pointer;
+        self.screens.emote.pointer = pointer;
     }
     /// Last active device; stationary cursor coordinates preserve modality.
     pub fn set_emote_input_mode(&mut self, mode: InputMode) {
-        self.form_presentation.emote.input_mode = mode;
+        self.screens.emote.input_mode = mode;
     }
     pub fn emote_frame(&self) -> Option<&EngineFrame> {
-        self.form_presentation.emote.frame.as_ref()
+        self.screens.emote.frame.as_ref()
     }
 
     pub(in super::super) fn close_emote_screen(&mut self) {
-        self.form_presentation.emote.frame = None;
-        self.form_presentation.emote.pointer = None;
+        self.screens.emote.frame = None;
+        self.screens.emote.pointer = None;
     }
 }
 

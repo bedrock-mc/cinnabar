@@ -11,8 +11,8 @@ use ui::{
     TextWrap, UiNode, UiScale, UiVisual, WordChop,
 };
 
-use super::super::super::{TextMetrics, UiPresentationError, rect};
-use super::{Painter, tooltip::TEXT_PITCH};
+use super::super::super::TextMetrics;
+use super::{Canvas, rect, screen::PaintError, tooltip::TEXT_PITCH};
 
 /// Largest wrap width handed to the text layout (logical px), for "no wrap".
 pub(in super::super) const UNWRAPPED_LOGICAL: f64 = 65_536.0;
@@ -48,14 +48,14 @@ pub(in super::super) fn label_origin(
 }
 
 #[derive(Clone)]
-pub(super) struct TextPaint {
-    pub(super) color: [u8; 4],
-    pub(super) edit: Option<super::host_edit::Feedback>,
-    pub(super) shadow: TextShadow,
-    pub(super) align: TextAlign,
-    pub(super) scale: f32,
-    pub(super) localize: bool,
-    pub(super) options: TextOptions,
+pub(in super::super) struct TextPaint {
+    pub(in super::super) color: [u8; 4],
+    pub(in super::super) edit: Option<super::host_edit::Feedback>,
+    pub(in super::super) shadow: TextShadow,
+    pub(in super::super) align: TextAlign,
+    pub(in super::super) scale: f32,
+    pub(in super::super) localize: bool,
+    pub(in super::super) options: TextOptions,
 }
 
 /// A label's text after vanilla localization; empty lines drop as the vanilla label drops them.
@@ -73,7 +73,7 @@ pub(super) fn localized<'a>(
 
 /// `request` at `factor` times the metrics' scale; a factor the display range
 /// cannot hold keeps the base scale.
-pub(super) fn scaled_request<'a>(
+pub(in super::super) fn scaled_request<'a>(
     metrics: &TextMetrics,
     text: &'a str,
     width_64: u32,
@@ -231,16 +231,16 @@ pub(in super::super) fn painted_label_request<'a>(
     request
 }
 
-impl Painter<'_> {
+impl Canvas<'_> {
     /// A label's text as one layout: lines past its height drop and the last
     /// kept one ends in `...`; each line aligns within the label's width.
-    pub(super) fn text(
+    pub(in super::super) fn text(
         &mut self,
         text: &str,
         dest: [f32; 4],
         clip: [f32; 4],
         style: TextPaint,
-    ) -> Result<(), UiPresentationError> {
+    ) -> Result<(), PaintError> {
         let text = if style.localize {
             localized(text, self.translate)
         } else {
@@ -295,7 +295,7 @@ impl Painter<'_> {
                             text: prefix,
                             ..request
                         })
-                        .map_err(UiPresentationError::Text)?
+                        .map_err(PaintError::Text)?
                         .size_64()[0] as f32
                         / 64.0;
                 }
@@ -314,6 +314,60 @@ impl Painter<'_> {
             )?;
         }
         Ok(())
+    }
+}
+
+/// Name tag backing is black at alpha 0.25.
+const NAME_TAG_BACKGROUND: [u8; 4] = [0, 0, 0, 64];
+
+impl Canvas<'_> {
+    /// `#playername` centred on the control over a backing one GUI px wider
+    /// than the text, plus `#x_padding`/`#y_padding`.
+    pub(super) fn name_tag(
+        &mut self,
+        data: &std::collections::BTreeMap<String, serde_json::Value>,
+        dest: [f32; 4],
+        alpha: &dyn Fn([u8; 4]) -> [u8; 4],
+    ) -> Option<(UiVisual, [f32; 4])> {
+        let name = data
+            .get("#playername")?
+            .as_str()
+            .filter(|name| !name.is_empty())?;
+        let px = self.px;
+        let padding = |key: &str| {
+            data.get(key)
+                .and_then(serde_json::Value::as_f64)
+                .unwrap_or(0.0) as f32
+                * px
+        };
+        let (pad_x, pad_y) = (padding("#x_padding"), padding("#y_padding"));
+        let request = self
+            .metrics
+            .request(name, width_64(UNWRAPPED_LOGICAL), self.font);
+        let layout = self.layouts.layout(request).ok()?;
+        let [w, h] = layout.size_64().map(|size| size as f32 / 64.0);
+        let centre = [(dest[0] + dest[2]) * 0.5, (dest[1] + dest[3]) * 0.5];
+        let left = centre[0] - w * 0.5;
+        let top = centre[1] - h * 0.5;
+        self.group(self.screen).ok()?;
+        self.solid(
+            [
+                left - px - pad_x,
+                top - px - pad_y,
+                left + w + pad_x,
+                top + h + pad_y,
+            ],
+            alpha(NAME_TAG_BACKGROUND),
+        )
+        .ok()?;
+        Some((
+            UiVisual::Text {
+                layout,
+                color: alpha([255; 4]),
+                shadow: TextShadow::None,
+            },
+            [left, top, left + w, top + h],
+        ))
     }
 }
 

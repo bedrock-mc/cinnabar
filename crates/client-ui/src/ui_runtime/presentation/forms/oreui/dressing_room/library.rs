@@ -10,7 +10,7 @@ use super::{PreviewArea, command, enabled};
 use launcher::dressing_room::{Action, DressingRoomSection};
 use launcher::menu::MenuView;
 use {
-    super::super::super::super::{UiPresentationError, menu_artwork},
+    super::super::super::super::menu_artwork, super::super::super::engine::screen::PaintError,
     ui::IconRef,
 };
 
@@ -20,7 +20,7 @@ pub(super) fn draw(
     b: Bounds,
     viewport: Bounds,
     preview: &mut PreviewArea,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let top = toolbar(canvas, view, b)?;
     collection(canvas, view, [b[0], top, b[2], b[3]], viewport, preview)
 }
@@ -29,7 +29,7 @@ pub(super) fn toolbar(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     b: Bounds,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let [left, mut y, right, _] = b;
     let width = right - left;
     let cape_tab = view.dressing_room.section == DressingRoomSection::Capes;
@@ -97,7 +97,7 @@ pub(super) fn collection(
     b: Bounds,
     viewport: Bounds,
     preview: &mut PreviewArea,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let entrance = canvas.begin_entrance(Surface::Wardrobe(
         view.dressing_room.section == DressingRoomSection::Capes,
     ));
@@ -300,7 +300,7 @@ fn empty(
     b: Bounds,
     cape: bool,
     imported: bool,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     canvas.fill(b, theme::NEUTRAL80.fill)?;
     canvas.bevel(b, theme::BEVEL_DARK, theme::BEVEL_LIGHT)?;
     let pad = canvas.r(1.6);
@@ -353,7 +353,7 @@ fn card(
     key: &str,
     selected: bool,
     action: Action,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let action = command(action);
     let state = canvas.interaction(view, Some(action));
     let motion = canvas.feedback(state, enabled(view), selected, Kind::Surface);
@@ -424,7 +424,7 @@ fn card(
     Ok(())
 }
 
-fn thumbnail(canvas: &mut Canvas<'_>, icon: IconRef, b: Bounds) -> Result<(), UiPresentationError> {
+fn thumbnail(canvas: &mut Canvas<'_>, icon: IconRef, b: Bounds) -> Result<(), PaintError> {
     let width = (icon.uv[2] - icon.uv[0]) as f32;
     let height = (icon.uv[3] - icon.uv[1]) as f32;
     let scale = ((b[2] - b[0]) / width).min((b[3] - b[1]) / height);

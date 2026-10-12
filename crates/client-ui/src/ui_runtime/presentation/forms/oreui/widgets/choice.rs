@@ -1,6 +1,6 @@
 //! Raised segmented choices share selection, press travel and focus across menus.
 
-use super::super::super::super::UiPresentationError;
+use super::super::super::engine::screen::PaintError;
 use super::super::motion::{Kind, mix};
 use super::super::paint::{Bounds, Canvas};
 use super::super::theme::{self, BODY, EDGE};
@@ -12,7 +12,7 @@ pub(in super::super) fn choice_height(
     canvas: &mut Canvas<'_>,
     label: &str,
     width: f32,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let padding = canvas.r(CHOICE_PADDING);
     let text = canvas.measure_height(label, (width - padding * 2.0).max(1.0), BODY)?;
     Ok(text.max(canvas.r(5.2)) + canvas.r(0.8))
@@ -24,7 +24,7 @@ pub(in super::super) fn choice(
     label: &str,
     on: bool,
     action: MenuAction,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let state = canvas.interaction(view, Some(action));
     let motion = canvas.feedback(state, true, on, Kind::Button);
     let role = if on {
@@ -94,7 +94,7 @@ pub(in super::super) fn choice_focus(
     b: Bounds,
     on: bool,
     action: MenuAction,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let state = canvas.interaction(view, Some(action));
     let motion = canvas.feedback(state, true, on, Kind::Button);
     if motion.focus > 0.0 {
@@ -106,7 +106,7 @@ pub(in super::super) fn choice_focus(
     Ok(())
 }
 
-fn focus_outline(canvas: &mut Canvas<'_>, b: Bounds) -> Result<(), UiPresentationError> {
+fn focus_outline(canvas: &mut Canvas<'_>, b: Bounds) -> Result<(), PaintError> {
     let outset = canvas.r(0.4);
     canvas.frame(
         [b[0] - outset, b[1] - outset, b[2] + outset, b[3] + outset],

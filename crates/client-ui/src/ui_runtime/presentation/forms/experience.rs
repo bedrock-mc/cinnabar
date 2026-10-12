@@ -1,7 +1,7 @@
 //! Host-owned consent and status chrome, resolved from a private JSON-UI catalog.
 
 use super::{
-    engine::{EngineInputs, EngineOutput, ScreenArt},
+    engine::{ScreenArt, screen::PaintFrame},
     hud::CachedScreen,
 };
 use crate::ui_runtime::forms::EngineFrame;
@@ -36,10 +36,10 @@ impl UiPresentationRuntime {
         prompt: bool,
     ) -> Result<(), String> {
         let Some(text) = text else {
-            self.form_presentation.experience = None;
+            self.screens.experience = None;
             return Ok(());
         };
-        if let Some(chrome) = self.form_presentation.experience.as_mut() {
+        if let Some(chrome) = self.screens.experience.as_mut() {
             if chrome.prompt != prompt || chrome.text != text {
                 chrome.frame = None;
                 chrome.view = ViewState::default();
@@ -58,7 +58,7 @@ impl UiPresentationRuntime {
             ("ui/cinnabar_experience.json", TEMPLATE),
         ])
         .map_err(|error| error.to_string())?;
-        self.form_presentation.experience = Some(ExperienceChrome {
+        self.screens.experience = Some(ExperienceChrome {
             text: text.to_owned(),
             prompt,
             labels: String::new(),
@@ -74,14 +74,14 @@ impl UiPresentationRuntime {
 
     /// Keeps guest labels in a separate, explicitly untrusted area below the status.
     pub fn set_experience_labels(&mut self, labels: &str) {
-        if let Some(chrome) = self.form_presentation.experience.as_mut() {
+        if let Some(chrome) = self.screens.experience.as_mut() {
             chrome.labels = labels.to_owned();
         }
     }
 
     /// Keyboard approval is possible only after a consent frame reached presentation.
     pub fn experience_prompt_visible(&self) -> bool {
-        self.form_presentation
+        self.screens
             .experience
             .as_ref()
             .is_some_and(|chrome| chrome.prompt && !chrome.failed && chrome.frame.is_some())
@@ -91,7 +91,7 @@ impl UiPresentationRuntime {
     pub fn experience_approval_ready(&self) -> bool {
         self.experience_prompt_visible()
             && self
-                .form_presentation
+                .screens
                 .experience
                 .as_ref()
                 .is_some_and(|chrome| chrome.reviewed)
@@ -99,7 +99,7 @@ impl UiPresentationRuntime {
 
     /// Scrolls only the trusted disclosure viewport; it never changes the underlying menu.
     pub fn scroll_experience(&mut self, pages: f64) {
-        let Some(chrome) = self.form_presentation.experience.as_mut() else {
+        let Some(chrome) = self.screens.experience.as_mut() else {
             return;
         };
         if !chrome.prompt {
@@ -118,7 +118,7 @@ impl UiPresentationRuntime {
 
     /// Lights the popup button under the pointer, as vanilla's light buttons do on hover.
     pub fn hover_experience(&mut self, point: Option<[f32; 2]>) {
-        let Some(chrome) = self.form_presentation.experience.as_mut() else {
+        let Some(chrome) = self.screens.experience.as_mut() else {
             return;
         };
         let Some(frame) = chrome.frame.as_ref().filter(|_| chrome.prompt) else {
@@ -141,7 +141,7 @@ impl UiPresentationRuntime {
 
     /// Missing trusted chrome revokes remote code instead of running it invisibly.
     pub fn experience_chrome_failed(&self) -> bool {
-        self.form_presentation
+        self.screens
             .experience
             .as_ref()
             .is_some_and(|chrome| chrome.failed)
@@ -149,7 +149,7 @@ impl UiPresentationRuntime {
 
     /// Maps only hits from the last host-owned consent screen to local choices.
     pub fn experience_choice(&self, point: [f32; 2]) -> Option<Choice> {
-        let chrome = self.form_presentation.experience.as_ref()?;
+        let chrome = self.screens.experience.as_ref()?;
         if !chrome.prompt || chrome.failed {
             return None;
         }
@@ -181,10 +181,10 @@ impl UiPresentationRuntime {
         metrics: TextMetrics,
         content: [f32; 2],
     ) {
-        let Some(chrome) = self.form_presentation.experience.as_mut() else {
+        let Some(chrome) = self.screens.experience.as_mut() else {
             return;
         };
-        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+        let Some(renderer) = self.engine.as_deref() else {
             chrome.failed = true;
             return;
         };
@@ -204,7 +204,8 @@ impl UiPresentationRuntime {
         );
         data.set_global("#experience_text", Scalar::Text(chrome.text.clone()));
         data.set_global("#experience_widgets", Scalar::Text(chrome.labels.clone()));
-        let inputs = EngineInputs {
+        let rollback = (nodes.len(), *next);
+        let mut paint_frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
             metrics,
@@ -213,12 +214,10 @@ impl UiPresentationRuntime {
             content,
             translate: &|_| None,
             language: runtime.text_generation(),
-        };
-        let rollback = (nodes.len(), *next);
-        let out = EngineOutput {
+            now: 0.0,
             nodes,
             next,
-            overlay: &[],
+            renderers: &mut [],
         };
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let reference = if chrome.prompt {
@@ -226,7 +225,7 @@ impl UiPresentationRuntime {
         } else {
             "cinnabar_experience.indicator"
         };
-        match renderer.draw(ScreenArt::default(), inputs, out, |env, root| {
+        match renderer.draw(ScreenArt::default(), &mut paint_frame, |env, root| {
             chrome.screen.render_with(
                 reference,
                 &chrome.catalog,
@@ -344,7 +343,7 @@ mod tests {
                 .unwrap();
             assert!(presentation.experience_prompt_visible());
             assert!(!presentation.experience_approval_ready());
-            let chrome = presentation.form_presentation.experience.as_ref().unwrap();
+            let chrome = presentation.screens.experience.as_ref().unwrap();
             let frame = chrome.frame.as_ref().unwrap();
             assert!(
                 frame
@@ -402,7 +401,7 @@ mod tests {
                 )
                 .unwrap();
             let frame = presentation
-                .form_presentation
+                .screens
                 .experience
                 .as_ref()
                 .unwrap()
@@ -448,7 +447,7 @@ mod tests {
         build(&mut presentation);
         assert!(presentation.experience_approval_ready());
         let frame = presentation
-            .form_presentation
+            .screens
             .experience
             .as_ref()
             .unwrap()

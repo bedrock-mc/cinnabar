@@ -4,8 +4,8 @@
 
 mod accounts;
 mod add_server;
-mod artwork_runtime;
-mod bed_runtime;
+mod artwork;
+pub(super) mod bed_screen;
 mod bedtime;
 #[cfg(test)]
 mod dark_mode_tests;
@@ -21,7 +21,7 @@ mod home;
 mod icons;
 mod inbox;
 mod loading;
-mod loading_runtime;
+pub(super) mod loading_screen;
 mod modal;
 mod motion;
 mod paint;
@@ -30,6 +30,7 @@ mod play;
 mod play_realms;
 mod play_servers;
 pub(in crate::ui_runtime::presentation) use play_servers::animated_server_details;
+pub(super) mod menu_screen;
 mod profile;
 mod progress;
 mod radio;
@@ -38,7 +39,6 @@ mod realm_membership;
 mod review_tests;
 #[cfg(test)]
 mod route_tests;
-mod screen_runtime;
 mod scroll_focus;
 mod settings;
 #[cfg(test)]
@@ -49,7 +49,6 @@ mod transitions;
 mod widgets;
 mod world_settings;
 
-#[cfg(test)]
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -77,6 +76,17 @@ pub enum Look {
     Drawn,
     /// The install's sprites where the drawn look would approximate them.
     Originals,
+}
+
+/// OreUI's installed artwork, look and motion, carried across builds.
+#[derive(Default)]
+pub(super) struct OreUiScreen {
+    pub(super) originals: Option<Arc<Originals>>,
+    pub(super) look: Look,
+    pub(super) dark_mode: bool,
+    pub(super) transitions: Transitions,
+    /// The last menu paint's leftovers for its adapter.
+    paint: Option<menu_screen::MenuPaint>,
 }
 
 /// The bed screen's last hit rects (window-logical) and the tracked pointer.

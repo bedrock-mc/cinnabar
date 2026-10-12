@@ -16,7 +16,7 @@ use server_experience::{
 };
 
 use super::{
-    engine::{EngineInputs, EngineOutput, FormEngine, ScreenArt},
+    engine::{FormEngine, ScreenArt, screen::PaintFrame},
     hud::CachedScreen,
     textures::TextureSet,
 };
@@ -381,8 +381,7 @@ impl TemplateScreen {
         &mut self,
         art: &mut TemplateArt,
         renderer: &FormEngine,
-        inputs: EngineInputs<'_>,
-        (nodes, next): (&mut Vec<ui::UiNode>, &mut u32),
+        frame: &mut PaintFrame<'_>,
         screen_art: ScreenArt<'_>,
     ) -> bool {
         self.frame = None;
@@ -398,22 +397,17 @@ impl TemplateScreen {
         let Some((catalog, textures)) = art.resolve(renderer) else {
             return false;
         };
-        let content = inputs.content;
-        let px = inputs.metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
-        let language = inputs.language;
-        let rollback = (nodes.len(), *next);
-        let out = EngineOutput {
-            nodes,
-            next,
-            overlay: &[],
-        };
+        let content = frame.content;
+        let px = frame.metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
+        let language = frame.language;
+        let rollback = (frame.nodes.len(), *frame.next);
         let data = self.bound_data();
         let screen_art = ScreenArt {
             view: Some(&self.view),
             ..screen_art
         };
         let (screen, view) = (&mut self.screen, &self.view);
-        let result = renderer.draw_with(textures, screen_art, inputs, out, |env, root| {
+        let result = renderer.draw_with(textures, screen_art, frame, |env, root| {
             screen.render_shared_with(
                 &reference,
                 &catalog,
@@ -442,8 +436,8 @@ impl TemplateScreen {
                 self.frame.is_some()
             }
             Err(error) => {
-                nodes.truncate(rollback.0);
-                *next = rollback.1;
+                frame.nodes.truncate(rollback.0);
+                *frame.next = rollback.1;
                 bevy::log::warn!(%error, %owner, "package screen could not render");
                 false
             }

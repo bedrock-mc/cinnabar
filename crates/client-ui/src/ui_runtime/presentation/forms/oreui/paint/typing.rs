@@ -1,5 +1,5 @@
 use super::super::{motion::opacity, transitions::Insertion};
-use super::{Bounds, Canvas, Rgba, Type, UiNode, UiNodeId, UiPresentationError};
+use super::{Bounds, Canvas, PaintError, Rgba, Type, UiNode, UiNodeId};
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -14,7 +14,7 @@ impl Canvas<'_> {
         style: Type,
         color: Rgba,
         insertion: Option<Insertion>,
-    ) -> Result<(), UiPresentationError> {
+    ) -> Result<(), PaintError> {
         let width = bounds[2] - bounds[0];
         let Some(layout) = self.line_layout(value, width, style)? else {
             return Ok(());
@@ -89,7 +89,7 @@ impl Canvas<'_> {
         at: [f32; 2],
         width: f32,
         color: Rgba,
-    ) -> Result<(), UiPresentationError> {
+    ) -> Result<(), PaintError> {
         if let Some((_, clip)) = self.clip {
             bounds = [
                 bounds[0].max(clip[0]),

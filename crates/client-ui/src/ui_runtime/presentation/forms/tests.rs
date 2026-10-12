@@ -35,15 +35,7 @@ fn rejected_form_binds_once_without_partial_hits_and_changed_inputs_retry() {
             .unwrap();
         assert!(presentation.form_engine_frame(identity).is_none());
         assert_eq!(presentation.form_button_count(identity), Some(labels.len()));
-        assert_eq!(
-            presentation
-                .form_presentation
-                .engine
-                .as_ref()
-                .unwrap()
-                .passes,
-            [1, 0]
-        );
+        assert_eq!(presentation.engine.as_ref().unwrap().passes, [1, 0]);
     }
     presentation.set_server_ui_pack(&super::ServerUiPack::default());
     presentation
@@ -53,15 +45,7 @@ fn rejected_form_binds_once_without_partial_hits_and_changed_inputs_retry() {
         presentation.form_engine_frame(identity).unwrap().hits.len(),
         labels.len()
     );
-    assert_eq!(
-        presentation
-            .form_presentation
-            .engine
-            .as_ref()
-            .unwrap()
-            .passes,
-        [2, 1]
-    );
+    assert_eq!(presentation.engine.as_ref().unwrap().passes, [2, 1]);
     let runtime =
         super::pack_harness::action_form(&mut player_runtime, "Smaller menu", &["Choice"]);
     let identity = runtime.server_forms().active().unwrap().identity;
@@ -72,15 +56,7 @@ fn rejected_form_binds_once_without_partial_hits_and_changed_inputs_retry() {
         presentation.form_engine_frame(identity).unwrap().hits.len(),
         1
     );
-    assert_eq!(
-        presentation
-            .form_presentation
-            .engine
-            .as_ref()
-            .unwrap()
-            .passes,
-        [3, 2]
-    );
+    assert_eq!(presentation.engine.as_ref().unwrap().passes, [3, 2]);
 }
 
 // A static form resolves and lays out once; hovering a button only repaints.
@@ -91,14 +67,8 @@ fn static_form_resolves_once_and_hover_only_repaints() {
     let mut presentation = mini_engine_presentation();
     let mut runtime =
         super::pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B", "C"]);
-    let passes = |presentation: &UiPresentationRuntime| {
-        presentation
-            .form_presentation
-            .engine
-            .as_ref()
-            .unwrap()
-            .passes
-    };
+    let passes =
+        |presentation: &UiPresentationRuntime| presentation.engine.as_ref().unwrap().passes;
     for _ in 0..3 {
         presentation
             .build(
@@ -164,7 +134,7 @@ fn review_open_form_remeasures_after_a_late_font_swap() {
         .build(&player_runtime, &runtime, 1, [1280, 720], dpi)
         .unwrap();
     super::snapshot::write(&after, "late-font-after");
-    let engine = presentation.form_presentation.engine.as_ref().unwrap();
+    let engine = presentation.engine.as_ref().unwrap();
     assert_eq!(
         engine.passes,
         [1, 2],
@@ -175,28 +145,12 @@ fn review_open_form_remeasures_after_a_late_font_swap() {
             .build(&player_runtime, &runtime, now, [1280, 720], dpi)
             .unwrap();
     }
-    assert_eq!(
-        presentation
-            .form_presentation
-            .engine
-            .as_ref()
-            .unwrap()
-            .passes,
-        [1, 2]
-    );
+    assert_eq!(presentation.engine.as_ref().unwrap().passes, [1, 2]);
     runtime.set_session_glyphs(None);
     presentation
         .build(&player_runtime, &runtime, 7, [1280, 720], dpi)
         .unwrap();
-    assert_eq!(
-        presentation
-            .form_presentation
-            .engine
-            .as_ref()
-            .unwrap()
-            .passes,
-        [1, 3]
-    );
+    assert_eq!(presentation.engine.as_ref().unwrap().passes, [1, 3]);
 }
 
 #[test]
@@ -229,12 +183,7 @@ fn selected_edit_box_rebinds_only_when_its_visible_state_changes() {
                 ui::DpiScale::new(1.0).unwrap(),
             )
             .unwrap();
-        presentation
-            .form_presentation
-            .engine
-            .as_ref()
-            .unwrap()
-            .passes
+        presentation.engine.as_ref().unwrap().passes
     };
     render(&mut presentation, &runtime);
     let identity = runtime.server_forms().active().unwrap().identity;
@@ -463,7 +412,7 @@ fn path_and_url_button_images_resolve_like_vanilla() {
         glint: false,
     };
     let icons = [("textures/items/apple".to_owned(), apple)].into();
-    let engine = presentation.form_presentation.engine.as_mut().unwrap();
+    let engine = presentation.engine.as_mut().unwrap();
     engine.textures.set_fallbacks(icons, vanilla.clone());
     let remote = engine.textures.remote.clone();
     let runtime = super::pack_harness::image_form(
@@ -963,8 +912,8 @@ fn fallback_form_preserves_host_owned_presentation_state() {
         .unwrap();
     presentation.set_mod_label(Some("Extension label")).unwrap();
     super::pack_harness::render(&mut presentation, &runtime, [1280, 720], 1.0);
-    assert!(presentation.form_presentation.experience.is_some());
-    assert!(presentation.form_presentation.mod_hud.is_some());
+    assert!(presentation.screens.experience.is_some());
+    assert!(presentation.screens.mod_hud.is_some());
 }
 
 #[test]

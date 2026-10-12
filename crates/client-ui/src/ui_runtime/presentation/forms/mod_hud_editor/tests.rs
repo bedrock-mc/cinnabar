@@ -17,7 +17,7 @@ fn editor(p: &mut UiPresentationRuntime, hud: &Hud) {
     p.open_mod_hud_editor(hud).unwrap();
 }
 pub(super) fn point(p: &UiPresentationRuntime, action: &str) -> [f32; 2] {
-    let editor = p.form_presentation.mod_hud_editor.as_ref().unwrap();
+    let editor = p.screens.mod_hud_editor.as_ref().unwrap();
     let frame = editor.frame.as_ref().expect("editor rendered");
     let hit = frame
         .hits
@@ -49,7 +49,7 @@ fn editor_drag_uses_real_scaled_hit_regions_and_retains_its_catalog() {
         frame(&mut p, &UiRuntime::new(1), size, dpi);
         let at = point(&p, "hud.card:0");
         let catalog = Arc::clone(
-            p.form_presentation
+            p.screens
                 .mod_hud_editor
                 .as_ref()
                 .unwrap()
@@ -61,11 +61,11 @@ fn editor_drag_uses_real_scaled_hit_regions_and_retains_its_catalog() {
         // Pointer capture persists outside the hit region, clamps at both screen edges.
         p.mod_panel_events([10000., 10000.], false, true);
         frame(&mut p, &UiRuntime::new(1), size, dpi);
-        let draft = &p.form_presentation.mod_hud_editor.as_ref().unwrap().draft;
+        let draft = &p.screens.mod_hud_editor.as_ref().unwrap().draft;
         assert_eq!(draft.cards[0].position, Some([1., 1.]));
         assert!(Arc::ptr_eq(
             &catalog,
-            p.form_presentation
+            p.screens
                 .mod_hud_editor
                 .as_ref()
                 .unwrap()
@@ -75,13 +75,7 @@ fn editor_drag_uses_real_scaled_hit_regions_and_retains_its_catalog() {
         ));
         p.mod_panel_events([-1000., -1000.], false, false);
         assert_eq!(
-            p.form_presentation
-                .mod_hud_editor
-                .as_ref()
-                .unwrap()
-                .draft
-                .cards[0]
-                .position,
+            p.screens.mod_hud_editor.as_ref().unwrap().draft.cards[0].position,
             Some([0., 0.])
         );
         p.mod_panel_key("Enter", None);
@@ -110,7 +104,7 @@ fn custom_row_layout_drag_bounds_match_the_rendered_card_surface() {
             card.icon_size = icon_size;
             editor(&mut p, &hud);
             frame(&mut p, &UiRuntime::new(1), [1280, 720], 1.);
-            let editor = p.form_presentation.mod_hud_editor.as_ref().unwrap();
+            let editor = p.screens.mod_hud_editor.as_ref().unwrap();
             let rendered = editor.frame.as_ref().unwrap();
             let hit = rendered
                 .hits
@@ -145,13 +139,7 @@ fn custom_row_layout_drag_bounds_match_the_rendered_card_surface() {
             p.mod_panel_events(at, true, true);
             p.mod_panel_events([10000.; 2], false, false);
             assert_eq!(
-                p.form_presentation
-                    .mod_hud_editor
-                    .as_ref()
-                    .unwrap()
-                    .draft
-                    .cards[0]
-                    .position,
+                p.screens.mod_hud_editor.as_ref().unwrap().draft.cards[0].position,
                 Some([1., 1.])
             );
         }
@@ -170,23 +158,11 @@ fn editor_selection_preserves_legacy_placement_and_reset_is_a_draft() {
     frame(&mut p, &UiRuntime::new(1), [1280, 720], 1.);
     click(&mut p, "hud.card:0");
     assert_eq!(
-        p.form_presentation
-            .mod_hud_editor
-            .as_ref()
-            .unwrap()
-            .draft
-            .cards[0]
-            .position,
+        p.screens.mod_hud_editor.as_ref().unwrap().draft.cards[0].position,
         None
     );
     click(&mut p, "hud.reset");
-    let draft = &p
-        .form_presentation
-        .mod_hud_editor
-        .as_ref()
-        .unwrap()
-        .draft
-        .cards[0];
+    let draft = &p.screens.mod_hud_editor.as_ref().unwrap().draft.cards[0];
     assert_eq!(draft.anchor, Anchor::TopLeft);
     assert_eq!(draft.offset, [6., 6.]);
     p.mod_panel_key("Escape", None);
@@ -211,16 +187,16 @@ fn editor_grid_is_optional_and_nudging_stays_inside_available_travel() {
     editor(&mut p, &hud);
     frame(&mut p, &UiRuntime::new(1), [1920, 1080], 1.);
     click(&mut p, "hud.grid");
-    assert!(p.form_presentation.mod_hud_editor.as_ref().unwrap().snap);
+    assert!(p.screens.mod_hud_editor.as_ref().unwrap().snap);
     let at = point(&p, "hud.card:0");
     p.mod_panel_events(at, true, true);
     p.mod_panel_events([at[0] + 33., at[1] + 41.], false, false);
-    let e = p.form_presentation.mod_hud_editor.as_ref().unwrap();
+    let e = p.screens.mod_hud_editor.as_ref().unwrap();
     let origin = cards::origin(&e.draft.cards[0], e.viewport);
     assert!((origin[0] / 8. - (origin[0] / 8.).round()).abs() < 0.001);
     assert!((origin[1] / 8. - (origin[1] / 8.).round()).abs() < 0.001);
     p.mod_panel_key("ArrowRight", None);
-    let e = p.form_presentation.mod_hud_editor.as_ref().unwrap();
+    let e = p.screens.mod_hud_editor.as_ref().unwrap();
     let moved = cards::origin(&e.draft.cards[0], e.viewport);
     assert!((moved[0] - origin[0] - 8.).abs() < 0.001);
 }
@@ -234,7 +210,7 @@ fn large_editor_viewport_draws_a_bounded_subset_of_the_same_eight_pixel_grid() {
     frame(&mut p, &UiRuntime::new(1), [8192, 2160], 1.);
     click(&mut p, "hud.grid");
     frame(&mut p, &UiRuntime::new(1), [8192, 2160], 1.);
-    let e = p.form_presentation.mod_hud_editor.as_ref().unwrap();
+    let e = p.screens.mod_hud_editor.as_ref().unwrap();
     assert!(
         e.viewport[0] > 1536.,
         "exercise a viewport that needs bounded grid decimation"
@@ -306,7 +282,7 @@ fn normalized_titleless_cards_keep_foreground_opaque_and_fit_after_resize() {
     let runtime = UiRuntime::new(1);
     p.set_mod_hud(Some(&hud)).unwrap();
     let clear = frame(&mut p, &runtime, [1280, 720], 1.);
-    let catalog = Arc::clone(&p.form_presentation.mod_widgets.as_ref().unwrap().catalog);
+    let catalog = Arc::clone(&p.screens.mod_widgets.as_ref().unwrap().catalog);
     for opacity in [0., 0.35, 1.] {
         hud.cards[0].background_opacity = opacity;
         p.set_mod_hud(Some(&hud)).unwrap();
@@ -332,7 +308,7 @@ fn normalized_titleless_cards_keep_foreground_opaque_and_fit_after_resize() {
     );
     assert!(Arc::ptr_eq(
         &catalog,
-        &p.form_presentation.mod_widgets.as_ref().unwrap().catalog
+        &p.screens.mod_widgets.as_ref().unwrap().catalog
     ));
     for (size, dpi, scale) in [
         ([1280, 720], 1., 0.5),
@@ -342,7 +318,7 @@ fn normalized_titleless_cards_keep_foreground_opaque_and_fit_after_resize() {
         hud.cards[0].scale = scale;
         p.set_mod_hud(Some(&hud)).unwrap();
         frame(&mut p, &runtime, size, dpi);
-        let widgets = p.form_presentation.mod_widgets.as_ref().unwrap();
+        let widgets = p.screens.mod_widgets.as_ref().unwrap();
         let size = cards::dimensions(&hud.cards[0]);
         let at = cards::origin(&hud.cards[0], widgets.viewport);
         assert!(

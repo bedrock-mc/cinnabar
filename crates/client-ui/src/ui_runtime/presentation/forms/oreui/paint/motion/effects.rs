@@ -1,6 +1,6 @@
 use super::super::super::motion::{Surface, Tween};
-use super::{UiPresentationError, transform_nodes};
-use crate::ui_runtime::presentation::rect;
+use super::{PaintError, transform_nodes};
+use crate::ui_runtime::presentation::forms::engine::rect;
 use ui::{UiNode, UiNodeId, UiVisual};
 
 const OVERLAY_SECONDS: f64 = 0.100;
@@ -111,7 +111,7 @@ impl Effects {
         next: &mut u32,
         seconds: f64,
         size: [f32; 2],
-    ) -> Result<(), UiPresentationError> {
+    ) -> Result<(), PaintError> {
         if !self.enabled {
             return Ok(());
         }
@@ -155,7 +155,7 @@ impl Effects {
         next: &mut u32,
         seconds: f64,
         size: [f32; 2],
-    ) -> Result<(), UiPresentationError> {
+    ) -> Result<(), PaintError> {
         let mut count = 0;
         for node in nodes.iter_mut() {
             if !self.overlay_ids.contains(&node.id()) {
@@ -226,10 +226,10 @@ impl Effects {
     }
 }
 
-fn allocate(next: &mut u32, count: u32) -> Result<u32, UiPresentationError> {
+fn allocate(next: &mut u32, count: u32) -> Result<u32, PaintError> {
     let first = *next;
     *next = next
         .checked_add(count)
-        .ok_or(UiPresentationError::Tree(ui::UiError::DrawIndexOverflow))?;
+        .ok_or(PaintError::Tree(ui::UiError::DrawIndexOverflow))?;
     Ok(first)
 }

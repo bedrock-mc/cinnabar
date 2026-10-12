@@ -4,9 +4,8 @@ use std::sync::Arc;
 
 use json_ui::{Catalog, Context, HUD_SCREEN, HudModel, Timed, hud_data_source, render_screen};
 
-use crate::ui_runtime::presentation::forms::engine::{
-    EngineInputs, EngineOutput, FormEngine, ScreenArt,
-};
+use crate::ui_runtime::presentation::forms::engine::{FormEngine, ScreenArt, screen::PaintFrame};
+use crate::ui_runtime::presentation::forms::screen_registry::registry;
 use crate::ui_runtime::presentation::{TextMetrics, UiPresentationRuntime};
 
 #[test]
@@ -56,14 +55,19 @@ fn builtin_java_hud_keeps_single_and_wrapped_chat_rows_nine_pixels_high() {
     for (physical, gui_scale) in [([854, 459], 1.0), ([1280, 720], 2.0)] {
         let font = crate::test_support::fixture_font();
         let mut presentation = UiPresentationRuntime::new(Arc::clone(&font)).unwrap();
-        let engine = FormEngine::new(crate::test_support::mini_carrier(), catalog.clone(), 0);
+        let engine = FormEngine::new(
+            crate::test_support::mini_carrier(),
+            catalog.clone(),
+            0,
+            registry(),
+        );
         let mut drawn = Vec::new();
         let mut painted = Vec::new();
         let mut next = 1;
         engine
             .draw(
                 ScreenArt::default(),
-                EngineInputs {
+                &mut PaintFrame {
                     layouts: &mut presentation.layouts,
                     font: &font,
                     metrics: TextMetrics::for_viewport(
@@ -76,11 +80,10 @@ fn builtin_java_hud_keeps_single_and_wrapped_chat_rows_nine_pixels_high() {
                     content: physical.map(|side| side as f32),
                     translate: &|_| None,
                     language: [0; 3],
-                },
-                EngineOutput {
+                    now: 0.0,
                     nodes: &mut painted,
                     next: &mut next,
-                    overlay: &[],
+                    renderers: &mut [],
                 },
                 |env, root| {
                     let render = render_screen(

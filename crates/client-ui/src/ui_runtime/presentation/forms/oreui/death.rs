@@ -4,7 +4,7 @@ mod backdrop;
 
 use launcher::menu::death::{CONTENT_FADE_SECONDS, STAGE_SECONDS};
 
-use super::super::super::UiPresentationError;
+use super::super::engine::screen::PaintError;
 use super::super::menu_screens::Translate;
 use super::{paint::Canvas, theme, widgets};
 use launcher::menu::{MenuAction, MenuView};
@@ -43,7 +43,7 @@ pub(super) fn background(
     canvas: &mut Canvas<'_>,
     state: launcher::menu::death::DeathPresentation,
     size: [f32; 2],
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let age = if state.immediate_respawn {
         state.elapsed_seconds - STAGE_SECONDS
     } else {
@@ -58,7 +58,7 @@ pub(super) fn draw(
     view: &MenuView,
     size: [f32; 2],
     translate: Translate<'_>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let state = view.death_presentation;
     let pending_age = state.respawn_seconds.or(view.death_loading.then_some(1.0));
     background(canvas, state, size)?;

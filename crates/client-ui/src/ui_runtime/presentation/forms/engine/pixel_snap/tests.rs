@@ -5,8 +5,9 @@ use json_ui::{Catalog, Context, DataSource, ViewState};
 use ui::{DpiScale, SafeArea, TextLayoutCache, UiNode, UiVisual};
 
 use super::super::super::hud::CachedScreen;
+use super::super::super::screen_registry::registry;
 use super::super::super::server_pack::ServerAtlas;
-use super::super::{EngineInputs, EngineOutput, FormEngine, ScreenArt};
+use super::super::{FormEngine, ScreenArt, screen::PaintFrame};
 use super::{positioned, snapped};
 use {
     crate::ui_runtime::presentation::{TextMetrics, tests::fixture_font},
@@ -133,7 +134,7 @@ fn paint_texture(
     };
     let bytes = encode_ui_catalog([1; 32], &[page], &[], &[], &[]).unwrap();
     let assets = Arc::new(RuntimeUiAssets::decode(&bytes).unwrap());
-    let mut engine = FormEngine::new(assets, Catalog::default(), 2);
+    let mut engine = FormEngine::new(assets, Catalog::default(), 2, registry());
     let mut png = Vec::new();
     image::RgbaImage::from_pixel(dimensions[0], dimensions[1], image::Rgba([22, 33, 44, 255]))
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
@@ -173,7 +174,7 @@ fn paint_texture(
     engine
         .draw(
             ScreenArt::default(),
-            EngineInputs {
+            &mut PaintFrame {
                 layouts: &mut layouts,
                 font: &font,
                 metrics,
@@ -182,11 +183,10 @@ fn paint_texture(
                 content: physical.map(|side| side as f32 / dpi),
                 translate: &|_| None,
                 language: [0; 3],
-            },
-            EngineOutput {
+                now: 0.0,
                 nodes: &mut nodes,
                 next: &mut next,
-                overlay: &[],
+                renderers: &mut [],
             },
             |env, root| {
                 assert_eq!(root.map(f64::round), [480.0, 271.0]);

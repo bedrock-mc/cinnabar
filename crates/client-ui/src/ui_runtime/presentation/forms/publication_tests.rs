@@ -153,13 +153,7 @@ fn local_server_ui_publication_profile() {
     );
     let sheets =
         Arc::new(super::super::session_glyphs::SessionGlyphSheets::with_named(cells, named));
-    let context = presentation
-        .form_presentation
-        .engine
-        .as_ref()
-        .unwrap()
-        .context()
-        .clone();
+    let context = presentation.engine.as_ref().unwrap().context().clone();
     let mut settings = Vec::new();
     let mut indices = Vec::new();
     let mut publication = Vec::new();

@@ -11,7 +11,7 @@ pub(super) fn overview(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     b: Bounds,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let p = &view.feeds.profile;
     let middle = (b[0] + b[2]) * 0.5;
     summary(
@@ -85,7 +85,7 @@ pub(super) fn statistics(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     b: Bounds,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     if !view.feeds.profile.statistics_loaded {
         super::loading(canvas, b)?;
         return Ok(b[1] + canvas.r(9.2));
@@ -159,7 +159,7 @@ fn summary(
     label: &str,
     value: Option<&str>,
     action: Option<MenuAction>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     surface(canvas, view, b, action)?;
     let icon = match label {
         "Friends" => 0,
@@ -199,7 +199,7 @@ fn surface(
     view: &MenuView,
     b: Bounds,
     action: Option<MenuAction>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let interaction = Interaction::of(view, action);
     canvas.fill(
         b,

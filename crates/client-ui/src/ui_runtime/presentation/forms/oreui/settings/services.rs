@@ -1,6 +1,6 @@
 //! Settings panels backed by launcher account, language, pack and storage state.
 
-use super::super::super::super::UiPresentationError;
+use super::super::super::engine::screen::PaintError;
 use super::super::theme::{BODY, CAPTION, EDGE, NEUTRAL, TEXT, TEXT_DIMMER};
 use super::super::widgets;
 use super::{Content, button};
@@ -14,10 +14,7 @@ use launcher::menu::{
 #[cfg(test)]
 mod tests;
 
-pub(super) fn draw(
-    content: &mut Content<'_, '_>,
-    section: &str,
-) -> Result<bool, UiPresentationError> {
+pub(super) fn draw(content: &mut Content<'_, '_>, section: &str) -> Result<bool, PaintError> {
     match section {
         "language_forced_index" => language(content)?,
         "account_forced_index" => account(content)?,
@@ -43,7 +40,7 @@ pub(super) fn draw(
     Ok(true)
 }
 
-fn language(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
+fn language(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.language.tab.title", "menu.language.tab.description")?;
     let view = content.view;
     let selected = view.settings_options.language();
@@ -84,7 +81,7 @@ fn language(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
     Ok(())
 }
 
-fn account(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
+fn account(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.account.tab.title", "menu.account.tab.description")?;
     let view = content.view;
     if matches!(view.auth_state, AuthState::Authenticated) {
@@ -145,7 +142,7 @@ fn account(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
     Ok(())
 }
 
-fn subscriptions(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
+fn subscriptions(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("options.viewSubscriptions", "")?;
     if matches!(content.view.auth_state, AuthState::Authenticated) {
         content.label("options.viewSubscriptions.mySubscriptions", "")?;
@@ -168,10 +165,10 @@ fn subscriptions(content: &mut Content<'_, '_>) -> Result<(), UiPresentationErro
     Ok(())
 }
 
-fn resources(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
+fn resources(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     super::resources::draw(content)
 }
-fn storage(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
+fn storage(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.storage.tab.title", "menu.storage.tab.description")?;
     let view = content.view;
     let titles = [
@@ -274,7 +271,7 @@ pub(super) fn action_row(
     description: &str,
     label: &str,
     action: Option<MenuAction>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let title = content.word(title);
     let description = content.word(description);
     let label = content.word(label);

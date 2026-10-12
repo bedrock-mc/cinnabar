@@ -59,7 +59,7 @@ fn no_mod_output_is_identical_to_the_vanilla_frame() {
     presentation.set_mod_label(None).unwrap();
     let after = frame(&player_runtime, &mut presentation);
     assert_eq!(before, after);
-    assert!(presentation.form_presentation.mod_hud.is_none());
+    assert!(presentation.screens.mod_hud.is_none());
 }
 
 #[test]
@@ -72,27 +72,12 @@ fn extension_mount_update_and_revoke_use_json_ui() {
         .set_mod_label(Some("Cinnabar extension: Hello"))
         .unwrap();
     let first = frame(&player_runtime, &mut presentation);
-    assert!(presentation.form_presentation.hud.hud.has_visible_content());
-    assert!(
-        presentation
-            .form_presentation
-            .mod_hud
-            .as_ref()
-            .unwrap()
-            .screen
-            .passes
-            > 0
-    );
+    assert!(presentation.screens.hud.hud.has_visible_content());
+    assert!(presentation.screens.mod_hud.as_ref().unwrap().screen.passes > 0);
     assert!(before != snapshot::rasterize(&first));
     assert_eq!(first, frame(&player_runtime, &mut presentation));
     assert_eq!(
-        presentation
-            .form_presentation
-            .mod_hud
-            .as_ref()
-            .unwrap()
-            .screen
-            .passes,
+        presentation.screens.mod_hud.as_ref().unwrap().screen.passes,
         1
     );
     presentation
@@ -133,13 +118,7 @@ fn extension_is_hidden_while_chat_or_inventory_owns_input() {
             .unwrap();
         assert_eq!(before, snapshot::rasterize(&build(&mut presentation)));
         assert_eq!(
-            presentation
-                .form_presentation
-                .mod_hud
-                .as_ref()
-                .unwrap()
-                .screen
-                .passes,
+            presentation.screens.mod_hud.as_ref().unwrap().screen.passes,
             0
         );
     }
@@ -161,13 +140,7 @@ fn extension_cannot_restore_a_server_hidden_hud() {
         .unwrap();
     assert_eq!(before, frame(&player_runtime, &mut presentation));
     assert_eq!(
-        presentation
-            .form_presentation
-            .mod_hud
-            .as_ref()
-            .unwrap()
-            .screen
-            .passes,
+        presentation.screens.mod_hud.as_ref().unwrap().screen.passes,
         0
     );
 }

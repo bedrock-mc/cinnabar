@@ -8,8 +8,12 @@ mod template;
 mod tests;
 
 use super::{
-    engine::{EngineInputs, EngineOutput, ScreenArt},
+    engine::{
+        ScreenArt,
+        screen::{CustomRenderer, PaintFrame},
+    },
     hud::CachedScreen,
+    item_renderer::ItemRenderer,
     mod_widgets::template as cards,
 };
 use crate::ui_runtime::{UiRuntime, forms::EngineFrame};
@@ -55,7 +59,7 @@ impl UiPresentationRuntime {
             return Err("HUD editor requires an open panel".into());
         }
         self.cancel_mod_panel_edit();
-        self.form_presentation.mod_hud_editor = Some(HudEditor {
+        self.screens.mod_hud_editor = Some(HudEditor {
             draft: preview.clone(),
             committed: preview.clone(),
             autosave: preview.autosave,
@@ -78,7 +82,7 @@ impl UiPresentationRuntime {
 
     /// Whether native layout editing currently owns the personal panel surface.
     pub fn mod_hud_editor_open(&self) -> bool {
-        self.form_presentation
+        self.screens
             .mod_hud_editor
             .as_ref()
             .is_some_and(|editor| editor.open)
@@ -86,22 +90,17 @@ impl UiPresentationRuntime {
 
     /// Cancels a draft on ownership, focus, session or presentation loss.
     pub fn cancel_mod_hud_editor(&mut self) {
-        if let Some(editor) = self
-            .form_presentation
-            .mod_hud_editor
-            .as_mut()
-            .filter(|e| e.open)
-        {
+        if let Some(editor) = self.screens.mod_hud_editor.as_mut().filter(|e| e.open) {
             editor.finish(false);
         }
     }
 
     /// Host-owned result, delivered only to the component that requested this draft.
     pub fn take_mod_hud_editor_result(&mut self) -> Option<EditorResult> {
-        let editor = self.form_presentation.mod_hud_editor.as_mut()?;
+        let editor = self.screens.mod_hud_editor.as_mut()?;
         let result = editor.result.take()?;
         if !editor.open {
-            self.form_presentation.mod_hud_editor = None;
+            self.screens.mod_hud_editor = None;
         }
         Some(result)
     }
@@ -115,12 +114,7 @@ impl UiPresentationRuntime {
         metrics: TextMetrics,
         content: [f32; 2],
     ) {
-        let Some(editor) = self
-            .form_presentation
-            .mod_hud_editor
-            .as_ref()
-            .filter(|e| e.open)
-        else {
+        let Some(editor) = self.screens.mod_hud_editor.as_ref().filter(|e| e.open) else {
             return;
         };
         let mut resolved = [None; MAX_HUD_ROWS];
@@ -132,15 +126,11 @@ impl UiPresentationRuntime {
                 .and_then(|id| self.item_icon(id, row.metadata));
             count += 1;
         }
-        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+        let Some(renderer) = self.engine.as_deref() else {
             self.cancel_mod_hud_editor();
             return;
         };
-        let editor = self
-            .form_presentation
-            .mod_hud_editor
-            .as_mut()
-            .expect("checked above");
+        let editor = self.screens.mod_hud_editor.as_mut().expect("checked above");
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let viewport = [f64::from(content[0] / px), f64::from(content[1] / px)];
         if viewport[0] < 220. || viewport[1] < 120. {
@@ -181,7 +171,13 @@ impl UiPresentationRuntime {
         if *editor.data != data {
             editor.data = Arc::new(data);
         }
-        let inputs = EngineInputs {
+        let rollback = (nodes.len(), *next);
+        let mut items = ItemRenderer {
+            icons: &icons,
+            id_aux: &[],
+        };
+        let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut items];
+        let mut paint_frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
             metrics,
@@ -190,19 +186,16 @@ impl UiPresentationRuntime {
             content,
             translate: &|_| None,
             language: runtime.text_generation(),
-        };
-        let rollback = (nodes.len(), *next);
-        let out = EngineOutput {
+            now: 0.0,
             nodes: &mut *nodes,
             next: &mut *next,
-            overlay: &[],
+            renderers: &mut renderers,
         };
         let art = ScreenArt {
-            icons: &icons,
             view: Some(&editor.view),
             ..Default::default()
         };
-        let result = renderer.draw(art, inputs, out, |env, root| {
+        let result = renderer.draw(art, &mut paint_frame, |env, root| {
             editor.screen.render_shared_with(
                 SCREEN,
                 editor.catalog.as_ref().expect("installed"),

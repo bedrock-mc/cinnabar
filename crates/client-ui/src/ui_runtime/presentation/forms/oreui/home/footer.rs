@@ -13,7 +13,7 @@ pub(super) fn draw(
     b: Bounds,
     compact: bool,
     portrait: Option<IconRef>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let region = canvas.begin_focus_region(focus::HEADER, b, None, true)?;
     let gap = canvas.r(1.2);
     let height = canvas.r(4.8);
@@ -80,7 +80,7 @@ fn account(
     view: &MenuView,
     b: Bounds,
     portrait: Option<IconRef>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let action = match view.auth_state {
         AuthState::SignedOut | AuthState::Failed(_) => MenuAction::StartSignIn,
         _ => MenuAction::OpenAccounts,

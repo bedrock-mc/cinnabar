@@ -49,7 +49,6 @@ fn button_frame(name: &str, size: [f64; 2]) -> EngineFrame {
         &ViewState::default(),
     );
     EngineFrame {
-        identity: None,
         hits: json_ui::hit_regions(&laid).into(),
         report,
         cancel_target: None,
@@ -77,7 +76,7 @@ fn overlapping_screens() -> UiPresentationRuntime {
         focus: None,
         data: &screen::Modal::default(),
     }));
-    let screens = presentation.form_presentation.mod_screens.as_mut().unwrap();
+    let screens = presentation.screens.mod_screens.as_mut().unwrap();
     screens.overlay.frame = Some(button_frame("overlay", [20.0, 20.0]));
     screens.view.frame = Some(button_frame("dismiss", [200.0, 100.0]));
     screens.layout = Some(ScreenLayout {
@@ -156,7 +155,7 @@ fn overlay_primary_and_secondary_clicks_win_over_full_screen_dismiss_hits() {
 fn overlay_wheel_scrolls_blank_viewports_with_and_without_an_open_view() {
     for view_open in [false, true] {
         let mut presentation = overlapping_screens();
-        let screens = presentation.form_presentation.mod_screens.as_mut().unwrap();
+        let screens = presentation.screens.mod_screens.as_mut().unwrap();
         if !view_open {
             screens.view.frame = None;
             screens.layout.as_mut().unwrap().view = None;
@@ -175,7 +174,7 @@ fn overlay_wheel_scrolls_blank_viewports_with_and_without_an_open_view() {
         );
         presentation.hover_mod_screens(Some([5.0, 5.0]));
         assert_eq!(presentation.scroll_mod_screens([5.0, 5.0], 1.0), None);
-        let screens = presentation.form_presentation.mod_screens.as_ref().unwrap();
+        let screens = presentation.screens.mod_screens.as_ref().unwrap();
         assert_eq!(screens.overlay.view.scroll.get("rows"), Some(&10.0));
     }
 }
@@ -257,7 +256,7 @@ fn forbidden_overlay_edit_boxes_release_focus_and_reject_focus_requests() {
     redraw(&mut presentation, &data, None);
     assert!(
         presentation
-            .form_presentation
+            .screens
             .mod_screens
             .as_ref()
             .unwrap()

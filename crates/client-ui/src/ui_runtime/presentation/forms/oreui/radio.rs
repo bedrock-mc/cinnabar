@@ -1,6 +1,6 @@
 //! Radio diamonds rotate the complete bordered square, including its speculars and centre.
 
-use super::super::super::UiPresentationError;
+use super::super::engine::screen::PaintError;
 use super::motion::{Kind, mix, opacity};
 use super::paint::{Bounds, Canvas};
 use super::theme::{self, Rgba};
@@ -15,7 +15,7 @@ pub(super) fn draw(
     checked: bool,
     state: Interaction,
     enabled: bool,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let motion = canvas.feedback(state, enabled, checked, Kind::Radio);
     let secondary = canvas.role(theme::SECONDARY);
     let disabled = canvas.role(theme::DISABLED);
@@ -81,7 +81,7 @@ struct Square<'a, 'b> {
 }
 
 impl Square<'_, '_> {
-    fn fill(&mut self, b: Bounds, color: Rgba) -> Result<(), UiPresentationError> {
+    fn fill(&mut self, b: Bounds, color: Rgba) -> Result<(), PaintError> {
         let dx = self.canvas.r((b[0] + b[2]) * 0.5);
         let dy = self.canvas.r((b[1] + b[3]) * 0.5);
         let x = self.centre[0] + (dx - dy) * std::f32::consts::FRAC_1_SQRT_2;
@@ -100,7 +100,7 @@ impl Square<'_, '_> {
         )
     }
 
-    fn frame(&mut self, b: Bounds, width: f32, color: Rgba) -> Result<(), UiPresentationError> {
+    fn frame(&mut self, b: Bounds, width: f32, color: Rgba) -> Result<(), PaintError> {
         for side in [
             [b[0], b[1], b[2], b[1] + width],
             [b[0], b[3] - width, b[2], b[3]],

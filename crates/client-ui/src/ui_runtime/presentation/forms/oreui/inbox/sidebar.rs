@@ -5,7 +5,7 @@ use super::super::paint::Bounds;
 use super::super::theme::{BODY, BORDER, CAPTION, EDGE, NEUTRAL80, OUTLINE, TEXT};
 use crate::ui_runtime::oreui_assets::SETTINGS_ICON_HIGHLIGHT_IMAGE;
 use {
-    super::{Canvas, UNREAD, UiPresentationError},
+    super::{Canvas, PaintError, UNREAD},
     launcher::menu::inbox::{Action, CATEGORIES},
     launcher::menu::{MenuAction, MenuView},
 };
@@ -15,7 +15,7 @@ pub(super) fn draw(
     view: &MenuView,
     bounds: Bounds,
     narrow: bool,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let row_height = canvas.r(4.8);
     let pad = canvas.r(1.6);
     let edge = canvas.r(EDGE);

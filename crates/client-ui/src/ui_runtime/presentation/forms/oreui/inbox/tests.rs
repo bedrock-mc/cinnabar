@@ -136,10 +136,7 @@ fn inbox_selection_glimmers_once_and_obeys_the_animation_setting() {
     assert_eq!(crops(frame(&mut runtime, &view, 3.0)), [[192, 0, 216, 24]]);
     view.feeds.inbox_state.category = 2;
     assert_eq!(crops(frame(&mut runtime, &view, 4.0)), [[0, 0, 24, 24]]);
-    runtime
-        .form_presentation
-        .oreui_transitions
-        .configure_motion(false);
+    runtime.screens.oreui.transitions.configure_motion(false);
     assert!(crops(frame(&mut runtime, &view, 4.05)).is_empty());
     assert!(
         matches!(text_node(&frame(&mut runtime, &view, 5.0), "No new invites").visual(), UiVisual::Text { color, .. } if color[3] == 255)
@@ -156,7 +153,7 @@ fn maintenance_and_confirmation_only_expose_their_own_inputs() {
     for action in [Action::Filters, Action::MarkAllRead, Action::DeleteAllRead] {
         assert!(
             runtime
-                .form_presentation
+                .projections
                 .menu_focus
                 .contains(&MenuAction::Inbox(action))
         );
@@ -173,16 +170,10 @@ fn maintenance_and_confirmation_only_expose_their_own_inputs() {
         action,
         MenuAction::Inbox(Action::Cancel | Action::ConfirmDelete)
     )));
-    assert!(
-        runtime
-            .form_presentation
-            .menu_focus
-            .iter()
-            .all(|action| matches!(
-                action,
-                MenuAction::Inbox(Action::Cancel | Action::ConfirmDelete)
-            ))
-    );
+    assert!(runtime.projections.menu_focus.iter().all(|action| matches!(
+        action,
+        MenuAction::Inbox(Action::Cancel | Action::ConfirmDelete)
+    )));
 }
 
 #[test]

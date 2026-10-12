@@ -4,7 +4,12 @@ use json_ui::{
     render_screen,
 };
 
-use super::layer_pack_catalog;
+/// `layers` over `base` under every registered screen family's catalog policy.
+fn layer_pack_catalog(base: &Catalog, layers: &[Vec<(String, Vec<u8>)>]) -> Catalog {
+    super::super::super::screen_registry::registry()
+        .catalog()
+        .layer(base, layers)
+}
 
 mod admitted_titles;
 mod effects;
@@ -126,10 +131,7 @@ fn resource_pack_hotbar_panel_patch_reaches_the_builtin_hud() {
         "centered_gui_elements_at_bottom_middle/hotbar_panel",
     ] {
         let patch = serde_json::json!({"namespace":"hud", target: {"offset":[0,-30]}}).to_string();
-        let patched = render(&super::layer_pack_catalog(
-            &vanilla,
-            &[layer(patch.as_bytes())],
-        ));
+        let patched = render(&layer_pack_catalog(&vanilla, &[layer(patch.as_bytes())]));
         assert_eq!(hotbar_top(&patched), hotbar_top(&base) - 30.0, "{target}");
     }
 }

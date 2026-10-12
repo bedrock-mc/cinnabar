@@ -1,4 +1,4 @@
-use super::super::super::UiPresentationError;
+use super::super::engine::screen::PaintError;
 use super::super::{
     join_progress,
     loading_screen::LoadingStage,
@@ -34,7 +34,7 @@ pub(super) fn join(
     view: &MenuView,
     size: [f32; 2],
     translate: Translate<'_>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     widgets::screen_overlay(canvas, size)?;
     let tr = |key: &str, fallback: &str| translated(translate, key, fallback);
     let (title, detail, fraction, cancel) = if let Some(local) = &view.local.progress {
@@ -82,7 +82,7 @@ pub(super) fn draw(
     view: Option<&MenuView>,
     size: [f32; 2],
     progress: &Progress<'_>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     world::backdrop(canvas, size, progress.stage, progress.destination)?;
     let entrance = canvas.begin_entrance(super::motion::Surface::Loading);
     let margin = canvas.r(2.0).min(size[0] * 0.05).min(size[1] * 0.05);
@@ -247,7 +247,7 @@ fn status_surface(progress: &Progress<'_>, view: Option<&MenuView>) -> super::mo
 }
 
 /// The installed cube loader supplies unknown progress; fallback dots never imply a percentage.
-pub(super) fn loader(canvas: &mut Canvas<'_>, bounds: Bounds) -> Result<(), UiPresentationError> {
+pub(super) fn loader(canvas: &mut Canvas<'_>, bounds: Bounds) -> Result<(), PaintError> {
     if canvas.loading_sprite(bounds)? {
         return Ok(());
     }
@@ -274,11 +274,7 @@ pub(super) fn loader(canvas: &mut Canvas<'_>, bounds: Bounds) -> Result<(), UiPr
     Ok(())
 }
 
-fn track(
-    canvas: &mut Canvas<'_>,
-    bounds: Bounds,
-    fraction: Option<f32>,
-) -> Result<(), UiPresentationError> {
+fn track(canvas: &mut Canvas<'_>, bounds: Bounds, fraction: Option<f32>) -> Result<(), PaintError> {
     canvas.fill(bounds, theme::NEUTRAL100)?;
     let edge = canvas.r(theme::EDGE);
     let inner = [

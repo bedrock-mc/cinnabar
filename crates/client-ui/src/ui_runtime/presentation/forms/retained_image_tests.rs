@@ -56,12 +56,7 @@ fn retained_menu_publishes_requested_original_image_pixels() {
     };
     build(&mut presentation, 0);
     build(&mut presentation, 1000);
-    presentation
-        .form_presentation
-        .engine
-        .as_ref()
-        .unwrap()
-        .menu_title(&presentation.menu_artwork.refs);
+    presentation.title_icon(&presentation.menu_artwork.refs);
     test_time::eventually(
         "requested image publishes while the launcher menu stays unchanged",
         || {

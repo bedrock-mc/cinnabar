@@ -14,7 +14,7 @@ pub(super) fn details(
     index: usize,
     b: Bounds,
     images: &HashMap<String, IconRef>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let scroll = canvas.begin_scroll(&format!("servers.details.{index}"), b)?;
     let top = b[1] - scroll.offset;
     let right = b[2] - canvas.r(1.6);
@@ -34,7 +34,7 @@ pub(super) fn details_content(
     index: usize,
     [left, top, right]: [f32; 3],
     images: &HashMap<String, IconRef>,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let details = view.feeds.details.get(&server.address);
     let banner = [left, top, right, top + (right - left) * 0.3];
     let art = details.and_then(|details| images.get(&details.banner));
@@ -173,7 +173,7 @@ fn paragraph(
     title: &str,
     subtitle: &str,
     text: &str,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let first = canvas.nodes.len();
     canvas.fill([left, top, right, top + canvas.r(1.2)], NEUTRAL80.fill)?;
     divider(canvas, left, right, top)?;
@@ -196,14 +196,10 @@ fn paragraph(
     Ok(y)
 }
 
-fn extend_fill(
-    canvas: &mut Canvas<'_>,
-    first: usize,
-    bounds: Bounds,
-) -> Result<(), UiPresentationError> {
+fn extend_fill(canvas: &mut Canvas<'_>, first: usize, bounds: Bounds) -> Result<(), PaintError> {
     let node = &canvas.nodes[first];
     let b = node.bounds();
-    let rect = super::super::super::super::rect(
+    let rect = super::super::super::engine::rect(
         b.min().x(),
         b.min().y(),
         b.min().x() + bounds[2] - bounds[0],
@@ -218,7 +214,7 @@ fn ping_strip(
     banner: Bounds,
     ping: Option<&PingInfo>,
     exact: bool,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let overlay = status_overlay(canvas, banner)?;
     let icon_side = 20.0 * super::super::icons::native_scale(canvas);
     let x = overlay[0] + canvas.r(2.4);
@@ -264,7 +260,7 @@ fn ping_strip(
     player_count(canvas, overlay, players_x, &count)
 }
 
-fn status_overlay(canvas: &mut Canvas<'_>, banner: Bounds) -> Result<Bounds, UiPresentationError> {
+fn status_overlay(canvas: &mut Canvas<'_>, banner: Bounds) -> Result<Bounds, PaintError> {
     let overlay = [banner[0], banner[3] - canvas.r(6.0), banner[2], banner[3]];
     canvas.fill(overlay, [0, 0, 0, 179])?;
     Ok(overlay)
@@ -275,7 +271,7 @@ fn player_count(
     overlay: Bounds,
     players_x: f32,
     count: &str,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let player_side = canvas.r(2.4);
     let player_top = overlay[1] + (canvas.r(6.0) - player_side) * 0.5;
     canvas.sprite(
@@ -305,7 +301,7 @@ pub(super) fn saved_details(
     view: &MenuView,
     index: usize,
     b: Bounds,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let server = &view.servers[index];
     let pad = canvas.r(2.4);
     let right = b[2] - canvas.r(1.6);

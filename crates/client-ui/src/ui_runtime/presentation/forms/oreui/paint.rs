@@ -12,7 +12,7 @@ mod reveal;
 mod sprites;
 mod typing;
 pub(super) use motion::Effects;
-pub(super) use motion::apply_entrance;
+pub(super) use motion::{EntranceScope, apply_entrance};
 
 use ui::{
     TextLayoutCache, TextLayoutRequest, TextShadow, UiNode, UiNodeId, UiRect, UiScale, UiVisual,
@@ -28,7 +28,8 @@ use launcher::menu::{
     view::{SettingsFocusLandmark, SettingsFocusTarget},
 };
 use {
-    super::super::super::{TextMetrics, UiPresentationError, rect},
+    super::super::super::TextMetrics,
+    super::super::engine::{rect, screen::PaintError},
     ui::{FONT_DESIGN_PIXEL_TEXELS, IconRef},
 };
 
@@ -195,7 +196,7 @@ impl<'a> Canvas<'a> {
         index: u16,
         track: Bounds,
         thumb: Bounds,
-    ) -> Result<(), UiPresentationError> {
+    ) -> Result<(), PaintError> {
         let track = rect(track[0], track[1], track[2], track[3])?;
         let thumb = match self.clip {
             Some((_, clip)) => [
@@ -215,11 +216,7 @@ impl<'a> Canvas<'a> {
         Ok(())
     }
 
-    fn push(
-        &mut self,
-        bounds: Bounds,
-        mut visual: UiVisual,
-    ) -> Result<UiRect, UiPresentationError> {
+    fn push(&mut self, bounds: Bounds, mut visual: UiVisual) -> Result<UiRect, PaintError> {
         let area = self.local(bounds)?;
         match &mut visual {
             UiVisual::Solid { color, .. } => *color = self.appearance.surface(*color),
@@ -267,12 +264,12 @@ impl<'a> Canvas<'a> {
     }
 
     /// `b` relative to the clipping node it attaches to, as the UI tree lays out.
-    fn local(&self, b: Bounds) -> Result<UiRect, UiPresentationError> {
+    fn local(&self, b: Bounds) -> Result<UiRect, PaintError> {
         let [x, y] = self.clip.map_or([0.0; 2], |(_, c)| [c[0], c[1]]);
         rect(b[0] - x, b[1] - y, b[2] - x, b[3] - y)
     }
 
-    pub(super) fn fill(&mut self, bounds: Bounds, color: Rgba) -> Result<(), UiPresentationError> {
+    pub(super) fn fill(&mut self, bounds: Bounds, color: Rgba) -> Result<(), PaintError> {
         if bounds[2] <= bounds[0] || bounds[3] <= bounds[1] || color[3] == 0 {
             return Ok(());
         }
@@ -288,20 +285,12 @@ impl<'a> Canvas<'a> {
     }
 
     /// Places caller-owned geometry in the canvas's current clipping scope.
-    pub(super) fn mesh(
-        &mut self,
-        bounds: Bounds,
-        mesh: Arc<ui::UiMesh>,
-    ) -> Result<(), UiPresentationError> {
+    pub(super) fn mesh(&mut self, bounds: Bounds, mesh: Arc<ui::UiMesh>) -> Result<(), PaintError> {
         self.push(bounds, UiVisual::Mesh(mesh))?;
         Ok(())
     }
 
-    pub(super) fn gradient(
-        &mut self,
-        bounds: Bounds,
-        colors: [Rgba; 2],
-    ) -> Result<(), UiPresentationError> {
+    pub(super) fn gradient(&mut self, bounds: Bounds, colors: [Rgba; 2]) -> Result<(), PaintError> {
         self.push(
             bounds,
             UiVisual::Gradient {
@@ -314,11 +303,7 @@ impl<'a> Canvas<'a> {
     }
 
     /// Finishes a solid's extent after measuring its children, retaining its paint order.
-    pub(super) fn resize_fill(
-        &mut self,
-        index: usize,
-        bounds: Bounds,
-    ) -> Result<(), UiPresentationError> {
+    pub(super) fn resize_fill(&mut self, index: usize, bounds: Bounds) -> Result<(), PaintError> {
         let area = self.local(bounds)?;
         let node = &mut self.nodes[index];
         debug_assert!(matches!(node.visual(), UiVisual::Solid { .. }));
@@ -331,7 +316,7 @@ impl<'a> Canvas<'a> {
         bounds: Bounds,
         color: Rgba,
         angle_radians: f32,
-    ) -> Result<(), UiPresentationError> {
+    ) -> Result<(), PaintError> {
         if bounds[2] <= bounds[0] || bounds[3] <= bounds[1] || color[3] == 0 {
             return Ok(());
         }
@@ -348,12 +333,7 @@ impl<'a> Canvas<'a> {
     }
 
     /// A `width`-rem border drawn inside `bounds`.
-    pub(super) fn frame(
-        &mut self,
-        b: Bounds,
-        width: f32,
-        color: Rgba,
-    ) -> Result<(), UiPresentationError> {
+    pub(super) fn frame(&mut self, b: Bounds, width: f32, color: Rgba) -> Result<(), PaintError> {
         let w = self.r(width);
         self.fill([b[0], b[1], b[2], b[1] + w], color)?;
         self.fill([b[0], b[3] - w, b[2], b[3]], color)?;
@@ -368,7 +348,7 @@ impl<'a> Canvas<'a> {
         b: Bounds,
         top: Rgba,
         bottom: Rgba,
-    ) -> Result<(), UiPresentationError> {
+    ) -> Result<(), PaintError> {
         let w = self.r(EDGE);
         self.fill([b[0], b[3] - w, b[2], b[3]], bottom)?;
         self.fill([b[2] - w, b[1], b[2], b[3] - w], bottom)?;
@@ -377,12 +357,7 @@ impl<'a> Canvas<'a> {
     }
 
     /// One-texel top and bottom edges only.
-    pub(super) fn bevel(
-        &mut self,
-        b: Bounds,
-        top: Rgba,
-        bottom: Rgba,
-    ) -> Result<(), UiPresentationError> {
+    pub(super) fn bevel(&mut self, b: Bounds, top: Rgba, bottom: Rgba) -> Result<(), PaintError> {
         let w = self.r(EDGE);
         self.fill([b[0], b[1], b[2], b[1] + w], top)?;
         self.fill([b[0], b[3] - w, b[2], b[3]], bottom)
@@ -397,7 +372,7 @@ impl<'a> Canvas<'a> {
         style: Type,
         color: Rgba,
         shadow: bool,
-    ) -> Result<f32, UiPresentationError> {
+    ) -> Result<f32, PaintError> {
         if value.is_empty() {
             return Ok(0.0);
         }
@@ -413,7 +388,7 @@ impl<'a> Canvas<'a> {
         width: f32,
         style: Type,
         color: Rgba,
-    ) -> Result<f32, UiPresentationError> {
+    ) -> Result<f32, PaintError> {
         self.centered_wrapped_text_with_shadow(value, at, width, style, color, false)
     }
 
@@ -426,16 +401,13 @@ impl<'a> Canvas<'a> {
         style: Type,
         color: Rgba,
         shadow: bool,
-    ) -> Result<f32, UiPresentationError> {
+    ) -> Result<f32, PaintError> {
         if value.is_empty() {
             return Ok(0.0);
         }
         let mut request = self.text_request(value, (width.max(1.0) * 64.0) as u32, style)?;
         request.wrap.align = ui::TextLineAlign::Center;
-        let layout = self
-            .layouts
-            .layout(request)
-            .map_err(UiPresentationError::Text)?;
+        let layout = self.layouts.layout(request).map_err(PaintError::Text)?;
         self.place_text(layout, at, width, color, shadow)
     }
 
@@ -446,7 +418,7 @@ impl<'a> Canvas<'a> {
         width: f32,
         height: f32,
         style: Type,
-    ) -> Result<Arc<ui::TextLayout>, UiPresentationError> {
+    ) -> Result<Arc<ui::TextLayout>, PaintError> {
         let mut request = self.text_request(value, (width.max(1.0) * 64.0) as u32, style)?;
         let pitch = (request.line_height_64 as f32 * request.scale.get()
             + request.wrap.line_padding_64 as f32)
@@ -457,9 +429,7 @@ impl<'a> Canvas<'a> {
                 .ceil()
                 .clamp(1.0, ui::MAX_WRAP_LINES as f32) as u16,
         );
-        self.layouts
-            .layout(request)
-            .map_err(UiPresentationError::Text)
+        self.layouts.layout(request).map_err(PaintError::Text)
     }
 
     fn layout(
@@ -467,13 +437,11 @@ impl<'a> Canvas<'a> {
         value: &str,
         width_64: u32,
         style: Type,
-    ) -> Result<std::sync::Arc<ui::TextLayout>, UiPresentationError> {
+    ) -> Result<std::sync::Arc<ui::TextLayout>, PaintError> {
         #[cfg(feature = "tracy")]
         let _text_span = bevy::log::info_span!("ui.text").entered();
         let request = self.text_request(value, width_64, style)?;
-        self.layouts
-            .layout(request)
-            .map_err(UiPresentationError::Text)
+        self.layouts.layout(request).map_err(PaintError::Text)
     }
 
     pub(super) fn text_request<'t>(
@@ -481,7 +449,7 @@ impl<'a> Canvas<'a> {
         value: &'t str,
         width_64: u32,
         style: Type,
-    ) -> Result<TextLayoutRequest<'t>, UiPresentationError>
+    ) -> Result<TextLayoutRequest<'t>, PaintError>
     where
         'a: 't,
     {
@@ -494,7 +462,7 @@ impl<'a> Canvas<'a> {
             request.wrap.snap_glyphs_to_device_pixels =
                 font.rendering() == assets::FontRendering::Coverage && !font.linear_sampling();
             request.scale = UiScale::new_display(self.r(style.size) * 64.0 / source.em_64 as f32)
-                .map_err(UiPresentationError::Geometry)?;
+                .map_err(PaintError::Geometry)?;
             let line = source.em_64 as f32 * style.line / style.size;
             let leading = (line - source.ascent_64 as f32 - source.descent_64 as f32) * 0.5;
             request.line_height_64 = line.round() as u32;
@@ -503,7 +471,7 @@ impl<'a> Canvas<'a> {
             request.wrap.letter_spacing_64 = (self.r(LETTER_SPACING) * 64.0).round() as i32;
         } else {
             request.scale = UiScale::new_display(self.metrics.scale.get() * text_factor(style))
-                .map_err(UiPresentationError::Geometry)?;
+                .map_err(PaintError::Geometry)?;
         }
         Ok(request)
     }
@@ -516,7 +484,7 @@ impl<'a> Canvas<'a> {
         width: f32,
         color: Rgba,
         shadow: bool,
-    ) -> Result<f32, UiPresentationError> {
+    ) -> Result<f32, PaintError> {
         let height = layout.size_64()[1] as f32 / 64.0;
         if shadow {
             let offset = self.r(EDGE);
@@ -558,7 +526,7 @@ impl<'a> Canvas<'a> {
         width: f32,
         style: Type,
         color: Rgba,
-    ) -> Result<f32, UiPresentationError> {
+    ) -> Result<f32, PaintError> {
         match self.line_layout(value, width, style)? {
             Some(layout) => self.place_text(layout, at, width + 1.0, color, false),
             None => Ok(0.0),
@@ -572,7 +540,7 @@ impl<'a> Canvas<'a> {
         bounds: Bounds,
         style: Type,
         color: Rgba,
-    ) -> Result<(), UiPresentationError> {
+    ) -> Result<(), PaintError> {
         self.text_line_typing(value, bounds, style, color, None)
     }
 
@@ -581,19 +549,19 @@ impl<'a> Canvas<'a> {
         value: &str,
         width: f32,
         style: Type,
-    ) -> Result<Option<Arc<ui::TextLayout>>, UiPresentationError> {
+    ) -> Result<Option<Arc<ui::TextLayout>>, PaintError> {
         #[cfg(feature = "tracy")]
         let _text_span = bevy::log::info_span!("ui.label").entered();
         let request = self.text_request(value, MEASUREMENT_WIDTH_64, style)?;
         let layout = self
             .layouts
             .single_line(request, (width.max(0.0) * 64.0) as u32)
-            .map_err(UiPresentationError::Text)?;
+            .map_err(PaintError::Text)?;
         Ok((!layout.glyphs().is_empty()).then_some(layout))
     }
 
     /// The width `value` lays out to in `style`.
-    pub(super) fn measure(&mut self, value: &str, style: Type) -> Result<f32, UiPresentationError> {
+    pub(super) fn measure(&mut self, value: &str, style: Type) -> Result<f32, PaintError> {
         Ok(self.measured(value, style)?.0)
     }
 
@@ -602,7 +570,7 @@ impl<'a> Canvas<'a> {
         &mut self,
         value: &str,
         style: Type,
-    ) -> Result<(f32, std::sync::Arc<ui::TextLayout>), UiPresentationError> {
+    ) -> Result<(f32, std::sync::Arc<ui::TextLayout>), PaintError> {
         let layout = self.layout(value, MEASUREMENT_WIDTH_64, style)?;
         Ok((layout.size_64()[0] as f32 / 64.0, layout))
     }
@@ -613,14 +581,11 @@ impl<'a> Canvas<'a> {
         value: &str,
         width: f32,
         style: Type,
-    ) -> Result<f32, UiPresentationError> {
+    ) -> Result<f32, PaintError> {
         #[cfg(feature = "tracy")]
         let _text_span = bevy::log::info_span!("ui.text").entered();
         let request = self.text_request(value, (width.max(1.0) * 64.0) as u32, style)?;
-        let layout = self
-            .layouts
-            .layout(request)
-            .map_err(UiPresentationError::Text)?;
+        let layout = self.layouts.layout(request).map_err(PaintError::Text)?;
         Ok(layout.size_64()[1] as f32 / 64.0)
     }
 
@@ -632,7 +597,7 @@ impl<'a> Canvas<'a> {
         style: Type,
         color: Rgba,
         shadow: bool,
-    ) -> Result<(), UiPresentationError> {
+    ) -> Result<(), PaintError> {
         let (measured, layout) = self.measured(value, style)?;
         let width = measured.min(b[2] - b[0]);
         let height = layout.size_64()[1] as f32 / 64.0;
@@ -655,7 +620,7 @@ impl<'a> Canvas<'a> {
         b: Bounds,
         style: Type,
         color: Rgba,
-    ) -> Result<(), UiPresentationError> {
+    ) -> Result<(), PaintError> {
         let (width, layout) = self.measured(value, style)?;
         if width > b[2] - b[0] {
             return self.text_centred(value, b, style, color, false);
@@ -688,7 +653,7 @@ impl<'a> Canvas<'a> {
     }
 
     /// A caller-supplied image (artwork, gamerpic) stretched over `b`.
-    pub(super) fn icon_ref(&mut self, icon: IconRef, b: Bounds) -> Result<(), UiPresentationError> {
+    pub(super) fn icon_ref(&mut self, icon: IconRef, b: Bounds) -> Result<(), PaintError> {
         self.push(
             b,
             UiVisual::Sprite {
@@ -700,11 +665,7 @@ impl<'a> Canvas<'a> {
         Ok(())
     }
 
-    pub(super) fn focus_target(
-        &mut self,
-        action: MenuAction,
-        b: Bounds,
-    ) -> Result<(), UiPresentationError> {
+    pub(super) fn focus_target(&mut self, action: MenuAction, b: Bounds) -> Result<(), PaintError> {
         if self.capture_focus && b[2] > b[0] && b[3] > b[1] {
             let bounds = rect(b[0], b[1], b[2], b[3])?;
             self.focus_hits.push((action, bounds));
@@ -717,7 +678,7 @@ impl<'a> Canvas<'a> {
         Ok(())
     }
 
-    pub(super) fn hit(&mut self, action: MenuAction, b: Bounds) -> Result<(), UiPresentationError> {
+    pub(super) fn hit(&mut self, action: MenuAction, b: Bounds) -> Result<(), PaintError> {
         self.focus_target(action, b)?;
         let b = match self.clip {
             Some((_, c)) => [
@@ -742,7 +703,7 @@ impl<'a> Canvas<'a> {
         &mut self,
         key: &str,
         viewport: Bounds,
-    ) -> Result<Scroll, UiPresentationError> {
+    ) -> Result<Scroll, PaintError> {
         let area = self.local(viewport)?;
         let id = UiNodeId::new(*self.next);
         let parent = self.clip.map(|(id, _)| id);
@@ -761,7 +722,7 @@ impl<'a> Canvas<'a> {
     }
 
     /// Ends a viewport using the lowest directly attached content node as its extent.
-    pub(super) fn end_scroll_to_fit(&mut self, scroll: Scroll) -> Result<(), UiPresentationError> {
+    pub(super) fn end_scroll_to_fit(&mut self, scroll: Scroll) -> Result<(), PaintError> {
         let content = self.nodes[scroll.first_node..]
             .iter()
             .filter(|node| node.parent() == Some(scroll.id))
@@ -772,11 +733,7 @@ impl<'a> Canvas<'a> {
 
     /// Ends `scroll` with `content` logical px drawn: a thumb shows when it
     /// overflows, and the view takes wheel and drag input next frame.
-    pub(super) fn end_scroll(
-        &mut self,
-        scroll: Scroll,
-        content: f32,
-    ) -> Result<(), UiPresentationError> {
+    pub(super) fn end_scroll(&mut self, scroll: Scroll, content: f32) -> Result<(), PaintError> {
         self.clip = scroll.outer;
         let v = scroll.viewport;
         let height = v[3] - v[1];

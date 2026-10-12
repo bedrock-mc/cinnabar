@@ -1,6 +1,6 @@
 //! Settings registry sections share the launcher’s persisted options and binding actions.
 
-use super::super::super::super::UiPresentationError;
+use super::super::super::engine::screen::PaintError;
 use super::super::theme::{self, BODY, CAPTION, EDGE, NEUTRAL80, TEXT, TEXT_DIMMER};
 use super::super::widgets::{self, Interaction};
 use super::{Content, button};
@@ -16,10 +16,7 @@ use launcher::menu::{
     settings_support::{SupportAction, SupportDialog, SupportLink},
 };
 
-pub(super) fn draw(
-    content: &mut Content<'_, '_>,
-    section: &str,
-) -> Result<(), UiPresentationError> {
+pub(super) fn draw(content: &mut Content<'_, '_>, section: &str) -> Result<(), PaintError> {
     if super::services::draw(content, section)? {
         return Ok(());
     }
@@ -35,14 +32,14 @@ pub(super) fn draw(
     }
 }
 
-fn options(content: &mut Content<'_, '_>, names: &[&str]) -> Result<(), UiPresentationError> {
+fn options(content: &mut Content<'_, '_>, names: &[&str]) -> Result<(), PaintError> {
     for name in names {
         content.option(name)?;
     }
     Ok(())
 }
 
-fn accessibility(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
+fn accessibility(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading(
         "menu.accessibility.tab.title",
         "menu.accessibility.tab.description",
@@ -101,7 +98,7 @@ fn accessibility(content: &mut Content<'_, '_>) -> Result<(), UiPresentationErro
     )
 }
 
-fn video(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
+fn video(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.video.tab.title", "menu.video.tab.description")?;
     content.heading(
         "menu.video.group.general",
@@ -186,17 +183,13 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
     reset(content, SettingsGroup::Video, "options.video.resetSettings")
 }
 
-fn audio(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
+fn audio(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.audio.tab.title", "menu.audio.tab.description")?;
     options(content, &VOLUME_SETTINGS)?;
     reset(content, SettingsGroup::Audio, "options.sound.resetSettings")
 }
 
-fn reset(
-    content: &mut Content<'_, '_>,
-    group: SettingsGroup,
-    key: &str,
-) -> Result<(), UiPresentationError> {
+fn reset(content: &mut Content<'_, '_>, group: SettingsGroup, key: &str) -> Result<(), PaintError> {
     super::services::action_row(
         content,
         key,
@@ -206,7 +199,7 @@ fn reset(
     )
 }
 
-fn keyboard(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
+fn keyboard(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading(
         "menu.keyboardAndMouse.tab.title",
         "menu.keyboardAndMouse.tab.description",
@@ -237,7 +230,7 @@ fn keyboard(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
     )
 }
 
-fn draw_macros(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
+fn draw_macros(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading(
         "menu.keyboardAndMouse.tab.macros.title",
         "menu.keyboardAndMouse.tab.macros.description",
@@ -249,15 +242,12 @@ fn draw_macros(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError>
 }
 
 /// One macro slot: its title with the bound key, then the command box beneath.
-fn draw_macro_slot(content: &mut Content<'_, '_>, slot: usize) -> Result<(), UiPresentationError> {
+fn draw_macro_slot(content: &mut Content<'_, '_>, slot: usize) -> Result<(), PaintError> {
     draw_macro_binding(content, slot)?;
     draw_macro_command(content, slot)
 }
 
-fn draw_macro_binding(
-    content: &mut Content<'_, '_>,
-    slot: usize,
-) -> Result<(), UiPresentationError> {
+fn draw_macro_binding(content: &mut Content<'_, '_>, slot: usize) -> Result<(), PaintError> {
     let capture = MenuAction::SettingsKey(macro_row_index(slot) as u16);
     let control = content.view.settings_options.macro_control(slot);
     let capturing = content
@@ -348,10 +338,7 @@ fn draw_macro_binding(
     Ok(())
 }
 
-fn draw_macro_command(
-    content: &mut Content<'_, '_>,
-    slot: usize,
-) -> Result<(), UiPresentationError> {
+fn draw_macro_command(content: &mut Content<'_, '_>, slot: usize) -> Result<(), PaintError> {
     let action = MenuAction::SettingsMacroCommand(slot);
     let command = content
         .view
@@ -425,7 +412,7 @@ fn draw_macro_command(
     Ok(())
 }
 
-fn controller(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
+fn controller(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading(
         "menu.controller.tab.title",
         "menu.controller.tab.description",
@@ -458,7 +445,7 @@ fn controller(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> 
     )
 }
 
-fn bindings(content: &mut Content<'_, '_>, gamepad: bool) -> Result<(), UiPresentationError> {
+fn bindings(content: &mut Content<'_, '_>, gamepad: bool) -> Result<(), PaintError> {
     let defaults = SettingsOptions::default();
     if gamepad {
         for (index, label) in GAMEPAD_BINDINGS
@@ -487,7 +474,7 @@ fn binding(
     defaults: &SettingsOptions,
     index: usize,
     key: &str,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let action = MenuAction::SettingsKey(index as u16);
     let capturing = content.view.key_remap == Some(index as u16);
     let control = content.view.settings_options.key_control(index);
@@ -599,7 +586,7 @@ fn gamepad_name(control: semantic_input::PhysicalControl) -> String {
     }
 }
 
-fn general(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
+fn general(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.general.tab.title", "menu.general.tab.description")?;
     options(content, &["only_trusted_skins_allowed", "filter_profanity"])?;
     content.heading(
@@ -653,7 +640,7 @@ fn general(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
     Ok(())
 }
 
-fn creator(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
+fn creator(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.creator.tab.title", "menu.creator.tab.description")?;
     content.option("copy_coordinate_ui")?;
     for (title, names) in [

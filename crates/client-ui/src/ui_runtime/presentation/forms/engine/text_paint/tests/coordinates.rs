@@ -12,7 +12,8 @@ use json_ui::{Catalog, Context, DataSource, HUD_SCREEN, render_screen};
 use sha2::{Digest, Sha256};
 use ui::{DpiScale, SafeArea, UiScale, UiTree};
 
-use super::super::super::{EngineInputs, EngineOutput, FormEngine, ScreenArt};
+use super::super::super::super::screen_registry::registry;
+use super::super::super::{FormEngine, ScreenArt, screen::PaintFrame};
 use crate::ui_runtime::presentation::forms::{pages, snapshot::rasterize};
 use crate::ui_runtime::presentation::{TextMetrics, UiPresentationRuntime, rect};
 use crate::ui_runtime::render_adapter::{UiRenderViewport, adapt_ui_draw_list};
@@ -152,7 +153,7 @@ fn paint(physical: [u32; 2], scale: f32, named: bool) -> ([u32; 4], [u32; 4], f3
     let assets = Arc::new(RuntimeUiAssets::decode(&bytes).unwrap());
     let (textures, first_page) = pages::with_ui_pages(&presentation.textures, &assets).unwrap();
     let catalog = catalog(scale, if named { "alternative" } else { "default" });
-    let engine = FormEngine::new(assets, Catalog::default(), first_page);
+    let engine = FormEngine::new(assets, Catalog::default(), first_page, registry());
     let dpi = DpiScale::new(1.0).unwrap();
     let metrics = TextMetrics::for_viewport(physical, dpi, None);
     let mut nodes = Vec::new();
@@ -160,7 +161,7 @@ fn paint(physical: [u32; 2], scale: f32, named: bool) -> ([u32; 4], [u32; 4], f3
     engine
         .draw(
             ScreenArt::default(),
-            EngineInputs {
+            &mut PaintFrame {
                 layouts: &mut presentation.layouts,
                 font: &font,
                 metrics,
@@ -169,11 +170,10 @@ fn paint(physical: [u32; 2], scale: f32, named: bool) -> ([u32; 4], [u32; 4], f3
                 content: physical.map(|side| side as f32),
                 translate: &|_| None,
                 language: [0; 3],
-            },
-            EngineOutput {
+                now: 0.0,
                 nodes: &mut nodes,
                 next: &mut next,
-                overlay: &[],
+                renderers: &mut [],
             },
             |env, root| {
                 render_screen(

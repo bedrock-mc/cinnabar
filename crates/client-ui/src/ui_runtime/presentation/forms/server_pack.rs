@@ -72,7 +72,11 @@ impl ServerUiPack {
     /// Resolves pack definitions on the reload worker against the immutable carrier catalog.
     pub fn prepare_catalog(&self, base: &json_ui::Catalog) -> Arc<Self> {
         let mut prepared = self.clone();
-        let catalog = Arc::new(super::engine::layer_pack_catalog(base, &self.ui_layers));
+        let catalog = Arc::new(
+            super::screen_registry::registry()
+                .catalog()
+                .layer(base, &self.ui_layers),
+        );
         let textures = super::hud::prepared::prepare(&catalog);
         if let Some(view) = &self.view {
             super::hud::prepared::keep_textures(&catalog, PrereadTextures::read(view, &textures));

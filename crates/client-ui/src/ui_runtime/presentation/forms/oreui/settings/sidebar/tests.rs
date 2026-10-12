@@ -173,7 +173,7 @@ fn category_group_divider_has_two_full_width_edges_and_its_own_flow_slot() {
 #[test]
 fn category_images_keep_native_pixel_steps_at_odd_gui_scales() {
     let (runtime, _) = presentation();
-    let originals = runtime.form_presentation.oreui_originals.as_deref();
+    let originals = runtime.screens.oreui.originals.as_deref();
     for (gui, dpi, expected) in [
         (1, 1.0, 12.0),
         (2, 1.0, 24.0),

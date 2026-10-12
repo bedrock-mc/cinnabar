@@ -1,6 +1,6 @@
 //! Focus regions retain the native landmark hierarchy independently of pointer clipping.
 
-use super::super::super::{UiPresentationError, rect};
+use super::super::engine::{rect, screen::PaintError};
 use super::paint::{Bounds, Canvas};
 use launcher::menu::{
     MenuAction,
@@ -33,7 +33,7 @@ impl Canvas<'_> {
         bounds: Bounds,
         scroll_axis: Option<SettingsFocusAxis>,
         remember: bool,
-    ) -> Result<Option<u16>, UiPresentationError> {
+    ) -> Result<Option<u16>, PaintError> {
         let parent = self.focus_parent;
         self.focus_landmarks.push(SettingsFocusLandmark {
             id,

@@ -8,14 +8,11 @@ use json_ui::{HitRegion, LayoutReport, ViewState};
 use protocol::{CustomFormElement, CustomFormValue, ServerFormModel};
 use ui::UiPoint;
 
-use super::ServerFormIdentity;
-
 /// What the last engine-drawn frame exposes to input: regions and scroll extents
-/// in virtual pixels, plus the virtual → window-logical mapping.
+/// in virtual pixels, plus the virtual → window-logical mapping. Which server form it
+/// drew, if any, is paired with it by the form presentation.
 #[derive(Clone, Debug)]
 pub struct EngineFrame {
-    /// The form drawn, or `None` for a container screen.
-    pub identity: Option<ServerFormIdentity>,
     pub hits: Arc<[HitRegion]>,
     pub report: LayoutReport,
     /// Where `button.menu_cancel` (Escape) routes on this screen.

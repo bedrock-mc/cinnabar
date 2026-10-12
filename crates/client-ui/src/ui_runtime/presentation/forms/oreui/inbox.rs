@@ -1,5 +1,5 @@
 //! Inbox layout from the owner's vanilla inbox capture; date grouping is independent of read state.
-use super::super::super::UiPresentationError;
+use super::super::engine::screen::PaintError;
 use super::super::menu_screens::Translate;
 use super::grid::{Grid, space};
 use super::motion::Surface;
@@ -28,7 +28,7 @@ pub(super) fn draw(
     view: &MenuView,
     size: [f32; 2],
     translate: Translate<'_>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     if view.feeds.inbox_state.filters {
         return actions::settings(canvas, view, size);
     }
@@ -123,7 +123,7 @@ fn card(
     item: &InboxItem,
     span: [f32; 2],
     top: f32,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let height = canvas.r(6.8);
     let bounds = [span[0], top, span[1], top + height];
     let delete_x = span[1] - height;

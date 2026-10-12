@@ -1,7 +1,8 @@
 use super::*;
 use crate::test_support::{fixture_font, mini_carrier};
 use crate::ui_runtime::presentation::forms::{
-    engine::{EngineInputs, EngineOutput, FormEngine, ScreenArt},
+    engine::{FormEngine, ScreenArt, screen::PaintFrame},
+    screen_registry::registry,
     server_pack::ServerAtlas,
 };
 use json_ui::{Catalog, Context, DataSource, ViewState};
@@ -28,7 +29,7 @@ fn engine(files: &[(String, Vec<u8>)]) -> FormEngine {
         }]}
     });
     catalog.overlay_text("ui/crosshair_test.json", &definition.to_string());
-    let mut engine = FormEngine::new(mini_carrier(), catalog, 2);
+    let mut engine = FormEngine::new(mini_carrier(), catalog, 2, registry());
     engine.set_server_atlas(ServerAtlas::new(files, None, 1), 3);
     engine
 }
@@ -62,11 +63,8 @@ fn draw_custom(
             &DataSource::default(),
             &Context::default(),
             &ViewState::default(),
-            ScreenArt {
-                hud: Some(&hud),
-                ..Default::default()
-            },
-            EngineInputs {
+            ScreenArt::default(),
+            &mut PaintFrame {
                 layouts: &mut layouts,
                 font: &font,
                 metrics,
@@ -75,11 +73,13 @@ fn draw_custom(
                 content: [1280.0, 720.0],
                 translate: &|_| None,
                 language: [0; 3],
-            },
-            EngineOutput {
+                now: 0.0,
                 nodes: &mut nodes,
                 next: &mut next,
-                overlay: &[],
+                renderers: &mut [&mut HudRenderer {
+                    hud: &hud,
+                    hunger_update: None,
+                }],
             },
         )
         .unwrap()

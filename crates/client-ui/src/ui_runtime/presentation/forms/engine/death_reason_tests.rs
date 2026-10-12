@@ -5,6 +5,8 @@ use json_ui::{
 };
 use std::sync::Arc;
 
+use super::super::screen_registry::registry;
+
 struct Measure;
 impl TextMeasure for Measure {
     fn extent(&self, text: &str) -> [f64; 2] {
@@ -26,7 +28,7 @@ fn death_reason_text_is_painted_without_a_second_translation() {
             {"reason":{"type":"label","size":[300,20],"text":"#death_reason_text","bindings":[{"binding_name":"#death_reason_text"}]}}
         ]}}"##.as_slice()),
     ]).unwrap();
-    let catalog = Arc::new(super::pack_catalog::layer_pack_catalog(&catalog, &[]));
+    let catalog = Arc::new(registry().catalog().layer(&catalog, &[]));
     let (context, view) = (Context::desktop(), ViewState::default());
     let reason = "Player was slain using 100% Power %entity.zombie.name";
     let mut data = DataSource::new();
@@ -48,6 +50,7 @@ fn death_reason_text_is_painted_without_a_second_translation() {
                 text: &Measure,
                 textures: &Measure,
             },
+            registry(),
         )
         .unwrap();
     let labels = rendered
@@ -78,7 +81,7 @@ fn death_reason_variables_and_inherited_labels_remain_literal() {
             ]}
         }"##.as_slice()),
     ]).unwrap();
-    let catalog = Arc::new(super::pack_catalog::layer_pack_catalog(&catalog, &[]));
+    let catalog = Arc::new(registry().catalog().layer(&catalog, &[]));
     let (context, view) = (Context::desktop(), ViewState::default());
     let reason = "Player was slain using 100% Power %entity.zombie.name";
     let mut data = DataSource::new();
@@ -100,6 +103,7 @@ fn death_reason_variables_and_inherited_labels_remain_literal() {
                 text: &Measure,
                 textures: &Measure,
             },
+            registry(),
         )
         .unwrap();
     let labels = rendered
@@ -157,6 +161,7 @@ fn death_reveal_preserves_the_reason_and_loading_retires_the_controls() {
                     text: &Measure,
                     textures: &Measure,
                 },
+                registry(),
             )
             .unwrap();
         let texts = rendered

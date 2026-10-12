@@ -1,5 +1,5 @@
 //! Cached coverage meshes keep small icon strokes continuous at physical-pixel scale.
-use super::Painter;
+use super::Canvas;
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 use ui::{UiBlendMode, UiMesh, UiMeshBatch, UiMeshVertex, UiVisual};
 
@@ -24,7 +24,7 @@ struct Key {
 }
 thread_local! { static CACHE: RefCell<HashMap<Key, Arc<UiMesh>>> = RefCell::default(); }
 
-impl Painter<'_> {
+impl Canvas<'_> {
     pub(super) fn vector_icon(
         &self,
         data: &std::collections::BTreeMap<String, serde_json::Value>,

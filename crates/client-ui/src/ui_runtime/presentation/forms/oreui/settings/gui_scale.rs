@@ -1,6 +1,6 @@
 //! GUI-scale choices carry viewport-derived percentages and commit signed modifiers.
 
-use super::super::super::super::UiPresentationError;
+use super::super::super::engine::screen::PaintError;
 use super::super::super::menu_screens::Translate;
 use super::super::paint::Canvas;
 use super::super::theme::{self, BODY};
@@ -19,7 +19,7 @@ fn label(percentage: u16, translate: Translate<'_>) -> String {
     )
 }
 
-pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
+pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     let title = content.word("options.guiScale.optionName.name");
     let enabled = content.view.gui_scale_choices.len() > 1;
     let description = content.word(if enabled {
@@ -139,7 +139,7 @@ pub(super) fn draw_picker(
     view: &MenuView,
     size: [f32; 2],
     translate: Translate<'_>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let key = "options.guiScale.optionName.name";
     let title = translate(key).map_or_else(
         || sections::fallback(key).to_owned(),

@@ -1,7 +1,6 @@
 //! Visual state for edit boxes whose text is owned by the host's editors.
 
 use super::ScreenArt;
-use launcher::menu::{MenuField, MenuView};
 
 #[derive(Clone, Copy)]
 pub(in super::super) struct Feedback {
@@ -15,14 +14,9 @@ impl Feedback {
         }
     }
 
-    /// Uses the launcher's editor selection; its shared caret state owns blink and placement.
-    pub(in super::super) fn from_view(view: &MenuView) -> Option<Self> {
-        match view.field? {
-            MenuField::Name | MenuField::Address | MenuField::Port => Some(Self {
-                selection: view.caret.selection,
-            }),
-            _ => None,
-        }
+    /// A host editor's selection as byte offsets; its own caret state owns blink and placement.
+    pub(in super::super) fn new(selection: Option<[usize; 2]>) -> Self {
+        Self { selection }
     }
 }
 

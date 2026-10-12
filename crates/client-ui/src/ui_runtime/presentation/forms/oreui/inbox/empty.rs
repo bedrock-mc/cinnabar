@@ -3,7 +3,7 @@
 use super::super::super::menu_screens::Translate;
 use super::super::paint::Bounds;
 use super::super::theme::{BORDER, CAPTION, EDGE, NEUTRAL80, SECONDARY_BUTTON, TEXT, TEXT_DIMMEST};
-use super::{Canvas, UiPresentationError};
+use super::{Canvas, PaintError};
 use crate::ui_runtime::oreui_assets::INBOX_EMPTY_IMAGES;
 
 const COPY: [(&str, &str, &str, &str); 5] = [
@@ -44,7 +44,7 @@ pub(super) fn draw(
     category: usize,
     bounds: Bounds,
     translate: Translate<'_>,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let index = category.min(COPY.len() - 1);
     let (title_key, title, caption_key, caption) = COPY[index];
     let title = translate(&format!("hbui.InboxRoute.{title_key}"))

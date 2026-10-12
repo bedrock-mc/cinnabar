@@ -175,31 +175,25 @@ impl DragState {
     }
 }
 
-impl crate::ui_runtime::presentation::UiPresentationRuntime {
-    pub fn cancel_menu_server_list_input(&mut self) {
-        self.form_presentation
-            .oreui_transitions
-            .server_list
-            .cancel();
+impl super::super::OreUiScreen {
+    pub(in crate::ui_runtime::presentation::forms) fn cancel_server_list_input(&mut self) {
+        self.transitions.server_list.cancel();
     }
 
-    /// Section capture suppresses click activation until release, including outside the list.
-    pub fn menu_server_list_pointer(
+    /// Section capture suppresses click activation until release, including outside the list;
+    /// also returns how far to scroll the list toward the dragged row.
+    pub(in crate::ui_runtime::presentation::forms) fn server_list_pointer(
         &mut self,
         screen: Option<MenuScreen>,
         pointer: Option<UiPoint>,
-        held: bool,
-        pressed: bool,
-    ) -> (bool, Option<MenuAction>) {
-        let state = &mut self.form_presentation.oreui_transitions.server_list;
+        (held, pressed): (bool, bool),
+        seconds: f64,
+    ) -> (bool, Option<MenuAction>, f32) {
+        let state = &mut self.transitions.server_list;
         if !matches!(screen, Some(MenuScreen::Servers | MenuScreen::Play)) {
             state.cancel();
-            return (false, None);
+            return (false, None, 0.0);
         }
-        let (captured, action, scroll) = state.pointer(pointer, held, pressed, self.menu_seconds);
-        if scroll != 0.0 {
-            self.menu_scrolls.scroll_by("servers.side_menu", scroll);
-        }
-        (captured, action)
+        state.pointer(pointer, held, pressed, seconds)
     }
 }

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use json_ui::{DataSource, Scalar, ViewState};
 use ui::UiNode;
 
-use super::engine::{EngineInputs, EngineOutput, ScreenArt};
+use super::engine::{ScreenArt, screen::PaintFrame};
 use crate::ui_runtime::UiRuntime;
 use {
     super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime},
@@ -81,7 +81,7 @@ impl UiPresentationRuntime {
         metrics: TextMetrics,
         content: [f32; 2],
     ) -> Result<bool, UiPresentationError> {
-        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+        let Some(renderer) = self.engine.as_deref() else {
             return Ok(false);
         };
         let dimension = usize::try_from(self.hud_frame.dimension).ok();
@@ -128,7 +128,7 @@ impl UiPresentationRuntime {
         let context = renderer.context().clone();
         let catalog = Arc::clone(renderer.catalog());
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
-        let inputs = EngineInputs {
+        let mut paint_frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
             metrics,
@@ -137,13 +137,12 @@ impl UiPresentationRuntime {
             content,
             translate: &translate,
             language: runtime.text_generation(),
-        };
-        let out = EngineOutput {
+            now: self.menu_seconds,
             nodes,
             next,
-            overlay: &[],
+            renderers: &mut [],
         };
-        let screen = &mut self.form_presentation.hud.loading;
+        let screen = &mut self.screens.hud.loading;
         let view = ViewState::default();
         let frame = renderer.draw(
             ScreenArt {
@@ -155,13 +154,11 @@ impl UiPresentationRuntime {
                     "title_panel",
                     "realms_title_image",
                 ],
-                now: self.menu_seconds,
                 clocks: Some(&self.scene_clock),
                 images: Some(&self.menu_artwork.refs),
                 ..ScreenArt::default()
             },
-            inputs,
-            out,
+            &mut paint_frame,
             |env, root| {
                 screen.render_with(
                     reference,
@@ -194,7 +191,7 @@ impl UiPresentationRuntime {
         &self,
         texture: &str,
     ) -> Option<(u16, [u16; 4])> {
-        let engine = self.form_presentation.engine.as_deref()?;
+        let engine = self.engine.as_deref()?;
         let atlas = engine.textures.lock();
         let textures = super::textures::Textures {
             assets: engine.assets(),
@@ -211,6 +208,6 @@ impl UiPresentationRuntime {
 
     /// The loading screen's last laid-out draw nodes, in virtual px.
     pub fn loading_draw_nodes(&self) -> &[json_ui::DrawNode] {
-        self.form_presentation.hud.loading.nodes()
+        self.screens.hud.loading.nodes()
     }
 }

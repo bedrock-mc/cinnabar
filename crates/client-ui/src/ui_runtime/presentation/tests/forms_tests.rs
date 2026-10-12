@@ -73,7 +73,7 @@ fn form_scroll_layout_has_bounded_actionable_rows_at_narrow_and_large_scale() {
             }),
             "form text is clipped inside the viewport"
         );
-        let state = &presentation.form_presentation;
+        let state = &presentation.projections.form;
         assert_eq!(state.offsets.len(), 257);
         assert!(state.maximum > 0);
         assert!(state.hits.iter().all(|(_, bounds)| bounds.min().x() >= 0.0
@@ -94,14 +94,16 @@ fn form_scroll_layout_has_bounded_actionable_rows_at_narrow_and_large_scale() {
             .unwrap();
         assert!(
             presentation
-                .form_presentation
+                .projections
+                .form
                 .hits
                 .iter()
                 .any(|(action, _)| *action == LocalFormAction::SubmitButton(255))
         );
         assert!(
             presentation
-                .form_presentation
+                .projections
+                .form
                 .hits
                 .iter()
                 .any(|(action, _)| *action == LocalFormAction::Dismiss)
@@ -125,7 +127,8 @@ fn stale_pointer_hit_after_same_id_reissue_cannot_answer_new_content() {
         )
         .unwrap();
     let bounds = presentation
-        .form_presentation
+        .projections
+        .form
         .hits
         .iter()
         .find(|(action, _)| *action == LocalFormAction::Dismiss)

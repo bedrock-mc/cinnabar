@@ -150,10 +150,7 @@ fn native_picker_isolates_focus_and_slider_capture_and_delegates_selected_value(
             && group.focus_control_disabled
     ));
     assert!(
-        presentation
-            .form_presentation
-            .oreui_slider_tracks
-            .is_empty(),
+        presentation.projections.oreui_slider_tracks.is_empty(),
         "the modal owns input even where an underlying animated thumb is painted"
     );
     view.settings_dropdown = None;
@@ -206,7 +203,7 @@ fn slider_focus_uses_its_inset_track_anchor_while_pointer_steps_keep_distinct_ac
     }).collect();
     assert!(steps.len() > 1);
     let track = presentation
-        .form_presentation
+        .projections
         .oreui_slider_tracks
         .iter()
         .find_map(|(index, track, _)| (*index == option).then_some(*track))

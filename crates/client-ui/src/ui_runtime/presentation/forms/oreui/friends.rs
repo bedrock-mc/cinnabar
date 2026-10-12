@@ -2,7 +2,7 @@
 //! the search field and close button, the People / Party / World tabs, and the
 //! friends playing now (each row joins that friend's world).
 
-use super::super::super::UiPresentationError;
+use super::super::engine::screen::PaintError;
 use super::grid::space;
 use super::icons::{self, Icon};
 use super::paint::Canvas;
@@ -16,7 +16,7 @@ pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let [width, height] = size;
     screen_overlay(canvas, size)?;
     let drawer_width = canvas.r(DRAWER_WIDTH).min(width);

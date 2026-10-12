@@ -389,7 +389,7 @@ fn keyboard_focus_reveals_an_offscreen_skin_without_losing_the_library() {
         );
         assert!(
             presentation
-                .form_presentation
+                .projections
                 .menu_focus
                 .contains(&command(Action::Select(0)))
         );
@@ -621,7 +621,7 @@ fn management_modals_own_all_click_focus_and_character_input() {
                     hits.iter().any(|(hit, _)| hit == action),
                     "the modal exposes {action:?}"
                 );
-                assert!(presentation.form_presentation.menu_focus.contains(action));
+                assert!(presentation.projections.menu_focus.contains(action));
             }
             assert!(
                 hits.iter().all(|(action, _)| expected.contains(action)),
@@ -629,7 +629,7 @@ fn management_modals_own_all_click_focus_and_character_input() {
             );
             assert!(
                 presentation
-                    .form_presentation
+                    .projections
                     .menu_focus
                     .iter()
                     .all(|action| expected.contains(action)),
@@ -693,7 +693,7 @@ fn empty_rename_and_busy_modals_preserve_cancel_without_committing() {
             );
             assert!(
                 presentation
-                    .form_presentation
+                    .projections
                     .menu_focus
                     .iter()
                     .all(|action| *action == command(Action::Cancel))

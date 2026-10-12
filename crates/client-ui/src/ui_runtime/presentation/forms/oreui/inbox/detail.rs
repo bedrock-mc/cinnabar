@@ -3,7 +3,7 @@ use super::super::grid::Grid;
 use super::super::motion::Surface;
 use super::super::theme::{BORDER, EDGE, NEUTRAL80};
 use {
-    super::{BODY, Canvas, TEXT, TEXT_DIMMER, UiPresentationError, header, screen_overlay},
+    super::{BODY, Canvas, PaintError, TEXT, TEXT_DIMMER, header, screen_overlay},
     launcher::menu::{InboxItem, MenuAction, MenuView, inbox::Action},
 };
 
@@ -13,7 +13,7 @@ pub(super) fn draw(
     view: &MenuView,
     item: &InboxItem,
     size: [f32; 2],
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     screen_overlay(canvas, size)?;
     let top = header(
         canvas,

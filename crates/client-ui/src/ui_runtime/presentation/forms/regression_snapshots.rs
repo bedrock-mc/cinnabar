@@ -80,7 +80,7 @@ fn spirit_bundle_snapshot() {
                     DpiScale::new(1.0).unwrap(),
                 )
                 .unwrap();
-            let engine = presentation.form_presentation.engine.as_ref().unwrap();
+            let engine = presentation.engine.as_ref().unwrap();
             engine.drawn_sprites().1.is_empty()
         },
     );
@@ -100,7 +100,7 @@ fn spirit_bundle_snapshot() {
         input.vertices.len(),
         input.batches.len()
     );
-    let engine = presentation.form_presentation.engine.as_ref().unwrap();
+    let engine = presentation.engine.as_ref().unwrap();
     let (drawn, missing) = engine.drawn_sprites();
     assert!(missing.is_empty(), "unresolved form images: {missing:?}");
     for texture in [
@@ -122,15 +122,7 @@ fn spirit_bundle_snapshot() {
             )
             .unwrap();
     }
-    assert_eq!(
-        presentation
-            .form_presentation
-            .engine
-            .as_ref()
-            .unwrap()
-            .passes,
-        passes
-    );
+    assert_eq!(presentation.engine.as_ref().unwrap().passes, passes);
     let image = super::snapshot::rasterize(&input);
     assert!(
         image
@@ -174,7 +166,7 @@ fn spirit_bundle_before_pack_has_stable_resident_pages_after_install() {
         presentation
             .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
             .unwrap();
-        let engine = presentation.form_presentation.engine.as_ref().unwrap();
+        let engine = presentation.engine.as_ref().unwrap();
         let atlas = engine.textures.lock();
         [
             "textures/ui/common/dark_field",
@@ -200,12 +192,7 @@ fn spirit_bundle_before_pack_has_stable_resident_pages_after_install() {
             > 1_000,
         "bundle art did not reach the published pages"
     );
-    let passes = presentation
-        .form_presentation
-        .engine
-        .as_ref()
-        .unwrap()
-        .passes;
+    let passes = presentation.engine.as_ref().unwrap().passes;
     let pages: Vec<_> = settled
         .textures
         .pages()
@@ -216,15 +203,7 @@ fn spirit_bundle_before_pack_has_stable_resident_pages_after_install() {
         let frame = presentation
             .build(&player_runtime, &runtime, now, [1280, 720], dpi)
             .unwrap();
-        assert_eq!(
-            presentation
-                .form_presentation
-                .engine
-                .as_ref()
-                .unwrap()
-                .passes,
-            passes
-        );
+        assert_eq!(presentation.engine.as_ref().unwrap().passes, passes);
         assert_eq!(
             frame
                 .textures

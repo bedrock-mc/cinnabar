@@ -132,12 +132,7 @@ fn overworld_loading_keeps_the_installed_grass_block_square_and_static() {
             source: None,
         })
         .unwrap();
-    let page = presentation
-        .form_presentation
-        .oreui_originals
-        .as_ref()
-        .unwrap()
-        .page;
+    let page = presentation.screens.oreui.originals.as_ref().unwrap().page;
     for dimension in [0, 37, -1] {
         presentation.hud_frame_mut().dimension = dimension;
         let mut frame = |seconds| {

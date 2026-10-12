@@ -92,14 +92,17 @@ fn settled(
 ) -> render_model::UiRenderInput {
     test_time::eventually("loading backdrop and title become available", || {
         frame(player_runtime, presentation);
-        let engine = presentation.form_presentation.engine.as_ref().unwrap();
+        let engine = presentation.engine.as_ref().unwrap();
         let atlas = engine.textures.lock();
         let backdrop_ready = !atlas.has_image("textures/blocks/dirt")
             || atlas.placement("textures/blocks/dirt").is_some();
         let has_title = atlas.has_image(menu_artwork::TITLE_KEY);
         drop(atlas);
         backdrop_ready
-            && (!has_title || engine.menu_title(&presentation.menu_artwork.refs).is_some())
+            && (!has_title
+                || presentation
+                    .title_icon(&presentation.menu_artwork.refs)
+                    .is_some())
     });
     presentation.finish_menu_artwork();
     frame(player_runtime, presentation)
@@ -177,11 +180,7 @@ fn zeqa_loading_pixels_survive_artwork_repacking_and_pack_reload() {
     );
     before.validate().unwrap();
     let title_icon = presentation
-        .form_presentation
-        .engine
-        .as_ref()
-        .unwrap()
-        .menu_title(&presentation.menu_artwork.refs)
+        .title_icon(&presentation.menu_artwork.refs)
         .expect("the pack title is ready for loading-screen painting");
     carrier::title_bounds(&presentation);
     let title_bytes = &pack

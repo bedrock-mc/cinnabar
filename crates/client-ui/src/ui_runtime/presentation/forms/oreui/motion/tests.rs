@@ -247,7 +247,7 @@ fn persisted_screen_animation_setting_controls_all_oreui_timelines() {
     std::sync::Arc::make_mut(&mut view.settings_options).set(index, 0);
     runtime.set_menu_view(Some(view));
     runtime.configure_oreui_motion();
-    let transitions = &mut runtime.form_presentation.oreui_transitions;
+    let transitions = &mut runtime.screens.oreui.transitions;
     assert!(!transitions.motion.enabled());
     assert_eq!(transitions.motion.entrance(Surface::Loading, 1.0), 1.0);
     assert_eq!(transitions.slider(4, 0.7, false, 1.0), 0.7);

@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use super::super::super::super::UiPresentationError;
+use super::super::super::engine::screen::PaintError;
 use super::super::super::menu_screens::Translate;
 use super::super::modal::{self, Modal};
 use super::super::paint::{Bounds, Canvas};
@@ -25,7 +25,7 @@ pub(super) fn draw(
     view: &MenuView,
     size: [f32; 2],
     translate: Translate<'_>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     if view.settings_scale_picker {
         return gui_scale::draw_picker(canvas, view, size, translate);
     }
@@ -79,7 +79,7 @@ pub(super) fn draw_choices(
     view: &MenuView,
     size: [f32; 2],
     picker: Picker,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let modal = Modal {
         title: &picker.title,
         items: picker
@@ -130,7 +130,7 @@ pub(super) fn select(
     bounds: Bounds,
     label: &str,
     action: MenuAction,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let state = canvas.interaction(view, Some(action));
     let role = canvas.role(theme::SECONDARY);
     let (_, face) = button::procedural_face(canvas, bounds, state, true)?;

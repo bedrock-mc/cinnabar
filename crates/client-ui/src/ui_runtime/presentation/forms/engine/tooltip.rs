@@ -9,7 +9,7 @@ use ui::{TextShadow, UiVisual};
 
 use super::text_paint::{UNWRAPPED_LOGICAL, width_64};
 use {
-    super::{Painter, UiPresentationError},
+    super::{Canvas, screen::PaintError},
     ui::FONT_DESIGN_PIXEL_TEXELS,
 };
 
@@ -59,14 +59,14 @@ fn box_rect(anchor: [f32; 2], text: [f32; 2], viewport: [f32; 2]) -> Rect {
     )
 }
 
-impl Painter<'_> {
+impl Canvas<'_> {
     pub(super) fn tooltip(
         &mut self,
         text: &str,
         data: &BTreeMap<String, Value>,
         dest: [f32; 4],
         alpha: &impl Fn([u8; 4]) -> [u8; 4],
-    ) -> Result<(), UiPresentationError> {
+    ) -> Result<(), PaintError> {
         let Some(meta) = self.textures.texture(BACKGROUND_TEXTURE) else {
             // No fabricated flat background when an optional pack source is absent.
             return Ok(());

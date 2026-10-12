@@ -1,6 +1,6 @@
 //! Settings controls share vanilla's rail, thumb, bevel and focus geometry.
 
-use super::super::super::super::UiPresentationError;
+use super::super::super::engine::screen::PaintError;
 use super::super::motion::{Kind, mix, opacity};
 use super::super::paint::{Bounds, Canvas};
 use super::super::theme::{self, EDGE, Rgba};
@@ -16,7 +16,7 @@ fn thumb(
     state: Interaction,
     enabled: bool,
     disabled_specular: bool,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let motion = canvas.feedback(state, enabled, false, Kind::Thumb);
     let role = if enabled {
         theme::SECONDARY
@@ -64,7 +64,7 @@ pub(super) fn toggle_control(
     on: bool,
     action: MenuAction,
     enabled: bool,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let knob = canvas.transitions.as_deref_mut().map_or(
         super::super::transitions::switch_target(on),
         |transitions| {
@@ -81,7 +81,7 @@ fn toggle_at(
     knob: f32,
     state: Interaction,
     enabled: bool,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let [x, y] = at;
     let rail = [
         x + canvas.r(0.2),
@@ -170,7 +170,7 @@ pub(super) fn slider(
     actions: &[MenuAction],
     selected: usize,
     show_steps: bool,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     if actions.is_empty() {
         return Ok(());
     }

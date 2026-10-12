@@ -115,7 +115,7 @@ fn hold_release_roster_changes_and_chat_focus_drive_the_rendered_overlay() {
     assert_eq!(shown, frame(&mut presentation, &player, &runtime));
     assert_eq!(
         presentation
-            .form_presentation
+            .screens
             .player_list
             .as_ref()
             .unwrap()
@@ -133,7 +133,7 @@ fn hold_release_roster_changes_and_chat_focus_drive_the_rendered_overlay() {
     runtime.set_player_list_held(true);
     runtime.open_chat(&mut player);
     let passes = presentation
-        .form_presentation
+        .screens
         .player_list
         .as_ref()
         .unwrap()
@@ -142,7 +142,7 @@ fn hold_release_roster_changes_and_chat_focus_drive_the_rendered_overlay() {
     frame(&mut presentation, &player, &runtime);
     assert_eq!(
         presentation
-            .form_presentation
+            .screens
             .player_list
             .as_ref()
             .unwrap()

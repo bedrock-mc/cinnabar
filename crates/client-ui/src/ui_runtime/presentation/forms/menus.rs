@@ -10,7 +10,12 @@ use ui::{UiNode, UiRect};
 
 use super::super::menu_scroll::ScrollArea;
 use super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime, menu, rect};
-use super::{engine, menu_caret::TextSpot, menu_screens};
+use super::{
+    engine::{self, screen::PaintFrame},
+    menu_caret::TextSpot,
+    menu_renderers::{MenuRenderer, PreviewRenderer},
+    menu_screens,
+};
 use crate::ui_runtime::{UiRuntime, forms::EngineFrame};
 use launcher::menu::{MenuAction, MenuView};
 
@@ -44,12 +49,12 @@ impl UiPresentationRuntime {
             self.menu_preview.revoke_capture();
         }
         self.settings_slider_drag_targets.clear();
-        self.form_presentation.menu_focus_context = None;
-        self.form_presentation.menu_focus.clear();
-        self.form_presentation.menu_focus_geometry.clear();
-        self.form_presentation.menu_focus_landmarks.clear();
-        self.form_presentation.oreui_slider_tracks.clear();
-        self.form_presentation.oreui_settings_input = false;
+        self.projections.menu_focus_context = None;
+        self.projections.menu_focus.clear();
+        self.projections.menu_focus_geometry.clear();
+        self.projections.menu_focus_landmarks.clear();
+        self.projections.oreui_slider_tracks.clear();
+        self.projections.oreui_settings_input = false;
         let Some(mut view) = self.menu_view.take() else {
             return Ok(Vec::new());
         };
@@ -112,7 +117,7 @@ impl UiPresentationRuntime {
                         [width, height],
                     );
                     let (hits, keys) = popup.unwrap_or((hits, Vec::new()));
-                    self.form_presentation.menu_keys = keys;
+                    self.screens.menu_keys = keys;
                     hits
                 })
             }
@@ -122,7 +127,7 @@ impl UiPresentationRuntime {
             self.menu_preview.revoke_capture();
         }
         if result.is_ok() && shown.visible {
-            self.form_presentation.menu_focus_context = Some((shown.screen, shown.popup_open()));
+            self.projections.menu_focus_context = Some((shown.screen, shown.popup_open()));
         }
         self.menu_view = Some(view);
         result
@@ -141,7 +146,7 @@ impl UiPresentationRuntime {
         height: f32,
     ) -> Result<Option<Vec<(MenuAction, UiRect)>>, UiPresentationError> {
         // Without the UI carrier the programmatic launcher draws every screen.
-        if self.form_presentation.engine.is_none()
+        if self.engine.is_none()
             && !matches!(
                 view.screen,
                 launcher::menu::MenuScreen::DressingRoom | launcher::menu::MenuScreen::Death
@@ -177,22 +182,22 @@ impl UiPresentationRuntime {
             );
             if let Some(popup) = popup {
                 (hits, keys) = popup;
-                self.form_presentation.oreui_slider_tracks.clear();
-                self.form_presentation.oreui_settings_input = false;
-                self.form_presentation.menu_focus_geometry.clear();
-                self.form_presentation.menu_focus_landmarks.clear();
+                self.projections.oreui_slider_tracks.clear();
+                self.projections.oreui_settings_input = false;
+                self.projections.menu_focus_geometry.clear();
+                self.projections.menu_focus_landmarks.clear();
             }
             if view.dialog.is_some() {
-                self.form_presentation.menu_focus.clear();
-                self.form_presentation.menu_focus_geometry.clear();
-                self.form_presentation.menu_focus_landmarks.clear();
-                self.form_presentation.oreui_slider_tracks.clear();
-                self.form_presentation.oreui_settings_input = false;
+                self.projections.menu_focus.clear();
+                self.projections.menu_focus_geometry.clear();
+                self.projections.menu_focus_landmarks.clear();
+                self.projections.oreui_slider_tracks.clear();
+                self.projections.oreui_settings_input = false;
             }
-            self.form_presentation.menu_keys = keys;
+            self.screens.menu_keys = keys;
             return Ok(Some(hits));
         }
-        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+        let Some(renderer) = self.engine.as_deref() else {
             return Ok(None);
         };
         let translate = |key: &str| runtime.translation(key);
@@ -202,7 +207,7 @@ impl UiPresentationRuntime {
         // Last frame's region keys carry the launcher's hover/press/focus.
         let key_of = |action: Option<MenuAction>| {
             let action = action?;
-            self.form_presentation
+            self.screens
                 .menu_keys
                 .iter()
                 .find(|(candidate, _)| *candidate == action)
@@ -235,7 +240,15 @@ impl UiPresentationRuntime {
             }),
             ..ViewState::default()
         };
-        let edit = engine::host_edit::Feedback::from_view(view);
+        // The launcher's editor selection; its shared caret state owns blink and placement.
+        let edit = match view.field {
+            Some(
+                launcher::menu::MenuField::Name
+                | launcher::menu::MenuField::Address
+                | launcher::menu::MenuField::Port,
+            ) => Some(engine::host_edit::Feedback::new(view.caret.selection)),
+            _ => None,
+        };
         let rollback = (nodes.len(), *next);
         // A popup draws over its screen and alone takes the input, so only the last frame's regions count.
         let mut layers = Vec::new();
@@ -259,28 +272,8 @@ impl UiPresentationRuntime {
             {
                 continue;
             }
-            let inputs = engine::EngineInputs {
-                layouts: &mut self.layouts,
-                font: &self.font,
-                metrics,
-                solid_page: self.solid_texture_page,
-                safe_area: self.safe_area,
-                content: [width, height],
-                translate: &translate,
-                language: runtime.text_generation(),
-            };
-            let out = engine::EngineOutput {
-                nodes: &mut *nodes,
-                next: &mut *next,
-                overlay: &[],
-            };
             let art = engine::ScreenArt {
-                icons: &[],
                 edit,
-                preview: self.hud_frame.player_preview,
-                preview_view: Some(&preview_view),
-                preview_control: Some(&preview_control),
-                preview_rotation: self.menu_preview.rotation(),
                 pointer: self.menu_preview.pointer.map(|point| {
                     let gui_pixel = metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
                     [
@@ -289,6 +282,17 @@ impl UiPresentationRuntime {
                     ]
                 }),
                 images: Some(&self.menu_artwork.refs),
+                clocks: Some(&self.scene_clock),
+                ..engine::ScreenArt::default()
+            };
+            let mut menu = MenuRenderer {
+                splash: self
+                    .screens
+                    .splash
+                    .get_or_init(|| {
+                        super::menu_renderers::pick_splash(renderer.assets(), &translate)
+                    })
+                    .as_deref(),
                 // The gamerpic, else the rendered persona head.
                 portrait: [
                     super::accounts::current_picture(view).unwrap_or_default(),
@@ -296,10 +300,26 @@ impl UiPresentationRuntime {
                 ]
                 .into_iter()
                 .find_map(|path| self.menu_artwork.refs.get(path).copied()),
-                splash: renderer.splash(&translate),
+            };
+            let mut preview = PreviewRenderer {
+                preview: self.hud_frame.player_preview,
+                view: Some(&preview_view),
+                control: Some(&preview_control),
+                rotation: self.menu_preview.rotation(),
+            };
+            let mut paint_frame = PaintFrame {
+                layouts: &mut self.layouts,
+                font: &self.font,
+                metrics,
+                solid_page: self.solid_texture_page,
+                safe_area: self.safe_area,
+                content: [width, height],
+                translate: &translate,
+                language: runtime.text_generation(),
                 now: self.menu_seconds,
-                clocks: Some(&self.scene_clock),
-                ..engine::ScreenArt::default()
+                nodes: &mut *nodes,
+                next: &mut *next,
+                renderers: &mut [&mut menu, &mut preview],
             };
             match renderer.render_screen(
                 layer.reference,
@@ -307,8 +327,7 @@ impl UiPresentationRuntime {
                 &layer.context,
                 &state,
                 art,
-                inputs,
-                out,
+                &mut paint_frame,
             ) {
                 Ok(Some(frame)) => drawn = Some(frame),
                 Ok(None) | Err(_) => {
@@ -325,7 +344,7 @@ impl UiPresentationRuntime {
             if let Some((hits, keys)) =
                 self.append_dialog(runtime, view, &state, nodes, next, metrics, [width, height])
             {
-                self.form_presentation.menu_keys = keys;
+                self.screens.menu_keys = keys;
                 return Ok(Some(hits));
             }
             return Ok(None);
@@ -355,9 +374,7 @@ impl UiPresentationRuntime {
             let actions = super::global_resources::slider_actions(view, region)
                 .or_else(|| menu_screens::slider_actions(view, region))
                 .unwrap_or_else(|| menu_screens::action_for(view, region).into_iter().collect());
-            self.form_presentation
-                .menu_focus
-                .extend(actions.iter().copied());
+            self.projections.menu_focus.extend(actions.iter().copied());
             for action in actions {
                 keys.push((action, region.key.clone()));
             }
@@ -403,15 +420,15 @@ impl UiPresentationRuntime {
             }
         }
         self.add_menu_text_spots(spots);
-        self.form_presentation.menu_sounds = sounds;
+        self.screens.menu_sounds = sounds;
         // An owned dialog or the join's trust question takes all input over its screen.
         if let Some(popup) =
             self.append_dialog(runtime, view, &state, nodes, next, metrics, [width, height])
         {
             (hits, keys) = popup;
-            self.form_presentation.menu_focus = hits.iter().map(|(action, _)| *action).collect();
+            self.projections.menu_focus = hits.iter().map(|(action, _)| *action).collect();
         }
-        self.form_presentation.menu_keys = keys;
+        self.screens.menu_keys = keys;
         Ok(Some(hits))
     }
 }
@@ -441,7 +458,7 @@ impl UiPresentationRuntime {
             dialog,
             Some(launcher::menu::MenuDialog::Accounts | launcher::menu::MenuDialog::Exit)
         ) {
-            self.form_presentation.menu_sounds = Vec::new();
+            self.screens.menu_sounds = Vec::new();
             let rollback = (nodes.len(), *next);
             let drawn = if dialog == Some(launcher::menu::MenuDialog::Exit) {
                 self.append_oreui_exit(view, nodes, next, metrics, [width, height], &|key| {
@@ -459,7 +476,7 @@ impl UiPresentationRuntime {
                 }
             });
         }
-        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+        let Some(renderer) = self.engine.as_deref() else {
             return Some((Vec::new(), Vec::new()));
         };
         let rollback = (nodes.len(), *next);
@@ -491,7 +508,7 @@ impl UiPresentationRuntime {
         } else {
             MODAL_POPUP
         };
-        let inputs = engine::EngineInputs {
+        let mut paint_frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
             metrics,
@@ -500,11 +517,10 @@ impl UiPresentationRuntime {
             content: [width, height],
             translate: &translate,
             language: runtime.text_generation(),
-        };
-        let out = engine::EngineOutput {
+            now: self.menu_seconds,
             nodes: &mut *nodes,
             next: &mut *next,
-            overlay: &[],
+            renderers: &mut [],
         };
         let popup = renderer.render_screen(
             reference,
@@ -512,12 +528,10 @@ impl UiPresentationRuntime {
             &context,
             state,
             engine::ScreenArt {
-                now: self.menu_seconds,
                 images: Some(&self.menu_artwork.refs),
                 ..engine::ScreenArt::default()
             },
-            inputs,
-            out,
+            &mut paint_frame,
         );
         let popup = match popup {
             Ok(Some(popup)) => popup,
@@ -550,7 +564,7 @@ impl UiPresentationRuntime {
                 sounds.extend(region.sound.clone().map(|sound| (action, sound)));
             }
         }
-        self.form_presentation.menu_sounds = sounds;
+        self.screens.menu_sounds = sounds;
         Some((hits, keys))
     }
 }

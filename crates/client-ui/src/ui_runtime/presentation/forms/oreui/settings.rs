@@ -14,7 +14,7 @@ mod sidebar;
 #[cfg(test)]
 mod row_tests;
 
-use super::super::super::UiPresentationError;
+use super::super::engine::screen::PaintError;
 use super::super::menu_screens::{SETTINGS_SECTIONS, Translate};
 use super::focus;
 use super::paint::{Bounds, Canvas};
@@ -41,7 +41,7 @@ pub(super) fn draw(
     size: [f32; 2],
     translate: Translate<'_>,
     gamerpic: Option<IconRef>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     widgets::screen_overlay(canvas, size)?;
     canvas.settings_scrollbars = true;
     canvas.capture_focus = true;
@@ -145,7 +145,7 @@ fn header(
     view: &MenuView,
     width: f32,
     translate: Translate<'_>,
-) -> Result<f32, UiPresentationError> {
+) -> Result<f32, PaintError> {
     let height = canvas.r(4.4);
     let header_focus = canvas.begin_focus_region(
         focus::HEADER,
@@ -227,11 +227,7 @@ impl Content<'_, '_> {
         ]
     }
 
-    pub(super) fn heading(
-        &mut self,
-        title: &str,
-        description: &str,
-    ) -> Result<(), UiPresentationError> {
+    pub(super) fn heading(&mut self, title: &str, description: &str) -> Result<(), PaintError> {
         let title = self.word(title).to_uppercase();
         let description = self.word(description);
         let [left, right] = self.inset();
@@ -262,11 +258,7 @@ impl Content<'_, '_> {
         Ok(())
     }
 
-    pub(super) fn label(
-        &mut self,
-        title: &str,
-        description: &str,
-    ) -> Result<(), UiPresentationError> {
+    pub(super) fn label(&mut self, title: &str, description: &str) -> Result<(), PaintError> {
         let title = self.word(title);
         let description = self.word(description);
         let [left, right] = self.inset();
@@ -282,7 +274,7 @@ impl Content<'_, '_> {
         width: f32,
         action: Option<MenuAction>,
         extra: f32,
-    ) -> Result<Bounds, UiPresentationError> {
+    ) -> Result<Bounds, PaintError> {
         let title_height = self
             .canvas
             .measure_height(title, width.max(1.0), BODY)?
@@ -343,7 +335,7 @@ impl Content<'_, '_> {
         description: &str,
         width: f32,
         extra: f32,
-    ) -> Result<(), UiPresentationError> {
+    ) -> Result<(), PaintError> {
         let left = self.inset()[0];
         let title_height = self
             .canvas
@@ -374,7 +366,7 @@ impl Content<'_, '_> {
         Ok(())
     }
 
-    pub(super) fn option(&mut self, name: &str) -> Result<(), UiPresentationError> {
+    pub(super) fn option(&mut self, name: &str) -> Result<(), PaintError> {
         if name == "full_screen" {
             let action = MenuAction::SettingsFullscreen(!self.view.fullscreen);
             let title = self.word("options.fullscreen");
@@ -581,7 +573,7 @@ impl Content<'_, '_> {
         on: bool,
         action: MenuAction,
         enabled: bool,
-    ) -> Result<(), UiPresentationError> {
+    ) -> Result<(), PaintError> {
         let [left, right] = self.inset();
         let width = (right - left - self.canvas.r(7.6)).max(1.0);
         let b = self.row(title, description, width, enabled.then_some(action), 0.0)?;

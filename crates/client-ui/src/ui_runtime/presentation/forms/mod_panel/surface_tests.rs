@@ -82,7 +82,7 @@ fn changed_surface_bindings_reuse_the_catalog_and_respect_host_dimensions() {
     let before = frame(&mut presentation, [1280, 720]);
     let catalog = Arc::clone(
         presentation
-            .form_presentation
+            .screens
             .mod_panel
             .as_ref()
             .unwrap()
@@ -96,7 +96,7 @@ fn changed_surface_bindings_reuse_the_catalog_and_respect_host_dimensions() {
     );
     presentation.set_mod_panel(Some(&panel)).unwrap();
     let after = frame(&mut presentation, [1280, 720]);
-    let retained = presentation.form_presentation.mod_panel.as_ref().unwrap();
+    let retained = presentation.screens.mod_panel.as_ref().unwrap();
     assert!(Arc::ptr_eq(&catalog, retained.catalog.as_ref().unwrap()));
     assert!(before.vertices != after.vertices);
     let changed = point(&presentation, "mod.control:0", 0.5);
@@ -135,7 +135,7 @@ fn reference_size_keeps_bottom_control_visible_and_clickable_in_small_viewports(
         let rendered = frame(&mut presentation, size);
         let at = point(&presentation, "mod.control:3", 0.5);
         let frame = presentation
-            .form_presentation
+            .screens
             .mod_panel
             .as_ref()
             .unwrap()

@@ -13,41 +13,29 @@ use json_ui::{
     Catalog, Context, DataSource, Draw, DrawNode, FormModel, FormRender, HitRegion, LayoutEnv,
     RectOut, ResolvedControl, ViewState, bind_form_over, render_bound_gated,
 };
-use ui::{SafeArea, TextLayoutCache, TextShadow, UiNode, UiNodeId, UiVisual};
+use ui::{TextLayoutCache, TextShadow, UiNode, UiNodeId, UiPoint, UiRect, UiVisual};
 
-use super::super::player_preview::PreviewView;
-use {
-    super::super::{TextMetrics, UiPresentationError, rect},
-    ui::{FONT_DESIGN_PIXEL_TEXELS, IconRef},
-};
+use {super::super::TextMetrics, ui::FONT_DESIGN_PIXEL_TEXELS};
 
-pub(super) mod credits_renderer;
-mod fill_renderers;
-mod formatting_colors;
-pub mod hud_renderers;
-mod item_renderer;
-mod menu_renderers;
-mod menu_title;
-mod mod_crosshair;
-#[cfg(test)]
-mod ownership_tests;
-mod pack_catalog;
-mod pixel_snap;
-mod rounded;
-mod vector_icons;
-pub(super) use pack_catalog::layer_pack_catalog;
 #[cfg(test)]
 mod death_reason_tests;
+mod fill_renderers;
+mod formatting_colors;
 pub(super) mod host_edit;
+#[cfg(test)]
+mod ownership_tests;
+pub(crate) mod pack_catalog;
+mod pixel_snap;
+mod rounded;
+pub(crate) mod screen;
 mod screen_cache;
 mod sprites;
-mod text_paint;
+pub(super) mod text_paint;
+mod vector_icons;
 use super::server_pack::{ServerAtlas, ServerUiPack};
 use super::textures::{TextureSet, Textures};
-use crate::ui_runtime::{
-    ServerFormIdentity,
-    forms::{EditText, EngineFrame},
-};
+use crate::ui_runtime::forms::{EditText, EngineFrame};
+use screen::{CustomDraw, CustomRenderer, PaintError, PaintFrame, ScreenRegistry};
 use text_paint::{Measure, TextPaint};
 pub(super) use text_paint::{
     UNWRAPPED_LOGICAL, active_codes, label_origin, painted_label_request, width_64,
@@ -55,13 +43,14 @@ pub(super) use text_paint::{
 
 pub struct FormEngine {
     assets: Arc<RuntimeUiAssets>,
-    /// The carrier's vanilla catalog, before the built-in Java HUD pack.
+    /// The carrier's vanilla catalog, before the built-in packs.
     vanilla: Arc<Catalog>,
-    /// Vanilla under the built-in Java HUD pack: the catalog with no server pack.
+    /// Vanilla under the built-in packs: the catalog with no server pack.
     base: Arc<Catalog>,
     catalog: Arc<Catalog>,
+    /// What the screen families registered: catalog policy, screens and binding hooks.
+    registry: &'static ScreenRegistry,
     pub(super) formatting_palette: ui::FormattingPalette,
-    context: Context,
     /// Where texture paths draw from, including the on-demand server atlas.
     pub(super) textures: TextureSet,
     /// The atlas page images last handed to the dynamic pages.
@@ -71,14 +60,10 @@ pub struct FormEngine {
     server_source: Option<Arc<ServerUiPack>>,
     /// Whether a server pack's ui files are layered over the base catalog.
     pub(super) server_ui: bool,
-    menu_title_source: menu_title::TitleSource,
     /// The last form's bound tree and laid-out output, reused while unchanged.
     pub(super) cache: Option<FormCache>,
     /// Resolve+bind and layout passes run, for cache tests and profiling.
     pub(super) passes: [usize; 2],
-    /// The title splash, picked once per launch.
-    splash: std::sync::OnceLock<Option<String>>,
-    credits: std::sync::OnceLock<Arc<super::credits_content::Content>>,
     screens: screen_cache::ScreenCache,
     /// Animation state of every drawn control, keyed by layout key.
     animator: std::sync::Mutex<json_ui::Animator>,
@@ -113,27 +98,16 @@ struct Art<'a> {
     animator: &'a std::sync::Mutex<json_ui::Animator>,
 }
 
-/// Everything a render borrows from the presentation runtime for one frame.
-pub(super) struct EngineInputs<'a> {
-    pub(super) layouts: &'a mut TextLayoutCache,
-    pub(super) font: &'a RuntimeFontCatalog,
-    pub(super) metrics: TextMetrics,
-    pub(super) solid_page: u16,
-    pub(super) safe_area: SafeArea,
-    pub(super) content: [f32; 2],
-    pub(super) translate: &'a dyn Fn(&str) -> Option<Arc<str>>,
-    /// The language tables `translate` reads; a change measures text again.
-    pub(super) language: [usize; 3],
-}
-
 impl FormEngine {
-    pub(super) fn new(assets: Arc<RuntimeUiAssets>, mut catalog: Catalog, first_page: u16) -> Self {
-        super::global_resources::extend_catalog(&mut catalog);
-        super::credits_screen::extend_catalog(&mut catalog);
+    pub(super) fn new(
+        assets: Arc<RuntimeUiAssets>,
+        mut catalog: Catalog,
+        first_page: u16,
+        registry: &'static ScreenRegistry,
+    ) -> Self {
+        registry.catalog().extended(&mut catalog);
         let vanilla = Arc::new(catalog);
-        let base = Arc::new(hud_renderers::with_java_hud(&vanilla));
-        let context = super::menu_screens::retail_context();
-        let menu_title_source = menu_title::TitleSource::new(&base, &context);
+        let base = Arc::new(registry.catalog().builtin(&vanilla));
         Self {
             textures: TextureSet::new(first_page).with_carrier(Arc::clone(&assets)),
             assets,
@@ -142,16 +116,13 @@ impl FormEngine {
             screens: screen_cache::ScreenCache::default(),
             vanilla,
             base,
-            context,
-            menu_title_source,
+            registry,
             server_pages: Vec::new(),
             server_sheet_pages: Vec::new(),
             server_source: None,
             server_ui: false,
             cache: None,
             passes: [0; 2],
-            splash: std::sync::OnceLock::new(),
-            credits: std::sync::OnceLock::new(),
             animator: std::sync::Mutex::default(),
         }
     }
@@ -180,10 +151,12 @@ impl FormEngine {
             _ => false,
         };
         self.server_source = pack.cloned();
-        if !same {
-            self.credits = std::sync::OnceLock::new();
-        }
         !same
+    }
+
+    /// The runtime pack last applied.
+    pub(super) fn server_source(&self) -> Option<&Arc<ServerUiPack>> {
+        self.server_source.as_ref()
     }
 
     /// Which catalog forms resolve against, for the render-path log.
@@ -256,13 +229,14 @@ impl FormEngine {
         (drawn, missing)
     }
 
-    /// Apply a server pack's ui files over vanilla and the Java HUD pack; none restores the base.
+    /// Apply a server pack's ui files over vanilla and the built-in packs; none restores the base.
     pub(super) fn set_server_pack(&mut self, layers: &[Vec<(String, Vec<u8>)>]) {
         if layers.iter().all(Vec::is_empty) {
             self.install_pack_catalog(Arc::clone(&self.base));
             return;
         }
-        self.install_pack_catalog(Arc::new(layer_pack_catalog(&self.vanilla, layers)));
+        let catalog = self.registry.catalog().layer(&self.vanilla, layers);
+        self.install_pack_catalog(Arc::new(catalog));
     }
 
     /// Returns the original catalog used by background pack compilation.
@@ -272,7 +246,6 @@ impl FormEngine {
 
     /// Publishes a worker-resolved catalog and retires caches holding the previous one.
     pub(super) fn install_pack_catalog(&mut self, catalog: Arc<Catalog>) {
-        self.menu_title_source = menu_title::TitleSource::new(&catalog, &self.context);
         self.formatting_palette = formatting_colors::from_catalog(&catalog);
         self.catalog = catalog;
         self.cache = None;
@@ -288,10 +261,8 @@ impl FormEngine {
         &mut self,
         model: &FormModel,
         view: &ViewState,
-        (identity, now): (ServerFormIdentity, f64),
-        inputs: EngineInputs<'_>,
-        out: EngineOutput<'_>,
-    ) -> Result<Option<EngineFrame>, UiPresentationError> {
+        frame: &mut PaintFrame<'_>,
+    ) -> Result<Option<EngineFrame>, PaintError> {
         let current = self.cache.as_ref().is_some_and(|cache| {
             cache.model == *model
                 && cache.components.same_bindings(&view.components)
@@ -304,14 +275,14 @@ impl FormEngine {
                 components: components.clone(),
                 model: model.clone(),
                 catalog: Arc::clone(&self.catalog),
-                bound: bind_form_over(model, &self.catalog, &self.context, components),
+                bound: bind_form_over(model, &self.catalog, self.registry.context(), components),
                 laid: None,
                 screen_cancel: json_ui::form_screen_cancel(&self.catalog),
             });
         }
-        let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
-        let text = inputs.language;
-        let font = inputs.font.identity();
+        let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+        let text = frame.language;
+        let font = frame.font.identity();
         let texture_metadata = self.textures.metadata_revision();
         let art = Art {
             assets: &self.assets,
@@ -325,44 +296,36 @@ impl FormEngine {
         let (cache, passes) = (&mut self.cache, &mut self.passes[1]);
         let screen_art = ScreenArt {
             view: Some(view),
-            now,
             ..ScreenArt::default()
         };
-        let frame = render_with(
-            art,
-            inputs,
-            out,
-            screen_art,
-            Some(identity),
-            move |env, root| {
-                let cache = cache.as_mut()?;
-                let fresh = cache.laid.as_ref().is_some_and(|laid| {
-                    laid.view.same_layout(view)
-                        && (laid.root, laid.px, laid.text) == (root, px, text)
-                        && laid.font == font
-                        && laid.texture_metadata == texture_metadata
+        let drawn = render_with(art, frame, screen_art, move |env, root| {
+            let cache = cache.as_mut()?;
+            let fresh = cache.laid.as_ref().is_some_and(|laid| {
+                laid.view.same_layout(view)
+                    && (laid.root, laid.px, laid.text) == (root, px, text)
+                    && laid.font == font
+                    && laid.texture_metadata == texture_metadata
+            });
+            if !fresh {
+                let bound = cache.bound.clone()?;
+                *passes += 1;
+                let measures = &mut Default::default();
+                let render = render_bound_gated(bound, root, env, view, measures);
+                cache.laid = Some(LaidForm {
+                    view: view.clone(),
+                    root,
+                    px,
+                    text,
+                    font,
+                    texture_metadata,
+                    render,
                 });
-                if !fresh {
-                    let bound = cache.bound.clone()?;
-                    *passes += 1;
-                    let measures = &mut Default::default();
-                    let render = render_bound_gated(bound, root, env, view, measures);
-                    cache.laid = Some(LaidForm {
-                        view: view.clone(),
-                        root,
-                        px,
-                        text,
-                        font,
-                        texture_metadata,
-                        render,
-                    });
-                }
-                cache.laid.as_ref().map(|laid| &laid.render)
-            },
-        )?;
-        Ok(frame.map(|mut frame| {
-            frame.cancel_target = frame.cancel_target.or(screen_cancel);
-            frame
+            }
+            cache.laid.as_ref().map(|laid| &laid.render)
+        })?;
+        Ok(drawn.map(|mut drawn| {
+            drawn.cancel_target = drawn.cancel_target.or(screen_cancel);
+            drawn
         }))
     }
 
@@ -370,19 +333,13 @@ impl FormEngine {
         &self.assets
     }
 
-    pub(super) fn splash(&self, translate: &dyn Fn(&str) -> Option<Arc<str>>) -> Option<&str> {
-        self.splash
-            .get_or_init(|| menu_renderers::pick_splash(&self.assets, translate))
-            .as_deref()
-    }
-
     pub(super) fn catalog(&self) -> &Arc<Catalog> {
         &self.catalog
     }
 
-    /// Chat retains the built-in presentation while other screens use the pack stack.
+    /// Registered built-in screens keep their presentation while others use the pack stack.
     pub(super) fn screen_catalog(&self, reference: &str) -> &Arc<Catalog> {
-        if reference == super::chat_screen::CHAT_SCREEN {
+        if self.registry.builtin(reference) {
             &self.base
         } else {
             &self.catalog
@@ -394,23 +351,22 @@ impl FormEngine {
         self.base = if native {
             Arc::clone(&self.vanilla)
         } else {
-            Arc::new(hud_renderers::with_java_hud(&self.vanilla))
+            Arc::new(self.registry.catalog().builtin(&self.vanilla))
         };
     }
 
     pub(super) fn context(&self) -> &Context {
-        &self.context
+        self.registry.context()
     }
 
     /// Paint what `draw` lays out over this engine's textures; `Ok(None)` when it lays out nothing.
     pub(super) fn draw<R: Borrow<FormRender>>(
         &self,
         art: ScreenArt<'_>,
-        inputs: EngineInputs<'_>,
-        out: EngineOutput<'_>,
+        frame: &mut PaintFrame<'_>,
         draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
-    ) -> Result<Option<EngineFrame>, UiPresentationError> {
-        render_with(self.art(), inputs, out, art, None, draw)
+    ) -> Result<Option<EngineFrame>, PaintError> {
+        render_with(self.art(), frame, art, draw)
     }
 
     /// [`Self::draw`] over `textures` instead of the engine's own sources.
@@ -418,20 +374,19 @@ impl FormEngine {
         &self,
         textures: &TextureSet,
         art: ScreenArt<'_>,
-        inputs: EngineInputs<'_>,
-        out: EngineOutput<'_>,
+        frame: &mut PaintFrame<'_>,
         draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
-    ) -> Result<Option<EngineFrame>, UiPresentationError> {
+    ) -> Result<Option<EngineFrame>, PaintError> {
         let sources = Art {
             assets: &self.assets,
             set: textures,
             animator: &self.animator,
         };
-        render_with(sources, inputs, out, art, None, draw)
+        render_with(sources, frame, art, draw)
     }
 
-    /// Render an allow-listed screen against `data` under `view`; `art` backs its custom renderers.
-    #[allow(clippy::too_many_arguments)]
+    /// Render a registered screen against `data` under `view`; `frame`'s renderers draw its
+    /// custom controls.
     pub(super) fn render_screen<'a>(
         &self,
         reference: &str,
@@ -439,14 +394,13 @@ impl FormEngine {
         context: &Context,
         view: &'a ViewState,
         mut art: ScreenArt<'a>,
-        inputs: EngineInputs<'_>,
-        out: EngineOutput<'_>,
-    ) -> Result<Option<EngineFrame>, UiPresentationError> {
+        frame: &mut PaintFrame<'_>,
+    ) -> Result<Option<EngineFrame>, PaintError> {
         art.view = Some(view);
-        let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
-        let text = inputs.language;
+        let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+        let text = frame.language;
         let texture_metadata = self.textures.metadata_revision();
-        render_with(self.art(), inputs, out, art, None, |env, root| {
+        render_with(self.art(), frame, art, |env, root| {
             let key = screen_cache::ScreenKey {
                 reference,
                 catalog: &self.catalog,
@@ -458,25 +412,23 @@ impl FormEngine {
                 text,
                 texture_metadata,
             };
-            self.screens.render(key, env)
+            self.screens.render(key, env, self.registry)
         })
     }
 }
 
 fn render_with<R: Borrow<FormRender>>(
     textures: Art<'_>,
-    inputs: EngineInputs<'_>,
-    out: EngineOutput<'_>,
+    frame: &mut PaintFrame<'_>,
     art: ScreenArt<'_>,
-    identity: Option<ServerFormIdentity>,
     draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
-) -> Result<Option<EngineFrame>, UiPresentationError> {
-    let px = inputs.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+) -> Result<Option<EngineFrame>, PaintError> {
+    let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
     let root = [
-        f64::from(inputs.content[0] / px),
-        f64::from(inputs.content[1] / px),
+        f64::from(frame.content[0] / px),
+        f64::from(frame.content[1] / px),
     ];
-    let cache = RefCell::new(inputs.layouts);
+    let cache = RefCell::new(&mut *frame.layouts);
     let render = {
         let atlas = textures.set.lock();
         let view = Textures {
@@ -487,10 +439,10 @@ fn render_with<R: Borrow<FormRender>>(
         };
         let measure = Measure {
             layouts: &cache,
-            font: inputs.font,
-            metrics: inputs.metrics,
+            font: frame.font,
+            metrics: frame.metrics,
             px,
-            translate: inputs.translate,
+            translate: frame.translate,
         };
         let env = LayoutEnv {
             text: &measure,
@@ -504,29 +456,32 @@ fn render_with<R: Borrow<FormRender>>(
     let render = render.borrow();
     let layouts = cache.into_inner();
     let mut atlas = textures.set.lock();
+    let laid = || {
+        render
+            .nodes
+            .iter()
+            .chain(art.overlay)
+            .filter(|node| !art.omits(node))
+    };
+    let drawn_renderer = |name: &str| {
+        laid().any(|node| matches!(&node.draw, Draw::Custom { renderer, .. } if renderer == name))
+    };
     // Only what this screen draws needs to be resident.
     // Many nodes share a texture; each path resolves once.
-    let paths: std::collections::HashSet<&str> = render
-        .nodes
-        .iter()
-        .chain(out.overlay)
-        .filter(|node| !art.omits(node))
+    let mut paths: std::collections::HashSet<&str> = laid()
         .filter_map(|node| match &node.draw {
             Draw::Sprite { texture, .. } => Some(texture.as_str()),
             Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER => {
                 Some(tooltip::BACKGROUND_TEXTURE)
             }
-            Draw::Custom { renderer, .. } if renderer == credits_renderer::RENDERER => {
-                Some(credits_renderer::TITLE_TEXTURE)
-            }
             _ => None,
         })
-        .chain(
-            art.hud
-                .into_iter()
-                .flat_map(hud_renderers::HudPaint::textures),
-        )
         .collect();
+    for renderer in frame.renderers.iter() {
+        renderer.textures(&drawn_renderer, &mut |path| {
+            paths.insert(path);
+        });
+    }
     let drawn = Textures {
         assets: textures.assets,
         set: textures.set,
@@ -535,50 +490,51 @@ fn render_with<R: Borrow<FormRender>>(
     }
     .atlas_keys(paths.into_iter());
     atlas.require(drawn.iter().map(String::as_str));
-    let mut painter = Painter {
+    let mut canvas = Canvas {
         textures: Textures {
             assets: textures.assets,
             set: textures.set,
             atlas: &atlas,
             images: art.images,
         },
-        solid_page: inputs.solid_page,
+        solid_page: frame.solid_page,
         edit: host_edit::Target::from_frame(render, art),
         art,
-        screen: [0.0, 0.0, inputs.content[0], inputs.content[1]],
+        now: frame.now,
+        screen: [0.0, 0.0, frame.content[0], frame.content[1]],
         layouts,
-        font: inputs.font,
-        metrics: inputs.metrics,
+        font: frame.font,
+        metrics: frame.metrics,
         px,
-        translate: inputs.translate,
-        nodes: out.nodes,
-        next: out.next,
+        translate: frame.translate,
+        nodes: &mut *frame.nodes,
+        next: &mut *frame.next,
         clip: None,
         animator: textures
             .animator
             .lock()
             .unwrap_or_else(|poison| poison.into_inner()),
     };
+    let renderers = &mut *frame.renderers;
     let view = art.view;
     let mut top: Vec<std::ops::Range<usize>> = Vec::new();
     let overlay_start = render.nodes.len();
-    for (index, node) in render.nodes.iter().chain(out.overlay).enumerate() {
+    for (index, node) in render.nodes.iter().chain(art.overlay).enumerate() {
         if !art.omits(node) && view.is_none_or(|view| node.shown(view)) {
-            let start = painter.nodes.len();
-            painter.paint(node)?;
+            let start = canvas.nodes.len();
+            canvas.paint(node, renderers)?;
             let lifted = index >= overlay_start
                 || matches!(&node.draw, Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER);
-            if lifted && painter.nodes.len() > start {
+            if lifted && canvas.nodes.len() > start {
                 match top.last_mut() {
-                    Some(last) if last.end == start => last.end = painter.nodes.len(),
-                    _ => top.push(start..painter.nodes.len()),
+                    Some(last) if last.end == start => last.end = canvas.nodes.len(),
+                    _ => top.push(start..canvas.nodes.len()),
                 }
             }
         }
     }
-    let origin = [inputs.safe_area.left(), inputs.safe_area.top()];
+    let origin = [frame.safe_area.left(), frame.safe_area.top()];
     Ok(Some(EngineFrame {
-        identity,
         hits: render.hits.clone(),
         report: render.report.clone(),
         cancel_target: render.cancel_target.clone(),
@@ -591,7 +547,7 @@ fn render_with<R: Borrow<FormRender>>(
             &render.hits,
             &render.nodes,
             origin[0],
-            [inputs.metrics.gui_scale, px],
+            [frame.metrics.gui_scale, px],
         ),
         top,
     }))
@@ -626,41 +582,32 @@ fn edit_texts(
         .collect()
 }
 
-/// Advance an admitted hunger control and return its render-update count.
-type HungerUpdate<'a> = &'a dyn Fn(&str, Option<u64>) -> u64;
+/// `[left, top, right, bottom]` in logical px as a rect.
+pub(crate) fn rect(left: f32, top: f32, right: f32, bottom: f32) -> Result<UiRect, PaintError> {
+    UiRect::new(
+        UiPoint::new(left, top).map_err(PaintError::Geometry)?,
+        UiPoint::new(right, bottom).map_err(PaintError::Geometry)?,
+    )
+    .map_err(PaintError::Geometry)
+}
 
-/// Caller art the custom renderers draw: `#item_renderer_data` icons, the player preview,
-/// the tooltip pointer (virtual px), the fade clock (s), HUD state, artwork and gamerpic.
+/// What the engine paints a screen against besides its layout: the interaction state, the
+/// hover tooltip and pointer (virtual px), transition clocks, artwork and edit feedback.
 #[derive(Clone, Copy, Default)]
-pub(super) struct ScreenArt<'a> {
+pub(crate) struct ScreenArt<'a> {
     /// Native replacements retain the pack's backdrop while omitting the replaced controls.
-    pub(super) omit_controls: &'a [&'a str],
-    pub(super) icons: &'a [IconRef],
-    /// Icons an `#item_id_aux` renderer names, by that value.
-    pub(super) id_aux: &'a [(i64, IconRef)],
+    pub(crate) omit_controls: &'a [&'a str],
     /// The interaction state gated nodes ([`json_ui::render_bound_gated`]) paint under.
-    pub(super) view: Option<&'a ViewState>,
+    pub(crate) view: Option<&'a ViewState>,
     /// Text a shown hover tooltip draws instead of its bound `#hover_text`.
-    pub(super) tooltip: Option<&'a str>,
-    /// Where a drawn player renderer records how it wants the model posed.
-    pub(super) preview_view: Option<&'a std::cell::Cell<Option<PreviewView>>>,
-    pub(super) preview_control: Option<
-        &'a std::cell::Cell<Option<super::super::player_preview::controller::PreviewControl>>,
-    >,
-    pub(super) preview_rotation: f32,
-    pub(super) preview: Option<IconRef>,
-    pub(super) pointer: Option<[f32; 2]>,
-    pub(super) now: f64,
+    pub(crate) tooltip: Option<&'a str>,
+    pub(crate) pointer: Option<[f32; 2]>,
     /// Creation times that fades naming a clock read instead of their own.
-    pub(super) clocks: Option<&'a std::collections::BTreeMap<String, f64>>,
-    pub(super) hud: Option<&'a hud_renderers::HudPaint>,
-    /// Per-control updates advance only when a hunger renderer reaches painting.
-    pub(super) hunger_update: Option<HungerUpdate<'a>>,
-    pub(super) images: Option<&'a std::collections::HashMap<String, IconRef>>,
-    pub(super) portrait: Option<IconRef>,
-    pub(super) splash: Option<&'a str>,
-    pub(super) credits: Option<&'a super::credits_screen::CreditsPaint>,
+    pub(crate) clocks: Option<&'a std::collections::BTreeMap<String, f64>>,
+    pub(crate) images: Option<&'a std::collections::HashMap<String, ui::IconRef>>,
     pub(super) edit: Option<host_edit::Feedback>,
+    /// Caller nodes painted above the screen (the held stack).
+    pub(crate) overlay: &'a [DrawNode],
 }
 
 impl ScreenArt<'_> {
@@ -673,19 +620,14 @@ impl ScreenArt<'_> {
     }
 }
 
-/// Where a render writes its retained nodes, plus caller nodes painted on top (the held stack).
-pub(super) struct EngineOutput<'a> {
-    pub(super) nodes: &'a mut Vec<UiNode>,
-    pub(super) next: &'a mut u32,
-    pub(super) overlay: &'a [DrawNode],
-}
-
-/// Turns draw nodes into retained UI nodes, opening a clip group per clip change to keep order.
-struct Painter<'a> {
+/// Turns draw nodes into retained UI nodes, opening a clip group per clip change to keep
+/// order; custom renderers draw through it.
+pub(crate) struct Canvas<'a> {
     edit: Option<host_edit::Target<'a>>,
     textures: Textures<'a>,
     solid_page: u16,
     art: ScreenArt<'a>,
+    now: f64,
     /// The whole content area, the clip for unclipped tooltips.
     screen: [f32; 4],
     layouts: &'a mut TextLayoutCache,
@@ -699,7 +641,49 @@ struct Painter<'a> {
     animator: std::sync::MutexGuard<'a, json_ui::Animator>,
 }
 
-impl Painter<'_> {
+impl<'a> Canvas<'a> {
+    /// Logical px per GUI px.
+    pub(super) fn px(&self) -> f32 {
+        self.px
+    }
+
+    pub(super) fn solid_page(&self) -> u16 {
+        self.solid_page
+    }
+
+    pub(super) fn metrics(&self) -> TextMetrics {
+        self.metrics
+    }
+
+    pub(super) fn font(&self) -> &'a RuntimeFontCatalog {
+        self.font
+    }
+
+    pub(super) fn layouts(&mut self) -> &mut TextLayoutCache {
+        self.layouts
+    }
+
+    /// The whole content area in logical px.
+    pub(super) fn screen(&self) -> [f32; 4] {
+        self.screen
+    }
+
+    /// The current clip group's bounds.
+    pub(super) fn clip(&self) -> Option<[f32; 4]> {
+        self.clip.map(|(bounds, _)| bounds)
+    }
+
+    /// The pointer in virtual px, when the caller tracks one.
+    pub(super) fn pointer(&self) -> Option<[f32; 2]> {
+        self.art.pointer
+    }
+
+    pub(super) fn textures(&self) -> &Textures<'a> {
+        &self.textures
+    }
+}
+
+impl Canvas<'_> {
     fn logical(&self, rect: &RectOut) -> [f32; 4] {
         let px = self.px;
         [
@@ -737,7 +721,7 @@ impl Painter<'_> {
     }
 
     /// The clip group for `clip`, reusing the current one when it matches.
-    fn group(&mut self, clip: [f32; 4]) -> Result<UiNodeId, UiPresentationError> {
+    pub(super) fn group(&mut self, clip: [f32; 4]) -> Result<UiNodeId, PaintError> {
         if let Some((current, id)) = self.clip
             && current == clip
         {
@@ -752,69 +736,45 @@ impl Painter<'_> {
         Ok(id)
     }
 
-    /// Bridge the custom renderers screens use: item icons, the durability bar, the
-    /// player preview, tooltips, and the HUD's native renderers. Others draw nothing yet.
+    /// Hands `node` to the frame's renderers, then to the engine's own: vector icons, rounded
+    /// chrome, fills, messaging art, named profile images and name tags. Others draw nothing.
     fn custom(
         &mut self,
-        key: &str,
-        renderer: &str,
-        data: &std::collections::BTreeMap<String, serde_json::Value>,
-        dest: [f32; 4],
-        alpha: impl Fn([u8; 4]) -> [u8; 4],
-    ) -> Option<(UiVisual, [f32; 4])> {
-        if let Some(hud) = self.art.hud
-            && hud_renderers::paint(self, hud, key, renderer, data, dest, &alpha)
-        {
-            return None;
+        node: &CustomDraw<'_>,
+        renderers: &mut [&mut dyn CustomRenderer],
+    ) -> Result<(), PaintError> {
+        for renderer in renderers.iter_mut() {
+            if renderer.paint(node, self)? {
+                return Ok(());
+            }
         }
-        match renderer {
-            "cinnabar_vector_icon" => Some((self.vector_icon(data, dest, &alpha)?, dest)),
-            "cinnabar_rounded_rectangle" => {
-                Some((self.rounded_rectangle(data, dest, &alpha)?, dest))
-            }
-            credits_renderer::RENDERER => {
-                self.credits(dest, &alpha);
-                None
-            }
-            "inventory_item_renderer" => {
-                let icon = item_renderer::icon(data, self.art.icons, self.art.id_aux)?;
-                Some((icon.visual(alpha([255; 4])), dest))
-            }
+        let (data, dest) = (node.data, node.dest);
+        let alpha = |color: [u8; 4]| node.alpha(color);
+        let drawn = match node.renderer {
+            "cinnabar_vector_icon" => self
+                .vector_icon(data, dest, &alpha)
+                .map(|visual| (visual, dest)),
+            "cinnabar_rounded_rectangle" => self
+                .rounded_rectangle(data, dest, &alpha)
+                .map(|visual| (visual, dest)),
             "progress_bar_renderer" => {
                 self.progress_bar(data, dest, &alpha);
                 None
             }
-            "gradient_renderer" => Some((self.gradient(data, &alpha)?, dest)),
+            "gradient_renderer" => self.gradient(data, &alpha).map(|visual| (visual, dest)),
             "animated_gif_renderer" => self.animated_gif(data, dest, &alpha),
-            "profile_image_renderer" => {
-                // A friend row names its own gamerpic; elsewhere it is the player's.
-                let portrait = match data.get("#profile_image_options") {
-                    Some(serde_json::Value::String(path)) => *self.art.images?.get(path)?,
-                    _ => self.art.portrait?,
-                };
-                Some((
-                    UiVisual::Sprite {
-                        texture_page: portrait.page,
-                        uv: portrait.uv,
-                        color: alpha([255; 4]),
-                    },
-                    dest,
-                ))
-            }
-            "live_player_renderer" | "paper_doll_renderer" | "hud_player_renderer" => {
-                self.player_preview(renderer, data, dest, &alpha)
-            }
-            "splash_text_renderer" => {
-                self.splash(dest, &alpha);
-                None
-            }
+            "profile_image_renderer" => self.named_profile_image(data, dest, &alpha),
             "name_tag_renderer" => self.name_tag(data, dest, &alpha),
             _ => None,
+        };
+        match drawn {
+            Some((visual, bounds)) => self.push(visual, bounds),
+            None => Ok(()),
         }
     }
 
     /// Push `visual` at `bounds` into the current clip group.
-    fn push(&mut self, visual: UiVisual, bounds: [f32; 4]) -> Result<(), UiPresentationError> {
+    pub(super) fn push(&mut self, visual: UiVisual, bounds: [f32; 4]) -> Result<(), PaintError> {
         let Some((clip, parent)) = self.clip else {
             return Ok(());
         };
@@ -836,7 +796,7 @@ impl Painter<'_> {
     }
 
     /// A solid rect in the current clip group.
-    fn solid(&mut self, bounds: [f32; 4], color: [u8; 4]) -> Result<(), UiPresentationError> {
+    pub(super) fn solid(&mut self, bounds: [f32; 4], color: [u8; 4]) -> Result<(), PaintError> {
         let visual = UiVisual::Solid {
             texture_page: self.solid_page,
             color,
@@ -844,7 +804,11 @@ impl Painter<'_> {
         self.push(visual, bounds)
     }
 
-    fn paint(&mut self, node: &DrawNode) -> Result<(), UiPresentationError> {
+    fn paint(
+        &mut self,
+        node: &DrawNode,
+        renderers: &mut [&mut dyn CustomRenderer],
+    ) -> Result<(), PaintError> {
         if let Draw::Sprite { texture, .. } = &node.draw
             && node
                 .anim
@@ -864,7 +828,7 @@ impl Painter<'_> {
         }
         let drawn = node.animate(
             &mut self.animator,
-            self.art.now,
+            self.now,
             self.art.clocks,
             Some(&self.textures),
         );
@@ -964,10 +928,14 @@ impl Painter<'_> {
                 };
             }
             Draw::Custom { renderer, data } => {
-                match self.custom(&node.key, renderer, data, dest, alpha) {
-                    Some(visual) => visual,
-                    None => return Ok(()),
-                }
+                let custom = CustomDraw {
+                    key: &node.key,
+                    renderer,
+                    data,
+                    dest,
+                    opacity,
+                };
+                return self.custom(&custom, renderers);
             }
         };
         self.push(visual, bounds)

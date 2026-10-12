@@ -4,7 +4,7 @@ use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
 use ui::{UiBlendMode, UiMesh, UiMeshBatch, UiMeshVertex, UiVisual};
 
-use super::Painter;
+use super::Canvas;
 
 const MAX_CACHED_SHAPES: usize = 128;
 const CORNER_STEPS: usize = 8;
@@ -21,7 +21,7 @@ struct Key {
 
 thread_local! { static SHAPES: RefCell<HashMap<Key, Arc<UiMesh>>> = RefCell::default(); }
 
-impl Painter<'_> {
+impl Canvas<'_> {
     pub(super) fn rounded_rectangle(
         &self,
         data: &std::collections::BTreeMap<String, serde_json::Value>,

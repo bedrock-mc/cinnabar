@@ -1,4 +1,4 @@
-use super::super::super::UiPresentationError;
+use super::super::engine::screen::PaintError;
 use super::super::menu_screens::Translate;
 use super::{
     CharacterPreview,
@@ -14,7 +14,7 @@ pub(super) fn draw(
     view: &MenuView,
     size: [f32; 2],
     translate: Translate<'_>,
-) -> Result<Option<CharacterPreview>, UiPresentationError> {
+) -> Result<Option<CharacterPreview>, PaintError> {
     widgets::screen_overlay(canvas, size)?;
     let margin = canvas.r(2.4).min(size[0] * 0.04).min(size[1] * 0.025);
     let width = canvas.r(78.0).min(size[0] - margin * 2.0);

@@ -97,7 +97,7 @@ fn pause_quit_uses_installed_translation_through_the_screen_route() {
     );
     assert!(
         presentation
-            .form_presentation
+            .projections
             .menu_focus
             .contains(&MenuAction::PauseDisconnect)
     );

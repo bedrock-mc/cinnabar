@@ -30,10 +30,7 @@ fn home_quit_confirmation_uses_oreui_without_a_legacy_popup_and_traps_clicks() {
     view.dialog = Some(launcher::menu::MenuDialog::Exit);
     set_dark(&mut view, true);
     runtime.set_menu_view(Some(view));
-    runtime
-        .form_presentation
-        .oreui_transitions
-        .configure_motion(false);
+    runtime.screens.oreui.transitions.configure_motion(false);
     let metrics = TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
     let (mut nodes, mut next) = (Vec::new(), 1);
     let hits = runtime
@@ -150,10 +147,7 @@ fn dark_mode_applies_immediately_and_restores_the_default_without_changing_input
             .position(|option| option.name == "screen_animations")
             .unwrap();
         Arc::make_mut(&mut view.settings_options).set(motion, 0);
-        runtime
-            .form_presentation
-            .oreui_transitions
-            .configure_motion(false);
+        runtime.screens.oreui.transitions.configure_motion(false);
         let (before, hits) = draw(&mut runtime, &view);
         set_dark(&mut view, true);
         let (dark, dark_hits) = draw(&mut runtime, &view);
@@ -190,10 +184,7 @@ fn dark_mode_survives_a_frame_reset_and_loading_without_a_menu_view() {
     let mut view = MenuView::new(true, "Player".into());
     set_dark(&mut view, true);
     draw(&mut runtime, &view);
-    runtime
-        .form_presentation
-        .oreui_transitions
-        .configure_motion(false);
+    runtime.screens.oreui.transitions.configure_motion(false);
     runtime.begin_form_frame();
     let metrics = TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
     let (mut nodes, mut next) = (Vec::new(), 1);

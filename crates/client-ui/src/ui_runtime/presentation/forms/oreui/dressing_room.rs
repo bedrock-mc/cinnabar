@@ -6,7 +6,7 @@ mod library;
 #[cfg(test)]
 mod tests;
 
-use super::super::super::UiPresentationError;
+use super::super::engine::screen::PaintError;
 use super::grid::{Grid, space};
 use super::paint::{Bounds, Canvas};
 use super::widgets;
@@ -31,7 +31,7 @@ pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
-) -> Result<PreviewArea, UiPresentationError> {
+) -> Result<PreviewArea, PaintError> {
     widgets::screen_overlay(canvas, size)?;
     let top = widgets::header(
         canvas,
@@ -129,6 +129,6 @@ pub(super) fn draw_editor(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     editor::draw(canvas, view, size)
 }

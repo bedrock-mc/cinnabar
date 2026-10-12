@@ -1,4 +1,4 @@
-use super::super::super::super::UiPresentationError;
+use super::super::super::engine::screen::PaintError;
 use super::super::{
     grid::space,
     paint::{Bounds, Canvas},
@@ -14,7 +14,7 @@ pub(super) fn draw(
     view: &MenuView,
     b: Bounds,
     viewport: Bounds,
-) -> Result<PreviewArea, UiPresentationError> {
+) -> Result<PreviewArea, PaintError> {
     widgets::panel(canvas, b)?;
     let pad = space(canvas, 4);
     let [left, right] = [b[0] + pad, b[2] - pad];
@@ -184,7 +184,7 @@ fn manage(
     b: Bounds,
     rename: Action,
     remove: Action,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let mid = (b[0] + b[2]) * 0.5;
     let gap = canvas.r(0.6);
     widgets::button(

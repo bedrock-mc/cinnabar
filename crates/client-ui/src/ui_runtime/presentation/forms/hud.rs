@@ -15,7 +15,14 @@ use json_ui::{
 };
 use ui::{TimedText, UiNode};
 
-use super::engine::{EngineInputs, EngineOutput, ScreenArt};
+use super::engine::{
+    ScreenArt,
+    pack_catalog::CarrierRestore,
+    screen::{CustomRenderer, PaintFrame, ScreenRegistry},
+};
+use super::{
+    hud_renderers::HudRenderer, item_renderer::ItemRenderer, menu_renderers::PreviewRenderer,
+};
 use crate::ui_runtime::UiRuntime;
 use {
     super::super::{
@@ -25,9 +32,11 @@ use {
     ui::{FONT_DESIGN_PIXEL_TEXELS, IconRef},
 };
 
+mod chat;
 #[cfg(test)]
 mod hunger_control_tests;
 pub(super) mod prepared;
+mod titles;
 #[cfg(test)]
 mod visibility_tests;
 
@@ -55,6 +64,21 @@ pub(super) const JAVA_HUD_PACK: [(&str, &str, &[u8]); 4] = [
         include_bytes!("../../../../../../assets/java-hud/ui/scoreboards.json"),
     ),
 ];
+
+/// Layers the built-in Java HUD pack and the rules server HUD layers follow over it.
+pub(super) fn register(registry: &mut ScreenRegistry) {
+    let catalog = registry.catalog_mut();
+    catalog.layer_builtin(install_java_hud);
+    catalog.restore_before(CarrierRestore {
+        authored: titles::authored,
+        restore: titles::restore,
+    });
+    catalog.after_layers(chat::prefer_builtin);
+}
+
+fn install_java_hud(catalog: &mut Catalog) {
+    catalog.apply_pack(JAVA_HUD_PACK.iter().map(|(path, _, bytes)| (*path, *bytes)));
+}
 
 /// Java's per-line chat background opacity.
 const CHAT_BACKGROUND_OPACITY: f64 = 0.5;
@@ -311,22 +335,15 @@ impl UiPresentationRuntime {
         now_millis: u64,
         crosshair: bool,
     ) -> Result<bool, UiPresentationError> {
-        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+        let Some(renderer) = self.engine.as_deref() else {
             return Ok(false);
         };
-        if self
-            .form_presentation
-            .chat
-            .settings
-            .options
-            .value("hide_hud")
-            != 0
-        {
+        if self.screens.chat.settings.options.value("hide_hud") != 0 {
             return Ok(true);
         }
         let context = super::chat_position::context(
             hud_context(renderer.context()),
-            &self.form_presentation.chat.settings.options,
+            &self.screens.chat.settings.options,
         );
         let reference = if crosshair {
             CROSSHAIR_SCREEN
@@ -354,7 +371,7 @@ impl UiPresentationRuntime {
             } else {
                 sidebar
             };
-            let options = &self.form_presentation.chat.settings.options;
+            let options = &self.screens.chat.settings.options;
             let mut model = hud_model(
                 player_runtime,
                 runtime,
@@ -368,7 +385,7 @@ impl UiPresentationRuntime {
             }
             super::settings_chat::apply_hud(options, &mut model);
             let opacity = options.value("interface_opacity");
-            let hud = &mut self.form_presentation.hud;
+            let hud = &mut self.screens.hud;
             hud.clocks = hud_clocks(&model);
             if hud.model.as_ref() != Some(&model) || hud.opacity != Some(opacity) {
                 let mut data = hud_data_source(&model);
@@ -383,12 +400,9 @@ impl UiPresentationRuntime {
             }
             Arc::clone(&hud.data)
         };
-        self.form_presentation
-            .hud
-            .clocks
-            .extend(self.scene_clock.clone());
+        self.screens.hud.clocks.extend(self.scene_clock.clone());
         let catalog = Arc::clone(renderer.catalog());
-        self.form_presentation
+        self.screens
             .hud
             .hunger_animation
             .begin(runtime.session_id(), &catalog);
@@ -397,7 +411,7 @@ impl UiPresentationRuntime {
             runtime,
             &frame,
             self.hud_textures.as_ref(),
-            &self.form_presentation.chat.settings.options,
+            &self.screens.chat.settings.options,
         );
         // Packs may replace the native cursor renderer with ordinary image controls.
         // Gate the whole overlay so these controls obey the same camera and HUD settings.
@@ -413,31 +427,40 @@ impl UiPresentationRuntime {
             paint.effects.clear();
         }
         if self.mod_hud_visible(player_runtime, runtime) {
-            paint.custom_crosshair = self.form_presentation.mod_crosshair.clone();
+            paint.custom_crosshair = self.screens.mod_crosshair.clone();
         }
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let translate = |key: &str| runtime.translation(key);
-        let screens = &mut self.form_presentation.hud;
+        let screens = &mut self.screens.hud;
         let preview_view = std::cell::Cell::new(None);
         let hunger_animation = std::cell::RefCell::new(&mut screens.hunger_animation);
         let advance_hunger =
             |key: &str, instance| hunger_animation.borrow_mut().advance(key, instance);
         let art = ScreenArt {
-            icons: &icons,
-            now: now_millis as f64 / 1_000.0,
-            hud: Some(&paint),
-            hunger_update: Some(&advance_hunger),
-            preview: frame.player_preview,
-            preview_view: Some(&preview_view),
             clocks: Some(&screens.clocks),
             ..ScreenArt::default()
         };
+        let mut hud_renderer = HudRenderer {
+            hud: &paint,
+            hunger_update: Some(&advance_hunger),
+        };
+        let mut items = ItemRenderer {
+            icons: &icons,
+            id_aux: &[],
+        };
+        let mut preview = PreviewRenderer {
+            preview: frame.player_preview,
+            view: Some(&preview_view),
+            ..PreviewRenderer::default()
+        };
+        let mut renderers: [&mut dyn CustomRenderer; 3] =
+            [&mut hud_renderer, &mut items, &mut preview];
         let screen = if crosshair {
             &mut screens.crosshair
         } else {
             &mut screens.hud
         };
-        let inputs = EngineInputs {
+        let mut paint_frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
             metrics,
@@ -446,13 +469,12 @@ impl UiPresentationRuntime {
             content,
             translate: &translate,
             language: runtime.text_generation(),
-        };
-        let out = EngineOutput {
+            now: now_millis as f64 / 1_000.0,
             nodes: &mut *nodes,
             next: &mut *next,
-            overlay: &[],
+            renderers: &mut renderers,
         };
-        renderer.draw(art, inputs, out, |env, root| {
+        renderer.draw(art, &mut paint_frame, |env, root| {
             screen.render(
                 reference,
                 &catalog,
@@ -712,17 +734,17 @@ impl CachedScreen {
 impl UiPresentationRuntime {
     /// The engine HUD's last laid-out draw nodes, in GUI px.
     pub fn hud_draw_nodes(&self) -> &[json_ui::DrawNode] {
-        self.form_presentation.hud.hud.nodes()
+        self.screens.hud.hud.nodes()
     }
 
     /// Bind+layout passes the engine HUD ran.
     pub fn hud_passes(&self) -> usize {
-        self.form_presentation.hud.hud.passes
+        self.screens.hud.hud.passes
     }
 
     /// The engine HUD's painted sprite paths that resolve to no texture source.
     pub fn hud_unresolved_sprites(&self) -> Vec<String> {
-        let Some(engine) = self.form_presentation.engine.as_deref() else {
+        let Some(engine) = self.engine.as_deref() else {
             return Vec::new();
         };
         let atlas = engine.textures.lock();
@@ -750,7 +772,7 @@ impl UiPresentationRuntime {
     /// A draw node's fade multiplier at `now`, under this frame's clocks,
     /// sampled by a fresh animator so it runs from the node's creation clock.
     pub fn hud_fade(&self, node: &json_ui::DrawNode, now: f64) -> f32 {
-        let clocks = Some(&self.form_presentation.hud.clocks);
+        let clocks = Some(&self.screens.hud.clocks);
         let opacity = node
             .animate(&mut json_ui::Animator::new(), now, clocks, None)
             .opacity;

@@ -1,6 +1,6 @@
 //! The Account category uses its signed-in gamerpic with the native image border.
 
-use super::super::super::super::UiPresentationError;
+use super::super::super::engine::screen::PaintError;
 use super::super::paint::{Bounds, Canvas};
 use super::super::theme;
 use crate::ui_runtime::oreui_assets::SETTINGS_ICONS;
@@ -15,7 +15,7 @@ pub(super) fn draw(
     view: &MenuView,
     bounds: Bounds,
     gamerpic: Option<IconRef>,
-) -> Result<bool, UiPresentationError> {
+) -> Result<bool, PaintError> {
     if view.auth_state == AuthState::Authenticated && !view.feeds.profile.picture_path.is_empty() {
         if let Some(gamerpic) = gamerpic {
             canvas.icon_ref(square_cover(gamerpic), bounds)?;

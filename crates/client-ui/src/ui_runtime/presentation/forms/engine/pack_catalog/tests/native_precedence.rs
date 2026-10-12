@@ -106,7 +106,6 @@ fn large_local_fallbacks_preserve_carrier_and_icon_pixels_below_server_overrides
         std::fs::write(path, large_png(GREEN)).unwrap();
     }
     presentation
-        .form_presentation
         .engine
         .as_mut()
         .unwrap()

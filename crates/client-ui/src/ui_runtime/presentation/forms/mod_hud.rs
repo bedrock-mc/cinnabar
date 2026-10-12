@@ -6,7 +6,7 @@ use json_ui::{Catalog, Context, DataSource, Scalar, ViewState};
 use ui::UiNode;
 
 use super::{
-    engine::{EngineInputs, EngineOutput, ScreenArt},
+    engine::{ScreenArt, screen::PaintFrame},
     hud::CachedScreen,
 };
 use crate::ui_runtime::UiRuntime;
@@ -42,10 +42,10 @@ impl UiPresentationRuntime {
     /// Replaces the extension's bounded text, clearing all its UI on revocation.
     pub fn set_mod_label(&mut self, label: Option<&str>) -> Result<(), String> {
         let Some(label) = label.filter(|label| !label.is_empty()) else {
-            self.form_presentation.mod_hud = None;
+            self.screens.mod_hud = None;
             return Ok(());
         };
-        if let Some(hud) = self.form_presentation.mod_hud.as_mut() {
+        if let Some(hud) = self.screens.mod_hud.as_mut() {
             if hud.text != label {
                 hud.text = label.to_owned();
             }
@@ -59,7 +59,7 @@ impl UiPresentationRuntime {
                 ("ui/cinnabar_mod.json", TEMPLATE),
             ])
             .map_err(|error| error.to_string())?;
-            self.form_presentation.mod_hud = Some(ModHud {
+            self.screens.mod_hud = Some(ModHud {
                 text: label.to_owned(),
                 catalog: Arc::new(catalog),
                 screen: CachedScreen::default(),
@@ -81,21 +81,22 @@ impl UiPresentationRuntime {
         if !self.mod_hud_visible(player_runtime, runtime) {
             return;
         }
-        let Some(hud) = self.form_presentation.mod_hud.as_mut() else {
+        let Some(hud) = self.screens.mod_hud.as_mut() else {
             return;
         };
         if runtime.ui_focused(player_runtime)
             || self.loading_stage.is_some()
-            || !self.form_presentation.hud.hud.has_visible_content()
+            || !self.screens.hud.hud.has_visible_content()
         {
             return;
         }
-        let Some(renderer) = self.form_presentation.engine.as_deref() else {
+        let Some(renderer) = self.engine.as_deref() else {
             return;
         };
         let mut data = DataSource::new();
         data.set_global("#mod_text", Scalar::Text(hud.text.clone()));
-        let inputs = EngineInputs {
+        let rollback = (nodes.len(), *next);
+        let mut paint_frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
             metrics,
@@ -104,15 +105,13 @@ impl UiPresentationRuntime {
             content,
             translate: &|_| None,
             language: runtime.text_generation(),
-        };
-        let rollback = (nodes.len(), *next);
-        let out = EngineOutput {
+            now: 0.0,
             nodes,
             next,
-            overlay: &[],
+            renderers: &mut [],
         };
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
-        let result = renderer.draw(ScreenArt::default(), inputs, out, |env, root| {
+        let result = renderer.draw(ScreenArt::default(), &mut paint_frame, |env, root| {
             hud.screen.render_with(
                 SCREEN,
                 &hud.catalog,
@@ -126,7 +125,7 @@ impl UiPresentationRuntime {
         if let Err(error) = result {
             nodes.truncate(rollback.0);
             *next = rollback.1;
-            self.form_presentation.mod_hud = None;
+            self.screens.mod_hud = None;
             bevy::log::warn!(%error, "extension HUD disabled after rendering failure");
         }
     }

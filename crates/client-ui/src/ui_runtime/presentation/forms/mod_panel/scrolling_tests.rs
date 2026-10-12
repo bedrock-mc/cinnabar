@@ -39,7 +39,7 @@ fn scroll_panel() -> Panel {
 /// Converts a panel's virtual coordinates to its actual window-logical input coordinates.
 fn at(presentation: &UiPresentationRuntime, xy: [f64; 2]) -> [f32; 2] {
     let frame = presentation
-        .form_presentation
+        .screens
         .mod_panel
         .as_ref()
         .unwrap()
@@ -55,7 +55,7 @@ fn at(presentation: &UiPresentationRuntime, xy: [f64; 2]) -> [f32; 2] {
 /// Reads the visible first scroll view's layout result after a rendered frame.
 fn offset(presentation: &UiPresentationRuntime) -> f64 {
     presentation
-        .form_presentation
+        .screens
         .mod_panel
         .as_ref()
         .unwrap()
@@ -144,7 +144,7 @@ fn pixel_wheels_and_track_presses_use_the_drawn_panel_geometry() {
     frame(&mut presentation, [1280, 720]);
     let inside = at(&presentation, [65., 45.]);
     let scale = presentation
-        .form_presentation
+        .screens
         .mod_panel
         .as_ref()
         .unwrap()

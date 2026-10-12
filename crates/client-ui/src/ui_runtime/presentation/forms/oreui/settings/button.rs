@@ -2,7 +2,7 @@
 
 use crate::ui_runtime::oreui_assets::{EXTERNAL_LINK_ICON, RESET_ICON};
 
-use super::super::super::super::UiPresentationError;
+use super::super::super::engine::screen::PaintError;
 use super::super::motion::{Kind, mix, opacity};
 use super::super::paint::{Bounds, Canvas};
 use super::super::theme::{self, BODY, EDGE};
@@ -36,7 +36,7 @@ pub(super) fn action(
     bounds: Bounds,
     label: &str,
     action: Option<MenuAction>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let mut state = canvas.interaction(view, action);
     if state.focused {
         state.hovered = false;
@@ -94,7 +94,7 @@ pub(super) fn procedural_face(
     flow: Bounds,
     state: Interaction,
     enabled: bool,
-) -> Result<(Bounds, Bounds), UiPresentationError> {
+) -> Result<(Bounds, Bounds), PaintError> {
     let role = if enabled {
         theme::SECONDARY
     } else {
@@ -147,7 +147,7 @@ pub(super) fn binding_reset(
     view: &MenuView,
     flow: Bounds,
     action: MenuAction,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let state = canvas.interaction(view, Some(action));
     let (_, face) = procedural_face(canvas, flow, state, true)?;
     let half = canvas.r(1.2);
@@ -169,7 +169,7 @@ pub(super) fn stationary_hit(
     canvas: &mut Canvas<'_>,
     action: MenuAction,
     flow: Bounds,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     canvas.hit(
         action,
         [flow[0], flow[1] - canvas.r(ELEVATION), flow[2], flow[3]],

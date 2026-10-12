@@ -624,7 +624,6 @@ fn unchecked_dropdown_options_leave_toggle_answers_unchanged() {
     );
     let model = runtime.server_forms().active().unwrap().model.clone();
     let frame = EngineFrame {
-        identity: Some(runtime.server_forms().active().unwrap().identity),
         hits: std::sync::Arc::from([]),
         report: Default::default(),
         cancel_target: None,

@@ -1,7 +1,7 @@
 //! Layout retains full-size children while a clipped, fading region changes height.
 
 use super::clip::ClipScope;
-use super::{Bounds, Canvas, UiPresentationError, rect};
+use super::{Bounds, Canvas, PaintError, rect};
 
 pub(in super::super) struct RevealScope {
     clip: ClipScope,
@@ -20,7 +20,7 @@ impl Canvas<'_> {
         span: [f32; 2],
         top: f32,
         fraction: f32,
-    ) -> Result<RevealScope, UiPresentationError> {
+    ) -> Result<RevealScope, PaintError> {
         let bottom = self
             .clip
             .map_or(top + 65536.0, |(_, bounds)| bounds[3].max(top));
@@ -46,7 +46,7 @@ impl Canvas<'_> {
         scope: RevealScope,
         bottom: f32,
         interactive: bool,
-    ) -> Result<f32, UiPresentationError> {
+    ) -> Result<f32, PaintError> {
         let visible_bottom = scope.viewport[1] + (bottom - scope.viewport[1]) * scope.fraction;
         let root = &mut self.nodes[scope.first_node];
         let bounds = root.bounds();

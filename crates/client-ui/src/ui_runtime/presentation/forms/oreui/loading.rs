@@ -1,11 +1,11 @@
 //! Timed loading art from the optional version-matched OreUI bundle.
 
-use super::super::super::UiPresentationError;
+use super::super::engine::screen::PaintError;
 use super::paint::{Bounds, Canvas};
 
 impl Canvas<'_> {
     /// Draws the current loading frame, or reports that install art is unavailable.
-    pub(super) fn loading_sprite(&mut self, bounds: Bounds) -> Result<bool, UiPresentationError> {
+    pub(super) fn loading_sprite(&mut self, bounds: Bounds) -> Result<bool, PaintError> {
         let Some(originals) = self.originals else {
             return Ok(false);
         };

@@ -13,7 +13,7 @@ use super::{
     widgets::{self, Variant},
 };
 use launcher::menu::{MenuAction, MenuScreen, MenuView};
-use {super::super::super::UiPresentationError, ui::IconRef};
+use {super::super::engine::screen::PaintError, ui::IconRef};
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
@@ -21,7 +21,7 @@ pub(super) fn draw(
     size: [f32; 2],
     portrait: Option<IconRef>,
     translate: Translate<'_>,
-) -> Result<Option<CharacterPreview>, UiPresentationError> {
+) -> Result<Option<CharacterPreview>, PaintError> {
     canvas.overlay(size, [0, 0, 0, 96])?;
     let margin = canvas.r(3.2).min(size[0] * 0.04).min(size[1] * 0.035);
     let width = canvas.r(86.0).min(size[0] - margin * 2.0);
@@ -157,7 +157,7 @@ fn action_panel(
     bounds: Bounds,
     compact: bool,
     translate: Translate<'_>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     widgets::panel(canvas, bounds)?;
     let pad = canvas
         .r(if compact { 2.0 } else { 3.2 })
@@ -267,7 +267,7 @@ fn character_panel(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     b: Bounds,
-) -> Result<CharacterPreview, UiPresentationError> {
+) -> Result<CharacterPreview, PaintError> {
     widgets::panel(canvas, b)?;
     let region = canvas.begin_focus_region(focus::DETAIL, b, None, true)?;
     let pad = canvas.r(2.4);
@@ -307,7 +307,7 @@ fn link(
     bounds: Bounds,
     label: &str,
     action: MenuAction,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let state = canvas.interaction(view, Some(action));
     let motion = canvas.feedback(state, true, false, Kind::Surface);
     let down = canvas.r(0.2) * motion.press;
@@ -333,7 +333,7 @@ fn live_event(
     b: Bounds,
     event: &launcher::menu::LiveEventCard,
     translate: Translate<'_>,
-) -> Result<(), UiPresentationError> {
+) -> Result<(), PaintError> {
     let label = translate(&event.button_text).map_or_else(
         || {
             if event.button_text.starts_with("gathering.") {
