@@ -1,3 +1,4 @@
+use mod_ui::PanelUiOwner;
 use std::sync::Arc;
 
 use mod_ui::test_support::{panel_palette, panel_same_shape};
@@ -45,13 +46,16 @@ fn absent_or_closed_panel_does_not_change_the_frame() {
     let base = frame(&mut presentation, [1280, 720]);
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&panel()))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel()))
         .unwrap();
     assert!(base == frame(&mut presentation, [1280, 720]));
     presentation.mod_ui_mut().set_mod_panel_open(true);
     let open = frame(&mut presentation, [1280, 720]);
     assert!(snapshot::rasterize(&base) != snapshot::rasterize(&open));
-    presentation.mod_ui_mut().set_mod_panel(None).unwrap();
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel(PanelUiOwner::Environment(0), None)
+        .unwrap();
     assert!(!presentation.mod_ui().mod_panel_open());
     assert!(
         presentation
@@ -70,7 +74,7 @@ fn actual_engine_geometry_routes_all_control_types() {
     let mut presentation = mini_engine_presentation();
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&panel()))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel()))
         .unwrap();
     presentation.mod_ui_mut().set_mod_panel_open(true);
     assert!(
@@ -168,7 +172,7 @@ fn value_updates_reuse_catalog_and_unchanged_frame_reuses_layout() {
     let mut settings = panel();
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&settings))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&settings))
         .unwrap();
     presentation.mod_ui_mut().set_mod_panel_open(true);
     let original_frame = frame(&mut presentation, [1280, 720]);
@@ -191,7 +195,7 @@ fn value_updates_reuse_catalog_and_unchanged_frame_reuses_layout() {
     }
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&settings))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&settings))
         .unwrap();
     let updated_frame = frame(&mut presentation, [1280, 720]);
     assert!(original_frame.vertices != updated_frame.vertices);
@@ -227,7 +231,7 @@ fn pagination_keeps_bounded_controls_reachable_on_small_viewports() {
         .collect();
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&settings))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&settings))
         .unwrap();
     presentation.mod_ui_mut().set_mod_panel_open(true);
     frame(&mut presentation, [640, 480]);
@@ -269,14 +273,14 @@ fn both_themes_render_and_invalid_replacement_preserves_valid_panel() {
     let mut settings = panel();
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&settings))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&settings))
         .unwrap();
     presentation.mod_ui_mut().set_mod_panel_open(true);
     let dark = frame(&mut presentation, [1280, 720]);
     settings.dark = false;
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&settings))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&settings))
         .unwrap();
     let light = frame(&mut presentation, [1280, 720]);
     assert!(snapshot::rasterize(&dark) != snapshot::rasterize(&light));
@@ -284,7 +288,7 @@ fn both_themes_render_and_invalid_replacement_preserves_valid_panel() {
     assert!(
         presentation
             .mod_ui_mut()
-            .set_mod_panel(Some(&settings))
+            .set_mod_panel(PanelUiOwner::Environment(0), Some(&settings))
             .is_err()
     );
     assert!(light == frame(&mut presentation, [1280, 720]));
@@ -327,7 +331,7 @@ fn grouped_cards_render_solid_chrome_and_categories_route_locally() {
     ];
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&settings))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&settings))
         .unwrap();
     presentation.mod_ui_mut().set_mod_panel_open(true);
     let input = frame(&mut presentation, [1280, 720]);
@@ -374,14 +378,14 @@ fn grouped_cards_render_solid_chrome_and_categories_route_locally() {
     settings.dark = false;
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&settings))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&settings))
         .unwrap();
     frame(&mut presentation, [1280, 720]);
     assert_eq!(presentation.mod_ui().mod_panel_state().unwrap().category, 1);
     settings.capture_key = true;
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&settings))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&settings))
         .unwrap();
     assert!(
         presentation
@@ -418,7 +422,7 @@ fn oversized_group_pages_keep_every_control_reachable_and_inside_the_viewport() 
     }];
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&settings))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&settings))
         .unwrap();
     presentation.mod_ui_mut().set_mod_panel_open(true);
     frame(&mut presentation, [480, 360]);
@@ -458,7 +462,7 @@ fn desktop_panel_geometry_stays_stable_across_game_gui_preferences_and_dpi() {
     let mut presentation = mini_engine_presentation();
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&panel()))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel()))
         .unwrap();
     presentation.mod_ui_mut().set_mod_panel_open(true);
     presentation.set_gui_scale_preference(Some(2));
@@ -504,7 +508,7 @@ fn compact_keybind_updates_retain_geometry_and_emit_capture_event() {
     };
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&settings))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&settings))
         .unwrap();
     presentation.mod_ui_mut().set_mod_panel_open(true);
     frame(&mut presentation, [1280, 720]);
@@ -527,7 +531,7 @@ fn compact_keybind_updates_retain_geometry_and_emit_capture_event() {
     }
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&settings))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&settings))
         .unwrap();
     let retained = presentation.mod_ui().mod_panel_state().unwrap();
     assert!(Arc::ptr_eq(&catalog, retained.catalog.unwrap()));
@@ -557,7 +561,7 @@ fn compact_short_pages_keep_mixed_controls_inside_the_viewport_and_separate() {
         }];
         presentation
             .mod_ui_mut()
-            .set_mod_panel(Some(&settings))
+            .set_mod_panel(PanelUiOwner::Environment(0), Some(&settings))
             .unwrap();
         presentation.mod_ui_mut().set_mod_panel_open(true);
         frame(&mut presentation, size);
@@ -628,7 +632,7 @@ fn standard_keybind_displays_assigned_key_and_capture_state_without_rebuilding()
     }];
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&settings))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&settings))
         .unwrap();
     presentation.mod_ui_mut().set_mod_panel_open(true);
     let assigned = frame(&mut presentation, [1280, 720]);
@@ -654,7 +658,7 @@ fn standard_keybind_displays_assigned_key_and_capture_state_without_rebuilding()
     }
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&settings))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&settings))
         .unwrap();
     let capture = frame(&mut presentation, [1280, 720]);
     assert_ne!(
@@ -697,7 +701,7 @@ fn smallest_compact_viewport_keeps_four_category_targets_and_close_usable() {
     let mut presentation = mini_engine_presentation();
     presentation
         .mod_ui_mut()
-        .set_mod_panel(Some(&settings))
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&settings))
         .unwrap();
     presentation.mod_ui_mut().set_mod_panel_open(true);
     frame(&mut presentation, [240, 640]);
@@ -793,7 +797,7 @@ fn monochrome_theme_uses_exact_palette_for_both_layouts() {
             let mut presentation = mini_engine_presentation();
             presentation
                 .mod_ui_mut()
-                .set_mod_panel(Some(&spec))
+                .set_mod_panel(PanelUiOwner::Environment(0), Some(&spec))
                 .unwrap();
             presentation.mod_ui_mut().set_mod_panel_open(true);
             let rendered = frame(&mut presentation, [1024, 768]);

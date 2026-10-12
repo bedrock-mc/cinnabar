@@ -221,6 +221,16 @@ Sections can select a bounded `icon` (`pointer`,
 `crosshair`, `ruler`, `settings` or `none`). A `keybind` control has `id`, `label`,
 `key` and optional `capturing` fields; pressing its keycap emits a button event,
 and the guest owns key capture and reservations. Key changes retain geometry.
+Optional `motion: true` enables short native hover and toggle transitions and
+smooth discrete wheel scrolling. Pixel scrolling and scrollbar dragging remain
+immediate. Authored surfaces can bind `#row_N_hover` and
+`#row_N_toggle_progress` (numbers from 0 to 1), `#row_N_toggle_color` and
+`#row_N_knob_color` (RGBA arrays), and `#row_N_knob_offset` (logical coordinates
+from `[2, 2]` to `[12, 2]`). These values follow native input without waiting for a
+component update. `ModUi::mod_panel_motion_active` reports unsettled feedback for
+callers that suspend idle drawing. Arbitrary authored animation graphs remain
+unsupported.
+
 Choices open a host-owned option list. Slider numbers open a bounded text editor;
 Enter applies finite values within the declared range and normalizes the step.
 Escape or an outside click cancels an editor before closing the panel. Keyboard
@@ -238,7 +248,7 @@ the panel and its reservations.
 same controls grant and shared read limit. Each optional pressed/held key list
 uses `none` for all keys, an empty list for none, or up to 64 physical names for
 exact matches in native order. Names follow the existing 32-byte alphanumeric
-key rule; repeated requested names do not duplicate observations. The retained panel catalog accepts up to 128 controls, while each input batch
+key rule; repeated requested names do not duplicate observations. The retained panel catalog accepts up to 512 controls, while each input batch
 still accepts at most 64 events. The `events`
 flag selects whether panel events are included; scalar flags are unchanged.
 Selection neither consumes input nor changes reservations or native sampling.
@@ -256,6 +266,45 @@ custom nodes, scroll views and their track/box controls; factories, inheritance
 and dynamic expansion are rejected. The whole panel is capped at 128 KiB; its
 document at 96 KiB, 1,024 nodes and depth 32.
 Bindings update without rebuilding unchanged catalog geometry.
+
+For larger local menus, `CINNABAR_MOD_UI` selects a bounded JSON bundle, or a
+running-client registration can supply its absolute path in `ui`. The bundle has
+an initial ordinary `panel` and a `surfaces` object mapping route identifiers to
+`{ "screen": "namespace.name", "document": "..." }`. The loading worker checks
+every document and action against the shared control schema before
+publication. Bundles accept up to 128 surfaces and 8 MiB of source data.
+`ModHost::set_panel_bundle` prepares the same contract for host-owned integrations.
+The registration worker and direct environment startup also call
+`PreparedPanelUi::prepare(host.panel_bundle().unwrap())` and pass its result to
+`ModUi::set_prepared_panel_ui(owner, Some(prepared))` before the first frame.
+Use `PanelUiOwner::Environment(index)` for each startup component or
+`PanelUiOwner::Registration` for the independently registered component. Remove
+that owner's entry with `None` when it unloads. Standalone integrations prepare
+and install their owner entry outside rendering. Prepared routes retain their catalogs and
+resolved roots; returning to a route reuses its binding and measurement caches.
+Route changes continue to release pointer capture and reset the scroll position.
+
+`panel.update-content(json)` then applies a bounded 32 KiB patch:
+
+```json
+{
+  "controls": [{ "id": "enabled", "value": true }],
+  "surface": "main",
+  "bindings": { "#filter": "" },
+  "capture_key": false
+}
+```
+
+All fields are optional. `controls` updates only existing identifiers: toggles
+take a Boolean `value`, sliders a finite in-range `value`, keybinds `key` and/or
+`capturing`, and choices a valid `index`. Any control can update its `label`.
+Omitted controls retain their values. `surface` selects a prepared route;
+`bindings`, when supplied, fully replaces custom scalars while the host continues
+to generate `#row_N` facts from the controls. Invalid batches change nothing, and
+valid batches commit only after a successful callback. Same-route updates retain
+the catalog, scroll offset and captured drag. The legacy `set-content` contract
+remains available without a bundle. A replacement schema must match the bundle's
+declared control identities and kinds before any prepared route can be selected.
 
 `cinnabar_rounded_rectangle` nodes take `radius` (GUI pixels, default 6) and `color`.
 Optional `color2` fades the fill linearly from `color` along `gradient_direction`
@@ -400,6 +449,7 @@ A `local-mods` build watches `local-mod.json` in `InstallLayout.user_config_root
   "enabled": true,
   "component": "C:/Local/mod.component.wasm",
   "font": "C:/Local/panel.ttf",
+  "ui": "C:/Local/panel-ui.json",
   "grants": {
     "environment": false,
     "players": true,
@@ -416,7 +466,7 @@ A `local-mods` build watches `local-mod.json` in `InstallLayout.user_config_root
 ```
 
 The registration is bounded to 16 KiB, paths must be absolute, and grants default
-to false. Component compilation, source polling, font rasterization and status
+to false. Component compilation, source polling, font rasterization, UI preparation and status
 writes run on the worker. The current generation is installed before physical
 input sampling; deleting, disabling or invalidating the registration revokes its
 runtime and restores input ownership. A request-ID-only change preserves guest

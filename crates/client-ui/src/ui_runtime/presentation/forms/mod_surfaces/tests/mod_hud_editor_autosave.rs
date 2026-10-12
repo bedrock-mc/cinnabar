@@ -1,3 +1,4 @@
+use mod_ui::PanelUiOwner;
 use mod_ui::test_support::{card_dimensions, card_origin};
 use ui::{
     mod_hud::EditorResult,
@@ -14,7 +15,9 @@ fn autosave_editor(p: &mut UiPresentationRuntime) {
     let mut hud = content();
     hud.autosave = true;
     hud.cards[0].position = Some([0.2, 0.2]);
-    p.mod_ui_mut().set_mod_panel(Some(&panel())).unwrap();
+    p.mod_ui_mut()
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel()))
+        .unwrap();
     p.mod_ui_mut().set_mod_panel_open(true);
     p.mod_ui_mut().open_mod_hud_editor(&hud).unwrap();
     frame(p, &UiRuntime::new(1), [1280, 720], 1.);
@@ -124,7 +127,9 @@ fn supplied_editor_chrome_forwards_declared_buttons_and_omits_builtin_toolbar() 
         }))
         .unwrap(),
     );
-    p.mod_ui_mut().set_mod_panel(Some(&panel)).unwrap();
+    p.mod_ui_mut()
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel))
+        .unwrap();
     p.mod_ui_mut().set_mod_panel_open(true);
     p.mod_ui_mut().open_mod_hud_editor(&hud).unwrap();
     frame(&mut p, &UiRuntime::new(1), [1280, 720], 1.);
@@ -224,7 +229,9 @@ fn supplied_editor_buttons_render_hover_and_captured_press_without_disrupting_au
         .to_string(),
         bindings: Default::default(),
     });
-    p.mod_ui_mut().set_mod_panel(Some(&panel())).unwrap();
+    p.mod_ui_mut()
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel()))
+        .unwrap();
     p.mod_ui_mut().set_mod_panel_open(true);
     p.mod_ui_mut().open_mod_hud_editor(&hud).unwrap();
     frame(&mut p, &UiRuntime::new(1), [1280, 720], 1.);
@@ -289,7 +296,9 @@ fn empty_editor_stays_open_and_closes_without_placements() {
     let mut hud = content();
     hud.cards.clear();
     assert!(p.mod_ui_mut().open_mod_hud_editor(&hud).is_err());
-    p.mod_ui_mut().set_mod_panel(Some(&panel())).unwrap();
+    p.mod_ui_mut()
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel()))
+        .unwrap();
     p.mod_ui_mut().set_mod_panel_open(true);
     p.mod_ui_mut().open_mod_hud_editor(&hud).unwrap();
     frame(&mut p, &UiRuntime::new(1), [1280, 720], 1.);
@@ -346,7 +355,9 @@ fn corners_resize_uniformly_autosave_and_restore_interrupted_drafts() {
         hud.resizable = true;
         hud.cards[0].position = Some([0.5, 0.5]);
         hud.cards[0].reset_scale = Some(1.);
-        p.mod_ui_mut().set_mod_panel(Some(&panel())).unwrap();
+        p.mod_ui_mut()
+            .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel()))
+            .unwrap();
         p.mod_ui_mut().set_mod_panel_open(true);
         p.mod_ui_mut().open_mod_hud_editor(&hud).unwrap();
         frame(&mut p, &UiRuntime::new(1), [1280, 720], 1.);

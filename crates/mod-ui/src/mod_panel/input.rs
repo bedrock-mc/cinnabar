@@ -42,6 +42,7 @@ impl ModPanel {
             && self.pointer == Some(position)
             && self.held == held
             && (held || self.view.pressed.is_none())
+            && !(self.panel.motion && self.motion.active())
         {
             return Vec::new();
         }
@@ -70,6 +71,7 @@ impl ModPanel {
         let hovered = hit.map(|hit| hit.key.as_str());
         if self.view.hovered.as_deref() != hovered {
             self.view.hovered = hovered.map(str::to_owned);
+            self.motion_data_dirty = true;
         }
         if pressed {
             self.view.pressed = hovered.map(str::to_owned);
@@ -128,9 +130,7 @@ impl ModPanel {
         }
         match action {
             Some("mod.close") => {
-                self.open = false;
-                self.frame = None;
-                self.cancel_pointer_input();
+                self.close();
                 return Vec::new();
             }
             Some("mod.prev") | Some("mod.next") => {

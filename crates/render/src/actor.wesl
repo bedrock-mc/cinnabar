@@ -1,4 +1,5 @@
 import bevy_render::view::View;
+import render::glint::glint_layer_uvs;
 import render::lighting::{actor_lighting, actor_distance_fog, actor_light_colour, tint_to_gamma, tint_to_linear};
 @if(ALPHA_TO_COVERAGE)
 import render::lighting::{CutoutSample, cutout_alpha_array};
@@ -57,16 +58,13 @@ fn word_f32(index: u32) -> f32 {
     return bitcast<f32>(instance_words[index]);
 }
 
-// Native glint layers: each UV turns about the centre, scrolls along u, then takes the glint
-// UV scale; the two samples (actor or item raster) are summed.
+// The two glint layers share sprite-normalized coordinates and the selected raster.
 fn glint_layers(uv: vec2<f32>, offsets: vec2<f32>, scale: vec2<f32>, item: bool) -> vec3<f32> {
-    let centered_uv = uv - vec2(0.5);
-    let first_uv = (vec2(0.9396926 * centered_uv.x + 0.34202015 * centered_uv.y, -0.34202015 * centered_uv.x + 0.9396926 * centered_uv.y) + vec2(offsets.x + 0.5, 0.5)) * scale;
-    let second_uv = (vec2(0.17364818 * centered_uv.x - 0.9848077 * centered_uv.y, 0.9848077 * centered_uv.x + 0.17364818 * centered_uv.y) + vec2(offsets.y + 0.5, 0.5)) * scale;
+    let layers = glint_layer_uvs(uv, scale, offsets * scale.x, item);
     if (item) {
-        return tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, first_uv, 0.0)).rgb + tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, second_uv, 0.0)).rgb;
+        return tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, layers[0], 0.0)).rgb + tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, layers[1], 0.0)).rgb;
     }
-    return tint_to_gamma(textureSampleLevel(actor_glint, glint_sampler, first_uv, 0.0)).rgb + tint_to_gamma(textureSampleLevel(actor_glint, glint_sampler, second_uv, 0.0)).rgb;
+    return tint_to_gamma(textureSampleLevel(actor_glint, glint_sampler, layers[0], 0.0)).rgb + tint_to_gamma(textureSampleLevel(actor_glint, glint_sampler, layers[1], 0.0)).rgb;
 }
 
 fn instance_row(base: u32, row: u32) -> vec4<f32> {
