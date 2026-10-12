@@ -2,6 +2,38 @@ use super::*;
 use std::{io::Read, time::Instant};
 
 #[test]
+fn splash_changes_and_removal_reset_the_choice_but_repeated_publication_preserves_it() {
+    use ui_screens::menu_renderers::splashes::SplashSource;
+    let mut presentation = crate::test_support::mini_engine_presentation();
+    let source = SplashSource::from_json(&serde_json::json!({"splashes": ["upper"]})).unwrap();
+    let pack = ServerUiPack {
+        splashes: vec![source].into(),
+        ..Default::default()
+    };
+    presentation
+        .screens
+        .splash
+        .set(Some("base".into()))
+        .unwrap();
+    presentation.set_server_ui_pack(&pack);
+    assert!(presentation.screens.splash.get().is_none());
+    assert_eq!(presentation.screens.splash_sources, pack.splashes);
+    presentation
+        .screens
+        .splash
+        .set(Some("upper".into()))
+        .unwrap();
+    presentation.set_server_ui_pack(&pack);
+    assert_eq!(
+        presentation.screens.splash.get().unwrap().as_deref(),
+        Some("upper")
+    );
+    presentation.set_server_ui_pack(&ServerUiPack::default());
+    assert!(presentation.screens.splash.get().is_none());
+    assert!(presentation.screens.splash_sources.is_empty());
+}
+
+#[test]
 fn prepared_screen_settings_survive_repeated_pack_publication() {
     let mut presentation = crate::test_support::mini_engine_presentation();
     let base = presentation.pack_catalog_base().unwrap();
@@ -55,8 +87,7 @@ fn fixture_pack(paths: &str) -> ServerUiPack {
                 .read_to_end(&mut manifest)
                 .unwrap();
             let manifest: serde_json::Value =
-                serde_json::from_slice(&resource_pack::normalize_jsonc(&manifest).unwrap())
-                    .unwrap();
+                serde_json::from_slice(&pack_json::normalize_jsonc(&manifest).unwrap()).unwrap();
             let header = &manifest["header"];
             let id = header["uuid"].as_str().unwrap().parse().unwrap();
             let version = header["version"]

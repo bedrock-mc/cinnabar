@@ -280,7 +280,7 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, AssetError>
             max: MAX_JSON_BYTES,
         });
     }
-    serde_json::from_slice(&bytes).map_err(|source| AssetError::Json {
+    pack_json::parse_jsonc(&bytes).map_err(|source| AssetError::Json {
         path: path.to_path_buf(),
         source,
     })

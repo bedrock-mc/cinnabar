@@ -243,7 +243,8 @@ fn form_screen(entry: &super::ServerFormEntry) -> &'static str {
 }
 
 impl UiRuntime {
-    /// Closes the top scene when the player is hurt and its screen asks for it.
+    /// Closes the top scene when the player is hurt and its screen asks for it. Chat stays
+    /// open: vanilla keeps typing uninterrupted when hit, though its chat screen sets the flag.
     pub fn close_scenes_on_player_hurt(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
@@ -256,9 +257,6 @@ impl UiRuntime {
         match self.scenes(player_runtime, host).closes_on_hurt() {
             Some(Scene::Container) => {
                 self.close_inventory(player_runtime);
-            }
-            Some(Scene::Chat) => {
-                self.close_chat();
             }
             Some(Scene::SignEditor) => self.sign_editor_mut().close_on_hurt(),
             _ => {}

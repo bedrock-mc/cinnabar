@@ -30,6 +30,7 @@ pub mod screen_fire;
 pub mod screen_overlay;
 pub mod screen_overlay_portal;
 pub mod skybox;
+pub mod startup_presentation;
 pub mod ui;
 pub mod ui_glint;
 pub mod viewmodel;

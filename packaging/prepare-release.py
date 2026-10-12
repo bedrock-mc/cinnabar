@@ -6,12 +6,13 @@ BUMP=current|patch|minor|major|custom|nightly, CUSTOM_VERSION=X.Y.Z, TARGET_BRAN
 optional RELEASE_TAG for a tag push, and the
 standard GITHUB_REF, GITHUB_SHA, GITHUB_REPOSITORY, GITHUB_OUTPUT, GH_TOKEN.
 Dispatch must check out TARGET_BRANCH with full history and tags. A nightly
-dispatch is read-only and limited to the default branch; only a stable
+dispatch is read-only and limited to the default branch; a tagged
 dispatch writes a release commit/tag; GitHub's token does not trigger another
-tag workflow. Outputs: channel, tag, version, ref, commit. ref is a commit SHA.
+tag workflow. Outputs: channel, track, tag, version, ref, commit. ref is a commit SHA.
 """
 
 import os
+import json
 from pathlib import Path
 import re
 import shutil
@@ -26,6 +27,15 @@ TAG = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 
 class ReleaseError(Exception):
     pass
+
+
+def channel_for_track(track: str) -> tuple[str, dict]:
+    """Selects the sole published channel for a release track from shared metadata."""
+    channels = json.loads((TOOLING / "release-assets.json").read_text())["update_channels"]
+    matches = [(name, release) for name, release in channels.items() if release["track"] == track]
+    if len(matches) != 1:
+        raise ReleaseError(f"release metadata must declare exactly one {track} channel")
+    return matches[0]
 
 
 def command(*args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -125,6 +135,8 @@ def dispatch(target_branch: str, bump: str) -> tuple[str, str]:
 
 
 def prepare() -> dict[str, str]:
+    tagged_channel, _ = channel_for_track("tagged")
+    rolling_channel, rolling_release = channel_for_track("rolling")
     event = os.environ.get("EVENT_NAME", os.environ.get("GITHUB_EVENT_NAME", ""))
     default_branch = os.environ.get("DEFAULT_BRANCH", "main")
     git("check-ref-format", f"refs/heads/{default_branch}")
@@ -134,22 +146,23 @@ def prepare() -> dict[str, str]:
         target_branch = os.environ.get("TARGET_BRANCH", "") or default_branch
         git("check-ref-format", f"refs/heads/{target_branch}")
         bump = os.environ.get("BUMP", "current")
-        if bump not in {"current", "patch", "minor", "major", "custom", "nightly"}:
-            raise ReleaseError("BUMP must be current, patch, minor, major, custom, or nightly")
-        if bump == "nightly":
+        if bump not in {"current", "patch", "minor", "major", "custom", rolling_channel}:
+            raise ReleaseError("BUMP must be current, patch, minor, major, custom, or " + rolling_channel)
+        if bump == rolling_channel:
             if target_branch != default_branch:
-                raise ReleaseError(f"nightly builds only package {default_branch}")
+                raise ReleaseError(f"{bump} builds only package {default_branch}")
             if git("symbolic-ref", "--quiet", "--short", "HEAD") != default_branch:
-                raise ReleaseError("manual nightly builds must check out the default branch")
-            tag, source_version, channel = "nightly", version(), "nightly"
+                raise ReleaseError(f"manual {bump} builds must check out the default branch")
+            # Rolling channels replace one fixed prerelease named after the channel.
+            tag, source_version, channel = rolling_release["tag"], version(), rolling_channel
         else:
             tag, source_version = dispatch(target_branch, bump)
-            channel = "stable"
+            channel = tagged_channel
     elif event in {"push", "schedule"}:
         ref = os.environ.get("GITHUB_REF", "")
         source_version = version()
         if ref == f"refs/heads/{default_branch}":
-            tag, channel = "nightly", "nightly"
+            tag, channel = rolling_release["tag"], rolling_channel
         elif ref.startswith("refs/tags/"):
             tag = os.environ.get("RELEASE_TAG", ref.removeprefix("refs/tags/"))
             if not TAG.fullmatch(tag) or ref != f"refs/tags/{tag}":
@@ -158,7 +171,7 @@ def prepare() -> dict[str, str]:
                 raise ReleaseError(f"tag {tag} does not match source version {source_version}")
             if git("rev-parse", f"refs/tags/{tag}^{{commit}}") != git("rev-parse", "HEAD"):
                 raise ReleaseError(f"tag {tag} is on another commit")
-            channel = "stable"
+            channel = tagged_channel
         else:
             raise ReleaseError("only the default branch and v* tag pushes can package releases")
         event_sha = os.environ.get("GITHUB_SHA", "")
@@ -170,7 +183,9 @@ def prepare() -> dict[str, str]:
     else:
         raise ReleaseError("EVENT_NAME must be push, schedule or workflow_dispatch")
     commit = git("rev-parse", "HEAD")
-    return {"channel": channel, "tag": tag, "version": source_version, "ref": commit, "commit": commit}
+    track = "tagged" if channel == tagged_channel else "rolling"
+    return {"channel": channel, "track": track, "tag": tag, "version": source_version,
+            "ref": commit, "commit": commit}
 
 
 def main() -> int:

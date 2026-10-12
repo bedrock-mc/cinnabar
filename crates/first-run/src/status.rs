@@ -4,9 +4,9 @@
 use std::{fs, path::Path};
 
 use anyhow::{Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum Phase {
     AwaitingConsent,
@@ -42,6 +42,16 @@ impl Status {
         }
     }
 
+    /// Setup is waiting on the user's consent, which no timeout should treat as a hang.
+    pub(super) fn awaiting_consent() -> Self {
+        Self::new(Phase::AwaitingConsent, 0, 0, "Waiting for consent")
+    }
+
+    /// Consent is resolved and preparation is starting; it carries no step count yet.
+    pub(super) fn starting() -> Self {
+        Self::new(Phase::Running, 0, 0, "Starting setup")
+    }
+
     pub(super) fn downloading(downloaded: u64, total: Option<u64>) -> Self {
         Self {
             downloaded: Some(downloaded),
@@ -56,6 +66,16 @@ impl Status {
             ..Self::new(Phase::Failed, 0, 0, label)
         }
     }
+}
+
+/// Whether a status file's `report` says setup is waiting on the user.
+pub(super) fn awaiting_user(report: &[u8]) -> bool {
+    #[derive(Deserialize)]
+    struct Report {
+        phase: Phase,
+    }
+    serde_json::from_slice::<Report>(report)
+        .is_ok_and(|report| report.phase == Phase::AwaitingConsent)
 }
 
 /// Replaces the status file atomically so readers never observe a partial document.
@@ -84,6 +104,17 @@ mod tests {
         assert_eq!(value["total"], 3);
         assert!(value.get("downloaded").is_none());
         assert!(!path.with_extension("json.tmp").exists());
+    }
+
+    #[test]
+    fn only_the_consent_prompt_reads_as_awaiting_the_user() {
+        let dir = Dir::new("status-awaiting");
+        let path = dir.path().join("s.json");
+        write(&path, &Status::awaiting_consent()).unwrap();
+        assert!(awaiting_user(&fs::read(&path).unwrap()));
+        write(&path, &Status::downloading(5, Some(10))).unwrap();
+        assert!(!awaiting_user(&fs::read(&path).unwrap()));
+        assert!(!awaiting_user(b"not json"));
     }
 
     #[test]

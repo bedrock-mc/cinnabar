@@ -95,6 +95,143 @@ fn target_states_are_readable_and_bounded() {
 }
 
 #[test]
+fn configured_debug_keys_and_mouse_toggle_once_and_refresh_the_hint() {
+    use client_shell::menu::test_support::remap_control;
+    use launcher::menu::MenuAction;
+    use launcher::menu::settings_options::{DEBUG_OVERLAY_KEY, EXTRA_KEYS, KEY_BINDINGS};
+    use semantic_input::PhysicalControl;
+
+    let mut menu = client_shell::menu::MenuRuntime::new(false, 2, "Player".into());
+    let debug = KEY_BINDINGS.len()
+        + EXTRA_KEYS
+            .iter()
+            .position(|(name, _)| *name == DEBUG_OVERLAY_KEY)
+            .unwrap();
+    let screenshot = KEY_BINDINGS.len()
+        + EXTRA_KEYS
+            .iter()
+            .position(|(name, _)| *name == "key.screenshot")
+            .unwrap();
+    assert!(remap_control(
+        &mut menu,
+        debug,
+        PhysicalControl::KeyboardUsage(0x3d)
+    ));
+    assert!(remap_control(
+        &mut menu,
+        screenshot,
+        PhysicalControl::KeyboardUsage(0x3f)
+    ));
+    let mut app = App::new();
+    app.insert_resource(menu)
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<Time<Real>>()
+        .insert_resource(ClientWorld::default())
+        .insert_resource(LocalPlayerFrameCarrier::default())
+        .insert_resource(UiPresentationResource(
+            client_ui::test_support::mini_engine_presentation(),
+        ));
+    configure(&mut app);
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::F3);
+    app.update();
+    assert!(!app.world().resource::<DebugOverlayState>().visible);
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .reset_all();
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::F4);
+    app.update();
+    assert!(app.world().resource::<DebugOverlayState>().visible);
+    assert_eq!(
+        app.world()
+            .resource::<UiPresentationResource>()
+            .debug_lines()
+            .unwrap()
+            .left
+            .last()
+            .unwrap(),
+        "F4: hide debug | F6: screenshot"
+    );
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .clear();
+    app.update();
+    assert!(app.world().resource::<DebugOverlayState>().visible);
+
+    {
+        let mut menu = app
+            .world_mut()
+            .resource_mut::<client_shell::menu::MenuRuntime>();
+        assert!(remap_control(
+            &mut menu,
+            debug,
+            PhysicalControl::MouseButton(4)
+        ));
+    }
+    app.world_mut()
+        .resource_mut::<Time<Real>>()
+        .advance_by(simulation_clock::TICK_DURATION);
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<UiPresentationResource>()
+            .debug_lines()
+            .unwrap()
+            .left
+            .last()
+            .unwrap(),
+        "Mouse 4: hide debug | F6: screenshot"
+    );
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Back);
+    app.update();
+    assert!(!app.world().resource::<DebugOverlayState>().visible);
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .clear();
+    app.update();
+    assert!(!app.world().resource::<DebugOverlayState>().visible);
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .reset_all();
+    app.world_mut()
+        .resource_mut::<client_shell::menu::MenuRuntime>()
+        .activate(MenuAction::SettingsKey(debug as u16));
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Back);
+    app.update();
+    assert!(
+        !app.world().resource::<DebugOverlayState>().visible,
+        "binding capture must not toggle debug"
+    );
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .reset_all();
+    {
+        let mut menu = app
+            .world_mut()
+            .resource_mut::<client_shell::menu::MenuRuntime>();
+        let section = menu.view().settings_section;
+        menu.activate(MenuAction::SettingsSection(section));
+        menu.activate(MenuAction::SettingsResetKey(debug as u16));
+    }
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .reset_all();
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::F3);
+    app.update();
+    assert!(app.world().resource::<DebugOverlayState>().visible);
+}
+
+#[test]
 fn f3_toggles_rendered_overlay_and_hidden_frames_leave_presentation_untouched() {
     let mut app = App::new();
     app.insert_resource(ButtonInput::<KeyCode>::default())

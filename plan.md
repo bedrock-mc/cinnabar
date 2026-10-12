@@ -1,3 +1,17 @@
+## Launcher updates
+
+One client per install owns update checks, Beta/Nightly/Stable channel selection, explicit Restart and
+update / Later actions, and a separate default-off install-on-quit preference. Signed manifests
+carry monotonic build numbers, and digest-named partial downloads resume with HTTP ranges.
+An offline Rust helper waits for the old process, applies the verified native package, and
+restores failed macOS/Linux starts. Read-only installs offer the manual download action.
+
+Incomplete: CI must compile and run the written regression tests on all platforms. The package
+workflow publishes each channel's signed manifest. The `CINNABAR_UPDATE_SIGNING_KEY` secret in
+the protected `release` environment and the `UPDATE_TRUSTED_KEYS` repository variable are
+configured. The first signed publication remains pending.
+The launcher owner must review the notice screenshots before merge.
+
 ## Actor animation ownership
 
 `actor-animation` owns actor rigs, Molang evaluation, controllers, poses,
@@ -550,6 +564,10 @@ these changes do not close the movement, camera, or actor parity gates.
 - Apple pipelined rendering keeps surface creation on the UI thread while render
   submission stays on the render thread. Main and extraction schedules retain
   single-thread execution; runtime startup checks do not close frame-budget gates.
+- Focused synchronized macOS windows request their reported display refresh through
+  a window-bound display link, bounded by FPS limits. Background and fixed-clock
+  runs release this request. ProMotion presentation cadence and live smoothness
+  remain unverified; this does not close the 120 Hz display gate.
 - Idle native metadata publication no longer dispatches through the main thread.
   macOS frame workers use interactive scheduling; bounded-load diagnostics show
   more render-work headroom. Unloaded tail results remain adverse and unexplained:
@@ -938,10 +956,11 @@ these changes do not close the movement, camera, or actor parity gates.
   opaque, unlit, depth-writing pass. Unchanged targets retain their geometry and
   upload revision across camera movement.
 - The live outline was too faint. A Metal rendering diagnostic confirms FXAA
-  dilutes thin black lines more strongly on diagonals. GPU expansion now supplies
-  consistent two-physical-pixel coverage. This is provisional compensation for
-  Cinnabar's FXAA; matching vanilla sample anti-aliasing and stroke coverage
-  remains incomplete.
+  dilutes thin black lines more strongly on diagonals. GPU expansion once supplied
+  two-physical-pixel coverage as provisional compensation. The native outline is a
+  twelve-edge line list, which rasterizes one pixel wide (a thicker outline is
+  built only by the deferred renderer below 100% upscaling), so the stroke is now
+  one physical pixel. Matching vanilla's anti-aliasing of it remains incomplete.
 - Fence and wall selection use visual bounds independently of taller movement
   collision. Wall selection retains its state-dependent visual height and insets.
 - Incomplete parity: the matching-version material depth offset, scaled deferred
@@ -1180,6 +1199,8 @@ these changes do not close the movement, camera, or actor parity gates.
 ## Menu frame passes and retained memory
 
 - The HUD composites after FXAA, inside the output pass; FXAA is off with no world drawn.
+- HUD sprites use the shared nearest sampler across pack changes. Centered crosshairs snap
+  to physical pixels after positioning; larger pack textures keep their source texels.
 - The panorama draws opaque in the main pass; a static menu frame is two fullscreen passes.
 - Font pages are coverage bytes on CPU and GPU; the transparent ref buffer grows on demand;
   JSON-UI caches evict least recently used entries.
@@ -1246,9 +1267,14 @@ these changes do not close the movement, camera, or actor parity gates.
 
 ## Java-style Tab player list
 
-- User-requested HUD extension: hold Tab for the authoritative online roster.
+Keyboard & Mouse settings exposes Player List, with Tab as its default. Keyboard
+and mouse remaps persist and reset with the existing mappings; menu Tab navigation
+keeps its own binding.
+
+- User-requested HUD extension: hold the Player List binding for the authoritative
+  online roster.
 - Compact centered columns, bounded to 80 players with an explicit overflow count.
-- Roster changes refresh cached JSON-UI; Tab release, focus loss and menus hide it.
+- Roster changes refresh cached JSON-UI; binding release, focus loss and menus hide it.
 - Input, rendered collection, focus/release, roster refresh and cache tests passed.
 - Incomplete live Windows acceptance: installed-client Tab capture pending.
 
@@ -1425,6 +1451,8 @@ and compilation pass; that meshing regression is outside this change.
 2026-10-04 F3 diagnostics (user-accepted developer feature): the supplied Java
 19w05a screenshot is the requested styling reference. F3 is available by default,
 hidden at startup, and the window title contains only the shared product name.
+Keyboard & Mouse settings exposes Debug Overlay with keyboard and mouse remaps,
+saved mappings and resets. The overlay's help row shows the configured shortcuts.
 JSON-UI draws player/world/movement/render/queue diagnostics and target-state
 rows during gameplay; other screens hide the overlay without resetting F3.
 Coordinates use player feet, including third person. A fixed row budget keeps
@@ -2349,6 +2377,17 @@ Incomplete: native frame/GPU/process-memory acceptance, full remote gates,
 TTFMSDF/precomputed MSDF rendering, contextual item icon routes, verified retail
 missing-icon fallback, and native font alias/metric comparison. Outline MSDF
 fonts currently use provisional alpha rasterization. No visual gate is closed.
+Pack readers share BOM, UTF-8 and Latin-1 text decoding and JSONC normalization;
+UI documents retain their existing parser recovery. Incomplete: native display
+comparison for legacy pack labels and arbitrary malformed UTF-8, and a full
+comparison of syntax tolerances across document families.
+Custom item icons and components follow the admitted registry, so an empty
+duplicate cannot replace a populated item's texture key. Missing custom icons
+report their identifier and requested atlas key during pack preparation.
+Provisional, incomplete: attachables without default geometry or texture aliases
+retain equipment bindings using their first compiled controller resources;
+dynamic controller selection still determines the resources drawn. Native static
+fallback behavior and live custom-item resource-pack acceptance remain open.
 See [continuation references](docs/resource-pack-continuation-references.md) and
 [original resource-pack references](docs/resource-pack-references.md).
 
@@ -7096,6 +7135,15 @@ defect. The installed native app is a near-version witness, not an exact-version
 capture; broad rendering, persona and live HUD pack-refresh parity remain open.
 World fire is tracked separately below.
 
+### Pack masks, End sky and title text (acceptance incomplete)
+
+Active packs now prepare pumpkin and spyglass masks, End-sky pixels and layered
+title splash lists during resource reload. Removing the optional resources
+restores startup data. End-sky overrides retain their decoded dimensions; masks
+use the existing 256-pixel scene layers. Synthetic regression tests cover
+priority, removal, alpha, cache invalidation and stale-generation publication.
+Compilation, regression execution and rendered parity acceptance remain open.
+
 ### World fire (accepted geometry and smoke; parity incomplete)
 
 World fire now uses vanilla's eight supported sloped quads, their height,
@@ -7721,9 +7769,13 @@ Ordinary first-person world damage rotation samples the actor's completed hurt
 and death counters independently of hand animation. Scripted captures retain
 their requested pose after those effects run.
 Portal and fire overlays sample the final rendered camera pose and projection.
+While the local player is dead, first person presents third-person-back with a
+level heading fixed at the body's yaw, ignoring look and perspective input until
+respawn (the native client activates its death camera component on death); the
+Java 1.7 animation mode keeps first person.
 
 Incomplete parity: exact target-version animation constants,
-respawn retries, death camera/FOV, hurt and HUD flash timing, hardcore and secondary
+respawn retries, death camera framing/FOV, hurt and HUD flash timing, hardcore and secondary
 client variants, and matched native frames remain open. The modern implementation
 and its focused regressions do not close the full death-screen parity gate.
 

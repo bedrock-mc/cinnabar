@@ -7,6 +7,15 @@ use serde_json::Value;
 use super::{Canvas, UiVisual, screen::PaintError};
 
 impl Canvas<'_> {
+    /// Snaps logical sprite bounds to physical pixels after a custom renderer positions them.
+    pub fn snap_sprite_bounds(&self, [x0, y0, x1, y1]: [f32; 4]) -> [f32; 4] {
+        super::pixel_snap::snapped(
+            [x0, y0, x1 - x0, y1 - y0].map(f64::from),
+            self.metrics.dpi_scale.get(),
+            1.0,
+        )
+    }
+
     /// A sprite of the texture at `path` (server pack first, then the carrier),
     /// sampling the normalised `uv`; `None` when neither holds it.
     /// Maps source edges onto their atlas page without rounding fractional slice boundaries.

@@ -7,7 +7,9 @@ use aes::cipher::{BlockEncrypt, KeyInit};
 use serde::Deserialize;
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::{AdmissionError, MAX_ENTRIES_PER_PACK, MAX_PATH_BYTES, normalize_jsonc};
+use pack_json::normalize_jsonc;
+
+use crate::{AdmissionError, MAX_ENTRIES_PER_PACK, MAX_PATH_BYTES};
 
 const CONTENTS_HEADER_BYTES: usize = 256;
 

@@ -15,7 +15,8 @@ pub fn drain_network_controls<T>(
 }
 
 /// Drains one frame's world ingress until the channel empties, admission fills, a transfer
-/// barrier arrives, or the frame's time budget is spent; the rest stays in the channel.
+/// barrier arrives, or the frame's time budget is spent. Unconsumed events stay in the
+/// caller's retained head and channel.
 pub struct WorldIngressDrain {
     deadline: Instant,
     stopped: bool,
@@ -30,17 +31,25 @@ impl WorldIngressDrain {
         }
     }
 
-    /// Takes one event only after the caller rechecks headroom changed by the previous commit.
+    /// Checks the next event's own admission lane. A blocked head stays in `pending` across
+    /// frames, ahead of the receiver; time and transfer boundaries never read ahead.
     pub fn next(
         &mut self,
         receiver: &mut tokio::sync::mpsc::Receiver<client_session::WorldIngress>,
-        admission_capacity: usize,
+        pending: &mut Option<client_session::WorldIngress>,
+        admits: impl FnOnce(&client_session::WorldIngress) -> bool,
         now: Instant,
     ) -> Option<client_session::WorldIngress> {
-        if self.stopped || admission_capacity == 0 || now >= self.deadline {
+        if self.stopped || now >= self.deadline {
             return None;
         }
-        let ingress = receiver.try_recv().ok()?;
+        if pending.is_none() {
+            *pending = Some(receiver.try_recv().ok()?);
+        }
+        if !admits(pending.as_ref().expect("the FIFO head is retained")) {
+            return None;
+        }
+        let ingress = pending.take().expect("the FIFO head was admitted");
         self.stopped = matches!(
             ingress,
             client_session::WorldIngress::FastTransferBarrier { .. }
@@ -58,3 +67,6 @@ pub fn drain_network_ingress<T>(
         .take(budget)
         .collect()
 }
+
+#[cfg(test)]
+mod tests;

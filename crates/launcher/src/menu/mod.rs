@@ -16,6 +16,7 @@ pub mod settings_sections;
 pub mod settings_storage;
 pub mod settings_support;
 pub mod sign_in;
+pub mod updates;
 pub mod view;
 pub mod worlds_tab;
 
@@ -89,6 +90,7 @@ pub enum MenuField {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuAction {
+    Update(updates::Action),
     OpenAccounts,
     AddAccount,
     SwitchAccount(usize),

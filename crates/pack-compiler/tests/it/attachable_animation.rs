@@ -9,7 +9,12 @@ use std::io::Cursor;
 const IDENTIFIER: &str = "test:framed_attachable";
 
 fn framed_pack() -> Vec<(Box<str>, Vec<u8>)> {
-    let names = ["default", "pull_0", "pull_1", "pull_2"];
+    pack_with_first_alias("default")
+}
+
+/// Builds four controller-selected raster frames with the requested standby resource alias.
+fn pack_with_first_alias(first_alias: &str) -> Vec<(Box<str>, Vec<u8>)> {
+    let names = [first_alias, "pull_0", "pull_1", "pull_2"];
     let geometry = names.iter().enumerate().map(|(index, name)| json!({
         "description": {"identifier": format!("geometry.test.{name}"), "texture_width": 16, "texture_height": 16},
         "bones": [{"name": "rightitem", "binding": "query.item_slot_to_bone_name(context.item_slot)",
@@ -62,6 +67,112 @@ fn framed_pack() -> Vec<(Box<str>, Vec<u8>)> {
         files.push((format!("textures/items/{name}.png").into(), png));
     }
     files
+}
+
+#[test]
+fn named_alias_attachables_keep_their_equipment_and_controller_frames() {
+    let mut files = pack_with_first_alias("standby");
+    let source = files
+        .iter_mut()
+        .find(|(path, _)| path.as_ref() == "attachables/test.json")
+        .unwrap();
+    let mut attachable: serde_json::Value = serde_json::from_slice(&source.1).unwrap();
+    let description = &mut attachable["minecraft:attachable"]["description"];
+    // These precede the consumed aliases in map order but never appear in the controller.
+    description["geometry"]["aaa_unused"] = json!("geometry.test.pull_2");
+    description["textures"]["aaa_unused"] = json!("textures/items/pull_2");
+    description["textures"]["enchanted"] = json!("textures/items/pull_1");
+    source.1 = serde_json::to_vec(&attachable).unwrap();
+
+    let compiled = compile_actor_pack(files).unwrap().unwrap();
+    let [binding] = compiled.equipment_bindings.as_slice() else {
+        panic!("the named attachable must retain its equipment binding");
+    };
+    assert_eq!(binding.identifier.as_ref(), IDENTIFIER);
+    assert_eq!(
+        binding.geometry.identifier.as_ref(),
+        "geometry.test.standby"
+    );
+    assert_eq!(
+        binding.texture.identifier.as_ref(),
+        "textures/items/standby"
+    );
+    assert_eq!(
+        binding.geometry.resolution,
+        assets::EntityDependencyResolution::Catalog
+    );
+    assert_eq!(compiled.equipment_textures.len(), 4);
+
+    let runtime =
+        RuntimeEntityAssets::decode(&encode_entity_blob(&compiled.entities).unwrap()).unwrap();
+    let rig = runtime.attachable_rig_binding(IDENTIFIER).unwrap();
+    let [layer] = runtime.render_layers(rig) else {
+        panic!("the named attachable must retain its render controller");
+    };
+    let geometry_choices = &compiled.entities.render.geometries[layer.first_geometry as usize..]
+        [..usize::from(layer.geometry_count)];
+    let texture_slot = &compiled.entities.render.slots[layer.first_slot as usize];
+    let texture_choices = &compiled.entities.render.candidates
+        [texture_slot.first_candidate as usize..][..usize::from(texture_slot.candidate_count)];
+    assert_eq!(geometry_choices.len(), 4);
+    assert_eq!(texture_choices.len(), 4);
+    for ((geometry, texture), alias) in geometry_choices
+        .iter()
+        .zip(texture_choices)
+        .zip(["standby", "pull_0", "pull_1", "pull_2"])
+    {
+        assert_eq!(
+            runtime.geometries()[geometry.geometry as usize]
+                .identifier
+                .as_ref(),
+            format!("geometry.test.{alias}")
+        );
+        assert_eq!(
+            runtime.sources()[texture.source as usize].path.as_ref(),
+            format!("textures/items/{alias}.png")
+        );
+        assert!(geometry.condition.is_some() && texture.condition.is_some());
+    }
+}
+
+#[test]
+fn explicit_attachable_defaults_keep_their_catalog_resources() {
+    let mut files = framed_pack();
+    let source = files
+        .iter_mut()
+        .find(|(path, _)| path.as_ref() == "render_controllers/test.json")
+        .unwrap();
+    let mut controller: serde_json::Value = serde_json::from_slice(&source.1).unwrap();
+    let arrays = &mut controller["render_controllers"]["controller.render.test"]["arrays"];
+    arrays["geometries"]["array.models"]
+        .as_array_mut()
+        .unwrap()
+        .swap(0, 1);
+    arrays["textures"]["array.frames"]
+        .as_array_mut()
+        .unwrap()
+        .swap(0, 1);
+    source.1 = serde_json::to_vec(&controller).unwrap();
+    let compiled = compile_actor_pack(files).unwrap().unwrap();
+    let binding = &compiled.equipment_bindings[0];
+    assert_eq!(
+        binding.geometry.identifier.as_ref(),
+        "geometry.test.default"
+    );
+    assert_eq!(
+        binding.texture.identifier.as_ref(),
+        "textures/items/default"
+    );
+}
+
+#[test]
+fn named_alias_attachables_without_a_controller_keep_no_guessed_binding() {
+    let files = pack_with_first_alias("standby")
+        .into_iter()
+        .filter(|(path, _)| !path.starts_with("render_controllers/"))
+        .collect();
+    let compiled = compile_actor_pack(files).unwrap().unwrap();
+    assert!(compiled.equipment_bindings.is_empty());
 }
 
 #[test]

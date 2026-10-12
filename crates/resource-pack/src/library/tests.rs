@@ -9,6 +9,59 @@ use zip::{ZipWriter, write::SimpleFileOptions};
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
 #[test]
+fn imports_legacy_manifest_names_with_formatting_codes() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let mut source = manifest(91, "resources", "").into_bytes();
+    let name = b"Fixture";
+    let start = source
+        .windows(name.len())
+        .position(|window| window == name)
+        .unwrap();
+    source.splice(
+        start..start + name.len(),
+        b"\xa7r\xa74Fixture".iter().copied(),
+    );
+    let bytes = zip(&[("pack/manifest.json", &source)]);
+    let report = library
+        .import(&fixture.write("legacy.mcpack", &bytes))
+        .unwrap();
+    assert!(report.rejected.is_empty());
+    assert_eq!(report.imported[0].name, "§r§4Fixture");
+    library.activate(Uuid::from_u128(91)).unwrap();
+    assert_eq!(library.apply().unwrap().packs().len(), 1);
+}
+
+#[test]
+fn malformed_manifest_reports_archive_and_member_path() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let bytes = zip(&[("nested/manifest.json", b"{\"header\":}")]);
+    let report = library
+        .import(&fixture.write("broken.mcpack", &bytes))
+        .unwrap();
+    assert!(report.imported.is_empty());
+    assert_eq!(report.rejected.len(), 1);
+    assert!(report.rejected[0].contains("broken.mcpack"));
+    assert!(report.rejected[0].contains("nested/manifest.json"));
+    assert!(report.rejected[0].contains("line 1"));
+}
+
+#[test]
+fn nested_bundle_errors_report_the_inner_archive_and_manifest() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let pack = zip(&[("manifest.json", b"{")]);
+    let bundle = zip(&[("resource.mcpack", &pack)]);
+    let report = library
+        .import(&fixture.write("bundle.mcaddon", &bundle))
+        .unwrap();
+    let reason = &report.rejected[0];
+    assert!(reason.contains("bundle.mcaddon/resource.mcpack"));
+    assert!(reason.contains("manifest.json"));
+}
+
+#[test]
 fn legacy_manifest_subpack_memory_is_converted_before_automatic_selection() {
     let fixture = Fixture::new();
     let mut library = fixture.library();

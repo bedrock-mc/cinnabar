@@ -84,6 +84,13 @@ pub enum LibraryError {
     Io(#[from] std::io::Error),
     #[error("resource-pack catalog is malformed: {0}")]
     Catalog(#[from] serde_json::Error),
+    #[error("pack JSON is malformed: {0}")]
+    PackJson(serde_json::Error),
+    #[error("{path}: {source}")]
+    PackFile {
+        path: String,
+        source: Box<LibraryError>,
+    },
     #[error(transparent)]
     Admission(#[from] AdmissionError),
     #[error("encrypted marketplace or password-protected packs are unsupported")]
@@ -177,7 +184,7 @@ impl GlobalPackLibrary {
             return Err(LibraryError::UnsupportedExtension);
         }
         let bytes = read_bounded(path, MAX_ARCHIVE_BYTES)?;
-        let (mut report, archives) = crate::import::read_import(bytes)?;
+        let (mut report, archives) = crate::import::read_import(bytes, path)?;
         let mut candidate = self.catalog.clone();
         let mut accepted = Vec::new();
         for (mut metadata, bytes) in archives {

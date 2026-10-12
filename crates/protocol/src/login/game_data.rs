@@ -51,9 +51,9 @@ pub struct StartupItems {
     pub registry: Result<ItemRegistryEvent, WorldPacketError>,
     /// Every registry identifier in registry order, admitted or not.
     pub identifiers: Box<[Arc<str>]>,
-    /// Components for every item whose component data parses.
+    /// Components retained by the admitted registry after duplicate entries are coalesced.
     pub components: Box<[(Arc<str>, ItemComponents)]>,
-    /// `(identifier, item_texture key)` for every item that names or implies an icon.
+    /// `(identifier, item_texture key)` for each admitted item that names or implies an icon.
     pub icon_keys: Box<[(Arc<str>, Arc<str>)]>,
 }
 
@@ -103,15 +103,35 @@ impl Default for GameData {
 
 impl StartupItems {
     fn from_wire(registry: &ItemRegistry) -> Self {
+        let normalized = normalize_item_registry(registry.clone()).map_err(WorldPacketError::from);
+        let components = normalized
+            .as_ref()
+            .map(|registry| {
+                registry
+                    .entries
+                    .iter()
+                    .filter_map(|entry| {
+                        Some((
+                            Arc::clone(&entry.identifier),
+                            entry.components.as_deref()?.clone(),
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let icon_keys = normalized
+            .as_ref()
+            .map(crate::item::item_icon_keys)
+            .unwrap_or_default();
         Self {
-            registry: normalize_item_registry(registry.clone()).map_err(WorldPacketError::from),
+            registry: normalized,
             identifiers: registry
                 .item_data
                 .iter()
                 .map(|item| Arc::from(item.item_name.to_string_lossy()))
                 .collect(),
-            components: crate::item::item_components(registry),
-            icon_keys: crate::item::item_icon_keys(registry),
+            components,
+            icon_keys,
         }
     }
 }
@@ -160,6 +180,65 @@ mod tests {
         assert_eq!(registry.entries[0].identifier.as_ref(), "minecraft:apple");
         assert_eq!(registry.entries[0].network_id, 878);
         assert_eq!(&*items.identifiers, [Arc::<str>::from("minecraft:apple")]);
+    }
+
+    /// One component item whose icon differs from the item's short name.
+    fn component_item(icon: &str) -> ItemData {
+        let mut data = vec![10, 0, 10, 10];
+        data.extend_from_slice(b"components");
+        data.extend_from_slice(&[8, 14]);
+        data.extend_from_slice(b"minecraft:icon");
+        data.push(u8::try_from(icon.len()).unwrap());
+        data.extend_from_slice(icon.as_bytes());
+        data.extend_from_slice(&[0, 0]);
+        ItemData {
+            item_name: "test:sword".into(),
+            item_id: wire::I16LE(5),
+            is_component_based: true,
+            item_component_data: wire::NetworkNbt(bytes::Bytes::from(data)),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn duplicate_empty_items_preserve_admitted_icon_and_components_in_either_order() {
+        let populated = component_item("custom_blade");
+        let empty = ItemData {
+            item_component_data: wire::NetworkNbt(bytes::Bytes::from_static(&[10, 0, 0])),
+            ..populated.clone()
+        };
+        for item_data in [
+            vec![populated.clone(), empty.clone()],
+            vec![empty, populated],
+        ] {
+            let items = StartupItems::from_wire(&ItemRegistry { item_data });
+            let registry = items.registry.as_ref().expect("compatible duplicates");
+            assert_eq!(registry.entries.len(), 1);
+            assert_eq!(
+                items.icon_keys.as_ref(),
+                &[(Arc::from("test:sword"), Arc::from("custom_blade"))]
+            );
+            assert_eq!(items.components.len(), 1);
+            assert_eq!(items.components[0].0.as_ref(), "test:sword");
+            assert_eq!(items.components[0].1.icon.as_deref(), Some("custom_blade"));
+            assert_eq!(
+                Some(&items.components[0].1),
+                registry.entries[0].components.as_deref()
+            );
+        }
+    }
+
+    #[test]
+    fn conflicting_components_do_not_publish_presentation_facts() {
+        let first = component_item("custom_blade");
+        let second = component_item("other_blade");
+        let items = StartupItems::from_wire(&ItemRegistry {
+            item_data: vec![first, second],
+        });
+        assert!(items.registry.is_err());
+        assert!(items.icon_keys.is_empty());
+        assert!(items.components.is_empty());
+        assert_eq!(items.identifiers.len(), 2);
     }
 
     #[test]

@@ -6,13 +6,15 @@ text, translucent gray strips measured per line, and blank gaps between groups.
 It is an explicit styling exception for these diagnostics, not evidence of
 vanilla Bedrock UI parity. The strip opacity is a provisional visual match.
 
-F3 toggles the overlay, hidden at startup. No launch flag is required;
-`--dev-debug-overlay` remains accepted for existing scripts. F2 still captures a
-screenshot. The native window title contains only the shared product name.
+The Debug Overlay binding toggles the overlay, hidden at startup; its default is
+F3. Remap it to a keyboard key or mouse button in Keyboard & Mouse settings.
+The help row follows the saved debug and screenshot bindings. No launch flag is
+required; `--dev-debug-overlay` remains accepted for existing scripts. The default
+screenshot binding is F2. The native window title contains only the shared product name.
 
 The JSON-UI resolver, bindings, layout and painter render the overlay during
 gameplay. Pause, inventory, chat, loading and other screens hide it without
-resetting the F3 toggle. The screen has no input targets. Font size depends only
+resetting the debug toggle. The screen has no input targets. Font size depends only
 on viewport height, DPI and GUI scale, reserving space for forty rows regardless
 of changing values or target properties. Long strings truncate to one line;
 they never shrink the font. Text starts one GUI pixel below its strip's top.

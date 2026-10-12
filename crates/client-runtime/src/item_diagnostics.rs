@@ -1,7 +1,10 @@
 //! Bounded INFO diagnostics for where server items land: the session registry and icons,
 //! inventory contents, and remote equipment events.
 
-use std::{collections::HashSet, sync::Mutex};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+};
 
 use bevy::log::info;
 use client_world::{EquipmentNotice, EquipmentOutcome};
@@ -52,14 +55,38 @@ pub fn session_registry(registry: Option<&ItemRegistryEvent>) {
     );
 }
 
-/// Logs how many server item icons the pack stack resolved.
-pub fn session_icons(keys: usize, icons: Option<&SessionIcons>) {
+/// Logs icon coverage and bounded missing custom identifiers and their requested atlas keys.
+pub fn session_icons(keys: &[(Arc<str>, Arc<str>)], icons: Option<&SessionIcons>) {
+    let resolved = icons
+        .into_iter()
+        .flat_map(|icons| &icons.icons)
+        .map(|icon| icon.identifier.as_ref())
+        .collect::<HashSet<_>>();
+    let custom = keys
+        .iter()
+        .filter(|(identifier, _)| !identifier.starts_with("minecraft:"));
+    let missing = custom
+        .clone()
+        .filter(|(identifier, _)| !resolved.contains(identifier.as_ref()));
     info!(
-        registry_icon_keys = keys,
+        registry_icon_keys = keys.len(),
         resolved = icons.map_or(0, |icons| icons.icons.len()),
         explicit_misses = icons.map_or(0, |icons| icons.misses.len()),
+        custom_items = custom.count(),
+        custom_missing = missing.clone().count(),
         "session item icons compiled from the pack stack"
     );
+    for (identifier, key) in missing.take(MAX_LINES) {
+        let reason = icons
+            .and_then(|icons| icons.misses.get(identifier))
+            .map_or("no readable image for the implied icon key", AsRef::as_ref);
+        info!(
+            identifier = identifier.as_ref(),
+            icon_key = key.as_ref(),
+            reason,
+            "server item icon missing"
+        );
+    }
 }
 
 /// Logs bounded station recipe skips and distinct inventory content shapes.

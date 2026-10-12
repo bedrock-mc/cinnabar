@@ -85,7 +85,7 @@ fn skin_geometry(models: &Map<String, Value>) -> Result<String, String> {
 /// Reads the starter skins and humanoid skin models from `pack` and encodes the MCBESKN1 carrier.
 pub fn compile_starter_skins(pack: &Path) -> Result<Vec<u8>, String> {
     let models: Map<String, Value> =
-        serde_json::from_slice(&read_bounded(&pack.join(MODELS), MAX_MODELS_BYTES)?)
+        pack_json::parse_jsonc(&read_bounded(&pack.join(MODELS), MAX_MODELS_BYTES)?)
             .map_err(|error| format!("{MODELS}: {error}"))?;
     let skins = STARTER_SKIN_SOURCES
         .iter()

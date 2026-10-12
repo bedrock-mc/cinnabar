@@ -495,6 +495,7 @@ fn large_server_pack_images_draw_at_full_resolution() {
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .unwrap();
     presentation.set_server_ui_pack(&ServerUiPack {
+        splashes: Arc::default(),
         screen_settings: None,
         builtin_screen_catalog: None,
         ui_layers: Vec::new(),

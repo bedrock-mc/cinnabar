@@ -69,6 +69,7 @@ impl MenuRuntime {
 
     /// Loads one snapshot into the subsystem authorities and flushes pending edits.
     pub fn sync_user_settings(&mut self, runtime: Option<ResMut<RuntimeSettings>>) {
+        launcher_host::lifecycle::update::configure(self.settings_options.update_preferences());
         if self.settings_apply
             && let Some(mut runtime) = runtime
         {

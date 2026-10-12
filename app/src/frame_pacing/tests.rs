@@ -257,3 +257,87 @@ fn missing_primary_display_clears_stale_vrr_and_refresh() {
         DisplayTiming::default()
     );
 }
+
+/// Native refresh demand follows the same state and cap as frame admission.
+fn display_link_rate(app: &App, window: Entity) -> Option<FrameRate> {
+    app.world()
+        .resource::<FramePacingRuntime>()
+        .display_link_rate(
+            app.world().resource::<PresentModeRuntime>().intent(),
+            app.world().resource::<DisplayRefresh>().0,
+            {
+                let state = app.world().get::<Window>(window).unwrap();
+                state.focused && state.visible
+            },
+            pacing(app),
+        )
+}
+
+#[test]
+fn synchronized_native_refresh_requests_the_reported_rate_without_a_sixty_hz_ceiling() {
+    let (mut app, window) = pacing_app((None, false), FrameRateLimit::Unlimited);
+    for rate in [60, 120, 144, 240] {
+        app.world_mut().resource_mut::<DisplayRefresh>().0.refresh = hz(rate);
+        app.update();
+        assert_eq!(display_link_rate(&app, window), hz(rate));
+        assert_eq!(pacing(&app).rate, None, "FIFO owns display pacing");
+    }
+    app.world_mut().resource_mut::<DisplayRefresh>().0.refresh = None;
+    app.update();
+    assert_eq!(display_link_rate(&app, window), None);
+}
+
+#[test]
+fn native_refresh_respects_saved_launch_and_required_limits() {
+    for (launch, saved, expected) in [
+        (None, fixed(60), 60),
+        (Some(30), fixed(60), 30),
+        (Some(240), fixed(60), 120),
+    ] {
+        let (mut app, window) = pacing_app((launch, false), saved);
+        assert_eq!(display_link_rate(&app, window), hz(expected));
+        app.world_mut()
+            .resource_mut::<FramePacingRuntime>()
+            .require_limit(hz(20).unwrap());
+        app.update();
+        assert_eq!(display_link_rate(&app, window), hz(20));
+    }
+}
+
+#[test]
+fn native_refresh_releases_background_demand_and_restores_it_on_focus() {
+    let (mut app, window) = pacing_app((None, false), FrameRateLimit::Unlimited);
+    assert_eq!(display_link_rate(&app, window), hz(120));
+    set_focus(&mut app, window, false);
+    assert_eq!(display_link_rate(&app, window), None);
+    set_focus(&mut app, window, true);
+    occlude(&mut app, window, true);
+    assert_eq!(display_link_rate(&app, window), None);
+    occlude(&mut app, window, false);
+    assert_eq!(display_link_rate(&app, window), hz(120));
+}
+
+#[test]
+fn native_refresh_does_not_drive_unpaced_or_fixed_clock_surfaces() {
+    let (app, window) = pacing_app_with((None, false), FrameRateLimit::Unlimited, |video| {
+        video.vsync = false;
+    });
+    assert_eq!(display_link_rate(&app, window), None);
+    let (mut app, window) = pacing_app((None, false), FrameRateLimit::Unlimited);
+    app.world_mut().get_mut::<Window>(window).unwrap().visible = false;
+    app.update();
+    assert_eq!(display_link_rate(&app, window), None);
+    let (app, window) = pacing_app((None, true), FrameRateLimit::Unlimited);
+    assert_eq!(display_link_rate(&app, window), None);
+    let (mut app, window) = pacing_app((None, false), FrameRateLimit::Unlimited);
+    app.world_mut()
+        .resource_mut::<FramePacingRuntime>()
+        .set_suspended(true);
+    app.update();
+    assert_eq!(display_link_rate(&app, window), None);
+    app.world_mut()
+        .resource_mut::<FramePacingRuntime>()
+        .set_suspended(false);
+    app.update();
+    assert_eq!(display_link_rate(&app, window), hz(120));
+}
