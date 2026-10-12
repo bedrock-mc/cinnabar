@@ -40,8 +40,8 @@ fn prepare_with<R: Borrow<FormRender>>(
         f64::from(frame.content[0] / px),
         f64::from(frame.content[1] / px),
     ];
-    let cache = RefCell::new(&mut *frame.layouts);
     let render = {
+        let cache = RefCell::new(&mut *frame.layouts);
         let atlas = textures.set.lock();
         let view = Textures {
             assets: textures.assets,
@@ -64,7 +64,6 @@ fn prepare_with<R: Borrow<FormRender>>(
     };
     let render = render?;
     let laid_render = render.borrow();
-    drop(cache);
     let mut atlas = textures.set.lock();
     let laid = || {
         laid_render
