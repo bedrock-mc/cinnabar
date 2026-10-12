@@ -33,6 +33,7 @@ fn registration(directory: &Scratch, request_id: &str) -> Registration {
         enabled: true,
         component: directory.0.join("selected.component.wat"),
         font: None,
+        ui: None,
         grants: ModGrants {
             controls: true,
             ..Default::default()
@@ -777,6 +778,8 @@ fn environment_host(world: &mut World, directory: &Scratch) {
     runtime.registration_host = None;
     runtime.registration_identity = None;
     runtime.registration_request = None;
+    drop(runtime);
+    refresh_presentation(world);
 }
 
 #[test]
@@ -799,6 +802,14 @@ fn registration_replaces_and_disables_only_its_companion() {
         let runtime = world.resource::<ModRuntime>();
         assert_eq!(runtime.hosts.host_count(), 2);
         assert_eq!(runtime.registration_host, Some(1));
+        assert_eq!(
+            runtime.panel_ui_owner(0),
+            mod_ui::PanelUiOwner::Environment(0)
+        );
+        assert_eq!(
+            runtime.panel_ui_owner(1),
+            mod_ui::PanelUiOwner::Registration
+        );
         assert_eq!(runtime.hosts.host(0).label(), Some("Environment"));
         assert_eq!(runtime.hosts.host(1).label(), Some(label));
         assert!(runtime.hosts.host(0).is_active());
@@ -819,6 +830,10 @@ fn registration_replaces_and_disables_only_its_companion() {
     let runtime = world.resource::<ModRuntime>();
     assert_eq!(runtime.hosts.host_count(), 1);
     assert_eq!(runtime.registration_host, None);
+    assert_eq!(
+        runtime.panel_ui_owner(0),
+        mod_ui::PanelUiOwner::Environment(0)
+    );
     assert_eq!(runtime.hud_editor_owner.unwrap().host, 0);
     assert!(runtime.hosts.host.is_active());
     assert!(!runtime.suspended);

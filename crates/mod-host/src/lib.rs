@@ -252,22 +252,6 @@ impl ModHost {
             .and_then(settings::SettingsWriter::take_error)
     }
 
-    pub fn panel(&self) -> Option<&ui::mod_panel::Panel> {
-        self.instance.panel()
-    }
-    pub fn panel_open(&self) -> bool {
-        self.instance.panel_open()
-    }
-    pub fn set_panel_open(&mut self, open: bool) {
-        self.instance.set_panel_open(open);
-    }
-    pub fn reserved_keys(&self) -> &[String] {
-        self.instance.reserved_keys()
-    }
-    pub fn take_interaction(&mut self) -> InteractionOutput {
-        self.instance.take_interaction()
-    }
-
     /// Retained request from a successful callback, independent of UI focus.
     pub fn packet_delay_ms(&self) -> u32 {
         self.instance.packet_delay_ms()

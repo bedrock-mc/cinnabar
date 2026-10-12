@@ -1,13 +1,57 @@
 //! Bounded, transactional mod controls. No import exposes arbitrary files or input injection.
 
 use super::{MAX_IMPORT_WRITES, State, cinnabar};
-use crate::{ControlFrame, InteractionOutput, empty_controls};
+use crate::{ControlFrame, InteractionOutput, ModHost, empty_controls};
 use anyhow::{Result, bail, ensure};
-use ui::mod_panel::{MAX_PANEL_BYTES, Panel};
+use std::sync::Arc;
+use ui::mod_panel::{MAX_PANEL_BYTES, Panel, PanelBundle, PanelPatch};
+
+impl ModHost {
+    /// Shares the validated local UI catalog with presentation preparation workers.
+    pub fn panel_bundle(&self) -> Option<Arc<PanelBundle>> {
+        self.instance.panel_bundle()
+    }
+
+    /// Returns the panel from the last successful callback.
+    pub fn panel(&self) -> Option<&Panel> {
+        self.instance.panel()
+    }
+
+    /// Prepares a bounded local UI catalog once, outside component callbacks.
+    pub fn set_panel_bundle(&mut self, json: &str) -> Result<()> {
+        ensure!(
+            self.grants.controls && self.instance.active,
+            "controls capability denied"
+        );
+        let bundle = PanelBundle::parse(json).map_err(anyhow::Error::msg)?;
+        self.instance.set_panel_bundle(Arc::new(bundle))
+    }
+
+    /// Reports whether the retained panel is open.
+    pub fn panel_open(&self) -> bool {
+        self.instance.panel_open()
+    }
+
+    /// Changes the retained panel's open state without entering the guest.
+    pub fn set_panel_open(&mut self, open: bool) {
+        self.instance.set_panel_open(open);
+    }
+
+    /// Returns the physical keys reserved by the last successful callback.
+    pub fn reserved_keys(&self) -> &[String] {
+        self.instance.reserved_keys()
+    }
+
+    /// Consumes committed local interaction requests once.
+    pub fn take_interaction(&mut self) -> InteractionOutput {
+        self.instance.take_interaction()
+    }
+}
 
 pub(super) struct ControlState {
     pub frame: ControlFrame,
     pub panel: Option<Panel>,
+    pub bundle: Option<Arc<PanelBundle>>,
     pub open: bool,
     pub keys: Vec<String>,
     pub interaction: InteractionOutput,
@@ -30,6 +74,7 @@ impl ControlState {
         Self {
             frame: empty_controls(),
             panel: None,
+            bundle: None,
             open: false,
             keys: Vec::new(),
             interaction: InteractionOutput::default(),
@@ -251,6 +296,39 @@ impl cinnabar::extension::panel::Host for State {
         }
         self.controls.pending_panel = Some(Some(panel));
         Ok(Ok(()))
+    }
+
+    fn update_content(&mut self, json: String) -> Result<Result<(), String>> {
+        self.controls.budget(false)?;
+        if !self.grants.controls {
+            return Ok(Err("controls capability denied".into()));
+        }
+        let current = self
+            .controls
+            .pending_panel
+            .as_ref()
+            .map_or(self.controls.panel.as_ref(), Option::as_ref);
+        let Some(current) = current else {
+            return Ok(Err("panel update requires retained content".into()));
+        };
+        if let Some(bundle) = &self.controls.bundle
+            && !bundle.matches_schema(current)
+        {
+            return Ok(Err(
+                "panel update schema differs from the registered bundle".into(),
+            ));
+        }
+        let routes = self.controls.bundle.as_ref().map(|bundle| &bundle.surfaces);
+        let empty = std::collections::BTreeMap::new();
+        match PanelPatch::parse(&json)
+            .and_then(|patch| patch.apply(current, routes.unwrap_or(&empty)))
+        {
+            Ok(panel) => {
+                self.controls.pending_panel = Some(Some(panel));
+                Ok(Ok(()))
+            }
+            Err(error) => Ok(Err(format!("invalid panel update: {error}"))),
+        }
     }
 }
 

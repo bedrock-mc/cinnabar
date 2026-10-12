@@ -35,6 +35,11 @@ impl Surface {
     /// Rejects oversized trees and dynamic factories before the host retains them.
     pub fn validate(&self) -> Result<(), String> {
         let _ = self.walk()?;
+        self.validate_bindings()
+    }
+
+    /// Validates only changing scalar values, retaining the already checked document.
+    pub fn validate_bindings(&self) -> Result<(), String> {
         if self.bindings.len() > MAX_SURFACE_BINDINGS {
             return Err("surface has too many bindings".into());
         }

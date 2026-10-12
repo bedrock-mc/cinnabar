@@ -61,6 +61,18 @@ struct ModRuntime {
     screens: screens::ScreenState,
 }
 
+#[cfg(feature = "local-mods")]
+impl ModRuntime {
+    /// Maps a publishing host's runtime index to its stable panel catalog owner.
+    fn panel_ui_owner(&self, host: usize) -> mod_ui::PanelUiOwner {
+        if self.registration_host == Some(host) {
+            mod_ui::PanelUiOwner::Registration
+        } else {
+            mod_ui::PanelUiOwner::Environment(host)
+        }
+    }
+}
+
 /// Bounded personal-extension diagnostics, only through the developer control endpoint.
 #[cfg(all(feature = "developer-control", feature = "local-mods"))]
 pub(crate) fn developer_state(world: &World) -> Option<serde_json::Value> {
@@ -166,7 +178,36 @@ fn configure_entries(app: &mut App, mods: Vec<(multi::ModSource, ModGrants)>) {
 
 /// Installs loaded mods in load order; none installs nothing.
 #[cfg(feature = "local-mods")]
-fn install(app: &mut App, hosts: Vec<ModHost>) {
+fn install(app: &mut App, mut hosts: Vec<ModHost>) {
+    if let Some(path) = std::env::var_os(client_extensions::modding::panel_ui::UI_ENV)
+        && let Some(host) = hosts.iter_mut().find(|host| host.grants().controls)
+    {
+        let result =
+            client_extensions::modding::panel_ui::load(Path::new(&path)).and_then(|json| {
+                host.set_panel_bundle(&json)
+                    .map_err(|error| format!("{error:#}"))
+            });
+        if let Err(error) = result {
+            eprintln!("Optional personal-panel catalog unavailable: {error}");
+        }
+    }
+    for (index, host) in hosts.iter().enumerate() {
+        if let Some(bundle) = host.panel_bundle() {
+            match mod_ui::PreparedPanelUi::prepare(bundle) {
+                Ok(prepared) => {
+                    if let Some(mut presentation) =
+                        app.world_mut().get_resource_mut::<UiPresentationResource>()
+                    {
+                        presentation.mod_ui_mut().set_prepared_panel_ui(
+                            mod_ui::PanelUiOwner::Environment(index),
+                            Some(prepared),
+                        );
+                    }
+                }
+                Err(error) => eprintln!("Optional personal-panel preparation unavailable: {error}"),
+            }
+        }
+    }
     let mut hosts = hosts.into_iter();
     let Some(host) = hosts.next() else { return };
     app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
@@ -507,10 +548,10 @@ fn drive_mod(
     if let Err(error) = presentation.set_mod_panel_font(extension.panel_fonts[owner].clone()) {
         eprintln!("Cinnabar extension panel font rejected: {error}");
     }
-    if let Err(error) = presentation
-        .mod_ui_mut()
-        .set_mod_panel(extension.hosts.host(owner).panel())
-    {
+    if let Err(error) = presentation.mod_ui_mut().set_mod_panel(
+        extension.panel_ui_owner(owner),
+        extension.hosts.host(owner).panel(),
+    ) {
         eprintln!("Cinnabar extension panel rejected: {error}");
         extension.hosts.host_mut(owner).set_panel_open(false);
     }

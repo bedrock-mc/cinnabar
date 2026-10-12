@@ -1,6 +1,7 @@
 use super::*;
 use bevy::input::keyboard::Key;
 use client_ui::test_support::mini_engine_presentation;
+use mod_ui::PanelUiOwner;
 
 fn fixture() -> String {
     fixture_with_capture(false)
@@ -59,7 +60,7 @@ fn unfocused_stop_and_toggle_keys_preserve_editor_and_do_not_replay_on_regain() 
     let mut presentation = mini_engine_presentation();
     presentation
         .mod_ui_mut()
-        .set_mod_panel(host.panel())
+        .set_mod_panel(PanelUiOwner::Environment(0), host.panel())
         .unwrap();
     presentation.mod_ui_mut().set_mod_panel_open(true);
     render(&mut presentation, &player, &ui);
@@ -192,7 +193,7 @@ fn personal_panel_app(hud_editor: bool, capture_key: bool) -> (App, Entity) {
     let mut presentation = mini_engine_presentation();
     presentation
         .mod_ui_mut()
-        .set_mod_panel(host.panel())
+        .set_mod_panel(PanelUiOwner::Environment(0), host.panel())
         .unwrap();
     presentation.mod_ui_mut().set_mod_panel_open(true);
     if hud_editor {

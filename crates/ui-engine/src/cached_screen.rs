@@ -46,6 +46,24 @@ struct Laid {
 }
 
 impl CachedScreen {
+    /// Starts from a worker-resolved root belonging to this exact catalog and context.
+    pub fn from_resolved(
+        reference: &str,
+        catalog: Arc<Catalog>,
+        context: Context,
+        tree: Arc<ResolvedControl>,
+    ) -> Self {
+        Self {
+            resolved: Some(ResolvedScreen {
+                reference: reference.to_owned(),
+                catalog,
+                context,
+                tree: Some(tree),
+            }),
+            ..Self::default()
+        }
+    }
+
     /// Texture metadata participates in layout, including tiled sprite sizes.
     pub fn invalidate_textures(&mut self) {
         self.laid = None;

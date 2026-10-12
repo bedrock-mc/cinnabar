@@ -9,6 +9,7 @@ pub mod experience_modal;
 mod mod_hud;
 mod mod_hud_editor;
 mod mod_panel;
+pub use mod_panel::prepared::{PanelUiOwner, PreparedPanelUi};
 pub mod mod_screens;
 mod mod_widgets;
 pub mod template_screen;
@@ -28,6 +29,7 @@ pub struct ModUi {
     mod_widgets: Option<mod_widgets::ModWidgets>,
     mod_crosshair: Option<ui::mod_hud::Crosshair>,
     mod_panel: Option<mod_panel::ModPanel>,
+    prepared_panel_ui: std::collections::BTreeMap<PanelUiOwner, mod_panel::prepared::PreparedOwner>,
     experience: Option<experience::ExperienceChrome>,
     /// A client part's modal screen.
     experience_modal: Option<experience_modal::ModalScreen>,

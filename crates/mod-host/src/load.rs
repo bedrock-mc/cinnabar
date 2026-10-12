@@ -197,6 +197,9 @@ impl ModHost {
             declared,
         )
         .context("reload rejected; previous mod retained")?;
+        if let Some(bundle) = self.instance.panel_bundle() {
+            candidate.set_panel_bundle(bundle)?;
+        }
         candidate.set_session(Arc::clone(&self.session));
         self.instance = candidate;
         self.grants = grants;
