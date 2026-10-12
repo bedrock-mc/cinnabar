@@ -128,7 +128,7 @@ fn tripwire_hooks_keep_mount_shaft_eye_and_attached_wire_in_every_state() {
         let wire = visual.face(BlockFace::South).material_id();
         assert!(quads[..6].iter().all(|q| q.material == base));
         assert!(quads[6..18].iter().all(|q| q.material == hook));
-        for part in quads[6..18].chunks_exact(6) {
+        for part in quads[6..18].as_chunks::<6>().0 {
             let center: [f64; 3] = std::array::from_fn(|axis| {
                 part.iter()
                     .flat_map(|q| q.positions)

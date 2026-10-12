@@ -146,7 +146,7 @@ fn brewing_stand_retains_post_feet_and_each_bottle_panel() {
             ([16, 0, 16], [112, 32, 112]),
             ([16, 0, 144], [112, 32, 240]),
         ];
-        for (faces, (min, max)) in quads[..24].chunks_exact(6).zip(boxes) {
+        for (faces, (min, max)) in quads[..24].as_chunks::<6>().0.iter().zip(boxes) {
             for axis in 0..3 {
                 let coordinates: Vec<_> = faces
                     .iter()
