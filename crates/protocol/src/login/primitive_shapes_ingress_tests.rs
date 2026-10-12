@@ -1,43 +1,36 @@
 use super::*;
 use crate::raw_packet::decode_packet_raw;
 use bytes::Buf;
-use valentine::bedrock::version::v1_26_51::Vec3;
 
 #[test]
 fn primitive_shapes_raw_ingress_retains_valid_changes_and_counts_odd_entries() {
-    use valentine::bedrock::version::v1_26_51::{
-        EnumsScriptModuleMinecraftScriptPrimitiveShapeType as Kind, LineDataPayload,
-        PrimitiveShapeDataPayload, PrimitiveShapeDataPayloadExtraShapeData as Extra,
-        PrimitiveShapesPacket,
-    };
+    use bedrock_protocol_1_26_51::enums::ScriptModuleMinecraftScriptPrimitiveShapeType as Kind;
+    use bedrock_protocol_1_26_51::packets::PrimitiveShapes;
+    use bedrock_protocol_1_26_51::types::{PrimitiveShape, PrimitiveShapeExtraShapeData as Extra};
 
-    let packet: Packet = crate::Packet::new(PrimitiveShapesPacket {
-        arrayofprimitiveshapescanbeamixofnewupdatedorremoved: vec![
-            PrimitiveShapeDataPayload {
-                network_id: 7,
+    let packet: Packet = crate::Packet::new(PrimitiveShapes {
+        array_of_primitive_shapes_can_be_a_mix_of_new_updated_or_removed: vec![
+            PrimitiveShape {
+                network_id: wire::VarULong(7),
                 shape_type: Some(Kind::Line),
-                extra_shape_data: Extra::LineDataPayload(LineDataPayload {
-                    line_end_location: Vec3 {
-                        x: 1.0,
-                        y: 2.0,
-                        z: 3.0,
-                    },
-                }),
+                extra_shape_data: Extra::LineData {
+                    line_end_location: [1.0, 2.0, 3.0].into(),
+                },
                 ..Default::default()
             },
-            PrimitiveShapeDataPayload {
-                network_id: 8,
+            PrimitiveShape {
+                network_id: wire::VarULong(8),
                 shape_type: Some(Kind::Box),
-                scale: Some(f32::NAN),
+                scale: Some(wire::F32LE(f32::NAN)),
                 ..Default::default()
             },
-            PrimitiveShapeDataPayload {
-                network_id: 9,
+            PrimitiveShape {
+                network_id: wire::VarULong(9),
                 shape_type: Some(Kind::Unknown(255)),
                 ..Default::default()
             },
-            PrimitiveShapeDataPayload {
-                network_id: 7,
+            PrimitiveShape {
+                network_id: wire::VarULong(7),
                 ..Default::default()
             },
         ],

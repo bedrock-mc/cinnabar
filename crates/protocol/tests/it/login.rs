@@ -7,8 +7,9 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use bedrock_protocol_1_26_51::packets;
+use bedrock_protocol_1_26_51::wire;
 use protocol::LoginSequence;
-use valentine::bedrock::version::v1_26_51::McpePacketData;
 
 const EXTERNAL_HARNESS_TEST: &str = "^TestProxyExternalRustClientHarness$";
 const ENDPOINT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -71,7 +72,7 @@ async fn login_reaches_start_game_through_bds() {
     let available_commands = tokio::time::timeout(LOGIN_TIMEOUT, async {
         loop {
             let packet = session.recv().await?;
-            if matches!(packet.data, McpePacketData::AvailableCommandsPacket(_)) {
+            if matches!(&*packet.data, packets::Packet::AvailableCommands(_)) {
                 return Ok::<_, protocol::ProtocolError>(packet);
             }
         }
@@ -89,7 +90,7 @@ async fn login_reaches_start_game_through_bds() {
             harness.output()
         )
     });
-    let McpePacketData::AvailableCommandsPacket(commands) = available_commands.data else {
+    let packets::Packet::AvailableCommands(commands) = *available_commands.data else {
         unreachable!("loop returns only AvailableCommands")
     };
     assert!(
@@ -272,7 +273,7 @@ async fn wait_for_startup_marker(
                 .recv()
                 .await
                 .unwrap_or_else(|error| panic!("{error}\n{}", harness.output()));
-            if matches!(packet.data, McpePacketData::SetTimePacket(value) if value.time == time) {
+            if matches!(&*packet.data, packets::Packet::SetTime(value) if value.time.0 == time) {
                 break;
             }
         }
@@ -283,12 +284,10 @@ async fn wait_for_startup_marker(
 
 /// Builds an application-owned barrier that the upstream can observe on the wire.
 fn startup_marker(timestamp: u64) -> protocol::Packet {
-    protocol::Packet::new(
-        valentine::bedrock::version::v1_26_51::NetworkStackLatencyPacket {
-            creation_time: timestamp,
-            is_from_server: false,
-        },
-    )
+    protocol::Packet::new(packets::NetworkStackLatency {
+        creation_time: wire::U64LE(timestamp),
+        is_from_server: false,
+    })
 }
 
 /// Waits for the external harness in a blocking context on the tests' multithreaded runtime.
@@ -691,15 +690,14 @@ impl Drop for TestSocketDir {
 
 /// Carries binary and 1 MiB payloads both ways through the real core after its startup handshake.
 async fn assert_core_frame_payloads(session: &mut protocol::PlaySession) {
-    use valentine::bedrock::version::v1_26_51::ScriptMessagePacket;
     for payload in [
         vec![0, 0xfe, 0, 1, 0xff, 0],
         (0..1024 * 1024).map(|index| (index % 251) as u8).collect(),
     ] {
         session
-            .send(protocol::Packet::new(ScriptMessagePacket {
+            .send(protocol::Packet::new(packets::ScriptMessage {
                 message_id: "framing".into(),
-                message_value: payload.clone(),
+                message_value: payload.clone().into(),
             }))
             .await
             .expect("send binary frame");
@@ -707,10 +705,10 @@ async fn assert_core_frame_payloads(session: &mut protocol::PlaySession) {
             .await
             .expect("binary reply timeout")
             .expect("binary reply");
-        let McpePacketData::ScriptMessagePacket(reply) = reply.data else {
+        let packets::Packet::ScriptMessage(reply) = *reply.data else {
             panic!("expected binary echo");
         };
         assert_eq!(reply.message_id, "framing");
-        assert_eq!(reply.message_value, payload);
+        assert_eq!(reply.message_value.as_ref(), payload.as_slice());
     }
 }

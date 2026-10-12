@@ -1,21 +1,23 @@
 //! LevelEventGeneric ingress: its event data is loose NBT tags to the end of the packet.
 
 use crate::raw_packet::decode_packet_raw;
-use bytes::{BufMut, BytesMut};
-
-use valentine::bedrock::version::v1_26_51::McpePacketName;
 
 use super::*;
 
 fn raw_generic(event_id: i32, tags: &[u8]) -> RawPacket {
-    let mut payload = BytesMut::new();
-    wire::write_var_u32(&mut payload, McpePacketName::LevelEventGenericPacket as u32);
-    wire::write_var_u32(&mut payload, ((event_id << 1) ^ (event_id >> 31)) as u32);
-    payload.put_slice(tags);
-    let mut frame = BytesMut::new();
-    wire::write_var_u32(&mut frame, payload.len() as u32);
-    frame.put_slice(&payload);
-    decode_packet_raw(&mut frame.freeze()).expect("raw packet")
+    let mut payload = Vec::new();
+    let mut writer = wire::Writer::new(&mut payload);
+    writer
+        .write_var_u32(PacketId::LevelEventGeneric as u32)
+        .unwrap();
+    writer.write_zigzag_i32(event_id).unwrap();
+    writer.write_all(tags).unwrap();
+    let mut frame = Vec::new();
+    wire::Writer::new(&mut frame)
+        .write_var_u32(payload.len() as u32)
+        .unwrap();
+    frame.extend_from_slice(&payload);
+    decode_packet_raw(&mut bytes::Bytes::from(frame)).expect("raw packet")
 }
 
 /// Two loose int tags as BDS sends them: no root compound header, no end tag.

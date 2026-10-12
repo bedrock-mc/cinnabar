@@ -1,19 +1,17 @@
 //! Normalizers for block-side packets: map pixel updates, sign editor requests and block events.
 
-use valentine::bedrock::version::v1_26_51::{
-    BlockEventPacket, ClientboundMapItemDataPacket, OpenSignPacket,
-};
+use bedrock_protocol_1_26_51::packets::{BlockEvent, ClientboundMapItemData, OpenSign};
 
 use super::events::{BlockEventEvent, MAP_IMAGE_SIDE, MapDataEvent, OpenSignEvent};
 
 /// The pixel rectangle of a map update; `None` for a partial packet (no pixels) or a rectangle
 /// outside the fixed image or with the wrong pixel count, which are semantic skips.
-pub(super) fn normalize_map_data(packet: &ClientboundMapItemDataPacket) -> Option<MapDataEvent> {
+pub(super) fn normalize_map_data(packet: &ClientboundMapItemData) -> Option<MapDataEvent> {
     let (Some(width), Some(height), Some(start_x), Some(start_y), Some(pixels)) = (
-        packet.width,
-        packet.height,
-        packet.start_x,
-        packet.start_y,
+        packet.width.map(|value| value.0),
+        packet.height.map(|value| value.0),
+        packet.start_x.map(|value| value.0),
+        packet.start_y.map(|value| value.0),
         packet.pixels.as_deref(),
     ) else {
         return None;
@@ -32,32 +30,32 @@ pub(super) fn normalize_map_data(packet: &ClientboundMapItemDataPacket) -> Optio
         && height.saturating_add(start_y) <= MAP_IMAGE_SIDE
         && pixels.len() as u64 == u64::from(width) * u64::from(height);
     fits.then(|| MapDataEvent {
-        map_id: packet.map_id.actor_unique_id,
+        map_id: packet.map_id.0,
         start_x,
         start_y,
         width,
         height,
-        pixels: pixels.into(),
+        pixels: pixels.iter().map(|pixel| pixel.0).collect(),
     })
 }
 
-pub(super) fn normalize_open_sign(packet: &OpenSignPacket, dimension: i32) -> OpenSignEvent {
+pub(super) fn normalize_open_sign(packet: &OpenSign, dimension: i32) -> OpenSignEvent {
     OpenSignEvent {
         dimension,
-        position: [packet.pos.x, packet.pos.y, packet.pos.z],
+        position: [packet.pos.x.0, packet.pos.y.0, packet.pos.z.0],
         front: packet.is_front_side,
     }
 }
 
-pub(super) fn normalize_block_event(packet: &BlockEventPacket, dimension: i32) -> BlockEventEvent {
+pub(super) fn normalize_block_event(packet: &BlockEvent, dimension: i32) -> BlockEventEvent {
     BlockEventEvent {
         dimension,
         position: [
-            packet.block_position.x,
-            packet.block_position.y,
-            packet.block_position.z,
+            packet.block_position.x.0,
+            packet.block_position.y.0,
+            packet.block_position.z.0,
         ],
-        event_type: packet.event_type,
-        event_value: packet.event_value,
+        event_type: packet.event_type.0,
+        event_value: packet.event_value.0,
     }
 }

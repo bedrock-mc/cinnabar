@@ -1,8 +1,8 @@
 //! Recipes the non-crafting-table screens use, and the multi-recipe ids the
 //! anvil names in its requests.
 
+use bedrock_protocol_1_26_51::wire::Decode;
 use std::sync::Arc;
-use valentine::bedrock::codec::BedrockCodec;
 
 use super::crafting::RecipeOutput;
 
@@ -53,7 +53,7 @@ impl MultiRecipe {
     /// Decode the wire's little-endian UUID halves and match the exact repair identifier.
     #[must_use]
     pub fn is_repair(&self) -> bool {
-        uuid::Uuid::decode(&mut &self.uuid[..], ()).is_ok_and(|uuid| uuid == REPAIR_MULTI_UUID)
+        uuid::Uuid::decode_exact(&self.uuid).is_ok_and(|uuid| uuid == REPAIR_MULTI_UUID)
     }
 }
 

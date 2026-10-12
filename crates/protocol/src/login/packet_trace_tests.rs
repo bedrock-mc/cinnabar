@@ -6,19 +6,16 @@ use super::*;
 fn packet_id_trace_incremental_drains_are_lifetime_bounded_with_one_terminal_overflow() {
     let mut trace = PacketIdTraceState::default();
     trace.begin();
-    trace.observe(McpePacketName::StartGamePacket);
+    trace.observe(PacketId::StartGame);
     let first = trace
         .drain()
         .expect("first observed ID is drained promptly");
-    assert_eq!(
-        first.packet_ids.as_ref(),
-        &[McpePacketName::StartGamePacket as u32]
-    );
+    assert_eq!(first.packet_ids.as_ref(), &[PacketId::StartGame as u32]);
     assert_eq!(first.overflow, 0);
     assert!(!first.timed_out);
 
     for _ in 1..MAX_PACKET_ID_TRACE_ENTRIES {
-        trace.observe(McpePacketName::StartGamePacket);
+        trace.observe(PacketId::StartGame);
     }
     let remainder = trace.drain().expect("remaining bounded IDs are drainable");
     assert_eq!(remainder.packet_ids.len(), MAX_PACKET_ID_TRACE_ENTRIES - 1);
@@ -26,13 +23,13 @@ fn packet_id_trace_incremental_drains_are_lifetime_bounded_with_one_terminal_ove
         remainder
             .packet_ids
             .iter()
-            .all(|id| *id == McpePacketName::StartGamePacket as u32)
+            .all(|id| *id == PacketId::StartGame as u32)
     );
     assert_eq!(remainder.overflow, 0);
     assert!(!remainder.timed_out);
 
     for _ in 0..7 {
-        trace.observe(McpePacketName::CommandOutputPacket);
+        trace.observe(PacketId::CommandOutput);
     }
     assert!(
         trace.drain().is_none(),
@@ -40,7 +37,7 @@ fn packet_id_trace_incremental_drains_are_lifetime_bounded_with_one_terminal_ove
     );
 
     trace.started_at = Some(std::time::Instant::now() - PACKET_ID_TRACE_DURATION);
-    trace.observe(McpePacketName::CommandOutputPacket);
+    trace.observe(PacketId::CommandOutput);
     let terminal = trace.drain().expect("timeout is reported once");
     assert!(terminal.packet_ids.is_empty());
     assert_eq!(terminal.overflow, 7);
@@ -52,7 +49,7 @@ fn packet_id_trace_incremental_drains_are_lifetime_bounded_with_one_terminal_ove
 fn packet_id_trace_cancel_discards_arm_and_all_pending_evidence() {
     let mut trace = PacketIdTraceState::default();
     trace.begin();
-    trace.observe(McpePacketName::StartGamePacket);
+    trace.observe(PacketId::StartGame);
     trace.cancel();
 
     assert!(trace.started_at.is_none());

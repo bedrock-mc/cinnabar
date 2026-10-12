@@ -9,12 +9,13 @@
 //! This module owns those bounded payloads; the movement snapshot itself stays
 //! a pure movement record.
 
-use thiserror::Error;
-use valentine::bedrock::version::v1_26_51::{
-    BlockPos, EnumsItemUseInventoryTransactionActionType, EnumsPlayerActionType,
-    PackedItemUseLegacyInventoryTransaction, PlayerBlockActionData,
-    TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0,
+use bedrock_protocol_1_26_51::enums::{ItemUseInventoryTransactionActionType, PlayerActionType};
+use bedrock_protocol_1_26_51::types::{
+    BlockPos, ItemStackLegacyRequestID, PackedItemUseLegacyInventoryTransaction,
+    PlayerBlockActionData,
 };
+use bedrock_protocol_1_26_51::wire;
+use thiserror::Error;
 
 use crate::interaction::{BlockUsePacketError, BlockUseRequest, item_use_transaction};
 
@@ -60,14 +61,14 @@ impl BlockActionKind {
         }
     }
 
-    const fn vendor(self) -> EnumsPlayerActionType {
+    const fn vendor(self) -> PlayerActionType {
         match self {
-            Self::StartDestroy => EnumsPlayerActionType::Startdestroyblock,
-            Self::AbortDestroy => EnumsPlayerActionType::Abortdestroyblock,
-            Self::StopDestroy => EnumsPlayerActionType::Stopdestroyblock,
-            Self::CrackBlock => EnumsPlayerActionType::Crackblock,
-            Self::PredictDestroy => EnumsPlayerActionType::Predictdestroyblock,
-            Self::ContinueDestroy => EnumsPlayerActionType::Continuedestroyblock,
+            Self::StartDestroy => PlayerActionType::Startdestroyblock,
+            Self::AbortDestroy => PlayerActionType::Abortdestroyblock,
+            Self::StopDestroy => PlayerActionType::Stopdestroyblock,
+            Self::CrackBlock => PlayerActionType::Crackblock,
+            Self::PredictDestroy => PlayerActionType::Predictdestroyblock,
+            Self::ContinueDestroy => PlayerActionType::Continuedestroyblock,
         }
     }
 }
@@ -162,8 +163,12 @@ impl BlockActions {
                 let [x, y, z] = action.position;
                 Ok(PlayerBlockActionData {
                     player_action_type: action.kind.vendor(),
-                    position: BlockPos { x, y, z },
-                    facing: i32::from(action.face),
+                    position: BlockPos {
+                        x: wire::ZigZag32(x),
+                        y: wire::ZigZag32(y),
+                        z: wire::ZigZag32(z),
+                    },
+                    facing: wire::ZigZag32(i32::from(action.face)),
                 })
             })
             .collect()
@@ -215,16 +220,16 @@ pub(super) fn packed_block_interaction(
 ) -> Result<PackedItemUseLegacyInventoryTransaction, InteractionEncodeError> {
     let transaction = match interaction {
         BlockItemInteraction::Use(request) => {
-            item_use_transaction(request, EnumsItemUseInventoryTransactionActionType::Place)
+            item_use_transaction(request, ItemUseInventoryTransactionActionType::Place)
                 .map_err(InteractionEncodeError::InvalidBlockUse)?
         }
         BlockItemInteraction::Destroy(request) => {
-            item_use_transaction(request, EnumsItemUseInventoryTransactionActionType::Destroy)
+            item_use_transaction(request, ItemUseInventoryTransactionActionType::Destroy)
                 .map_err(InteractionEncodeError::InvalidBlockDestroy)?
         }
     };
     Ok(PackedItemUseLegacyInventoryTransaction {
-        legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
+        legacy_request_id: ItemStackLegacyRequestID(0),
         legacy_set_item_slots: None,
         item_use_transaction: transaction,
     })
@@ -317,7 +322,7 @@ mod tests {
         actions
             .push(action(BlockActionKind::AbortDestroy, 100))
             .unwrap();
-        assert_eq!(actions.vendor().unwrap()[0].facing, 100);
+        assert_eq!(actions.vendor().unwrap()[0].facing.0, 100);
         actions.clear();
         actions
             .push(action(BlockActionKind::AbortDestroy, 101))

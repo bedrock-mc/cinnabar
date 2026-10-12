@@ -1,9 +1,8 @@
 use std::collections::VecDeque;
 
+use bedrock_protocol_1_26_51::packets::{self, PacketId};
+use bedrock_protocol_1_26_51::wire;
 use bytes::Bytes;
-use valentine::bedrock::version::v1_26_51::{McpePacketData, McpePacketName};
-#[cfg(test)]
-use valentine::protocol::wire;
 
 use crate::blob_cache::ResolverReady;
 use crate::raw_packet::RawPacket;
@@ -192,8 +191,8 @@ impl PlaySession {
             };
             let packet = raw.decode().map_err(|error| self.fail_session(error))?;
             if matches!(
-                &packet.data,
-                McpePacketData::TransferPacket(_) | McpePacketData::DisconnectPacket(_)
+                &*packet.data,
+                packets::Packet::Transfer(_) | packets::Packet::Disconnect(_)
             ) {
                 self.reset_blob_cache_pending();
             }
@@ -261,18 +260,16 @@ impl PlaySession {
                 }
             };
             self.packet_id_trace.observe(raw.id);
-            if raw.id == McpePacketName::LevelChunkPacket {
+            if raw.id == PacketId::LevelChunk {
                 let raw = raw.into_retention_bounded();
-                let borrowed = raw
-                    .decode_borrowed()
-                    .map_err(|error| self.fail_session(error))?;
-                let valentine::bedrock::version::v1_26_51::BorrowedMcpePacketData::LevelChunkPacket(
-                    packet,
-                ) = borrowed.data
-                else {
-                    unreachable!("LevelChunk packet ID decoded to another borrowed variant")
+                let packet = match self.decode_world_candidate(raw)? {
+                    Some(packet) => packet,
+                    None => continue,
                 };
-                match crate::world::normalize_borrowed_level_chunk(packet) {
+                let packets::Packet::LevelChunk(packet) = *packet.data else {
+                    unreachable!("LevelChunk packet ID decoded to another variant")
+                };
+                match crate::world::normalize_level_chunk_payload(packet) {
                     Ok((event, payload)) => return Ok(WorldIngress::LevelChunk(event, payload)),
                     Err(error) => {
                         self.skip_or_fail_world(error.into())?;
@@ -280,10 +277,7 @@ impl PlaySession {
                     }
                 }
             }
-            if matches!(
-                raw.id,
-                McpePacketName::TransferPacket | McpePacketName::DisconnectPacket
-            ) {
+            if matches!(raw.id, PacketId::Transfer | PacketId::Disconnect) {
                 let name = raw.id;
                 if self.absorb_boundary_packet(raw, name).await? {
                     return boundary_wakeup();
@@ -475,16 +469,9 @@ impl PlaySession {
             self.packet_id_trace.observe(raw.id);
             let packet_bytes = raw.inner_frame().len();
             let packet_name = raw.id;
-            let raw = if packet_name == McpePacketName::LevelChunkPacket {
-                raw.into_retention_bounded()
-            } else {
-                raw
-            };
+            let raw = detach_cached_chunk(raw);
 
-            if matches!(
-                packet_name,
-                McpePacketName::TransferPacket | McpePacketName::DisconnectPacket
-            ) {
+            if matches!(packet_name, PacketId::Transfer | PacketId::Disconnect) {
                 if self.absorb_boundary_packet(raw, packet_name).await? {
                     return boundary_wakeup();
                 }
@@ -493,48 +480,40 @@ impl PlaySession {
 
             if matches!(
                 packet_name,
-                McpePacketName::LevelChunkPacket
-                    | McpePacketName::SubChunkPacket
-                    | McpePacketName::ClientCacheMissResponsePacket
+                PacketId::LevelChunk | PacketId::SubChunk | PacketId::ClientCacheMissResponse
             ) {
-                if packet_name == McpePacketName::LevelChunkPacket {
-                    let borrowed_raw = raw.clone();
-                    let borrowed = match borrowed_raw.decode_borrowed() {
-                        Ok(packet) => packet,
-                        Err(error) => return Err(self.fail_session(error)),
-                    };
-                    let valentine::bedrock::version::v1_26_51::BorrowedMcpePacketData::LevelChunkPacket(view) = borrowed.data else {
-                        unreachable!("LevelChunk packet ID decoded to another borrowed variant")
-                    };
-                    if !view.cache_enabled {
-                        let (event, payload) =
-                            match crate::world::normalize_borrowed_level_chunk(view) {
-                                Ok(value) => value,
-                                Err(error) => {
-                                    self.skip_or_fail_world(error.into())?;
-                                    continue;
-                                }
-                            };
-                        let resolver = self
-                            .blob_cache
-                            .as_mut()
-                            .expect("enabled path owns a resolver");
-                        resolver.reset_pending_for_fast_transfer_candidate()?;
-                        resolver.accept_level_chunk_bytes(event, payload, packet_bytes)?;
-                        continue;
-                    }
-                }
-                let packet = match raw.decode() {
-                    Ok(packet) => packet,
-                    Err(error) => return Err(self.fail_session(error)),
+                let packet = match self.decode_world_candidate(raw)? {
+                    Some(packet) => packet,
+                    None => continue,
                 };
+                if let packets::Packet::LevelChunk(view) = &*packet.data
+                    && !view.cache_enabled
+                {
+                    let packets::Packet::LevelChunk(view) = *packet.data else {
+                        unreachable!("checked above")
+                    };
+                    let (event, payload) = match crate::world::normalize_level_chunk_payload(view) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            self.skip_or_fail_world(error.into())?;
+                            continue;
+                        }
+                    };
+                    let resolver = self
+                        .blob_cache
+                        .as_mut()
+                        .expect("enabled path owns a resolver");
+                    resolver.reset_pending_for_fast_transfer_candidate()?;
+                    resolver.accept_level_chunk_bytes(event, payload, packet_bytes)?;
+                    continue;
+                }
                 reset_blob_cache_for_decoded_candidate(
                     self.blob_cache
                         .as_mut()
                         .expect("enabled path owns a resolver"),
                     &packet,
                 )?;
-                if let McpePacketData::ClientCacheMissResponsePacket(response) = packet.data {
+                if let packets::Packet::ClientCacheMissResponse(response) = *packet.data {
                     if let Err(error) = self
                         .blob_cache
                         .as_mut()
@@ -615,6 +594,22 @@ impl PlaySession {
         }
     }
 
+    /// Decodes a chunk-lane or boundary packet: a body breaking only a schema or UI bound, or
+    /// naming an unknown selector, is logged, counted and skipped (`None`); malformed wire ends
+    /// the session.
+    fn decode_world_candidate(&mut self, raw: RawPacket) -> Result<Option<Packet>, ProtocolError> {
+        match raw.decode() {
+            Ok(packet) => Ok(Some(packet)),
+            Err(error) => match crate::codec::world_decode_error(error) {
+                ProtocolError::Session(error) => Err(self.fail_session(error)),
+                semantic => {
+                    tracing::debug!(%semantic, "skipping a world packet the codec rejected");
+                    self.skip_or_fail_world(semantic).map(|()| None)
+                }
+            },
+        }
+    }
+
     fn fail_session(&mut self, error: SessionError) -> ProtocolError {
         if error.0.is_decode() {
             self.decode_errors = self.decode_errors.saturating_add(1);
@@ -645,8 +640,8 @@ fn reset_blob_cache_for_decoded_candidate(
     packet: &Packet,
 ) -> Result<bool, crate::BlobCacheError> {
     if matches!(
-        &packet.data,
-        McpePacketData::LevelChunkPacket(_) | McpePacketData::SubChunkPacket(_)
+        &*packet.data,
+        packets::Packet::LevelChunk(_) | packets::Packet::SubChunk(_)
     ) {
         resolver.reset_pending_for_fast_transfer_candidate()
     } else {
@@ -654,26 +649,36 @@ fn reset_blob_cache_for_decoded_candidate(
     }
 }
 
+/// Copies a LevelChunk or SubChunk entry out of its batch, so the payload slices the blob cache
+/// retains, and charges by length, keep only that entry alive.
+fn detach_cached_chunk(raw: RawPacket) -> RawPacket {
+    if matches!(raw.id, PacketId::LevelChunk | PacketId::SubChunk) {
+        raw.into_retention_bounded()
+    } else {
+        raw
+    }
+}
+
 fn is_cached_world_packet(packet: &Packet) -> bool {
-    match &packet.data {
+    match &*packet.data {
         // 1.26.40 states cache participation with an explicit flag on both
         // packets rather than an optional hash list or an entry-type union.
-        McpePacketData::LevelChunkPacket(packet) => packet.cache_enabled,
-        McpePacketData::SubChunkPacket(packet) => packet.cache_enabled,
+        packets::Packet::LevelChunk(packet) => packet.cache_enabled,
+        packets::Packet::SubChunk(packet) => packet.cache_enabled,
         _ => false,
     }
 }
 
 fn reset_cache_for_immediate_boundary(
     resolver: &mut BlobCacheResolver,
-    packet: McpePacketName,
+    packet: PacketId,
 ) -> Result<bool, crate::BlobCacheError> {
     match packet {
-        McpePacketName::TransferPacket => {
+        PacketId::Transfer => {
             resolver.recover_pending()?;
             Ok(true)
         }
-        McpePacketName::DisconnectPacket => {
+        PacketId::Disconnect => {
             resolver.reset_pending();
             Ok(true)
         }
@@ -686,122 +691,31 @@ fn decode_world_raw_with(
     current_dimension: i32,
     decode: impl FnOnce(RawPacket) -> Result<Packet, SessionError>,
 ) -> Result<Option<WorldEvent>, ProtocolError> {
-    if raw.id == McpePacketName::ItemRegistryPacket {
+    if raw.id == PacketId::ItemRegistry {
         // Login has already initialized this session's registry. Vanilla 1.26.50
         // ignores a repeated item registry once initialized, including an
         // empty/custom-only repeat. Decode the wire first so malformed repeats remain fatal;
         // neither the inventory ledger nor actor item store may be rebound here.
-        decode(raw)?;
+        decode(raw).map_err(crate::codec::world_decode_error)?;
         return Ok(None);
     }
-    if raw.id == McpePacketName::UpdateAbilitiesPacket {
+    if raw.id == PacketId::UpdateAbilities {
         return crate::decode_abilities_update(raw.body())
             .map(WorldEvent::Abilities)
             .map(Some);
     }
-    if raw.id == McpePacketName::CraftingDataPacket {
+    if raw.id == PacketId::CraftingData {
         let update = crate::decode_recipe_update(raw.body())
             .map_err(crate::world::WorldPacketError::from)?;
         return Ok(Some(WorldEvent::Inventory(crate::InventoryEvent::Recipes(
             update,
         ))));
     }
-    if !matches!(
-        raw.id,
-        McpePacketName::TextPacket
-            | McpePacketName::DeathInfoPacket
-            | McpePacketName::CommandOutputPacket
-            | McpePacketName::PlayStatusPacket
-            | McpePacketName::SetHealthPacket
-            | McpePacketName::BossEventPacket
-            | McpePacketName::SetTitlePacket
-            | McpePacketName::ModalFormRequestPacket
-            | McpePacketName::ServerSettingsResponsePacket
-            | McpePacketName::NpcDialoguePacket
-            | McpePacketName::RemoveObjectivePacket
-            | McpePacketName::SetDisplayObjectivePacket
-            | McpePacketName::SetScorePacket
-            | McpePacketName::ToastRequestPacket
-            | McpePacketName::UpdateSoftEnumPacket
-            | McpePacketName::AvailableCommandsPacket
-            | McpePacketName::BiomeDefinitionListPacket
-            | McpePacketName::AddPlayerPacket
-            | McpePacketName::AddActorPacket
-            | McpePacketName::RemoveActorPacket
-            | McpePacketName::MoveActorAbsolutePacket
-            | McpePacketName::MoveActorDeltaPacket
-            | McpePacketName::SetActorDataPacket
-            | McpePacketName::UpdateAttributesPacket
-            | McpePacketName::ActorEventPacket
-            | McpePacketName::AddItemActorPacket
-            | McpePacketName::AvailableActorIdentifiersPacket
-            | McpePacketName::TakeItemActorPacket
-            | McpePacketName::PlayerListPacket
-            | McpePacketName::PlayerSkinPacket
-            | McpePacketName::MobEquipmentPacket
-            | McpePacketName::MobArmorEquipmentPacket
-            | McpePacketName::MobEffectPacket
-            | McpePacketName::SetActorLinkPacket
-            | McpePacketName::SyncActorPropertyPacket
-            | McpePacketName::SetPlayerGameTypePacket
-            | McpePacketName::UpdatePlayerGameTypePacket
-            | McpePacketName::SetDefaultGameTypePacket
-            | McpePacketName::InventoryContentPacket
-            | McpePacketName::CreativeContentPacket
-            | McpePacketName::InventorySlotPacket
-            | McpePacketName::InventoryTransactionPacket
-            | McpePacketName::PlayerHotbarPacket
-            | McpePacketName::ItemStackResponsePacket
-            | McpePacketName::ContainerOpenPacket
-            | McpePacketName::ContainerClosePacket
-            | McpePacketName::ContainerSetDataPacket
-            | McpePacketName::PlayerEnchantOptionsPacket
-            | McpePacketName::AnimatePacket
-            | McpePacketName::AnimateEntityPacket
-            | McpePacketName::LevelChunkPacket
-            | McpePacketName::SubChunkPacket
-            | McpePacketName::DimensionDataPacket
-            | McpePacketName::UpdateBlockPacket
-            | McpePacketName::UpdateBlockSyncedPacket
-            | McpePacketName::UpdateSubChunkBlocksPacket
-            | McpePacketName::BlockActorDataPacket
-            | McpePacketName::BlockEventPacket
-            | McpePacketName::ClientboundMapItemDataPacket
-            | McpePacketName::OpenSignPacket
-            | McpePacketName::ChunkRadiusUpdatedPacket
-            | McpePacketName::NetworkChunkPublisherUpdatePacket
-            | McpePacketName::ChangeDimensionPacket
-            | McpePacketName::ShowCreditsPacket
-            | McpePacketName::PlayerActionPacket
-            | McpePacketName::RespawnPacket
-            | McpePacketName::MovePlayerPacket
-            | McpePacketName::CorrectPlayerMovePredictionPacket
-            | McpePacketName::SetActorMotionPacket
-            | McpePacketName::MovementEffectPacket
-            | McpePacketName::NetworkStackLatencyPacket
-            | McpePacketName::SetTimePacket
-            | McpePacketName::SyncWorldClocksPacket
-            | McpePacketName::GameRulesChangedPacket
-            | McpePacketName::LevelEventPacket
-            | McpePacketName::LevelEventGenericPacket
-            | McpePacketName::SpawnParticleEffectPacket
-            | McpePacketName::PlaySoundPacket
-            | McpePacketName::StopSoundPacket
-            | McpePacketName::LevelSoundEventPacket
-            | McpePacketName::CameraPacket
-            | McpePacketName::CameraShakePacket
-            | McpePacketName::CameraInstructionPacket
-            | McpePacketName::CameraPresetsPacket
-            | McpePacketName::CameraSplinePacket
-            | McpePacketName::CameraAimAssistPacket
-            | McpePacketName::CameraAimAssistPresetsPacket
-            | McpePacketName::CameraAimAssistActorPriorityPacket
-            | McpePacketName::ScriptMessagePacket
-            | McpePacketName::PrimitiveShapesPacket
-    ) {
+    // Play decodes only the packets world normalization consumes; the rest stay undecoded.
+    if !crate::world::routes_world_packet(raw.id) {
         return Ok(None);
     }
-    if raw.id == McpePacketName::MoveActorAbsolutePacket {
+    if raw.id == PacketId::MoveActorAbsolute {
         return Ok(Some(WorldEvent::Actor(
             crate::actor::normalize_move_entity_body(raw.body(), current_dimension)
                 .map_err(crate::world::WorldPacketError::from)?,
@@ -809,17 +723,7 @@ fn decode_world_raw_with(
     }
     crate::inventory::validate_raw_inventory_packet(&raw)
         .map_err(crate::world::WorldPacketError::from)?;
-    crate::codec::validate_raw_ui_frame(raw.inner_frame()).map_err(demote_ui_semantic_rejection)?;
-    if matches!(
-        raw.id,
-        McpePacketName::PlaySoundPacket
-            | McpePacketName::StopSoundPacket
-            | McpePacketName::LevelSoundEventPacket
-    ) {
-        let borrowed = raw.clone().decode_borrowed()?;
-        crate::audio::validate_borrowed_audio_packet(&borrowed.data)?;
-    }
-    if raw.id == McpePacketName::MobEquipmentPacket
+    if raw.id == PacketId::MobEquipment
         && let Some(equipment) = raw_equipment::decode_empty_mob_equipment(&raw)?
     {
         return Ok(Some(WorldEvent::Equipment(equipment)));
@@ -827,7 +731,8 @@ fn decode_world_raw_with(
     if let Some(packet) = level_event_generic(&raw) {
         return Ok(into_world_event(packet, current_dimension)?);
     }
-    let packet = decode(raw)?;
+    let packet = decode(raw).map_err(crate::codec::world_decode_error)?;
+    crate::codec::validate_decoded(&packet.data).map_err(demote_ui_semantic_rejection)?;
     Ok(into_world_event(packet, current_dimension)?)
 }
 
@@ -840,26 +745,21 @@ fn decode_test_raw(raw: RawPacket) -> Result<Packet, SessionError> {
 /// LevelEventGeneric's event data is loose NBT tags filling the rest of the packet (as
 /// gophertunnel documents); the generated decoder reads one rooted value and rejects the rest.
 fn level_event_generic(raw: &RawPacket) -> Option<Packet> {
-    use valentine::bedrock::codec::{BedrockCodec, Nbt, ZigZag32};
-    use valentine::bedrock::version::v1_26_51::LevelEventGenericPacket;
-    if raw.id != McpePacketName::LevelEventGenericPacket {
+    if raw.id != PacketId::LevelEventGeneric {
         return None;
     }
-    let mut body = raw.body().clone();
-    let event_id = ZigZag32::decode(&mut body, ()).ok()?.0;
-    let data = McpePacketData::LevelEventGenericPacket(LevelEventGenericPacket {
-        event_id,
-        __ctd__: Nbt(body),
-    });
-    Some(Packet::from_parts(raw.header, data))
+    let mut reader = wire::Reader::new(raw.body());
+    let event_id = reader.read_zigzag_i32().ok()?;
+    let data = packets::LevelEventGeneric {
+        event_id: wire::ZigZag32(event_id),
+        ctd: wire::NetworkNbt(raw.body().slice(reader.position()..)),
+    };
+    Some(Packet::from_parts(raw.header, data.into()))
 }
 
-/// Reclassifies the raw UI pre-validator's semantic rejections as skippable
-/// world packets so a well-formed-but-odd UI packet (unknown text/score/soft-enum
-/// discriminant, over-budget text/score/autocomplete counts) is skipped and
-/// counted rather than tearing down the session. Genuine wire failures the same
-/// validator can raise -- truncated varints, negative lengths, trailing bytes --
-/// stay fatal, matching the sibling inventory pre-validator above.
+/// Reclassifies the decoded-packet UI and audio checks' semantic rejections as skippable world
+/// packets, so a well-formed but odd UI packet is skipped and counted rather than ending the
+/// session.
 fn demote_ui_semantic_rejection(error: ProtocolError) -> ProtocolError {
     match error {
         ProtocolError::Ui(ui) => ProtocolError::World(crate::world::WorldPacketError::Ui(ui)),

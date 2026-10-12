@@ -1,7 +1,8 @@
 //! Disconnect wire fixtures emitted by the pinned public Go packet codec.
-use bytes::{Buf, Bytes};
+use bedrock_protocol_1_26_51::packets;
+use bedrock_protocol_1_26_51::types::DisconnectMessages;
+use bytes::Bytes;
 use protocol::{decode_batch, encode};
-use valentine::bedrock::version::v1_26_51::{BorrowedMcpePacket, McpePacketArgs, McpePacketData};
 
 const VISIBLE: &[u8] = include_bytes!("../../fixtures/disconnect_visible.bin");
 const FILTERED: &[u8] = include_bytes!("../../fixtures/disconnect_filtered.bin");
@@ -16,22 +17,24 @@ fn server_disconnect_wire_preserves_conditional_messages() {
     ] {
         let packets = decode_batch(Bytes::from_static(wire)).expect("server wire decodes");
         assert_eq!(packets.len(), 1);
-        let McpePacketData::DisconnectPacket(disconnect) = &packets[0].data else {
+        let packets::Packet::Disconnect(disconnect) = &*packets[0].data else {
             panic!("expected Disconnect");
         };
-        assert_eq!(disconnect.hide_disconnection_screen, hidden);
-        assert_eq!(disconnect.messages.message, message);
-        assert_eq!(disconnect.messages.filtered_message, filtered);
+        match &disconnect.messages {
+            DisconnectMessages::DisconnectPacketMessages {
+                message: wire_message,
+                filtered_message,
+            } => {
+                assert!(!hidden);
+                assert_eq!(*wire_message, message);
+                assert_eq!(*filtered_message, filtered);
+            }
+            DisconnectMessages::Empty => {
+                assert!(hidden);
+                assert_eq!((message, filtered), ("", ""));
+            }
+        }
         assert_eq!(encode(&packets[0]).unwrap().as_ref(), wire);
-        let mut frame = Bytes::from_static(wire).slice(1..);
-        let borrowed =
-            BorrowedMcpePacket::decode_inner(&mut frame).expect("borrowed frame decodes");
-        assert!(!frame.has_remaining());
-        // Disconnect is retained raw until materialization on this path.
-        let owned = borrowed
-            .into_owned(McpePacketArgs)
-            .expect("raw disconnect decodes");
-        assert_eq!(owned.data, packets[0].data);
     }
 }
 

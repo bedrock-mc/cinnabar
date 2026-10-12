@@ -1,5 +1,14 @@
 use super::*;
 
+/// How far a source change propagates: its scheduling priority, light and neighbour reach.
+#[derive(Clone, Copy)]
+struct ChangeScope<'a> {
+    urgent: bool,
+    relight: bool,
+    reach: NeighbourReach,
+    cells: Option<&'a [BlockPos]>, // Known changed cells; `None` revisits the whole source.
+}
+
 impl WorldStream {
     pub(super) fn mark_changed(&mut self, key: SubChunkKey, now: Instant) {
         self.mark_changed_sources(std::iter::once(key), now);
@@ -27,10 +36,12 @@ impl WorldStream {
             std::iter::once(key),
             std::iter::empty(),
             now,
-            true,
-            relight,
-            reach,
-            (!cells.is_empty()).then_some(cells),
+            ChangeScope {
+                urgent: true,
+                relight,
+                reach,
+                cells: (!cells.is_empty()).then_some(cells),
+            },
         );
         self.urgent_work_due = true;
     }
@@ -51,10 +62,12 @@ impl WorldStream {
             sources,
             preexpanded_dirty,
             now,
-            false,
-            true,
-            NeighbourReach::ALL,
-            None,
+            ChangeScope {
+                urgent: false,
+                relight: true,
+                reach: NeighbourReach::ALL,
+                cells: None,
+            },
         );
     }
     fn mark_changed_sources_with_mesh_dirty_priority(
@@ -62,11 +75,14 @@ impl WorldStream {
         sources: impl IntoIterator<Item = SubChunkKey>,
         preexpanded_dirty: impl IntoIterator<Item = SubChunkKey>,
         now: Instant,
-        urgent: bool,
-        relight: bool,
-        reach: NeighbourReach,
-        cells: Option<&[BlockPos]>,
+        scope: ChangeScope<'_>,
     ) {
+        let ChangeScope {
+            urgent,
+            relight,
+            reach,
+            cells,
+        } = scope;
         let sources = sources.into_iter().collect::<BTreeSet<_>>();
         if relight {
             self.mark_light_changed_sources_reaching(sources.iter().copied(), urgent, reach, cells);

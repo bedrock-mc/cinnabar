@@ -204,10 +204,10 @@ fn aggregate_reconstructed_ready_bytes_are_bounded_with_explicit_recovery() {
         )))
     ));
     let packet = pop_packet(&mut resolver, "first retained output remains lossless");
-    let McpePacketData::LevelChunkPacket(packet) = packet.data else {
+    let packets::Packet::LevelChunk(packet) = *packet.data else {
         panic!("expected reconstructed LevelChunk")
     };
-    assert_eq!(packet.chunk_position.x, 51);
+    assert_eq!(packet.chunk_position.x.0, 51);
     assert_eq!(packet.serialized_chunk_data, first);
 }
 
@@ -232,7 +232,7 @@ fn zero_reference_status_is_suppressed_but_have_only_status_is_sent() {
         .into_packets();
     assert_eq!(packets.len(), 1);
     assert!(packets[0].missing_ids.is_empty());
-    assert_eq!(packets[0].found_ids, vec![hash]);
+    assert_eq!(packets[0].found_ids, vec![wire::U64LE(hash)]);
 }
 
 #[test]
@@ -326,7 +326,7 @@ fn later_complete_transaction_resolves_while_earlier_transaction_is_pending() {
         .accept_miss_response(miss_response(vec![(bh, b.to_vec())]))
         .expect("later transaction resolves first");
     let second = pop_packet(&mut resolver, "later completed packet");
-    let McpePacketData::LevelChunkPacket(second) = second.data else {
+    let packets::Packet::LevelChunk(second) = *second.data else {
         panic!()
     };
     assert!(second.serialized_chunk_data.ends_with(b"second"));
@@ -337,7 +337,7 @@ fn later_complete_transaction_resolves_while_earlier_transaction_is_pending() {
         .expect("earlier transaction resolves");
 
     let first = pop_packet(&mut resolver, "first packet");
-    let McpePacketData::LevelChunkPacket(first) = first.data else {
+    let packets::Packet::LevelChunk(first) = *first.data else {
         panic!()
     };
     assert!(first.serialized_chunk_data.ends_with(b"first"));
@@ -394,10 +394,10 @@ fn same_column_block_update_waits_for_cached_chunk_and_survives_replacement() {
     for _ in 0..2 {
         match resolver.pop_ready().expect("chunk and update become ready") {
             BlobCacheReady::Packet(packet) => {
-                let McpePacketData::LevelChunkPacket(packet) = packet.data else {
+                let packets::Packet::LevelChunk(packet) = *packet.data else {
                     panic!("expected cached LevelChunk")
                 };
-                assert_eq!(packet.chunk_position.x, 4);
+                assert_eq!(packet.chunk_position.x.0, 4);
                 consumed_column = Some(0);
             }
             BlobCacheReady::WorldEvent(WorldEvent::BlockUpdates(updates)) => {
@@ -620,8 +620,8 @@ fn transaction_pressure_releases_pending_work_that_blocks_a_cached_ready_packet(
         resolver.pop_ready(),
         Some(BlobCacheReady::Packet(packet))
             if matches!(
-                &packet.data,
-                McpePacketData::LevelChunkPacket(packet) if packet.chunk_position.x == 0
+                &*packet.data,
+                packets::Packet::LevelChunk(packet) if packet.chunk_position.x.0 == 0
             )
     ));
 
@@ -684,8 +684,8 @@ fn pending_transition_to_pressure_releases_an_existing_cached_ready_packet() {
         resolver.pop_ready(),
         Some(BlobCacheReady::Packet(packet))
             if matches!(
-                &packet.data,
-                McpePacketData::LevelChunkPacket(packet) if packet.chunk_position.x == 0
+                &*packet.data,
+                packets::Packet::LevelChunk(packet) if packet.chunk_position.x.0 == 0
             )
     ));
 }

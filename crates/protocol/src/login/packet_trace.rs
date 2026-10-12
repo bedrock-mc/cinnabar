@@ -1,4 +1,4 @@
-use valentine::bedrock::version::v1_26_51::McpePacketName;
+use bedrock_protocol_1_26_51::packets::PacketId;
 
 pub(super) const MAX_PACKET_ID_TRACE_ENTRIES: usize = 256;
 pub(super) const PACKET_ID_TRACE_DURATION: std::time::Duration = std::time::Duration::from_secs(30);
@@ -28,7 +28,7 @@ impl PacketIdTraceState {
         self.timed_out = false;
     }
 
-    pub(super) fn observe(&mut self, packet: McpePacketName) {
+    pub(super) fn observe(&mut self, packet: PacketId) {
         let Some(started_at) = self.started_at else {
             return;
         };

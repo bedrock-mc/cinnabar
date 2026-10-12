@@ -3,14 +3,12 @@
 
 //! Packet entries with only their header parsed, so play can route by ID and decode bodies lazily.
 
-use bytes::{Buf, Bytes};
-use valentine::bedrock::codec::BedrockCodec;
-use valentine::bedrock::version::v1_26_51::{
-    BorrowedMcpePacket, GameHeader, McpePacketArgs, McpePacketData, McpePacketName,
-};
-use valentine::protocol::wire;
+use bedrock_protocol_1_26_51::packets::PacketId;
+use bedrock_protocol_1_26_51::wire;
+use bytes::Bytes;
 
 use crate::codec::SessionFailure;
+use crate::packet::GameHeader;
 use crate::{Packet, SessionError};
 
 /// Most packets one batch may hold.
@@ -20,64 +18,34 @@ pub(crate) const MAX_RAW_BATCH_PACKETS: usize = 1_600;
 #[derive(Debug, Clone)]
 pub(crate) struct RawPacket {
     pub(crate) header: GameHeader,
-    pub(crate) id: McpePacketName,
+    pub(crate) id: PacketId,
     body: Bytes,
     inner_frame: Bytes,
     backing_len: usize, // bytes of the batch allocation this entry shares
 }
 
 impl RawPacket {
-    /// Decodes the whole entry, rejecting a body the packet does not consume.
+    /// Decodes the whole entry under the server limits, rejecting a body the packet does not
+    /// consume.
     pub(crate) fn decode(self) -> Result<Packet, SessionError> {
-        let (packet_id, body_len, body_preview) = self.identity();
-        let mut buf = self.inner_frame;
-        let (header, data) =
-            McpePacketData::decode_inner(&mut buf, McpePacketArgs).map_err(|source| {
-                SessionFailure::PacketDecode {
-                    packet_id,
-                    body_len,
-                    body_preview,
-                    source,
+        match crate::codec::decode_body(self.id, &self.body) {
+            Ok(data) => Ok(Packet::from_parts(self.header, data)),
+            Err(wire::DecodeError::TrailingBytes(remaining)) => {
+                Err(SessionFailure::PacketTrailingBytes {
+                    packet_id: self.id,
+                    body_len: self.body.len(),
+                    remaining,
                 }
-            })?;
-        if buf.has_remaining() {
-            return Err(SessionFailure::PacketTrailingBytes {
-                packet_id,
-                body_len,
-                remaining: buf.remaining(),
+                .into())
             }
-            .into());
-        }
-        Ok(Packet::from_parts(header, data))
-    }
-
-    /// Decodes the entry into a view sharing its bytes, with the same trailing-byte rule.
-    pub(crate) fn decode_borrowed(self) -> Result<BorrowedMcpePacket, SessionError> {
-        let (packet_id, body_len, body_preview) = self.identity();
-        let mut buf = self.inner_frame;
-        let (packet, payload_remaining) = BorrowedMcpePacket::decode_inner_with_remaining(&mut buf)
-            .map_err(|source| SessionFailure::PacketDecode {
-                packet_id,
-                body_len,
-                body_preview,
+            Err(source) => Err(SessionFailure::PacketDecode {
+                packet_id: self.id,
+                body_len: self.body.len(),
+                body_preview: self.body.iter().take(32).copied().collect(),
                 source,
-            })?;
-        let remaining = buf.remaining() + payload_remaining;
-        if remaining != 0 {
-            return Err(SessionFailure::PacketTrailingBytes {
-                packet_id,
-                body_len,
-                remaining,
             }
-            .into());
+            .into()),
         }
-        Ok(packet)
-    }
-
-    /// The packet ID, body length and a bounded body preview that decode failures report.
-    fn identity(&self) -> (McpePacketName, usize, Vec<u8>) {
-        let preview = self.body.iter().take(32).copied().collect();
-        (self.id, self.body.len(), preview)
     }
 
     /// The payload after the header varint.
@@ -119,7 +87,7 @@ impl RawPacket {
 /// sharing its bytes. Bodies over `max_bytes` or holding more than [`MAX_RAW_BATCH_PACKETS`]
 /// entries are refused.
 pub(crate) fn decode_batch_body(
-    mut body: Bytes,
+    body: Bytes,
     max_bytes: usize,
 ) -> Result<Vec<RawPacket>, SessionError> {
     if body.len() > max_bytes {
@@ -130,15 +98,12 @@ pub(crate) fn decode_batch_body(
         .into());
     }
     let backing_len = body.len();
+    let mut offset = 0;
     let mut packets = Vec::new();
-    while body.has_remaining() {
-        if packets.len() == MAX_RAW_BATCH_PACKETS {
-            return Err(SessionFailure::TooManyPackets {
-                max: MAX_RAW_BATCH_PACKETS,
-            }
-            .into());
-        }
-        packets.push(decode_entry(&mut body, backing_len)?);
+    for frame in wire::Frames::new(body.clone(), MAX_RAW_BATCH_PACKETS) {
+        let frame = frame.map_err(|error| framing_failure(&body[offset..], error))?;
+        offset += frame.frame().len();
+        packets.push(raw_packet(frame, backing_len)?);
     }
     Ok(packets)
 }
@@ -147,57 +112,61 @@ pub(crate) fn decode_batch_body(
 #[cfg(test)]
 pub(crate) fn decode_packet_raw(cursor: &mut Bytes) -> Result<RawPacket, SessionError> {
     let backing_len = cursor.len();
-    decode_entry(cursor, backing_len)
+    let frame = wire::Frames::new(cursor.clone(), 1)
+        .next()
+        .unwrap_or(Err(wire::DecodeError::UnexpectedEof {
+            needed: 1,
+            remaining: 0,
+        }))
+        .map_err(|error| framing_failure(&cursor[..], error))?;
+    let _ = cursor.split_to(frame.frame().len());
+    raw_packet(frame, backing_len)
 }
 
 /// Splits a `0xfe`-marked uncompressed batch, as fixtures capture one, into raw packets.
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) fn decode_batch(
-    mut batch: Bytes,
+    batch: Bytes,
     max_bytes: usize,
 ) -> Result<Vec<RawPacket>, crate::ProtocolError> {
-    if batch.first() != Some(&crate::codec::BATCH_HEADER) {
+    if batch.first() != Some(&wire::BATCH_HEADER) {
         return Err(crate::ProtocolError::InvalidBatchHeader {
             actual: batch.first().copied(),
         });
     }
-    batch.advance(1);
-    Ok(decode_batch_body(batch, max_bytes)?)
+    Ok(decode_batch_body(batch.slice(1..), max_bytes)?)
 }
 
-fn decode_entry(cursor: &mut Bytes, backing_len: usize) -> Result<RawPacket, SessionError> {
-    let entry_start = cursor.clone();
-    let declared = wire::read_var_u32(cursor).map_err(SessionFailure::MalformedEntry)? as usize;
-    if cursor.remaining() < declared {
-        return Err(SessionFailure::TruncatedEntry {
-            declared,
-            available: cursor.remaining(),
-        }
-        .into());
+/// Maps a framing failure of the entry starting at `rest`: a declared length past the input is
+/// a truncated entry, while a cut-short or overlong length or header varint is malformed.
+fn framing_failure(rest: &[u8], error: wire::DecodeError) -> SessionError {
+    if let wire::DecodeError::TooManyFrames { limit } = error {
+        return SessionFailure::TooManyPackets { max: limit }.into();
     }
-    let prefix_len = entry_start.len() - cursor.len();
-    let inner_frame = entry_start.slice(..prefix_len + declared);
-    let mut payload = cursor.slice(..declared);
-    cursor.advance(declared);
+    let mut reader = wire::Reader::new(rest);
+    match reader.read_var_u32() {
+        Ok(declared) if declared as usize > reader.remaining() => SessionFailure::TruncatedEntry {
+            declared: declared as usize,
+            available: reader.remaining(),
+        },
+        _ => SessionFailure::MalformedEntry(error),
+    }
+    .into()
+}
 
-    let header_raw = wire::read_var_u32(&mut payload).map_err(SessionFailure::MalformedEntry)?;
-    let id_raw = header_raw & 0x3ff;
-    // Packet IDs are varints on the wire; the ten-bit ID fits two bytes, encoded on the stack.
-    let mut id_bytes = [0_u8; 2];
-    let mut id_writer = &mut id_bytes[..];
-    wire::write_var_u32(&mut id_writer, id_raw);
-    let id_len = 2 - id_writer.len();
-    let id = McpePacketName::decode(&mut &id_bytes[..id_len], ())
-        .map_err(|_| SessionFailure::UnknownPacketId(id_raw))?;
+/// Names a framed entry's packet; an ID the protocol does not define ends the session.
+fn raw_packet(frame: wire::RawFrame, backing_len: usize) -> Result<RawPacket, SessionError> {
+    let header = frame.header();
+    let id = PacketId::from_raw(header.id).ok_or(SessionFailure::UnknownPacketId(header.id))?;
     Ok(RawPacket {
         header: GameHeader {
             id,
-            from_subclient: (header_raw >> 10) & 0x3,
-            to_subclient: (header_raw >> 12) & 0x3,
+            from_subclient: u32::from(header.sender_subclient),
+            to_subclient: u32::from(header.target_subclient),
         },
         id,
-        body: payload,
-        inner_frame,
+        body: frame.body(),
+        inner_frame: frame.frame().clone(),
         backing_len,
     })
 }

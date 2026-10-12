@@ -317,10 +317,18 @@ pub(crate) fn reconcile_world_stream_before_physics(
     mut server_camera: ResMut<ServerCameraInstructions>,
     mut camera_hurt: Option<ResMut<client_presentation::camera::CameraHurtState>>,
     mut particle_inbox: Option<ResMut<crate::particles::ParticleInbox>>,
-    (visibility_diagnostics, profiler, mut player_runtime): (
+    (
+        visibility_diagnostics,
+        profiler,
+        mut player_runtime,
+        server_camera_view,
+        mut correction_log,
+    ): (
         Option<Res<VisibilityDiagnosticsInput>>,
         Option<Res<RuntimeStageProfiler>>,
         ResMut<client_state::PlayerRuntime>,
+        Option<Res<client_presentation::camera::ServerCameraView>>,
+        Local<gameplay::movement::CorrectionContextLog>,
     ),
 ) {
     let _timer = profiler
@@ -433,6 +441,20 @@ pub(crate) fn reconcile_world_stream_before_physics(
             continue;
         }
         gameplay::movement::trace_server_control(&movement, &local_physics, &control);
+        if let Some(packet) = gameplay::movement::CorrectionPacket::from_control(&control) {
+            let camera = server_camera_view.as_deref();
+            correction_log.note(
+                movement.session_generation(),
+                std::time::Instant::now(),
+                packet,
+                gameplay::movement::CorrectionContext::read(
+                    &player_runtime.facts,
+                    movement.physics_is_authorized(),
+                    camera.and_then(|camera| camera.active_preset_name()),
+                    camera.is_some_and(|camera| camera.has_pose_override()),
+                ),
+            );
+        }
         if let CommittedControlEvent::LocalMovementFlags { tick, flags, .. } = control {
             let previous = player_runtime.facts.is_immobile();
             player_runtime

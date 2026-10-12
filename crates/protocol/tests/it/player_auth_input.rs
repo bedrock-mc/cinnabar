@@ -1,10 +1,8 @@
+use bedrock_protocol_1_26_51::enums::{ClientPlayMode, InputData, InputMode, NewInteractionModel};
+use bedrock_protocol_1_26_51::packets::{self, PacketId};
 use protocol::{
     PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, decode_batch, encode,
     player_auth_input,
-};
-use valentine::bedrock::version::v1_26_51::{
-    EnumsClientPlayMode, EnumsInputMode, EnumsNewInteractionModel,
-    EnumsPlayerAuthInputPacketPayloadInputData, McpePacketData, McpePacketName,
 };
 
 fn snapshot() -> PlayerAuthInputSnapshot {
@@ -30,16 +28,16 @@ fn snapshot() -> PlayerAuthInputSnapshot {
 #[test]
 fn vendor_neutral_snapshot_maps_to_protocol_2168_player_auth_input() {
     let packet = player_auth_input(snapshot()).expect("valid player input");
-    assert_eq!(packet.header.id, McpePacketName::PlayerAuthInputPacket);
+    assert_eq!(packet.header.id, PacketId::PlayerAuthInput);
     assert_eq!(
         (packet.header.from_subclient, packet.header.to_subclient),
         (0, 0)
     );
 
-    let McpePacketData::PlayerAuthInputPacket(input) = packet.data else {
+    let packets::Packet::PlayerAuthInput(input) = *packet.data else {
         panic!("expected PlayerAuthInput payload");
     };
-    assert_eq!(input.client_tick.inputtick, 1_234);
+    assert_eq!(input.client_tick.0, 1_234);
     assert_eq!(
         (input.position.x, input.position.y, input.position.z),
         (1.25, 64.0, -2.5)
@@ -61,7 +59,7 @@ fn vendor_neutral_snapshot_maps_to_protocol_2168_player_auth_input() {
         (
             input.player_rotation.x,
             input.player_rotation.y,
-            input.player_head_rotation
+            input.player_head_rotation.0
         ),
         (10.5, 20.25, 30.75)
     );
@@ -75,22 +73,19 @@ fn vendor_neutral_snapshot_maps_to_protocol_2168_player_auth_input() {
     );
     assert_eq!(input.interact_rotation.x, input.player_rotation.x);
     assert_eq!(input.interact_rotation.y, input.player_rotation.y);
-    assert_eq!(input.input_mode, EnumsInputMode::Mouse);
-    assert_eq!(input.play_mode, EnumsClientPlayMode::Normal);
+    assert_eq!(input.input_mode, InputMode::Mouse);
+    assert_eq!(input.play_mode, ClientPlayMode::Normal);
     // The protocol-1001 Unknown(-1) workaround is gone: gophertunnel writes
     // this with io.Varint32 (zigzag), which the generated enum now matches.
-    assert_eq!(
-        input.new_interaction_model,
-        EnumsNewInteractionModel::Crosshair
-    );
+    assert_eq!(input.new_interaction_model, NewInteractionModel::Crosshair);
     // The bitset became a list of set flag IDs, emitted in ascending order.
     assert_eq!(
         input.input_data,
         vec![
-            EnumsPlayerAuthInputPacketPayloadInputData::Jumping,
-            EnumsPlayerAuthInputPacketPayloadInputData::Up,
-            EnumsPlayerAuthInputPacketPayloadInputData::Left,
-            EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
+            InputData::Jumping,
+            InputData::Up,
+            InputData::Left,
+            InputData::Sprinting,
         ]
     );
     // The outer bool of each DoubleOptionalFunc is always set by a Go writer;
@@ -113,18 +108,18 @@ fn movement_hints_map_to_their_protocol_2168_list_ids() {
         | PlayerInputFlags::DOWN_RIGHT;
 
     let packet = player_auth_input(input).expect("valid movement hints");
-    let McpePacketData::PlayerAuthInputPacket(input) = packet.data else {
+    let packets::Packet::PlayerAuthInput(input) = *packet.data else {
         panic!("expected PlayerAuthInput payload");
     };
     assert_eq!(
         input.input_data,
         vec![
-            EnumsPlayerAuthInputPacketPayloadInputData::Upleft,
-            EnumsPlayerAuthInputPacketPayloadInputData::Upright,
-            EnumsPlayerAuthInputPacketPayloadInputData::Horizontalcollision,
-            EnumsPlayerAuthInputPacketPayloadInputData::Verticalcollision,
-            EnumsPlayerAuthInputPacketPayloadInputData::Downleft,
-            EnumsPlayerAuthInputPacketPayloadInputData::Downright,
+            InputData::Upleft,
+            InputData::Upright,
+            InputData::Horizontalcollision,
+            InputData::Verticalcollision,
+            InputData::Downleft,
+            InputData::Downright,
         ]
     );
 }
@@ -138,7 +133,7 @@ fn device_class_move_carriers_survive_encoding_distinctly() {
     gamepad_style.raw_move_vector = [1.0, 0.8];
 
     let packet = player_auth_input(gamepad_style).expect("valid gamepad input");
-    let McpePacketData::PlayerAuthInputPacket(input) = packet.data else {
+    let packets::Packet::PlayerAuthInput(input) = *packet.data else {
         panic!("expected PlayerAuthInput payload");
     };
     assert_eq!(
@@ -155,7 +150,7 @@ fn device_class_move_carriers_survive_encoding_distinctly() {
     );
     assert_ne!(input.move_vector.x, input.raw_move_vector.x);
     assert_ne!(input.analog_move_vector.x, input.raw_move_vector.x);
-    assert_ne!(input.input_mode, EnumsInputMode::Mouse);
+    assert_ne!(input.input_mode, InputMode::Mouse);
 
     let mut keyboard_style = snapshot();
     keyboard_style.move_vector = [
@@ -166,7 +161,7 @@ fn device_class_move_carriers_survive_encoding_distinctly() {
     keyboard_style.raw_move_vector = [-1.0, 1.0];
 
     let packet = player_auth_input(keyboard_style).expect("valid keyboard input");
-    let McpePacketData::PlayerAuthInputPacket(input) = packet.data else {
+    let packets::Packet::PlayerAuthInput(input) = *packet.data else {
         panic!("expected PlayerAuthInput payload");
     };
     assert_eq!(
@@ -193,7 +188,7 @@ fn handled_teleport_flag_serializes_in_ascending_list_position() {
         PlayerInputFlags::UP | PlayerInputFlags::SPRINTING | PlayerInputFlags::HANDLED_TELEPORT;
 
     let packet = player_auth_input(input).expect("valid flags");
-    let McpePacketData::PlayerAuthInputPacket(input) = packet.data else {
+    let packets::Packet::PlayerAuthInput(input) = *packet.data else {
         panic!("expected PlayerAuthInput payload");
     };
     // Row 37 of the encoder table is HandledTeleport, so bit 37 must emit in
@@ -201,9 +196,9 @@ fn handled_teleport_flag_serializes_in_ascending_list_position() {
     assert_eq!(
         input.input_data,
         vec![
-            EnumsPlayerAuthInputPacketPayloadInputData::Up,
-            EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
-            EnumsPlayerAuthInputPacketPayloadInputData::Handledteleport,
+            InputData::Up,
+            InputData::Sprinting,
+            InputData::Handledteleport,
         ]
     );
 }
@@ -212,16 +207,12 @@ fn handled_teleport_flag_serializes_in_ascending_list_position() {
 fn missed_swing_flag_serializes_as_its_wire_ordinal() {
     let mut input = snapshot();
     input.flags = PlayerInputFlags::HANDLED_TELEPORT | PlayerInputFlags::MISSED_SWING;
-    let McpePacketData::PlayerAuthInputPacket(input) = player_auth_input(input).unwrap().data
-    else {
+    let packets::Packet::PlayerAuthInput(input) = *player_auth_input(input).unwrap().data else {
         panic!("expected PlayerAuthInput payload");
     };
     assert_eq!(
         input.input_data,
-        vec![
-            EnumsPlayerAuthInputPacketPayloadInputData::Handledteleport,
-            EnumsPlayerAuthInputPacketPayloadInputData::Missedswing,
-        ]
+        vec![InputData::Handledteleport, InputData::Missedswing,]
     );
 }
 
@@ -244,15 +235,12 @@ fn handled_teleport_flag_costs_exactly_one_wire_byte_and_round_trips() {
 
     let mut decoded = decode_batch(encoded).expect("decode flagged batch");
     assert_eq!(decoded.len(), 1);
-    let McpePacketData::PlayerAuthInputPacket(input) = decoded.pop().unwrap().data else {
+    let packets::Packet::PlayerAuthInput(input) = *decoded.pop().unwrap().data else {
         panic!("expected PlayerAuthInput payload");
     };
     assert_eq!(
         input.input_data,
-        vec![
-            EnumsPlayerAuthInputPacketPayloadInputData::Jumping,
-            EnumsPlayerAuthInputPacketPayloadInputData::Handledteleport,
-        ]
+        vec![InputData::Jumping, InputData::Handledteleport,]
     );
 }
 
@@ -277,8 +265,8 @@ fn player_auth_input_rejects_non_finite_state_and_preserves_unsigned_ticks() {
     let mut maximum_tick = snapshot();
     maximum_tick.tick = u64::MAX;
     let packet = player_auth_input(maximum_tick).expect("full unsigned tick range is valid");
-    let McpePacketData::PlayerAuthInputPacket(input) = packet.data else {
+    let packets::Packet::PlayerAuthInput(input) = *packet.data else {
         panic!("expected PlayerAuthInput payload");
     };
-    assert_eq!(input.client_tick.inputtick, u64::MAX);
+    assert_eq!(input.client_tick.0, u64::MAX);
 }

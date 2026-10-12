@@ -2,8 +2,9 @@
 
 use std::{collections::BTreeMap, fmt::Write as _, sync::Arc};
 
+use bedrock_protocol_1_26_51::packets::AvailableCommands;
+use bedrock_protocol_1_26_51::wire;
 use thiserror::Error;
-use valentine::bedrock::version::v1_26_51::AvailableCommandsPacket;
 
 use super::{
     ChatAutocompleteAction, ChatAutocompleteEvent, MAX_CHAT_AUTOCOMPLETE,
@@ -109,9 +110,14 @@ fn param_kind(word: u32, enums: &[NamedValues], soft: &[NamedValues]) -> Command
     }
 }
 
+/// A wire string as retained text; invalid UTF-8 decodes lossily.
+fn text(value: &wire::Str) -> Arc<str> {
+    Arc::from(value.to_string_lossy())
+}
+
 /// Lenient: out-of-range indices degrade a parameter to a plain word; chained
 /// overloads are dropped.
-pub(crate) fn normalize_available_commands(packet: AvailableCommandsPacket) -> UiEvent {
+pub(crate) fn normalize_available_commands(packet: AvailableCommands) -> UiEvent {
     let values = &packet.enum_values;
     let enums: Vec<NamedValues> = packet
         .enum_data
@@ -120,10 +126,10 @@ pub(crate) fn normalize_available_commands(packet: AvailableCommandsPacket) -> U
             let list = entry
                 .values
                 .iter()
-                .filter_map(|&index| values.get(index as usize))
-                .map(|value| Arc::from(value.as_str()))
+                .filter_map(|index| values.get(index.0 as usize))
+                .map(text)
                 .collect::<Vec<Arc<str>>>();
-            (Arc::from(entry.name.as_str()), Arc::from(list))
+            (text(&entry.name), Arc::from(list))
         })
         .collect();
     let soft: Vec<NamedValues> = packet
@@ -134,9 +140,9 @@ pub(crate) fn normalize_available_commands(packet: AvailableCommandsPacket) -> U
                 .enum_options
                 .iter()
                 .take(MAX_SOFT_ENUM_VALUES)
-                .map(|value| Arc::from(value.as_str()))
+                .map(text)
                 .collect::<Vec<Arc<str>>>();
-            (Arc::from(entry.enum_name.as_str()), Arc::from(list))
+            (text(&entry.enum_name), Arc::from(list))
         })
         .collect();
     let commands = packet
@@ -145,7 +151,7 @@ pub(crate) fn normalize_available_commands(packet: AvailableCommandsPacket) -> U
         .take(MAX_COMMANDS)
         .filter(|command| !command.name.is_empty())
         .map(|command| {
-            let aliases = usize::try_from(command.alias_enum)
+            let aliases = usize::try_from(command.alias_enum.0)
                 .ok()
                 .and_then(|index| enums.get(index))
                 .map(|(_, values)| Arc::clone(values))
@@ -159,19 +165,19 @@ pub(crate) fn normalize_available_commands(packet: AvailableCommandsPacket) -> U
                         .parameter_data
                         .iter()
                         .map(|param| CommandParam {
-                            name: Arc::from(param.name.as_str()),
+                            name: text(&param.name),
                             optional: param.is_optional,
-                            collapse_enum: param.options & PARAM_OPTION_COLLAPSE_ENUM != 0,
-                            kind: param_kind(param.parse_symbol, &enums, &soft),
+                            collapse_enum: param.options.0 & PARAM_OPTION_COLLAPSE_ENUM != 0,
+                            kind: param_kind(param.parse_symbol.0, &enums, &soft),
                         })
                         .collect::<Vec<_>>();
                     Arc::from(params)
                 })
                 .collect::<Vec<Arc<[CommandParam]>>>();
             CommandSpec {
-                name: Arc::from(command.name.as_str()),
+                name: text(&command.name),
                 aliases,
-                permission: permission_level(&command.permission_level),
+                permission: permission_level(&command.permission_level.to_string_lossy()),
                 overloads: Arc::from(overloads),
             }
         })

@@ -37,13 +37,12 @@ pub const fn container_window(name: u8) -> Option<ContainerWindow> {
 
 #[cfg(test)]
 mod tests {
-    use valentine::bedrock::codec::BedrockCodec;
-    use valentine::bedrock::version::v1_26_51::EnumsContainerEnumName as Name;
+    use bedrock_protocol_1_26_51::enums::ContainerEnumName as Name;
 
     use super::*;
 
     fn decoded(code: u8) -> Name {
-        Name::decode(&mut bytes::Bytes::copy_from_slice(&[code]), ()).expect("one byte decodes")
+        Name::from(code)
     }
 
     /// Every enumerated name is classified and every unenumerated code is not,

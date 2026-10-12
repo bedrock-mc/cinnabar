@@ -1,76 +1,88 @@
-use bytes::{BufMut, Bytes, BytesMut};
+use bedrock_protocol_1_26_51::packets::PacketId;
+use bedrock_protocol_1_26_51::wire;
+use bytes::Bytes;
 use protocol::{ProtocolError, decode_batch};
-use valentine::bedrock::version::v1_26_51::{BorrowedMcpePacket, McpePacketName};
-use valentine::protocol::wire;
 
-const FORMER_RESERVED: &[(u32, McpePacketName)] = &[
-    (65, McpePacketName::LegacyTelemetryEventPacket),
-    (96, McpePacketName::SetLastHurtByPacket),
-    (98, McpePacketName::NpcRequestPacket),
-    (99, McpePacketName::PhotoTransferPacket),
-    (109, McpePacketName::ReservedPacket109),
-    (137, McpePacketName::ReservedPacket137),
-    (150, McpePacketName::ReservedPacket150),
-    (169, McpePacketName::NpcDialoguePacket),
-    (170, McpePacketName::ReservedPacket170),
-    (171, McpePacketName::CreatePhotoPacket),
-    (178, McpePacketName::ReservedPacket178),
-    (181, McpePacketName::ReservedPacket181),
-    (183, McpePacketName::ReservedPacket183),
-    (304, McpePacketName::ReservedPacket304),
+/// Packet IDs the client once kept opaque; each now decodes with its generated packet.
+const FORMER_RESERVED: &[(u32, PacketId)] = &[
+    (65, PacketId::LegacyTelemetryEvent),
+    (96, PacketId::SetLastHurtBy),
+    (98, PacketId::NpcRequest),
+    (99, PacketId::PhotoTransfer),
+    (109, PacketId::LabTable),
+    (137, PacketId::EducationSettings),
+    (150, PacketId::CodeBuilder),
+    (169, PacketId::NpcDialogue),
+    (170, PacketId::EduUriResource),
+    (171, PacketId::CreatePhoto),
+    (178, PacketId::CodeBuilderSource),
+    (181, PacketId::AgentActionEvent),
+    (183, PacketId::LessonProgress),
+    (304, PacketId::AgentAnimation),
 ];
 
 const UNASSIGNED: &[u32] = &[173, 301];
 
-fn inner_frame(id: u32, from_subclient: u32, to_subclient: u32, body: &[u8]) -> Bytes {
-    let header = id | (from_subclient << 10) | (to_subclient << 12);
-    let mut payload = BytesMut::new();
-    wire::write_var_u32(&mut payload, header);
-    payload.extend_from_slice(body);
-
-    let mut frame = BytesMut::new();
-    wire::write_var_u32(&mut frame, payload.len() as u32);
-    frame.extend_from_slice(&payload);
-    frame.freeze()
+fn var_u32(out: &mut Vec<u8>, value: u32) {
+    wire::Writer::new(out).write_var_u32(value).unwrap();
 }
 
-fn batch(frames: &[Bytes]) -> Bytes {
-    let mut batch = BytesMut::new();
-    batch.put_u8(0xfe);
+fn inner_frame(id: u32, from_subclient: u32, to_subclient: u32, body: &[u8]) -> Vec<u8> {
+    let mut payload = Vec::new();
+    var_u32(
+        &mut payload,
+        id | (from_subclient << 10) | (to_subclient << 12),
+    );
+    payload.extend_from_slice(body);
+
+    let mut frame = Vec::new();
+    var_u32(&mut frame, payload.len() as u32);
+    frame.extend_from_slice(&payload);
+    frame
+}
+
+fn batch(frames: &[Vec<u8>]) -> Bytes {
+    let mut batch = vec![0xfe];
     for frame in frames {
         batch.extend_from_slice(frame);
     }
-    batch.freeze()
+    batch.into()
 }
 
 #[test]
-fn former_reserved_packet_ids_now_use_generated_numeric_discriminants() {
-    for &(id, name) in FORMER_RESERVED {
-        assert_eq!(name as u32, id);
+fn former_reserved_packet_ids_use_generated_packets() {
+    for &(id, packet) in FORMER_RESERVED {
+        assert_eq!(packet as u32, id);
+        assert_eq!(PacketId::from_raw(id), Some(packet));
     }
 }
 
 #[test]
-fn generated_packet_names_reject_arbitrary_reserved_bodies_without_opacity() {
-    for &(id, name) in FORMER_RESERVED {
+fn generated_packets_reject_arbitrary_former_reserved_bodies() {
+    for &(id, packet) in FORMER_RESERVED {
         let fixture = batch(&[inner_frame(id, 2, 3, &[0xff, 0x80, 0x01, 0x00, 0x7f])]);
         let error = decode_batch(fixture)
             .expect_err("generated packet must not decode arbitrary legacy opaque body");
         assert!(
             matches!(
                 error,
-                ProtocolError::Decode(_) | ProtocolError::TrailingPacketBytes { .. }
+                ProtocolError::Decode(_)
+                    | ProtocolError::TrailingPacketBytes { .. }
+                    | ProtocolError::Ui(_)
             ),
-            "{name:?} produced unexpected error {error:?}"
+            "{packet:?} produced unexpected error {error:?}"
         );
     }
 }
 
 #[test]
-fn borrowed_unassigned_packet_ids_fail_before_owned_materialization() {
+fn unassigned_packet_ids_are_rejected() {
     for &id in UNASSIGNED {
-        let mut frame = inner_frame(id, 1, 2, &[0x00]);
-        assert!(BorrowedMcpePacket::decode_inner(&mut frame).is_err());
+        assert_eq!(PacketId::from_raw(id), None);
+        assert!(matches!(
+            decode_batch(batch(&[inner_frame(id, 1, 2, &[0x00])])),
+            Err(ProtocolError::Decode(_))
+        ));
     }
 }
 
@@ -87,14 +99,13 @@ fn unassigned_packet_cannot_consume_an_adjacent_frame() {
 
 #[test]
 fn unassigned_packet_declared_length_truncation_is_fatal() {
-    let mut fixture = BytesMut::new();
-    fixture.put_u8(0xfe);
-    wire::write_var_u32(&mut fixture, 8);
-    wire::write_var_u32(&mut fixture, 173);
+    let mut fixture = vec![0xfe];
+    var_u32(&mut fixture, 8);
+    var_u32(&mut fixture, 173);
     fixture.extend_from_slice(&[0x01, 0x02]);
 
     assert!(matches!(
-        decode_batch(fixture.freeze()),
+        decode_batch(fixture.into()),
         Err(ProtocolError::TruncatedPacket { .. })
     ));
 }

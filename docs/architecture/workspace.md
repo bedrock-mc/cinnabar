@@ -15,8 +15,8 @@ and relays packets over a local stream.
 
 | Library | Used for |
 | --- | --- |
-| [protocolgen](https://github.com/bedrock-mc/protocolgen) | Generates the Bedrock packet definitions behind `crates/protocol`. |
-| [Axolotl Stack](https://github.com/axolotl-stack/axolotl-stack) | Valentine (packet codec), vendored in `crates/protocol/vendor`, and Jolyne (client session library), whose raw packet entries and spawn sequence `crates/protocol` adapts. Both MIT; see `THIRD_PARTY_NOTICES.md`. |
+| [protocolgen](https://github.com/bedrock-mc/protocolgen) | Generates the Bedrock packet codec vendored in `crates/protocol/vendor`. |
+| [Axolotl Stack](https://github.com/axolotl-stack/axolotl-stack) | Jolyne (client session library), whose raw packet entries and spawn sequence `crates/protocol` adapts. MIT; see `THIRD_PARTY_NOTICES.md`. |
 | [gophertunnel](https://github.com/Sandertv/gophertunnel) | Bedrock login, encryption, resource packs and the packet relay. |
 | [go-raknet](https://github.com/Sandertv/go-raknet) | RakNet transport to servers, plus server-list pings. |
 | [go-nethernet](https://github.com/df-mc/go-nethernet) | WebRTC transport for Realms and friend worlds. |

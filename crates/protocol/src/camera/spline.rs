@@ -2,10 +2,7 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_51::{
-    CameraInstructionOptionsSplineInstruction, CameraSplinePacket,
-    SharedTypesv1260CameraSplineDefinition,
-};
+use bedrock_protocol_1_26_51::{packets, types};
 
 use super::{CameraEvent, bounded_identifier, validate_count, validate_finite, validate_position};
 use crate::WorldPacketError;
@@ -80,9 +77,9 @@ fn validate(spline: CameraSpline, named: bool) -> Result<CameraSpline, WorldPack
 
 /// Converts inline paths and named path references without resolving registry state.
 pub(super) fn normalize_instruction(
-    wire: CameraInstructionOptionsSplineInstruction,
+    wire: types::CameraSplineInstruction,
 ) -> Result<CameraSplineInstruction, WorldPacketError> {
-    let kind = match wire.type_ {
+    let kind = match wire.type_.0 {
         0 => CameraSplineKind::CatmullRom,
         1 => CameraSplineKind::Linear,
         _ => {
@@ -93,7 +90,7 @@ pub(super) fn normalize_instruction(
     };
     let spline = CameraSpline {
         name: bounded_identifier(wire.spline_identifier, "spline.name")?,
-        total_time_seconds: wire.total_time,
+        total_time_seconds: wire.total_time.0,
         kind,
         control_points: wire.curve.into_iter().map(|p| [p.x, p.y, p.z]).collect(),
         progress_key_frames: wire
@@ -101,10 +98,10 @@ pub(super) fn normalize_instruction(
             .into_iter()
             .map(|frame| {
                 Ok(CameraSplineProgressKeyFrame {
-                    progress: frame.keyframevalue,
-                    time_seconds: frame.keyframetime,
+                    progress: frame.key_frame_value.0,
+                    time_seconds: frame.key_frame_time.0,
                     ease_type: bounded_identifier(
-                        frame.keyframeeasingfunc,
+                        frame.key_frame_easing_func,
                         "spline.progress.ease",
                     )?,
                 })
@@ -116,13 +113,13 @@ pub(super) fn normalize_instruction(
             .map(|frame| {
                 Ok(CameraSplineRotationKeyFrame {
                     rotation_degrees: [
-                        frame.keyframevalue.x,
-                        frame.keyframevalue.y,
-                        frame.keyframevalue.z,
+                        frame.key_frame_value.x,
+                        frame.key_frame_value.y,
+                        frame.key_frame_value.z,
                     ],
-                    time_seconds: frame.keyframetime,
+                    time_seconds: frame.key_frame_time.0,
                     ease_type: bounded_identifier(
-                        frame.keyframeeasingfunc,
+                        frame.key_frame_easing_func,
                         "spline.rotation.ease",
                     )?,
                 })
@@ -137,7 +134,7 @@ pub(super) fn normalize_instruction(
 
 /// Retains the server's named paths in packet order.
 pub(crate) fn normalize_registry(
-    packet: CameraSplinePacket,
+    packet: packets::CameraSpline,
 ) -> Result<CameraEvent, WorldPacketError> {
     validate_count(
         packet.camera_data_splines.len(),
@@ -152,23 +149,23 @@ pub(crate) fn normalize_registry(
         .map(CameraEvent::Splines)
 }
 
-/// Both named curve identifiers are case-insensitive in the registry.
+/// The curve type is one of the two exact lowercase names the codec's pattern admits.
 fn normalize_definition(
-    wire: SharedTypesv1260CameraSplineDefinition,
+    wire: types::CameraSplineDefinition,
 ) -> Result<CameraSpline, WorldPacketError> {
-    let kind = if wire.spline_type.eq_ignore_ascii_case("catmullrom") {
-        CameraSplineKind::CatmullRom
-    } else if wire.spline_type.eq_ignore_ascii_case("linear") {
-        CameraSplineKind::Linear
-    } else {
-        return Err(WorldPacketError::InvalidCameraField {
-            field: "spline.kind",
-        });
+    let kind = match wire.spline_type.as_bytes() {
+        b"catmullrom" => CameraSplineKind::CatmullRom,
+        b"linear" => CameraSplineKind::Linear,
+        _ => {
+            return Err(WorldPacketError::InvalidCameraField {
+                field: "spline.kind",
+            });
+        }
     };
     validate(
         CameraSpline {
             name: bounded_identifier(wire.name, "spline.name")?,
-            total_time_seconds: wire.total_time,
+            total_time_seconds: wire.total_time.0,
             kind,
             control_points: wire
                 .control_points
@@ -180,8 +177,8 @@ fn normalize_definition(
                 .into_iter()
                 .map(|frame| {
                     Ok(CameraSplineProgressKeyFrame {
-                        progress: frame.progress,
-                        time_seconds: frame.time,
+                        progress: frame.progress.0,
+                        time_seconds: frame.time.0,
                         ease_type: bounded_identifier(
                             frame.easing.unwrap_or_default(),
                             "spline.progress.ease",
@@ -195,7 +192,7 @@ fn normalize_definition(
                 .map(|frame| {
                     Ok(CameraSplineRotationKeyFrame {
                         rotation_degrees: [frame.rotation.x, frame.rotation.y, frame.rotation.z],
-                        time_seconds: frame.time,
+                        time_seconds: frame.time.0,
                         ease_type: bounded_identifier(
                             frame.easing.unwrap_or_default(),
                             "spline.rotation.ease",

@@ -831,6 +831,40 @@ fn shared_geometry_layout_keeps_both_model_draw_routes_contiguous_and_bounded() 
     assert_eq!(layout.cube_lighting_offset % 2, 0);
 }
 
+/// A liquid-free section with an odd 2-word model stream (glass on grass) must still yield an origin.
+#[test]
+fn liquid_free_layouts_with_odd_model_streams_produce_origin_records() {
+    for transparent_model_draw in 0..4 {
+        for model_draw in 0..4 {
+            for model_lighting in 0..4 {
+                let layout = GeometryStreamCounts {
+                    cube: 1,
+                    cube_lighting: 1,
+                    model: 1,
+                    model_lighting,
+                    model_draw,
+                    transparent_model_draw,
+                    ..default()
+                }
+                .layout()
+                .expect("bounded liquid-free streams");
+                assert!(
+                    gpu_chunk_origin(
+                        [0; 3],
+                        0,
+                        0,
+                        layout.cube_lighting_offset,
+                        layout.liquid_offset,
+                        layout.liquid_lighting_offset,
+                    )
+                    .is_some(),
+                    "no origin for {layout:?}"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn cube_lighting_layout_rejects_overflow_and_origin_abi_carries_every_stream_base() {
     assert_eq!(std::mem::size_of::<GpuChunkOrigin>(), 32);

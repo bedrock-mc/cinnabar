@@ -1,20 +1,15 @@
-use bytes::{Buf, BufMut, Bytes, BytesMut};
-use thiserror::Error;
-use valentine::bedrock::borrowed::{BorrowedStr, take_varint_prefixed_string};
-use valentine::bedrock::codec::{BedrockCodec, I32LE, VarInt, ZigZag64};
-use valentine::bedrock::version::v1_26_51::{
-    BorrowedMcpePacket, McpePacketArgs, McpePacketData, McpePacketName,
-};
-use valentine::protocol::wire;
+use std::sync::LazyLock;
 
-use crate::ui::{
-    MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS,
-    MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, UiPacketError, validate_borrowed_ui_packet,
-};
+use bedrock_protocol_1_26_51::packets::{self, PacketId};
+use bedrock_protocol_1_26_51::wire;
+use bytes::Bytes;
+use thiserror::Error;
+
+use crate::packet::GameHeader;
+use crate::ui::UiPacketError;
 use crate::world::WorldPacketError;
 use crate::{Packet, PacketKind};
 
-pub(crate) const BATCH_HEADER: u8 = 0xfe;
 const MAX_BATCH_BYTES: usize = 16 * 1024 * 1024;
 const MAX_BATCH_PACKETS: usize = 1_600;
 
@@ -64,7 +59,7 @@ pub enum ProtocolError {
     Ui(#[from] UiPacketError),
 
     #[error("packet encode failed: {0}")]
-    Encode(#[from] std::io::Error),
+    Encode(#[source] PacketEncodeError),
 
     #[error("world packet normalization failed: {0}")]
     World(#[from] WorldPacketError),
@@ -82,22 +77,22 @@ pub(crate) enum SessionFailure {
         "decode packet {packet_id:?} (body_len={body_len}, body_preview={body_preview:02x?}): {source}"
     )]
     PacketDecode {
-        packet_id: McpePacketName,
+        packet_id: PacketId,
         body_len: usize,
         body_preview: Vec<u8>,
         #[source]
-        source: valentine::bedrock::error::DecodeError,
+        source: wire::DecodeError,
     },
     #[error(
         "decode packet {packet_id:?} (body_len={body_len}) left {remaining} trailing body bytes"
     )]
     PacketTrailingBytes {
-        packet_id: McpePacketName,
+        packet_id: PacketId,
         body_len: usize,
         remaining: usize,
     },
     #[error("malformed packet entry: {0}")]
-    MalformedEntry(#[source] std::io::Error),
+    MalformedEntry(#[source] wire::DecodeError),
     #[error("declared packet length {declared} exceeds available {available}")]
     TruncatedEntry { declared: usize, available: usize },
     #[error("unknown packet ID {0}")]
@@ -141,7 +136,12 @@ impl From<SessionFailure> for SessionError {
 /// A packet body the codec could not decode; `Display` carries its detail.
 #[derive(Debug, Error)]
 #[error(transparent)]
-pub struct PacketDecodeError(pub(crate) valentine::bedrock::error::DecodeError);
+pub struct PacketDecodeError(pub(crate) wire::DecodeError);
+
+/// A packet the codec could not encode; `Display` carries its detail.
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub struct PacketEncodeError(pub(crate) wire::EncodeError);
 
 impl From<SessionError> for ProtocolError {
     fn from(error: SessionError) -> Self {
@@ -155,338 +155,136 @@ impl From<SessionFailure> for ProtocolError {
     }
 }
 
-impl From<valentine::bedrock::error::DecodeError> for ProtocolError {
-    fn from(error: valentine::bedrock::error::DecodeError) -> Self {
+impl From<wire::DecodeError> for ProtocolError {
+    fn from(error: wire::DecodeError) -> Self {
         Self::Decode(PacketDecodeError(error))
     }
 }
 
+impl From<wire::EncodeError> for ProtocolError {
+    fn from(error: wire::EncodeError) -> Self {
+        Self::Encode(PacketEncodeError(error))
+    }
+}
+
+/// Bounds for server packet bodies: no ceiling beyond the input except the UI budgets.
+pub(crate) fn server_limits() -> &'static wire::Limits {
+    static LIMITS: LazyLock<wire::Limits> = LazyLock::new(|| {
+        crate::ui::validation::with_field_limits(wire::Limits::receiving_from(wire::Peer::Server))
+    });
+    &LIMITS
+}
+
+/// Decodes one entry body as `id` under [`server_limits`], sharing `body`'s allocation, and
+/// rejects bytes the packet leaves unread.
+pub(crate) fn decode_body(
+    id: PacketId,
+    body: &Bytes,
+) -> Result<packets::Packet, wire::DecodeError> {
+    let mut reader = wire::Reader::from_shared(body).with_limits(server_limits());
+    let packet = packets::Packet::decode_body(id, &mut reader)?;
+    reader.expect_consumed()?;
+    Ok(packet)
+}
+
+/// Rejects a decoded packet whose UI or audio content the client must not admit.
+pub(crate) fn validate_decoded(packet: &packets::Packet) -> Result<(), ProtocolError> {
+    crate::ui::validation::validate_ui_packet(packet)?;
+    crate::audio::validate_audio_packet(packet)?;
+    Ok(())
+}
+
 /// Decodes an uncompressed gophertunnel raw batch into owned protocol packets.
-pub fn decode_batch(mut bytes: Bytes) -> Result<Vec<Packet>, ProtocolError> {
+pub fn decode_batch(bytes: Bytes) -> Result<Vec<Packet>, ProtocolError> {
     if bytes.len() > MAX_BATCH_BYTES {
         return Err(ProtocolError::BatchTooLarge {
             actual: bytes.len(),
             max: MAX_BATCH_BYTES,
         });
     }
-    if bytes.first().copied() != Some(BATCH_HEADER) {
-        return Err(ProtocolError::InvalidBatchHeader {
-            actual: bytes.first().copied(),
-        });
-    }
-    bytes.advance(1);
-
+    let frames =
+        wire::Frames::from_batch(bytes, MAX_BATCH_PACKETS).map_err(|error| match error {
+            wire::DecodeError::InvalidBatchHeader(actual) => {
+                ProtocolError::InvalidBatchHeader { actual }
+            }
+            error => error.into(),
+        })?;
     let mut packets = Vec::new();
-    while bytes.has_remaining() {
-        if packets.len() == MAX_BATCH_PACKETS {
-            return Err(ProtocolError::TooManyPackets {
-                max: MAX_BATCH_PACKETS,
-            });
-        }
-
-        let frame_start = bytes.clone();
-        let before_length = bytes.remaining();
-        let declared = wire::read_var_u32(&mut bytes)? as usize;
-        let length_prefix = before_length - bytes.remaining();
-        if bytes.remaining() < declared {
-            return Err(ProtocolError::TruncatedPacket {
-                declared,
-                available: bytes.remaining(),
-            });
-        }
-
-        let mut frame = frame_start.slice(..length_prefix + declared);
-        bytes.advance(declared);
-        validate_raw_ui_frame(&frame)?;
-        validate_raw_audio_frame(&frame)?;
-        let (header, data) = McpePacketData::decode_inner(&mut frame, McpePacketArgs)?;
-        if frame.has_remaining() {
-            return Err(ProtocolError::TrailingPacketBytes {
-                remaining: frame.remaining(),
-            });
-        }
-        packets.push(Packet::from_parts(header, data));
+    for frame in frames {
+        let frame = frame.map_err(framing_error)?;
+        let header = frame.header();
+        let id =
+            PacketId::from_raw(header.id).ok_or(wire::DecodeError::UnknownPacketId(header.id))?;
+        let data = decode_body(id, &frame.body()).map_err(body_error)?;
+        validate_decoded(&data)?;
+        packets.push(Packet::from_parts(
+            GameHeader {
+                id,
+                from_subclient: u32::from(header.sender_subclient),
+                to_subclient: u32::from(header.target_subclient),
+            },
+            data,
+        ));
     }
     Ok(packets)
 }
 
-fn validate_raw_audio_frame(frame: &Bytes) -> Result<(), ProtocolError> {
-    let mut probe = frame.clone();
-    let _declared = wire::read_var_u32(&mut probe)?;
-    let header = wire::read_var_u32(&mut probe)?;
-    let packet_id = header & 0x3ff;
-    if !matches!(
-        packet_id,
-        id if id == McpePacketName::PlaySoundPacket as u32
-            || id == McpePacketName::StopSoundPacket as u32
-            || id == McpePacketName::LevelSoundEventPacket as u32
-    ) {
-        return Ok(());
+/// Maps a batch framing failure onto the protocol's framing errors.
+fn framing_error(error: wire::DecodeError) -> ProtocolError {
+    match error {
+        wire::DecodeError::TooManyFrames { limit } => ProtocolError::TooManyPackets { max: limit },
+        wire::DecodeError::UnexpectedEof { needed, remaining } => ProtocolError::TruncatedPacket {
+            declared: needed,
+            available: remaining,
+        },
+        error => error.into(),
     }
-    let mut borrowed_frame = frame.clone();
-    let packet = BorrowedMcpePacket::decode_inner(&mut borrowed_frame)?;
-    if borrowed_frame.has_remaining() {
-        return Err(ProtocolError::TrailingPacketBytes {
-            remaining: borrowed_frame.remaining(),
-        });
-    }
-    crate::audio::validate_borrowed_audio_packet(&packet.data)?;
-    Ok(())
 }
 
-pub(crate) fn validate_raw_ui_frame(frame: &Bytes) -> Result<(), ProtocolError> {
-    let mut probe = frame.clone();
-    let _declared = wire::read_var_u32(&mut probe)?;
-    let header = wire::read_var_u32(&mut probe)?;
-    let packet_id = header & 0x3ff;
-    if packet_id == McpePacketName::DeathInfoPacket as u32 {
-        return validate_raw_death_info(probe);
+/// Maps a body failure: unread bytes and UI budget rejections keep their own errors.
+fn body_error(error: wire::DecodeError) -> ProtocolError {
+    if let wire::DecodeError::TrailingBytes(remaining) = error {
+        return ProtocolError::TrailingPacketBytes { remaining };
     }
-    if packet_id == McpePacketName::UpdateSoftEnumPacket as u32 {
-        return validate_raw_soft_enum_packet(probe);
+    match crate::ui::validation::semantic_rejection(&error) {
+        Some(rejection) => rejection.into(),
+        None => error.into(),
     }
-    if !matches!(packet_id, 9 | 74 | 88 | 100 | 106 | 107 | 108 | 186) {
-        return Ok(());
-    }
-
-    if packet_id == McpePacketName::SetScorePacket as u32 {
-        return validate_raw_score_packet(probe);
-    }
-    if packet_id == McpePacketName::TextPacket as u32 {
-        return validate_raw_text_packet(probe);
-    }
-
-    let mut borrowed_frame = frame.clone();
-    let packet = BorrowedMcpePacket::decode_inner(&mut borrowed_frame)?;
-    if borrowed_frame.has_remaining() {
-        return Err(ProtocolError::TrailingPacketBytes {
-            remaining: borrowed_frame.remaining(),
-        });
-    }
-    validate_borrowed_ui_packet(&packet.data)?;
-    Ok(())
 }
 
-/// Validates reason strings and parameter count before the generated decoder allocates.
-fn validate_raw_death_info(mut payload: Bytes) -> Result<(), ProtocolError> {
-    let _message = take_raw_ui_text(&mut payload, "death_info.message")?;
-    let count = wire::read_var_u32(&mut payload)? as usize;
-    if count > MAX_CHAT_PARAMETERS {
-        return Err(UiPacketError::TooManyChatParameters {
-            count,
-            max: MAX_CHAT_PARAMETERS,
-        }
-        .into());
+/// Reclassifies a play-stream decode failure with intact framing (a broken UI budget, an unknown
+/// selector or a schema bound) as a skippable world rejection; every other failure stays fatal.
+pub(crate) fn world_decode_error(error: SessionError) -> ProtocolError {
+    if let SessionFailure::PacketDecode { source, .. } = &error.0
+        && let Some(rejection) = crate::ui::validation::semantic_rejection(source)
+    {
+        return ProtocolError::World(WorldPacketError::Ui(rejection));
     }
-    for _ in 0..count {
-        let _parameter = take_raw_ui_text(&mut payload, "death_info.parameter")?;
-    }
-    if payload.has_remaining() {
-        return Err(ProtocolError::TrailingPacketBytes {
-            remaining: payload.remaining(),
-        });
-    }
-    Ok(())
-}
-
-fn validate_raw_soft_enum_packet(mut payload: Bytes) -> Result<(), ProtocolError> {
-    let enum_name = take_raw_ui_text(&mut payload, "soft_enum.name")?;
-    let count_raw = VarInt::decode(&mut payload, ())?.0 as i64;
-    if count_raw < 0 {
-        return Err(
-            valentine::bedrock::error::DecodeError::NegativeLength { value: count_raw }.into(),
-        );
-    }
-    let count = count_raw as usize;
-    if count > MAX_CHAT_AUTOCOMPLETE {
-        return Err(UiPacketError::TooManyAutocompleteSuggestions {
-            count,
-            max: MAX_CHAT_AUTOCOMPLETE,
-        }
-        .into());
-    }
-    let mut retained_bytes = enum_name.as_bytes().len();
-    for _ in 0..count {
-        let option = take_raw_ui_text(&mut payload, "soft_enum.option")?;
-        retained_bytes = retained_bytes.checked_add(option.as_bytes().len()).ok_or(
-            UiPacketError::AutocompleteTooLarge {
-                bytes: usize::MAX,
-                max: MAX_CHAT_AUTOCOMPLETE_BYTES,
-            },
-        )?;
-        if retained_bytes > MAX_CHAT_AUTOCOMPLETE_BYTES {
-            return Err(UiPacketError::AutocompleteTooLarge {
-                bytes: retained_bytes,
-                max: MAX_CHAT_AUTOCOMPLETE_BYTES,
-            }
-            .into());
-        }
-    }
-    let action = u8::decode(&mut payload, ())?;
-    if action > 2 {
-        return Err(UiPacketError::UnknownEnum {
-            kind: "soft enum action",
-            value: i64::from(action),
-        }
-        .into());
-    }
-    Ok(())
-}
-
-/// Bounds and UTF-8-checks a SetScore frame before the owned decoder allocates.
-///
-/// The action is carried per entry, so a single packet may mix removals with
-/// changes. The layout below is gophertunnel's `ScoreboardEntry.Marshal`
-/// (`minecraft/protocol/scoreboard.go`): a varuint32 variant, the lowercase
-/// variant name, a varint64 entry ID, and then a variant-specific body. This still runs before `SetScorePacket::decode`, which
-/// reserves capacity from the entry count without an upper bound of its own.
-fn validate_raw_score_packet(mut payload: Bytes) -> Result<(), ProtocolError> {
-    const REMOVE: i64 = 0;
-    const CHANGE_PLAYER: i64 = 1;
-    const CHANGE_ENTITY: i64 = 2;
-    const CHANGE_FAKE_PLAYER: i64 = 3;
-
-    let count_raw = VarInt::decode(&mut payload, ())?.0 as i64;
-    if count_raw < 0 {
-        return Err(
-            valentine::bedrock::error::DecodeError::NegativeLength { value: count_raw }.into(),
-        );
-    }
-    let count = count_raw as usize;
-    if count > MAX_SCORE_ENTRIES_PER_PACKET {
-        return Err(UiPacketError::TooManyScores {
-            count,
-            max: MAX_SCORE_ENTRIES_PER_PACKET,
-        }
-        .into());
-    }
-    for _ in 0..count {
-        let variant = i64::from(u8::decode(&mut payload, ())?);
-        if !matches!(
-            variant,
-            REMOVE | CHANGE_PLAYER | CHANGE_ENTITY | CHANGE_FAKE_PLAYER
-        ) {
-            return Err(UiPacketError::UnknownEnum {
-                kind: "score action",
-                value: variant,
-            }
-            .into());
-        }
-        // The variant name string gophertunnel writes after the tag.
-        let _action = take_raw_ui_text(&mut payload, "score.action")?;
-        let _scoreboard_id = ZigZag64::decode(&mut payload, ())?;
-        if variant == REMOVE {
-            if bool::decode(&mut payload, ())? {
-                let _objective_name = take_raw_ui_text(&mut payload, "score.objective_name")?;
-            }
-            continue;
-        }
-        let _objective_name = take_raw_ui_text(&mut payload, "score.objective_name")?;
-        let _score = I32LE::decode(&mut payload, ())?;
-        if variant == CHANGE_FAKE_PLAYER {
-            let _fake_player_name = take_raw_ui_text(&mut payload, "score.custom_name")?;
-        } else {
-            let _entity_id = ZigZag64::decode(&mut payload, ())?;
-        }
-    }
-    Ok(())
-}
-
-fn validate_raw_text_packet(mut payload: Bytes) -> Result<(), ProtocolError> {
-    let _needs_translation = bool::decode(&mut payload, ())?;
-    let category = u8::decode(&mut payload, ())?;
-    if category > 2 {
-        return Err(UiPacketError::UnknownEnum {
-            kind: "text category",
-            value: i64::from(category),
-        }
-        .into());
-    }
-    let kind = u8::decode(&mut payload, ())?;
-    match kind {
-        1 | 7 | 8 => {
-            let _source = take_raw_ui_text(&mut payload, "text.source_name")?;
-            let _message = take_raw_ui_text(&mut payload, "text.message")?;
-        }
-        0 | 5 | 6 | 9 | 10 | 11 => {
-            let _message = take_raw_ui_text(&mut payload, "text.message")?;
-        }
-        2..=4 => {
-            let _message = take_raw_ui_text(&mut payload, "text.message")?;
-            let count_raw = VarInt::decode(&mut payload, ())?.0 as i64;
-            if count_raw < 0 {
-                return Err(valentine::bedrock::error::DecodeError::NegativeLength {
-                    value: count_raw,
-                }
-                .into());
-            }
-            let count = count_raw as usize;
-            if count > MAX_CHAT_PARAMETERS {
-                return Err(UiPacketError::TooManyChatParameters {
-                    count,
-                    max: MAX_CHAT_PARAMETERS,
-                }
-                .into());
-            }
-            for _ in 0..count {
-                let _parameter = take_raw_ui_text(&mut payload, "text.parameter")?;
-            }
-        }
-        value => {
-            return Err(UiPacketError::UnknownEnum {
-                kind: "text type",
-                value: i64::from(value),
-            }
-            .into());
-        }
-    }
-    let _xuid = take_raw_ui_text(&mut payload, "text.xuid")?;
-    let _platform_chat_id = take_raw_ui_text(&mut payload, "text.platform_chat_id")?;
-    if bool::decode(&mut payload, ())? {
-        let _filtered_message = take_raw_ui_text(&mut payload, "text.filtered_message")?;
-    }
-    Ok(())
-}
-
-fn take_raw_ui_text(
-    payload: &mut Bytes,
-    field: &'static str,
-) -> Result<BorrowedStr, ProtocolError> {
-    let value = take_varint_prefixed_string(payload)?;
-    if value.as_bytes().len() > MAX_UI_TEXT_BYTES {
-        return Err(UiPacketError::TextTooLong {
-            bytes: value.as_bytes().len(),
-            max: MAX_UI_TEXT_BYTES,
-        }
-        .into());
-    }
-    validate_raw_utf8(&value, field)?;
-    Ok(value)
-}
-
-fn validate_raw_utf8(value: &BorrowedStr, field: &'static str) -> Result<(), ProtocolError> {
-    value
-        .as_str()
-        .map(|_| ())
-        .map_err(|_| UiPacketError::InvalidUtf8 { field }.into())
+    error.into()
 }
 
 /// Encodes one packet as an uncompressed gophertunnel raw batch.
 pub fn encode(packet: &Packet) -> Result<Bytes, ProtocolError> {
-    validate_packet(packet)?;
+    let mut bytes = vec![wire::BATCH_HEADER];
+    encode_entry(packet, &mut bytes)?;
+    Ok(Bytes::from(bytes))
+}
 
-    let mut bytes = BytesMut::new();
-    bytes.put_u8(BATCH_HEADER);
-    packet.data.encode_inner_bytes_mut(
-        &mut bytes,
-        packet.header.from_subclient,
-        packet.header.to_subclient,
-    )?;
-    Ok(bytes.freeze())
+/// Appends `packet` as one `[length][header][body]` batch entry; on error `out` is unchanged.
+pub(crate) fn encode_entry(packet: &Packet, out: &mut Vec<u8>) -> Result<(), ProtocolError> {
+    validate_packet(packet)?;
+    let header = wire::PacketHeader {
+        id: packet.header.id as u32,
+        // `validate_packet` bounds both subclients to two bits.
+        sender_subclient: packet.header.from_subclient as u8,
+        target_subclient: packet.header.to_subclient as u8,
+    };
+    wire::encode_frame_with(out, header, usize::MAX, |writer| packet.data.encode(writer))?;
+    Ok(())
 }
 
 pub(crate) fn validate_packet(packet: &Packet) -> Result<(), ProtocolError> {
-    let payload_id = packet.data.packet_id();
+    let payload_id = packet.data.id();
     if packet.header.id != payload_id {
         return Err(ProtocolError::HeaderIdMismatch {
             header: packet.kind(),

@@ -1,4 +1,3 @@
-use bytes::{Buf, BytesMut};
 #[path = "world_packets/block_sync.rs"]
 mod block_sync;
 #[path = "world_packets/dimension.rs"]
@@ -11,6 +10,18 @@ mod move_player;
 mod weather_cycle;
 #[path = "world_packets/world_clocks.rs"]
 mod world_clocks;
+use bedrock_protocol_1_26_51::enums::{PlayerRespawnState, SubChunkRequestResult};
+use bedrock_protocol_1_26_51::packets::{
+    self, BiomeDefinitionList, ChangeDimension, ChunkRadiusUpdated, GameRulesChanged, LevelChunk,
+    LevelEvent, NetworkChunkPublisherUpdate, Respawn, SetTime, StartGame, SubChunk, UpdateBlock,
+    UpdateSubChunkBlocks,
+};
+use bedrock_protocol_1_26_51::types::{
+    ActorRuntimeID, BiomeDefinitionData, BiomeStringList, BlockPos, ChunkPos, DimensionType,
+    GameRule, GameRuleValue, GameRulesChangedData, SubChunkData, SubChunkPos, SubChunkPosOffset,
+    UpdateSubChunkBlocksChangedInfo, UpdateSubChunkNetworkBlockInfo,
+};
+use bedrock_protocol_1_26_51::wire;
 use protocol::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent, DimensionRange,
     GameRulesEvent, HASHED_AIR_NETWORK_ID, HudRules, LevelChunkMode, MAX_BIOME_DEFINITIONS,
@@ -18,20 +29,6 @@ use protocol::{
     SubChunkResult, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEnvironmentBootstrap,
     WorldEvent, WorldPacketError, air_network_id, into_world_event, request_sub_chunk_column,
     vanilla_dimension_range,
-};
-use valentine::bedrock::codec::{BedrockCodec, BedrockSized};
-use valentine::bedrock::version::v1_26_51::{
-    ActorRuntimeId, BiomeDefinitionData, BiomeDefinitionListPacket,
-    BiomeDefinitionListPacketMapofBiomenamestodataItem, BiomeStringList, BlockPos,
-    ChangeDimensionPacket, ChunkPos, ChunkRadiusUpdatedPacket, DimensionType,
-    EnumsPlayerRespawnState as RespawnPacketState,
-    EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
-    GameRule, GameRuleRuleValue, GameRulesChangedPacket, GameRulesChangedPacketData,
-    LevelChunkPacket, LevelEventPacket, McpePacketData, NetworkChunkPublisherUpdatePacket,
-    RespawnPacket, SetTimePacket, SubChunkPacket, SubChunkPacketPayloadSubChunkPacketData,
-    SubChunkPacketPayloadSubChunkPosOffset, SubChunkPos, UpdateBlockPacket,
-    UpdateSubChunkBlocksChangedInfo, UpdateSubChunkBlocksPacket, UpdateSubChunkNetworkBlockInfo,
-    Vec3,
 };
 
 /// `LevelEventStartRaining`, from gophertunnel `packet/level_event.go`
@@ -46,33 +43,38 @@ const LEVEL_EVENT_STOP_THUNDERSTORM: i32 = 3004;
 /// `LevelEventSoundClick`, an event this crate deliberately ignores.
 const LEVEL_EVENT_SOUND_CLICK: i32 = 1000;
 
-fn biome_definition(
-    name_index: i16,
-    biome_id: i16,
-) -> BiomeDefinitionListPacketMapofBiomenamestodataItem {
-    // 1.26.40 splits the entry into the string-table index (`key`) and the
-    // definition payload (`value`). gophertunnel protocol/biome.go still writes
-    // Int16 NameIndex then Int16 BiomeID, so `key` carries the same two bytes.
-    BiomeDefinitionListPacketMapofBiomenamestodataItem {
-        key: name_index as u16,
-        value: BiomeDefinitionData {
-            id: biome_id as u16,
-            temperature: 0.8,
-            downfall: 0.4,
-            foliagesnow: 0.125,
-            mapwatercolor_argb: 0xff11_2233_u32 as i32,
-            ..Default::default()
-        },
+/// One biome-map entry: the string-table index and its definition. gophertunnel
+/// protocol/biome.go writes the index as a signed Int16 over the same two bytes.
+type BiomeEntry = (wire::U16LE, BiomeDefinitionData);
+
+fn block_pos(x: i32, y: i32, z: i32) -> BlockPos {
+    BlockPos {
+        x: wire::ZigZag32(x),
+        y: wire::ZigZag32(y),
+        z: wire::ZigZag32(z),
     }
 }
 
-fn biome_packet(
-    definitions: Vec<BiomeDefinitionListPacketMapofBiomenamestodataItem>,
-    strings: Vec<String>,
-) -> BiomeDefinitionListPacket {
-    BiomeDefinitionListPacket {
-        mapof_biomenamestodata: definitions,
-        stringlist: BiomeStringList { strings },
+fn biome_definition(name_index: i16, biome_id: i16) -> BiomeEntry {
+    (
+        wire::U16LE(name_index as u16),
+        BiomeDefinitionData {
+            id: wire::U16LE(biome_id as u16),
+            temperature: wire::F32LE(0.8),
+            downfall: wire::F32LE(0.4),
+            foliage_snow: wire::F32LE(0.125),
+            map_water_color_argb: wire::I32LE(0xff11_2233_u32 as i32),
+            ..Default::default()
+        },
+    )
+}
+
+fn biome_packet(definitions: Vec<BiomeEntry>, strings: Vec<String>) -> BiomeDefinitionList {
+    BiomeDefinitionList {
+        map_of_biome_names_to_data: definitions,
+        string_list: BiomeStringList {
+            strings: strings.into_iter().map(Into::into).collect(),
+        },
     }
 }
 
@@ -81,7 +83,7 @@ mod seasonal_biomes;
 
 /// The StartGame packet the startup facts below normalize from.
 struct StartupPackets {
-    start_game: valentine::bedrock::version::v1_26_51::StartGamePacket,
+    start_game: StartGame,
 }
 
 fn game_data() -> StartupPackets {
@@ -92,9 +94,9 @@ fn game_data() -> StartupPackets {
 
 fn bool_rule(name: &str, value: bool) -> GameRule {
     GameRule {
-        rule_name: name.to_owned(),
+        rule_name: name.into(),
         rule_can_be_modified: true,
-        rule_value: GameRuleRuleValue::Bool(value),
+        rule_value: GameRuleValue::Bool(value),
     }
 }
 
@@ -203,7 +205,7 @@ fn rejects_invalid_or_unbounded_live_biome_definitions() {
     );
 
     let mut non_finite = biome_definition(0, 1);
-    non_finite.value.downfall = f32::NAN;
+    non_finite.1.downfall = wire::F32LE(f32::NAN);
     let non_finite = biome_packet(vec![non_finite], vec!["minecraft:plains".into()]);
     assert_eq!(
         into_world_event(protocol::Packet::new(non_finite), 0).unwrap_err(),
@@ -237,32 +239,20 @@ fn chooses_air_value_from_start_game_hash_mode() {
 #[test]
 fn normalizes_start_game_bootstrap_without_generated_types() {
     let mut game_data = game_data();
-    // The world block of StartGame moved into the nested LevelSettings in
-    // 1.26.40; the local-player fields stay on the packet itself.
-    game_data.start_game.settings.spawn_settings.dimension = 1;
-    game_data.start_game.runtime_id = ActorRuntimeId {
-        actor_runtime_id: 0x1_0000_0001,
-    };
-    game_data.start_game.position = Vec3 {
-        x: 1.25,
-        y: 72.0,
-        z: -8.5,
-    };
-    game_data.start_game.settings.default_spawn_block_position = BlockPos {
-        x: -104,
-        y: 114,
-        z: 61,
-    };
-    game_data.start_game.settings.day_cycle_stop_time = 18_000;
-    game_data.start_game.level_current_time = 123_456;
+    game_data.start_game.settings.spawn_settings.dimension = wire::ZigZag32(1);
+    game_data.start_game.runtime_id = ActorRuntimeID(0x1_0000_0001);
+    game_data.start_game.position = [1.25, 72.0, -8.5].into();
+    game_data.start_game.settings.default_spawn_block_position = block_pos(-104, 114, 61);
+    game_data.start_game.settings.day_cycle_stop_time = wire::ZigZag32(18_000);
+    game_data.start_game.level_current_time = wire::U64LE(123_456);
     game_data
         .start_game
         .settings
         .rule_data
         .rules_list
         .push(bool_rule("DoDaylightCycle", false));
-    game_data.start_game.settings.rain_level = 0.25;
-    game_data.start_game.settings.lightning_level = 0.75;
+    game_data.start_game.settings.rain_level = wire::F32LE(0.25);
+    game_data.start_game.settings.lightning_level = wire::F32LE(0.75);
     game_data.start_game.block_network_ids_are_hashes = true;
 
     assert_eq!(
@@ -293,8 +283,8 @@ fn normalizes_start_game_bootstrap_without_generated_types() {
 #[test]
 fn start_game_daylight_cycle_defaults_enabled_and_requires_a_boolean_rule() {
     let mut game_data = game_data();
-    game_data.start_game.level_current_time = 6_000;
-    game_data.start_game.settings.day_cycle_stop_time = 0;
+    game_data.start_game.level_current_time = wire::U64LE(6_000);
+    game_data.start_game.settings.day_cycle_stop_time = wire::ZigZag32(0);
 
     let bootstrap = WorldEnvironmentBootstrap::from_start_game(&game_data.start_game);
     assert_eq!(bootstrap.initial_time, 6_000);
@@ -304,17 +294,17 @@ fn start_game_daylight_cycle_defaults_enabled_and_requires_a_boolean_rule() {
         "an absent doDaylightCycle rule must not turn relay default zero into a clock lock"
     );
 
-    // 1.26.40's GameRule value is a tagged union, so a same-named integer rule
-    // can no longer masquerade as the boolean cycle switch.
+    // GameRule's value is a tagged union, so a same-named integer rule cannot
+    // masquerade as the boolean cycle switch.
     game_data
         .start_game
         .settings
         .rule_data
         .rules_list
         .push(GameRule {
-            rule_name: "DODAYLIGHTCYCLE".to_owned(),
+            rule_name: "DODAYLIGHTCYCLE".into(),
             rule_can_be_modified: false,
-            rule_value: GameRuleRuleValue::Int32(0),
+            rule_value: GameRuleValue::Int32(wire::I32LE(0)),
         });
     assert!(
         WorldEnvironmentBootstrap::from_start_game(&game_data.start_game).daylight_cycle_enabled,
@@ -325,14 +315,14 @@ fn start_game_daylight_cycle_defaults_enabled_and_requires_a_boolean_rule() {
 #[test]
 fn clamps_initial_weather_levels_and_fails_non_finite_values_closed() {
     let mut game_data = game_data();
-    game_data.start_game.settings.rain_level = -0.25;
-    game_data.start_game.settings.lightning_level = 1.25;
+    game_data.start_game.settings.rain_level = wire::F32LE(-0.25);
+    game_data.start_game.settings.lightning_level = wire::F32LE(1.25);
     let bootstrap = WorldEnvironmentBootstrap::from_start_game(&game_data.start_game);
     assert_eq!(bootstrap.rain_level, 0.0);
     assert_eq!(bootstrap.lightning_level, 1.0);
 
-    game_data.start_game.settings.rain_level = f32::NAN;
-    game_data.start_game.settings.lightning_level = f32::INFINITY;
+    game_data.start_game.settings.rain_level = wire::F32LE(f32::NAN);
+    game_data.start_game.settings.lightning_level = wire::F32LE(f32::INFINITY);
     let bootstrap = WorldEnvironmentBootstrap::from_start_game(&game_data.start_game);
     assert_eq!(bootstrap.rain_level, 0.0);
     assert_eq!(bootstrap.lightning_level, 0.0);
@@ -366,11 +356,14 @@ fn exposes_vanilla_dimension_subchunk_ranges() {
 
 #[test]
 fn normalizes_inline_and_request_mode_level_chunks() {
-    let inline = LevelChunkPacket {
-        chunk_position: ChunkPos { x: -2, z: 7 },
-        dimension_id: DimensionType { value: 0 },
-        subchunks_count: 3,
-        serialized_chunk_data: vec![1, 2, 3],
+    let inline = LevelChunk {
+        chunk_position: ChunkPos {
+            x: wire::ZigZag32(-2),
+            z: wire::ZigZag32(7),
+        },
+        dimension_id: DimensionType(0),
+        sub_chunks_count: wire::VarUInt(3),
+        serialized_chunk_data: vec![1, 2, 3].into(),
         ..Default::default()
     };
     let event = into_world_event(protocol::Packet::new(inline), 0)
@@ -385,13 +378,15 @@ fn normalizes_inline_and_request_mode_level_chunks() {
     assert_eq!(event.mode, LevelChunkMode::Inline { count: 3 });
     assert_eq!(event.payload, vec![1, 2, 3]);
 
-    // The 1.26.30 `-2` / `-1` sentinels folded into SubChunkCount are gone.
-    // gophertunnel packet/level_chunk.go now selects client-request mode with
+    // gophertunnel packet/level_chunk.go selects client-request mode with
     // `SubChunkLimit Optional[int32]`, whose documented `-1` means "no limit".
-    let limited = LevelChunkPacket {
-        chunk_position: ChunkPos { x: 1, z: 2 },
-        dimension_id: DimensionType { value: 1 },
-        client_request_sub_chunk_limit: Some(8),
+    let limited = LevelChunk {
+        chunk_position: ChunkPos {
+            x: wire::ZigZag32(1),
+            z: wire::ZigZag32(2),
+        },
+        dimension_id: DimensionType(1),
+        client_request_sub_chunk_limit: Some(wire::ZigZag32(8)),
         ..Default::default()
     };
     let WorldEvent::LevelChunk(event) = into_world_event(protocol::Packet::new(limited), 0)
@@ -402,8 +397,8 @@ fn normalizes_inline_and_request_mode_level_chunks() {
     };
     assert_eq!(event.mode, LevelChunkMode::LimitedRequests { highest: 8 });
 
-    let limitless = LevelChunkPacket {
-        client_request_sub_chunk_limit: Some(-1),
+    let limitless = LevelChunk {
+        client_request_sub_chunk_limit: Some(wire::ZigZag32(-1)),
         ..Default::default()
     };
     let WorldEvent::LevelChunk(event) = into_world_event(protocol::Packet::new(limitless), 0)
@@ -417,8 +412,8 @@ fn normalizes_inline_and_request_mode_level_chunks() {
 
 #[test]
 fn rejects_malformed_or_cached_level_chunks() {
-    let malformed = LevelChunkPacket {
-        client_request_sub_chunk_limit: Some(-3),
+    let malformed = LevelChunk {
+        client_request_sub_chunk_limit: Some(wire::ZigZag32(-3)),
         ..Default::default()
     };
     assert_eq!(
@@ -428,8 +423,8 @@ fn rejects_malformed_or_cached_level_chunks() {
 
     // BlobHashes are written unconditionally now, so `CacheEnabled` is the only
     // trustworthy cached-transfer marker (gophertunnel packet/level_chunk.go).
-    let cached = LevelChunkPacket {
-        subchunks_count: 1,
+    let cached = LevelChunk {
+        sub_chunks_count: wire::VarUInt(1),
         cache_enabled: true,
         ..Default::default()
     };
@@ -440,10 +435,10 @@ fn rejects_malformed_or_cached_level_chunks() {
 
     // A world taller than vanilla overworld is accepted: custom servers send
     // standard dimension ids with taller columns.
-    let taller_than_overworld = LevelChunkPacket {
-        dimension_id: DimensionType { value: 0 },
-        subchunks_count: 25,
-        serialized_chunk_data: vec![0; 3],
+    let taller_than_overworld = LevelChunk {
+        dimension_id: DimensionType(0),
+        sub_chunks_count: wire::VarUInt(25),
+        serialized_chunk_data: vec![0; 3].into(),
         ..Default::default()
     };
     let WorldEvent::LevelChunk(event) =
@@ -455,9 +450,9 @@ fn rejects_malformed_or_cached_level_chunks() {
     };
     assert_eq!(event.mode, LevelChunkMode::Inline { count: 25 });
 
-    let over_request_bound = LevelChunkPacket {
-        dimension_id: DimensionType { value: 0 },
-        subchunks_count: (MAX_SUB_CHUNK_REQUESTS + 1) as u32,
+    let over_request_bound = LevelChunk {
+        dimension_id: DimensionType(0),
+        sub_chunks_count: wire::VarUInt((MAX_SUB_CHUNK_REQUESTS + 1) as u32),
         ..Default::default()
     };
     let WorldEvent::LevelChunk(event) =
@@ -475,46 +470,46 @@ fn rejects_malformed_or_cached_level_chunks() {
     );
 }
 
+fn sub_chunk_pos(x: i32, y: i32, z: i32) -> SubChunkPos {
+    SubChunkPos {
+        subchunk_position_x: wire::I32LE(x),
+        subchunk_position_y: wire::I32LE(y),
+        subchunk_position_z: wire::I32LE(z),
+    }
+}
+
 fn sub_chunk_entry(
     offset: [i8; 3],
-    result: SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
+    result: SubChunkRequestResult,
     payload: Option<Vec<u8>>,
-) -> SubChunkPacketPayloadSubChunkPacketData {
-    SubChunkPacketPayloadSubChunkPacketData {
-        sub_chunk_pos_offset: SubChunkPacketPayloadSubChunkPosOffset {
-            subchunk_offset_x: offset[0],
-            subchunk_offset_y: offset[1],
-            subchunk_offset_z: offset[2],
+) -> SubChunkData {
+    SubChunkData {
+        sub_chunk_pos_offset: SubChunkPosOffset {
+            subchunk_offset_x: wire::I8(offset[0]),
+            subchunk_offset_y: wire::I8(offset[1]),
+            subchunk_offset_z: wire::I8(offset[2]),
         },
         sub_chunk_request_result: result,
-        serialized_sub_chunk: payload,
+        serialized_sub_chunk: payload.map(Into::into),
         ..Default::default()
     }
 }
 
 #[test]
 fn resolves_non_cached_sub_chunk_entries_to_absolute_keys() {
-    let packet = SubChunkPacket {
-        dimension_type: DimensionType { value: 2 },
-        center_pos: SubChunkPos {
-            subchunk_position_x: 10,
-            subchunk_position_y: -4,
-            subchunk_position_z: -8,
-        },
+    let packet = SubChunk {
+        dimension_type: DimensionType(2),
+        center_pos: sub_chunk_pos(10, -4, -8),
         sub_chunk_data: vec![
             sub_chunk_entry(
                 [-2, 3, 4],
-                SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Success,
+                SubChunkRequestResult::Success,
                 Some(vec![9, 0, 0xff]),
             ),
-            sub_chunk_entry(
-                [0, 1, 0],
-                SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Successallair,
-                None,
-            ),
+            sub_chunk_entry([0, 1, 0], SubChunkRequestResult::Successallair, None),
             sub_chunk_entry(
                 [1, 0, 0],
-                SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Levelchunkdoesntexist,
+                SubChunkRequestResult::Levelchunkdoesntexist,
                 None,
             ),
         ],
@@ -544,16 +539,14 @@ fn resolves_non_cached_sub_chunk_entries_to_absolute_keys() {
 
 #[test]
 fn rejects_cached_sub_chunks_and_checked_origin_overflow() {
-    // The cached/non-cached entry split collapsed into one entry type carrying
-    // `BlobHash Optional[uint64]`, so the packet-level CacheEnabled flag is the
-    // mode switch (gophertunnel packet/sub_chunk.go).
-    let cached = SubChunkPacket {
+    // One entry type carries `BlobHash Optional[uint64]`, so the packet-level
+    // CacheEnabled flag is the mode switch (gophertunnel packet/sub_chunk.go).
+    let cached = SubChunk {
         cache_enabled: true,
-        sub_chunk_data: vec![SubChunkPacketPayloadSubChunkPacketData {
-            sub_chunk_request_result:
-                SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Success,
-            serialized_sub_chunk: Some(vec![9, 0, 0]),
-            blob_id: Some(7),
+        sub_chunk_data: vec![SubChunkData {
+            sub_chunk_request_result: SubChunkRequestResult::Success,
+            serialized_sub_chunk: Some(vec![9, 0, 0].into()),
+            blob_id: Some(wire::U64LE(7)),
             ..Default::default()
         }],
         ..Default::default()
@@ -563,15 +556,11 @@ fn rejects_cached_sub_chunks_and_checked_origin_overflow() {
         Err(WorldPacketError::CachedChunksUnsupported)
     );
 
-    let overflow = SubChunkPacket {
-        center_pos: SubChunkPos {
-            subchunk_position_x: i32::MAX,
-            subchunk_position_y: 0,
-            subchunk_position_z: 0,
-        },
+    let overflow = SubChunk {
+        center_pos: sub_chunk_pos(i32::MAX, 0, 0),
         sub_chunk_data: vec![sub_chunk_entry(
             [1, 0, 0],
-            SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Successallair,
+            SubChunkRequestResult::Successallair,
             None,
         )],
         ..Default::default()
@@ -587,15 +576,11 @@ fn rejects_cached_sub_chunks_and_checked_origin_overflow() {
 
 #[test]
 fn normalizes_single_and_batched_block_updates_with_layers() {
-    let single = UpdateBlockPacket {
-        block_position: BlockPos {
-            x: 31,
-            y: -1,
-            z: -17,
-        },
-        block_runtime_id: 0xdead_beef_u32,
-        flags: 0,
-        layer: 1,
+    let single = UpdateBlock {
+        block_position: block_pos(31, -1, -17),
+        block_runtime_id: wire::VarUInt(0xdead_beef_u32),
+        flags: wire::VarUInt(0),
+        layer: wire::VarUInt(1),
     };
     let WorldEvent::BlockUpdates(updates) = into_world_event(protocol::Packet::new(single), 2)
         .unwrap()
@@ -610,12 +595,12 @@ fn normalizes_single_and_batched_block_updates_with_layers() {
     assert_eq!(updates[0].network_id, 0xdead_beef);
 
     let entry = |x, y, z, runtime_id| UpdateSubChunkNetworkBlockInfo {
-        pos: BlockPos { x, y, z },
-        runtime_id,
+        pos: block_pos(x, y, z),
+        runtime_id: wire::VarUInt(runtime_id),
         ..Default::default()
     };
-    let batch = UpdateSubChunkBlocksPacket {
-        sub_chunk_block_position: BlockPos { x: 1, y: -4, z: -2 },
+    let batch = UpdateSubChunkBlocks {
+        sub_chunk_block_position: block_pos(1, -4, -2),
         blocks_changed: UpdateSubChunkBlocksChangedInfo {
             blocks_changed_standards: vec![entry(16, -64, -32, 4)],
             blocks_changed_extras: vec![entry(17, -63, -31, 5)],
@@ -637,8 +622,8 @@ fn normalizes_single_and_batched_block_updates_with_layers() {
 #[test]
 fn rejects_negative_or_excessive_update_layers() {
     let layer = 16;
-    let packet = UpdateBlockPacket {
-        layer,
+    let packet = UpdateBlock {
+        layer: wire::VarUInt(layer),
         ..Default::default()
     };
     assert_eq!(
@@ -650,7 +635,9 @@ fn rejects_negative_or_excessive_update_layers() {
 #[test]
 fn normalizes_streaming_radius_publisher_and_dimension_events() {
     let WorldEvent::ChunkRadiusUpdated(radius) = into_world_event(
-        protocol::Packet::new(ChunkRadiusUpdatedPacket { chunk_radius: 16 }),
+        protocol::Packet::new(ChunkRadiusUpdated {
+            chunk_radius: wire::ZigZag32(16),
+        }),
         0,
     )
     .unwrap()
@@ -659,13 +646,9 @@ fn normalizes_streaming_radius_publisher_and_dimension_events() {
     };
     assert_eq!(radius, 16);
 
-    let publisher = NetworkChunkPublisherUpdatePacket {
-        newpositionforview: BlockPos {
-            x: 32,
-            y: 70,
-            z: -48,
-        },
-        newradiusforview: 256,
+    let publisher = NetworkChunkPublisherUpdate {
+        new_position_for_view: block_pos(32, 70, -48),
+        new_radius_for_view: wire::VarUInt(256),
         ..Default::default()
     };
     let WorldEvent::PublisherUpdate(update) = into_world_event(protocol::Packet::new(publisher), 0)
@@ -677,15 +660,11 @@ fn normalizes_streaming_radius_publisher_and_dimension_events() {
     assert_eq!(update.center, [32, 70, -48]);
     assert_eq!(update.radius_blocks, 256);
 
-    let dimension = ChangeDimensionPacket {
-        dimension_id: DimensionType { value: 1 },
-        position: Vec3 {
-            x: 1.5,
-            y: 80.0,
-            z: -2.5,
-        },
+    let dimension = ChangeDimension {
+        dimension_id: DimensionType(1),
+        position: [1.5, 80.0, -2.5].into(),
         respawn: true,
-        loading_screen_id: Some(0),
+        loading_screen_id: Some(wire::U32LE(0)),
     };
     let WorldEvent::ChangeDimension(change) = into_world_event(protocol::Packet::new(dimension), 0)
         .unwrap()
@@ -701,7 +680,9 @@ fn normalizes_streaming_radius_publisher_and_dimension_events() {
 
 #[test]
 fn normalizes_post_spawn_set_time() {
-    let packet = SetTimePacket { time: 6000 };
+    let packet = SetTime {
+        time: wire::ZigZag32(6000),
+    };
     assert_eq!(
         into_world_event(protocol::Packet::new(packet), 0).unwrap(),
         Some(WorldEvent::SetTime(SetTimeEvent { time: 6000 }))
@@ -710,17 +691,11 @@ fn normalizes_post_spawn_set_time() {
 
 #[test]
 fn normalizes_respawn_as_a_local_position_authority_change() {
-    let packet = RespawnPacket {
-        position: Vec3 {
-            x: 8.5,
-            y: 71.620_01,
-            z: -4.25,
-        },
+    let packet = Respawn {
+        position: [8.5, 71.620_01, -4.25].into(),
         // gophertunnel packet/respawn.go: ReadyToSpawn is wire value 1.
-        state: RespawnPacketState::Readytospawn,
-        player_runtime_id: ActorRuntimeId {
-            actor_runtime_id: 42,
-        },
+        state: PlayerRespawnState::Readytospawn,
+        player_runtime_id: ActorRuntimeID(42),
     };
     let Some(WorldEvent::Respawn(respawn)) =
         into_world_event(protocol::Packet::new(packet), 0).unwrap()
@@ -732,8 +707,8 @@ fn normalizes_respawn_as_a_local_position_authority_change() {
     assert_eq!(respawn.runtime_entity_id, 42);
 
     // Unnamed states keep their raw wire byte instead of being dropped.
-    let odd_state = RespawnPacket {
-        state: RespawnPacketState::Unknown(9),
+    let odd_state = Respawn {
+        state: PlayerRespawnState::Unknown(9),
         ..Default::default()
     };
     let Some(WorldEvent::Respawn(respawn)) =
@@ -746,14 +721,14 @@ fn normalizes_respawn_as_a_local_position_authority_change() {
 
 #[test]
 fn normalizes_only_boolean_daylight_cycle_rule_changes_case_insensitively() {
-    let packet = GameRulesChangedPacket {
-        rule_data: GameRulesChangedPacketData {
+    let packet = GameRulesChanged {
+        rule_data: GameRulesChangedData {
             rules_list: vec![
                 bool_rule("keepinventory", true),
                 GameRule {
-                    rule_name: "DoDaylightCycle".to_owned(),
+                    rule_name: "DoDaylightCycle".into(),
                     rule_can_be_modified: true,
-                    rule_value: GameRuleRuleValue::Int32(0),
+                    rule_value: GameRuleValue::Int32(wire::I32LE(0)),
                 },
                 bool_rule("DODAYLIGHTCYCLE", false),
             ],
@@ -769,12 +744,12 @@ fn normalizes_only_boolean_daylight_cycle_rule_changes_case_insensitively() {
         }))
     );
 
-    let wrong_type = GameRulesChangedPacket {
-        rule_data: GameRulesChangedPacketData {
+    let wrong_type = GameRulesChanged {
+        rule_data: GameRulesChangedData {
             rules_list: vec![GameRule {
-                rule_name: "dodaylightcycle".to_owned(),
+                rule_name: "dodaylightcycle".into(),
                 rule_can_be_modified: true,
-                rule_value: GameRuleRuleValue::Float(0.0),
+                rule_value: GameRuleValue::Float(wire::F32LE(0.0)),
             }],
         },
     };
@@ -786,8 +761,8 @@ fn normalizes_only_boolean_daylight_cycle_rule_changes_case_insensitively() {
 
 #[test]
 fn normalizes_the_hud_text_rules_beside_the_daylight_cycle() {
-    let packet = GameRulesChangedPacket {
-        rule_data: GameRulesChangedPacketData {
+    let packet = GameRulesChanged {
+        rule_data: GameRulesChangedData {
             rules_list: vec![
                 bool_rule("showCoordinates", true),
                 bool_rule("showdaysplayed", false),
@@ -861,9 +836,9 @@ fn normalizes_weather_level_events_to_explicit_channel_targets() {
     ];
 
     for (event_id, expected) in cases {
-        let packet = LevelEventPacket {
-            event_id,
-            data: 48_000,
+        let packet = LevelEvent {
+            event_id: wire::ZigZag32(event_id),
+            data: wire::ZigZag32(48_000),
             ..Default::default()
         };
         assert_eq!(
@@ -876,16 +851,16 @@ fn normalizes_weather_level_events_to_explicit_channel_targets() {
 #[test]
 fn ignores_level_events_without_normalized_world_state() {
     // Sleeping-players count: no sound, particle, crack or weather mapping.
-    let packet = LevelEventPacket {
-        event_id: 9_801,
+    let packet = LevelEvent {
+        event_id: wire::ZigZag32(9_801),
         ..Default::default()
     };
     assert_eq!(
         into_world_event(protocol::Packet::new(packet), 0).unwrap(),
         None
     );
-    let click = LevelEventPacket {
-        event_id: LEVEL_EVENT_SOUND_CLICK,
+    let click = LevelEvent {
+        event_id: wire::ZigZag32(LEVEL_EVENT_SOUND_CLICK),
         ..Default::default()
     };
     assert!(matches!(
@@ -897,27 +872,20 @@ fn ignores_level_events_without_normalized_world_state() {
 #[test]
 fn builds_bounded_column_sub_chunk_requests() {
     let packet = request_sub_chunk_column(0, 12, -8, -4, 3).unwrap();
-    let McpePacketData::SubChunkRequestPacket(request) = packet.data else {
+    let packets::Packet::SubChunkRequest(request) = *packet.data else {
         panic!("expected SubchunkRequest packet")
     };
-    assert_eq!(request.dimension_type.value, 0);
-    assert_eq!(
-        [
-            request.center_pos.subchunk_position_x,
-            request.center_pos.subchunk_position_y,
-            request.center_pos.subchunk_position_z,
-        ],
-        [12, -4, -8]
-    );
+    assert_eq!(request.dimension_type.0, 0);
+    assert_eq!(request.center_pos, sub_chunk_pos(12, -4, -8));
     assert_eq!(request.sub_chunk_position_offset_list.len(), 3);
     assert_eq!(
         request
             .sub_chunk_position_offset_list
             .iter()
             .map(|offset| [
-                offset.subchunk_offset_x,
-                offset.subchunk_offset_y,
-                offset.subchunk_offset_z
+                offset.subchunk_offset_x.0,
+                offset.subchunk_offset_y.0,
+                offset.subchunk_offset_z.0
             ])
             .collect::<Vec<_>>(),
         vec![[0, 0, 0], [0, 1, 0], [0, 2, 0]]

@@ -393,12 +393,11 @@ pub(super) fn saved_details(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui_runtime::{
-        oreui_assets::{OreUiImages, OreUiSprite},
-        presentation::{forms::oreui::Originals, tests::fixture_font},
-    };
+    use crate::Originals;
+    use crate::images::{OreUiImages, OreUiSprite};
     use std::sync::Arc;
     use ui::UiVisual;
+    use ui_engine::test_support::fixture_font;
     use ui_engine::text_metrics::TextMetrics;
 
     /// The shipped 112x20 pending sheet must yield a whole 16x20 cell at every loop step.

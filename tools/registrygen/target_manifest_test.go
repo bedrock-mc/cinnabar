@@ -16,7 +16,7 @@ type bedrockTargetManifest struct {
 	Schema       string            `json:"schema"`
 	GameVersion  string            `json:"game_version"`
 	WireProtocol uint32            `json:"wire_protocol"`
-	CodecFeature string            `json:"codec_feature"`
+	CodecCrate   string            `json:"codec_crate"`
 	Hashes       map[string]string `json:"hashes"`
 	Artifacts    map[string]string `json:"artifacts"`
 }
@@ -210,7 +210,7 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 	if err := json.Unmarshal(payload, &target); err != nil {
 		t.Fatal(err)
 	}
-	if target.Schema != "cinnabar.bedrock-target.v1" || target.GameVersion != "1.26.50" || target.WireProtocol != 2193 || target.CodecFeature != "bedrock_1_26_51" {
+	if target.Schema != "cinnabar.bedrock-target.v1" || target.GameVersion != "1.26.50" || target.WireProtocol != 2193 || target.CodecCrate != "bedrock-protocol-1-26-51" {
 		t.Fatalf("unexpected target identity: %+v", target)
 	}
 	for name, path := range target.Artifacts {
@@ -248,7 +248,7 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 		"tools/dist/src/layout.rs":                     {"carriers::physics_registry_basename", "carriers::required"},
 		"crates/pack-compiler/src/entity/item.rs":      {"block-registry-v2193.bin", "block-item-routes-v2193.json"},
 		"crates/asset-compiler/src/bin/assetc/cli.rs":  {"vanilla-v2193.mcbea"},
-		"crates/protocol/Cargo.toml":                   {target.CodecFeature},
+		"crates/protocol/Cargo.toml":                   {target.CodecCrate},
 		"crates/launcher-host/src/local_worlds/mod.rs": {"bedrock-target.json", "server_version", "bds_container_image"},
 	}
 	for path, required := range consumers {

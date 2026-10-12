@@ -2,11 +2,8 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::borrowed::BorrowedStr;
-use valentine::bedrock::version::v1_26_51::{
-    BorrowedMcpePacketData, LevelEventPacket, LevelSoundEventPacket, PlaySoundPacket,
-    StopSoundPacket,
-};
+use bedrock_protocol_1_26_51::packets::{self, LevelEvent, LevelSoundEvent, PlaySound, StopSound};
+use bedrock_protocol_1_26_51::wire;
 
 use crate::WorldPacketError;
 
@@ -63,49 +60,40 @@ pub struct LevelAudioEvent {
 
 /// Returns the sound event for `LevelEventPacket` ids in the sound range; others and
 /// non-finite positions are skipped.
-pub(crate) fn normalize_level_event_sound(packet: &LevelEventPacket) -> Option<AudioEvent> {
-    if !(1000..2000).contains(&packet.event_id) {
+pub(crate) fn normalize_level_event_sound(packet: &LevelEvent) -> Option<AudioEvent> {
+    if !(1000..2000).contains(&packet.event_id.0) {
         return None;
     }
-    let position = [packet.position.x, packet.position.y, packet.position.z];
+    let position = packet.position.to_array();
     position
         .iter()
         .all(|value| value.is_finite())
         .then_some(())?;
     Some(AudioEvent::LevelEvent(LevelEventSound {
-        event_id: packet.event_id,
+        event_id: packet.event_id.0,
         position,
-        data: packet.data,
+        data: packet.data.0,
     }))
 }
 
-pub(crate) fn validate_borrowed_audio_packet(
-    packet: &BorrowedMcpePacketData,
-) -> Result<(), WorldPacketError> {
+/// Rejects a decoded sound packet whose identifiers are oversized or not UTF-8, or whose
+/// volume, pitch or positions are non-finite; other packets pass.
+pub(crate) fn validate_audio_packet(packet: &packets::Packet) -> Result<(), WorldPacketError> {
     match packet {
-        BorrowedMcpePacketData::PlaySoundPacket(packet) => {
-            validate_borrowed_identifier(&packet.name, "PlaySound.name")?;
-            validate_finite(packet.volume, "PlaySound.volume")?;
-            validate_finite(packet.pitch, "PlaySound.pitch")
+        packets::Packet::PlaySound(packet) => {
+            validate_wire_identifier(&packet.name, "PlaySound.name")?;
+            validate_finite(packet.volume.0, "PlaySound.volume")?;
+            validate_finite(packet.pitch.0, "PlaySound.pitch")
         }
-        BorrowedMcpePacketData::StopSoundPacket(packet) => {
-            validate_borrowed_identifier(&packet.sound_name, "StopSound.name")
+        packets::Packet::StopSound(packet) => {
+            validate_wire_identifier(&packet.sound_name, "StopSound.name")
         }
-        BorrowedMcpePacketData::LevelSoundEventPacket(packet) => {
-            validate_borrowed_identifier(&packet.sound_event, "LevelSoundEvent.sound_event")?;
-            validate_borrowed_identifier(
-                &packet.actor_identifier,
-                "LevelSoundEvent.actor_identifier",
-            )?;
-            validate_position(
-                [packet.position.x, packet.position.y, packet.position.z],
-                "LevelSoundEvent.position",
-            )?;
+        packets::Packet::LevelSoundEvent(packet) => {
+            validate_wire_identifier(&packet.sound_event, "LevelSoundEvent.sound_event")?;
+            validate_wire_identifier(&packet.actor_identifier, "LevelSoundEvent.actor_identifier")?;
+            validate_position(packet.position.to_array(), "LevelSoundEvent.position")?;
             if let Some(position) = &packet.fire_at_position {
-                validate_position(
-                    [position.x, position.y, position.z],
-                    "LevelSoundEvent.fire_at_position",
-                )?;
+                validate_position(position.to_array(), "LevelSoundEvent.fire_at_position")?;
             }
             Ok(())
         }
@@ -113,67 +101,64 @@ pub(crate) fn validate_borrowed_audio_packet(
     }
 }
 
-pub(crate) fn normalize_play_sound(
-    packet: PlaySoundPacket,
-) -> Result<AudioEvent, WorldPacketError> {
-    validate_identifier(&packet.name, "PlaySound.name")?;
-    validate_finite(packet.volume, "PlaySound.volume")?;
-    validate_finite(packet.pitch, "PlaySound.pitch")?;
+pub(crate) fn normalize_play_sound(packet: PlaySound) -> Result<AudioEvent, WorldPacketError> {
+    let name = packet.name.to_string_lossy();
+    validate_identifier(&name, "PlaySound.name")?;
+    validate_finite(packet.volume.0, "PlaySound.volume")?;
+    validate_finite(packet.pitch.0, "PlaySound.pitch")?;
+    let position = &packet.position;
     Ok(AudioEvent::Play(PlayAudioEvent {
-        name: Arc::from(packet.name),
-        position: [packet.position.x, packet.position.y, packet.position.z],
-        volume: packet.volume,
-        pitch: packet.pitch,
-        loop_count: packet.loop_count,
-        server_sound_handle: packet
-            .server_sound_handle
-            .map(|handle| handle.server_sound_handle),
+        name: Arc::from(name),
+        position: [position.x.0, position.y.0, position.z.0],
+        volume: packet.volume.0,
+        pitch: packet.pitch.0,
+        loop_count: packet.loop_count.0,
+        server_sound_handle: packet.server_sound_handle.map(|handle| handle.0),
     }))
 }
 
-pub(crate) fn normalize_stop_sound(
-    packet: StopSoundPacket,
-) -> Result<AudioEvent, WorldPacketError> {
-    validate_identifier(&packet.sound_name, "StopSound.name")?;
+pub(crate) fn normalize_stop_sound(packet: StopSound) -> Result<AudioEvent, WorldPacketError> {
+    let name = packet.sound_name.to_string_lossy();
+    validate_identifier(&name, "StopSound.name")?;
     Ok(AudioEvent::Stop(StopAudioEvent {
-        name: Arc::from(packet.sound_name),
+        name: Arc::from(name),
         stop_all_sounds: packet.stop_all_sounds,
         stop_music_legacy: packet.stop_music_legacy,
     }))
 }
 
 pub(crate) fn normalize_level_sound(
-    packet: LevelSoundEventPacket,
+    packet: LevelSoundEvent,
 ) -> Result<AudioEvent, WorldPacketError> {
-    validate_identifier(&packet.sound_event, "LevelSoundEvent.sound_event")?;
-    validate_identifier(&packet.actor_identifier, "LevelSoundEvent.actor_identifier")?;
-    let position = [packet.position.x, packet.position.y, packet.position.z];
+    let sound_event = packet.sound_event.to_string_lossy();
+    let actor_identifier = packet.actor_identifier.to_string_lossy();
+    validate_identifier(&sound_event, "LevelSoundEvent.sound_event")?;
+    validate_identifier(&actor_identifier, "LevelSoundEvent.actor_identifier")?;
+    let position = packet.position.to_array();
     validate_position(position, "LevelSoundEvent.position")?;
-    let fire_at_position = packet
-        .fire_at_position
-        .map(|position| [position.x, position.y, position.z]);
+    let fire_at_position = packet.fire_at_position.map(|position| position.to_array());
     if let Some(position) = fire_at_position {
         validate_position(position, "LevelSoundEvent.fire_at_position")?;
     }
     Ok(AudioEvent::Level(LevelAudioEvent {
-        sound_event: Arc::from(packet.sound_event),
+        sound_event: Arc::from(sound_event),
         position,
-        data: packet.data,
-        actor_identifier: Arc::from(packet.actor_identifier),
+        data: packet.data.0,
+        actor_identifier: Arc::from(actor_identifier),
         is_baby: packet.is_baby,
         is_global: packet.is_global,
-        actor_unique_id: packet.actor_unique_id,
+        actor_unique_id: packet.actor_unique_id.0,
         fire_at_position,
     }))
 }
 
-fn validate_borrowed_identifier(
-    value: &BorrowedStr,
+fn validate_wire_identifier(
+    value: &wire::Str,
     field: &'static str,
 ) -> Result<(), WorldPacketError> {
-    validate_identifier_bytes(value.as_bytes().len(), field)?;
+    validate_identifier_bytes(value.len(), field)?;
     value
-        .as_str()
+        .to_str()
         .map(|_| ())
         .map_err(|_| WorldPacketError::InvalidAudioIdentifierUtf8 { field })
 }
@@ -210,13 +195,12 @@ fn validate_finite(value: f32, field: &'static str) -> Result<(), WorldPacketErr
 #[cfg(test)]
 mod level_event_tests {
     use super::*;
-    use valentine::bedrock::version::v1_26_51::Vec3;
 
-    fn level(event_id: i32, x: f32) -> LevelEventPacket {
-        LevelEventPacket {
-            event_id,
-            position: Vec3 { x, y: 1.0, z: 2.0 },
-            data: 7,
+    fn level(event_id: i32, x: f32) -> LevelEvent {
+        LevelEvent {
+            event_id: wire::ZigZag32(event_id),
+            position: [x, 1.0, 2.0].into(),
+            data: wire::ZigZag32(7),
         }
     }
 

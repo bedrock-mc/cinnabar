@@ -2,10 +2,11 @@
 
 use render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION;
 
+use bedrock_protocol_1_26_51::enums::PersonaArmSizeType;
+use bedrock_protocol_1_26_51::packets::{self, PlayerSkin};
+use bedrock_protocol_1_26_51::types::{SerializedSkinRef, SkinImage};
+use bedrock_protocol_1_26_51::wire;
 use sha2::{Digest, Sha256};
-use valentine::bedrock::version::v1_26_51::{
-    EnumsSharedTypespersonaArmSizeType, PlayerSkinPacket, SerializedSkinRef, SkinImage,
-};
 
 pub fn cape_content_id(cape: &render_api::CapeImage) -> String {
     let mut hash = Sha256::new();
@@ -16,19 +17,15 @@ pub fn cape_content_id(cape: &render_api::CapeImage) -> String {
 }
 
 pub fn set_skin_packet_uuid(packet: &mut crate::Packet, uuid: [u8; 16]) {
-    if let valentine::bedrock::version::v1_26_51::McpePacketData::PlayerSkinPacket(skin) =
-        &mut packet.data
-    {
+    if let packets::Packet::PlayerSkin(skin) = &mut *packet.data {
         skin.uuid = uuid::Uuid::from_bytes(uuid);
     }
 }
 
 /// Retains the selected model version on a client-authored appearance update.
 pub fn set_skin_packet_engine_version(packet: &mut crate::Packet, version: &str) {
-    if let valentine::bedrock::version::v1_26_51::McpePacketData::PlayerSkinPacket(skin) =
-        &mut packet.data
-    {
-        skin.serialized_skin.geometry_data_min_engine_version = version.to_owned();
+    if let packets::Packet::PlayerSkin(skin) = &mut *packet.data {
+        skin.serialized_skin.geometry_data_min_engine_version = version.into();
     }
 }
 
@@ -43,46 +40,49 @@ pub fn player_skin_packet(
     let geometry = skin.geometry.as_ref();
     let cape = skin.cape.as_ref().filter(|cape| cape.is_valid());
     let cape_id = cape.map_or_else(String::new, cape_content_id);
-    crate::Packet::new(PlayerSkinPacket {
+    crate::Packet::new(PlayerSkin {
         uuid: uuid::Uuid::from_bytes(uuid),
         serialized_skin: SerializedSkinRef {
-            id: id.to_owned(),
+            id: id.into(),
             full_id: if cape_id.is_empty() {
-                id.to_owned()
+                id.into()
             } else {
-                format!("{id}_{cape_id}")
+                format!("{id}_{cape_id}").into()
             },
-            cape_id,
             cape_image_data: cape.map_or_else(SkinImage::default, |cape| SkinImage {
-                width: cape.width,
-                height: cape.height,
-                image_bytes: cape.rgba8.to_vec(),
+                width: wire::U32LE(cape.width),
+                height: wire::U32LE(cape.height),
+                image_bytes: cape.rgba8.to_vec().into(),
             }),
-            resource_patch: geometry.map_or_else(
-                || {
-                    serde_json::json!({"geometry":{"default":"geometry.humanoid.custom"}})
-                        .to_string()
-                },
-                |source| source.resource_patch.to_string(),
-            ),
+            cape_id: cape_id.into(),
+            resource_patch: geometry
+                .map_or_else(
+                    || {
+                        serde_json::json!({"geometry":{"default":"geometry.humanoid.custom"}})
+                            .to_string()
+                    },
+                    |source| source.resource_patch.to_string(),
+                )
+                .into(),
             image_data: SkinImage {
-                width: skin.width,
-                height: skin.height,
-                image_bytes: skin.rgba8.to_vec(),
+                width: wire::U32LE(skin.width),
+                height: wire::U32LE(skin.height),
+                image_bytes: skin.rgba8.to_vec().into(),
             },
             geometry_data: geometry
-                .map_or_else(String::new, |source| source.geometry_data.to_string()),
+                .map_or_else(String::new, |source| source.geometry_data.to_string())
+                .into(),
             geometry_data_min_engine_version: DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
             arm_size: if arm_size == "slim" {
-                EnumsSharedTypespersonaArmSizeType::Slim
+                PersonaArmSizeType::Slim
             } else {
-                EnumsSharedTypespersonaArmSizeType::Wide
+                PersonaArmSizeType::Wide
             },
             is_primary_user: true,
             ..Default::default()
         },
-        localized_new_skin_name: name.to_owned(),
-        localized_old_skin_name: String::new(),
+        localized_new_skin_name: name.into(),
+        localized_old_skin_name: wire::Str::default(),
     })
 }
 
@@ -120,9 +120,7 @@ mod tests {
         set_skin_packet_engine_version(&mut packet, "1.12.0");
         let encoded = crate::encode(&packet).unwrap();
         let packet = crate::decode_batch(encoded).unwrap().pop().unwrap();
-        let valentine::bedrock::version::v1_26_51::McpePacketData::PlayerSkinPacket(wire) =
-            packet.data
-        else {
+        let packets::Packet::PlayerSkin(wire) = *packet.data else {
             panic!("skin packet")
         };
         assert_eq!(*wire.uuid.as_bytes(), [9; 16]);
@@ -130,13 +128,10 @@ mod tests {
             wire.serialized_skin.image_data.image_bytes,
             skin.rgba8.as_ref()
         );
-        assert_eq!(
-            wire.serialized_skin.arm_size,
-            EnumsSharedTypespersonaArmSizeType::Slim
-        );
+        assert_eq!(wire.serialized_skin.arm_size, PersonaArmSizeType::Slim);
         assert_eq!(
             wire.serialized_skin.geometry_data,
-            skin.geometry.as_ref().unwrap().geometry_data.as_ref()
+            &*skin.geometry.as_ref().unwrap().geometry_data
         );
         assert_eq!(
             wire.serialized_skin.geometry_data_min_engine_version,
@@ -153,15 +148,15 @@ mod tests {
         );
         assert_eq!(
             (
-                wire.serialized_skin.cape_image_data.width,
-                wire.serialized_skin.cape_image_data.height
+                wire.serialized_skin.cape_image_data.width.0,
+                wire.serialized_skin.cape_image_data.height.0
             ),
             (cape.width, cape.height)
         );
-        assert_eq!(wire.serialized_skin.cape_id, cape_content_id(cape));
+        assert_eq!(wire.serialized_skin.cape_id, cape_content_id(cape).as_str());
         assert_eq!(
             wire.serialized_skin.full_id,
-            format!("imported_{}", cape_content_id(cape))
+            format!("imported_{}", cape_content_id(cape)).as_str()
         );
     }
 
@@ -177,9 +172,7 @@ mod tests {
         };
         let mut packet = player_skin_packet([1; 16], &skin, "wide", "selected", "");
         set_skin_packet_uuid(&mut packet, [3; 16]);
-        let valentine::bedrock::version::v1_26_51::McpePacketData::PlayerSkinPacket(wire) =
-            packet.data
-        else {
+        let packets::Packet::PlayerSkin(wire) = *packet.data else {
             panic!("skin packet")
         };
         assert_eq!(wire.uuid.as_bytes(), &[3; 16]);

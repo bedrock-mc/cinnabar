@@ -1,92 +1,93 @@
-use bytes::{Bytes, BytesMut};
 use std::fmt::Debug;
-use valentine::bedrock::codec::BedrockCodec;
-use valentine::bedrock::version::v1_26_51::types::{
-    BookEditActionAddPage, BookEditActionReplacePage, EnumsActorEvent, EnumsActorType,
-    EnumsConnectionDisconnectFailReason, EnumsContainerEnumName, EnumsItemStackRequestActionType,
-    EnumsLegacyTelemetryEventPacketPayloadType, EnumsPhotoType, EnumsPlayStatus,
-    ResourcePackClientResponseCanceljson, ResourcePackClientResponseDownloadingFinishedjson,
-    ResourcePackClientResponseDownloadingjson, ResourcePackClientResponsePacketResponse,
-    ResourcePackClientResponseResourcePackStackFinishedjson,
+
+use bedrock_protocol_1_26_51::enums::{
+    ActorEventType, ActorType, ConnectionDisconnectFailReason, ContainerEnumName,
+    ItemStackRequestActionType, LegacyTelemetryType, PhotoType, PlayStatusType,
 };
+use bedrock_protocol_1_26_51::types::{
+    BookEditAction, EventData, ResourcePackClientResponseData, StackRequestAction,
+};
+use bedrock_protocol_1_26_51::wire::{self, Decode, Encode};
 
 fn assert_wire<T>(value: T, expected: &[u8])
 where
-    T: BedrockCodec<Args = ()> + PartialEq + Debug,
+    T: Encode + Decode + PartialEq + Debug,
 {
-    let mut encoded = BytesMut::new();
-    value.encode(&mut encoded).expect("encode value");
-    assert_eq!(encoded.as_ref(), expected);
-
-    let mut input = encoded.freeze();
-    let decoded = T::decode(&mut input, ()).expect("decode value");
-    assert_eq!(decoded, value);
-    assert!(input.is_empty());
+    let encoded = value.encode_to_vec().expect("encode value");
+    assert_eq!(encoded.as_slice(), expected);
+    assert_eq!(T::decode_exact(&encoded).expect("decode value"), value);
 }
 
 #[test]
 fn generated_unknown_enum_values_keep_their_wire_numbers() {
-    // Protocolgen no longer emits placeholder `ReservedN` variants. It does
-    // preserve unsupported values through generated unknown-value arms where the
-    // authoritative schema marks the enum open.
-    assert_wire(EnumsActorEvent::Unknown(9), &[9]);
-    assert_wire(EnumsActorEvent::Unknown(255), &[255]);
-    assert_wire(EnumsContainerEnumName::Unknown(250), &[250]);
-    assert_wire(EnumsItemStackRequestActionType::Unknown(250), &[250]);
-    assert_wire(EnumsPlayStatus::Unknown(10), &[0, 0, 0, 10]);
+    // Unsupported values survive through the generated unknown-value arms.
+    assert_wire(ActorEventType::Unknown(9), &[9]);
+    assert_wire(ActorEventType::Unknown(255), &[255]);
+    assert_wire(ContainerEnumName::Unknown(250), &[250]);
+    assert_wire(ItemStackRequestActionType::Unknown(250), &[250]);
+    assert_wire(PlayStatusType::Unknown(10), &[0, 0, 0, 10]);
 }
 
 #[test]
-fn reserved_telemetry_values_keep_their_wire_numbers() {
-    assert_wire(EnumsLegacyTelemetryEventPacketPayloadType::Reserved8, &[16]);
-    assert_wire(EnumsLegacyTelemetryEventPacketPayloadType::Reserved9, &[18]);
+fn education_telemetry_values_keep_their_wire_numbers() {
+    assert_wire(LegacyTelemetryType::AgentcommandObsolete, &[16]);
+    assert_wire(LegacyTelemetryType::Agentcreated, &[18]);
 }
 
 #[test]
-fn reserved_shared_enum_values_keep_their_wire_numbers() {
-    assert_wire(EnumsPlayStatus::Reserved5, &[0, 0, 0, 5]);
-    assert_wire(EnumsPlayStatus::Reserved6, &[0, 0, 0, 6]);
-    assert_wire(EnumsConnectionDisconnectFailReason::Reserved11, &[22]);
+fn education_shared_enum_values_keep_their_wire_numbers() {
     assert_wire(
-        EnumsConnectionDisconnectFailReason::Reserved131,
+        PlayStatusType::LoginfailedEditionmismatchedutovanilla,
+        &[0, 0, 0, 5],
+    );
+    assert_wire(
+        PlayStatusType::LoginfailedEditionmismatchvanillatoedu,
+        &[0, 0, 0, 6],
+    );
+    assert_wire(
+        ConnectionDisconnectFailReason::Edulevelsettingsmissing,
+        &[22],
+    );
+    assert_wire(
+        ConnectionDisconnectFailReason::Editionmismatchvanillatoedu,
         &[0x86, 0x02],
     );
     assert_wire(
-        EnumsConnectionDisconnectFailReason::Reserved132,
+        ConnectionDisconnectFailReason::Editionmismatchedutovanilla,
         &[0x88, 0x02],
     );
-    assert_wire(EnumsActorType::Reserved78, &[0x9c, 0x01]);
-    assert_wire(EnumsActorType::Reserved107, &[0xd6, 0x01]);
-    assert_wire(EnumsActorType::Reserved312, &[0xf0, 0x04]);
-    assert_wire(EnumsActorType::Reserved318, &[0xfc, 0x04]);
-    assert_wire(EnumsActorType::Reserved4194410, &[0xd4, 0x81, 0x80, 0x04]);
-    assert_wire(EnumsActorType::Npc, &[0xe6, 0x04]);
-    assert_wire(EnumsActorEvent::Reserved36, &[36]);
-    assert_wire(EnumsActorEvent::Reserved71, &[71]);
-    assert_wire(EnumsActorEvent::Reserved73, &[73]);
-    assert_wire(EnumsPhotoType::Reserved0, &[0]);
-    assert_wire(EnumsPhotoType::Reserved1, &[1]);
-    assert_wire(EnumsPhotoType::Book, &[2]);
-    assert_eq!(EnumsPhotoType::default(), EnumsPhotoType::Reserved0);
+    assert_wire(ActorType::Chalkboard, &[0x9c, 0x01]);
+    assert_wire(ActorType::Balloon, &[0xd6, 0x01]);
+    assert_wire(ActorType::Agent, &[0xf0, 0x04]);
+    assert_wire(ActorType::Tripodcamera, &[0xfc, 0x04]);
+    assert_wire(ActorType::Icebomb, &[0xd4, 0x81, 0x80, 0x04]);
+    assert_wire(ActorType::Npc, &[0xe6, 0x04]);
+    assert_wire(ActorEventType::AgentSwingArm, &[36]);
+    assert_wire(ActorEventType::BalloonPop, &[71]);
+    assert_wire(ActorEventType::SummonAgent, &[73]);
+    assert_wire(PhotoType::Portfolio, &[0]);
+    assert_wire(PhotoType::Photoitem, &[1]);
+    assert_wire(PhotoType::Book, &[2]);
+    assert_eq!(PhotoType::default(), PhotoType::Portfolio);
 }
 
 #[test]
-fn renamed_book_photo_name_field_keeps_its_wire_shape() {
+fn book_page_actions_keep_their_selector_and_photo_name() {
     assert_wire(
-        BookEditActionAddPage {
-            page_index: 0,
+        BookEditAction::AddPage {
+            page_index: wire::ZigZag32(0),
             page_text: "x".into(),
             photo_name: "y".into(),
         },
-        &[0, 1, b'x', 1, b'y'],
+        &[1, 0, 1, b'x', 1, b'y'],
     );
     assert_wire(
-        BookEditActionReplacePage {
-            page_index: 0,
+        BookEditAction::ReplacePage {
+            page_index: wire::ZigZag32(0),
             page_text: "x".into(),
             photo_name: "y".into(),
         },
-        &[0, 1, b'x', 1, b'y'],
+        &[0, 0, 1, b'x', 1, b'y'],
     );
 }
 
@@ -96,40 +97,34 @@ fn resource_pack_client_response_keeps_vanilla_wire_numbers() {
     // downloadingfinished=2, resourcepackstackfinished=3. A one-based tag makes a
     // server read `downloading` as `downloadingfinished` and abandon the pack list.
     assert_wire(
-        ResourcePackClientResponsePacketResponse::Cancel(ResourcePackClientResponseCanceljson {
-            response_type: "cancel".to_string(),
-        }),
+        ResourcePackClientResponseData::Cancel {
+            response_type: "cancel".into(),
+        },
         &[0, 6, b'c', b'a', b'n', b'c', b'e', b'l'],
     );
     assert_wire(
-        ResourcePackClientResponsePacketResponse::Downloading(
-            ResourcePackClientResponseDownloadingjson {
-                response_type: "downloading".to_string(),
-                downloading_packs: vec!["a_1.0.0".to_string()],
-            },
-        ),
+        ResourcePackClientResponseData::Downloading {
+            response_type: "downloading".into(),
+            downloading_packs: vec!["a_1.0.0".into()],
+        },
         &[
             1, 11, b'd', b'o', b'w', b'n', b'l', b'o', b'a', b'd', b'i', b'n', b'g', 1, 7, b'a',
             b'_', b'1', b'.', b'0', b'.', b'0',
         ],
     );
     assert_wire(
-        ResourcePackClientResponsePacketResponse::DownloadingFinished(
-            ResourcePackClientResponseDownloadingFinishedjson {
-                response_type: "downloadingfinished".to_string(),
-            },
-        ),
+        ResourcePackClientResponseData::DownloadingFinished {
+            response_type: "downloadingfinished".into(),
+        },
         &[
             2, 19, b'd', b'o', b'w', b'n', b'l', b'o', b'a', b'd', b'i', b'n', b'g', b'f', b'i',
             b'n', b'i', b's', b'h', b'e', b'd',
         ],
     );
     assert_wire(
-        ResourcePackClientResponsePacketResponse::ResourcePackStackFinished(
-            ResourcePackClientResponseResourcePackStackFinishedjson {
-                response_type: "resourcepackstackfinished".to_string(),
-            },
-        ),
+        ResourcePackClientResponseData::ResourcePackStackFinished {
+            response_type: "resourcepackstackfinished".into(),
+        },
         &[
             3, 25, b'r', b'e', b's', b'o', b'u', b'r', b'c', b'e', b'p', b'a', b'c', b'k', b's',
             b't', b'a', b'c', b'k', b'f', b'i', b'n', b'i', b's', b'h', b'e', b'd',
@@ -139,12 +134,70 @@ fn resource_pack_client_response_keeps_vanilla_wire_numbers() {
 
 #[test]
 fn resource_pack_client_response_selector_is_varuint32() {
-    let mut input = Bytes::from_static(&[0x80, 0x01]);
-    let error = ResourcePackClientResponsePacketResponse::decode(&mut input, ())
+    let input = [0x80, 0x01];
+    let mut reader = wire::Reader::new(&input);
+    let error = ResourcePackClientResponseData::decode(&mut reader)
         .expect_err("reserved selector 128 must be rejected after decoding its full varuint32");
-    assert!(input.is_empty(), "the two-byte varuint32 must be consumed");
+    assert_eq!(
+        reader.position(),
+        2,
+        "the two-byte varuint32 must be consumed"
+    );
     assert!(matches!(
         error,
-        valentine::bedrock::error::DecodeError::InvalidEnumValue { value: 128, .. }
+        wire::DecodeError::UnknownVariant { value: 128, .. }
     ));
+}
+
+/// Education container names 35..=40 decode as named values and re-encode byte for byte.
+#[test]
+fn education_container_names_round_trip() {
+    for value in 35..=40_u8 {
+        let name = ContainerEnumName::decode_exact(&[value]).expect("named container");
+        assert!(!matches!(name, ContainerEnumName::Unknown(_)), "{value}");
+        assert_wire(name, &[value]);
+    }
+}
+
+/// The lab-table action keeps both its union selector (7) and its action type (9), and is
+/// distinct from the retail mine-block action.
+#[test]
+fn lab_table_stack_action_keeps_both_wire_tags() {
+    assert_wire(ItemStackRequestActionType::Screenlabtablecombine, &[9]);
+    assert_wire(
+        StackRequestAction::LabTableCombineActionData {
+            action_type: ItemStackRequestActionType::Screenlabtablecombine,
+        },
+        &[7, 9],
+    );
+    for truncated in [&[][..], &[7][..]] {
+        assert!(StackRequestAction::decode_exact(truncated).is_err());
+    }
+    let retail =
+        StackRequestAction::decode_exact(&[9, 11, 0, 0, 0, 0, 0, 0]).expect("mine-block action");
+    assert!(matches!(
+        retail,
+        StackRequestAction::MineBlockActionData { .. }
+    ));
+    assert_eq!(retail.encode_to_vec().unwrap(), [9, 11, 0, 0, 0, 0, 0, 0]);
+}
+
+/// Code Builder telemetry keeps its enum values and its union selectors 18 and 19.
+#[test]
+fn code_builder_telemetry_keeps_enum_and_union_selectors() {
+    assert_wire(LegacyTelemetryType::Codebuilderruntimeaction, &[52]);
+    assert_wire(LegacyTelemetryType::Codebuilderscoreboard, &[54]);
+    assert_wire(
+        EventData::CodeBuilderRuntimeAction {
+            code_builder_runtime_action: wire::Str::default(),
+        },
+        &[18, 0],
+    );
+    assert_wire(
+        EventData::CodeBuilderScoreboard {
+            objective_name: wire::Str::default(),
+            score: wire::ZigZag32(-2),
+        },
+        &[19, 0, 3],
+    );
 }

@@ -35,10 +35,10 @@ fn blob_cache_delta_cost() {
                     vec![hash],
                 )))
                 .unwrap();
-            let response = ClientCacheMissResponsePacket {
-                missing_blobs: vec![valentine::bedrock::version::v1_26_51::MissingBlobData {
-                    blob_id: hash,
-                    blob_data: payload.to_vec(),
+            let response = ClientCacheMissResponse {
+                missing_blobs: vec![MissingBlobData {
+                    blob_id: wire::U64LE(hash),
+                    blob_data: payload.to_vec().into(),
                 }],
             };
             let start = std::time::Instant::now();
@@ -47,10 +47,10 @@ fn blob_cache_delta_cost() {
             let Some(BlobCacheReady::Packet(packet)) = resolver.pop_ready() else {
                 panic!("resolved packet")
             };
-            let McpePacketData::LevelChunkPacket(packet) = packet.data else {
+            let packets::Packet::LevelChunk(packet) = *packet.data else {
                 panic!("level chunk")
             };
-            assert_eq!(packet.serialized_chunk_data, payload);
+            assert_eq!(&packet.serialized_chunk_data[..], payload);
         }
         insert_us.sort_by(f64::total_cmp);
         response_us.sort_by(f64::total_cmp);

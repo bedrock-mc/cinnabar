@@ -1,32 +1,33 @@
 use crate::{BossAction, BossEvent, Packet};
-use valentine::bedrock::version::v1_26_51::{
-    ActorUniqueId, BossEventPacket, EnumsBossBarColor, EnumsBossBarOverlay,
-    EnumsBossEventUpdateType,
-};
+use bedrock_protocol_1_26_51::enums::{BossBarColor, BossBarOverlay, BossEventUpdateType};
+use bedrock_protocol_1_26_51::packets::BossEvent as BossEventPacket;
+use bedrock_protocol_1_26_51::types::ActorUniqueID;
+use bedrock_protocol_1_26_51::wire;
 
 /// Acknowledges a changed boss subscription using the boss's unique identity.
 #[must_use]
 pub fn boss_registration_response(event: &BossEvent) -> Option<Packet> {
     let event_type = match event.action {
-        BossAction::Show => EnumsBossEventUpdateType::Playeradded,
-        BossAction::Hide => EnumsBossEventUpdateType::Playerremoved,
+        BossAction::Show => BossEventUpdateType::Playeradded,
+        BossAction::Hide => BossEventUpdateType::Playerremoved,
         _ => return None,
     };
     let (name, filtered_name) = if event.action == BossAction::Show {
-        (event.title.to_string(), event.filtered_title.to_string())
+        (
+            wire::Str::from(&*event.title),
+            wire::Str::from(&*event.filtered_title),
+        )
     } else {
-        (String::new(), String::new())
+        (wire::Str::default(), wire::Str::default())
     };
     Some(crate::Packet::new(BossEventPacket {
-        target_actor_id: ActorUniqueId {
-            actor_unique_id: event.target_entity_id,
-        },
+        target_actor_id: ActorUniqueID(event.target_entity_id),
         event_type,
         name,
         filtered_name,
-        health_percent: 0.0,
-        color: EnumsBossBarColor::Blue,
-        overlay: EnumsBossBarOverlay::Progress,
+        health_percent: wire::F32LE(0.0),
+        color: BossBarColor::Blue,
+        overlay: BossBarOverlay::Progress,
     }))
 }
 
@@ -34,7 +35,8 @@ pub fn boss_registration_response(event: &BossEvent) -> Option<Packet> {
 mod tests {
     use super::*;
     use crate::{BossColor, BossOverlay, BossStyle};
-    use valentine::bedrock::codec::BedrockCodec;
+    use bedrock_protocol_1_26_51::packets;
+    use bedrock_protocol_1_26_51::wire::{Decode, Encode};
 
     #[test]
     fn subscription_replies_match_the_wire_and_preserve_signed_boss_identity() {
@@ -63,21 +65,13 @@ mod tests {
         ] {
             event.action = action;
             let packet = boss_registration_response(&event).unwrap();
-            let valentine::bedrock::version::v1_26_51::McpePacketData::BossEventPacket(packet) =
-                packet.data
-            else {
+            let packets::Packet::BossEvent(packet) = *packet.data else {
                 panic!("wrong response packet");
             };
-            let mut bytes = Vec::new();
-            packet.encode(&mut bytes).unwrap();
+            let bytes = packet.encode_to_vec().unwrap();
             assert_eq!(bytes, expected);
-            let mut remaining = expected;
-            let decoded = BossEventPacket::decode(&mut remaining, ()).unwrap();
-            assert!(remaining.is_empty());
-            assert_eq!(
-                decoded.target_actor_id.actor_unique_id,
-                event.target_entity_id
-            );
+            let decoded = BossEventPacket::decode_exact(expected).unwrap();
+            assert_eq!(decoded.target_actor_id.0, event.target_entity_id);
             assert_eq!(decoded.event_type, packet.event_type);
         }
         event.action = BossAction::SetProgress;

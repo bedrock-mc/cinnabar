@@ -1,5 +1,5 @@
 $expectedAxolotlStackRevision = 'c4540512dc47833bb40363da7ad1161110d64b67'
-$expectedProtocolgenRevision = '0b8f17e3b321f7cb89e21dc8563398b9981e632f'
+$expectedProtocolgenRevision = 'dec7334ac3981b0b79146fa53c82af91d70f9f62'
 $expectedLicenseSha256 = '62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
 
 $validationSource = Get-Content -Raw -LiteralPath `
@@ -12,6 +12,8 @@ Assert-True (-not $validationSource.Contains('$PinnedValentineForkCommit')) `
     'acceptance validation references the removed Valentine fork pin'
 Assert-True (-not $validationSource.Contains('$PinnedValentineUpstreamCommit')) `
     'acceptance validation references the removed Valentine upstream pin'
+Assert-True (-not $validationSource.Contains('$PinnedValentineLicenseSha256')) `
+    'acceptance validation references the renamed Valentine license pin'
 
 . (Join-Path $ProjectRoot 'scripts\acceptance\Gophertunnel.ps1')
 . (Join-Path $ProjectRoot 'scripts\acceptance\Markers.ps1')
@@ -165,13 +167,13 @@ Assert-GophertunnelPinFixtures
 
 $PinnedAxolotlStackCommit = $expectedAxolotlStackRevision
 $PinnedProtocolgenCommit = $expectedProtocolgenRevision
-$PinnedValentineLicenseSha256 = $expectedLicenseSha256
+$PinnedJolyneLicenseSha256 = $expectedLicenseSha256
 $protocolMetadata = Get-ProtocolDependencyProvenanceMetadata
 Assert-Equal 4 $protocolMetadata.Count 'protocol provenance metadata added or omitted a field'
 Assert-Equal 'vendored-path' $protocolMetadata.protocol_dependency_resolution 'protocol dependency resolution metadata drifted'
 Assert-Equal $expectedAxolotlStackRevision $protocolMetadata.pinned_axolotl_stack_commit 'Axolotl Stack metadata drifted'
 Assert-Equal $expectedProtocolgenRevision $protocolMetadata.pinned_protocolgen_commit 'protocolgen metadata drifted'
-Assert-Equal $expectedLicenseSha256 $protocolMetadata.pinned_valentine_license_sha256 'retained license metadata drifted'
+Assert-Equal $expectedLicenseSha256 $protocolMetadata.pinned_jolyne_license_sha256 'retained license metadata drifted'
 
 function Copy-ProtocolDependencyProvenanceFixture {
     param(
@@ -225,25 +227,25 @@ $null = Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
 $manifestPath = Join-Path $fixtureRoot 'crates\protocol\Cargo.toml'
 $canonicalManifest = Get-Content -Raw -LiteralPath $manifestPath
 Set-Content -LiteralPath $manifestPath -NoNewline -Value `
-    $canonicalManifest.Replace('path = "vendor/valentine"', 'path = "..\outside\valentine"')
+    $canonicalManifest.Replace('path = "vendor/bedrock-protocol-1-26-51"', 'path = "..\outside\bedrock-protocol-1-26-51"')
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
-} '*cargo metadata*' 'protocol provenance accepted a drifted Valentine path declaration'
+} '*cargo metadata*' 'protocol provenance accepted a drifted codec path declaration'
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
 
 $vendorRoot = Join-Path $fixtureRoot 'crates\protocol\vendor'
-Copy-Item -LiteralPath (Join-Path $vendorRoot 'valentine') `
-    -Destination (Join-Path $vendorRoot 'valentine-decoy') -Recurse
+Copy-Item -LiteralPath (Join-Path $vendorRoot 'bedrock-protocol-1-26-51') `
+    -Destination (Join-Path $vendorRoot 'bedrock-protocol-1-26-51-decoy') -Recurse
 $canonicalStringDecoys = @'
 [dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }
+bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
 '@
 $quotedWrongPaths = $canonicalManifest.Replace(
     'publish = false',
     "publish = false`ndescription = `"`"`"`n$canonicalStringDecoys`n`"`"`""
 ).Replace(
-    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }',
-    '"valentine" = { path = "vendor/valentine-decoy", default-features = false, features = ["bedrock_1_26_51"] }'
+    'bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }',
+    '"bedrock-protocol-1-26-51" = { path = "vendor/bedrock-protocol-1-26-51-decoy" }'
 )
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $quotedWrongPaths
 Assert-ThrowsLike {
@@ -254,24 +256,24 @@ Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
 Set-Content -LiteralPath $manifestPath -NoNewline -Value ($canonicalManifest + @'
 
 [target.'cfg(unix)'.dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }
+bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
 '@)
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
-} '*valentine*exactly once*' 'protocol provenance accepted an additional target-table Valentine declaration'
+} '*bedrock-protocol-1-26-51*exactly once*' 'protocol provenance accepted an additional target-table codec declaration'
 
 $inactiveDecoy = $canonicalManifest.Replace(
-    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }',
-    '# active Valentine declaration removed'
+    'bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }',
+    '# active codec declaration removed'
 ) + @'
 
 [target.'cfg(unix)'.dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }
+bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
 '@
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $inactiveDecoy
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
-} '*valentine*normal non-target*' 'protocol provenance accepted an inactive target-table Valentine decoy'
+} '*bedrock-protocol-1-26-51*normal non-target*' 'protocol provenance accepted an inactive target-table codec decoy'
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
 
 $upstreamPath = Join-Path $fixtureRoot 'crates\protocol\vendor\UPSTREAM.md'
@@ -299,16 +301,16 @@ Set-Content -LiteralPath $licensePath -NoNewline -Value $canonicalLicense
 $lockPath = Join-Path $fixtureRoot 'Cargo.lock'
 $canonicalLock = Get-Content -Raw -LiteralPath $lockPath
 $driftedLock = $canonicalLock.Replace(
-    "name = `"valentine`"`r`nversion = `"0.1.0`"",
-    "name = `"valentine`"`r`nversion = `"0.1.0`"`r`n   source   = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedAxolotlStackRevision#$expectedAxolotlStackRevision`""
+    "name = `"bedrock-protocol-1-26-51`"`r`nversion = `"0.1.0`"",
+    "name = `"bedrock-protocol-1-26-51`"`r`nversion = `"0.1.0`"`r`n   source   = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedAxolotlStackRevision#$expectedAxolotlStackRevision`""
 )
 if ($driftedLock -ceq $canonicalLock) {
     $driftedLock = $canonicalLock.Replace(
-        "name = `"valentine`"`nversion = `"0.1.0`"",
-        "name = `"valentine`"`nversion = `"0.1.0`"`n   source   = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedAxolotlStackRevision#$expectedAxolotlStackRevision`""
+        "name = `"bedrock-protocol-1-26-51`"`nversion = `"0.1.0`"",
+        "name = `"bedrock-protocol-1-26-51`"`nversion = `"0.1.0`"`n   source   = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedAxolotlStackRevision#$expectedAxolotlStackRevision`""
     )
 }
-Assert-True ($driftedLock -cne $canonicalLock) 'lock drift fixture did not mutate Valentine resolution'
+Assert-True ($driftedLock -cne $canonicalLock) 'lock drift fixture did not mutate codec resolution'
 Set-Content -LiteralPath $lockPath -NoNewline -Value $driftedLock
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
@@ -316,16 +318,16 @@ Assert-ThrowsLike {
 Set-Content -LiteralPath $lockPath -NoNewline -Value $canonicalLock
 
 $driftedLock = $canonicalLock.Replace(
-    "name = `"valentine`"`r`nversion = `"0.1.0`"",
-    "name = `"valentine`"`r`nversion = `"0.1.0`"`r`n`tchecksum = `"$('2' * 64)`""
+    "name = `"bedrock-protocol-1-26-51`"`r`nversion = `"0.1.0`"",
+    "name = `"bedrock-protocol-1-26-51`"`r`nversion = `"0.1.0`"`r`n`tchecksum = `"$('2' * 64)`""
 )
 if ($driftedLock -ceq $canonicalLock) {
     $driftedLock = $canonicalLock.Replace(
-        "name = `"valentine`"`nversion = `"0.1.0`"",
-        "name = `"valentine`"`nversion = `"0.1.0`"`n`tchecksum = `"$('2' * 64)`""
+        "name = `"bedrock-protocol-1-26-51`"`nversion = `"0.1.0`"",
+        "name = `"bedrock-protocol-1-26-51`"`nversion = `"0.1.0`"`n`tchecksum = `"$('2' * 64)`""
     )
 }
-Assert-True ($driftedLock -cne $canonicalLock) 'checksum drift fixture did not mutate Valentine resolution'
+Assert-True ($driftedLock -cne $canonicalLock) 'checksum drift fixture did not mutate codec resolution'
 Set-Content -LiteralPath $lockPath -NoNewline -Value $driftedLock
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot

@@ -2,6 +2,19 @@
 
 use std::time::Duration;
 
+use bedrock_protocol_1_26_51::enums::{
+    ConnectionDisconnectFailReason, PlayStatusType, ServerboundLoadingScreenType,
+};
+use bedrock_protocol_1_26_51::packets::{
+    self, ChunkRadiusUpdated, ClientCacheBlobStatus, ClientCacheMissResponse, ClientCacheStatus,
+    Disconnect, ItemRegistry, LevelChunk, NetworkStackLatency, PacketId, PlayStatus,
+    RequestChunkRadius, ServerboundLoadingScreen, SetLocalPlayerAsInitialized, SetTime, StartGame,
+};
+use bedrock_protocol_1_26_51::types::{
+    ActorRuntimeID, ChunkPos, DimensionType, DisconnectMessages, ItemData, MissingBlobData,
+    SubChunkMetadata,
+};
+use bedrock_protocol_1_26_51::wire::{self, Encode};
 use bridge::contract::{KIND_BATCH, KIND_CONNECT, KIND_DISCONNECT, KIND_HANDOFF, KIND_TRANSFER};
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::{SinkExt, StreamExt};
@@ -9,18 +22,6 @@ use protocol::{
     ClientBlobCache, GameData, LoginSequence, Packet, PlaySession, ProtocolError, WorldEvent,
 };
 use tokio::sync::mpsc;
-use valentine::bedrock::codec::BedrockCodec;
-use valentine::bedrock::version::v1_26_51::{
-    ActorRuntimeId, ChunkPos, ChunkRadiusUpdatedPacket, ClientCacheBlobStatusPacket,
-    ClientCacheMissResponsePacket, ClientCacheStatusPacket, DimensionType, DisconnectPacket,
-    DisconnectPacketMessages, EnumsConnectionDisconnectFailReason, EnumsPlayStatus,
-    EnumsServerboundLoadingScreenPacketType, ItemData, ItemRegistryPacket, LevelChunkPacket,
-    LevelChunkPacketPayloadSubChunkMetadata, McpePacketData, McpePacketName, MissingBlobData,
-    NetworkStackLatencyPacket, PlayStatusPacket, RequestChunkRadiusPacket,
-    ServerboundLoadingScreenPacket, SetLocalPlayerAsInitializedPacket, SetTimePacket,
-    StartGamePacket,
-};
-use valentine::protocol::wire;
 
 #[path = "login_state/camera_instructions.rs"]
 mod camera_instructions;
@@ -33,7 +34,8 @@ mod level_chunk_wire_failure;
 #[path = "login_state/modal_forms.rs"]
 mod modal_forms;
 use disconnect_reason::{
-    PlayEpilogue, boundary_epilogue, camera_instruction_epilogue_packets, truncated_epilogue_wire,
+    PlayEpilogue, boundary_epilogue, camera_instruction_epilogue_packets, skipped_epilogue_wire,
+    truncated_epilogue_wire,
 };
 
 const RUNTIME_ID: u64 = 0x1234_5678;
@@ -95,7 +97,7 @@ impl Core {
             .expect("the core is running");
     }
 
-    fn send_raw_packet(&self, id: McpePacketName, body: &[u8]) {
+    fn send_raw_packet(&self, id: PacketId, body: &[u8]) {
         self.extra
             .send(raw_packet_batch(id, body))
             .expect("the core is running");
@@ -186,14 +188,35 @@ fn batch(packets: &[Packet]) -> Bytes {
 }
 
 /// A Batch frame holding one entry with `body` written verbatim after the packet ID.
-fn raw_packet_batch(id: McpePacketName, body: &[u8]) -> Bytes {
-    let mut packet = BytesMut::new();
-    wire::write_var_u32(&mut packet, id as u32);
+fn raw_packet_batch(id: PacketId, body: &[u8]) -> Bytes {
+    let mut packet = Vec::new();
+    wire::Writer::new(&mut packet)
+        .write_var_u32(id as u32)
+        .unwrap();
     packet.extend_from_slice(body);
-    let mut frame = BytesMut::from(&[KIND_BATCH][..]);
-    wire::write_var_u32(&mut frame, packet.len() as u32);
+    let mut frame = vec![KIND_BATCH];
+    wire::Writer::new(&mut frame)
+        .write_var_u32(packet.len() as u32)
+        .unwrap();
     frame.extend_from_slice(&packet);
-    frame.freeze()
+    frame.into()
+}
+
+/// A LevelChunk body whose sub-chunk request limit, -3, is below the schema's -1 floor.
+fn negative_limit_level_chunk_body() -> Vec<u8> {
+    let mut body = chunk_pos(0, 0).encode_to_vec().unwrap();
+    body.extend(DimensionType(0).encode_to_vec().unwrap());
+    body.extend(wire::VarUInt(0).encode_to_vec().unwrap());
+    body.extend(Some(wire::ZigZag32(-3)).encode_to_vec().unwrap());
+    body.extend(false.encode_to_vec().unwrap());
+    body.extend(wire::VarUInt(0).encode_to_vec().unwrap());
+    body.extend(Bytes::new().encode_to_vec().unwrap());
+    body
+}
+
+/// The generated packets `packets` carry, for slice patterns over a sent batch.
+fn wire_packets(packets: &[Packet]) -> Vec<&packets::Packet> {
+    packets.iter().map(|packet| &*packet.data).collect()
 }
 
 /// The handoff ending at the `startup` packets, with no packs.
@@ -250,32 +273,25 @@ async fn run_core(
     let spawn_request = core.receive_packets().await?;
     assert!(
         matches!(
-            spawn_request.as_slice(),
+            wire_packets(&spawn_request).as_slice(),
             [
-                Packet {
-                    data: McpePacketData::RequestChunkRadiusPacket(RequestChunkRadiusPacket {
-                        chunk_radius: 16,
-                        max_chunk_radius: 16,
-                    }),
+                packets::Packet::RequestChunkRadius(RequestChunkRadius {
+                    chunk_radius: wire::ZigZag32(16),
+                    max_chunk_radius: wire::U8(16),
+                }),
+                packets::Packet::ServerboundLoadingScreen(ServerboundLoadingScreen {
+                    loading_screen_packet_type: ServerboundLoadingScreenType::Startloadingscreen,
                     ..
-                },
-                Packet {
-                    data: McpePacketData::ServerboundLoadingScreenPacket(
-                        ServerboundLoadingScreenPacket {
-                            loading_screen_packet_type:
-                                EnumsServerboundLoadingScreenPacketType::Startloadingscreen,
-                            ..
-                        }
-                    ),
-                    ..
-                },
+                }),
             ]
         ),
         "the client requests its radius and starts loading after StartGame: {spawn_request:?}"
     );
-    let radius = Packet::new(ChunkRadiusUpdatedPacket { chunk_radius: 16 });
-    let spawn = Packet::new(PlayStatusPacket {
-        status: EnumsPlayStatus::Playerspawn,
+    let radius = Packet::new(ChunkRadiusUpdated {
+        chunk_radius: wire::ZigZag32(16),
+    });
+    let spawn = Packet::new(PlayStatus {
+        status: PlayStatusType::Playerspawn,
     });
     let prerequisites = match script.order {
         SpawnOrder::RadiusThenSpawn => [item_registry(), radius, spawn],
@@ -284,30 +300,18 @@ async fn run_core(
     core.send(batch(&prerequisites)).await?;
 
     let finish = core.receive_packets().await?;
+    let finish_packets = wire_packets(&finish);
     assert!(
         matches!(
-            finish.as_slice(),
+            finish_packets.as_slice(),
             [
-                Packet {
-                    data: McpePacketData::ServerboundLoadingScreenPacket(
-                        ServerboundLoadingScreenPacket {
-                            loading_screen_packet_type:
-                                EnumsServerboundLoadingScreenPacketType::Endloadingscreen,
-                            ..
-                        }
-                    ),
+                packets::Packet::ServerboundLoadingScreen(ServerboundLoadingScreen {
+                    loading_screen_packet_type: ServerboundLoadingScreenType::Endloadingscreen,
                     ..
-                },
-                Packet {
-                    data: McpePacketData::SetLocalPlayerAsInitializedPacket(
-                        SetLocalPlayerAsInitializedPacket {
-                            player_id: ActorRuntimeId {
-                                actor_runtime_id: RUNTIME_ID
-                            }
-                        }
-                    ),
-                    ..
-                },
+                }),
+                packets::Packet::SetLocalPlayerAsInitialized(SetLocalPlayerAsInitialized {
+                    player_id: ActorRuntimeID(RUNTIME_ID)
+                }),
             ]
         ),
         "loading ends with one initialization: {finish:?}"
@@ -344,15 +348,14 @@ fn play_traffic(script: &Script) -> Vec<Bytes> {
     }
     match script.cache_play_script {
         CachePlayScript::MalformedLevelChunk => {
-            frames.push(raw_packet_batch(McpePacketName::LevelChunkPacket, &[0xff]));
+            frames.push(raw_packet_batch(PacketId::LevelChunk, &[0xff]));
         }
         CachePlayScript::TrailingLevelChunk => {
-            let mut body = BytesMut::new();
-            LevelChunkPacket::default()
-                .encode(&mut body)
+            let mut body = LevelChunk::default()
+                .encode_to_vec()
                 .expect("encode trailing LevelChunk body");
             body.extend_from_slice(&[0xaa]);
-            frames.push(raw_packet_batch(McpePacketName::LevelChunkPacket, &body));
+            frames.push(raw_packet_batch(PacketId::LevelChunk, &body));
         }
         _ => {}
     }
@@ -372,10 +375,9 @@ fn play_traffic(script: &Script) -> Vec<Bytes> {
                 frames.push(batch(&traffic));
                 frames.extend(terminal);
             }
-            CachePlayScript::TruncatedMissResponse => frames.push(raw_packet_batch(
-                McpePacketName::ClientCacheMissResponsePacket,
-                &[0x01],
-            )),
+            CachePlayScript::TruncatedMissResponse => {
+                frames.push(raw_packet_batch(PacketId::ClientCacheMissResponse, &[0x01]))
+            }
             CachePlayScript::InvalidMissResponseThenTraffic => {
                 let hash = protocol::client_blob_hash(b"semantic-response-wanted");
                 frames.push(batch(&[Packet::new(cached_level_chunk(
@@ -390,28 +392,35 @@ fn play_traffic(script: &Script) -> Vec<Bytes> {
             }
         }
     } else {
-        // A semantically invalid world packet (negative request limit) must be skipped, not
-        // end the session; the following SetTime still arrives in order. Latency probes ride
-        // the same batch: only the from-server probe is answered, scaled, with its flag kept.
+        // A well-framed LevelChunk outside its schema bounds (request limit -3) must be skipped,
+        // not end the session; the following SetTime still arrives in order. Latency probes
+        // ride the same batch: only the from-server probe is answered, scaled, with its flag
+        // kept.
         let mut traffic = vec![
-            Packet::new(LevelChunkPacket {
-                client_request_sub_chunk_limit: Some(-3),
-                ..Default::default()
-            }),
             level_chunk(7, -9, 0x5a, 1024 * 1024),
-            Packet::new(NetworkStackLatencyPacket {
-                creation_time: 777,
+            Packet::new(NetworkStackLatency {
+                creation_time: wire::U64LE(777),
                 is_from_server: true,
             }),
-            Packet::new(NetworkStackLatencyPacket {
-                creation_time: 888,
+            Packet::new(NetworkStackLatency {
+                creation_time: wire::U64LE(888),
                 is_from_server: false,
             }),
             set_time(34_567),
         ];
         traffic.extend(boundary);
         traffic.extend(camera_instruction_epilogue_packets(script.epilogue));
-        frames.push(batch(&traffic));
+        let mut frame =
+            raw_packet_batch(PacketId::LevelChunk, &negative_limit_level_chunk_body()).to_vec();
+        frame.extend_from_slice(&batch(&traffic)[1..]);
+        frames.push(frame.into());
+        if let Some((name, body)) = skipped_epilogue_wire(script.epilogue) {
+            let mut frame = raw_packet_batch(name, body).to_vec();
+            frame.extend_from_slice(
+                &batch(&[set_time(disconnect_reason::EPILOGUE_SENTINEL_TIME)])[1..],
+            );
+            frames.push(frame.into());
+        }
         frames.extend(terminal);
         if let Some((name, body)) = truncated_epilogue_wire(script.epilogue) {
             frames.push(raw_packet_batch(name, body));
@@ -429,15 +438,11 @@ async fn answer(
 ) -> Option<()> {
     // Vanilla preserves the from-server flag in its echo.
     if let [
-        Packet {
-            data:
-                McpePacketData::NetworkStackLatencyPacket(NetworkStackLatencyPacket {
-                    creation_time: 777_000_000,
-                    is_from_server: true,
-                }),
-            ..
-        },
-    ] = packets
+        packets::Packet::NetworkStackLatency(NetworkStackLatency {
+            creation_time: wire::U64LE(777_000_000),
+            is_from_server: true,
+        }),
+    ] = wire_packets(packets)[..]
     {
         return Some(());
     }
@@ -460,21 +465,18 @@ async fn answer(
         let expected_hash = protocol::client_blob_hash(expected);
         assert!(
             matches!(
-                packets,
-                [Packet {
-                    data: McpePacketData::ClientCacheBlobStatusPacket(ClientCacheBlobStatusPacket {
+                wire_packets(packets).as_slice(),
+                [packets::Packet::ClientCacheBlobStatus(ClientCacheBlobStatus {
                         missing_ids,
                         found_ids
-                    }),
-                    ..
-                }] if missing_ids == &[expected_hash] && found_ids.is_empty()
+                    })] if missing_ids == &[wire::U64LE(expected_hash)] && found_ids.is_empty()
             ),
             "the client asks for exactly the missing blob: {packets:?}"
         );
-        let mut response = vec![Packet::new(ClientCacheMissResponsePacket {
+        let mut response = vec![Packet::new(ClientCacheMissResponse {
             missing_blobs: vec![MissingBlobData {
-                blob_id: expected_hash,
-                blob_data: response_payload.to_vec(),
+                blob_id: wire::U64LE(expected_hash),
+                blob_data: Bytes::copy_from_slice(response_payload),
             }],
         })];
         if script.cache_play_script == CachePlayScript::InvalidMissResponseThenTraffic {
@@ -486,13 +488,10 @@ async fn answer(
     *answered = true;
     assert!(
         matches!(
-            packets,
-            [Packet {
-                data: McpePacketData::ClientCacheStatusPacket(ClientCacheStatusPacket {
-                    iscachesupported: true
-                }),
-                ..
-            }]
+            wire_packets(packets).as_slice(),
+            [packets::Packet::ClientCacheStatus(ClientCacheStatus {
+                is_cache_supported: true
+            })]
         ),
         "the test's own play send arrives: {packets:?}"
     );
@@ -501,54 +500,59 @@ async fn answer(
 }
 
 fn start_game(runtime_entity_id: u64) -> Packet {
-    Packet::new(StartGamePacket {
-        runtime_id: ActorRuntimeId {
-            actor_runtime_id: runtime_entity_id,
-        },
+    Packet::new(StartGame {
+        runtime_id: ActorRuntimeID(runtime_entity_id),
         ..Default::default()
     })
 }
 
 fn set_time(time: i32) -> Packet {
-    Packet::new(SetTimePacket { time })
+    Packet::new(SetTime {
+        time: wire::ZigZag32(time),
+    })
 }
 
 /// An uncached overworld column at `x, z` whose payload is `len` copies of `fill`.
 fn level_chunk(x: i32, z: i32, fill: u8, len: usize) -> Packet {
-    Packet::new(LevelChunkPacket {
-        chunk_position: ChunkPos { x, z },
-        dimension_id: DimensionType { value: 0 },
-        subchunks_count: 0,
-        serialized_chunk_data: vec![fill; len],
+    Packet::new(LevelChunk {
+        chunk_position: chunk_pos(x, z),
+        dimension_id: DimensionType(0),
+        sub_chunks_count: wire::VarUInt(0),
+        serialized_chunk_data: vec![fill; len].into(),
         ..Default::default()
     })
 }
 
 /// Builds a cache-enabled LevelChunk for one column referencing `hashes`.
 ///
-/// 1.26.40 writes the blob hashes unconditionally and states cache participation with
+/// The blob hashes are written unconditionally and cache participation is stated with
 /// `cache_enabled`; gophertunnel `packet/level_chunk.go` expects `SubChunkCount + 1` hashes.
-fn cached_level_chunk(x: i32, z: i32, hashes: Vec<u64>, tail: &[u8]) -> LevelChunkPacket {
-    let subchunks_count = u32::try_from(hashes.len().saturating_sub(1)).expect("fixture count");
-    LevelChunkPacket {
-        chunk_position: ChunkPos { x, z },
-        dimension_id: DimensionType { value: 0 },
-        subchunks_count,
+fn cached_level_chunk(x: i32, z: i32, hashes: Vec<u64>, tail: &[u8]) -> LevelChunk {
+    let sub_chunks_count = u32::try_from(hashes.len().saturating_sub(1)).expect("fixture count");
+    LevelChunk {
+        chunk_position: chunk_pos(x, z),
+        dimension_id: DimensionType(0),
+        sub_chunks_count: wire::VarUInt(sub_chunks_count),
         cache_enabled: true,
-        cache_metadata: hashes
-            .into_iter()
-            .map(|blob_id| LevelChunkPacketPayloadSubChunkMetadata { blob_id })
-            .collect(),
-        serialized_chunk_data: tail.to_vec(),
+        cache_metadata: hashes.into_iter().map(SubChunkMetadata).collect(),
+        serialized_chunk_data: Bytes::copy_from_slice(tail),
         ..Default::default()
     }
 }
 
+/// A chunk column position in the generated wire shape.
+fn chunk_pos(x: i32, z: i32) -> ChunkPos {
+    ChunkPos {
+        x: wire::ZigZag32(x),
+        z: wire::ZigZag32(z),
+    }
+}
+
 fn item_registry() -> Packet {
-    Packet::new(ItemRegistryPacket {
+    Packet::new(ItemRegistry {
         item_data: vec![ItemData {
             item_name: "minecraft:shield".into(),
-            item_id: 355,
+            item_id: wire::I16LE(355),
             ..Default::default()
         }],
     })
@@ -615,10 +619,10 @@ async fn play_keeps_startup_order_and_skips_semantic_world_errors() {
         // The preceding malformed chunk was skipped, not fatal.
         assert_eq!(session.world_skip_count(), 1);
 
-        let mut invalid = Packet::new(ClientCacheStatusPacket {
-            iscachesupported: true,
+        let mut invalid = Packet::new(ClientCacheStatus {
+            is_cache_supported: true,
         });
-        invalid.header.id = McpePacketName::PlayStatusPacket;
+        invalid.header.id = PacketId::PlayStatus;
         let error = session
             .send(invalid)
             .await
@@ -626,8 +630,8 @@ async fn play_keeps_startup_order_and_skips_semantic_world_errors() {
         assert!(matches!(error, ProtocolError::HeaderIdMismatch { .. }));
 
         session
-            .send(Packet::new(ClientCacheStatusPacket {
-                iscachesupported: true,
+            .send(Packet::new(ClientCacheStatus {
+                is_cache_supported: true,
             }))
             .await
             .expect("play send");

@@ -29,17 +29,17 @@ async fn assert_level_chunk_wire_failure(cache_enabled: bool, script: CachePlayS
         (
             CachePlayScript::MalformedLevelChunk,
             crate::codec::SessionFailure::PacketDecode { packet_id, .. },
-        ) => assert_eq!(packet_id, McpePacketName::LevelChunkPacket),
+        ) => assert_eq!(packet_id, PacketId::LevelChunk),
         (
             CachePlayScript::TrailingLevelChunk,
             crate::codec::SessionFailure::PacketTrailingBytes { packet_id, .. },
-        ) => assert_eq!(packet_id, McpePacketName::LevelChunkPacket),
+        ) => assert_eq!(packet_id, PacketId::LevelChunk),
         (_, other) => panic!("unexpected LevelChunk failure: {other:?}"),
     }
     assert_eq!(session.decode_error_count(), 1);
     if cache_enabled {
-        // Fatal borrowed-decode recovery clears both the pending transaction
-        // and the armed fast-transfer barrier before later traffic resumes.
+        // Fatal decode recovery clears both the pending transaction and the armed
+        // fast-transfer barrier before later traffic resumes.
         assert_eq!(session.blob_cache_stats().pending_transactions, 0);
         let (event, payload) = session
             .recv_world_event_mapped(0, |_| None, |event, payload| Some((event, payload)))
@@ -56,7 +56,7 @@ async fn assert_level_chunk_wire_failure(cache_enabled: bool, script: CachePlayS
 }
 
 #[tokio::test]
-async fn borrowed_level_chunk_wire_failures_keep_identity_with_and_without_resolver() {
+async fn level_chunk_wire_failures_keep_identity_with_and_without_resolver() {
     for cache_enabled in [false, true] {
         assert_level_chunk_wire_failure(cache_enabled, CachePlayScript::MalformedLevelChunk).await;
         assert_level_chunk_wire_failure(cache_enabled, CachePlayScript::TrailingLevelChunk).await;

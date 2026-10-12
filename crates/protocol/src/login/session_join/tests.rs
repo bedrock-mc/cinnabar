@@ -1,12 +1,14 @@
 use std::path::{Path, PathBuf};
 
+use bedrock_protocol_1_26_51::enums::PlayStatusType;
+use bedrock_protocol_1_26_51::packets::{
+    self, ChunkRadiusUpdated, ItemRegistry, PlayStatus, SetTime, StartGame,
+};
+use bedrock_protocol_1_26_51::types::{ActorRuntimeID, ItemData};
+use bedrock_protocol_1_26_51::wire;
 use bytes::{BufMut, Bytes, BytesMut};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
-use valentine::bedrock::version::v1_26_51::{
-    ActorRuntimeId, ChunkRadiusUpdatedPacket, EnumsPlayStatus, ItemData, ItemRegistryPacket,
-    McpePacketData, PlayStatusPacket, SetTimePacket, StartGamePacket,
-};
 
 use super::*;
 use crate::Packet;
@@ -128,26 +130,26 @@ fn pack_frame(index: u32, bytes: &[u8]) -> Bytes {
 }
 
 fn start_game() -> Packet {
-    crate::Packet::new(StartGamePacket {
-        runtime_id: ActorRuntimeId {
-            actor_runtime_id: RUNTIME_ID,
-        },
+    crate::Packet::new(StartGame {
+        runtime_id: ActorRuntimeID(RUNTIME_ID),
         ..Default::default()
     })
 }
 
 fn spawn_prerequisites() -> Vec<Packet> {
     vec![
-        crate::Packet::new(ItemRegistryPacket {
+        crate::Packet::new(ItemRegistry {
             item_data: vec![ItemData {
                 item_name: "minecraft:shield".into(),
-                item_id: 355,
+                item_id: wire::I16LE(355),
                 ..Default::default()
             }],
         }),
-        crate::Packet::new(ChunkRadiusUpdatedPacket { chunk_radius: 8 }),
-        crate::Packet::new(PlayStatusPacket {
-            status: EnumsPlayStatus::Playerspawn,
+        crate::Packet::new(ChunkRadiusUpdated {
+            chunk_radius: wire::ZigZag32(8),
+        }),
+        crate::Packet::new(PlayStatus {
+            status: PlayStatusType::Playerspawn,
         }),
     ]
 }
@@ -212,7 +214,7 @@ async fn check_handed_off_packs(cached: bool) {
         assert!(
             spawn_requests
                 .iter()
-                .any(|packet| matches!(packet.data, McpePacketData::RequestChunkRadiusPacket(_))),
+                .any(|packet| matches!(&*packet.data, packets::Packet::RequestChunkRadius(_))),
             "the client runs its own spawn sequence"
         );
         core.send(batch_frame(&spawn_prerequisites())).await;
@@ -275,9 +277,9 @@ async fn check_handed_off_packs(cached: bool) {
     session.finish_loading().await.expect("presentation ready");
     let finish = core.receive_packets().await;
     assert!(finish.iter().any(|packet| matches!(
-        &packet.data,
-        McpePacketData::SetLocalPlayerAsInitializedPacket(initialized)
-            if initialized.player_id.actor_runtime_id == RUNTIME_ID
+        &*packet.data,
+        packets::Packet::SetLocalPlayerAsInitialized(initialized)
+            if initialized.player_id.0 == RUNTIME_ID
     )));
 }
 
@@ -289,7 +291,11 @@ async fn a_startup_longer_than_one_batch_still_joins() {
     let settings = LoginSettings::default();
     let listener = listen(dir.path());
     let mut startup: Vec<Packet> = (0..2_000)
-        .map(|time| crate::Packet::new(SetTimePacket { time }))
+        .map(|time| {
+            crate::Packet::new(SetTime {
+                time: wire::ZigZag32(time),
+            })
+        })
         .collect();
     startup.push(start_game());
     let core = async {

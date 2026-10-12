@@ -4,7 +4,9 @@
   "server_version": "1.26.52.3",
   "bds_container_image": "itzg/minecraft-bedrock-server:2026.9.2@sha256:244e72a36a3e3d69c588cbeefe6d8f6f97c48869b801718a4023570654e3b3d9",
   "wire_protocol": 2193,
-  "codec_feature": "bedrock_1_26_51",
+  "codec_crate": "bedrock-protocol-1-26-51",
+  "codec_contract": 1,
+  "codec_manifest_sha256": "7a0ce6c98c247c0ea12b809b1010e696e5110cd11993fdb9915acb5567f00466",
   "hashes": {
     "block_registry": "f94b480b472317a79652010605fea589cfd7031c4b1d72a38c1b6fa11bd14af4",
     "light_registry": "e5276ff486048d46a7d70ee2a5e2bffb0dfe841a31bd69f1a1d72aba180e5be7",

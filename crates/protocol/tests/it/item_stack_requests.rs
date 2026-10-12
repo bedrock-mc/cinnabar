@@ -208,30 +208,37 @@ fn negative_stack_ids_name_prior_predictions_or_this_requests_created_output() {
     ];
     let packet = item_stack_request_packet(-7, &chained).unwrap();
     let mut packets = decode_batch(encode(&packet).unwrap()).unwrap();
-    use valentine::bedrock::version::v1_26_51::{
-        ItemStackRequestPacketDataRequestDataActionsItem as Action, McpePacketData,
-    };
-    let McpePacketData::ItemStackRequestPacket(decoded) = packets.pop().unwrap().data else {
+    use bedrock_protocol_1_26_51::packets::Packet as WirePacket;
+    use bedrock_protocol_1_26_51::types::StackRequestAction as Action;
+    let WirePacket::ItemStackRequest(decoded) = *packets.pop().unwrap().data else {
         panic!()
     };
     let [
-        Action::TakeActionData(previous),
-        Action::TakeActionData(created),
+        Action::TakeActionData {
+            source: previous_source,
+            destination: previous_destination,
+            ..
+        },
+        Action::TakeActionData {
+            source: created_source,
+            destination: created_destination,
+            ..
+        },
     ] = decoded.requests[0].actions.as_slice()
     else {
         panic!()
     };
     assert_eq!(
         (
-            previous.source.net_id_variant,
-            previous.destination.net_id_variant
+            previous_source.net_id_variant.0,
+            previous_destination.net_id_variant.0
         ),
         (-5, -3)
     );
     assert_eq!(
         (
-            created.source.net_id_variant,
-            created.destination.net_id_variant
+            created_source.net_id_variant.0,
+            created_destination.net_id_variant.0
         ),
         (-7, -5)
     );

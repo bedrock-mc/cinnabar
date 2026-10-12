@@ -158,6 +158,8 @@ fn move_player(x: f32, yaw: f32, pitch: f32, tick: u64) -> WorldEvent {
         on_ground: true,
         teleported: false,
         source_tick: tick,
+        riding_runtime_id: 0,
+        teleport_cause: None,
     })
 }
 

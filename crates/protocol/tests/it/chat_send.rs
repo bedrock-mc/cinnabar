@@ -1,32 +1,34 @@
 use std::sync::Arc;
 
+use bedrock_protocol_1_26_51::enums::TextPacketType;
+use bedrock_protocol_1_26_51::packets::{self, PacketId};
+use bedrock_protocol_1_26_51::types::TextData;
 use protocol::{
     ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteEvent, ChatPacketError,
     chat_input_packet, chat_text_packet, decode_batch, encode,
-};
-use valentine::bedrock::version::v1_26_51::{
-    McpePacketData, McpePacketName, TextPacketBody, TextPacketPayloadAuthorAndMessageMessageType,
 };
 
 #[test]
 fn outbound_chat_uses_exact_authored_text_shape() {
     let packet = chat_text_packet("RustMCBE", "1234", "hello server").unwrap();
-    let McpePacketData::TextPacket(packet) = packet.data else {
+    let packets::Packet::Text(packet) = *packet.data else {
         panic!("expected text packet")
     };
     assert!(!packet.localize);
     // The union tag is the category byte gophertunnel derives from the message
     // type: TextTypeChat is written as TextCategoryAuthoredMessage.
-    let TextPacketBody::AuthorAndMessage(body) = packet.body else {
+    let TextData::AuthorAndMessage {
+        message_type,
+        player_name,
+        message,
+    } = packet.body
+    else {
         panic!("expected authored chat body")
     };
-    assert_eq!(
-        body.message_type,
-        TextPacketPayloadAuthorAndMessageMessageType::Chat
-    );
-    assert_eq!(body.player_name, "RustMCBE");
-    assert_eq!(body.message, "hello server");
-    assert_eq!(packet.senders_xuid, "1234");
+    assert_eq!(message_type, TextPacketType::Chat);
+    assert_eq!(player_name, "RustMCBE");
+    assert_eq!(message, "hello server");
+    assert_eq!(packet.sender_xuid, "1234");
     assert!(packet.platform_id.is_empty());
     assert!(packet.filtered_message.is_none());
 }
@@ -42,10 +44,35 @@ fn outbound_chat_rejects_empty_and_oversized_fields() {
         Err(ChatPacketError::MessageTooLong { .. })
     ));
     assert!(matches!(
-        chat_input_packet(&"x".repeat(16_385), "", "/transfer sm3"),
+        chat_input_packet(&"x".repeat(257), "", "/transfer sm3"),
         Err(ChatPacketError::IdentityTooLong {
             field: "source_name",
+            max: 256,
             ..
+        })
+    ));
+}
+
+/// Identity limits are the codec's own: values at the limit encode, one byte more is refused
+/// before encoding.
+#[test]
+fn outbound_chat_identity_limits_match_the_codec() {
+    let at_limit = chat_text_packet(&"n".repeat(256), &"1".repeat(64), "hi").unwrap();
+    assert!(encode(&at_limit).is_ok());
+    assert!(matches!(
+        chat_text_packet(&"n".repeat(257), "", "hi"),
+        Err(ChatPacketError::IdentityTooLong {
+            field: "source_name",
+            bytes: 257,
+            max: 256,
+        })
+    ));
+    assert!(matches!(
+        chat_text_packet("player", &"1".repeat(65), "hi"),
+        Err(ChatPacketError::IdentityTooLong {
+            field: "xuid",
+            bytes: 65,
+            max: 64,
         })
     ));
 }
@@ -54,20 +81,20 @@ fn outbound_chat_rejects_empty_and_oversized_fields() {
 fn slash_input_round_trips_as_vanilla_player_command_request() {
     let built = chat_input_packet("RustMCBE", "1234", "/kill @s").unwrap();
 
-    assert_eq!(built.header.id, McpePacketName::CommandRequestPacket);
+    assert_eq!(built.header.id, PacketId::CommandRequest);
     let encoded = encode(&built).expect("encode command request");
     let mut decoded = decode_batch(encoded).expect("decode command request");
     assert_eq!(decoded.len(), 1);
     let packet = decoded.pop().unwrap();
-    assert_eq!(packet.header.id, McpePacketName::CommandRequestPacket);
-    let McpePacketData::CommandRequestPacket(packet) = packet.data else {
+    assert_eq!(packet.header.id, PacketId::CommandRequest);
+    let packets::Packet::CommandRequest(packet) = *packet.data else {
         panic!("expected command request packet")
     };
     assert_eq!(packet.command, "/kill @s");
     assert_eq!(packet.origin.type_, "player");
     assert!(!packet.origin.uuid.is_nil());
     assert!(packet.origin.request_id.is_empty());
-    assert_eq!(packet.origin.player_id, 0);
+    assert_eq!(packet.origin.player_id.0, 0);
     assert!(!packet.is_internal);
     assert_eq!(packet.version, "latest");
 }
@@ -75,7 +102,7 @@ fn slash_input_round_trips_as_vanilla_player_command_request() {
 #[test]
 fn exact_fast_transfer_matches_the_gophertunnel_command_fixture() {
     let mut built = chat_input_packet("RustMCBE", "1234", "/transfer sm3").unwrap();
-    let McpePacketData::CommandRequestPacket(packet) = &mut built.data else {
+    let packets::Packet::CommandRequest(packet) = &mut *built.data else {
         panic!("expected command request packet")
     };
     packet.origin.uuid = uuid::Uuid::parse_str("00112233-4455-6677-8899-aabbccddeeff").unwrap();
@@ -94,10 +121,10 @@ fn exact_fast_transfer_matches_the_gophertunnel_command_fixture() {
 fn command_requests_receive_fresh_origin_uuids() {
     let first = chat_input_packet("RustMCBE", "1234", "/kill @s").unwrap();
     let second = chat_input_packet("RustMCBE", "1234", "/kill @s").unwrap();
-    let McpePacketData::CommandRequestPacket(first) = first.data else {
+    let packets::Packet::CommandRequest(first) = *first.data else {
         panic!("expected first command request packet")
     };
-    let McpePacketData::CommandRequestPacket(second) = second.data else {
+    let packets::Packet::CommandRequest(second) = *second.data else {
         panic!("expected second command request packet")
     };
 
@@ -113,7 +140,7 @@ fn every_transfer_command_spelling_uses_vanilla_command_request() {
         "/TrAnSfEr\tsm3",
     ] {
         let packet = chat_input_packet("RustMCBE", "1234", input).unwrap();
-        let McpePacketData::CommandRequestPacket(packet) = packet.data else {
+        let packets::Packet::CommandRequest(packet) = *packet.data else {
             panic!("{input:?} must use CommandRequest")
         };
         assert_eq!(packet.command, input);
@@ -126,7 +153,7 @@ fn every_transfer_command_spelling_uses_vanilla_command_request() {
 #[test]
 fn exact_fast_transfer_uses_vanilla_command_request() {
     let packet = chat_input_packet("RustMCBE", "1234", "/transfer sm3").unwrap();
-    let McpePacketData::CommandRequestPacket(packet) = packet.data else {
+    let packets::Packet::CommandRequest(packet) = *packet.data else {
         panic!("exact fast transfer must use CommandRequest")
     };
     assert_eq!(packet.command, "/transfer sm3");
@@ -139,7 +166,7 @@ fn exact_fast_transfer_uses_vanilla_command_request() {
 #[test]
 fn transfer_near_miss_remains_a_vanilla_command_request() {
     let packet = chat_input_packet("RustMCBE", "1234", "/transferred sm3").unwrap();
-    let McpePacketData::CommandRequestPacket(packet) = packet.data else {
+    let packets::Packet::CommandRequest(packet) = *packet.data else {
         panic!("near-miss command must remain CommandRequest")
     };
     assert_eq!(packet.command, "/transferred sm3");
@@ -150,21 +177,23 @@ fn ordinary_chat_input_remains_an_authored_text_packet() {
     let packet = chat_input_packet("RustMCBE", "1234", "hello server").unwrap();
     let text_packet = chat_text_packet("RustMCBE", "1234", "hello server").unwrap();
 
-    assert_eq!(packet.header.id, McpePacketName::TextPacket);
+    assert_eq!(packet.header.id, PacketId::Text);
     assert_eq!(packet, text_packet);
-    let McpePacketData::TextPacket(packet) = packet.data else {
+    let packets::Packet::Text(packet) = *packet.data else {
         panic!("expected text packet")
     };
-    let TextPacketBody::AuthorAndMessage(body) = packet.body else {
+    let TextData::AuthorAndMessage {
+        message_type,
+        player_name,
+        message,
+    } = packet.body
+    else {
         panic!("expected authored chat body")
     };
-    assert_eq!(
-        body.message_type,
-        TextPacketPayloadAuthorAndMessageMessageType::Chat
-    );
-    assert_eq!(body.player_name, "RustMCBE");
-    assert_eq!(body.message, "hello server");
-    assert_eq!(packet.senders_xuid, "1234");
+    assert_eq!(message_type, TextPacketType::Chat);
+    assert_eq!(player_name, "RustMCBE");
+    assert_eq!(message, "hello server");
+    assert_eq!(packet.sender_xuid, "1234");
 }
 
 #[test]

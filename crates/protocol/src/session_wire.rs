@@ -6,6 +6,7 @@
 use std::fmt;
 use std::path::Path;
 
+use bedrock_protocol_1_26_51::packets::PacketId;
 use bytes::{BufMut, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
@@ -23,8 +24,7 @@ use bridge::contract::{
     KIND_BATCH, KIND_CONNECT, KIND_DISCONNECT, KIND_HANDOFF, KIND_PACK_DATA, KIND_TRANSFER,
 };
 /// The StartGame packet ID, which ends a handoff's startup packets.
-const START_GAME_PACKET_ID: u32 =
-    valentine::bedrock::version::v1_26_51::PacketId::StartGamePacket as u32;
+const START_GAME_PACKET_ID: u32 = PacketId::StartGame as u32;
 
 /// The client's only setup message.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]

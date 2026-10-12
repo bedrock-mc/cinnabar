@@ -1,16 +1,9 @@
 //! The world rules the client reads from StartGame and GameRulesChanged.
 
-use valentine::bedrock::version::v1_26_51::StartGamePacket;
+use bedrock_protocol_1_26_51::packets::StartGame;
+use bedrock_protocol_1_26_51::types::{GameRule, GameRuleValue};
 
-use super::{GameRule, GameRuleRuleValue};
-
-/// Reads the authoritative `doDaylightCycle` switch from a rule list.
-///
-/// 1.26.40 collapses the 1.26.30 `GameRuleI32` / `GameRuleVarint` pair (and
-/// their separate `type_` discriminants) into one `GameRule` whose value is a
-/// tagged union, so the redundant "declared type matches the value arm" check
-/// the old modelling required is gone: a non-boolean rule simply cannot decode
-/// into `GameRuleRuleValue::Bool`.
+/// Reads the authoritative `doDaylightCycle` switch from a rule list; only a boolean value counts.
 pub(super) fn daylight_cycle_rule_update(rules: &[GameRule]) -> Option<bool> {
     bool_rule(rules, "dodaylightcycle")
 }
@@ -22,8 +15,11 @@ pub(super) fn weather_cycle_rule_update(rules: &[GameRule]) -> Option<bool> {
 
 fn bool_rule(rules: &[GameRule], name: &str) -> Option<bool> {
     rules.iter().find_map(|rule| {
-        if rule.rule_name.eq_ignore_ascii_case(name)
-            && let GameRuleRuleValue::Bool(enabled) = &rule.rule_value
+        if rule
+            .rule_name
+            .as_bytes()
+            .eq_ignore_ascii_case(name.as_bytes())
+            && let GameRuleValue::Bool(enabled) = &rule.rule_value
         {
             Some(*enabled)
         } else {
@@ -42,7 +38,7 @@ pub(super) fn death_rules(rules: &[GameRule]) -> crate::DeathRules {
 
 impl crate::DeathRules {
     /// StartGame defaults: show death reasons and wait for a respawn press.
-    pub(crate) fn from_start_game(start_game: &StartGamePacket) -> Self {
+    pub(crate) fn from_start_game(start_game: &StartGame) -> Self {
         let rules = death_rules(&start_game.settings.rule_data.rules_list);
         Self {
             show_messages: Some(rules.show_messages.unwrap_or(Self::DEFAULT_SHOW_MESSAGES)),
@@ -64,7 +60,7 @@ pub(super) fn hud_rules(rules: &[GameRule]) -> crate::HudRules {
 
 impl crate::HudRules {
     /// StartGame's HUD rules; an absent rule reads as off, its vanilla default.
-    pub(crate) fn from_start_game(start_game: &StartGamePacket) -> Self {
+    pub(crate) fn from_start_game(start_game: &StartGame) -> Self {
         let rules = hud_rules(&start_game.settings.rule_data.rules_list);
         Self {
             show_coordinates: Some(rules.show_coordinates.unwrap_or(false)),
@@ -76,6 +72,7 @@ impl crate::HudRules {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bedrock_protocol_1_26_51::wire;
 
     #[test]
     fn death_rules_preserve_absent_and_non_boolean_values() {
@@ -83,12 +80,12 @@ mod tests {
             GameRule {
                 rule_name: "showDeathMessages".into(),
                 rule_can_be_modified: false,
-                rule_value: GameRuleRuleValue::Bool(false),
+                rule_value: GameRuleValue::Bool(false),
             },
             GameRule {
                 rule_name: "DoImmediateRespawn".into(),
                 rule_can_be_modified: false,
-                rule_value: GameRuleRuleValue::Bool(true),
+                rule_value: GameRuleValue::Bool(true),
             },
         ];
         assert_eq!(
@@ -100,7 +97,7 @@ mod tests {
         );
         assert!(death_rules(&[]).is_empty());
         let invalid = GameRule {
-            rule_value: GameRuleRuleValue::Int32(1),
+            rule_value: GameRuleValue::Int32(wire::I32LE(1)),
             ..rules[0].clone()
         };
         assert!(death_rules(&[invalid]).is_empty());
@@ -115,18 +112,21 @@ mod tests {
         };
         assert_eq!(weather_cycle_rule_update(&[]), None);
         assert_eq!(
-            weather_cycle_rule_update(&[rule("doWeatherCycle", GameRuleRuleValue::Int32(1))]),
+            weather_cycle_rule_update(&[rule(
+                "doWeatherCycle",
+                GameRuleValue::Int32(wire::I32LE(1))
+            )]),
             None
         );
         assert_eq!(
             weather_cycle_rule_update(&[
-                rule("doDaylightCycle", GameRuleRuleValue::Bool(false)),
-                rule("DoWeatherCycle", GameRuleRuleValue::Bool(false)),
+                rule("doDaylightCycle", GameRuleValue::Bool(false)),
+                rule("DoWeatherCycle", GameRuleValue::Bool(false)),
             ]),
             Some(false)
         );
         assert_eq!(
-            weather_cycle_rule_update(&[rule("doweathercycle", GameRuleRuleValue::Bool(true))]),
+            weather_cycle_rule_update(&[rule("doweathercycle", GameRuleValue::Bool(true))]),
             Some(true)
         );
     }

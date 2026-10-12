@@ -13,21 +13,18 @@
 //! and `protocol/player.go`'s `PlayerListEntry.Marshal` writes a per-entry
 //! variant (`playerListAction`) that decides whether the rest of the entry is
 //! present. The trusted-skin flag now lives inside each Add entry's skin as
-//! `Skin.Trusted` (a `"true"`/`"false"` string). The 1.26.40 generated crate
-//! matches that exactly, so the hand patch and its error variants were removed
-//! from `src/actor.rs`.
+//! `Skin.Trusted` (a `"true"`/`"false"` string). The generated codec matches
+//! that exactly, so the hand patch and its error variants were removed from
+//! `src/actor.rs`.
 //!
 //! The five encoder-consistency tests below are therefore rewritten to assert
 //! that the inconsistencies they used to catch are now *unrepresentable*, which
 //! is the same intent expressed against the new shape.
 
-use bytes::{Bytes, BytesMut};
-use valentine::bedrock::codec::{BedrockCodec, VarUInt};
-use valentine::bedrock::error::DecodeError;
-use valentine::bedrock::version::v1_26_51::{
-    McpePacketArgs, McpePacketData, PlayerListPacket, PlayerListPacketEntriesItem,
-    PlayerListPacketPayloadAddEntry, PlayerListPacketPayloadRemoveEntry,
-};
+use bedrock_protocol_1_26_51::packets::{self, PlayerList as PlayerListPacket};
+use bedrock_protocol_1_26_51::types::{ActorUniqueID, PlayerListData, SerializedSkinRef};
+use bedrock_protocol_1_26_51::wire::{self, Decode, Encode};
+use bytes::Bytes;
 
 const FIXTURE_UUID: uuid::Uuid = uuid::Uuid::from_bytes([
     0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
@@ -86,24 +83,49 @@ fn raw_player_list_fixture(fixture: &'static [u8]) -> crate::raw_packet::RawPack
         .expect("one packet")
 }
 
-fn remove_entry() -> PlayerListPacketEntriesItem {
-    PlayerListPacketEntriesItem::RemoveEntry(PlayerListPacketPayloadRemoveEntry {
+fn remove_entry() -> PlayerListData {
+    PlayerListData::RemoveEntry {
+        action: Default::default(),
         uuid: FIXTURE_UUID,
-        ..Default::default()
-    })
+    }
 }
 
-fn add_entry() -> PlayerListPacketEntriesItem {
-    PlayerListPacketEntriesItem::AddEntry(Box::new(PlayerListPacketPayloadAddEntry {
+fn add_entry_with_skin(serialized_skin: SerializedSkinRef) -> PlayerListData {
+    PlayerListData::AddEntry {
+        action: Default::default(),
         uuid: FIXTURE_UUID,
-        ..Default::default()
-    }))
+        actor_unique_id: ActorUniqueID(0),
+        player_name: Default::default(),
+        xbl_xuid: Default::default(),
+        platform_online_id: Default::default(),
+        build_platform: Default::default(),
+        serialized_skin: Box::new(serialized_skin),
+        is_teacher: false,
+        is_host: false,
+        is_sub_client: false,
+        player_color: Default::default(),
+    }
 }
 
-fn encoded_player_list(packet: &PlayerListPacket) -> BytesMut {
-    let mut encoded = BytesMut::new();
-    packet.encode(&mut encoded).expect("encode PlayerList");
-    encoded
+fn add_entry() -> PlayerListData {
+    add_entry_with_skin(SerializedSkinRef::default())
+}
+
+fn encoded_player_list(packet: &PlayerListPacket) -> Vec<u8> {
+    packet.encode_to_vec().expect("encode PlayerList")
+}
+
+/// A declared count the input cannot hold fails before any entry is allocated.
+#[track_caller]
+fn assert_unrepresentable_count(error: wire::DecodeError) {
+    assert!(
+        matches!(
+            error,
+            wire::DecodeError::LengthNotRepresentable { .. }
+                | wire::DecodeError::SchemaConstraint(_)
+        ),
+        "unexpected decode error: {error:?}"
+    );
 }
 
 #[test]
@@ -111,33 +133,39 @@ fn pinned_gophertunnel_player_list_add_carries_the_trusted_skin_flag_per_entry()
     let packet = raw_player_list_fixture(GOPHERTUNNEL_PLAYER_LIST_ADD)
         .decode()
         .expect("owned Add PlayerList decode");
-    let McpePacketData::PlayerListPacket(content) = &packet.data else {
+    let packets::Packet::PlayerList(content) = &*packet.data else {
         panic!("expected PlayerList");
     };
     assert_eq!(content.entries.len(), 1);
-    let PlayerListPacketEntriesItem::AddEntry(entry) = &content.entries[0] else {
+    let PlayerListData::AddEntry {
+        uuid,
+        player_name,
+        serialized_skin,
+        ..
+    } = &content.entries[0]
+    else {
         panic!("expected an Add entry");
     };
-    assert_eq!(entry.uuid, FIXTURE_UUID);
-    assert_eq!(entry.player_name, "fixture");
+    assert_eq!(*uuid, FIXTURE_UUID);
+    assert_eq!(*player_name, "fixture");
     // Protocol 1001 kept this as a trailing `verified: Some(vec![true])` array
     // sized by the shared record count. It is now one field of the entry's own
     // skin, written as gophertunnel's `"true"`/`"false"` string.
-    assert_eq!(entry.serialized_skin.trusted_skin_flag, "true");
+    assert_eq!(serialized_skin.trusted_skin_flag, "true");
 
     let encoded = crate::encode(&packet).expect("re-encode");
     assert_eq!(encoded.as_ref(), GOPHERTUNNEL_PLAYER_LIST_ADD);
 }
 
-fn assert_remove_payload(data: &McpePacketData) {
-    let McpePacketData::PlayerListPacket(packet) = data else {
-        panic!("expected PlayerList, got {:?}", data.packet_id());
+fn assert_remove_payload(data: &packets::Packet) {
+    let packets::Packet::PlayerList(packet) = data else {
+        panic!("expected PlayerList, got {:?}", data.id());
     };
     assert_eq!(packet.entries.len(), 1);
-    let PlayerListPacketEntriesItem::RemoveEntry(entry) = &packet.entries[0] else {
+    let PlayerListData::RemoveEntry { uuid, .. } = &packet.entries[0] else {
         panic!("expected a Remove entry");
     };
-    assert_eq!(entry.uuid, FIXTURE_UUID);
+    assert_eq!(*uuid, FIXTURE_UUID);
 }
 
 #[test]
@@ -148,36 +176,21 @@ fn pinned_gophertunnel_player_list_owned_decodes_and_round_trips_exactly() {
     assert_eq!(encoded.as_ref(), GOPHERTUNNEL_PLAYER_LIST_REMOVE);
 }
 
-#[test]
-fn pinned_gophertunnel_player_list_borrowed_materializes_with_same_count() {
-    let borrowed = raw_player_list()
-        .decode_borrowed()
-        .expect("borrowed PlayerList decode");
-    let owned = borrowed
-        .data
-        .into_owned(McpePacketArgs)
-        .expect("materialize borrowed PlayerList");
-    assert_remove_payload(&owned);
-}
-
-/// A large declared count with no entries fails from the truncated payload.
-/// Decoding grows the collection fallibly and does not impose a global count cap.
+/// A large declared count with no entries fails before allocating any entry.
 #[test]
 fn player_list_decode_rejects_large_count_without_payload() {
-    let mut encoded = BytesMut::new();
-    VarUInt(4097).encode(&mut encoded).expect("entry count");
+    let encoded = wire::VarUInt(4097).encode_to_vec().expect("entry count");
 
-    let error = PlayerListPacket::decode(&mut encoded.freeze(), ()).expect_err("oversized count");
-    assert!(matches!(error, DecodeError::UnexpectedEof { .. }));
+    let error = PlayerListPacket::decode_exact(&encoded).expect_err("oversized count");
+    assert_unrepresentable_count(error);
 }
 
 #[test]
 fn player_list_decode_rejects_count_larger_than_remaining_bytes() {
-    let mut encoded = BytesMut::new();
-    VarUInt(2).encode(&mut encoded).expect("entry count");
+    let encoded = wire::VarUInt(2).encode_to_vec().expect("entry count");
 
-    let error = PlayerListPacket::decode(&mut encoded.freeze(), ()).expect_err("truncated entries");
-    assert!(matches!(error, DecodeError::UnexpectedEof { .. }));
+    let error = PlayerListPacket::decode_exact(&encoded).expect_err("truncated entries");
+    assert_unrepresentable_count(error);
 }
 
 /// RETARGETED from `player_records_encode_rejects_count_and_record_length_mismatch_before_writing`.
@@ -198,12 +211,12 @@ fn player_list_wire_count_is_derived_from_the_entry_vector() {
         let packet = PlayerListPacket { entries };
         let encoded = encoded_player_list(&packet);
 
-        let mut buf = encoded.clone().freeze();
-        let declared = VarUInt::decode(&mut buf, ()).expect("entry count").0;
+        let declared = wire::Reader::new(&encoded)
+            .read_var_u32()
+            .expect("entry count");
         assert_eq!(declared as usize, expected);
 
-        let round_tripped =
-            PlayerListPacket::decode(&mut encoded.freeze(), ()).expect("round trip");
+        let round_tripped = PlayerListPacket::decode_exact(&encoded).expect("round trip");
         assert_eq!(round_tripped.entries.len(), expected);
     }
 }
@@ -212,9 +225,9 @@ fn player_list_wire_count_is_derived_from_the_entry_vector() {
 ///
 /// Protocol 1001 stored the action once for the whole packet, so an Add action
 /// could be paired with a Remove record and the hand patch had to reject it.
-/// The 1.26.40 entry union writes its own discriminant
-/// (`PlayerListPacketEntriesItem::{RemoveEntry, AddEntry}` -> control byte
-/// 0/1), so the pairing is decided by the variant itself. This pins that the
+/// The entry union writes its own discriminant
+/// (`PlayerListData::{RemoveEntry, AddEntry}` -> control byte 0/1), so the
+/// pairing is decided by the variant itself. This pins that the
 /// discriminant survives a round trip for a mixed batch.
 #[test]
 fn player_list_entry_variant_round_trips_without_a_packet_level_action() {
@@ -223,14 +236,14 @@ fn player_list_entry_variant_round_trips_without_a_packet_level_action() {
     };
     let encoded = encoded_player_list(&packet);
 
-    let round_tripped = PlayerListPacket::decode(&mut encoded.freeze(), ()).expect("round trip");
+    let round_tripped = PlayerListPacket::decode_exact(&encoded).expect("round trip");
     assert!(matches!(
         round_tripped.entries[0],
-        PlayerListPacketEntriesItem::AddEntry(_)
+        PlayerListData::AddEntry { .. }
     ));
     assert!(matches!(
         round_tripped.entries[1],
-        PlayerListPacketEntriesItem::RemoveEntry(_)
+        PlayerListData::RemoveEntry { .. }
     ));
     assert_eq!(round_tripped, packet);
 }
@@ -243,32 +256,33 @@ fn player_list_entry_variant_round_trips_without_a_packet_level_action() {
 /// at all, so this pins the per-entry independence instead.
 #[test]
 fn player_list_trusted_skin_flag_is_per_add_entry() {
-    let mut trusted = match add_entry() {
-        PlayerListPacketEntriesItem::AddEntry(entry) => entry,
-        _ => unreachable!(),
+    let skin = |flag: &str| SerializedSkinRef {
+        trusted_skin_flag: flag.into(),
+        ..Default::default()
     };
-    trusted.serialized_skin.trusted_skin_flag = "true".to_owned();
-    let mut untrusted = trusted.clone();
-    untrusted.serialized_skin.trusted_skin_flag = "false".to_owned();
-
     let packet = PlayerListPacket {
         entries: vec![
-            PlayerListPacketEntriesItem::AddEntry(trusted),
+            add_entry_with_skin(skin("true")),
             remove_entry(),
-            PlayerListPacketEntriesItem::AddEntry(untrusted),
+            add_entry_with_skin(skin("false")),
         ],
     };
     let encoded = encoded_player_list(&packet);
-    let round_tripped = PlayerListPacket::decode(&mut encoded.freeze(), ()).expect("round trip");
+    let round_tripped = PlayerListPacket::decode_exact(&encoded).expect("round trip");
 
     let flags = round_tripped
         .entries
         .iter()
         .filter_map(|entry| match entry {
-            PlayerListPacketEntriesItem::AddEntry(entry) => {
-                Some(entry.serialized_skin.trusted_skin_flag.as_str())
-            }
-            PlayerListPacketEntriesItem::RemoveEntry(_) => None,
+            PlayerListData::AddEntry {
+                serialized_skin, ..
+            } => Some(
+                serialized_skin
+                    .trusted_skin_flag
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            PlayerListData::RemoveEntry { .. } => None,
         })
         .collect::<Vec<_>>();
     assert_eq!(flags, ["true", "false"]);
@@ -276,7 +290,7 @@ fn player_list_trusted_skin_flag_is_per_add_entry() {
 
 /// RETARGETED from `player_records_encode_rejects_missing_records_and_unknown_actions`.
 ///
-/// `records: Vec<Option<Record>>` became `entries: Vec<PlayerListPacketEntriesItem>`,
+/// `records: Vec<Option<Record>>` became `entries: Vec<PlayerListData>`,
 /// so a "missing record" hole is unrepresentable. The unknown-action half still
 /// has a wire counterpart: gophertunnel's `playerListAction` calls
 /// `r.UnknownEnumOption` for any variant other than 0 or 1, and the generated
@@ -284,22 +298,19 @@ fn player_list_trusted_skin_flag_is_per_add_entry() {
 #[test]
 fn player_list_decode_rejects_unknown_entry_variants() {
     for variant in [2u8, 3, 0xff] {
-        let mut encoded = BytesMut::new();
-        VarUInt(1).encode(&mut encoded).expect("entry count");
-        VarUInt(u32::from(variant))
-            .encode(&mut encoded)
-            .expect("entry variant");
+        let mut encoded = wire::VarUInt(1).encode_to_vec().expect("entry count");
+        wire::encode_into(&wire::VarUInt(u32::from(variant)), &mut encoded).expect("entry variant");
         // Supply enough bytes that the discriminant error, rather than a
         // truncated-payload error, is the observed failure.
         encoded.resize(encoded.len() + 17, 0);
 
-        let error = PlayerListPacket::decode(&mut encoded.freeze(), ())
+        let error = PlayerListPacket::decode_exact(&encoded)
             .expect_err("unknown entry variant must not decode");
         assert!(
             matches!(
                 error,
-                DecodeError::InvalidEnumValue {
-                    enum_name: "PlayerListPacketEntriesItem",
+                wire::DecodeError::UnknownVariant {
+                    type_name: "PlayerListData",
                     ..
                 }
             ),

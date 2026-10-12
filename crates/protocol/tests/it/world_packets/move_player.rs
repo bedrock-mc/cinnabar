@@ -1,28 +1,18 @@
 use super::*;
-use bytes::Bytes;
+use bedrock_protocol_1_26_51::enums::PlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode;
+use bedrock_protocol_1_26_51::packets::MovePlayer;
+use bedrock_protocol_1_26_51::types::{MovePlayerTeleportData, PlayerInputTick};
+use bedrock_protocol_1_26_51::wire::{Decode, Encode};
 use protocol::MovePlayerEvent;
-use valentine::bedrock::version::v1_26_51::{
-    EnumsPlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode, MovePlayerPacket,
-    MovePlayerPacketView, PlayerInputTick, Vec2,
-};
 
 #[test]
 fn normalizes_move_player_to_the_bounded_world_surface() {
-    let packet = MovePlayerPacket {
-        player_runtime_id: ActorRuntimeId {
-            actor_runtime_id: 73,
-        },
-        position: Vec3 {
-            x: -12.25,
-            y: 65.5,
-            z: 4096.75,
-        },
+    let packet = MovePlayer {
+        player_runtime_id: ActorRuntimeID(73),
+        position: [-12.25, 65.5, 4096.75].into(),
         // Vec2 is (pitch, yaw); its second component is `y`, not `z`.
-        rotation: Vec2 {
-            x: -34.5,
-            y: 271.25,
-        },
-        y_head_rotation: 99.0,
+        rotation: [-34.5, 271.25].into(),
+        y_head_rotation: wire::F32LE(99.0),
         ..Default::default()
     };
 
@@ -38,6 +28,8 @@ fn normalizes_move_player_to_the_bounded_world_surface() {
             on_ground: false,
             teleported: false,
             source_tick: 0,
+            riding_runtime_id: 0,
+            teleport_cause: None,
         }))
     );
 }
@@ -56,14 +48,10 @@ fn move_player_rejects_every_non_finite_pose_field_and_recovers_for_valid_input(
     .enumerate()
     {
         for non_finite in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-            let mut packet = MovePlayerPacket {
-                position: Vec3 {
-                    x: 1.0,
-                    y: 2.0,
-                    z: 3.0,
-                },
-                rotation: Vec2 { x: 4.0, y: 5.0 },
-                y_head_rotation: 6.0,
+            let mut packet = MovePlayer {
+                position: [1.0, 2.0, 3.0].into(),
+                rotation: [4.0, 5.0].into(),
+                y_head_rotation: wire::F32LE(6.0),
                 ..Default::default()
             };
             match field_index {
@@ -72,7 +60,7 @@ fn move_player_rejects_every_non_finite_pose_field_and_recovers_for_valid_input(
                 2 => packet.position.z = non_finite,
                 3 => packet.rotation.x = non_finite,
                 4 => packet.rotation.y = non_finite,
-                5 => packet.y_head_rotation = non_finite,
+                5 => packet.y_head_rotation = wire::F32LE(non_finite),
                 _ => unreachable!("the field table has six entries"),
             }
 
@@ -86,17 +74,10 @@ fn move_player_rejects_every_non_finite_pose_field_and_recovers_for_valid_input(
         }
     }
 
-    let valid = MovePlayerPacket {
-        position: Vec3 {
-            x: f32::MAX,
-            y: f32::MIN,
-            z: -0.0,
-        },
-        rotation: Vec2 {
-            x: f32::MAX,
-            y: f32::MIN,
-        },
-        y_head_rotation: f32::MAX,
+    let valid = MovePlayer {
+        position: [f32::MAX, f32::MIN, -0.0].into(),
+        rotation: [f32::MAX, f32::MIN].into(),
+        y_head_rotation: wire::F32LE(f32::MAX),
         ..Default::default()
     };
     assert!(matches!(
@@ -106,25 +87,20 @@ fn move_player_rejects_every_non_finite_pose_field_and_recovers_for_valid_input(
 }
 
 #[test]
-fn move_player_normalization_preserves_mode_tick_head_yaw_and_ground() {
-    let packet = MovePlayerPacket {
-        player_runtime_id: ActorRuntimeId {
-            actor_runtime_id: 73,
-        },
-        position: Vec3 {
-            x: -12.25,
-            y: 65.5,
-            z: 4096.75,
-        },
-        rotation: Vec2 {
-            x: -34.5,
-            y: 271.25,
-        },
-        y_head_rotation: 99.0,
+fn move_player_normalization_preserves_mode_tick_head_yaw_ground_ride_and_cause() {
+    let packet = MovePlayer {
+        player_runtime_id: ActorRuntimeID(73),
+        position: [-12.25, 65.5, 4096.75].into(),
+        rotation: [-34.5, 271.25].into(),
+        y_head_rotation: wire::F32LE(99.0),
         position_mode: MovePlayerPacketPositionMode::Teleport,
         on_ground: true,
-        tick: PlayerInputTick { inputtick: 12 },
-        ..Default::default()
+        riding_runtime_id: ActorRuntimeID(91),
+        teleport_data: Some(MovePlayerTeleportData {
+            teleportation_cause: wire::I32LE(3),
+            source_actor_type: wire::I32LE(87),
+        }),
+        tick: PlayerInputTick(12),
     };
 
     assert_eq!(
@@ -139,6 +115,8 @@ fn move_player_normalization_preserves_mode_tick_head_yaw_and_ground() {
             on_ground: true,
             teleported: true,
             source_tick: 12,
+            riding_runtime_id: 91,
+            teleport_cause: Some(3),
         }))
     );
 }
@@ -169,7 +147,7 @@ fn move_player_modes_map_onto_the_renamed_position_mode_variants() {
             protocol::MovePlayerMode::Unknown(9),
         ),
     ] {
-        let packet = MovePlayerPacket {
+        let packet = MovePlayer {
             position_mode: wire,
             ..Default::default()
         };
@@ -186,37 +164,22 @@ fn move_player_modes_map_onto_the_renamed_position_mode_variants() {
 fn move_player_uses_varuint64_for_runtime_and_ridden_ids_above_u32() {
     const RUNTIME_ID: u64 = 0x1_0000_0001;
     const RIDDEN_RUNTIME_ID: u64 = 0x2_0000_0002;
-    let packet = MovePlayerPacket {
-        player_runtime_id: ActorRuntimeId {
-            actor_runtime_id: RUNTIME_ID,
-        },
-        position: Vec3 {
-            x: 1.0,
-            y: 2.0,
-            z: 3.0,
-        },
-        riding_runtime_id: ActorRuntimeId {
-            actor_runtime_id: RIDDEN_RUNTIME_ID,
-        },
+    let packet = MovePlayer {
+        player_runtime_id: ActorRuntimeID(RUNTIME_ID),
+        position: [1.0, 2.0, 3.0].into(),
+        riding_runtime_id: ActorRuntimeID(RIDDEN_RUNTIME_ID),
         ..Default::default()
     };
-    let mut encoded = BytesMut::new();
-    packet.encode(&mut encoded).unwrap();
+    let encoded = packet.encode_to_vec().unwrap();
 
     assert_eq!(&encoded[..5], &[0x81, 0x80, 0x80, 0x80, 0x10]);
     // 5 (runtime id) + 12 (position) + 8 (rotation) + 4 (head rotation)
     // + 1 (position mode) + 1 (on ground) == 31.
     assert_eq!(&encoded[31..36], &[0x82, 0x80, 0x80, 0x80, 0x20]);
-    assert_eq!(packet.encoded_size(), encoded.len());
 
-    let mut encoded = encoded.freeze();
-    let decoded = MovePlayerPacket::decode(&mut encoded, ()).unwrap();
-    assert_eq!(decoded.player_runtime_id.actor_runtime_id, RUNTIME_ID);
-    assert_eq!(
-        decoded.riding_runtime_id.actor_runtime_id,
-        RIDDEN_RUNTIME_ID
-    );
-    assert!(!encoded.has_remaining());
+    let decoded = MovePlayer::decode_exact(&encoded).unwrap();
+    assert_eq!(decoded.player_runtime_id.0, RUNTIME_ID);
+    assert_eq!(decoded.riding_runtime_id.0, RIDDEN_RUNTIME_ID);
 
     assert_eq!(
         into_world_event(protocol::Packet::new(decoded), 0).unwrap(),
@@ -230,67 +193,46 @@ fn move_player_uses_varuint64_for_runtime_and_ridden_ids_above_u32() {
             on_ground: false,
             teleported: false,
             source_tick: 0,
+            riding_runtime_id: RIDDEN_RUNTIME_ID,
+            teleport_cause: None,
         }))
     );
 }
 
 #[test]
 fn move_player_rejects_overlong_runtime_and_ridden_varint_ids() {
-    let packet = MovePlayerPacket::default();
-    let mut valid = BytesMut::new();
-    packet.encode(&mut valid).unwrap();
+    let packet = MovePlayer::default();
+    let valid = packet.encode_to_vec().unwrap();
     let ridden_offset = 1 + 12 + 8 + 4 + 1 + 1;
     for malformed_id in [
         [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02],
         [0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00],
     ] {
-        let mut malformed_runtime = BytesMut::new();
-        malformed_runtime.extend_from_slice(&malformed_id);
+        let mut malformed_runtime = malformed_id.to_vec();
         malformed_runtime.extend_from_slice(&valid[1..]);
-        let malformed_runtime = malformed_runtime.freeze();
-        assert!(MovePlayerPacket::decode(&mut malformed_runtime.clone(), ()).is_err());
-        assert!(MovePlayerPacketView::decode(&mut malformed_runtime.clone()).is_err());
+        assert!(MovePlayer::decode_exact(&malformed_runtime).is_err());
 
-        let mut malformed_ridden = BytesMut::new();
-        malformed_ridden.extend_from_slice(&valid[..ridden_offset]);
+        let mut malformed_ridden = valid[..ridden_offset].to_vec();
         malformed_ridden.extend_from_slice(&malformed_id);
         malformed_ridden.extend_from_slice(&valid[ridden_offset + 1..]);
-        let malformed_ridden = malformed_ridden.freeze();
-        assert!(MovePlayerPacket::decode(&mut malformed_ridden.clone(), ()).is_err());
-        assert!(MovePlayerPacketView::decode(&mut malformed_ridden.clone()).is_err());
+        assert!(MovePlayer::decode_exact(&malformed_ridden).is_err());
     }
 }
 
 #[test]
 fn move_player_accepts_canonical_u64_max_runtime_and_ridden_ids_exactly() {
-    let packet = MovePlayerPacket {
-        player_runtime_id: ActorRuntimeId {
-            actor_runtime_id: u64::MAX,
-        },
-        riding_runtime_id: ActorRuntimeId {
-            actor_runtime_id: u64::MAX,
-        },
+    let packet = MovePlayer {
+        player_runtime_id: ActorRuntimeID(u64::MAX),
+        riding_runtime_id: ActorRuntimeID(u64::MAX),
         ..Default::default()
     };
-    let mut encoded = BytesMut::new();
-    packet.encode(&mut encoded).unwrap();
+    let encoded = packet.encode_to_vec().unwrap();
     let canonical_max = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01];
     assert_eq!(&encoded[..10], &canonical_max);
     let ridden_offset = 10 + 12 + 8 + 4 + 1 + 1;
     assert_eq!(&encoded[ridden_offset..ridden_offset + 10], &canonical_max);
 
-    let wire = encoded.freeze();
-    let mut owned_body = wire.clone();
-    let decoded = MovePlayerPacket::decode(&mut owned_body, ()).unwrap();
+    let decoded = MovePlayer::decode_exact(&encoded).unwrap();
     assert_eq!(decoded, packet);
-    assert!(!owned_body.has_remaining());
-    let mut reencoded = BytesMut::new();
-    decoded.encode(&mut reencoded).unwrap();
-    assert_eq!(reencoded.as_ref(), wire.as_ref());
-
-    let mut borrowed_body = Bytes::copy_from_slice(&wire);
-    let borrowed = MovePlayerPacketView::decode(&mut borrowed_body).unwrap();
-    assert_eq!(borrowed.player_runtime_id.actor_runtime_id, u64::MAX);
-    assert_eq!(borrowed.riding_runtime_id.actor_runtime_id, u64::MAX);
-    assert!(!borrowed_body.has_remaining());
+    assert_eq!(decoded.encode_to_vec().unwrap(), encoded);
 }

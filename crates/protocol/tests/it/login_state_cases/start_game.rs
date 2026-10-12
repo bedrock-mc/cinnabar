@@ -1,21 +1,20 @@
 use super::*;
-use valentine::bedrock::version::v1_26_51::{
-    DimensionDataPacket, DimensionDataPacketDefinitionsItem,
-    DimensionDefinitionGroupDimensionDefinition, EnumsGeneratorType,
-};
+use bedrock_protocol_1_26_51::enums::GeneratorType;
+use bedrock_protocol_1_26_51::packets::DimensionData;
+use bedrock_protocol_1_26_51::types::DimensionDefinition;
 
 pub(super) fn early_dimension_definition() -> Packet {
-    Packet::new(DimensionDataPacket {
-        definitions: vec![DimensionDataPacketDefinitionsItem {
-            key: "minecraft:overworld".into(),
-            value: DimensionDefinitionGroupDimensionDefinition {
-                minimum_y: 0,
-                height_range: 256,
-                dimension_type: DimensionType { value: 3 },
-                generator_type: EnumsGeneratorType::Overworld,
+    Packet::new(DimensionData {
+        definitions: vec![(
+            "minecraft:overworld".into(),
+            DimensionDefinition {
+                minimum_y: wire::ZigZag32(0),
+                height_range: wire::ZigZag32(256),
+                dimension_type: DimensionType(3),
+                generator_type: GeneratorType::Overworld,
                 ..Default::default()
             },
-        }],
+        )],
     })
 }
 

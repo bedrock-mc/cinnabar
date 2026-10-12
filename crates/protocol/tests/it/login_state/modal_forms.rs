@@ -45,10 +45,9 @@ async fn truncated_modal_form_request_wire_stays_fatal_in_play_ingress() {
             Ok(WorldEvent::SetTime(protocol::SetTimeEvent { time: 34_567 })) => continue,
             Ok(_) => {}
             Err(error) => {
-                // Truncated wire must terminate ingress as a hard error, never
-                // degrade into a counted semantic skip. The UI pre-validator
-                // surfaces the truncation as a valentine decode failure.
-                assert!(matches!(error, ProtocolError::Decode(_)));
+                // Truncated wire must terminate ingress as a hard session error,
+                // never degrade into a counted semantic skip.
+                assert!(matches!(error, ProtocolError::Session(_)));
                 assert_eq!(session.world_skip_count(), 1);
                 core.finish(session).await;
                 return;

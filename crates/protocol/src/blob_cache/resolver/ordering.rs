@@ -4,8 +4,8 @@ pub(super) fn pending_packet_columns(packet: &PendingPacket) -> Vec<ColumnKey> {
     match packet {
         PendingPacket::LevelChunk(packet) => vec![ColumnKey {
             dimension: dimension_id(&packet.dimension_id),
-            x: packet.chunk_position.x,
-            z: packet.chunk_position.z,
+            x: packet.chunk_position.x.0,
+            z: packet.chunk_position.z.0,
         }],
         PendingPacket::SubChunk(packet) => {
             if !packet.cache_enabled {
@@ -14,24 +14,26 @@ pub(super) fn pending_packet_columns(packet: &PendingPacket) -> Vec<ColumnKey> {
             stable_unique_columns(packet.sub_chunk_data.iter().map(|entry| {
                 pending_sub_chunk_column(
                     packet,
-                    entry.sub_chunk_pos_offset.subchunk_offset_x,
-                    entry.sub_chunk_pos_offset.subchunk_offset_z,
+                    entry.sub_chunk_pos_offset.subchunk_offset_x.0,
+                    entry.sub_chunk_pos_offset.subchunk_offset_z.0,
                 )
             }))
         }
     }
 }
 
-fn pending_sub_chunk_column(packet: &SubChunkPacket, dx: i8, dz: i8) -> ColumnKey {
+fn pending_sub_chunk_column(packet: &SubChunk, dx: i8, dz: i8) -> ColumnKey {
     ColumnKey {
         dimension: dimension_id(&packet.dimension_type),
         x: packet
             .center_pos
             .subchunk_position_x
+            .0
             .saturating_add(i32::from(dx)),
         z: packet
             .center_pos
             .subchunk_position_z
+            .0
             .saturating_add(i32::from(dz)),
     }
 }

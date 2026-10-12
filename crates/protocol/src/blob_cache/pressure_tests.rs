@@ -72,10 +72,10 @@ fn exercise_aggregate_pin_pressure(preseed: bool) {
             assert_eq!(status.take_recovery().map(|event| event.x), Some(x));
         } else if !preseed {
             resolver
-                .accept_miss_response(ClientCacheMissResponsePacket {
-                    missing_blobs: vec![valentine::bedrock::version::v1_26_51::MissingBlobData {
-                        blob_id: hash,
-                        blob_data: payload,
+                .accept_miss_response(ClientCacheMissResponse {
+                    missing_blobs: vec![MissingBlobData {
+                        blob_id: wire::U64LE(hash),
+                        blob_data: payload.into(),
                     }],
                 })
                 .unwrap();

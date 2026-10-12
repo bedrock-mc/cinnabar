@@ -29,7 +29,9 @@ impl PlayOutbound {
         for packet in &packets {
             crate::codec::validate_packet(packet)?;
         }
-        let frame = crate::session_transport::batch_frame(&packets)?;
+        let Some(frame) = crate::session_transport::batch_frame(&packets) else {
+            return Ok(());
+        };
         self.frames
             .send(frame)
             .await

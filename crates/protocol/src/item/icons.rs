@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_51::ItemRegistryPacket;
+use bedrock_protocol_1_26_51::packets::ItemRegistry as ItemRegistryPacket;
 
 use crate::nbt_tree::read_root;
 
@@ -21,8 +21,9 @@ pub(crate) fn item_icon_keys(registry: &ItemRegistryPacket) -> Box<[(Arc<str>, A
             let named = super::encode_extra(&item.item_component_data)
                 .ok()
                 .and_then(|bytes| icon_key(&bytes));
-            let key = named.or_else(|| short_name_key(&item.item_name))?;
-            Some((Arc::from(item.item_name.as_str()), key))
+            let identifier = item.item_name.to_string_lossy();
+            let key = named.or_else(|| short_name_key(&identifier))?;
+            Some((Arc::from(identifier), key))
         })
         .collect()
 }

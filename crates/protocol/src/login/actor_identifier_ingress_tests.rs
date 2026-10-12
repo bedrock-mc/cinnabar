@@ -1,6 +1,7 @@
 use crate::raw_packet::decode_packet_raw;
-use bytes::{Bytes, BytesMut};
-use valentine::bedrock::{codec::Nbt, version::v1_26_51::AvailableActorIdentifiersPacket};
+use bedrock_protocol_1_26_51::packets::AvailableActorIdentifiers;
+use bedrock_protocol_1_26_51::wire;
+use bytes::Bytes;
 
 /// Network NBT for an `idlist` holding one custom actor built on a native one.
 fn custom_actor_list() -> Vec<u8> {
@@ -19,15 +20,12 @@ fn custom_actor_list() -> Vec<u8> {
 
 #[test]
 fn actor_identifier_registry_reaches_raw_world_ingress() {
-    let packet: crate::Packet = crate::Packet::new(AvailableActorIdentifiersPacket {
-        identifier_list: Nbt(Bytes::from(custom_actor_list())),
+    let packet: crate::Packet = crate::Packet::new(AvailableActorIdentifiers {
+        identifier_list: wire::NetworkNbt(Bytes::from(custom_actor_list())),
     });
-    let mut frame = BytesMut::new();
-    packet
-        .data
-        .encode_inner_bytes_mut(&mut frame, 0, 0)
-        .unwrap();
-    let raw = decode_packet_raw(&mut frame.freeze()).unwrap();
+    let mut frame = Vec::new();
+    crate::codec::encode_entry(&packet, &mut frame).unwrap();
+    let raw = decode_packet_raw(&mut Bytes::from(frame)).unwrap();
     let event = super::decode_world_raw_with(raw, 0, super::decode_test_raw).unwrap();
     let Some(crate::WorldEvent::Actor(crate::ActorEvent::Identifiers(registry))) = event else {
         panic!("expected the identifier registry, got {event:?}");

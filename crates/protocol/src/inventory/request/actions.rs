@@ -2,26 +2,15 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_51::{
-    EnumsContainerEnumName as Name, EnumsItemStackRequestActionType as Kind,
-    EnumsItemStackRequestCerealItemDescriptorType as DescriptorKind, FullContainerName,
-    ItemStackRequestCerealBeaconPaymentActionData, ItemStackRequestCerealConsumeActionData,
-    ItemStackRequestCerealCraftCreativeActionData, ItemStackRequestCerealCraftLoomActionData,
-    ItemStackRequestCerealCraftRecipeActionData, ItemStackRequestCerealCraftRecipeAutoActionData,
-    ItemStackRequestCerealCraftRecipeOptionalActionData,
-    ItemStackRequestCerealCraftRepairAndDisenchantActionData,
-    ItemStackRequestCerealCraftResultsActionData, ItemStackRequestCerealCreateActionData,
-    ItemStackRequestCerealDestroyActionData, ItemStackRequestCerealDropActionData,
-    ItemStackRequestCerealEmptyItemDescriptorData, ItemStackRequestCerealItemNameDescriptorData,
-    ItemStackRequestCerealItemTagDescriptorData, ItemStackRequestCerealMineBlockActionData,
-    ItemStackRequestCerealNetworkItemInstanceDescriptorData,
-    ItemStackRequestCerealNetworkItemInstanceDescriptorDataItemDescriptor as ResultDescriptor,
-    ItemStackRequestCerealPlaceActionData, ItemStackRequestCerealRecipeIngredientData,
-    ItemStackRequestCerealRecipeIngredientDataItemDescriptor as IngredientDescriptor,
-    ItemStackRequestCerealSlotInfoData, ItemStackRequestCerealSwapActionData,
-    ItemStackRequestCerealTakeActionData, ItemStackRequestPacketDataRequestDataActionsItem as Item,
-    TypedServerNetIdstructRecipeNetIdTag,
+use bedrock_protocol_1_26_51::enums::{
+    ContainerEnumName as Name, ItemDescriptorType as DescriptorKind,
+    ItemStackRequestActionType as Kind,
 };
+use bedrock_protocol_1_26_51::types::{
+    FullContainerName, ItemDescriptor, ItemInstance, RecipeIngredient, RecipeNetID,
+    StackRequestAction as Item, StackRequestSlotInfo,
+};
+use bedrock_protocol_1_26_51::wire;
 
 use super::super::InventoryPacketError;
 use super::super::container_policy::{ContainerWindow, container_window};
@@ -161,8 +150,12 @@ pub enum StackRequestAction {
     },
 }
 
+/// Largest count one stack-request action moves: the codec's bound, which a test pins to the
+/// generated encoder.
+const MAX_STACK_REQUEST_AMOUNT: u8 = 64;
+
 fn amount(amount: u8) -> Result<u8, InventoryPacketError> {
-    if amount == 0 {
+    if !(1..=MAX_STACK_REQUEST_AMOUNT).contains(&amount) {
         return Err(InventoryPacketError::InvalidStackRequestAmount);
     }
     Ok(amount)
@@ -182,203 +175,179 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
             amount: count,
             source,
             destination,
-        } => Item::TakeActionData(Box::new(ItemStackRequestCerealTakeActionData {
-            actiontype: Kind::Take,
-            amount: amount(*count)?,
+        } => Item::TakeActionData {
+            action_type: Kind::Take,
+            amount: wire::U8(amount(*count)?),
             source: slot(*source)?,
             destination: slot(*destination)?,
-        })),
+        },
         A::Place {
             amount: count,
             source,
             destination,
-        } => Item::PlaceActionData(Box::new(ItemStackRequestCerealPlaceActionData {
-            actiontype: Kind::Place,
-            amount: amount(*count)?,
+        } => Item::PlaceActionData {
+            action_type: Kind::Place,
+            amount: wire::U8(amount(*count)?),
             source: slot(*source)?,
             destination: slot(*destination)?,
-        })),
+        },
         A::Swap {
             source,
             destination,
-        } => Item::SwapActionData(ItemStackRequestCerealSwapActionData {
-            actiontype: Kind::Swap,
+        } => Item::SwapActionData {
+            action_type: Kind::Swap,
             source: slot(*source)?,
             destination: slot(*destination)?,
-        }),
+        },
         A::Drop {
             amount: count,
             source,
             randomly,
-        } => Item::DropActionData(Box::new(ItemStackRequestCerealDropActionData {
-            actiontype: Kind::Drop,
-            amount: amount(*count)?,
+        } => Item::DropActionData {
+            action_type: Kind::Drop,
+            amount: wire::U8(amount(*count)?),
             source: slot(*source)?,
             randomly: *randomly,
-        })),
+        },
         A::Destroy {
             amount: count,
             source,
-        } => Item::DestroyActionData(ItemStackRequestCerealDestroyActionData {
-            actiontype: Kind::Destroy,
-            amount: amount(*count)?,
+        } => Item::DestroyActionData {
+            action_type: Kind::Destroy,
+            amount: wire::U8(amount(*count)?),
             source: slot(*source)?,
-        }),
+        },
         A::Consume {
             amount: count,
             source,
-        } => Item::ConsumeActionData(ItemStackRequestCerealConsumeActionData {
-            actiontype: Kind::Consume,
-            amount: amount(*count)?,
+        } => Item::ConsumeActionData {
+            action_type: Kind::Consume,
+            amount: wire::U8(amount(*count)?),
             source: slot(*source)?,
-        }),
-        A::Create { results_index } => {
-            Item::CreateActionData(ItemStackRequestCerealCreateActionData {
-                actiontype: Kind::Create,
-                results_index: *results_index,
-            })
-        }
+        },
+        A::Create { results_index } => Item::CreateActionData {
+            action_type: Kind::Create,
+            results_index: wire::U8(*results_index),
+        },
         A::BeaconPayment {
             primary_effect,
             secondary_effect,
-        } => Item::BeaconPaymentActionData(ItemStackRequestCerealBeaconPaymentActionData {
-            actiontype: Kind::Screenbeaconpayment,
-            primary_effect_id: *primary_effect,
-            secondary_effect_id: *secondary_effect,
-        }),
+        } => Item::BeaconPaymentActionData {
+            action_type: Kind::Screenbeaconpayment,
+            primary_effect_id: wire::ZigZag32(*primary_effect),
+            secondary_effect_id: wire::ZigZag32(*secondary_effect),
+        },
         A::MineBlock {
             hotbar_slot,
             predicted_durability,
             stack_network_id,
-        } => Item::MineBlockActionData(Box::new(ItemStackRequestCerealMineBlockActionData {
-            actiontype: Kind::Screenhudmineblock,
-            slot: *hotbar_slot,
-            predicted_durability: *predicted_durability,
-            net_id_variant: *stack_network_id,
-        })),
+        } => Item::MineBlockActionData {
+            action_type: Kind::Screenhudmineblock,
+            slot: wire::ZigZag32(*hotbar_slot),
+            predicted_durability: wire::ZigZag32(*predicted_durability),
+            net_id_variant: wire::I32LE(*stack_network_id),
+        },
         A::CraftRecipe {
             recipe_network_id,
             crafts: count,
-        } => Item::CraftRecipeActionData(ItemStackRequestCerealCraftRecipeActionData {
-            actiontype: Kind::Craftrecipe,
-            recipe_net_id: recipe(*recipe_network_id),
-            numberofrequestedcrafts: crafts(*count)?,
-        }),
+        } => Item::CraftRecipeActionData {
+            action_type: Kind::Craftrecipe,
+            recipe_net_id: RecipeNetID(*recipe_network_id),
+            number_of_requested_crafts: wire::U8(crafts(*count)?),
+        },
         A::AutoCraft {
             recipe_network_id,
             crafts: count,
             ingredients,
-        } => Item::CraftRecipeAutoActionData(Box::new(
-            ItemStackRequestCerealCraftRecipeAutoActionData {
-                actiontype: Kind::Craftrecipeauto,
-                recipe_net_id: recipe(*recipe_network_id),
-                numberofrequestedcrafts: crafts(*count)?,
-                ingredients: ingredients
-                    .iter()
-                    .map(|ingredient| ItemStackRequestCerealRecipeIngredientData {
-                        item_descriptor: ingredient_descriptor(&ingredient.descriptor),
-                        stack_size: ingredient.count,
-                    })
-                    .collect(),
-            },
-        )),
+        } => Item::CraftRecipeAutoActionData {
+            action_type: Kind::Craftrecipeauto,
+            recipe_net_id: RecipeNetID(*recipe_network_id),
+            number_of_requested_crafts: wire::U8(crafts(*count)?),
+            ingredients: ingredients
+                .iter()
+                .map(|ingredient| RecipeIngredient {
+                    item_descriptor: item_descriptor(&ingredient.descriptor),
+                    stack_size: wire::U16LE(ingredient.count),
+                })
+                .collect(),
+        },
         A::CraftCreative {
             creative_item_network_id,
             crafts: count,
-        } => Item::CraftCreativeActionData(ItemStackRequestCerealCraftCreativeActionData {
-            actiontype: Kind::Craftcreative,
-            creative_item_net_id: *creative_item_network_id,
-            numberofrequestedcrafts: crafts(*count)?,
-        }),
+        } => Item::CraftCreativeActionData {
+            action_type: Kind::Craftcreative,
+            creative_item_net_id: wire::VarUInt(*creative_item_network_id),
+            number_of_requested_crafts: wire::U8(crafts(*count)?),
+        },
         A::CraftRecipeOptional {
             recipe_network_id,
             filtered_string_index,
-        } => Item::CraftRecipeOptionalActionData(
-            ItemStackRequestCerealCraftRecipeOptionalActionData {
-                actiontype: Kind::Craftrecipeoptional,
-                recipe_net_id: recipe(*recipe_network_id),
-                filtered_string_index: *filtered_string_index,
-            },
-        ),
+        } => Item::CraftRecipeOptionalActionData {
+            action_type: Kind::Craftrecipeoptional,
+            recipe_net_id: RecipeNetID(*recipe_network_id),
+            filtered_string_index: wire::I32LE(*filtered_string_index),
+        },
         A::Grindstone {
             recipe_network_id,
             crafts: count,
             repair_cost,
-        } => Item::CraftRepairAndDisenchantActionData(Box::new(
-            ItemStackRequestCerealCraftRepairAndDisenchantActionData {
-                actiontype: Kind::Craftrepairanddisenchant,
-                recipe_net_id: *recipe_network_id,
-                numberofrequestedcrafts: crafts(*count)?,
-                repair_cost: *repair_cost,
-            },
-        )),
+        } => Item::CraftRepairAndDisenchantActionData {
+            action_type: Kind::Craftrepairanddisenchant,
+            recipe_net_id: wire::I32LE(*recipe_network_id),
+            number_of_requested_crafts: wire::U8(crafts(*count)?),
+            repair_cost: wire::ZigZag32(*repair_cost),
+        },
         A::Loom {
             pattern,
             crafts: count,
-        } => Item::CraftLoomActionData(ItemStackRequestCerealCraftLoomActionData {
-            actiontype: Kind::Craftloom,
-            pattern_name_id: pattern.to_string(),
-            num_crafts: crafts(*count)?,
-        }),
+        } => Item::CraftLoomActionData {
+            action_type: Kind::Craftloom,
+            pattern_name_id: wire::Str::from(&**pattern),
+            num_crafts: wire::U8(crafts(*count)?),
+        },
         A::CraftResultsDeprecated {
             results,
             crafts: count,
-        } => Item::CraftResultsActionData(ItemStackRequestCerealCraftResultsActionData {
-            actiontype: Kind::Craftresults,
+        } => Item::CraftResultsActionData {
+            action_type: Kind::Craftresults,
             craft_results: results.iter().map(craft_result).collect(),
-            num_crafts: crafts(*count)?,
-        }),
+            num_crafts: wire::U8(crafts(*count)?),
+        },
     })
 }
 
-const fn recipe(raw_id: u32) -> TypedServerNetIdstructRecipeNetIdTag {
-    TypedServerNetIdstructRecipeNetIdTag { raw_id }
-}
-
-fn craft_result(result: &CraftResult) -> ItemStackRequestCerealNetworkItemInstanceDescriptorData {
-    ItemStackRequestCerealNetworkItemInstanceDescriptorData {
-        item_descriptor: ResultDescriptor::ItemNameDescriptorData(
-            ItemStackRequestCerealItemNameDescriptorData {
-                descriptor_type: DescriptorKind::Itemname,
-                full_name: result.identifier.to_string(),
-                aux_value: result.aux,
-            },
-        ),
-        stacksize: result.count,
-        block_runtime_id: result.block_runtime_id,
-        user_data_buffer: result.user_data.to_vec(),
+fn craft_result(result: &CraftResult) -> ItemInstance {
+    ItemInstance {
+        item_descriptor: ItemDescriptor::ItemNameDescriptorData {
+            descriptor_type: DescriptorKind::Itemname,
+            full_name: wire::Str::from(&*result.identifier),
+            aux_value: wire::ZigZag32(result.aux),
+        },
+        stack_size: wire::U16LE(result.count),
+        block_runtime_id: wire::VarUInt(result.block_runtime_id),
+        user_data_buffer: bytes::Bytes::copy_from_slice(&result.user_data),
     }
 }
 
-fn ingredient_descriptor(descriptor: &StackItemDescriptor) -> IngredientDescriptor {
+fn item_descriptor(descriptor: &StackItemDescriptor) -> ItemDescriptor {
     match descriptor {
-        StackItemDescriptor::Empty => IngredientDescriptor::EmptyItemDescriptorData(
-            ItemStackRequestCerealEmptyItemDescriptorData {
-                descriptor_type: DescriptorKind::Empty,
-            },
-        ),
-        StackItemDescriptor::Name { identifier, aux } => {
-            IngredientDescriptor::ItemNameDescriptorData(
-                ItemStackRequestCerealItemNameDescriptorData {
-                    descriptor_type: DescriptorKind::Itemname,
-                    full_name: identifier.to_string(),
-                    aux_value: *aux,
-                },
-            )
-        }
-        StackItemDescriptor::Tag(tag) => IngredientDescriptor::ItemTagDescriptorData(
-            ItemStackRequestCerealItemTagDescriptorData {
-                descriptor_type: DescriptorKind::Itemtag,
-                item_tag: tag.to_string(),
-            },
-        ),
+        StackItemDescriptor::Empty => ItemDescriptor::EmptyItemDescriptorData {
+            descriptor_type: DescriptorKind::Empty,
+        },
+        StackItemDescriptor::Name { identifier, aux } => ItemDescriptor::ItemNameDescriptorData {
+            descriptor_type: DescriptorKind::Itemname,
+            full_name: wire::Str::from(&**identifier),
+            aux_value: wire::ZigZag32(*aux),
+        },
+        StackItemDescriptor::Tag(tag) => ItemDescriptor::ItemTagDescriptorData {
+            descriptor_type: DescriptorKind::Itemtag,
+            item_tag: wire::Str::from(&**tag),
+        },
     }
 }
 
 /// Encodes one slot with the container name and wire index vanilla uses.
-fn slot(
-    slot: StackRequestSlot,
-) -> Result<ItemStackRequestCerealSlotInfoData, InventoryPacketError> {
+fn slot(slot: StackRequestSlot) -> Result<StackRequestSlotInfo, InventoryPacketError> {
     use StackRequestContainer as C;
     let invalid = InventoryPacketError::InvalidStackRequestSlot {
         container: slot.container,
@@ -414,30 +383,55 @@ fn slot(
         }
         _ => return Err(invalid),
     };
-    Ok(ItemStackRequestCerealSlotInfoData {
-        fullcontainername: FullContainerName {
+    Ok(StackRequestSlotInfo {
+        full_container_name: FullContainerName {
             container_name,
-            dynamic_id,
+            dynamic_id: dynamic_id.map(wire::U32LE),
         },
-        slot: wire_slot,
-        net_id_variant: slot.stack_network_id,
+        slot: wire::U8(wire_slot),
+        net_id_variant: wire::I32LE(slot.stack_network_id),
     })
 }
 
 fn open_window_name(code: u8) -> Option<Name> {
-    use valentine::bedrock::codec::BedrockCodec;
-    let name = Name::decode(&mut bytes::Bytes::copy_from_slice(&[code]), ()).ok()?;
+    let name = Name::from(code);
     (!matches!(name, Name::Unknown(_))).then_some(name)
 }
 
 #[cfg(test)]
 mod tests {
-    use bytes::BytesMut;
-    use valentine::bedrock::codec::BedrockCodec;
-    use valentine::bedrock::version::v1_26_51::{ItemStackRequestPacket, McpePacketData};
+    use bedrock_protocol_1_26_51::packets::{self, ItemStackRequest};
+    use bedrock_protocol_1_26_51::wire::{Decode, Encode};
 
     use super::super::item_stack_request_packet;
     use super::*;
+
+    /// Amounts outside the codec's 1..=64 bound fail with a typed error before encoding.
+    #[test]
+    fn stack_amounts_match_the_codec_bound() {
+        let take = |count| Item::TakeActionData {
+            action_type: Kind::Take,
+            amount: wire::U8(count),
+            source: StackRequestSlotInfo::default(),
+            destination: StackRequestSlotInfo::default(),
+        };
+        assert!(take(MAX_STACK_REQUEST_AMOUNT).encode_to_vec().is_ok());
+        assert!(matches!(
+            take(MAX_STACK_REQUEST_AMOUNT + 1).encode_to_vec(),
+            Err(wire::EncodeError::SchemaConstraint(_))
+        ));
+        let player = at(StackRequestContainer::PlayerInventory, 12, 7);
+        for count in [0, MAX_STACK_REQUEST_AMOUNT + 1] {
+            assert!(matches!(
+                encode(&StackRequestAction::Drop {
+                    amount: count,
+                    source: player,
+                    randomly: false,
+                }),
+                Err(InventoryPacketError::InvalidStackRequestAmount)
+            ));
+        }
+    }
 
     fn at(container: StackRequestContainer, slot: u8, id: i32) -> StackRequestSlot {
         StackRequestSlot {
@@ -523,11 +517,7 @@ mod tests {
                             identifier: Arc::from("minecraft:stick"),
                             aux: 0,
                         },
-                        count: 2,
-                    },
-                    AutoCraftIngredient {
-                        descriptor: StackItemDescriptor::Empty,
-                        count: 0,
+                        count: 1,
                     },
                 ]),
             },
@@ -567,13 +557,12 @@ mod tests {
     #[test]
     fn every_action_round_trips_through_the_generated_codec() {
         let packet = item_stack_request_packet(-3, &every_action()).unwrap();
-        let McpePacketData::ItemStackRequestPacket(request) = packet.data else {
+        let packets::Packet::ItemStackRequest(request) = *packet.data else {
             panic!("an item stack request");
         };
         assert_eq!(request.requests[0].actions.len(), every_action().len());
-        let mut bytes = BytesMut::new();
-        request.encode(&mut bytes).unwrap();
-        let decoded = ItemStackRequestPacket::decode(&mut bytes.freeze(), ()).unwrap();
+        let bytes = request.encode_to_vec().unwrap();
+        let decoded = ItemStackRequest::decode_exact(&bytes).unwrap();
         assert_eq!(decoded, request);
     }
 }

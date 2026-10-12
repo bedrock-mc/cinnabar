@@ -1,4 +1,5 @@
-use valentine::bedrock::version::v1_26_51::{McpePacketName, SetTimePacket};
+use bedrock_protocol_1_26_51::packets::{PacketId, SetTime};
+use bedrock_protocol_1_26_51::wire;
 
 use super::*;
 
@@ -6,10 +7,10 @@ use super::*;
 pub(crate) mod unix {
     use std::path::PathBuf;
 
+    use bedrock_protocol_1_26_51::packets::{self, ScriptMessage};
     use futures::task::noop_waker;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{UnixListener, UnixStream};
-    use valentine::bedrock::version::v1_26_51::{McpePacketData, ScriptMessagePacket};
 
     use super::*;
 
@@ -54,11 +55,13 @@ pub(crate) mod unix {
             transport, peer, ..
         } = &mut pair("drain", &[]).await;
         // Too large to flush while the peer is not reading.
-        let first = vec![Packet::new(ScriptMessagePacket {
+        let first = vec![Packet::new(ScriptMessage {
             message_id: "large".into(),
-            message_value: vec![1; 16 * 1024 * 1024],
+            message_value: vec![1; 16 * 1024 * 1024].into(),
         })];
-        let second = vec![Packet::new(SetTimePacket { time: 2 })];
+        let second = vec![Packet::new(SetTime {
+            time: wire::ZigZag32(2),
+        })];
         let waker = noop_waker();
         let mut cx = Context::from_waker(&waker);
         for packets in [&first, &second] {
@@ -88,13 +91,19 @@ pub(crate) mod unix {
     /// The startup packets come first; a Batch frame's packets then share the frame's bytes.
     #[tokio::test]
     async fn startup_packets_precede_batches_split_without_copying() {
-        let startup = packet_bytes(&Packet::new(SetTimePacket { time: 1 }));
+        let startup = packet_bytes(&Packet::new(SetTime {
+            time: wire::ZigZag32(1),
+        }));
         let Pair {
             transport, peer, ..
         } = &mut pair("batches", &[startup]).await;
         let batch = [
-            Packet::new(SetTimePacket { time: 2 }),
-            Packet::new(SetTimePacket { time: 3 }),
+            Packet::new(SetTime {
+                time: wire::ZigZag32(2),
+            }),
+            Packet::new(SetTime {
+                time: wire::ZigZag32(3),
+            }),
         ];
         write_frame(peer, &batch_frame(&batch).unwrap()).await;
 
@@ -105,10 +114,10 @@ pub(crate) mod unix {
                 panic!("a packet arrives before any terminal message")
             };
             frames.push(raw.inner_frame().clone());
-            let McpePacketData::SetTimePacket(time) = raw.decode().unwrap().data else {
+            let packets::Packet::SetTime(time) = *raw.decode().unwrap().data else {
                 panic!("the packets arrive in order")
             };
-            times.push(time.time);
+            times.push(time.time.0);
         }
         assert_eq!(times, [1, 2, 3]);
         assert_eq!(
@@ -176,12 +185,13 @@ pub(crate) mod unix {
 
 /// One packet's bytes, header included, as a handoff carries it.
 pub(crate) fn packet_bytes(packet: &Packet) -> Bytes {
-    let mut entry = batch_frame(std::slice::from_ref(packet))
+    let entry = batch_frame(std::slice::from_ref(packet))
         .unwrap()
         .slice(1..);
-    let length = valentine::protocol::wire::read_var_u32(&mut entry).unwrap();
-    assert_eq!(entry.len(), length as usize);
-    entry
+    let mut reader = wire::Reader::new(&entry);
+    let length = reader.read_var_u32().unwrap();
+    assert_eq!(reader.remaining(), length as usize);
+    entry.slice(reader.position()..)
 }
 
 /// Startup batches respect both bounds and keep every packet in order.
@@ -217,12 +227,34 @@ fn startup_batches_stay_within_the_packet_and_byte_bounds() {
 
 #[test]
 fn startup_packets_keep_their_headers() {
-    let packet = Packet::new(SetTimePacket { time: 9 });
+    let packet = Packet::new(SetTime {
+        time: wire::ZigZag32(9),
+    });
     let bytes = packet_bytes(&packet);
     let batches = startup_batches(&[bytes]);
     let raw = decode_batch_body(batches[0].clone(), MAX_SESSION_BATCH_BYTES)
         .unwrap()
         .remove(0);
-    assert_eq!(raw.id, McpePacketName::SetTimePacket);
+    assert_eq!(raw.id, PacketId::SetTime);
     assert_eq!(raw.decode().unwrap(), packet);
+}
+
+/// A packet the codec refuses is left out; the rest of the batch still goes, in order.
+#[test]
+fn an_unencodable_packet_does_not_lose_its_batch() {
+    let time = |time| {
+        Packet::new(SetTime {
+            time: wire::ZigZag32(time),
+        })
+    };
+    // The manifest bounds a LevelChunk at 64 sub-chunks, so the encoder refuses 65.
+    let refused = Packet::new(bedrock_protocol_1_26_51::packets::LevelChunk {
+        sub_chunks_count: wire::VarUInt(65),
+        ..Default::default()
+    });
+    assert_eq!(
+        batch_frame(&[time(1), refused.clone(), time(2)]),
+        batch_frame(&[time(1), time(2)])
+    );
+    assert_eq!(batch_frame(&[refused]), None);
 }

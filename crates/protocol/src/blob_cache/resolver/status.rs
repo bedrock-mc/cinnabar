@@ -108,19 +108,19 @@ impl BlobCacheStatus {
 
     /// Splits the missing and have protocol sets. Outstanding hashes are intentionally omitted.
     #[must_use]
-    pub(crate) fn into_packets(self) -> Vec<ClientCacheBlobStatusPacket> {
+    pub(crate) fn into_packets(self) -> Vec<ClientCacheBlobStatus> {
         let mut missing = self.missing.into_iter().peekable();
         let mut have = self.have.into_iter().peekable();
         let mut packets = Vec::new();
         while missing.peek().is_some() || have.peek().is_some() {
-            let mut packet = ClientCacheBlobStatusPacket::default();
+            let mut packet = ClientCacheBlobStatus::default();
             while packet.missing_ids.len() + packet.found_ids.len()
                 < MAX_CLIENT_BLOB_HASHES_PER_PACKET
             {
                 if let Some(hash) = missing.next() {
-                    packet.missing_ids.push(hash);
+                    packet.missing_ids.push(wire::U64LE(hash));
                 } else if let Some(hash) = have.next() {
-                    packet.found_ids.push(hash);
+                    packet.found_ids.push(wire::U64LE(hash));
                 } else {
                     break;
                 }

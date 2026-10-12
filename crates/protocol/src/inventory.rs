@@ -1,19 +1,14 @@
 use std::sync::Arc;
 
-use bytes::BytesMut;
+use bedrock_protocol_1_26_51::enums::{ContainerEnumName, ItemStackNetResult};
+use bedrock_protocol_1_26_51::packets::{
+    ContainerClose, ContainerOpen, ContainerSetData, InventoryContent, InventorySlot,
+    ItemStackResponse, MobArmorEquipment, PlayerEnchantOptions, PlayerHotbar,
+};
+use bedrock_protocol_1_26_51::types::FullContainerName;
+use bedrock_protocol_1_26_51::wire;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use valentine::bedrock::{
-    codec::BedrockCodec,
-    version::v1_26_51::{
-        ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket,
-        EnumsContainerEnumName as FullContainerNameContainerName,
-        EnumsItemStackNetResult as ItemStackResponseInfoResult, FullContainerName,
-        InventoryContentPacket, InventorySlotPacket, ItemStackResponsePacket,
-        MobArmorEquipmentPacket, PlayerEnchantOptionsPacket, PlayerHotbarPacket,
-    },
-};
-use valentine::protocol::wire;
 
 use crate::item::{ArmorEquipmentEvent, NetworkItemStack};
 
@@ -256,7 +251,7 @@ pub enum InventoryPacketError {
     InvalidNormalTransactionActionCount(usize),
     #[error("item stack request ID must be a negative odd integer below -1")]
     InvalidStackRequestId,
-    #[error("item stack request amount must be positive")]
+    #[error("item stack request amount must be from 1 to 64")]
     InvalidStackRequestAmount,
     #[error("item stack request has {0} actions, outside 1..=100")]
     InvalidStackRequestActionCount(usize),
@@ -402,20 +397,22 @@ impl VerifiedNetworkItemStack {
         let id = i16::try_from(self.inner.network_id)
             .map_err(|_| InventoryPacketError::InvalidItemNetworkId(self.inner.network_id))?;
         Ok(ItemStackDescriptor {
-            id,
-            stacksize: self.inner.count,
-            auxvalue: self.inner.metadata,
+            id: wire::I16LE(id),
+            stack_size: wire::U16LE(self.inner.count),
+            aux_value: wire::VarUInt(self.inner.metadata),
             net_id_variant: (self.inner.stack_network_id != -1)
-                .then_some(self.inner.stack_network_id),
-            block_runtime_id: u32::from_ne_bytes(self.inner.block_runtime_id.to_ne_bytes()),
-            user_data_buffer: self.inner.extra_data.to_vec(),
+                .then_some(wire::ZigZag32(self.inner.stack_network_id)),
+            block_runtime_id: wire::VarUInt(u32::from_ne_bytes(
+                self.inner.block_runtime_id.to_ne_bytes(),
+            )),
+            user_data_buffer: bytes::Bytes::copy_from_slice(&self.inner.extra_data),
         })
     }
 }
 
 /// The single item shape 1.26.40 puts on the wire. See `crate::item`.
 type ItemStackDescriptor =
-    valentine::bedrock::version::v1_26_51::CerealizerNetworkItemStackDescriptorSerializedData;
+    bedrock_protocol_1_26_51::types::NetworkItemStackDescriptorSerializedData;
 
 #[must_use]
 pub const fn normalize_authority(server_authoritative: bool) -> InventoryEvent {
@@ -427,11 +424,11 @@ pub const fn normalize_authority(server_authoritative: bool) -> InventoryEvent {
 }
 
 pub(crate) fn normalize_content(
-    packet: InventoryContentPacket,
+    packet: InventoryContent,
 ) -> Result<InventoryEvent, InventoryPacketError> {
     validate_slot_count(packet.slots.len())?;
     let container = container_identity_varint(
-        i32::from_ne_bytes(packet.container_id.to_ne_bytes()),
+        i32::from_ne_bytes(packet.container_id.0.to_ne_bytes()),
         Some(packet.full_container_name),
     )?;
     let slots = packet
@@ -447,11 +444,11 @@ pub(crate) fn normalize_content(
 }
 
 pub(crate) fn normalize_slot(
-    packet: InventorySlotPacket,
+    packet: InventorySlot,
 ) -> Result<InventoryEvent, InventoryPacketError> {
-    let slot = checked_slot(i32::from_ne_bytes(packet.slot.to_ne_bytes()))?;
+    let slot = checked_slot(i32::from_ne_bytes(packet.slot.0.to_ne_bytes()))?;
     let container =
-        container_identity_varint(i32::from(packet.container_id), packet.full_container_name)?;
+        container_identity_varint(i32::from(packet.container_id.0), packet.full_container_name)?;
     Ok(InventoryEvent::Slot(InventorySlotEvent {
         identity: SlotIdentity { container, slot },
         stack: normalize_item_descriptor(packet.item)?,
@@ -463,23 +460,23 @@ pub(crate) fn normalize_slot(
 }
 
 pub(crate) fn normalize_hotbar(
-    packet: PlayerHotbarPacket,
+    packet: PlayerHotbar,
 ) -> Result<InventoryEvent, InventoryPacketError> {
-    let slot = u8::try_from(packet.selected_slot)
+    let slot = u8::try_from(packet.selected_slot.0)
         .ok()
         .filter(|slot| *slot < 9)
         .ok_or(InventoryPacketError::InvalidSelectedSlot(
-            i32::from_ne_bytes(packet.selected_slot.to_ne_bytes()),
+            i32::from_ne_bytes(packet.selected_slot.0.to_ne_bytes()),
         ))?;
     Ok(InventoryEvent::SelectedSlot(SelectedSlotEvent {
-        container: ContainerIdentity::window(raw_window_id(packet.container_id)?),
+        container: ContainerIdentity::window(raw_window_id(packet.container_id.0)?),
         slot,
-        select_slot: packet.shouldselectslot,
+        select_slot: packet.should_select_slot,
     }))
 }
 
 pub(crate) fn normalize_response(
-    packet: ItemStackResponsePacket,
+    packet: ItemStackResponse,
 ) -> Result<InventoryEvent, InventoryPacketError> {
     if packet.responses.len() > MAX_STACK_RESPONSES {
         return Err(InventoryPacketError::TooManyResponses {
@@ -490,7 +487,7 @@ pub(crate) fn normalize_response(
     let mut responses = Vec::with_capacity(packet.responses.len());
     for response in packet.responses {
         let (status, containers) = match (response.result, response.containers) {
-            (ItemStackResponseInfoResult::Success, Some(content)) => {
+            (ItemStackNetResult::Success, Some(content)) => {
                 if content.len() > MAX_RESPONSE_CONTAINERS {
                     return Err(InventoryPacketError::TooManyResponseContainers {
                         count: content.len(),
@@ -508,8 +505,13 @@ pub(crate) fn normalize_response(
                     let identity = full_container_identity(container.full_container_name)?;
                     let mut slots = Vec::with_capacity(container.slots.len());
                     for slot in container.slots {
-                        let custom_name = slot.custom_name.unredacted;
-                        let filtered_custom_name = slot.custom_name.redacted.unwrap_or_default();
+                        let custom_name =
+                            slot.custom_name.unredacted.to_string_lossy().into_owned();
+                        let filtered_custom_name = slot
+                            .custom_name
+                            .redacted
+                            .map(|name| name.to_string_lossy().into_owned())
+                            .unwrap_or_default();
                         validate_response_name(&custom_name)?;
                         validate_response_name(&filtered_custom_name)?;
                         // An absent stack net ID means the server did not track this
@@ -517,15 +519,15 @@ pub(crate) fn normalize_response(
                         // A well-framed odd value is data, not framing failure.
                         // The sparse response consumer checks count/id pairing
                         // and skips unusable corrections without ending play.
-                        let item_stack_id = slot.item_stack_net_id.map_or(-1, |net_id| net_id.id);
+                        let item_stack_id = slot.item_stack_net_id.map_or(-1, |net_id| net_id.0);
                         slots.push(StackResponseSlot {
-                            slot: slot.slot,
-                            hotbar_slot: slot.requested_slot,
-                            count: slot.amount,
+                            slot: slot.slot.0,
+                            hotbar_slot: slot.requested_slot.0,
+                            count: slot.amount.0,
                             item_stack_id,
                             custom_name: Arc::from(custom_name),
                             filtered_custom_name: Arc::from(filtered_custom_name),
-                            durability_correction: slot.durability_correction,
+                            durability_correction: slot.durability_correction.0,
                         });
                     }
                     containers.push(StackResponseContainer {
@@ -535,21 +537,16 @@ pub(crate) fn normalize_response(
                 }
                 (StackResponseStatus::Accepted, containers)
             }
-            (ItemStackResponseInfoResult::Success, None) => {
+            (ItemStackNetResult::Success, None) => {
                 return Err(InventoryPacketError::MissingResponseContent);
             }
-            (ItemStackResponseInfoResult::Error, None) => {
-                (StackResponseStatus::Rejected, Vec::new())
-            }
-            (other, None) => (
-                StackResponseStatus::Unknown(response_result_code(&other)?),
-                Vec::new(),
-            ),
+            (ItemStackNetResult::Error, None) => (StackResponseStatus::Rejected, Vec::new()),
+            (other, None) => (StackResponseStatus::Unknown(other.to_raw()), Vec::new()),
             (_, Some(_)) => return Err(InventoryPacketError::UnexpectedResponseContent),
         };
         responses.push(StackResponse {
             status,
-            request_id: response.client_request_id.id,
+            request_id: response.client_request_id.0,
             containers: Arc::from(containers),
         });
     }
@@ -559,57 +556,59 @@ pub(crate) fn normalize_response(
 }
 
 pub(crate) fn normalize_container_open(
-    packet: ContainerOpenPacket,
+    packet: ContainerOpen,
 ) -> Result<InventoryEvent, InventoryPacketError> {
     Ok(InventoryEvent::Open(ContainerOpenEvent {
-        container: ContainerIdentity::window(raw_window_id(packet.container_id)?),
-        window_type: raw_window_type(packet.container_type)?,
-        position: [packet.position.x, packet.position.y, packet.position.z],
-        runtime_entity_id: packet.target_actor_id.actor_unique_id,
+        container: ContainerIdentity::window(raw_window_id(packet.container_id.0)?),
+        window_type: raw_window_type(packet.container_type.0)?,
+        position: [
+            packet.position.x.0,
+            packet.position.y.0,
+            packet.position.z.0,
+        ],
+        runtime_entity_id: packet.target_actor_id.0,
     }))
 }
 
 pub(crate) fn normalize_container_close(
-    packet: ContainerClosePacket,
+    packet: ContainerClose,
 ) -> Result<InventoryEvent, InventoryPacketError> {
     Ok(InventoryEvent::Close(ContainerCloseEvent {
-        container: ContainerIdentity::window(raw_window_id(packet.container_id)?),
-        window_type: raw_window_type(packet.container_type)?,
+        container: ContainerIdentity::window(raw_window_id(packet.container_id.0)?),
+        window_type: raw_window_type(packet.container_type.0)?,
         server_initiated: packet.server_initiated_close,
     }))
 }
 
 pub(crate) fn normalize_container_data(
-    packet: ContainerSetDataPacket,
+    packet: ContainerSetData,
 ) -> Result<InventoryEvent, InventoryPacketError> {
     Ok(InventoryEvent::Data(ContainerDataEvent {
-        container: ContainerIdentity::window(raw_window_id(packet.container_id)?),
-        property: packet.id,
-        value: packet.value,
+        container: ContainerIdentity::window(raw_window_id(packet.container_id.0)?),
+        property: packet.id.0,
+        value: packet.value.0,
     }))
 }
 
 pub(crate) fn normalize_enchant_options(
-    packet: PlayerEnchantOptionsPacket,
+    packet: PlayerEnchantOptions,
 ) -> Result<InventoryEvent, InventoryPacketError> {
     let options = packet
         .options
         .into_iter()
         .take(MAX_ENCHANT_OPTIONS)
         .map(|option| {
-            let mut enchants = Vec::new();
-            for instance in option.enchants.item_enchants.iter().flatten() {
-                let mut bytes = BytesMut::with_capacity(1);
-                instance
-                    .enchant_type
-                    .encode(&mut bytes)
-                    .map_err(|_| InventoryPacketError::EncodingFailed)?;
-                enchants.push((bytes[0], instance.enchant_level));
-            }
+            let enchants = option
+                .enchants
+                .item_enchants
+                .iter()
+                .flatten()
+                .map(|instance| (instance.enchant_type.to_raw(), instance.enchant_level.0))
+                .collect::<Vec<_>>();
             Ok(EnchantOption {
-                cost: option.cost,
-                name: Arc::from(option.enchant_name),
-                network_id: option.enchant_net_id.raw_id,
+                cost: option.cost.0,
+                name: Arc::from(option.enchant_name.to_string_lossy()),
+                network_id: option.enchant_net_id.0,
                 enchants: Arc::from(enchants),
             })
         })
@@ -648,9 +647,9 @@ fn checked_slot(slot: i32) -> Result<u16, InventoryPacketError> {
 }
 
 pub(crate) fn normalize_armor_equipment(
-    packet: MobArmorEquipmentPacket,
+    packet: MobArmorEquipment,
 ) -> Result<ArmorEquipmentEvent, InventoryPacketError> {
-    let actor_runtime_id = packet.target_runtime_id.actor_runtime_id;
+    let actor_runtime_id = packet.target_runtime_id.0;
     if actor_runtime_id == 0 {
         return Err(InventoryPacketError::InvalidArmorRuntimeId(
             actor_runtime_id,
@@ -677,21 +676,21 @@ fn normalize_item_descriptor(
     item: ItemStackDescriptor,
 ) -> Result<NetworkItemStack, InventoryPacketError> {
     validate_item_user_data(&item.user_data_buffer)?;
-    if item.id == 0 {
+    if item.id.0 == 0 {
         return Ok(NetworkItemStack::empty());
     }
     let stack_network_id = match item.net_id_variant {
         None => -1,
-        Some(id) if id > 0 => id,
+        Some(wire::ZigZag32(id)) if id > 0 => id,
         Some(_) => return Err(InventoryPacketError::ContradictoryStackId),
     };
     make_stack(
-        i32::from(item.id),
-        i32::from_ne_bytes(item.auxvalue.to_ne_bytes()),
+        i32::from(item.id.0),
+        i32::from_ne_bytes(item.aux_value.0.to_ne_bytes()),
         stack_network_id,
-        item.stacksize,
-        i32::from_ne_bytes(item.block_runtime_id.to_ne_bytes()),
-        item.user_data_buffer,
+        item.stack_size.0,
+        i32::from_ne_bytes(item.block_runtime_id.0.to_ne_bytes()),
+        item.user_data_buffer.to_vec(),
     )
 }
 
@@ -755,15 +754,6 @@ fn validate_stack_shape(stack: &NetworkItemStack) -> Result<(), InventoryPacketE
     Ok(())
 }
 
-/// Recovers the wire code behind an unrecognised item-stack response result.
-fn response_result_code(result: &ItemStackResponseInfoResult) -> Result<u8, InventoryPacketError> {
-    let mut bytes = BytesMut::with_capacity(1);
-    result
-        .encode(&mut bytes)
-        .map_err(|_| InventoryPacketError::EncodingFailed)?;
-    Ok(bytes[0])
-}
-
 fn container_identity_varint(
     window_id: i32,
     full: Option<FullContainerName>,
@@ -798,7 +788,7 @@ fn full_container_identity(
     Ok(ContainerIdentity {
         window_id: None,
         slot_type: Some(raw_container_slot(full.container_name)?),
-        dynamic_id: full.dynamic_id,
+        dynamic_id: full.dynamic_id.map(|id| id.0),
     })
 }
 
@@ -814,12 +804,8 @@ fn raw_window_id_varint(value: i32) -> Result<i32, InventoryPacketError> {
     Ok(value)
 }
 
-fn raw_container_slot(value: FullContainerNameContainerName) -> Result<u8, InventoryPacketError> {
-    let mut bytes = BytesMut::with_capacity(1);
-    value
-        .encode(&mut bytes)
-        .map_err(|_| InventoryPacketError::EncodingFailed)?;
-    Ok(bytes[0])
+fn raw_container_slot(value: ContainerEnumName) -> Result<u8, InventoryPacketError> {
+    Ok(value.to_raw())
 }
 
 fn raw_window_type(value: u8) -> Result<i8, InventoryPacketError> {
@@ -842,18 +828,18 @@ mod tests {
 
     #[test]
     fn verified_network_stack_is_consumed_into_vendor_item_without_exposing_inner_stack() {
-        let packet = InventorySlotPacket {
-            container_id: 0,
-            slot: 0,
+        let packet = InventorySlot {
+            container_id: wire::U8(0),
+            slot: wire::VarUInt(0),
             full_container_name: None,
             storage_item: None,
             item: ItemStackDescriptor {
-                id: 7,
-                stacksize: 4,
-                auxvalue: 3,
-                net_id_variant: Some(13),
-                block_runtime_id: 92,
-                user_data_buffer: Vec::new(),
+                id: wire::I16LE(7),
+                stack_size: wire::U16LE(4),
+                aux_value: wire::VarUInt(3),
+                net_id_variant: Some(wire::ZigZag32(13)),
+                block_runtime_id: wire::VarUInt(92),
+                user_data_buffer: bytes::Bytes::new(),
             },
         };
         let InventoryEvent::Slot(event) = normalize_slot(packet).unwrap() else {
@@ -862,11 +848,11 @@ mod tests {
         let expected_digest = event.stack.nbt_digest;
         let verified = VerifiedNetworkItemStack::try_new(event.stack, expected_digest).unwrap();
         let vendor = verified.into_vendor_item().unwrap();
-        assert_eq!(vendor.id, 7);
-        assert_eq!(vendor.stacksize, 4);
-        assert_eq!(vendor.auxvalue, 3);
-        assert_eq!(vendor.net_id_variant, Some(13));
-        assert_eq!(vendor.block_runtime_id, 92);
+        assert_eq!(vendor.id.0, 7);
+        assert_eq!(vendor.stack_size.0, 4);
+        assert_eq!(vendor.aux_value.0, 3);
+        assert_eq!(vendor.net_id_variant, Some(wire::ZigZag32(13)));
+        assert_eq!(vendor.block_runtime_id.0, 92);
         assert!(vendor.user_data_buffer.is_empty());
     }
 }

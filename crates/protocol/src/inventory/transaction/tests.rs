@@ -1,42 +1,40 @@
 use super::*;
-use valentine::bedrock::version::v1_26_51::{
-    CerealizerNetworkItemStackDescriptorSerializedData, InventorySource, InventoryTransaction,
-    NormalTransactionData,
+use bedrock_protocol_1_26_51::types::{
+    InventorySource, InventoryTransactionData, NetworkItemStackDescriptorSerializedData,
 };
+use bedrock_protocol_1_26_51::wire;
 
 fn action(window: i32, slot: u32, count: u16) -> InventoryAction {
     InventoryAction {
         source: InventorySource {
-            source_type: EnumsInventorySourceType::Containerinventory,
-            container_id: Some(i8::try_from(window).unwrap()),
+            source_type: InventorySourceType::ContainerInventory,
+            container_id: Some(wire::I8(i8::try_from(window).unwrap())),
             bit_flags: None,
         },
-        slot,
+        slot: wire::VarUInt(slot),
         // Client verification explicitly ignores mismatched previous contents.
-        from_item: CerealizerNetworkItemStackDescriptorSerializedData {
-            id: 91,
-            stacksize: 77,
-            net_id_variant: Some(900),
+        from_item: NetworkItemStackDescriptorSerializedData {
+            id: wire::I16LE(91),
+            stack_size: wire::U16LE(77),
+            net_id_variant: Some(wire::ZigZag32(900)),
             ..Default::default()
         },
-        to_item: CerealizerNetworkItemStackDescriptorSerializedData {
-            id: 3,
-            stacksize: count,
-            net_id_variant: Some(80),
-            auxvalue: 7,
-            block_runtime_id: u32::MAX,
-            user_data_buffer: vec![0; 10],
+        to_item: NetworkItemStackDescriptorSerializedData {
+            id: wire::I16LE(3),
+            stack_size: wire::U16LE(count),
+            net_id_variant: Some(wire::ZigZag32(80)),
+            aux_value: wire::VarUInt(7),
+            block_runtime_id: wire::VarUInt(u32::MAX),
+            user_data_buffer: vec![0; 10].into(),
         },
     }
 }
 
 fn transaction(actions: Vec<InventoryAction>) -> super::super::InventoryTransactionEvent {
-    let packet = InventoryTransactionPacket {
-        transaction: InventoryTransactionPacketTransaction::NormalTransactionData(
-            NormalTransactionData {
-                actions: InventoryTransaction { actions },
-            },
-        ),
+    let packet = InventoryTransaction {
+        transaction: InventoryTransactionPacketData::NormalTransactionData {
+            actions: InventoryTransactionData { actions },
+        },
         ..Default::default()
     };
     let Some(InventoryEvent::Transaction(event)) = normalize_transaction(packet) else {
@@ -90,11 +88,11 @@ fn normal_transaction_routes_only_native_direct_write_surfaces_in_wire_order() {
 #[test]
 fn normal_transaction_counts_odd_actions_without_losing_valid_authority() {
     let mut unknown = action(PLAYER_INVENTORY_WINDOW_ID, 0, 1);
-    unknown.source.source_type = EnumsInventorySourceType::Unknown(111);
+    unknown.source.source_type = InventorySourceType::Unknown(111);
     let mut sentinel = action(PLAYER_INVENTORY_WINDOW_ID, 0, 1);
-    sentinel.to_item.net_id_variant = Some(-77);
+    sentinel.to_item.net_id_variant = Some(wire::ZigZag32(-77));
     let mut bad_extra = action(PLAYER_INVENTORY_WINDOW_ID, 0, 1);
-    bad_extra.to_item.user_data_buffer = vec![1];
+    bad_extra.to_item.user_data_buffer = vec![1].into();
     let event = transaction(vec![
         action(
             PLAYER_INVENTORY_WINDOW_ID,
@@ -138,7 +136,7 @@ fn normal_transaction_preserves_final_charged_item_compound_not_previous_extra()
     extra.extend_from_slice(&[0, 0]);
     extra.extend_from_slice(&[0; 8]);
     let mut update = action(PLAYER_INVENTORY_WINDOW_ID, 2, 1);
-    update.to_item.user_data_buffer = extra.clone();
+    update.to_item.user_data_buffer = extra.clone().into();
     let event = transaction(vec![update]);
     let stack = &event.slots[0].stack;
     assert_eq!(stack.extra_data.as_ref(), extra);

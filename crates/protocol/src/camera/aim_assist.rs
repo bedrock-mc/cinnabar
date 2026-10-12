@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_51 as wire;
+use bedrock_protocol_1_26_51::{enums, packets, types, wire};
 
 use super::{CameraEvent, MAX_CAMERA_PRESETS, bounded_identifier, validate_count, validate_finite};
 use crate::WorldPacketError;
@@ -29,14 +29,14 @@ pub fn camera_aim_assist_activation_packet(
     while !preset_id.is_char_boundary(end) {
         end -= 1;
     }
-    crate::Packet::new(wire::ClientCameraAimAssistPacket {
+    crate::Packet::new(packets::ClientCameraAimAssist {
         camera_preset_id: preset_id[..end].into(),
         action: if clear {
-            wire::EnumsClientCameraAimAssistPacketAction::Clear
+            enums::ClientCameraAimAssistAction::Clear
         } else {
-            wire::EnumsClientCameraAimAssistPacketAction::Setfromcamerapreset
+            enums::ClientCameraAimAssistAction::Setfromcamerapreset
         },
-        allowaimassist: allow,
+        allow_aim_assist: allow,
     })
 }
 
@@ -53,14 +53,14 @@ fn mode(value: u8) -> Result<CameraAimAssistTargetMode, WorldPacketError> {
 
 /// Keeps complete commands; the runtime decides how clear interacts with presets.
 pub(crate) fn normalize_settings(
-    packet: wire::CameraAimAssistPacket,
+    packet: packets::CameraAimAssist,
 ) -> Result<CameraEvent, WorldPacketError> {
     validate_finite(packet.view_angle.x, "aim_assist.view_angle.x")?;
     validate_finite(packet.view_angle.y, "aim_assist.view_angle.y")?;
-    validate_finite(packet.distance, "aim_assist.distance")?;
+    validate_finite(packet.distance.0, "aim_assist.distance")?;
     let action = match packet.action {
-        wire::EnumsCameraAimAssistPacketPayloadAction::Set => CameraAimAssistAction::Set,
-        wire::EnumsCameraAimAssistPacketPayloadAction::Clear => CameraAimAssistAction::Clear,
+        enums::CameraAimAssistAction::Set => CameraAimAssistAction::Set,
+        enums::CameraAimAssistAction::Clear => CameraAimAssistAction::Clear,
         _ => {
             return Err(WorldPacketError::InvalidCameraField {
                 field: "aim_assist.action",
@@ -68,8 +68,8 @@ pub(crate) fn normalize_settings(
         }
     };
     let target_mode = match packet.target_mode {
-        wire::EnumsCameraAimAssistPacketPayloadTargetMode::Angle => mode(0)?,
-        wire::EnumsCameraAimAssistPacketPayloadTargetMode::Distance => mode(1)?,
+        enums::TargetMode::Angle => mode(0)?,
+        enums::TargetMode::Distance => mode(1)?,
         _ => {
             return Err(WorldPacketError::InvalidCameraField {
                 field: "aim_assist.target_mode",
@@ -79,7 +79,7 @@ pub(crate) fn normalize_settings(
     Ok(CameraEvent::AimAssist(CameraAimAssistSettings {
         preset_id: bounded_identifier(packet.preset_id, "aim_assist.preset")?,
         view_angle: [packet.view_angle.x, packet.view_angle.y],
-        distance: packet.distance,
+        distance: packet.distance.0,
         target_mode,
         action,
         show_debug_render: packet.show_debug_render,
@@ -88,38 +88,39 @@ pub(crate) fn normalize_settings(
 
 /// Optional camera-preset settings remain optional for inheritance.
 pub(super) fn normalize_preset_settings(
-    wire: wire::SharedTypesv12150CameraAimAssistCommandPresetDefinition,
+    definition: types::CameraAimAssistCommandPresetDefinition,
 ) -> Result<CameraAimAssistPresetSettings, WorldPacketError> {
-    let target_mode = wire
+    let target_mode = definition
         .target_mode
         .map(|value| match value {
-            wire::EnumsCameraAimAssistTargetMode::Angle => mode(0),
-            wire::EnumsCameraAimAssistTargetMode::Distance => mode(1),
+            enums::CameraAimAssistTargetMode::Angle => mode(0),
+            enums::CameraAimAssistTargetMode::Distance => mode(1),
             _ => Err(WorldPacketError::InvalidCameraField {
                 field: "aim_assist.target_mode",
             }),
         })
         .transpose()?;
-    if let Some(angle) = &wire.view_angle {
+    if let Some(angle) = &definition.view_angle {
         validate_finite(angle.x, "aim_assist.view_angle.x")?;
         validate_finite(angle.y, "aim_assist.view_angle.y")?;
     }
-    if let Some(distance) = wire.distance {
+    let distance = definition.distance.map(|distance| distance.0);
+    if let Some(distance) = distance {
         validate_finite(distance, "aim_assist.distance")?;
     }
     Ok(CameraAimAssistPresetSettings {
-        preset_id: wire
+        preset_id: definition
             .preset_id
             .map(|id| bounded_identifier(id, "aim_assist.preset"))
             .transpose()?,
         target_mode,
-        view_angle: wire.view_angle.map(|v| [v.x, v.y]),
-        distance: wire.distance,
+        view_angle: definition.view_angle.map(|v| [v.x, v.y]),
+        distance,
     })
 }
 
 /// Converts bounded identifier lists used by exclusions and liquid targeting.
-fn identifiers(values: Vec<String>) -> Result<Arc<[Arc<str>]>, WorldPacketError> {
+fn identifiers(values: Vec<wire::Str>) -> Result<Arc<[Arc<str>]>, WorldPacketError> {
     validate_count(
         values.len(),
         MAX_CAMERA_AIM_ASSIST_ENTRIES,
@@ -133,7 +134,7 @@ fn identifiers(values: Vec<String>) -> Result<Arc<[Arc<str>]>, WorldPacketError>
 
 /// Preserves declared block, entity and tag priority entries.
 fn priorities(
-    values: Vec<wire::SharedTypesv12150CameraAimAssistCategoryPrioritiesEntitiesItem>,
+    values: Vec<(wire::Str, wire::I32LE)>,
 ) -> Result<Arc<[CameraAimAssistPriority]>, WorldPacketError> {
     validate_count(
         values.len(),
@@ -142,10 +143,10 @@ fn priorities(
     )?;
     values
         .into_iter()
-        .map(|value| {
+        .map(|(key, value)| {
             Ok(CameraAimAssistPriority {
-                identifier: bounded_identifier(value.key, "aim_assist.priority.identifier")?,
-                priority: value.value,
+                identifier: bounded_identifier(key, "aim_assist.priority.identifier")?,
+                priority: value.0,
             })
         })
         .collect()
@@ -153,7 +154,7 @@ fn priorities(
 
 /// Normalizes all four priority sources without resolving world actors or blocks.
 fn category(
-    value: wire::SharedTypesv12150CameraAimAssistCategoryDefinition,
+    value: types::CameraAimAssistCategoryDefinition,
 ) -> Result<CameraAimAssistCategory, WorldPacketError> {
     let p = value.priorities;
     Ok(CameraAimAssistCategory {
@@ -163,15 +164,15 @@ fn category(
             blocks: priorities(p.blocks)?,
             block_tags: priorities(p.block_tags)?,
             entity_type_families: priorities(p.entity_type_families)?,
-            entity_default: p.entity_default,
-            block_default: p.block_default,
+            entity_default: p.entity_default.map(|value| value.0),
+            block_default: p.block_default.map(|value| value.0),
         },
     })
 }
 
 /// Retains item-category associations and all exclusion classes.
 fn preset(
-    value: wire::SharedTypesv121120CameraAimAssistPresetDefinition,
+    value: types::CameraAimAssistPresetDefinition,
 ) -> Result<CameraAimAssistPreset, WorldPacketError> {
     validate_count(
         value.item_settings.len(),
@@ -191,10 +192,10 @@ fn preset(
         item_settings: value
             .item_settings
             .into_iter()
-            .map(|item| {
+            .map(|(item, category)| {
                 Ok(CameraAimAssistItemSetting {
-                    item: bounded_identifier(item.key, "aim_assist.item")?,
-                    category: bounded_identifier(item.value, "aim_assist.item.category")?,
+                    item: bounded_identifier(item, "aim_assist.item")?,
+                    category: bounded_identifier(category, "aim_assist.item.category")?,
                 })
             })
             .collect::<Result<Arc<[_]>, WorldPacketError>>()?,
@@ -211,7 +212,7 @@ fn preset(
 
 /// The wire's first list contains categories and its second list contains presets.
 pub(crate) fn normalize_aim_presets(
-    packet: wire::CameraAimAssistPresetsPacket,
+    packet: packets::CameraAimAssistPresets,
 ) -> Result<CameraEvent, WorldPacketError> {
     validate_count(
         packet.camera_aim_assist_presets.len(),
@@ -224,8 +225,8 @@ pub(crate) fn normalize_aim_presets(
         "aim_assist.presets",
     )?;
     let replace = match packet.operation {
-        wire::EnumsCameraAimAssistPresetsPacketOperation::Set => true,
-        wire::EnumsCameraAimAssistPresetsPacketOperation::Addtoexisting => false,
+        enums::CameraAimAssistPresetOperation::Set => true,
+        enums::CameraAimAssistPresetOperation::Addtoexisting => false,
         _ => {
             return Err(WorldPacketError::InvalidCameraField {
                 field: "aim_assist.operation",
@@ -249,7 +250,7 @@ pub(crate) fn normalize_aim_presets(
 
 /// Metadata index keys are server-defined values, including negative sentinels.
 pub(crate) fn normalize_actor_priorities(
-    packet: wire::CameraAimAssistActorPriorityPacket,
+    packet: packets::CameraAimAssistActorPriority,
 ) -> Result<CameraEvent, WorldPacketError> {
     validate_count(
         packet.camera_aim_assist_actor_priority_list.len(),
@@ -261,10 +262,10 @@ pub(crate) fn normalize_actor_priorities(
             .camera_aim_assist_actor_priority_list
             .into_iter()
             .map(|p| CameraAimAssistActorPriority {
-                preset_index: p.preset_index,
-                category_index: p.category_index,
-                actor_index: p.actor_index,
-                priority: p.priority_value,
+                preset_index: p.preset_index.0,
+                category_index: p.category_index.0,
+                actor_index: p.actor_index.0,
+                priority: p.priority_value.0,
             })
             .collect(),
     ))

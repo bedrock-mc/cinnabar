@@ -1,25 +1,27 @@
 use std::sync::Arc;
-use valentine::bedrock::version::v1_26_51::McpePacket;
 
+use bedrock_protocol_1_26_51::enums::{
+    BossBarColor, BossBarOverlay, BossEventUpdateType, ModalFormCancelReason, PlayStatusType,
+    SoftEnumUpdateType, TextPacketType, TitleType,
+};
+use bedrock_protocol_1_26_51::packets::{
+    self, BossEvent as BossEventPacket, CommandOutput, LevelEvent, ModalFormRequest,
+    ModalFormResponse, PacketId, PlayStatus, SetHealth, SetScore, SetTitle, Text, ToastRequest,
+    UpdateSoftEnum,
+};
+use bedrock_protocol_1_26_51::types::{
+    ActorUniqueID, CommandOutputData, CommandOutputMessage, ScoreboardId, SetScoreInfoItem,
+    TextData,
+};
+use bedrock_protocol_1_26_51::wire::{self, Decode, Encode};
 use bytes::{BufMut, BytesMut};
 use protocol::{
     BossAction, BossColor, ChatAutocompleteAction, CustomFormValue, FormButtonImage, FormKind,
     MAX_CHAT_AUTOCOMPLETE, MAX_FORM_JSON_BYTES, MAX_FORM_JSON_DEPTH, MAX_SCORE_ENTRIES_PER_PACKET,
-    MAX_UI_TEXT_BYTES, ModalFormResponseSelection, UiEvent, UiPacketError, WorldEvent,
-    custom_form_submit_response, decode_batch, into_world_event, modal_form_cancel_response,
-    modal_form_submit_response,
+    MAX_UI_TEXT_BYTES, ModalFormResponseSelection, ProtocolError, UiEvent, UiPacketError,
+    WorldEvent, custom_form_submit_response, decode_batch, into_world_event,
+    modal_form_cancel_response, modal_form_submit_response,
 };
-use valentine::bedrock::codec::BedrockCodec;
-use valentine::bedrock::version::v1_26_51::{
-    ActorUniqueId, BossEventPacket, CommandOutputMessagejson, CommandOutputPacket,
-    CommandOutputjson, EnumsBossBarColor, EnumsBossBarOverlay, EnumsBossEventUpdateType,
-    EnumsModalFormCancelReason, EnumsPlayStatus, EnumsSetTitlePacketPayloadTitleType,
-    EnumsSoftEnumUpdateType, EnumsTextPacketType, LevelEventPacket, McpePacketData, McpePacketName,
-    ModalFormRequestPacket, ModalFormResponsePacket, PlayStatusPacket, SetHealthPacket,
-    SetScorePacket, SetScorePacketScoreInfoItem, SetTitlePacket, TextPacket, TextPacketBody,
-    TextPacketPayloadMessageOnly, ToastRequestPacket, UpdateSoftEnumPacket, Vec3,
-};
-use valentine::protocol::wire;
 
 const TEXT_FIXTURE: &[u8] = include_bytes!("../../fixtures/text.bin");
 const TITLE_FIXTURE: &[u8] = include_bytes!("../../fixtures/set_title.bin");
@@ -30,24 +32,22 @@ const FORM_FIXTURE: &[u8] = include_bytes!("../../fixtures/modal_form_request.bi
 fn boss_remove_ignores_unused_invalid_presentation_fields() {
     for packet in [
         BossEventPacket {
-            health_percent: f32::NAN,
+            health_percent: wire::F32LE(f32::NAN),
             ..Default::default()
         },
         BossEventPacket {
-            color: EnumsBossBarColor::Unknown(u8::MAX),
-            overlay: EnumsBossBarOverlay::Unknown(u8::MAX),
+            color: BossBarColor::Unknown(u8::MAX),
+            overlay: BossBarOverlay::Unknown(u8::MAX),
             ..Default::default()
         },
         BossEventPacket {
-            name: "x".repeat(MAX_UI_TEXT_BYTES + 1),
+            name: "x".repeat(MAX_UI_TEXT_BYTES + 1).into(),
             ..Default::default()
         },
     ] {
         let UiEvent::Boss(event) = ui(BossEventPacket {
-            target_actor_id: ActorUniqueId {
-                actor_unique_id: -17,
-            },
-            event_type: EnumsBossEventUpdateType::Remove,
+            target_actor_id: ActorUniqueID(-17),
+            event_type: BossEventUpdateType::Remove,
             ..packet
         })
         .expect("removal only consumes the boss identity") else {
@@ -64,9 +64,21 @@ fn boss_remove_ignores_unused_invalid_presentation_fields() {
 const LEVEL_EVENT_START_BLOCK_CRACKING: i32 = 3600;
 const LEVEL_EVENT_UPDATE_BLOCK_CRACKING: i32 = 3602;
 
+fn put_var_u64(out: &mut BytesMut, mut value: u64) {
+    while value >= 0x80 {
+        out.put_u8(value as u8 | 0x80);
+        value >>= 7;
+    }
+    out.put_u8(value as u8);
+}
+
+fn put_var_u32(out: &mut BytesMut, value: u32) {
+    put_var_u64(out, value.into());
+}
+
 fn ui<P>(packet: P) -> Result<UiEvent, UiPacketError>
 where
-    McpePacket: From<P>,
+    packets::Packet: From<P>,
 {
     match into_world_event(protocol::Packet::new(packet), 0) {
         Ok(Some(WorldEvent::Ui(event))) => Ok(event),
@@ -85,12 +97,12 @@ fn decode_ui_fixture(bytes: &'static [u8]) -> UiEvent {
     }
 }
 
-fn raw_text_packet(message: String) -> TextPacket {
-    TextPacket {
-        body: TextPacketBody::MessageOnly(TextPacketPayloadMessageOnly {
-            message_type: EnumsTextPacketType::Raw,
-            message,
-        }),
+fn raw_text_packet(message: String) -> Text {
+    Text {
+        body: TextData::MessageOnly {
+            message_type: TextPacketType::Raw,
+            message: message.into(),
+        },
         ..Default::default()
     }
 }
@@ -115,29 +127,27 @@ fn pinned_gophertunnel_ui_fixtures_normalize_without_vendor_types() {
 #[test]
 fn representative_ui_packets_normalize_without_vendor_types() {
     let text = raw_text_packet("§ahello".to_owned());
-    let title = SetTitlePacket {
-        title_type: EnumsSetTitlePacketPayloadTitleType::Title,
-        title_text: "Round one".to_owned(),
-        fade_in_time: 5,
-        stay_time: 40,
-        fade_out_time: 10,
+    let title = SetTitle {
+        title_type: TitleType::Title,
+        title_text: "Round one".into(),
+        fade_in_time: wire::ZigZag32(5),
+        stay_time: wire::ZigZag32(40),
+        fade_out_time: wire::ZigZag32(10),
         ..Default::default()
     };
     // `Add` is wire value 0, gophertunnel's `BossEventShow`.
     let boss = BossEventPacket {
-        target_actor_id: ActorUniqueId {
-            actor_unique_id: 17,
-        },
-        event_type: EnumsBossEventUpdateType::Add,
-        name: "Dragon".to_owned(),
-        health_percent: 0.75,
-        color: EnumsBossBarColor::RebeccaPurple,
-        overlay: EnumsBossBarOverlay::Notched10,
+        target_actor_id: ActorUniqueID(17),
+        event_type: BossEventUpdateType::Add,
+        name: "Dragon".into(),
+        health_percent: wire::F32LE(0.75),
+        color: BossBarColor::RebeccaPurple,
+        overlay: BossBarOverlay::Notched10,
         ..Default::default()
     };
-    let form = ModalFormRequestPacket {
-        form_id: 91,
-        form_uijson: r#"{"type":"form","title":"Pick"}"#.to_owned(),
+    let form = ModalFormRequest {
+        form_id: wire::VarUInt(91),
+        form_ui_json: r#"{"type":"form","title":"Pick"}"#.into(),
     };
 
     assert!(matches!(ui(text).unwrap(), UiEvent::Text(_)));
@@ -156,21 +166,24 @@ fn representative_ui_packets_normalize_without_vendor_types() {
     assert_eq!(form.kind, FormKind::Menu);
     assert_eq!(form.title.as_deref(), Some("Pick"));
     assert!(matches!(
-        ui(SetHealthPacket { health: 19 }).unwrap(),
+        ui(SetHealth {
+            health: wire::ZigZag32(19)
+        })
+        .unwrap(),
         UiEvent::Hud(protocol::HudEvent::Health { health: 19 })
     ));
     assert!(matches!(
-        ui(PlayStatusPacket {
-            status: EnumsPlayStatus::Playerspawn,
+        ui(PlayStatus {
+            status: PlayStatusType::Playerspawn,
         })
         .unwrap(),
         UiEvent::Hud(protocol::HudEvent::PlayerStatus(
             protocol::PlayerStatus::PlayerSpawn
         ))
     ));
-    let toast = ToastRequestPacket {
-        title: "Saved".to_owned(),
-        content: "world backed up".to_owned(),
+    let toast = ToastRequest {
+        title: "Saved".into(),
+        content: "world backed up".into(),
     };
     let UiEvent::Hud(protocol::HudEvent::Toast { title, message }) = ui(toast).unwrap() else {
         panic!("expected toast event")
@@ -178,10 +191,10 @@ fn representative_ui_packets_normalize_without_vendor_types() {
     assert_eq!(title.as_ref(), "Saved");
     assert_eq!(message.as_ref(), "world backed up");
     // `Replace` is wire value 2, gophertunnel's `SoftEnumActionSet`.
-    let autocomplete = UpdateSoftEnumPacket {
-        enum_name: "commands".to_owned(),
-        values: vec!["give".to_owned(), "gamerule".to_owned()],
-        update_type: EnumsSoftEnumUpdateType::Replace,
+    let autocomplete = UpdateSoftEnum {
+        enum_name: "commands".into(),
+        values: vec!["give".into(), "gamerule".into()],
+        update_type: SoftEnumUpdateType::Replace,
     };
     let UiEvent::ChatAutocomplete(autocomplete) = ui(autocomplete).unwrap() else {
         panic!("expected autocomplete update")
@@ -200,16 +213,16 @@ fn representative_ui_packets_normalize_without_vendor_types() {
 
 #[test]
 fn command_output_is_bounded_and_normalized_for_chat_presentation() {
-    let packet = CommandOutputPacket {
-        output: CommandOutputjson {
-            output_type: "all_output".to_owned(),
-            success_count: 1,
-            output_messages: vec![CommandOutputMessagejson {
-                message_id: "commands.generic.success".to_owned(),
+    let packet = CommandOutput {
+        output: CommandOutputData {
+            output_type: "all_output".into(),
+            success_count: wire::U32LE(1),
+            output_messages: vec![CommandOutputMessage {
+                message_id: "commands.generic.success".into(),
                 successful: true,
-                parameters: vec!["sm3".to_owned()],
+                parameters: vec!["sm3".into()],
             }],
-            data_set: Some("transfer accepted".to_owned()),
+            data_set: Some("transfer accepted".into()),
         },
         ..Default::default()
     };
@@ -229,28 +242,22 @@ fn command_output_is_bounded_and_normalized_for_chat_presentation() {
 
 #[test]
 fn score_entries_carry_their_own_verb() {
-    use valentine::bedrock::version::v1_26_51::{
-        ChangeFakePlayerScorejson, RemoveScorejson, ScoreboardId,
-    };
-
     // The add/remove verb is carried per entry, so one packet may mix removals
     // with changes (gophertunnel `ScoreboardEntry.Marshal`).
-    let packet = SetScorePacket {
+    let packet = SetScore {
         score_info: vec![
-            SetScorePacketScoreInfoItem::RemoveScore(RemoveScorejson {
-                action: "remove".to_owned(),
-                scoreboard_id: ScoreboardId { scoreboard_id: 7 },
-                objective_name: Some("kills".to_owned()),
-            }),
-            SetScorePacketScoreInfoItem::ChangeFakePlayerScore(Box::new(
-                ChangeFakePlayerScorejson {
-                    action: "changefakeplayer".to_owned(),
-                    scoreboard_id: ScoreboardId { scoreboard_id: 8 },
-                    objective_name: "kills".to_owned(),
-                    score_value: 12,
-                    fake_player_name: "Server".to_owned(),
-                },
-            )),
+            SetScoreInfoItem::RemoveScore {
+                action: "remove".into(),
+                scoreboard_id: ScoreboardId(7),
+                objective_name: Some("kills".into()),
+            },
+            SetScoreInfoItem::ChangeFakePlayerScore {
+                action: "changefakeplayer".into(),
+                scoreboard_id: ScoreboardId(8),
+                objective_name: "kills".into(),
+                score_value: wire::I32LE(12),
+                fake_player_name: "Server".into(),
+            },
         ],
     };
     let UiEvent::Score(score) = ui(packet).unwrap() else {
@@ -274,38 +281,33 @@ fn score_entries_carry_their_own_verb() {
 
 #[test]
 fn remove_score_writes_one_optional_objective_marker() {
-    use valentine::bedrock::version::v1_26_51::{RemoveScorejson, ScoreboardId};
-
+    // Each case leads with the RemoveScore union selector 0.
     let cases = [
-        (None, vec![6, b'r', b'e', b'm', b'o', b'v', b'e', 14, 0]),
+        (None, vec![0, 6, b'r', b'e', b'm', b'o', b'v', b'e', 14, 0]),
         (
-            Some("obj".to_owned()),
+            Some("obj".into()),
             vec![
-                6, b'r', b'e', b'm', b'o', b'v', b'e', 14, 1, 3, b'o', b'b', b'j',
+                0, 6, b'r', b'e', b'm', b'o', b'v', b'e', 14, 1, 3, b'o', b'b', b'j',
             ],
         ),
     ];
 
     for (objective_name, expected) in cases {
-        let value = RemoveScorejson {
-            action: "remove".to_owned(),
-            scoreboard_id: ScoreboardId { scoreboard_id: 7 },
+        let value = SetScoreInfoItem::RemoveScore {
+            action: "remove".into(),
+            scoreboard_id: ScoreboardId(7),
             objective_name,
         };
-        let mut encoded = Vec::new();
-        value.encode(&mut encoded).expect("encode RemoveScore");
+        let encoded = value.encode_to_vec().expect("encode RemoveScore");
         assert_eq!(encoded, expected);
 
-        let mut input = expected.as_slice();
-        let decoded = RemoveScorejson::decode(&mut input, ()).expect("decode RemoveScore");
+        let decoded = SetScoreInfoItem::decode_exact(&expected).expect("decode RemoveScore");
         assert_eq!(decoded, value);
-        assert!(input.is_empty(), "RemoveScore left trailing bytes");
     }
 }
 
 // gophertunnel `ScoreboardEntry.Marshal` writes one presence byte before a
-// removal's objective name; the raw pre-validator must walk the same shape or
-// the next entry misaligns.
+// removal's objective name; decoding must walk the same shape or the next entry misaligns.
 #[test]
 fn named_removal_is_followed_by_the_next_entry() {
     fn text(out: &mut Vec<u8>, value: &str) {
@@ -323,11 +325,7 @@ fn named_removal_is_followed_by_the_next_entry() {
     text(&mut payload, "kills");
     payload.extend(12_i32.to_le_bytes());
     text(&mut payload, "Server");
-    let mut batch = vec![
-        0xfe,
-        payload.len() as u8 + 1,
-        McpePacketName::SetScorePacket as u8,
-    ];
+    let mut batch = vec![0xfe, payload.len() as u8 + 1, PacketId::SetScore as u8];
     batch.extend(payload);
 
     let mut packets = decode_batch(batch.into()).expect("SetScore enters the play receive path");
@@ -344,14 +342,13 @@ fn named_removal_is_followed_by_the_next_entry() {
 // so an absent name must stay distinguishable from a present empty one.
 #[test]
 fn absent_removal_objective_differs_from_an_empty_name() {
-    use valentine::bedrock::version::v1_26_51::{RemoveScorejson, ScoreboardId};
     let removal = |objective_name| {
-        let packet = SetScorePacket {
-            score_info: vec![SetScorePacketScoreInfoItem::RemoveScore(RemoveScorejson {
-                action: "remove".to_owned(),
-                scoreboard_id: ScoreboardId { scoreboard_id: 7 },
+        let packet = SetScore {
+            score_info: vec![SetScoreInfoItem::RemoveScore {
+                action: "remove".into(),
+                scoreboard_id: ScoreboardId(7),
                 objective_name,
-            })],
+            }],
         };
         let UiEvent::Score(score) = ui(packet).unwrap() else {
             panic!("expected score event")
@@ -359,7 +356,7 @@ fn absent_removal_objective_differs_from_an_empty_name() {
         score.entries[0].clone()
     };
     let absent = removal(None);
-    assert_ne!(removal(Some(String::new())), absent);
+    assert_ne!(removal(Some(wire::Str::default())), absent);
 }
 
 #[test]
@@ -373,8 +370,8 @@ fn oversized_text_scores_and_form_json_fail_closed() {
         }
     );
 
-    let scores = SetScorePacket {
-        score_info: vec![SetScorePacketScoreInfoItem::default(); MAX_SCORE_ENTRIES_PER_PACKET + 1],
+    let scores = SetScore {
+        score_info: vec![SetScoreInfoItem::default(); MAX_SCORE_ENTRIES_PER_PACKET + 1],
     };
     assert_eq!(
         ui(scores).unwrap_err(),
@@ -384,9 +381,9 @@ fn oversized_text_scores_and_form_json_fail_closed() {
         }
     );
 
-    let form = ModalFormRequestPacket {
-        form_id: 1,
-        form_uijson: "x".repeat(MAX_FORM_JSON_BYTES + 1),
+    let form = ModalFormRequest {
+        form_id: wire::VarUInt(1),
+        form_ui_json: "x".repeat(MAX_FORM_JSON_BYTES + 1).into(),
     };
     assert_eq!(
         ui(form).unwrap_err(),
@@ -398,16 +395,16 @@ fn oversized_text_scores_and_form_json_fail_closed() {
 }
 
 #[test]
-fn raw_ui_strings_reject_invalid_utf8_before_owned_materialization() {
+fn decoded_ui_strings_reject_invalid_utf8() {
     let mut payload = BytesMut::new();
-    wire::write_var_u32(&mut payload, McpePacketName::ModalFormRequestPacket as u32);
-    wire::write_var_u32(&mut payload, 7);
-    wire::write_var_u32(&mut payload, 1);
+    put_var_u32(&mut payload, PacketId::ModalFormRequest as u32);
+    put_var_u32(&mut payload, 7);
+    put_var_u32(&mut payload, 1);
     payload.put_u8(0xff);
 
     let mut batch = BytesMut::new();
     batch.put_u8(0xfe);
-    wire::write_var_u32(&mut batch, payload.len() as u32);
+    put_var_u32(&mut batch, payload.len() as u32);
     batch.extend_from_slice(&payload);
 
     let error = decode_batch(batch.freeze()).expect_err("invalid UI UTF-8 must fail closed");
@@ -415,26 +412,26 @@ fn raw_ui_strings_reject_invalid_utf8_before_owned_materialization() {
 }
 
 #[test]
-fn raw_score_strings_reject_invalid_utf8_before_owned_materialization() {
+fn decoded_score_strings_reject_invalid_utf8() {
     // Protocol 2168 SetScore wire (gophertunnel `SetScore.Marshal` plus
     // `ScoreboardEntry.Marshal`): entry count, then per entry a varuint32
     // variant, the lowercase variant name, the entry id, and the variant body.
     let mut payload = BytesMut::new();
-    wire::write_var_u32(&mut payload, McpePacketName::SetScorePacket as u32);
-    wire::write_var_u32(&mut payload, 1);
-    wire::write_var_u32(&mut payload, 3);
-    wire::write_var_u32(&mut payload, "changefakeplayer".len() as u32);
+    put_var_u32(&mut payload, PacketId::SetScore as u32);
+    put_var_u32(&mut payload, 1);
+    put_var_u32(&mut payload, 3);
+    put_var_u32(&mut payload, "changefakeplayer".len() as u32);
     payload.extend_from_slice(b"changefakeplayer");
-    wire::write_var_u64(&mut payload, 2);
-    wire::write_var_u32(&mut payload, 1);
+    put_var_u64(&mut payload, 2);
+    put_var_u32(&mut payload, 1);
     payload.put_u8(0xff);
     payload.put_i32_le(0);
-    wire::write_var_u32(&mut payload, 1);
+    put_var_u32(&mut payload, 1);
     payload.put_u8(b'a');
 
     let mut batch = BytesMut::new();
     batch.put_u8(0xfe);
-    wire::write_var_u32(&mut batch, payload.len() as u32);
+    put_var_u32(&mut batch, payload.len() as u32);
     batch.extend_from_slice(&payload);
 
     let error = decode_batch(batch.freeze()).expect_err("invalid score UTF-8 must fail closed");
@@ -446,35 +443,47 @@ fn raw_text_parameter_count_is_bounded_before_parameter_allocation() {
     // Text wire is unchanged in 1.26.40: NeedsTranslation, the category byte,
     // the message type, then the payload for that category.
     let mut payload = BytesMut::new();
-    wire::write_var_u32(&mut payload, McpePacketName::TextPacket as u32);
+    put_var_u32(&mut payload, PacketId::Text as u32);
     payload.put_u8(0);
     payload.put_u8(2);
     payload.put_u8(2);
-    wire::write_var_u32(&mut payload, 1);
+    put_var_u32(&mut payload, 1);
     payload.put_u8(b'x');
-    wire::write_var_u32(&mut payload, (protocol::MAX_CHAT_PARAMETERS + 1) as u32);
+    put_var_u32(&mut payload, (protocol::MAX_CHAT_PARAMETERS + 1) as u32);
+    // Empty parameters, so the declared count is held by the input rather than truncated.
+    payload.put_bytes(0, protocol::MAX_CHAT_PARAMETERS + 1);
 
     let mut batch = BytesMut::new();
     batch.put_u8(0xfe);
-    wire::write_var_u32(&mut batch, payload.len() as u32);
+    put_var_u32(&mut batch, payload.len() as u32);
     batch.extend_from_slice(&payload);
 
+    // The Text schema caps parameters below MAX_CHAT_PARAMETERS, so the count is a
+    // skippable schema rejection before any parameter is allocated.
     let error = decode_batch(batch.freeze())
         .expect_err("oversized text parameter count must fail before allocation");
-    assert!(error.to_string().contains("parameters"), "{error}");
+    assert!(
+        matches!(
+            error,
+            ProtocolError::Ui(UiPacketError::SchemaViolation { .. })
+        ),
+        "{error}"
+    );
 }
 
 #[test]
 fn raw_soft_enum_count_is_bounded_before_suggestion_allocation() {
     let mut payload = BytesMut::new();
-    wire::write_var_u32(&mut payload, McpePacketName::UpdateSoftEnumPacket as u32);
-    wire::write_var_u32(&mut payload, 8);
+    put_var_u32(&mut payload, PacketId::UpdateSoftEnum as u32);
+    put_var_u32(&mut payload, 8);
     payload.extend_from_slice(b"commands");
-    wire::write_var_u32(&mut payload, (MAX_CHAT_AUTOCOMPLETE + 1) as u32);
+    put_var_u32(&mut payload, (MAX_CHAT_AUTOCOMPLETE + 1) as u32);
+    // Empty suggestions, so the declared count is held by the input rather than truncated.
+    payload.put_bytes(0, MAX_CHAT_AUTOCOMPLETE + 1);
 
     let mut batch = BytesMut::new();
     batch.put_u8(0xfe);
-    wire::write_var_u32(&mut batch, payload.len() as u32);
+    put_var_u32(&mut batch, payload.len() as u32);
     batch.extend_from_slice(&payload);
 
     let error = decode_batch(batch.freeze())
@@ -484,14 +493,10 @@ fn raw_soft_enum_count_is_bounded_before_suggestion_allocation() {
 
 #[test]
 fn block_crack_events_preserve_server_progress_rate_without_inventing_stage_or_actor() {
-    let start = LevelEventPacket {
-        event_id: LEVEL_EVENT_START_BLOCK_CRACKING,
-        position: Vec3 {
-            x: 1.0,
-            y: 64.0,
-            z: -2.0,
-        },
-        data: 6_553,
+    let start = LevelEvent {
+        event_id: wire::ZigZag32(LEVEL_EVENT_START_BLOCK_CRACKING),
+        position: [1.0, 64.0, -2.0].into(),
+        data: wire::ZigZag32(6_553),
     };
     let Some(WorldEvent::BlockCrack(start)) =
         into_world_event(protocol::Packet::new(start), 0).unwrap()
@@ -507,14 +512,10 @@ fn block_crack_events_preserve_server_progress_rate_without_inventing_stage_or_a
     );
 
     // Vanilla floors fractional coordinates and keeps a zero (stationary) speed.
-    let fractional = LevelEventPacket {
-        event_id: LEVEL_EVENT_UPDATE_BLOCK_CRACKING,
-        position: Vec3 {
-            x: 1.5,
-            y: 64.0,
-            z: -2.5,
-        },
-        data: 0,
+    let fractional = LevelEvent {
+        event_id: wire::ZigZag32(LEVEL_EVENT_UPDATE_BLOCK_CRACKING),
+        position: [1.5, 64.0, -2.5].into(),
+        data: wire::ZigZag32(0),
     };
     let Some(WorldEvent::BlockCrack(fractional)) =
         into_world_event(protocol::Packet::new(fractional), 0).unwrap()
@@ -528,14 +529,10 @@ fn block_crack_events_preserve_server_progress_rate_without_inventing_stage_or_a
             progress_per_tick: 0
         }
     );
-    let non_finite = LevelEventPacket {
-        event_id: LEVEL_EVENT_UPDATE_BLOCK_CRACKING,
-        position: Vec3 {
-            x: f32::NAN,
-            y: 64.0,
-            z: -2.0,
-        },
-        data: 1,
+    let non_finite = LevelEvent {
+        event_id: wire::ZigZag32(LEVEL_EVENT_UPDATE_BLOCK_CRACKING),
+        position: [f32::NAN, 64.0, -2.0].into(),
+        data: wire::ZigZag32(1),
     };
     assert!(matches!(
         into_world_event(protocol::Packet::new(non_finite), 0),
@@ -544,14 +541,10 @@ fn block_crack_events_preserve_server_progress_rate_without_inventing_stage_or_a
         ))
     ));
 
-    let overflowing = LevelEventPacket {
-        event_id: LEVEL_EVENT_START_BLOCK_CRACKING,
-        position: Vec3 {
-            x: 2_147_483_648.0,
-            y: 64.0,
-            z: -2.0,
-        },
-        data: 1,
+    let overflowing = LevelEvent {
+        event_id: wire::ZigZag32(LEVEL_EVENT_START_BLOCK_CRACKING),
+        position: [2_147_483_648.0, 64.0, -2.0].into(),
+        data: wire::ZigZag32(1),
     };
     assert!(matches!(
         into_world_event(protocol::Packet::new(overflowing), 0),
@@ -565,14 +558,10 @@ fn block_crack_events_preserve_server_progress_rate_without_inventing_stage_or_a
 #[test]
 fn block_crack_events_preserve_the_full_wire_speed() {
     for data in [i32::MIN, -1, 0, 65535, 65536, i32::MAX] {
-        let packet = LevelEventPacket {
-            event_id: LEVEL_EVENT_UPDATE_BLOCK_CRACKING,
-            position: Vec3 {
-                x: 1.0,
-                y: 64.0,
-                z: -2.0,
-            },
-            data,
+        let packet = LevelEvent {
+            event_id: wire::ZigZag32(LEVEL_EVENT_UPDATE_BLOCK_CRACKING),
+            position: [1.0, 64.0, -2.0].into(),
+            data: wire::ZigZag32(data),
         };
         let Some(WorldEvent::BlockCrack(event)) =
             into_world_event(protocol::Packet::new(packet), 0).unwrap()
@@ -589,9 +578,9 @@ fn block_crack_events_preserve_the_full_wire_speed() {
 }
 
 fn form_event(json: &str) -> Result<protocol::FormRequestEvent, UiPacketError> {
-    let packet = ModalFormRequestPacket {
-        form_id: 3,
-        form_uijson: json.to_owned(),
+    let packet = ModalFormRequest {
+        form_id: wire::VarUInt(3),
+        form_ui_json: json.into(),
     };
     match ui(packet) {
         Ok(UiEvent::Form(form)) => Ok(form),
@@ -741,10 +730,10 @@ fn valid_button_images_are_retained_by_kind_without_changing_indexes() {
     assert_eq!(menu.omitted_images, 2);
     let response =
         modal_form_submit_response(event.form_id, ModalFormResponseSelection::ButtonIndex(1));
-    let McpePacketData::ModalFormResponsePacket(response) = response.data else {
+    let packets::Packet::ModalFormResponse(response) = *response.data else {
         panic!("response packet")
     };
-    assert_eq!(response.json_response.as_deref(), Some("1"));
+    assert_eq!(response.json_response, Some("1".into()));
 }
 
 #[test]
@@ -765,8 +754,11 @@ fn imageless_buttons_retain_a_none_slot_per_index() {
 #[test]
 fn modal_and_custom_form_responses_round_trip() {
     fn json_of(packet: &protocol::Packet) -> Option<&str> {
-        match &packet.data {
-            McpePacketData::ModalFormResponsePacket(response) => response.json_response.as_deref(),
+        match &*packet.data {
+            packets::Packet::ModalFormResponse(response) => response
+                .json_response
+                .as_ref()
+                .map(|json| json.to_str().expect("UTF-8 response")),
             _ => panic!("response packet"),
         }
     }
@@ -915,9 +907,9 @@ fn modal_form_responses_encode_exact_submit_and_cancel_markers() {
         protocol::encode(&submit).unwrap().as_ref(),
         &[0xfe, 0x06, 101, 0x07, 0x01, 0x01, b'2', 0x00]
     );
-    let direct = ModalFormResponsePacket {
-        form_id: 7,
-        json_response: Some("2".to_owned()),
+    let direct = ModalFormResponse {
+        form_id: wire::VarUInt(7),
+        json_response: Some("2".into()),
         form_cancel_reason: None,
     };
     assert_eq!(
@@ -931,10 +923,10 @@ fn modal_form_responses_encode_exact_submit_and_cancel_markers() {
         protocol::encode(&cancel).unwrap().as_ref(),
         &[0xfe, 0x05, 101, 0x07, 0x00, 0x01, 0x00]
     );
-    let direct_cancel = ModalFormResponsePacket {
-        form_id: 7,
+    let direct_cancel = ModalFormResponse {
+        form_id: wire::VarUInt(7),
         json_response: None,
-        form_cancel_reason: Some(EnumsModalFormCancelReason::Userclosed),
+        form_cancel_reason: Some(ModalFormCancelReason::Userclosed),
     };
     assert_eq!(
         protocol::encode(&cancel).unwrap(),
@@ -942,29 +934,26 @@ fn modal_form_responses_encode_exact_submit_and_cancel_markers() {
     );
 
     // Both directions round-trip through the pinned codec unchanged.
-    let mut encoded = Vec::new();
-    BedrockCodec::encode(
-        &ModalFormResponsePacket {
-            form_id: 7,
-            json_response: Some("2".to_owned()),
-            form_cancel_reason: None,
-        },
-        &mut encoded,
-    )
+    let encoded = ModalFormResponse {
+        form_id: wire::VarUInt(7),
+        json_response: Some("2".into()),
+        form_cancel_reason: None,
+    }
+    .encode_to_vec()
     .unwrap();
     let mut payload = BytesMut::new();
-    wire::write_var_u32(&mut payload, McpePacketName::ModalFormResponsePacket as u32);
+    put_var_u32(&mut payload, PacketId::ModalFormResponse as u32);
     payload.extend_from_slice(&encoded);
     let mut frame = BytesMut::new();
     frame.put_u8(0xfe);
-    wire::write_var_u32(&mut frame, payload.len() as u32);
+    put_var_u32(&mut frame, payload.len() as u32);
     frame.extend_from_slice(&payload);
     let mut packets = decode_batch(frame.freeze()).unwrap();
     assert_eq!(packets.len(), 1);
     assert!(matches!(
-        packets.pop().unwrap().data,
-        McpePacketData::ModalFormResponsePacket(ModalFormResponsePacket {
-            form_id: 7,
+        *packets.pop().unwrap().data,
+        packets::Packet::ModalFormResponse(ModalFormResponse {
+            form_id: wire::VarUInt(7),
             json_response: Some(response),
             form_cancel_reason: None,
         }) if response == "2"

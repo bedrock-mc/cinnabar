@@ -1,19 +1,21 @@
-use thiserror::Error;
-use valentine::bedrock::version::v1_26_51::{
-    ActorRuntimeId, AnimatePacket, BlockPos, EnumsAnimatePacketPayloadAction,
-    EnumsContainerEnumName, EnumsHandSlot, EnumsInteractPacketPayloadAction,
-    EnumsInventorySourceType, EnumsItemReleaseInventoryTransactionActionType,
-    EnumsItemUseInventoryTransactionActionType as ItemUseInventoryTransactionActionType,
-    EnumsItemUseInventoryTransactionClientCooldownState as ItemUseInventoryTransactionClientCooldownState,
-    EnumsItemUseInventoryTransactionPredictedResult as ItemUseInventoryTransactionClientInteractPrediction,
-    EnumsItemUseInventoryTransactionTriggerType as ItemUseInventoryTransactionTriggerType,
-    EnumsItemUseOnActorInventoryTransactionActionType as ItemUseOnActorInventoryTransactionActionType,
-    EnumsPlayerActionType, InteractPacket, InventoryAction, InventorySource, InventoryTransaction,
-    InventoryTransactionPacket, InventoryTransactionPacketTransaction,
-    ItemReleaseInventoryTransaction, ItemUseInventoryTransaction,
-    ItemUseOnActorInventoryTransaction, LegacySetSlot, PlayerActionPacket,
-    TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0, Vec3,
+use bedrock_protocol_1_26_51::enums::{
+    AnimateAction, ContainerEnumName, HandSlot, InteractAction, InventorySourceType,
+    ItemReleaseInventoryTransactionActionType, ItemUseInventoryTransactionActionType,
+    ItemUseInventoryTransactionClientCooldownState,
+    ItemUseInventoryTransactionPredictedResult as ItemUseInventoryTransactionClientInteractPrediction,
+    ItemUseInventoryTransactionTriggerType, ItemUseOnActorInventoryTransactionActionType,
+    PlayerActionType,
 };
+use bedrock_protocol_1_26_51::packets::{
+    self, Animate, Interact, InventoryTransaction, PlayerAction,
+};
+use bedrock_protocol_1_26_51::types::{
+    ActorRuntimeID, BlockPos, InventoryAction, InventorySource, InventoryTransactionData,
+    InventoryTransactionPacketData, ItemStackLegacyRequestID, ItemUseInventoryTransaction,
+    LegacySetSlot,
+};
+use bedrock_protocol_1_26_51::wire;
+use thiserror::Error;
 
 use crate::{InventoryPacketError, VerifiedNetworkItemStack};
 
@@ -115,8 +117,8 @@ pub fn click_block_transaction_packet(
     let mut transaction =
         item_use_transaction(request, ItemUseInventoryTransactionActionType::Place)?;
     transaction.trigger_type = match trigger {
-        ItemUseTrigger::PlayerInput => ItemUseInventoryTransactionTriggerType::Playerinput,
-        ItemUseTrigger::SimulationTick => ItemUseInventoryTransactionTriggerType::Simulationtick,
+        ItemUseTrigger::PlayerInput => ItemUseInventoryTransactionTriggerType::PlayerInput,
+        ItemUseTrigger::SimulationTick => ItemUseInventoryTransactionTriggerType::SimulationTick,
     };
     if predicted_success {
         transaction.client_interact_prediction =
@@ -128,12 +130,10 @@ pub fn click_block_transaction_packet(
         actions,
     } = slot_change_parts(slot, change)?;
     transaction.actions.actions = actions;
-    Ok(crate::Packet::new(InventoryTransactionPacket {
-        legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 {
-            id: legacy_request_id,
-        },
+    Ok(crate::Packet::new(InventoryTransaction {
+        legacy_request_id: ItemStackLegacyRequestID(legacy_request_id),
         legacy_set_item_slots,
-        transaction: InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(Box::new(
+        transaction: InventoryTransactionPacketData::ItemUseInventoryTransaction(Box::new(
             transaction,
         )),
     }))
@@ -156,10 +156,10 @@ fn block_use_packet(
     action_type: ItemUseInventoryTransactionActionType,
 ) -> Result<crate::Packet, BlockUsePacketError> {
     let transaction = item_use_transaction(request, action_type)?;
-    Ok(crate::Packet::new(InventoryTransactionPacket {
-        legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
+    Ok(crate::Packet::new(InventoryTransaction {
+        legacy_request_id: ItemStackLegacyRequestID(0),
         legacy_set_item_slots: None,
-        transaction: InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(Box::new(
+        transaction: InventoryTransactionPacketData::ItemUseInventoryTransaction(Box::new(
             transaction,
         )),
     }))
@@ -197,34 +197,22 @@ pub(crate) fn item_use_transaction(
     }
     let wire_runtime_id = u32::try_from(request.block_runtime_id)
         .map_err(|_| BlockUsePacketError::BlockRuntimeIdOutOfRange(request.block_runtime_id))?;
-    let target_block_id = wire_runtime_id;
-    let [x, y, z] = request.block_position;
-    let [from_x, from_y, from_z] = request.player_position;
-    let [click_x, click_y, click_z] = request.relative_hit;
     let item = request.selected_item.into_vendor_item()?;
 
     Ok(ItemUseInventoryTransaction {
-        actions: InventoryTransaction {
+        actions: InventoryTransactionData {
             actions: Vec::new(),
         },
         action_type,
-        trigger_type: ItemUseInventoryTransactionTriggerType::Playerinput,
-        position: BlockPos { x, y, z },
-        face: request.face,
-        slot: i32::from(request.selected_slot),
-        hand: EnumsHandSlot::Mainhand,
+        trigger_type: ItemUseInventoryTransactionTriggerType::PlayerInput,
+        position: block_pos(request.block_position),
+        face: wire::U8(request.face),
+        slot: wire::ZigZag32(i32::from(request.selected_slot)),
+        hand: HandSlot::Mainhand,
         item,
-        from_position: Vec3 {
-            x: from_x,
-            y: from_y,
-            z: from_z,
-        },
-        click_position: Vec3 {
-            x: click_x,
-            y: click_y,
-            z: click_z,
-        },
-        target_block_id,
+        from_position: request.player_position.into(),
+        click_position: request.relative_hit.into(),
+        target_block_id: wire::VarUInt(wire_runtime_id),
         client_interact_prediction: ItemUseInventoryTransactionClientInteractPrediction::Failure,
         client_cooldown_state: ItemUseInventoryTransactionClientCooldownState::Off,
     })
@@ -247,7 +235,18 @@ pub struct PredictedSlotChange {
     pub to: VerifiedNetworkItemStack,
 }
 
-fn held_item_parts(request: &HeldItemRequest) -> Result<(i32, Vec3), BlockUsePacketError> {
+/// The wire form of an absolute block position.
+fn block_pos([x, y, z]: [i32; 3]) -> BlockPos {
+    BlockPos {
+        x: wire::ZigZag32(x),
+        y: wire::ZigZag32(y),
+        z: wire::ZigZag32(z),
+    }
+}
+
+fn held_item_parts(
+    request: &HeldItemRequest,
+) -> Result<(wire::ZigZag32, [f32; 3]), BlockUsePacketError> {
     if request.selected_slot >= 9 {
         return Err(BlockUsePacketError::InvalidSelectedSlot(
             request.selected_slot,
@@ -256,8 +255,10 @@ fn held_item_parts(request: &HeldItemRequest) -> Result<(i32, Vec3), BlockUsePac
     if !request.player_position.into_iter().all(f32::is_finite) {
         return Err(BlockUsePacketError::NonFinitePlayerPosition);
     }
-    let [x, y, z] = request.player_position;
-    Ok((i32::from(request.selected_slot), Vec3 { x, y, z }))
+    Ok((
+        wire::ZigZag32(i32::from(request.selected_slot)),
+        request.player_position,
+    ))
 }
 
 struct SlotChangeParts {
@@ -279,17 +280,17 @@ fn slot_change_parts(
         if !change.to.is_empty() && change.legacy_request_id < 0 {
             legacy_request_id = change.legacy_request_id;
             legacy_set_item_slots = Some(vec![LegacySetSlot {
-                container_enum: EnumsContainerEnumName::Inventorycontainer,
-                slots: vec![slot],
+                container_enum: ContainerEnumName::Inventorycontainer,
+                slots: vec![slot].into(),
             }]);
         }
         actions.push(InventoryAction {
             source: InventorySource {
-                source_type: EnumsInventorySourceType::Containerinventory,
-                container_id: Some(0),
+                source_type: InventorySourceType::ContainerInventory,
+                container_id: Some(wire::I8(0)),
                 bit_flags: None,
             },
-            slot: u32::from(slot),
+            slot: wire::VarUInt(u32::from(slot)),
             from_item: change.from.into_vendor_item()?,
             to_item: change.to.into_vendor_item()?,
         });
@@ -315,28 +316,22 @@ pub fn click_air_packet(
         legacy_set_item_slots,
         actions,
     } = slot_change_parts(request.selected_slot, change)?;
-    Ok(crate::Packet::new(InventoryTransactionPacket {
-        legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 {
-            id: legacy_request_id,
-        },
+    Ok(crate::Packet::new(InventoryTransaction {
+        legacy_request_id: ItemStackLegacyRequestID(legacy_request_id),
         legacy_set_item_slots,
-        transaction: InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(Box::new(
+        transaction: InventoryTransactionPacketData::ItemUseInventoryTransaction(Box::new(
             ItemUseInventoryTransaction {
-                actions: InventoryTransaction { actions },
+                actions: InventoryTransactionData { actions },
                 action_type: ItemUseInventoryTransactionActionType::Use,
                 trigger_type: ItemUseInventoryTransactionTriggerType::Unknown,
-                position: BlockPos { x: 0, y: 0, z: 0 },
-                face: u8::MAX,
+                position: block_pos([0; 3]),
+                face: wire::U8(u8::MAX),
                 slot,
-                hand: EnumsHandSlot::Mainhand,
+                hand: HandSlot::Mainhand,
                 item,
-                from_position,
-                click_position: Vec3 {
-                    x: 0.0,
-                    y: 0.0,
-                    z: 0.0,
-                },
-                target_block_id: 0,
+                from_position: from_position.into(),
+                click_position: [0.0; 3].into(),
+                target_block_id: wire::VarUInt(0),
                 client_interact_prediction:
                     ItemUseInventoryTransactionClientInteractPrediction::Failure,
                 client_cooldown_state: ItemUseInventoryTransactionClientCooldownState::Off,
@@ -360,23 +355,16 @@ pub fn use_item_as_attack_packet(
         return Err(BlockUsePacketError::NonFiniteRelativeHit);
     }
     let mut packet = click_air_packet(request, None)?;
-    let valentine::bedrock::version::v1_26_51::McpePacketData::InventoryTransactionPacket(
-        transaction,
-    ) = &mut packet.data
-    else {
+    let packets::Packet::InventoryTransaction(transaction) = &mut *packet.data else {
         unreachable!("click-air builder always produces an inventory transaction");
     };
-    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
+    let InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) =
         &mut transaction.transaction
     else {
         unreachable!("click-air builder always produces an item-use transaction");
     };
-    transaction.action_type = ItemUseInventoryTransactionActionType::Useasattack;
-    transaction.click_position = Vec3 {
-        x: click[0],
-        y: click[1],
-        z: click[2],
-    };
+    transaction.action_type = ItemUseInventoryTransactionActionType::UseAsAttack;
+    transaction.click_position = click.into();
     transaction.client_cooldown_state = if on_cooldown {
         ItemUseInventoryTransactionClientCooldownState::On
     } else {
@@ -388,19 +376,18 @@ pub fn use_item_as_attack_packet(
 /// Native action aim rotation runs for actor attacks and held-item releases.
 #[must_use]
 pub fn is_aim_assist_rotation_action(packet: &crate::Packet) -> bool {
-    use valentine::bedrock::version::v1_26_51::McpePacketData;
-    let McpePacketData::InventoryTransactionPacket(packet) = &packet.data else {
+    let packets::Packet::InventoryTransaction(packet) = &*packet.data else {
         return false;
     };
     match &packet.transaction {
-        InventoryTransactionPacketTransaction::ItemReleaseInventoryTransaction(transaction) => {
-            transaction.action_type == EnumsItemReleaseInventoryTransactionActionType::Release
+        InventoryTransactionPacketData::ItemReleaseInventoryTransaction { action_type, .. } => {
+            *action_type == ItemReleaseInventoryTransactionActionType::Release
         }
-        InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(transaction) => {
-            transaction.action_type == ItemUseOnActorInventoryTransactionActionType::Attack
-        }
-        InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) => {
-            transaction.action_type == ItemUseInventoryTransactionActionType::Useasattack
+        InventoryTransactionPacketData::ItemUseOnActorInventoryTransaction {
+            action_type, ..
+        } => *action_type == ItemUseOnActorInventoryTransactionActionType::Attack,
+        InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) => {
+            transaction.action_type == ItemUseInventoryTransactionActionType::UseAsAttack
         }
         _ => false,
     }
@@ -411,20 +398,18 @@ pub fn is_aim_assist_rotation_action(packet: &crate::Packet) -> bool {
 pub fn release_item_packet(request: HeldItemRequest) -> Result<crate::Packet, BlockUsePacketError> {
     let (slot, from_position) = held_item_parts(&request)?;
     let item = request.selected_item.into_vendor_item()?;
-    Ok(crate::Packet::new(InventoryTransactionPacket {
-        legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
+    Ok(crate::Packet::new(InventoryTransaction {
+        legacy_request_id: ItemStackLegacyRequestID(0),
         legacy_set_item_slots: None,
-        transaction: InventoryTransactionPacketTransaction::ItemReleaseInventoryTransaction(
-            Box::new(ItemReleaseInventoryTransaction {
-                actions: InventoryTransaction {
-                    actions: Vec::new(),
-                },
-                action_type: EnumsItemReleaseInventoryTransactionActionType::Release,
-                slot,
-                item,
-                from_position,
-            }),
-        ),
+        transaction: InventoryTransactionPacketData::ItemReleaseInventoryTransaction {
+            actions: InventoryTransactionData {
+                actions: Vec::new(),
+            },
+            action_type: ItemReleaseInventoryTransactionActionType::Release,
+            slot,
+            item,
+            from_position: from_position.into(),
+        },
     }))
 }
 
@@ -455,33 +440,21 @@ pub fn use_actor_packet(request: ActorUseRequest) -> Result<crate::Packet, Actor
         ActorUseAction::Interact => ItemUseOnActorInventoryTransactionActionType::Interact,
     };
     let item = request.selected_item.into_vendor_item()?;
-    let [from_x, from_y, from_z] = request.player_position;
-    let [hit_x, hit_y, hit_z] = request.hit_position;
 
-    Ok(crate::Packet::new(InventoryTransactionPacket {
-        legacy_request_id: TypedClientNetIdstructItemStackLegacyRequestIdTagint32T0 { id: 0 },
+    Ok(crate::Packet::new(InventoryTransaction {
+        legacy_request_id: ItemStackLegacyRequestID(0),
         legacy_set_item_slots: None,
-        transaction: InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(
-            Box::new(ItemUseOnActorInventoryTransaction {
-                actions: InventoryTransaction {
-                    actions: Vec::new(),
-                },
-                runtime_id: ActorRuntimeId { actor_runtime_id },
-                action_type,
-                slot: i32::from(request.selected_slot),
-                item,
-                from_position: Vec3 {
-                    x: from_x,
-                    y: from_y,
-                    z: from_z,
-                },
-                hit_position: Vec3 {
-                    x: hit_x,
-                    y: hit_y,
-                    z: hit_z,
-                },
-            }),
-        ),
+        transaction: InventoryTransactionPacketData::ItemUseOnActorInventoryTransaction {
+            actions: InventoryTransactionData {
+                actions: Vec::new(),
+            },
+            runtime_id: ActorRuntimeID(actor_runtime_id),
+            action_type,
+            slot: wire::ZigZag32(i32::from(request.selected_slot)),
+            item,
+            from_position: request.player_position.into(),
+            hit_position: request.hit_position.into(),
+        },
     }))
 }
 
@@ -517,49 +490,36 @@ pub fn start_item_use_on_packet(
     destination: [i32; 3],
     face: u8,
 ) -> crate::Packet {
-    let [x, y, z] = clicked;
-    let [result_x, result_y, result_z] = destination;
-    crate::Packet::new(PlayerActionPacket {
-        player_runtime_id: ActorRuntimeId {
-            actor_runtime_id: local_runtime_id,
-        },
-        action: EnumsPlayerActionType::Startitemuseon,
-        block_position: BlockPos { x, y, z },
-        result_pos: BlockPos {
-            x: result_x,
-            y: result_y,
-            z: result_z,
-        },
-        face: i32::from(face),
+    crate::Packet::new(PlayerAction {
+        player_runtime_id: ActorRuntimeID(local_runtime_id),
+        action: PlayerActionType::Startitemuseon,
+        block_position: block_pos(clicked),
+        result_pos: block_pos(destination),
+        face: wire::ZigZag32(i32::from(face)),
     })
 }
 
 /// Ends a successful held block use at its last resulting cell.
 #[must_use]
 pub fn stop_item_use_on_packet(local_runtime_id: u64, destination: [i32; 3]) -> crate::Packet {
-    let [x, y, z] = destination;
-    crate::Packet::new(PlayerActionPacket {
-        player_runtime_id: ActorRuntimeId {
-            actor_runtime_id: local_runtime_id,
-        },
-        action: EnumsPlayerActionType::Stopitemuseon,
-        block_position: BlockPos { x, y, z },
-        result_pos: BlockPos { x: 0, y: 0, z: 0 },
-        face: 0,
+    crate::Packet::new(PlayerAction {
+        player_runtime_id: ActorRuntimeID(local_runtime_id),
+        action: PlayerActionType::Stopitemuseon,
+        block_position: block_pos(destination),
+        result_pos: block_pos([0; 3]),
+        face: wire::ZigZag32(0),
     })
 }
 
 /// Builds the PlayerAction that asks the server to wake the local player.
 #[must_use]
 pub fn stop_sleeping_packet(local_runtime_id: u64) -> crate::Packet {
-    crate::Packet::new(PlayerActionPacket {
-        player_runtime_id: ActorRuntimeId {
-            actor_runtime_id: local_runtime_id,
-        },
-        action: EnumsPlayerActionType::Stopsleeping,
-        block_position: BlockPos { x: 0, y: 0, z: 0 },
-        result_pos: BlockPos { x: 0, y: 0, z: 0 },
-        face: 0,
+    crate::Packet::new(PlayerAction {
+        player_runtime_id: ActorRuntimeID(local_runtime_id),
+        action: PlayerActionType::Stopsleeping,
+        block_position: block_pos([0; 3]),
+        result_pos: block_pos([0; 3]),
+        face: wire::ZigZag32(0),
     })
 }
 
@@ -574,25 +534,20 @@ pub fn stop_riding_packet(
     if !player_position.into_iter().all(f32::is_finite) {
         return Err(ActorUsePacketError::NonFinitePlayerPosition);
     }
-    let [x, y, z] = player_position;
-    Ok(crate::Packet::new(InteractPacket {
-        action: EnumsInteractPacketPayloadAction::Stopriding,
-        target_runtime_id: ActorRuntimeId {
-            actor_runtime_id: mount_runtime_id,
-        },
-        position: Some(Vec3 { x, y, z }),
+    Ok(crate::Packet::new(Interact {
+        action: InteractAction::Stopriding,
+        target_runtime_id: ActorRuntimeID(mount_runtime_id),
+        position: Some(player_position.into()),
     }))
 }
 
 /// Builds the local player's arm-swing animation packet.
 #[must_use]
 pub fn swing_arm_packet(local_runtime_id: u64, source: SwingSource) -> crate::Packet {
-    crate::Packet::new(AnimatePacket {
-        action: EnumsAnimatePacketPayloadAction::Swing,
-        target_actor_runtime_id: ActorRuntimeId {
-            actor_runtime_id: local_runtime_id,
-        },
-        data: 0.0,
-        swing_source: Some(source.wire_name().to_owned()),
+    crate::Packet::new(Animate {
+        action: AnimateAction::Swing,
+        target_actor_runtime_id: ActorRuntimeID(local_runtime_id),
+        data: wire::F32LE(0.0),
+        swing_source: Some(wire::Str::from_static(source.wire_name())),
     })
 }

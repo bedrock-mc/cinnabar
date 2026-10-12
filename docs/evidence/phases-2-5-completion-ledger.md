@@ -291,3 +291,10 @@ Admitted live biome identifiers and climate now travel with the session tint reg
 the vendored client session crate is removed. Startup ordering, terminal transfers and
 disconnects, and the one-shot initialization keep their regression coverage through a scripted
 core; those tests have not been executed locally. No existing completion entry is advanced.
+
+## Protocol codec swap
+
+`protocol` uses protocolgen's vendored contract crate as its only codec; Valentine and its
+normalization machinery are gone. Packet routing and UI budgets derive from the generated packet
+table and field sites rather than hand-maintained ID lists. The ported tests have not been
+executed locally. No existing completion entry is advanced.

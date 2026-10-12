@@ -124,6 +124,8 @@ fn foreign_player_movement_is_routed_to_the_actor_stream() {
             on_ground: true,
             teleported: true,
             source_tick: 1_234,
+            riding_runtime_id: 0,
+            teleport_cause: None,
         })
     };
 

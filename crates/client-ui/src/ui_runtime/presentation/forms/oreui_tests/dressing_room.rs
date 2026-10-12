@@ -8,7 +8,6 @@ use launcher::dressing_room::{
 };
 use launcher::menu::{MenuAction, MenuView};
 use oreui::test_support::{add_capes, dressing_room_view as view};
-use ui::UiPoint;
 use ui_engine::test_support::fixture_font;
 use ui_engine::text_metrics::TextMetrics;
 

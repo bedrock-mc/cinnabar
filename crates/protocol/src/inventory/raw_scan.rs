@@ -1,7 +1,7 @@
 //! Pre-decode wire scan of inventory packets: framing errors are fatal, semantic ones deferred.
 
+use bedrock_protocol_1_26_51::packets::PacketId;
 use bytes::{Buf, Bytes};
-use valentine::bedrock::version::v1_26_51::McpePacketName;
 
 use super::*;
 
@@ -11,7 +11,7 @@ pub(crate) fn validate_raw_inventory_packet(
     let mut body = raw.body().clone();
     let mut semantic_error = None;
     let scanned = match raw.id {
-        McpePacketName::InventoryContentPacket => {
+        PacketId::InventoryContent => {
             read_var_i32(&mut body)?;
             let count = read_count(&mut body)?;
             if count > MAX_CONTAINER_SLOTS {
@@ -30,7 +30,7 @@ pub(crate) fn validate_raw_inventory_packet(
             scan_item_descriptor(&mut body, &mut semantic_error)?;
             true
         }
-        McpePacketName::InventorySlotPacket => {
+        PacketId::InventorySlot => {
             // The container ID is a plain byte, not a varint.
             take_u8(&mut body)?;
             read_var_i32(&mut body)?;
@@ -43,7 +43,7 @@ pub(crate) fn validate_raw_inventory_packet(
             scan_item_descriptor(&mut body, &mut semantic_error)?;
             true
         }
-        McpePacketName::ItemStackResponsePacket => {
+        PacketId::ItemStackResponse => {
             scan_stack_responses(&mut body, &mut semantic_error)?;
             true
         }
@@ -214,7 +214,11 @@ fn read_count(body: &mut Bytes) -> Result<usize, InventoryPacketError> {
 }
 
 fn read_var_i32(body: &mut Bytes) -> Result<i32, InventoryPacketError> {
-    wire::read_var_u32(body)
-        .map(|value| i32::from_ne_bytes(value.to_ne_bytes()))
-        .map_err(|_| InventoryPacketError::MalformedWire)
+    let mut reader = wire::Reader::new(body);
+    let value = reader
+        .read_var_u32()
+        .map_err(|_| InventoryPacketError::MalformedWire)?;
+    let consumed = reader.position();
+    body.advance(consumed);
+    Ok(i32::from_ne_bytes(value.to_ne_bytes()))
 }

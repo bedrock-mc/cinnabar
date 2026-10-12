@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_51::ItemRegistryPacket;
+use bedrock_protocol_1_26_51::packets::ItemRegistry as ItemRegistryPacket;
 
 use crate::nbt_tree::{Nbt, read_root};
 
@@ -157,7 +157,7 @@ pub(crate) fn item_components(registry: &ItemRegistryPacket) -> Box<[(Arc<str>, 
         .filter_map(|item| {
             let bytes = super::encode_extra(&item.item_component_data).ok()?;
             let components = parse_components(&bytes)?;
-            Some((Arc::from(item.item_name.as_str()), components))
+            Some((Arc::from(item.item_name.to_string_lossy()), components))
         })
         .collect()
 }

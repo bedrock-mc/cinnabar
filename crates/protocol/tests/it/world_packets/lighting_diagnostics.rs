@@ -1,38 +1,41 @@
-use protocol::{SubChunkResult, WorldEvent, into_world_event};
-use valentine::bedrock::version::v1_26_51::{
-    DimensionDataPacket, DimensionDataPacketDefinitionsItem,
-    DimensionDefinitionGroupDimensionDefinition, DimensionType,
-    EnumsSubChunkPacketPayloadHeightMapDataType as HeightmapType,
-    EnumsSubChunkPacketPayloadSubChunkRequestResult as ResultType, SubChunkPacket,
-    SubChunkPacketPayloadHeightmapData, SubChunkPacketPayloadHeightmapDataRenderHeightMapType,
-    SubChunkPacketPayloadSubChunkPacketData,
+use bedrock_protocol_1_26_51::enums::{
+    GeneratorType, HeightMapDataType as HeightmapType, SubChunkRequestResult as ResultType,
 };
+use bedrock_protocol_1_26_51::packets::{DimensionData, SubChunk};
+use bedrock_protocol_1_26_51::types::{
+    DimensionDefinition, DimensionType, HeightmapData, SubChunkData,
+};
+use bedrock_protocol_1_26_51::wire;
+use protocol::{SubChunkResult, WorldEvent, into_world_event};
 
 #[test]
 fn retains_sub_chunk_payload_presence_and_server_heightmap_facts() {
-    let packet = SubChunkPacket {
+    let packet = SubChunk {
         sub_chunk_data: vec![
-            SubChunkPacketPayloadSubChunkPacketData {
+            SubChunkData {
                 sub_chunk_request_result: ResultType::Successallair,
-                height_map_data: SubChunkPacketPayloadHeightmapData {
+                height_map_data: HeightmapData {
                     height_map_type: HeightmapType::Hasdata,
                     subchunk_height_map: Some(std::array::from_fn(|row| {
-                        if row == 0 { vec![-12, 7, 22] } else { vec![] }
+                        if row == 0 {
+                            vec![wire::I8(-12), wire::I8(7), wire::I8(22)]
+                        } else {
+                            vec![]
+                        }
                     })),
-                    render_height_map_type:
-                        SubChunkPacketPayloadHeightmapDataRenderHeightMapType::Allcopied,
+                    render_height_map_type: HeightmapType::Allcopied,
                     ..Default::default()
                 },
                 ..Default::default()
             },
-            SubChunkPacketPayloadSubChunkPacketData {
+            SubChunkData {
                 sub_chunk_request_result: ResultType::Success,
-                serialized_sub_chunk: Some(vec![]),
+                serialized_sub_chunk: Some(bytes::Bytes::new()),
                 ..Default::default()
             },
-            SubChunkPacketPayloadSubChunkPacketData {
+            SubChunkData {
                 sub_chunk_request_result: ResultType::Indexoutofbounds,
-                height_map_data: SubChunkPacketPayloadHeightmapData {
+                height_map_data: HeightmapData {
                     height_map_type: HeightmapType::Unknown(231),
                     ..Default::default()
                 },
@@ -69,16 +72,18 @@ fn retains_sub_chunk_payload_presence_and_server_heightmap_facts() {
 
 #[test]
 fn bounds_advertised_dimension_heights_without_rejecting_custom_ranges() {
-    let packet = DimensionDataPacket {
+    let packet = DimensionData {
         definitions: (0..1000)
-            .map(|dimension| DimensionDataPacketDefinitionsItem {
-                key: format!("custom:{dimension}"),
-                value: DimensionDefinitionGroupDimensionDefinition {
-                    minimum_y: -128,
-                    height_range: 1024,
-                    dimension_type: DimensionType { value: dimension },
-                    ..Default::default()
-                },
+            .map(|dimension| {
+                (
+                    format!("custom:{dimension}").into(),
+                    DimensionDefinition {
+                        minimum_y: wire::ZigZag32(-128),
+                        height_range: wire::ZigZag32(1024),
+                        dimension_type: DimensionType(dimension),
+                        ..Default::default()
+                    },
+                )
             })
             .collect(),
     };
@@ -98,18 +103,17 @@ fn bounds_advertised_dimension_heights_without_rejecting_custom_ranges() {
 
 #[test]
 fn retains_named_overworld_definition_with_a_distinct_numeric_type() {
-    let packet = DimensionDataPacket {
-        definitions: vec![DimensionDataPacketDefinitionsItem {
-            key: "minecraft:overworld".into(),
-            value: DimensionDefinitionGroupDimensionDefinition {
-                minimum_y: 0,
-                height_range: 256,
-                dimension_type: DimensionType { value: 3 },
-                generator_type:
-                    valentine::bedrock::version::v1_26_51::EnumsGeneratorType::Overworld,
+    let packet = DimensionData {
+        definitions: vec![(
+            "minecraft:overworld".into(),
+            DimensionDefinition {
+                minimum_y: wire::ZigZag32(0),
+                height_range: wire::ZigZag32(256),
+                dimension_type: DimensionType(3),
+                generator_type: GeneratorType::Overworld,
                 ..Default::default()
             },
-        }],
+        )],
     };
     let WorldEvent::DimensionHeights(heights) = into_world_event(protocol::Packet::new(packet), 0)
         .unwrap()

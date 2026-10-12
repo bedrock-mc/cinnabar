@@ -3,20 +3,22 @@
 //! Every fixture under `crates/protocol/fixtures/` is produced by
 //! `tools/fixturegen` through the pinned gophertunnel (Bedrock 1.26.50 /
 //! protocol 2193). The bytes are the authority: this file only asserts that the
-//! generated Valentine shapes decode to the values those bytes carry and
+//! generated packet shapes decode to the values those bytes carry and
 //! re-encode to the identical bytes.
 
+use bedrock_protocol_1_26_51::enums::{
+    GameType, InputData, InputMode, NewInteractionModel, PacketCompressionAlgorithm,
+    PlayerPermissionLevel, PlayerPositionModeComponentPositionMode,
+};
+use bedrock_protocol_1_26_51::packets::{self, PacketId};
+use bedrock_protocol_1_26_51::types::{
+    ActorRuntimeID, ActorUniqueID, BlockPos, ChunkPos, DimensionType, PlayerInputTick,
+};
+use bedrock_protocol_1_26_51::wire;
 use bytes::{BufMut, Bytes, BytesMut};
 use protocol::{
     GAME_VERSION, PROTOCOL_VERSION, PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode,
     ProtocolError, decode_batch, encode, player_auth_input,
-};
-use valentine::bedrock::version::v1_26_51::{
-    ActorRuntimeId, ActorUniqueId, BlockPos, ChunkPos, DimensionType, EnumsGameType,
-    EnumsInputMode, EnumsNewInteractionModel, EnumsPacketCompressionAlgorithm,
-    EnumsPlayerAuthInputPacketPayloadInputData, EnumsPlayerPermissionLevel,
-    EnumsPlayerPositionModeComponentPositionMode, McpePacketData, McpePacketName, PlayerInputTick,
-    Vec2, Vec3,
 };
 
 const NETWORK_SETTINGS: &[u8] = include_bytes!("../../fixtures/network_settings.bin");
@@ -30,17 +32,14 @@ const MAX_BATCH_PACKETS: usize = 1_600;
 
 /// `TeleportCauseCommand` in gophertunnel `minecraft/protocol/packet/move_player.go`.
 ///
-/// 1.26.40 removed the named `MovePlayerPacketTeleportCause` enum from the
-/// generated types: `MovePlayerTeleportData::teleportation_cause` is now a plain
-/// `i32`, so the fixture's value is checked against the pinned Go constant
-/// instead of a Rust variant.
+/// `MovePlayerTeleportData::teleportation_cause` is a plain `i32` on the wire, so
+/// the fixture's value is checked against the pinned Go constant.
 const TELEPORT_CAUSE_COMMAND: i32 = 3;
 
-/// `MovePlayerTeleportData::source_actor_type` is likewise a bare `i32` in
-/// 1.26.40, so the fixture retains its numeric value directly.
+/// `MovePlayerTeleportData::source_actor_type` is likewise a bare `i32`.
 const SOURCE_ACTOR_TYPE: i32 = 87;
 
-fn decode_one(fixture: &'static [u8], id: McpePacketName) -> protocol::Packet {
+fn decode_one(fixture: &'static [u8], id: PacketId) -> protocol::Packet {
     let packets = decode_batch(Bytes::from_static(fixture)).expect("decode fixture");
     assert_eq!(packets.len(), 1);
     let packet = packets.into_iter().next().expect("one packet");
@@ -48,6 +47,14 @@ fn decode_one(fixture: &'static [u8], id: McpePacketName) -> protocol::Packet {
     assert_eq!(packet.header.from_subclient, 1);
     assert_eq!(packet.header.to_subclient, 2);
     packet
+}
+
+fn block_pos(x: i32, y: i32, z: i32) -> BlockPos {
+    BlockPos {
+        x: wire::ZigZag32(x),
+        y: wire::ZigZag32(y),
+        z: wire::ZigZag32(z),
+    }
 }
 
 fn assert_exact_round_trip(packet: &protocol::Packet, fixture: &[u8]) {
@@ -63,81 +70,51 @@ fn protocol_constants_are_pinned_to_1_26_50() {
 
 #[test]
 fn network_settings_fixture_decodes_and_round_trips_exactly() {
-    let packet = decode_one(NETWORK_SETTINGS, McpePacketName::NetworkSettingsPacket);
-    match &packet.data {
-        McpePacketData::NetworkSettingsPacket(settings) => {
-            assert_eq!(settings.compression_threshold, 512);
+    let packet = decode_one(NETWORK_SETTINGS, PacketId::NetworkSettings);
+    match &*packet.data {
+        packets::Packet::NetworkSettings(settings) => {
+            assert_eq!(settings.compression_threshold.0, 512);
             // Restated, not weakened: the fixture still carries algorithm 0.
             // gophertunnel calls 0 `CompressionAlgorithmFlate`
-            // (packet/network_settings.go); the 1.26.40 generated enum renamed
-            // the same discriminant from `Deflate` to `ZLib`.
+            // (packet/network_settings.go); the generated enum names it `Zlib`.
             assert_eq!(
                 settings.compression_algorithm,
-                EnumsPacketCompressionAlgorithm::Zlib
+                PacketCompressionAlgorithm::Zlib
             );
-            // `client_throttle` is `client_throttle_enabled` in 1.26.40.
             assert!(settings.client_throttle_enabled);
-            assert_eq!(settings.client_throttle_threshold, 8);
-            assert_eq!(settings.client_throttle_scalar, 0.5);
+            assert_eq!(settings.client_throttle_threshold.0, 8);
+            assert_eq!(settings.client_throttle_scalar.0, 0.5);
         }
-        other => panic!("unexpected variant: {:?}", other.packet_id()),
+        other => panic!("unexpected variant: {:?}", other.id()),
     }
     assert_exact_round_trip(&packet, NETWORK_SETTINGS);
 }
 
 #[test]
 fn start_game_fixture_decodes_and_round_trips_exactly() {
-    let packet = decode_one(START_GAME, McpePacketName::StartGamePacket);
-    match &packet.data {
-        McpePacketData::StartGamePacket(start) => {
-            // `ActorUniqueId`/`ActorRuntimeId` are single-field wrapper structs.
-            assert_eq!(start.entity_id, ActorUniqueId { actor_unique_id: 1 });
-            assert_eq!(
-                start.runtime_id,
-                ActorRuntimeId {
-                    actor_runtime_id: 2
-                }
-            );
-            // `player_gamemode` -> `game_type`.
-            assert_eq!(start.game_type, EnumsGameType::Creative);
-            // `player_position` -> `position`, `Vec3F` -> `Vec3`.
-            assert_eq!(
-                start.position,
-                Vec3 {
-                    x: 1.25,
-                    y: 64.0,
-                    z: -2.5,
-                }
-            );
-            // `Vec2F { x, z }` -> `Vec2 { x, y }`: the second component is now
-            // named `y` and still carries the yaw.
+    let packet = decode_one(START_GAME, PacketId::StartGame);
+    match &*packet.data {
+        packets::Packet::StartGame(start) => {
+            assert_eq!(start.entity_id, ActorUniqueID(1));
+            assert_eq!(start.runtime_id, ActorRuntimeID(2));
+            assert_eq!(start.game_type, GameType::Creative);
+            assert_eq!(start.position.to_array(), [1.25, 64.0, -2.5]);
+            // The rotation's second component carries the yaw.
             assert_eq!(start.rotation.x, 10.5);
             assert_eq!(start.rotation.y, 20.25);
 
-            // The inline world fields moved into `settings: LevelSettings`.
             let settings = &start.settings;
-            assert_eq!(settings.seed, 12_345);
-            // `dimension: StartGamePacketDimension::Overworld` is now the
-            // spawn settings' plain dimension id; 0 is the overworld.
-            assert_eq!(settings.spawn_settings.dimension, 0);
-            // `spawn_position` -> `default_spawn_block_position`,
-            // `BlockCoordinates` -> `BlockPos`.
-            assert_eq!(
-                settings.default_spawn_block_position,
-                BlockPos { x: 8, y: 64, z: -8 }
-            );
-            // `game_version` -> `base_game_version`; the fixture is 1.26.50.
+            assert_eq!(settings.seed.0, 12_345);
+            // The spawn settings carry a plain dimension id; 0 is the overworld.
+            assert_eq!(settings.spawn_settings.dimension.0, 0);
+            assert_eq!(settings.default_spawn_block_position, block_pos(8, 64, -8));
             assert_eq!(settings.base_game_version, "1.26.50");
 
             // 1.26.40 wire changes carried by this fixture.
             //
-            // PlayerPermissions moved from a varint to a single byte:
-            // `io.Uint8(&pk.PlayerPermissions)` in the same file; the generated
-            // enum encodes/decodes one `i8`.
-            assert_eq!(
-                settings.player_permissions,
-                EnumsPlayerPermissionLevel::Member
-            );
+            // PlayerPermissions is a single byte:
+            // `io.Uint8(&pk.PlayerPermissions)` in the same file.
+            assert_eq!(settings.player_permissions, PlayerPermissionLevel::Member);
             // The GameRule list is carried by `rule_data`, and this fixture
             // sends none.
             assert!(settings.rule_data.rules_list.is_empty());
@@ -146,37 +123,37 @@ fn start_game_fixture_decodes_and_round_trips_exactly() {
             // is what proves no byte is written for it.
 
             assert_eq!(start.level_id, "fixture-level");
-            // `world_name` -> `level_name`.
             assert_eq!(start.level_name, "Fixture World");
             // The two movement fields live in `movement_settings`.
-            assert_eq!(start.movement_settings.rewind_history_size, 20);
+            assert_eq!(start.movement_settings.rewind_history_size.0, 20);
             assert!(start.movement_settings.server_authoritative_block_breaking);
-            // `current_tick` -> `level_current_time`.
-            assert_eq!(start.level_current_time, 123_456_789);
+            assert_eq!(start.level_current_time.0, 123_456_789);
             assert_eq!(
                 start.multiplayer_correlation_id,
                 "00000000-0000-0000-0000-000000000001"
             );
-            // `server_authoritative_inventory` -> `enable_item_stack_net_manager`.
             assert!(start.enable_item_stack_net_manager);
-            // `engine` -> `server_version`.
             assert_eq!(start.server_version, "1.26.50");
             assert!(start.block_network_ids_are_hashes);
         }
-        other => panic!("unexpected variant: {:?}", other.packet_id()),
+        other => panic!("unexpected variant: {:?}", other.id()),
     }
     assert_exact_round_trip(&packet, START_GAME);
 }
 
 #[test]
 fn level_chunk_fixture_decodes_and_round_trips_exactly() {
-    let packet = decode_one(LEVEL_CHUNK, McpePacketName::LevelChunkPacket);
-    match &packet.data {
-        McpePacketData::LevelChunkPacket(chunk) => {
-            // `x`/`z` -> `chunk_position: ChunkPos`.
-            assert_eq!(chunk.chunk_position, ChunkPos { x: 3, z: -4 });
-            // `dimension: i32` -> `dimension_id: DimensionType { value }`.
-            assert_eq!(chunk.dimension_id, DimensionType { value: 0 });
+    let packet = decode_one(LEVEL_CHUNK, PacketId::LevelChunk);
+    match &*packet.data {
+        packets::Packet::LevelChunk(chunk) => {
+            assert_eq!(
+                chunk.chunk_position,
+                ChunkPos {
+                    x: wire::ZigZag32(3),
+                    z: wire::ZigZag32(-4),
+                }
+            );
+            assert_eq!(chunk.dimension_id, DimensionType(0));
             // Restated, not weakened. gophertunnel
             // packet/level_chunk.go now writes
             // `io.Varuint32(&pk.SubChunkCount)` followed by
@@ -185,134 +162,88 @@ fn level_chunk_fixture_decodes_and_round_trips_exactly() {
             // The fixture's request-mode chunk is therefore count 0 plus an
             // explicit limit, and the old `highest_subchunk_count == Some(24)`
             // is now that limit.
-            assert_eq!(chunk.subchunks_count, 0);
-            assert_eq!(chunk.client_request_sub_chunk_limit, Some(24));
+            assert_eq!(chunk.sub_chunks_count.0, 0);
+            assert_eq!(
+                chunk.client_request_sub_chunk_limit,
+                Some(wire::ZigZag32(24))
+            );
             // `blobs: Option<..>` is gone: the same file writes
             // `protocol.FuncSlice(io, &pk.BlobHashes, io.Uint64)`
             // unconditionally, gated by nothing. The old `blobs.is_none()`
             // therefore restates as "cache disabled and no hashes present".
             assert!(!chunk.cache_enabled);
             assert!(chunk.cache_metadata.is_empty());
-            // `payload` -> `serialized_chunk_data`.
-            assert_eq!(chunk.serialized_chunk_data, [0xde, 0xad, 0xbe, 0xef]);
+            assert_eq!(
+                chunk.serialized_chunk_data.as_ref(),
+                [0xde, 0xad, 0xbe, 0xef]
+            );
         }
-        other => panic!("unexpected variant: {:?}", other.packet_id()),
+        other => panic!("unexpected variant: {:?}", other.id()),
     }
     assert_exact_round_trip(&packet, LEVEL_CHUNK);
 }
 
 #[test]
 fn move_player_fixture_decodes_and_round_trips_exactly() {
-    let packet = decode_one(MOVE_PLAYER, McpePacketName::MovePlayerPacket);
-    match &packet.data {
-        McpePacketData::MovePlayerPacket(movement) => {
-            // `runtime_id` -> `player_runtime_id: ActorRuntimeId`.
-            assert_eq!(
-                movement.player_runtime_id,
-                ActorRuntimeId {
-                    actor_runtime_id: 42
-                }
-            );
-            assert_eq!(
-                movement.position,
-                Vec3 {
-                    x: 1.25,
-                    y: 64.0,
-                    z: -2.5,
-                }
-            );
-            // `pitch`/`yaw` -> `rotation: Vec2 { x, y }`.
-            assert_eq!(movement.rotation, Vec2 { x: 10.5, y: 20.25 });
-            // `head_yaw` -> `y_head_rotation`.
-            assert_eq!(movement.y_head_rotation, 30.75);
-            // `mode` -> `position_mode`.
+    let packet = decode_one(MOVE_PLAYER, PacketId::MovePlayer);
+    match &*packet.data {
+        packets::Packet::MovePlayer(movement) => {
+            assert_eq!(movement.player_runtime_id, ActorRuntimeID(42));
+            assert_eq!(movement.position.to_array(), [1.25, 64.0, -2.5]);
+            assert_eq!(movement.rotation.to_array(), [10.5, 20.25]);
+            assert_eq!(movement.y_head_rotation.0, 30.75);
             assert_eq!(
                 movement.position_mode,
-                EnumsPlayerPositionModeComponentPositionMode::Teleport
+                PlayerPositionModeComponentPositionMode::Teleport
             );
             assert!(movement.on_ground);
-            assert_eq!(
-                movement.riding_runtime_id,
-                ActorRuntimeId {
-                    actor_runtime_id: 0
-                }
-            );
+            assert_eq!(movement.riding_runtime_id, ActorRuntimeID(0));
             // TeleportData is now optional on the wire:
             // `protocol.OptionalMarshaler(io, &pk.TeleportData)` in
             // gophertunnel packet/move_player.go writes a presence bool first.
             // The fixture sets it, so the payload must still be present.
             let teleport = movement.teleport_data.as_ref().expect("teleport data");
-            assert_eq!(teleport.teleportation_cause, TELEPORT_CAUSE_COMMAND);
-            assert_eq!(teleport.source_actor_type, SOURCE_ACTOR_TYPE);
-            // `tick: u64` -> `tick: PlayerInputTick`.
-            assert_eq!(movement.tick, PlayerInputTick { inputtick: 1_234 });
+            assert_eq!(teleport.teleportation_cause.0, TELEPORT_CAUSE_COMMAND);
+            assert_eq!(teleport.source_actor_type.0, SOURCE_ACTOR_TYPE);
+            assert_eq!(movement.tick, PlayerInputTick(1_234));
         }
-        other => panic!("unexpected variant: {:?}", other.packet_id()),
+        other => panic!("unexpected variant: {:?}", other.id()),
     }
     assert_exact_round_trip(&packet, MOVE_PLAYER);
 }
 
 #[test]
 fn player_auth_input_fixture_decodes_and_round_trips_exactly() {
-    let fixture = decode_one(PLAYER_AUTH_INPUT, McpePacketName::PlayerAuthInputPacket);
-    let McpePacketData::PlayerAuthInputPacket(input) = &fixture.data else {
+    let fixture = decode_one(PLAYER_AUTH_INPUT, PacketId::PlayerAuthInput);
+    let packets::Packet::PlayerAuthInput(input) = &*fixture.data else {
         panic!("unexpected fixture payload");
     };
-    // `tick` -> `client_tick: PlayerInputTick`.
-    assert_eq!(input.client_tick, PlayerInputTick { inputtick: 1_234 });
-    assert_eq!(input.input_mode, EnumsInputMode::Mouse);
-    // `interaction_model: Unknown(-1)` -> `new_interaction_model: Crosshair`.
+    assert_eq!(input.client_tick, PlayerInputTick(1_234));
+    assert_eq!(input.input_mode, InputMode::Mouse);
     // gophertunnel packet/player_auth_input.go writes
     // `io.Varint32(&pk.InteractionModel)` and the fixture carries `0x02`,
-    // i.e. zigzag 1 == `InteractionModelCrosshair`. The old `Unknown(-1)`
-    // was the protocol-1001 generated definition disagreeing on signedness.
-    assert_eq!(
-        input.new_interaction_model,
-        EnumsNewInteractionModel::Crosshair
-    );
+    // i.e. zigzag 1 == `InteractionModelCrosshair`.
+    assert_eq!(input.new_interaction_model, NewInteractionModel::Crosshair);
     // `protocol.InputFlagList` (gophertunnel minecraft/protocol/input_flags.go)
     // writes a count and then one zigzag varint per set flag ID, in ascending
     // flag-ID order.
     assert_eq!(
         input.input_data,
         vec![
-            EnumsPlayerAuthInputPacketPayloadInputData::Jumping,
-            EnumsPlayerAuthInputPacketPayloadInputData::Up,
-            EnumsPlayerAuthInputPacketPayloadInputData::Left,
-            EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
+            InputData::Jumping,
+            InputData::Up,
+            InputData::Left,
+            InputData::Sprinting,
         ]
     );
-    // `pitch`/`yaw` -> `player_rotation: Vec2 { x, y }`.
-    assert_eq!(input.player_rotation, Vec2 { x: 10.5, y: 20.25 });
-    assert_eq!(
-        input.position,
-        Vec3 {
-            x: 1.25,
-            y: 64.0,
-            z: -2.5,
-        }
-    );
-    assert_eq!(input.player_head_rotation, 30.75);
-    // `delta` -> `pos_delta`.
-    assert_eq!(
-        input.pos_delta,
-        Vec3 {
-            x: 0.25,
-            y: 0.0,
-            z: -0.5,
-        }
-    );
-    assert_eq!(input.move_vector, Vec2 { x: -1.0, y: 1.0 });
-    assert_eq!(input.analog_move_vector, Vec2 { x: -1.0, y: 1.0 });
-    assert_eq!(input.raw_move_vector, Vec2 { x: -1.0, y: 1.0 });
-    assert_eq!(
-        input.camera_orientation,
-        Vec3 {
-            x: 0.25,
-            y: -0.5,
-            z: -0.75,
-        }
-    );
+    assert_eq!(input.player_rotation.to_array(), [10.5, 20.25]);
+    assert_eq!(input.position.to_array(), [1.25, 64.0, -2.5]);
+    assert_eq!(input.player_head_rotation.0, 30.75);
+    assert_eq!(input.pos_delta.to_array(), [0.25, 0.0, -0.5]);
+    assert_eq!(input.move_vector.to_array(), [-1.0, 1.0]);
+    assert_eq!(input.analog_move_vector.to_array(), [-1.0, 1.0]);
+    assert_eq!(input.raw_move_vector.to_array(), [-1.0, 1.0]);
+    assert_eq!(input.camera_orientation.to_array(), [0.25, -0.5, -0.75]);
     assert_eq!(input.item_use_transaction, None);
     assert_eq!(input.item_stack_request, None);
     assert_eq!(input.player_block_actions, None);
@@ -353,64 +284,31 @@ fn player_auth_input_builder_matches_gophertunnel_bytes_exactly() {
 
 #[test]
 fn add_actor_fixture_maps_to_add_entity_and_round_trips_exactly() {
-    let packet = decode_one(ADD_ACTOR, McpePacketName::AddActorPacket);
-    match &packet.data {
-        McpePacketData::AddActorPacket(entity) => {
-            // `unique_id`/`runtime_id` -> `target_actor_id`/`target_runtime_id`,
-            // both single-field wrapper structs now.
-            assert_eq!(
-                entity.target_actor_id,
-                ActorUniqueId {
-                    actor_unique_id: -77
-                }
-            );
-            assert_eq!(
-                entity.target_runtime_id,
-                ActorRuntimeId {
-                    actor_runtime_id: 77
-                }
-            );
-            // `entity_type` -> `actor_type`.
+    let packet = decode_one(ADD_ACTOR, PacketId::AddActor);
+    match &*packet.data {
+        packets::Packet::AddActor(entity) => {
+            assert_eq!(entity.target_actor_id, ActorUniqueID(-77));
+            assert_eq!(entity.target_runtime_id, ActorRuntimeID(77));
             assert_eq!(entity.actor_type, "minecraft:pig");
-            assert_eq!(
-                entity.position,
-                Vec3 {
-                    x: 2.0,
-                    y: 65.0,
-                    z: -3.0,
-                }
-            );
-            assert_eq!(
-                entity.velocity,
-                Vec3 {
-                    x: 0.1,
-                    y: 0.2,
-                    z: 0.3,
-                }
-            );
-            // `pitch`/`yaw` -> `rotation: Vec2 { x, y }`.
-            assert_eq!(entity.rotation, Vec2 { x: 1.0, y: 2.0 });
-            // `head_yaw`/`body_yaw` -> `y_head_rotation`/`y_body_rotation`.
-            assert_eq!(entity.y_head_rotation, 3.0);
-            assert_eq!(entity.y_body_rotation, 4.0);
-            // `attributes` -> `attributes_list`.
+            assert_eq!(entity.position.to_array(), [2.0, 65.0, -3.0]);
+            assert_eq!(entity.velocity.to_array(), [0.1, 0.2, 0.3]);
+            assert_eq!(entity.rotation.to_array(), [1.0, 2.0]);
+            assert_eq!(entity.y_head_rotation.0, 3.0);
+            assert_eq!(entity.y_body_rotation.0, 4.0);
             assert!(entity.attributes_list.is_empty());
-            // `metadata` -> `actor_data.data`.
             assert!(entity.actor_data.data.is_empty());
-            // `properties.ints`/`.floats` -> `synched_properties.*_entries_list`.
             assert!(entity.synched_properties.int_entries_list.is_empty());
             assert!(entity.synched_properties.float_entries_list.is_empty());
-            // `links` -> `actor_links`.
             assert!(entity.actor_links.is_empty());
         }
-        other => panic!("unexpected variant: {:?}", other.packet_id()),
+        other => panic!("unexpected variant: {:?}", other.id()),
     }
     assert_exact_round_trip(&packet, ADD_ACTOR);
 }
 
 #[test]
 fn decode_preserves_sender_and_target_subclients() {
-    let packet = decode_one(NETWORK_SETTINGS, McpePacketName::NetworkSettingsPacket);
+    let packet = decode_one(NETWORK_SETTINGS, PacketId::NetworkSettings);
     assert_eq!(
         (packet.header.from_subclient, packet.header.to_subclient),
         (1, 2)
@@ -491,15 +389,15 @@ fn decode_rejects_trailing_byte_inside_declared_entry() {
 
 #[test]
 fn encode_rejects_header_data_id_mismatch() {
-    let mut packet = decode_one(NETWORK_SETTINGS, McpePacketName::NetworkSettingsPacket);
-    packet.header.id = McpePacketName::StartGamePacket;
+    let mut packet = decode_one(NETWORK_SETTINGS, PacketId::NetworkSettings);
+    packet.header.id = PacketId::StartGame;
     let err = encode(&packet).expect_err("mismatched header ID");
     assert!(matches!(err, ProtocolError::HeaderIdMismatch { .. }));
 }
 
 #[test]
 fn encode_rejects_out_of_range_subclient_ids() {
-    let packet = decode_one(NETWORK_SETTINGS, McpePacketName::NetworkSettingsPacket);
+    let packet = decode_one(NETWORK_SETTINGS, PacketId::NetworkSettings);
 
     let mut invalid_sender = packet.clone();
     invalid_sender.header.from_subclient = 4;
@@ -569,13 +467,11 @@ fn fixture_block_actions() -> protocol::BlockActions {
 
 #[test]
 fn player_auth_input_block_actions_fixture_decodes_and_round_trips_exactly() {
-    use valentine::bedrock::version::v1_26_51::{EnumsPlayerActionType, PlayerBlockActionData};
+    use bedrock_protocol_1_26_51::enums::PlayerActionType;
+    use bedrock_protocol_1_26_51::types::PlayerBlockActionData;
 
-    let fixture = decode_one(
-        PLAYER_AUTH_INPUT_BLOCK_ACTIONS,
-        McpePacketName::PlayerAuthInputPacket,
-    );
-    let McpePacketData::PlayerAuthInputPacket(input) = &fixture.data else {
+    let fixture = decode_one(PLAYER_AUTH_INPUT_BLOCK_ACTIONS, PacketId::PlayerAuthInput);
+    let packets::Packet::PlayerAuthInput(input) = &*fixture.data else {
         panic!("unexpected fixture payload");
     };
     // The flag list gains exactly PerformBlockActions (ordinal 35), after
@@ -583,11 +479,11 @@ fn player_auth_input_block_actions_fixture_decodes_and_round_trips_exactly() {
     assert_eq!(
         input.input_data,
         vec![
-            EnumsPlayerAuthInputPacketPayloadInputData::Jumping,
-            EnumsPlayerAuthInputPacketPayloadInputData::Up,
-            EnumsPlayerAuthInputPacketPayloadInputData::Left,
-            EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
-            EnumsPlayerAuthInputPacketPayloadInputData::Performblockactions,
+            InputData::Jumping,
+            InputData::Up,
+            InputData::Left,
+            InputData::Sprinting,
+            InputData::Performblockactions,
         ]
     );
     // Every action writes its action id, block position, and face.
@@ -595,27 +491,19 @@ fn player_auth_input_block_actions_fixture_decodes_and_round_trips_exactly() {
         input.player_block_actions,
         Some(vec![
             PlayerBlockActionData {
-                player_action_type: EnumsPlayerActionType::Startdestroyblock,
-                position: BlockPos {
-                    x: 13,
-                    y: 71,
-                    z: -29,
-                },
-                facing: 5,
+                player_action_type: PlayerActionType::Startdestroyblock,
+                position: block_pos(13, 71, -29),
+                facing: wire::ZigZag32(5),
             },
             PlayerBlockActionData {
-                player_action_type: EnumsPlayerActionType::Predictdestroyblock,
-                position: BlockPos {
-                    x: -8,
-                    y: 63,
-                    z: 21,
-                },
-                facing: 1,
+                player_action_type: PlayerActionType::Predictdestroyblock,
+                position: block_pos(-8, 63, 21),
+                facing: wire::ZigZag32(1),
             },
         ])
     );
     assert_eq!(input.item_use_transaction, None);
-    assert_eq!(input.client_tick, PlayerInputTick { inputtick: 1_234 });
+    assert_eq!(input.client_tick, PlayerInputTick(1_234));
     assert_exact_round_trip(&fixture, PLAYER_AUTH_INPUT_BLOCK_ACTIONS);
 }
 
@@ -641,83 +529,60 @@ fn player_auth_input_builder_embeds_block_actions_byte_exactly() {
 
 #[test]
 fn player_auth_input_break_block_fixture_decodes_and_round_trips_exactly() {
-    use valentine::bedrock::version::v1_26_51::{
-        EnumsItemUseInventoryTransactionActionType,
-        EnumsItemUseInventoryTransactionClientCooldownState,
-        EnumsItemUseInventoryTransactionPredictedResult,
-        EnumsItemUseInventoryTransactionTriggerType,
+    use bedrock_protocol_1_26_51::enums::{
+        ItemUseInventoryTransactionActionType, ItemUseInventoryTransactionClientCooldownState,
+        ItemUseInventoryTransactionPredictedResult, ItemUseInventoryTransactionTriggerType,
     };
 
-    let fixture = decode_one(
-        PLAYER_AUTH_INPUT_BREAK_BLOCK,
-        McpePacketName::PlayerAuthInputPacket,
-    );
-    let McpePacketData::PlayerAuthInputPacket(input) = &fixture.data else {
+    let fixture = decode_one(PLAYER_AUTH_INPUT_BREAK_BLOCK, PacketId::PlayerAuthInput);
+    let packets::Packet::PlayerAuthInput(input) = &*fixture.data else {
         panic!("unexpected fixture payload");
     };
     assert_eq!(
         input.input_data,
         vec![
-            EnumsPlayerAuthInputPacketPayloadInputData::Jumping,
-            EnumsPlayerAuthInputPacketPayloadInputData::Up,
-            EnumsPlayerAuthInputPacketPayloadInputData::Left,
-            EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
-            EnumsPlayerAuthInputPacketPayloadInputData::Performiteminteraction,
+            InputData::Jumping,
+            InputData::Up,
+            InputData::Left,
+            InputData::Sprinting,
+            InputData::Performiteminteraction,
         ]
     );
     assert_eq!(input.player_block_actions, None);
     let Some(packed) = &input.item_use_transaction else {
         panic!("expected an embedded item-use transaction");
     };
-    assert_eq!(packed.legacy_request_id.id, 0);
+    assert_eq!(packed.legacy_request_id.0, 0);
     assert!(packed.legacy_set_item_slots.is_none());
     let transaction = &packed.item_use_transaction;
     assert!(transaction.actions.actions.is_empty());
     assert_eq!(
         transaction.action_type,
-        EnumsItemUseInventoryTransactionActionType::Destroy
+        ItemUseInventoryTransactionActionType::Destroy
     );
     assert_eq!(
         transaction.trigger_type,
-        EnumsItemUseInventoryTransactionTriggerType::Playerinput
+        ItemUseInventoryTransactionTriggerType::PlayerInput
     );
+    assert_eq!(transaction.position, block_pos(24, 68, -41));
+    assert_eq!(transaction.face.0, 3);
+    assert_eq!(transaction.slot.0, 5);
+    assert_eq!(transaction.item.id.0, 9);
+    assert_eq!(transaction.item.stack_size.0, 3);
+    assert_eq!(transaction.item.net_id_variant, Some(wire::ZigZag32(15)));
     assert_eq!(
-        transaction.position,
-        BlockPos {
-            x: 24,
-            y: 68,
-            z: -41
-        }
+        transaction.from_position.to_array(),
+        [24.625, 69.5, -40.125]
     );
-    assert_eq!(transaction.face, 3);
-    assert_eq!(transaction.slot, 5);
-    assert_eq!(transaction.item.id, 9);
-    assert_eq!(transaction.item.stacksize, 3);
-    assert_eq!(transaction.item.net_id_variant, Some(15));
-    assert_eq!(
-        transaction.from_position,
-        Vec3 {
-            x: 24.625,
-            y: 69.5,
-            z: -40.125
-        }
-    );
-    assert_eq!(
-        transaction.click_position,
-        Vec3 {
-            x: 0.625,
-            y: 0.375,
-            z: 0.875
-        }
-    );
-    assert_eq!(transaction.target_block_id, 654_321);
+    assert_eq!(transaction.click_position.to_array(), [0.625, 0.375, 0.875]);
+    assert_eq!(transaction.target_block_id.0, 654_321);
     assert_eq!(
         transaction.client_interact_prediction,
-        EnumsItemUseInventoryTransactionPredictedResult::Failure
+        ItemUseInventoryTransactionPredictedResult::Failure
     );
     assert_eq!(
         transaction.client_cooldown_state,
-        EnumsItemUseInventoryTransactionClientCooldownState::Off
+        ItemUseInventoryTransactionClientCooldownState::Off
     );
     assert_exact_round_trip(&fixture, PLAYER_AUTH_INPUT_BREAK_BLOCK);
 }
@@ -727,11 +592,8 @@ fn player_auth_input_builder_embeds_creative_break_byte_exactly() {
     use sha2::{Digest, Sha256};
     use std::sync::Arc;
 
-    let fixture = decode_one(
-        PLAYER_AUTH_INPUT_BREAK_BLOCK,
-        McpePacketName::PlayerAuthInputPacket,
-    );
-    let McpePacketData::PlayerAuthInputPacket(input) = &fixture.data else {
+    let fixture = decode_one(PLAYER_AUTH_INPUT_BREAK_BLOCK, PacketId::PlayerAuthInput);
+    let packets::Packet::PlayerAuthInput(input) = &*fixture.data else {
         panic!("unexpected fixture payload");
     };
     let item = &input
@@ -743,13 +605,13 @@ fn player_auth_input_builder_embeds_creative_break_byte_exactly() {
     let digest: [u8; 32] = Sha256::digest(&item.user_data_buffer).into();
     let selected_item = protocol::VerifiedNetworkItemStack::try_new(
         protocol::NetworkItemStack {
-            network_id: i32::from(item.id),
-            metadata: u32::from_ne_bytes(item.auxvalue.to_ne_bytes()),
-            stack_network_id: item.net_id_variant.unwrap_or(-1),
-            count: item.stacksize,
+            network_id: i32::from(item.id.0),
+            metadata: item.aux_value.0,
+            stack_network_id: item.net_id_variant.map_or(-1, |id| id.0),
+            count: item.stack_size.0,
             nbt_digest: digest,
-            block_runtime_id: i32::from_ne_bytes(item.block_runtime_id.to_ne_bytes()),
-            extra_data: Arc::from(item.user_data_buffer.clone()),
+            block_runtime_id: i32::from_ne_bytes(item.block_runtime_id.0.to_ne_bytes()),
+            extra_data: Arc::from(item.user_data_buffer.as_ref()),
         },
         digest,
     )
@@ -807,11 +669,8 @@ fn fixture_break_block_item() -> protocol::VerifiedNetworkItemStack {
     use sha2::{Digest, Sha256};
     use std::sync::Arc;
 
-    let fixture = decode_one(
-        PLAYER_AUTH_INPUT_BREAK_BLOCK,
-        McpePacketName::PlayerAuthInputPacket,
-    );
-    let McpePacketData::PlayerAuthInputPacket(input) = &fixture.data else {
+    let fixture = decode_one(PLAYER_AUTH_INPUT_BREAK_BLOCK, PacketId::PlayerAuthInput);
+    let packets::Packet::PlayerAuthInput(input) = &*fixture.data else {
         panic!("unexpected fixture payload");
     };
     let item = &input
@@ -823,13 +682,13 @@ fn fixture_break_block_item() -> protocol::VerifiedNetworkItemStack {
     let digest: [u8; 32] = Sha256::digest(&item.user_data_buffer).into();
     protocol::VerifiedNetworkItemStack::try_new(
         protocol::NetworkItemStack {
-            network_id: i32::from(item.id),
-            metadata: u32::from_ne_bytes(item.auxvalue.to_ne_bytes()),
-            stack_network_id: item.net_id_variant.unwrap_or(-1),
-            count: item.stacksize,
+            network_id: i32::from(item.id.0),
+            metadata: item.aux_value.0,
+            stack_network_id: item.net_id_variant.map_or(-1, |id| id.0),
+            count: item.stack_size.0,
             nbt_digest: digest,
-            block_runtime_id: i32::from_ne_bytes(item.block_runtime_id.to_ne_bytes()),
-            extra_data: Arc::from(item.user_data_buffer.clone()),
+            block_runtime_id: i32::from_ne_bytes(item.block_runtime_id.0.to_ne_bytes()),
+            extra_data: Arc::from(item.user_data_buffer.as_ref()),
         },
         digest,
     )
@@ -855,20 +714,20 @@ fn fixture_break_block_request() -> protocol::BlockUseRequest {
 fn player_auth_input_combined_interactions_fixture_and_builder_match_byte_exactly() {
     let fixture = decode_one(
         PLAYER_AUTH_INPUT_BLOCK_ACTIONS_AND_BREAK_BLOCK,
-        McpePacketName::PlayerAuthInputPacket,
+        PacketId::PlayerAuthInput,
     );
-    let McpePacketData::PlayerAuthInputPacket(input) = &fixture.data else {
+    let packets::Packet::PlayerAuthInput(input) = &*fixture.data else {
         panic!("unexpected fixture payload");
     };
     assert_eq!(
         input.input_data,
         vec![
-            EnumsPlayerAuthInputPacketPayloadInputData::Jumping,
-            EnumsPlayerAuthInputPacketPayloadInputData::Up,
-            EnumsPlayerAuthInputPacketPayloadInputData::Left,
-            EnumsPlayerAuthInputPacketPayloadInputData::Sprinting,
-            EnumsPlayerAuthInputPacketPayloadInputData::Performiteminteraction,
-            EnumsPlayerAuthInputPacketPayloadInputData::Performblockactions,
+            InputData::Jumping,
+            InputData::Up,
+            InputData::Left,
+            InputData::Sprinting,
+            InputData::Performiteminteraction,
+            InputData::Performblockactions,
         ]
     );
     assert!(input.item_use_transaction.is_some());

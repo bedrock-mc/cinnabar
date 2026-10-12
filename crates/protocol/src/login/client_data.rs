@@ -2,12 +2,10 @@
 //! the device (`DeviceOS`, `DeviceModel`, `DeviceId`, `DefaultInputMode`) to match its sign-in.
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use bytes::BytesMut;
+use bedrock_protocol_1_26_51::enums::InputMode;
 use serde_json::{Value, json};
 use std::num::NonZeroI64;
 use uuid::Uuid;
-use valentine::bedrock::codec::{BedrockCodec, VarUInt};
-use valentine::bedrock::version::v1_26_51::{self as wire, EnumsInputMode};
 
 use crate::PlayerInputMode;
 
@@ -16,7 +14,7 @@ use crate::PlayerInputMode;
 pub const GAME_VERSION: &str = "1.26.50";
 
 /// The Bedrock network protocol this client speaks.
-pub const PROTOCOL_VERSION: i32 = wire::PROTOCOL_VERSION;
+pub const PROTOCOL_VERSION: i32 = bedrock_protocol_1_26_51::PROTOCOL_VERSION;
 
 /// The highest Bedrock memory tier, used by desktop client-data claims.
 const SUPER_HIGH_MEMORY_TIER: u32 = 4;
@@ -207,21 +205,32 @@ pub(crate) fn login_client_data(
 /// The wire value of `mode`, as the generated codec encodes it.
 fn input_mode_value(mode: PlayerInputMode) -> u32 {
     let mode = match mode {
-        PlayerInputMode::Mouse => EnumsInputMode::Mouse,
-        PlayerInputMode::Touch => EnumsInputMode::Touch,
-        PlayerInputMode::GamePad => EnumsInputMode::Gamepad,
+        PlayerInputMode::Mouse => InputMode::Mouse,
+        PlayerInputMode::Touch => InputMode::Touch,
+        PlayerInputMode::GamePad => InputMode::Gamepad,
     };
-    let mut encoded = BytesMut::new();
-    mode.encode(&mut encoded)
-        .expect("a buffer accepts an input mode");
-    VarUInt::decode(&mut encoded.freeze(), ())
-        .expect("an encoded input mode decodes")
-        .0
+    mode.to_raw()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A re-vendored codec fails here until the target manifest records its pin.
+    #[test]
+    fn vendored_codec_matches_the_target_pin() {
+        let target: Value =
+            serde_json::from_str(include_str!("../../../../assets/bedrock-target.json")).unwrap();
+        assert_eq!(target["wire_protocol"], i64::from(PROTOCOL_VERSION));
+        assert_eq!(
+            target["codec_contract"],
+            u64::from(bedrock_protocol_1_26_51::CODEC_CONTRACT)
+        );
+        assert_eq!(
+            target["codec_manifest_sha256"],
+            bedrock_protocol_1_26_51::MANIFEST_SHA256
+        );
+    }
 
     /// Repeated claims and bridge JSON retain all signed bits of the caller's ID.
     #[test]

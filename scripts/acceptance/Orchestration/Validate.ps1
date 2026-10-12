@@ -131,7 +131,7 @@ $script:AcceptanceValidationPhase = {
         -ProjectRoot $ProjectRoot `
         -ExpectedAxolotlStackRevision $PinnedAxolotlStackCommit `
         -ExpectedProtocolgenRevision $PinnedProtocolgenCommit `
-        -ExpectedLicenseSha256 $PinnedValentineLicenseSha256
+        -ExpectedLicenseSha256 $PinnedJolyneLicenseSha256
     $BedrockTarget = Get-BedrockTargetManifest -ProjectRoot $ProjectRoot
     $BlockRegistryPath = Resolve-BedrockTargetArtifact -ProjectRoot $ProjectRoot -Target $BedrockTarget -Artifact block_registry
     $CrossCropCoverage = if ($isCrossCropGallery) {

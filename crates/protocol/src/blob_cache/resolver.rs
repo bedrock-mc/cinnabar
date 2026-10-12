@@ -19,6 +19,9 @@ use self::{
     },
 };
 
+// Every variant moves through the resolver queue by value; the enum is no larger than the
+// world event it must carry.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum BlobCacheReady {
     Packet(Packet),
@@ -210,8 +213,8 @@ impl BlobCacheResolver {
         packet: Packet,
         raw_packet_bytes: Option<usize>,
     ) -> Result<BlobCacheStatus, BlobCacheError> {
-        let (packet, hashes, packet_retained_bytes) = match packet.data {
-            McpePacketData::LevelChunkPacket(packet) => {
+        let (packet, hashes, packet_retained_bytes) = match *packet.data {
+            packets::Packet::LevelChunk(packet) => {
                 // The blob hashes are no longer optional; whether the packet
                 // is cached is the explicit cache_enabled flag.
                 if !packet.cache_enabled {
@@ -220,14 +223,14 @@ impl BlobCacheResolver {
                 let hashes: Vec<u64> = packet
                     .cache_metadata
                     .iter()
-                    .map(|metadata| metadata.blob_id)
+                    .map(|metadata| metadata.0)
                     .collect();
                 // gophertunnel's packet/level_chunk.go documents BlobHashes
                 // as SubChunkCount + 1 entries: one per sub-chunk plus the
                 // biome blob. The protocol-1001 request-mode sentinels
                 // (-1/-2) that collapsed this to a single hash are gone;
                 // 1.26.40 carries a separate optional SubChunkLimit instead.
-                let expected = usize::try_from(packet.subchunks_count)
+                let expected = usize::try_from(packet.sub_chunks_count.0)
                     .ok()
                     .and_then(|count| count.checked_add(1))
                     .ok_or(BlobCacheError::ByteCountOverflow)?;
@@ -242,13 +245,13 @@ impl BlobCacheResolver {
                     .capacity()
                     .checked_mul(8)
                     .ok_or(BlobCacheError::ByteCountOverflow)?;
-                let bytes = size_of::<LevelChunkPacket>()
-                    .checked_add(packet.serialized_chunk_data.capacity())
+                let bytes = size_of::<LevelChunk>()
+                    .checked_add(packet.serialized_chunk_data.len())
                     .and_then(|bytes| bytes.checked_add(hash_bytes))
                     .ok_or(BlobCacheError::ByteCountOverflow)?;
-                (PendingPacket::LevelChunk(packet), hashes, bytes)
+                (PendingPacket::LevelChunk(Box::new(packet)), hashes, bytes)
             }
-            McpePacketData::SubChunkPacket(packet) => {
+            packets::Packet::SubChunk(packet) => {
                 if !packet.cache_enabled {
                     return Err(BlobCacheError::NotCachedPacket);
                 }
@@ -256,24 +259,27 @@ impl BlobCacheResolver {
                 let mut hashes = Vec::new();
                 let mut bytes = entries
                     .capacity()
-                    .checked_mul(size_of::<
-                        valentine::bedrock::version::v1_26_51::SubChunkPacketPayloadSubChunkPacketData,
-                    >())
-                    .and_then(|entries| entries.checked_add(size_of::<SubChunkPacket>()))
+                    .checked_mul(size_of::<SubChunkData>())
+                    .and_then(|entries| entries.checked_add(size_of::<SubChunk>()))
                     .ok_or(BlobCacheError::ByteCountOverflow)?;
                 for entry in entries {
                     bytes = bytes
-                        .checked_add(entry.serialized_sub_chunk.as_ref().map_or(0, Vec::capacity))
+                        .checked_add(
+                            entry
+                                .serialized_sub_chunk
+                                .as_ref()
+                                .map_or(0, bytes::Bytes::len),
+                        )
                         .ok_or(BlobCacheError::ByteCountOverflow)?;
                     // A cached entry carries its blob ID; one without a blob
                     // ID was served inline even on a cache-enabled packet.
                     if entry.sub_chunk_request_result == SubChunkRequestResult::Success
                         && let Some(blob_id) = entry.blob_id
                     {
-                        hashes.push(blob_id);
+                        hashes.push(blob_id.0);
                     }
                 }
-                (PendingPacket::SubChunk(packet), hashes, bytes)
+                (PendingPacket::SubChunk(Box::new(packet)), hashes, bytes)
             }
             _ => return Err(BlobCacheError::NotCachedPacket),
         };
@@ -432,23 +438,22 @@ impl BlobCacheResolver {
 
     pub(crate) fn accept_miss_response(
         &mut self,
-        response: ClientCacheMissResponsePacket,
+        response: ClientCacheMissResponse,
     ) -> Result<(), BlobCacheError> {
         if response.missing_blobs.is_empty() {
             self.stats.empty_miss_responses = self.stats.empty_miss_responses.saturating_add(1);
             return Ok(());
         }
         let response_bytes = response.missing_blobs.iter().fold(
-            response.missing_blobs.capacity()
-                * size_of::<valentine::bedrock::version::v1_26_51::MissingBlobData>(),
-            |bytes, blob| bytes.saturating_add(blob.blob_data.capacity()),
+            response.missing_blobs.capacity() * size_of::<MissingBlobData>(),
+            |bytes, blob| bytes.saturating_add(blob.blob_data.len()),
         );
         self.stats.miss_response_peak_bytes =
             self.stats.miss_response_peak_bytes.max(response_bytes);
         let response_hashes = response
             .missing_blobs
             .iter()
-            .map(|blob| blob.blob_id)
+            .map(|blob| blob.blob_id.0)
             .collect::<Vec<_>>();
         let rejected = u64::try_from(response.missing_blobs.len().max(1)).unwrap_or(u64::MAX);
         match self.accept_miss_response_inner(response) {
@@ -884,13 +889,13 @@ trait ReferencedBlobHashes {
 
 impl ReferencedBlobHashes for Packet {
     fn referenced_blob_hashes(&self) -> Vec<u64> {
-        match &self.data {
-            McpePacketData::LevelChunkPacket(packet) => packet
+        match &*self.data {
+            packets::Packet::LevelChunk(packet) => packet
                 .cache_metadata
                 .iter()
-                .map(|metadata| metadata.blob_id)
+                .map(|metadata| metadata.0)
                 .collect(),
-            McpePacketData::SubChunkPacket(packet) => subchunk_referenced_blob_hashes(packet),
+            packets::Packet::SubChunk(packet) => subchunk_referenced_blob_hashes(packet),
             _ => Vec::new(),
         }
     }
@@ -902,14 +907,14 @@ impl ReferencedBlobHashes for PendingPacket {
             Self::LevelChunk(packet) => packet
                 .cache_metadata
                 .iter()
-                .map(|metadata| metadata.blob_id)
+                .map(|metadata| metadata.0)
                 .collect(),
             Self::SubChunk(packet) => subchunk_referenced_blob_hashes(packet),
         }
     }
 }
 
-fn subchunk_referenced_blob_hashes(packet: &SubChunkPacket) -> Vec<u64> {
+fn subchunk_referenced_blob_hashes(packet: &SubChunk) -> Vec<u64> {
     if !packet.cache_enabled {
         return Vec::new();
     }
@@ -917,6 +922,6 @@ fn subchunk_referenced_blob_hashes(packet: &SubChunkPacket) -> Vec<u64> {
         .sub_chunk_data
         .iter()
         .filter(|entry| entry.sub_chunk_request_result == SubChunkRequestResult::Success)
-        .filter_map(|entry| entry.blob_id)
+        .filter_map(|entry| entry.blob_id.map(|blob_id| blob_id.0))
         .collect()
 }

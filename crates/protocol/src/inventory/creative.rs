@@ -2,9 +2,8 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_51::{
-    CreativeContentPacket, EnumsSharedTypesCreativeItemCategory as Category,
-};
+use bedrock_protocol_1_26_51::enums::CreativeItemCategory as Category;
+use bedrock_protocol_1_26_51::packets::CreativeContent;
 
 use super::{InventoryEvent, InventoryPacketError, make_stack, validate_item_user_data};
 use crate::item::NetworkItemStack;
@@ -64,7 +63,7 @@ impl CreativeContentEvent {
 /// Normalizes a creative publication. Oversized catalogs are refused as a
 /// whole; odd entries are skipped and counted.
 pub fn normalize_creative_content(
-    packet: CreativeContentPacket,
+    packet: CreativeContent,
 ) -> Result<Option<InventoryEvent>, InventoryPacketError> {
     if packet.entries.len() > MAX_CREATIVE_ITEMS || packet.groups.len() > MAX_CREATIVE_GROUPS {
         return Ok(None);
@@ -81,14 +80,14 @@ pub fn normalize_creative_content(
                 Category::Itemcommandonly => CreativeCategory::CommandOnly,
                 Category::Unknown(code) => CreativeCategory::Unknown(code),
             },
-            name: Arc::from(group.name),
+            name: Arc::from(group.name.to_string_lossy()),
             icon: make_stack(
-                group.group_icon_item.id,
-                i32::from_ne_bytes(group.group_icon_item.auxvalue.to_ne_bytes()),
+                group.group_icon_item.id.0,
+                i32::from_ne_bytes(group.group_icon_item.aux_value.0.to_ne_bytes()),
                 -1,
-                group.group_icon_item.stacksize,
-                group.group_icon_item.block_runtime_id,
-                group.group_icon_item.user_data_buffer,
+                group.group_icon_item.stack_size.0,
+                group.group_icon_item.block_runtime_id.0,
+                group.group_icon_item.user_data_buffer.to_vec(),
             )
             .ok(),
         })
@@ -105,20 +104,20 @@ pub fn normalize_creative_content(
             result => result?,
         }
         let Ok(stack) = make_stack(
-            item.id,
-            i32::from_ne_bytes(item.auxvalue.to_ne_bytes()),
+            item.id.0,
+            i32::from_ne_bytes(item.aux_value.0.to_ne_bytes()),
             -1,
-            item.stacksize,
-            item.block_runtime_id,
-            item.user_data_buffer,
+            item.stack_size.0,
+            item.block_runtime_id.0,
+            item.user_data_buffer.to_vec(),
         ) else {
             skipped += 1;
             continue;
         };
         items.push(CreativeItem {
-            creative_network_id: entry.creative_net_id.id,
+            creative_network_id: entry.creative_net_id.0,
             stack,
-            group: entry.group_index,
+            group: entry.group_index.0,
         });
     }
     items.sort_by_key(|item| item.creative_network_id);
@@ -134,32 +133,33 @@ pub fn normalize_creative_content(
 
 #[cfg(test)]
 mod tests {
-    use valentine::bedrock::version::v1_26_51::{
-        CerealizerNetworkItemInstanceDescriptorSerializedData, CreativeGroupInfoPayload,
-        CreativeItemEntryPayload, TypedServerNetIdstructCreativeItemNetIdTag,
+    use bedrock_protocol_1_26_51::types::{
+        CreativeGroupInfo, CreativeItemEntry, CreativeItemNetID,
+        NetworkItemInstanceDescriptorSerializedData,
     };
+    use bedrock_protocol_1_26_51::wire;
 
     use super::*;
 
-    fn entry(id: u32, network_id: i32) -> CreativeItemEntryPayload {
-        CreativeItemEntryPayload {
-            creative_net_id: TypedServerNetIdstructCreativeItemNetIdTag { id },
-            item_instance: CerealizerNetworkItemInstanceDescriptorSerializedData {
-                id: network_id,
-                stacksize: 1,
-                auxvalue: 0,
-                block_runtime_id: 0,
-                user_data_buffer: Vec::new(),
+    fn entry(id: u32, network_id: i32) -> CreativeItemEntry {
+        CreativeItemEntry {
+            creative_net_id: CreativeItemNetID(id),
+            item_instance: NetworkItemInstanceDescriptorSerializedData {
+                id: wire::ZigZag32(network_id),
+                stack_size: wire::U16LE(1),
+                aux_value: wire::VarUInt(0),
+                block_runtime_id: wire::ZigZag32(0),
+                user_data_buffer: bytes::Bytes::new(),
             },
-            group_index: 0,
+            group_index: wire::VarUInt(0),
         }
     }
 
     /// Entries sort by id; empty items and duplicate ids are skipped, not fatal.
     #[test]
     fn creative_catalog_is_sorted_and_lenient_about_odd_entries() {
-        let packet = CreativeContentPacket {
-            groups: vec![CreativeGroupInfoPayload {
+        let packet = CreativeContent {
+            groups: vec![CreativeGroupInfo {
                 creative_category: Category::Construction,
                 name: "itemGroup.name.planks".into(),
                 ..Default::default()
@@ -181,8 +181,8 @@ mod tests {
     #[test]
     fn review_unsupported_item_nbt_skips_only_its_creative_entry() {
         let mut unsupported = entry(2, 1);
-        unsupported.item_instance.user_data_buffer = vec![255, 255, 2];
-        let packet = CreativeContentPacket {
+        unsupported.item_instance.user_data_buffer = vec![255, 255, 2].into();
+        let packet = CreativeContent {
             groups: Vec::new(),
             entries: vec![entry(1, 1), unsupported],
         };
@@ -193,9 +193,9 @@ mod tests {
         assert_eq!(catalog.items.len(), 1);
         assert_eq!(catalog.skipped, 1);
         let mut truncated = entry(2, 1);
-        truncated.item_instance.user_data_buffer = vec![255, 255];
+        truncated.item_instance.user_data_buffer = vec![255, 255].into();
         assert!(
-            normalize_creative_content(CreativeContentPacket {
+            normalize_creative_content(CreativeContent {
                 groups: Vec::new(),
                 entries: vec![truncated]
             })
@@ -205,7 +205,7 @@ mod tests {
 
     #[test]
     fn oversized_creative_catalogs_are_refused_whole() {
-        let packet = CreativeContentPacket {
+        let packet = CreativeContent {
             groups: Vec::new(),
             entries: (0..=MAX_CREATIVE_ITEMS as u32)
                 .map(|id| entry(id, 1))

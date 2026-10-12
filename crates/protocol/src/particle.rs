@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_51::{LevelEventPacket, SpawnParticleEffectPacket};
+use bedrock_protocol_1_26_51::packets::{LevelEvent, SpawnParticleEffect};
 
 /// Longest effect identifier accepted from the wire.
 pub const MAX_PARTICLE_NAME_BYTES: usize = 256;
@@ -52,40 +52,41 @@ fn is_particle_level_event(event_id: i32) -> bool {
 
 /// Returns the event for particle-bearing level events; other ids and non-finite positions
 /// are skipped.
-pub(crate) fn normalize_level_event(packet: &LevelEventPacket) -> Option<ParticleEvent> {
-    if !is_particle_level_event(packet.event_id) {
+pub(crate) fn normalize_level_event(packet: &LevelEvent) -> Option<ParticleEvent> {
+    if !is_particle_level_event(packet.event_id.0) {
         return None;
     }
-    let position = [packet.position.x, packet.position.y, packet.position.z];
+    let position = packet.position.to_array();
     position.iter().all(|c| c.is_finite()).then_some(())?;
     Some(ParticleEvent::Level(LevelParticleEvent {
-        event_id: packet.event_id,
+        event_id: packet.event_id.0,
         position,
-        data: packet.data,
+        data: packet.data.0,
     }))
 }
 
 /// Returns the spawn event; an empty or oversized name, oversized variable map or
 /// non-finite position skips the packet.
-pub(crate) fn normalize_spawn(packet: SpawnParticleEffectPacket) -> Option<ParticleEvent> {
-    let position = [packet.position.x, packet.position.y, packet.position.z];
+pub(crate) fn normalize_spawn(packet: SpawnParticleEffect) -> Option<ParticleEvent> {
+    let position = packet.position.to_array();
+    let effect_name = packet.effect_name.to_string_lossy();
     if !position.iter().all(|c| c.is_finite())
-        || packet.effect_name.is_empty()
-        || packet.effect_name.len() > MAX_PARTICLE_NAME_BYTES
+        || effect_name.is_empty()
+        || effect_name.len() > MAX_PARTICLE_NAME_BYTES
     {
         return None;
     }
     let molang_variables = match packet.molang_variables {
         Some(json) if json.len() > MAX_PARTICLE_VARIABLES_BYTES => return None,
-        Some(json) if !json.is_empty() => Some(Arc::from(json)),
+        Some(json) if !json.is_empty() => Some(Arc::from(json.to_string_lossy())),
         _ => None,
     };
-    let actor = packet.actor_id.actor_unique_id;
+    let actor = packet.actor_id.0;
     Some(ParticleEvent::Spawn(SpawnParticleEffectEvent {
-        dimension: packet.dimension_id,
+        dimension: packet.dimension_id.0,
         actor_unique_id: (actor != -1).then_some(actor),
         position,
-        effect: Arc::from(packet.effect_name),
+        effect: Arc::from(effect_name),
         molang_variables,
     }))
 }
@@ -93,13 +94,13 @@ pub(crate) fn normalize_spawn(packet: SpawnParticleEffectPacket) -> Option<Parti
 #[cfg(test)]
 mod tests {
     use super::*;
-    use valentine::bedrock::version::v1_26_51::Vec3;
+    use bedrock_protocol_1_26_51::wire;
 
-    fn level(event_id: i32, x: f32) -> LevelEventPacket {
-        LevelEventPacket {
-            event_id,
-            position: Vec3 { x, y: 1.0, z: 2.0 },
-            data: 7,
+    fn level(event_id: i32, x: f32) -> LevelEvent {
+        LevelEvent {
+            event_id: wire::ZigZag32(event_id),
+            position: [x, 1.0, 2.0].into(),
+            data: wire::ZigZag32(7),
         }
     }
 

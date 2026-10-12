@@ -50,8 +50,12 @@ fn validate_finite(value: f32, field: &'static str) -> Result<(), WorldPacketErr
     Ok(())
 }
 
-/// Bounds owned identifiers before presentation retains them.
-fn bounded_identifier(value: String, field: &'static str) -> Result<Arc<str>, WorldPacketError> {
+/// Bounds identifier bytes, then decodes them lossily, before presentation retains them.
+fn bounded_identifier(
+    value: impl AsRef<[u8]>,
+    field: &'static str,
+) -> Result<Arc<str>, WorldPacketError> {
+    let value = value.as_ref();
     if value.len() > MAX_CAMERA_EASE_IDENTIFIER_BYTES * 2 {
         return Err(WorldPacketError::CameraIdentifierTooLong {
             field,
@@ -59,7 +63,7 @@ fn bounded_identifier(value: String, field: &'static str) -> Result<Arc<str>, Wo
             max: MAX_CAMERA_EASE_IDENTIFIER_BYTES * 2,
         });
     }
-    Ok(value.into())
+    Ok(Arc::from(String::from_utf8_lossy(value)))
 }
 
 /// Oversized but well-formed collections use the session's counted semantic skip path.

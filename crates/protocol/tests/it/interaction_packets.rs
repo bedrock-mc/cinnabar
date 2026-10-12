@@ -14,16 +14,15 @@ use sha2::{Digest, Sha256};
 /// Dismount carries the vehicle identity and rider origin, including unsigned runtime IDs.
 #[test]
 fn dismount_packet_preserves_vehicle_and_position_and_rejects_invalid_inputs() {
-    use valentine::bedrock::version::v1_26_51::EnumsInteractPacketPayloadAction;
+    use bedrock_protocol_1_26_51::enums::InteractAction;
     let position = [1.0, -2.0, 3.0];
     let packet = protocol::stop_riding_packet(u64::MAX, position).unwrap();
-    let McpePacketData::InteractPacket(packet) = packet.data else {
+    let packets::Packet::Interact(packet) = *packet.data else {
         panic!("expected Interact");
     };
-    assert_eq!(packet.action, EnumsInteractPacketPayloadAction::Stopriding);
-    assert_eq!(packet.target_runtime_id.actor_runtime_id, u64::MAX);
-    let actual = packet.position.unwrap();
-    assert_eq!([actual.x, actual.y, actual.z], position);
+    assert_eq!(packet.action, InteractAction::Stopriding);
+    assert_eq!(packet.target_runtime_id.0, u64::MAX);
+    assert_eq!(packet.position.unwrap().to_array(), position);
     assert_eq!(
         protocol::stop_riding_packet(0, position).unwrap_err(),
         ActorUsePacketError::InvalidActorRuntimeId
@@ -35,15 +34,18 @@ fn dismount_packet_preserves_vehicle_and_position_and_rejects_invalid_inputs() {
         );
     }
 }
-use valentine::bedrock::version::v1_26_51::{
-    ContainerClosePacket, EnumsAnimatePacketPayloadAction, EnumsContainerEnumName,
-    EnumsInventorySourceType, EnumsItemReleaseInventoryTransactionActionType,
-    EnumsItemUseInventoryTransactionActionType,
-    EnumsItemUseInventoryTransactionClientCooldownState,
-    EnumsItemUseInventoryTransactionPredictedResult, EnumsItemUseInventoryTransactionTriggerType,
-    EnumsItemUseOnActorInventoryTransactionActionType, EnumsPlayerActionType,
-    EnumsPlayerRespawnState, InventoryTransactionPacketTransaction, McpePacketData, McpePacketName,
+use bedrock_protocol_1_26_51::enums::{
+    AnimateAction, ContainerEnumName, InventorySourceType,
+    ItemReleaseInventoryTransactionActionType, ItemUseInventoryTransactionActionType,
+    ItemUseInventoryTransactionClientCooldownState, ItemUseInventoryTransactionPredictedResult,
+    ItemUseInventoryTransactionTriggerType, ItemUseOnActorInventoryTransactionActionType,
+    PlayerActionType, PlayerRespawnState,
 };
+use bedrock_protocol_1_26_51::packets::{self, ContainerClose, InventoryTransaction, PacketId};
+use bedrock_protocol_1_26_51::types::{
+    InventoryTransactionPacketData, NetworkItemStackDescriptorSerializedData,
+};
+use bedrock_protocol_1_26_51::wire;
 
 const CLICK_BLOCK: &[u8] = include_bytes!("../../fixtures/inventory_transaction_click_block.bin");
 const CLICK_BLOCK_EMPTY_HAND: &[u8] =
@@ -61,7 +63,7 @@ const INTERACT_ACTOR_EMPTY_HAND: &[u8] =
     include_bytes!("../../fixtures/inventory_transaction_interact_actor_empty_hand.bin");
 const CONTAINER_CLOSE: &[u8] = include_bytes!("../../fixtures/container_close.bin");
 
-fn decode_one(fixture: &'static [u8], id: McpePacketName) -> protocol::Packet {
+fn decode_one(fixture: &'static [u8], id: PacketId) -> protocol::Packet {
     let packets = decode_batch(Bytes::from_static(fixture)).expect("decode fixture");
     assert_eq!(packets.len(), 1);
     let packet = packets.into_iter().next().expect("one packet");
@@ -72,19 +74,19 @@ fn decode_one(fixture: &'static [u8], id: McpePacketName) -> protocol::Packet {
 }
 
 fn assert_click_block_constants(packet: &protocol::Packet) {
-    assert_block_use_constants(packet, EnumsItemUseInventoryTransactionActionType::Place);
+    assert_block_use_constants(packet, ItemUseInventoryTransactionActionType::Place);
 }
 
 fn assert_block_use_constants(
     packet: &protocol::Packet,
-    expected_action: EnumsItemUseInventoryTransactionActionType,
+    expected_action: ItemUseInventoryTransactionActionType,
 ) {
-    let McpePacketData::InventoryTransactionPacket(packet) = &packet.data else {
+    let packets::Packet::InventoryTransaction(packet) = &*packet.data else {
         panic!("expected inventory transaction");
     };
-    assert_eq!(packet.legacy_request_id.id, 0);
+    assert_eq!(packet.legacy_request_id.0, 0);
     assert!(packet.legacy_set_item_slots.is_none());
-    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
+    let InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) =
         &packet.transaction
     else {
         panic!("expected item-use transaction");
@@ -93,64 +95,54 @@ fn assert_block_use_constants(
     assert_eq!(transaction.action_type, expected_action);
     assert_eq!(
         transaction.trigger_type,
-        EnumsItemUseInventoryTransactionTriggerType::Playerinput
+        ItemUseInventoryTransactionTriggerType::PlayerInput
     );
     assert_eq!(
         transaction.client_interact_prediction,
-        EnumsItemUseInventoryTransactionPredictedResult::Failure
+        ItemUseInventoryTransactionPredictedResult::Failure
     );
     assert_eq!(
         transaction.client_cooldown_state,
-        EnumsItemUseInventoryTransactionClientCooldownState::Off
+        ItemUseInventoryTransactionClientCooldownState::Off
     );
 }
 
 fn verified_fixture_item(packet: &protocol::Packet) -> VerifiedNetworkItemStack {
-    let McpePacketData::InventoryTransactionPacket(packet) = &packet.data else {
+    let packets::Packet::InventoryTransaction(packet) = &*packet.data else {
         panic!("expected inventory transaction");
     };
-    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
+    let InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) =
         &packet.transaction
     else {
         panic!("expected item-use transaction");
     };
-    let item = &transaction.item;
-    let digest: [u8; 32] = Sha256::digest(&item.user_data_buffer).into();
-    VerifiedNetworkItemStack::try_new(
-        NetworkItemStack {
-            network_id: i32::from(item.id),
-            metadata: u32::from_ne_bytes(item.auxvalue.to_ne_bytes()),
-            stack_network_id: item.net_id_variant.unwrap_or(-1),
-            count: item.stacksize,
-            nbt_digest: digest,
-            block_runtime_id: i32::from_ne_bytes(item.block_runtime_id.to_ne_bytes()),
-            extra_data: Arc::from(item.user_data_buffer.clone()),
-        },
-        digest,
-    )
-    .expect("fixture item is verified")
+    verified_wire_item(&transaction.item)
 }
 
 fn verified_actor_fixture_item(packet: &protocol::Packet) -> VerifiedNetworkItemStack {
-    let McpePacketData::InventoryTransactionPacket(packet) = &packet.data else {
+    let packets::Packet::InventoryTransaction(packet) = &*packet.data else {
         panic!("expected inventory transaction");
     };
-    let InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(transaction) =
+    let InventoryTransactionPacketData::ItemUseOnActorInventoryTransaction { item, .. } =
         &packet.transaction
     else {
         panic!("expected item-use-on-actor transaction");
     };
-    let item = &transaction.item;
+    verified_wire_item(item)
+}
+
+/// The verified stack a decoded fixture item carries.
+fn verified_wire_item(item: &NetworkItemStackDescriptorSerializedData) -> VerifiedNetworkItemStack {
     let digest: [u8; 32] = Sha256::digest(&item.user_data_buffer).into();
     VerifiedNetworkItemStack::try_new(
         NetworkItemStack {
-            network_id: i32::from(item.id),
-            metadata: u32::from_ne_bytes(item.auxvalue.to_ne_bytes()),
-            stack_network_id: item.net_id_variant.unwrap_or(-1),
-            count: item.stacksize,
+            network_id: i32::from(item.id.0),
+            metadata: item.aux_value.0,
+            stack_network_id: item.net_id_variant.map_or(-1, |id| id.0),
+            count: item.stack_size.0,
             nbt_digest: digest,
-            block_runtime_id: i32::from_ne_bytes(item.block_runtime_id.to_ne_bytes()),
-            extra_data: Arc::from(item.user_data_buffer.clone()),
+            block_runtime_id: i32::from_ne_bytes(item.block_runtime_id.0.to_ne_bytes()),
+            extra_data: Arc::from(item.user_data_buffer.as_ref()),
         },
         digest,
     )
@@ -158,22 +150,25 @@ fn verified_actor_fixture_item(packet: &protocol::Packet) -> VerifiedNetworkItem
 }
 
 fn assert_actor_use_constants(packet: &protocol::Packet, action: ActorUseAction) {
-    let McpePacketData::InventoryTransactionPacket(packet) = &packet.data else {
+    let packets::Packet::InventoryTransaction(packet) = &*packet.data else {
         panic!("expected inventory transaction");
     };
-    assert_eq!(packet.legacy_request_id.id, 0);
+    assert_eq!(packet.legacy_request_id.0, 0);
     assert!(packet.legacy_set_item_slots.is_none());
-    let InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(transaction) =
-        &packet.transaction
+    let InventoryTransactionPacketData::ItemUseOnActorInventoryTransaction {
+        actions,
+        action_type,
+        ..
+    } = &packet.transaction
     else {
         panic!("expected item-use-on-actor transaction");
     };
-    assert!(transaction.actions.actions.is_empty());
+    assert!(actions.actions.is_empty());
     assert_eq!(
-        transaction.action_type,
+        *action_type,
         match action {
-            ActorUseAction::Attack => EnumsItemUseOnActorInventoryTransactionActionType::Attack,
-            ActorUseAction::Interact => EnumsItemUseOnActorInventoryTransactionActionType::Interact,
+            ActorUseAction::Attack => ItemUseOnActorInventoryTransactionActionType::Attack,
+            ActorUseAction::Interact => ItemUseOnActorInventoryTransactionActionType::Interact,
         }
     );
 }
@@ -186,7 +181,7 @@ fn assert_actor_builder_matches_fixture(
     player_position: [f32; 3],
     hit_position: [f32; 3],
 ) {
-    let decoded = decode_one(fixture, McpePacketName::InventoryTransactionPacket);
+    let decoded = decode_one(fixture, PacketId::InventoryTransaction);
     assert_actor_use_constants(&decoded, action);
     let mut built = use_actor_packet(ActorUseRequest {
         actor_runtime_id,
@@ -220,7 +215,7 @@ fn assert_destroy_builder_matches_fixture(fixture: &'static [u8], request: Block
 
 #[test]
 fn filled_click_block_fixture_cross_decodes_and_builder_matches_exactly() {
-    let packet = decode_one(CLICK_BLOCK, McpePacketName::InventoryTransactionPacket);
+    let packet = decode_one(CLICK_BLOCK, PacketId::InventoryTransaction);
     assert_click_block_constants(&packet);
     let selected_item = verified_fixture_item(&packet);
     assert_builder_matches_fixture(
@@ -239,10 +234,7 @@ fn filled_click_block_fixture_cross_decodes_and_builder_matches_exactly() {
 
 #[test]
 fn empty_hand_click_block_fixture_cross_decodes_and_builder_matches_exactly() {
-    let packet = decode_one(
-        CLICK_BLOCK_EMPTY_HAND,
-        McpePacketName::InventoryTransactionPacket,
-    );
+    let packet = decode_one(CLICK_BLOCK_EMPTY_HAND, PacketId::InventoryTransaction);
     assert_click_block_constants(&packet);
     assert_builder_matches_fixture(
         CLICK_BLOCK_EMPTY_HAND,
@@ -260,8 +252,8 @@ fn empty_hand_click_block_fixture_cross_decodes_and_builder_matches_exactly() {
 
 #[test]
 fn destroy_block_fixtures_cross_decode_and_build_byte_exactly() {
-    let filled = decode_one(DESTROY_BLOCK, McpePacketName::InventoryTransactionPacket);
-    assert_block_use_constants(&filled, EnumsItemUseInventoryTransactionActionType::Destroy);
+    let filled = decode_one(DESTROY_BLOCK, PacketId::InventoryTransaction);
+    assert_block_use_constants(&filled, ItemUseInventoryTransactionActionType::Destroy);
     assert_destroy_builder_matches_fixture(
         DESTROY_BLOCK,
         BlockUseRequest {
@@ -275,11 +267,8 @@ fn destroy_block_fixtures_cross_decode_and_build_byte_exactly() {
         },
     );
 
-    let empty = decode_one(
-        DESTROY_BLOCK_EMPTY_HAND,
-        McpePacketName::InventoryTransactionPacket,
-    );
-    assert_block_use_constants(&empty, EnumsItemUseInventoryTransactionActionType::Destroy);
+    let empty = decode_one(DESTROY_BLOCK_EMPTY_HAND, PacketId::InventoryTransaction);
+    assert_block_use_constants(&empty, ItemUseInventoryTransactionActionType::Destroy);
     assert_destroy_builder_matches_fixture(
         DESTROY_BLOCK_EMPTY_HAND,
         BlockUseRequest {
@@ -332,12 +321,12 @@ fn actor_use_fixtures_cross_decode_and_build_byte_exactly() {
 
 #[test]
 fn container_close_fixture_cross_decodes_and_round_trips_exactly() {
-    let packet = decode_one(CONTAINER_CLOSE, McpePacketName::ContainerClosePacket);
+    let packet = decode_one(CONTAINER_CLOSE, PacketId::ContainerClose);
     assert_eq!(
-        packet.data,
-        McpePacketData::ContainerClosePacket(ContainerClosePacket {
-            container_id: 5,
-            container_type: 0,
+        *packet.data,
+        packets::Packet::ContainerClose(ContainerClose {
+            container_id: wire::U8(5),
+            container_type: wire::U8(0),
             server_initiated_close: false,
         })
     );
@@ -487,22 +476,15 @@ fn held_block_use_preserves_relative_hits_outside_the_current_cell() {
         let packet =
             click_block_transaction_packet(request, ItemUseTrigger::SimulationTick, true, None)
                 .unwrap();
-        let McpePacketData::InventoryTransactionPacket(packet) = packet.data else {
+        let packets::Packet::InventoryTransaction(packet) = *packet.data else {
             panic!("transaction");
         };
-        let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
+        let InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) =
             packet.transaction
         else {
             panic!("item use");
         };
-        assert_eq!(
-            [
-                transaction.click_position.x,
-                transaction.click_position.y,
-                transaction.click_position.z
-            ],
-            relative_hit
-        );
+        assert_eq!(transaction.click_position.to_array(), relative_hit);
     }
 }
 
@@ -511,10 +493,10 @@ fn click_block_builder_preserves_exact_relative_hit_boundaries() {
     let mut request = base_request();
     request.relative_hit = [0.0, 1.0, 0.0];
     let packet = click_block_packet(request).expect("boundary request");
-    let McpePacketData::InventoryTransactionPacket(packet) = packet.data else {
+    let packets::Packet::InventoryTransaction(packet) = *packet.data else {
         panic!("expected inventory transaction");
     };
-    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
+    let InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) =
         packet.transaction
     else {
         panic!("expected item-use transaction");
@@ -570,17 +552,15 @@ fn actor_use_builder_rejects_zero_runtime_invalid_slot_and_non_finite_positions(
 fn actor_use_builder_preserves_finite_out_of_unit_hit_offsets() {
     let request = base_actor_request();
     let packet = use_actor_packet(request.clone()).unwrap();
-    let McpePacketData::InventoryTransactionPacket(packet) = packet.data else {
+    let packets::Packet::InventoryTransaction(packet) = *packet.data else {
         panic!("expected inventory transaction");
     };
-    let InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(transaction) =
+    let InventoryTransactionPacketData::ItemUseOnActorInventoryTransaction { hit_position, .. } =
         packet.transaction
     else {
         panic!("expected item-use-on-actor transaction");
     };
-    assert_eq!(transaction.hit_position.x, request.hit_position[0]);
-    assert_eq!(transaction.hit_position.y, request.hit_position[1]);
-    assert_eq!(transaction.hit_position.z, request.hit_position[2]);
+    assert_eq!(hit_position.to_array(), request.hit_position);
 }
 
 #[test]
@@ -595,16 +575,19 @@ fn swing_arm_packet_round_trips_with_its_swing_source() {
         let packet = swing_arm_packet(0x1_0000_0001, source);
         let bytes = encode(&packet).unwrap();
         let decoded = decode_batch(bytes).unwrap().remove(0);
-        let McpePacketData::AnimatePacket(animate) = decoded.data else {
+        let packets::Packet::Animate(animate) = *decoded.data else {
             panic!("animate packet");
         };
-        assert_eq!(animate.action, EnumsAnimatePacketPayloadAction::Swing);
+        assert_eq!(animate.action, AnimateAction::Swing);
+        assert_eq!(animate.target_actor_runtime_id.0, 0x1_0000_0001);
+        assert_eq!(animate.data.0, 0.0);
         assert_eq!(
-            animate.target_actor_runtime_id.actor_runtime_id,
-            0x1_0000_0001
+            animate
+                .swing_source
+                .as_ref()
+                .map(|source| source.as_bytes()),
+            Some(name.as_bytes())
         );
-        assert_eq!(animate.data, 0.0);
-        assert_eq!(animate.swing_source.as_deref(), Some(name));
     }
 }
 
@@ -629,83 +612,81 @@ fn swing_arm_packet_matches_the_vanilla_wire_layout() {
 fn stop_sleeping_packet_is_a_player_action_for_the_local_runtime_id() {
     let bytes = encode(&stop_sleeping_packet(7)).unwrap();
     let decoded = decode_batch(bytes).unwrap().remove(0);
-    let McpePacketData::PlayerActionPacket(action) = decoded.data else {
+    let packets::Packet::PlayerAction(action) = *decoded.data else {
         panic!("player action packet");
     };
-    assert_eq!(action.action, EnumsPlayerActionType::Stopsleeping);
-    assert_eq!(action.player_runtime_id.actor_runtime_id, 7);
+    assert_eq!(action.action, PlayerActionType::Stopsleeping);
+    assert_eq!(action.player_runtime_id.0, 7);
 }
 
 #[test]
 fn respawn_request_is_client_ready_with_the_local_runtime_id() {
     let bytes = encode(&respawn_request_packet(7)).unwrap();
     let decoded = decode_batch(bytes).unwrap().remove(0);
-    let McpePacketData::RespawnPacket(respawn) = decoded.data else {
+    let packets::Packet::Respawn(respawn) = *decoded.data else {
         panic!("respawn packet");
     };
-    assert_eq!(respawn.state, EnumsPlayerRespawnState::Clientreadytospawn);
-    assert_eq!(respawn.player_runtime_id.actor_runtime_id, 7);
+    assert_eq!(respawn.state, PlayerRespawnState::Clientreadytospawn);
+    assert_eq!(respawn.player_runtime_id.0, 7);
     assert_eq!(respawn.position.y, 0.0);
 }
 
 #[test]
 fn click_block_transaction_carries_trigger_and_prediction() {
-    let decoded = decode_one(CLICK_BLOCK, McpePacketName::InventoryTransactionPacket);
-    let McpePacketData::InventoryTransactionPacket(fixture) = &decoded.data else {
+    let decoded = decode_one(CLICK_BLOCK, PacketId::InventoryTransaction);
+    let packets::Packet::InventoryTransaction(fixture) = &*decoded.data else {
         panic!("inventory transaction");
     };
-    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(fixture) =
-        &fixture.transaction
+    let InventoryTransactionPacketData::ItemUseInventoryTransaction(fixture) = &fixture.transaction
     else {
         panic!("item use");
     };
     let request = BlockUseRequest {
-        block_position: [fixture.position.x, fixture.position.y, fixture.position.z],
-        face: fixture.face,
-        selected_slot: fixture.slot as u8,
+        block_position: [
+            fixture.position.x.0,
+            fixture.position.y.0,
+            fixture.position.z.0,
+        ],
+        face: fixture.face.0,
+        selected_slot: fixture.slot.0 as u8,
         selected_item: VerifiedNetworkItemStack::try_new(
             NetworkItemStack::empty(),
             NetworkItemStack::empty().nbt_digest,
         )
         .unwrap(),
-        player_position: [
-            fixture.from_position.x,
-            fixture.from_position.y,
-            fixture.from_position.z,
-        ],
+        player_position: fixture.from_position.to_array(),
         relative_hit: [0.5, 1.0, 0.25],
-        block_runtime_id: u64::from(fixture.target_block_id),
+        block_runtime_id: u64::from(fixture.target_block_id.0),
     };
     for (trigger, success, wire_trigger, wire_prediction) in [
         (
             ItemUseTrigger::PlayerInput,
             false,
-            EnumsItemUseInventoryTransactionTriggerType::Playerinput,
-            EnumsItemUseInventoryTransactionPredictedResult::Failure,
+            ItemUseInventoryTransactionTriggerType::PlayerInput,
+            ItemUseInventoryTransactionPredictedResult::Failure,
         ),
         (
             ItemUseTrigger::SimulationTick,
             true,
-            EnumsItemUseInventoryTransactionTriggerType::Simulationtick,
-            EnumsItemUseInventoryTransactionPredictedResult::Success,
+            ItemUseInventoryTransactionTriggerType::SimulationTick,
+            ItemUseInventoryTransactionPredictedResult::Success,
         ),
     ] {
         let packet =
             click_block_transaction_packet(request.clone(), trigger, success, None).unwrap();
         let bytes = encode(&packet).unwrap();
-        let McpePacketData::InventoryTransactionPacket(built) =
-            decode_batch(bytes).unwrap().remove(0).data
+        let packets::Packet::InventoryTransaction(built) =
+            *decode_batch(bytes).unwrap().remove(0).data
         else {
             panic!("inventory transaction");
         };
-        let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(built) =
-            built.transaction
+        let InventoryTransactionPacketData::ItemUseInventoryTransaction(built) = built.transaction
         else {
             panic!("item use");
         };
         assert_eq!(
             built.action_type,
-            EnumsItemUseInventoryTransactionActionType::Place
+            ItemUseInventoryTransactionActionType::Place
         );
         assert_eq!(built.trigger_type, wire_trigger);
         assert_eq!(built.client_interact_prediction, wire_prediction);
@@ -714,10 +695,9 @@ fn click_block_transaction_carries_trigger_and_prediction() {
     }
 }
 
-fn decoded_transaction(packet: protocol::Packet) -> InventoryTransactionPacketTransaction {
+fn decoded_transaction(packet: protocol::Packet) -> InventoryTransactionPacketData {
     let bytes = encode(&packet).unwrap();
-    let McpePacketData::InventoryTransactionPacket(built) =
-        decode_batch(bytes).unwrap().remove(0).data
+    let packets::Packet::InventoryTransaction(built) = *decode_batch(bytes).unwrap().remove(0).data
     else {
         panic!("inventory transaction");
     };
@@ -739,47 +719,51 @@ fn held_request() -> HeldItemRequest {
 /// Air use matches vanilla: action 1, face 255, no trigger, no block.
 #[test]
 fn click_air_carries_vanilla_base_use_item_fields() {
-    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(built) =
+    let InventoryTransactionPacketData::ItemUseInventoryTransaction(built) =
         decoded_transaction(click_air_packet(held_request(), None).unwrap())
     else {
         panic!("item use");
     };
     assert_eq!(
         built.action_type,
-        EnumsItemUseInventoryTransactionActionType::Use
+        ItemUseInventoryTransactionActionType::Use
     );
     assert_eq!(
         built.trigger_type,
-        EnumsItemUseInventoryTransactionTriggerType::Unknown
+        ItemUseInventoryTransactionTriggerType::Unknown
     );
-    assert_eq!(built.face, 255);
-    assert_eq!(built.slot, 3);
+    assert_eq!(built.face.0, 255);
+    assert_eq!(built.slot.0, 3);
     assert_eq!(
-        (built.position.x, built.position.y, built.position.z),
+        (built.position.x.0, built.position.y.0, built.position.z.0),
         (0, 0, 0)
     );
-    assert_eq!(built.target_block_id, 0);
+    assert_eq!(built.target_block_id.0, 0);
     assert_eq!(built.from_position.x, 100.5);
     assert_eq!(
         built.client_interact_prediction,
-        EnumsItemUseInventoryTransactionPredictedResult::Failure
+        ItemUseInventoryTransactionPredictedResult::Failure
     );
 }
 
 /// Button-up releases with action 0.
 #[test]
 fn release_item_carries_the_release_action() {
-    let InventoryTransactionPacketTransaction::ItemReleaseInventoryTransaction(built) =
-        decoded_transaction(release_item_packet(held_request()).unwrap())
+    let InventoryTransactionPacketData::ItemReleaseInventoryTransaction {
+        action_type,
+        slot,
+        from_position,
+        ..
+    } = decoded_transaction(release_item_packet(held_request()).unwrap())
     else {
         panic!("item release");
     };
     assert_eq!(
-        built.action_type,
-        EnumsItemReleaseInventoryTransactionActionType::Release
+        action_type,
+        ItemReleaseInventoryTransactionActionType::Release
     );
-    assert_eq!(built.slot, 3);
-    assert_eq!(built.from_position.z, -40.25);
+    assert_eq!(slot.0, 3);
+    assert_eq!(from_position.z, -40.25);
 }
 
 fn snowballs(count: u16) -> VerifiedNetworkItemStack {
@@ -800,16 +784,13 @@ fn snowballs(count: u16) -> VerifiedNetworkItemStack {
     .unwrap()
 }
 
-fn decoded_inventory_packet(
-    packet: protocol::Packet,
-) -> valentine::bedrock::version::v1_26_51::InventoryTransactionPacket {
+fn decoded_inventory_packet(packet: protocol::Packet) -> InventoryTransaction {
     let bytes = encode(&packet).unwrap();
-    let McpePacketData::InventoryTransactionPacket(built) =
-        decode_batch(bytes).unwrap().remove(0).data
+    let packets::Packet::InventoryTransaction(built) = *decode_batch(bytes).unwrap().remove(0).data
     else {
         panic!("inventory transaction");
     };
-    *built
+    built
 }
 
 /// A throw reports the decrement as a container action and a legacy set-slot request.
@@ -829,15 +810,15 @@ fn click_air_with_a_throw_carries_the_inventory_action_and_legacy_request() {
     )
     .unwrap();
     let built = decoded_inventory_packet(packet);
-    assert_eq!(built.legacy_request_id.id, -6);
+    assert_eq!(built.legacy_request_id.0, -6);
     let slots = built.legacy_set_item_slots.expect("legacy set slots");
     assert_eq!(slots.len(), 1);
     assert_eq!(
         slots[0].container_enum,
-        EnumsContainerEnumName::Inventorycontainer
+        ContainerEnumName::Inventorycontainer
     );
-    assert_eq!(slots[0].slots, vec![3]);
-    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
+    assert_eq!(slots[0].slots.as_ref(), [3]);
+    let InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) =
         built.transaction
     else {
         panic!("item use");
@@ -847,20 +828,23 @@ fn click_air_with_a_throw_carries_the_inventory_action_and_legacy_request() {
     };
     assert_eq!(
         action.source.source_type,
-        EnumsInventorySourceType::Containerinventory
+        InventorySourceType::ContainerInventory
     );
-    assert_eq!(action.source.container_id, Some(0));
+    assert_eq!(action.source.container_id, Some(wire::I8(0)));
     assert_eq!(action.source.bit_flags, None);
-    assert_eq!(action.slot, 3);
+    assert_eq!(action.slot.0, 3);
     assert_eq!(
-        (action.from_item.stacksize, action.from_item.net_id_variant),
-        (16, Some(57))
+        (
+            action.from_item.stack_size.0,
+            action.from_item.net_id_variant
+        ),
+        (16, Some(wire::ZigZag32(57)))
     );
     assert_eq!(
-        (action.to_item.stacksize, action.to_item.net_id_variant),
-        (15, Some(-6))
+        (action.to_item.stack_size.0, action.to_item.net_id_variant),
+        (15, Some(wire::ZigZag32(-6)))
     );
-    assert_eq!(transaction.item.stacksize, 16);
+    assert_eq!(transaction.item.stack_size.0, 16);
 }
 
 /// Throwing the last item records the action but no legacy request, as vanilla skips null stacks.
@@ -882,24 +866,24 @@ fn click_air_emptying_the_slot_sends_no_legacy_request() {
         )
         .unwrap(),
     );
-    assert_eq!(built.legacy_request_id.id, 0);
+    assert_eq!(built.legacy_request_id.0, 0);
     assert_eq!(built.legacy_set_item_slots, None);
-    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
+    let InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) =
         built.transaction
     else {
         panic!("item use");
     };
     assert_eq!(transaction.actions.actions.len(), 1);
-    assert_eq!(transaction.actions.actions[0].to_item.id, 0);
+    assert_eq!(transaction.actions.actions[0].to_item.id.0, 0);
 }
 
 /// A plain air use (a custom menu item) carries no actions and a zero legacy request.
 #[test]
 fn plain_click_air_has_no_actions_or_legacy_request() {
     let built = decoded_inventory_packet(click_air_packet(held_request(), None).unwrap());
-    assert_eq!(built.legacy_request_id.id, 0);
+    assert_eq!(built.legacy_request_id.0, 0);
     assert_eq!(built.legacy_set_item_slots, None);
-    let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
+    let InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) =
         built.transaction
     else {
         panic!("item use");
@@ -911,11 +895,11 @@ fn plain_click_air_has_no_actions_or_legacy_request() {
 fn aim_assist_rotation_actions_are_attack_and_release() {
     assert!(protocol::is_aim_assist_rotation_action(&decode_one(
         ATTACK_ACTOR,
-        McpePacketName::InventoryTransactionPacket
+        PacketId::InventoryTransaction
     )));
     assert!(!protocol::is_aim_assist_rotation_action(&decode_one(
         INTERACT_ACTOR,
-        McpePacketName::InventoryTransactionPacket
+        PacketId::InventoryTransaction
     )));
     assert!(protocol::is_aim_assist_rotation_action(
         &release_item_packet(held_request()).unwrap()

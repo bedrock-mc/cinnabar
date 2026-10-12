@@ -1,13 +1,14 @@
+use bedrock_protocol_1_26_51::packets::ModalFormRequest;
+use bedrock_protocol_1_26_51::wire;
 use protocol::{ServerFormModel, UiEvent, WorldEvent, into_world_event};
 use serde_json::json;
-use valentine::bedrock::version::v1_26_51::ModalFormRequestPacket;
 
 /// Decodes an authored form through the same normalization used by live packets.
 fn model(document: serde_json::Value) -> ServerFormModel {
     let Some(WorldEvent::Ui(UiEvent::Form(event))) = into_world_event(
-        protocol::Packet::new(ModalFormRequestPacket {
-            form_id: 7,
-            form_uijson: document.to_string(),
+        protocol::Packet::new(ModalFormRequest {
+            form_id: wire::VarUInt(7),
+            form_ui_json: document.to_string().into(),
         }),
         0,
     )
@@ -93,7 +94,7 @@ fn custom_display_fields_accept_structured_text_without_changing_input_defaults(
 
 #[test]
 fn multiselect_response_is_an_index_array_in_the_custom_response_slot() {
-    use valentine::bedrock::version::v1_26_51::McpePacketData;
+    use bedrock_protocol_1_26_51::packets;
     let packet = protocol::custom_form_submit_response(
         7,
         &[
@@ -102,13 +103,10 @@ fn multiselect_response_is_an_index_array_in_the_custom_response_slot() {
             protocol::CustomFormValue::Input("draft".into()),
         ],
     );
-    let McpePacketData::ModalFormResponsePacket(packet) = packet.data else {
+    let packets::Packet::ModalFormResponse(packet) = *packet.data else {
         panic!("response");
     };
-    assert_eq!(
-        packet.json_response.as_deref(),
-        Some("[null,[2,0],\"draft\"]")
-    );
+    assert_eq!(packet.json_response, Some("[null,[2,0],\"draft\"]".into()));
     assert!(packet.form_cancel_reason.is_none());
 }
 

@@ -1,86 +1,50 @@
 //! Local-player game-mode reduction shared by StartGame and runtime updates.
 
-use valentine::bedrock::version::v1_26_51::{
-    EnumsGameType, SetDefaultGameTypePacketDefaultGameType, StartGamePacket,
-};
+use bedrock_protocol_1_26_51::enums::GameType;
+use bedrock_protocol_1_26_51::packets::{StartGame, UpdatePlayerGameType};
 
-pub(super) fn targeted_update(
-    packet: valentine::bedrock::version::v1_26_51::UpdatePlayerGameTypePacket,
-) -> crate::UiEvent {
+pub(super) fn targeted_update(packet: UpdatePlayerGameType) -> crate::UiEvent {
     crate::UiEvent::PlayerGameMode {
-        actor_unique_id: packet.targetplayer.actor_unique_id,
-        tick: packet.tick.inputtick,
+        actor_unique_id: packet.target_player.0,
+        tick: packet.tick.0,
         event: crate::GameModeEvent {
             update: PlayerGameMode::update_from_game_mode(packet.player_game_type),
         },
     }
 }
 
-/// One Bedrock `GameType` wire value, independent of which packet carried it.
-///
-/// 1.26.30 exposed a single `GameMode` enum. 1.26.40 generates one structurally
-/// identical enum per field (`StartGamePacketGameType`, `LevelSettingsGameType`,
-/// `SetPlayerGameTypePacketPlayerGameType`,
-/// `SetDefaultGameTypePacketDefaultGameType`), so the shared reduction below
-/// funnels all four through this local value instead of being written out four
-/// times.
+/// One Bedrock `GameType` wire value reduced to the distinctions the HUD needs.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum GameTypeValue {
     Survival,
     Creative,
     Adventure,
-    /// The level-default sentinel, wire value 5 (1.26.30 named this `Fallback`).
+    /// The level-default sentinel, wire value 5.
     Default,
     /// Wire value 6.
     Spectator,
-    /// Any value the generated enums do not name, including `Undefined` (-1).
+    /// Any value the generated enum does not name, including `Undefined` (-1).
     Other(i32),
 }
 
-macro_rules! game_type_value_from {
-    ($($generated:path),+ $(,)?) => {
-        $(
-            impl From<$generated> for GameTypeValue {
-                fn from(mode: $generated) -> Self {
-                    use $generated as Generated;
-                    match mode {
-                        Generated::Survival => Self::Survival,
-                        Generated::Creative => Self::Creative,
-                        Generated::Adventure => Self::Adventure,
-                        Generated::Default => Self::Default,
-                        Generated::Spectator => Self::Spectator,
-                        // `Undefined` is the generated name for wire value -1.
-                        Generated::Undefined => Self::Other(-1),
-                        Generated::Unknown(value) => Self::Other(value),
-                    }
-                }
-            }
-        )+
-    };
-}
-
-game_type_value_from!(EnumsGameType);
-
-impl From<SetDefaultGameTypePacketDefaultGameType> for GameTypeValue {
-    fn from(mode: SetDefaultGameTypePacketDefaultGameType) -> Self {
-        use SetDefaultGameTypePacketDefaultGameType as Generated;
+impl From<GameType> for GameTypeValue {
+    fn from(mode: GameType) -> Self {
         match mode {
-            Generated::Survival => Self::Survival,
-            Generated::Creative => Self::Creative,
-            Generated::Adventure => Self::Adventure,
-            Generated::Default => Self::Default,
-            Generated::Spectator => Self::Spectator,
-            Generated::Unknown(value) => Self::Other(value),
+            GameType::Survival => Self::Survival,
+            GameType::Creative => Self::Creative,
+            GameType::Adventure => Self::Adventure,
+            GameType::Default => Self::Default,
+            GameType::Spectator => Self::Spectator,
+            GameType::Undefined => Self::Other(-1),
+            GameType::Unknown(value) => Self::Other(value),
         }
     }
 }
 
 /// Wire value of vanilla's legacy `SurvivalViewer` game type.
 ///
-/// The 1.26.40 generated enums name only -1/0/1/2/5/6, so the two legacy viewer
-/// modes arrive as `Unknown`. They are still spectator-like game types in
-/// vanilla and are reduced the same way 1.26.30 reduced `SurvivalSpectator` and
-/// `CreativeSpectator`.
+/// The generated enum names only -1/0/1/2/5/6, so the two legacy viewer modes arrive as
+/// `Unknown`; they are still spectator-like game types.
 const SURVIVAL_VIEWER_GAME_TYPE: i32 = 3;
 /// Wire value of vanilla's legacy `CreativeViewer` game type.
 const CREATIVE_VIEWER_GAME_TYPE: i32 = 4;
@@ -96,7 +60,7 @@ pub enum PlayerGameMode {
 }
 
 impl PlayerGameMode {
-    pub(crate) fn from_start_game(start_game: &StartGamePacket) -> Self {
+    pub(crate) fn from_start_game(start_game: &StartGame) -> Self {
         // The world default moved into StartGame's nested LevelSettings block
         // in 1.26.40; the personal mode stays on the packet itself.
         Self::from_game_modes(
@@ -130,32 +94,20 @@ impl PlayerGameMode {
     /// StartGame's world default mode, retained so a later level-default
     /// sentinel (SetPlayerGameType 5) or SetDefaultGameType can resolve.
     pub(crate) fn world_default_update_from_start_game(
-        start_game: &StartGamePacket,
+        start_game: &StartGame,
     ) -> crate::GameModeUpdate {
         Self::update_from_game_type(start_game.settings.game_type.into())
     }
 
     /// Whether StartGame bound the player to the level default rather than an
     /// explicit personal mode.
-    pub(crate) fn bootstrap_uses_world_default(start_game: &StartGamePacket) -> bool {
+    pub(crate) fn bootstrap_uses_world_default(start_game: &StartGame) -> bool {
         GameTypeValue::from(start_game.game_type) == GameTypeValue::Default
     }
 
-    /// Typed wire value for a runtime SetPlayerGameType packet.
+    /// Typed wire value for a runtime SetPlayerGameType or SetDefaultGameType packet.
     #[must_use]
-    pub(crate) fn update_from_game_mode(mode: EnumsGameType) -> crate::GameModeUpdate {
-        Self::update_from_game_type(mode.into())
-    }
-
-    /// Typed wire value for a runtime SetDefaultGameType packet.
-    ///
-    /// 1.26.40 gives SetDefaultGameType its own generated enum, so this is the
-    /// sibling of [`Self::update_from_game_mode`] rather than a second call
-    /// into it.
-    #[must_use]
-    pub(crate) fn update_from_default_game_mode(
-        mode: SetDefaultGameTypePacketDefaultGameType,
-    ) -> crate::GameModeUpdate {
+    pub(crate) fn update_from_game_mode(mode: GameType) -> crate::GameModeUpdate {
         Self::update_from_game_type(mode.into())
     }
 
@@ -216,7 +168,7 @@ mod player_game_mode_tests {
                 Some(PlayerGameMode::Spectator)
             );
             let update = PlayerGameMode::update_from_game_mode(
-                valentine::bedrock::version::v1_26_51::EnumsGameType::Unknown(value),
+                bedrock_protocol_1_26_51::enums::GameType::Unknown(value),
             );
             assert_eq!(update, crate::GameModeUpdate::LegacyViewer);
             assert_eq!(update.hud_mode(), Some(PlayerGameMode::Spectator));

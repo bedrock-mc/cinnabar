@@ -1,9 +1,18 @@
 //! Exact local vanilla BDS pickup body, captured 2026-10-02. No assets or tokens.
 
-use bytes::{Buf, Bytes, BytesMut};
-use valentine::bedrock::version::v1_26_51::*;
+use bedrock_protocol_1_26_51::packets::PacketId;
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 use crate::{InventoryEvent, WorldEvent};
+
+/// Appends `value` as an unsigned LEB128 varint.
+fn write_var_u32(out: &mut BytesMut, mut value: u32) {
+    while value >= 0x80 {
+        out.put_u8(value as u8 | 0x80);
+        value >>= 7;
+    }
+    out.put_u8(value as u8);
+}
 
 fn pickup_body() -> Vec<u8> {
     let batch: Vec<u8> = include_str!("../../fixtures/inventory_transaction_pickup.hex")
@@ -20,13 +29,10 @@ fn pickup_body() -> Vec<u8> {
 
 fn raw(body: &[u8]) -> crate::raw_packet::RawPacket {
     let mut payload = BytesMut::new();
-    valentine::protocol::wire::write_var_u32(
-        &mut payload,
-        McpePacketName::InventoryTransactionPacket as u32,
-    );
+    write_var_u32(&mut payload, PacketId::InventoryTransaction as u32);
     payload.extend_from_slice(body);
     let mut frame = BytesMut::new();
-    valentine::protocol::wire::write_var_u32(&mut frame, payload.len() as u32);
+    write_var_u32(&mut frame, payload.len() as u32);
     frame.extend_from_slice(&payload);
     crate::raw_packet::decode_packet_raw(&mut frame.freeze()).unwrap()
 }

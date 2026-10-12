@@ -6,12 +6,13 @@
 
 use std::sync::Arc;
 
-use serde_json::Value;
-use valentine::bedrock::version::v1_26_51::{
-    ActorRuntimeId, EnumsNpcDialoguePacketPayloadNpcDialogueActionType,
-    EnumsNpcRequestPacketPayloadRequestType, ModalFormRequestPacket, NpcDialoguePacket,
-    NpcRequestPacket, ServerSettingsRequestPacket, ServerSettingsResponsePacket,
+use bedrock_protocol_1_26_51::enums::{NpcDialogueActionType, RequestType};
+use bedrock_protocol_1_26_51::packets::{
+    ModalFormRequest, NpcDialogue, NpcRequest, ServerSettingsRequest, ServerSettingsResponse,
 };
+use bedrock_protocol_1_26_51::types::ActorRuntimeID;
+use bedrock_protocol_1_26_51::wire;
+use serde_json::Value;
 
 use super::{FormKind, FormRequestEvent, ServerFormModel, UnsupportedForm, normalize_form};
 use crate::ui::{MAX_FORM_JSON_BYTES, MAX_UI_TEXT_BYTES, UiEvent, UiPacketError};
@@ -47,29 +48,33 @@ pub enum NpcRequestKind {
     ExecuteClosingCommands,
 }
 
-pub(crate) fn normalize_npc_dialogue(packet: NpcDialoguePacket) -> Result<UiEvent, UiPacketError> {
+pub(crate) fn normalize_npc_dialogue(packet: NpcDialogue) -> Result<UiEvent, UiPacketError> {
     let open = !matches!(
         packet.npc_dialogue_action_type,
-        EnumsNpcDialoguePacketPayloadNpcDialogueActionType::Close
+        NpcDialogueActionType::Close
     );
-    if packet.action_json.len() > MAX_FORM_JSON_BYTES {
+    let action_json = packet.action_json.to_string_lossy();
+    if action_json.len() > MAX_FORM_JSON_BYTES {
         return Err(UiPacketError::FormTooLarge {
-            bytes: packet.action_json.len(),
+            bytes: action_json.len(),
             max: MAX_FORM_JSON_BYTES,
         });
     }
-    let model = if [&packet.dialogue, &packet.npc_name, &packet.scene_name]
+    let dialogue = packet.dialogue.to_string_lossy();
+    let npc_name = packet.npc_name.to_string_lossy();
+    let scene_name = packet.scene_name.to_string_lossy();
+    let model = if [&dialogue, &npc_name, &scene_name]
         .iter()
         .any(|text| text.len() > MAX_UI_TEXT_BYTES)
     {
         ServerFormModel::Unsupported(UnsupportedForm::Limit)
     } else {
-        match buttons(&packet.action_json) {
+        match buttons(&action_json) {
             Ok(buttons) => ServerFormModel::NpcDialogue(NpcDialogueForm {
-                npc_runtime_id: packet.npc_id_raw_id,
-                scene_name: Arc::from(packet.scene_name.as_str()),
-                npc_name: Arc::from(packet.npc_name.as_str()),
-                dialogue: Arc::from(packet.dialogue.as_str()),
+                npc_runtime_id: packet.npc_id_raw_id.0,
+                scene_name: Arc::from(&*scene_name),
+                npc_name: Arc::from(&*npc_name),
+                dialogue: Arc::from(&*dialogue),
                 buttons: buttons.into(),
                 open,
             }),
@@ -79,8 +84,8 @@ pub(crate) fn normalize_npc_dialogue(packet: NpcDialoguePacket) -> Result<UiEven
     Ok(UiEvent::Form(FormRequestEvent {
         form_id: NPC_DIALOGUE_FORM_ID,
         kind: FormKind::NpcDialogue,
-        title: Some(Arc::from(packet.npc_name.as_str())),
-        json: Arc::from(packet.action_json),
+        title: Some(Arc::from(&*npc_name)),
+        json: Arc::from(&*action_json),
         model,
     }))
 }
@@ -131,36 +136,25 @@ pub fn npc_request_packet(
     kind: NpcRequestKind,
 ) -> crate::Packet {
     let (request_type, action_index) = match kind {
-        NpcRequestKind::ExecuteAction(index) => (
-            EnumsNpcRequestPacketPayloadRequestType::Executeaction,
-            index,
-        ),
-        NpcRequestKind::ExecuteOpeningCommands => (
-            EnumsNpcRequestPacketPayloadRequestType::Executeopeningcommands,
-            0,
-        ),
-        NpcRequestKind::ExecuteClosingCommands => (
-            EnumsNpcRequestPacketPayloadRequestType::Executeclosingcommands,
-            0,
-        ),
+        NpcRequestKind::ExecuteAction(index) => (RequestType::Executeaction, index),
+        NpcRequestKind::ExecuteOpeningCommands => (RequestType::Executeopeningcommands, 0),
+        NpcRequestKind::ExecuteClosingCommands => (RequestType::Executeclosingcommands, 0),
     };
-    crate::Packet::new(NpcRequestPacket {
-        npc_runtime_id: ActorRuntimeId {
-            actor_runtime_id: npc_runtime_id,
-        },
+    crate::Packet::new(NpcRequest {
+        npc_runtime_id: ActorRuntimeID(npc_runtime_id),
         request_type,
-        actions: String::new(),
-        action_index,
-        scene_name: scene_name.to_owned(),
+        actions: wire::Str::default(),
+        action_index: wire::U8(action_index),
+        scene_name: scene_name.into(),
     })
 }
 
 pub(crate) fn normalize_server_settings(
-    packet: ServerSettingsResponsePacket,
+    packet: ServerSettingsResponse,
 ) -> Result<UiEvent, UiPacketError> {
-    let mut event = normalize_form(ModalFormRequestPacket {
+    let mut event = normalize_form(ModalFormRequest {
         form_id: packet.form_id,
-        form_uijson: packet.form_uijson,
+        form_ui_json: packet.form_ui_json,
     })?;
     if let UiEvent::Form(form) = &mut event {
         form.kind = FormKind::ServerSettings;
@@ -170,7 +164,7 @@ pub(crate) fn normalize_server_settings(
 
 /// Asks the server for its settings form (sent when the settings screen opens).
 pub fn server_settings_request_packet() -> crate::Packet {
-    crate::Packet::new(ServerSettingsRequestPacket {})
+    crate::Packet::new(ServerSettingsRequest {})
 }
 
 #[cfg(test)]

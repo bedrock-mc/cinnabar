@@ -24,7 +24,7 @@ impl TextureSource for NoArt {
 
 #[test]
 fn server_pack_selector_keeps_reserved_controls_out_of_game_grid() {
-    let Some(carrier) = super::carrier() else {
+    let Some(carrier) = ui_engine::test_support::carrier() else {
         eprintln!(
             "skipping server_pack_selector_keeps_reserved_controls_out_of_game_grid: missing installed UI carrier; make assets"
         );

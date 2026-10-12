@@ -3,14 +3,9 @@
 //! `minecraft/protocol/ability.go` at b725d82563e9.
 use std::sync::Arc;
 
-use bytes::Buf;
-use valentine::bedrock::{
-    codec::{BedrockCodec, VarUInt},
-    error::DecodeError,
-    version::v1_26_51::{
-        EnumsCommandPermissionLevel, EnumsPlayerPermissionLevel, SerializedAbilitiesData,
-    },
-};
+use bedrock_protocol_1_26_51::enums::{CommandPermissionLevel, PlayerPermissionLevel};
+use bedrock_protocol_1_26_51::types::SerializedAbilitiesData;
+use bedrock_protocol_1_26_51::wire;
 
 use crate::ProtocolError;
 
@@ -48,31 +43,32 @@ pub struct AbilitiesUpdate {
 
 /// Decode the complete UpdateAbilities body without materializing an unbounded collection.
 /// Unknown discriminants, masks and float bits are inert evidence, not wire errors.
-pub fn decode_abilities_update(mut body: &[u8]) -> Result<AbilitiesUpdate, ProtocolError> {
+pub fn decode_abilities_update(body: &[u8]) -> Result<AbilitiesUpdate, ProtocolError> {
     if body.len() < 10 {
-        return Err(DecodeError::UnexpectedEof {
+        return Err(wire::DecodeError::UnexpectedEof {
             needed: 10,
-            available: body.len(),
+            remaining: body.len(),
         }
         .into());
     }
-    let actor_unique_id = body.get_i64_le();
-    let player_permission = body.get_i8();
-    let command_permission = body.get_u8();
-    let count = VarUInt::decode(&mut body, ())?.0;
+    let mut reader = wire::Reader::new(body);
+    let actor_unique_id = i64::from_le_bytes(reader.read_bytes()?);
+    let [player_permission, command_permission] = reader.read_bytes::<2>()?;
+    let player_permission = player_permission as i8;
+    let count = reader.read_var_u32()?;
     let required = usize::try_from(count)
         .ok()
         .and_then(|count| count.checked_mul(LAYER_WIRE_BYTES))
-        .ok_or(DecodeError::VarIntTooLarge)?;
-    if required > body.len() {
+        .ok_or(wire::DecodeError::VarIntTooLarge)?;
+    if required > reader.remaining() {
         return Err(ProtocolError::TruncatedPacket {
             declared: required,
-            available: body.len(),
+            available: reader.remaining(),
         });
     }
-    if required < body.len() {
+    if required < reader.remaining() {
         return Err(ProtocolError::TrailingPacketBytes {
-            remaining: body.len() - required,
+            remaining: reader.remaining() - required,
         });
     }
     let layers = if count as usize > MAX_ABILITY_LAYERS {
@@ -82,13 +78,15 @@ pub fn decode_abilities_update(mut body: &[u8]) -> Result<AbilitiesUpdate, Proto
     } else {
         let mut layers = Vec::with_capacity(count as usize);
         for _ in 0..count {
+            let u32_le =
+                |reader: &mut wire::Reader<'_>| reader.read_bytes().map(u32::from_le_bytes);
             layers.push(AbilityLayerEvidence {
-                layer_type: body.get_u16_le(),
-                abilities: body.get_u32_le(),
-                values: body.get_u32_le(),
-                fly_speed_bits: body.get_u32_le(),
-                vertical_fly_speed_bits: body.get_u32_le(),
-                walk_speed_bits: body.get_u32_le(),
+                layer_type: u16::from_le_bytes(reader.read_bytes()?),
+                abilities: u32_le(&mut reader)?,
+                values: u32_le(&mut reader)?,
+                fly_speed_bits: u32_le(&mut reader)?,
+                vertical_fly_speed_bits: u32_le(&mut reader)?,
+                walk_speed_bits: u32_le(&mut reader)?,
             });
         }
         AbilityLayersEvidence::Received(layers.into())
@@ -102,22 +100,8 @@ pub fn decode_abilities_update(mut body: &[u8]) -> Result<AbilitiesUpdate, Proto
 }
 
 pub(crate) fn normalize_abilities(data: SerializedAbilitiesData) -> AbilitiesUpdate {
-    let player_permission = match data.player_permissions {
-        EnumsPlayerPermissionLevel::Visitor => 0,
-        EnumsPlayerPermissionLevel::Member => 1,
-        EnumsPlayerPermissionLevel::Operator => 2,
-        EnumsPlayerPermissionLevel::Custom => 3,
-        EnumsPlayerPermissionLevel::Unknown(value) => value,
-    };
-    let command_permission = match data.command_permissions {
-        EnumsCommandPermissionLevel::Any => 0,
-        EnumsCommandPermissionLevel::Gamedirectors => 1,
-        EnumsCommandPermissionLevel::Admin => 2,
-        EnumsCommandPermissionLevel::Host => 3,
-        EnumsCommandPermissionLevel::Owner => 4,
-        EnumsCommandPermissionLevel::Internal => 5,
-        EnumsCommandPermissionLevel::Unknown(value) => value,
-    };
+    let player_permission = PlayerPermissionLevel::to_raw(data.player_permissions);
+    let command_permission = CommandPermissionLevel::to_raw(data.command_permissions);
     let layers = if data.layers.len() > MAX_ABILITY_LAYERS {
         AbilityLayersEvidence::Unavailable {
             declared_layers: u32::try_from(data.layers.len()).unwrap_or(u32::MAX),
@@ -127,18 +111,18 @@ pub(crate) fn normalize_abilities(data: SerializedAbilitiesData) -> AbilitiesUpd
             data.layers
                 .into_iter()
                 .map(|layer| AbilityLayerEvidence {
-                    layer_type: layer.serialized_layer,
-                    abilities: layer.abilities_set,
-                    values: layer.ability_values,
-                    fly_speed_bits: layer.fly_speed.to_bits(),
-                    vertical_fly_speed_bits: layer.vertical_fly_speed.to_bits(),
-                    walk_speed_bits: layer.walk_speed.to_bits(),
+                    layer_type: layer.serialized_layer.0,
+                    abilities: layer.abilities_set.0,
+                    values: layer.ability_values.0,
+                    fly_speed_bits: layer.fly_speed.0.to_bits(),
+                    vertical_fly_speed_bits: layer.vertical_fly_speed.0.to_bits(),
+                    walk_speed_bits: layer.walk_speed.0.to_bits(),
                 })
                 .collect(),
         )
     };
     AbilitiesUpdate {
-        actor_unique_id: data.target_player_raw_id,
+        actor_unique_id: data.target_player_raw_id.0,
         player_permission,
         command_permission,
         layers,

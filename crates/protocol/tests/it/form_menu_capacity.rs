@@ -1,8 +1,9 @@
+use bedrock_protocol_1_26_51::packets::{self, ModalFormRequest};
+use bedrock_protocol_1_26_51::wire;
 use protocol::{
     FormButtonImage, ModalFormResponseSelection, ServerFormModel, UiEvent, WorldEvent,
     decode_batch, into_world_event, modal_form_submit_response,
 };
-use valentine::bedrock::version::v1_26_51::{McpePacketData, ModalFormRequestPacket};
 
 #[test]
 fn menus_above_256_preserve_every_button_image_and_last_wire_selection() {
@@ -23,9 +24,9 @@ fn menus_above_256_preserve_every_button_image_and_last_wire_selection() {
             let mut form = serde_json::json!({"type":"form", "title":"Menu", "content":" "});
             form[representation] = serde_json::json!(buttons);
             let Some(WorldEvent::Ui(UiEvent::Form(event))) = into_world_event(
-                protocol::Packet::new(ModalFormRequestPacket {
-                    form_id: 7,
-                    form_uijson: form.to_string(),
+                protocol::Packet::new(ModalFormRequest {
+                    form_id: wire::VarUInt(7),
+                    form_ui_json: form.to_string().into(),
                 }),
                 0,
             )
@@ -54,14 +55,11 @@ fn menus_above_256_preserve_every_button_image_and_last_wire_selection() {
             );
             let bytes = protocol::encode(&packet).unwrap();
             let decoded = decode_batch(bytes.to_vec().into()).unwrap();
-            let McpePacketData::ModalFormResponsePacket(response) = &decoded[0].data else {
+            let packets::Packet::ModalFormResponse(response) = &*decoded[0].data else {
                 panic!("form response");
             };
-            assert_eq!(response.form_id, event.form_id);
-            assert_eq!(
-                response.json_response.as_deref(),
-                Some((count - 1).to_string().as_str())
-            );
+            assert_eq!(response.form_id.0, event.form_id);
+            assert_eq!(response.json_response, Some((count - 1).to_string().into()));
         }
     }
 }

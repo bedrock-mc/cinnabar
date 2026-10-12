@@ -1,13 +1,18 @@
+use bedrock_protocol_1_26_51::enums::ItemVersion;
+use bedrock_protocol_1_26_51::packets::ItemRegistry as ItemRegistryPacket;
+use bedrock_protocol_1_26_51::types::ItemData;
+use bedrock_protocol_1_26_51::wire::{self, NetworkNbt as Nbt};
 use bytes::Bytes;
 use protocol::{
     ItemActorEvent, ItemPacketError, WorldEvent, WorldPacketError, WorldWireError,
     into_world_event, vanilla_item_registry,
 };
 use sha2::{Digest, Sha256};
-use valentine::bedrock::{
-    codec::Nbt,
-    version::v1_26_51::{EnumsItemVersion as ItemVersion, ItemData, ItemRegistryPacket},
-};
+
+/// The canonical empty root compound; `NetworkNbt::default()` is a lone TAG_End instead.
+fn empty_compound() -> Nbt {
+    Nbt(Bytes::from_static(&[COMPOUND, 0, 0]))
+}
 
 const COMPOUND: u8 = 10;
 const INT: u8 = 3;
@@ -77,7 +82,7 @@ fn capacity_component(value: i32) -> Nbt {
 fn registry_entry(component_data: Nbt, component_based: bool, version: ItemVersion) -> ItemData {
     ItemData {
         item_name: "minecraft:test_item".into(),
-        item_id: 5,
+        item_id: wire::I16LE(5),
         is_component_based: component_based,
         item_version: version,
         item_component_data: component_data,
@@ -121,8 +126,8 @@ fn repeated_registry_declaration_retains_its_populated_definition() {
     let populated = capacity_component(16);
     let digest: [u8; 32] = Sha256::digest(&populated.0).into();
     for (first, last) in [
-        (Nbt::default(), populated.clone()),
-        (populated, Nbt::default()),
+        (empty_compound(), populated.clone()),
+        (populated, empty_compound()),
     ] {
         let packet = ItemRegistryPacket {
             item_data: vec![
@@ -146,7 +151,8 @@ fn repeated_registry_declaration_retains_its_populated_definition() {
 
 #[test]
 fn canonical_empty_component_data_is_exact_not_semantic() {
-    let canonical = normalize(registry_entry(Nbt::default(), false, ItemVersion::Legacy)).unwrap();
+    let canonical =
+        normalize(registry_entry(empty_compound(), false, ItemVersion::Legacy)).unwrap();
     assert!(canonical.canonical_empty_component_data);
     assert_eq!(canonical.negotiated_max_stack_size, None);
 

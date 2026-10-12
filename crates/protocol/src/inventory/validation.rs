@@ -1,6 +1,6 @@
+use bedrock_protocol_1_26_51::wire;
+
 use super::{InventoryPacketError, MAX_ITEM_NBT_BYTES};
-use bytes::Bytes;
-use valentine::bedrock::codec::Nbt;
 
 /// Bounds an item's user-data buffer and checks the compound it may carry.
 ///
@@ -33,8 +33,8 @@ pub(super) fn validate_item_user_data(extra: &[u8]) -> Result<(), InventoryPacke
             }
             // Only the compound is validated; the lists that follow it in the
             // same buffer mean trailing bytes are expected here.
-            let mut bytes = Bytes::copy_from_slice(&extra[3..]);
-            Nbt::decode_little_endian(&mut bytes)
+            wire::Reader::new(&extra[3..])
+                .read_nbt(wire::NbtVariant::Persistent)
                 .map_err(|_| InventoryPacketError::InvalidItemExtra)?;
             Ok(())
         }

@@ -1,18 +1,18 @@
 use super::*;
 
 pub(super) fn chunk_recovery(packet: &Packet) -> Option<ChunkResyncEvent> {
-    match &packet.data {
-        McpePacketData::LevelChunkPacket(packet) => Some(ChunkResyncEvent {
+    match &*packet.data {
+        packets::Packet::LevelChunk(packet) => Some(ChunkResyncEvent {
             dimension: dimension_id(&packet.dimension_id),
-            x: packet.chunk_position.x,
-            z: packet.chunk_position.z,
+            x: packet.chunk_position.x.0,
+            z: packet.chunk_position.z.0,
             requested_sub_chunks: None,
             requested_sub_chunk_ys: None,
         }),
         // Cached SubChunk packets are responses to scheduler-owned requests. Discarding the
         // response deliberately leaves that request outstanding, so its existing deadline and
         // bounded retry path performs recovery without a duplicate full-column request.
-        McpePacketData::SubChunkPacket(_) => None,
+        packets::Packet::SubChunk(_) => None,
         _ => None,
     }
 }
@@ -21,8 +21,8 @@ pub(super) fn unadmitted_packet_recovery(packet: &PendingPacket) -> Vec<ChunkRes
     match packet {
         PendingPacket::LevelChunk(packet) => vec![ChunkResyncEvent {
             dimension: dimension_id(&packet.dimension_id),
-            x: packet.chunk_position.x,
-            z: packet.chunk_position.z,
+            x: packet.chunk_position.x.0,
+            z: packet.chunk_position.z.0,
             requested_sub_chunks: None,
             requested_sub_chunk_ys: None,
         }],
@@ -35,8 +35,8 @@ pub(super) fn pending_packet_recovery(packet: &PendingPacket) -> Vec<ChunkResync
     match packet {
         PendingPacket::LevelChunk(packet) => vec![ChunkResyncEvent {
             dimension: dimension_id(&packet.dimension_id),
-            x: packet.chunk_position.x,
-            z: packet.chunk_position.z,
+            x: packet.chunk_position.x.0,
+            z: packet.chunk_position.z.0,
             requested_sub_chunks: None,
             requested_sub_chunk_ys: None,
         }],
@@ -53,18 +53,21 @@ pub(super) fn pending_packet_recovery(packet: &PendingPacket) -> Vec<ChunkResync
                         packet
                             .center_pos
                             .subchunk_position_x
-                            .saturating_add(i32::from(offset.subchunk_offset_x)),
+                            .0
+                            .saturating_add(i32::from(offset.subchunk_offset_x.0)),
                         packet
                             .center_pos
                             .subchunk_position_z
-                            .saturating_add(i32::from(offset.subchunk_offset_z)),
+                            .0
+                            .saturating_add(i32::from(offset.subchunk_offset_z.0)),
                     ))
                     .or_default()
                     .insert(
                         packet
                             .center_pos
                             .subchunk_position_y
-                            .saturating_add(i32::from(offset.subchunk_offset_y)),
+                            .0
+                            .saturating_add(i32::from(offset.subchunk_offset_y.0)),
                     );
             }
             columns
@@ -85,28 +88,28 @@ fn ready_value_recovery(value: &ResolverReady) -> Vec<ChunkResyncEvent> {
     let ResolverReady::Packet(packet) = value else {
         return Vec::new();
     };
-    match &packet.data {
-        McpePacketData::LevelChunkPacket(packet) => vec![ChunkResyncEvent {
+    match &*packet.data {
+        packets::Packet::LevelChunk(packet) => vec![ChunkResyncEvent {
             dimension: dimension_id(&packet.dimension_id),
-            x: packet.chunk_position.x,
-            z: packet.chunk_position.z,
+            x: packet.chunk_position.x.0,
+            z: packet.chunk_position.z.0,
             requested_sub_chunks: None,
             requested_sub_chunk_ys: None,
         }],
         // Cached and uncached replies are one entry type now, so both cases
         // collapse into a single traversal.
-        McpePacketData::SubChunkPacket(packet) => sub_chunk_recoveries(
+        packets::Packet::SubChunk(packet) => sub_chunk_recoveries(
             dimension_id(&packet.dimension_type),
             [
-                packet.center_pos.subchunk_position_x,
-                packet.center_pos.subchunk_position_y,
-                packet.center_pos.subchunk_position_z,
+                packet.center_pos.subchunk_position_x.0,
+                packet.center_pos.subchunk_position_y.0,
+                packet.center_pos.subchunk_position_z.0,
             ],
             packet.sub_chunk_data.iter().map(|entry| {
                 [
-                    entry.sub_chunk_pos_offset.subchunk_offset_x,
-                    entry.sub_chunk_pos_offset.subchunk_offset_y,
-                    entry.sub_chunk_pos_offset.subchunk_offset_z,
+                    entry.sub_chunk_pos_offset.subchunk_offset_x.0,
+                    entry.sub_chunk_pos_offset.subchunk_offset_y.0,
+                    entry.sub_chunk_pos_offset.subchunk_offset_z.0,
                 ]
             }),
         ),
@@ -159,15 +162,18 @@ pub(super) fn cached_sub_chunk_admission(
                 packet
                     .center_pos
                     .subchunk_position_x
-                    .saturating_add(i32::from(offset.subchunk_offset_x)),
+                    .0
+                    .saturating_add(i32::from(offset.subchunk_offset_x.0)),
                 packet
                     .center_pos
                     .subchunk_position_y
-                    .saturating_add(i32::from(offset.subchunk_offset_y)),
+                    .0
+                    .saturating_add(i32::from(offset.subchunk_offset_y.0)),
                 packet
                     .center_pos
                     .subchunk_position_z
-                    .saturating_add(i32::from(offset.subchunk_offset_z)),
+                    .0
+                    .saturating_add(i32::from(offset.subchunk_offset_z.0)),
             ]
         })
         .collect::<Vec<_>>();

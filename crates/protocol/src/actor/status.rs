@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_51::{
-    ActorEventPacket, AddItemActorPacket, EnumsActorEvent, TakeItemActorPacket,
+use bedrock_protocol_1_26_51::enums::ActorEventType;
+use bedrock_protocol_1_26_51::packets::{
+    ActorEvent as ActorEventPacket, AddItemActor as AddItemActorPacket,
+    TakeItemActor as TakeItemActorPacket,
 };
 
 use super::{ITEM_ACTOR_NETWORK_OFFSET, normalize_metadata, validate_finite};
@@ -61,8 +63,8 @@ pub struct ActorTakeItemEvent {
 
 pub(crate) fn normalize_take_item_actor(packet: TakeItemActorPacket) -> ActorEvent {
     ActorEvent::TakeItem(ActorTakeItemEvent {
-        item_runtime_id: packet.item_runtime_id.actor_runtime_id,
-        collector_runtime_id: packet.actor_runtime_id.actor_runtime_id,
+        item_runtime_id: packet.item_runtime_id.0,
+        collector_runtime_id: packet.actor_runtime_id.0,
     })
 }
 
@@ -85,8 +87,8 @@ pub(crate) fn normalize_add_item_actor(
     let metadata = normalize_metadata(packet.entity_data)?;
     Ok(ActorEvent::Spawn(ActorSpawnEvent {
         dimension,
-        unique_id: packet.target_actor_id.actor_unique_id,
-        runtime_id: packet.target_runtime_id.actor_runtime_id,
+        unique_id: packet.target_actor_id.0,
+        runtime_id: packet.target_runtime_id.0,
         kind: ActorKind::Entity {
             identifier: Arc::from("minecraft:item"),
         },
@@ -113,59 +115,58 @@ pub(crate) fn normalize_add_item_actor(
 /// Maps an ActorEvent packet to a status event, or `None` for ids the client draws nothing for.
 pub(crate) fn normalize_actor_event(packet: ActorEventPacket) -> Option<ActorEvent> {
     let kind = match packet.event_id {
-        EnumsActorEvent::Hurt => ActorStatusKind::Hurt,
-        EnumsActorEvent::HurtWithoutReceivingDamage => ActorStatusKind::HurtWithoutDamage,
-        EnumsActorEvent::Death | EnumsActorEvent::InstantDeath => ActorStatusKind::Death,
-        EnumsActorEvent::TamingFailed => ActorStatusKind::TamingFailed,
-        EnumsActorEvent::TamingSucceeded => ActorStatusKind::TamingSucceeded,
-        EnumsActorEvent::Shake => ActorStatusKind::Shake,
-        EnumsActorEvent::ShakeWetness => ActorStatusKind::ShakeWetness,
-        EnumsActorEvent::EatGrass => ActorStatusKind::EatGrass,
-        EnumsActorEvent::LoveHearts | EnumsActorEvent::InLoveHearts => ActorStatusKind::LoveHearts,
-        EnumsActorEvent::VillagerAngry => ActorStatusKind::VillagerAngry,
-        EnumsActorEvent::VillagerHappy => ActorStatusKind::VillagerHappy,
-        EnumsActorEvent::WitchHatMagic => ActorStatusKind::WitchHatMagic,
-        EnumsActorEvent::FireworksExplode => ActorStatusKind::FireworksExplode,
-        EnumsActorEvent::DrinkPotion => ActorStatusKind::DrinkPotion,
-        EnumsActorEvent::ThrowPotion => ActorStatusKind::ThrowPotion,
-        EnumsActorEvent::PrimeTntcart => ActorStatusKind::PrimeTntMinecart,
-        EnumsActorEvent::PrimeCreeper => ActorStatusKind::PrimeCreeper,
-        EnumsActorEvent::TalismanActivate => ActorStatusKind::TotemActivate,
-        EnumsActorEvent::SpawnAlive => ActorStatusKind::SpawnAlive,
-        EnumsActorEvent::LeashDestroyed => ActorStatusKind::LeashDestroyed,
-        EnumsActorEvent::ZombieConverting => ActorStatusKind::ZombieConverting,
-        EnumsActorEvent::Puke => ActorStatusKind::Puke,
-        EnumsActorEvent::DrinkMilk => ActorStatusKind::DrinkMilk,
-        EnumsActorEvent::Feed => ActorStatusKind::Feed,
-        EnumsActorEvent::ActorGrowUp => ActorStatusKind::ActorGrowUp,
-        EnumsActorEvent::KineticDamageDealt => ActorStatusKind::KineticDamageDealt,
+        ActorEventType::Hurt => ActorStatusKind::Hurt,
+        ActorEventType::HurtWithoutReceivingDamage => ActorStatusKind::HurtWithoutDamage,
+        ActorEventType::Death | ActorEventType::InstantDeath => ActorStatusKind::Death,
+        ActorEventType::TamingFailed => ActorStatusKind::TamingFailed,
+        ActorEventType::TamingSucceeded => ActorStatusKind::TamingSucceeded,
+        ActorEventType::Shake => ActorStatusKind::Shake,
+        ActorEventType::ShakeWetness => ActorStatusKind::ShakeWetness,
+        ActorEventType::EatGrass => ActorStatusKind::EatGrass,
+        ActorEventType::LoveHearts | ActorEventType::InLoveHearts => ActorStatusKind::LoveHearts,
+        ActorEventType::VillagerAngry => ActorStatusKind::VillagerAngry,
+        ActorEventType::VillagerHappy => ActorStatusKind::VillagerHappy,
+        ActorEventType::WitchHatMagic => ActorStatusKind::WitchHatMagic,
+        ActorEventType::FireworksExplode => ActorStatusKind::FireworksExplode,
+        ActorEventType::DrinkPotion => ActorStatusKind::DrinkPotion,
+        ActorEventType::ThrowPotion => ActorStatusKind::ThrowPotion,
+        ActorEventType::PrimeTntCart => ActorStatusKind::PrimeTntMinecart,
+        ActorEventType::PrimeCreeper => ActorStatusKind::PrimeCreeper,
+        ActorEventType::TalismanActivate => ActorStatusKind::TotemActivate,
+        ActorEventType::SpawnAlive => ActorStatusKind::SpawnAlive,
+        ActorEventType::LeashDestroyed => ActorStatusKind::LeashDestroyed,
+        ActorEventType::ZombieConverting => ActorStatusKind::ZombieConverting,
+        ActorEventType::Puke => ActorStatusKind::Puke,
+        ActorEventType::DrinkMilk => ActorStatusKind::DrinkMilk,
+        ActorEventType::Feed => ActorStatusKind::Feed,
+        ActorEventType::ActorGrowUp => ActorStatusKind::ActorGrowUp,
+        ActorEventType::KineticDamageDealt => ActorStatusKind::KineticDamageDealt,
         _ => return None,
     };
     Some(ActorEvent::Status(ActorStatusEvent {
-        runtime_id: packet.target_runtime_id.actor_runtime_id,
+        runtime_id: packet.target_runtime_id.0,
         kind,
-        data: packet.data,
+        data: packet.data.0,
     }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::BytesMut;
-    use valentine::bedrock::codec::BedrockCodec;
+    use bedrock_protocol_1_26_51::wire::{self, Decode, Encode};
 
-    fn packet(event_id: EnumsActorEvent) -> ActorEventPacket {
+    fn packet(event_id: ActorEventType) -> ActorEventPacket {
         let mut packet = ActorEventPacket::default();
-        packet.target_runtime_id.actor_runtime_id = 9;
+        packet.target_runtime_id.0 = 9;
         packet.event_id = event_id;
-        packet.data = 4;
+        packet.data = wire::ZigZag32(4);
         packet
     }
 
     #[test]
     fn hurt_and_death_ids_normalize_by_runtime_id() {
         assert_eq!(
-            normalize_actor_event(packet(EnumsActorEvent::Hurt)),
+            normalize_actor_event(packet(ActorEventType::Hurt)),
             Some(ActorEvent::Status(ActorStatusEvent {
                 runtime_id: 9,
                 kind: ActorStatusKind::Hurt,
@@ -173,14 +174,14 @@ mod tests {
             }))
         );
         assert!(matches!(
-            normalize_actor_event(packet(EnumsActorEvent::HurtWithoutReceivingDamage)),
+            normalize_actor_event(packet(ActorEventType::HurtWithoutReceivingDamage)),
             Some(ActorEvent::Status(ActorStatusEvent {
                 kind: ActorStatusKind::HurtWithoutDamage,
                 ..
             }))
         ));
         assert!(matches!(
-            normalize_actor_event(packet(EnumsActorEvent::InstantDeath)),
+            normalize_actor_event(packet(ActorEventType::InstantDeath)),
             Some(ActorEvent::Status(ActorStatusEvent {
                 kind: ActorStatusKind::Death,
                 ..
@@ -191,17 +192,17 @@ mod tests {
     #[test]
     fn unknown_and_invisible_ids_are_skipped() {
         assert_eq!(
-            normalize_actor_event(packet(EnumsActorEvent::Unknown(200))),
+            normalize_actor_event(packet(ActorEventType::Unknown(200))),
             None
         );
-        assert_eq!(normalize_actor_event(packet(EnumsActorEvent::Jump)), None);
+        assert_eq!(normalize_actor_event(packet(ActorEventType::Jump)), None);
     }
 
     #[test]
     fn shake_preserves_the_server_signed_countdown_without_a_default_duration() {
         for data in [i32::MIN, -1, 0, 1, 12, i32::MAX] {
-            let mut packet = packet(EnumsActorEvent::Shake);
-            packet.data = data;
+            let mut packet = packet(ActorEventType::Shake);
+            packet.data = wire::ZigZag32(data);
             assert_eq!(
                 normalize_actor_event(packet),
                 Some(ActorEvent::Status(ActorStatusEvent {
@@ -216,27 +217,25 @@ mod tests {
     #[test]
     fn shake_wire_roundtrips_signed_data_and_rejects_every_truncated_body() {
         for data in [i32::MIN, -1, 0, 12, i32::MAX] {
-            let mut packet = packet(EnumsActorEvent::Shake);
-            packet.data = data;
-            let mut encoded = BytesMut::new();
-            packet.encode(&mut encoded).unwrap();
-            let encoded = encoded.freeze();
-            let decoded = ActorEventPacket::decode(&mut encoded.clone(), ()).unwrap();
+            let mut packet = packet(ActorEventType::Shake);
+            packet.data = wire::ZigZag32(data);
+            let encoded = packet.encode_to_vec().unwrap();
+            let decoded = ActorEventPacket::decode_exact(&encoded).unwrap();
             assert_eq!(
                 normalize_actor_event(decoded),
                 normalize_actor_event(packet)
             );
             for end in 0..encoded.len() {
-                assert!(ActorEventPacket::decode(&mut encoded.slice(..end), ()).is_err());
+                assert!(ActorEventPacket::decode_exact(&encoded[..end]).is_err());
             }
         }
     }
 
     #[test]
     fn add_item_actor_spawns_a_fixed_identifier_item_entity() {
-        let mut packet = valentine::bedrock::version::v1_26_51::AddItemActorPacket::default();
-        packet.target_actor_id.actor_unique_id = -5;
-        packet.target_runtime_id.actor_runtime_id = 12;
+        let mut packet = AddItemActorPacket::default();
+        packet.target_actor_id.0 = -5;
+        packet.target_runtime_id.0 = 12;
         packet.position.y = 64.0 + ITEM_ACTOR_NETWORK_OFFSET;
         let Ok(ActorEvent::Spawn(spawn)) = normalize_add_item_actor(packet, 0) else {
             panic!("item actor spawn");
@@ -255,9 +254,8 @@ mod tests {
         packet.position.x = 1.0;
         packet.position.y = 64.0 + ITEM_ACTOR_NETWORK_OFFSET;
         packet.position.z = 3.0;
-        let mut bytes = BytesMut::new();
-        packet.encode(&mut bytes).unwrap();
-        let packet = AddItemActorPacket::decode(&mut bytes.freeze(), ()).unwrap();
+        let bytes = packet.encode_to_vec().unwrap();
+        let packet = AddItemActorPacket::decode_exact(&bytes).unwrap();
         let ActorEvent::Spawn(spawn) = normalize_add_item_actor(packet, 0).unwrap() else {
             panic!("expected item spawn");
         };
@@ -267,8 +265,8 @@ mod tests {
     #[test]
     fn take_item_names_item_and_collector() {
         let mut packet = TakeItemActorPacket::default();
-        packet.item_runtime_id.actor_runtime_id = 3;
-        packet.actor_runtime_id.actor_runtime_id = 4;
+        packet.item_runtime_id.0 = 3;
+        packet.actor_runtime_id.0 = 4;
         assert_eq!(
             normalize_take_item_actor(packet),
             ActorEvent::TakeItem(ActorTakeItemEvent {

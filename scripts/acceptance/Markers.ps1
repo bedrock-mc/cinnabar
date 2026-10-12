@@ -213,7 +213,7 @@ function Assert-ProtocolDependencyProvenance {
     }
     $protocolPackage = $protocolPackages[0]
     $expectedDependencies = [ordered]@{
-        valentine = @('bedrock_1_26_51')
+        'bedrock-protocol-1-26-51' = @()
     }
     foreach ($dependencyName in $expectedDependencies.Keys) {
         $matches = @($protocolPackage.dependencies | Where-Object {
@@ -233,8 +233,8 @@ function Assert-ProtocolDependencyProvenance {
         }
         if ($null -ne $dependency.source -or $null -ne $dependency.kind -or $null -ne $dependency.target -or
             $dependency.optional -isnot [bool] -or [bool]$dependency.optional -or
-            $dependency.uses_default_features -isnot [bool] -or [bool]$dependency.uses_default_features) {
-            throw "protocol dependency provenance drifted: $dependencyName must be one normal non-target non-optional local dependency with default features disabled"
+            $dependency.uses_default_features -isnot [bool]) {
+            throw "protocol dependency provenance drifted: $dependencyName must be one normal non-target non-optional local dependency"
         }
         $vendoredManifest = Join-Path $ProjectRoot "crates\protocol\vendor\$dependencyName\Cargo.toml"
         if (-not (Test-Path -LiteralPath $vendoredManifest -PathType Leaf)) {
@@ -260,7 +260,7 @@ function Assert-ProtocolDependencyProvenance {
     if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($axolotlLine) + '\r?$').Count -ne 1) {
         throw "protocol dependency provenance drifted: Axolotl Stack revision is not $ExpectedAxolotlStackRevision"
     }
-    $protocolgenLine = "- Protocolgen submodule, manifest, and generated-source revision: ``$ExpectedProtocolgenRevision``"
+    $protocolgenLine = "- Generator commit: ``$ExpectedProtocolgenRevision`` (``generated/1.26.51/rust-contract``)"
     if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($protocolgenLine) + '\r?$').Count -ne 1) {
         throw "protocol dependency provenance drifted: protocolgen revision is not $ExpectedProtocolgenRevision"
     }
@@ -289,7 +289,7 @@ function Assert-ProtocolDependencyProvenance {
         $nameMatch = [regex]::Match($body, '(?m)^name\s*=\s*"(?<name>[^"]+)"\r?$')
         if (-not $nameMatch.Success) { continue }
         $name = $nameMatch.Groups['name'].Value
-        if ($name.StartsWith('valentine', [StringComparison]::Ordinal)) {
+        if ($name -ceq 'bedrock-protocol-1-26-51') {
             $null = $resolvedLocalPackages.Add($name)
             $resolutionKey = [regex]::Match($body, '(?m)^\s*(?<key>source|checksum)\s*=')
             if ($resolutionKey.Success) {
@@ -297,7 +297,7 @@ function Assert-ProtocolDependencyProvenance {
             }
         }
     }
-    foreach ($dependency in @('valentine')) {
+    foreach ($dependency in @('bedrock-protocol-1-26-51')) {
         if (-not $resolvedLocalPackages.Contains($dependency)) {
             throw "Cargo.lock does not contain local package $dependency"
         }
@@ -323,7 +323,7 @@ function Get-ProtocolDependencyProvenanceMetadata {
         protocol_dependency_resolution = 'vendored-path'
         pinned_axolotl_stack_commit = $PinnedAxolotlStackCommit
         pinned_protocolgen_commit = $PinnedProtocolgenCommit
-        pinned_valentine_license_sha256 = $PinnedValentineLicenseSha256
+        pinned_jolyne_license_sha256 = $PinnedJolyneLicenseSha256
     }
 }
 

@@ -2,11 +2,10 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_51::{
-    EnumsGeneratorType, EnumsSubChunkPacketPayloadHeightMapDataType as HeightmapType,
-    SubChunkPacketPayloadHeightmapDataRenderHeightMapType as RenderHeightmapType,
-    SubChunkPacketPayloadSubChunkPacketData,
-};
+use bedrock_protocol_1_26_51::enums::GeneratorType;
+use bedrock_protocol_1_26_51::packets::DimensionData;
+use bedrock_protocol_1_26_51::types::SubChunkData;
+use bedrock_protocol_1_26_51::wire;
 
 /// Vertical bounds advertised separately from StartGame.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,17 +17,8 @@ pub struct DimensionHeightDiagnostic {
     pub generator: i32,
 }
 
-pub(super) const fn dimension_generator_id(generator: EnumsGeneratorType) -> i32 {
-    match generator {
-        EnumsGeneratorType::Legacy => 0,
-        EnumsGeneratorType::Overworld => 1,
-        EnumsGeneratorType::Flat => 2,
-        EnumsGeneratorType::Nether => 3,
-        EnumsGeneratorType::Theend => 4,
-        EnumsGeneratorType::Void => 5,
-        EnumsGeneratorType::Undefined => 6,
-        EnumsGeneratorType::Unknown(id) => id,
-    }
+pub(super) fn dimension_generator_id(generator: GeneratorType) -> i32 {
+    generator.to_raw()
 }
 
 /// A bounded summary of one server heightmap, including an explicitly absent payload.
@@ -53,28 +43,16 @@ pub struct SubChunkDiagnostic {
 
 impl SubChunkDiagnostic {
     /// Retains wire metadata before block decoding consumes the serialized payload.
-    pub(super) fn from_entry(entry: &SubChunkPacketPayloadSubChunkPacketData) -> Self {
+    pub(super) fn from_entry(entry: &SubChunkData) -> Self {
         let data = &entry.height_map_data;
-        let heightmap_kind = match data.height_map_type {
-            HeightmapType::Nodata => 0,
-            HeightmapType::Hasdata => 1,
-            HeightmapType::Alltoohigh => 2,
-            HeightmapType::Alltoolow => 3,
-            HeightmapType::Unknown(value) => value,
-        };
-        let render_kind = match data.render_height_map_type {
-            RenderHeightmapType::Nodata => 0,
-            RenderHeightmapType::Hasdata => 1,
-            RenderHeightmapType::Alltoohigh => 2,
-            RenderHeightmapType::Alltoolow => 3,
-            RenderHeightmapType::Allcopied => 4,
-            RenderHeightmapType::Unknown(value) => value,
-        };
         Self {
             payload_present: entry.serialized_sub_chunk.is_some(),
-            heightmap: summarize_heightmap(heightmap_kind, data.subchunk_height_map.as_ref()),
+            heightmap: summarize_heightmap(
+                data.height_map_type.to_raw(),
+                data.subchunk_height_map.as_ref(),
+            ),
             render_heightmap: summarize_heightmap(
-                render_kind,
+                data.render_height_map_type.to_raw(),
                 data.subchunk_render_height_map.as_ref(),
             ),
         }
@@ -82,7 +60,7 @@ impl SubChunkDiagnostic {
 }
 
 /// Reduces arbitrary well-formed heightmap rows to fixed-size diagnostic facts.
-fn summarize_heightmap(kind: u8, rows: Option<&[Vec<i8>; 16]>) -> HeightmapDiagnostic {
+fn summarize_heightmap(kind: u8, rows: Option<&[Vec<wire::I8>; 16]>) -> HeightmapDiagnostic {
     let mut result = HeightmapDiagnostic {
         kind,
         payload_present: rows.is_some(),
@@ -90,10 +68,26 @@ fn summarize_heightmap(kind: u8, rows: Option<&[Vec<i8>; 16]>) -> HeightmapDiagn
         min: None,
         max: None,
     };
-    for value in rows.into_iter().flatten().flatten().copied() {
+    for value in rows.into_iter().flatten().flatten().map(|value| value.0) {
         result.sample_count += 1;
         result.min = Some(result.min.map_or(value, |previous| previous.min(value)));
         result.max = Some(result.max.map_or(value, |previous| previous.max(value)));
     }
     result
+}
+
+/// The first [`super::MAX_DIMENSION_DEFINITIONS`] advertised dimension bounds.
+pub(super) fn normalize_dimension_data(packet: DimensionData) -> Vec<DimensionHeightDiagnostic> {
+    packet
+        .definitions
+        .into_iter()
+        .take(super::MAX_DIMENSION_DEFINITIONS)
+        .map(|(name, definition)| DimensionHeightDiagnostic {
+            name: Arc::from(name.to_string_lossy()),
+            dimension: definition.dimension_type.0,
+            minimum_y: definition.minimum_y.0,
+            height_range: definition.height_range.0,
+            generator: dimension_generator_id(definition.generator_type),
+        })
+        .collect()
 }

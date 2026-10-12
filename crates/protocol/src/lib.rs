@@ -1,4 +1,4 @@
-//! Bedrock 1.26.50 (protocol 2193) packet definitions and codec.
+//! Bedrock 1.26.50 (protocol 2193) packets, coded by the generated contract crate.
 
 mod actor;
 mod audio;
@@ -88,7 +88,9 @@ pub use camera::{
     CameraTargetInstruction, MAX_CAMERA_AIM_ASSIST_ENTRIES, MAX_CAMERA_EASE_IDENTIFIER_BYTES,
     MAX_CAMERA_PRESETS, MAX_CAMERA_SPLINE_POINTS, camera_aim_assist_activation_packet,
 };
-pub use codec::{PacketDecodeError, ProtocolError, SessionError, decode_batch, encode};
+pub use codec::{
+    PacketDecodeError, PacketEncodeError, ProtocolError, SessionError, decode_batch, encode,
+};
 pub use disconnect::ServerDisconnectEvent;
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,

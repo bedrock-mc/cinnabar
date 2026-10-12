@@ -136,25 +136,22 @@ impl PlayerInventoryLedger {
                 .map_err(|_| InventoryGestureError::InvalidRequest)?,
             extra_data: Arc::clone(&user_data),
         };
+        // Vanilla lists only the recipe's real ingredients, each with count 1, and skips empty
+        // grid cells; the sources above still consume each ingredient's full count.
         let ingredients: Arc<[AutoCraftIngredient]> = recipe
             .ingredient_views()
             .iter()
-            .map(|slot| match slot {
-                Some(ingredient) => AutoCraftIngredient {
-                    descriptor: if ingredient.tag {
-                        StackItemDescriptor::Tag(Arc::clone(&ingredient.name))
-                    } else {
-                        StackItemDescriptor::Name {
-                            identifier: Arc::clone(&ingredient.name),
-                            aux: i32::from(ingredient.aux),
-                        }
-                    },
-                    count: u16::from(ingredient.count),
+            .flatten()
+            .map(|ingredient| AutoCraftIngredient {
+                descriptor: if ingredient.tag {
+                    StackItemDescriptor::Tag(Arc::clone(&ingredient.name))
+                } else {
+                    StackItemDescriptor::Name {
+                        identifier: Arc::clone(&ingredient.name),
+                        aux: i32::from(ingredient.aux),
+                    }
                 },
-                None => AutoCraftIngredient {
-                    descriptor: StackItemDescriptor::Empty,
-                    count: 0,
-                },
+                count: 1,
             })
             .collect();
         let mut actions = vec![

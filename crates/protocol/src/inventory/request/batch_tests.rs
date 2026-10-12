@@ -1,6 +1,6 @@
 use super::*;
-use bytes::BytesMut;
-use valentine::bedrock::{codec::BedrockCodec, version::v1_26_51::McpePacketData};
+use bedrock_protocol_1_26_51::packets;
+use bedrock_protocol_1_26_51::wire::{Decode, Encode};
 
 /// Produces a created-output consumption with a current or earlier request ID.
 fn consume(id: i32) -> [StackRequestAction; 1] {
@@ -25,31 +25,33 @@ fn batched_requests_keep_ids_actions_and_filter_origins_separate_on_wire() {
     ])
     .unwrap()
     .unwrap();
-    let McpePacketData::ItemStackRequestPacket(request) = packet.data else {
+    let packets::Packet::ItemStackRequest(request) = *packet.data else {
         panic!("request packet");
     };
-    let mut bytes = BytesMut::new();
-    request.encode(&mut bytes).unwrap();
-    let decoded = ItemStackRequestPacket::decode(&mut bytes.freeze(), ()).unwrap();
+    let bytes = request.encode_to_vec().unwrap();
+    let decoded = ItemStackRequest::decode_exact(&bytes).unwrap();
     assert_eq!(decoded.requests.len(), 2);
     assert_eq!(
         decoded
             .requests
             .iter()
-            .map(|r| r.client_request_id.id)
+            .map(|r| r.client_request_id.0)
             .collect::<Vec<_>>(),
         [-3, -5]
     );
     assert!(decoded.requests.iter().all(|r| r.actions.len() == 1));
-    assert_eq!(decoded.requests[0].strings_to_filter, strings);
+    assert_eq!(
+        decoded.requests[0].strings_to_filter,
+        [wire::Str::from("renamed")]
+    );
     assert_eq!(
         decoded.requests[0].strings_to_filter_origin,
-        EnumsTextProcessingEventOrigin::Anviltext
+        TextProcessingEventOrigin::Anviltext
     );
     assert!(decoded.requests[1].strings_to_filter.is_empty());
     assert_eq!(
         decoded.requests[1].strings_to_filter_origin,
-        EnumsTextProcessingEventOrigin::Unknown
+        TextProcessingEventOrigin::Unknown
     );
 }
 
@@ -62,15 +64,14 @@ fn batch_preserves_prior_sparse_ids_without_admitting_future_ids() {
     ])
     .unwrap()
     .unwrap();
-    let McpePacketData::ItemStackRequestPacket(request) = packet.data else {
+    let packets::Packet::ItemStackRequest(request) = *packet.data else {
         panic!("request packet");
     };
-    let mut bytes = BytesMut::new();
-    request.encode(&mut bytes).unwrap();
-    let decoded = ItemStackRequestPacket::decode(&mut bytes.freeze(), ()).unwrap();
+    let bytes = request.encode_to_vec().unwrap();
+    let decoded = ItemStackRequest::decode_exact(&bytes).unwrap();
     assert_eq!(decoded, request);
-    assert_eq!(decoded.requests[0].client_request_id.id, -3);
-    assert_eq!(decoded.requests[1].client_request_id.id, -5);
+    assert_eq!(decoded.requests[0].client_request_id.0, -3);
+    assert_eq!(decoded.requests[1].client_request_id.0, -5);
     let future = consume(-5);
     assert!(
         item_stack_request_batch([

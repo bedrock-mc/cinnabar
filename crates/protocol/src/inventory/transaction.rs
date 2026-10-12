@@ -3,10 +3,9 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_51::{
-    EnumsInventorySourceType, InventoryAction, InventoryTransactionPacket,
-    InventoryTransactionPacketTransaction,
-};
+use bedrock_protocol_1_26_51::enums::InventorySourceType;
+use bedrock_protocol_1_26_51::packets::InventoryTransaction;
+use bedrock_protocol_1_26_51::types::{InventoryAction, InventoryTransactionPacketData};
 
 use super::{
     ARMOR_SLOTS, ARMOR_WINDOW_ID, CONTAINER_NAME_CURSOR, CREATED_OUTPUT_SLOT, ContainerIdentity,
@@ -15,19 +14,18 @@ use super::{
     UI_INVENTORY_WINDOW_ID, UI_SLOT_COUNT, normalize_item_descriptor,
 };
 
-pub(crate) fn normalize_transaction(packet: InventoryTransactionPacket) -> Option<InventoryEvent> {
-    let InventoryTransactionPacketTransaction::NormalTransactionData(normal) = packet.transaction
+pub(crate) fn normalize_transaction(packet: InventoryTransaction) -> Option<InventoryEvent> {
+    let InventoryTransactionPacketData::NormalTransactionData { actions } = packet.transaction
     else {
         return None;
     };
     let mut slots = Vec::new();
     let mut skipped_actions = 0usize;
-    for action in normal.actions.actions {
+    for action in actions.actions {
         // These are the known balancing legs, not inventory authority.
         if matches!(
             action.source.source_type,
-            EnumsInventorySourceType::Worldinteraction
-                | EnumsInventorySourceType::Creativeinventory
+            InventorySourceType::WorldInteraction | InventorySourceType::CreativeInventory
         ) {
             continue;
         }
@@ -58,11 +56,11 @@ pub(crate) fn normalize_transaction(packet: InventoryTransactionPacket) -> Optio
 }
 
 fn inventory_identity(action: &InventoryAction) -> Option<SlotIdentity> {
-    if action.source.source_type != EnumsInventorySourceType::Containerinventory {
+    if action.source.source_type != InventorySourceType::ContainerInventory {
         return None;
     }
-    let window = i32::from(action.source.container_id?);
-    let slot = u16::try_from(action.slot).ok()?;
+    let window = i32::from(action.source.container_id?.0);
+    let slot = u16::try_from(action.slot.0).ok()?;
     let container = match window {
         PLAYER_INVENTORY_WINDOW_ID if slot < u16::from(PLAYER_INVENTORY_SLOTS) => {
             ContainerIdentity::window(window)

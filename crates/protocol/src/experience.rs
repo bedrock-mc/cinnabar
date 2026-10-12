@@ -1,6 +1,6 @@
 //! The optional Cinnabar carrier uses the existing ScriptMessage packet.
 
-use valentine::bedrock::version::v1_26_51::{McpePacketData, ScriptMessagePacket};
+use bedrock_protocol_1_26_51::packets::{self, ScriptMessage};
 
 pub const EXPERIENCE_CHANNEL: &str = "cinnabar:extensions/v1";
 pub const MAX_EXPERIENCE_ENVELOPE_BYTES: usize = 64 * 1024;
@@ -12,11 +12,11 @@ pub struct ExperienceMessage {
 }
 
 /// Drops unrelated and oversized optional data without failing vanilla play.
-pub(crate) fn normalize(packet: ScriptMessagePacket) -> Option<ExperienceMessage> {
+pub(crate) fn normalize(packet: ScriptMessage) -> Option<ExperienceMessage> {
     (packet.message_id == EXPERIENCE_CHANNEL
         && packet.message_value.len() <= MAX_EXPERIENCE_ENVELOPE_BYTES)
-        .then_some(ExperienceMessage {
-            bytes: packet.message_value,
+        .then(|| ExperienceMessage {
+            bytes: packet.message_value.to_vec(),
         })
 }
 
@@ -25,15 +25,15 @@ pub fn experience_packet(bytes: Vec<u8>) -> Option<crate::Packet> {
     if bytes.len() > MAX_EXPERIENCE_ENVELOPE_BYTES {
         return None;
     }
-    Some(crate::Packet::new(ScriptMessagePacket {
-        message_id: EXPERIENCE_CHANNEL.to_owned(),
-        message_value: bytes,
+    Some(crate::Packet::new(ScriptMessage {
+        message_id: EXPERIENCE_CHANNEL.into(),
+        message_value: bytes.into(),
     }))
 }
 
 /// Identifies only this optional carrier before an authorized socket write.
 pub fn is_experience_packet(packet: &crate::Packet) -> bool {
-    matches!(&packet.data, McpePacketData::ScriptMessagePacket(message)
+    matches!(&*packet.data, packets::Packet::ScriptMessage(message)
         if message.message_id == EXPERIENCE_CHANNEL)
 }
 
@@ -44,9 +44,9 @@ mod tests {
     #[test]
     fn unrelated_scripts_are_inert() {
         assert!(
-            normalize(ScriptMessagePacket {
+            normalize(ScriptMessage {
                 message_id: "minecraft:unrelated".into(),
-                message_value: vec![1, 2, 3],
+                message_value: vec![1, 2, 3].into(),
             })
             .is_none()
         );

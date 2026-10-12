@@ -1,92 +1,92 @@
+use bedrock_protocol_1_26_51::enums::{
+    ActorLinkType as VendorActorLinkType, DataItemType, GameType,
+};
+use bedrock_protocol_1_26_51::packets::{
+    AddActor as AddActorPacket, AddPlayer as AddPlayerPacket,
+    MoveActorAbsolute as MoveActorAbsolutePacket, MoveActorDelta as MoveActorDeltaPacket,
+    PlayerList as PlayerListPacket, RemoveActor as RemoveActorPacket,
+    SetActorData as SetActorDataPacket, UpdateAttributes as UpdateAttributesPacket,
+};
+use bedrock_protocol_1_26_51::types::{
+    ActorRuntimeID, ActorUniqueID, AttributeData, DataItemEntry, DataItemEntryValue, EntityLink,
+    MoveActorAbsoluteData, MoveActorDeltaData, PlayerInputTick, PlayerListData, PropertySyncData,
+    PropertySyncDataPropertySyncFloatEntry, PropertySyncDataPropertySyncIntEntry,
+    SerializedAbilitiesData, SerializedSkinRef, SkinImage, SynchedActorDataCopyableDataList,
+};
+use bedrock_protocol_1_26_51::wire;
 use protocol::{
     ActorEvent, ActorKind, ActorLinkType, ActorMetadataValue, ActorPositionOrigin, ActorProperty,
     PlayerListEntry, PlayerSkin, PlayerSkinUnavailable, WorldEvent, into_world_event,
 };
 use render_api::StandardSkin;
-use valentine::bedrock::version::v1_26_51::{
-    ActorLink, ActorRuntimeId, ActorUniqueId, AddActorPacket, AddPlayerPacket, AttributeData,
-    DataItemEntry, DataItemEntryPayload, DataItemFloatPayload, DataItemStringPayload,
-    EnumsActorLinkType as VendorActorLinkType, EnumsDataItemType, MoveActorAbsoluteData,
-    MoveActorAbsolutePacket, MoveActorDeltaData, MoveActorDeltaPacket, PlayerInputTick,
-    PlayerListPacket, PlayerListPacketEntriesItem, PlayerListPacketPayloadAddEntry,
-    PlayerListPacketPayloadRemoveEntry, PropertySyncData, PropertySyncDataPropertySyncFloatEntry,
-    PropertySyncDataPropertySyncIntEntry, RemoveActorPacket, SerializedAbilitiesData,
-    SerializedSkinRef, SetActorDataPacket, SkinImage, SynchedActorDataCopyableDataList,
-    UpdateAttributesPacket, Vec2, Vec3,
-};
 
-/// Builds the actor-data entry 1.26.40 puts on the wire for a string value.
-///
-/// 1.26.40 keys actor data by raw id (4 is the name tag) and tags each payload
-/// with its own value type, so there is no named key enum to spell out.
+/// Builds the actor-data entry for a string value, keyed by raw id (4 is the name tag).
 fn string_actor_data(id: i32, value: &str) -> DataItemEntry {
     DataItemEntry {
-        id: id as u32,
-        payload: DataItemEntryPayload::DataItemStringPayload(DataItemStringPayload {
-            type_: EnumsDataItemType::String,
-            value: value.to_owned(),
-        }),
+        id: wire::VarUInt(id as u32),
+        payload: DataItemEntryValue::DataItemString {
+            type_: DataItemType::String,
+            value: value.into(),
+        },
     }
 }
 
 fn float_actor_data(id: i32, value: f32) -> DataItemEntry {
     DataItemEntry {
-        id: id as u32,
-        payload: DataItemEntryPayload::DataItemFloatPayload(DataItemFloatPayload {
-            type_: EnumsDataItemType::Float,
-            value,
-        }),
+        id: wire::VarUInt(id as u32),
+        payload: DataItemEntryValue::DataItemFloat {
+            type_: DataItemType::Float,
+            value: wire::F32LE(value),
+        },
+    }
+}
+
+/// One player-list add record with every other field left at its default.
+fn add_entry(unique_id: i64, name: &str, serialized_skin: SerializedSkinRef) -> PlayerListData {
+    PlayerListData::AddEntry {
+        action: Default::default(),
+        uuid: Default::default(),
+        actor_unique_id: ActorUniqueID(unique_id),
+        player_name: name.into(),
+        xbl_xuid: Default::default(),
+        platform_online_id: Default::default(),
+        build_platform: Default::default(),
+        serialized_skin: Box::new(serialized_skin),
+        is_teacher: false,
+        is_host: false,
+        is_sub_client: false,
+        player_color: Default::default(),
     }
 }
 
 #[test]
 fn add_entity_normalizes_to_a_vendor_neutral_actor_spawn() {
     let packet = protocol::Packet::new(AddActorPacket {
-        target_actor_id: ActorUniqueId {
-            actor_unique_id: -17,
-        },
-        target_runtime_id: ActorRuntimeId {
-            actor_runtime_id: 42,
-        },
-        actor_type: "minecraft:bee".to_owned(),
-        position: Vec3 {
-            x: 1.25,
-            y: 70.5,
-            z: -8.75,
-        },
-        velocity: Vec3 {
-            x: 0.1,
-            y: -0.2,
-            z: 0.3,
-        },
+        target_actor_id: ActorUniqueID(-17),
+        target_runtime_id: ActorRuntimeID(42),
+        actor_type: "minecraft:bee".into(),
+        position: [1.25, 70.5, -8.75].into(),
+        velocity: [0.1, -0.2, 0.3].into(),
         // 1.26.40 packs pitch and yaw into a single Vec2, in that order.
-        rotation: Vec2 { x: 15.0, y: 90.0 },
-        y_head_rotation: 80.0,
-        y_body_rotation: 70.0,
+        rotation: [15.0, 90.0].into(),
+        y_head_rotation: wire::F32LE(80.0),
+        y_body_rotation: wire::F32LE(70.0),
         actor_links: vec![
-            ActorLink {
-                target_a: ActorUniqueId {
-                    actor_unique_id: 90,
-                },
-                target_b: ActorUniqueId {
-                    actor_unique_id: -17,
-                },
+            EntityLink {
+                target_a: ActorUniqueID(90),
+                target_b: ActorUniqueID(-17),
                 type_: VendorActorLinkType::Riding,
                 immediate: true,
                 passenger_initiated: false,
-                vehicle_angular_velocity: 0.0,
+                vehicle_angular_velocity: wire::F32LE(0.0),
             },
-            ActorLink {
-                target_a: ActorUniqueId {
-                    actor_unique_id: 91,
-                },
-                target_b: ActorUniqueId {
-                    actor_unique_id: -18,
-                },
+            EntityLink {
+                target_a: ActorUniqueID(91),
+                target_b: ActorUniqueID(-18),
                 type_: VendorActorLinkType::Unknown(9),
                 immediate: false,
                 passenger_initiated: true,
-                vehicle_angular_velocity: 0.0,
+                vehicle_angular_velocity: wire::F32LE(0.0),
             },
         ],
         ..Default::default()
@@ -128,40 +128,28 @@ fn add_player_and_remove_entity_preserve_both_actor_id_domains() {
     let uuid = Default::default();
     let add = protocol::Packet::new(AddPlayerPacket {
         uuid,
-        player_name: "Alex".to_owned(),
-        player_game_type: valentine::bedrock::version::v1_26_51::EnumsGameType::Spectator,
+        player_name: "Alex".into(),
+        player_game_type: GameType::Spectator,
         // AddPlayer has no standalone unique ID in 1.26.40; the spawned player's
         // unique ID is the first field of the embedded ability data.
         abilities_data: SerializedAbilitiesData {
-            target_player_raw_id: -9,
+            target_player_raw_id: wire::I64LE(-9),
             ..Default::default()
         },
-        target_runtime_id: ActorRuntimeId {
-            actor_runtime_id: 55,
-        },
-        position: Vec3 {
-            x: 1.0,
-            y: 2.0,
-            z: 3.0,
-        },
-        actor_links: vec![ActorLink {
-            target_a: ActorUniqueId {
-                actor_unique_id: 77,
-            },
-            target_b: ActorUniqueId {
-                actor_unique_id: -9,
-            },
+        target_runtime_id: ActorRuntimeID(55),
+        position: [1.0, 2.0, 3.0].into(),
+        actor_links: vec![EntityLink {
+            target_a: ActorUniqueID(77),
+            target_b: ActorUniqueID(-9),
             type_: VendorActorLinkType::Passenger,
             immediate: false,
             passenger_initiated: true,
-            vehicle_angular_velocity: 0.0,
+            vehicle_angular_velocity: wire::F32LE(0.0),
         }],
         ..Default::default()
     });
     let remove = protocol::Packet::new(RemoveActorPacket {
-        target_actor_id: ActorUniqueId {
-            actor_unique_id: -9,
-        },
+        target_actor_id: ActorUniqueID(-9),
     });
 
     let Some(WorldEvent::Actor(ActorEvent::PlayerSpawn { spawn, game_mode })) =
@@ -198,29 +186,21 @@ fn add_player_and_remove_entity_preserve_both_actor_id_domains() {
 fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
     let absolute = protocol::Packet::new(MoveActorAbsolutePacket {
         move_data: MoveActorAbsoluteData {
-            actor_runtime_id: ActorRuntimeId {
-                actor_runtime_id: 55,
-            },
-            header: 3,
-            position: Vec3 {
-                x: 4.0,
-                y: 5.0,
-                z: 6.0,
-            },
-            rotation_x: 32,
-            rotation_y: 64,
-            rotation_y_head: 128,
+            actor_runtime_id: ActorRuntimeID(55),
+            header: wire::U8(3),
+            position: [4.0, 5.0, 6.0].into(),
+            rotation_x: wire::U8(32),
+            rotation_y: wire::U8(64),
+            rotation_y_head: wire::U8(128),
         },
     });
     let delta = protocol::Packet::new(MoveActorDeltaPacket {
         move_data: MoveActorDeltaData {
-            actor_runtime_id: ActorRuntimeId {
-                actor_runtime_id: 55,
-            },
-            new_position_x: Some(7.5),
-            new_position_y: Some(8.25),
+            actor_runtime_id: ActorRuntimeID(55),
+            new_position_x: Some(wire::F32LE(7.5)),
+            new_position_y: Some(wire::F32LE(8.25)),
             // Bedrock reads rotation bytes unsigned; the generator types them i8.
-            rotation_y: Some(192_u8 as i8),
+            rotation_y: Some(wire::I8(192_u8 as i8)),
             is_on_ground: true,
             ..Default::default()
         },
@@ -258,39 +238,35 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
 #[test]
 fn metadata_properties_and_attributes_are_normalized_without_generated_types() {
     let set_data = protocol::Packet::new(SetActorDataPacket {
-        target_runtime_id: ActorRuntimeId {
-            actor_runtime_id: 55,
-        },
+        target_runtime_id: ActorRuntimeID(55),
         actor_data: SynchedActorDataCopyableDataList {
             data: vec![string_actor_data(4, "Beeatrice")],
         },
         synched_properties: PropertySyncData {
             int_entries_list: vec![PropertySyncDataPropertySyncIntEntry {
-                property_index: 3,
-                data: 9,
+                property_index: wire::VarUInt(3),
+                data: wire::ZigZag32(9),
             }],
             float_entries_list: vec![PropertySyncDataPropertySyncFloatEntry {
-                property_index: 4,
-                data: 0.75,
+                property_index: wire::VarUInt(4),
+                data: wire::F32LE(0.75),
             }],
         },
-        tick: PlayerInputTick { inputtick: 10 },
+        tick: PlayerInputTick(10),
     });
     let attributes = protocol::Packet::new(UpdateAttributesPacket {
-        target_runtime_id: ActorRuntimeId {
-            actor_runtime_id: 55,
-        },
+        target_runtime_id: ActorRuntimeID(55),
         attribute_list: vec![AttributeData {
-            min_value: 0.0,
-            max_value: 20.0,
-            current_value: 17.5,
-            default_min_value: 0.0,
-            default_max_value: 20.0,
-            default_value: 20.0,
-            name: "minecraft:health".to_owned(),
+            min_value: wire::F32LE(0.0),
+            max_value: wire::F32LE(20.0),
+            current_value: wire::F32LE(17.5),
+            default_min_value: wire::F32LE(0.0),
+            default_max_value: wire::F32LE(20.0),
+            default_value: wire::F32LE(20.0),
+            name: "minecraft:health".into(),
             modifiers: vec![],
         }],
-        tick: PlayerInputTick { inputtick: 11 },
+        tick: PlayerInputTick(11),
     });
 
     let Some(WorldEvent::Actor(ActorEvent::Metadata(update))) =
@@ -332,9 +308,7 @@ fn the_actor_flag_words_keep_their_dedicated_metadata_values() {
     // 1.26.40 sends the flag words as ordinary Int64 payloads; only the
     // actor-data id (0, 92 and 139) distinguishes them from a plain long.
     let set_data = protocol::Packet::new(SetActorDataPacket {
-        target_runtime_id: ActorRuntimeId {
-            actor_runtime_id: 55,
-        },
+        target_runtime_id: ActorRuntimeID(55),
         actor_data: SynchedActorDataCopyableDataList {
             data: vec![
                 int64_actor_data(0, 0b1010),
@@ -364,14 +338,12 @@ fn the_actor_flag_words_keep_their_dedicated_metadata_values() {
 }
 
 fn int64_actor_data(id: i32, value: i64) -> DataItemEntry {
-    use valentine::bedrock::version::v1_26_51::DataItemInt64Payload;
-
     DataItemEntry {
-        id: id as u32,
-        payload: DataItemEntryPayload::DataItemInt64Payload(DataItemInt64Payload {
-            type_: EnumsDataItemType::Int64,
-            value,
-        }),
+        id: wire::VarUInt(id as u32),
+        payload: DataItemEntryValue::DataItemInt64 {
+            type_: DataItemType::Int64,
+            value: wire::ZigZag64(value),
+        },
     }
 }
 
@@ -380,9 +352,7 @@ fn unmodelable_metadata_and_attributes_are_skipped_not_fatal() {
     // A metadata entry the client cannot model (non-finite float) is dropped,
     // and the surrounding well-formed entry is still retained.
     let set_data = protocol::Packet::new(SetActorDataPacket {
-        target_runtime_id: ActorRuntimeId {
-            actor_runtime_id: 55,
-        },
+        target_runtime_id: ActorRuntimeID(55),
         actor_data: SynchedActorDataCopyableDataList {
             data: vec![
                 float_actor_data(56, f32::NAN),
@@ -390,7 +360,7 @@ fn unmodelable_metadata_and_attributes_are_skipped_not_fatal() {
             ],
         },
         synched_properties: PropertySyncData::default(),
-        tick: PlayerInputTick { inputtick: 10 },
+        tick: PlayerInputTick(10),
     });
     let Some(WorldEvent::Actor(ActorEvent::Metadata(update))) =
         into_world_event(set_data, 0).expect("metadata leniency is not fatal")
@@ -406,32 +376,30 @@ fn unmodelable_metadata_and_attributes_are_skipped_not_fatal() {
     // A non-finite attribute (servers send INFINITY for "unbounded") is dropped
     // while the finite attribute survives.
     let attributes = protocol::Packet::new(UpdateAttributesPacket {
-        target_runtime_id: ActorRuntimeId {
-            actor_runtime_id: 55,
-        },
+        target_runtime_id: ActorRuntimeID(55),
         attribute_list: vec![
             AttributeData {
-                min_value: 0.0,
-                max_value: f32::INFINITY,
-                current_value: 1.0,
-                default_min_value: 0.0,
-                default_max_value: 0.0,
-                default_value: 0.0,
-                name: "minecraft:luck".to_owned(),
+                min_value: wire::F32LE(0.0),
+                max_value: wire::F32LE(f32::INFINITY),
+                current_value: wire::F32LE(1.0),
+                default_min_value: wire::F32LE(0.0),
+                default_max_value: wire::F32LE(0.0),
+                default_value: wire::F32LE(0.0),
+                name: "minecraft:luck".into(),
                 modifiers: vec![],
             },
             AttributeData {
-                min_value: 0.0,
-                max_value: 20.0,
-                current_value: 17.5,
-                default_min_value: 0.0,
-                default_max_value: 20.0,
-                default_value: 20.0,
-                name: "minecraft:health".to_owned(),
+                min_value: wire::F32LE(0.0),
+                max_value: wire::F32LE(20.0),
+                current_value: wire::F32LE(17.5),
+                default_min_value: wire::F32LE(0.0),
+                default_max_value: wire::F32LE(20.0),
+                default_value: wire::F32LE(20.0),
+                name: "minecraft:health".into(),
                 modifiers: vec![],
             },
         ],
-        tick: PlayerInputTick { inputtick: 11 },
+        tick: PlayerInputTick(11),
     });
     let Some(WorldEvent::Actor(ActorEvent::Attributes(update))) =
         into_world_event(attributes, 0).expect("attribute leniency is not fatal")
@@ -449,30 +417,21 @@ fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
     // are just two different entry variants -- there is no packet-level action,
     // no shared record count, and no trailing verified array to cross-check.
     let add = protocol::Packet::new(PlayerListPacket {
-        entries: vec![PlayerListPacketEntriesItem::AddEntry(Box::new(
-            PlayerListPacketPayloadAddEntry {
-                uuid,
-                actor_unique_id: ActorUniqueId {
-                    actor_unique_id: 77,
-                },
-                player_name: "Steve".to_owned(),
-                serialized_skin: SerializedSkinRef {
-                    // The old trailing "verified" bool is now the skin's own
-                    // trusted flag, serialised as a string.
-                    trusted_skin_flag: "true".to_owned(),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        ))],
-    });
-    let remove = protocol::Packet::new(PlayerListPacket {
-        entries: vec![PlayerListPacketEntriesItem::RemoveEntry(
-            PlayerListPacketPayloadRemoveEntry {
-                uuid,
+        entries: vec![add_entry(
+            77,
+            "Steve",
+            SerializedSkinRef {
+                // The "verified" bit is the skin's own trusted flag, serialised as a string.
+                trusted_skin_flag: "true".into(),
                 ..Default::default()
             },
         )],
+    });
+    let remove = protocol::Packet::new(PlayerListPacket {
+        entries: vec![PlayerListData::RemoveEntry {
+            action: Default::default(),
+            uuid,
+        }],
     });
 
     let Some(WorldEvent::Actor(ActorEvent::PlayerList(add))) =
@@ -505,37 +464,34 @@ fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
 #[test]
 fn player_list_retains_bounded_standard_and_persona_baked_skins() {
     let rgba = [0x7f, 0x7f, 0x7f, 255].repeat(render_api::CLASSIC_SKIN_SIDE.pow(2));
-    let classic = PlayerListPacketPayloadAddEntry {
-        player_name: "Classic".to_owned(),
-        serialized_skin: SerializedSkinRef {
+    let classic = add_entry(
+        0,
+        "Classic",
+        SerializedSkinRef {
             image_data: SkinImage {
-                width: 64,
-                height: 64,
-                image_bytes: rgba.clone(),
+                width: wire::U32LE(64),
+                height: wire::U32LE(64),
+                image_bytes: rgba.clone().into(),
             },
-            trusted_skin_flag: "true".to_owned(),
+            trusted_skin_flag: "true".into(),
             ..Default::default()
         },
-        ..Default::default()
-    };
-    let persona = PlayerListPacketPayloadAddEntry {
-        player_name: "Persona".to_owned(),
-        serialized_skin: SerializedSkinRef {
+    );
+    let persona = add_entry(
+        0,
+        "Persona",
+        SerializedSkinRef {
             is_persona: true,
             image_data: SkinImage {
-                width: 64,
-                height: 64,
-                image_bytes: rgba,
+                width: wire::U32LE(64),
+                height: wire::U32LE(64),
+                image_bytes: rgba.into(),
             },
             ..Default::default()
         },
-        ..Default::default()
-    };
+    );
     let packet = protocol::Packet::new(PlayerListPacket {
-        entries: vec![
-            PlayerListPacketEntriesItem::AddEntry(Box::new(classic)),
-            PlayerListPacketEntriesItem::AddEntry(Box::new(persona)),
-        ],
+        entries: vec![classic, persona],
     });
 
     let Some(WorldEvent::Actor(ActorEvent::PlayerList(update))) =
@@ -581,24 +537,21 @@ fn player_list_retains_bounded_standard_and_persona_baked_skins() {
 #[test]
 fn actor_normalization_rejects_unbounded_or_non_finite_fields() {
     let too_long = protocol::Packet::new(AddActorPacket {
-        actor_type: "x".repeat(protocol::MAX_ACTOR_IDENTIFIER_BYTES + 1),
+        actor_type: "x".repeat(protocol::MAX_ACTOR_IDENTIFIER_BYTES + 1).into(),
         ..Default::default()
     });
     let non_finite = protocol::Packet::new(AddActorPacket {
-        actor_type: "minecraft:bee".to_owned(),
-        rotation: Vec2 {
-            x: 0.0,
-            y: f32::NAN,
-        },
+        actor_type: "minecraft:bee".into(),
+        rotation: [0.0, f32::NAN].into(),
         ..Default::default()
     });
     let too_many_links = protocol::Packet::new(AddActorPacket {
-        actor_type: "minecraft:bee".to_owned(),
-        actor_links: vec![ActorLink::default(); protocol::MAX_ACTOR_LINKS_PER_SPAWN + 1],
+        actor_type: "minecraft:bee".into(),
+        actor_links: vec![EntityLink::default(); protocol::MAX_ACTOR_LINKS_PER_SPAWN + 1],
         ..Default::default()
     });
     let too_many_player_links = protocol::Packet::new(AddPlayerPacket {
-        actor_links: vec![ActorLink::default(); protocol::MAX_ACTOR_LINKS_PER_SPAWN + 1],
+        actor_links: vec![EntityLink::default(); protocol::MAX_ACTOR_LINKS_PER_SPAWN + 1],
         ..Default::default()
     });
 

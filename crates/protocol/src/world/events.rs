@@ -6,7 +6,9 @@
 
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_51::EnumsPlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode;
+use bedrock_protocol_1_26_51::enums::{
+    PlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode, RewindType,
+};
 
 use crate::{
     ActorEffectEvent, ActorEvent, ActorLinkEvent, ArmorEquipmentEvent, AudioEvent, BlockCrackEvent,
@@ -160,7 +162,7 @@ pub struct BlockEntityUpdateEvent {
     pub dimension: i32,
     /// Absolute block coordinates in X/Y/Z order.
     pub position: [i32; 3],
-    /// Exact validated-by-Valentine NetworkLittleEndian NBT bytes. The world
+    /// Exact codec-validated NetworkLittleEndian NBT bytes. The world
     /// worker applies the stricter client limits before storage.
     pub nbt: Vec<u8>,
 }
@@ -250,6 +252,10 @@ pub struct MovePlayerEvent {
     pub on_ground: bool,
     pub teleported: bool,
     pub source_tick: u64,
+    /// Vehicle the server says the player rides; 0 when none.
+    pub riding_runtime_id: u64,
+    /// Raw teleport cause, present only when the packet carries teleport data.
+    pub teleport_cause: Option<i32>,
 }
 
 /// Visual eye height of a standing player above its feet.
@@ -282,10 +288,8 @@ impl MovePlayerMode {
 
 impl From<MovePlayerPacketPositionMode> for MovePlayerMode {
     fn from(mode: MovePlayerPacketPositionMode) -> Self {
-        // 1.26.40 renames the mode variants but keeps the wire values, so this
-        // stays a name-only remap: gophertunnel packet/move_player.go pins
-        // MoveModeNormal=0, MoveModeReset=1, MoveModeTeleport=2,
-        // MoveModeRotation=3, which are Normal/Respawn/Teleport/OnlyHeadRot here.
+        // gophertunnel packet/move_player.go pins MoveModeNormal=0, MoveModeReset=1,
+        // MoveModeTeleport=2 and MoveModeRotation=3.
         match mode {
             MovePlayerPacketPositionMode::Normal => Self::Normal,
             MovePlayerPacketPositionMode::Respawn => Self::Reset,
@@ -390,14 +394,12 @@ impl MovementCorrectionSubject {
     }
 }
 
-impl From<valentine::bedrock::version::v1_26_51::EnumsRewindType> for MovementCorrectionSubject {
-    fn from(subject: valentine::bedrock::version::v1_26_51::EnumsRewindType) -> Self {
+impl From<RewindType> for MovementCorrectionSubject {
+    fn from(subject: RewindType) -> Self {
         match subject {
-            valentine::bedrock::version::v1_26_51::EnumsRewindType::Player => Self::Player,
-            valentine::bedrock::version::v1_26_51::EnumsRewindType::Vehicle => Self::Vehicle,
-            valentine::bedrock::version::v1_26_51::EnumsRewindType::Unknown(value) => {
-                Self::Unknown(value)
-            }
+            RewindType::Player => Self::Player,
+            RewindType::Vehicle => Self::Vehicle,
+            RewindType::Unknown(value) => Self::Unknown(value),
         }
     }
 }

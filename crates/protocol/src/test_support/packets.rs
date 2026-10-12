@@ -1,14 +1,16 @@
 //! Observations of outbound packets other than transactions and recipes, and world-packet
 //! fixtures normalized through the real decoder.
 
-use valentine::bedrock::codec::BedrockCodec;
-use valentine::bedrock::version::v1_26_51::{
-    ActorRuntimeId, ActorUniqueId, AddActorPacket, ChunkRadiusUpdatedPacket, DataItemEntry,
-    DataItemEntryPayload, DataItemShortPayload, EnumsDataItemType, EnumsPlayStatus,
-    ItemRegistryPacket, McpePacketData, ModalFormRequestPacket, MoveActorAbsoluteData,
-    MoveActorAbsolutePacket, MoveActorDeltaData, MoveActorDeltaPacket, PlayStatusPacket,
-    SynchedActorDataCopyableDataList, Vec3,
+use bedrock_protocol_1_26_51::enums::{DataItemType, PlayStatusType};
+use bedrock_protocol_1_26_51::packets::{
+    self, AddActor, ChunkRadiusUpdated, ItemRegistry, ModalFormRequest, MoveActorAbsolute,
+    MoveActorDelta, PlayStatus,
 };
+use bedrock_protocol_1_26_51::types::{
+    ActorRuntimeID, ActorUniqueID, DataItemEntry, DataItemEntryValue, MoveActorAbsoluteData,
+    MoveActorDeltaData, SynchedActorDataCopyableDataList,
+};
+use bedrock_protocol_1_26_51::wire::{self, Decode, Encode};
 
 use crate::{Packet, WorldEvent, WorldPacketError, into_world_event};
 
@@ -52,64 +54,63 @@ pub struct CrafterSlotToggleObservation {
 /// The emote `packet` starts, or `None` for any other packet.
 #[must_use]
 pub fn emote(packet: &Packet) -> Option<EmoteObservation> {
-    let McpePacketData::EmotePacket(emote) = &packet.data else {
+    let packets::Packet::Emote(emote) = &*packet.data else {
         return None;
     };
     Some(EmoteObservation {
-        actor_runtime_id: emote.actor_runtime_id.actor_runtime_id,
-        emote_id: emote.emote_id.clone(),
-        length_ticks: emote.emote_length_ticks,
-        flags: emote.flags,
+        actor_runtime_id: emote.actor_runtime_id.0,
+        emote_id: emote.emote_id.to_string_lossy().into_owned(),
+        length_ticks: emote.emote_length_ticks.0,
+        flags: emote.flags.0,
     })
 }
 
 /// The geometry engine version a PlayerSkin `packet` declares, or `None` for any other packet.
 #[must_use]
 pub fn skin_engine_version(packet: &Packet) -> Option<&str> {
-    let McpePacketData::PlayerSkinPacket(skin) = &packet.data else {
+    let packets::Packet::PlayerSkin(skin) = &*packet.data else {
         return None;
     };
-    Some(
-        skin.serialized_skin
-            .geometry_data_min_engine_version
-            .as_str(),
-    )
+    skin.serialized_skin
+        .geometry_data_min_engine_version
+        .to_str()
+        .ok()
 }
 
 /// The nine movement attributes a ClientMovementPredictionSync `packet` reports.
 #[must_use]
 pub fn prediction_sync_attributes(packet: &Packet) -> Option<[f32; 9]> {
-    let McpePacketData::ClientMovementPredictionSyncPacket(sync) = &packet.data else {
+    let packets::Packet::ClientMovementPredictionSync(sync) = &*packet.data else {
         return None;
     };
-    Some(sync.movement_attributes)
+    Some(sync.movement_attributes.map(|value| value.0))
 }
 
 /// The held-item update a MobEquipment `packet` sends, or `None` for any other packet.
 #[must_use]
 pub fn equipment(packet: &Packet) -> Option<EquipmentObservation> {
-    let McpePacketData::MobEquipmentPacket(equipment) = &packet.data else {
+    let packets::Packet::MobEquipment(equipment) = &*packet.data else {
         return None;
     };
     Some(EquipmentObservation {
-        actor_runtime_id: equipment.target_runtime_id.actor_runtime_id,
-        network_id: i32::from(equipment.item.id),
-        count: equipment.item.stacksize,
-        stack_network_id: equipment.item.net_id_variant,
-        slot: equipment.slot,
-        selected_slot: equipment.selected_slot,
-        container_id: equipment.container_id,
+        actor_runtime_id: equipment.target_runtime_id.0,
+        network_id: i32::from(equipment.item.id.0),
+        count: equipment.item.stack_size.0,
+        stack_network_id: equipment.item.net_id_variant.map(|id| id.0),
+        slot: equipment.slot.0,
+        selected_slot: equipment.selected_slot.0,
+        container_id: equipment.container_id.0,
     })
 }
 
 /// The window a ContainerClose `packet` closes, or `None` for any other packet.
 #[must_use]
 pub fn container_close(packet: &Packet) -> Option<ContainerCloseObservation> {
-    let McpePacketData::ContainerClosePacket(close) = &packet.data else {
+    let packets::Packet::ContainerClose(close) = &*packet.data else {
         return None;
     };
     Some(ContainerCloseObservation {
-        container_id: close.container_id,
+        container_id: close.container_id.0,
         server_initiated: close.server_initiated_close,
     })
 }
@@ -117,12 +118,12 @@ pub fn container_close(packet: &Packet) -> Option<ContainerCloseObservation> {
 /// The crafter slot a toggle request `packet` changes, or `None` for any other packet.
 #[must_use]
 pub fn crafter_slot_toggle(packet: &Packet) -> Option<CrafterSlotToggleObservation> {
-    let McpePacketData::PlayerToggleCrafterSlotRequestPacket(toggle) = &packet.data else {
+    let packets::Packet::PlayerToggleCrafterSlotRequest(toggle) = &*packet.data else {
         return None;
     };
     Some(CrafterSlotToggleObservation {
-        position: [toggle.pos_x, toggle.pos_y, toggle.pos_z],
-        slot: toggle.slot_index,
+        position: [toggle.pos_x.0, toggle.pos_y.0, toggle.pos_z.0],
+        slot: toggle.slot_index.0,
         disabled: toggle.is_disabled,
     })
 }
@@ -130,29 +131,31 @@ pub fn crafter_slot_toggle(packet: &Packet) -> Option<CrafterSlotToggleObservati
 /// A server ModalFormRequest carrying `json` as form `form_id`.
 #[must_use]
 pub fn modal_form_request_packet(form_id: u32, json: &str) -> Packet {
-    crate::Packet::new(ModalFormRequestPacket {
-        form_id,
-        form_uijson: json.to_owned(),
+    crate::Packet::new(ModalFormRequest {
+        form_id: wire::VarUInt(form_id),
+        form_ui_json: json.into(),
     })
 }
 
 /// An empty server ItemRegistry.
 #[must_use]
 pub fn item_registry_packet() -> Packet {
-    crate::Packet::new(ItemRegistryPacket::default())
+    crate::Packet::new(ItemRegistry::default())
 }
 
 /// A server ChunkRadiusUpdated granting `chunk_radius`.
 #[must_use]
 pub fn chunk_radius_updated_packet(chunk_radius: i32) -> Packet {
-    crate::Packet::new(ChunkRadiusUpdatedPacket { chunk_radius })
+    crate::Packet::new(ChunkRadiusUpdated {
+        chunk_radius: wire::ZigZag32(chunk_radius),
+    })
 }
 
 /// The PlayStatus that completes a join at player spawn.
 #[must_use]
 pub fn player_spawn_packet() -> Packet {
-    crate::Packet::new(PlayStatusPacket {
-        status: EnumsPlayStatus::Playerspawn,
+    crate::Packet::new(PlayStatus {
+        status: PlayStatusType::Playerspawn,
     })
 }
 
@@ -182,18 +185,16 @@ pub struct ActorAbsoluteFixture {
 pub fn move_actor_delta_event(
     delta: ActorDeltaFixture,
 ) -> Result<Option<WorldEvent>, WorldPacketError> {
-    let packet = round_trip(MoveActorDeltaPacket {
+    let packet = round_trip(MoveActorDelta {
         move_data: MoveActorDeltaData {
-            actor_runtime_id: ActorRuntimeId {
-                actor_runtime_id: delta.runtime_id,
-            },
-            new_position_x: delta.position[0],
-            new_position_y: delta.position[1],
-            new_position_z: delta.position[2],
-            rotation_x: delta.rotation[0],
-            rotation_y: delta.rotation[1],
-            rotation_y_head: delta.rotation[2],
-            ticks: delta.ticks,
+            actor_runtime_id: ActorRuntimeID(delta.runtime_id),
+            new_position_x: delta.position[0].map(wire::F32LE),
+            new_position_y: delta.position[1].map(wire::F32LE),
+            new_position_z: delta.position[2].map(wire::F32LE),
+            rotation_x: delta.rotation[0].map(wire::I8),
+            rotation_y: delta.rotation[1].map(wire::I8),
+            rotation_y_head: delta.rotation[2].map(wire::I8),
+            ticks: wire::VarULong(delta.ticks),
             force_completion: delta.force_completion,
             ..Default::default()
         },
@@ -205,17 +206,14 @@ pub fn move_actor_delta_event(
 pub fn move_actor_absolute_event(
     absolute: ActorAbsoluteFixture,
 ) -> Result<Option<WorldEvent>, WorldPacketError> {
-    let [x, y, z] = absolute.position;
-    let packet = round_trip(MoveActorAbsolutePacket {
+    let packet = round_trip(MoveActorAbsolute {
         move_data: MoveActorAbsoluteData {
-            actor_runtime_id: ActorRuntimeId {
-                actor_runtime_id: absolute.runtime_id,
-            },
-            header: absolute.flags,
-            position: Vec3 { x, y, z },
-            rotation_x: absolute.rotation[0],
-            rotation_y: absolute.rotation[1],
-            rotation_y_head: absolute.rotation[2],
+            actor_runtime_id: ActorRuntimeID(absolute.runtime_id),
+            header: wire::U8(absolute.flags),
+            position: absolute.position.into(),
+            rotation_x: wire::U8(absolute.rotation[0]),
+            rotation_y: wire::U8(absolute.rotation[1]),
+            rotation_y_head: wire::U8(absolute.rotation[2]),
         },
     });
     into_world_event(crate::Packet::new(packet), 0)
@@ -228,23 +226,19 @@ pub fn add_actor_event(
     identifier: &str,
     metadata: &[(u32, i16)],
 ) -> Result<Option<WorldEvent>, WorldPacketError> {
-    let packet = AddActorPacket {
-        target_actor_id: ActorUniqueId {
-            actor_unique_id: unique_id,
-        },
-        target_runtime_id: ActorRuntimeId {
-            actor_runtime_id: runtime_id,
-        },
-        actor_type: identifier.to_owned(),
+    let packet = AddActor {
+        target_actor_id: ActorUniqueID(unique_id),
+        target_runtime_id: ActorRuntimeID(runtime_id),
+        actor_type: identifier.into(),
         actor_data: SynchedActorDataCopyableDataList {
             data: metadata
                 .iter()
                 .map(|&(id, value)| DataItemEntry {
-                    id,
-                    payload: DataItemEntryPayload::DataItemShortPayload(DataItemShortPayload {
-                        type_: EnumsDataItemType::Short,
-                        value,
-                    }),
+                    id: wire::VarUInt(id),
+                    payload: DataItemEntryValue::DataItemShort {
+                        type_: DataItemType::Short,
+                        value: wire::I16LE(value),
+                    },
                 })
                 .collect(),
         },
@@ -254,8 +248,7 @@ pub fn add_actor_event(
 }
 
 /// Encodes and decodes one packet body so fixtures carry exactly what the wire can.
-fn round_trip<T: BedrockCodec<Args = ()>>(packet: T) -> T {
-    let mut bytes = Vec::new();
-    packet.encode(&mut bytes).expect("a fixture packet encodes");
-    T::decode(&mut bytes.as_slice(), ()).expect("an encoded fixture decodes")
+fn round_trip<T: Encode + Decode>(packet: T) -> T {
+    let bytes = packet.encode_to_vec().expect("a fixture packet encodes");
+    T::decode_exact(&bytes).expect("an encoded fixture decodes")
 }

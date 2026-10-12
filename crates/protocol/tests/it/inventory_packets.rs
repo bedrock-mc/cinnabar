@@ -1,3 +1,20 @@
+use bedrock_protocol_1_26_51::enums::{
+    ContainerEnumName as FullContainerNameContainerName,
+    ItemStackNetResult as ItemStackResponseInfoResult,
+};
+use bedrock_protocol_1_26_51::packets::{
+    self, ContainerClose as ContainerClosePacket, ContainerOpen as ContainerOpenPacket,
+    ContainerSetData as ContainerSetDataPacket, InventoryContent as InventoryContentPacket,
+    InventorySlot as InventorySlotPacket, ItemStackResponse as ItemStackResponsePacket,
+    PlayerHotbar as PlayerHotbarPacket,
+};
+use bedrock_protocol_1_26_51::types::{
+    ActorUniqueID, BedrockSafetyRedactableString, BlockPos, FullContainerName, ItemStackNetID,
+    ItemStackRequestID, ItemStackResponseContainerInfo, ItemStackResponseInfo,
+    ItemStackResponseSlotInfo, NetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
+    StructureEditorData,
+};
+use bedrock_protocol_1_26_51::wire::{self, Decode, Encode};
 use bytes::Bytes;
 use protocol::inventory::{
     normalize_container_close, normalize_container_data, normalize_container_open,
@@ -11,19 +28,6 @@ use protocol::{
 use protocol::{NetworkItemStack, WorldEvent, decode_batch, encode, into_world_event};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
-use valentine::bedrock::version::v1_26_51::{
-    ActorUniqueId, BedrockSafetyRedactableString, BedrockSafetyRedactableStringView, BlockPos,
-    CerealizerNetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
-    ContainerClosePacket, ContainerOpenPacket, ContainerSetDataPacket,
-    EnumsContainerEnumName as FullContainerNameContainerName,
-    EnumsItemStackNetResult as ItemStackResponseInfoResult, FullContainerName,
-    InventoryContentPacket, InventorySlotPacket, ItemStackResponseContainerInfo,
-    ItemStackResponseInfo, ItemStackResponsePacket, ItemStackResponseSlotInfo, McpePacketData,
-    PlayerHotbarPacket, StructureEditorData, StructureEditorDataView,
-    TypedClientNetIdstructItemStackRequestIdTagint32T0,
-    TypedServerNetIdstructItemStackNetIdTagint32T0,
-};
-use valentine::bedrock::{codec::BedrockCodec, error::DecodeError};
 
 const CONTENT_FIXTURE: &[u8] = include_bytes!("../../fixtures/inventory_content.bin");
 const SLOT_FIXTURE: &[u8] = include_bytes!("../../fixtures/inventory_slot.bin");
@@ -68,12 +72,12 @@ fn item_user_data(can_place_on: &[&str]) -> Vec<u8> {
 /// separately; 1.26.40 puts the same descriptor in both places.
 fn item(id: i16, stacksize: u16, stack_network_id: i32, user_data: Vec<u8>) -> ItemStackDescriptor {
     ItemStackDescriptor {
-        id,
-        stacksize,
-        auxvalue: u32::from_ne_bytes((-2i32).to_ne_bytes()),
-        net_id_variant: Some(stack_network_id),
-        block_runtime_id: 91,
-        user_data_buffer: user_data,
+        id: wire::I16LE(id),
+        stack_size: wire::U16LE(stacksize),
+        aux_value: wire::VarUInt(u32::from_ne_bytes((-2i32).to_ne_bytes())),
+        net_id_variant: Some(wire::ZigZag32(stack_network_id)),
+        block_runtime_id: wire::VarUInt(91),
+        user_data_buffer: user_data.into(),
     }
 }
 
@@ -83,7 +87,7 @@ fn full_container(
 ) -> FullContainerName {
     FullContainerName {
         container_name,
-        dynamic_id,
+        dynamic_id: dynamic_id.map(wire::U32LE),
     }
 }
 
@@ -102,17 +106,15 @@ fn response_slot(
     durability_correction: i32,
 ) -> ItemStackResponseSlotInfo {
     ItemStackResponseSlotInfo {
-        requested_slot: slot,
-        slot,
-        amount,
-        item_stack_net_id: Some(TypedServerNetIdstructItemStackNetIdTagint32T0 {
-            id: item_stack_id,
-        }),
+        requested_slot: wire::U8(slot),
+        slot: wire::U8(slot),
+        amount: wire::U8(amount),
+        item_stack_net_id: Some(ItemStackNetID(item_stack_id)),
         custom_name: BedrockSafetyRedactableString {
-            unredacted: custom_name.to_owned(),
-            redacted: Some(filtered_custom_name.to_owned()),
+            unredacted: custom_name.into(),
+            redacted: Some(filtered_custom_name.into()),
         },
-        durability_correction,
+        durability_correction: wire::ZigZag32(durability_correction),
     }
 }
 
@@ -123,7 +125,7 @@ fn accepted_response(
 ) -> ItemStackResponseInfo {
     ItemStackResponseInfo {
         result: ItemStackResponseInfoResult::Success,
-        client_request_id: TypedClientNetIdstructItemStackRequestIdTagint32T0 { id: request_id },
+        client_request_id: ItemStackRequestID(request_id),
         containers: Some(containers),
     }
 }
@@ -136,33 +138,33 @@ fn decode_fixture(bytes: &'static [u8]) -> protocol::Packet {
 
 #[test]
 fn pinned_gophertunnel_inventory_fixtures_normalize_without_vendor_types() {
-    let content = match decode_fixture(CONTENT_FIXTURE).data {
-        McpePacketData::InventoryContentPacket(packet) => normalize_content(*packet).unwrap(),
+    let content = match *decode_fixture(CONTENT_FIXTURE).data {
+        packets::Packet::InventoryContent(packet) => normalize_content(packet).unwrap(),
         other => panic!("expected InventoryContent, got {other:?}"),
     };
     assert!(matches!(content, InventoryEvent::Content(_)));
 
-    let slot = match decode_fixture(SLOT_FIXTURE).data {
-        McpePacketData::InventorySlotPacket(packet) => normalize_slot(*packet).unwrap(),
+    let slot = match *decode_fixture(SLOT_FIXTURE).data {
+        packets::Packet::InventorySlot(packet) => normalize_slot(packet).unwrap(),
         other => panic!("expected InventorySlot, got {other:?}"),
     };
     assert!(matches!(slot, InventoryEvent::Slot(_)));
 
-    let hotbar = match decode_fixture(HOTBAR_FIXTURE).data {
-        McpePacketData::PlayerHotbarPacket(packet) => normalize_hotbar(packet).unwrap(),
+    let hotbar = match *decode_fixture(HOTBAR_FIXTURE).data {
+        packets::Packet::PlayerHotbar(packet) => normalize_hotbar(packet).unwrap(),
         other => panic!("expected PlayerHotbar, got {other:?}"),
     };
     assert!(matches!(hotbar, InventoryEvent::SelectedSlot(_)));
 
-    let response = match decode_fixture(RESPONSE_FIXTURE).data {
-        McpePacketData::ItemStackResponsePacket(packet) => normalize_response(packet).unwrap(),
+    let response = match *decode_fixture(RESPONSE_FIXTURE).data {
+        packets::Packet::ItemStackResponse(packet) => normalize_response(packet).unwrap(),
         other => panic!("expected ItemStackResponse, got {other:?}"),
     };
     assert!(matches!(response, InventoryEvent::Response(_)));
 }
 
 /// The pinned InventorySlot fixture carries window id 0 plus a full
-/// container name whose byte encodes `EnumsContainerEnumName::
+/// container name whose byte encodes `ContainerEnumName::
 /// InventoryContainer` — the exact shape live servers send for ordinary
 /// player-inventory slot updates. The canonical address projection must
 /// route that shape onto player-inventory cell 4 exactly like the unnamed
@@ -170,8 +172,8 @@ fn pinned_gophertunnel_inventory_fixtures_normalize_without_vendor_types() {
 /// otherwise.
 #[test]
 fn pinned_inventory_slot_fixture_projects_through_the_canonical_address() {
-    let slot = match decode_fixture(SLOT_FIXTURE).data {
-        McpePacketData::InventorySlotPacket(packet) => normalize_slot(*packet).unwrap(),
+    let slot = match *decode_fixture(SLOT_FIXTURE).data {
+        packets::Packet::InventorySlot(packet) => normalize_slot(packet).unwrap(),
         other => panic!("expected InventorySlot, got {other:?}"),
     };
     let InventoryEvent::Slot(slot) = slot else {
@@ -196,8 +198,8 @@ fn pinned_inventory_slot_fixture_projects_through_the_canonical_address() {
 /// A live server's arbitrary container name on window 0 still lands in the player hotbar.
 #[test]
 fn live_window_zero_slot_routes_by_window_despite_a_foreign_container_name() {
-    let InventoryEvent::Slot(slot) = (match decode_fixture(LIVE_ZEQA_SLOT_FIXTURE).data {
-        McpePacketData::InventorySlotPacket(packet) => normalize_slot(*packet).unwrap(),
+    let InventoryEvent::Slot(slot) = (match *decode_fixture(LIVE_ZEQA_SLOT_FIXTURE).data {
+        packets::Packet::InventorySlot(packet) => normalize_slot(packet).unwrap(),
         other => panic!("expected InventorySlot, got {other:?}"),
     }) else {
         panic!("expected a Slot event")
@@ -215,8 +217,8 @@ fn live_window_zero_slot_routes_by_window_despite_a_foreign_container_name() {
 /// A live server's armor content on window 120 lands in the armor cells whatever its name.
 #[test]
 fn live_window_120_content_routes_to_the_armor_cells() {
-    let InventoryEvent::Content(content) = (match decode_fixture(LIVE_ZEQA_ARMOR_FIXTURE).data {
-        McpePacketData::InventoryContentPacket(packet) => normalize_content(*packet).unwrap(),
+    let InventoryEvent::Content(content) = (match *decode_fixture(LIVE_ZEQA_ARMOR_FIXTURE).data {
+        packets::Packet::InventoryContent(packet) => normalize_content(packet).unwrap(),
         other => panic!("expected InventoryContent, got {other:?}"),
     }) else {
         panic!("expected a Content event")
@@ -248,52 +250,38 @@ fn inventory_packets_dispatch_through_the_public_world_event_surface() {
 #[test]
 fn item_stack_response_fixture_decodes_and_round_trips_exactly() {
     let packet = decode_fixture(RESPONSE_FIXTURE);
-    let McpePacketData::ItemStackResponsePacket(response) = &packet.data else {
+    let packets::Packet::ItemStackResponse(response) = &*packet.data else {
         panic!("expected ItemStackResponse")
     };
     let slot = &response.responses[0].containers.as_ref().unwrap()[0].slots[0];
     assert_eq!(slot.custom_name.unredacted, "Fixture item");
-    assert_eq!(slot.custom_name.redacted.as_deref(), Some("Fixture item"));
+    assert_eq!(
+        slot.custom_name.redacted,
+        Some(wire::Str::from("Fixture item"))
+    );
 
     let encoded = encode(&packet).unwrap();
     assert_eq!(encoded.as_ref(), RESPONSE_FIXTURE);
 }
 
-/// Checks presence, empty values, truncation, and borrowed decoding of filtered names.
+/// Checks presence, empty values and truncation of filtered names.
 #[test]
 fn response_filtered_name_preserves_optional_wire_shape() {
-    use valentine::bedrock::codec::BedrockSized;
-    use valentine::bedrock::version::v1_26_51::ItemStackResponseSlotInfoView;
-    for filtered in [None, Some(String::new()), Some("filtered".to_owned())] {
+    for filtered in [None, Some(""), Some("filtered")] {
         let slot = ItemStackResponseSlotInfo {
             custom_name: BedrockSafetyRedactableString {
-                unredacted: "original".to_owned(),
-                redacted: filtered,
+                unredacted: "original".into(),
+                redacted: filtered.map(wire::Str::from),
             },
-            durability_correction: -3,
+            durability_correction: wire::ZigZag32(-3),
             ..Default::default()
         };
-        let mut wire = Vec::new();
-        slot.encode(&mut wire).unwrap();
-        assert_eq!(slot.encoded_size(), wire.len());
-        let owned = ItemStackResponseSlotInfo::decode(&mut Bytes::from(wire.clone()), ()).unwrap();
+        let wire = slot.encode_to_vec().unwrap();
+        let owned = ItemStackResponseSlotInfo::decode_exact(&wire).unwrap();
         assert_eq!(owned, slot);
-        let borrowed =
-            ItemStackResponseSlotInfoView::decode(&mut Bytes::from(wire.clone())).unwrap();
-        assert_eq!(borrowed.encoded_size(), wire.len());
-        let mut encoded = Vec::new();
-        borrowed.encode(&mut encoded).unwrap();
-        assert_eq!(encoded, wire);
-        assert_eq!(ItemStackResponseSlotInfo::from(borrowed), slot);
+        assert_eq!(owned.encode_to_vec().unwrap(), wire);
         for end in 0..wire.len() {
-            assert!(
-                ItemStackResponseSlotInfo::decode(&mut Bytes::copy_from_slice(&wire[..end]), ())
-                    .is_err()
-            );
-            assert!(
-                ItemStackResponseSlotInfoView::decode(&mut Bytes::copy_from_slice(&wire[..end]))
-                    .is_err()
-            );
+            assert!(ItemStackResponseSlotInfo::decode_exact(&wire[..end]).is_err());
         }
     }
 }
@@ -309,30 +297,22 @@ fn structure_editor_name_uses_two_bounded_adjacent_strings() {
         data_field: "payload".into(),
         ..Default::default()
     };
-    let mut encoded = Vec::new();
-    structure.encode(&mut encoded).unwrap();
+    let encoded = structure.encode_to_vec().unwrap();
     assert_eq!(&encoded[..20], b"\x09structure\x08filtered\x07");
 
-    let mut body = Bytes::from(encoded.clone());
-    let decoded = StructureEditorData::decode(&mut body, ()).unwrap();
+    let shared = Bytes::from(encoded.clone());
+    let decoded = StructureEditorData::decode_shared(&shared, &wire::Limits::default()).unwrap();
     assert_eq!(decoded, structure);
-    assert!(body.is_empty());
-    let mut reencoded = Vec::new();
-    decoded.encode(&mut reencoded).unwrap();
-    assert_eq!(reencoded, encoded);
+    assert_eq!(decoded.structure_name.as_bytes(), b"structure");
+    assert_eq!(decoded.filtered_structure_name.as_bytes(), b"filtered");
+    assert_eq!(decoded.encode_to_vec().unwrap(), encoded);
 
-    let mut borrowed_body = Bytes::from(encoded);
-    let borrowed = StructureEditorDataView::decode(&mut borrowed_body).unwrap();
-    assert_eq!(borrowed.structure_name.as_bytes(), b"structure");
-    assert_eq!(borrowed.filtered_structure_name.as_bytes(), b"filtered");
-    assert!(borrowed_body.is_empty());
-
-    let mut malformed = Bytes::from_static(&[0, 5, b'x']);
     assert!(matches!(
-        StructureEditorData::decode(&mut malformed, ()),
-        Err(DecodeError::StringLengthExceeded {
-            declared: 5,
-            available: 1
+        StructureEditorData::decode(&mut wire::Reader::new(&[0, 5, b'x'])),
+        Err(wire::DecodeError::LengthNotRepresentable {
+            field: bedrock_protocol_1_26_51::fields::STRUCTURE_EDITOR_DATA_FILTERED_STRUCTURE_NAME,
+            needed: 5,
+            remaining: 1
         })
     ));
 }
@@ -341,25 +321,18 @@ fn structure_editor_name_uses_two_bounded_adjacent_strings() {
 #[test]
 fn redactable_string_redacted_half_is_optional() {
     let empty = BedrockSafetyRedactableString::default();
-    let mut empty_wire = Vec::new();
-    empty.encode(&mut empty_wire).unwrap();
+    let empty_wire = empty.encode_to_vec().unwrap();
     assert_eq!(empty_wire, [0, 0]);
-    let mut empty_wire = Bytes::from(empty_wire);
-    assert_eq!(
-        BedrockSafetyRedactableString::decode(&mut empty_wire, ()).unwrap(),
-        empty
-    );
-    let mut borrowed_empty_wire = Bytes::from_static(&[0, 0]);
-    let borrowed_empty =
-        BedrockSafetyRedactableStringView::decode(&mut borrowed_empty_wire).unwrap();
-    assert!(borrowed_empty.redacted.is_none());
+    let decoded = BedrockSafetyRedactableString::decode_exact(&empty_wire).unwrap();
+    assert_eq!(decoded, empty);
+    assert!(decoded.redacted.is_none());
 }
 
 #[test]
 fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() {
     let first_user_data = item_user_data(&["minecraft:stone"]);
     let content = InventoryContentPacket {
-        container_id: u32::from(INVENTORY_CONTAINER),
+        container_id: wire::VarUInt(u32::from(INVENTORY_CONTAINER)),
         slots: vec![
             item(5, 2, 11, first_user_data.clone()),
             item(6, 3, 12, item_user_data(&["minecraft:dirt"])),
@@ -383,8 +356,8 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
     assert_eq!(content.slots[0].nbt_digest, first_digest);
 
     let slot = InventorySlotPacket {
-        container_id: INVENTORY_CONTAINER,
-        slot: 8,
+        container_id: wire::U8(INVENTORY_CONTAINER),
+        slot: wire::VarUInt(8),
         full_container_name: Some(full_container(
             FullContainerNameContainerName::Inventorycontainer,
             None,
@@ -400,9 +373,9 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
     assert_eq!(slot.stack.stack_network_id, 13);
 
     let hotbar = PlayerHotbarPacket {
-        selected_slot: 4,
-        container_id: INVENTORY_CONTAINER,
-        shouldselectslot: true,
+        selected_slot: wire::VarUInt(4),
+        container_id: wire::U8(INVENTORY_CONTAINER),
+        should_select_slot: true,
     };
     let InventoryEvent::SelectedSlot(selected) = normalize_hotbar(hotbar).unwrap() else {
         panic!("expected selected-slot event")
@@ -450,12 +423,14 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
     );
 
     let open = ContainerOpenPacket {
-        container_id: FIRST_CONTAINER,
-        container_type: CONTAINER_TYPE,
-        position: BlockPos { x: 1, y: 64, z: -2 },
-        target_actor_id: ActorUniqueId {
-            actor_unique_id: -77,
+        container_id: wire::U8(FIRST_CONTAINER),
+        container_type: wire::U8(CONTAINER_TYPE),
+        position: BlockPos {
+            x: wire::ZigZag32(1),
+            y: wire::ZigZag32(64),
+            z: wire::ZigZag32(-2),
         },
+        target_actor_id: ActorUniqueID(-77),
     };
     let InventoryEvent::Open(open) = normalize_container_open(open).unwrap() else {
         panic!("expected open event")
@@ -465,8 +440,8 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
     assert_eq!(open.runtime_entity_id, -77);
 
     let close = ContainerClosePacket {
-        container_id: FIRST_CONTAINER,
-        container_type: CONTAINER_TYPE,
+        container_id: wire::U8(FIRST_CONTAINER),
+        container_type: wire::U8(CONTAINER_TYPE),
         server_initiated_close: true,
     };
     assert!(matches!(
@@ -474,9 +449,9 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
         InventoryEvent::Close(_)
     ));
     let data = ContainerSetDataPacket {
-        container_id: FIRST_CONTAINER,
-        id: -4,
-        value: 99,
+        container_id: wire::U8(FIRST_CONTAINER),
+        id: wire::ZigZag32(-4),
+        value: wire::ZigZag32(99),
     };
     assert!(matches!(
         normalize_container_data(data).unwrap(),
@@ -488,7 +463,7 @@ fn content_slot_hotbar_response_and_container_packets_normalize_in_wire_order() 
 fn default_full_container_descriptor_uses_legacy_player_window_identity_only() {
     let slots = vec![ItemStackDescriptor::default(); 36];
     let InventoryEvent::Content(content) = normalize_content(InventoryContentPacket {
-        container_id: u32::from(INVENTORY_CONTAINER),
+        container_id: wire::VarUInt(u32::from(INVENTORY_CONTAINER)),
         slots,
         full_container_name: default_full_container(),
         storage_item: ItemStackDescriptor::default(),
@@ -510,8 +485,8 @@ fn default_full_container_descriptor_uses_legacy_player_window_identity_only() {
     );
 
     let InventoryEvent::Slot(slot) = normalize_slot(InventorySlotPacket {
-        container_id: INVENTORY_CONTAINER,
-        slot: 4,
+        container_id: wire::U8(INVENTORY_CONTAINER),
+        slot: wire::VarUInt(4),
         full_container_name: Some(default_full_container()),
         storage_item: None,
         item: item(7, 1, 13, Vec::new()),
@@ -526,7 +501,7 @@ fn default_full_container_descriptor_uses_legacy_player_window_identity_only() {
     );
 
     let InventoryEvent::Content(offhand) = normalize_content(InventoryContentPacket {
-        container_id: u32::from_ne_bytes((-119_i32).to_ne_bytes()),
+        container_id: wire::VarUInt(u32::from_ne_bytes((-119i32).to_ne_bytes())),
         slots: vec![ItemStackDescriptor::default()],
         full_container_name: default_full_container(),
         storage_item: ItemStackDescriptor::default(),
@@ -545,7 +520,7 @@ fn default_full_container_descriptor_uses_legacy_player_window_identity_only() {
     );
 
     let InventoryEvent::Content(offhand) = normalize_content(InventoryContentPacket {
-        container_id: 119,
+        container_id: wire::VarUInt(119),
         slots: vec![ItemStackDescriptor::default()],
         full_container_name: default_full_container(),
         storage_item: ItemStackDescriptor::default(),
@@ -564,7 +539,7 @@ fn default_full_container_descriptor_uses_legacy_player_window_identity_only() {
 #[test]
 fn legacy_windows_ignore_their_container_name_and_windowless_defaults_stay_unrouted() {
     let default_foreign = normalize_content(InventoryContentPacket {
-        container_id: 120,
+        container_id: wire::VarUInt(120),
         slots: vec![ItemStackDescriptor::default(); 5],
         full_container_name: default_full_container(),
         storage_item: ItemStackDescriptor::default(),
@@ -581,10 +556,10 @@ fn legacy_windows_ignore_their_container_name_and_windowless_defaults_stay_unrou
 
     for dynamic_id in [0, 7] {
         let dynamic_default = normalize_content(InventoryContentPacket {
-            container_id: u32::from(INVENTORY_CONTAINER),
+            container_id: wire::VarUInt(u32::from(INVENTORY_CONTAINER)),
             slots: vec![ItemStackDescriptor::default()],
             full_container_name: FullContainerName {
-                dynamic_id: Some(dynamic_id),
+                dynamic_id: Some(wire::U32LE(dynamic_id)),
                 ..default_full_container()
             },
             storage_item: ItemStackDescriptor::default(),
@@ -606,7 +581,7 @@ fn legacy_windows_ignore_their_container_name_and_windowless_defaults_stay_unrou
         FullContainerNameContainerName::Unknown(211),
     ] {
         let event = normalize_content(InventoryContentPacket {
-            container_id: u32::from(INVENTORY_CONTAINER),
+            container_id: wire::VarUInt(u32::from(INVENTORY_CONTAINER)),
             slots: vec![ItemStackDescriptor::default()],
             full_container_name: full_container(name, None),
             storage_item: ItemStackDescriptor::default(),
@@ -623,7 +598,7 @@ fn legacy_windows_ignore_their_container_name_and_windowless_defaults_stay_unrou
     }
 
     let cursor = normalize_content(InventoryContentPacket {
-        container_id: u32::from(INVENTORY_CONTAINER),
+        container_id: wire::VarUInt(u32::from(INVENTORY_CONTAINER)),
         slots: vec![ItemStackDescriptor::default()],
         full_container_name: full_container(FullContainerNameContainerName::Cursorcontainer, None),
         storage_item: ItemStackDescriptor::default(),
@@ -669,7 +644,7 @@ fn authority_and_identity_preserve_start_game_and_container_discriminants() {
     );
 
     let unknown = InventoryContentPacket {
-        container_id: u32::from_ne_bytes((-777i32).to_ne_bytes()),
+        container_id: wire::VarUInt(u32::from_ne_bytes((-777i32).to_ne_bytes())),
         slots: Vec::new(),
         full_container_name: full_container(
             FullContainerNameContainerName::Unknown(211),
@@ -685,7 +660,7 @@ fn authority_and_identity_preserve_start_game_and_container_discriminants() {
     assert_eq!(content.container.dynamic_id, Some(u32::MAX));
 
     let negative_item_id = InventoryContentPacket {
-        container_id: u32::from(INVENTORY_CONTAINER),
+        container_id: wire::VarUInt(u32::from(INVENTORY_CONTAINER)),
         slots: vec![item(-5, 1, 1, Vec::new())],
         full_container_name: FullContainerName::default(),
         storage_item: ItemStackDescriptor::default(),
@@ -699,8 +674,8 @@ fn authority_and_identity_preserve_start_game_and_container_discriminants() {
 #[test]
 fn invalid_slots_items_and_collection_sizes_fail_closed() {
     let invalid_slot = InventorySlotPacket {
-        container_id: INVENTORY_CONTAINER,
-        slot: u32::MAX,
+        container_id: wire::U8(INVENTORY_CONTAINER),
+        slot: wire::VarUInt(u32::MAX),
         full_container_name: None,
         storage_item: None,
         item: item(1, 1, 1, Vec::new()),
@@ -711,7 +686,7 @@ fn invalid_slots_items_and_collection_sizes_fail_closed() {
     );
 
     let oversized = InventoryContentPacket {
-        container_id: u32::from(INVENTORY_CONTAINER),
+        container_id: wire::VarUInt(u32::from(INVENTORY_CONTAINER)),
         slots: vec![ItemStackDescriptor::default(); MAX_CONTAINER_SLOTS + 1],
         full_container_name: FullContainerName::default(),
         storage_item: ItemStackDescriptor::default(),
@@ -725,7 +700,7 @@ fn invalid_slots_items_and_collection_sizes_fail_closed() {
     );
 
     let bad_extra = InventoryContentPacket {
-        container_id: u32::from(INVENTORY_CONTAINER),
+        container_id: wire::VarUInt(u32::from(INVENTORY_CONTAINER)),
         slots: vec![item(1, 1, 1, vec![0; protocol::MAX_ITEM_EXTRA_BYTES + 1])],
         full_container_name: FullContainerName::default(),
         storage_item: ItemStackDescriptor::default(),
@@ -806,7 +781,7 @@ fn accepted_response_retains_odd_stack_ids_for_lenient_sparse_validation() {
                 None,
             ),
             slots: vec![ItemStackResponseSlotInfo {
-                item_stack_net_id: Some(TypedServerNetIdstructItemStackNetIdTagint32T0 { id: -1 }),
+                item_stack_net_id: Some(ItemStackNetID(-1)),
                 ..Default::default()
             }],
         }],
@@ -857,7 +832,7 @@ fn verified_network_stack_requires_retained_bytes_and_both_digests_to_match() {
 // items) must decode rather than fail. gophertunnel's writer emits a zero-length ByteSlice
 // for an absent stack (`Writer.itemUserData`, `minecraft/protocol/writer.go`, the `!present`
 // branch) and its reader returns without parsing when that blob is empty
-// (`Reader.itemUserData`); valentine previously always read a 2-byte discriminant from the
+// (`Reader.itemUserData`); the old codec always read a 2-byte discriminant from the
 // empty sub-buffer, producing "unexpected end of buffer: needed 2 bytes, had 0" on a real
 // Lifeboat/sm3 join.
 //
@@ -867,27 +842,22 @@ fn verified_network_stack_requires_retained_bytes_and_both_digests_to_match() {
 // case the bug was found on — two descriptors whose user-data length prefix is zero.
 #[test]
 fn inventory_slot_with_empty_extra_items_decodes_and_round_trips() {
-    use valentine::bedrock::codec::BedrockCodec;
-
     // Exact 22-byte InventorySlot body observed on the wire.
     let body: [u8; 22] = [
         0x7c, 0x00, 0x01, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
 
-    let mut buf: &[u8] = &body;
-    let packet = InventorySlotPacket::decode(&mut buf, ())
-        .expect("empty-user-data items must decode instead of erroring");
-    assert!(buf.is_empty(), "entire body consumed, no trailing bytes");
+    let packet = InventorySlotPacket::decode_exact(&body)
+        .expect("empty-user-data items must decode instead of erroring, with no trailing bytes");
 
     let storage = packet.storage_item.as_ref().expect("storage item present");
-    assert_eq!(storage.id, 0, "storage item is air");
+    assert_eq!(storage.id.0, 0, "storage item is air");
     assert!(storage.user_data_buffer.is_empty());
-    assert_eq!(packet.item.id, 0, "new item is air");
+    assert_eq!(packet.item.id.0, 0, "new item is air");
     assert!(packet.item.user_data_buffer.is_empty());
 
     // Air items re-encode to a zero-length user-data blob, reproducing the original bytes exactly.
-    let mut out = Vec::new();
-    packet.encode(&mut out).expect("re-encode");
+    let out = packet.encode_to_vec().expect("re-encode");
     assert_eq!(out, body, "round-trips back to the original wire bytes");
 }

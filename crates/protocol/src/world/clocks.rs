@@ -1,4 +1,4 @@
-use valentine::bedrock::version::v1_26_51::SyncWorldClocksPacketData;
+use bedrock_protocol_1_26_51::types::SyncWorldClocksData;
 
 /// The vanilla clock behind the level time and the atmosphere renderer.
 ///
@@ -37,28 +37,24 @@ pub enum WorldClockUpdateEvent {
     Sync(WorldClockState),
 }
 
-pub(super) fn normalize_world_clocks(
-    data: SyncWorldClocksPacketData,
-) -> Vec<WorldClockUpdateEvent> {
+pub(super) fn normalize_world_clocks(data: SyncWorldClocksData) -> Vec<WorldClockUpdateEvent> {
     match data {
-        SyncWorldClocksPacketData::InitializeRegistryData(data) => data
-            .clock_data
+        SyncWorldClocksData::InitializeRegistryData { clock_data } => clock_data
             .into_iter()
             .map(|clock| {
                 WorldClockUpdateEvent::Initialize(WorldClockDefinition {
-                    id: clock.id,
-                    time: clock.time,
+                    id: clock.id.0,
+                    time: clock.time.0,
                     paused: clock.is_paused,
                 })
             })
             .collect(),
-        SyncWorldClocksPacketData::SyncStateData(data) => data
-            .clock_data
+        SyncWorldClocksData::SyncStateData { clock_data } => clock_data
             .into_iter()
             .map(|clock| {
                 WorldClockUpdateEvent::Sync(WorldClockState {
-                    id: clock.clock_id,
-                    time: clock.time,
+                    id: clock.clock_id.0,
+                    time: clock.time.0,
                     paused: clock.is_paused,
                 })
             })
@@ -66,7 +62,7 @@ pub(super) fn normalize_world_clocks(
         // Marker registration is decoded completely, but Cinnabar currently
         // has no world-clock event/script consumer. It does not change time
         // or pause state in the native handlers.
-        SyncWorldClocksPacketData::AddTimeMarkerData(_)
-        | SyncWorldClocksPacketData::RemoveTimeMarkerData(_) => Vec::new(),
+        SyncWorldClocksData::AddTimeMarkerData { .. }
+        | SyncWorldClocksData::RemoveTimeMarkerData { .. } => Vec::new(),
     }
 }

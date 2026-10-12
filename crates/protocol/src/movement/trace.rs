@@ -5,9 +5,8 @@
 //! names come from the encoder's own [`super::INPUT_FLAG_ITEMS`] table rather
 //! than a second spelling.
 
-use valentine::bedrock::version::v1_26_51::{
-    EnumsInputMode, EnumsPlayerAuthInputPacketPayloadInputData, McpePacketData,
-};
+use bedrock_protocol_1_26_51::enums::{InputData, InputMode};
+use bedrock_protocol_1_26_51::packets;
 
 use super::INPUT_FLAG_ITEMS;
 use crate::Packet;
@@ -42,31 +41,27 @@ pub struct PlayerAuthInputTraceSample {
 /// trace, or returns `None` for any other packet kind.
 #[must_use]
 pub fn player_auth_input_trace_sample(packet: &Packet) -> Option<PlayerAuthInputTraceSample> {
-    let McpePacketData::PlayerAuthInputPacket(input) = &packet.data else {
+    let packets::Packet::PlayerAuthInput(input) = &*packet.data else {
         return None;
     };
     let flag_items = input.input_data.as_slice();
     Some(PlayerAuthInputTraceSample {
-        tick: input.client_tick.inputtick,
-        position: [input.position.x, input.position.y, input.position.z],
-        pos_delta: [input.pos_delta.x, input.pos_delta.y, input.pos_delta.z],
-        move_vector: [input.move_vector.x, input.move_vector.y],
-        analog_move_vector: [input.analog_move_vector.x, input.analog_move_vector.y],
-        raw_move_vector: [input.raw_move_vector.x, input.raw_move_vector.y],
+        tick: input.client_tick.0,
+        position: input.position.to_array(),
+        pos_delta: input.pos_delta.to_array(),
+        move_vector: input.move_vector.to_array(),
+        analog_move_vector: input.analog_move_vector.to_array(),
+        raw_move_vector: input.raw_move_vector.to_array(),
         pitch: input.player_rotation.x,
         yaw: input.player_rotation.y,
-        head_yaw: input.player_head_rotation,
-        camera_orientation: [
-            input.camera_orientation.x,
-            input.camera_orientation.y,
-            input.camera_orientation.z,
-        ],
+        head_yaw: input.player_head_rotation.0,
+        camera_orientation: input.camera_orientation.to_array(),
         flag_names: flag_names(flag_items),
         input_mode: input_mode_name(input.input_mode),
     })
 }
 
-fn flag_names(items: &[EnumsPlayerAuthInputPacketPayloadInputData]) -> Vec<&'static str> {
+fn flag_names(items: &[InputData]) -> Vec<&'static str> {
     items
         .iter()
         .filter_map(|item| {
@@ -78,15 +73,15 @@ fn flag_names(items: &[EnumsPlayerAuthInputPacketPayloadInputData]) -> Vec<&'sta
         .collect()
 }
 
-fn input_mode_name(mode: EnumsInputMode) -> &'static str {
+fn input_mode_name(mode: InputMode) -> &'static str {
     match mode {
-        EnumsInputMode::Undefined => "Undefined",
-        EnumsInputMode::Mouse => "Mouse",
-        EnumsInputMode::Touch => "Touch",
-        EnumsInputMode::Gamepad => "GamePad",
-        EnumsInputMode::Motioncontroller => "MotionController",
-        EnumsInputMode::Count => "Count",
-        EnumsInputMode::Unknown(_) => "Unknown",
+        InputMode::Undefined => "Undefined",
+        InputMode::Mouse => "Mouse",
+        InputMode::Touch => "Touch",
+        InputMode::Gamepad => "GamePad",
+        InputMode::Motioncontroller => "MotionController",
+        InputMode::Count => "Count",
+        InputMode::Unknown(_) => "Unknown",
     }
 }
 

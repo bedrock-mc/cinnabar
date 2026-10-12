@@ -1,7 +1,8 @@
-use valentine::bedrock::version::v1_26_51::{
-    ActorDataBoundingBoxComponent, ActorDataFlagComponent, ActorUniqueId,
-    ClientMovementPredictionSyncPacket,
+use bedrock_protocol_1_26_51::packets::ClientMovementPredictionSync;
+use bedrock_protocol_1_26_51::types::{
+    ActorDataBoundingBoxComponent, ActorDataFlagComponent, ActorUniqueID, Bitset131,
 };
+use bedrock_protocol_1_26_51::wire;
 
 use crate::Packet;
 
@@ -22,18 +23,16 @@ pub struct MovementPredictionSync {
 /// Encodes a prediction sync; non-finite floats are sent as zero rather than failing.
 #[must_use]
 pub fn client_movement_prediction_sync(sync: MovementPredictionSync) -> Packet {
-    let finite = |value: f32| if value.is_finite() { value } else { 0.0 };
-    crate::Packet::new(ClientMovementPredictionSyncPacket {
+    let finite = |value: f32| wire::F32LE(if value.is_finite() { value } else { 0.0 });
+    crate::Packet::new(ClientMovementPredictionSync {
         actor_data_flag: ActorDataFlagComponent {
-            actor_flag_bitset_data: sync.actor_flags,
+            actor_flag_bitset_data: Bitset131(sync.actor_flags),
         },
         actor_bounding_box: ActorDataBoundingBoxComponent {
             actor_data_bounding_box: sync.bounding_box.map(finite),
         },
         movement_attributes: sync.attributes.map(finite),
-        actor_unique_id: ActorUniqueId {
-            actor_unique_id: sync.unique_id,
-        },
+        actor_unique_id: ActorUniqueID(sync.unique_id),
         actor_flying_state: sync.flying,
     })
 }
@@ -51,18 +50,32 @@ mod tests {
             unique_id: 7,
             flying: true,
         });
-        let valentine::bedrock::version::v1_26_51::McpePacketData::ClientMovementPredictionSyncPacket(
-            body,
-        ) = packet.data
+        let bedrock_protocol_1_26_51::packets::Packet::ClientMovementPredictionSync(body) =
+            *packet.data
         else {
             panic!("wrong packet");
         };
         assert_eq!(
-            body.actor_bounding_box.actor_data_bounding_box,
+            body.actor_bounding_box
+                .actor_data_bounding_box
+                .map(|value| value.0),
             [1.0, 0.6, 0.0]
         );
-        assert_eq!(body.actor_unique_id.actor_unique_id, 7);
+        assert_eq!(body.actor_unique_id.0, 7);
         assert!(body.actor_flying_state);
-        assert_eq!(body.actor_data_flag.actor_flag_bitset_data[0], 1 << 3);
+        assert_eq!(body.actor_data_flag.actor_flag_bitset_data.0[0], 1 << 3);
+    }
+
+    /// Flag bits past the 131-bit set are dropped on the wire rather than failing the send.
+    #[test]
+    fn flags_beyond_the_bitset_width_still_encode() {
+        let packet = client_movement_prediction_sync(MovementPredictionSync {
+            actor_flags: [1, 0, u64::MAX],
+            bounding_box: [1.0, 1.8, 0.6],
+            attributes: [0.0; 9],
+            unique_id: 1,
+            flying: false,
+        });
+        assert!(crate::encode(&packet).is_ok());
     }
 }

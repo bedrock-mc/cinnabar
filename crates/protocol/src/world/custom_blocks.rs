@@ -1,7 +1,7 @@
 mod shared_states;
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_51::StartGamePacket;
+use bedrock_protocol_1_26_51::packets::StartGame;
 
 use crate::nbt_tree::{Nbt, read_root};
 
@@ -360,13 +360,18 @@ pub struct CustomBlocks {
 }
 
 impl CustomBlocks {
-    pub(crate) fn from_start_game(start_game: &StartGamePacket) -> Self {
-        Self::from_definitions(start_game.block_properties.iter().map(|property| {
-            (
-                property.block_name.as_str(),
-                property.block_definition.0.as_ref(),
-            )
-        }))
+    pub(crate) fn from_start_game(start_game: &StartGame) -> Self {
+        let properties = &start_game.block_properties;
+        let names: Vec<_> = properties
+            .iter()
+            .map(|property| property.block_name.to_string_lossy())
+            .collect();
+        Self::from_definitions(
+            names
+                .iter()
+                .zip(properties)
+                .map(|(name, property)| (&**name, &property.block_definition.0[..])),
+        )
     }
 
     /// Parses `(name, network NBT)` block definitions as StartGame carries them.
@@ -874,7 +879,7 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
                                 material
                                     .field("face_dimming")
                                     .and_then(Nbt::number)
-                                    .filter(|value| matches!(*value, 0.0 | 1.0))
+                                    .filter(|value| matches!(value, 0.0 | 1.0))
                                     .map(|value| value != 0.0)
                             }),
                     })

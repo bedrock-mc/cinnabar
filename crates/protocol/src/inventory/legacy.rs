@@ -1,8 +1,11 @@
-use valentine::bedrock::version::v1_26_51::{
-    EnumsInventorySourceInventorySourceFlags as Flags, EnumsInventorySourceType as SourceType,
-    InventoryAction, InventorySource, InventoryTransaction, InventoryTransactionPacket,
-    InventoryTransactionPacketTransaction, NormalTransactionData,
+use bedrock_protocol_1_26_51::enums::{
+    InventorySourceInventorySourceFlags as Flags, InventorySourceType as SourceType,
 };
+use bedrock_protocol_1_26_51::packets::InventoryTransaction;
+use bedrock_protocol_1_26_51::types::{
+    InventoryAction, InventorySource, InventoryTransactionData, InventoryTransactionPacketData,
+};
+use bedrock_protocol_1_26_51::wire;
 
 use super::{InventoryPacketError, MAX_CONTAINER_SLOTS, VerifiedNetworkItemStack};
 
@@ -35,34 +38,32 @@ pub fn normal_inventory_transaction_packet(
         .map(|change| {
             let source = match change.source {
                 NormalInventorySource::Container(window_id) => InventorySource {
-                    source_type: SourceType::Containerinventory,
-                    container_id: Some(window_id),
+                    source_type: SourceType::ContainerInventory,
+                    container_id: Some(wire::I8(window_id)),
                     bit_flags: None,
                 },
                 NormalInventorySource::World { randomly } => InventorySource {
-                    source_type: SourceType::Worldinteraction,
+                    source_type: SourceType::WorldInteraction,
                     container_id: None,
                     bit_flags: Some(if randomly {
-                        Flags::Worldinteractionrandom
+                        Flags::WorldInteractionRandom
                     } else {
-                        Flags::Noflag
+                        Flags::NoFlag
                     }),
                 },
             };
             Ok(InventoryAction {
                 source,
-                slot: change.slot,
+                slot: wire::VarUInt(change.slot),
                 from_item: change.from.into_vendor_item()?,
                 to_item: change.to.into_vendor_item()?,
             })
         })
         .collect::<Result<_, InventoryPacketError>>()?;
-    Ok(crate::Packet::new(InventoryTransactionPacket {
-        transaction: InventoryTransactionPacketTransaction::NormalTransactionData(
-            NormalTransactionData {
-                actions: InventoryTransaction { actions },
-            },
-        ),
+    Ok(crate::Packet::new(InventoryTransaction {
+        transaction: InventoryTransactionPacketData::NormalTransactionData {
+            actions: InventoryTransactionData { actions },
+        },
         ..Default::default()
     }))
 }

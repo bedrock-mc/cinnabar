@@ -1,5 +1,6 @@
+use bedrock_protocol_1_26_51::packets::{LevelChunk, SetTime};
+use bedrock_protocol_1_26_51::wire;
 use bytes::Bytes;
-use valentine::bedrock::version::v1_26_51::{LevelChunkPacket, SetTimePacket};
 
 use super::*;
 use crate::raw_packet::decode_batch_body;
@@ -13,8 +14,12 @@ fn body(packets: &[Packet]) -> Bytes {
 #[test]
 fn deferred_packets_are_detached_and_bounded() {
     let batch = body(&[
-        Packet::new(SetTimePacket { time: 1 }),
-        Packet::new(SetTimePacket { time: 2 }),
+        Packet::new(SetTime {
+            time: wire::ZigZag32(1),
+        }),
+        Packet::new(SetTime {
+            time: wire::ZigZag32(2),
+        }),
     ]);
     let range = batch.as_ptr() as usize..batch.as_ptr() as usize + batch.len();
     let mut deferred = DeferredPackets::default();
@@ -29,8 +34,8 @@ fn deferred_packets_are_detached_and_bounded() {
     }
 
     let half = || {
-        Packet::new(LevelChunkPacket {
-            serialized_chunk_data: vec![0; MAX_DEFERRED_PACKET_BYTES / 2],
+        Packet::new(LevelChunk {
+            serialized_chunk_data: vec![0; MAX_DEFERRED_PACKET_BYTES / 2].into(),
             ..Default::default()
         })
     };
@@ -51,10 +56,10 @@ fn deferred_packets_are_detached_and_bounded() {
 mod session {
     use std::future::Future;
 
-    use valentine::bedrock::version::v1_26_51::{
-        ChunkRadiusUpdatedPacket, ItemData, NetworkChunkPublisherUpdatePacket, PlayStatusPacket,
-        TransferPacket,
+    use bedrock_protocol_1_26_51::packets::{
+        ChunkRadiusUpdated, NetworkChunkPublisherUpdate, PlayStatus, Transfer,
     };
+    use bedrock_protocol_1_26_51::types::ItemData;
 
     use super::*;
     use crate::raw_packet::MAX_RAW_BATCH_PACKETS;
@@ -64,36 +69,38 @@ mod session {
     const RUNTIME_ID: u64 = 42;
 
     fn start_game(runtime_id: u64) -> Packet {
-        Packet::new(StartGamePacket {
-            runtime_id: ActorRuntimeId {
-                actor_runtime_id: runtime_id,
-            },
+        Packet::new(StartGame {
+            runtime_id: ActorRuntimeID(runtime_id),
             ..Default::default()
         })
     }
 
     fn registry(name: &str, item_id: i16) -> Packet {
-        Packet::new(ItemRegistryPacket {
+        Packet::new(ItemRegistry {
             item_data: vec![ItemData {
                 item_name: name.into(),
-                item_id,
+                item_id: wire::I16LE(item_id),
                 ..Default::default()
             }],
         })
     }
 
     fn radius(chunk_radius: i32) -> Packet {
-        Packet::new(ChunkRadiusUpdatedPacket { chunk_radius })
+        Packet::new(ChunkRadiusUpdated {
+            chunk_radius: wire::ZigZag32(chunk_radius),
+        })
     }
 
     fn player_spawn() -> Packet {
-        Packet::new(PlayStatusPacket {
-            status: EnumsPlayStatus::Playerspawn,
+        Packet::new(PlayStatus {
+            status: PlayStatusType::Playerspawn,
         })
     }
 
     fn set_time(time: i32) -> Packet {
-        Packet::new(SetTimePacket { time })
+        Packet::new(SetTime {
+            time: wire::ZigZag32(time),
+        })
     }
 
     /// A transport whose handoff ended at StartGame, with `batches` already sent by the core.
@@ -110,10 +117,10 @@ mod session {
             panic!("a deferred packet arrives before any terminal message")
         };
         let id = raw.id;
-        let McpePacketData::SetTimePacket(time) = raw.decode().unwrap().data else {
+        let packets::Packet::SetTime(time) = *raw.decode().unwrap().data else {
             panic!("expected SetTime, got {id:?}")
         };
-        time.time
+        time.time.0
     }
 
     /// A terminal core message of `kind` with its JSON body.
@@ -133,7 +140,7 @@ mod session {
             "first-registry",
             &[vec![
                 registry("minecraft:shield", 355),
-                Packet::new(ItemRegistryPacket::default()),
+                Packet::new(ItemRegistry::default()),
                 registry("minecraft:shield", 900),
                 radius(16),
                 player_spawn(),
@@ -143,7 +150,7 @@ mod session {
         let spawned = await_spawn(transport).await.expect("repeats stay nonfatal");
         assert_eq!(spawned.runtime_id, RUNTIME_ID);
         assert_eq!(spawned.item_registry.item_data.len(), 1);
-        assert_eq!(spawned.item_registry.item_data[0].item_id, 355);
+        assert_eq!(spawned.item_registry.item_data[0].item_id.0, 355);
     }
 
     /// Optional packets are deferred to play in order, ahead of a packet the spawning batch
@@ -169,7 +176,7 @@ mod session {
         let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
             panic!("the radius reply is deferred")
         };
-        assert_eq!(raw.id, McpePacketName::ChunkRadiusUpdatedPacket);
+        assert_eq!(raw.id, PacketId::ChunkRadiusUpdated);
         assert_eq!(next_time(transport).await, -1);
     }
 
@@ -180,7 +187,7 @@ mod session {
             ("no-terrain", None, false),
             (
                 "terrain",
-                Some(Packet::new(NetworkChunkPublisherUpdatePacket::default())),
+                Some(Packet::new(NetworkChunkPublisherUpdate::default())),
                 true,
             ),
         ] {
@@ -248,8 +255,8 @@ mod session {
     #[tokio::test]
     async fn spawn_caps_the_deferred_bytes() {
         let half = || {
-            Packet::new(LevelChunkPacket {
-                serialized_chunk_data: vec![0; MAX_DEFERRED_PACKET_BYTES / 2],
+            Packet::new(LevelChunk {
+                serialized_chunk_data: vec![0; MAX_DEFERRED_PACKET_BYTES / 2].into(),
                 ..Default::default()
             })
         };
@@ -290,9 +297,9 @@ mod session {
                 write_frame(&mut pair.peer, &terminal(5, TRANSFER_JSON)).await;
             } else {
                 let transfer = |address: &str| {
-                    Packet::new(TransferPacket {
+                    Packet::new(Transfer {
                         server_address: address.into(),
-                        server_port: 19133,
+                        server_port: wire::U16LE(19133),
                         ..Default::default()
                     })
                 };
@@ -347,10 +354,7 @@ mod session {
         } = &mut handed_off("write-failure-disconnect", &[]).await;
         write_frame(
             peer,
-            &batch_frame(&[Packet::new(
-                valentine::bedrock::version::v1_26_51::DisconnectPacket::default(),
-            )])
-            .unwrap(),
+            &batch_frame(&[Packet::new(Disconnect::default())]).unwrap(),
         )
         .await;
         let error =

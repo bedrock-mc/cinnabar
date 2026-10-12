@@ -1,13 +1,13 @@
+use bedrock_protocol_1_26_51::enums::{
+    InputData, ItemUseInventoryTransactionActionType,
+    ItemUseInventoryTransactionClientCooldownState, ItemUseInventoryTransactionPredictedResult,
+    ItemUseInventoryTransactionTriggerType,
+};
+use bedrock_protocol_1_26_51::packets;
 use protocol::{
     BlockItemInteraction, BlockUseRequest, NetworkItemStack, PlayerAuthInputInteractions,
     PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, VerifiedNetworkItemStack,
     player_auth_input_with_interactions,
-};
-use valentine::bedrock::version::v1_26_51::{
-    EnumsItemUseInventoryTransactionActionType,
-    EnumsItemUseInventoryTransactionClientCooldownState,
-    EnumsItemUseInventoryTransactionPredictedResult, EnumsItemUseInventoryTransactionTriggerType,
-    EnumsPlayerAuthInputPacketPayloadInputData as InputData, McpePacketData,
 };
 
 fn empty_hand() -> VerifiedNetworkItemStack {
@@ -54,9 +54,10 @@ fn independently_authored_empty_hand_use_is_one_embedded_pai_interaction() {
         },
     )
     .unwrap();
-    let McpePacketData::PlayerAuthInputPacket(input) = packet.data else {
+    let packets::Packet::PlayerAuthInput(input) = *packet.data else {
         panic!("block use must not produce a standalone InventoryTransaction");
     };
+    let input = *input;
     let input_data = input.input_data;
     assert!(input_data.contains(&InputData::Performiteminteraction));
     assert!(!input_data.contains(&InputData::Performblockactions));
@@ -67,21 +68,21 @@ fn independently_authored_empty_hand_use_is_one_embedded_pai_interaction() {
     assert!(transaction.actions.actions.is_empty());
     assert_eq!(
         transaction.action_type,
-        EnumsItemUseInventoryTransactionActionType::Place
+        ItemUseInventoryTransactionActionType::Place
     );
     assert_eq!(
         transaction.trigger_type,
-        EnumsItemUseInventoryTransactionTriggerType::Playerinput
+        ItemUseInventoryTransactionTriggerType::PlayerInput
     );
-    assert_eq!(transaction.position.x, 0);
-    assert_eq!(transaction.position.y, 64);
-    assert_eq!(transaction.position.z, -2);
-    assert_eq!(transaction.face, 3);
-    assert_eq!(transaction.slot, 2);
-    assert_eq!(transaction.item.id, 0);
-    assert_eq!(transaction.item.stacksize, 0);
-    assert_eq!(transaction.item.auxvalue, 0);
-    assert_eq!(transaction.item.block_runtime_id, 0);
+    assert_eq!(transaction.position.x.0, 0);
+    assert_eq!(transaction.position.y.0, 64);
+    assert_eq!(transaction.position.z.0, -2);
+    assert_eq!(transaction.face.0, 3);
+    assert_eq!(transaction.slot.0, 2);
+    assert_eq!(transaction.item.id.0, 0);
+    assert_eq!(transaction.item.stack_size.0, 0);
+    assert_eq!(transaction.item.aux_value.0, 0);
+    assert_eq!(transaction.item.block_runtime_id.0, 0);
     assert_eq!(transaction.item.net_id_variant, None);
     assert_eq!(transaction.from_position.x, movement().position[0]);
     assert_eq!(transaction.from_position.y, movement().position[1]);
@@ -89,14 +90,14 @@ fn independently_authored_empty_hand_use_is_one_embedded_pai_interaction() {
     assert_eq!(transaction.click_position.x, 0.5);
     assert_eq!(transaction.click_position.y, 0.75);
     assert_eq!(transaction.click_position.z, 1.0);
-    assert_eq!(transaction.target_block_id, 9);
+    assert_eq!(transaction.target_block_id.0, 9);
     assert_eq!(
         transaction.client_interact_prediction,
-        EnumsItemUseInventoryTransactionPredictedResult::Failure
+        ItemUseInventoryTransactionPredictedResult::Failure
     );
     assert_eq!(
         transaction.client_cooldown_state,
-        EnumsItemUseInventoryTransactionClientCooldownState::Off
+        ItemUseInventoryTransactionClientCooldownState::Off
     );
 }
 
@@ -138,17 +139,20 @@ fn filled_use_matches_independent_pinned_movement_fixture() {
     .expect("generate the pinned embedded filled Use fixture before verification");
     let packets = protocol::decode_batch(bytes::Bytes::from(fixture.clone())).unwrap();
     let decoded = &packets[0];
-    let McpePacketData::PlayerAuthInputPacket(input) = &decoded.data else {
+    let packets::Packet::PlayerAuthInput(input) = &*decoded.data else {
         panic!("expected PAI");
     };
     let packed = input.item_use_transaction.as_ref().unwrap();
     let transaction = &packed.item_use_transaction;
-    assert_eq!(transaction.item.id, 5);
-    assert_eq!(transaction.item.stacksize, 37);
-    assert_eq!(transaction.item.net_id_variant, Some(41));
-    assert_eq!(transaction.item.block_runtime_id, 0x8765_4321);
+    assert_eq!(transaction.item.id.0, 5);
+    assert_eq!(transaction.item.stack_size.0, 37);
+    assert_eq!(
+        transaction.item.net_id_variant,
+        Some(bedrock_protocol_1_26_51::wire::ZigZag32(41))
+    );
+    assert_eq!(transaction.item.block_runtime_id.0, 0x8765_4321);
     assert!(transaction.actions.actions.is_empty());
-    let extra: Arc<[u8]> = Arc::from(transaction.item.user_data_buffer.clone());
+    let extra: Arc<[u8]> = Arc::from(transaction.item.user_data_buffer.as_ref());
     let digest = Sha256::digest(&extra).into();
     let selected = NetworkItemStack {
         network_id: 5,

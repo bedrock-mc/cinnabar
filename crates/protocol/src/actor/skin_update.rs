@@ -1,4 +1,4 @@
-use valentine::bedrock::version::v1_26_51::PlayerSkinPacket;
+use bedrock_protocol_1_26_51::packets::PlayerSkin as PlayerSkinPacket;
 
 use super::{ActorEvent, normalize_player_skin};
 

@@ -1,4 +1,4 @@
-use valentine::bedrock::version::v1_26_51::McpePacketData;
+use bedrock_protocol_1_26_51::packets;
 
 use super::*;
 use crate::InventoryPacketError;
@@ -23,17 +23,17 @@ fn selected_stack_survives_mob_equipment_encode_decode_and_normalize() {
     let packet = select_hotbar_slot_packet(4242, 3, &expected).unwrap();
     let encoded = crate::encode(&packet).unwrap();
     let mut decoded = crate::decode_batch(encoded).unwrap();
-    let McpePacketData::MobEquipmentPacket(packet) = decoded.remove(0).data else {
+    let packets::Packet::MobEquipment(packet) = *decoded.remove(0).data else {
         panic!("hotbar selection must build a MobEquipment packet, not PlayerHotbar");
     };
-    assert_eq!(packet.target_runtime_id.actor_runtime_id, 4242);
-    assert_eq!(packet.slot, 3);
-    assert_eq!(packet.selected_slot, 3);
-    assert_eq!(packet.container_id, 0);
+    assert_eq!(packet.target_runtime_id.0, 4242);
+    assert_eq!(packet.slot.0, 3);
+    assert_eq!(packet.selected_slot.0, 3);
+    assert_eq!(packet.container_id.0, 0);
     assert_eq!(packet.item.user_data_buffer, expected.extra_data.as_ref());
     let mut untracked = expected;
     untracked.stack_network_id = -1;
-    assert_eq!(normalize_equipment(*packet).unwrap().stack, untracked);
+    assert_eq!(normalize_equipment(packet).unwrap().stack, untracked);
 }
 
 /// A predicted request id is never written, so the packet builds before the server answers.
@@ -41,19 +41,19 @@ fn selected_stack_survives_mob_equipment_encode_decode_and_normalize() {
 fn hotbar_selection_omits_the_stack_network_id() {
     let mut predicted = selected_stack();
     predicted.stack_network_id = -3;
-    let McpePacketData::MobEquipmentPacket(packet) =
-        select_hotbar_slot_packet(1, 0, &predicted).unwrap().data
+    let packets::Packet::MobEquipment(packet) =
+        *select_hotbar_slot_packet(1, 0, &predicted).unwrap().data
     else {
         panic!("hotbar selection must build a MobEquipment packet");
     };
     assert_eq!(packet.item.net_id_variant, None);
-    assert_eq!(packet.item.stacksize, 4);
+    assert_eq!(packet.item.stack_size.0, 4);
 }
 
 #[test]
 fn known_empty_hotbar_slot_encodes_the_canonical_empty_descriptor() {
-    let McpePacketData::MobEquipmentPacket(packet) =
-        select_hotbar_slot_packet(1, 2, &NetworkItemStack::empty())
+    let packets::Packet::MobEquipment(packet) =
+        *select_hotbar_slot_packet(1, 2, &NetworkItemStack::empty())
             .unwrap()
             .data
     else {

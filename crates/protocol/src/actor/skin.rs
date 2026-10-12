@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_51::SerializedSkinRef;
+use bedrock_protocol_1_26_51::types::{SerializedSkinRef, SkinImage};
 
 use super::MAX_PLAYER_LIST_SKIN_BYTES;
 use render_api::{
@@ -28,17 +28,14 @@ fn geometry_source(
     }
     *retained_bytes = next;
     Some(Arc::new(SkinGeometrySource {
-        resource_patch: skin.resource_patch.as_str().into(),
-        geometry_data: skin.geometry_data.as_str().into(),
+        resource_patch: skin.resource_patch.to_string_lossy().into(),
+        geometry_data: skin.geometry_data.to_string_lossy().into(),
         animations: animation::normalize(&skin.animated_image_data, retained_bytes),
     }))
 }
 
-fn normalize_cape(
-    image: &valentine::bedrock::version::v1_26_51::SkinImage,
-    retained_bytes: &mut usize,
-) -> Option<CapeImage> {
-    let (width, height) = (image.width, image.height);
+fn normalize_cape(image: &SkinImage, retained_bytes: &mut usize) -> Option<CapeImage> {
+    let (width, height) = (image.width.0, image.height.0);
     if !CAPE_DIMENSIONS.contains(&(width, height)) {
         return None;
     }
@@ -51,7 +48,7 @@ fn normalize_cape(
     Some(CapeImage {
         width,
         height,
-        rgba8: Arc::from(image.image_bytes.as_slice()),
+        rgba8: Arc::from(image.image_bytes.as_ref()),
     })
 }
 
@@ -69,11 +66,11 @@ pub enum PlayerSkin {
 }
 
 pub(super) fn normalize_player_skin(
-    mut skin: SerializedSkinRef,
+    skin: SerializedSkinRef,
     retained_bytes: &mut usize,
 ) -> PlayerSkin {
     // Serialized persona payloads carry the assembled model, base raster and animation atlases.
-    let (width, mut height) = (skin.image_data.width, skin.image_data.height);
+    let (width, mut height) = (skin.image_data.width.0, skin.image_data.height.0);
     let classic = CLASSIC_SKIN_SIDE as u32;
     let legacy = (width, height) == (classic, classic / 2);
     let limit = if skin.is_persona {
@@ -96,13 +93,13 @@ pub(super) fn normalize_player_skin(
     if skin.image_data.image_bytes.len() != expected_bytes {
         return PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidByteLength);
     }
-    if legacy && !skin.is_persona {
-        skin.image_data.image_bytes =
-            expand_legacy_skin_rgba8(&skin.image_data.image_bytes, width as usize);
+    let mut rgba8 = if legacy && !skin.is_persona {
         height = width;
-        skin.image_data.height = height;
-    }
-    let expected_bytes = skin.image_data.image_bytes.len();
+        expand_legacy_skin_rgba8(&skin.image_data.image_bytes, width as usize)
+    } else {
+        skin.image_data.image_bytes.to_vec()
+    };
+    let expected_bytes = rgba8.len();
     let Some(next_bytes) = retained_bytes.checked_add(expected_bytes) else {
         return PlayerSkin::Unavailable(PlayerSkinUnavailable::RetainedBudgetExceeded);
     };
@@ -112,11 +109,11 @@ pub(super) fn normalize_player_skin(
     *retained_bytes = next_bytes;
     let cape = normalize_cape(&skin.cape_image_data, retained_bytes);
     let geometry = geometry_source(&skin, retained_bytes);
-    alpha::normalize(&mut skin);
+    alpha::normalize(&skin, width, height, &mut rgba8);
     PlayerSkin::Standard(StandardSkin {
         width,
         height,
-        rgba8: SkinRgba8::from(skin.image_data.image_bytes),
+        rgba8: SkinRgba8::from(rgba8),
         cape,
         geometry,
     })
@@ -125,6 +122,7 @@ pub(super) fn normalize_player_skin(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bedrock_protocol_1_26_51::wire;
 
     #[test]
     fn null_geometry_keeps_the_captured_slim_resource_patch() {
@@ -135,7 +133,7 @@ mod tests {
         };
         let mut bytes = 0;
         let source = geometry_source(&skin, &mut bytes).expect("named classic model survives");
-        assert_eq!(source.resource_patch.as_ref(), skin.resource_patch);
+        assert_eq!(skin.resource_patch, source.resource_patch.as_ref());
         assert_eq!(source.geometry_data.as_ref(), "null");
         assert_eq!(bytes, source.byte_len());
     }
@@ -144,10 +142,10 @@ mod tests {
     fn classic_rejects_large_rasters_while_persona_accepts_the_bounded_larger_atlas() {
         for side in [MAX_CLASSIC_SKIN_SIDE as u32 * 2, MAX_STANDARD_SKIN_SIDE] {
             let mut source = SerializedSkinRef {
-                image_data: valentine::bedrock::version::v1_26_51::SkinImage {
-                    width: side,
-                    height: side,
-                    image_bytes: vec![255; (side * side * 4) as usize],
+                image_data: SkinImage {
+                    width: wire::U32LE(side),
+                    height: wire::U32LE(side),
+                    image_bytes: vec![255; (side * side * 4) as usize].into(),
                 },
                 ..Default::default()
             };
@@ -168,10 +166,10 @@ mod tests {
         let side = CLASSIC_SKIN_SIDE as u32;
         let source = SerializedSkinRef {
             resource_patch: r#"{"geometry":{"default":"geometry.humanoid.custom"}}"#.into(),
-            image_data: valentine::bedrock::version::v1_26_51::SkinImage {
-                width: side,
-                height: side / 2,
-                image_bytes: vec![0; (side * side / 2 * 4) as usize],
+            image_data: SkinImage {
+                width: wire::U32LE(side),
+                height: wire::U32LE(side / 2),
+                image_bytes: vec![0; (side * side / 2 * 4) as usize].into(),
             },
             ..Default::default()
         };

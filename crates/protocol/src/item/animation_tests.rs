@@ -7,11 +7,9 @@ fn server_animation_preserves_transition_expression_version_and_blend() {
         m_controller: "fixture.server".into(),
         m_next_state: "default".into(),
         m_stop_expression: "query.all_animations_finished".into(),
-        m_stop_expression_version: 13,
-        m_blend_out_time: 0.25,
-        m_runtime_ids: vec![ActorRuntimeId {
-            actor_runtime_id: 42,
-        }],
+        m_stop_expression_version: wire::I32LE(13),
+        m_blend_out_time: wire::F32LE(0.25),
+        m_runtime_ids: vec![ActorRuntimeID(42)],
     };
     let ItemActorEvent::Action(event) = normalize_animate_entity(packet).unwrap() else {
         panic!("expected animation action");

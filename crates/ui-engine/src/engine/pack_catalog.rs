@@ -5,11 +5,14 @@ use json_ui::{Catalog, RawControl};
 /// Patches a catalog in place.
 pub type CatalogPatch = fn(&mut Catalog);
 
+/// Whether a server layer's files author a definition the carrier restores.
+pub type AuthoredBy = fn(&Catalog, &[(String, Vec<u8>)]) -> bool;
+
 /// A carrier definition restored before the first server layer that authors it, so that
 /// layer patches the carrier's definition rather than a built-in pack's.
 #[derive(Clone, Copy)]
 pub struct CarrierRestore {
-    pub authored: fn(&Catalog, &[(String, Vec<u8>)]) -> bool,
+    pub authored: AuthoredBy,
     pub restore: fn(&mut Catalog, &Catalog),
 }
 

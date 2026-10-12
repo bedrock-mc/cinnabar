@@ -1,7 +1,6 @@
 //! Server-side session messages used by offline replay and protocol fixtures.
 
 use super::*;
-use valentine::bedrock::version::v1_26_51::PacketId;
 
 /// Decodes the first client frame without requiring claims supplied only by upstream login.
 pub fn decode_connect(frame: &[u8]) -> Result<ConnectRequest, BridgeError> {
@@ -69,16 +68,16 @@ pub enum CapturedPacketKind {
 
 /// Classifies the pinned protocol's packets replaced by a session handoff.
 pub fn captured_packet_kind(id: u32) -> CapturedPacketKind {
-    if id == PacketId::StartGamePacket as u32 {
+    if id == PacketId::StartGame as u32 {
         CapturedPacketKind::StartGame
-    } else if id == PacketId::TransferPacket as u32 {
+    } else if id == PacketId::Transfer as u32 {
         CapturedPacketKind::Transfer
     } else if [
-        PacketId::NetworkSettingsPacket,
-        PacketId::ServerToClientHandshakePacket,
-        PacketId::PlayStatusPacket,
-        PacketId::ResourcePacksInfoPacket,
-        PacketId::ResourcePackStackPacket,
+        PacketId::NetworkSettings,
+        PacketId::ServerToClientHandshake,
+        PacketId::PlayStatus,
+        PacketId::ResourcePacksInfo,
+        PacketId::ResourcePackStack,
     ]
     .iter()
     .any(|packet| *packet as u32 == id)

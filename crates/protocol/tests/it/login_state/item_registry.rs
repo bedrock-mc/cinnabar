@@ -30,11 +30,11 @@ async fn repeated_item_registries_never_reach_world_or_inventory_in_either_cache
     for cache_enabled in [false, true] {
         let (mut session, core) = connected(cache_enabled).await;
         core.send_batch(&[
-            Packet::new(ItemRegistryPacket::default()),
-            Packet::new(ItemRegistryPacket {
+            Packet::new(ItemRegistry::default()),
+            Packet::new(ItemRegistry {
                 item_data: vec![ItemData {
                     item_name: "test:replacement_shield".into(),
-                    item_id: 355,
+                    item_id: wire::I16LE(355),
                     ..Default::default()
                 }],
             }),
@@ -76,7 +76,7 @@ async fn truncated_repeated_item_registry_is_still_fatal_in_either_cache_mode() 
     for cache_enabled in [false, true] {
         let (mut session, core) = connected(cache_enabled).await;
         // One declared entry with no body is truncated wire, not an empty table.
-        core.send_raw_packet(McpePacketName::ItemRegistryPacket, &[1]);
+        core.send_raw_packet(PacketId::ItemRegistry, &[1]);
         let mut failed = false;
         for _ in 0..DRAIN_LIMIT {
             match tokio::time::timeout(Duration::from_secs(1), session.recv_world_event(0))

@@ -1,18 +1,19 @@
 //! Lenient normalization of server-driven debug drawing changes.
 
+use bedrock_protocol_1_26_51::enums::ScriptModuleMinecraftScriptPrimitiveShapeType as WireKind;
+use bedrock_protocol_1_26_51::packets::PrimitiveShapes;
+use bedrock_protocol_1_26_51::types::{
+    MceColor, PrimitiveShape, PrimitiveShapeExtraShapeData as Extra,
+};
+use bedrock_protocol_1_26_51::wire;
 use render_api::primitive_shapes::{
     PrimitiveShapeChange, PrimitiveShapeData, PrimitiveShapeKind, PrimitiveShapeUpdate,
     PrimitiveShapesEvent, PrimitiveText,
 };
-use valentine::bedrock::version::v1_26_51::{
-    EnumsScriptModuleMinecraftScriptPrimitiveShapeType as WireKind, MceColor,
-    PrimitiveShapeDataPayload, PrimitiveShapeDataPayloadExtraShapeData as Extra,
-    PrimitiveShapesPacket, Vec3,
-};
 
 /// Normalizes each decoded entry while preserving packet order.
-pub(crate) fn normalize(packet: PrimitiveShapesPacket) -> PrimitiveShapesEvent {
-    let entries = packet.arrayofprimitiveshapescanbeamixofnewupdatedorremoved;
+pub(crate) fn normalize(packet: PrimitiveShapes) -> PrimitiveShapesEvent {
+    let entries = packet.array_of_primitive_shapes_can_be_a_mix_of_new_updated_or_removed;
     let mut result = PrimitiveShapesEvent {
         changes: Vec::with_capacity(entries.len()),
         skipped_entries: 0,
@@ -27,10 +28,10 @@ pub(crate) fn normalize(packet: PrimitiveShapesPacket) -> PrimitiveShapesEvent {
 }
 
 /// A deletion ignores unused fields; malformed numeric updates never reach rendering.
-fn normalize_entry(entry: PrimitiveShapeDataPayload) -> Option<PrimitiveShapeChange> {
+fn normalize_entry(entry: PrimitiveShape) -> Option<PrimitiveShapeChange> {
     let Some(wire_kind) = entry.shape_type else {
         return Some(PrimitiveShapeChange::Remove {
-            network_id: entry.network_id,
+            network_id: entry.network_id.0,
         });
     };
     let kind = match wire_kind {
@@ -42,30 +43,31 @@ fn normalize_entry(entry: PrimitiveShapeDataPayload) -> Option<PrimitiveShapeCha
         WireKind::Arrow => PrimitiveShapeKind::Arrow,
         _ => return None,
     };
-    let location = entry.location.map(vector);
-    let rotation = entry.rotation.map(vector);
+    let location = entry.location.map(|value| value.to_array());
+    let rotation = entry.rotation.map(|value| value.to_array());
+    let scale = float(entry.scale);
+    let total_time_left = float(entry.total_time_left);
+    let maximum_render_distance = float(entry.maximum_render_distance);
     if !location.is_none_or(finite_vector)
         || !rotation.is_none_or(finite_vector)
-        || !entry.scale.is_none_or(f32::is_finite)
-        || !entry.total_time_left.is_none_or(f32::is_finite)
-        || !entry.maximum_render_distance.is_none_or(f32::is_finite)
+        || !scale.is_none_or(f32::is_finite)
+        || !total_time_left.is_none_or(f32::is_finite)
+        || !maximum_render_distance.is_none_or(f32::is_finite)
     {
         return None;
     }
     let data = normalize_data(entry.extra_shape_data)?;
     Some(PrimitiveShapeChange::Upsert(PrimitiveShapeUpdate {
-        network_id: entry.network_id,
+        network_id: entry.network_id.0,
         kind,
         location,
         rotation,
-        scale: entry.scale,
+        scale,
         color: entry.color.map(color),
-        total_time_left: entry.total_time_left,
-        maximum_render_distance: entry.maximum_render_distance,
-        dimension: entry.dimension_id.map(|dimension| dimension.value),
-        attached_actor: entry
-            .attached_to_entity_id
-            .map(|actor| actor.actor_unique_id),
+        total_time_left,
+        maximum_render_distance,
+        dimension: entry.dimension_id.map(|dimension| dimension.0),
+        attached_actor: entry.attached_to_entity_id.map(|actor| actor.0),
         data,
     }))
 }
@@ -73,44 +75,59 @@ fn normalize_entry(entry: PrimitiveShapeDataPayload) -> Option<PrimitiveShapeCha
 /// Preserves recognized extra data so the store can match the id's retained concrete kind.
 fn normalize_data(extra: Extra) -> Option<PrimitiveShapeData> {
     let data = match extra {
-        Extra::LineDataPayload(line) => {
-            let end = vector(line.line_end_location);
+        Extra::LineData { line_end_location } => {
+            let end = line_end_location.to_array();
             finite_vector(end).then_some(())?;
             PrimitiveShapeData::Line { end }
         }
-        Extra::BoxDataPayload(shape) => {
-            let bounds = vector(shape.box_bound);
+        Extra::BoxData { box_bound } => {
+            let bounds = box_bound.to_array();
             finite_vector(bounds).then_some(())?;
             PrimitiveShapeData::Box { bounds }
         }
-        Extra::SphereDataPayload(sphere) => PrimitiveShapeData::Segments(sphere.num_segments),
-        Extra::ArrowDataPayload(arrow) => {
-            let end = arrow.arrow_end_location.map(vector);
+        Extra::SphereData { num_segments } => PrimitiveShapeData::Segments(num_segments.0),
+        Extra::ArrowData {
+            arrow_end_location,
+            arrow_head_length,
+            arrow_head_radius,
+            num_segments,
+        } => {
+            let end = arrow_end_location.map(|value| value.to_array());
+            let head_length = float(arrow_head_length);
+            let head_radius = float(arrow_head_radius);
             if !end.is_none_or(finite_vector)
-                || !arrow.arrow_head_length.is_none_or(f32::is_finite)
-                || !arrow.arrow_head_radius.is_none_or(f32::is_finite)
+                || !head_length.is_none_or(f32::is_finite)
+                || !head_radius.is_none_or(f32::is_finite)
             {
                 return None;
             }
             PrimitiveShapeData::Arrow {
                 end,
-                head_length: arrow.arrow_head_length,
-                head_radius: arrow.arrow_head_radius,
-                segments: arrow.num_segments,
+                head_length,
+                head_radius,
+                segments: num_segments.map(|segments| segments.0),
             }
         }
-        Extra::TextDataPayload(text) => {
-            if !text.line_gap_height.is_finite() || text.text.len() > crate::MAX_UI_TEXT_BYTES {
+        Extra::TextData {
+            text,
+            use_rotation,
+            background_color,
+            line_gap_height,
+            depth_test,
+            show_backface,
+            show_text_backface,
+        } => {
+            if !line_gap_height.0.is_finite() || text.len() > crate::MAX_UI_TEXT_BYTES {
                 return None;
             }
             PrimitiveShapeData::Text(PrimitiveText {
-                text: text.text.into(),
-                use_rotation: text.use_rotation,
-                background_color: text.background_color.map(color),
-                line_gap_height: text.line_gap_height,
-                depth_test: text.depth_test,
-                show_backface: text.show_backface,
-                show_text_backface: text.show_text_backface,
+                text: text.to_string_lossy().into(),
+                use_rotation,
+                background_color: background_color.map(color),
+                line_gap_height: line_gap_height.0,
+                depth_test,
+                show_backface,
+                show_text_backface,
             })
         }
         _ => PrimitiveShapeData::None,
@@ -118,9 +135,9 @@ fn normalize_data(extra: Extra) -> Option<PrimitiveShapeData> {
     Some(data)
 }
 
-/// Preserves world coordinates without introducing a rendering dependency.
-fn vector(value: Vec3) -> [f32; 3] {
-    [value.x, value.y, value.z]
+/// Unwraps an optional little-endian float field.
+fn float(value: Option<wire::F32LE>) -> Option<f32> {
+    value.map(|value| value.0)
 }
 
 /// Rejects non-finite positions before they can poison GPU transforms.
@@ -130,7 +147,7 @@ fn finite_vector(value: [f32; 3]) -> bool {
 
 /// Converts the packed ARGB integer without changing its alpha.
 fn color(value: MceColor) -> [f32; 4] {
-    let [blue, green, red, alpha] = value.color.to_le_bytes();
+    let [blue, green, red, alpha] = value.0.to_le_bytes();
     [red, green, blue, alpha].map(|channel| f32::from(channel) / 255.0)
 }
 

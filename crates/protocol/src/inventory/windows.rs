@@ -374,15 +374,12 @@ pub fn ui_slot_request_container(slot: u8) -> Option<StackRequestContainer> {
 
 #[cfg(test)]
 mod tests {
-    use valentine::bedrock::codec::BedrockCodec;
-    use valentine::bedrock::version::v1_26_51::EnumsContainerEnumName as Name;
+    use bedrock_protocol_1_26_51::enums::ContainerEnumName as Name;
 
     use super::*;
 
     fn code(name: Name) -> u8 {
-        let mut bytes = bytes::BytesMut::new();
-        name.encode(&mut bytes).expect("a container name encodes");
-        bytes[0]
+        name.to_raw()
     }
 
     /// Every hard-coded container name matches the pinned protocol enum.

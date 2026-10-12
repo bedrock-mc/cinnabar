@@ -736,6 +736,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bedrock-protocol-1-26-51"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "glam",
+ "regex",
+ "uuid",
+]
+
+[[package]]
 name = "bedrock-replay"
 version = "0.1.12"
 dependencies = [
@@ -5984,6 +5994,7 @@ version = "0.1.12"
 dependencies = [
  "anyhow",
  "base64",
+ "bedrock-protocol-1-26-51",
  "block-transform",
  "bridge",
  "bytes",
@@ -6002,7 +6013,6 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
- "valentine",
  "xxhash-rust",
  "zeroize",
 ]
@@ -7761,37 +7771,6 @@ dependencies = [
  "js-sys",
  "serde_core",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "valentine"
-version = "0.1.0"
-dependencies = [
- "bitflags 2.13.0",
- "bytes",
- "serde",
- "uuid",
- "valentine_bedrock_1_26_51",
- "valentine_bedrock_core",
-]
-
-[[package]]
-name = "valentine_bedrock_1_26_51"
-version = "0.1.0"
-dependencies = [
- "bitflags 2.13.0",
- "bytes",
- "uuid",
- "valentine_bedrock_core",
-]
-
-[[package]]
-name = "valentine_bedrock_core"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "thiserror 1.0.69",
- "uuid",
 ]
 
 [[package]]

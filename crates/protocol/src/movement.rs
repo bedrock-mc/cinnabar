@@ -1,10 +1,10 @@
 use std::ops::{BitOr, BitOrAssign};
 
+use bedrock_protocol_1_26_51::enums::{ClientPlayMode, InputData, InputMode, NewInteractionModel};
+use bedrock_protocol_1_26_51::packets::PlayerAuthInput;
+use bedrock_protocol_1_26_51::types::PlayerInputTick;
+use bedrock_protocol_1_26_51::wire;
 use thiserror::Error;
-use valentine::bedrock::version::v1_26_51::{
-    EnumsClientPlayMode, EnumsInputMode, EnumsNewInteractionModel,
-    EnumsPlayerAuthInputPacketPayloadInputData, PlayerAuthInputPacket, PlayerInputTick, Vec2, Vec3,
-};
 
 mod interactions;
 mod prediction_sync;
@@ -19,7 +19,7 @@ pub use trace::{PlayerAuthInputTraceSample, player_auth_input_trace_sample};
 
 use crate::Packet;
 
-/// Input flags exposed to the app without leaking the generated Valentine packet API.
+/// Input flags exposed to the app without leaking the generated packet API.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PlayerInputFlags(u128);
 
@@ -228,52 +228,46 @@ pub fn player_auth_input_with_mining_request(
         request.packed()
     });
 
-    Ok(crate::Packet::new(PlayerAuthInputPacket {
-        player_rotation: Vec2 {
-            x: snapshot.pitch,
-            y: snapshot.yaw,
-        },
-        position: vec3(snapshot.position),
-        move_vector: vec2(snapshot.move_vector),
-        player_head_rotation: snapshot.head_yaw,
+    Ok(crate::Packet::new(PlayerAuthInput {
+        player_rotation: [snapshot.pitch, snapshot.yaw].into(),
+        position: snapshot.position.into(),
+        move_vector: snapshot.move_vector.into(),
+        player_head_rotation: wire::F32LE(snapshot.head_yaw),
         input_data: input_data_items(flags),
         input_mode: match snapshot.input_mode {
-            PlayerInputMode::Mouse => EnumsInputMode::Mouse,
-            PlayerInputMode::Touch => EnumsInputMode::Touch,
-            PlayerInputMode::GamePad => EnumsInputMode::Gamepad,
+            PlayerInputMode::Mouse => InputMode::Mouse,
+            PlayerInputMode::Touch => InputMode::Touch,
+            PlayerInputMode::GamePad => InputMode::Gamepad,
         },
-        play_mode: EnumsClientPlayMode::Normal,
+        play_mode: ClientPlayMode::Normal,
         // 1.26.40 agrees with gophertunnel here, which writes the interaction
         // model with io.Varint32 (zigzag) in packet/player_auth_input.go. The
         // protocol-1001 code sent Unknown(-1) because the generated definition
         // was zigzag while the authority was an unsigned varint; that
         // workaround is obsolete and the named variant is now correct.
-        new_interaction_model: EnumsNewInteractionModel::Crosshair,
-        interact_rotation: Vec2 {
-            x: snapshot.pitch,
-            y: snapshot.yaw,
-        },
-        client_tick: PlayerInputTick { inputtick: tick },
-        pos_delta: vec3(snapshot.delta),
+        new_interaction_model: NewInteractionModel::Crosshair,
+        interact_rotation: [snapshot.pitch, snapshot.yaw].into(),
+        client_tick: PlayerInputTick(tick),
+        pos_delta: snapshot.delta.into(),
         item_use_transaction,
         item_stack_request,
         player_block_actions,
         vehicle_rotation: None,
         client_predicted_vehicle: None,
-        analog_move_vector: vec2(snapshot.analogue_move_vector),
-        camera_orientation: vec3(snapshot.camera_orientation),
-        raw_move_vector: vec2(snapshot.raw_move_vector),
+        analog_move_vector: snapshot.analogue_move_vector.into(),
+        camera_orientation: snapshot.camera_orientation.into(),
+        raw_move_vector: snapshot.raw_move_vector.into(),
     }))
 }
 
-use EnumsPlayerAuthInputPacketPayloadInputData as Item;
+use InputData as Item;
 
 /// One pinned input flag: its generated wire variant paired with the exact
 /// diagnostic name used by [`player_auth_input_trace_sample`]. Row `n` is bit
 /// `n`; each generated variant's ordinal equals its row, so keeping the name
 /// beside the variant in one table is what keeps trace names from drifting
 /// away from the encoder's spelling.
-type InputFlagItem = EnumsPlayerAuthInputPacketPayloadInputData;
+type InputFlagItem = InputData;
 
 const INPUT_FLAG_ITEMS: [(InputFlagItem, &str); 66] = [
     (Item::Ascend, "Ascend"),
@@ -360,7 +354,7 @@ const INPUT_FLAG_ITEMS: [(InputFlagItem, &str); 66] = [
 /// generated variant's ordinal is exactly the bit position the protocol-1001
 /// bitset used, so bit `n` maps to the table row declared `n`th and the
 /// app-facing [`PlayerInputFlags`] constants keep their meaning unchanged.
-fn input_data_items(flags: PlayerInputFlags) -> Vec<EnumsPlayerAuthInputPacketPayloadInputData> {
+fn input_data_items(flags: PlayerInputFlags) -> Vec<InputData> {
     let bits = flags.bits();
     (0..u128::BITS)
         .filter(|bit| bits & (1u128 << bit) != 0)
@@ -371,21 +365,6 @@ fn input_data_items(flags: PlayerInputFlags) -> Vec<EnumsPlayerAuthInputPacketPa
                 .unwrap_or(Item::Unknown(bit as i32))
         })
         .collect()
-}
-
-fn vec3(value: [f32; 3]) -> Vec3 {
-    Vec3 {
-        x: value[0],
-        y: value[1],
-        z: value[2],
-    }
-}
-
-fn vec2(value: [f32; 2]) -> Vec2 {
-    Vec2 {
-        x: value[0],
-        y: value[1],
-    }
 }
 
 #[cfg(test)]

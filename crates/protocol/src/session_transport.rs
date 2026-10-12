@@ -147,7 +147,9 @@ impl SessionTransport {
         if packets.is_empty() {
             return Ok(());
         }
-        let frame = batch_frame(packets)?;
+        let Some(frame) = batch_frame(packets) else {
+            return Ok(());
+        };
         let frames = self.frames.clone();
         self.sending.push_back(InFlightSend {
             write: Mutex::new(Box::pin(async move { frames.send(frame).await })),
@@ -175,18 +177,17 @@ impl SessionTransport {
     }
 }
 
-/// One Batch frame holding `packets`, each length-prefixed as a Bedrock batch carries it.
-pub(crate) fn batch_frame(packets: &[Packet]) -> Result<Bytes, ProtocolError> {
-    let mut frame = BytesMut::new();
-    frame.put_u8(bridge::contract::KIND_BATCH);
+/// One Batch frame holding `packets`, each length-prefixed as a Bedrock batch carries it. A
+/// packet the codec refuses is logged and left out so the rest still go in order; `None` when
+/// none encodes.
+pub(crate) fn batch_frame(packets: &[Packet]) -> Option<Bytes> {
+    let mut frame = vec![bridge::contract::KIND_BATCH];
     for packet in packets {
-        packet.data.encode_inner_bytes_mut(
-            &mut frame,
-            packet.header.from_subclient,
-            packet.header.to_subclient,
-        )?;
+        if let Err(error) = crate::codec::encode_entry(packet, &mut frame) {
+            tracing::warn!(packet = ?packet.kind(), %error, "skipping an outbound packet that failed to encode");
+        }
     }
-    Ok(frame.freeze())
+    (frame.len() > 1).then(|| Bytes::from(frame))
 }
 
 /// Groups the startup packets, which may span many upstream batches, into batch bodies that each

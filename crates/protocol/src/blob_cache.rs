@@ -4,20 +4,17 @@ use std::mem::size_of;
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use thiserror::Error;
-use valentine::bedrock::version::v1_26_51::{
-    ClientCacheBlobStatusPacket, ClientCacheMissResponsePacket, LevelChunkPacket, McpePacketData,
-    SubChunkPacket, SubChunkPacketPayloadSubChunkPacketData,
+use bedrock_protocol_1_26_51::enums::SubChunkRequestResult;
+use bedrock_protocol_1_26_51::packets::{
+    self, ClientCacheBlobStatus, ClientCacheMissResponse, LevelChunk, SubChunk,
 };
-
-// The per-entry sub-chunk request result, aliased because the generated name carries its path.
-use valentine::bedrock::version::v1_26_51::EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkRequestResult;
+use bedrock_protocol_1_26_51::types::{DimensionType, MissingBlobData, SubChunkData};
+use bedrock_protocol_1_26_51::wire;
+use thiserror::Error;
 
 /// Unwraps the dimension ID 1.26.40 wraps in a `DimensionType` newtype.
-pub(crate) fn dimension_id(
-    dimension: &valentine::bedrock::version::v1_26_51::DimensionType,
-) -> i32 {
-    dimension.value
+pub(crate) fn dimension_id(dimension: &DimensionType) -> i32 {
+    dimension.0
 }
 
 use crate::{ChunkResyncEvent, LevelChunkEvent, Packet, SubChunkReplyAdmissionEvent, WorldEvent};
@@ -330,8 +327,8 @@ pub fn client_blob_hash(payload: &[u8]) -> u64 {
 
 #[derive(Debug)]
 enum PendingPacket {
-    LevelChunk(Box<LevelChunkPacket>),
-    SubChunk(Box<SubChunkPacket>),
+    LevelChunk(Box<LevelChunk>),
+    SubChunk(Box<SubChunk>),
 }
 
 #[derive(Debug)]
@@ -475,11 +472,11 @@ pub struct BlobCacheResolver {
 }
 
 fn ready_value_accounted_bytes(value: &ResolverReady) -> Result<usize, BlobCacheError> {
-    match value {
-        ResolverReady::Packet(Packet {
-            data: McpePacketData::LevelChunkPacket(packet),
-            ..
-        }) => {
+    let ResolverReady::Packet(packet) = value else {
+        return Err(BlobCacheError::NotCachedPacket);
+    };
+    match &*packet.data {
+        packets::Packet::LevelChunk(packet) => {
             // 1.26.40 writes the blob hashes unconditionally rather than
             // nesting them behind an optional, so they are always accounted.
             let hash_bytes = packet
@@ -487,15 +484,12 @@ fn ready_value_accounted_bytes(value: &ResolverReady) -> Result<usize, BlobCache
                 .capacity()
                 .checked_mul(size_of::<u64>())
                 .ok_or(BlobCacheError::ByteCountOverflow)?;
-            size_of::<LevelChunkPacket>()
-                .checked_add(packet.serialized_chunk_data.capacity())
+            size_of::<LevelChunk>()
+                .checked_add(packet.serialized_chunk_data.len())
                 .and_then(|bytes| bytes.checked_add(hash_bytes))
                 .ok_or(BlobCacheError::ByteCountOverflow)
         }
-        ResolverReady::Packet(Packet {
-            data: McpePacketData::SubChunkPacket(packet),
-            ..
-        }) => {
+        packets::Packet::SubChunk(packet) => {
             // Caching is now a packet-level flag plus a per-entry optional
             // blob ID rather than two separate entry types, so an already
             // resolved reply is one whose cache flag is clear.
@@ -505,20 +499,21 @@ fn ready_value_accounted_bytes(value: &ResolverReady) -> Result<usize, BlobCache
             let entries = &packet.sub_chunk_data;
             entries
                 .capacity()
-                .checked_mul(size_of::<SubChunkPacketPayloadSubChunkPacketData>())
-                .and_then(|bytes| bytes.checked_add(size_of::<SubChunkPacket>()))
+                .checked_mul(size_of::<SubChunkData>())
+                .and_then(|bytes| bytes.checked_add(size_of::<SubChunk>()))
                 .and_then(|bytes| {
                     entries.iter().try_fold(bytes, |total, entry| {
                         total.checked_add(
-                            entry.serialized_sub_chunk.as_ref().map_or(0, Vec::capacity),
+                            entry
+                                .serialized_sub_chunk
+                                .as_ref()
+                                .map_or(0, bytes::Bytes::len),
                         )
                     })
                 })
                 .ok_or(BlobCacheError::ByteCountOverflow)
         }
-        ResolverReady::Packet(_)
-        | ResolverReady::WorldEvent(_)
-        | ResolverReady::LevelChunkBytes(_, _) => Err(BlobCacheError::NotCachedPacket),
+        _ => Err(BlobCacheError::NotCachedPacket),
     }
 }
 

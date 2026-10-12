@@ -1,11 +1,10 @@
-use bytes::{Bytes, BytesMut};
-use valentine::bedrock::version::v1_26_51::{McpePacketArgs, McpePacketData, McpePacketName};
+use bedrock_protocol_1_26_51::packets::{self, PacketId};
+use bedrock_protocol_1_26_51::wire::{self, DecodeError};
+use bytes::Bytes;
 
+use crate::SessionError;
 use crate::codec::SessionFailure;
 use crate::raw_packet::{RawPacket, decode_packet_raw};
-use crate::{ProtocolError, SessionError};
-use valentine::bedrock::error::DecodeError;
-use valentine::protocol::wire;
 
 const GOPHERTUNNEL_AVAILABLE_COMMANDS: &[u8] =
     include_bytes!("../../fixtures/available_commands.bin");
@@ -22,18 +21,22 @@ fn raw_fixture(fixture: &'static [u8]) -> RawPacket {
 }
 
 fn raw_available_commands_body(body: &[u8]) -> RawPacket {
-    let mut payload = BytesMut::new();
-    wire::write_var_u32(&mut payload, McpePacketName::AvailableCommandsPacket as u32);
+    let mut payload = Vec::new();
+    wire::Writer::new(&mut payload)
+        .write_var_u32(PacketId::AvailableCommands as u32)
+        .unwrap();
     payload.extend_from_slice(body);
-    let mut frame = BytesMut::new();
-    wire::write_var_u32(&mut frame, payload.len() as u32);
+    let mut frame = Vec::new();
+    wire::Writer::new(&mut frame)
+        .write_var_u32(payload.len() as u32)
+        .unwrap();
     frame.extend_from_slice(&payload);
-    decode_packet_raw(&mut frame.freeze()).expect("raw AvailableCommands frame")
+    decode_packet_raw(&mut Bytes::from(frame)).expect("raw AvailableCommands frame")
 }
 
-fn assert_every_section(data: &McpePacketData) {
-    let McpePacketData::AvailableCommandsPacket(packet) = data else {
-        panic!("expected AvailableCommands, got {:?}", data.packet_id());
+fn assert_every_section(data: &packets::Packet) {
+    let packets::Packet::AvailableCommands(packet) = data else {
+        panic!("expected AvailableCommands, got {:?}", data.id());
     };
     // 1.26.40 renames the collections but keeps gophertunnel's field order from
     // `packet/available_commands.go`: enum values, chained subcommand values,
@@ -63,18 +66,6 @@ fn pinned_gophertunnel_available_commands_owned_decodes_every_section_and_round_
 }
 
 #[test]
-fn pinned_gophertunnel_available_commands_borrowed_materializes() {
-    let borrowed = raw_fixture(GOPHERTUNNEL_AVAILABLE_COMMANDS)
-        .decode_borrowed()
-        .expect("borrowed AvailableCommands decode");
-    let owned = borrowed
-        .data
-        .into_owned(McpePacketArgs)
-        .expect("materialize borrowed AvailableCommands");
-    assert_every_section(&owned);
-}
-
-#[test]
 fn observed_356513_byte_live_body_decodes_and_round_trips_exactly() {
     let raw = raw_fixture(LIVE_BODY_LENGTH_REGRESSION);
     assert_eq!(raw.body().len(), 356_513);
@@ -100,9 +91,8 @@ fn available_commands_rejects_malformed_shared_count() {
     ));
 }
 
-/// An impossible count remains fatal as truncated wire. The generated string
-/// collection decoder consumes entries incrementally rather than imposing a
-/// global element ceiling, so an absent first string reports `UnexpectedEof`.
+/// An impossible count remains fatal as truncated wire: the declared count is checked against
+/// the remaining input before any value is allocated, without a global element ceiling.
 #[test]
 fn available_commands_rejects_count_above_gophertunnel_slice_limit() {
     let error = raw_available_commands_body(&[0x81, 0x20])
@@ -113,47 +103,28 @@ fn available_commands_rejects_count_above_gophertunnel_slice_limit() {
     };
     assert!(matches!(
         source,
-        DecodeError::UnexpectedEof {
-            needed: 1,
-            available: 0
+        DecodeError::LengthNotRepresentable {
+            needed: 4_097,
+            remaining: 0,
+            ..
         }
     ));
 }
 
-/// Tripwire for the missing *encode*-side slice ceiling.
-///
-/// REGRESSION - protocol 1001 refused to encode a collection longer than
-/// gophertunnel would agree to read back (`maxSliceLength = 4096`,
-/// `minecraft/protocol/io.go` at be6713da4dc051a4197f897d04835e89e9c54321),
-/// failing with `ErrorKind::InvalidInput` before writing a byte. The 1.26.40
-/// generated encoder writes the length varint unconditionally, so we can now
-/// emit a frame no vanilla client will accept.
-///
-/// This test pins that fact deliberately rather than dropping the coverage: the
-/// moment valentine_gen restores the ceiling the encode below starts failing and
-/// this test must go back to asserting the rejection.
+/// Pins that the generated encoder applies no slice ceiling: it writes a collection longer than
+/// gophertunnel's `maxSliceLength` (4096) would read back. Restore a rejection assertion if
+/// the codec contract adds one.
 #[test]
 fn available_commands_encoding_no_longer_rejects_more_than_gophertunnel_slice_limit() {
     let mut packet = raw_fixture(GOPHERTUNNEL_AVAILABLE_COMMANDS)
         .decode()
         .expect("decode fixture before mutation");
-    let McpePacketData::AvailableCommandsPacket(content) = &mut packet.data else {
+    let packets::Packet::AvailableCommands(content) = &mut *packet.data else {
         panic!("expected AvailableCommands");
     };
     content
         .enum_values
-        .resize(MAX_COMMAND_VALUES + 1, "overflow".to_owned());
+        .resize(MAX_COMMAND_VALUES + 1, "overflow".into());
 
-    match crate::encode(&packet) {
-        Ok(_) => {}
-        Err(ProtocolError::Encode(ref error))
-            if error.kind() == std::io::ErrorKind::InvalidInput =>
-        {
-            panic!(
-                "valentine_gen appears to enforce encode-side slice ceilings again: restore the \
-                 `expect_err` assertion here"
-            )
-        }
-        Err(other) => panic!("unexpected encode error: {other:?}"),
-    }
+    crate::encode(&packet).expect("the generated encoder applies no slice ceiling");
 }

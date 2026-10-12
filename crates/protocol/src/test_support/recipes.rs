@@ -1,18 +1,14 @@
 //! CraftingData fixtures admitted through the real recipe decoder, and crafting request observations.
 
-use bytes::{Bytes, BytesMut};
-use valentine::bedrock::codec::BedrockCodec;
-use valentine::bedrock::version::v1_26_51::{
-    CerealizerNetworkItemInstanceDescriptorSerializedData,
-    CerealizerRecipeIngredientSerializedData,
-    CerealizerRecipeIngredientSerializedDataDescriptorItem,
-    CerealizerRecipeUnlockingRequirementSerializedData, CraftingDataPacket,
-    EnumsRecipeUnlockingRequirementUnlockingContext as UnlockingContext,
-    ItemStackRequestCerealNetworkItemInstanceDescriptorDataItemDescriptor as ItemDescriptor,
-    ItemStackRequestCerealSlotInfoData, ItemStackRequestPacketDataRequestDataActionsItem as Action,
-    McpePacketData, ShapedRecipePayload, ShapelessRecipePayload,
-    TypedServerNetIdstructRecipeNetIdTag,
+use bedrock_protocol_1_26_51::enums::RecipeUnlockingRequirementUnlockingContext as UnlockingContext;
+use bedrock_protocol_1_26_51::packets::{self, CraftingData};
+use bedrock_protocol_1_26_51::types::{
+    ItemDescriptor, NetworkItemInstanceDescriptorSerializedData, RecipeIngredientSerializedData,
+    RecipeNetID, RecipeUnlockRequirementSerializedData, ShapedRecipe, ShapelessRecipe,
+    StackRequestAction as Action, StackRequestSlotInfo,
 };
+use bedrock_protocol_1_26_51::wire::{self, Encode};
+use bytes::Bytes;
 
 use crate::{Packet, RecipeUpdate, decode_recipe_update};
 
@@ -49,20 +45,15 @@ impl IngredientFixture {
         Self::default()
     }
 
-    fn wire(&self) -> CerealizerRecipeIngredientSerializedData {
-        CerealizerRecipeIngredientSerializedData {
+    fn wire(&self) -> RecipeIngredientSerializedData {
+        RecipeIngredientSerializedData {
             descriptor: self
                 .descriptor
                 .iter()
-                .map(
-                    |(key, value)| CerealizerRecipeIngredientSerializedDataDescriptorItem {
-                        key: key.clone(),
-                        value: value.clone(),
-                    },
-                )
+                .map(|(key, value)| (key.as_str().into(), value.as_str().into()))
                 .collect(),
-            aux_value: self.aux,
-            stack_size: self.count,
+            aux_value: wire::ZigZag32(self.aux),
+            stack_size: wire::ZigZag32(self.count),
         }
     }
 }
@@ -89,13 +80,13 @@ impl OutputFixture {
         }
     }
 
-    fn wire(&self) -> CerealizerNetworkItemInstanceDescriptorSerializedData {
-        CerealizerNetworkItemInstanceDescriptorSerializedData {
-            id: self.network_id,
-            stacksize: self.count,
-            auxvalue: self.metadata,
-            block_runtime_id: self.block_runtime_id,
-            user_data_buffer: self.user_data.clone(),
+    fn wire(&self) -> NetworkItemInstanceDescriptorSerializedData {
+        NetworkItemInstanceDescriptorSerializedData {
+            id: wire::ZigZag32(self.network_id),
+            stack_size: wire::U16LE(self.count),
+            aux_value: wire::VarUInt(self.metadata),
+            block_runtime_id: wire::ZigZag32(self.block_runtime_id),
+            user_data_buffer: Bytes::copy_from_slice(&self.user_data),
         }
     }
 }
@@ -108,8 +99,8 @@ pub struct UnlockingFixture {
 }
 
 impl UnlockingFixture {
-    fn wire(&self) -> CerealizerRecipeUnlockingRequirementSerializedData {
-        CerealizerRecipeUnlockingRequirementSerializedData {
+    fn wire(&self) -> RecipeUnlockRequirementSerializedData {
+        RecipeUnlockRequirementSerializedData {
             unlocking_context: match self.context {
                 0 => UnlockingContext::None,
                 1 => UnlockingContext::Alwaysunlocked,
@@ -195,7 +186,7 @@ impl CraftingDataFixture {
 
     /// The packet body `decode_recipe_update` reads.
     pub fn encode(&self) -> Vec<u8> {
-        let mut packet = CraftingDataPacket {
+        let mut packet = CraftingData {
             clear_recipes: self.clear_recipes,
             ..Default::default()
         };
@@ -203,40 +194,36 @@ impl CraftingDataFixture {
             let ingredients = recipe.ingredients.iter().map(IngredientFixture::wire);
             let results = recipe.results.iter().map(OutputFixture::wire).collect();
             let unlocking_requirement = recipe.unlocking.as_ref().map(UnlockingFixture::wire);
-            let net_id = TypedServerNetIdstructRecipeNetIdTag {
-                raw_id: recipe.net_id,
-            };
+            let net_id = RecipeNetID(recipe.net_id);
             match recipe.shape {
-                Some((width, height)) => packet.shaped_recipes.push(ShapedRecipePayload {
-                    recipe_id: recipe.recipe_id.clone(),
-                    width,
-                    height,
+                Some((width, height)) => packet.shaped_recipes.push(ShapedRecipe {
+                    recipe_id: recipe.recipe_id.as_str().into(),
+                    width: wire::ZigZag32(width),
+                    height: wire::ZigZag32(height),
                     ingredients: ingredients.collect(),
                     results,
-                    tag: recipe.tag.clone(),
-                    priority: recipe.priority,
+                    tag: recipe.tag.as_str().into(),
+                    priority: wire::ZigZag32(recipe.priority),
                     assume_symmetry: recipe.assume_symmetry,
                     unlocking_requirement,
                     net_id,
                     ..Default::default()
                 }),
-                None => packet.shapeless_recipes.push(ShapelessRecipePayload {
-                    recipe_id: recipe.recipe_id.clone(),
+                None => packet.shapeless_recipes.push(ShapelessRecipe {
+                    recipe_id: recipe.recipe_id.as_str().into(),
                     ingredients: ingredients.collect(),
                     results,
-                    tag: recipe.tag.clone(),
-                    priority: recipe.priority,
+                    tag: recipe.tag.as_str().into(),
+                    priority: wire::ZigZag32(recipe.priority),
                     unlocking_requirement,
                     net_id,
                     ..Default::default()
                 }),
             }
         }
-        let mut bytes = BytesMut::new();
         packet
-            .encode(&mut bytes)
-            .expect("a buffer accepts CraftingData");
-        bytes.to_vec()
+            .encode_to_vec()
+            .expect("fixture CraftingData encodes")
     }
 
     /// The update the real decoder admits from [`Self::encode`]; panics on a decode error.
@@ -268,10 +255,10 @@ pub struct StackSlotObservation {
 }
 
 impl StackSlotObservation {
-    fn from_wire(slot: &ItemStackRequestCerealSlotInfoData) -> Self {
+    fn from_wire(slot: &StackRequestSlotInfo) -> Self {
         Self {
-            slot: slot.slot,
-            stack_network_id: slot.net_id_variant,
+            slot: slot.slot.0,
+            stack_network_id: slot.net_id_variant.0,
         }
     }
 }
@@ -298,7 +285,7 @@ pub enum StackActionObservation {
 
 /// The first request's actions in an ItemStackRequest packet; `None` for any other packet.
 pub fn stack_request_actions(packet: &Packet) -> Option<Vec<StackActionObservation>> {
-    let McpePacketData::ItemStackRequestPacket(request) = &packet.data else {
+    let packets::Packet::ItemStackRequest(request) = &*packet.data else {
         return None;
     };
     let actions = request
@@ -307,29 +294,37 @@ pub fn stack_request_actions(packet: &Packet) -> Option<Vec<StackActionObservati
         .actions
         .iter()
         .map(|action| match action {
-            Action::CraftRecipeActionData(craft) => StackActionObservation::CraftRecipe {
-                recipe_network_id: craft.recipe_net_id.raw_id,
+            Action::CraftRecipeActionData { recipe_net_id, .. } => {
+                StackActionObservation::CraftRecipe {
+                    recipe_network_id: recipe_net_id.0,
+                }
+            }
+            Action::CraftResultsActionData { craft_results, .. } => {
+                StackActionObservation::CraftResults(
+                    craft_results
+                        .iter()
+                        .map(|result| match &result.item_descriptor {
+                            ItemDescriptor::ItemNameDescriptorData { full_name, .. } => {
+                                Some(full_name.to_string_lossy().into_owned())
+                            }
+                            _ => None,
+                        })
+                        .collect(),
+                )
+            }
+            Action::ConsumeActionData { amount, source, .. } => StackActionObservation::Consume {
+                amount: amount.0,
+                source: StackSlotObservation::from_wire(source),
             },
-            Action::CraftResultsActionData(results) => StackActionObservation::CraftResults(
-                results
-                    .craft_results
-                    .iter()
-                    .map(|result| match &result.item_descriptor {
-                        ItemDescriptor::ItemNameDescriptorData(name) => {
-                            Some(name.full_name.clone())
-                        }
-                        _ => None,
-                    })
-                    .collect(),
-            ),
-            Action::ConsumeActionData(consume) => StackActionObservation::Consume {
-                amount: consume.amount,
-                source: StackSlotObservation::from_wire(&consume.source),
-            },
-            Action::TakeActionData(take) => StackActionObservation::Take {
-                amount: take.amount,
-                source: StackSlotObservation::from_wire(&take.source),
-                destination: StackSlotObservation::from_wire(&take.destination),
+            Action::TakeActionData {
+                amount,
+                source,
+                destination,
+                ..
+            } => StackActionObservation::Take {
+                amount: amount.0,
+                source: StackSlotObservation::from_wire(source),
+                destination: StackSlotObservation::from_wire(destination),
             },
             _ => StackActionObservation::Other,
         });

@@ -48,11 +48,9 @@ impl GeometryStreamCounts {
             .checked_add(self.transparent_model_draw.checked_mul(
                 (PACKED_MODEL_DRAW_REF_BYTES / GEOMETRY_STREAM_WORD_BYTES) as u32,
             )?)?;
-        let liquid_offset = if self.liquid == 0 && self.liquid_lighting == 0 {
-            transparent_model_draw_end
-        } else {
-            checked_align_up(transparent_model_draw_end, SHARED_GEOMETRY_ALIGNMENT_WORDS)?
-        };
+        // Aligned even without liquid: every origin record derives a liquid record base from it.
+        let liquid_offset =
+            checked_align_up(transparent_model_draw_end, SHARED_GEOMETRY_ALIGNMENT_WORDS)?;
         let liquid_lighting_offset =
             liquid_offset
                 .checked_add(self.liquid.checked_mul(

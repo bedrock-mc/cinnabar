@@ -2,16 +2,21 @@
 
 use super::*;
 use crate::WorldPacketError;
-use std::sync::Arc;
-use valentine::bedrock::version::v1_26_51::{
-    CameraPacket, CameraPresetsPacket, CameraShakePacket,
-    EnumsCameraShakeAction as WireShakeAction, EnumsCameraShakeType as WireShakeType,
+use bedrock_protocol_1_26_51::enums::{
+    CameraPresetAudioListener, CameraShakeAction as WireShakeAction,
+    CameraShakeType as WireShakeType, ControlScheme,
 };
+use bedrock_protocol_1_26_51::packets::{Camera, CameraPresets, CameraShake};
+use bedrock_protocol_1_26_51::wire;
+use std::sync::Arc;
+
+/// Unwraps an optional little-endian float field.
+fn float(value: Option<wire::F32LE>) -> Option<f32> {
+    value.map(|value| value.0)
+}
 
 /// Retains preset indices and rejects unusable registry data through counted semantic skips.
-pub(crate) fn normalize_presets(
-    packet: CameraPresetsPacket,
-) -> Result<CameraEvent, WorldPacketError> {
+pub(crate) fn normalize_presets(packet: CameraPresets) -> Result<CameraEvent, WorldPacketError> {
     validate_count(
         packet.camera_presets.presets.len(),
         MAX_CAMERA_PRESETS,
@@ -22,18 +27,39 @@ pub(crate) fn normalize_presets(
         .presets
         .into_iter()
         .map(|preset| {
-            let position = [preset.pos_x, preset.pos_y, preset.pos_z];
-            let rotation_degrees = [preset.rot_x, preset.rot_y];
+            let position = [
+                float(preset.pos_x),
+                float(preset.pos_y),
+                float(preset.pos_z),
+            ];
+            let rotation_degrees = [float(preset.rot_x), float(preset.rot_y)];
+            let radius = float(preset.radius);
+            let rotation_speed = float(preset.rotation_speed);
+            let block_listening_radius = float(preset.block_listening_radius);
+            let yaw_limit_min = float(preset.yaw_limit_min);
+            let yaw_limit_max = float(preset.yaw_limit_max);
             for value in position
                 .into_iter()
                 .chain(rotation_degrees)
-                .chain([preset.radius, preset.rotation_speed, preset.block_listening_radius,
-                    preset.yaw_limit_min, preset.yaw_limit_max])
+                .chain([
+                    radius,
+                    rotation_speed,
+                    block_listening_radius,
+                    yaw_limit_min,
+                    yaw_limit_max,
+                ])
                 .flatten()
             {
                 validate_finite(value, "preset.transform")?;
             }
-            for limits in [preset.horizontal_rotation_limit.as_ref(), preset.vertical_rotation_limit.as_ref(), preset.starting_rotation.as_ref()].into_iter().flatten() {
+            for limits in [
+                preset.horizontal_rotation_limit.as_ref(),
+                preset.vertical_rotation_limit.as_ref(),
+                preset.starting_rotation.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
                 validate_finite(limits.x, "preset.rotation_limit")?;
                 validate_finite(limits.y, "preset.rotation_limit")?;
             }
@@ -54,34 +80,32 @@ pub(crate) fn normalize_presets(
                 inherit_from: bounded_identifier(preset.inherit_from, "preset.inherit_from")?,
                 position,
                 rotation_degrees,
-                rotation_speed: preset.rotation_speed,
-                snap_to_target: preset.snapto_target,
+                rotation_speed,
+                snap_to_target: preset.snap_to_target,
                 horizontal_rotation_limit: preset.horizontal_rotation_limit.map(|v| [v.x, v.y]),
                 vertical_rotation_limit: preset.vertical_rotation_limit.map(|v| [v.x, v.y]),
                 continue_targeting: preset.continue_targeting,
-                block_listening_radius: preset.block_listening_radius,
+                block_listening_radius,
                 view_offset,
                 entity_offset,
-                radius: preset.radius,
-                yaw_limit_min: preset.yaw_limit_min,
-                yaw_limit_max: preset.yaw_limit_max,
-                listener: preset.listener.map(|listener| {
-                    use valentine::bedrock::version::v1_26_51::EnumsSharedTypesv12190CameraPresetAudioListener::*;
-                    match listener { Camera => 0, Player => 1, Unknown(value) => value }
+                radius,
+                yaw_limit_min,
+                yaw_limit_max,
+                listener: preset.listener.map(|listener| match listener {
+                    CameraPresetAudioListener::Camera => 0,
+                    CameraPresetAudioListener::Player => 1,
+                    CameraPresetAudioListener::Unknown(value) => value,
                 }),
                 player_effects: preset.player_effects,
                 apply_inherited_starting_rotation: preset.apply_inherited_starting_rotation,
                 starting_rotation: preset.starting_rotation.map(|v| [v.x, v.y]),
-                control_scheme: preset.control_scheme.map(|scheme| {
-                    use valentine::bedrock::version::v1_26_51::EnumsControlSchemeScheme::*;
-                    match scheme {
-                        LockedPlayerRelativeStrafe => 0,
-                        CameraRelative => 1,
-                        CameraRelativeStrafe => 2,
-                        PlayerRelative => 3,
-                        PlayerRelativeStrafe => 4,
-                        Unknown(value) => value,
-                    }
+                control_scheme: preset.control_scheme.map(|scheme| match scheme {
+                    ControlScheme::LockedPlayerRelativeStrafe => 0,
+                    ControlScheme::CameraRelative => 1,
+                    ControlScheme::CameraRelativeStrafe => 2,
+                    ControlScheme::PlayerRelative => 3,
+                    ControlScheme::PlayerRelativeStrafe => 4,
+                    ControlScheme::Unknown(value) => value,
                 }),
                 aim_assist: preset
                     .aim_assist
@@ -94,20 +118,20 @@ pub(crate) fn normalize_presets(
 }
 
 /// Preserves both unique IDs in the legacy camera request.
-pub(crate) fn normalize_switch(packet: CameraPacket) -> CameraEvent {
+pub(crate) fn normalize_switch(packet: Camera) -> CameraEvent {
     CameraEvent::Switch(CameraSwitchEvent {
-        camera_unique_id: packet.camera_id.actor_unique_id,
-        target_player_unique_id: packet.target_player_id.actor_unique_id,
+        camera_unique_id: packet.camera_id.0,
+        target_player_unique_id: packet.target_player_id.0,
     })
 }
 
 /// Non-finite shake fields are counted semantic skips.
-pub(crate) fn normalize_shake(packet: CameraShakePacket) -> Result<CameraEvent, WorldPacketError> {
-    validate_finite(packet.intensity, "shake.intensity")?;
-    validate_finite(packet.seconds, "shake.seconds")?;
+pub(crate) fn normalize_shake(packet: CameraShake) -> Result<CameraEvent, WorldPacketError> {
+    validate_finite(packet.intensity.0, "shake.intensity")?;
+    validate_finite(packet.seconds.0, "shake.seconds")?;
     Ok(CameraEvent::Shake(CameraShakeEvent {
-        intensity: packet.intensity,
-        duration_seconds: packet.seconds,
+        intensity: packet.intensity.0,
+        duration_seconds: packet.seconds.0,
         shake_type: match packet.shake_type {
             WireShakeType::Positional => CameraShakeType::Positional,
             WireShakeType::Rotational => CameraShakeType::Rotational,

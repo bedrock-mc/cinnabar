@@ -1,4 +1,4 @@
-use valentine::bedrock::version::v1_26_51::McpePacketData;
+use bedrock_protocol_1_26_51::packets;
 
 /// Longest retained transfer host, in bytes.
 ///
@@ -33,14 +33,14 @@ pub enum ServerTransferRejection {
 impl ServerTransferEvent {
     /// Normalizes one decoded packet; other packets normalize to nothing.
     pub(crate) fn from_packet_data(
-        data: &McpePacketData,
+        data: &packets::Packet,
     ) -> Result<Option<Self>, ServerTransferRejection> {
-        let McpePacketData::TransferPacket(packet) = data else {
+        let packets::Packet::Transfer(packet) = data else {
             return Ok(None);
         };
         Self::from_target(
-            &packet.server_address,
-            packet.server_port,
+            &packet.server_address.to_string_lossy(),
+            packet.server_port.0,
             packet.reload_world,
         )
         .map(Some)
@@ -94,15 +94,16 @@ impl crate::ProtocolError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use valentine::bedrock::version::v1_26_51::TransferPacket;
+    use bedrock_protocol_1_26_51::packets::Transfer;
+    use bedrock_protocol_1_26_51::wire;
 
-    fn transfer_data(address: &str, port: u16) -> McpePacketData {
-        McpePacketData::TransferPacket(Box::new(TransferPacket {
-            server_address: address.to_owned(),
-            server_port: port,
+    fn transfer_data(address: &str, port: u16) -> packets::Packet {
+        packets::Packet::Transfer(Transfer {
+            server_address: address.into(),
+            server_port: wire::U16LE(port),
             reload_world: false,
             ..Default::default()
-        }))
+        })
     }
 
     #[test]
@@ -118,12 +119,12 @@ mod tests {
 
     #[test]
     fn normalization_retains_the_reload_flag_and_trims_surrounding_whitespace() {
-        let data = McpePacketData::TransferPacket(Box::new(TransferPacket {
-            server_address: " game.example.net ".to_owned(),
-            server_port: 19133,
+        let data = packets::Packet::Transfer(Transfer {
+            server_address: " game.example.net ".into(),
+            server_port: wire::U16LE(19133),
             reload_world: true,
             ..Default::default()
-        }));
+        });
         let event = ServerTransferEvent::from_packet_data(&data)
             .expect("well-formed target")
             .expect("transfer packet normalizes");
@@ -133,10 +134,9 @@ mod tests {
 
     #[test]
     fn normalization_ignores_non_transfer_packets() {
-        let other =
-            McpePacketData::SetTimePacket(valentine::bedrock::version::v1_26_51::SetTimePacket {
-                time: 7,
-            });
+        let other = packets::Packet::SetTime(packets::SetTime {
+            time: wire::ZigZag32(7),
+        });
         assert_eq!(
             ServerTransferEvent::from_packet_data(&other).expect("non-transfer normalizes"),
             None

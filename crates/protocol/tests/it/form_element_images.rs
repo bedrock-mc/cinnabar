@@ -1,13 +1,14 @@
+use bedrock_protocol_1_26_51::packets::ModalFormRequest;
+use bedrock_protocol_1_26_51::wire;
 use protocol::{
     FormButtonImage, MenuElement, ServerFormModel, UiEvent, WorldEvent, into_world_event,
 };
-use valentine::bedrock::version::v1_26_51::ModalFormRequestPacket;
 
 fn model(json: serde_json::Value) -> ServerFormModel {
     let event = into_world_event(
-        protocol::Packet::new(ModalFormRequestPacket {
-            form_id: 7,
-            form_uijson: json.to_string(),
+        protocol::Packet::new(ModalFormRequest {
+            form_id: wire::VarUInt(7),
+            form_ui_json: json.to_string().into(),
         }),
         0,
     )

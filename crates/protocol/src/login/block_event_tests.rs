@@ -3,19 +3,18 @@
 use crate::raw_packet::decode_packet_raw;
 use bytes::Buf;
 
-use valentine::bedrock::version::v1_26_51::{
-    ActorUniqueId, BlockEventPacket, BlockPos, ClientboundMapItemDataPacket, OpenSignPacket,
-};
+use bedrock_protocol_1_26_51::packets::{BlockEvent, ClientboundMapItemData, OpenSign};
+use bedrock_protocol_1_26_51::types::{ActorUniqueID, BlockPos};
 
 use super::*;
 use crate::{BlockEventEvent, MapDataEvent, OpenSignEvent, WorldEvent};
 
 #[test]
 fn block_event_packets_normalize_with_the_current_dimension() {
-    let packet: Packet = crate::Packet::new(BlockEventPacket {
-        block_position: BlockPos { x: 4, y: 70, z: -9 },
-        event_type: 1,
-        event_value: 2,
+    let packet: Packet = crate::Packet::new(BlockEvent {
+        block_position: block_pos(4, 70, -9),
+        event_type: wire::ZigZag32(1),
+        event_value: wire::ZigZag32(2),
     });
     let mut batch = crate::encode(&packet).expect("encode block event");
     batch.advance(1);
@@ -36,21 +35,27 @@ fn block_event_packets_normalize_with_the_current_dimension() {
     );
 }
 
-fn map_packet(width: i32, start_x: i32, pixels: Vec<u32>) -> ClientboundMapItemDataPacket {
-    ClientboundMapItemDataPacket {
-        map_id: ActorUniqueId {
-            actor_unique_id: 77,
-        },
-        width: Some(width),
-        height: Some(2),
-        start_x: Some(start_x),
-        start_y: Some(3),
-        pixels: Some(pixels),
+fn block_pos(x: i32, y: i32, z: i32) -> BlockPos {
+    BlockPos {
+        x: wire::ZigZag32(x),
+        y: wire::ZigZag32(y),
+        z: wire::ZigZag32(z),
+    }
+}
+
+fn map_packet(width: i32, start_x: i32, pixels: Vec<u32>) -> ClientboundMapItemData {
+    ClientboundMapItemData {
+        map_id: ActorUniqueID(77),
+        width: Some(wire::ZigZag32(width)),
+        height: Some(wire::ZigZag32(2)),
+        start_x: Some(wire::ZigZag32(start_x)),
+        start_y: Some(wire::ZigZag32(3)),
+        pixels: Some(pixels.into_iter().map(wire::U32LE).collect()),
         ..Default::default()
     }
 }
 
-fn decode_map(packet: ClientboundMapItemDataPacket) -> Option<WorldEvent> {
+fn decode_map(packet: ClientboundMapItemData) -> Option<WorldEvent> {
     let packet: Packet = crate::Packet::new(packet);
     let mut batch = crate::encode(&packet).expect("encode map data");
     batch.advance(1);
@@ -78,12 +83,8 @@ fn map_pixel_updates_normalize_and_out_of_range_rectangles_are_skipped() {
 
 #[test]
 fn open_sign_packets_normalize_with_position_side_and_dimension() {
-    let packet: Packet = crate::Packet::new(OpenSignPacket {
-        pos: BlockPos {
-            x: -5,
-            y: 64,
-            z: 12,
-        },
+    let packet: Packet = crate::Packet::new(OpenSign {
+        pos: block_pos(-5, 64, 12),
         is_front_side: false,
     });
     let mut batch = crate::encode(&packet).expect("encode open sign");

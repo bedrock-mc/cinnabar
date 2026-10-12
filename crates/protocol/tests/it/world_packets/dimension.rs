@@ -2,13 +2,12 @@ use super::*;
 
 #[test]
 fn dimension_ack_is_selected_by_subclient_without_requiring_the_action_actor_id() {
-    use valentine::bedrock::version::v1_26_51::{EnumsPlayerActionType, PlayerActionPacket};
+    use bedrock_protocol_1_26_51::enums::PlayerActionType;
+    use bedrock_protocol_1_26_51::packets::PlayerAction;
     for runtime_id in [0, 42, u64::MAX] {
-        let action = PlayerActionPacket {
-            player_runtime_id: ActorRuntimeId {
-                actor_runtime_id: runtime_id,
-            },
-            action: EnumsPlayerActionType::Changedimensionack,
+        let action = PlayerAction {
+            player_runtime_id: ActorRuntimeID(runtime_id),
+            action: PlayerActionType::Changedimensionack,
             ..Default::default()
         };
         let packet: protocol::Packet = protocol::Packet::new(action);

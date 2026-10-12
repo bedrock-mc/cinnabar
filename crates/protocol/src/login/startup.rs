@@ -6,13 +6,14 @@
 
 use std::time::Duration;
 
-use valentine::bedrock::version::v1_26_51::{
-    ActorRuntimeId, DisconnectPacket, EnumsPlayStatus, ItemRegistryPacket, McpePacketData,
-    McpePacketName, SetLocalPlayerAsInitializedPacket, StartGamePacket,
+use bedrock_protocol_1_26_51::enums::PlayStatusType;
+use bedrock_protocol_1_26_51::packets::{
+    self, Disconnect, ItemRegistry, PacketId, SetLocalPlayerAsInitialized, StartGame,
 };
+use bedrock_protocol_1_26_51::types::ActorRuntimeID;
 
 use crate::codec::SessionFailure;
-use crate::disconnect::{delivered_texts, disconnect_reason, join_disconnect};
+use crate::disconnect::{delivered_texts, disconnect_reason, join_disconnect, packet_texts};
 use crate::raw_packet::RawPacket;
 use crate::session_transport::{Inbound, SessionTransport, Terminal};
 use crate::{LoadingScreenPhase, Packet, ProtocolError, ServerTransferEvent, SessionError};
@@ -28,8 +29,8 @@ const STAGE: &str = "StartGame";
 
 /// What the spawn sequence leaves for play.
 pub(super) struct Spawned {
-    pub(super) start_game: StartGamePacket,
-    pub(super) item_registry: ItemRegistryPacket,
+    pub(super) start_game: StartGame,
+    pub(super) item_registry: ItemRegistry,
     pub(super) runtime_id: u64,
     pub(super) terrain_before_spawn: bool, // a publisher update or chunk preceded PlayerSpawn
 }
@@ -69,8 +70,8 @@ impl DeferredPackets {
 pub(super) async fn await_spawn(
     transport: &mut SessionTransport,
 ) -> Result<Spawned, ProtocolError> {
-    let mut start_game: Option<(u64, StartGamePacket)> = None;
-    let mut item_registry: Option<ItemRegistryPacket> = None;
+    let mut start_game: Option<(u64, StartGame)> = None;
+    let mut item_registry: Option<ItemRegistry> = None;
     let mut sent_chunk_radius = false;
     let mut received_chunk_radius = false;
     let mut received_player_spawn = false;
@@ -79,11 +80,11 @@ pub(super) async fn await_spawn(
     loop {
         let raw = recv_startup(transport).await?;
         match raw.id {
-            McpePacketName::StartGamePacket => {
-                let McpePacketData::StartGamePacket(start) = raw.decode()?.data else {
+            PacketId::StartGame => {
+                let packets::Packet::StartGame(start) = *raw.decode()?.data else {
                     unreachable!("packet ID and decoded variant must agree")
                 };
-                let runtime_id = start.runtime_id.actor_runtime_id;
+                let runtime_id = start.runtime_id.0;
                 match start_game.as_ref().map(|(first, _)| *first) {
                     Some(first) if first != runtime_id => {
                         return Err(SessionFailure::UnexpectedStartup(format!(
@@ -95,8 +96,8 @@ pub(super) async fn await_spawn(
                     None => start_game = Some((runtime_id, *start)),
                 }
             }
-            McpePacketName::ItemRegistryPacket => {
-                let McpePacketData::ItemRegistryPacket(registry) = raw.decode()?.data else {
+            PacketId::ItemRegistry => {
+                let packets::Packet::ItemRegistry(registry) = *raw.decode()?.data else {
                     unreachable!("packet ID and decoded variant must agree")
                 };
                 // The native registry initializes once: a later empty or custom-only table must
@@ -106,31 +107,31 @@ pub(super) async fn await_spawn(
                 }
                 item_registry = Some(registry);
             }
-            McpePacketName::PlayStatusPacket => {
-                let McpePacketData::PlayStatusPacket(status) = raw.decode()?.data else {
+            PacketId::PlayStatus => {
+                let packets::Packet::PlayStatus(status) = *raw.decode()?.data else {
                     unreachable!("packet ID and decoded variant must agree")
                 };
-                if status.status == EnumsPlayStatus::Playerspawn {
+                if status.status == PlayStatusType::Playerspawn {
                     received_player_spawn = true;
                 }
             }
-            McpePacketName::ChunkRadiusUpdatedPacket => {
-                let McpePacketData::ChunkRadiusUpdatedPacket(update) = raw.clone().decode()?.data
+            PacketId::ChunkRadiusUpdated => {
+                let packets::Packet::ChunkRadiusUpdated(update) = *raw.clone().decode()?.data
                 else {
                     unreachable!("packet ID and decoded variant must agree")
                 };
-                if update.chunk_radius < 1 {
+                if update.chunk_radius.0 < 1 {
                     return Err(SessionFailure::UnexpectedStartup(format!(
                         "invalid updated chunk radius {}",
-                        update.chunk_radius
+                        update.chunk_radius.0
                     ))
                     .into());
                 }
                 deferred.push(raw)?;
                 received_chunk_radius = true;
             }
-            McpePacketName::DisconnectPacket => {
-                let McpePacketData::DisconnectPacket(disconnect) = raw.decode()?.data else {
+            PacketId::Disconnect => {
+                let packets::Packet::Disconnect(disconnect) = *raw.decode()?.data else {
                     unreachable!("packet ID and decoded variant must agree")
                 };
                 return Err(packet_disconnect(&disconnect).into());
@@ -138,9 +139,9 @@ pub(super) async fn await_spawn(
             packet_id => {
                 terrain_before_spawn |= matches!(
                     packet_id,
-                    McpePacketName::NetworkChunkPublisherUpdatePacket
-                        | McpePacketName::LevelChunkPacket
-                        | McpePacketName::SubChunkPacket
+                    PacketId::NetworkChunkPublisherUpdate
+                        | PacketId::LevelChunk
+                        | PacketId::SubChunk
                 );
                 deferred.push(raw)?;
             }
@@ -184,10 +185,8 @@ fn loading_started() -> [Packet; 2] {
 pub(super) fn loading_finished(runtime_id: u64) -> Vec<Packet> {
     vec![
         crate::loading_screen_packet(LoadingScreenPhase::End, None),
-        Packet::new(SetLocalPlayerAsInitializedPacket {
-            player_id: ActorRuntimeId {
-                actor_runtime_id: runtime_id,
-            },
+        Packet::new(SetLocalPlayerAsInitialized {
+            player_id: ActorRuntimeID(runtime_id),
         }),
     ]
 }
@@ -198,7 +197,7 @@ async fn recv_startup(transport: &mut SessionTransport) -> Result<RawPacket, Pro
     let mut skipped = 0_u64;
     loop {
         let target = match transport.recv().await? {
-            Inbound::Packet(raw) if raw.id == McpePacketName::TransferPacket => {
+            Inbound::Packet(raw) if raw.id == PacketId::Transfer => {
                 match ServerTransferEvent::from_packet_data(&raw.decode()?.data) {
                     Ok(Some(target)) => Ok(target),
                     Ok(None) => unreachable!("transfer packet ID agrees with its body"),
@@ -248,12 +247,11 @@ pub(super) async fn startup_write_failure(
                 )),
             )) => return error,
             Err(_) | Ok(Err(_)) => return write_error,
-            Ok(Ok(raw)) if raw.id == McpePacketName::DisconnectPacket => {
-                return match raw.decode() {
-                    Ok(Packet {
-                        data: McpePacketData::DisconnectPacket(disconnect),
-                        ..
-                    }) => packet_disconnect(&disconnect).into(),
+            Ok(Ok(raw)) if raw.id == PacketId::Disconnect => {
+                return match raw.decode().map(|packet| *packet.data) {
+                    Ok(packets::Packet::Disconnect(disconnect)) => {
+                        packet_disconnect(&disconnect).into()
+                    }
                     _ => write_error,
                 };
             }
@@ -263,13 +261,9 @@ pub(super) async fn startup_write_failure(
 }
 
 /// The failure a server's Disconnect packet ends the spawn sequence with.
-fn packet_disconnect(disconnect: &DisconnectPacket) -> SessionFailure {
-    join_disconnect(
-        STAGE,
-        &disconnect.reason,
-        &disconnect.messages.message,
-        &disconnect.messages.filtered_message,
-    )
+fn packet_disconnect(disconnect: &Disconnect) -> SessionFailure {
+    let (message, filtered_message) = packet_texts(disconnect);
+    join_disconnect(STAGE, &disconnect.reason, &message, &filtered_message)
 }
 
 #[cfg(test)]

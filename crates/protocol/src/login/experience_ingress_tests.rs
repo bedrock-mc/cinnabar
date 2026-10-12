@@ -1,8 +1,8 @@
 //! Optional experience envelopes must pass through encoded world ingress.
 use super::*;
 use crate::raw_packet::decode_packet_raw;
+use bedrock_protocol_1_26_51::packets::ScriptMessage;
 use bytes::Buf;
-use valentine::bedrock::version::v1_26_51::ScriptMessagePacket;
 
 /// Encodes a packet and traverses the same raw admission path as the socket reader.
 fn ingress(packet: Packet) -> Option<WorldEvent> {
@@ -27,9 +27,9 @@ fn experience_replies_cross_raw_ingress_with_existing_bounds_and_routes() {
         ),
     ] {
         assert!(
-            ingress(crate::Packet::new(ScriptMessagePacket {
+            ingress(crate::Packet::new(ScriptMessage {
                 message_id: channel.into(),
-                message_value: bytes,
+                message_value: bytes.into(),
             }))
             .is_none()
         );

@@ -1,21 +1,19 @@
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_51::{
-    AvailableCommandsPacket, AvailableCommandsPacketCommandDatajson,
-    AvailableCommandsPacketPayloadEnumData, AvailableCommandsPacketPayloadOverloadData,
-    AvailableCommandsPacketPayloadParamData, AvailableCommandsPacketPayloadSoftEnumData,
+use bedrock_protocol_1_26_51::types::{
+    Command, CommandEnum, CommandOverload, CommandParameter, DynamicEnum,
 };
 
 use super::*;
 
 const VALID: u32 = 0x10_0000;
 
-fn param(name: &str, word: u32, optional: bool) -> AvailableCommandsPacketPayloadParamData {
-    AvailableCommandsPacketPayloadParamData {
-        name: name.to_owned(),
-        parse_symbol: word,
+fn param(name: &str, word: u32, optional: bool) -> CommandParameter {
+    CommandParameter {
+        name: name.into(),
+        parse_symbol: wire::U32LE(word),
         is_optional: optional,
-        options: 0,
+        options: wire::U8(0),
     }
 }
 
@@ -23,16 +21,16 @@ fn command(
     name: &str,
     permission: &str,
     alias_enum: i32,
-    params: Vec<AvailableCommandsPacketPayloadParamData>,
-) -> AvailableCommandsPacketCommandDatajson {
-    AvailableCommandsPacketCommandDatajson {
-        name: name.to_owned(),
-        description: String::new(),
-        flags: 0,
-        permission_level: permission.to_owned(),
-        alias_enum,
+    params: Vec<CommandParameter>,
+) -> Command {
+    Command {
+        name: name.into(),
+        description: wire::Str::default(),
+        flags: wire::U16LE(0),
+        permission_level: permission.into(),
+        alias_enum: wire::I32LE(alias_enum),
         command_data_chained_subcommand_indexes: Vec::new(),
-        overloads: vec![AvailableCommandsPacketPayloadOverloadData {
+        overloads: vec![CommandOverload {
             is_chaining: false,
             parameter_data: params,
         }],
@@ -40,22 +38,22 @@ fn command(
 }
 
 fn catalog() -> ChatAutocompleteCatalog {
-    let packet = AvailableCommandsPacket {
+    let packet = AvailableCommands {
         enum_values: ["survival", "creative", "gm", "on", "off"]
-            .map(str::to_owned)
+            .map(wire::Str::from)
             .to_vec(),
         enum_data: vec![
-            AvailableCommandsPacketPayloadEnumData {
-                name: "GameMode".to_owned(),
-                values: vec![0, 1],
+            CommandEnum {
+                name: "GameMode".into(),
+                values: vec![wire::U32LE(0), wire::U32LE(1)],
             },
-            AvailableCommandsPacketPayloadEnumData {
-                name: "gamemodeAliases".to_owned(),
-                values: vec![2],
+            CommandEnum {
+                name: "gamemodeAliases".into(),
+                values: vec![wire::U32LE(2)],
             },
-            AvailableCommandsPacketPayloadEnumData {
-                name: "Toggle".to_owned(),
-                values: vec![3, 4],
+            CommandEnum {
+                name: "Toggle".into(),
+                values: vec![wire::U32LE(3), wire::U32LE(4)],
             },
         ],
         commands: vec![
@@ -90,9 +88,9 @@ fn catalog() -> ChatAutocompleteCatalog {
                 ],
             ),
         ],
-        soft_enums: vec![AvailableCommandsPacketPayloadSoftEnumData {
-            enum_name: "warps".to_owned(),
-            enum_options: vec!["spawn".to_owned(), "shop".to_owned()],
+        soft_enums: vec![DynamicEnum {
+            enum_name: "warps".into(),
+            enum_options: vec!["spawn".into(), "shop".into()],
         }],
         ..Default::default()
     };
@@ -257,7 +255,7 @@ fn flat_enums_still_complete_without_a_command_tree() {
 
 #[test]
 fn out_of_range_enum_index_degrades_to_a_word_parameter() {
-    let mut packet = AvailableCommandsPacket::default();
+    let mut packet = AvailableCommands::default();
     packet.commands.push(command(
         "x",
         "any",

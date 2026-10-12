@@ -1,8 +1,9 @@
-use valentine::bedrock::version::v1_26_51::{
-    ActorRuntimeId, ContainerClosePacket, EnumsInteractPacketPayloadAction as InteractAction,
-    EnumsTextProcessingEventOrigin, InteractPacket, ItemStackRequestPacket,
-    ItemStackRequestPacketDataRequestData, TypedClientNetIdstructItemStackRequestIdTagint32T0,
+use bedrock_protocol_1_26_51::enums::{InteractAction, TextProcessingEventOrigin};
+use bedrock_protocol_1_26_51::packets::{ContainerClose, Interact, ItemStackRequest};
+use bedrock_protocol_1_26_51::types::{
+    ActorRuntimeID, ItemStackRequestID, ItemStackRequestPacketData,
 };
+use bedrock_protocol_1_26_51::wire;
 
 use super::InventoryPacketError;
 mod actions;
@@ -25,11 +26,9 @@ pub fn open_inventory_packet(
     if target_runtime_id == 0 {
         return Err(InventoryPacketError::InvalidInventoryTargetRuntimeId);
     }
-    Ok(crate::Packet::new(InteractPacket {
+    Ok(crate::Packet::new(Interact {
         action: InteractAction::Openinventory,
-        target_runtime_id: ActorRuntimeId {
-            actor_runtime_id: target_runtime_id,
-        },
+        target_runtime_id: ActorRuntimeID(target_runtime_id),
         position: None,
     }))
 }
@@ -53,7 +52,7 @@ pub fn item_stack_request_packet_filtered(
     actions: &[StackRequestAction],
     filter_strings: &[String],
 ) -> Result<crate::Packet, InventoryPacketError> {
-    Ok(crate::Packet::new(ItemStackRequestPacket {
+    Ok(crate::Packet::new(ItemStackRequest {
         requests: vec![encode_request(request_id, actions, filter_strings)?],
     }))
 }
@@ -66,7 +65,7 @@ pub fn item_stack_request_batch<'a>(
         .into_iter()
         .map(|(id, actions, strings)| encode_request(id, actions, strings))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok((!requests.is_empty()).then(|| crate::Packet::new(ItemStackRequestPacket { requests })))
+    Ok((!requests.is_empty()).then(|| crate::Packet::new(ItemStackRequest { requests })))
 }
 
 /// Validates each request independently, including its own created-output identifiers.
@@ -74,7 +73,7 @@ fn encode_request(
     request_id: i32,
     actions: &[StackRequestAction],
     filter_strings: &[String],
-) -> Result<ItemStackRequestPacketDataRequestData, InventoryPacketError> {
+) -> Result<ItemStackRequestPacketData, InventoryPacketError> {
     if filter_strings.len() > MAX_FILTER_STRINGS {
         return Err(InventoryPacketError::InvalidStackRequestActionCount(
             filter_strings.len(),
@@ -100,17 +99,20 @@ fn encode_request(
             ));
         }
     }
-    Ok(ItemStackRequestPacketDataRequestData {
-        client_request_id: TypedClientNetIdstructItemStackRequestIdTagint32T0 { id: request_id },
+    Ok(ItemStackRequestPacketData {
+        client_request_id: ItemStackRequestID(request_id),
         actions: actions
             .iter()
             .map(actions::encode)
             .collect::<Result<_, _>>()?,
-        strings_to_filter: filter_strings.to_vec(),
+        strings_to_filter: filter_strings
+            .iter()
+            .map(|text| wire::Str::from(text.as_str()))
+            .collect(),
         strings_to_filter_origin: if filter_strings.is_empty() {
-            EnumsTextProcessingEventOrigin::Unknown
+            TextProcessingEventOrigin::Unknown
         } else {
-            EnumsTextProcessingEventOrigin::Anviltext
+            TextProcessingEventOrigin::Anviltext
         },
     })
 }
@@ -150,40 +152,39 @@ pub fn container_close_packet(window_id: i32) -> Result<crate::Packet, Inventory
             ));
         }
     };
-    Ok(crate::Packet::new(ContainerClosePacket {
-        container_id,
-        container_type: super::NO_CONTAINER_WINDOW_TYPE.to_ne_bytes()[0],
+    Ok(crate::Packet::new(ContainerClose {
+        container_id: wire::U8(container_id),
+        container_type: wire::U8(super::NO_CONTAINER_WINDOW_TYPE.to_ne_bytes()[0]),
         server_initiated_close: false,
     }))
 }
 
 #[cfg(test)]
 mod tests {
-    use bytes::BytesMut;
-    use valentine::bedrock::codec::BedrockCodec;
-    use valentine::bedrock::version::v1_26_51::McpePacketData;
+    use bedrock_protocol_1_26_51::packets;
+    use bedrock_protocol_1_26_51::wire::{Decode, Encode};
 
     use super::*;
 
     #[test]
     fn client_close_uses_native_unspecified_type() {
         let packet = container_close_packet(4).unwrap();
-        let McpePacketData::ContainerClosePacket(close) = packet.data else {
+        let packets::Packet::ContainerClose(close) = *packet.data else {
             panic!("expected ContainerClose packet");
         };
-        assert_eq!(close.container_id, 4);
-        assert_eq!(close.container_type, 0xf7);
+        assert_eq!(close.container_id.0, 4);
+        assert_eq!(close.container_type.0, 0xf7);
         assert!(!close.server_initiated_close);
     }
 
     #[test]
     fn personal_inventory_open_targets_self_without_a_position() {
         let packet = open_inventory_packet(42).unwrap();
-        let McpePacketData::InteractPacket(interact) = packet.data else {
+        let packets::Packet::Interact(interact) = *packet.data else {
             panic!("expected Interact packet");
         };
         assert_eq!(interact.action, InteractAction::Openinventory);
-        assert_eq!(interact.target_runtime_id.actor_runtime_id, 42);
+        assert_eq!(interact.target_runtime_id.0, 42);
         assert_eq!(interact.position, None);
         assert_eq!(
             open_inventory_packet(0).unwrap_err(),
@@ -207,12 +208,11 @@ mod tests {
             }],
         )
         .unwrap();
-        let McpePacketData::ItemStackRequestPacket(request) = packet.data else {
+        let packets::Packet::ItemStackRequest(request) = *packet.data else {
             panic!()
         };
-        let mut bytes = BytesMut::new();
-        request.encode(&mut bytes).unwrap();
-        let decoded = ItemStackRequestPacket::decode(&mut bytes.freeze(), ()).unwrap();
+        let bytes = request.encode_to_vec().unwrap();
+        let decoded = ItemStackRequest::decode_exact(&bytes).unwrap();
         assert_eq!(decoded, request);
         for invalid in [-4, -9, -7] {
             assert!(

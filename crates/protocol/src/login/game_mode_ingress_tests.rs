@@ -1,53 +1,45 @@
 //! Real raw ingress for BDS's targeted game-mode confirmation packet.
 
-use bytes::BytesMut;
-use valentine::bedrock::version::v1_26_51::*;
+use bedrock_protocol_1_26_51::enums::GameType;
+use bedrock_protocol_1_26_51::packets::{PacketId, UpdatePlayerGameType};
+use bedrock_protocol_1_26_51::types::{ActorUniqueID, PlayerInputTick};
+use bedrock_protocol_1_26_51::wire;
 
-fn raw_packet(
-    mode: EnumsGameType,
-    actor_unique_id: i64,
-    tick: u64,
-) -> crate::raw_packet::RawPacket {
-    let packet: crate::Packet = crate::Packet::new(UpdatePlayerGameTypePacket {
+fn raw_packet(mode: GameType, actor_unique_id: i64, tick: u64) -> crate::raw_packet::RawPacket {
+    let packet: crate::Packet = crate::Packet::new(UpdatePlayerGameType {
         player_game_type: mode,
-        targetplayer: ActorUniqueId { actor_unique_id },
-        tick: PlayerInputTick { inputtick: tick },
+        target_player: ActorUniqueID(actor_unique_id),
+        tick: PlayerInputTick(tick),
     });
-    let mut frame = BytesMut::new();
-    packet
-        .data
-        .encode_inner_bytes_mut(&mut frame, 0, 0)
-        .unwrap();
-    crate::raw_packet::decode_packet_raw(&mut frame.freeze()).unwrap()
+    let mut frame = Vec::new();
+    crate::codec::encode_entry(&packet, &mut frame).unwrap();
+    crate::raw_packet::decode_packet_raw(&mut bytes::Bytes::from(frame)).unwrap()
 }
 
 #[test]
 fn update_player_game_type_enters_raw_ingress_with_unique_id_and_tick() {
     for (wire, expected) in [
         (
-            EnumsGameType::Survival,
+            GameType::Survival,
             crate::GameModeUpdate::Explicit(crate::PlayerGameMode::Survival),
         ),
         (
-            EnumsGameType::Creative,
+            GameType::Creative,
             crate::GameModeUpdate::Explicit(crate::PlayerGameMode::Creative),
         ),
         (
-            EnumsGameType::Adventure,
+            GameType::Adventure,
             crate::GameModeUpdate::Explicit(crate::PlayerGameMode::Adventure),
         ),
         (
-            EnumsGameType::Spectator,
+            GameType::Spectator,
             crate::GameModeUpdate::Explicit(crate::PlayerGameMode::Spectator),
         ),
-        (EnumsGameType::Default, crate::GameModeUpdate::WorldDefault),
-        (
-            EnumsGameType::Unknown(77),
-            crate::GameModeUpdate::Unknown(77),
-        ),
+        (GameType::Default, crate::GameModeUpdate::WorldDefault),
+        (GameType::Unknown(77), crate::GameModeUpdate::Unknown(77)),
     ] {
         let raw = raw_packet(wire, -55, u64::MAX);
-        assert_eq!(raw.id, McpePacketName::UpdatePlayerGameTypePacket);
+        assert_eq!(raw.id, PacketId::UpdatePlayerGameType);
         let event = super::decode_world_raw_with(raw, 0, super::decode_test_raw).unwrap();
         assert_eq!(
             event,
@@ -62,17 +54,18 @@ fn update_player_game_type_enters_raw_ingress_with_unique_id_and_tick() {
 
 #[test]
 fn truncated_targeted_game_mode_is_a_fatal_wire_fault_not_an_ignored_packet() {
-    let packet = raw_packet(EnumsGameType::Creative, 42, 1);
-    let mut payload = BytesMut::new();
-    valentine::protocol::wire::write_var_u32(
-        &mut payload,
-        McpePacketName::UpdatePlayerGameTypePacket as u32,
-    );
+    let packet = raw_packet(GameType::Creative, 42, 1);
+    let mut payload = Vec::new();
+    wire::Writer::new(&mut payload)
+        .write_var_u32(PacketId::UpdatePlayerGameType as u32)
+        .unwrap();
     payload.extend_from_slice(&packet.body()[..packet.body().len() - 1]);
-    let mut frame = BytesMut::new();
-    valentine::protocol::wire::write_var_u32(&mut frame, payload.len() as u32);
+    let mut frame = Vec::new();
+    wire::Writer::new(&mut frame)
+        .write_var_u32(payload.len() as u32)
+        .unwrap();
     frame.extend_from_slice(&payload);
-    let raw = crate::raw_packet::decode_packet_raw(&mut frame.freeze()).unwrap();
+    let raw = crate::raw_packet::decode_packet_raw(&mut bytes::Bytes::from(frame)).unwrap();
     let result = super::decode_world_raw_with(raw, 0, super::decode_test_raw);
     assert!(result.is_err());
     let mut skipped = 0;

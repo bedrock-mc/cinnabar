@@ -1,17 +1,13 @@
+use bedrock_protocol_1_26_51::enums::{InputData, ItemStackRequestActionType};
+use bedrock_protocol_1_26_51::packets::{self, ItemRegistry, StartGame};
+use bedrock_protocol_1_26_51::types::StackRequestAction;
+use bedrock_protocol_1_26_51::wire::Encode;
 use bytes::Bytes;
 use protocol::{
     BlockAction, BlockActionKind, MineBlockRequest, MineBlockRequestError,
     PlayerAuthInputInteractions, PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode,
     decode_batch, encode, player_auth_input_with_interactions,
     player_auth_input_with_mining_request,
-};
-use valentine::bedrock::{
-    codec::BedrockCodec,
-    version::v1_26_51::{
-        EnumsItemStackRequestActionType, EnumsPlayerAuthInputPacketPayloadInputData as InputData,
-        ItemRegistryPacket, ItemStackRequestCerealRequestDataActionsItem, McpePacketData,
-        StartGamePacket,
-    },
 };
 
 fn snapshot() -> PlayerAuthInputSnapshot {
@@ -107,7 +103,7 @@ fn mining_request_flags_and_independent_optional_prediction_match_pinned_fixture
             canonical_flags.push(InputData::Performblockactions);
         }
         canonical_flags.push(InputData::Performitemstackrequest);
-        let McpePacketData::PlayerAuthInputPacket(built_input) = &built.data else {
+        let packets::Packet::PlayerAuthInput(built_input) = &*built.data else {
             panic!("expected input")
         };
         assert_eq!(&built_input.input_data, &canonical_flags);
@@ -119,7 +115,7 @@ fn mining_request_flags_and_independent_optional_prediction_match_pinned_fixture
         let decoded = decode_batch(Bytes::copy_from_slice(fixture)).unwrap();
         assert_eq!(decoded.len(), 1);
         assert_eq!(encode(&decoded[0]).unwrap().as_ref(), fixture);
-        let McpePacketData::PlayerAuthInputPacket(input) = &decoded[0].data else {
+        let packets::Packet::PlayerAuthInput(input) = &*decoded[0].data else {
             panic!("expected input")
         };
         let flags = &input.input_data;
@@ -131,8 +127,7 @@ fn mining_request_flags_and_independent_optional_prediction_match_pinned_fixture
         }
         assert_eq!(flags, &fixture_flags);
         let mut fixture_order_built = built.clone();
-        let McpePacketData::PlayerAuthInputPacket(fixture_order_input) =
-            &mut fixture_order_built.data
+        let packets::Packet::PlayerAuthInput(fixture_order_input) = &mut *fixture_order_built.data
         else {
             panic!("expected input")
         };
@@ -144,28 +139,24 @@ fn mining_request_flags_and_independent_optional_prediction_match_pinned_fixture
         assert!(!flags.contains(&InputData::Performiteminteraction));
         assert_eq!(input.item_use_transaction, None);
         let request = input.item_stack_request.as_ref().unwrap();
-        assert_eq!(request.client_request_id.id, -3);
+        assert_eq!(request.client_request_id.0, -3);
         assert_eq!(request.actions.len(), 1);
         assert!(request.strings_to_filter.is_empty());
-        let ItemStackRequestCerealRequestDataActionsItem::MineBlockActionData(action) =
-            &request.actions[0]
+        let StackRequestAction::MineBlockActionData {
+            action_type,
+            slot,
+            predicted_durability,
+            net_id_variant,
+        } = &request.actions[0]
         else {
             panic!("expected mining action")
         };
+        assert_eq!(*action_type, ItemStackRequestActionType::Screenhudmineblock);
         assert_eq!(
-            action.actiontype,
-            EnumsItemStackRequestActionType::Screenhudmineblock
-        );
-        assert_eq!(
-            (
-                action.slot,
-                action.predicted_durability,
-                action.net_id_variant
-            ),
+            (slot.0, predicted_durability.0, net_id_variant.0),
             (2, 7, 12345)
         );
-        let mut encoded = Vec::new();
-        request.actions[0].encode(&mut encoded).unwrap();
+        let encoded = request.actions[0].encode_to_vec().unwrap();
         assert_eq!(&encoded[..2], &[9, 11]);
     }
 }
@@ -177,7 +168,7 @@ fn absent_mining_request_preserves_existing_input_and_prediction_bytes() {
         let old = player_auth_input_with_interactions(snapshot(), &value).unwrap();
         let absent = player_auth_input_with_mining_request(snapshot(), &value, None).unwrap();
         assert_eq!(encode(&old).unwrap(), encode(&absent).unwrap());
-        let McpePacketData::PlayerAuthInputPacket(input) = absent.data else {
+        let packets::Packet::PlayerAuthInput(input) = *absent.data else {
             panic!("expected input")
         };
         assert_eq!(input.item_stack_request, None);
@@ -210,8 +201,8 @@ fn caller_cannot_assert_request_presence_without_encoder_ownership() {
 
 #[test]
 fn start_game_block_breaking_mode_preserves_explicit_false() {
-    let mut start_game = StartGamePacket::default();
-    let registry = ItemRegistryPacket::default();
+    let mut start_game = StartGame::default();
+    let registry = ItemRegistry::default();
     start_game
         .movement_settings
         .server_authoritative_block_breaking = true;

@@ -5,20 +5,22 @@
 //! and truncated wire stays fatal per the malformed-wire contract.
 
 use crate::raw_packet::decode_packet_raw;
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::Buf;
 
-use valentine::bedrock::version::v1_26_51::{
-    ActorRuntimeId, EnumsMovementEffectType, McpePacketName, MoveActorAbsoluteData,
-    MoveActorAbsolutePacket, MoveActorDeltaData, MoveActorDeltaPacket, MovementEffectPacket,
-    NetworkStackLatencyPacket, PlayerInputTick, SetActorMotionPacket, Vec3 as WireVec3,
+use bedrock_protocol_1_26_51::enums::MovementEffectType;
+use bedrock_protocol_1_26_51::packets::{
+    MoveActorAbsolute, MoveActorDelta, MovementEffect, NetworkStackLatency, SetActorMotion,
+};
+use bedrock_protocol_1_26_51::types::{
+    ActorRuntimeID, MoveActorAbsoluteData, MoveActorDeltaData, PlayerInputTick,
 };
 
 use super::*;
 
 #[test]
 fn server_latency_probe_remains_in_the_ordered_world_event_stream() {
-    let probe = NetworkStackLatencyPacket {
-        creation_time: 777,
+    let probe = NetworkStackLatency {
+        creation_time: wire::U64LE(777),
         is_from_server: true,
     };
     assert!(
@@ -26,8 +28,8 @@ fn server_latency_probe_remains_in_the_ordered_world_event_stream() {
             .unwrap()
             .is_some()
     );
-    let ignored = NetworkStackLatencyPacket {
-        creation_time: 888,
+    let ignored = NetworkStackLatency {
+        creation_time: wire::U64LE(888),
         is_from_server: false,
     };
     assert!(
@@ -40,13 +42,11 @@ fn server_latency_probe_remains_in_the_ordered_world_event_stream() {
 /// A firework's glide boost reaches the ordered world stream with its stamp and kind.
 #[test]
 fn movement_effect_packets_normalize_through_the_world_allowlist() {
-    let packet: Packet = crate::Packet::new(MovementEffectPacket {
-        target_runtime_id: ActorRuntimeId {
-            actor_runtime_id: 42,
-        },
-        effect_id: EnumsMovementEffectType::GlideBoost,
-        effect_duration: 20,
-        tick: PlayerInputTick { inputtick: 7 },
+    let packet: Packet = crate::Packet::new(MovementEffect {
+        target_runtime_id: ActorRuntimeID(42),
+        effect_id: MovementEffectType::GlideBoost,
+        effect_duration: wire::ZigZag32(20),
+        tick: PlayerInputTick(7),
     });
     let mut batch = crate::encode(&packet).expect("encode movement effect");
     batch.advance(1);
@@ -66,27 +66,25 @@ fn movement_effect_packets_normalize_through_the_world_allowlist() {
 }
 
 fn raw_motion_packet(body: &[u8]) -> crate::raw_packet::RawPacket {
-    let mut payload = BytesMut::new();
-    wire::write_var_u32(&mut payload, McpePacketName::SetActorMotionPacket as u32);
-    payload.put_slice(body);
-    let mut frame = BytesMut::new();
-    wire::write_var_u32(&mut frame, payload.len() as u32);
-    frame.put_slice(&payload);
-    decode_packet_raw(&mut frame.freeze()).expect("raw packet")
+    let mut payload = Vec::new();
+    wire::Writer::new(&mut payload)
+        .write_var_u32(PacketId::SetActorMotion as u32)
+        .unwrap();
+    payload.extend_from_slice(body);
+    let mut frame = Vec::new();
+    wire::Writer::new(&mut frame)
+        .write_var_u32(payload.len() as u32)
+        .unwrap();
+    frame.extend_from_slice(&payload);
+    decode_packet_raw(&mut bytes::Bytes::from(frame)).expect("raw packet")
 }
 
 #[test]
 fn set_actor_motion_normalizes_impulses_skips_non_finite_and_keeps_truncation_fatal() {
-    let impulse = |x: f32| SetActorMotionPacket {
-        target_runtime_id: ActorRuntimeId {
-            actor_runtime_id: 42,
-        },
-        motion: WireVec3 {
-            x,
-            y: 0.25,
-            z: -0.75,
-        },
-        tick: PlayerInputTick { inputtick: 7 },
+    let impulse = |x: f32| SetActorMotion {
+        target_runtime_id: ActorRuntimeID(42),
+        motion: [x, 0.25, -0.75].into(),
+        tick: PlayerInputTick(7),
     };
 
     let packet: Packet = Packet::new(impulse(1.5));
@@ -123,14 +121,12 @@ fn set_actor_motion_normalizes_impulses_skips_non_finite_and_keeps_truncation_fa
 #[test]
 fn raw_actor_delta_keeps_server_duration_and_completion_ordering() {
     for ticks in [0, 10, u64::MAX] {
-        let packet: Packet = crate::Packet::new(MoveActorDeltaPacket {
+        let packet: Packet = crate::Packet::new(MoveActorDelta {
             move_data: MoveActorDeltaData {
-                actor_runtime_id: ActorRuntimeId {
-                    actor_runtime_id: 7,
-                },
-                new_position_x: Some(12.0),
+                actor_runtime_id: ActorRuntimeID(7),
+                new_position_x: Some(wire::F32LE(12.0)),
                 force_completion: true,
-                ticks,
+                ticks: wire::VarULong(ticks),
                 ..Default::default()
             },
         });
@@ -159,20 +155,14 @@ fn raw_actor_delta_keeps_server_duration_and_completion_ordering() {
 
 #[test]
 fn raw_absolute_completion_keeps_the_fast_path_and_default_duration() {
-    let packet: Packet = crate::Packet::new(MoveActorAbsolutePacket {
+    let packet: Packet = crate::Packet::new(MoveActorAbsolute {
         move_data: MoveActorAbsoluteData {
-            actor_runtime_id: ActorRuntimeId {
-                actor_runtime_id: 7,
-            },
-            header: 1 << 3,
-            position: WireVec3 {
-                x: 12.0,
-                y: 0.0,
-                z: 0.0,
-            },
-            rotation_x: 0,
-            rotation_y: 0,
-            rotation_y_head: 0,
+            actor_runtime_id: ActorRuntimeID(7),
+            header: wire::U8(1 << 3),
+            position: [12.0, 0.0, 0.0].into(),
+            rotation_x: wire::U8(0),
+            rotation_y: wire::U8(0),
+            rotation_y_head: wire::U8(0),
         },
     });
     let mut batch = crate::encode(&packet).unwrap();

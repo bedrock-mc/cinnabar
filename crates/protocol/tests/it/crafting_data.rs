@@ -1,5 +1,5 @@
+use bedrock_protocol_1_26_51::packets;
 use bytes::Bytes;
-use valentine::bedrock::version::v1_26_51::{McpePacketArgs, McpePacketData};
 
 // Regenerated for protocol 2168 from gophertunnel at commit
 // be6713da4dc051a4197f897d04835e89e9c54321:
@@ -45,9 +45,9 @@ fn raw_crafting_data() -> crate::raw_packet::RawPacket {
     .expect("one packet")
 }
 
-fn assert_one_cell_shaped_recipe(data: &McpePacketData) {
-    let McpePacketData::CraftingDataPacket(packet) = data else {
-        panic!("expected CraftingData, got {:?}", data.packet_id());
+fn assert_one_cell_shaped_recipe(data: &packets::Packet) {
+    let packets::Packet::CraftingData(packet) = data else {
+        panic!("expected CraftingData, got {:?}", data.id());
     };
     // The recipe lands in the typed `shaped_recipes` vector; every other typed
     // vector must stay empty, which is what pins the eight-vector wire order.
@@ -55,24 +55,24 @@ fn assert_one_cell_shaped_recipe(data: &McpePacketData) {
     assert!(packet.shapeless_recipes.is_empty());
     assert!(packet.multi_recipes.is_empty());
     assert!(packet.user_data_shapeless_recipes.is_empty());
-    assert!(packet.reserved_field_4.is_empty());
-    assert!(packet.reserved_field_5.is_empty());
+    assert!(packet.shapeless_chemistry_recipes.is_empty());
+    assert!(packet.shaped_chemistry_recipes.is_empty());
     assert!(packet.smithing_transform_recipes.is_empty());
     assert!(packet.smithing_trim_recipes.is_empty());
     assert!(packet.potion_mixes.is_empty());
     assert!(packet.container_mixes.is_empty());
-    assert!(packet.reserved_field_10.is_empty());
+    assert!(packet.material_reducers.is_empty());
     assert!(!packet.clear_recipes);
 
     let recipe = &packet.shaped_recipes[0];
     assert_eq!(recipe.recipe_id, "x");
-    assert_eq!((recipe.width, recipe.height), (1, 1));
+    assert_eq!((recipe.width.0, recipe.height.0), (1, 1));
     assert_eq!(recipe.ingredients.len(), 1);
     assert_eq!(recipe.results.len(), 1);
-    assert_eq!(recipe.results[0].id, 7);
-    // gophertunnel's `Block` is `tag` in the 1.26.40 generated crate.
+    assert_eq!(recipe.results[0].id.0, 7);
+    // gophertunnel's `Block` is `tag` in the generated crate.
     assert_eq!(recipe.tag, "crafting_table");
-    assert_eq!(recipe.net_id.raw_id, 1);
+    assert_eq!(recipe.net_id.0, 1);
 }
 
 #[test]
@@ -83,18 +83,6 @@ fn pinned_gophertunnel_shaped_recipe_owned_decodes_and_round_trips_exactly() {
     assert_one_cell_shaped_recipe(&packet.data);
     let encoded = crate::encode(&packet).expect("re-encode");
     assert_eq!(encoded.as_ref(), GOPHERTUNNEL_ONE_CELL_SHAPED_RECIPE);
-}
-
-#[test]
-fn pinned_gophertunnel_shaped_recipe_borrowed_materializes() {
-    let borrowed = raw_crafting_data()
-        .decode_borrowed()
-        .expect("borrowed CraftingData decode");
-    let owned = borrowed
-        .data
-        .into_owned(McpePacketArgs)
-        .expect("materialize borrowed CraftingData");
-    assert_one_cell_shaped_recipe(&owned);
 }
 
 /// Shaped-recipe dimensions can no longer drive an allocation.
@@ -112,19 +100,19 @@ fn pinned_gophertunnel_shaped_recipe_borrowed_materializes() {
 /// many ingredients are read, and the frame still round-trips byte for byte.
 ///
 /// Note that gophertunnel additionally rejects `len(Input) != Width*Height`
-/// via `r.InvalidValue`, a consistency check the 1.26.40 generated crate does
+/// via `r.InvalidValue`, a consistency check the generated crate does
 /// not emit on either the encode or the decode path.
 #[test]
 fn shaped_recipe_dimensions_do_not_drive_the_ingredient_count() {
     let mut packet = raw_crafting_data()
         .decode()
         .expect("owned CraftingData decode");
-    let McpePacketData::CraftingDataPacket(content) = &mut packet.data else {
+    let packets::Packet::CraftingData(content) = &mut *packet.data else {
         panic!("expected CraftingData");
     };
     let recipe = &mut content.shaped_recipes[0];
-    recipe.width = -1;
-    recipe.height = -1;
+    recipe.width.0 = -1;
+    recipe.height.0 = -1;
 
     let encoded = crate::encode(&packet).expect("negative dimensions still encode");
 
@@ -136,11 +124,11 @@ fn shaped_recipe_dimensions_do_not_drive_the_ingredient_count() {
         .decode()
         .expect("negative dimensions must not derail the ingredient read");
 
-    let McpePacketData::CraftingDataPacket(content) = &round_tripped.data else {
+    let packets::Packet::CraftingData(content) = &*round_tripped.data else {
         panic!("expected CraftingData");
     };
     let recipe = &content.shaped_recipes[0];
-    assert_eq!((recipe.width, recipe.height), (-1, -1));
+    assert_eq!((recipe.width.0, recipe.height.0), (-1, -1));
     assert_eq!(
         recipe.ingredients.len(),
         1,

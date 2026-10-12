@@ -1,10 +1,9 @@
 //! Outbound packets for block-side requests: sign edits and map image requests.
 
+use bedrock_protocol_1_26_51::packets::{BlockActorData, MapInfoRequest};
+use bedrock_protocol_1_26_51::types::{ActorUniqueID, BlockPos};
+use bedrock_protocol_1_26_51::wire;
 use bytes::Bytes;
-use valentine::bedrock::{
-    codec::Nbt,
-    version::v1_26_51::{BlockActorDataPacket, BlockPos, MapInfoRequestPacket},
-};
 
 use crate::Packet;
 
@@ -12,23 +11,21 @@ use crate::Packet;
 /// compound as NetworkLittleEndian bytes.
 #[must_use]
 pub fn sign_edit_packet(position: [i32; 3], nbt: &[u8]) -> Packet {
-    crate::Packet::new(BlockActorDataPacket {
+    crate::Packet::new(BlockActorData {
         block_position: BlockPos {
-            x: position[0],
-            y: position[1],
-            z: position[2],
+            x: wire::ZigZag32(position[0]),
+            y: wire::ZigZag32(position[1]),
+            z: wire::ZigZag32(position[2]),
         },
-        actor_data_tags: Nbt(Bytes::copy_from_slice(nbt)),
+        actor_data_tags: wire::NetworkNbt(Bytes::copy_from_slice(nbt)),
     })
 }
 
 /// Asks the server for the pixels of `map_id`, as a client does on first sight of a map.
 #[must_use]
 pub fn map_info_request_packet(map_id: i64) -> Packet {
-    crate::Packet::new(MapInfoRequestPacket {
-        map_unique_id: valentine::bedrock::version::v1_26_51::ActorUniqueId {
-            actor_unique_id: map_id,
-        },
+    crate::Packet::new(MapInfoRequest {
+        map_unique_id: ActorUniqueID(map_id),
         client_pixels_list: Vec::new(),
     })
 }

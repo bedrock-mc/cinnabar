@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
-use valentine::bedrock::version::v1_26_51::{
-    AnimatedImageData, EnumspersonaAnimatedTextureType, EnumspersonaAnimationExpression,
-};
+use bedrock_protocol_1_26_51::enums::{PersonaAnimatedTextureType, PersonaAnimationExpression};
+use bedrock_protocol_1_26_51::types::AnimatedImageData;
 
 use crate::MAX_PLAYER_LIST_SKIN_BYTES;
 
@@ -16,14 +15,15 @@ pub(super) fn normalize(
     let mut output: Vec<SkinAnimation> = Vec::new();
     for image in images {
         let kind = match image.animated_texture_type {
-            EnumspersonaAnimatedTextureType::Face => SkinAnimationKind::Face,
-            EnumspersonaAnimatedTextureType::Body32X32 => SkinAnimationKind::Body32,
-            EnumspersonaAnimatedTextureType::Body128X128 => SkinAnimationKind::Body128,
+            PersonaAnimatedTextureType::Face => SkinAnimationKind::Face,
+            PersonaAnimatedTextureType::Body32x32 => SkinAnimationKind::Body32,
+            PersonaAnimatedTextureType::Body128x128 => SkinAnimationKind::Body128,
             _ => continue,
         };
         let raster = &image.skin_image;
-        let Some(bytes) = (raster.width as usize)
-            .checked_mul(raster.height as usize)
+        let (width, height, frames) = (raster.width.0, raster.height.0, image.frames.0);
+        let Some(bytes) = (width as usize)
+            .checked_mul(height as usize)
             .and_then(|pixels| pixels.checked_mul(4))
         else {
             continue;
@@ -33,13 +33,13 @@ pub(super) fn normalize(
         let candidate_bytes = retained
             .checked_sub(released)
             .and_then(|retained| retained.checked_add(bytes));
-        if raster.width == 0
-            || raster.height == 0
+        if width == 0
+            || height == 0
             || bytes != raster.image_bytes.len()
-            || !image.frames.is_finite()
-            || image.frames < 1.0
-            || image.frames > raster.height as f32
-            || image.frames.fract() != 0.0
+            || !frames.is_finite()
+            || frames < 1.0
+            || frames > height as f32
+            || frames.fract() != 0.0
             || candidate_bytes.is_none_or(|total| total > MAX_PLAYER_LIST_SKIN_BYTES)
         {
             continue;
@@ -50,11 +50,11 @@ pub(super) fn normalize(
         *retained = candidate_bytes.expect("validated animation byte total");
         output.push(SkinAnimation {
             kind,
-            width: raster.width,
-            height: raster.height,
-            rgba8: raster.image_bytes.as_slice().into(),
-            frames: image.frames as u32,
-            blinking: image.animation_expression == EnumspersonaAnimationExpression::Blinking,
+            width,
+            height,
+            rgba8: raster.image_bytes.as_ref().into(),
+            frames: frames as u32,
+            blinking: image.animation_expression == PersonaAnimationExpression::Blinking,
         });
     }
     output.into()
@@ -63,19 +63,20 @@ pub(super) fn normalize(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use valentine::bedrock::version::v1_26_51::SkinImage;
+    use bedrock_protocol_1_26_51::types::SkinImage;
+    use bedrock_protocol_1_26_51::wire;
 
     #[test]
     fn review_animation_replacement_refunds_its_previous_atlas_before_budgeting() {
         let image = |height, byte| AnimatedImageData {
             skin_image: SkinImage {
-                width: 1,
-                height,
-                image_bytes: vec![byte; height as usize * 4],
+                width: wire::U32LE(1),
+                height: wire::U32LE(height),
+                image_bytes: vec![byte; height as usize * 4].into(),
             },
-            animated_texture_type: EnumspersonaAnimatedTextureType::Body32X32,
-            frames: 1.0,
-            animation_expression: EnumspersonaAnimationExpression::Linear,
+            animated_texture_type: PersonaAnimatedTextureType::Body32x32,
+            frames: wire::F32LE(1.0),
+            animation_expression: PersonaAnimationExpression::Linear,
         };
         let mut retained = MAX_PLAYER_LIST_SKIN_BYTES - 8;
         let images = normalize(&[image(2, 1), image(1, 2)], &mut retained);
@@ -89,13 +90,13 @@ mod tests {
     fn transmitted_persona_animation_keeps_its_actual_width_and_frame_count() {
         let input = AnimatedImageData {
             skin_image: SkinImage {
-                width: 24,
-                height: 512,
-                image_bytes: vec![71; 24 * 512 * 4],
+                width: wire::U32LE(24),
+                height: wire::U32LE(512),
+                image_bytes: vec![71; 24 * 512 * 4].into(),
             },
-            animated_texture_type: EnumspersonaAnimatedTextureType::Body32X32,
-            frames: 16.0,
-            animation_expression: EnumspersonaAnimationExpression::Linear,
+            animated_texture_type: PersonaAnimatedTextureType::Body32x32,
+            frames: wire::F32LE(16.0),
+            animation_expression: PersonaAnimationExpression::Linear,
         };
         let mut bytes = 0;
         let images = normalize(&[input], &mut bytes);

@@ -1,19 +1,22 @@
 use std::sync::Arc;
 
-use bytes::{Buf, Bytes};
-use thiserror::Error;
-use valentine::{
-    bedrock::version::v1_26_51::{
-        ActorLink as VendorActorLink, AddActorPacket, AddPlayerPacket, AttributeData,
-        DataItemEntryPayload, EnumsActorLinkType as VendorActorLinkType,
-        EnumsMobEffectPacketPayloadEvent as MobEffectPacketEventId, MobEffectPacket,
-        MoveActorAbsolutePacket, MoveActorDeltaPacket, PlayerListPacket,
-        PlayerListPacketEntriesItem, PropertySyncData, RemoveActorPacket, SetActorDataPacket,
-        SetActorLinkPacket, SyncedAttribute, SynchedActorDataCopyableDataList,
-        UpdateAttributesPacket,
-    },
-    protocol::wire,
+use bedrock_protocol_1_26_51::enums::{
+    ActorLinkType as VendorActorLinkType, MobEffectEvent as MobEffectPacketEventId,
 };
+use bedrock_protocol_1_26_51::packets::{
+    AddActor as AddActorPacket, AddPlayer as AddPlayerPacket, MobEffect as MobEffectPacket,
+    MoveActorAbsolute as MoveActorAbsolutePacket, MoveActorDelta as MoveActorDeltaPacket,
+    PlayerList as PlayerListPacket, RemoveActor as RemoveActorPacket,
+    SetActorData as SetActorDataPacket, SetActorLink as SetActorLinkPacket,
+    UpdateAttributes as UpdateAttributesPacket,
+};
+use bedrock_protocol_1_26_51::types::{
+    AttributeData, DataItemEntryValue, EntityLink as VendorActorLink, PlayerListData,
+    PropertySyncData, SyncedAttribute, SynchedActorDataCopyableDataList,
+};
+use bedrock_protocol_1_26_51::wire;
+use bytes::Bytes;
+use thiserror::Error;
 
 use crate::{ItemPacketError, NetworkItemStack, item::normalize_item};
 
@@ -347,8 +350,8 @@ pub(crate) fn normalize_add_entity(
         ("velocity.z", packet.velocity.z),
         ("pitch", pitch),
         ("yaw", yaw),
-        ("head_yaw", packet.y_head_rotation),
-        ("body_yaw", packet.y_body_rotation),
+        ("head_yaw", packet.y_head_rotation.0),
+        ("body_yaw", packet.y_body_rotation.0),
     ] {
         if !value.is_finite() {
             return Err(ActorPacketError::NonFiniteSpawnField { field });
@@ -361,17 +364,17 @@ pub(crate) fn normalize_add_entity(
     let links = normalize_actor_links(packet.actor_links, dimension)?;
     Ok(ActorEvent::Spawn(ActorSpawnEvent {
         dimension,
-        unique_id: packet.target_actor_id.actor_unique_id,
-        runtime_id: packet.target_runtime_id.actor_runtime_id,
+        unique_id: packet.target_actor_id.0,
+        runtime_id: packet.target_runtime_id.0,
         kind: ActorKind::Entity {
-            identifier: Arc::from(packet.actor_type),
+            identifier: Arc::from(packet.actor_type.to_string_lossy()),
         },
         position: [packet.position.x, packet.position.y, packet.position.z],
         velocity: [packet.velocity.x, packet.velocity.y, packet.velocity.z],
         pitch,
         yaw,
-        head_yaw: packet.y_head_rotation,
-        body_yaw: packet.y_body_rotation,
+        head_yaw: packet.y_head_rotation.0,
+        body_yaw: packet.y_body_rotation.0,
         held_item: NetworkItemStack::empty(),
         metadata,
         attributes,
@@ -398,7 +401,7 @@ pub(crate) fn normalize_add_player(
         ("velocity.z", packet.velocity.z),
         ("pitch", pitch),
         ("yaw", yaw),
-        ("head_yaw", packet.y_head_rotation),
+        ("head_yaw", packet.y_head_rotation.0),
     ] {
         validate_finite(field, value)?;
     }
@@ -417,17 +420,17 @@ pub(crate) fn normalize_add_player(
             // a top-level `unique_id`. gophertunnel
             // be6713da4dc051a4197f897d04835e89e9c54321
             // `minecraft/protocol/ability.go`: `AbilityData.EntityUniqueID`.
-            unique_id: packet.abilities_data.target_player_raw_id,
-            runtime_id: packet.target_runtime_id.actor_runtime_id,
+            unique_id: packet.abilities_data.target_player_raw_id.0,
+            runtime_id: packet.target_runtime_id.0,
             kind: ActorKind::Player {
                 uuid: *packet.uuid.as_bytes(),
-                username: Arc::from(packet.player_name),
+                username: Arc::from(packet.player_name.to_string_lossy()),
             },
             position: [packet.position.x, packet.position.y, packet.position.z],
             velocity: [packet.velocity.x, packet.velocity.y, packet.velocity.z],
             pitch,
             yaw,
-            head_yaw: packet.y_head_rotation,
+            head_yaw: packet.y_head_rotation.0,
             body_yaw: yaw,
             held_item,
             metadata,
@@ -444,7 +447,7 @@ pub(crate) const fn normalize_remove_entity(
 ) -> ActorEvent {
     ActorEvent::Remove(ActorRemoveEvent {
         dimension,
-        unique_id: packet.target_actor_id.actor_unique_id,
+        unique_id: packet.target_actor_id.0,
     })
 }
 
@@ -462,26 +465,26 @@ pub(crate) fn normalize_move_entity(
     }
     Ok(ActorEvent::Move(ActorMoveEvent {
         dimension,
-        runtime_id: move_data.actor_runtime_id.actor_runtime_id,
+        runtime_id: move_data.actor_runtime_id.0,
         position: [
             Some(move_data.position.x),
             Some(move_data.position.y),
             Some(move_data.position.z),
         ],
         position_origin: ActorPositionOrigin::NetworkOffset,
-        pitch: Some(byte_rotation_degrees(move_data.rotation_x)),
-        yaw: Some(byte_rotation_degrees(move_data.rotation_y)),
-        head_yaw: Some(byte_rotation_degrees(move_data.rotation_y_head)),
+        pitch: Some(byte_rotation_degrees(move_data.rotation_x.0)),
+        yaw: Some(byte_rotation_degrees(move_data.rotation_y.0)),
+        head_yaw: Some(byte_rotation_degrees(move_data.rotation_y_head.0)),
         // `header` is the movement flag byte. gophertunnel
         // be6713da4dc051a4197f897d04835e89e9c54321
         // `minecraft/protocol/packet/move_actor_absolute.go`:
         // `MoveFlagOnGround = 1 << iota`, `MoveFlagTeleport`.
-        on_ground: Some(move_data.header & 1 != 0),
-        teleported: move_data.header & 2 != 0,
+        on_ground: Some(move_data.header.0 & 1 != 0),
+        teleported: move_data.header.0 & 2 != 0,
         player_mode: None,
         source_tick: None,
         interpolation: ActorInterpolation {
-            force_completion: move_data.header & MOVE_FORCE_COMPLETION != 0,
+            force_completion: move_data.header.0 & MOVE_FORCE_COMPLETION != 0,
             ..Default::default()
         },
     }))
@@ -489,30 +492,35 @@ pub(crate) fn normalize_move_entity(
 
 /// Decodes the Bedrock MoveActorAbsolute body straight off the wire.
 ///
-/// Protocol 1001 needed this because Valentine modelled each byte rotation as a
-/// length-prefixed byte vector and the runtime ID as a signed VarLong. The
-/// 1.26.40 `MoveActorAbsoluteData` is wire-correct (VarUInt64 runtime ID, then
-/// the flag byte, the position and three raw rotation bytes), so this path is no
-/// longer required for correctness -- it is retained only as the allocation-free
-/// fast path the raw play loop uses, and must stay byte-for-byte identical to
-/// [`normalize_move_entity`].
+/// The generated `MoveActorAbsoluteData` is wire-correct (VarUInt64 runtime ID, then the flag
+/// byte, the position and three raw rotation bytes); this is only the allocation-free fast path
+/// the raw play loop uses, and must stay byte-for-byte identical to [`normalize_move_entity`].
 pub(crate) fn normalize_move_entity_body(
     body: &Bytes,
     dimension: i32,
 ) -> Result<ActorEvent, ActorPacketError> {
     const FIXED_BODY_BYTES: usize = 1 + 3 * size_of::<f32>() + 3;
 
-    let mut body = body.as_ref();
-    let runtime_id = wire::read_var_u64(&mut body)
+    let mut reader = wire::Reader::new(body);
+    let runtime_id = reader
+        .read_var_u64()
         .map_err(|_| ActorPacketError::InvalidAbsoluteMoveRuntimeId)?;
-    if body.remaining() != FIXED_BODY_BYTES {
+    let Ok(fixed) = reader.read_bytes::<FIXED_BODY_BYTES>() else {
         return Err(ActorPacketError::InvalidAbsoluteMoveLength {
-            actual: body.remaining(),
+            actual: reader.remaining(),
+            expected: FIXED_BODY_BYTES,
+        });
+    };
+    if !reader.is_empty() {
+        return Err(ActorPacketError::InvalidAbsoluteMoveLength {
+            actual: FIXED_BODY_BYTES + reader.remaining(),
             expected: FIXED_BODY_BYTES,
         });
     }
-    let flags = body.get_u8();
-    let position = [body.get_f32_le(), body.get_f32_le(), body.get_f32_le()];
+    let flags = fixed[0];
+    let float =
+        |at: usize| f32::from_le_bytes([fixed[at], fixed[at + 1], fixed[at + 2], fixed[at + 3]]);
+    let position = [float(1), float(5), float(9)];
     for (field, value) in [
         ("position.x", position[0]),
         ("position.y", position[1]),
@@ -520,9 +528,9 @@ pub(crate) fn normalize_move_entity_body(
     ] {
         validate_finite(field, value)?;
     }
-    let pitch = byte_rotation_degrees(body.get_u8());
-    let yaw = byte_rotation_degrees(body.get_u8());
-    let head_yaw = byte_rotation_degrees(body.get_u8());
+    let pitch = byte_rotation_degrees(fixed[13]);
+    let yaw = byte_rotation_degrees(fixed[14]);
+    let head_yaw = byte_rotation_degrees(fixed[15]);
 
     Ok(ActorEvent::Move(ActorMoveEvent {
         dimension,
@@ -554,22 +562,28 @@ pub(crate) fn normalize_move_entity_delta(
         ("position.z", move_data.new_position_z),
     ] {
         if let Some(value) = value {
-            validate_finite(field, value)?;
+            validate_finite(field, value.0)?;
         }
     }
     Ok(ActorEvent::Move(ActorMoveEvent {
         dimension,
-        runtime_id: move_data.actor_runtime_id.actor_runtime_id,
+        runtime_id: move_data.actor_runtime_id.0,
         position: [
-            move_data.new_position_x,
-            move_data.new_position_y,
-            move_data.new_position_z,
+            move_data.new_position_x.map(|value| value.0),
+            move_data.new_position_y.map(|value| value.0),
+            move_data.new_position_z.map(|value| value.0),
         ],
         // Partial movement retains the same coordinate origin as absolute movement.
         position_origin: ActorPositionOrigin::NetworkOffset,
-        pitch: move_data.rotation_x.map(signed_byte_rotation_degrees),
-        yaw: move_data.rotation_y.map(signed_byte_rotation_degrees),
-        head_yaw: move_data.rotation_y_head.map(signed_byte_rotation_degrees),
+        pitch: move_data
+            .rotation_x
+            .map(|value| signed_byte_rotation_degrees(value.0)),
+        yaw: move_data
+            .rotation_y
+            .map(|value| signed_byte_rotation_degrees(value.0)),
+        head_yaw: move_data
+            .rotation_y_head
+            .map(|value| signed_byte_rotation_degrees(value.0)),
         on_ground: Some(move_data.is_on_ground),
         // 1.26.40 replaced the packed u16 flag word with explicit booleans and
         // dropped the dedicated teleport bit. `ForceMove` carries the same
@@ -582,7 +596,7 @@ pub(crate) fn normalize_move_entity_delta(
         player_mode: None,
         source_tick: None,
         interpolation: ActorInterpolation {
-            ticks: move_data.ticks,
+            ticks: move_data.ticks.0,
             force_completion: move_data.force_completion,
         },
     }))
@@ -592,10 +606,10 @@ pub(crate) fn normalize_set_entity_data(
     packet: SetActorDataPacket,
     dimension: i32,
 ) -> Result<ActorEvent, ActorPacketError> {
-    let tick = normalize_tick(packet.tick.inputtick);
+    let tick = normalize_tick(packet.tick.0);
     Ok(ActorEvent::Metadata(ActorMetadataUpdateEvent {
         dimension,
-        runtime_id: packet.target_runtime_id.actor_runtime_id,
+        runtime_id: packet.target_runtime_id.0,
         metadata: normalize_metadata(packet.actor_data)?,
         properties: normalize_properties(packet.synched_properties)?,
         tick,
@@ -606,10 +620,10 @@ pub(crate) fn normalize_update_attributes(
     packet: UpdateAttributesPacket,
     dimension: i32,
 ) -> Result<ActorEvent, ActorPacketError> {
-    let tick = normalize_tick(packet.tick.inputtick);
+    let tick = normalize_tick(packet.tick.0);
     Ok(ActorEvent::Attributes(ActorAttributesUpdateEvent {
         dimension,
-        runtime_id: packet.target_runtime_id.actor_runtime_id,
+        runtime_id: packet.target_runtime_id.0,
         attributes: normalize_attribute_data(packet.attribute_list)?,
         tick,
     }))
@@ -619,10 +633,10 @@ pub(crate) fn normalize_mob_effect(
     packet: MobEffectPacket,
     dimension: i32,
 ) -> Result<ActorEffectEvent, ActorPacketError> {
-    let tick = normalize_tick(packet.tick.inputtick);
+    let tick = normalize_tick(packet.tick.0);
     Ok(ActorEffectEvent {
         dimension,
-        actor_runtime_id: packet.target_runtime_id.actor_runtime_id,
+        actor_runtime_id: packet.target_runtime_id.0,
         action: match packet.event_id {
             MobEffectPacketEventId::Add => ActorEffectAction::Add,
             MobEffectPacketEventId::Update => ActorEffectAction::Update,
@@ -633,11 +647,11 @@ pub(crate) fn normalize_mob_effect(
             MobEffectPacketEventId::Invalid => ActorEffectAction::Unknown(0),
             MobEffectPacketEventId::Unknown(value) => ActorEffectAction::Unknown(value),
         },
-        effect_id: packet.effect_id,
-        amplifier: packet.effect_amplifier,
+        effect_id: packet.effect_id.0,
+        amplifier: packet.effect_amplifier.0,
         particles: packet.show_particles,
         ambient: packet.ambient,
-        duration_ticks: packet.effect_duration_ticks,
+        duration_ticks: packet.effect_duration_ticks.0,
         tick,
     })
 }
@@ -667,8 +681,8 @@ fn normalize_actor_link(link: VendorActorLink, dimension: i32) -> ActorLinkEvent
         // be6713da4dc051a4197f897d04835e89e9c54321
         // `minecraft/protocol/entity_link.go`: `ActorUniqueID(&x.RiddenEntityUniqueID)`
         // then `ActorUniqueID(&x.RiderEntityUniqueID)`.
-        ridden_unique_id: link.target_a.actor_unique_id,
-        rider_unique_id: link.target_b.actor_unique_id,
+        ridden_unique_id: link.target_a.0,
+        rider_unique_id: link.target_b.0,
         link_type: match link.type_ {
             VendorActorLinkType::None => ActorLinkType::Remove,
             VendorActorLinkType::Riding => ActorLinkType::Rider,
@@ -695,33 +709,35 @@ pub(crate) fn normalize_player_list(
     let mut retained_skin_bytes = 0usize;
     for entry in packet.entries {
         match entry {
-            PlayerListPacketEntriesItem::AddEntry(record) => {
-                validate_text(
-                    "player_list.username",
-                    &record.player_name,
-                    MAX_ACTOR_NAME_BYTES,
-                )?;
+            PlayerListData::AddEntry {
+                uuid,
+                actor_unique_id,
+                player_name,
+                serialized_skin,
+                ..
+            } => {
+                validate_text("player_list.username", &player_name, MAX_ACTOR_NAME_BYTES)?;
                 // The per-entry "verified" bit used to ride in a trailing bool
                 // array; it is now the skin's own trusted flag, serialised as a
                 // string. gophertunnel be6713da4dc051a4197f897d04835e89e9c54321
                 // `minecraft/protocol/skin.go`: the flag is written as "true" /
                 // "false" and read back with `strings.EqualFold(trusted, "true")`.
-                let verified = record
-                    .serialized_skin
+                let verified = serialized_skin
                     .trusted_skin_flag
-                    .eq_ignore_ascii_case("true");
-                let skin = normalize_player_skin(record.serialized_skin, &mut retained_skin_bytes);
+                    .as_bytes()
+                    .eq_ignore_ascii_case(b"true");
+                let skin = normalize_player_skin(*serialized_skin, &mut retained_skin_bytes);
                 entries.push(PlayerListEntry::Add {
-                    uuid: *record.uuid.as_bytes(),
-                    unique_id: record.actor_unique_id.actor_unique_id,
-                    username: Arc::from(record.player_name),
+                    uuid: *uuid.as_bytes(),
+                    unique_id: actor_unique_id.0,
+                    username: Arc::from(player_name.to_string_lossy()),
                     verified,
                     skin,
                 });
             }
-            PlayerListPacketEntriesItem::RemoveEntry(record) => {
+            PlayerListData::RemoveEntry { uuid, .. } => {
                 entries.push(PlayerListEntry::Remove {
-                    uuid: *record.uuid.as_bytes(),
+                    uuid: *uuid.as_bytes(),
                 });
             }
         }
@@ -746,9 +762,9 @@ fn normalize_synced_attributes(
         .filter_map(|attribute| {
             if attribute.attribute_name.len() > MAX_ACTOR_NAME_BYTES
                 || [
-                    attribute.min_value,
-                    attribute.max_value,
-                    attribute.current_value,
+                    attribute.min_value.0,
+                    attribute.max_value.0,
+                    attribute.current_value.0,
                 ]
                 .iter()
                 .any(|value| !value.is_finite())
@@ -756,10 +772,10 @@ fn normalize_synced_attributes(
                 return None;
             }
             Some(ActorAttribute {
-                name: Arc::from(attribute.attribute_name),
-                min: attribute.min_value,
-                max: attribute.max_value,
-                current: attribute.current_value,
+                name: Arc::from(attribute.attribute_name.to_string_lossy()),
+                min: attribute.min_value.0,
+                max: attribute.max_value.0,
+                current: attribute.current_value.0,
                 default: None,
                 modifiers: Arc::from([]),
             })
@@ -778,12 +794,12 @@ fn normalize_attribute_data(
             if attribute.name.len() > MAX_ACTOR_NAME_BYTES
                 || attribute.modifiers.len() > MAX_ACTOR_ATTRIBUTE_MODIFIERS
                 || [
-                    attribute.min_value,
-                    attribute.max_value,
-                    attribute.current_value,
-                    attribute.default_min_value,
-                    attribute.default_max_value,
-                    attribute.default_value,
+                    attribute.min_value.0,
+                    attribute.max_value.0,
+                    attribute.current_value.0,
+                    attribute.default_min_value.0,
+                    attribute.default_max_value.0,
+                    attribute.default_value.0,
                 ]
                 .iter()
                 .any(|value| !value.is_finite())
@@ -796,26 +812,26 @@ fn normalize_attribute_data(
                 .filter_map(|modifier| {
                     if modifier.id.len() > MAX_ACTOR_NAME_BYTES
                         || modifier.name.len() > MAX_ACTOR_NAME_BYTES
-                        || !modifier.amount.is_finite()
+                        || !modifier.amount.0.is_finite()
                     {
                         return None;
                     }
                     Some(ActorAttributeModifier {
-                        id: Arc::from(modifier.id),
-                        name: Arc::from(modifier.name),
-                        amount: modifier.amount,
-                        operation: modifier.operation,
-                        operand: modifier.operand,
+                        id: Arc::from(modifier.id.to_string_lossy()),
+                        name: Arc::from(modifier.name.to_string_lossy()),
+                        amount: modifier.amount.0,
+                        operation: modifier.operation.0,
+                        operand: modifier.operand.0,
                         serializable: modifier.is_serializable,
                     })
                 })
                 .collect::<Vec<_>>();
             Some(ActorAttribute {
-                name: Arc::from(attribute.name),
-                min: attribute.min_value,
-                max: attribute.max_value,
-                current: attribute.current_value,
-                default: Some(attribute.default_value),
+                name: Arc::from(attribute.name.to_string_lossy()),
+                min: attribute.min_value.0,
+                max: attribute.max_value.0,
+                current: attribute.current_value.0,
+                default: Some(attribute.default_value.0),
                 modifiers: Arc::from(modifiers),
             })
         })
@@ -837,18 +853,18 @@ fn normalize_properties(
             .int_entries_list
             .into_iter()
             .map(|property| ActorProperty::Int {
-                index: property.property_index,
-                value: property.data,
+                index: property.property_index.0,
+                value: property.data.0,
             }),
     );
     for property in properties.float_entries_list {
         // Skip a non-finite custom property value rather than dropping the actor.
-        if !property.data.is_finite() {
+        if !property.data.0.is_finite() {
             continue;
         }
         normalized.push(ActorProperty::Float {
-            index: property.property_index,
-            value: property.data,
+            index: property.property_index.0,
+            value: property.data.0,
         });
     }
     Ok(Arc::from(normalized))
@@ -869,51 +885,43 @@ fn normalize_metadata(
         .data
         .into_iter()
         .filter_map(|entry| {
-            let key = entry.id;
+            let key = entry.id.0;
             let value = match entry.payload {
-                DataItemEntryPayload::DataItemBytePayload(payload) => {
-                    ActorMetadataValue::Byte(payload.value)
+                DataItemEntryValue::DataItemByte { value, .. } => ActorMetadataValue::Byte(value.0),
+                DataItemEntryValue::DataItemShort { value, .. } => {
+                    ActorMetadataValue::Short(value.0)
                 }
-                DataItemEntryPayload::DataItemShortPayload(payload) => {
-                    ActorMetadataValue::Short(payload.value)
-                }
-                DataItemEntryPayload::DataItemIntPayload(payload) => {
-                    ActorMetadataValue::Int(payload.value)
-                }
-                DataItemEntryPayload::DataItemFloatPayload(payload) => payload
-                    .value
+                DataItemEntryValue::DataItemInt { value, .. } => ActorMetadataValue::Int(value.0),
+                DataItemEntryValue::DataItemFloat { value, .. } => value
+                    .0
                     .is_finite()
-                    .then_some(ActorMetadataValue::Float(payload.value))?,
-                DataItemEntryPayload::DataItemStringPayload(payload) => {
-                    if payload.value.len() > MAX_ACTOR_METADATA_STRING_BYTES {
+                    .then_some(ActorMetadataValue::Float(value.0))?,
+                DataItemEntryValue::DataItemString { value, .. } => {
+                    if value.len() > MAX_ACTOR_METADATA_STRING_BYTES {
                         return None;
                     }
-                    ActorMetadataValue::String(Arc::from(payload.value))
+                    ActorMetadataValue::String(Arc::from(value.to_string_lossy()))
                 }
-                DataItemEntryPayload::DataItemCompoundTagPayload(payload) => {
-                    if payload.value.0.len() > MAX_ACTOR_METADATA_NBT_BYTES {
+                DataItemEntryValue::DataItemCompoundTag { value, .. } => {
+                    if value.0.len() > MAX_ACTOR_METADATA_NBT_BYTES {
                         return None;
                     }
-                    ActorMetadataValue::Compound(Arc::from(payload.value.0.to_vec()))
+                    ActorMetadataValue::Compound(Arc::from(&value.0[..]))
                 }
-                DataItemEntryPayload::DataItemPosPayload(payload) => {
-                    ActorMetadataValue::BlockPosition([
-                        payload.value.x,
-                        payload.value.y,
-                        payload.value.z,
-                    ])
+                DataItemEntryValue::DataItemPos { value, .. } => {
+                    ActorMetadataValue::BlockPosition([value.x.0, value.y.0, value.z.0])
                 }
                 // The actor flag words are ordinary Int64 payloads on the wire;
                 // only their id distinguishes them from a plain long.
-                DataItemEntryPayload::DataItemInt64Payload(payload) => match key {
-                    ACTOR_DATA_ID_FLAGS => ActorMetadataValue::Flags(payload.value as u64),
+                DataItemEntryValue::DataItemInt64 { value, .. } => match key {
+                    ACTOR_DATA_ID_FLAGS => ActorMetadataValue::Flags(value.0 as u64),
                     ACTOR_DATA_ID_FLAGS_EXTENDED | ACTOR_DATA_ID_FLAGS_THIRD => {
-                        ActorMetadataValue::FlagsExtended(payload.value as u64)
+                        ActorMetadataValue::FlagsExtended(value.0 as u64)
                     }
-                    _ => ActorMetadataValue::Long(payload.value),
+                    _ => ActorMetadataValue::Long(value.0),
                 },
-                DataItemEntryPayload::DataItemVec3Payload(payload) => {
-                    let value = [payload.value.x, payload.value.y, payload.value.z];
+                DataItemEntryValue::DataItemVec3 { value, .. } => {
+                    let value = value.to_array();
                     if value.iter().any(|c| !c.is_finite()) {
                         return None;
                     }
@@ -956,7 +964,11 @@ fn check_count(collection: &'static str, count: usize, max: usize) -> Result<(),
     Ok(())
 }
 
-fn validate_text(field: &'static str, value: &str, max: usize) -> Result<(), ActorPacketError> {
+fn validate_text(
+    field: &'static str,
+    value: &wire::Str,
+    max: usize,
+) -> Result<(), ActorPacketError> {
     if value.len() > max {
         return Err(ActorPacketError::TextTooLong {
             field,

@@ -21,12 +21,12 @@ pub use npc::{
 };
 pub(crate) use npc::{normalize_npc_dialogue, normalize_server_settings};
 
+use bedrock_protocol_1_26_51::enums::ModalFormCancelReason;
+use bedrock_protocol_1_26_51::packets::{ModalFormRequest, ModalFormResponse};
+use bedrock_protocol_1_26_51::wire;
 use serde::{
     Deserialize, Deserializer,
     de::{DeserializeSeed, IgnoredAny},
-};
-use valentine::bedrock::version::v1_26_51::{
-    EnumsModalFormCancelReason, ModalFormRequestPacket, ModalFormResponsePacket,
 };
 
 use super::{MAX_FORM_JSON_BYTES, MAX_UI_TEXT_BYTES, UiEvent, UiPacketError};
@@ -147,14 +147,14 @@ pub struct FormRequestEvent {
     pub model: ServerFormModel,
 }
 
-pub(crate) fn normalize_form(packet: ModalFormRequestPacket) -> Result<UiEvent, UiPacketError> {
-    let json = bounded_form(packet.form_uijson)?;
+pub(crate) fn normalize_form(packet: ModalFormRequest) -> Result<UiEvent, UiPacketError> {
+    let json = bounded_form(packet.form_ui_json)?;
     let mut header = FormHeader::default();
     scan_form_header(&json, &mut header)?;
     let kind = header.kind.unwrap_or(FormKind::Unknown);
     let model = form_model(&json, kind);
     Ok(UiEvent::Form(FormRequestEvent {
-        form_id: packet.form_id,
+        form_id: packet.form_id.0,
         kind,
         title: header.title,
         json,
@@ -308,7 +308,8 @@ fn button_image(
     }))
 }
 
-fn bounded_form(value: String) -> Result<Arc<str>, UiPacketError> {
+fn bounded_form(value: wire::Str) -> Result<Arc<str>, UiPacketError> {
+    let value = value.to_string_lossy();
     if value.len() > MAX_FORM_JSON_BYTES {
         return Err(UiPacketError::FormTooLarge {
             bytes: value.len(),
@@ -483,9 +484,9 @@ pub fn modal_form_submit_response(
         ModalFormResponseSelection::ButtonIndex(index) => index.to_string(),
         ModalFormResponseSelection::ModalButton(flag) => flag.to_string(),
     };
-    crate::Packet::new(ModalFormResponsePacket {
-        form_id,
-        json_response: Some(payload),
+    crate::Packet::new(ModalFormResponse {
+        form_id: wire::VarUInt(form_id),
+        json_response: Some(payload.into()),
         form_cancel_reason: None,
     })
 }
@@ -494,9 +495,9 @@ pub fn modal_form_submit_response(
 /// array of `values` in element order, cancel reason absent(0).
 pub fn custom_form_submit_response(form_id: u32, values: &[CustomFormValue]) -> crate::Packet {
     let array = serde_json::Value::Array(values.iter().map(custom_value_json).collect());
-    crate::Packet::new(ModalFormResponsePacket {
-        form_id,
-        json_response: Some(array.to_string()),
+    crate::Packet::new(ModalFormResponse {
+        form_id: wire::VarUInt(form_id),
+        json_response: Some(array.to_string().into()),
         form_cancel_reason: None,
     })
 }
@@ -519,19 +520,19 @@ fn custom_value_json(value: &CustomFormValue) -> serde_json::Value {
 /// An overlapping dialog cannot take ownership of an already occupied UI.
 /// UserBusy is wire value 1 in the pinned response schema.
 pub fn modal_form_busy_response(form_id: u32) -> crate::Packet {
-    crate::Packet::new(ModalFormResponsePacket {
-        form_id,
+    crate::Packet::new(ModalFormResponse {
+        form_id: wire::VarUInt(form_id),
         json_response: None,
-        form_cancel_reason: Some(EnumsModalFormCancelReason::Userbusy),
+        form_cancel_reason: Some(ModalFormCancelReason::Userbusy),
     })
 }
 
 /// Encodes the vanilla user-closed dismissal: response data absent(0), cancel
 /// reason present(1) as the `UserClosed` wire value 0.
 pub fn modal_form_cancel_response(form_id: u32) -> crate::Packet {
-    crate::Packet::new(ModalFormResponsePacket {
-        form_id,
+    crate::Packet::new(ModalFormResponse {
+        form_id: wire::VarUInt(form_id),
         json_response: None,
-        form_cancel_reason: Some(EnumsModalFormCancelReason::Userclosed),
+        form_cancel_reason: Some(ModalFormCancelReason::Userclosed),
     })
 }

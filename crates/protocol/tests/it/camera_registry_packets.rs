@@ -1,12 +1,26 @@
 use ::protocol;
+use bedrock_protocol_1_26_51::enums::{
+    CameraAimAssistAction, CameraAimAssistPresetOperation, CameraPresetAudioListener,
+    ClientCameraAimAssistAction, TargetMode,
+};
+use bedrock_protocol_1_26_51::packets::{
+    self, CameraAimAssist, CameraAimAssistActorPriority, CameraAimAssistPresets, CameraInstruction,
+    CameraPresets, CameraSpline,
+};
+use bedrock_protocol_1_26_51::types::{
+    CameraAimAssistActorPriorityData, CameraAimAssistCategoryDefinition,
+    CameraAimAssistCategoryPriorities, CameraAimAssistPresetDefinition,
+    CameraAimAssistPresetExclusionDefinition, CameraInstructionData, CameraPreset,
+    CameraPresetList, CameraSplineControlPoint, CameraSplineDefinition, CameraSplineInstruction,
+    CameraSplineProgressKeyFrame, CameraSplineRotationKeyFrame,
+};
+use bedrock_protocol_1_26_51::wire;
 use protocol::{CameraEvent, CameraSplineKind, WorldEvent, WorldPacketError, into_world_event};
-use valentine::bedrock::version::v1_26_51::McpePacket;
-use valentine::bedrock::version::v1_26_51::*;
 
 /// Exercises the owned wire codec before checking normalized camera data.
 fn camera<P>(packet: P) -> CameraEvent
 where
-    McpePacket: From<P>,
+    packets::Packet: From<P>,
 {
     let batch = protocol::encode(&protocol::Packet::new(packet)).unwrap();
     let packet = protocol::decode_batch(batch).unwrap().remove(0);
@@ -18,46 +32,43 @@ where
 
 #[test]
 fn camera_activation_acknowledges_selected_camera_and_support_separately() {
-    let McpePacketData::ClientCameraAimAssistPacket(set) =
-        protocol::camera_aim_assist_activation_packet(&"a".repeat(70), true, false).data
+    let packets::Packet::ClientCameraAimAssist(set) =
+        *protocol::camera_aim_assist_activation_packet(&"a".repeat(70), true, false).data
     else {
         panic!("activation packet")
     };
-    assert_eq!(set.camera_preset_id, "a".repeat(64));
-    assert_eq!(
-        set.action,
-        EnumsClientCameraAimAssistPacketAction::Setfromcamerapreset
-    );
-    assert!(set.allowaimassist);
-    let McpePacketData::ClientCameraAimAssistPacket(clear) =
-        protocol::camera_aim_assist_activation_packet("", false, true).data
+    assert_eq!(set.camera_preset_id.to_str().unwrap(), "a".repeat(64));
+    assert_eq!(set.action, ClientCameraAimAssistAction::Setfromcamerapreset);
+    assert!(set.allow_aim_assist);
+    let packets::Packet::ClientCameraAimAssist(clear) =
+        *protocol::camera_aim_assist_activation_packet("", false, true).data
     else {
         panic!("activation packet")
     };
-    assert_eq!(clear.action, EnumsClientCameraAimAssistPacketAction::Clear);
-    assert!(!clear.allowaimassist);
+    assert_eq!(clear.action, ClientCameraAimAssistAction::Clear);
+    assert!(!clear.allow_aim_assist);
     assert!(clear.camera_preset_id.is_empty());
 }
 
 #[test]
 fn camera_presets_preserve_targeting_limits_starting_rotation_and_listener() {
-    let event = camera(CameraPresetsPacket {
-        camera_presets: CameraPresets {
-            presets: vec![SharedTypesv12650CameraPreset {
+    let event = camera(CameraPresets {
+        camera_presets: CameraPresetList {
+            presets: vec![CameraPreset {
                 name: "test:orbit".into(),
                 inherit_from: "minecraft:follow_orbit".into(),
-                rotation_speed: Some(3.0),
-                snapto_target: Some(false),
-                horizontal_rotation_limit: Some(Vec2 { x: -25.0, y: 35.0 }),
-                vertical_rotation_limit: Some(Vec2 { x: -50.0, y: 60.0 }),
+                rotation_speed: Some(wire::F32LE(3.0)),
+                snap_to_target: Some(false),
+                horizontal_rotation_limit: Some([-25.0, 35.0].into()),
+                vertical_rotation_limit: Some([-50.0, 60.0].into()),
                 continue_targeting: Some(true),
-                block_listening_radius: Some(4.0),
-                yaw_limit_min: Some(-90.0),
-                yaw_limit_max: Some(100.0),
-                listener: Some(EnumsSharedTypesv12190CameraPresetAudioListener::Player),
+                block_listening_radius: Some(wire::F32LE(4.0)),
+                yaw_limit_min: Some(wire::F32LE(-90.0)),
+                yaw_limit_max: Some(wire::F32LE(100.0)),
+                listener: Some(CameraPresetAudioListener::Player),
                 player_effects: Some(false),
                 apply_inherited_starting_rotation: true,
-                starting_rotation: Some(Vec2 { x: 20.0, y: 30.0 }),
+                starting_rotation: Some([20.0, 30.0].into()),
                 ..Default::default()
             }],
         },
@@ -82,30 +93,63 @@ fn camera_presets_preserve_targeting_limits_starting_rotation_and_listener() {
     assert_eq!(preset.starting_rotation, Some([20.0, 30.0]));
 }
 
-#[test]
-fn camera_spline_registry_keeps_independent_tracks_and_case_insensitive_type() {
-    let event = camera(CameraSplinePacket {
-        camera_data_splines: vec![SharedTypesv1260CameraSplineDefinition {
+/// One linear spline definition named `test:flight`.
+fn linear_spline() -> CameraSpline {
+    CameraSpline {
+        camera_data_splines: vec![CameraSplineDefinition {
             name: "test:flight".into(),
-            total_time: 4.0,
-            spline_type: "LiNeAr".into(),
+            total_time: wire::F32LE(4.0),
+            spline_type: "linear".into(),
             control_points: [0.0, 2.0, 6.0]
-                .map(|x| SharedTypesv1260CameraSplineControlPoint {
-                    position: Vec3 { x, y: 3.0, z: 5.0 },
+                .map(|x| CameraSplineControlPoint {
+                    position: [x, 3.0, 5.0].into(),
                 })
                 .into(),
-            progress_key_frames: vec![SharedTypesv1260CameraSplineProgressKeyFrame {
-                progress: 0.25,
-                time: 1.0,
+            ..Default::default()
+        }],
+    }
+}
+
+/// A mixed-case spline type breaks the codec's exact-name pattern, so the packet is a skippable
+/// rejection rather than an admitted spline.
+#[test]
+fn camera_spline_type_is_case_sensitive() {
+    let encoded = protocol::encode(&protocol::Packet::new(linear_spline())).unwrap();
+    assert!(protocol::decode_batch(encoded.clone()).is_ok());
+    let position = encoded
+        .windows(6)
+        .position(|window| window == b"linear")
+        .expect("spline type bytes");
+    let mut mixed = encoded.to_vec();
+    mixed[position..position + 6].copy_from_slice(b"LiNeAr");
+    assert!(matches!(
+        protocol::decode_batch(mixed.into()),
+        Err(protocol::ProtocolError::Ui(
+            protocol::UiPacketError::SchemaViolation { .. }
+        ))
+    ));
+}
+
+#[test]
+fn camera_spline_registry_keeps_independent_tracks_and_lowercase_type() {
+    let event = camera(CameraSpline {
+        camera_data_splines: vec![CameraSplineDefinition {
+            name: "test:flight".into(),
+            total_time: wire::F32LE(4.0),
+            spline_type: "linear".into(),
+            control_points: [0.0, 2.0, 6.0]
+                .map(|x| CameraSplineControlPoint {
+                    position: [x, 3.0, 5.0].into(),
+                })
+                .into(),
+            progress_key_frames: vec![CameraSplineProgressKeyFrame {
+                progress: wire::F32LE(0.25),
+                time: wire::F32LE(1.0),
                 easing: Some("in_quad".into()),
             }],
-            rotation_key_frames: vec![SharedTypesv1260CameraSplineRotationKeyFrame {
-                rotation: Vec3 {
-                    x: 10.0,
-                    y: 270.0,
-                    z: 30.0,
-                },
-                time: 2.0,
+            rotation_key_frames: vec![CameraSplineRotationKeyFrame {
+                rotation: [10.0, 270.0, 30.0].into(),
+                time: wire::F32LE(2.0),
                 easing: None,
             }],
         }],
@@ -129,9 +173,9 @@ fn camera_spline_registry_keeps_independent_tracks_and_case_insensitive_type() {
 
 #[test]
 fn camera_spline_named_reference_does_not_need_inline_points() {
-    let event = camera(CameraInstructionPacket {
-        camera_instruction: CameraInstruction {
-            spline: Some(CameraInstructionOptionsSplineInstruction {
+    let event = camera(CameraInstruction {
+        camera_instruction: CameraInstructionData {
+            spline: Some(CameraSplineInstruction {
                 spline_identifier: "test:flight".into(),
                 load_from_json: true,
                 ..Default::default()
@@ -149,37 +193,29 @@ fn camera_spline_named_reference_does_not_need_inline_points() {
 
 #[test]
 fn camera_aim_registry_preserves_categories_exclusions_and_item_settings() {
-    let event = camera(CameraAimAssistPresetsPacket {
-        camera_aim_assist_presets: vec![SharedTypesv12150CameraAimAssistCategoryDefinition {
+    let event = camera(CameraAimAssistPresets {
+        camera_aim_assist_presets: vec![CameraAimAssistCategoryDefinition {
             name: "combat".into(),
-            priorities: SharedTypesv12150CameraAimAssistCategoryPriorities {
-                entities: vec![
-                    SharedTypesv12150CameraAimAssistCategoryPrioritiesEntitiesItem {
-                        key: "minecraft:zombie".into(),
-                        value: 90,
-                    },
-                ],
-                entity_default: Some(10),
-                block_default: Some(0),
+            priorities: CameraAimAssistCategoryPriorities {
+                entities: vec![("minecraft:zombie".into(), wire::I32LE(90))],
+                entity_default: Some(wire::I32LE(10)),
+                block_default: Some(wire::I32LE(0)),
                 ..Default::default()
             },
         }],
-        camera_aim_assist_categories: vec![SharedTypesv121120CameraAimAssistPresetDefinition {
+        camera_aim_assist_categories: vec![CameraAimAssistPresetDefinition {
             identifier: "test:combat".into(),
-            exclusion_settings: SharedTypesv121120CameraAimAssistPresetExclusionDefinition {
+            exclusion_settings: CameraAimAssistPresetExclusionDefinition {
                 entities: vec!["minecraft:player".into()],
                 block_tags: vec!["logs".into()],
                 ..Default::default()
             },
-            item_settings: vec![CerealizerRecipeIngredientSerializedDataDescriptorItem {
-                key: "minecraft:bow".into(),
-                value: "combat".into(),
-            }],
+            item_settings: vec![("minecraft:bow".into(), "combat".into())],
             hand_settings: Some("combat".into()),
             default_item_settings: Some("combat".into()),
             liquid_targeting_list: vec!["minecraft:bucket".into()],
         }],
-        operation: EnumsCameraAimAssistPresetsPacketOperation::Addtoexisting,
+        operation: CameraAimAssistPresetOperation::Addtoexisting,
     });
     let CameraEvent::AimAssistPresets(registry) = event else {
         panic!("aim registry")
@@ -201,12 +237,12 @@ fn camera_aim_registry_preserves_categories_exclusions_and_item_settings() {
 
 #[test]
 fn camera_actor_priorities_preserve_signed_indices_for_runtime_validation() {
-    let event = camera(CameraAimAssistActorPriorityPacket {
-        camera_aim_assist_actor_priority_list: vec![CameraAimAssistActorPriorityPriorityData {
-            preset_index: 2,
-            category_index: 3,
-            actor_index: -1,
-            priority_value: 77,
+    let event = camera(CameraAimAssistActorPriority {
+        camera_aim_assist_actor_priority_list: vec![CameraAimAssistActorPriorityData {
+            preset_index: wire::I32LE(2),
+            category_index: wire::I32LE(3),
+            actor_index: wire::I32LE(-1),
+            priority_value: wire::I32LE(77),
         }],
     });
     let CameraEvent::AimAssistActorPriority(updates) = event else {
@@ -226,16 +262,16 @@ fn camera_actor_priorities_preserve_signed_indices_for_runtime_validation() {
 #[test]
 fn camera_odd_aim_values_are_semantic_errors() {
     for packet in [
-        CameraAimAssistPacket {
-            distance: f32::NAN,
+        CameraAimAssist {
+            distance: wire::F32LE(f32::NAN),
             ..Default::default()
         },
-        CameraAimAssistPacket {
-            action: EnumsCameraAimAssistPacketPayloadAction::Unknown(44),
+        CameraAimAssist {
+            action: CameraAimAssistAction::Unknown(44),
             ..Default::default()
         },
-        CameraAimAssistPacket {
-            target_mode: EnumsCameraAimAssistPacketPayloadTargetMode::Unknown(44),
+        CameraAimAssist {
+            target_mode: TargetMode::Unknown(44),
             ..Default::default()
         },
     ] {
@@ -250,9 +286,9 @@ fn camera_odd_aim_values_are_semantic_errors() {
 
 #[test]
 fn camera_oversized_spline_registry_is_a_semantic_error() {
-    let packet = CameraSplinePacket {
+    let packet = CameraSpline {
         camera_data_splines: vec![
-            SharedTypesv1260CameraSplineDefinition::default();
+            CameraSplineDefinition::default();
             protocol::MAX_CAMERA_PRESETS + 1
         ],
     };

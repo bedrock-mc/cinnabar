@@ -28,7 +28,7 @@ pub(super) fn projected_reconstruction_bytes(
                 if entry.sub_chunk_request_result != SubChunkRequestResult::Success {
                     continue;
                 }
-                let Some(blob_id) = entry.blob_id else {
+                let Some(blob_id) = entry.blob_id.map(|blob_id| blob_id.0) else {
                     continue;
                 };
                 let Some(blob) = store.entries.get(&blob_id) else {
@@ -37,7 +37,12 @@ pub(super) fn projected_reconstruction_bytes(
                 bytes = bytes
                     .checked_add(blob.payload.len())
                     .and_then(|bytes| {
-                        bytes.checked_add(entry.serialized_sub_chunk.as_ref().map_or(0, Vec::len))
+                        bytes.checked_add(
+                            entry
+                                .serialized_sub_chunk
+                                .as_ref()
+                                .map_or(0, bytes::Bytes::len),
+                        )
                     })
                     .ok_or(BlobCacheError::ByteCountOverflow)?;
             }
@@ -73,7 +78,7 @@ pub(super) fn reconstruct(
                 payload.extend_from_slice(&blob);
             }
             payload.extend_from_slice(&packet.serialized_chunk_data);
-            packet.serialized_chunk_data = payload;
+            packet.serialized_chunk_data = payload.into();
             // The hashes are inlined now, so the reconstructed packet is no
             // longer cache-backed. 1.26.40 says that with the flag plus an empty
             // metadata list rather than by dropping an optional.
@@ -94,7 +99,7 @@ pub(super) fn reconstruct(
             // shapes is needed any more.
             for entry in &mut packet.sub_chunk_data {
                 let tail = entry.serialized_sub_chunk.take().unwrap_or_default();
-                let resolved = match entry.blob_id.take() {
+                let resolved = match entry.blob_id.take().map(|blob_id| blob_id.0) {
                     Some(blob_id)
                         if entry.sub_chunk_request_result == SubChunkRequestResult::Success =>
                     {
@@ -108,7 +113,7 @@ pub(super) fn reconstruct(
                         let mut payload = Vec::with_capacity(payload_len);
                         payload.extend_from_slice(&blob);
                         payload.extend_from_slice(&tail);
-                        payload
+                        payload.into()
                     }
                     _ => tail,
                 };

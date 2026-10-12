@@ -1,15 +1,15 @@
 //! Observations of outbound inventory transactions.
 
-use bytes::BytesMut;
-use valentine::bedrock::codec::BedrockCodec;
-use valentine::bedrock::version::v1_26_51::{
-    CerealizerNetworkItemStackDescriptorSerializedData as WireItem, EnumsContainerEnumName,
-    EnumsInventorySourceType, EnumsItemReleaseInventoryTransactionActionType,
-    EnumsItemUseInventoryTransactionActionType,
-    EnumsItemUseInventoryTransactionClientCooldownState,
-    EnumsItemUseInventoryTransactionPredictedResult, EnumsItemUseInventoryTransactionTriggerType,
-    EnumsItemUseOnActorInventoryTransactionActionType, InventoryAction,
-    InventoryTransactionPacketTransaction, McpePacketData, Vec3,
+use bedrock_protocol_1_26_51::enums::{
+    InventorySourceType, ItemReleaseInventoryTransactionActionType,
+    ItemUseInventoryTransactionActionType, ItemUseInventoryTransactionClientCooldownState,
+    ItemUseInventoryTransactionPredictedResult, ItemUseInventoryTransactionTriggerType,
+    ItemUseOnActorInventoryTransactionActionType,
+};
+use bedrock_protocol_1_26_51::packets;
+use bedrock_protocol_1_26_51::types::{
+    InventoryAction, InventoryTransactionPacketData,
+    NetworkItemStackDescriptorSerializedData as WireItem,
 };
 
 use crate::{ActorUseAction, ItemUseTrigger, Packet};
@@ -151,97 +151,107 @@ impl TransactionObservation {
 
 /// Reads an InventoryTransaction packet; `None` for any other packet.
 pub fn observe_transaction(packet: &Packet) -> Option<TransactionObservation> {
-    let McpePacketData::InventoryTransactionPacket(packet) = &packet.data else {
+    let packets::Packet::InventoryTransaction(packet) = &*packet.data else {
         return None;
     };
     let (actions, body) = match &packet.transaction {
-        InventoryTransactionPacketTransaction::NormalTransactionData(normal) => {
-            (&normal.actions.actions, TransactionBody::Normal)
+        InventoryTransactionPacketData::NormalTransactionData { actions } => {
+            (&actions.actions, TransactionBody::Normal)
         }
-        InventoryTransactionPacketTransaction::InventoryMismatchData(mismatch) => {
-            (&mismatch.actions.actions, TransactionBody::Mismatch)
+        InventoryTransactionPacketData::InventoryMismatchData { actions } => {
+            (&actions.actions, TransactionBody::Mismatch)
         }
-        InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(body) => (
+        InventoryTransactionPacketData::ItemUseInventoryTransaction(body) => (
             &body.actions.actions,
             TransactionBody::ItemUse(ItemUseObservation {
                 action: match body.action_type {
-                    EnumsItemUseInventoryTransactionActionType::Place => ItemUseAction::ClickBlock,
-                    EnumsItemUseInventoryTransactionActionType::Use => ItemUseAction::ClickAir,
-                    EnumsItemUseInventoryTransactionActionType::Destroy => {
-                        ItemUseAction::BreakBlock
-                    }
-                    EnumsItemUseInventoryTransactionActionType::Useasattack => {
+                    ItemUseInventoryTransactionActionType::Place => ItemUseAction::ClickBlock,
+                    ItemUseInventoryTransactionActionType::Use => ItemUseAction::ClickAir,
+                    ItemUseInventoryTransactionActionType::Destroy => ItemUseAction::BreakBlock,
+                    ItemUseInventoryTransactionActionType::UseAsAttack => {
                         ItemUseAction::UseAsAttack
                     }
-                    EnumsItemUseInventoryTransactionActionType::Unknown(value) => {
+                    ItemUseInventoryTransactionActionType::Unknown(value) => {
                         ItemUseAction::Unknown(value)
                     }
                 },
                 trigger: match body.trigger_type {
-                    EnumsItemUseInventoryTransactionTriggerType::Playerinput => {
+                    ItemUseInventoryTransactionTriggerType::PlayerInput => {
                         Some(ItemUseTrigger::PlayerInput)
                     }
-                    EnumsItemUseInventoryTransactionTriggerType::Simulationtick => {
+                    ItemUseInventoryTransactionTriggerType::SimulationTick => {
                         Some(ItemUseTrigger::SimulationTick)
                     }
                     _ => None,
                 },
                 predicted_success: body.client_interact_prediction
-                    == EnumsItemUseInventoryTransactionPredictedResult::Success,
-                position: [body.position.x, body.position.y, body.position.z],
-                face: body.face,
-                slot: body.slot,
+                    == ItemUseInventoryTransactionPredictedResult::Success,
+                position: [body.position.x.0, body.position.y.0, body.position.z.0],
+                face: body.face.0,
+                slot: body.slot.0,
                 item: item(&body.item),
-                from_position: position(&body.from_position),
-                click_position: position(&body.click_position),
-                target_block_id: body.target_block_id,
+                from_position: body.from_position.to_array(),
+                click_position: body.click_position.to_array(),
+                target_block_id: body.target_block_id.0,
                 cooldown_active: body.client_cooldown_state
-                    == EnumsItemUseInventoryTransactionClientCooldownState::On,
+                    == ItemUseInventoryTransactionClientCooldownState::On,
             }),
         ),
-        InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(body) => (
-            &body.actions.actions,
+        InventoryTransactionPacketData::ItemUseOnActorInventoryTransaction {
+            actions,
+            runtime_id,
+            action_type,
+            slot,
+            item: used,
+            from_position,
+            hit_position,
+        } => (
+            &actions.actions,
             TransactionBody::ItemUseOnActor(ActorUseObservation {
-                action: match body.action_type {
-                    EnumsItemUseOnActorInventoryTransactionActionType::Attack => {
+                action: match action_type {
+                    ItemUseOnActorInventoryTransactionActionType::Attack => {
                         Some(ActorUseAction::Attack)
                     }
-                    EnumsItemUseOnActorInventoryTransactionActionType::Interact => {
+                    ItemUseOnActorInventoryTransactionActionType::Interact => {
                         Some(ActorUseAction::Interact)
                     }
                     _ => None,
                 },
-                runtime_id: body.runtime_id.actor_runtime_id,
-                slot: body.slot,
-                item: item(&body.item),
-                from_position: position(&body.from_position),
-                hit_position: position(&body.hit_position),
+                runtime_id: runtime_id.0,
+                slot: slot.0,
+                item: item(used),
+                from_position: from_position.to_array(),
+                hit_position: hit_position.to_array(),
             }),
         ),
-        InventoryTransactionPacketTransaction::ItemReleaseInventoryTransaction(body) => (
-            &body.actions.actions,
+        InventoryTransactionPacketData::ItemReleaseInventoryTransaction {
+            actions,
+            action_type,
+            slot,
+            item: released,
+            from_position,
+        } => (
+            &actions.actions,
             TransactionBody::Release(ReleaseObservation {
-                action: match body.action_type {
-                    EnumsItemReleaseInventoryTransactionActionType::Release => {
-                        ReleaseAction::Release
-                    }
-                    EnumsItemReleaseInventoryTransactionActionType::Use => ReleaseAction::Consume,
-                    EnumsItemReleaseInventoryTransactionActionType::Unknown(value) => {
-                        ReleaseAction::Unknown(value)
+                action: match action_type {
+                    ItemReleaseInventoryTransactionActionType::Release => ReleaseAction::Release,
+                    ItemReleaseInventoryTransactionActionType::Use => ReleaseAction::Consume,
+                    ItemReleaseInventoryTransactionActionType::Unknown(value) => {
+                        ReleaseAction::Unknown(*value)
                     }
                 },
-                slot: body.slot,
-                item: item(&body.item),
-                from_position: position(&body.from_position),
+                slot: slot.0,
+                item: item(released),
+                from_position: from_position.to_array(),
             }),
         ),
     };
     Some(TransactionObservation {
-        legacy_request_id: packet.legacy_request_id.id,
+        legacy_request_id: packet.legacy_request_id.0,
         legacy_set_slots: packet.legacy_set_item_slots.as_ref().map(|slots| {
             slots
                 .iter()
-                .map(|slot| (container_name(slot.container_enum), slot.slots.clone()))
+                .map(|slot| (slot.container_enum.to_raw(), slot.slots.to_vec()))
                 .collect()
         }),
         actions: actions.iter().map(action).collect(),
@@ -252,17 +262,15 @@ pub fn observe_transaction(packet: &Packet) -> Option<TransactionObservation> {
 fn action(action: &InventoryAction) -> InventoryActionObservation {
     InventoryActionObservation {
         source: match action.source.source_type {
-            EnumsInventorySourceType::Containerinventory => InventorySourceKind::Container,
-            EnumsInventorySourceType::Globalinventory => InventorySourceKind::Global,
-            EnumsInventorySourceType::Worldinteraction => InventorySourceKind::World,
-            EnumsInventorySourceType::Creativeinventory => InventorySourceKind::Creative,
-            EnumsInventorySourceType::Nonimplementedfeaturetodo => {
-                InventorySourceKind::NotImplemented
-            }
-            EnumsInventorySourceType::Unknown(value) => InventorySourceKind::Unknown(value),
+            InventorySourceType::ContainerInventory => InventorySourceKind::Container,
+            InventorySourceType::GlobalInventory => InventorySourceKind::Global,
+            InventorySourceType::WorldInteraction => InventorySourceKind::World,
+            InventorySourceType::CreativeInventory => InventorySourceKind::Creative,
+            InventorySourceType::NonImplementedFeatureTodo => InventorySourceKind::NotImplemented,
+            InventorySourceType::Unknown(value) => InventorySourceKind::Unknown(value),
         },
-        container_id: action.source.container_id,
-        slot: action.slot,
+        container_id: action.source.container_id.map(|id| id.0),
+        slot: action.slot.0,
         from_item: item(&action.from_item),
         to_item: item(&action.to_item),
     }
@@ -270,23 +278,11 @@ fn action(action: &InventoryAction) -> InventoryActionObservation {
 
 fn item(item: &WireItem) -> ItemObservation {
     ItemObservation {
-        network_id: i32::from(item.id),
-        count: item.stacksize,
-        metadata: item.auxvalue,
-        stack_network_id: item.net_id_variant,
-        block_runtime_id: item.block_runtime_id,
-        user_data: item.user_data_buffer.clone(),
+        network_id: i32::from(item.id.0),
+        count: item.stack_size.0,
+        metadata: item.aux_value.0,
+        stack_network_id: item.net_id_variant.map(|id| id.0),
+        block_runtime_id: item.block_runtime_id.0,
+        user_data: item.user_data_buffer.to_vec(),
     }
-}
-
-fn position(position: &Vec3) -> [f32; 3] {
-    [position.x, position.y, position.z]
-}
-
-/// The one-byte wire value, matching the crate's `CONTAINER_NAME_*` constants.
-fn container_name(name: EnumsContainerEnumName) -> u8 {
-    let mut bytes = BytesMut::with_capacity(1);
-    name.encode(&mut bytes)
-        .expect("a container name encodes into a buffer");
-    bytes[0]
 }

@@ -1,10 +1,9 @@
-use thiserror::Error;
-use valentine::bedrock::version::v1_26_51::{
-    EnumsItemStackRequestActionType, EnumsTextProcessingEventOrigin,
-    ItemStackRequestCerealMineBlockActionData, ItemStackRequestCerealRequestData,
-    ItemStackRequestCerealRequestDataActionsItem,
-    TypedClientNetIdstructItemStackRequestIdTagint32T0,
+use bedrock_protocol_1_26_51::enums::{ItemStackRequestActionType, TextProcessingEventOrigin};
+use bedrock_protocol_1_26_51::types::{
+    ItemStackRequestData, ItemStackRequestID, StackRequestAction,
 };
+use bedrock_protocol_1_26_51::wire;
+use thiserror::Error;
 
 /// A bounded mining request carrier, not proof of current inventory authority.
 /// Callers must independently establish item applicability and current state.
@@ -60,23 +59,17 @@ impl MineBlockRequest {
         })
     }
 
-    pub(crate) fn packed(self) -> ItemStackRequestCerealRequestData {
-        ItemStackRequestCerealRequestData {
-            client_request_id: TypedClientNetIdstructItemStackRequestIdTagint32T0 {
-                id: self.request_id,
-            },
-            actions: vec![
-                ItemStackRequestCerealRequestDataActionsItem::MineBlockActionData(Box::new(
-                    ItemStackRequestCerealMineBlockActionData {
-                        actiontype: EnumsItemStackRequestActionType::Screenhudmineblock,
-                        slot: i32::from(self.hotbar_slot),
-                        predicted_durability: self.predicted_durability,
-                        net_id_variant: self.stack_network_id,
-                    },
-                )),
-            ],
+    pub(crate) fn packed(self) -> ItemStackRequestData {
+        ItemStackRequestData {
+            client_request_id: ItemStackRequestID(self.request_id),
+            actions: vec![StackRequestAction::MineBlockActionData {
+                action_type: ItemStackRequestActionType::Screenhudmineblock,
+                slot: wire::ZigZag32(i32::from(self.hotbar_slot)),
+                predicted_durability: wire::ZigZag32(self.predicted_durability),
+                net_id_variant: wire::I32LE(self.stack_network_id),
+            }],
             strings_to_filter: Vec::new(),
-            strings_to_filter_origin: EnumsTextProcessingEventOrigin::Unknown,
+            strings_to_filter_origin: TextProcessingEventOrigin::Unknown,
         }
     }
 }

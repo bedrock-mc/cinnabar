@@ -1,11 +1,7 @@
-use bytes::{Bytes, BytesMut};
-use valentine::bedrock::{
-    codec::{BedrockCodec, VarInt},
-    error::DecodeError,
-    version::v1_26_51::{
-        BiomeDefinitionChunkGenData, McpePacketArgs, McpePacketData, McpePacketName,
-    },
-};
+use bedrock_protocol_1_26_51::packets::{self, PacketId};
+use bedrock_protocol_1_26_51::types::BiomeDefinitionChunkGenData;
+use bedrock_protocol_1_26_51::wire::{self, Decode};
+use bytes::Bytes;
 
 use crate::raw_packet::RawPacket;
 
@@ -24,91 +20,63 @@ fn raw_fixture() -> RawPacket {
     .expect("one packet")
 }
 
-fn assert_fixture_fields(data: &McpePacketData) {
-    let McpePacketData::BiomeDefinitionListPacket(packet) = data else {
-        panic!("expected BiomeDefinitionList, got {:?}", data.packet_id());
+fn assert_fixture_fields(data: &packets::Packet) {
+    let packets::Packet::BiomeDefinitionList(packet) = data else {
+        panic!("expected BiomeDefinitionList, got {:?}", data.id());
     };
-    // 1.26.40 renames the packet's collections: `biome_definitions` became
-    // `mapof_biomenamestodata` (an index/definition pair) and `string_list`
-    // became `stringlist.strings`. The bytes are unchanged - gophertunnel
-    // packet/biome_definition_list.go still writes the definition slice then a
+    // gophertunnel packet/biome_definition_list.go writes the definition slice then a
     // FuncSlice of strings.
-    assert_eq!(packet.mapof_biomenamestodata.len(), 1);
-    assert!(packet.stringlist.strings.is_empty());
-    let chunk = packet.mapof_biomenamestodata[0]
-        .value
-        .chunkgendata
+    assert_eq!(packet.map_of_biome_names_to_data.len(), 1);
+    assert!(packet.string_list.strings.is_empty());
+    let chunk = packet.map_of_biome_names_to_data[0]
+        .1
+        .chunk_gen_data
         .as_ref()
         .expect("fixture has chunk generation");
     assert!(chunk.climate.is_none());
-    assert!(chunk.consolidatedfeatures.is_none());
-    assert!(chunk.mountainparams.is_none());
-    assert!(chunk.surfacematerialadjustments.is_none());
-    assert!(chunk.overworldgenrules.is_none());
-    assert!(chunk.multinoisegenrules.is_none());
-    assert!(chunk.legacyworldgenrules.is_none());
-    assert!(chunk.replacementbiomes.is_none());
+    assert!(chunk.consolidated_features.is_none());
+    assert!(chunk.mountain_params.is_none());
+    assert!(chunk.surface_material_adjustments.is_none());
+    assert!(chunk.overworld_gen_rules.is_none());
+    assert!(chunk.multinoise_gen_rules.is_none());
+    assert!(chunk.legacy_world_gen_rules.is_none());
+    assert!(chunk.replacement_biomes.is_none());
     assert!(chunk.village_type.is_none());
-    assert!(chunk.surfacebuilderdata.is_none());
-    assert!(chunk.subsurfacebuilderdata.is_none());
+    assert!(chunk.surface_builder_data.is_none());
+    assert!(chunk.subsurface_builder_data.is_none());
 }
 
 #[test]
-fn pinned_gophertunnel_biome_definition_list_owned_decodes_and_round_trips() {
-    let packet = raw_fixture()
-        .decode()
-        .expect("owned BiomeDefinitionList decode");
-    assert_eq!(
-        packet.data.packet_id(),
-        McpePacketName::BiomeDefinitionListPacket
-    );
+fn pinned_gophertunnel_biome_definition_list_decodes_and_round_trips() {
+    let packet = raw_fixture().decode().expect("BiomeDefinitionList decode");
+    assert_eq!(packet.data.id(), PacketId::BiomeDefinitionList);
     assert_fixture_fields(&packet.data);
     let encoded = crate::encode(&packet).expect("re-encode");
     assert_eq!(encoded.as_ref(), GOPHERTUNNEL_BIOME_DEFINITION_LIST);
 }
 
-#[test]
-fn pinned_gophertunnel_biome_definition_list_borrowed_view_materializes_and_round_trips() {
-    let borrowed = raw_fixture()
-        .decode_borrowed()
-        .expect("borrowed BiomeDefinitionList decode");
-    // 1.26.30 had no borrowed view for this packet and fell back to
-    // `BorrowedMcpePacketData::Raw`. 1.26.40 generates a real
-    // `BiomeDefinitionListPacketView`, so the borrowed path is now typed.
-    assert!(matches!(
-        &borrowed.data,
-        valentine::bedrock::version::v1_26_51::BorrowedMcpePacketData::BiomeDefinitionListPacket(_)
-    ));
-    let owned = borrowed
-        .into_owned(McpePacketArgs)
-        .expect("materialize borrowed BiomeDefinitionList");
-    assert_fixture_fields(&owned.data);
-    let encoded =
-        crate::encode(&crate::Packet::from_parts(owned.header, owned.data)).expect("re-encode");
-    assert_eq!(encoded.as_ref(), GOPHERTUNNEL_BIOME_DEFINITION_LIST);
-}
-
 /// A hostile nested count remains fatal when its first declared element is
-/// absent. This variable-size collection is decoded incrementally without a
-/// global element ceiling.
+/// absent, without a global element ceiling.
 #[test]
 fn biome_chunk_generation_rejects_oversized_nested_collection() {
-    let mut bytes = BytesMut::from(&[0, 1][..]);
-    VarInt((MAX_BIOME_COLLECTION_ELEMENTS + 1) as i32)
-        .encode(&mut bytes)
+    let mut bytes = vec![0, 1];
+    wire::Writer::new(&mut bytes)
+        .write_var_u32((MAX_BIOME_COLLECTION_ELEMENTS + 1) as u32)
         .expect("encode oversized collection count");
 
-    let error = BiomeDefinitionChunkGenData::decode(&mut bytes.freeze(), ())
+    let error = BiomeDefinitionChunkGenData::decode_exact(&bytes)
         .expect_err("4,097 consolidated features must not decode");
-    assert!(matches!(error, DecodeError::UnexpectedEof { .. }));
+    assert!(matches!(
+        error,
+        wire::DecodeError::UnexpectedEof { .. } | wire::DecodeError::LengthNotRepresentable { .. }
+    ));
 }
 
 #[test]
 fn biome_chunk_generation_rejects_truncated_surface_builder_slots() {
     // `BiomeDefinitionChunkGenData` is eleven optional slots; ten present bytes
     // leaves the last one truncated.
-    let mut bytes = Bytes::from_static(&[0; 10]);
-    let error = BiomeDefinitionChunkGenData::decode(&mut bytes, ())
+    let error = BiomeDefinitionChunkGenData::decode_exact(&[0; 10])
         .expect_err("ten of eleven option slots must be truncated");
-    assert!(matches!(error, DecodeError::UnexpectedEof { .. }));
+    assert!(matches!(error, wire::DecodeError::UnexpectedEof { .. }));
 }

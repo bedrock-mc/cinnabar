@@ -60,19 +60,19 @@ cp -R "$project_root/app" "$project_root/crates" "$project_root/tools" "$project
 assert_protocol_dependency_provenance "$protocol_fixture"
 
 cp "$protocol_fixture/crates/protocol/Cargo.toml" "$protocol_fixture/protocol.Cargo.toml.clean"
-cp -R "$protocol_fixture/crates/protocol/vendor/valentine" "$protocol_fixture/crates/protocol/vendor/valentine-decoy"
+cp -R "$protocol_fixture/crates/protocol/vendor/bedrock-protocol-1-26-51" "$protocol_fixture/crates/protocol/vendor/bedrock-protocol-1-26-51-decoy"
 python3 - "$protocol_fixture/crates/protocol/Cargo.toml" <<'PY'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
 text = text.replace(
-    'valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }',
-    '"valentine" = { path = "vendor/valentine-decoy", default-features = false, features = ["bedrock_1_26_51"] }',
+    'bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }',
+    '"bedrock-protocol-1-26-51" = { path = "vendor/bedrock-protocol-1-26-51-decoy" }',
     1,
 )
 decoys = '''description = """
 [dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }
+bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
 """'''
 text = text.replace("publish = false", "publish = false\n" + decoys, 1)
 path.write_text(text, encoding="utf-8")
@@ -86,7 +86,7 @@ cp "$protocol_fixture/protocol.Cargo.toml.clean" "$protocol_fixture/crates/proto
 cat >>"$protocol_fixture/crates/protocol/Cargo.toml" <<'EOF'
 
 [target.'cfg(unix)'.dependencies]
-valentine = { path = "vendor/valentine", default-features = false, features = ["bedrock_1_26_51"] }
+bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
 EOF
 if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; then
     echo 'Bash protocol provenance accepted an additional target-table declaration' >&2
@@ -99,10 +99,10 @@ python3 - "$protocol_fixture/Cargo.lock" <<'PY'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
-needle = 'name = "valentine"\nversion = "0.1.0"'
+needle = 'name = "bedrock-protocol-1-26-51"\nversion = "0.1.0"'
 replacement = needle + '\n   checksum = "' + ('2' * 64) + '"'
 if needle not in text:
-    raise SystemExit('Bash checksum fixture did not find the Valentine lock package')
+    raise SystemExit('Bash checksum fixture did not find the codec lock package')
 path.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
 PY
 if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; then
@@ -218,8 +218,8 @@ grep -Fq 'math.isfinite(metrics["p99_frame_ms"])' "$script"
 grep -Fq 'str(root / "core"), "mod", "edit", "-json"' "$script"
 grep -Fq 'resolve_pinned_gophertunnel_commit' "$script"
 grep -Fq "pinned_axolotl_stack_commit='c4540512dc47833bb40363da7ad1161110d64b67'" "$script"
-grep -Fq "pinned_protocolgen_commit='0b8f17e3b321f7cb89e21dc8563398b9981e632f'" "$script"
-grep -Fq "pinned_valentine_license_sha256='62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'" "$script"
+grep -Fq "pinned_protocolgen_commit='dec7334ac3981b0b79146fa53c82af91d70f9f62'" "$script"
+grep -Fq "pinned_jolyne_license_sha256='62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'" "$script"
 grep -Fq '"protocol_dependency_resolution": "vendored-path"' "$script"
 metadata_line=$(grep -n '^write_metadata preparing$' "$script" | cut -d: -f1)
 build_line=$(grep -n 'cargo build --release' "$script" | tail -1 | cut -d: -f1)

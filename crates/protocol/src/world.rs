@@ -1,11 +1,7 @@
 use std::sync::Arc;
 
+use bedrock_protocol_1_26_51::packets::{self, PacketId, StartGame};
 use thiserror::Error;
-use valentine::bedrock::version::v1_26_51::{
-    EnumsMovementEffectType,
-    EnumsSubChunkPacketPayloadSubChunkRequestResult as SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult,
-    GameRule, GameRuleRuleValue, McpePacketData, StartGamePacket,
-};
 
 use crate::{
     ActorPacketError, InventoryPacketError, ItemActorEvent, ItemPacketError, Packet,
@@ -27,6 +23,7 @@ use crate::{
     item::{
         normalize_animate, normalize_animate_entity, normalize_equipment, normalize_item_registry,
     },
+    packet::GameHeader,
     ui::{
         GameModeEvent, UiEvent, UiPacketError, normalize_available_commands, normalize_block_crack,
         normalize_boss, normalize_display_objective, normalize_form, normalize_health,
@@ -47,6 +44,7 @@ mod events;
 mod game_mode;
 mod game_rules;
 mod level_chunk;
+mod motion;
 mod requests;
 
 pub use self::clocks::{
@@ -77,11 +75,8 @@ pub use self::game_mode::PlayerGameMode;
 use self::game_rules::{
     daylight_cycle_rule_update, death_rules, hud_rules, weather_cycle_rule_update,
 };
-use self::level_chunk::level_chunk_mode;
-pub(crate) use self::level_chunk::normalize_borrowed_level_chunk;
-use self::requests::checked_sub_chunk_position;
+pub(crate) use self::level_chunk::normalize_level_chunk_payload;
 pub use self::requests::request_sub_chunk_column;
-use biomes::canonical_biome_name;
 
 /// Sequential palette state ID generated for `minecraft:air` in 1.26.30.
 pub const SEQUENTIAL_AIR_NETWORK_ID: u32 = 12_530;
@@ -100,18 +95,14 @@ pub const MAX_DIMENSION_DEFINITIONS: usize = 64;
 
 /// Maximum live biome definitions retained from one server packet.
 ///
-/// This matched the 1.26.30 generated decoder's own collection ceiling. The
-/// 1.26.40 generated crate emits no collection ceilings at all (see the module
-/// header of `tests/world_collection_bounds.rs`), so this is now the only bound
-/// applied to the list and it must stay enforced here.
+/// The generated decoder bounds the list only by its input, so this is the only element bound.
 pub const MAX_BIOME_DEFINITIONS: usize = 4_096;
 
 /// Maximum UTF-8 bytes accepted for one live biome identifier.
 pub const MAX_BIOME_NAME_BYTES: usize = 256;
 
-// LevelEvent ids. 1.26.40 stopped modelling LevelEventPacket's event as a
-// generated enum (`LevelEventPacket.event_id` is a bare varint32), so the ids
-// this crate reacts to are pinned here from gophertunnel
+// LevelEvent ids. `LevelEvent.event_id` is a bare varint32, so the ids this crate reacts to are
+// pinned here from gophertunnel
 // `minecraft/protocol/packet/level_event.go` @ be6713da4dc051a4197f897d04835e89e9c54321.
 /// `LevelEventSleepingPlayers`, sent as a LevelEventGeneric.
 const LEVEL_EVENT_SLEEPING_PLAYERS: i32 = 9801;
@@ -145,27 +136,17 @@ pub struct WorldBootstrap {
 }
 
 impl WorldBootstrap {
-    pub(crate) fn from_start_game(start_game: &StartGamePacket) -> Self {
+    pub(crate) fn from_start_game(start_game: &StartGame) -> Self {
         let settings = &start_game.settings;
+        let spawn = &settings.default_spawn_block_position;
         Self {
-            // 1.26.40 stopped naming the vanilla dimension ids in an enum and
-            // moved the field into LevelSettings' spawn block. gophertunnel
-            // packet/start_game.go writes `Dimension int32` (Varint32) right
-            // after `UserDefinedBiomeName`, which is exactly
-            // `settings.spawn_settings.dimension` here, so the raw id is used.
-            dimension: settings.spawn_settings.dimension,
-            local_player_runtime_id: start_game.runtime_id.actor_runtime_id,
-            local_player_unique_id: start_game.entity_id.actor_unique_id,
-            player_position: [
-                start_game.position.x,
-                start_game.position.y,
-                start_game.position.z,
-            ],
-            world_spawn_position: [
-                settings.default_spawn_block_position.x,
-                settings.default_spawn_block_position.y,
-                settings.default_spawn_block_position.z,
-            ],
+            // gophertunnel packet/start_game.go writes `Dimension int32` (Varint32) right after
+            // `UserDefinedBiomeName`, which is `settings.spawn_settings.dimension` here.
+            dimension: settings.spawn_settings.dimension.0,
+            local_player_runtime_id: start_game.runtime_id.0,
+            local_player_unique_id: start_game.entity_id.0,
+            player_position: start_game.position.to_array(),
+            world_spawn_position: [spawn.x.0, spawn.y.0, spawn.z.0],
             air_network_id: air_network_id(start_game.block_network_ids_are_hashes),
             block_network_ids_are_hashes: start_game.block_network_ids_are_hashes,
         }
@@ -333,623 +314,330 @@ impl From<InventoryPacketError> for WorldPacketError {
     }
 }
 
+/// Defines world routing and dispatch from one table, so play decodes exactly the packets that
+/// normalization consumes.
+macro_rules! world_packets {
+    ($header:ident, $dimension:ident; $($variant:ident($packet:pat) => $handler:expr,)+) => {
+        /// Whether play decodes `id` for world normalization; other packets stay undecoded.
+        pub(crate) fn routes_world_packet(id: PacketId) -> bool {
+            matches!(id, $(PacketId::$variant)|+)
+        }
+
+        fn dispatch(
+            data: packets::Packet,
+            $header: GameHeader,
+            $dimension: i32,
+        ) -> Result<Option<WorldEvent>, WorldPacketError> {
+            let event = match data {
+                $(packets::Packet::$variant($packet) => $handler,)+
+                _ => return Ok(None),
+            };
+            Ok(Some(event))
+        }
+    };
+}
+
 /// Converts a generated packet into the bounded world surface used by the app.
 /// Packets unrelated to world streaming return `Ok(None)`.
 pub fn into_world_event(
     packet: Packet,
     current_dimension: i32,
 ) -> Result<Option<WorldEvent>, WorldPacketError> {
-    let event = match packet.data {
-        McpePacketData::ShowCreditsPacket(packet) => {
-            let Some(event) = crate::credits::normalize(&packet) else {
-                return Ok(None);
-            };
-            WorldEvent::Ui(UiEvent::ShowCredits(event))
-        }
-        McpePacketData::ScriptMessagePacket(message) => {
-            if packet.header.from_subclient != 0 || packet.header.to_subclient != 0 {
-                return Ok(None);
-            }
-            return Ok(crate::experience::normalize(message).map(WorldEvent::Experience));
-        }
-        McpePacketData::UpdateAbilitiesPacket(packet) => {
-            WorldEvent::Abilities(crate::permissions::normalize_abilities(packet.data))
-        }
-        McpePacketData::TextPacket(packet) => WorldEvent::Ui(normalize_text(*packet)?),
-        McpePacketData::DeathInfoPacket(packet) => {
-            WorldEvent::Ui(crate::ui::normalize_death_info(packet)?)
-        }
-        McpePacketData::CommandOutputPacket(packet) => {
-            WorldEvent::Ui(crate::ui::normalize_command_output(*packet)?)
-        }
-        McpePacketData::SetTitlePacket(packet) => WorldEvent::Ui(normalize_title(*packet)?),
-        McpePacketData::ToastRequestPacket(packet) => WorldEvent::Ui(normalize_toast(packet)?),
-        McpePacketData::SetDisplayObjectivePacket(packet) => {
-            WorldEvent::Ui(normalize_display_objective(*packet)?)
-        }
-        McpePacketData::RemoveObjectivePacket(packet) => {
-            WorldEvent::Ui(normalize_remove_objective(packet)?)
-        }
-        McpePacketData::SetScorePacket(packet) => WorldEvent::Ui(normalize_score(packet)?),
-        McpePacketData::BossEventPacket(packet) => WorldEvent::Ui(normalize_boss(*packet)?),
-        McpePacketData::ModalFormRequestPacket(packet) => WorldEvent::Ui(normalize_form(packet)?),
-        McpePacketData::ServerSettingsResponsePacket(packet) => {
-            WorldEvent::Ui(crate::ui::normalize_server_settings(packet)?)
-        }
-        McpePacketData::NpcDialoguePacket(packet) => {
-            WorldEvent::Ui(crate::ui::normalize_npc_dialogue(*packet)?)
-        }
-        McpePacketData::SetHealthPacket(packet) => WorldEvent::Ui(normalize_health(packet)),
-        McpePacketData::PlayStatusPacket(packet) => {
-            WorldEvent::Ui(normalize_player_status(packet)?)
-        }
-        McpePacketData::UpdateSoftEnumPacket(packet) => {
-            WorldEvent::Ui(normalize_soft_enum(packet)?)
-        }
-        McpePacketData::AvailableCommandsPacket(packet) => {
-            WorldEvent::Ui(normalize_available_commands(*packet))
-        }
-        McpePacketData::AddActorPacket(packet) => {
-            WorldEvent::Actor(normalize_add_entity(*packet, current_dimension)?)
-        }
-        McpePacketData::AddPlayerPacket(packet) => {
-            WorldEvent::Actor(normalize_add_player(*packet, current_dimension)?)
-        }
-        McpePacketData::RemoveActorPacket(packet) => {
-            WorldEvent::Actor(normalize_remove_entity(packet, current_dimension))
-        }
-        McpePacketData::MoveActorAbsolutePacket(packet) => {
-            WorldEvent::Actor(normalize_move_entity(*packet, current_dimension)?)
-        }
-        McpePacketData::MoveActorDeltaPacket(packet) => {
-            WorldEvent::Actor(normalize_move_entity_delta(*packet, current_dimension)?)
-        }
-        McpePacketData::SetActorDataPacket(packet) => {
-            WorldEvent::Actor(normalize_set_entity_data(*packet, current_dimension)?)
-        }
-        McpePacketData::UpdateAttributesPacket(packet) => {
-            WorldEvent::Actor(normalize_update_attributes(packet, current_dimension)?)
-        }
-        McpePacketData::PlayerListPacket(packet) => {
-            WorldEvent::Actor(normalize_player_list(packet)?)
-        }
-        McpePacketData::PlayerSkinPacket(packet) => {
-            WorldEvent::Actor(crate::actor::normalize_skin_update(*packet))
-        }
-        McpePacketData::AddItemActorPacket(packet) => {
-            WorldEvent::Actor(normalize_add_item_actor(*packet, current_dimension)?)
-        }
-        McpePacketData::AvailableActorIdentifiersPacket(packet) => {
-            WorldEvent::Actor(crate::ActorEvent::Identifiers(
-                crate::actor::identifiers::normalize(&packet.identifier_list.0),
-            ))
-        }
-        McpePacketData::TakeItemActorPacket(packet) => {
-            WorldEvent::Actor(crate::actor::normalize_take_item_actor(packet))
-        }
-        McpePacketData::ActorEventPacket(packet) => {
-            let Some(event) = crate::actor::normalize_actor_event(*packet) else {
-                return Ok(None);
-            };
-            WorldEvent::Actor(event)
-        }
-        McpePacketData::ItemRegistryPacket(packet) => {
-            WorldEvent::ItemActor(ItemActorEvent::Registry(normalize_item_registry(packet)?))
-        }
-        McpePacketData::MobEquipmentPacket(packet) => {
-            WorldEvent::Equipment(normalize_equipment(*packet)?)
-        }
-        McpePacketData::MobArmorEquipmentPacket(packet) => {
-            WorldEvent::ArmorEquipment(Box::new(normalize_armor_equipment(*packet)?))
-        }
-        McpePacketData::MobEffectPacket(packet) => {
-            WorldEvent::ActorEffect(normalize_mob_effect(*packet, current_dimension)?)
-        }
-        McpePacketData::SyncActorPropertyPacket(packet) => {
-            let data = &packet.property_data.0;
-            if data.len() > MAX_ACTOR_PROPERTY_SYNC_BYTES {
-                return Ok(None);
-            }
-            WorldEvent::ActorPropertySync(ActorPropertySyncEvent {
-                data: Arc::from(&data[..]),
-            })
-        }
-        McpePacketData::SetActorLinkPacket(packet) => {
-            WorldEvent::ActorLink(normalize_set_entity_link(*packet, current_dimension))
-        }
-        McpePacketData::SetPlayerGameTypePacket(packet) => {
-            WorldEvent::Ui(UiEvent::GameMode(GameModeEvent {
-                update: PlayerGameMode::update_from_game_mode(packet.player_game_type),
-            }))
-        }
-        McpePacketData::UpdatePlayerGameTypePacket(packet) => {
-            WorldEvent::Ui(game_mode::targeted_update(packet))
-        }
-        McpePacketData::SetDefaultGameTypePacket(packet) => {
-            WorldEvent::Ui(UiEvent::DefaultGameMode(GameModeEvent {
-                update: PlayerGameMode::update_from_default_game_mode(packet.default_game_type),
-            }))
-        }
-        McpePacketData::InventoryContentPacket(packet) => {
-            WorldEvent::Inventory(normalize_content(*packet)?)
-        }
-        McpePacketData::CreativeContentPacket(packet) => {
-            let Some(event) = crate::inventory::normalize_creative_content(packet)? else {
-                return Ok(None);
-            };
-            WorldEvent::Inventory(event)
-        }
-        McpePacketData::InventorySlotPacket(packet) => {
-            WorldEvent::Inventory(normalize_slot(*packet)?)
-        }
-        McpePacketData::InventoryTransactionPacket(packet) => {
-            let Some(event) = crate::inventory::normalize_transaction(*packet) else {
-                return Ok(None);
-            };
-            WorldEvent::Inventory(event)
-        }
-        McpePacketData::PlayerHotbarPacket(packet) => {
-            WorldEvent::Inventory(normalize_hotbar(packet)?)
-        }
-        McpePacketData::ItemStackResponsePacket(packet) => {
-            WorldEvent::Inventory(normalize_response(packet)?)
-        }
-        McpePacketData::ContainerOpenPacket(packet) => {
-            WorldEvent::Inventory(normalize_container_open(*packet)?)
-        }
-        McpePacketData::ContainerClosePacket(packet) => {
-            WorldEvent::Inventory(normalize_container_close(packet)?)
-        }
-        McpePacketData::ContainerSetDataPacket(packet) => {
-            WorldEvent::Inventory(normalize_container_data(packet)?)
-        }
-        McpePacketData::PlayerEnchantOptionsPacket(packet) => {
-            WorldEvent::Inventory(crate::inventory::normalize_enchant_options(packet)?)
-        }
-        McpePacketData::AnimatePacket(packet) => WorldEvent::ItemActor(normalize_animate(*packet)?),
-        McpePacketData::AnimateEntityPacket(packet) => {
-            WorldEvent::ItemActor(normalize_animate_entity(*packet)?)
-        }
-        McpePacketData::PlaySoundPacket(packet) => {
-            WorldEvent::Audio(normalize_play_sound(*packet)?)
-        }
-        McpePacketData::StopSoundPacket(packet) => WorldEvent::Audio(normalize_stop_sound(packet)?),
-        McpePacketData::LevelSoundEventPacket(packet) => {
-            WorldEvent::Audio(normalize_level_sound(*packet)?)
-        }
-        McpePacketData::CameraPacket(packet) => {
-            WorldEvent::Camera(crate::camera::normalize_switch(packet))
-        }
-        McpePacketData::CameraPresetsPacket(packet) => {
-            WorldEvent::Camera(crate::camera::normalize_presets(packet)?)
-        }
-        McpePacketData::CameraSplinePacket(packet) => {
-            WorldEvent::Camera(crate::camera::normalize_registry(packet)?)
-        }
-        McpePacketData::CameraAimAssistPacket(packet) => {
-            WorldEvent::Camera(crate::camera::normalize_settings(*packet)?)
-        }
-        McpePacketData::CameraAimAssistPresetsPacket(packet) => {
-            WorldEvent::Camera(crate::camera::normalize_aim_presets(packet)?)
-        }
-        McpePacketData::CameraAimAssistActorPriorityPacket(packet) => {
-            WorldEvent::Camera(crate::camera::normalize_actor_priorities(packet)?)
-        }
-        McpePacketData::CameraShakePacket(packet) => {
-            WorldEvent::Camera(crate::camera::normalize_shake(*packet)?)
-        }
-        McpePacketData::CameraInstructionPacket(packet) => WorldEvent::Camera(
-            crate::camera::normalize_instruction(packet.camera_instruction)?,
-        ),
-        McpePacketData::BiomeDefinitionListPacket(packet) => {
-            // 1.26.40 renames the packet's two collections and splits each
-            // entry into a `key` (the string-table index) plus a `value`
-            // payload. The wire is unchanged: gophertunnel protocol/biome.go
-            // writes Int16 NameIndex, Int16 BiomeID, then the climate floats.
-            let string_list = packet.stringlist.strings;
-            let biome_definitions = packet.mapof_biomenamestodata;
-            if biome_definitions.len() > MAX_BIOME_DEFINITIONS {
-                return Err(WorldPacketError::TooManyBiomeDefinitions {
-                    count: biome_definitions.len(),
-                    max: MAX_BIOME_DEFINITIONS,
-                });
-            }
-            let mut definitions = Vec::with_capacity(biome_definitions.len());
-            for (definition_index, definition) in biome_definitions.into_iter().enumerate() {
-                // The generated key is u16 while gophertunnel declares the same
-                // two bytes as a signed Int16, so it is reinterpreted here to
-                // keep out-of-range indices reported exactly as before.
-                let name_index = definition.key as i16;
-                let definition = definition.value;
-                let name = usize::try_from(name_index)
-                    .ok()
-                    .and_then(|index| string_list.get(index))
-                    .ok_or(WorldPacketError::InvalidBiomeNameIndex {
-                        index: name_index,
-                        string_count: string_list.len(),
-                    })?;
-                if name.len() > MAX_BIOME_NAME_BYTES {
-                    return Err(WorldPacketError::BiomeNameTooLong {
-                        bytes: name.len(),
-                        max: MAX_BIOME_NAME_BYTES,
-                    });
-                }
-                for (field, value) in [
-                    ("temperature", definition.temperature),
-                    ("downfall", definition.downfall),
-                    ("snow_foliage", definition.foliagesnow),
-                ] {
-                    if !value.is_finite() {
-                        return Err(WorldPacketError::NonFiniteBiomeClimate {
-                            definition: definition_index,
-                            field,
-                        });
-                    }
-                }
-                let name = canonical_biome_name(name);
-                // Climate is optional on the wire. Ignore an unusable optional
-                // field instead of rejecting a well-framed biome definition.
-                let max_snow_accumulation = definition
-                    .chunkgendata
-                    .as_ref()
-                    .and_then(|generation| generation.climate.as_ref())
-                    .map(|climate| climate.snowaccumulationmax)
-                    .filter(|value| value.is_finite());
-                definitions.push(BiomeDefinitionEvent {
-                    biome_id: (definition.id != u16::MAX).then_some(definition.id),
-                    name,
-                    temperature: definition.temperature,
-                    downfall: definition.downfall,
-                    snow_foliage: definition.foliagesnow,
-                    max_snow_accumulation,
-                    map_water_color: definition.mapwatercolor_argb as u32,
-                });
-            }
-            WorldEvent::BiomeDefinitions(BiomeDefinitionsEvent {
-                definitions: Arc::from(definitions),
-            })
-        }
-        McpePacketData::LevelChunkPacket(packet) => {
-            // gophertunnel packet/level_chunk.go writes BlobHashes
-            // unconditionally now, so the presence of hashes no longer marks a
-            // cached transfer. `CacheEnabled` is the authoritative gate.
-            if packet.cache_enabled {
-                return Err(WorldPacketError::CachedChunksUnsupported);
-            }
-            // The old `-1` / `-2` sentinels folded into SubChunkCount are gone.
-            // gophertunnel reads SubChunkCount as a Varuint32 (and rejects
-            // values above 64), then reads `SubChunkLimit Optional[int32]`.
-            // Presence of the limit is what selects client-request mode; its
-            // documented `-1` value means "no limit".
-            let mode = level_chunk_mode(
-                packet.client_request_sub_chunk_limit,
-                packet.subchunks_count,
-            )?;
-            WorldEvent::LevelChunk(LevelChunkEvent {
-                dimension: packet.dimension_id.value,
-                x: packet.chunk_position.x,
-                z: packet.chunk_position.z,
-                mode,
-                payload: packet.serialized_chunk_data,
-            })
-        }
-        McpePacketData::SubChunkPacket(packet) => {
-            // The 1.26.30 split between cached and non-cached entry lists is
-            // gone: gophertunnel protocol/sub_chunk.go models one SubChunkEntry
-            // with `BlobHash Optional[uint64]`, and packet/sub_chunk.go keeps
-            // the packet-level CacheEnabled flag as the mode switch.
-            if packet.cache_enabled {
-                return Err(WorldPacketError::CachedChunksUnsupported);
-            }
-            let origin = [
-                packet.center_pos.subchunk_position_x,
-                packet.center_pos.subchunk_position_y,
-                packet.center_pos.subchunk_position_z,
-            ];
-            let mut normalized = Vec::with_capacity(packet.sub_chunk_data.len());
-            for entry in packet.sub_chunk_data {
-                let diagnostics = Some(SubChunkDiagnostic::from_entry(&entry));
-                let offset = [
-                    entry.sub_chunk_pos_offset.subchunk_offset_x,
-                    entry.sub_chunk_pos_offset.subchunk_offset_y,
-                    entry.sub_chunk_pos_offset.subchunk_offset_z,
-                ];
-                let position = checked_sub_chunk_position(origin, offset)?;
-                // Result names were realigned onto the vanilla SubChunkResult
-                // constants (gophertunnel protocol/sub_chunk.go): Undefined=0,
-                // Success=1, ChunkNotFound=2, InvalidDimension=3,
-                // PlayerNotFound=4, IndexOutOfBounds=5, SuccessAllAir=6.
-                let result = match entry.sub_chunk_request_result {
-                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Success => {
-                        SubChunkResult::Success {
-                            // RawPayload is Optional now; a Success entry
-                            // without one carries no sub-chunk bytes, which is
-                            // the same empty payload 1.26.30 would have decoded.
-                            payload: entry.serialized_sub_chunk.unwrap_or_default(),
-                        }
-                    }
-                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Successallair => {
-                        SubChunkResult::AllAir
-                    }
-                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Unknown(0) => {
-                        SubChunkResult::Unavailable(SubChunkUnavailable::Undefined)
-                    }
-                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Levelchunkdoesntexist => {
-                        SubChunkResult::Unavailable(SubChunkUnavailable::ChunkNotFound)
-                    }
-                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Wrongdimension => {
-                        SubChunkResult::Unavailable(SubChunkUnavailable::InvalidDimension)
-                    }
-                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Playerdoesntexist => {
-                        SubChunkResult::Unavailable(SubChunkUnavailable::PlayerNotFound)
-                    }
-                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Indexoutofbounds => {
-                        SubChunkResult::Unavailable(SubChunkUnavailable::YIndexOutOfBounds)
-                    }
-                    SubChunkPacketPayloadSubChunkPacketDataSubChunkRequestResult::Unknown(value) => {
-                        SubChunkResult::Unavailable(SubChunkUnavailable::Unknown(value))
-                    }
-                };
-                normalized.push(SubChunkEntryEvent {
-                    position,
-                    result,
-                    diagnostics,
-                });
-            }
-            WorldEvent::SubChunks(SubChunkBatchEvent {
-                dimension: packet.dimension_type.value,
-                entries: normalized,
-            })
-        }
-        McpePacketData::DimensionDataPacket(packet) => WorldEvent::DimensionHeights(
-            packet
-                .definitions
-                .into_iter()
-                .take(MAX_DIMENSION_DEFINITIONS)
-                .map(|entry| DimensionHeightDiagnostic {
-                    name: Arc::from(entry.key),
-                    dimension: entry.value.dimension_type.value,
-                    minimum_y: entry.value.minimum_y,
-                    height_range: entry.value.height_range,
-                    generator: diagnostics::dimension_generator_id(entry.value.generator_type),
-                })
-                .collect(),
-        ),
-        packet @ (McpePacketData::UpdateBlockPacket(_)
-        | McpePacketData::UpdateBlockSyncedPacket(_)
-        | McpePacketData::UpdateSubChunkBlocksPacket(_)) => {
-            return block_updates::normalize(packet, current_dimension);
-        }
-        McpePacketData::BlockActorDataPacket(packet) => {
-            WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
-                dimension: current_dimension,
-                position: [
-                    packet.block_position.x,
-                    packet.block_position.y,
-                    packet.block_position.z,
-                ],
-                nbt: packet.actor_data_tags.0.to_vec(),
-            })
-        }
-        McpePacketData::ClientboundMapItemDataPacket(packet) => {
-            let Some(event) = block_side::normalize_map_data(&packet) else {
-                return Ok(None);
-            };
-            WorldEvent::MapData(event)
-        }
-        McpePacketData::OpenSignPacket(packet) => {
-            WorldEvent::OpenSign(block_side::normalize_open_sign(&packet, current_dimension))
-        }
-        McpePacketData::BlockEventPacket(packet) => WorldEvent::BlockEvent(
-            block_side::normalize_block_event(&packet, current_dimension),
-        ),
-        McpePacketData::ChunkRadiusUpdatedPacket(packet) => {
-            WorldEvent::ChunkRadiusUpdated(packet.chunk_radius)
-        }
-        McpePacketData::NetworkChunkPublisherUpdatePacket(packet) => {
-            let radius_blocks = packet.newradiusforview;
-            WorldEvent::PublisherUpdate(PublisherUpdateEvent {
-                center: [
-                    packet.newpositionforview.x,
-                    packet.newpositionforview.y,
-                    packet.newpositionforview.z,
-                ],
-                radius_blocks,
-            })
-        }
-        McpePacketData::ChangeDimensionPacket(packet) => {
-            WorldEvent::ChangeDimension(dimension::normalize_change_dimension(&packet))
-        }
-        McpePacketData::PlayerActionPacket(action) => {
-            return Ok(crate::dimension::normalize_ack(
-                &action,
-                packet.header.from_subclient,
-                packet.header.to_subclient,
-            ));
-        }
-        McpePacketData::RespawnPacket(packet) => {
-            WorldEvent::Respawn(dimension::normalize_respawn(&packet))
-        }
-        McpePacketData::MovePlayerPacket(packet) => {
-            for (field, value) in [
-                ("position x", packet.position.x),
-                ("position y", packet.position.y),
-                ("position z", packet.position.z),
-                ("pitch", packet.rotation.x),
-                ("yaw", packet.rotation.y),
-                ("head yaw", packet.y_head_rotation),
-            ] {
-                if !value.is_finite() {
-                    return Err(WorldPacketError::NonFiniteMovePlayerField { field });
-                }
-            }
-            let mode = MovePlayerMode::from(packet.position_mode);
-            WorldEvent::MovePlayer(MovePlayerEvent {
-                runtime_id: packet.player_runtime_id.actor_runtime_id,
-                position: [packet.position.x, packet.position.y, packet.position.z],
-                // gophertunnel packet/move_player.go writes Pitch then Yaw as
-                // two float32s, which the generated crate models as a Vec2
-                // whose second component is `y`, not `z`.
-                pitch: packet.rotation.x,
-                yaw: packet.rotation.y,
-                head_yaw: packet.y_head_rotation,
-                mode,
-                on_ground: packet.on_ground,
-                teleported: mode.is_teleport(),
-                source_tick: packet.tick.inputtick,
-            })
-        }
-        McpePacketData::NetworkStackLatencyPacket(packet) => {
-            if !packet.is_from_server {
-                return Ok(None);
-            }
-            WorldEvent::NetworkStackLatency(packet.creation_time)
-        }
-        McpePacketData::SetActorMotionPacket(packet) => {
-            let motion = [packet.motion.x, packet.motion.y, packet.motion.z];
-            if motion.iter().any(|value| !value.is_finite()) {
-                // A well-formed impulse with non-finite components cannot
-                // enter prediction; skip the whole packet instead of guessing
-                // a clamp. Truncation and other wire failures stay fatal.
-                return Ok(None);
-            }
-            WorldEvent::ActorMotion(ActorMotionEvent {
-                actor_runtime_id: packet.target_runtime_id.actor_runtime_id,
-                motion,
-                tick: packet.tick.inputtick,
-            })
-        }
-        McpePacketData::MovementEffectPacket(packet) => {
-            WorldEvent::MovementEffect(MovementEffectEvent {
-                actor_runtime_id: packet.target_runtime_id.actor_runtime_id,
-                kind: match packet.effect_id {
-                    EnumsMovementEffectType::GlideBoost => MovementEffectKind::GlideBoost,
-                    EnumsMovementEffectType::DolphinBoost => MovementEffectKind::DolphinBoost,
-                    EnumsMovementEffectType::GeyserBoost => MovementEffectKind::GeyserBoost,
-                    EnumsMovementEffectType::Unknown(value) => MovementEffectKind::Unknown(value),
-                },
-                duration_ticks: packet.effect_duration,
-                tick: packet.tick.inputtick,
-            })
-        }
-        McpePacketData::CorrectPlayerMovePredictionPacket(packet) => {
-            let delta = [packet.pos_delta.x, packet.pos_delta.y, packet.pos_delta.z];
-            // A well-formed correction whose velocity record or rotation is not
-            // finite cannot enter prediction or camera state; skip the whole
-            // packet instead of guessing a clamp, exactly like SetActorMotion.
-            // The raw position is exempt: non-finite positions keep flowing so
-            // downstream resolution applies its documented sentinel recovery.
-            // Protocol 2168 carries no shape/mode field; prediction_type names
-            // the rewind subject and every subject is retained here.
-            if delta.iter().any(|value| !value.is_finite())
-                || !packet.rotation.x.is_finite()
-                || !packet.rotation.y.is_finite()
-            {
-                return Ok(None);
-            }
-            WorldEvent::PlayerMovementCorrection(PlayerMovementCorrectionEvent {
-                position: [packet.pos.x, packet.pos.y, packet.pos.z],
-                delta,
-                // Vec2's components are (x, y) in 1.26.40; gophertunnel
-                // packet/correct_player_move_prediction.go writes Rotation as
-                // one Vec2 of (pitch, yaw).
-                pitch: packet.rotation.x,
-                yaw: packet.rotation.y,
-                subject: MovementCorrectionSubject::from(packet.prediction_type),
-                on_ground: packet.on_ground,
-                tick: packet.tick.inputtick,
-            })
-        }
-        McpePacketData::SetTimePacket(packet) => {
-            WorldEvent::SetTime(SetTimeEvent { time: packet.time })
-        }
-        McpePacketData::SyncWorldClocksPacket(packet) => {
-            let updates = clocks::normalize_world_clocks(packet.data);
-            if updates.is_empty() {
-                return Ok(None);
-            }
-            WorldEvent::WorldClocks(updates)
-        }
-        McpePacketData::GameRulesChangedPacket(packet) => {
-            let rules = &packet.rule_data.rules_list;
-            let daylight_cycle = daylight_cycle_rule_update(rules)
-                .map(|enabled| DaylightCycleUpdateEvent { enabled });
-            let weather_cycle = weather_cycle_rule_update(rules);
-            let hud = hud_rules(rules);
-            let death = death_rules(rules);
-            if daylight_cycle.is_none()
-                && weather_cycle.is_none()
-                && hud.is_empty()
-                && death.is_empty()
-            {
-                return Ok(None);
-            }
-            WorldEvent::GameRules(GameRulesEvent {
-                daylight_cycle,
-                weather_cycle,
-                hud,
-                death,
-            })
-        }
-        McpePacketData::LevelEventGenericPacket(packet) => {
-            if packet.event_id != LEVEL_EVENT_SLEEPING_PLAYERS {
-                return Ok(None);
-            }
-            // The event data is loose tags; wrap them in a root compound as vanilla decodes it.
-            let mut nbt = Vec::with_capacity(packet.__ctd__.0.len() + 3);
-            nbt.extend_from_slice(&[0x0a, 0x00]);
-            nbt.extend_from_slice(&packet.__ctd__.0);
-            nbt.push(0x00);
-            WorldEvent::Ui(UiEvent::SleepStatus(crate::SleepStatusEvent {
-                nbt: Arc::from(nbt),
-            }))
-        }
-        McpePacketData::LevelEventPacket(packet) => {
-            if matches!(
-                packet.event_id,
-                LEVEL_EVENT_START_BLOCK_CRACKING
-                    | LEVEL_EVENT_STOP_BLOCK_CRACKING
-                    | LEVEL_EVENT_UPDATE_BLOCK_CRACKING
-            ) {
-                return Ok(Some(WorldEvent::BlockCrack(normalize_block_crack(packet)?)));
-            }
-            if let Some(event) = normalize_level_event_sound(&packet) {
-                return Ok(Some(WorldEvent::Audio(event)));
-            }
-            if let Some(event) = crate::particle::normalize_level_event(&packet) {
-                return Ok(Some(WorldEvent::Particle(event)));
-            }
-            let update = match packet.event_id {
-                LEVEL_EVENT_START_RAINING => WeatherUpdateEvent {
-                    channel: WeatherChannel::Rain,
-                    level: 1.0,
-                },
-                LEVEL_EVENT_STOP_RAINING => WeatherUpdateEvent {
-                    channel: WeatherChannel::Rain,
-                    level: 0.0,
-                },
-                LEVEL_EVENT_START_THUNDERSTORM => WeatherUpdateEvent {
-                    channel: WeatherChannel::Lightning,
-                    level: 1.0,
-                },
-                LEVEL_EVENT_STOP_THUNDERSTORM => WeatherUpdateEvent {
-                    channel: WeatherChannel::Lightning,
-                    level: 0.0,
-                },
-                _ => return Ok(None),
-            };
-            WorldEvent::Weather(update)
-        }
-        McpePacketData::PrimitiveShapesPacket(packet) => {
-            WorldEvent::PrimitiveShapes(crate::primitive_shapes::normalize(packet))
-        }
-        McpePacketData::SpawnParticleEffectPacket(packet) => {
-            match crate::particle::normalize_spawn(*packet) {
-                Some(event) => WorldEvent::Particle(event),
-                None => return Ok(None),
-            }
-        }
+    dispatch(*packet.data, packet.header, current_dimension)
+}
+
+world_packets! {
+    header, current_dimension;
+    ShowCredits(packet) => {
+        let Some(event) = crate::credits::normalize(&packet) else {
+            return Ok(None);
+        };
+        WorldEvent::Ui(UiEvent::ShowCredits(event))
+    },
+    ScriptMessage(message) => {
+        if header.from_subclient != 0 || header.to_subclient != 0 {
+            return Ok(None);
+        }
+        return Ok(crate::experience::normalize(message).map(WorldEvent::Experience));
+    },
+    UpdateAbilities(packet) => {
+        WorldEvent::Abilities(crate::permissions::normalize_abilities(packet.data))
+    },
+    Text(packet) => WorldEvent::Ui(normalize_text(packet)?),
+    DeathInfo(packet) => WorldEvent::Ui(crate::ui::normalize_death_info(packet)?),
+    CommandOutput(packet) => WorldEvent::Ui(crate::ui::normalize_command_output(packet)?),
+    SetTitle(packet) => WorldEvent::Ui(normalize_title(*packet)?),
+    ToastRequest(packet) => WorldEvent::Ui(normalize_toast(packet)?),
+    SetDisplayObjective(packet) => WorldEvent::Ui(normalize_display_objective(packet)?),
+    RemoveObjective(packet) => WorldEvent::Ui(normalize_remove_objective(packet)?),
+    SetScore(packet) => WorldEvent::Ui(normalize_score(packet)?),
+    BossEvent(packet) => WorldEvent::Ui(normalize_boss(packet)?),
+    ModalFormRequest(packet) => WorldEvent::Ui(normalize_form(packet)?),
+    ServerSettingsResponse(packet) => {
+        WorldEvent::Ui(crate::ui::normalize_server_settings(packet)?)
+    },
+    NpcDialogue(packet) => WorldEvent::Ui(crate::ui::normalize_npc_dialogue(packet)?),
+    SetHealth(packet) => WorldEvent::Ui(normalize_health(packet)),
+    PlayStatus(packet) => WorldEvent::Ui(normalize_player_status(packet)?),
+    UpdateSoftEnum(packet) => WorldEvent::Ui(normalize_soft_enum(packet)?),
+    AvailableCommands(packet) => WorldEvent::Ui(normalize_available_commands(*packet)),
+    AddActor(packet) => WorldEvent::Actor(normalize_add_entity(*packet, current_dimension)?),
+    AddPlayer(packet) => WorldEvent::Actor(normalize_add_player(*packet, current_dimension)?),
+    RemoveActor(packet) => WorldEvent::Actor(normalize_remove_entity(packet, current_dimension)),
+    MoveActorAbsolute(packet) => {
+        WorldEvent::Actor(normalize_move_entity(packet, current_dimension)?)
+    },
+    MoveActorDelta(packet) => {
+        WorldEvent::Actor(normalize_move_entity_delta(packet, current_dimension)?)
+    },
+    SetActorData(packet) => {
+        WorldEvent::Actor(normalize_set_entity_data(packet, current_dimension)?)
+    },
+    UpdateAttributes(packet) => {
+        WorldEvent::Actor(normalize_update_attributes(packet, current_dimension)?)
+    },
+    PlayerList(packet) => WorldEvent::Actor(normalize_player_list(packet)?),
+    PlayerSkin(packet) => WorldEvent::Actor(crate::actor::normalize_skin_update(packet)),
+    AddItemActor(packet) => {
+        WorldEvent::Actor(normalize_add_item_actor(packet, current_dimension)?)
+    },
+    AvailableActorIdentifiers(packet) => WorldEvent::Actor(crate::ActorEvent::Identifiers(
+        crate::actor::identifiers::normalize(&packet.identifier_list.0),
+    )),
+    TakeItemActor(packet) => WorldEvent::Actor(crate::actor::normalize_take_item_actor(packet)),
+    ActorEvent(packet) => {
+        let Some(event) = crate::actor::normalize_actor_event(packet) else {
+            return Ok(None);
+        };
+        WorldEvent::Actor(event)
+    },
+    ItemRegistry(packet) => {
+        WorldEvent::ItemActor(ItemActorEvent::Registry(normalize_item_registry(packet)?))
+    },
+    MobEquipment(packet) => WorldEvent::Equipment(normalize_equipment(packet)?),
+    MobArmorEquipment(packet) => {
+        WorldEvent::ArmorEquipment(Box::new(normalize_armor_equipment(packet)?))
+    },
+    MobEffect(packet) => WorldEvent::ActorEffect(normalize_mob_effect(*packet, current_dimension)?),
+    SyncActorProperty(packet) => {
+        let data = &packet.property_data.0;
+        if data.len() > MAX_ACTOR_PROPERTY_SYNC_BYTES {
+            return Ok(None);
+        }
+        WorldEvent::ActorPropertySync(ActorPropertySyncEvent {
+            data: Arc::from(&data[..]),
+        })
+    },
+    SetActorLink(packet) => {
+        WorldEvent::ActorLink(normalize_set_entity_link(packet, current_dimension))
+    },
+    SetPlayerGameType(packet) => WorldEvent::Ui(UiEvent::GameMode(GameModeEvent {
+        update: PlayerGameMode::update_from_game_mode(packet.player_game_type),
+    })),
+    UpdatePlayerGameType(packet) => WorldEvent::Ui(game_mode::targeted_update(packet)),
+    SetDefaultGameType(packet) => WorldEvent::Ui(UiEvent::DefaultGameMode(GameModeEvent {
+        update: PlayerGameMode::update_from_game_mode(packet.default_game_type),
+    })),
+    InventoryContent(packet) => WorldEvent::Inventory(normalize_content(packet)?),
+    CreativeContent(packet) => {
+        let Some(event) = crate::inventory::normalize_creative_content(packet)? else {
+            return Ok(None);
+        };
+        WorldEvent::Inventory(event)
+    },
+    InventorySlot(packet) => WorldEvent::Inventory(normalize_slot(packet)?),
+    InventoryTransaction(packet) => {
+        let Some(event) = crate::inventory::normalize_transaction(packet) else {
+            return Ok(None);
+        };
+        WorldEvent::Inventory(event)
+    },
+    PlayerHotbar(packet) => WorldEvent::Inventory(normalize_hotbar(packet)?),
+    ItemStackResponse(packet) => WorldEvent::Inventory(normalize_response(packet)?),
+    ContainerOpen(packet) => WorldEvent::Inventory(normalize_container_open(packet)?),
+    ContainerClose(packet) => WorldEvent::Inventory(normalize_container_close(packet)?),
+    ContainerSetData(packet) => WorldEvent::Inventory(normalize_container_data(packet)?),
+    PlayerEnchantOptions(packet) => {
+        WorldEvent::Inventory(crate::inventory::normalize_enchant_options(packet)?)
+    },
+    Animate(packet) => WorldEvent::ItemActor(normalize_animate(packet)?),
+    AnimateEntity(packet) => WorldEvent::ItemActor(normalize_animate_entity(packet)?),
+    PlaySound(packet) => WorldEvent::Audio(normalize_play_sound(*packet)?),
+    StopSound(packet) => WorldEvent::Audio(normalize_stop_sound(packet)?),
+    LevelSoundEvent(packet) => WorldEvent::Audio(normalize_level_sound(*packet)?),
+    Camera(packet) => WorldEvent::Camera(crate::camera::normalize_switch(packet)),
+    CameraPresets(packet) => WorldEvent::Camera(crate::camera::normalize_presets(packet)?),
+    CameraSpline(packet) => WorldEvent::Camera(crate::camera::normalize_registry(packet)?),
+    CameraAimAssist(packet) => WorldEvent::Camera(crate::camera::normalize_settings(packet)?),
+    CameraAimAssistPresets(packet) => {
+        WorldEvent::Camera(crate::camera::normalize_aim_presets(packet)?)
+    },
+    CameraAimAssistActorPriority(packet) => {
+        WorldEvent::Camera(crate::camera::normalize_actor_priorities(packet)?)
+    },
+    CameraShake(packet) => WorldEvent::Camera(crate::camera::normalize_shake(packet)?),
+    CameraInstruction(packet) => {
+        WorldEvent::Camera(crate::camera::normalize_instruction(packet.camera_instruction)?)
+    },
+    BiomeDefinitionList(packet) => {
+        WorldEvent::BiomeDefinitions(biomes::normalize_biome_definitions(packet)?)
+    },
+    LevelChunk(packet) => WorldEvent::LevelChunk(level_chunk::normalize_level_chunk(packet)?),
+    SubChunk(packet) => WorldEvent::SubChunks(level_chunk::normalize_sub_chunks(packet)?),
+    DimensionData(packet) => {
+        WorldEvent::DimensionHeights(diagnostics::normalize_dimension_data(packet))
+    },
+    UpdateBlock(packet) => block_updates::normalize_update(packet, current_dimension)?,
+    UpdateBlockSynced(packet) => {
+        let Some(event) = block_updates::normalize_synced(packet, current_dimension) else {
+            return Ok(None);
+        };
+        event
+    },
+    UpdateSubChunkBlocks(packet) => block_updates::normalize_sub_chunk(packet, current_dimension),
+    BlockActorData(packet) => WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
+        dimension: current_dimension,
+        position: [
+            packet.block_position.x.0,
+            packet.block_position.y.0,
+            packet.block_position.z.0,
+        ],
+        nbt: packet.actor_data_tags.0.to_vec(),
+    }),
+    ClientboundMapItemData(packet) => {
+        let Some(event) = block_side::normalize_map_data(&packet) else {
+            return Ok(None);
+        };
+        WorldEvent::MapData(event)
+    },
+    OpenSign(packet) => {
+        WorldEvent::OpenSign(block_side::normalize_open_sign(&packet, current_dimension))
+    },
+    BlockEvent(packet) => {
+        WorldEvent::BlockEvent(block_side::normalize_block_event(&packet, current_dimension))
+    },
+    ChunkRadiusUpdated(packet) => WorldEvent::ChunkRadiusUpdated(packet.chunk_radius.0),
+    NetworkChunkPublisherUpdate(packet) => {
+        let center = &packet.new_position_for_view;
+        WorldEvent::PublisherUpdate(PublisherUpdateEvent {
+            center: [center.x.0, center.y.0, center.z.0],
+            radius_blocks: packet.new_radius_for_view.0,
+        })
+    },
+    ChangeDimension(packet) => {
+        WorldEvent::ChangeDimension(dimension::normalize_change_dimension(&packet))
+    },
+    PlayerAction(action) => {
+        return Ok(crate::dimension::normalize_ack(
+            &action,
+            header.from_subclient,
+            header.to_subclient,
+        ));
+    },
+    Respawn(packet) => WorldEvent::Respawn(dimension::normalize_respawn(&packet)),
+    MovePlayer(packet) => WorldEvent::MovePlayer(motion::normalize_move_player(&packet)?),
+    NetworkStackLatency(packet) => {
+        if !packet.is_from_server {
+            return Ok(None);
+        }
+        WorldEvent::NetworkStackLatency(packet.creation_time.0)
+    },
+    SetActorMotion(packet) => {
+        let Some(event) = motion::normalize_actor_motion(&packet) else {
+            return Ok(None);
+        };
+        WorldEvent::ActorMotion(event)
+    },
+    MovementEffect(packet) => WorldEvent::MovementEffect(motion::normalize_movement_effect(&packet)),
+    CorrectPlayerMovePrediction(packet) => {
+        let Some(event) = motion::normalize_correction(&packet) else {
+            return Ok(None);
+        };
+        WorldEvent::PlayerMovementCorrection(event)
+    },
+    SetTime(packet) => WorldEvent::SetTime(SetTimeEvent { time: packet.time.0 }),
+    SyncWorldClocks(packet) => {
+        let updates = clocks::normalize_world_clocks(packet.data);
+        if updates.is_empty() {
+            return Ok(None);
+        }
+        WorldEvent::WorldClocks(updates)
+    },
+    GameRulesChanged(packet) => {
+        let rules = &packet.rule_data.rules_list;
+        let daylight_cycle =
+            daylight_cycle_rule_update(rules).map(|enabled| DaylightCycleUpdateEvent { enabled });
+        let weather_cycle = weather_cycle_rule_update(rules);
+        let hud = hud_rules(rules);
+        let death = death_rules(rules);
+        if daylight_cycle.is_none() && weather_cycle.is_none() && hud.is_empty() && death.is_empty()
+        {
+            return Ok(None);
+        }
+        WorldEvent::GameRules(GameRulesEvent {
+            daylight_cycle,
+            weather_cycle,
+            hud,
+            death,
+        })
+    },
+    LevelEventGeneric(packet) => {
+        if packet.event_id.0 != LEVEL_EVENT_SLEEPING_PLAYERS {
+            return Ok(None);
+        }
+        // The event data is loose tags; wrap them in a root compound as vanilla decodes it.
+        let tags = &packet.ctd.0;
+        let mut nbt = Vec::with_capacity(tags.len() + 3);
+        nbt.extend_from_slice(&[0x0a, 0x00]);
+        nbt.extend_from_slice(tags);
+        nbt.push(0x00);
+        WorldEvent::Ui(UiEvent::SleepStatus(crate::SleepStatusEvent {
+            nbt: Arc::from(nbt),
+        }))
+    },
+    LevelEvent(packet) => {
+        let Some(event) = normalize_level_event(packet)? else {
+            return Ok(None);
+        };
+        event
+    },
+    PrimitiveShapes(packet) => {
+        WorldEvent::PrimitiveShapes(crate::primitive_shapes::normalize(packet))
+    },
+    SpawnParticleEffect(packet) => match crate::particle::normalize_spawn(packet) {
+        Some(event) => WorldEvent::Particle(event),
+        None => return Ok(None),
+    },
+}
+
+/// Block cracking, level sounds, particles and weather share the LevelEvent packet.
+fn normalize_level_event(
+    packet: packets::LevelEvent,
+) -> Result<Option<WorldEvent>, WorldPacketError> {
+    let event_id = packet.event_id.0;
+    if matches!(
+        event_id,
+        LEVEL_EVENT_START_BLOCK_CRACKING
+            | LEVEL_EVENT_STOP_BLOCK_CRACKING
+            | LEVEL_EVENT_UPDATE_BLOCK_CRACKING
+    ) {
+        return Ok(Some(WorldEvent::BlockCrack(normalize_block_crack(packet)?)));
+    }
+    if let Some(event) = normalize_level_event_sound(&packet) {
+        return Ok(Some(WorldEvent::Audio(event)));
+    }
+    if let Some(event) = crate::particle::normalize_level_event(&packet) {
+        return Ok(Some(WorldEvent::Particle(event)));
+    }
+    let (channel, level) = match event_id {
+        LEVEL_EVENT_START_RAINING => (WeatherChannel::Rain, 1.0),
+        LEVEL_EVENT_STOP_RAINING => (WeatherChannel::Rain, 0.0),
+        LEVEL_EVENT_START_THUNDERSTORM => (WeatherChannel::Lightning, 1.0),
+        LEVEL_EVENT_STOP_THUNDERSTORM => (WeatherChannel::Lightning, 0.0),
         _ => return Ok(None),
     };
-    Ok(Some(event))
+    Ok(Some(WorldEvent::Weather(WeatherUpdateEvent {
+        channel,
+        level,
+    })))
 }

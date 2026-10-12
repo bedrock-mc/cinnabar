@@ -1,20 +1,21 @@
+use bedrock_protocol_1_26_51::packets::UpdateAbilities as UpdateAbilitiesPacket;
+use bedrock_protocol_1_26_51::types::{
+    SerializedAbilitiesData, SerializedAbilitiesDataSerializedLayer,
+};
+use bedrock_protocol_1_26_51::wire::{self, Encode};
 use protocol::{
     AbilityLayersEvidence, MAX_ABILITY_LAYERS, decode_abilities_update, into_world_event,
-};
-use valentine::bedrock::codec::{BedrockCodec, VarUInt};
-use valentine::bedrock::version::v1_26_51::{
-    SerializedAbilitiesData, SerializedAbilitiesDataSerializedLayer, UpdateAbilitiesPacket,
 };
 
 #[test]
 fn local_ability_packet_is_not_silently_discarded() {
     let packet = UpdateAbilitiesPacket {
         data: SerializedAbilitiesData {
-            target_player_raw_id: 42,
+            target_player_raw_id: wire::I64LE(42),
             layers: vec![SerializedAbilitiesDataSerializedLayer {
-                serialized_layer: 1,
-                abilities_set: 3,
-                ability_values: 2,
+                serialized_layer: wire::U16LE(1),
+                abilities_set: wire::U32LE(3),
+                ability_values: wire::U32LE(2),
                 ..Default::default()
             }],
             ..Default::default()
@@ -31,7 +32,7 @@ fn local_ability_packet_is_not_silently_discarded() {
 fn body(owner: i64, count: u32) -> Vec<u8> {
     let mut body = owner.to_le_bytes().to_vec();
     body.extend_from_slice(&[0xff, 0xfe]);
-    VarUInt(count).encode(&mut body).unwrap();
+    wire::encode_into(&wire::VarUInt(count), &mut body).unwrap();
     for index in 0..count {
         body.extend_from_slice(&(index as u16).to_le_bytes());
         body.extend_from_slice(&(u32::MAX - index).to_le_bytes());
@@ -92,29 +93,26 @@ fn empty_max_and_over_policy_are_distinct_correctly_framed_evidence() {
 
 #[test]
 fn owned_and_raw_paths_preserve_identical_unknown_values_and_layer_order() {
-    use valentine::bedrock::version::v1_26_51::{
-        EnumsCommandPermissionLevel, EnumsPlayerPermissionLevel,
-    };
+    use bedrock_protocol_1_26_51::enums::{CommandPermissionLevel, PlayerPermissionLevel};
     for count in [0, 32, 33] {
         let packet = UpdateAbilitiesPacket {
             data: SerializedAbilitiesData {
-                target_player_raw_id: -17,
-                player_permissions: EnumsPlayerPermissionLevel::Unknown(-1),
-                command_permissions: EnumsCommandPermissionLevel::Unknown(254),
+                target_player_raw_id: wire::I64LE(-17),
+                player_permissions: PlayerPermissionLevel::Unknown(-1),
+                command_permissions: CommandPermissionLevel::Unknown(254),
                 layers: (0..count)
                     .map(|index| SerializedAbilitiesDataSerializedLayer {
-                        serialized_layer: index,
-                        abilities_set: u32::MAX - u32::from(index),
-                        ability_values: u32::from(index),
-                        fly_speed: f32::from_bits(0x7fc0_1234),
-                        vertical_fly_speed: f32::from_bits(0x8000_0000),
-                        walk_speed: f32::from_bits(0x3dcc_cccd),
+                        serialized_layer: wire::U16LE(index),
+                        abilities_set: wire::U32LE(u32::MAX - u32::from(index)),
+                        ability_values: wire::U32LE(u32::from(index)),
+                        fly_speed: wire::F32LE(f32::from_bits(0x7fc0_1234)),
+                        vertical_fly_speed: wire::F32LE(f32::from_bits(0x8000_0000)),
+                        walk_speed: wire::F32LE(f32::from_bits(0x3dcc_cccd)),
                     })
                     .collect(),
             },
         };
-        let mut encoded = Vec::new();
-        packet.encode(&mut encoded).unwrap();
+        let encoded = packet.encode_to_vec().unwrap();
         assert_eq!(
             into_world_event(protocol::Packet::new(packet), 0).unwrap(),
             Some(protocol::WorldEvent::Abilities(
