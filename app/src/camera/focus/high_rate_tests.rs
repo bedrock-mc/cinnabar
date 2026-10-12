@@ -98,6 +98,8 @@ fn high_rate_motion_has_bounded_allocation_growth_and_one_sample_per_frame() {
     // Message buffers grow geometrically rather than allocating once for each event.
     assert!(cold.calls <= 16, "cold message allocations: {cold:?}");
     warm(&mut app);
+    // Compare high-rate batches with an ordinary input frame on the same populated path.
+    assert_eq!(write_motion(&mut app, 1, DELTA), Allocations::default());
     let baseline = measure(|| app.update()).1;
     let initial_updates = app.world().resource::<Samples>().updates;
     let initial_input_passes = app.world().resource::<Samples>().input_passes;
