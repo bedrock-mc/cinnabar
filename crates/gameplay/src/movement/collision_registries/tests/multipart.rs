@@ -6,14 +6,17 @@ use serde_json::{Map, Value};
 use super::super::multipart::second_part_offset;
 use super::{BREG_V2193, active_content_registry_protocol};
 
+/// Loads the retained registry for the active protocol.
 fn records() -> Box<[RegistryRecord]> {
     assets::read_registry_for_protocol(BREG_V2193, active_content_registry_protocol()).unwrap()
 }
 
+/// Parses a registry record's canonical state fields.
 fn states(record: &RegistryRecord) -> Map<String, Value> {
     serde_json::from_str(&record.canonical_state).unwrap()
 }
 
+/// Resolves the other-part offset from a registry record.
 fn record_offset(record: &RegistryRecord) -> Option<[i32; 3]> {
     second_part_offset(&record.name, &states(record))
 }
