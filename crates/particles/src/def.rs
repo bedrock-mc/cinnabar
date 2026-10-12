@@ -254,8 +254,7 @@ impl EffectDef {
 /// Parses one `particle_effect` document; `None` when it lacks the required structure.
 #[must_use]
 pub fn parse_effect(bytes: &[u8]) -> Option<EffectDef> {
-    let cleaned = assets::strip_json_comments(bytes);
-    let root: Value = serde_json::from_slice(&cleaned).ok()?;
+    let root: Value = pack_json::parse_jsonc(bytes).ok()?;
     let effect = root.get("particle_effect")?;
     let description = effect.get("description")?;
     let identifier = description.get("identifier")?.as_str()?;

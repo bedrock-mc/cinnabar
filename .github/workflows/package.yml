@@ -1,7 +1,8 @@
 name: Package
 
-# A daily schedule or a manual `nightly` run refreshes `nightly` from the default branch; other manual runs and v* tags publish stable releases.
-# Signing and the update manifest are optional: missing secrets yield unsigned artifacts.
+# A daily schedule or a manual `nightly` run refreshes the default branch's nightly prerelease;
+# other manual runs and v* tags publish tagged Beta releases as latest. Signing is optional: missing secrets yield unsigned artifacts,
+# and without CINNABAR_UPDATE_SIGNING_KEY the channel's update manifest is left unchanged.
 on:
   schedule:
     - cron: "30 3 * * *"
@@ -11,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: Cinnabar app version (independent of the Minecraft protocol), or nightly to refresh the nightly prerelease
+        description: Cinnabar app version (independent of the Minecraft protocol), or nightly to refresh its prerelease
         required: true
         default: current
         type: choice
@@ -24,7 +25,7 @@ on:
         type: string
 
 concurrency:
-  group: ${{ ((github.event_name == 'workflow_dispatch' && inputs.bump != 'nightly') || startsWith(github.ref, 'refs/tags/v')) && 'package-release' || format('package-{0}', github.ref) }}
+  group: ${{ (github.event_name == 'schedule' || inputs.bump == 'nightly') && 'package-nightly' || 'package-release' }}
   cancel-in-progress: ${{ github.event_name == 'schedule' }}
 
 permissions:
@@ -35,7 +36,6 @@ defaults:
     working-directory: source
 
 env:
-  CINNABAR_UPDATE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/latest/download/update-stable.json
   UPDATE_TRUSTED_KEYS: ${{ vars.UPDATE_TRUSTED_KEYS }}
   # The build cache saves target/; keep compiler intermediates there, not in the shared build-dir.
   CARGO_BUILD_BUILD_DIR: "{workspace-root}/target"
@@ -52,6 +52,7 @@ jobs:
       contents: write
     outputs:
       channel: ${{ steps.release.outputs.channel }}
+      track: ${{ steps.release.outputs.track }}
       tag: ${{ steps.release.outputs.tag }}
       version: ${{ steps.release.outputs.version }}
       ref: ${{ steps.release.outputs.ref }}
@@ -179,9 +180,10 @@ jobs:
         run: |
           bin="$PWD/target/$CARGO_BUILD_TARGET/release"
           make package-binaries PACKAGE_CARGO_FLAGS=--timings DIST_CORE="$bin/bedrock-core" LOCAL_SERVER_OUT="$bin/bedrock-local-server"
-          for binary in cinnabar bedrock-core bedrock-local-server assetc; do
+          # The runtime table packaging stages from, plus the prep-kit compiler.
+          while read -r binary; do
             lipo "$bin/$binary" -verify_arch "${{ matrix.arch }}"
-          done
+          done < <(awk '{print $1} END {print "assetc"}' packaging/common/runtime-binaries.txt)
           tools="$GITHUB_WORKSPACE/release-tools/packaging/macos"
           CLIENT="$bin/cinnabar" CORE="$bin/bedrock-core" \
             LOCAL_SERVER="$bin/bedrock-local-server" ASSETC="$bin/assetc" bash "$tools/build-app.sh"
@@ -493,6 +495,8 @@ jobs:
   release:
     name: Publish
     needs: [prepare, macos, windows, linux]
+    if: ${{ github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v') }}
+    environment: release
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -502,6 +506,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       MACOS_SIGNED: ${{ secrets.MACOS_CERT_P12_BASE64 != '' && secrets.CODESIGN_IDENTITY != '' }}
       WINDOWS_SIGNED: ${{ secrets.WINDOWS_CERT_PFX_BASE64 != '' }}
+      UPDATE_SIGNED: ${{ secrets.CINNABAR_UPDATE_SIGNING_KEY != '' }}
+      RELEASE_CHANNEL: ${{ needs.prepare.outputs.channel }}
+      RELEASE_TRACK: ${{ needs.prepare.outputs.track }}
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
       RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
       RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
@@ -523,86 +530,142 @@ jobs:
           pattern: "{macos-*,windows-x64,linux-x86_64}"
           merge-multiple: true
       - name: Resolve release metadata names
-        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env >> "$GITHUB_ENV"
+        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env --channel "$RELEASE_CHANNEL" --tag "$RELEASE_TAG" >> "$GITHUB_ENV"
       - name: Add the standalone Linux installer
         run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" install-script --output "dist/$INSTALL_SCRIPT"
-      - name: Verify all downloads and checksum the nightly release
-        if: needs.prepare.outputs.channel == 'nightly'
-        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" checksums dist
-      - name: Publish the nightly prerelease
-        if: needs.prepare.outputs.channel == 'nightly'
-        run: |
-          previous="$(git rev-parse -q --verify 'refs/tags/nightly^{commit}' || true)"
-          bash "$GITHUB_WORKSPACE/release-tools/packaging/release-notes.sh" nightly "$previous" > "$RUNNER_TEMP/notes.md"
-          title="Nightly $(date -u +%Y-%m-%d) ($(git rev-parse --short HEAD))"
-          if gh release view nightly > /dev/null 2>&1; then
-            gh release upload nightly dist/* --clobber
-            gh release view nightly --json assets --jq '.assets[].name' | while IFS= read -r name; do
-              [[ -e "dist/$name" ]] || gh release delete-asset nightly "$name" --yes
-            done
-          else
-            gh release create nightly dist/* --prerelease --latest=false --target "$RELEASE_COMMIT" \
-              --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
-          fi
-          git tag -f nightly "$RELEASE_COMMIT"
-          git push -f origin refs/tags/nightly
-          gh release edit nightly --title "$title" --notes-file "$RUNNER_TEMP/notes.md" \
-            --prerelease --latest=false --draft=false
       - name: Install the release tooling Rust toolchain
-        if: needs.prepare.outputs.channel == 'stable'
+        if: env.UPDATE_SIGNED == 'true'
         working-directory: release-tools
         run: rustup toolchain install
       - name: Sign the update manifest
-        if: needs.prepare.outputs.channel == 'stable'
         env:
           CINNABAR_UPDATE_SIGNING_KEY: ${{ secrets.CINNABAR_UPDATE_SIGNING_KEY }}
         run: |
           if [[ -z "$CINNABAR_UPDATE_SIGNING_KEY" ]]; then
-            echo "::warning::CINNABAR_UPDATE_SIGNING_KEY is unset; releasing without update-stable.json"
+            echo "::notice::CINNABAR_UPDATE_SIGNING_KEY is unset; skipping the signed $RELEASE_CHANNEL update manifest"
             exit 0
           fi
-          base="${{ github.server_url }}/${{ github.repository }}/releases/download/$RELEASE_TAG"
+          # Update payloads live beside the manifest under content-addressed names, apart from the
+          # native installer downloads, so no upload replaces a file a published manifest names.
+          base="${{ github.server_url }}/${{ github.repository }}/releases/download/$UPDATE_MANIFEST_TAG"
           args=()
           while IFS= read -r spec; do
             args+=(-artifact "$spec")
-          done < <(python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" update-artifacts "$base" "$GITHUB_WORKSPACE/source/dist")
+          done < <(python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" update-payloads \
+            "$base" "$GITHUB_WORKSPACE/source/dist" "$RUNNER_TEMP/update-payloads")
           # The signer comes from the workflow revision, so older source branches still sign.
+          # Packaged clients bake in this run number, which orders successive builds of one version.
           (cd "$GITHUB_WORKSPACE/release-tools" && cargo run --quiet --locked -p release-manifest -- \
-            sign -version "$RELEASE_VERSION" -channel stable "${args[@]}") > "$RUNNER_TEMP/$UPDATE_MANIFEST"
-          mv "$RUNNER_TEMP/$UPDATE_MANIFEST" "dist/$UPDATE_MANIFEST"
-      - name: Verify all downloads and checksum the stable release
-        if: needs.prepare.outputs.channel == 'stable'
+            sign -version "$RELEASE_VERSION" -channel "$RELEASE_CHANNEL" -build-number "$GITHUB_RUN_NUMBER" "${args[@]}") \
+            > "$RUNNER_TEMP/$UPDATE_MANIFEST.partial"
+          mv "$RUNNER_TEMP/$UPDATE_MANIFEST.partial" "$RUNNER_TEMP/$UPDATE_MANIFEST"
+      - name: Verify all downloads and checksum the release
         run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" checksums dist
-      - name: Publish the stable release
-        id: publish
-        if: needs.prepare.outputs.channel == 'stable'
+      - name: Prepare the tagged release
+        id: prepare_publish
+        if: needs.prepare.outputs.track == 'tagged'
         run: |
           bash "$GITHUB_WORKSPACE/release-tools/packaging/release-notes.sh" release > "$RUNNER_TEMP/notes.md"
-          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
-            # Keep a replacement private until every artifact and checksum agrees.
-            gh release edit "$RELEASE_TAG" --draft=true
-            if [[ ! -e "dist/$UPDATE_MANIFEST" ]]; then
-              gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | while IFS= read -r name; do
-                [[ "$name" != "$UPDATE_MANIFEST" ]] || gh release delete-asset "$RELEASE_TAG" "$name" --yes
-              done
-            fi
-            gh release upload "$RELEASE_TAG" dist/* --clobber
-            gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | while IFS= read -r name; do
-              [[ -e "dist/$name" ]] || gh release delete-asset "$RELEASE_TAG" "$name" --yes
-            done
-            gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" \
-              --notes-file "$RUNNER_TEMP/notes.md" --draft=false --prerelease=false
-          else
-            # Notes start at the last published release, not the last tag, so a tag left by an
-            # unpublished attempt cannot shrink them.
+          if ! gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            # Notes start at the last published release, not an unpublished attempt's tag.
             previous="$(gh release list --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // empty')"
-            gh release create "$RELEASE_TAG" dist/* --verify-tag --target "$RELEASE_COMMIT" \
-              --title "$RELEASE_TAG" --generate-notes ${previous:+--notes-start-tag "$previous"} \
-              --notes-file "$RUNNER_TEMP/notes.md"
+            notes_start=()
+            if [[ -n "$previous" ]]; then
+              notes_start+=(--notes-start-tag "$previous")
+            fi
+            # Publish a new version only after its downloads and signed metadata are present.
+            gh release create "$RELEASE_TAG" --draft --latest=false --verify-tag --target "$RELEASE_COMMIT" \
+              --title "$RELEASE_TAG" --generate-notes "${notes_start[@]}" --notes-file "$RUNNER_TEMP/notes.md"
             echo "created=true" >> "${GITHUB_OUTPUT:-/dev/null}"
           fi
+          # Keep an existing release public so cached manifests can still fetch their payloads.
+          gh release upload "$RELEASE_TAG" dist/* --clobber
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | while IFS= read -r name; do
+            [[ -e "dist/$name" || "$name" == "$UPDATE_MANIFEST" || "$name" == "$UPDATE_PAYLOAD_PREFIX"* ]] ||
+              gh release delete-asset "$RELEASE_TAG" "$name" --yes
+          done
+      - name: Publish the signed update manifest
+        # New payloads, then the manifest naming them; retain the preceding publication too.
+        # Without a new manifest, the current one and its payloads stay untouched.
+        run: |
+          manifest="$RUNNER_TEMP/$UPDATE_MANIFEST"
+          payloads="$RUNNER_TEMP/update-payloads"
+          if [[ ! -e "$manifest" ]]; then
+            echo "::notice::No signed $RELEASE_CHANNEL update manifest; the published one stays current"
+            exit 0
+          fi
+          if ! gh release view "$UPDATE_MANIFEST_TAG" > /dev/null 2>&1; then
+            [[ "$RELEASE_TRACK" == rolling ]] || { echo "::error::Tagged release was not prepared"; exit 1; }
+            # The rolling holder can never become the repository's latest release.
+            gh release create "$UPDATE_MANIFEST_TAG" --prerelease --latest=false --target "$RELEASE_COMMIT" \
+              --title "${RELEASE_CHANNEL^} updates" --notes "Signed update manifest for the $RELEASE_CHANNEL channel."
+          fi
+          previous="$RUNNER_TEMP/previous-update"
+          mkdir -p "$previous"
+          gh release view "$UPDATE_MANIFEST_TAG" --json assets --jq '.assets[].name' > "$RUNNER_TEMP/published-assets"
+          : > "$RUNNER_TEMP/retained-payloads"
+          prune=false
+          if grep -Fxq "$UPDATE_MANIFEST" "$RUNNER_TEMP/published-assets"; then
+            gh release download "$UPDATE_MANIFEST_TAG" --pattern "$UPDATE_MANIFEST" --dir "$previous" --clobber
+            if (cd "$GITHUB_WORKSPACE/release-tools" && cargo run --quiet --locked -p release-manifest -- \
+              payload-names "$previous/$UPDATE_MANIFEST") > "$RUNNER_TEMP/retained-payloads"; then
+              prune=true
+            else
+              echo "::notice::Cannot read the preceding manifest; retain all earlier payloads"
+            fi
+          fi
+          # Identical payload names are immutable; clobbering would briefly remove a live download.
+          : > "$RUNNER_TEMP/new-payload-names"
+          for payload in "$payloads"/*; do
+            name="${payload##*/}"
+            printf '%s\n' "$name" >> "$RUNNER_TEMP/new-payload-names"
+            if ! grep -Fxq "$name" "$RUNNER_TEMP/published-assets"; then
+              gh release upload "$UPDATE_MANIFEST_TAG" "$payload"
+            fi
+          done
+          if [[ ! -e "$previous/$UPDATE_MANIFEST" ]] || ! cmp -s "$previous/$UPDATE_MANIFEST" "$manifest"; then
+            gh release upload "$UPDATE_MANIFEST_TAG" "$manifest" --clobber
+          fi
+          # A renewed signature over the same payloads must not shorten their predecessor's grace.
+          LC_ALL=C sort -o "$RUNNER_TEMP/new-payload-names" "$RUNNER_TEMP/new-payload-names"
+          if [[ "$prune" != true ]] || cmp -s "$RUNNER_TEMP/retained-payloads" "$RUNNER_TEMP/new-payload-names"; then
+            exit 0
+          fi
+          gh release view "$UPDATE_MANIFEST_TAG" --json assets --jq '.assets[].name' | while IFS= read -r name; do
+            if [[ "$name" == "$UPDATE_PAYLOAD_PREFIX"* && ! -e "$payloads/$name" ]] &&
+              ! grep -Fxq "$name" "$RUNNER_TEMP/retained-payloads"; then
+              gh release delete-asset "$UPDATE_MANIFEST_TAG" "$name" --yes
+            fi
+          done
+      - name: Publish the rolling prerelease
+        if: needs.prepare.outputs.track == 'rolling'
+        run: |
+          previous="$(git rev-parse -q --verify "refs/tags/$RELEASE_TAG^{commit}" || true)"
+          bash "$GITHUB_WORKSPACE/release-tools/packaging/release-notes.sh" "$RELEASE_CHANNEL" "$previous" > "$RUNNER_TEMP/notes.md"
+          title="${RELEASE_CHANNEL^} $(date -u +%Y-%m-%d) ($(git rev-parse --short HEAD))"
+          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/* --clobber
+            # The manifest and its payloads change only in the signed manifest step.
+            gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | while IFS= read -r name; do
+              [[ -e "dist/$name" || "$name" == "$UPDATE_MANIFEST" || "$name" == "$UPDATE_PAYLOAD_PREFIX"* ]] ||
+                gh release delete-asset "$RELEASE_TAG" "$name" --yes
+            done
+          else
+            gh release create "$RELEASE_TAG" dist/* --prerelease --latest=false --target "$RELEASE_COMMIT" \
+              --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
+          git tag -f "$RELEASE_TAG" "$RELEASE_COMMIT"
+          git push -f origin "refs/tags/$RELEASE_TAG"
+          gh release edit "$RELEASE_TAG" --title "$title" --notes-file "$RUNNER_TEMP/notes.md" \
+            --prerelease --latest=false --draft=false
+      - name: Publish the tagged release
+        if: needs.prepare.outputs.track == 'tagged'
+        run: |
+          # Keep the generated changelog and installation notes from release creation.
+          gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" \
+            --draft=false --prerelease=false --latest=true
       - name: Post the changelog to Discord
-        if: steps.publish.outputs.created == 'true'
+        if: steps.prepare_publish.outputs.created == 'true'
         continue-on-error: true
         env:
           DISCORD_CHANGELOG_WEBHOOK: ${{ secrets.DISCORD_CHANGELOG_WEBHOOK }}

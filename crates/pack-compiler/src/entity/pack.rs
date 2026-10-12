@@ -214,7 +214,7 @@ fn compile_selected(
         // Geometry is normalised to the accepted schema; a file that leaves nothing is skipped.
         let normalised;
         let bytes = if path.starts_with("models/entity/") {
-            let Some(text) = serde_json::from_slice::<serde_json::Value>(bytes)
+            let Some(text) = pack_json::parse_jsonc::<serde_json::Value>(bytes)
                 .ok()
                 .filter(|_| true)
                 .and_then(|mut value| {

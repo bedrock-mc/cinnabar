@@ -14,7 +14,6 @@ use thiserror::Error;
 mod crypto;
 mod dependencies;
 mod import;
-mod jsonc;
 mod library;
 mod manifest;
 mod merge;
@@ -27,7 +26,6 @@ mod view;
 
 pub use dependencies::{PackDependencies, PackDependency};
 pub use import::{PACK_IMPORT_EXTENSIONS, is_pack_import_path};
-pub use jsonc::normalize_jsonc;
 pub use library::{
     ActivePack, GlobalPackLibrary, ImportReport, InstalledPack, LibraryError, Subpack,
 };

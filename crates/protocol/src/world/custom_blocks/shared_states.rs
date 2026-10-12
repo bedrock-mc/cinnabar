@@ -8,9 +8,17 @@ use std::{
 
 use super::{CustomBlock, CustomBlockVisuals, CustomHashedState, CustomStateValue};
 
-const MAX_AGGREGATE_STATES: usize = super::MAX_STATES_PER_BLOCK as usize;
+/// Aggregate custom block states one session may materialize. A large pack
+/// stack's palette is the real work: the observed 5,589-block server stack
+/// declares 136,909 states, and any state that fails admission leaves its
+/// block absent from the world, so the bound must admit a full stack rather
+/// than the first fraction of it. The byte budget below is what actually
+/// bounds retained memory.
+const MAX_AGGREGATE_STATES: usize = 1 << 20;
+/// Estimated aggregate identity bytes, the memory bound for materialized states.
 const MAX_AGGREGATE_STATE_BYTES: usize = 64 * 1024 * 1024;
-const MAX_CACHED_DEFINITIONS: usize = MAX_AGGREGATE_STATES;
+/// Definitions one process caches, bounded independently of palette size.
+const MAX_CACHED_DEFINITIONS: usize = 1 << 16;
 
 /// An immutable palette-order state collection shared by registry consumers.
 #[derive(Debug, Clone)]

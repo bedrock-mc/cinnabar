@@ -1,7 +1,8 @@
 //! Cinnabar extension: optional resource packs can change without leaving a world.
 
 use super::reload_environment::{
-    EnvironmentBase, PreparedEnvironment, apply_biome_overlay, prepare_environment,
+    EnvironmentBase, EnvironmentPublication, PreparedEnvironment, apply_biome_overlay,
+    prepare_environment,
 };
 use super::resource_packs::{self, PackApplication};
 use crate::runtime::world::ClientWorld;
@@ -321,9 +322,7 @@ pub(crate) fn reload_resource_packs(
     mut ui: ResMut<UiRuntimeResource>,
     mut textures: Option<ResMut<render_scene::ChunkTextureAssets>>,
     presentation: Option<Res<UiPresentationResource>>,
-    environment_base: Option<Res<EnvironmentBase>>,
-    mut atmosphere: Option<ResMut<render_scene::AtmosphereTextureAssets>>,
-    mut particles: Option<ResMut<render_scene::ParticleSimulation>>,
+    mut environment: EnvironmentPublication,
     mut block_entity_scene: Option<ResMut<render_scene::BlockEntitySceneResource>>,
     mut entity_artwork: Option<ResMut<render_scene::ActorArtworkResource>>,
     gpu_reload: Option<Res<render_scene::ChunkTextureReload>>,
@@ -443,18 +442,8 @@ pub(crate) fn reload_resource_packs(
                 reload.aim_assist_textures = prepared.application.aim_assist_textures.clone();
                 reload.previous = Some(prepared.application.clone());
                 reload.previous_assets = Some(prepared.assets.clone());
-                if let Some(environment) = prepared.environment {
-                    if let (Some(atmosphere), Some(next)) =
-                        (atmosphere.as_mut(), environment.atmosphere)
-                        && atmosphere.identity() != next.identity()
-                    {
-                        **atmosphere = next;
-                    }
-                    if let (Some(particles), Some(next)) =
-                        (particles.as_mut(), environment.particles)
-                    {
-                        particles.0 = next;
-                    }
+                if let Some(prepared) = prepared.environment {
+                    environment.publish(prepared);
                 }
                 let packs = prepared.application;
                 if art_changed
@@ -537,7 +526,7 @@ pub(crate) fn reload_resource_packs(
             presentation
                 .as_deref()
                 .and_then(|presentation| presentation.pack_catalog_base()),
-            environment_base.as_deref().cloned(),
+            environment.base(),
             entity_artwork.as_deref().map(|artwork| artwork.0.clone()),
         );
     }

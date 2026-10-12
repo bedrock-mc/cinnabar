@@ -15,7 +15,7 @@ use ::image::{ImageFormat, ImageReader, Limits};
 use assets::{
     AssetError, MAX_PARTICLE_EFFECT_BYTES, MAX_PARTICLE_TEXTURE_SIDE, ParticleEffectFile,
     ParticleTexture, RuntimeParticleAssets, canonical_source_manifest_sha256,
-    encode_particle_catalog, strip_json_comments,
+    encode_particle_catalog,
 };
 use sha2::{Digest, Sha256};
 
@@ -174,8 +174,7 @@ fn read_effect(pack: &Path, relative: &str) -> Result<Option<ParticleEffectFile>
             path: path.clone(),
             source,
         })?;
-    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&strip_json_comments(&bytes))
-    else {
+    let Ok(value) = pack_json::parse_jsonc::<serde_json::Value>(&bytes) else {
         return Ok(None);
     };
     let Some(identifier) = value

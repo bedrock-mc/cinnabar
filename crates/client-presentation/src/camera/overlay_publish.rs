@@ -7,7 +7,9 @@ use std::{
 
 use bevy::{
     log::warn,
-    prelude::{Local, Mat4, Projection, Query, Res, ResMut, Time, Transform, With},
+    prelude::{
+        Commands, Local, Mat4, Projection, Query, Res, ResMut, Resource, Time, Transform, With,
+    },
 };
 use render_scene::{
     ChunkTextureAssetIdentity, ChunkTextureAssets, SCREEN_OVERLAY_TEXTURE_SIDE, ScreenFireTexture,
@@ -19,6 +21,11 @@ use super::{
     overlay::{OverlayKind, OverlayLayer, ScreenOverlays},
 };
 use launcher::install_layout::InstallLayout;
+use render_scene::screen_overlay::{PUMPKIN_MASK_PATH, SPYGLASS_MASK_PATH};
+
+/// Immutable startup masks kept separately from the active pack scene.
+#[derive(Clone, Default, Resource)]
+pub struct ScreenOverlayBase(pub Option<Arc<ScreenOverlayTextures>>);
 
 fn overlay_kind(kind: OverlayKind) -> ScreenOverlayKind {
     match kind {
@@ -40,17 +47,18 @@ pub fn render_layer(layer: &OverlayLayer) -> ScreenOverlayLayer {
 }
 
 /// Candidate files for one overlay texture, preferred first: a shipped carrier, then the local vanilla pack.
-fn candidates(resource_root: &Path, name: &str, vanilla_dir: &str) -> [PathBuf; 2] {
+fn candidates(resource_root: &Path, source: &str) -> [PathBuf; 2] {
     [
-        resource_root.join("overlays").join(name),
+        resource_root
+            .join("overlays")
+            .join(source.rsplit('/').next().unwrap_or(source)),
         resource_root
             .join(launcher::install_layout::vanilla_pack_relative())
-            .join("textures")
-            .join(vanilla_dir)
-            .join(name),
+            .join(source),
     ]
 }
 
+/// Loads and normalizes one startup mask to the scene's fixed texture layer size.
 fn load_rgba(paths: &[PathBuf]) -> Option<Vec<u8>> {
     let image = paths
         .iter()
@@ -65,14 +73,15 @@ fn load_rgba(paths: &[PathBuf]) -> Option<Vec<u8>> {
     Some(image.into_raw())
 }
 
-/// Loads both overlay textures, or none when either is missing.
+/// Loads available startup masks independently, preserving absent procedural layers.
 pub fn load_textures(resource_root: &Path) -> Option<ScreenOverlayTextures> {
-    let pumpkin = load_rgba(&candidates(resource_root, "pumpkinblur.png", "misc"))?;
-    let spyglass = load_rgba(&candidates(resource_root, "spyglass_scope.png", "ui"))?;
-    ScreenOverlayTextures::new(pumpkin, spyglass)
+    let pumpkin = load_rgba(&candidates(resource_root, PUMPKIN_MASK_PATH));
+    let spyglass = load_rgba(&candidates(resource_root, SPYGLASS_MASK_PATH));
+    ScreenOverlayTextures::from_layers(pumpkin, spyglass)
 }
 
-pub fn load_overlay_textures(scene: Option<ResMut<ScreenOverlayScene>>) {
+/// Publishes startup masks and retains their immutable fallback for pack reloads.
+pub fn load_overlay_textures(mut commands: Commands, scene: Option<ResMut<ScreenOverlayScene>>) {
     let Some(mut scene) = scene else {
         return;
     };
@@ -84,7 +93,9 @@ pub fn load_overlay_textures(scene: Option<ResMut<ScreenOverlayScene>>) {
             "camera overlay textures not found; pumpkin and spyglass overlays use procedural art"
         );
     }
-    scene.set_textures(textures.map(Arc::new));
+    let textures = textures.map(Arc::new);
+    commands.insert_resource(ScreenOverlayBase(textures.clone()));
+    scene.set_textures(textures);
 }
 
 fn pinned_fire_state() -> Option<u32> {
@@ -174,7 +185,7 @@ mod tests {
 
     #[test]
     fn candidates_prefer_the_shipped_carrier() {
-        let paths = candidates(Path::new("root"), "pumpkinblur.png", "misc");
+        let paths = candidates(Path::new("root"), PUMPKIN_MASK_PATH);
         assert!(paths[0].ends_with("overlays/pumpkinblur.png"));
         assert!(paths[1].ends_with("textures/misc/pumpkinblur.png"));
     }

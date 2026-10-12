@@ -10,6 +10,7 @@ pub const WEATHER_TEXTURES_MAGIC: [u8; 8] = *b"MCBEWTH1";
 pub const WEATHER_TEXTURES_VERSION: u32 = 1;
 pub const WEATHER_SHEET_SIDE: u32 = 32;
 pub const END_SKY_SIDE: u32 = 128;
+pub const END_SKY_TEXTURE_PATH: &str = "textures/environment/end_sky";
 pub const MAX_WEATHER_TEXTURES_BYTES: usize = 128 * 1024;
 
 const HASH_BYTES: usize = 32;

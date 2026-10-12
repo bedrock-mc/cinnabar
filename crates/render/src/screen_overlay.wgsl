@@ -11,7 +11,7 @@ struct Layer {
 }
 
 struct Overlays {
-    // layer count, clock seconds, textures present (0/1), unused
+    // layer count, clock seconds, pumpkin present (0/1), spyglass present (0/1)
     header: vec4<f32>,
     // current frame, next frame, frame blend, fire present
     fire: vec4<f32>,
@@ -156,7 +156,6 @@ fn overlay_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let aspect = max(derivative.y / max(derivative.x, 1.0e-8), 1.0e-3);
     let count = u32(overlays.header.x);
     let clock = overlays.header.y;
-    let textured = overlays.header.z > 0.5;
     var rgb = vec3<f32>(0.0);
     var alpha = 0.0;
     for (var i = 0u; i < 8u; i = i + 1u) {
@@ -164,6 +163,7 @@ fn overlay_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             break;
         }
         let layer = overlays.layers[i];
+        let textured = select(overlays.header.z, overlays.header.w, u32(layer.params.x) == KIND_SPYGLASS) > 0.5;
         let shaded = shade(u32(layer.params.x), layer.color.rgb, in.uv, aspect, clock, textured);
         let src_alpha = clamp(shaded.a * layer.color.a, 0.0, 1.0);
         let out_alpha = src_alpha + alpha * (1.0 - src_alpha);

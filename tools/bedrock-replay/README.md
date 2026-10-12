@@ -21,6 +21,18 @@ cp target/debug/bedrock-replay "$EVIDENCE/bedrock-replay"
   -timeout 2m -report "$EVIDENCE/replay.json"
 ```
 
+Repeat `-resource-pack` in stack order. If any pack is encrypted, provide one
+`-content-key` entry per pack in the same order, using `-content-key=` for every
+plain pack. For a plain pack followed by an encrypted pack, use:
+
+```sh
+-resource-pack plain.mcpack -resource-pack encrypted.mcpack \
+  -content-key= -content-key "$PACK_KEY"
+```
+
+When every pack is plain, omit all `-content-key` flags. Partial key lists are
+rejected so a key cannot shift to a different pack.
+
 Wait for `BEDROCK_REPLAY_READY`, then start the native client in another terminal.
 On macOS, use an isolated install layout so pack downloads, settings and logs do
 not change the owner's install. The executable's location determines that layout, not the
