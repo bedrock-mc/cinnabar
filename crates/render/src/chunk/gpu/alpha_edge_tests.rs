@@ -91,8 +91,8 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
     let uv = edge_corner(index);
     var out: VertexOutput;
     out.position = edge_position(uv);
-    out.uv = vec2(0.25) + uv * 0.25;
-    out.back_uv = out.uv;
+    out.uv = vec4(vec2(0.25) + uv * 0.25, vec2(0.25));
+    out.back_uv = out.uv.xy;
     out.skin_layer = HAND_FIXTURE_LAYER;
     out.valid = 1u;
     out.shade = 1.0;

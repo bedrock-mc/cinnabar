@@ -789,6 +789,10 @@ impl EquipmentRuntime {
                                 uv[axis] = rect[axis] + uv[axis] * (rect[axis + 2] - rect[axis]);
                             }
                         }
+                        for axis in 0..2 {
+                            vertex.glint_origin[axis] = rect[axis]
+                                + vertex.glint_origin[axis] * (rect[axis + 2] - rect[axis]);
+                        }
                         vertex
                     })
                     .collect()

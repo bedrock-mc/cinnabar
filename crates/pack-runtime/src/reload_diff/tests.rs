@@ -193,8 +193,8 @@ fn tracked_contents_notice_one_changed_file_among_many() {
     let between = |next: &ValidatedPackStack| {
         Changes::between(next, Some((&previous.admission, &previous.dependencies)))
     };
-    assert!(!between(&*files(b"old")).ui, "re-admitted identical bytes");
-    assert!(between(&*files(b"new")).ui);
+    assert!(!between(&files(b"old")).ui, "re-admitted identical bytes");
+    assert!(between(&files(b"new")).ui);
 }
 
 #[test]

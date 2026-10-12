@@ -195,6 +195,7 @@ fn append_pixels(
                     back_uv: uv,
                     bone_index,
                     surface: super::ActorRigSurface::SINGLE_FACE,
+                    glint_origin: [0.0; 2],
                 }));
                 if vertices.len() > MAX_ACTOR_RIG_VERTICES {
                     return Err(ActorRigGeometryError::CatalogCapacity);
