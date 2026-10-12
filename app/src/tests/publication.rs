@@ -32,8 +32,8 @@ use client_runtime::publication::{
 };
 use {
     crate::app::{
-        configure_acceptance_finish_system, configure_client_frame_schedule,
-        configure_client_production_frame_systems, configure_client_runtime_frame_systems,
+        configure_client_frame_schedule, configure_client_production_frame_systems,
+        configure_client_runtime_frame_systems, session::configure_finish_system,
     },
     client_state::ClientFrameSet,
 };
@@ -350,7 +350,7 @@ fn acceptance_terminal_runs_after_the_authoritative_network_send_stage() {
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
     configure_client_production_frame_systems(&mut app);
-    configure_acceptance_finish_system(&mut app);
+    configure_finish_system(&mut app);
 
     let schedules = app.world().resource::<Schedules>();
     let graph = schedules
