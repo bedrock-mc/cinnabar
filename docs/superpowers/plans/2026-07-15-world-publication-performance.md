@@ -35,7 +35,7 @@ Prepare current uniform and packed light/direct-sky states, force a new current 
 
 - [x] **Step 2: Run and record red**
 
-Run `cargo test -p bedrock-client world_stream::tests::light_scheduler::unchanged --locked -- --nocapture`. Expected: failure because every completion currently replaces identities and invalidates 27 mesh dependants.
+Run `cargo test -p cinnabar world_stream::tests::light_scheduler::unchanged --locked -- --nocapture`. Expected: failure because every completion currently replaces identities and invalidates 27 mesh dependants.
 
 - [x] **Step 3: Compute exact worker equality**
 
@@ -55,7 +55,7 @@ Add a regression where one block/sky nibble changes. Assert stored value identit
 
 - [x] **Step 7: Verify and commit**
 
-Run `cargo test -p bedrock-client --locked`, `cargo test -p world --locked`, `cargo clippy -p bedrock-client -p world --all-targets --locked -- -D warnings`, and `cargo fmt --all -- --check`. Commit with `perf: skip unchanged light remeshes`.
+Run `cargo test -p cinnabar --locked`, `cargo test -p world --locked`, `cargo clippy -p cinnabar -p world --all-targets --locked -- -D warnings`, and `cargo fmt --all -- --check`. Commit with `perf: skip unchanged light remeshes`.
 
 ### Task 2: Publication-stage latency authority
 
@@ -89,7 +89,7 @@ Join the world-stream values with the render/upload and visibility/presentation 
 
 - [x] **Step 5: Verify and commit**
 
-Run `cargo test -p bedrock-client --locked`, both acceptance script suites, strict workspace Clippy, and rustfmt. Commit with `feat: attribute world publication latency`.
+Run `cargo test -p cinnabar --locked`, both acceptance script suites, strict workspace Clippy, and rustfmt. Commit with `feat: attribute world publication latency`.
 
 ### Task 3: Full release radius-16 benchmark and live gate
 
@@ -108,7 +108,7 @@ Start from the existing 26,136 known-air scheduler fixture, drain light jobs, di
 
 - [x] **Step 2: Run the release benchmark before optimization**
 
-Run the exact ignored test with `cargo test -p bedrock-client --release --locked full_view_publication -- --ignored --nocapture`. Record total and per-stage time plus counts; expected pre-fix evidence is redundant invalidation/publication or a miss of the two-second complete-path gate.
+Run the exact ignored test with `cargo test -p cinnabar --release --locked full_view_publication -- --ignored --nocapture`. Record total and per-stage time plus counts; expected pre-fix evidence is redundant invalidation/publication or a miss of the two-second complete-path gate.
 
 - [x] **Step 3: Run after Tasks 1–2 and require the binding gate**
 

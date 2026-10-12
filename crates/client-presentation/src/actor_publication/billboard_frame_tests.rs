@@ -111,7 +111,7 @@ fn assert_billboards_follow_fresh_camera(cull_completed_tick: bool) {
                 Some(1),
             )
             .unwrap();
-        world.set_actor_camera_rotation(super::view::actor_camera_rotation(Quat::IDENTITY));
+        world.set_actor_camera_rotation(super::views::actor_camera_rotation(Quat::IDENTITY));
         world.advance_actor_interpolation_ticks(2);
         if cull_completed_tick {
             let view = actor_animation::ActorAnimationView {
@@ -136,7 +136,7 @@ fn assert_billboards_follow_fresh_camera(cull_completed_tick: bool) {
             (-2.0, -90.0_f32),
         ] {
             let camera = Quat::from_euler(EulerRot::YXZ, yaw, pitch.to_radians(), 0.0);
-            world.set_actor_camera_rotation(super::view::actor_camera_rotation(camera));
+            world.set_actor_camera_rotation(super::views::actor_camera_rotation(camera));
             world.advance_actor_interpolation_frame(0);
             let rig = world.actor_rig(1).unwrap();
             let actor = world.actor(1).unwrap();

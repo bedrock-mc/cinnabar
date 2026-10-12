@@ -500,6 +500,102 @@ fn banner_bindings(
     (patterns.join("_"), colors.join("_"))
 }
 
+/// One collection per beacon button, as the controller names them.
+fn beacon_buttons(data: &mut DataSource, source: &dyn ContainerSource) {
+    let state = source.screen();
+    let (primary, secondary) = state.beacon;
+    let unlocked = |needed: u8| state.beacon_level.is_none_or(|have| have >= needed);
+    let button = |active: bool, selected: bool, hover: String| {
+        vec![
+            CollectionItem::default()
+                .with("#button_visible", Scalar::Bool(true))
+                .with("#active", Scalar::Bool(active && !selected))
+                .with("#inactive", Scalar::Bool(!active))
+                .with("#selected", Scalar::Bool(active && selected))
+                .with("#button_hover", Scalar::Text(hover)),
+        ]
+    };
+    let name = |id: i32| {
+        let key = match id {
+            1 => "effect.moveSpeed",
+            3 => "effect.digSpeed",
+            11 => "effect.resistance",
+            8 => "effect.jump",
+            5 => "effect.damageBoost",
+            _ => "effect.regeneration",
+        };
+        source
+            .translation(key)
+            .map_or_else(|| key.to_owned(), |text| text.to_string())
+    };
+    for (collection, id, is_secondary) in BEACON_POWERS {
+        let needed = BEACON_LEVEL_FOR
+            .iter()
+            .find(|(effect, _)| *effect == id)
+            .map_or(4, |(_, level)| *level);
+        let selected = if is_secondary {
+            secondary == id
+        } else {
+            primary == id
+        };
+        data.set_collection(collection, button(unlocked(needed), selected, name(id)));
+    }
+    let upgrade = primary != 0 && unlocked(4);
+    data.set_collection(
+        "extra",
+        button(upgrade, upgrade && secondary == primary, name(primary)),
+    );
+    data.set_collection("confirm", button(primary != 0, false, String::new()));
+    data.set_collection("cancel", button(true, false, String::new()));
+}
+
+/// How many cells of `collection` the open window fills; the mount chest shows
+/// only the columns the mount carries.
+pub(crate) fn collection_len(
+    player_runtime: &player_state::PlayerState,
+    collection: &str,
+    cells: usize,
+) -> usize {
+    let ledger = player_runtime.inventory.ledger();
+    match (ledger.window_kind(), collection) {
+        (Some(WindowKind::Horse), "container_items") => ledger
+            .storage_slot_count()
+            .map_or(0, |count| count.saturating_sub(2))
+            .min(cells),
+        _ => cells,
+    }
+}
+
+/// Empty-slot silhouettes and cell art the brewing stand and loom bind per cell.
+pub(crate) fn decorate(
+    source: &dyn ContainerSource,
+    collection: &str,
+    empty: bool,
+    item: CollectionItem,
+) -> CollectionItem {
+    let crafter = source.player().inventory.ledger().window_kind() == Some(WindowKind::Crafter);
+    match collection {
+        // An empty crafter slot offers to disable itself.
+        "container_items" if crafter && empty => item.with(
+            "#hover_text",
+            Scalar::Text(
+                source
+                    .translation(TOGGLABLE_SLOT_KEY)
+                    .map_or_else(|| TOGGLABLE_SLOT_KEY.to_owned(), |text| text.to_string()),
+            ),
+        ),
+        "brewing_result_items" => item.with("#empty_bottle_image_visible", Scalar::Bool(empty)),
+        "brewing_fuel_item" => item.with("#empty_fuel_image_visible", Scalar::Bool(empty)),
+        "loom_input_items" | "loom_dye_items" | "loom_material_items" => {
+            item.with("#empty_image_visible", Scalar::Bool(empty)).with(
+                "#container_cell_background_texture",
+                Scalar::Text(CELL.to_owned()),
+            )
+        }
+        _ => item,
+    }
+}
+
 #[cfg(test)]
 mod banner_tests {
     use std::{
@@ -677,101 +773,5 @@ mod banner_tests {
             banner_bindings(15, &current, Some(("custom:unknown", 4))),
             ("0_28".into(), "15_1".into())
         );
-    }
-}
-
-/// One collection per beacon button, as the controller names them.
-fn beacon_buttons(data: &mut DataSource, source: &dyn ContainerSource) {
-    let state = source.screen();
-    let (primary, secondary) = state.beacon;
-    let unlocked = |needed: u8| state.beacon_level.is_none_or(|have| have >= needed);
-    let button = |active: bool, selected: bool, hover: String| {
-        vec![
-            CollectionItem::default()
-                .with("#button_visible", Scalar::Bool(true))
-                .with("#active", Scalar::Bool(active && !selected))
-                .with("#inactive", Scalar::Bool(!active))
-                .with("#selected", Scalar::Bool(active && selected))
-                .with("#button_hover", Scalar::Text(hover)),
-        ]
-    };
-    let name = |id: i32| {
-        let key = match id {
-            1 => "effect.moveSpeed",
-            3 => "effect.digSpeed",
-            11 => "effect.resistance",
-            8 => "effect.jump",
-            5 => "effect.damageBoost",
-            _ => "effect.regeneration",
-        };
-        source
-            .translation(key)
-            .map_or_else(|| key.to_owned(), |text| text.to_string())
-    };
-    for (collection, id, is_secondary) in BEACON_POWERS {
-        let needed = BEACON_LEVEL_FOR
-            .iter()
-            .find(|(effect, _)| *effect == id)
-            .map_or(4, |(_, level)| *level);
-        let selected = if is_secondary {
-            secondary == id
-        } else {
-            primary == id
-        };
-        data.set_collection(collection, button(unlocked(needed), selected, name(id)));
-    }
-    let upgrade = primary != 0 && unlocked(4);
-    data.set_collection(
-        "extra",
-        button(upgrade, upgrade && secondary == primary, name(primary)),
-    );
-    data.set_collection("confirm", button(primary != 0, false, String::new()));
-    data.set_collection("cancel", button(true, false, String::new()));
-}
-
-/// How many cells of `collection` the open window fills; the mount chest shows
-/// only the columns the mount carries.
-pub(crate) fn collection_len(
-    player_runtime: &player_state::PlayerState,
-    collection: &str,
-    cells: usize,
-) -> usize {
-    let ledger = player_runtime.inventory.ledger();
-    match (ledger.window_kind(), collection) {
-        (Some(WindowKind::Horse), "container_items") => ledger
-            .storage_slot_count()
-            .map_or(0, |count| count.saturating_sub(2))
-            .min(cells),
-        _ => cells,
-    }
-}
-
-/// Empty-slot silhouettes and cell art the brewing stand and loom bind per cell.
-pub(crate) fn decorate(
-    source: &dyn ContainerSource,
-    collection: &str,
-    empty: bool,
-    item: CollectionItem,
-) -> CollectionItem {
-    let crafter = source.player().inventory.ledger().window_kind() == Some(WindowKind::Crafter);
-    match collection {
-        // An empty crafter slot offers to disable itself.
-        "container_items" if crafter && empty => item.with(
-            "#hover_text",
-            Scalar::Text(
-                source
-                    .translation(TOGGLABLE_SLOT_KEY)
-                    .map_or_else(|| TOGGLABLE_SLOT_KEY.to_owned(), |text| text.to_string()),
-            ),
-        ),
-        "brewing_result_items" => item.with("#empty_bottle_image_visible", Scalar::Bool(empty)),
-        "brewing_fuel_item" => item.with("#empty_fuel_image_visible", Scalar::Bool(empty)),
-        "loom_input_items" | "loom_dye_items" | "loom_material_items" => {
-            item.with("#empty_image_visible", Scalar::Bool(empty)).with(
-                "#container_cell_background_texture",
-                Scalar::Text(CELL.to_owned()),
-            )
-        }
-        _ => item,
     }
 }

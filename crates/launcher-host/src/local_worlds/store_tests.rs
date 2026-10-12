@@ -133,6 +133,59 @@ fn update_touch_and_delete() {
 }
 
 #[test]
+fn edits_from_play_and_back_round_trip_on_the_next_load() {
+    use launcher::local_worlds::{Effect, Event, Input, Screen, WorldsMenu};
+
+    for backend in [Backend::Dragonfly, Backend::Bds] {
+        for exit in [Input::PlayFromEdit, Input::Back] {
+            let dir = scratch();
+            let store = store(&dir);
+            let original = store
+                .create(&NewWorld {
+                    backend: Some(backend),
+                    ..new_world("Original")
+                })
+                .expect("create");
+            let mut menu = WorldsMenu::default();
+            menu.apply(Event::Listed(vec![original.clone()]));
+            menu.update(Input::BeginEdit(0));
+            menu.update(Input::SetEditName(" Edited ".to_owned()));
+            menu.update(Input::SetGameMode(GameMode::Creative));
+            menu.update(Input::SetDifficulty(Difficulty::Hard));
+
+            let effects = menu.update(exit.clone());
+            let [Effect::Update { id, update }] = effects.as_slice() else {
+                panic!("{exit:?} must save before leaving: {effects:?}");
+            };
+            assert_eq!(menu.screen(), Screen::Edit);
+            let saved = store.update(id, update).expect("save edit");
+            let effects = menu.apply(Event::Updated(saved.clone()));
+            if exit == Input::PlayFromEdit {
+                assert_eq!(effects, vec![Effect::Open(original.id.clone())]);
+            } else {
+                assert!(effects.is_empty());
+                assert_eq!(menu.screen(), Screen::List);
+            }
+
+            let reopened = Store::open(store.root.clone()).expect("reopen store");
+            let loaded = reopened.get(&original.id).expect("reload edit");
+            assert_eq!(loaded, saved);
+            assert_eq!(
+                (loaded.name.as_str(), loaded.game_mode, loaded.difficulty),
+                ("Edited", GameMode::Creative, Difficulty::Hard)
+            );
+            let mut menu = WorldsMenu::default();
+            menu.apply(Event::Listed(reopened.list().expect("reload list")));
+            menu.update(Input::BeginEdit(0));
+            assert_eq!(
+                menu.edit_form(),
+                Some(&launcher::local_worlds::form::EditForm::of(&loaded))
+            );
+        }
+    }
+}
+
+#[test]
 fn malformed_ids_never_reach_the_filesystem() {
     let dir = scratch();
     let store = store(&dir);

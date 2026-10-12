@@ -165,7 +165,7 @@ For local PNGs, set `CINNABAR_HOME_PROMO_FIXTURE` to the exported Go feed and
 the supplied `cslot` limiter:
 
 ```sh
-cargo test -p bedrock-client --lib --locked snapshot_core_home_promo -- --nocapture
+cargo test -p cinnabar --lib --locked snapshot_core_home_promo -- --nocapture
 ```
 
 This writes `home-promo-before.png` and `home-promo.png` at 2560x1440, DPI scale

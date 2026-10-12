@@ -128,7 +128,7 @@ A complete serial continuation (`--no-fail-fast -- --test-threads=1`) with
 `GOCACHE=/private/tmp/codex-perf-go-cache` produced **5,051 passed, 6 failed,
 30 ignored**, exit **101**. All six failures are denied socket binds:
 
-- `bedrock-client`: `remote_images_download_in_the_background`,
+- `cinnabar`: `remote_images_download_in_the_background`,
   `path_and_url_button_images_resolve_like_vanilla`, and
   `vanilla_form_button_images_resolve`. They share the unchanged TCP fixture at
   `app/src/ui_runtime/presentation/forms/remote_images.rs:145`.

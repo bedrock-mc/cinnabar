@@ -55,7 +55,7 @@ fn changed_hand_pixels_reuse_layout_and_geometry() {
     let before = build(&player, &mut presentation, &runtime, 0);
     let builds = presentation.tree_builds;
     // Change visible skin artwork while keeping its extent and every control fixed.
-    for texel in skin.chunks_exact_mut(4) {
+    for texel in skin.as_chunks_mut::<4>().0 {
         texel[0] = texel[0].wrapping_add(1);
     }
     presentation.set_player_preview_skin(Some(&skin), Default::default());

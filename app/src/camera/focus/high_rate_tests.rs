@@ -1,5 +1,5 @@
 use bevy::{
-    ecs::schedule::ExecutorKind,
+    ecs::schedule::SingleThreadedExecutor,
     input::{
         InputPlugin,
         mouse::{AccumulatedMouseMotion, MouseMotion},
@@ -42,19 +42,19 @@ fn input_app() -> (App, Entity) {
     super::install(&mut app);
     // Keep allocation accounting on the measured thread, including Bevy's input systems.
     app.edit_schedule(Main, |schedule| {
-        schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+        schedule.set_executor(SingleThreadedExecutor::new());
     });
     app.edit_schedule(First, |schedule| {
-        schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+        schedule.set_executor(SingleThreadedExecutor::new());
     });
     app.edit_schedule(PreUpdate, |schedule| {
-        schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+        schedule.set_executor(SingleThreadedExecutor::new());
     });
     app.edit_schedule(Update, |schedule| {
-        schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+        schedule.set_executor(SingleThreadedExecutor::new());
     });
     app.edit_schedule(PostUpdate, |schedule| {
-        schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+        schedule.set_executor(SingleThreadedExecutor::new());
     });
     let window = app
         .world_mut()

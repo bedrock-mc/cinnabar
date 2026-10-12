@@ -600,7 +600,7 @@
     Assert-Equal 'runtime-biome-index-water-tint-lookup' $waterPlan.Manifest.relative_layout.biome_tint_evidence.kind 'water gallery did not bind tint witnesses to runtime biome lookup'
     Assert-True (-not [bool]$waterPlan.Manifest.relative_layout.biome_tint_evidence.distinct_biome_colours_claimed) 'water gallery claimed nearby witnesses prove distinct biome colours'
     Assert-Equal 1 ([uint64]$waterPlan.Manifest.relative_layout.biome_tint_evidence.minimum_rendered_distinct_tint_count) 'water gallery did not state its honest single-biome live tint requirement'
-    Assert-Equal 'bedrock-client::tests::compiled_and_live_biome_tables_preserve_raw_id_water_colour_parity' ([string]$waterPlan.Manifest.relative_layout.biome_tint_evidence.multi_biome_lookup_parity_test) 'water gallery did not retain the separate multi-biome lookup parity proof'
+    Assert-Equal 'cinnabar::tests::compiled_and_live_biome_tables_preserve_raw_id_water_colour_parity' ([string]$waterPlan.Manifest.relative_layout.biome_tint_evidence.multi_biome_lookup_parity_test) 'water gallery did not retain the separate multi-biome lookup parity proof'
     Assert-True ([Math]::Abs([double]$waterPlan.Manifest.performance.maximum_p99_frame_ms - (1000.0 / 60.0)) -lt 0.0000001) 'water gallery did not manifest the exact 60fps p99 threshold'
     Assert-True ($null -ne $waterPlan.Manifest.relative_layout.still_pool) 'water gallery did not manifest its still pool'
     Assert-True ($null -ne $waterPlan.Manifest.relative_layout.downhill_flow_edge) 'water gallery did not manifest its downhill flow edge'

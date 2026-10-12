@@ -82,7 +82,7 @@ fn presentation_accepts_borrowed_observations_and_shared_asset_contracts() {
 #[test]
 fn plugins_reject_host_gameplay_session_and_reverse_evidence_edges() {
     for owner in ["client-presentation", "acceptance", "diagnostics"] {
-        for package in ["bedrock-client", "gameplay", "client-session"] {
+        for package in ["cinnabar", "gameplay", "client-session"] {
             for kind in [
                 "dependencies",
                 "dev-dependencies",
@@ -166,7 +166,7 @@ fn presentation_test_support_cannot_leak_into_production() {
     let temp = fixture();
     write(
         &temp.path().join("app/Cargo.toml"),
-        "[package]\nname='bedrock-client'\nversion='0.1.0'\n[dependencies]\nclient-presentation={path='../crates/client-presentation',features=['test-support']}",
+        "[package]\nname='cinnabar'\nversion='0.1.0'\n[dependencies]\nclient-presentation={path='../crates/client-presentation',features=['test-support']}",
     );
     assert!(
         diagnostics(temp.path())

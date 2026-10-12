@@ -305,6 +305,7 @@ pub(super) fn compile(
             };
             ItemVisualDefinition {
                 grip: assets::item::grip::builtin_item_grip(&key.identifier),
+                glint: assets::item::glint::builtin_item_glint(&key.identifier),
                 fuel: assets::item::fuel::builtin_item_fuel(&key.identifier),
                 durability: assets::item::durability::builtin_item_durability(&key.identifier),
                 armour: armour

@@ -25,13 +25,13 @@ use super::{
 impl PlayerInventoryLedger {
     pub fn apply(&mut self, event: &InventoryEvent) {
         for update in event.slot_updates() {
-            tracing::debug!(target: "bedrock_client::inventory_requests",
+            tracing::debug!(target: "cinnabar::inventory_requests",
                 identity = ?update.identity, network_id = update.stack.network_id,
                 stack_id = update.stack.stack_network_id, count = update.stack.count,
                 "authoritative inventory slot");
         }
         if let InventoryEvent::Content(content) = event {
-            tracing::debug!(target: "bedrock_client::inventory_requests",
+            tracing::debug!(target: "cinnabar::inventory_requests",
                 container = ?content.container, slots = content.slots.len(),
                 items = ?content.slots.iter().take(PLAYER_INVENTORY_SLOT_COUNT)
                     .map(|stack| (stack.network_id, stack.stack_network_id, stack.count))
@@ -139,7 +139,7 @@ impl PlayerInventoryLedger {
                     .skipped_unknown_containers
                     .saturating_add(transaction.skipped_actions as u64);
                 if transaction.skipped_actions != 0 {
-                    tracing::warn!(target: "bedrock_client::inventory_requests",
+                    tracing::warn!(target: "cinnabar::inventory_requests",
                         count = transaction.skipped_actions,
                         "skipped unsupported normal transaction actions");
                 }
@@ -274,7 +274,7 @@ impl PlayerInventoryLedger {
 
     /// Emits a bounded prefix of fixed-field storage-sized content diagnostics
     /// for each ledger session. Enable only this target with
-    /// `RUST_LOG=bedrock_client::inventory_storage_admission=debug`.
+    /// `RUST_LOG=cinnabar::inventory_storage_admission=debug`.
     ///
     /// Item descriptors and payload bytes are deliberately excluded. This is
     /// observation only: routing and admission remain unchanged.
@@ -307,7 +307,7 @@ impl PlayerInventoryLedger {
                 (Some(storage.window_id), Some(storage.generation))
             });
         tracing::debug!(
-            target: "bedrock_client::inventory_storage_admission",
+            target: "cinnabar::inventory_storage_admission",
             content_window_id = ?content.container.window_id,
             content_slot_type = ?content.container.slot_type,
             content_dynamic_id = ?content.container.dynamic_id,

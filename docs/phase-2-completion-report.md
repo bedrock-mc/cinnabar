@@ -54,10 +54,10 @@ Deterministic checks completed locally:
 
 - `cargo test -p protocol --locked --test blob_cache -- --nocapture` — 26 passed.
 - `cargo test -p protocol --locked --test login_state -- --nocapture` — 7 passed, including encrypted enabled negotiation and cached-world FIFO.
-- `cargo test -p bedrock-client --lib --locked` — 202 passed, including live cache-stat forwarding, shutdown-final flushing, and exact publication serialization.
+- `cargo test -p cinnabar --lib --locked` — 202 passed, including live cache-stat forwarding, shutdown-final flushing, and exact publication serialization.
 - `Invoke-Pester scripts/tests/remote-acceptance.Tests.ps1` under Windows PowerShell — 19 passed, including exact cache schema, server-specific terminal routes, and sequence validation.
 - `cargo test -p jolyne --features client client_cache -- --nocapture` — 2 passed for vendored enabled/disabled negotiation.
 - `go test ./... -run ClientBlobCache -count=1` and `go vet ./...` under `core` — passed with the pinned gophertunnel/xxHash fixture.
-- `cargo clippy -p protocol -p client-world --all-targets --locked -- -D warnings` and `cargo clippy -p bedrock-client --lib --bins --locked -- -D warnings` — passed.
+- `cargo clippy -p protocol -p client-world --all-targets --locked -- -D warnings` and `cargo clippy -p cinnabar --lib --bins --locked -- -D warnings` — passed.
 
-The former `bedrock-client --all-targets` blocker in `app/tests/assets.rs` is resolved: the `CompiledEntityAssets` initializer now includes the animation, Molang, controller, and rig fields. Canonical CI run `29671070071` at `2fc7a33` passes the full workspace test and strict all-target Clippy gates on Linux and Windows. No live Lunar or Zeqa evidence was run or recorded here; Task 5A remains non-final until the ordered live gate is executed independently.
+The former `cinnabar --all-targets` blocker in `app/tests/assets.rs` is resolved: the `CompiledEntityAssets` initializer now includes the animation, Molang, controller, and rig fields. Canonical CI run `29671070071` at `2fc7a33` passes the full workspace test and strict all-target Clippy gates on Linux and Windows. No live Lunar or Zeqa evidence was run or recorded here; Task 5A remains non-final until the ordered live gate is executed independently.

@@ -11,22 +11,12 @@ pub(crate) fn asset_files() -> impl Iterator<Item = &'static str> {
 
 pub(crate) fn input_files(options: &Options) -> Vec<(PathBuf, String)> {
     let (binary_root, resource_root, client_name, core_name) = match options.platform {
-        Platform::Windows => (
-            "",
-            "resources/assets",
-            "bedrock-client.exe",
-            "bedrock-core.exe",
-        ),
-        Platform::Linux => (
-            "bin/",
-            "share/cinnabar/assets",
-            "bedrock-client",
-            "bedrock-core",
-        ),
+        Platform::Windows => ("", "resources/assets", "cinnabar.exe", "bedrock-core.exe"),
+        Platform::Linux => ("bin/", "share/cinnabar/assets", "cinnabar", "bedrock-core"),
         Platform::Macos => (
             "Cinnabar.app/Contents/MacOS/",
             "Cinnabar.app/Contents/Resources/assets",
-            "bedrock-client",
+            "cinnabar",
             "bedrock-core",
         ),
     };

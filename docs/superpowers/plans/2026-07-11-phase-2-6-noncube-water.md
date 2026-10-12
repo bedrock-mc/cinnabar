@@ -474,8 +474,8 @@ Run:
 ```powershell
 cargo test -p render --test lighting -- --nocapture
 cargo test -p world --test chunk
-cargo test -p bedrock-client world_stream::tests::mesh_dependency -- --nocapture
-cargo clippy -p render -p world -p bedrock-client --all-targets --locked -- -D warnings
+cargo test -p cinnabar world_stream::tests::mesh_dependency -- --nocapture
+cargo clippy -p render -p world -p cinnabar --all-targets --locked -- -D warnings
 ```
 
 Also rerun Task 7's record-size assertion.
@@ -735,7 +735,7 @@ and non-zero sort/presentation metrics. Because BDS fixture commands cannot set
 the biome under a witness, the manifest requires one distinct runtime water
 tint actually referenced by the committed/presented fixture rather than
 pretending two nearby witnesses cross a biome boundary. The separately named
-`bedrock-client::tests::compiled_and_live_biome_tables_preserve_raw_id_water_colour_parity`
+`cinnabar::tests::compiled_and_live_biome_tables_preserve_raw_id_water_colour_parity`
 integration test proves that two live raw biome IDs with distinct map-water
 colours retain their exact dense lookup and distinct renderer tint records.
 

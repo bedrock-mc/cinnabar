@@ -51,16 +51,16 @@
     Prints the default plan without touching any window or injecting anything.
 
 .EXAMPLE
-    .\scripts\organic-movement-input-driver.ps1 -ProcessName bedrock-client
-    Waits up to 10 s for a bedrock-client window to be foreground, then runs the
+    .\scripts\organic-movement-input-driver.ps1 -ProcessName cinnabar
+    Waits up to 10 s for a cinnabar window to be foreground, then runs the
     default organic-movement scenario into it.
 
 .EXAMPLE
-    .\scripts\organic-movement-input-driver.ps1 -ProcessName bedrock-client `
+    .\scripts\organic-movement-input-driver.ps1 -ProcessName cinnabar `
         -DurationSeconds 90 -Composition 'FlatWalk,TapJump,SneakPulse,LookDrift'
 
 .EXAMPLE
-    .\scripts\organic-movement-input-driver.ps1 -ProcessName bedrock-client -Activate
+    .\scripts\organic-movement-input-driver.ps1 -ProcessName cinnabar -Activate
     Same gate and scenario, but the driver also attempts to raise the target
     window itself for unattended acceptance runs; refusal on failure is unchanged.
 #>

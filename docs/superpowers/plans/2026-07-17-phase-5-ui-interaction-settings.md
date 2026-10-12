@@ -723,7 +723,7 @@ fn chat_focus_requests_context_and_router_releases_gameplay_actions() {
 
 ```powershell
 cargo test -p ui --locked --test hud --test chat -- --nocapture
-cargo test -p bedrock-client --locked ui_runtime -- --nocapture
+cargo test -p cinnabar --locked ui_runtime -- --nocapture
 ```
 
 Expected: FAIL because the stores/runtime are absent.
@@ -755,8 +755,8 @@ code mutate the stores.
 
 ```powershell
 cargo test -p ui --locked --test hud --test chat -- --nocapture
-cargo test -p bedrock-client --locked ui_runtime -- --nocapture
-cargo clippy -p ui -p bedrock-client --all-targets --locked -- -D warnings
+cargo test -p cinnabar --locked ui_runtime -- --nocapture
+cargo clippy -p ui -p cinnabar --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 git add crates/ui app/src/ui_runtime.rs app/src/ui_runtime
 git commit -m "feat(ui): retain server HUD and chat state"
@@ -1188,7 +1188,7 @@ fn miss_emits_no_entity_transaction() {
 - [ ] **Step 2: Run and verify failure**
 
 ```powershell
-cargo test -p bedrock-client --locked interaction -- --nocapture
+cargo test -p cinnabar --locked interaction -- --nocapture
 cargo test -p protocol --locked --test interaction -- --nocapture
 ```
 
@@ -1286,9 +1286,9 @@ produces at most one request sequence.
 - [ ] **Step 5: Verify vanilla-only policy and commit**
 
 ```powershell
-cargo test -p bedrock-client --locked interaction -- --nocapture
+cargo test -p cinnabar --locked interaction -- --nocapture
 cargo test -p protocol --locked --test interaction -- --nocapture
-cargo clippy -p bedrock-client -p protocol --all-targets --locked -- -D warnings
+cargo clippy -p cinnabar -p protocol --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 rg -n "ExtendedReach|ReachFluctuation|AutoClicker|KillAura|LunarCombat" app/src crates/protocol/src crates/ui/src
 git diff --check
@@ -1367,7 +1367,7 @@ fn crack_overlay_is_bounded_and_allocates_no_per_crack_gpu_resources() {
 - [ ] **Step 2: Run and verify failure**
 
 ```powershell
-cargo test -p bedrock-client --locked block_interaction -- --nocapture
+cargo test -p cinnabar --locked block_interaction -- --nocapture
 cargo test -p ui --locked --test inventory_view -- --nocapture
 cargo test -p protocol --locked --test interaction -- --nocapture
 cargo test -p render --locked --test block_crack -- --nocapture
@@ -1454,11 +1454,11 @@ these phases.
 - [ ] **Step 4: Verify and commit**
 
 ```powershell
-cargo test -p bedrock-client --locked block_interaction -- --nocapture
+cargo test -p cinnabar --locked block_interaction -- --nocapture
 cargo test -p ui --locked --test inventory_view -- --nocapture
 cargo test -p protocol --locked --test interaction -- --nocapture
 cargo test -p render --locked --test block_crack -- --nocapture
-cargo clippy -p bedrock-client -p ui -p protocol --all-targets --locked -- -D warnings
+cargo clippy -p cinnabar -p ui -p protocol --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 git add app/src/interaction.rs app/src/interaction crates/protocol crates/ui crates/render/src/block_crack.rs crates/render/src/block_crack.wgsl crates/render/tests/block_crack.rs
 git commit -m "feat: add authoritative block and inventory interaction"
@@ -1581,7 +1581,7 @@ fn malformed_or_out_of_range_settings_use_attributed_defaults() {
 
 ```powershell
 cargo test -p ui --locked --test settings -- --nocapture
-cargo test -p bedrock-client --locked settings_runtime -- --nocapture
+cargo test -p cinnabar --locked settings_runtime -- --nocapture
 ```
 
 Expected: FAIL because validation/persistence is absent.
@@ -1652,8 +1652,8 @@ overrides have no fields in `UserSettings`.
 
 ```powershell
 cargo test -p ui --locked --test settings -- --nocapture
-cargo test -p bedrock-client --locked settings_runtime -- --nocapture
-cargo clippy -p ui -p bedrock-client --all-targets --locked -- -D warnings
+cargo test -p cinnabar --locked settings_runtime -- --nocapture
+cargo clippy -p ui -p cinnabar --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 git diff --check
 git add crates/ui app/src/settings_runtime.rs app/src/settings_runtime
@@ -1723,7 +1723,7 @@ fn default_perspective_uses_the_shared_enum_and_applies_live() {
 
 ```powershell
 cargo test -p ui --locked --test menu -- --nocapture
-cargo test -p bedrock-client --locked settings_runtime -- --nocapture
+cargo test -p cinnabar --locked settings_runtime -- --nocapture
 ```
 
 Expected: FAIL because the menu/apply adapters are absent.
@@ -1757,8 +1757,8 @@ create a validated default draft but require Apply.
 
 ```powershell
 cargo test -p ui --locked --test menu -- --nocapture
-cargo test -p bedrock-client --locked settings_runtime -- --nocapture
-cargo clippy -p ui -p bedrock-client --all-targets --locked -- -D warnings
+cargo test -p cinnabar --locked settings_runtime -- --nocapture
+cargo clippy -p ui -p cinnabar --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 git add crates/ui app/src/ui_runtime.rs app/src/settings_runtime.rs app/src/settings_runtime
 git commit -m "feat(settings): add live in-game controls and video menu"
@@ -1840,7 +1840,7 @@ fn settings_overlay_does_not_starve_phase2_publication_or_remesh() {
 - [ ] **Step 2: Run and verify failure before Phase 4 presentation integration**
 
 ```powershell
-cargo test -p bedrock-client --locked integrated_item_witness -- --nocapture
+cargo test -p cinnabar --locked integrated_item_witness -- --nocapture
 $result = Invoke-Pester -Script scripts/tests/ui-acceptance.Tests.ps1 -PassThru
 if ($result.FailedCount -ne 0) { exit 1 }
 ```
@@ -1888,10 +1888,10 @@ under the Phase 2 gate.
 cargo test -p protocol --locked
 cargo test -p ui --locked
 cargo test -p render --locked
-cargo test -p bedrock-client --locked
+cargo test -p cinnabar --locked
 $result = Invoke-Pester -Script scripts/tests/ui-acceptance.Tests.ps1 -PassThru
 if ($result.FailedCount -ne 0) { exit 1 }
-cargo clippy -p protocol -p ui -p render -p bedrock-client --all-targets --locked -- -D warnings
+cargo clippy -p protocol -p ui -p render -p cinnabar --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 git diff --check
 git add app scripts/tests/ui-acceptance.Tests.ps1

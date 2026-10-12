@@ -227,6 +227,7 @@ impl HudEditor {
             "#grid_label",
             Scalar::Text(if self.snap { "Grid: ON" } else { "Grid: OFF" }.into()),
         );
+        let style = self.draft.editor_style.unwrap_or_default();
         for (index, card) in self.draft.cards.iter().enumerate() {
             let at = cards::origin(card, self.viewport);
             let size = cards::dimensions(card);
@@ -243,9 +244,9 @@ impl HudEditor {
             data.set_global(
                 format!("#bounds_{index}_color"),
                 Scalar::Json(serde_json::json!(if self.selected == Some(index) {
-                    [0.3, 0.85, 1., 1.]
+                    style.selected
                 } else {
-                    [1., 1., 1., 0.55]
+                    style.outline
                 })),
             );
         }

@@ -12,9 +12,9 @@ Target: Apple M3 Pro, 18 GB unified memory, Mac15,6, macOS 26.3 (25D125).
 The failing canonical debug client used Metal and MultiDrawIndirect.
 
 On 2026-10-02, the client's system GPU-event reports repeatedly recorded
-`process_name=bedrock-client`, `signature=577`, `guilty_dm=1`, and
+`process_name=cinnabar`, `signature=577`, `guilty_dm=1`, and
 `restart_reason_desc=firmware-detected lockup`. The last inspected report was
-`gpuEvent-bedrock-client-2026-10-02-053335.ips`.
+`gpuEvent-cinnabar-2026-10-02-053335.ips`.
 
 Four inspected `panic-full` reports at 04:57, 05:09, 05:36 and 05:55 recorded
 WindowServer userspace-watchdog failures. The 05:54 watchdog spin showed

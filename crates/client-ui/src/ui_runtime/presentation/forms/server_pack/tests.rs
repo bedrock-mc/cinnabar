@@ -36,7 +36,8 @@ fn prepared_hud_textures_read_off_the_frame() {
                 catalog: Some(Arc::new(
                     super::super::screen_registry::registry()
                         .catalog()
-                        .layer(&base, &[]),
+                        .layer(&base, &[])
+                        .pack,
                 )),
                 ..pack
             }

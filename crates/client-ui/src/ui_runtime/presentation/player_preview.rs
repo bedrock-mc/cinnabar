@@ -78,7 +78,7 @@ impl UiPresentationRuntime {
         self.equipment_catalog = catalog;
     }
 
-    /// Dresses the model using each stack's admitted identity and grip facts.
+    /// Dresses the model using each stack's admitted identity, grip and intrinsic shine.
     pub fn dress_player_preview(
         &mut self,
         player_runtime: &player_state::PlayerState,
@@ -108,11 +108,16 @@ impl UiPresentationRuntime {
             }),
             held.as_ref().map(|(id, stack, _)| (&**id, stack.metadata)),
         );
+        self.player_preview_gear.armor_glint = armor.each_ref().map(|worn| {
+            worn.as_ref()
+                .is_some_and(|(_, stack, item)| runtime.item_glint(stack, item.glint))
+        });
         let off_hand = named(ledger.target_stack(InventoryTarget::Offhand));
         self.player_preview_gear.hands = [held, off_hand].map(|item| {
             let (identifier, stack, item) = item?;
             Some(PreviewHandItem {
                 grip: Some(item.grip),
+                glint: Some(runtime.item_glint(&stack, item.glint)),
                 identifier,
                 metadata: stack.metadata,
                 use_animation: item.use_animation,
@@ -158,6 +163,7 @@ impl UiPresentationRuntime {
         let hands = [
             held.map(|(identifier, metadata)| PreviewHandItem {
                 grip: None,
+                glint: None,
                 identifier: Arc::from(identifier),
                 metadata,
                 use_animation: assets::item_use::ItemUseAnimation::None,
@@ -174,7 +180,12 @@ impl UiPresentationRuntime {
                 tint: None,
             })
         });
-        self.player_preview_gear = PreviewEquipment { armor, held, hands };
+        self.player_preview_gear = PreviewEquipment {
+            armor,
+            armor_glint: [false; 4],
+            held,
+            hands,
+        };
     }
 
     /// The current model raster's RGBA pixels, empty before the first.

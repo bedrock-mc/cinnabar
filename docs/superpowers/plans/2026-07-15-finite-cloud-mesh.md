@@ -107,7 +107,7 @@ Delete `sample_cloud_layer`, its call, and all `textureSampleLevel(clouds_textur
 
 - [x] **Step 7: Verify and commit**
 
-Run `cargo test -p render --locked`, `cargo test -p bedrock-client --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, and `cargo fmt --all -- --check`. Commit with `feat: render finite depth-aware clouds`.
+Run `cargo test -p render --locked`, `cargo test -p cinnabar --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, and `cargo fmt --all -- --check`. Commit with `feat: render finite depth-aware clouds`.
 
 ### Task 3: Release live acceptance and plan evidence
 

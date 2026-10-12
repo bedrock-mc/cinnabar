@@ -105,7 +105,7 @@ pub fn snapshot_menu_with_catalog(
             .engine
             .as_mut()
             .unwrap()
-            .install_pack_catalog(catalog);
+            .install_pack_catalog(catalog, None);
         presentation.refresh_menu_title();
     }
     let mut runtime = UiRuntime::new(1);

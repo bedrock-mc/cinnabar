@@ -268,8 +268,8 @@ physics metadata.
 ```powershell
 cargo test --locked -p world
 cargo test --locked -p sim --test palette_world
-cargo test --locked -p bedrock-client movement::integration_tests::checked_in_registry
-cargo test --locked -p bedrock-client movement::integration_tests::physics_registry
+cargo test --locked -p cinnabar movement::integration_tests::checked_in_registry
+cargo test --locked -p cinnabar movement::integration_tests::physics_registry
 ```
 
 Expected: sequential and hashed lookups return identical facts for the same canonical states, unknown IDs block, and all revision tests pass.
@@ -461,7 +461,7 @@ Run:
 
 ```powershell
 cargo test --locked -p sim --test prediction --test corrections
-cargo test --locked -p bedrock-client movement::integration_tests::correction
+cargo test --locked -p cinnabar movement::integration_tests::correction
 ```
 
 Expected: fail because frames retain no world identity and app corrections always reanchor.
@@ -490,11 +490,11 @@ Add `LocalPhysicsController::apply_server_correction`. Convert network position 
 ```powershell
 cargo test --locked -p sim --test prediction --test corrections
 cargo test --locked -p sim
-cargo test --locked -p bedrock-client movement::integration_tests::correction
+cargo test --locked -p cinnabar movement::integration_tests::correction
 ```
 
 Expected: both `sim` commands pass in the producer lane. The
-`bedrock-client` correction gate passes after integration applies the reviewed
+`cinnabar` correction gate passes after integration applies the reviewed
 runtime-world dispatch hunk, with unrelated chunk changes replaying and queried
 chunk changes snapping.
 
@@ -506,7 +506,7 @@ git commit -m "feat: replay corrections against immutable world identity"
 ```
 
 The integration owner applies the reviewed `app/src/runtime/world.rs`
-correction-dispatch hunk and runs the public `bedrock-client` correction gate
+correction-dispatch hunk and runs the public `cinnabar` correction gate
 before checkpoint 1.
 
 ### Task 6: Build the bounded renderer-independent semantic input router
@@ -819,8 +819,8 @@ Build headless apps that inject equivalent keyboard/mouse, gamepad, and touch fr
 Run:
 
 ```powershell
-cargo test --locked -p bedrock-client input::tests
-cargo test --locked -p bedrock-client movement::integration_tests::semantic
+cargo test --locked -p cinnabar input::tests
+cargo test --locked -p cinnabar movement::integration_tests::semantic
 ```
 
 Expected: fail because app systems still read raw inputs.
@@ -901,10 +901,10 @@ Expected: gameplay device reads occur only in `app/src/input/**` and cursor-capt
 - [ ] **Step 5: Verify**
 
 ```powershell
-cargo test --locked -p bedrock-client input::tests
-cargo test --locked -p bedrock-client movement::integration_tests
-cargo test --locked -p bedrock-client camera::tests
-cargo clippy --locked -p bedrock-client --all-targets --all-features -- -D warnings
+cargo test --locked -p cinnabar input::tests
+cargo test --locked -p cinnabar movement::integration_tests
+cargo test --locked -p cinnabar camera::tests
+cargo clippy --locked -p cinnabar --all-targets --all-features -- -D warnings
 ```
 
 Expected: all pass, including release-before-fixed-tick and held-jump catch-up cases.
@@ -992,7 +992,7 @@ Run:
 
 ```powershell
 cargo test --locked -p sim --test camera_collision
-cargo test --locked -p bedrock-client camera::perspective_tests
+cargo test --locked -p cinnabar camera::perspective_tests
 ```
 
 Expected: fail because the camera modes/solver do not exist.
@@ -1018,10 +1018,10 @@ correction alone retains perspective.
 
 ```powershell
 cargo test --locked -p sim --test camera_collision
-cargo test --locked -p bedrock-client camera::perspective_tests
-cargo test --locked -p bedrock-client camera::tests
-cargo test --locked -p bedrock-client movement::integration_tests
-cargo clippy --locked -p sim -p bedrock-client --all-targets --all-features -- -D warnings
+cargo test --locked -p cinnabar camera::perspective_tests
+cargo test --locked -p cinnabar camera::tests
+cargo test --locked -p cinnabar movement::integration_tests
+cargo clippy --locked -p sim -p cinnabar --all-targets --all-features -- -D warnings
 ```
 
 Expected: all pass with identical targeting rays across all modes and fail-closed eye fallback.
@@ -1060,8 +1060,8 @@ counts `1/0/0` for first/rear/front.
 Run:
 
 ```powershell
-cargo test --locked -p bedrock-client camera::local_avatar_tests
-cargo test --locked -p bedrock-client phase4_local_avatar_handoff
+cargo test --locked -p cinnabar camera::local_avatar_tests
+cargo test --locked -p cinnabar phase4_local_avatar_handoff
 ```
 
 Expected: fail because the frozen local carrier is not yet published and the
@@ -1113,9 +1113,9 @@ does not mutate this Phase 3 carrier.
 - [ ] **Step 4: Verify**
 
 ```powershell
-cargo test --locked -p bedrock-client camera::local_avatar_tests
-cargo test --locked -p bedrock-client phase4_local_avatar_handoff
-cargo clippy --locked -p bedrock-client --all-targets --all-features -- -D warnings
+cargo test --locked -p cinnabar camera::local_avatar_tests
+cargo test --locked -p cinnabar phase4_local_avatar_handoff
+cargo clippy --locked -p cinnabar --all-targets --all-features -- -D warnings
 ```
 
 Expected: all pass; world-avatar counts are `0/1/1`, viewmodel counts are
@@ -1164,7 +1164,7 @@ Run:
 
 ```powershell
 cargo test --locked -p protocol --test player_auth_input
-cargo test --locked -p bedrock-client movement::integration_tests
+cargo test --locked -p cinnabar movement::integration_tests
 ```
 
 Expected: failures because the candidate FIFO/packet path is not wired; the
@@ -1204,10 +1204,10 @@ Task 13, not this task, changes the production default after live evidence.
 
 ```powershell
 cargo test --locked -p protocol --test player_auth_input
-cargo test --locked -p bedrock-client movement::integration_tests
-cargo test --locked -p bedrock-client runtime::network
-cargo test --locked -p bedrock-client runtime::world
-cargo clippy --locked -p protocol -p bedrock-client --all-targets --all-features -- -D warnings
+cargo test --locked -p cinnabar movement::integration_tests
+cargo test --locked -p cinnabar runtime::network
+cargo test --locked -p cinnabar runtime::world
+cargo clippy --locked -p protocol -p cinnabar --all-targets --all-features -- -D warnings
 ```
 
 Expected: all pass. Candidate mode produces exactly 20 consecutive physics
@@ -1350,8 +1350,8 @@ release/clear behavior.
 Run:
 
 ```powershell
-cargo test --locked -p bedrock-client movement::authority_tests
-cargo test --locked -p bedrock-client movement::integration_tests::authority
+cargo test --locked -p cinnabar movement::authority_tests
+cargo test --locked -p cinnabar movement::integration_tests::authority
 ```
 
 Expected: FAIL only because `PhysicsAuthorityGate` still defaults to
@@ -1370,8 +1370,8 @@ guard in `flush_player_auth_inputs`.
 
 ```powershell
 cargo test --locked -p protocol --test player_auth_input
-cargo test --locked -p bedrock-client movement::authority_tests
-cargo test --locked -p bedrock-client movement::integration_tests
+cargo test --locked -p cinnabar movement::authority_tests
+cargo test --locked -p cinnabar movement::integration_tests
 cargo test --workspace --locked
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check

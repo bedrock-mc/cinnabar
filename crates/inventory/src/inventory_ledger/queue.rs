@@ -134,7 +134,7 @@ impl PlayerInventoryLedger {
         if server_authoritative {
             self.bind_request_dependencies(&mut request.actions, request.request_id);
         }
-        tracing::debug!(target: "bedrock_client::inventory_requests",
+        tracing::debug!(target: "cinnabar::inventory_requests",
             request_id = request.request_id, actions = ?request.actions,
             "inventory request predicted");
         let before = self.view().clone();
@@ -309,7 +309,7 @@ impl PlayerInventoryLedger {
         correction: &StackResponseSlot,
     ) {
         if (correction.count == 0) != (correction.item_stack_id <= 0) {
-            tracing::warn!(target: "bedrock_client::inventory_requests",
+            tracing::warn!(target: "cinnabar::inventory_requests",
                 request_id = request.request_id, slot = correction.slot,
                 count = correction.count, stack_id = correction.item_stack_id,
                 "skipping invalid response count/stack-id pair");

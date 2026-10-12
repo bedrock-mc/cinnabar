@@ -44,7 +44,7 @@ The source is `app/src/ui_runtime/presentation.rs` before extraction and
 build_slot=/private/tmp/claude-501/-Users-hashim-Downloads-cinnabar/30f7cca3-953b-4833-843f-34f90cbe1dae/scratchpad/cslot
 CARGO_BUILD_JOBS=3 "$build_slot" env RUSTC_WRAPPER= CARGO_INCREMENTAL=0 \
   CARGO_TARGET_DIR="$PWD/target" \
-  cargo build --offline --locked -p bedrock-client --timings
+  cargo build --offline --locked -p cinnabar --timings
 ```
 
 The limiter sets `CARGO_PROFILE_DEV_DEBUG=0`. Clearing `RUSTC_WRAPPER` after entering

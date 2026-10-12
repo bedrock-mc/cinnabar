@@ -569,22 +569,18 @@ mod tests {
         for (platform, executable, home) in [
             (
                 Platform::Windows,
-                "C:/Cinnabar/bedrock-client.exe",
+                "C:/Cinnabar/cinnabar.exe",
                 "C:/Users/dev",
             ),
-            (
-                Platform::Linux,
-                "/opt/cinnabar/bin/bedrock-client",
-                "/home/dev",
-            ),
+            (Platform::Linux, "/opt/cinnabar/bin/cinnabar", "/home/dev"),
             (
                 Platform::MacOs,
-                "/Applications/Cinnabar.app/Contents/MacOS/bedrock-client",
+                "/Applications/Cinnabar.app/Contents/MacOS/cinnabar",
                 "/Users/dev",
             ),
             (
                 Platform::Linux,
-                "/work/cinnabar/target/debug/bedrock-client",
+                "/work/cinnabar/target/debug/cinnabar",
                 "/home/dev",
             ),
         ] {
@@ -619,7 +615,7 @@ mod tests {
             root.join("target/debug/deps/launcher-0123")
         );
         assert_eq!(cargo_artifact_path(shared.clone(), None), shared);
-        let checkout = PathBuf::from("/work/cinnabar/target/debug/bedrock-client");
+        let checkout = PathBuf::from("/work/cinnabar/target/debug/cinnabar");
         assert_eq!(
             cargo_artifact_path(checkout.clone(), Some(manifest)),
             checkout
@@ -641,24 +637,20 @@ mod tests {
     #[test]
     fn isolated_user_root_keeps_resources_and_all_user_paths_separate() {
         for (platform, executable, root) in [
-            (
-                Platform::Windows,
-                "C:/app/bedrock-client.exe",
-                "D:/Zeno/profile",
-            ),
+            (Platform::Windows, "C:/app/cinnabar.exe", "D:/Zeno/profile"),
             (
                 Platform::Linux,
-                "/opt/app/bin/bedrock-client",
+                "/opt/app/bin/cinnabar",
                 "/tmp/zeno-profile",
             ),
             (
                 Platform::MacOs,
-                "/Applications/Cinnabar.app/Contents/MacOS/bedrock-client",
+                "/Applications/Cinnabar.app/Contents/MacOS/cinnabar",
                 "/tmp/zeno-profile",
             ),
             (
                 Platform::Linux,
-                "/work/cinnabar/target/debug/bedrock-client",
+                "/work/cinnabar/target/debug/cinnabar",
                 "/tmp/zeno-profile",
             ),
         ] {
@@ -690,8 +682,7 @@ mod tests {
     fn isolated_user_root_rejects_relative_and_empty_paths() {
         for platform in [Platform::Windows, Platform::Linux, Platform::MacOs] {
             for root in ["relative", ""] {
-                let mut env =
-                    environment("/work/cinnabar/target/debug/bedrock-client", "/home/dev");
+                let mut env = environment("/work/cinnabar/target/debug/cinnabar", "/home/dev");
                 env.user_root = Some(PathBuf::from(root));
                 assert!(matches!(
                     InstallLayout::resolve(platform, &env),
@@ -709,7 +700,7 @@ mod tests {
     fn play_profile_binary_uses_the_development_layout() {
         let layout = InstallLayout::resolve(
             Platform::Linux,
-            &environment("/work/cinnabar/target/play/bedrock-client", "/home/dev"),
+            &environment("/work/cinnabar/target/play/cinnabar", "/home/dev"),
         )
         .unwrap();
         assert_eq!(
@@ -758,10 +749,7 @@ mod tests {
 
     #[test]
     fn resolves_windows_app_layout_and_user_roots() {
-        let mut env = environment(
-            "C:/Program Files/Cinnabar/bedrock-client.exe",
-            "C:/Users/dev",
-        );
+        let mut env = environment("C:/Program Files/Cinnabar/cinnabar.exe", "C:/Users/dev");
         env.local_app_data = Some(PathBuf::from("C:/Users/dev/AppData/Local"));
         let layout = InstallLayout::resolve(Platform::Windows, &env).unwrap();
         assert_eq!(
@@ -789,7 +777,7 @@ mod tests {
 
     #[test]
     fn resolves_linux_xdg_layout() {
-        let mut env = environment("/opt/cinnabar/bin/bedrock-client", "/home/dev");
+        let mut env = environment("/opt/cinnabar/bin/cinnabar", "/home/dev");
         env.xdg_config_home = Some(PathBuf::from("/cfg"));
         env.xdg_data_home = Some(PathBuf::from("/data"));
         env.xdg_runtime_dir = Some(PathBuf::from("/run/user/1000"));
@@ -817,7 +805,7 @@ mod tests {
         let layout = InstallLayout::resolve(
             Platform::MacOs,
             &environment(
-                "/Applications/Cinnabar.app/Contents/MacOS/bedrock-client",
+                "/Applications/Cinnabar.app/Contents/MacOS/cinnabar",
                 "/Users/dev",
             ),
         )
@@ -840,14 +828,14 @@ mod tests {
 
     #[test]
     fn installed_layouts_fail_without_required_identity_or_user_roots() {
-        let mut linux = environment("/opt/cinnabar/bin/bedrock-client", "/home/dev");
+        let mut linux = environment("/opt/cinnabar/bin/cinnabar", "/home/dev");
         linux.home = None;
         assert_eq!(
             InstallLayout::resolve(Platform::Linux, &linux),
             Err(LayoutError::MissingUserHome { platform: "Linux" })
         );
 
-        let windows = environment("C:/Cinnabar/bedrock-client.exe", "C:/Users/dev");
+        let windows = environment("C:/Cinnabar/cinnabar.exe", "C:/Users/dev");
         assert_eq!(
             InstallLayout::resolve(Platform::Windows, &windows),
             Err(LayoutError::MissingLocalAppData)
@@ -863,7 +851,7 @@ mod tests {
 
     #[test]
     fn installed_layouts_never_accept_relative_user_roots() {
-        let mut windows = environment("C:/Cinnabar/bedrock-client.exe", "C:/Users/dev");
+        let mut windows = environment("C:/Cinnabar/cinnabar.exe", "C:/Users/dev");
         windows.local_app_data = Some(PathBuf::from("relative/local"));
         assert!(matches!(
             InstallLayout::resolve(Platform::Windows, &windows),
@@ -874,7 +862,7 @@ mod tests {
         ));
 
         let mac = environment(
-            "/Applications/Cinnabar.app/Contents/MacOS/bedrock-client",
+            "/Applications/Cinnabar.app/Contents/MacOS/cinnabar",
             "relative/home",
         );
         assert!(matches!(
@@ -885,7 +873,7 @@ mod tests {
             })
         ));
 
-        let mut linux = environment("/opt/cinnabar/bin/bedrock-client", "/home/dev");
+        let mut linux = environment("/opt/cinnabar/bin/cinnabar", "/home/dev");
         linux.xdg_config_home = Some(PathBuf::from("relative/config"));
         linux.xdg_data_home = Some(PathBuf::new());
         linux.xdg_runtime_dir = Some(PathBuf::from("relative/run"));
@@ -906,7 +894,7 @@ mod tests {
 
     #[test]
     fn absolute_linux_xdg_roots_do_not_require_home() {
-        let mut linux = environment("/opt/cinnabar/bin/bedrock-client", "/unused");
+        let mut linux = environment("/opt/cinnabar/bin/cinnabar", "/unused");
         linux.home = None;
         linux.xdg_config_home = Some(PathBuf::from("/cfg"));
         linux.xdg_data_home = Some(PathBuf::from("/data"));
@@ -922,12 +910,12 @@ mod tests {
 
     #[test]
     fn malformed_macos_path_never_guesses_an_app_bundle() {
-        let mac_environment = environment("/opt/cinnabar/bin/bedrock-client", "/Users/dev");
+        let mac_environment = environment("/opt/cinnabar/bin/cinnabar", "/Users/dev");
         assert!(matches!(
             InstallLayout::resolve(Platform::MacOs, &mac_environment),
             Err(LayoutError::InvalidMacOsBundle(_))
         ));
-        let linux_environment = environment("/opt/cinnabar/bedrock-client", "/home/dev");
+        let linux_environment = environment("/opt/cinnabar/cinnabar", "/home/dev");
         assert!(matches!(
             InstallLayout::resolve(Platform::Linux, &linux_environment),
             Err(LayoutError::InvalidLinuxLayout(_))
@@ -936,7 +924,7 @@ mod tests {
 
     #[test]
     fn installed_layout_without_bundled_carriers_uses_prepared_assets() {
-        let mut env = environment("/nonexistent/opt/cinnabar/bin/bedrock-client", "/home/dev");
+        let mut env = environment("/nonexistent/opt/cinnabar/bin/cinnabar", "/home/dev");
         env.xdg_data_home = Some(PathBuf::from("/data"));
         env.xdg_config_home = Some(PathBuf::from("/cfg"));
         let layout = InstallLayout::resolve(Platform::Linux, &env)
@@ -957,7 +945,7 @@ mod tests {
     fn development_layout_is_not_installed() {
         let layout = InstallLayout::resolve(
             Platform::Linux,
-            &environment("/work/cinnabar/target/release/bedrock-client", "/home/dev"),
+            &environment("/work/cinnabar/target/release/cinnabar", "/home/dev"),
         )
         .unwrap()
         .with_prepared_assets();

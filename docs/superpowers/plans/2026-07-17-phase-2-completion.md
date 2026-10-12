@@ -183,9 +183,9 @@ Expected: every guard passes only in the clean fresh Phase 2 lane. `full-client-
 Run:
 
 ```powershell
-cargo test -p world -p meshing -p client-world -p render -p bedrock-client --locked
+cargo test -p world -p meshing -p client-world -p render -p cinnabar --locked
 cargo test -p client-world --release --locked release_full_view_known_air_lighting_completes_within_two_seconds -- --ignored --nocapture
-cargo clippy -p world -p meshing -p client-world -p render -p bedrock-client --all-targets --locked -- -D warnings
+cargo clippy -p world -p meshing -p client-world -p render -p cinnabar --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 cargo run -p devtool --locked -- verify-affected --base d8e4699 --dry-run
 ```
@@ -384,11 +384,11 @@ Expected: the diagnostics test passes. The two new assets files are syntax-check
 The integration owner verifies and merges `completion-phase2-interface`, exports the assets carrier, removes render's duplicate `CloudQuality` definition in favor of consuming/re-exporting `assets::environment_settings::CloudQuality`, applies only the other handoff files listed above, and makes every runner reject an existing `RunId`, a path outside `.local/phase2`, a duration below 150 seconds for a performance-bearing run, a non-release build, an unproved effective present mode, or an auth path outside ignored `.local`. No Bevy or wgpu dependency may be added to `assets`. The remote runner maps `-InitialRadius 16` to the existing authoritative radius-16 client contract and rejects every other value; it does not pass an unsupported client CLI flag. Run in the integration worktree:
 
 ```powershell
-cargo test -p client-world -p assets -p render -p bedrock-client --locked phase2 -- --nocapture
+cargo test -p client-world -p assets -p render -p cinnabar --locked phase2 -- --nocapture
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '$r = Invoke-Pester -Script "scripts/tests/remote-acceptance.Tests.ps1" -PassThru; if ($r.FailedCount -ne 0) { exit 1 }'
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '$r = Invoke-Pester -Script "scripts/tests/phase2-gallery.Tests.ps1" -PassThru; if ($r.FailedCount -ne 0) { exit 1 }'
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '$r = Invoke-Pester -Script "scripts/tests/phase2-motion-ab.Tests.ps1" -PassThru; if ($r.FailedCount -ne 0) { exit 1 }'
-cargo clippy -p client-world -p assets -p render -p bedrock-client --all-targets --locked -- -D warnings
+cargo clippy -p client-world -p assets -p render -p cinnabar --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 git diff --check
 ```
@@ -580,10 +580,10 @@ No wire/core commit is permitted when the fixture tests pass before a change.
 - [ ] **Step 4: Verify, rerun Lunar, review, and commit the selected owner**
 
 ```powershell
-cargo test -p client-world -p bedrock-client --locked request -- --nocapture
-cargo test -p client-world -p bedrock-client --locked retry -- --nocapture
+cargo test -p client-world -p cinnabar --locked request -- --nocapture
+cargo test -p client-world -p cinnabar --locked retry -- --nocapture
 cargo test -p render --locked publication -- --nocapture
-cargo clippy -p client-world -p bedrock-client --all-targets --locked -- -D warnings
+cargo clippy -p client-world -p cinnabar --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/remote-acceptance.ps1 -Server Lunar -Mode Candidate -RunId measured-fix-lunar-attempt-01 -DurationSeconds 180 -AuthCache .local/auth/microsoft-token.json -InitialRadius 16 -PresentMode Fifo -Assets $env:RUST_MCBE_ASSETS
 git add crates/client-world crates/render docs/phase-2-completion-report.md
@@ -633,9 +633,9 @@ Do not make `into_world_event` stateful. Resolve cache packets inside `PlaySessi
 Use the pinned Dragonfly/gophertunnel xxHash64 blob construction only as a fixture generator, not a runtime dependency. Cross-check at least one inline chunk and one request-mode subchunk fixture in Rust and Go, including a cache hit, a cache miss, a repeated hash, block-entity tail bytes, and an invalid hash.
 
 ```powershell
-cargo test -p protocol -p client-world -p bedrock-client --locked blob_cache -- --nocapture
+cargo test -p protocol -p client-world -p cinnabar --locked blob_cache -- --nocapture
 Push-Location core; try { go test ./... -run ClientBlobCache -count=1; if ($LASTEXITCODE -ne 0) { throw 'core blob-cache fixture failed' }; go vet ./...; if ($LASTEXITCODE -ne 0) { throw 'core go vet failed' } } finally { Pop-Location }
-cargo clippy -p protocol -p client-world -p bedrock-client --all-targets --locked -- -D warnings
+cargo clippy -p protocol -p client-world -p cinnabar --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 git diff --check
 ```
@@ -679,7 +679,7 @@ fn eight_hz_frames_receive_two_seconds_of_bounded_service_without_runaway_burst(
 
 Add tests for FIFO jitter, one 80 ms pressure frame, recovery without positive feedback, byte tokens, zero-byte removal cap 256, whole-arena copy reservation, and no service accumulation above the one-second burst ceiling.
 
-Run: `cargo test -p bedrock-client --locked eight_hz_frames_receive_two_seconds -- --nocapture`
+Run: `cargo test -p cinnabar --locked eight_hz_frames_receive_two_seconds -- --nocapture`
 
 Expected: FAIL because current service is capped primarily per frame.
 
@@ -707,10 +707,10 @@ git commit -m "perf: account elapsed-time chunk publication service"
 The integration owner merges the render commit, applies the exact app/controller/acceptance files listed above, registers `PublicationController::new(PublicationServiceConfig::PHASE2_GATE)`, and adds a Phase 5-facing pressure test contract that later opens the settings overlay during a forced full-view remesh. Run:
 
 ```powershell
-cargo test -p render -p bedrock-client --locked publication -- --nocapture
-cargo test -p bedrock-client --locked eight_hz_frames_receive_two_seconds -- --nocapture
+cargo test -p render -p cinnabar --locked publication -- --nocapture
+cargo test -p cinnabar --locked eight_hz_frames_receive_two_seconds -- --nocapture
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '$r = Invoke-Pester -Script "scripts/tests/ui-publication-pressure.Tests.ps1" -PassThru; if ($r.FailedCount -ne 0) { exit 1 }'
-cargo clippy -p client-world -p render -p bedrock-client --all-targets --locked -- -D warnings
+cargo clippy -p client-world -p render -p cinnabar --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 git diff --check
 ```
@@ -811,10 +811,10 @@ Preserve independent block/sky/AO/daylight channels, face/directional material r
 - [ ] **Step 5: Verify, review, and commit**
 
 ```powershell
-cargo test -p render -p bedrock-client --locked atmosphere -- --nocapture
+cargo test -p render -p cinnabar --locked atmosphere -- --nocapture
 cargo test -p meshing -p client-world -p render --locked lighting -- --nocapture
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '$r = Invoke-Pester -Script "scripts/tests/acceptance/Galleries.Tests.ps1" -PassThru; if ($r.FailedCount -ne 0) { exit 1 }'
-cargo clippy -p meshing -p client-world -p render -p bedrock-client --all-targets --locked -- -D warnings
+cargo clippy -p meshing -p client-world -p render -p cinnabar --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 git add crates/render crates/client-world docs/phase-2-completion-report.md
 git commit -m "render: calibrate native lighting and fog"
@@ -877,9 +877,9 @@ Expected: formatting/diff checks pass; the reviewed producer commit contains no 
 The integration owner merges the reviewed module commit, applies only the listed exports/startup/root handoff, and runs:
 
 ```powershell
-cargo test -p assets -p asset-compiler -p render -p bedrock-client --locked precipitation -- --nocapture
-cargo test -p bedrock-client --test assets --locked precipitation -- --nocapture
-cargo clippy -p assets -p asset-compiler -p render -p bedrock-client --all-targets --locked -- -D warnings
+cargo test -p assets -p asset-compiler -p render -p cinnabar --locked precipitation -- --nocapture
+cargo test -p cinnabar --test assets --locked precipitation -- --nocapture
+cargo clippy -p assets -p asset-compiler -p render -p cinnabar --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 git diff --check
 ```
@@ -927,9 +927,9 @@ Expected: for every manifested view, the wrapper substitutes that view's concret
 - [ ] **Step 3: Verify and commit evidence**
 
 ```powershell
-cargo test -p render -p bedrock-client --locked atmosphere -- --nocapture
+cargo test -p render -p cinnabar --locked atmosphere -- --nocapture
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '$r = Invoke-Pester -Script "scripts/tests/acceptance/Galleries.Tests.ps1" -PassThru; if ($r.FailedCount -ne 0) { exit 1 }'
-cargo clippy -p render -p bedrock-client --all-targets --locked -- -D warnings
+cargo clippy -p render -p cinnabar --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 git add crates/render docs/phase-2-completion-report.md
 git commit -m "test: close native celestial edge parity"
@@ -985,8 +985,8 @@ Replace provisional origins/period/height only with calibrated values. Preserve 
 - [ ] **Step 4: Verify and run the live gallery**
 
 ```powershell
-cargo test -p meshing -p render -p bedrock-client --locked cloud -- --nocapture
-cargo clippy -p meshing -p render -p bedrock-client --all-targets --locked -- -D warnings
+cargo test -p meshing -p render -p cinnabar --locked cloud -- --nocapture
+cargo clippy -p meshing -p render -p cinnabar --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 ```
 
@@ -1056,10 +1056,10 @@ No other subsystem changes in this task.
 - [ ] **Step 4: Verify, rerun, review, and commit**
 
 ```powershell
-cargo test -p render -p bedrock-client --locked visibility -- --nocapture
-cargo test -p render -p bedrock-client --locked presentation -- --nocapture
+cargo test -p render -p cinnabar --locked visibility -- --nocapture
+cargo test -p render -p cinnabar --locked presentation -- --nocapture
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '$r = Invoke-Pester -Script "scripts/tests/phase2-motion-ab.Tests.ps1" -PassThru; if ($r.FailedCount -ne 0) { exit 1 }'
-cargo clippy -p render -p bedrock-client --all-targets --locked -- -D warnings
+cargo clippy -p render -p cinnabar --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 git add crates/render docs/phase-2-completion-report.md
 git commit -m "fix: eliminate coherent-frame motion artifact"
@@ -1102,7 +1102,7 @@ Expected: zero failures, warnings, formatting differences, policy failures, or d
 
 ```powershell
 cargo build --workspace --release --locked
-$client = (Resolve-Path target/release/bedrock-client.exe).Path
+$client = (Resolve-Path target/release/cinnabar.exe).Path
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/phase2-gallery.ps1 -Gallery Biome -RunId final-biome-attempt-01 -BdsDir $env:RUST_MCBE_BDS_DIR -Assets $env:RUST_MCBE_ASSETS -NativeRoot .local/phase2/native/biome-boundary-v1 -PresentMode Fifo -ClientExecutable $client -SkipClientBuild
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/phase2-gallery.ps1 -Gallery LightingAtmosphere -RunId final-lighting-atmosphere-attempt-01 -BdsDir $env:RUST_MCBE_BDS_DIR -Assets $env:RUST_MCBE_ASSETS -NativeRoot .local/phase2/native/lighting-atmosphere-v1 -PresentMode Fifo -ClientExecutable $client -SkipClientBuild
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/phase2-gallery.ps1 -Gallery Precipitation -RunId final-precipitation-attempt-01 -BdsDir $env:RUST_MCBE_BDS_DIR -Assets $env:RUST_MCBE_ASSETS -NativeRoot .local/phase2/native/precipitation-v1 -PresentMode Fifo -ClientExecutable $client -SkipClientBuild

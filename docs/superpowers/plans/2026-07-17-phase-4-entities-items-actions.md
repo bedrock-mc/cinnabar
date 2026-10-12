@@ -962,7 +962,7 @@ group.
 
 ```powershell
 cargo test -p render --locked --test item_presentation -- --nocapture
-cargo test -p bedrock-client --locked phase4_presentation -- --nocapture
+cargo test -p cinnabar --locked phase4_presentation -- --nocapture
 ```
 
 Expected: compile failures because item render lists and app publication are
@@ -1011,15 +1011,15 @@ app.add_plugins(Phase4PresentationPlugin);
 
 ```powershell
 cargo test -p render --locked --test item_presentation -- --nocapture
-cargo test -p bedrock-client --locked phase4_presentation -- --nocapture
-cargo test -p bedrock-client --locked network -- --nocapture
+cargo test -p cinnabar --locked phase4_presentation -- --nocapture
+cargo test -p cinnabar --locked network -- --nocapture
 cargo run -p devtool --locked -- verify-affected --base completion-phase4-base
 cargo fmt --all -- --check
 git diff --check
 ```
 
 Expected: render/leaf-module tests pass in the producer lane. The two
-`bedrock-client` public gates pass after integration applies the reviewed
+`cinnabar` public gates pass after integration applies the reviewed
 asset-startup/network call-site hunks; the devtool then reports no failing
 affected crate, strict Clippy, format, architecture, or carrier checks.
 
@@ -1068,7 +1068,7 @@ wrong-dimension/wrong-lifetime/no-draw counters, and feet-plane error above
 - [ ] **Step 2: Run RED**
 
 ```powershell
-cargo test -p bedrock-client --locked actor_witness -- --nocapture
+cargo test -p cinnabar --locked actor_witness -- --nocapture
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '$r = Invoke-Pester -Script "scripts/tests/acceptance.Actors.Tests.ps1" -PassThru; if ($r.FailedCount -ne 0) { exit 1 }'
 ```
 
@@ -1089,7 +1089,7 @@ and action resource-allocation deltas.
 - [ ] **Step 4: Run deterministic GREEN**
 
 ```powershell
-cargo test -p bedrock-client --locked actor_witness -- --nocapture
+cargo test -p cinnabar --locked actor_witness -- --nocapture
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '$r = Invoke-Pester -Script "scripts/tests/acceptance.Actors.Tests.ps1" -PassThru; if ($r.FailedCount -ne 0) { exit 1 }'
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '$r = Invoke-Pester -Script "scripts/tests/acceptance.Tests.ps1" -PassThru; if ($r.FailedCount -ne 0) { exit 1 }'
 cargo fmt --all -- --check
@@ -1208,7 +1208,7 @@ dimension change, UI-focus release, and no resource allocation after warmup.
 
 ```powershell
 cargo test -p render --locked --test viewmodel -- --nocapture
-cargo test -p bedrock-client --locked phase4_viewmodel -- --nocapture
+cargo test -p cinnabar --locked phase4_viewmodel -- --nocapture
 ```
 
 Expected: compile failures because the viewmodel pass and Phase 5 authority consumer
@@ -1245,9 +1245,9 @@ of 4,224 instances: 128 held plus 4,096 dropped.
 
 ```powershell
 cargo test -p render --locked --test viewmodel -- --nocapture
-cargo test -p bedrock-client --locked phase4_viewmodel -- --nocapture
-cargo test -p bedrock-client --locked schedule_order -- --nocapture
-cargo clippy -p render -p bedrock-client --all-targets --all-features --locked -- -D warnings
+cargo test -p cinnabar --locked phase4_viewmodel -- --nocapture
+cargo test -p cinnabar --locked schedule_order -- --nocapture
+cargo clippy -p render -p cinnabar --all-targets --all-features --locked -- -D warnings
 cargo fmt --all -- --check
 git diff --check
 ```

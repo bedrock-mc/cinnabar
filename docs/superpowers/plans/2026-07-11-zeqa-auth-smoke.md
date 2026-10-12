@@ -110,7 +110,7 @@
 - Modify: `plan.md`
 
 **Interfaces:**
-- Documents the exact `bedrock-core` and `bedrock-client` commands; no credential contents enter documentation or metrics.
+- Documents the exact `bedrock-core` and `cinnabar` commands; no credential contents enter documentation or metrics.
 
 - [ ] **Step 1: Add command/documentation assertions**
 

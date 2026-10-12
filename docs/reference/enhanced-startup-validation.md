@@ -23,7 +23,7 @@ enhanced::populated_tests`. Set `CINNABAR_REQUIRE_ENHANCED_GPU=1` to fail instea
 of skipping when no native adapter exists. `CINNABAR_ENHANCED_FRAME` optionally
 selects an external PNG path. The ignored lobby test needs externally supplied
 `CINNABAR_LOBBY_CAPTURE` and `CINNABAR_RENDER_PACK` paths, then `cslot cargo test
--p bedrock-client --lib enhanced_lobby_replay_on_native_gpu -- --ignored`.
+-p cinnabar --lib enhanced_lobby_replay_on_native_gpu -- --ignored`.
 Neither test opens a socket. Captures, packs and PNGs stay outside git.
 
 The Bloom, first-person and screen composition rules are recorded in

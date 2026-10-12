@@ -60,10 +60,10 @@ formal FIFO evidence. Explicit `--vsync` also locks FIFO.
 - `cargo test --locked -p render --test present_mode_policy -- --nocapture`
 - `cargo test --locked -p render present_mode -- --nocapture`
 - `cargo test --locked -p render --test plugin -- contracts::graphics_runtime_metadata_waits_for_extracted_diagnostics_before_surface_probe --nocapture`
-- `cargo test --locked -p bedrock-client present_mode -- --nocapture`
-- `cargo test --locked -p bedrock-client args::tests -- --nocapture`
-- `cargo test --locked -p render -p bedrock-client --all-targets --all-features`
-- `cargo clippy --locked -p render -p bedrock-client --all-targets --all-features -- -D warnings`
+- `cargo test --locked -p cinnabar present_mode -- --nocapture`
+- `cargo test --locked -p cinnabar args::tests -- --nocapture`
+- `cargo test --locked -p render -p cinnabar --all-targets --all-features`
+- `cargo clippy --locked -p render -p cinnabar --all-targets --all-features -- -D warnings`
 - `cargo fmt --all -- --check`
 - `cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml`
 - `git diff --check`

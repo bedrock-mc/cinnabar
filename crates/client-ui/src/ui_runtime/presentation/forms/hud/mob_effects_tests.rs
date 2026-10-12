@@ -56,8 +56,11 @@ fn engine(control: serde_json::Value) -> FormEngine {
     engine
 }
 
-/// Background and icon bounds per drawn effect, in physical px, and the GUI scale.
-fn draw(engine: &FormEngine, effects: usize, size: [u32; 2]) -> (Vec<([f32; 4], [f32; 4])>, f32) {
+/// One drawn effect's background and icon bounds, in physical px.
+type EffectBounds = ([f32; 4], [f32; 4]);
+
+/// Bounds per drawn effect and the GUI scale.
+fn draw(engine: &FormEngine, effects: usize, size: [u32; 2]) -> (Vec<EffectBounds>, f32) {
     let metrics = TextMetrics::for_viewport(size, DpiScale::new(1.0).unwrap(), None);
     let hud = HudPaint {
         effects: MobEffects {
@@ -118,8 +121,10 @@ fn draw(engine: &FormEngine, effects: usize, size: [u32; 2]) -> (Vec<([f32; 4], 
         })
         .collect();
     let pairs = bounds
-        .chunks_exact(2)
-        .map(|pair| (pair[0], pair[1]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&[background, icon]| (background, icon))
         .collect();
     (pairs, metrics.gui_scale)
 }

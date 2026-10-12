@@ -157,7 +157,7 @@ fn build_client() -> Result<PathBuf, DevtoolError> {
         if let Ok(event) = serde_json::from_slice::<serde_json::Value>(line)
             && event["reason"] == "compiler-artifact"
         {
-            if event["target"]["name"] == "bedrock-client"
+            if event["target"]["name"] == "cinnabar"
                 && event["target"]["kind"]
                     .as_array()
                     .is_some_and(|kinds| kinds.iter().any(|kind| kind == "bin"))
@@ -701,7 +701,7 @@ mesh_chunks<Opaque, Cutout>\tcrates/render/src/mesh, legacy.rs\t42\t4000000\t0.0
         let launched = |args: &[&str]| {
             let args: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
             let (options, _) = parse(&args, false).unwrap();
-            client_command(Path::new("bedrock-client"), "8086", &options)
+            client_command(Path::new("cinnabar"), "8086", &options)
                 .get_args()
                 .map(|arg| arg.to_string_lossy().into_owned())
                 .collect::<Vec<_>>()

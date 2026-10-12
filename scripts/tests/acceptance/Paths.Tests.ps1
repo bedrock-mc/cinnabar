@@ -37,7 +37,7 @@
             -Executable (Join-Path $ProjectRoot 'target\release\bedrock-core.exe') `
             -Arguments @('-socket-dir', $expectedSocketDirectory, '-upstream', '127.0.0.1:19132')))
         ('APP_COMMAND=' + (Format-TestResolvedCommand `
-            -Executable (Join-Path $ProjectRoot 'target\release\bedrock-client.exe') `
+            -Executable (Join-Path $ProjectRoot 'target\release\cinnabar.exe') `
             -Arguments @(
                 '--socket-dir', $expectedSocketDirectory,
                 '--acceptance-seconds', '900',

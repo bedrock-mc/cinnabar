@@ -159,6 +159,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			return errors.Join(err, conf.WorldProvider.Close(), conf.PlayerProvider.Close())
 		}
 	}
+	cfg.configureLocalPlayers(&conf)
 	srv := conf.New()
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
 	cfg.applyTo(worlds...)

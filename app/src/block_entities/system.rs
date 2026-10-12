@@ -338,6 +338,17 @@ pub(crate) fn update_block_entity_scene(
             )
         });
     let mut work = culling::BlockEntityWork::default();
+    let mut occlusion_budget = meshing::occlusion::OcclusionBudget::default();
+    let occlusion_eye = camera.single().ok().and_then(|(transform, projection)| {
+        let eye = transform.translation.to_array();
+        let matrix = projection.get_clip_from_view() * transform.to_matrix().inverse();
+        render_model::visibility_bounds::perspective_supports_occlusion(
+            matrix,
+            eye,
+            f64::from(meshing::occlusion::OCCLUSION_EYE_GAP_BLOCKS),
+        )
+        .then_some(eye)
+    });
 
     let cracks = ui
         .block_crack_snapshot()
@@ -411,7 +422,11 @@ pub(crate) fn update_block_entity_scene(
                 continue;
             };
             scan.seen_frame = frame_stamp;
+            let before_portals = submissions.len();
             portals::submit(&mut submissions, &scan.portals, eye);
+            let portals = (submissions.len() - before_portals) as u32;
+            work.candidates += portals;
+            work.prepared += portals;
             let mut full = false;
             for entity in &scan.entities {
                 if submissions.len() >= MAX_SUBMISSIONS {
@@ -427,7 +442,22 @@ pub(crate) fn update_block_entity_scene(
                     continue;
                 }
                 // Hidden entities skip geometry but keep lids, rings, map requests and canvases.
-                let hidden = !work.admit(culling.as_ref(), template, [x, y, z]);
+                let mut hidden = !work.admit(culling.as_ref(), template, [x, y, z]);
+                if !hidden
+                    && let Some((low, high)) = culling::bounds(template, [x, y, z])
+                    && let Some(eye) = occlusion_eye
+                    && let Some(cave) = cave.as_deref()
+                {
+                    let _zone = bevy::log::info_span!("block_entity.occlusion").entered();
+                    hidden = stream.terrain_hides_box(
+                        &mut occlusion_budget,
+                        eye,
+                        low,
+                        high,
+                        |_, key| cave.is_visible(key) && cave.rendered.contains_key(&key),
+                    );
+                    work.prepared -= u32::from(hidden);
+                }
                 let context = FrameContext {
                     stream,
                     collisions: &collisions,
@@ -496,6 +526,7 @@ pub(crate) fn update_block_entity_scene(
             .filter(|cue| cue.event_type == BELL_RING_EVENT_TYPE)
             .map(|cue| cue.sequence)
     });
+    let before_global = submissions.len();
     crystal_beams::submit(
         &mut submissions,
         stream.authority().crystal_beams(actor_partial_tick.0),
@@ -514,12 +545,17 @@ pub(crate) fn update_block_entity_scene(
             stream.solved_light_at(actor.brightness_sample_position(owner_position))
         },
     );
+    let global = (submissions.len() - before_global) as u32;
+    work.candidates += global;
+    work.prepared += global;
     placements.0.0 = held;
     let _zone = bevy::log::info_span!(
         "block_entity.scene_update",
         candidates = work.candidates,
         prepared = work.prepared,
-        submissions = submissions.len()
+        hidden_by_occlusion = work.candidates - work.prepared,
+        probes = meshing::occlusion::ENTITY_OCCLUSION_PROBES - occlusion_budget.remaining(),
+        submitted = submissions.len()
     )
     .entered();
     frame.0 = scene.update(clock, &cracks, &submissions).clone();

@@ -290,7 +290,6 @@ impl MenuRuntime {
                 MenuAction::Store(launcher::store::OPEN),
             ]),
             Screen::ConfirmDelete => local(&[A::Back, A::ConfirmDelete]),
-            Screen::ConfirmLeaveEdit => local(&[A::Save, A::Discard]),
             Screen::Eula => local(&[A::AcceptEula, A::ViewEula, A::Back]),
             Screen::Error => local(&[A::Back]),
         }

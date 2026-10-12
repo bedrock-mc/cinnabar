@@ -194,8 +194,8 @@ jobs:
           sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
       - name: Verify Linux window backends
         run: |
-          cargo tree -e features -p bedrock-client --target x86_64-unknown-linux-gnu --locked | grep -F 'bevy feature "wayland"'
-          cargo tree -e features -p bedrock-client --target x86_64-unknown-linux-gnu --locked | grep -F 'bevy feature "x11"'
+          cargo tree -e features -p cinnabar --target x86_64-unknown-linux-gnu --locked | grep -F 'bevy feature "wayland"'
+          cargo tree -e features -p cinnabar --target x86_64-unknown-linux-gnu --locked | grep -F 'bevy feature "x11"'
       # The checks below are independent, so each reports even when an earlier one fails.
       # Whole-workspace builds match the cached features, so only affected crates are linted.
       - name: Lint Rust workspace
@@ -208,16 +208,16 @@ jobs:
           if affected render; then
             cargo clippy -p render --features enhanced --all-targets --locked -- -D warnings
           fi
-          if affected bedrock-client; then
-            cargo clippy -p bedrock-client --features enhanced,local-mods,developer-control,tracy --locked -- -D warnings
-            cargo clippy -p bedrock-client --features reports --tests --locked -- -D warnings
+          if affected cinnabar; then
+            cargo clippy -p cinnabar --features enhanced,local-mods,developer-control,tracy --locked -- -D warnings
+            cargo clippy -p cinnabar --features reports --tests --locked -- -D warnings
           fi
           if affected client-extensions; then
             cargo clippy -p client-extensions --features local-mods --all-targets --locked -- -D warnings
           fi
       - name: Test local WASM mod and developer control adapters
-        if: ${{ !cancelled() && (env.FULL == 'true' || contains(format(' {0} ', env.AFFECTED), ' bedrock-client ')) }}
-        run: cargo test -p bedrock-client --features local-mods,developer-control --lib --locked -- modding developer_control
+        if: ${{ !cancelled() && (env.FULL == 'true' || contains(format(' {0} ', env.AFFECTED), ' cinnabar ')) }}
+        run: cargo test -p cinnabar --features local-mods,developer-control --lib --locked -- modding developer_control
       - name: Test local WASM mod hosts
         if: ${{ !cancelled() && (env.FULL == 'true' || contains(format(' {0} ', env.AFFECTED), ' client-extensions ')) }}
         run: cargo test -p client-extensions --features local-mods --lib --locked

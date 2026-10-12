@@ -105,7 +105,7 @@ passed. No original app test names were lost during relocation.
 Checks completed:
 
 - `cargo test --offline --locked --workspace --no-run` compiled all workspace test targets.
-- `cargo test --offline --locked --no-fail-fast -p bedrock-client -p client-session -p gameplay -p protocol -p resource-pack -p client-ui -p launcher -p architecture` ran the affected tests and doctests.
+- `cargo test --offline --locked --no-fail-fast -p cinnabar -p client-session -p gameplay -p protocol -p resource-pack -p client-ui -p launcher -p architecture` ran the affected tests and doctests.
 - `cargo clippy --offline --locked --all-targets` for the same eight packages passed with `-- -D warnings`.
 - `cargo fmt --all -- --check`, `git diff --check`, and `architecture check --root . --policy tools/architecture/policy.toml` passed.
 

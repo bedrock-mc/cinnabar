@@ -26,7 +26,7 @@
         "--offline",
         "--locked",
         "-p",
-        "bedrock-client",
+        "cinnabar",
         "--timings"
       ],
       "returncode": 0,
@@ -37,7 +37,7 @@
       "compiled_units": [
         {
           "i": 0,
-          "name": "bedrock-client",
+          "name": "cinnabar",
           "version": "0.1.0",
           "mode": "todo",
           "target": "",
@@ -52,10 +52,10 @@
         },
         {
           "i": 1,
-          "name": "bedrock-client",
+          "name": "cinnabar",
           "version": "0.1.0",
           "mode": "todo",
-          "target": " bin \"bedrock-client\"",
+          "target": " bin \"cinnabar\"",
           "start": 36.13,
           "duration": 1.24,
           "rmeta_time": null,
@@ -80,7 +80,7 @@
         "--offline",
         "--locked",
         "-p",
-        "bedrock-client",
+        "cinnabar",
         "--timings"
       ],
       "returncode": 0,
@@ -91,7 +91,7 @@
       "compiled_units": [
         {
           "i": 0,
-          "name": "bedrock-client",
+          "name": "cinnabar",
           "version": "0.1.0",
           "mode": "todo",
           "target": "",
@@ -106,10 +106,10 @@
         },
         {
           "i": 1,
-          "name": "bedrock-client",
+          "name": "cinnabar",
           "version": "0.1.0",
           "mode": "todo",
-          "target": " bin \"bedrock-client\"",
+          "target": " bin \"cinnabar\"",
           "start": 46.94,
           "duration": 1.61,
           "rmeta_time": null,
@@ -134,7 +134,7 @@
         "--offline",
         "--locked",
         "-p",
-        "bedrock-client",
+        "cinnabar",
         "--timings"
       ],
       "returncode": 0,
@@ -160,7 +160,7 @@
         },
         {
           "i": 1,
-          "name": "bedrock-client",
+          "name": "cinnabar",
           "version": "0.1.0",
           "mode": "todo",
           "target": "",
@@ -175,10 +175,10 @@
         },
         {
           "i": 2,
-          "name": "bedrock-client",
+          "name": "cinnabar",
           "version": "0.1.0",
           "mode": "todo",
-          "target": " bin \"bedrock-client\"",
+          "target": " bin \"cinnabar\"",
           "start": 44.22,
           "duration": 1.38,
           "rmeta_time": null,
@@ -203,7 +203,7 @@
         "--offline",
         "--locked",
         "-p",
-        "bedrock-client",
+        "cinnabar",
         "--timings"
       ],
       "returncode": 0,
@@ -229,7 +229,7 @@
         },
         {
           "i": 1,
-          "name": "bedrock-client",
+          "name": "cinnabar",
           "version": "0.1.0",
           "mode": "todo",
           "target": "",
@@ -244,10 +244,10 @@
         },
         {
           "i": 2,
-          "name": "bedrock-client",
+          "name": "cinnabar",
           "version": "0.1.0",
           "mode": "todo",
-          "target": " bin \"bedrock-client\"",
+          "target": " bin \"cinnabar\"",
           "start": 38.17,
           "duration": 1.26,
           "rmeta_time": null,

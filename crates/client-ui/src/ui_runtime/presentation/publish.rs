@@ -423,20 +423,18 @@ pub fn capture_hud_frame(
                 .mod_ui()
                 .mod_hunger_overlay()
                 .is_some_and(|style| style.tooltips)
-            {
-                if let Some(food) = identifier
+                && let Some(food) = identifier
                     .as_deref()
                     .and_then(|identifier| runtime.food_properties(identifier))
-                {
-                    window_text.tooltip.push(super::hud_layout::TooltipLine {
-                        text: format!(
-                            "Nutrition: {}  Saturation: {:.1}",
-                            food.nutrition(),
-                            food.nutrition() as f32 * food.saturation_modifier() * 2.
-                        ),
-                        color: [255, 170, 0, 255],
-                    });
-                }
+            {
+                window_text.tooltip.push(super::hud_layout::TooltipLine {
+                    text: format!(
+                        "Nutrition: {}  Saturation: {:.1}",
+                        food.nutrition(),
+                        food.nutrition() as f32 * food.saturation_modifier() * 2.
+                    ),
+                    color: [255, 170, 0, 255],
+                });
             }
             if let Some(contents) = protocol::item_bundle_id(&stack.extra_data)
                 .and_then(|id| runtime.inventory_ledger(player_runtime).bundle_contents(id))
@@ -606,7 +604,7 @@ pub fn capture_hud_frame(
         .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
         .map_or(0.0, |actor| actor.pitch);
     frame.selected_food = selected_stack
-        .and_then(|stack| resolve_identifier(stack))
+        .and_then(resolve_identifier)
         .and_then(|identifier| runtime.food_properties(&identifier));
     frame.selected_item_name = selected_item_name;
     frame.holding_filled_map = holding_filled_map;

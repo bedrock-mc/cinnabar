@@ -95,7 +95,7 @@ name = "actor-animation"
 path = "crates/actor-animation"
 allowed_dependencies = ["simulation-clock", "assets", "protocol", "render-api", "render-model", "world"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "client-world", "chunk-pipeline", "bevy", "wgpu"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "client-world", "chunk-pipeline", "meshing", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-world", "chunk-pipeline", "meshing", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
 [[crates]]
@@ -103,20 +103,20 @@ name = "client-world"
 path = "crates/client-world"
 allowed_dependencies = ["simulation-clock", "actor-animation", "render-api", "assets", "protocol", "world", "test-time"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "chunk-pipeline", "meshing", "bevy", "wgpu"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", "pack-compiler", "chunk-pipeline", "meshing", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "pack-compiler", "chunk-pipeline", "meshing", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
 name = "pack-compiler"
 path = "crates/pack-compiler"
 allowed_dependencies = ["simulation-clock", "assets", "freetype-sys"]
 forbidden_dependencies = ["asset-compiler", "clap", "bevy", "wgpu"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
 name = "pack-runtime"
 path = "crates/pack-runtime"
 allowed_dependencies = ["assets", "block-transform", "json-ui", "pack-compiler", "protocol", "resource-pack", "sim"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", "client-session", "client-ui", "client-presentation", "render", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "client-session", "client-ui", "client-presentation", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
 [[crates]]
@@ -126,34 +126,34 @@ test_support_features = ["publication-test-support", "benchmark-support"]
 allowed_dependencies = ["simulation-clock", "actor-animation", "client-world", "meshing", "assets", "world", "render-api", "test-time"]
 # Protocol is permitted only in fixtures; production consumes client-world's admitted contracts.
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "protocol", "bevy", "wgpu"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", "pack-compiler", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "pack-compiler", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
 name = "inventory"
 path = "crates/inventory"
 allowed_dependencies = ["simulation-clock", "assets", "protocol"]
-forbidden_dependencies = ["asset-compiler", "bevy", "wgpu", "world"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*", "client-world"]
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*", "client-world", "world"]
 
 [[crates]]
 name = "player-state"
 path = "crates/player-state"
 allowed_dependencies = ["client-world", "inventory"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "launcher", "client-ui", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "launcher", "client-ui", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
 
 # Tick decisions and transport remain separate domains; app adapters compose them.
 [[crates]]
 name = "gameplay"
 path = "crates/gameplay"
 allowed_dependencies = ["simulation-clock", "actor-animation", "assets", "block-transform", "client-world", "inventory", "player-state", "protocol", "semantic-input", "sim", "world"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "client-session", "client-presentation", "acceptance", "launcher", "client-ui", "chunk-pipeline", "ui", "json-ui", "render", "asset-compiler", "pack-compiler", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-session", "client-presentation", "acceptance", "launcher", "client-ui", "chunk-pipeline", "ui", "json-ui", "render", "asset-compiler", "pack-compiler", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
 [[crates]]
 name = "client-session"
 path = "crates/client-session"
 allowed_dependencies = ["simulation-clock", "bridge", "protocol", "server-experience", "world"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-presentation", "acceptance", "launcher", "client-ui", "client-world", "chunk-pipeline", "inventory", "player-state", "semantic-input", "ui", "json-ui", "render", "asset-compiler", "pack-compiler", "pack-runtime", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-presentation", "acceptance", "launcher", "client-ui", "client-world", "chunk-pipeline", "inventory", "player-state", "semantic-input", "ui", "json-ui", "render", "asset-compiler", "pack-compiler", "pack-runtime", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
 [[crates]]
@@ -162,15 +162,15 @@ path = "crates/launcher"
 test_support_features = ["test-support"]
 allowed_dependencies = ["assets", "bridge", "render-api", "resource-pack", "semantic-input", "ui"]
 forbidden_dependencies = ["protocol", "server-experience"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "player-state", "inventory", "client-world", "world", "sim", "render", "asset-compiler", "pack-compiler", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "player-state", "inventory", "client-world", "world", "sim", "render", "asset-compiler", "pack-compiler", "bevy", "bevy_*", "wgpu*"]
 
 # Menu and desktop drivers consume shared contracts without sibling plugin edges.
 [[crates]]
 name = "client-shell"
 path = "crates/client-shell"
 allowed_dependencies = ["assets", "bridge", "chunk-pipeline", "client-session", "client-state", "client-ui", "client-world", "developer-control", "json-ui", "launcher", "launcher-host", "pack-runtime", "player-state", "protocol", "render-scene", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "test-time", "ui"]
-forbidden_dependencies = ["client-runtime", "client-interaction", "client-extensions", "client-presentation", "client-audio", "bedrock-client", "asset-compiler", "pack-compiler"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "client-interaction", "client-extensions", "client-presentation", "client-audio"]
+forbidden_dependencies = ["client-runtime", "client-interaction", "client-extensions", "client-presentation", "client-audio", "cinnabar", "asset-compiler", "pack-compiler"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-runtime", "client-interaction", "client-extensions", "client-presentation", "client-audio"]
 test_support_features = ["test-support"]
 
 # Shared plugin contracts have no systems, state transitions or plugin dependencies.
@@ -178,7 +178,7 @@ test_support_features = ["test-support"]
 name = "client-state"
 path = "crates/client-state"
 allowed_dependencies = ["rich-presence", "player-state", "semantic-input", "ui"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "client-presentation", "client-audio", "client-runtime", "client-interaction", "client-shell", "client-extensions", "acceptance", "client-session", "gameplay", "launcher-host", "render", "pack-runtime", "asset-compiler", "pack-compiler"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "client-presentation", "client-audio", "client-runtime", "client-interaction", "client-shell", "client-extensions", "acceptance", "client-session", "gameplay", "launcher-host", "render", "pack-runtime", "asset-compiler", "pack-compiler"]
 max_rust_lines = 4000
 contract_only = true
 
@@ -187,7 +187,7 @@ contract_only = true
 name = "client-runtime"
 path = "crates/client-runtime"
 allowed_dependencies = ["bridge", "chunk-pipeline", "client-session", "client-state", "client-ui", "client-world", "diagnostics", "launcher-host", "meshing", "pack-runtime", "protocol", "render", "render-api", "render-scene"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "client-presentation", "client-audio", "client-interaction", "client-shell", "client-extensions", "acceptance", "asset-compiler"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-presentation", "client-audio", "client-interaction", "client-shell", "client-extensions", "acceptance", "asset-compiler"]
 test_support_features = ["test-support"]
 
 # Extensions consume the shared frame contract without reaching sibling plugins.
@@ -195,7 +195,7 @@ test_support_features = ["test-support"]
 name = "client-extensions"
 path = "crates/client-extensions"
 allowed_dependencies = ["assets", "client-state", "client-ui", "client-world", "inventory", "mod-api", "mod-host", "mod-render", "player-state", "protocol", "render-model", "server-experience", "ui"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "client-interaction", "client-shell", "client-presentation", "client-audio", "render"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-runtime", "client-interaction", "client-shell", "client-presentation", "client-audio", "render"]
 
 [[crates]]
 name = "client-ui"
@@ -203,7 +203,7 @@ path = "crates/client-ui"
 # Extension edges support presentation adapters; render data comes from render-model, never render.
 allowed_dependencies = ["simulation-clock", "actor-animation", "launcher-host", "bridge", "assets", "chunk-pipeline", "client-world", "player-state", "launcher", "inventory", "json-ui", "oreui", "protocol", "render-api", "render-model", "resource-pack", "semantic-input", "ui", "ui-engine", "ui-screens", "mod-ui", "world", "mod-host", "server-experience", "test-time"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "bevy", "wgpu"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-session", "render", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
 # Interaction systems consume the shared frame contract without sibling app plugin edges.
@@ -211,7 +211,7 @@ test_support_features = ["test-support"]
 name = "client-interaction"
 path = "crates/client-interaction"
 allowed_dependencies = ["actor-animation", "assets", "chunk-pipeline", "client-audio", "client-presentation", "client-state", "client-ui", "client-world", "diagnostics", "gameplay", "inventory", "player-state", "protocol", "semantic-input", "sim", "ui", "world"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "client-shell", "client-extensions", "acceptance", "client-session", "asset-compiler", "pack-compiler", "pack-runtime"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-runtime", "client-shell", "client-extensions", "acceptance", "client-session", "asset-compiler", "pack-compiler", "pack-runtime"]
 test_support_features = ["test-support"]
 
 # Presentation borrows authoritative facts; transport/gameplay and evidence stay outside it.
@@ -220,7 +220,7 @@ name = "client-presentation"
 path = "crates/client-presentation"
 allowed_dependencies = ["simulation-clock", "actor-animation", "assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "launcher", "player-state", "protocol", "render-scene", "render-api", "render-model", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler"]
-forbidden_transitive_dependencies = ["render", "app", "bedrock-client", "gameplay", "client-session", "acceptance", "asset-compiler", "client-audio"]
+forbidden_transitive_dependencies = ["render", "app", "cinnabar", "gameplay", "client-session", "acceptance", "asset-compiler", "client-audio"]
 test_support_features = ["test-support"]
 
 # Audio consumes borrowed listener and world facts without a presentation or GPU edge.
@@ -229,7 +229,7 @@ name = "client-audio"
 path = "crates/client-audio"
 allowed_dependencies = ["simulation-clock", "actor-animation", "assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "particles", "player-state", "protocol", "resource-pack", "server-experience", "sim", "world", "test-time"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "client-presentation", "render"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-session", "acceptance", "client-presentation", "render", "asset-compiler"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "acceptance", "client-presentation", "render", "asset-compiler"]
 test_support_features = ["test-support"]
 
 [[crates]]
@@ -237,14 +237,14 @@ name = "diagnostics"
 path = "crates/diagnostics"
 allowed_dependencies = ["assets", "chunk-pipeline", "libc", "meshing", "render-model", "rustix", "windows-sys", "world"]
 forbidden_dependencies = ["bevy", "protocol"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-session", "acceptance", "client-presentation", "asset-compiler", "pack-compiler", "render"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "acceptance", "client-presentation", "asset-compiler", "pack-compiler", "render"]
 
 [[crates]]
 name = "acceptance"
 path = "crates/acceptance"
 test_support_features = ["test-support"]
 allowed_dependencies = ["client-audio", "chunk-pipeline", "client-presentation", "client-world", "diagnostics", "protocol", "render-scene", "render-model", "semantic-input", "world"]
-forbidden_transitive_dependencies = ["render", "app", "bedrock-client", "gameplay", "client-session", "asset-compiler", "pack-compiler"]
+forbidden_transitive_dependencies = ["render", "app", "cinnabar", "gameplay", "client-session", "asset-compiler", "pack-compiler"]
 
 [[crates]]
 name = "semantic-input"
@@ -288,7 +288,7 @@ path = "crates/render-model"
 test_support_features = ["test-support"]
 allowed_dependencies = ["simulation-clock", "block-transform", "mod-api", "assets", "render-api", "world"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "render", "protocol", "client-world", "chunk-pipeline", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "render", "protocol", "client-world", "chunk-pipeline", "bevy", "bevy_*", "wgpu*"]
 
 # CPU particle simulation; render only uploads and draws its output.
 [[crates]]
@@ -296,14 +296,14 @@ name = "particles"
 path = "crates/particles"
 allowed_dependencies = ["assets"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "render", "protocol", "client-world", "chunk-pipeline", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "render", "protocol", "client-world", "chunk-pipeline", "bevy", "bevy_*", "wgpu*"]
 
 # Render submission resources never depend on GPU pass implementations or game authority.
 [[crates]]
 name = "render-scene"
 path = "crates/render-scene"
 allowed_dependencies = ["simulation-clock", "assets", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "world", "tracy-client", "test-time"]
-forbidden_transitive_dependencies = ["render", "app", "bedrock-client", "client-world", "chunk-pipeline", "client-presentation", "protocol"]
+forbidden_transitive_dependencies = ["render", "app", "cinnabar", "client-world", "chunk-pipeline", "client-presentation", "protocol"]
 test_support_features = ["publication-test-support"]
 
 [[crates]]
@@ -414,7 +414,7 @@ name = "ui-engine"
 path = "crates/ui-engine"
 allowed_dependencies = ["assets", "json-ui", "render-model", "resource-pack", "ui"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu", "client-ui", "launcher-host"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "launcher-host", "render", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "launcher-host", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
 # OreUI screens draw from typed borrowed inputs; runtime authority stays in client-ui adapters.
@@ -423,7 +423,7 @@ name = "oreui"
 path = "crates/oreui"
 allowed_dependencies = ["assets", "bridge", "launcher", "protocol", "render-api", "render-model", "resource-pack", "semantic-input", "ui", "ui-engine"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu", "client-ui", "launcher-host", "ui-screens", "mod-ui"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "launcher-host", "render", "ui-screens", "mod-ui", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "launcher-host", "render", "ui-screens", "mod-ui", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
 # Vanilla screen families over the engine; client-ui adapters project their typed inputs.
@@ -432,7 +432,7 @@ name = "ui-screens"
 path = "crates/ui-screens"
 allowed_dependencies = ["actor-animation", "assets", "bridge", "inventory", "json-ui", "launcher", "player-state", "protocol", "render-model", "resource-pack", "ui", "ui-engine"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu", "client-ui", "launcher-host", "oreui", "mod-ui"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "launcher-host", "oreui", "mod-ui", "render", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "launcher-host", "oreui", "mod-ui", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
 # Mod- and server-experience-owned surfaces; the host projects authority into their inputs.
@@ -441,7 +441,7 @@ name = "mod-ui"
 path = "crates/mod-ui"
 allowed_dependencies = ["assets", "json-ui", "render-model", "server-experience", "ui", "ui-engine"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu", "client-ui", "launcher-host", "oreui", "ui-screens"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "launcher-host", "render", "oreui", "ui-screens", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "launcher-host", "render", "oreui", "ui-screens", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
 [[crates]]
@@ -499,7 +499,7 @@ name = "cinnabar-mcp"
 path = "tools/cinnabar-mcp"
 allowed_dependencies = ["developer-control", "mcp-stdio", "test-time"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "bevy", "bevy_*", "wgpu*"]
 
 # Signed release manifest format, shared by the client's update check and the CI signer.
 [[crates]]
@@ -871,13 +871,13 @@ forbidden_owned_types = ["InventorySession", "PlayerInventoryLedger", "LocalPlay
 
 [[module_boundaries]]
 path = "crates/client-ui/src"
-forbidden_modules = ["bedrock_client"]
+forbidden_modules = ["cinnabar"]
 forbidden_crate_modules = ["app", "runtime", "movement", "mining", "item_use", "camera", "server_camera", "local_player", "semantic_controls", "settings_runtime", "acceptance", "audio", "block_selection", "block_use", "hotbar", "pick_block", "melee", "survival_mining"]
 forbidden_owned_types = ["InventorySession", "PlayerInventoryLedger", "LocalPlayerFacts", "AbilitiesUpdate", "PlayerState", "PlayerRuntime"]
 
 [[module_boundaries]]
 path = "crates/launcher/src"
-forbidden_modules = ["bedrock_client", "client_ui", "UiRuntime", "PlayerRuntime", "PlayerState", "NetworkHandle"]
+forbidden_modules = ["cinnabar", "client_ui", "UiRuntime", "PlayerRuntime", "PlayerState", "NetworkHandle"]
 forbidden_crate_modules = ["ui_runtime", "presentation", "runtime", "movement", "acceptance"]
 
 # Fixtures can be shared by tests without becoming callable from production adapters.
@@ -905,31 +905,31 @@ forbidden_owned_types = ["ChunkStore", "ActorStore"]
 # Plugin code consumes explicit observations, never host modules or session/gameplay owners.
 [[module_boundaries]]
 path = "crates/client-presentation/src"
-forbidden_modules = ["bedrock_client", "gameplay", "client_session", "NetworkHandle", "MovementTicker", "LocalPhysicsController", "ItemUseRuntime", "MiningRuntime"]
+forbidden_modules = ["cinnabar", "gameplay", "client_session", "NetworkHandle", "MovementTicker", "LocalPhysicsController", "ItemUseRuntime", "MiningRuntime"]
 forbidden_crate_modules = ["app", "runtime", "movement", "item_use", "mining", "melee", "menu", "acceptance", "asset_startup", "player_runtime", "semantic_controls", "settings_runtime", "screen_policy"]
 forbidden_owned_types = ["WorldStream", "PlayerState", "PlayerInventoryLedger", "InventorySession", "LocalPlayerFacts"]
 
 [[module_boundaries]]
 path = "crates/client-audio/src"
-forbidden_modules = ["bedrock_client", "client_presentation", "render", "gameplay", "client_session", "NetworkHandle", "MovementTicker", "LocalPhysicsController"]
+forbidden_modules = ["cinnabar", "client_presentation", "render", "gameplay", "client_session", "NetworkHandle", "MovementTicker", "LocalPhysicsController"]
 forbidden_crate_modules = ["app", "runtime", "movement", "item_use", "mining", "melee", "menu", "acceptance", "asset_startup", "player_runtime", "semantic_controls", "settings_runtime"]
 forbidden_owned_types = ["WorldStream", "PlayerState", "PlayerInventoryLedger", "InventorySession", "LocalPlayerFacts"]
 
 [[module_boundaries]]
 path = "crates/acceptance/src"
-forbidden_modules = ["bedrock_client", "gameplay", "client_session", "NetworkHandle", "MovementTicker", "LocalPhysicsController", "ClientWorld"]
+forbidden_modules = ["cinnabar", "gameplay", "client_session", "NetworkHandle", "MovementTicker", "LocalPhysicsController", "ClientWorld"]
 forbidden_crate_modules = ["app", "runtime", "movement", "item_use", "mining", "menu", "asset_startup", "player_runtime"]
 forbidden_owned_types = ["WorldStream", "PlayerState", "PlayerInventoryLedger", "InventorySession", "LocalPlayerFacts"]
 
 [[module_boundaries]]
 path = "crates/diagnostics/src"
-forbidden_modules = ["bedrock_client", "gameplay", "client_session", "acceptance", "NetworkHandle", "ClientWorld"]
+forbidden_modules = ["cinnabar", "gameplay", "client_session", "acceptance", "NetworkHandle", "ClientWorld"]
 forbidden_crate_modules = ["app", "runtime", "movement", "asset_startup"]
 
 # Lower domains cannot reach app adapters through rooted or renamed module paths.
 [[module_boundaries]]
 path = "crates/gameplay/src"
-forbidden_modules = ["bedrock_client", "bevy", "render", "client_ui", "client_session", "chunk_pipeline", "UiRuntime", "NetworkHandle"]
+forbidden_modules = ["cinnabar", "bevy", "render", "client_ui", "client_session", "chunk_pipeline", "UiRuntime", "NetworkHandle"]
 forbidden_crate_modules = ["app", "runtime", "camera", "server_camera", "local_player", "semantic_controls", "settings_runtime", "acceptance", "audio", "session_audio", "presentation", "ui_runtime", "menu"]
 forbidden_owned_types = ["InventorySession", "PlayerInventoryLedger", "LocalPlayerFacts", "PlayerState", "ChunkStore", "ActorStore", "WorldAuthority"]
 
@@ -941,7 +941,7 @@ owned_type = "PlayerState"
 
 [[module_boundaries]]
 path = "crates/client-session/src"
-forbidden_modules = ["pack_compiler", "pack_runtime", "bedrock_client", "bevy", "render", "client_ui", "gameplay", "chunk_pipeline", "UiRuntime", "MovementTicker"]
+forbidden_modules = ["pack_compiler", "pack_runtime", "cinnabar", "bevy", "render", "client_ui", "gameplay", "chunk_pipeline", "UiRuntime", "MovementTicker"]
 forbidden_crate_modules = ["app", "runtime", "movement", "camera", "local_player", "acceptance", "audio", "session_audio", "presentation", "ui_runtime", "menu"]
 forbidden_owned_types = ["InventorySession", "PlayerInventoryLedger", "LocalPlayerFacts", "PlayerState", "ChunkStore", "ActorStore", "WorldAuthority"]
 
@@ -1140,14 +1140,14 @@ exports = [
 name = "launcher-host"
 path = "crates/launcher-host"
 allowed_dependencies = ["bridge", "launcher", "protocol", "server-experience", "test-time", "update-manifest"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "render", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
 [[crates]]
 name = "first-run"
 path = "crates/first-run"
 allowed_dependencies = ["assets", "launcher", "launcher-host", "render-model", "semantic-input", "test-time", "ui", "gilrs"]
-forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "render", "bevy", "bevy_*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*"]
 
 [[crates]]
 name = "simulation-clock"

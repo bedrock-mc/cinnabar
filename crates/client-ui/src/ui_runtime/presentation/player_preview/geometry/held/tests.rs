@@ -293,3 +293,27 @@ fn bound_attachable_preview_preserves_the_resolved_hand_origin() {
 }
 
 use crate::ui_runtime::presentation::player_preview::PreviewView;
+
+#[test]
+fn held_glint_overrides_preserve_geometry_and_reach_both_hands() {
+    let cached = model(
+        render_model::textured_cube_vertices([[0.0, 0.0, 1.0, 1.0]; 6]),
+        PreviewHeldPlacement::Block,
+    )
+    .with_glint(Some(true));
+    let plain = cached.with_glint(Some(false));
+    let retained = cached.with_glint(None);
+    assert!(std::sync::Arc::ptr_eq(&cached.vertices, &plain.vertices));
+    assert!(retained.source.glint);
+    assert!(!plain.source.glint);
+    let mesh = draw([Some(&retained), Some(&plain)]);
+    for (batch, expected) in mesh.batches()[1..].iter().zip([true, false]) {
+        let vertices =
+            &mesh.vertices()[batch.index_range.start as usize..batch.index_range.end as usize];
+        assert!(
+            vertices
+                .iter()
+                .all(|vertex| (vertex.style_flags & ui::UI_STYLE_GLINT != 0) == expected)
+        );
+    }
+}

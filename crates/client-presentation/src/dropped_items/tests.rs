@@ -28,8 +28,8 @@ fn potted_models_sample_the_exposed_server_texture_grid() {
                 model_template: 1,
                 animation: assets::NO_ANIMATION,
                 variant: 0,
-                native_material: assets::native_material::NativeMaterialFacts::Unresolved,
                 destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
+                native_material: assets::native_material::NativeMaterialFacts::Unresolved,
             }],
             light_properties: vec![assets::LightProperties::default()],
             materials: vec![assets::Material {

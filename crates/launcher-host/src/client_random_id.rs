@@ -101,7 +101,7 @@ mod tests {
         InstallLayout::resolve(
             platform,
             &InstallEnvironment {
-                executable: root.join("target/debug/bedrock-client"),
+                executable: root.join("target/debug/cinnabar"),
                 user_root: Some(root.to_owned()),
                 home: None,
                 local_app_data: None,

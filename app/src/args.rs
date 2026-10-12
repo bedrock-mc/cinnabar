@@ -8,11 +8,11 @@ pub const DEFAULT_GUI_SCALE: u8 = 2;
 
 pub const HELP: &str = concat!(
     "\
-bedrock-client — ",
+cinnabar — ",
     launcher::product_name!(),
     ", a Minecraft: Bedrock Edition client
 
-Usage: bedrock-client [OPTIONS] [PACK.mcpack|PACK.mcaddon|PACK.zip]...
+Usage: cinnabar [OPTIONS] [PACK.mcpack|PACK.mcaddon|PACK.zip]...
 
 Options:
   --address <HOST:PORT>       Directly launch the Go core and join a server

@@ -81,7 +81,7 @@
 
 - [ ] Run `cargo fmt --all -- --check`.
 - [ ] Run focused protocol, client-world, render, and app tests.
-- [ ] Run `cargo clippy -p protocol -p client-world -p render -p bedrock-client --all-targets -- -D warnings`.
+- [ ] Run `cargo clippy -p protocol -p client-world -p render -p cinnabar --all-targets -- -D warnings`.
 - [ ] Run `cargo run -p devtool --locked -- verify-affected --base 1e507aa`.
 - [ ] Run `git diff --check` and inspect `git diff --stat` plus the complete diff.
 - [ ] Commit the reviewed tranche locally without pushing or merging.

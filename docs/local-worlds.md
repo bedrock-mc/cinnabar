@@ -83,6 +83,12 @@ pending transfer. The core hosts a running BDS world to Xbox friends and serves 
 EULA, Docker modal); `crates/client-shell/src/local_worlds` runs its requests against the launcher's world
 manager. Play and the OreUI create/edit screens bind to it.
 
+The Edit world screen saves changes before Play starts the server and when Back or Escape leaves
+the screen. Invalid names stay in the form for correction; failed saves keep the edits for retry.
+The selected game mode sets the world's default for new players and the local Dragonfly host's
+mode on each join, while keeping the host's other saved data. BDS launches use `force-gamemode=true`
+(including `FORCE_GAMEMODE` in containers), so existing worlds use the selected mode too.
+
 ## v1 limits
 
 The owner-requested natural generator has not passed version-matched Bedrock terrain parity; its source targets

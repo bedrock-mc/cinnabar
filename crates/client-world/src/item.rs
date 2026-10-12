@@ -22,6 +22,7 @@ use actor_animation::ActorLifetimeId;
 
 mod armour;
 mod durability;
+mod glint;
 mod grip;
 
 pub const MAX_ITEM_REGISTRY_RECORDS: usize = 16_384;
@@ -35,6 +36,8 @@ pub struct CanonicalItemStack {
     pub use_animation: assets::item_use::ItemUseAnimation,
     /// Grip resolved for the current numeric item registry generation.
     pub grip: assets::item::grip::ItemGrip,
+    /// Intrinsic shine resolved for the current numeric registry generation.
+    pub glint: assets::item::glint::ItemGlint,
     pub identity: ItemStackIdentity,
     pub identifier: Option<Arc<str>>,
     pub visual: ItemVisualRoute,
@@ -54,6 +57,8 @@ pub struct CanonicalItemStack {
 pub struct CanonicalItemRegistryRecord {
     /// Descriptor after the current component payload has been admitted.
     pub grip: assets::item::grip::ItemGrip,
+    /// Intrinsic shine resolved for the current numeric registry generation.
+    pub glint: assets::item::glint::ItemGlint,
     pub identifier: Arc<str>,
     pub network_id: i32,
     pub component_based: bool,
@@ -493,6 +498,13 @@ impl ItemStateStore {
         Some(item)
     }
 
+    /// Reads a retained intrinsic disposition; missing numeric aliases stay unresolved.
+    pub(crate) fn item_glint(&self, network_id: i32) -> assets::item::glint::ItemGlint {
+        self.registry
+            .get(&network_id)
+            .map_or(Default::default(), |record| record.glint)
+    }
+
     /// Resolves stack projectile metadata against this registry's admitted identities.
     fn projectile_role(&self, identifier: Option<&str>) -> assets::item_use::ItemProjectileRole {
         identifier
@@ -514,6 +526,7 @@ impl ItemStateStore {
                 use_animation: assets::item_use::ItemUseAnimation::None,
                 charged_projectile_role: assets::item_use::ItemProjectileRole::None,
                 grip: assets::item::grip::ItemGrip::Unresolved,
+                glint: assets::item::glint::ItemGlint::Unresolved,
                 identity,
                 identifier: None,
                 visual: ItemVisualRoute::EmptyHand,
@@ -542,6 +555,10 @@ impl ItemStateStore {
                 .registry
                 .get(&identity.network_id)
                 .map_or(Default::default(), |record| record.grip),
+            glint: self
+                .registry
+                .get(&identity.network_id)
+                .map_or(Default::default(), |record| record.glint),
             identity,
             identifier,
             visual,
@@ -658,6 +675,7 @@ fn registry_record(
 ) -> CanonicalItemRegistryRecord {
     CanonicalItemRegistryRecord {
         grip: grip::resolve(entry, assets),
+        glint: glint::resolve(entry, assets),
         identifier: Arc::clone(&entry.identifier),
         network_id: entry.network_id,
         component_based: entry.component_based,

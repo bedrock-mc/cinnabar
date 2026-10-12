@@ -114,7 +114,7 @@ Also prove `[-1, -1, -1]` maps to local `[15, 15, 15]`, an absent in-range slot 
 
 - [ ] **Step 2: Run RED**
 
-Run: `cargo test -p bedrock-client mesh_light_halo_samples --locked -- --nocapture`
+Run: `cargo test -p cinnabar mesh_light_halo_samples --locked -- --nocapture`
 
 Expected: compilation fails because `MeshLightHalo` does not exist.
 
@@ -141,7 +141,7 @@ Route each axis with `div_euclid(16)` and `rem_euclid(16)`, reject offsets outsi
 
 - [ ] **Step 4: Run GREEN**
 
-Run: `cargo test -p bedrock-client mesh_light_halo --locked`
+Run: `cargo test -p cinnabar mesh_light_halo --locked`
 
 Expected: center, face, edge, corner, and fallback tests pass.
 
@@ -171,7 +171,7 @@ Use all three non-center dependency shapes so dispatch cannot accidentally gate 
 
 - [ ] **Step 2: Run RED**
 
-Run: `cargo test -p bedrock-client mesh_dispatch_waits_for_current_light_halo --locked -- --nocapture`
+Run: `cargo test -p cinnabar mesh_dispatch_waits_for_current_light_halo --locked -- --nocapture`
 
 Expected: the existing center-only gate dispatches with a dirty non-center slot.
 
@@ -181,7 +181,7 @@ Make `mesh_light_halo` return `None` when any known/resident slot is not current
 
 - [ ] **Step 4: Run ordering GREEN**
 
-Run: `cargo test -p bedrock-client mesh_dispatch_waits_for_current_light_halo --locked`
+Run: `cargo test -p cinnabar mesh_dispatch_waits_for_current_light_halo --locked`
 
 Expected: both completion-order tests pass.
 
@@ -191,7 +191,7 @@ Capture and dispatch a mesh, replace a face/edge/corner light Arc at the same me
 
 - [ ] **Step 6: Run RED**
 
-Run: `cargo test -p bedrock-client stale_light_halo_mesh_completion --locked -- --nocapture`
+Run: `cargo test -p cinnabar stale_light_halo_mesh_completion --locked -- --nocapture`
 
 Expected: the old completion is accepted or the pending revision is lost.
 
@@ -201,9 +201,9 @@ For each occupied slot require live current status, matching key/block generatio
 
 - [ ] **Step 8: Run GREEN and bounded mesh regressions**
 
-Run: `cargo test -p bedrock-client stale_light_halo_mesh_completion --locked`
+Run: `cargo test -p cinnabar stale_light_halo_mesh_completion --locked`
 
-Run: `cargo test -p bedrock-client mesh_dispatch_never_exceeds_the_bounded_worker_window --locked`
+Run: `cargo test -p cinnabar mesh_dispatch_never_exceeds_the_bounded_worker_window --locked`
 
 Expected: rejection/no-loss tests pass and the 128-job mesh window remains binding.
 
@@ -230,7 +230,7 @@ Exercise first current light commit, changed replacement, known-air/resident loa
 
 - [ ] **Step 2: Run RED**
 
-Run: `cargo test -p bedrock-client light_lifecycle_invalidates_full_mesh_halo --locked -- --nocapture`
+Run: `cargo test -p cinnabar light_lifecycle_invalidates_full_mesh_halo --locked -- --nocapture`
 
 Expected: current code dirties only the center or face-limited dependants.
 
@@ -240,7 +240,7 @@ Dirty every checked dependent that can own a mesh, using existing revision track
 
 - [ ] **Step 4: Run GREEN and coalescing/bounds tests**
 
-Run: `cargo test -p bedrock-client light_lifecycle_invalidates_full_mesh_halo --locked`
+Run: `cargo test -p cinnabar light_lifecycle_invalidates_full_mesh_halo --locked`
 
 Expected: all lifecycle cases produce the exact bounded 27-key set.
 
@@ -258,7 +258,7 @@ Expected: all lifecycle cases produce the exact bounded 27-key set.
 Run:
 
 ```powershell
-cargo test -p render -p bedrock-client -p world --locked
+cargo test -p render -p cinnabar -p world --locked
 ```
 
 Expected: all render, app, world integration, and doc tests pass.
@@ -268,7 +268,7 @@ Expected: all render, app, world integration, and doc tests pass.
 Run:
 
 ```powershell
-cargo test --release -p bedrock-client --locked release_full_view_known_air_lighting_completes_within_two_seconds -- --ignored --nocapture
+cargo test --release -p cinnabar --locked release_full_view_known_air_lighting_completes_within_two_seconds -- --ignored --nocapture
 ```
 
 Expected: 26,136 known-air light completions finish within two seconds, all current, with zero stale results.

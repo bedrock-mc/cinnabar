@@ -26,6 +26,8 @@ fn button(action: &str, size: [f64; 2], offset: [f64; 2], controls: Vec<Value>) 
 /// Builds stable card previews and a bounded grid with editor controls.
 pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog, String> {
     let hud = &editor.draft;
+    let style = hud.editor_style.unwrap_or_default();
+    let color = |value: [f32; 4]| value.map(f64::from);
     let mut controls = Vec::new();
     if hud.surface.is_none() {
         controls.push(named("shade", rect(viewport, [0.; 2], [0., 0., 0., 0.32])));
@@ -42,7 +44,7 @@ pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog,
                 offset[axis] = n as f64 * spacing;
                 lines.push(named(
                     &format!("line_{axis}_{n}"),
-                    rect(size, offset, [1., 1., 1., 0.09]),
+                    rect(size, offset, color(style.grid)),
                 ));
             }
         }
@@ -55,7 +57,7 @@ pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog,
     for axis in 0..2 {
         let mut size = viewport;
         size[axis] = GUIDE_WIDTH;
-        let mut node = rect(size, [0.; 2], [0.2, 0.85, 1., 0.8]);
+        let mut node = rect(size, [0.; 2], color(style.guide));
         node["bindings"] = json!([
             {"binding_name":format!("#guide_{axis}_visible"),"binding_name_override":"#visible"},
             {"binding_name":format!("#guide_{axis}_offset"),"binding_name_override":"#offset"}
@@ -93,7 +95,8 @@ pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog,
                         size[axis] - 8.
                     }
                 });
-                let visual = rect([5.; 2], [1.5; 2], [0.3, 0.85, 1., 1.]);
+                let mut visual = rect([5.; 2], [1.5; 2], color(style.handle));
+                visual["radius"] = json!(style.handle_radius);
                 let mut handle = button(
                     &format!("hud.resize:{index}:{corner}"),
                     [8.; 2],
@@ -104,9 +107,15 @@ pub(super) fn catalog(editor: &HudEditor, viewport: [f64; 2]) -> Result<Catalog,
                 handle["default_control"] = json!("square");
                 handle["hover_control"] = json!("hover");
                 handle["pressed_control"] = json!("pressed");
+                // The hit target keeps the mark's proportions, so round marks stay round.
+                let feedback = |value| {
+                    let mut node = rect([8.; 2], [0.; 2], color(value));
+                    node["radius"] = json!(style.handle_radius * 8. / 5.);
+                    node
+                };
                 handle["controls"].as_array_mut().unwrap().extend([
-                    named("hover", rect([8.; 2], [0.; 2], [1.; 4])),
-                    named("pressed", rect([8.; 2], [0.; 2], [0.2, 0.65, 1., 1.])),
+                    named("hover", feedback(style.handle_hover)),
+                    named("pressed", feedback(style.handle_pressed)),
                 ]);
                 let mut group = json!({"type":"panel","size":size,"controls":[named("handle",handle)],"anchor_from":"top_left","anchor_to":"top_left","layer":20});
                 group["bindings"] = json!([{"binding_name":format!("#card_{index}_offset"),"binding_name_override":"#offset"}]);

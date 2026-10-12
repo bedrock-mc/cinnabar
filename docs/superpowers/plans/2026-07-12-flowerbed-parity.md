@@ -238,8 +238,8 @@ Assert FlowerBed visuals use existing `PackedModelRef`/lighting records, two-sid
 
 ```powershell
 go test ./tools/registrygen -count=1
-cargo test -p assets -p render -p bedrock-client --locked
-cargo clippy -p assets -p render -p bedrock-client --all-targets --locked -- -D warnings
+cargo test -p assets -p render -p cinnabar --locked
+cargo clippy -p assets -p render -p cinnabar --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/tests/acceptance.Tests.ps1
 ```

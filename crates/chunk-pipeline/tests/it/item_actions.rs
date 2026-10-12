@@ -108,6 +108,7 @@ fn item_assets() -> Arc<RuntimeEntityAssets> {
         item_visuals: vec![
             ItemVisualDefinition {
                 grip: assets::item::grip::ItemGrip::Unresolved,
+                glint: assets::item::glint::ItemGlint::Unresolved,
                 fuel: assets::item::fuel::ItemFuel::Unresolved,
                 durability: assets::item::durability::ItemDurability::Unresolved,
                 armour: assets::item::armour::ItemArmour::Unresolved,
@@ -128,6 +129,7 @@ fn item_assets() -> Arc<RuntimeEntityAssets> {
             },
             ItemVisualDefinition {
                 grip: assets::item::grip::ItemGrip::Unresolved,
+                glint: assets::item::glint::ItemGlint::Unresolved,
                 fuel: assets::item::fuel::ItemFuel::Unresolved,
                 durability: assets::item::durability::ItemDurability::Unresolved,
                 armour: assets::item::armour::ItemArmour::Unresolved,

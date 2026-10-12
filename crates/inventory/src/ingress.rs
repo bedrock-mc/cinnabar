@@ -214,7 +214,7 @@ impl InventorySession {
         sink: super::inventory_ledger::CraftSink,
     ) -> Result<i32, super::inventory_ledger::InventoryGestureError> {
         let matched = self.crafting_match();
-        tracing::debug!(target: "bedrock_client::inventory_requests",
+        tracing::debug!(target: "cinnabar::inventory_requests",
             catalog_available = self.crafting_authority.catalog().is_some(),
             recipes = self.crafting_authority.catalog().map(|catalog| catalog.crafting_handles().len()),
             grid = ?self.ledger().crafting_grid_cells(),

@@ -130,7 +130,7 @@ fn cards_update_values_without_rebuilding_the_json_ui_catalog_and_revoke_cleanly
         snapshot::rasterize(&before) != snapshot::rasterize(&after),
         "published cards change the rendered frame"
     );
-    let catalog = Arc::clone(&p.mod_ui().mod_widgets_state().unwrap().catalog);
+    let catalog = Arc::clone(p.mod_ui().mod_widgets_state().unwrap().catalog);
     assert!(
         after == frame(&mut p, &runtime, [1280, 720], 1.),
         "unchanged content reuses the published frame"
@@ -140,7 +140,7 @@ fn cards_update_values_without_rebuilding_the_json_ui_catalog_and_revoke_cleanly
     p.set_mod_hud(Some(&hud)).unwrap();
     assert!(Arc::ptr_eq(
         &catalog,
-        &p.mod_ui().mod_widgets_state().unwrap().catalog
+        p.mod_ui().mod_widgets_state().unwrap().catalog
     ));
     let updated = frame(&mut p, &runtime, [1280, 720], 1.);
     assert!(
@@ -164,7 +164,7 @@ fn changed_card_layout_rebuilds_the_catalog_and_stacks_rendered_text() {
     hud.cards[0].rows[0].progress = None;
     hud.cards[0].rows[0].color = [1., 0., 0., 1.];
     p.set_mod_hud(Some(&hud)).unwrap();
-    let catalog = Arc::clone(&p.mod_ui().mod_widgets_state().unwrap().catalog);
+    let catalog = Arc::clone(p.mod_ui().mod_widgets_state().unwrap().catalog);
     let standard = frame(&mut p, &runtime, [1280, 720], 1.);
     hud.cards[0].row_layout = ui::mod_hud::RowLayout::StackedText;
     hud.cards[0].width = 128.;
@@ -173,7 +173,7 @@ fn changed_card_layout_rebuilds_the_catalog_and_stacks_rendered_text() {
     p.set_mod_hud(Some(&hud)).unwrap();
     assert!(!Arc::ptr_eq(
         &catalog,
-        &p.mod_ui().mod_widgets_state().unwrap().catalog
+        p.mod_ui().mod_widgets_state().unwrap().catalog
     ));
     let stacked = frame(&mut p, &runtime, [1280, 720], 1.);
     assert_ne!(
@@ -234,11 +234,11 @@ fn changed_card_layout_rebuilds_the_catalog_and_stacks_rendered_text() {
         "stacked text uses distinct lines"
     );
     assert_eq!(name.min().x(), value.min().x());
-    let catalog = Arc::clone(&p.mod_ui().mod_widgets_state().unwrap().catalog);
+    let catalog = Arc::clone(p.mod_ui().mod_widgets_state().unwrap().catalog);
     hud.cards[0].rows[0].value = "37%".into();
     p.set_mod_hud(Some(&hud)).unwrap();
     assert!(
-        Arc::ptr_eq(&catalog, &p.mod_ui().mod_widgets_state().unwrap().catalog),
+        Arc::ptr_eq(&catalog, p.mod_ui().mod_widgets_state().unwrap().catalog),
         "a changing value retains the selected row layout"
     );
 }
@@ -272,13 +272,13 @@ fn larger_row_text_rebuilds_the_catalog_and_fits_stacked_and_right_icon_bands() 
             [255, 0, 0, 255],
         );
         let base_scale = baseline_value.key().scale_1024;
-        let catalog = Arc::clone(&p.mod_ui().mod_widgets_state().unwrap().catalog);
+        let catalog = Arc::clone(p.mod_ui().mod_widgets_state().unwrap().catalog);
         hud.cards[0].text_scale = 1.75;
         assert_eq!(card_dimensions(&hud.cards[0]), dimensions);
         p.set_mod_hud(Some(&hud)).unwrap();
         assert!(!Arc::ptr_eq(
             &catalog,
-            &p.mod_ui().mod_widgets_state().unwrap().catalog
+            p.mod_ui().mod_widgets_state().unwrap().catalog
         ));
         let enlarged = frame(&mut p, &UiRuntime::new(1), [1280, 720], 1.);
         assert_ne!(
@@ -1040,14 +1040,14 @@ fn rectangular_cells_center_text_resize_and_update_without_rebuilding() {
     };
     p.set_mod_hud(Some(&hud)).unwrap();
     let before = frame(&mut p, &runtime, [1280, 720], 1.);
-    let catalog = Arc::clone(&p.mod_ui().mod_widgets_state().unwrap().catalog);
+    let catalog = Arc::clone(p.mod_ui().mod_widgets_state().unwrap().catalog);
     hud.cards[0].cells[0].background = [1., 1., 1., 0.44];
     hud.cards[0].cells[0].color = [0., 0., 0., 1.];
     hud.cards[0].cells[1].value = "9 CPS".into();
     p.set_mod_hud(Some(&hud)).unwrap();
     assert!(Arc::ptr_eq(
         &catalog,
-        &p.mod_ui().mod_widgets_state().unwrap().catalog
+        p.mod_ui().mod_widgets_state().unwrap().catalog
     ));
     let after = frame(&mut p, &runtime, [1280, 720], 1.);
     assert_ne!(snapshot::rasterize(&before), snapshot::rasterize(&after));

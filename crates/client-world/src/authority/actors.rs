@@ -61,6 +61,10 @@ impl WorldAuthority {
     ) -> Option<crate::item::CanonicalItemStack> {
         self.actors.canonical_item_stack(stack)
     }
+    /// Reads intrinsic shine admitted for the current numeric item identity.
+    pub fn item_glint(&self, network_id: i32) -> assets::item::glint::ItemGlint {
+        self.actors.item_glint(network_id)
+    }
     /// The item identifier registered for a network id.
     pub fn item_identifier(&self, network_id: i32) -> Option<std::sync::Arc<str>> {
         self.actors.item_identifier(network_id)
@@ -152,6 +156,16 @@ impl WorldAuthority {
     ) -> impl Iterator<Item = crate::ActorShadowCaster> + '_ {
         self.actors.shadow_casters(partial_tick)
     }
+    /// Samples one actor's shadow volume source at the render frame's interpolation fraction.
+    pub fn actor_shadow_caster(
+        &self,
+        runtime_id: u64,
+        partial_tick: f32,
+    ) -> Option<crate::ActorShadowCaster> {
+        self.actors
+            .shadow_caster(self.actors.get(runtime_id)?, partial_tick)
+    }
+
     /// Sets the view `[pitch, yaw]` (degrees) that camera-facing billboard rigs sample per tick.
     pub fn set_actor_camera_rotation(&mut self, rotation: [f32; 2]) {
         self.actors.set_camera_rotation(rotation);

@@ -163,7 +163,7 @@ Moving geometry to the physical-resolution UI draw path does not by itself close
 
 ## Live follow-up acceptance
 
-The canonical `target/debug/bedrock-client` was rebuilt and launched on macOS 26.3,
+The canonical `target/debug/cinnabar` was rebuilt and launched on macOS 26.3,
 Apple M3 Pro / Metal, at 1280×720 logical / 2560×1440 physical (Retina 2).
 The existing offline loopback official BDS test session was retained; only the Rust
 client restarted, with ordinary server-given fixture stacks and real inventory moves.

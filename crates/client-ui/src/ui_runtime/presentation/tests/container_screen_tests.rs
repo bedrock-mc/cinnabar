@@ -942,6 +942,7 @@ fn inventory_player_model_wears_armor_and_holds_items() {
     for gear in [
         super::super::player_preview::PreviewEquipment::default(),
         super::super::player_preview::PreviewEquipment {
+            armor_glint: [false; 4],
             armor: [
                 Some(layer_1.clone()),
                 Some(layer_1.clone()),

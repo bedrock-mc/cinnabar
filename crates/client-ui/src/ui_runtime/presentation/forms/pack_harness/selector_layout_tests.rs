@@ -45,7 +45,8 @@ fn server_pack_selector_keeps_reserved_controls_out_of_game_grid() {
     .unwrap();
     let catalog = super::super::screen_registry::registry()
         .catalog()
-        .layer(&base, &pack.ui_layers);
+        .layer(&base, &pack.ui_layers)
+        .pack;
     if catalog.lookup("lb_form_33", "form_33").is_none() {
         eprintln!(
             "skipping server_pack_selector_keeps_reserved_controls_out_of_game_grid: fixture has no ui/lifeboat/lb_form_33.json"

@@ -560,7 +560,7 @@ impl SurvivalMiningRuntime {
         }
         self.last_blocked_log_millis = Some(now_millis);
         tracing::debug!(
-            target: "bedrock_client::survival_mining",
+            target: "cinnabar::survival_mining",
             reason,
             game_mode_known = caps.is_some(),
             can_mine = caps.is_some_and(|caps| caps.can_mine),

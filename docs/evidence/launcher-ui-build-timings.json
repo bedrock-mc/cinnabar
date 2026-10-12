@@ -29,7 +29,7 @@
     "--offline",
     "--locked",
     "-p",
-    "bedrock-client",
+    "cinnabar",
     "--timings"
   ],
   "probe": "// Timing probe: behavior-neutral source edit.",
@@ -44,14 +44,14 @@
       "report_sha256": "3f834da96977d400954e933959a4a6aebd4c8d69da14df958d1590344d403889",
       "compiled_units": [
         {
-          "name": "bedrock-client",
+          "name": "cinnabar",
           "target": "",
           "start_seconds": 1.0,
           "duration_seconds": 136.11
         },
         {
-          "name": "bedrock-client",
-          "target": " bin \"bedrock-client\"",
+          "name": "cinnabar",
+          "target": " bin \"cinnabar\"",
           "start_seconds": 137.11,
           "duration_seconds": 2.21
         }
@@ -71,14 +71,14 @@
           "duration_seconds": 19.06
         },
         {
-          "name": "bedrock-client",
+          "name": "cinnabar",
           "target": "",
           "start_seconds": 3.77,
           "duration_seconds": 53.92
         },
         {
-          "name": "bedrock-client",
-          "target": " bin \"bedrock-client\"",
+          "name": "cinnabar",
+          "target": " bin \"cinnabar\"",
           "start_seconds": 57.69,
           "duration_seconds": 2.69
         }

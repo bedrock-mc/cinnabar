@@ -85,7 +85,7 @@ class PackageBinariesTests(unittest.TestCase):
                         for index, arg in enumerate(args) if arg == "--features"
                         for feature in args[index + 1].replace(",", " ").split()
                     }
-                    self.assertIn("bedrock-client/local-mods", features)
+                    self.assertIn("cinnabar/local-mods", features)
                     self.assertIn("--release", args)
                     self.assertIn("--no-default-features", args)
 

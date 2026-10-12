@@ -119,7 +119,7 @@ pub(crate) fn configure_from_environment(app: &mut App) {
     if package.is_some() || path.is_some() {
         let _ = app;
         eprintln!(
-            "{PACKAGE_ENV} and {COMPONENT_ENV} ignored: build bedrock-client with --features local-mods"
+            "{PACKAGE_ENV} and {COMPONENT_ENV} ignored: build cinnabar with --features local-mods"
         );
     }
 }

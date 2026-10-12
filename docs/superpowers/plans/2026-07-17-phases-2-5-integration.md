@@ -506,7 +506,7 @@ interfaces, then run:
 
 ```powershell
 cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml
-cargo test -p bedrock-client --locked input
+cargo test -p cinnabar --locked input
 cargo test -p assets --locked item
 cargo test -p ui --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -671,7 +671,7 @@ must not rely on source-string ordering.
 - [ ] **Step 2: Run the test and verify it fails before app wiring**
 
 ```powershell
-cargo test -p bedrock-client --locked schedule_order -- --nocapture
+cargo test -p cinnabar --locked schedule_order -- --nocapture
 ```
 
 Expected: FAIL listing unregistered sets or missing edges.
@@ -709,7 +709,7 @@ keep independent publication/render preparation parallel inside its set.
 - [ ] **Step 5: Run checkpoint 2**
 
 ```powershell
-cargo test -p bedrock-client --locked schedule_order -- --nocapture
+cargo test -p cinnabar --locked schedule_order -- --nocapture
 cargo test --workspace --all-targets --all-features --locked
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo fmt --all -- --check

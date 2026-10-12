@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Fails when an extracted installer holds any file outside the allowlist, so no Mojang asset (or
-# anything else unreviewed) can ship. Missing expected files fail too.
+# anything else unreviewed) can ship. Missing expected files fail too, as does a prep kit its own
+# compiler cannot plan a first run from.
 # Usage: check-payload.sh <macos|linux|windows> <mounted DMG | squashfs-root | MSI admin image>
 set -euo pipefail
 here="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -16,7 +17,7 @@ case "$platform" in
         prefix=Cinnabar.app/Contents/
         resources="${prefix}Resources/"
         required=(Applications "${prefix}Info.plist" "${resources}Cinnabar.icns")
-        for name in bedrock-client bedrock-core bedrock-local-server; do required+=("${prefix}MacOS/$name"); done
+        for name in cinnabar bedrock-core bedrock-local-server; do required+=("${prefix}MacOS/$name"); done
         # CodeResources at the top of Contents is the stapled notarization ticket.
         optional=("${prefix}_CodeSignature/CodeResources" "${prefix}CodeResources")
         ;;
@@ -24,24 +25,25 @@ case "$platform" in
         prefix=''
         resources=usr/share/cinnabar/
         required=(AppRun cinnabar.desktop cinnabar.png)
-        for name in bedrock-client bedrock-core bedrock-local-server; do required+=("usr/bin/$name"); done
+        for name in cinnabar bedrock-core bedrock-local-server; do required+=("usr/bin/$name"); done
         optional=(.DirIcon)
         ;;
     windows)
         # The admin image nests the install dir under a standard-folder name; find it by the client.
-        client="$(cd "$root" && find . -type f -name bedrock-client.exe | sed 's|^\./||')"
-        [[ -n "$client" && "$client" != *$'\n'* ]] || { echo "expected exactly one bedrock-client.exe under $root" >&2; exit 1; }
+        client="$(cd "$root" && find . -type f -name cinnabar.exe | sed 's|^\./||')"
+        [[ -n "$client" && "$client" != *$'\n'* ]] || { echo "expected exactly one cinnabar.exe under $root" >&2; exit 1; }
         prefix="$(dirname -- "$client")/"
         [[ "$prefix" != ./ ]] || prefix=''
         resources="${prefix}resources/"
         required=()
-        for name in bedrock-client bedrock-core bedrock-local-server; do required+=("$prefix$name.exe"); done
+        for name in cinnabar bedrock-core bedrock-local-server; do required+=("$prefix$name.exe"); done
         optional=()
         # msiexec /a leaves a copy of the package beside the image.
         while IFS= read -r msi; do optional+=("$msi"); done < <(cd "$root" && find . -maxdepth 1 -type f -name '*.msi' | sed 's|^\./||')
         ;;
     *) echo "unknown platform: $platform" >&2; exit 2 ;;
 esac
+require_file "$prep_kit_list" "$prep_kit_hint"
 while IFS= read -r file; do required+=("$resources$file"); done < <(resource_manifest "$platform")
 optional+=("${resources}update-url")
 
@@ -62,4 +64,30 @@ for file in "${required[@]}"; do
     fi
 done
 [[ $status -ne 0 ]] || printf '%s artifact holds only allowlisted files (%s entries)\n' "$platform" "$(wc -l <<<"$actual" | tr -d ' ')"
+
+# The shipped compiler plans a first run against the shipped kit, hashing every input it reads.
+native() { if command -v cygpath >/dev/null; then cygpath -w "$1"; else printf '%s\n' "$1"; fi; }
+kit="$root/${resources}prep-kit"
+assetc="$kit/bin/assetc"
+[[ "$platform" != windows ]] || assetc+=.exe
+case "$(uname -s)" in
+    Darwin) host=macos ;;
+    Linux) host=linux ;;
+    MINGW* | MSYS* | CYGWIN*) host=windows ;;
+    *) host=unknown ;;
+esac
+scratch="$(mktemp -d)"
+runs=0
+[[ "$host" != "$platform" ]] || "$assetc" --help >/dev/null 2>&1 || runs=$?
+# Another OS's artifact, or a DMG for another architecture (no Rosetta), cannot run here.
+if [[ "$host" != "$platform" || ( $runs -eq 126 && "$platform" == macos ) ]]; then
+    printf 'skipping the %s prep-kit plan: %s does not run on this host\n' "$platform" "$assetc"
+elif plan="$("$assetc" prepare --kit "$(native "$kit")" --workspace "$(native "$scratch/workspace")" \
+    --out "$(native "$scratch/out")" --check 2>&1)"; then
+    printf '%s prep kit satisfies its compiler: %s\n' "$platform" "$plan"
+else
+    printf 'the shipped compiler cannot plan from the %s prep kit:\n%s\n' "$platform" "$plan" >&2
+    status=1
+fi
+rm -rf "$scratch"
 exit $status

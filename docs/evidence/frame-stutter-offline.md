@@ -130,14 +130,14 @@ the app executable must run from `app/` so the existing carrier harness resolves
 the worktree's `.local` link. All asset-dependent witnesses skip if their required
 local inputs are absent.
 
-- `-p bedrock-client --lib frame_cost_bench_skin_packing_shared_layers -- --ignored --nocapture`
+- `-p cinnabar --lib frame_cost_bench_skin_packing_shared_layers -- --ignored --nocapture`
   isolates the production skin cache, with one cold pack followed by 200 warm
   calls. It asserts that the packed output allocation stays unchanged.
-- `-p bedrock-client --lib synthetic_player_lobby_bench -- --ignored --nocapture`
+- `-p cinnabar --lib synthetic_player_lobby_bench -- --ignored --nocapture`
   uses `CINNABAR_RENDER_PACK` pointing to the supplied archive renamed from its
   manifest as `<uuid>_<version>.mcpack`. `CINNABAR_LOBBY_PLAYERS=128` and
   `CINNABAR_LOBBY_MOVING=1` select the moving population. No socket is opened.
-- `-p bedrock-client --lib offline_server_hud_publication_cost -- --ignored --nocapture`
+- `-p cinnabar --lib offline_server_hud_publication_cost -- --ignored --nocapture`
   uses `CINNABAR_FORM_PACK_DIR` with the two extracted directories containing
   `ui/hud_screen.json`, separated by `:`. It publishes actual painted vertices.
 - `-p render --lib fast_frame_attribution_cost -- --ignored --nocapture`

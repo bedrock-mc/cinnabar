@@ -5,6 +5,7 @@ use crate::AssetError;
 
 pub mod armour;
 pub mod fuel;
+pub mod glint;
 pub mod grip;
 pub mod retail;
 use armour::ItemArmour;
@@ -168,6 +169,8 @@ pub struct ItemVisualDefinition {
     pub grip: grip::ItemGrip,
     /// Fuel eligibility admitted from checked compilation inputs.
     pub fuel: fuel::ItemFuel,
+    /// Intrinsic shine admitted from checked compiler data.
+    pub glint: glint::ItemGlint,
     pub key: ItemVisualKey,
     /// Source containing the canonical item definition or reviewed rule.
     pub source: u32,

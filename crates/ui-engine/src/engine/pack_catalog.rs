@@ -1,6 +1,6 @@
 //! Catalog layering: carrier extensions, the built-in packs under every server pack, and
 //! the rules server layers follow, as the screen families register them.
-use json_ui::Catalog;
+use json_ui::{Catalog, RawControl};
 
 /// Patches a catalog in place.
 pub type CatalogPatch = fn(&mut Catalog);
@@ -21,7 +21,18 @@ pub struct CatalogPolicy {
     extensions: Vec<CatalogPatch>,
     builtin: Vec<CatalogPatch>,
     restores: Vec<CarrierRestore>,
-    finishers: Vec<fn(&mut Catalog, &Catalog)>,
+    finishers: Vec<LayerFinisher>,
+}
+
+/// Runs after every server layer with the built-in catalog they started from; returns
+/// built-in screen controls that gained pack rules.
+pub type LayerFinisher = fn(&mut Catalog, &Catalog) -> Vec<RawControl>;
+
+/// A server pack stack over the built-in catalog, and the catalog built-in screens resolve against.
+pub struct LayeredCatalogs {
+    pub pack: Catalog,
+    /// The built-in catalog carrying the pack rules finishers returned; `None` when they returned none.
+    pub builtin_screens: Option<Catalog>,
 }
 
 impl CatalogPolicy {
@@ -40,7 +51,7 @@ impl CatalogPolicy {
     }
 
     /// Runs `finish` after every server layer, with the built-in catalog they started from.
-    pub fn after_layers(&mut self, finish: fn(&mut Catalog, &Catalog)) {
+    pub fn after_layers(&mut self, finish: LayerFinisher) {
         self.finishers.push(finish);
     }
 
@@ -61,7 +72,7 @@ impl CatalogPolicy {
 
     /// Server `layers`, bottom first, over the built-in catalog; bootstrap and reload workers
     /// build the same catalog.
-    pub fn layer(&self, carrier: &Catalog, layers: &[Vec<(String, Vec<u8>)>]) -> Catalog {
+    pub fn layer(&self, carrier: &Catalog, layers: &[Vec<(String, Vec<u8>)>]) -> LayeredCatalogs {
         let builtin = self.builtin(carrier);
         let mut catalog = builtin.clone();
         let mut restored = vec![false; self.restores.len()];
@@ -78,8 +89,9 @@ impl CatalogPolicy {
                     .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
             );
         }
+        let mut screen_controls = Vec::new();
         for finish in &self.finishers {
-            finish(&mut catalog, &builtin);
+            screen_controls.extend(finish(&mut catalog, &builtin));
         }
         for note in catalog
             .diagnostics()
@@ -88,6 +100,18 @@ impl CatalogPolicy {
         {
             tracing::debug!(note, "server ui pack");
         }
-        catalog
+        // Built-in screens keep the built-in templates they inherit, so pack overrides of shared
+        // ones cannot reach them.
+        let builtin_screens = (!screen_controls.is_empty()).then(|| {
+            let mut screens = builtin;
+            for control in screen_controls {
+                screens.insert(control);
+            }
+            screens
+        });
+        LayeredCatalogs {
+            pack: catalog,
+            builtin_screens,
+        }
     }
 }

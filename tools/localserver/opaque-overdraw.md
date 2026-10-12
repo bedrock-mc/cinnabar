@@ -27,7 +27,7 @@ repository root, build the client, MCP controller, core and fixture server. Keep
 intermediate artifacts private to this worktree:
 
 ```sh
-CARGO_BUILD_BUILD_DIR="$PWD/target/build" ~/coding/cinnabar-wt/_agents/cslot cargo build -p bedrock-client --features developer-control
+CARGO_BUILD_BUILD_DIR="$PWD/target/build" ~/coding/cinnabar-wt/_agents/cslot cargo build -p cinnabar --features developer-control
 CARGO_BUILD_BUILD_DIR="$PWD/target/build" ~/coding/cinnabar-wt/_agents/cslot cargo build -p cinnabar-mcp
 go build -o target/debug/bedrock-core ./core/cmd/bedrock-core
 GOWORK=off go -C tools/localserver build -o ../../target/opaque-overdraw-localserver .

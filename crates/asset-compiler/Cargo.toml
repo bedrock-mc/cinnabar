@@ -19,6 +19,7 @@ reads = [
     "assets/ui-font-source.json",
     "assets/vanilla-source.json",
     "crates/assets/data/*",
+    "packaging/common/prep-kit-files.txt",
 ]
 
 [dependencies]

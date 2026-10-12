@@ -135,7 +135,7 @@ checks pass.
 
 Touched-crate checks pass through the shared build limiter:
 `cargo check --tests -p render --features enhanced` and
-`cargo check --tests -p bedrock-client --features developer-control,frame-trace`.
+`cargo check --tests -p cinnabar --features developer-control,frame-trace`.
 The optimized client build and fresh hidden frame inspection pass at both
 physical resolutions. CI/review remain the integration gate; no full-workspace
 sweep or local CI ladder was run.

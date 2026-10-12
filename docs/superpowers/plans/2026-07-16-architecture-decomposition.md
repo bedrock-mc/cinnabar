@@ -204,7 +204,7 @@ Commit: `refactor: split acceptance harness by domain`
 Add assertions to the later architecture policy fixture, initially as shell checks:
 
 ```bash
-cargo tree -p bedrock-client --locked | rg 'asset-compiler' && exit 1 || true
+cargo tree -p cinnabar --locked | rg 'asset-compiler' && exit 1 || true
 cargo tree -p assets --locked | rg 'clap|image' && exit 1 || true
 ```
 
@@ -243,8 +243,8 @@ Run:
 ```bash
 cargo fmt --check
 cargo test -p assets -p asset-compiler --locked
-cargo test -p bedrock-client -p render --locked
-cargo tree -p bedrock-client --locked
+cargo test -p cinnabar -p render --locked
+cargo tree -p cinnabar --locked
 ```
 
 Expected: all pass; normal app dependency tree contains no `asset-compiler`; `assets` no longer has Clap or source-image decoding normal dependencies.
@@ -350,7 +350,7 @@ Run:
 
 ```bash
 cargo fmt --check
-cargo test -p meshing -p render -p bedrock-client --locked
+cargo test -p meshing -p render -p cinnabar --locked
 cargo tree -p meshing --locked | rg 'bevy|wgpu' && exit 1 || true
 ```
 
@@ -398,7 +398,7 @@ Run:
 ```bash
 cargo fmt --check
 cargo test -p render --locked
-cargo test -p bedrock-client --locked
+cargo test -p cinnabar --locked
 ```
 
 Expected: all shader parsing, noop-WGPU, direct/MDI, queue, witness, and presentation tests pass.
@@ -443,7 +443,7 @@ Run:
 
 ```bash
 cargo fmt --check
-cargo test -p client-world -p bedrock-client -p render --locked
+cargo test -p client-world -p cinnabar -p render --locked
 cargo tree -p client-world --locked | rg 'bevy|wgpu' && exit 1 || true
 ```
 
@@ -462,14 +462,14 @@ Commit: `refactor: extract client world pipeline`
 - Split: `app/src/metrics.rs`, `app/src/network.rs`, and inline tests
 
 **Interfaces:**
-- `bedrock_client::run(ClientArgs) -> anyhow::Result<()>` is the library entry point.
+- `cinnabar::run(ClientArgs) -> anyhow::Result<()>` is the library entry point.
 - `main()` parses args, calls `run`, reports fatal error, and returns the existing exit semantics.
 - All `RUST_MCBE_*` producer strings live in `acceptance::markers`.
 - A checked-in marker expectation table distinguishes parsed evidence from log-only diagnostics.
 
 - [x] **Step 1: Add the library entry and remove path-based test includes**
 
-Move module declarations to `lib.rs`; make `main.rs` call `bedrock_client::run`. Update integration tests to import the library normally.
+Move module declarations to `lib.rs`; make `main.rs` call `cinnabar::run`. Update integration tests to import the library normally.
 
 - [x] **Step 2: Move normal runtime systems**
 
@@ -489,7 +489,7 @@ Run:
 
 ```bash
 cargo fmt --check
-cargo test -p bedrock-client --locked
+cargo test -p cinnabar --locked
 ```
 
 Commit: `refactor: separate app runtime and acceptance`

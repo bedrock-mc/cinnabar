@@ -532,8 +532,8 @@
   ```text
   cargo test -p render --test mesh --locked -- --nocapture
   cargo test -p render --locked
-  cargo test -p bedrock-client --locked
-  cargo clippy -p render -p bedrock-client --all-targets --locked -- -D warnings
+  cargo test -p cinnabar --locked
+  cargo clippy -p render -p cinnabar --all-targets --locked -- -D warnings
   ```
 
   Expected: all existing and material-aware meshing/streaming tests pass; `PackedQuad` remains 8 bytes.
@@ -665,7 +665,7 @@
 
 - [x] **Step 2: Verify RED**
 
-  Run: `cargo test -p bedrock-client --test assets --locked -- --nocapture`
+  Run: `cargo test -p cinnabar --test assets --locked -- --nocapture`
 
   Expected: FAIL because `--assets` and asset metrics do not exist.
 
@@ -708,7 +708,7 @@
   Launch BDS/core and:
 
   ```text
-  cargo run -p bedrock-client --locked -- --socket-dir .local/run --assets .local/assets/compiled/vanilla-v1001.mcbea
+  cargo run -p cinnabar --locked -- --socket-dir .local/run --assets .local/assets/compiled/vanilla-v1001.mcbea
   ```
 
   Using Computer Use, inspect stone, dirt, grass, logs on all axes, planks, ores, sand, glass diagnostic handling, and at least one unknown/non-cube fallback. Check near/far mip transitions, all six face orientations, greedy UV repetition, keyboard/mouse capture and release, and no blank/debug-colour output for supported opaque cubes.

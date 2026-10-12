@@ -146,6 +146,10 @@ impl ActorStore {
         self.items.canonicalize(stack)
     }
 
+    /// Reads the current numeric registry's intrinsic shine disposition.
+    pub(crate) fn item_glint(&self, network_id: i32) -> assets::item::glint::ItemGlint {
+        self.items.item_glint(network_id)
+    }
     pub(crate) fn item_identifier(&self, network_id: i32) -> Option<std::sync::Arc<str>> {
         self.items.identifier_for_network_id(network_id)
     }

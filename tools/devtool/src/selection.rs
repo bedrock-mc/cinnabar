@@ -282,7 +282,7 @@ mod tests {
             Package::new("assets", "crates/assets", &[]),
             Package::new("meshing", "crates/meshing", &["assets"]),
             Package::new("render", "crates/render", &["assets", "meshing"]),
-            Package::new("bedrock-client", "app", &["render"]),
+            Package::new("cinnabar", "app", &["render"]),
         ]
     }
 
@@ -292,7 +292,7 @@ mod tests {
             select_packages(&["crates/assets/src/lib.rs"], &workspace()),
             Selection::Packages(vec![
                 "assets".into(),
-                "bedrock-client".into(),
+                "cinnabar".into(),
                 "meshing".into(),
                 "render".into(),
             ])
@@ -303,7 +303,7 @@ mod tests {
     fn selects_only_the_leaf_package_for_leaf_changes() {
         assert_eq!(
             select_packages(&["app/src/main.rs"], &workspace()),
-            Selection::Packages(vec!["bedrock-client".into()])
+            Selection::Packages(vec!["cinnabar".into()])
         );
     }
 
@@ -313,13 +313,13 @@ mod tests {
             Package::new("json-ui", "crates/json-ui", &[])
                 .with_reads(vec!["assets/java-hud".into()]),
             Package::new("client-ui", "crates/client-ui", &["json-ui"]),
-            Package::new("bedrock-client", "app", &["client-ui"]),
+            Package::new("cinnabar", "app", &["client-ui"]),
             Package::new("sim", "crates/sim", &[]),
         ];
         assert_eq!(
             select_packages(&["assets/java-hud/ui/hud_screen.json"], &packages),
             Selection::Packages(vec![
-                "bedrock-client".into(),
+                "cinnabar".into(),
                 "client-ui".into(),
                 "json-ui".into(),
             ])
@@ -335,7 +335,7 @@ mod tests {
             select_packages(&[TARGET_MANIFEST], &packages),
             Selection::Packages(vec![
                 "assets".into(),
-                "bedrock-client".into(),
+                "cinnabar".into(),
                 "meshing".into(),
                 "render".into()
             ])
@@ -395,7 +395,7 @@ mod tests {
                 &["tools/itembindinggen/main.py", "app/src/main.rs"],
                 &workspace()
             ),
-            Selection::Packages(vec!["bedrock-client".into()])
+            Selection::Packages(vec!["cinnabar".into()])
         );
     }
 
@@ -452,7 +452,7 @@ mod tests {
     fn markdown_inside_a_crate_still_selects_it() {
         assert_eq!(
             select_packages(&["app/README.md"], &workspace()),
-            Selection::Packages(vec!["bedrock-client".into()])
+            Selection::Packages(vec!["cinnabar".into()])
         );
     }
 
@@ -606,7 +606,7 @@ mod tests {
             select_packages(&["crates/protocol/data/other.tsv"], &readers),
             Selection::Packages(vec![
                 "assets".into(),
-                "bedrock-client".into(),
+                "cinnabar".into(),
                 "meshing".into(),
                 "protocol".into(),
                 "render".into(),
@@ -615,7 +615,7 @@ mod tests {
         assert_eq!(
             select_packages(&["crates/meshing/fixtures/deep/case.bin"], &packages),
             Selection::Packages(vec![
-                "bedrock-client".into(),
+                "cinnabar".into(),
                 "meshing".into(),
                 "pack-compiler".into(),
                 "render".into(),

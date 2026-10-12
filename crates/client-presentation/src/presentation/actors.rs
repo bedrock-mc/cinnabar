@@ -71,6 +71,7 @@ pub fn update_actor_rig_scene(
 
 /// Checks distance and frustum bounds before building a rig's presentation.
 /// Always-depth layers survive terrain occlusion, using the draw frame's cached layers when available.
+/// Controllers that can replace the base mesh bypass terrain proofs using its bounds.
 pub fn rig_may_be_visible(
     rig: &ActorRigSnapshot<'_>,
     actor: &ActorSnapshot,
@@ -97,6 +98,13 @@ pub fn rig_may_be_visible(
     let bounds = rig.culling_bounds();
     if !actor_bounds_are_visible(feet, scale, bounds, Some(view)) {
         return false;
+    }
+    if rig.render.iter().any(|layer| layer.geometry.is_some())
+        || frame
+            .as_ref()
+            .is_some_and(|frame| frame.may_replace_body_geometry(rig.actor.runtime_id))
+    {
+        return true;
     }
     let (low, high) = bounds.at(feet, scale);
     !occluded(low, high)

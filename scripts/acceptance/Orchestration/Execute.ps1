@@ -14,7 +14,7 @@ $script:AcceptanceExecutionPhase = {
             bds_source = $BdsDir
             bds_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $BdsSourceExecutable).Hash.ToLowerInvariant()
             duration_seconds = $DurationSeconds
-            build_app_command = if ($SkipClientBuild) { $null } else { 'cargo build --release -p bedrock-client --locked' }
+            build_app_command = if ($SkipClientBuild) { $null } else { 'cargo build --release -p cinnabar --locked' }
             build_profile = 'release'
             client_executable = $AppExecutable
             skip_client_build = [bool]$SkipClientBuild
@@ -259,7 +259,7 @@ $script:AcceptanceExecutionPhase = {
         $metadata['app_command'] = $AppCommand
         $metadata | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $RunDirectory 'metadata.json') -Encoding UTF8
         if (-not $SkipClientBuild) {
-            Invoke-CheckedBuild -Executable 'cargo' -Arguments @('build', '--release', '-p', 'bedrock-client', '--locked') -LogPath (Join-Path $RunDirectory 'build-app.log') -WorkingDirectory $ProjectRoot
+            Invoke-CheckedBuild -Executable 'cargo' -Arguments @('build', '--release', '-p', 'cinnabar', '--locked') -LogPath (Join-Path $RunDirectory 'build-app.log') -WorkingDirectory $ProjectRoot
         }
         if (-not (Test-Path -LiteralPath $AppExecutable -PathType Leaf)) {
             throw "client executable was not available after build selection: $AppExecutable"

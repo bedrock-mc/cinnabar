@@ -1,4 +1,3 @@
-//! Camera samples used by actor animation and render admission.
 use bevy::prelude::Projection;
 use render_model::MAX_ACTOR_RENDER_DISTANCE_BLOCKS;
 
@@ -6,7 +5,7 @@ use render_model::MAX_ACTOR_RENDER_DISTANCE_BLOCKS;
 /// in one tick shows a rig its held pose for that tick.
 const ANIMATION_GUARD_DEGREES: f32 = 30.0;
 
-/// Converts the captured camera rotation to actor pitch and yaw in degrees.
+/// Converts the camera orientation to the actor animation query angles.
 pub(super) fn actor_camera_rotation(rotation: bevy::math::Quat) -> [f32; 2] {
     let (yaw, pitch, _) = rotation.to_euler(bevy::math::EulerRot::YXZ);
     [

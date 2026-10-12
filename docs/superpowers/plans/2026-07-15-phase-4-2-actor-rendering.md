@@ -35,7 +35,7 @@
 **Interfaces:** `ActorStore::render_players(excluded_runtime_id)` yields deterministic remote player actor/profile pairs carrying `(unique_id, spawn_revision)` lifetime identity without exposing local movement state, while roster skins remain within a cumulative retained-byte cap.
 
 - [x] Add tests for roster skin retention and its cumulative cap, UUID joining, local-player exclusion, stable runtime-ID order, accepted-spawn revision identity, replacement, and reset/removal.
-- [x] Run `cargo test -p bedrock-client actor_store` and record RED.
+- [x] Run `cargo test -p cinnabar actor_store` and record RED.
 - [x] Implement the minimal iterator/profile changes.
 - [x] Re-run the focused app tests to GREEN.
 

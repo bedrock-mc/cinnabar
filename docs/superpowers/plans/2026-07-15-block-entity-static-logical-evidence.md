@@ -184,7 +184,7 @@ assert!(matches!(
 - [ ] **Step 5: Run classifier tests and observe RED**
 
 ```powershell
-cargo test -p bedrock-client block_entity_visuals --locked
+cargo test -p cinnabar block_entity_visuals --locked
 ```
 
 Expected: compile failure because the module and route types do not exist.
@@ -199,8 +199,8 @@ Add app tests for inline/request/live updates, malformed retention, eviction, an
 
 ```powershell
 cargo test -p world --test block_entity --locked
-cargo test -p bedrock-client block_entity --locked
-cargo clippy -p world -p bedrock-client --all-targets --all-features --locked -- -D warnings
+cargo test -p cinnabar block_entity --locked
+cargo clippy -p world -p cinnabar --all-targets --all-features --locked -- -D warnings
 cargo fmt --all -- --check
 ```
 
@@ -250,8 +250,8 @@ Test two adjacent identical completions, stale allocation rejection, target cont
 
 ```powershell
 cargo test -p render block_entity_witness --locked
-cargo test -p bedrock-client block_entity_witness --locked
-cargo clippy -p render -p bedrock-client --all-targets --all-features --locked -- -D warnings
+cargo test -p cinnabar block_entity_witness --locked
+cargo clippy -p render -p cinnabar --all-targets --all-features --locked -- -D warnings
 cargo fmt --all -- --check
 ```
 
@@ -302,7 +302,7 @@ Reuse existing stable BDS/client executable paths and fixture publication helper
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/tests/acceptance.Tests.ps1
 $env:GOWORK='off'; Push-Location tools/blockentitygen; go test ./... -count=1; go vet ./...; Pop-Location
-cargo test -p render -p bedrock-client -p world --locked
+cargo test -p render -p cinnabar -p world --locked
 ```
 
 - [ ] **Step 4: Run the live gallery and validate candidate evidence**
@@ -321,7 +321,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/acceptance.ps1 `
   -MetricsOut '.local\acceptance\block-entity-static-logical-metrics.json' `
   -Assets '.local\assets\compiled\vanilla-v1001.mcbea' `
   -VisualFixturePose BlockEntityStaticLogicalGallery `
-  -ClientExecutable 'target\debug\bedrock-client.exe' `
+  -ClientExecutable 'target\debug\cinnabar.exe' `
   -SkipClientBuild
 ```
 

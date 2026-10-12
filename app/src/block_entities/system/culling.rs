@@ -1,7 +1,7 @@
 //! Skips geometry preparation for block entities the current cave graph hides.
 
 use render_model::BLOCK_ENTITY_REACH_BLOCKS;
-use world::{SUB_CHUNK_SIDE, SubChunkKey};
+use world::SubChunkKey;
 
 use super::super::describe::Template;
 use crate::runtime::visibility::CaveVisibilityCache;
@@ -30,6 +30,28 @@ impl BlockEntityWork {
     }
 }
 
+/// Conservative bounds for locally drawing templates; global beams cannot use terrain culling.
+pub(super) fn bounds(template: &Template, block: [i32; 3]) -> Option<([f32; 3], [f32; 3])> {
+    let bounded = match template {
+        Template::Beacon | Template::FlowerPot { .. } => false,
+        Template::Static(kind) => kind.has_fixed_cull_reach(),
+        Template::ItemFrame { item, .. } => item.is_none(),
+        Template::Campfire { items, .. } => items.iter().all(Option::is_none),
+        Template::Bell { .. }
+        | Template::Conduit { .. }
+        | Template::Chest(_)
+        | Template::Shulker(_)
+        | Template::Sign { .. }
+        | Template::EnchantTable => true,
+    };
+    bounded.then(|| {
+        (
+            block.map(|axis| axis.saturating_sub(BLOCK_ENTITY_REACH_BLOCKS) as f32),
+            block.map(|axis| axis.saturating_add(BLOCK_ENTITY_REACH_BLOCKS + 1) as f32),
+        )
+    })
+}
+
 /// The actor rule for block entities: hide only with a result for the current camera section
 /// and connectivity generation, when every section within reach is known and unreached.
 pub(super) struct CaveCulling<'a, K> {
@@ -56,25 +78,11 @@ impl<'a, K: Fn(SubChunkKey) -> bool> CaveCulling<'a, K> {
 
     /// Whether `template` at `block` draws nothing visible; beacon beams never hide.
     fn hides(&self, template: &Template, block: [i32; 3]) -> bool {
-        let global = match template {
-            Template::Beacon => true,
-            Template::Static(kind) => kind.renders_globally(),
-            _ => false,
+        let Some((low, high)) = bounds(template, block) else {
+            return false;
         };
-        let section = |offset: i32| {
-            block.map(|axis| {
-                axis.saturating_add(offset)
-                    .div_euclid(SUB_CHUNK_SIDE as i32)
-            })
-        };
-        !global
-            && self.cave.hides_sections(
-                self.camera,
-                self.generation,
-                &self.known,
-                section(-BLOCK_ENTITY_REACH_BLOCKS),
-                section(BLOCK_ENTITY_REACH_BLOCKS),
-            )
+        self.cave
+            .hides_box(self.camera, self.generation, &self.known, low, high)
     }
 }
 

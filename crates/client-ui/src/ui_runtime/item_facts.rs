@@ -107,37 +107,21 @@ fn fraction_from_damage(maximum: u32, damage: u32) -> Option<f32> {
     Some(remaining as f32 / maximum as f32)
 }
 
-/// Whether a stack glints as in vanilla: an `ench` list, the item's glint
-/// component, or a vanilla item that always glints.
+/// Combines the stack's enchantment list with an admitted intrinsic disposition.
 #[must_use]
-pub fn is_glint(
-    stack: &NetworkItemStack,
-    identifier: &str,
-    components: Option<&ItemComponents>,
-) -> bool {
+pub fn is_glint(stack: &NetworkItemStack, intrinsic: assets::item::glint::ItemGlint) -> bool {
     glint_for_facts(
         protocol::item_has_enchantment_list(&stack.extra_data),
-        identifier,
-        components,
+        intrinsic,
     )
 }
 
-/// Combines cached NBT glint with the current item definition's intrinsic traits.
+/// Combines cached stack facts with registry-owned intrinsic shine.
 pub(super) fn glint_for_facts(
     has_enchantment_list: bool,
-    identifier: &str,
-    components: Option<&ItemComponents>,
+    intrinsic: assets::item::glint::ItemGlint,
 ) -> bool {
-    has_enchantment_list
-        || components.is_some_and(|components| components.glint)
-        || matches!(
-            identifier,
-            "minecraft:enchanted_book"
-                | "minecraft:experience_bottle"
-                | "minecraft:written_book"
-                | "minecraft:end_crystal"
-                | "minecraft:enchanted_golden_apple"
-        )
+    has_enchantment_list || intrinsic.enabled().unwrap_or(false)
 }
 
 /// Resolve a component item's semantic colour at admission: explicit hover colour
@@ -337,21 +321,29 @@ mod tests {
 
     // Glint follows an ench list (even empty), the glint component, or an always-glinting item.
     #[test]
-    fn glint_follows_enchantments_components_and_vanilla_items() {
+    fn glint_follows_enchantments_and_admitted_intrinsic_facts() {
         let plain = NetworkItemStack::empty();
-        assert!(!is_glint(&plain, "minecraft:stick", None));
-        assert!(is_glint(&plain, "minecraft:enchanted_book", None));
-        let foil = ItemComponents {
-            glint: true,
-            ..ItemComponents::default()
-        };
-        assert!(is_glint(&plain, "zeqa:blade", Some(&foil)));
+        assert!(!is_glint(
+            &plain,
+            assets::item::glint::builtin_item_glint("minecraft:stick")
+        ));
+        assert!(is_glint(
+            &plain,
+            assets::item::glint::builtin_item_glint("minecraft:enchanted_book")
+        ));
+        assert!(is_glint(
+            &plain,
+            assets::item::glint::ItemGlint::Session { enabled: true }
+        ));
         let mut enchanted = stack_with_damage(0);
         let mut extra = enchanted.extra_data.to_vec();
         let end = extra.len() - 1;
         extra.splice(end..end, [9, 4, 0, b'e', b'n', b'c', b'h', 10, 0, 0, 0, 0]);
         enchanted.extra_data = Arc::from(extra);
-        assert!(is_glint(&enchanted, "minecraft:stick", None));
+        assert!(is_glint(
+            &enchanted,
+            assets::item::glint::ItemGlint::Unresolved
+        ));
     }
 
     // hover_text_color outranks rarity; unknown names and common rarity keep the default.

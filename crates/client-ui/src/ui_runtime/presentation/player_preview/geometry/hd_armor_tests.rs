@@ -15,6 +15,7 @@ fn gear(scale: u16) -> PreviewEquipment {
         tint: None,
     };
     PreviewEquipment {
+        armor_glint: [false; 4],
         armor: std::array::from_fn(|_| Some(texture.clone())),
         ..Default::default()
     }

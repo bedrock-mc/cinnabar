@@ -114,6 +114,7 @@ pub(crate) fn container_args(args: &ContainerArgs<'_>) -> Vec<String> {
         ("DIRECT_DOWNLOAD_URL", direct_url("linux", args.version)),
         ("SERVER_NAME", sanitize_property(&world.name)),
         ("GAMEMODE", wire_name(world.game_mode)),
+        ("FORCE_GAMEMODE", super::bds::FORCE_GAME_MODE.to_string()),
         ("DIFFICULTY", wire_name(world.difficulty)),
         ("ALLOW_CHEATS", "false".to_owned()),
         ("MAX_PLAYERS", players.to_string()),

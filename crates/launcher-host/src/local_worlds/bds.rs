@@ -29,6 +29,8 @@ pub(crate) const BDS_READY_MARKER: &str = "Server started.";
 pub(crate) const DEFAULT_BDS_VIEW: u32 = 10;
 /// BDS's `transport` setting for its NetherNet HTTP listener.
 pub(crate) const BDS_TRANSPORT: &str = "nethernet";
+/// Makes existing BDS worlds use the launcher's selected game mode at login.
+pub(crate) const FORCE_GAME_MODE: bool = true;
 
 /// Hosts each world in the official Bedrock Dedicated Server, natively or in a container.
 ///
@@ -215,7 +217,7 @@ pub(crate) fn server_properties(
     for (key, value) in [
         ("server-name", sanitize_property(&world.name)),
         ("gamemode", wire_name(world.game_mode)),
-        ("force-gamemode", "false".to_owned()),
+        ("force-gamemode", FORCE_GAME_MODE.to_string()),
         ("difficulty", wire_name(world.difficulty)),
         ("allow-cheats", "false".to_owned()),
         ("max-players", max_players.to_string()),

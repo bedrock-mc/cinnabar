@@ -58,7 +58,7 @@ impl AmbientParticles {
             leaf_effect_present || fire_effect_present || portal::effects_present(system);
         let view_valid = valid_view(view);
         self.diagnostics.enabled = bevy::log::tracing::enabled!(
-            target: "bedrock_client::ambient_leaves",
+            target: "cinnabar::ambient_leaves",
             bevy::log::Level::DEBUG
         );
         if due == 0 || !effect_present || !view_valid {

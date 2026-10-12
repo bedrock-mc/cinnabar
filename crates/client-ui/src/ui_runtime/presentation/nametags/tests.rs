@@ -102,19 +102,25 @@ fn tag_anchor_follows_the_same_interpolated_feet_as_the_rig() {
 }
 
 #[test]
-fn multiline_plate_spans_all_lines_and_every_line_is_independently_centered() {
+fn multiline_lines_get_their_own_centred_backgrounds_before_their_glyphs() {
     let anchor = anchor("AB\nA");
     let scene = scene(std::slice::from_ref(&anchor));
-    assert_eq!(scene.records.len(), 3);
-    assert_eq!(scene.see_through, 3);
-    let plate = scene.records[0];
-    assert_eq!(plate.color, PLATE_COLOR);
-    assert_eq!(plate.text, 0);
-    assert_eq!(plate.rect[1], -1.0);
-    assert_eq!(plate.rect[3], 2.0 * LINE_PITCH_PX - 1.0);
-    assert_eq!(scene.records[1].rect[1], 0.0);
-    assert_eq!(scene.records[2].rect[1], LINE_PITCH_PX);
-    assert!(scene.records[2].rect[0] > scene.records[1].rect[0]);
+    assert_eq!(scene.records.len(), 4);
+    assert_eq!(scene.see_through, 4);
+    let (plates, glyphs) = scene.records.split_at(2);
+    for (index, (plate, glyph)) in plates.iter().zip(glyphs).enumerate() {
+        assert_eq!(plate.color, PLATE_COLOR);
+        assert_eq!(plate.text, 0);
+        assert_eq!(plate.rect[0], glyph.rect[0] - 1.0);
+        assert_eq!(plate.rect[0], -plate.rect[2]);
+        assert_eq!(plate.rect[1], NAMETAG_LINE_PITCH_PX * index as f32 - 1.0);
+        assert_eq!(plate.rect[3], plate.rect[1] + NAMETAG_LINE_PITCH_PX);
+        assert_eq!(glyph.rect[1], NAMETAG_LINE_PITCH_PX * index as f32);
+    }
+    assert!(
+        plates[1].rect[0] > plates[0].rect[0],
+        "the shorter line's background is narrower"
+    );
     assert!(
         scene
             .records
@@ -128,7 +134,7 @@ fn multiline_plate_spans_all_lines_and_every_line_is_independently_centered() {
             .all(|record| record.line_lift == EXTRA_LINE_LIFT)
     );
     assert!(
-        scene.records[1..]
+        glyphs
             .iter()
             .all(|record| record.text == 1 && record.color == [1.0; 4])
     );

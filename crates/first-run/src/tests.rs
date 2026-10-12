@@ -49,7 +49,7 @@ pub(super) fn installed_layout(data: &Dir, executable: &str) -> InstallLayout {
 #[test]
 fn development_layout_needs_no_preparation() {
     let data = Dir::new("dev");
-    let layout = installed_layout(&data, "/work/cinnabar/target/release/bedrock-client");
+    let layout = installed_layout(&data, "/work/cinnabar/target/release/cinnabar");
     let fake = Fake {
         accept: false,
         asked: Cell::new(0),
@@ -64,7 +64,7 @@ fn development_layout_needs_no_preparation() {
 #[test]
 fn declined_consent_quits_without_running_anything() {
     let data = Dir::new("decline");
-    let layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/bedrock-client");
+    let layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/cinnabar");
     let fake = Fake {
         accept: false,
         asked: Cell::new(0),
@@ -76,7 +76,7 @@ fn declined_consent_quits_without_running_anything() {
 #[test]
 fn recorded_consent_to_the_same_terms_is_not_asked_again() {
     let data = Dir::new("consent");
-    let layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/bedrock-client");
+    let layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/cinnabar");
     let fake = Fake {
         accept: false,
         asked: Cell::new(0),
@@ -93,7 +93,7 @@ fn recorded_consent_to_the_same_terms_is_not_asked_again() {
 #[test]
 fn missing_kit_is_reported_after_consent_and_recorded() {
     let data = Dir::new("nokit");
-    let layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/bedrock-client");
+    let layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/cinnabar");
     let fake = Fake {
         accept: true,
         asked: Cell::new(0),
@@ -130,7 +130,7 @@ impl Prompter for Recorder {
 #[test]
 fn no_consent_surface_fails_visibly_instead_of_quitting() {
     let data = Dir::new("no-prompt");
-    let layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/bedrock-client");
+    let layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/cinnabar");
     let prompter = Recorder {
         no_prompt: true,
         ..Recorder::default()
@@ -151,7 +151,7 @@ fn a_failing_step_shows_its_underlying_error_in_the_dialog() {
     use test_support::write_vanilla_manifest;
 
     let data = Dir::new("failing-step");
-    let mut layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/bedrock-client");
+    let mut layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/cinnabar");
     layout.resource_root = data.path().join("resources");
     let kit = layout.prep_kit();
     let compiler = assets::carriers::kit_compiler(&kit);

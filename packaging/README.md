@@ -17,13 +17,18 @@ sends the client's stderr to `logs/client.log`, rotated to `client.log.1` per la
 | Windows setup EXE + MSI (WiX v5) | `make package-windows` | `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` |
 | Linux AppImage | `make package-linux` | none |
 
-All release targets build with `--no-default-features` and `bedrock-client/local-mods`, enabling
+All release targets build with `--no-default-features` and `cinnabar/local-mods`, enabling
 the local module loader used by companion apps such as Cinnaroids while excluding the acceptance
 harness. Developer defaults stay enabled for `make play`, live testing, CI and client MCP. A local
 `cargo build --release` still includes acceptance; use `make package-binaries` for shipping.
 
 Installers also ship the bundled Cinnangles Sans font at `<resources>/fonts/`, so first-run setup can
 draw before any download.
+
+The prep kit at `<resources>/prep-kit/` holds `bin/assetc` and each file
+`packaging/common/prep-kit-files.txt` lists, at its checkout path. `assetc kit-files` generates that
+list; an asset-compiler test fails when it is stale, and `check-payload.sh` plans a first run with
+the shipped compiler against the shipped kit.
 
 CI: `.github/workflows/package.yml`. Pushes to `main` replace the `nightly` prerelease (tag moved,
 assets replaced). To publish a stable release, run **Package** in GitHub Actions and choose

@@ -110,7 +110,7 @@ exit 0
     $checker = ConvertTo-BashPath (Join-Path $repo "packaging/check-payload.sh")
     $resources = @(& bash -c 'source "$1"; resource_manifest windows' -- $manifest)
     if ($LASTEXITCODE -ne 0) { throw "Could not load actual Windows resource manifest" }
-    $paths = @("bedrock-client.exe", "bedrock-core.exe", "bedrock-local-server.exe") + @($resources | ForEach-Object { "resources/$_" })
+    $paths = @("cinnabar.exe", "bedrock-core.exe", "bedrock-local-server.exe") + @($resources | ForEach-Object { "resources/$_" })
     $payload = @()
     for ($i = 0; $i -lt $paths.Count; $i++) {
         $payload += @{ Id = "file$i"; Path = $paths[$i]; Content = "payload $i" }

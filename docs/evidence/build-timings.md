@@ -7,7 +7,7 @@ reports measure existing builds, with no extra builds in normal runs. They are
 workflow artifacts and are excluded from release downloads.
 
 Use the total build time, the concurrency graph, and the unit table together.
-Find the `bedrock-client` library and binary rows to inspect the app's compile
+Find the `cinnabar` library and binary rows to inspect the app's compile
 and final link tail. Unit durations overlap, so do not add them to estimate wall
 time. The report does not isolate every LLVM or linker pass. Compare the same
 target, features, toolchain, runner, and cache state; a warm CI report only shows

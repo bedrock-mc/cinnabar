@@ -205,7 +205,7 @@ fn launch_layout_with_spaces() -> InstallLayout {
     InstallLayout::resolve(
         Platform::Linux,
         &InstallEnvironment {
-            executable: PathBuf::from("/opt/Cinnabar Client/bin/bedrock-client"),
+            executable: PathBuf::from("/opt/Cinnabar Client/bin/cinnabar"),
             user_root: None,
             home: Some(PathBuf::from("/home/Player One")),
             local_app_data: None,

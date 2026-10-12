@@ -106,11 +106,11 @@ try {
     Invoke-CheckedBuild -Executable 'go' -Arguments @('build', '-trimpath', '-o', $CoreExecutable, './core/cmd/bedrock-core') `
         -LogPath (Join-Path $RunDirectory 'build-core.log') -WorkingDirectory $ProjectRoot
     if (-not $SkipClientBuild) {
-        Invoke-CheckedBuild -Executable 'cargo' -Arguments @('build', '-p', 'bedrock-client', '--release', '--locked') `
+        Invoke-CheckedBuild -Executable 'cargo' -Arguments @('build', '-p', 'cinnabar', '--release', '--locked') `
             -LogPath (Join-Path $RunDirectory 'build-client.log') -WorkingDirectory $ProjectRoot
     }
     $ClientExecutableFull = if ([string]::IsNullOrWhiteSpace($ClientExecutable)) {
-        Join-Path $ProjectRoot 'target\release\bedrock-client.exe'
+        Join-Path $ProjectRoot 'target\release\cinnabar.exe'
     }
     elseif ([IO.Path]::IsPathRooted($ClientExecutable)) {
         [IO.Path]::GetFullPath($ClientExecutable)

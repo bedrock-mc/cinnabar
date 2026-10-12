@@ -16,6 +16,7 @@ mod conduit;
 mod crack;
 mod crystal_beam;
 mod dragon_death;
+pub mod draw_ranges;
 mod frame;
 
 mod heads;

@@ -372,25 +372,6 @@ pub(super) fn local_world_modal(view: &WorldsView) -> Option<Modal<'_>> {
                 "If you delete this world it will be gone forever.",
             )
         },
-        Screen::ConfirmLeaveEdit => Modal {
-            buttons: vec![
-                (
-                    "Save changes".into(),
-                    Variant::Primary,
-                    local(LocalWorldAction::Save),
-                ),
-                (
-                    "Discard changes".into(),
-                    Variant::Secondary,
-                    local(LocalWorldAction::Discard),
-                ),
-            ],
-            close: back,
-            ..Modal::text(
-                "Do you want to save your changes?",
-                "You have unsaved changes. Make sure to save or discard your changes.",
-            )
-        },
         Screen::BackendPrompt => {
             let prompt = view.prompt?;
             Modal {

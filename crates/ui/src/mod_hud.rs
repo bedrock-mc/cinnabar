@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 mod cosmetic;
+mod editor_style;
 pub use cosmetic::{ActorStyle, HungerOverlay, NametagStyle};
+pub use editor_style::{EditorStyle, MAX_EDITOR_HANDLE_RADIUS};
 
 /// Bound for one read-only server text field crossing an extension callback.
 pub const MAX_OBSERVED_TEXT_BYTES: usize = 256;
@@ -87,6 +89,9 @@ pub struct Hud {
     /// Optional client-authored JSON-UI chrome for a host-owned layout editor.
     #[serde(default)]
     pub surface: Option<crate::mod_panel::Surface>,
+    /// Optional colors for the editor's outlines, handles, guides and grid.
+    #[serde(default)]
+    pub editor_style: Option<EditorStyle>,
 }
 
 /// Exact plain-text chat span and the extension event emitted by a primary click.
@@ -359,6 +364,9 @@ impl Hud {
     /// Rejects unbounded or malformed guest data before publication.
     pub fn validate(&self) -> Result<(), String> {
         cosmetic::validate(self.actor_style.as_ref(), self.hunger_overlay.as_ref())?;
+        if let Some(style) = &self.editor_style {
+            style.validate()?;
+        }
         if let Some(surface) = &self.surface {
             surface.validate()?;
             for action in surface.actions()? {

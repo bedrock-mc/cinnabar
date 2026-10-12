@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use assets::native_material::NativeMaterialFacts;
-use assets::{AssetError, RegistryRecord};
+use assets::{AssetError, BlockVisual, RegistryRecord};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -11,8 +11,20 @@ struct Source {
     materials: BTreeMap<Box<str>, NativeMaterialFacts>,
 }
 
+/// Writes each record's material facts onto its visual.
+pub(super) fn install(
+    records: &[RegistryRecord],
+    visuals: &mut [BlockVisual],
+    protocol: u32,
+) -> Result<(), AssetError> {
+    for (record, facts) in records.iter().zip(compile(records, protocol)?) {
+        visuals[record.sequential_id as usize].native_material = facts;
+    }
+    Ok(())
+}
+
 /// Joins the partial material catalog to hash-checked pinned state identities.
-pub(super) fn compile(
+fn compile(
     records: &[RegistryRecord],
     protocol: u32,
 ) -> Result<Vec<NativeMaterialFacts>, AssetError> {

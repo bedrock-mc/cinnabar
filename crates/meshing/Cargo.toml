@@ -29,5 +29,9 @@ tempfile = "3"
 name = "chunk_costs"
 harness = false
 
+[[bench]]
+name = "entity_occlusion"
+harness = false
+
 [lints]
 workspace = true

@@ -108,7 +108,28 @@ impl ResolvedContributors {
         }
     }
 
-    const fn is_empty(self) -> bool {
+    /// Certifies a full opaque cube using the same resolved contributor as terrain meshing.
+    pub fn is_opaque_cube(self, assets: &RuntimeAssets) -> bool {
+        let entry = self.geometry_entry();
+        self.diagnostic.is_none()
+            && entry
+                .flags
+                .contains(BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE)
+            && matches!(entry.kind, VisualKind::Cube)
+            && entry.faces.into_iter().all(|id| {
+                // Runtime asset validation requires all positional variants to share flags.
+                assets.materials().get(id as usize).is_some_and(|material| {
+                    material.flags
+                        & (assets::MATERIAL_FLAG_ALPHA_BLEND
+                            | assets::MATERIAL_FLAG_ALPHA_CUTOUT
+                            | assets::MATERIAL_FLAG_TWO_SIDED)
+                        == 0
+                })
+            })
+    }
+
+    /// Whether resolution retained no geometry, liquid or diagnostic contributor.
+    pub const fn is_empty(self) -> bool {
         self.primary.is_none() && self.liquid.is_none() && self.diagnostic.is_none()
     }
 

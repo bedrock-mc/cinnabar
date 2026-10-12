@@ -3,7 +3,8 @@ mod commit;
 mod geometry;
 mod hand_frame;
 mod layers;
-mod view;
+mod occlusion;
+mod views;
 use geometry::{SessionGeometryReady, apply_session_pack, register_geometries};
 mod preparation;
 pub use preparation::{ActorFrameState, advance_actor_frame, advance_actor_motion};
@@ -24,7 +25,7 @@ use bevy::{
 };
 use chunk_pipeline::WorldStream;
 use client_world::LocalPlayerFeed;
-use render_model::ActorRigFrameBuilder;
+use render_model::{ActorCullView, ActorRigFrameBuilder};
 use render_scene::{ActorRenderScene, HandRigScene, RuntimeStage, RuntimeStageProfiler};
 
 use crate::camera::{CameraSettingsAuthority, FlyCamera};
@@ -114,7 +115,7 @@ pub struct ActorFramePublication<'w, 's> {
 pub fn prepare_actor_render_frame(
     mut client_world: ActorWorld<'_>,
     swing_progress: Option<actor_animation::LocalSwingProgress>,
-    hides_box: impl Fn(&WorldStream, [f32; 3], [f32; 3], [f32; 3]) -> bool,
+    hides_box: impl Fn(&WorldStream, ActorCullView, [f32; 3], [f32; 3]) -> bool,
     icons: Option<&client_ui::ui_runtime::presentation::UiPresentationRuntime>,
     mut params: ActorFramePublication,
 ) {
@@ -133,7 +134,7 @@ pub fn prepare_actor_render_frame(
         java_mode: state.java_mode,
         sampling_camera: state.captured_sampling_camera,
     };
-    view::refresh_interpolation(
+    views::refresh_interpolation(
         client_world.stream.as_deref_mut(),
         swing_progress,
         view.camera_rotation(),
@@ -206,7 +207,9 @@ pub fn prepare_actor_render_frame(
     if let Some(stream) = stream {
         crate::presentation::actors::light_bodies(&mut batch, stream);
     }
-    let selected_count = batch.submissions.len();
+    let selected_count = bodies
+        .occlusion
+        .record_selection(&batch, bodies.local_runtime_id);
     layers::attach(
         &mut batch,
         stream,

@@ -680,7 +680,7 @@ run_dir="$project_root/.local/acceptance/$run_name"
 socket_dir="$run_dir/socket"
 canonical_metrics="$run_dir/app-metrics.json"
 core_executable="$project_root/target/release/bedrock-core$exe_suffix"
-app_executable="$project_root/target/release/bedrock-client$exe_suffix"
+app_executable="$project_root/target/release/cinnabar$exe_suffix"
 runtime_dir=''
 if [[ -n $bds_dir ]]; then
     runtime_dir="$project_root/.local/bds-runtime/$(basename "$bds_dir")"
@@ -925,7 +925,7 @@ metadata = {name: os.environ[source] for name, source in keys.items()}
 metadata.update({
     "protocol_dependency_resolution": "vendored-path",
     "duration_seconds": int(os.environ["RUST_MCBE_META_DURATION"]),
-    "build_app_command": "cargo build --release -p bedrock-client --locked",
+    "build_app_command": "cargo build --release -p cinnabar --locked",
     "build_profile": "release",
     "build_core_command": "go build -trimpath -o target/release/bedrock-core ./core/cmd/bedrock-core",
     "use_vsync": os.environ["RUST_MCBE_META_NO_VSYNC"] != "true",
@@ -979,7 +979,7 @@ printf 'APP_COMMAND=%s\n' "$(format_command "${app_command[@]}")"
 write_command_manifest
 write_metadata building
 
-(cd "$project_root" && cargo build --release -p bedrock-client --locked) >"$run_dir/build-app.log" 2>&1 || die "release app build failed (log: $run_dir/build-app.log)"
+(cd "$project_root" && cargo build --release -p cinnabar --locked) >"$run_dir/build-app.log" 2>&1 || die "release app build failed (log: $run_dir/build-app.log)"
 (cd "$project_root" && go build -trimpath -o "$core_executable" ./core/cmd/bedrock-core) >"$run_dir/build-core.log" 2>&1 || die "release core build failed (log: $run_dir/build-core.log)"
 write_metadata launching
 

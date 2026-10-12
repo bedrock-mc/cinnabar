@@ -150,7 +150,7 @@ cause or cure of the render stalls.
 ## Verification and open gates
 
 Feature-on and feature-off touched-crate checks pass through `cslot` for
-`bedrock-client`, `render` and `chunk-pipeline`; the optimized headless build and
+`cinnabar`, `render` and `chunk-pipeline`; the optimized headless build and
 six directly affected ingress tests pass. No Tracy dependency is present in the
 ordinary client dependency graph. Both final image dimensions and scene contents
 were checked; four MCP game-clock comparisons pass per capture. Fixed location

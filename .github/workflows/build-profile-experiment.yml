@@ -49,8 +49,8 @@ jobs:
           if [ -n "$EXPERIMENT_CODEGEN_UNITS" ]; then
             export CARGO_PROFILE_RELEASE_CODEGEN_UNITS="$EXPERIMENT_CODEGEN_UNITS"
           fi
-          cargo build --release --locked --no-default-features -p bedrock-client \
-            --features local-mods --bin bedrock-client --timings
+          cargo build --release --locked --no-default-features -p cinnabar \
+            --features local-mods --bin cinnabar --timings
       - name: Upload build timings
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7

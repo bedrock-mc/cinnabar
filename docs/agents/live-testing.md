@@ -244,7 +244,7 @@ drops subsequent events and sets `truncated`; inspect this flag before choosing
 a measurement window. Surface preparation includes schedule overhead and is an
 upper bound on drawable acquisition, not proof that macOS caused a stall.
 
-Build with the `bedrock-client/frame-trace` feature for named Bevy schedules,
+Build with the `cinnabar/frame-trace` feature for named Bevy schedules,
 systems, graph nodes, command generation, queue submission and presentation spans.
 Chrome tracing writes through Bevy's trace writer and changes the workload; use a
 short diagnostic run, separate from the matched long captures.

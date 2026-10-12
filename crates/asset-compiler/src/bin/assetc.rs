@@ -509,6 +509,11 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             accept_eula,
             clouds_override,
         })?,
+        Command::KitFiles { root } => {
+            for file in prepare_plan::kit_files(&assets::carriers::Sources::Checkout(root))? {
+                println!("{file}");
+            }
+        }
         Command::VanillaPack {
             source_manifest,
             accept_eula,

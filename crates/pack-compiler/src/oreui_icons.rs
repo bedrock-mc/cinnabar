@@ -49,8 +49,19 @@ fn read_bounded(path: &Path, max: u64) -> Result<Vec<u8>, String> {
     fs::read(path).map_err(|error| format!("{}: {error}", path.display()))
 }
 
-/// Decodes one source PNG after checking it against its manifest digest.
-fn read_frame(root: &Path, frame: &Frame) -> Result<(u32, u32, Box<[u8]>), String> {
+/// The manifest's bytes and schema-checked images.
+fn read_manifest(manifest: &Path) -> Result<(Vec<u8>, Manifest), String> {
+    let source = read_bounded(manifest, MAX_MANIFEST_BYTES)?;
+    let parsed: Manifest = serde_json::from_slice(&source)
+        .map_err(|error| format!("{}: {error}", manifest.display()))?;
+    if parsed.schema != 1 {
+        return Err(format!("{}: unsupported schema", manifest.display()));
+    }
+    Ok((source, parsed))
+}
+
+/// A frame's path below the manifest's directory, rejecting anything that could leave it.
+fn frame_path(frame: &Frame) -> Result<&Path, String> {
     let relative = Path::new(&frame.file);
     if relative.as_os_str().is_empty()
         || relative
@@ -59,7 +70,21 @@ fn read_frame(root: &Path, frame: &Frame) -> Result<(u32, u32, Box<[u8]>), Strin
     {
         return Err(format!("invalid OreUI icon source path: {}", frame.file));
     }
-    let path = root.join(relative);
+    Ok(relative)
+}
+
+/// Every frame file `manifest` names, `/`-separated and relative to the manifest's directory.
+pub fn oreui_icon_sources(manifest: &Path) -> Result<Vec<String>, String> {
+    let (_, parsed) = read_manifest(manifest)?;
+    let frames = parsed.images.iter().flat_map(|image| &image.frames);
+    frames
+        .map(|frame| frame_path(frame).map(|_| frame.file.clone()))
+        .collect()
+}
+
+/// Decodes one source PNG after checking it against its manifest digest.
+fn read_frame(root: &Path, frame: &Frame) -> Result<(u32, u32, Box<[u8]>), String> {
+    let path = root.join(frame_path(frame)?);
     let bytes = read_bounded(&path, MAX_SOURCE_BYTES)?;
     if format!("{:x}", Sha256::digest(&bytes)) != frame.sha256 {
         return Err(format!(
@@ -81,12 +106,7 @@ fn read_frame(root: &Path, frame: &Frame) -> Result<(u32, u32, Box<[u8]>), Strin
 /// Compiles the shipped OreUI artwork named by `manifest`, whose frame files resolve beside it,
 /// into the MCBEOUI1 carrier at `out`.
 pub fn compile_oreui_icons_to_file(manifest: &Path, out: &Path) -> Result<usize, String> {
-    let source = read_bounded(manifest, MAX_MANIFEST_BYTES)?;
-    let parsed: Manifest = serde_json::from_slice(&source)
-        .map_err(|error| format!("{}: {error}", manifest.display()))?;
-    if parsed.schema != 1 {
-        return Err(format!("{}: unsupported schema", manifest.display()));
-    }
+    let (source, parsed) = read_manifest(manifest)?;
     let root = manifest.parent().unwrap_or(Path::new("."));
     let mut keys = HashSet::new();
     let mut icons = Vec::with_capacity(parsed.images.len());
@@ -156,6 +176,10 @@ mod tests {
                 {{"file":"b.png","sha256":"{b}","millis":50}}]}}]}}"#
         );
         fs::write(&manifest, &text).unwrap();
+        assert_eq!(
+            oreui_icon_sources(&manifest).unwrap(),
+            ["still.png", "a.png", "b.png"]
+        );
         let out = dir.path().join("out.mcbeoui");
         assert_eq!(compile_oreui_icons_to_file(&manifest, &out).unwrap(), 2);
         let icons = decode_oreui_icons(
@@ -184,6 +208,8 @@ mod tests {
         )
         .unwrap();
         let error = compile_oreui_icons_to_file(&manifest, &dir.path().join("o")).unwrap_err();
+        assert!(error.contains("invalid OreUI icon source path"), "{error}");
+        let error = oreui_icon_sources(&manifest).unwrap_err();
         assert!(error.contains("invalid OreUI icon source path"), "{error}");
     }
 }

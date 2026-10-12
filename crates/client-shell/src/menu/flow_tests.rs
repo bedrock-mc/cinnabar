@@ -384,7 +384,7 @@ fn server_form_returns_to_the_servers_tab() {
     let layout = launcher::install_layout::InstallLayout::resolve(
         Platform::Linux,
         &InstallEnvironment {
-            executable: root.join("target/debug/bedrock-client"),
+            executable: root.join("target/debug/cinnabar"),
             user_root: None,
             home: Some(root.join("home")),
             local_app_data: None,

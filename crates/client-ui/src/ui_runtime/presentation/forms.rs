@@ -227,7 +227,7 @@ impl UiPresentationRuntime {
         };
         engine.server_ui = pack.ui_layers.iter().any(|layer| !layer.is_empty());
         if let Some(catalog) = &pack.catalog {
-            engine.install_pack_catalog(catalog.clone());
+            engine.install_pack_catalog(catalog.clone(), pack.builtin_screen_catalog.clone());
         } else {
             engine.set_server_pack(&pack.ui_layers);
         }

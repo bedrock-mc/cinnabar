@@ -87,7 +87,7 @@ Assert two different synthetic atmosphere blobs produce different reported envel
 
 - [ ] **Step 2: Run the focused app tests and record the expected failure**
 
-Run `cargo test -p bedrock-client --test assets atmosphere --locked`. Expected: failure because the startup output currently reports only the atmosphere path and not both identities.
+Run `cargo test -p cinnabar --test assets atmosphere --locked`. Expected: failure because the startup output currently reports only the atmosphere path and not both identities.
 
 - [ ] **Step 3: Implement deterministic identity reporting**
 
@@ -95,7 +95,7 @@ Thread the existing atmosphere identity through the startup summary and compute 
 
 - [ ] **Step 4: Run full verification**
 
-Run `cargo test -p bedrock-client --test assets --locked`, `cargo test -p render --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, and `cargo fmt --all -- --check`. Expected: zero failures, errors, warnings, or formatting diffs.
+Run `cargo test -p cinnabar --test assets --locked`, `cargo test -p render --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, and `cargo fmt --all -- --check`. Expected: zero failures, errors, warnings, or formatting diffs.
 
 - [ ] **Step 5: Commit**
 

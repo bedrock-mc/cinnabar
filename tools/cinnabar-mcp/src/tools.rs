@@ -22,7 +22,7 @@ const DEFAULT_SIZE: [u32; 2] = [1920, 1080];
 const LAUNCH_TIMEOUT: Duration = Duration::from_secs(180);
 /// Inline screenshots are downscaled to this width to stay small in a model's context.
 const DEFAULT_INLINE_WIDTH: u32 = 1280;
-const CLIENT_BINARY: &str = "target/debug/bedrock-client";
+const CLIENT_BINARY: &str = "target/debug/cinnabar";
 const LOCAL_SERVER_BINARY: &str = "target/release/bedrock-local-server";
 const SHOWCASE_WORLD: &str = "showcase-world";
 

@@ -27,9 +27,9 @@ pub fn definitions() -> Value {
     json!([
         {
             "name": "launch_client",
-            "description": "Start a client built with `cargo build -p bedrock-client --features developer-control` (add `local-mods` to load mods via env CINNABAR_MOD_COMPONENT) and attach to its control endpoint. headless hides the window; size is physical pixels at scale 1.",
+            "description": "Start a client built with `cargo build -p cinnabar --features developer-control` (add `local-mods` to load mods via env CINNABAR_MOD_COMPONENT) and attach to its control endpoint. headless hides the window; size is physical pixels at scale 1.",
             "inputSchema": { "type": "object", "properties": {
-                "binary": { "type": "string", "description": "Client binary (default target/debug/bedrock-client under the checkout)" },
+                "binary": { "type": "string", "description": "Client binary (default target/debug/cinnabar under the checkout)" },
                 "size": { "type": "array", "items": { "type": "integer" }, "description": "[width, height], default [1920, 1080]" },
                 "headless": { "type": "boolean", "description": "Create the window hidden (default false)" },
                 "args": strings,

@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use bedrock_client::asset_bindings::{
+use cinnabar::asset_bindings::{
     AtmosphereEvidence, atmosphere_shader_source_sha256, cloud_shader_source_sha256,
 };
 
@@ -19,7 +19,7 @@ use ::assets::{
     TextureRef, VisualKind, encode_atmosphere_blob, encode_blob, encode_entity_blob,
     encode_font_catalog,
 };
-use bedrock_client::args::{ClientArgs, ParseOutcome};
+use cinnabar::args::{ClientArgs, ParseOutcome};
 use diagnostics::metrics::{DiagnosticQuadTracker, MetricsCollector};
 use meshing::{DiagnosticGeometryCount, DiagnosticGeometrySummary};
 use sha2::{Digest, Sha256};
@@ -286,7 +286,7 @@ fn workspace_consumers_accept_empty_new_tables() {
 #[test]
 fn assets_flag_parses_and_cli_beats_environment_then_default() {
     let ParseOutcome::Run(args) =
-        ClientArgs::parse_from(["bedrock-client", "--assets", "cli/vanilla.mcbea"]).unwrap()
+        ClientArgs::parse_from(["cinnabar", "--assets", "cli/vanilla.mcbea"]).unwrap()
     else {
         panic!("expected run arguments")
     };
@@ -313,7 +313,7 @@ fn default_asset_path_falls_back_to_the_executable_project_root() {
     let directory = temporary_directory("executable-root-assets");
     let current_directory = directory.join("unrelated-launch-directory");
     let project_root = directory.join("project");
-    let executable = project_root.join("target/debug/bedrock-client.exe");
+    let executable = project_root.join("target/debug/cinnabar.exe");
     let expected = project_root.join(DEFAULT_ASSET_PATH);
     fs::create_dir_all(expected.parent().unwrap()).unwrap();
     fs::write(&expected, b"compiled asset placeholder").unwrap();

@@ -61,12 +61,12 @@ impl PlayerInventoryLedger {
     /// repeated ids cannot mutate the backing inventory.
     pub(super) fn apply_response(&mut self, event: &ItemStackResponseEvent) {
         for response in event.responses.iter() {
-            tracing::debug!(target: "bedrock_client::inventory_requests",
+            tracing::debug!(target: "cinnabar::inventory_requests",
                 request_id = response.request_id, status = ?response.status,
                 pending = self.queue.len(), "inventory response received");
             for container in response.containers.iter() {
                 for slot in container.slots.iter() {
-                    tracing::debug!(target: "bedrock_client::inventory_requests",
+                    tracing::debug!(target: "cinnabar::inventory_requests",
                         request_id = response.request_id, container = ?container.container,
                         slot = slot.slot, requested_slot = slot.hotbar_slot,
                         stack_id = slot.item_stack_id, count = slot.count,

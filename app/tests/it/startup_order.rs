@@ -16,7 +16,7 @@ fn invalid_local_assets_fail_before_connection_startup() {
     let socket_dir = directory.join("no-bridge");
 
     for direct in [false, true] {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_bedrock-client"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_cinnabar"));
         command
             .arg("--assets")
             .arg(&assets)

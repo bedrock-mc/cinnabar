@@ -72,6 +72,31 @@ impl BlockEntityKind {
         )
     }
 
+    /// Whether the authored model has a fixed block reach independent of installed geometry.
+    pub const fn has_fixed_cull_reach(&self) -> bool {
+        match self {
+            Self::Skull(_)
+            | Self::Bed(_)
+            | Self::Spawner(_)
+            | Self::Statue(_)
+            | Self::Beacon(_)
+            | Self::CrystalBeam(_)
+            | Self::DragonDeath(_) => false,
+            Self::Chest(_)
+            | Self::Shulker(_)
+            | Self::Banner(_)
+            | Self::Sign(_)
+            | Self::EnchantTable { .. }
+            | Self::Lectern { .. }
+            | Self::Bell(_)
+            | Self::ItemFrame(_)
+            | Self::Conduit(_)
+            | Self::DecoratedPot(_)
+            | Self::EndPortal
+            | Self::EndGateway => true,
+        }
+    }
+
     /// Whether its mesh animates with [`SceneClock`] rather than only with its model.
     const fn is_clock_driven(&self) -> bool {
         matches!(

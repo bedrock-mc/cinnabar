@@ -1,7 +1,7 @@
 //! Env-gated lobby frame benchmark: replays a captured server session into a world stream and
 //! times the real actor publication system per frame.
 //! Run: `CINNABAR_LOBBY_CAPTURE=<raw.bin> CINNABAR_RENDER_PACK=<uuid_version.zip> cargo test -p
-//! bedrock-client --features reports --lib lobby_frame_bench -- --ignored --nocapture`.
+//! cinnabar --features reports --lib lobby_frame_bench -- --ignored --nocapture`.
 
 use std::{
     path::{Path, PathBuf},

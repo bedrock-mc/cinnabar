@@ -13,7 +13,7 @@ const ARCHITECTURE_GATE: &str = "tools/architecture";
 
 /// The client's asset-carrier integration tests skip without local carriers, so platform jobs
 /// run only its library tests.
-const CLIENT_PACKAGE: &str = "bedrock-client";
+const CLIENT_PACKAGE: &str = "cinnabar";
 
 /// Rust work a pull request needs, and the platform runners it needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -145,7 +145,7 @@ mod tests {
                 &["windows"],
             ),
             declares(
-                Package::new("bedrock-client", "app", &["render", "launcher"]),
+                Package::new("cinnabar", "app", &["render", "launcher"]),
                 &["macos", "windows"],
             ),
             Package::new("devtool", "tools/devtool", &[]),
@@ -187,11 +187,7 @@ mod tests {
         let leaf = plan_ci(&["crates/world/src/lib.rs"], &packages);
         assert_eq!(
             leaf.selection,
-            Selection::Packages(vec![
-                "bedrock-client".into(),
-                "render".into(),
-                "world".into()
-            ])
+            Selection::Packages(vec!["cinnabar".into(), "render".into(), "world".into()])
         );
         assert!(
             !leaf.macos && !leaf.windows,
@@ -222,16 +218,16 @@ mod tests {
         let outputs = plan_ci(&["crates/render/src/lib.rs"], &packages).outputs(&packages);
         assert_eq!(
             outputs,
-            "scope=packages\nmacos=true\nwindows=true\nnames=render bedrock-client\n\
-             tests=package(=render) | package(=bedrock-client)\n\
-             macos_tests=package(=render) | (package(=bedrock-client) & kind(lib))\n\
-             windows_tests=package(=render) | (package(=bedrock-client) & kind(lib))\n"
+            "scope=packages\nmacos=true\nwindows=true\nnames=render cinnabar\n\
+             tests=package(=render) | package(=cinnabar)\n\
+             macos_tests=package(=render) | (package(=cinnabar) & kind(lib))\n\
+             windows_tests=package(=render) | (package(=cinnabar) & kind(lib))\n"
         );
         let full = plan_ci(&["Cargo.toml"], &packages).outputs(&packages);
         assert!(full.contains("\ntests=all()\n"), "{full}");
         assert!(
             full.contains(
-                "\nwindows_tests=package(=render) | package(=launcher) | (package(=bedrock-client) & kind(lib))\n"
+                "\nwindows_tests=package(=render) | package(=launcher) | (package(=cinnabar) & kind(lib))\n"
             ),
             "{full}"
         );
@@ -250,11 +246,11 @@ mod tests {
         let packages = workspace();
         let outputs = plan_ci(&["app/tests/client_logging.rs"], &packages).outputs(&packages);
         assert!(
-            outputs.contains("\ntests=package(=bedrock-client)\n"),
+            outputs.contains("\ntests=package(=cinnabar)\n"),
             "{outputs}"
         );
         assert!(
-            outputs.contains("\nmacos_tests=(package(=bedrock-client) & kind(lib))\n"),
+            outputs.contains("\nmacos_tests=(package(=cinnabar) & kind(lib))\n"),
             "{outputs}"
         );
     }

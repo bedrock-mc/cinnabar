@@ -28,7 +28,7 @@ fn death_reason_text_is_painted_without_a_second_translation() {
             {"reason":{"type":"label","size":[300,20],"text":"#death_reason_text","bindings":[{"binding_name":"#death_reason_text"}]}}
         ]}}"##.as_slice()),
     ]).unwrap();
-    let catalog = Arc::new(registry().catalog().layer(&catalog, &[]));
+    let catalog = Arc::new(registry().catalog().layer(&catalog, &[]).pack);
     let (context, view) = (Context::desktop(), ViewState::default());
     let reason = "Player was slain using 100% Power %entity.zombie.name";
     let mut data = DataSource::new();
@@ -81,7 +81,7 @@ fn death_reason_variables_and_inherited_labels_remain_literal() {
             ]}
         }"##.as_slice()),
     ]).unwrap();
-    let catalog = Arc::new(registry().catalog().layer(&catalog, &[]));
+    let catalog = Arc::new(registry().catalog().layer(&catalog, &[]).pack);
     let (context, view) = (Context::desktop(), ViewState::default());
     let reason = "Player was slain using 100% Power %entity.zombie.name";
     let mut data = DataSource::new();

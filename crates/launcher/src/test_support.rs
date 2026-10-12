@@ -27,7 +27,7 @@ pub fn checkout() -> InstallLayout {
     InstallLayout::resolve(
         host_platform(),
         &InstallEnvironment {
-            executable: root.join("target/debug/bedrock-client"),
+            executable: root.join("target/debug/cinnabar"),
             user_root: None,
             home: None,
             local_app_data: None,
@@ -53,9 +53,9 @@ fn host_platform() -> Platform {
 /// Resolves a test installation under an explicit root for platform coverage.
 pub fn scratch_at(platform: Platform, base: &std::path::Path) -> InstallLayout {
     let executable = match platform {
-        Platform::Windows => "bin/bedrock-client.exe",
-        Platform::Linux => "bin/bedrock-client",
-        Platform::MacOs => "Cinnabar.app/Contents/MacOS/bedrock-client",
+        Platform::Windows => "bin/cinnabar.exe",
+        Platform::Linux => "bin/cinnabar",
+        Platform::MacOs => "Cinnabar.app/Contents/MacOS/cinnabar",
     };
     InstallLayout::resolve(
         platform,

@@ -37,7 +37,9 @@ pub struct ItemComponents {
     /// `minecraft:display_name` value: a localization key or literal text.
     pub display_name: Option<Arc<str>>,
     /// `foil` / `minecraft:glint`.
-    pub glint: bool,
+    pub glint: Option<bool>,
+    /// Presence of an intrinsic-shine declaration, including malformed values.
+    pub glint_declared: bool,
     /// Explicit finite hand flag; absence or malformed data remains unresolved.
     pub hand_equipped: Option<bool>,
     /// Distinguishes a malformed declaration from an absent hand component.
@@ -162,6 +164,26 @@ pub(crate) fn item_components(registry: &ItemRegistryPacket) -> Box<[(Arc<str>, 
         .collect()
 }
 
+/// Keeps absent, malformed and finite flags distinct while retaining the current OR combination.
+fn declared_flag(property: Option<&Nbt>, component: Option<&Nbt>) -> (bool, Option<bool>) {
+    let read = |value: &Nbt| {
+        value
+            .field("value")
+            .or(Some(value))
+            .and_then(Nbt::number)
+            .filter(|value| value.is_finite())
+            .map(|value| value != 0.0)
+    };
+    let value = match (property, component) {
+        (None, None) => None,
+        (Some(value), None) | (None, Some(value)) => read(value),
+        (Some(property), Some(component)) => read(property)
+            .zip(read(component))
+            .map(|(left, right)| left || right),
+    };
+    (property.is_some() || component.is_some(), value)
+}
+
 /// Reads both the `item_properties` and the top-level component layouts; `None` when the
 /// data carries no components compound.
 pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
@@ -192,6 +214,11 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
             .map(|seconds| seconds as f32)
             .and_then(simulation_clock::whole_ticks_from_seconds)
     });
+    let glint = declared_flag(property("foil"), component("minecraft:glint"));
+    let hand_equipped = declared_flag(
+        property("hand_equipped"),
+        component("minecraft:hand_equipped"),
+    );
     Some(ItemComponents {
         food_can_always_eat: component("minecraft:food")
             .map(|food| flag(food.field("can_always_eat"))),
@@ -223,25 +250,10 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
         display_name: text(
             component("minecraft:display_name").and_then(|name| name.field("value")),
         ),
-        glint: flag(property("foil")) || flag(component("minecraft:glint")),
-        hand_equipped_declared: property("hand_equipped").is_some()
-            || component("minecraft:hand_equipped").is_some(),
-        hand_equipped: {
-            let property = property("hand_equipped");
-            let component = component("minecraft:hand_equipped");
-            let declared = |value: &Nbt| {
-                value_of(value)
-                    .filter(|value| value.is_finite())
-                    .map(|value| value != 0.0)
-            };
-            match (property, component) {
-                (None, None) => None,
-                (Some(value), None) | (None, Some(value)) => declared(value),
-                (Some(property), Some(component)) => declared(property)
-                    .zip(declared(component))
-                    .map(|(property, component)| property || component),
-            }
-        },
+        glint: glint.1,
+        glint_declared: glint.0,
+        hand_equipped: hand_equipped.1,
+        hand_equipped_declared: hand_equipped.0,
         durability_declared: component("minecraft:durability").is_some(),
         allow_off_hand_declared: property("allow_off_hand").is_some()
             || component("minecraft:allow_off_hand").is_some(),
@@ -573,7 +585,7 @@ mod tests {
             components.display_name.as_deref(),
             Some("item.zeqa.sword.name")
         );
-        assert!(components.glint && components.hand_equipped == Some(true));
+        assert!(components.glint == Some(true) && components.hand_equipped == Some(true));
         assert_eq!(components.max_durability, Some(250));
         assert_eq!(components.max_stack_size, Some(16));
         assert_eq!(components.use_animation.as_deref(), Some("eat"));
@@ -612,7 +624,7 @@ mod tests {
             )],
         );
         let components = parse_components(&nbt).unwrap();
-        assert!(components.glint && components.hand_equipped == Some(false));
+        assert!(components.glint == Some(true) && components.hand_equipped == Some(false));
         assert_eq!(components.max_stack_size, Some(1));
         assert_eq!(components.use_duration_ticks, Some(32));
         assert_eq!(components.use_animation.as_deref(), Some("drink"));
@@ -620,6 +632,32 @@ mod tests {
         assert_eq!(components.hover_text_color.as_deref(), Some("gold"));
         assert_eq!(components.block_placer.as_deref(), Some("test:ore"));
         assert!(parse_components(&compound("", &[])).is_none());
+    }
+
+    #[test]
+    fn intrinsic_glint_flags_distinguish_false_missing_and_malformed_data() {
+        let payload = |flag: Option<Vec<u8>>| {
+            compound(
+                "",
+                &[compound(
+                    "components",
+                    &flag.into_iter().collect::<Vec<_>>(),
+                )],
+            )
+        };
+        let missing = parse_components(&payload(None)).unwrap();
+        assert_eq!(missing.glint, None);
+        assert!(!missing.glint_declared);
+        let flat = parse_components(&payload(Some(compound(
+            "minecraft:glint",
+            &[byte("value", 0)],
+        ))))
+        .unwrap();
+        assert_eq!(flat.glint, Some(false));
+        assert!(flat.glint_declared);
+        let malformed = parse_components(&payload(Some(compound("minecraft:glint", &[])))).unwrap();
+        assert_eq!(malformed.glint, None);
+        assert!(malformed.glint_declared);
     }
 
     #[test]

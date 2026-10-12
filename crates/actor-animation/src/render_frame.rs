@@ -63,6 +63,43 @@ impl<'a> ActorRenderFrame<'a> {
             .is_some_and(|actor| self.store.may_use_always_depth_material(actor))
     }
 
+    /// Whether any controller branch can replace the base mesh, including frame selections.
+    /// Unknown rigs fail open. The cached skeleton keys include inactive geometry choices,
+    /// so this check neither evaluates expressions nor consumes the frame's work budget.
+    pub fn may_replace_body_geometry(&self, runtime_id: u64) -> bool {
+        let Some(actor) = self.actors.animated_actor(runtime_id) else {
+            return true;
+        };
+        let Some(state) = self
+            .store
+            .runtime_to_lifetime
+            .get(&runtime_id)
+            .filter(|lifetime| lifetime.spawn_revision == actor.spawn_revision())
+            .and_then(|lifetime| self.store.rigs.get(lifetime))
+        else {
+            return true;
+        };
+        let assets = if state.pack {
+            self.store.pack.as_ref().map(|pack| pack.assets.as_ref())
+        } else {
+            self.store.assets.as_deref()
+        };
+        let Some(base) =
+            assets.and_then(|assets| assets.rig_geometries().get(state.geometry_binding))
+        else {
+            return true;
+        };
+        !state.initialized
+            || state
+                .layer_skeletons
+                .first_key_value()
+                .is_some_and(|(geometry, _)| *geometry != base.geometry)
+            || state
+                .layer_skeletons
+                .last_key_value()
+                .is_some_and(|(geometry, _)| *geometry != base.geometry)
+    }
+
     /// Samples one actor's layers against the frame's shared expression budget.
     fn sample(
         store: &'a ActorAnimationStore,

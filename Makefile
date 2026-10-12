@@ -21,7 +21,7 @@ CLIENT_FEATURES = $(if $(filter 1,$(TRACY)),--features tracy)
 # Identifies the client build in its session log and supplies runtime acceptance markers.
 RUST_MCBE_BUILD_COMMIT ?= $(shell git rev-parse HEAD)
 DIST_PLATFORM ?= $(if $(filter Windows_NT,$(OS)),windows,$(if $(findstring Darwin,$(shell uname -s)),macos,linux))
-DIST_CLIENT ?= target/release/$(if $(filter windows,$(DIST_PLATFORM)),bedrock-client.exe,bedrock-client)
+DIST_CLIENT ?= target/release/$(if $(filter windows,$(DIST_PLATFORM)),cinnabar.exe,cinnabar)
 DIST_CORE ?= target/release/$(if $(filter windows,$(DIST_PLATFORM)),bedrock-core.exe,bedrock-core)
 DIST_OUT ?= .local/dist/$(DIST_PLATFORM)
 DIST_TARGET ?= $(shell rustc --print host-tuple)
@@ -126,10 +126,10 @@ ifeq ($(CINNABAR_DEV_SERVER_EXPERIENCES),1)
 endif
 	$(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
 	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" .
-	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) build --profile $(PROFILE) -p bedrock-client --locked $(CLIENT_FEATURES) --message-format=$(CLIENT_MESSAGE_FORMAT)
+	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) build --profile $(PROFILE) -p cinnabar --locked $(CLIENT_FEATURES) --message-format=$(CLIENT_MESSAGE_FORMAT)
 
 play: play-build
-	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) -p bedrock-client --locked $(CLIENT_FEATURES) -- $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
+	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) run --profile $(PROFILE) -p cinnabar --locked $(CLIENT_FEATURES) -- $(if $(filter 1,$(NO_VSYNC)),--no-vsync)
 
 dist-local:
 	$(CARGO) run --locked -p dist-local -- --platform "$(DIST_PLATFORM)" --client "$(DIST_CLIENT)" --core "$(DIST_CORE)" --physics "$(PHYSICS_REGISTRY)" --notices "$(DIST_NOTICES)" --target "$(DIST_TARGET)" --git-commit "$(DIST_GIT_COMMIT)" --out "$(DIST_OUT)"
@@ -149,7 +149,7 @@ PKG_CORE_LDFLAGS = -s -w
 PACKAGE_CARGO_FLAGS ?=
 .PHONY: package-binaries package-macos package-windows package-linux
 package-binaries:
-	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features -p bedrock-client -p asset-compiler --features bedrock-client/local-mods --bin bedrock-client --bin assetc
+	RUST_MCBE_BUILD_COMMIT="$(RUST_MCBE_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features -p cinnabar -p asset-compiler --features cinnabar/local-mods --bin cinnabar --bin assetc
 	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
 	cd tools/localserver && GOWORK=off $(GO) build -trimpath -ldflags "-s -w" -o "$(abspath $(LOCAL_SERVER_OUT))" .
 

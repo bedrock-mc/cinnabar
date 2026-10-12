@@ -110,10 +110,10 @@ fn unix_bundle_binaries_are_executable() {
     use std::os::unix::fs::PermissionsExt;
 
     for (platform, client, core) in [
-        (Platform::Linux, "bin/bedrock-client", "bin/bedrock-core"),
+        (Platform::Linux, "bin/cinnabar", "bin/bedrock-core"),
         (
             Platform::Macos,
-            "Cinnabar.app/Contents/MacOS/bedrock-client",
+            "Cinnabar.app/Contents/MacOS/cinnabar",
             "Cinnabar.app/Contents/MacOS/bedrock-core",
         ),
     ] {

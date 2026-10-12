@@ -27,6 +27,7 @@ fn server_properties_configure_local_play() {
     for expected in [
         "server-name=MyWorld 1\n",
         "gamemode=creative\n",
+        "force-gamemode=true\n",
         "difficulty=hard\n",
         "online-mode=false\n",
         "allow-list=false\n",

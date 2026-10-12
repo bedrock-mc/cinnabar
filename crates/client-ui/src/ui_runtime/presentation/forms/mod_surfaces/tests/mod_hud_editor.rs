@@ -263,6 +263,38 @@ fn editor_closure_and_invalid_preview_release_drag_without_persisting() {
     assert!(!p.mod_ui().mod_panel_open());
 }
 #[test]
+fn editor_style_recolors_outlines_and_resize_handles() {
+    let emits = |p: &UiPresentationRuntime, color: [u8; 4]| {
+        p.last_frame.as_ref().unwrap().nodes.iter().any(|node| {
+            matches!(node.visual(), ui::UiVisual::Mesh(mesh)
+                if mesh.vertices().iter().any(|vertex| vertex.color == color))
+        })
+    };
+    let mut hud = content();
+    hud.cards[0].title.clear();
+    hud.resizable = true;
+    hud.editor_style = Some(ui::mod_hud::EditorStyle {
+        outline: [0., 0., 1., 1.],
+        selected: [1., 0., 1., 1.],
+        handle: [1., 1., 0., 1.],
+        handle_radius: 2.5,
+        ..Default::default()
+    });
+    let mut p = presentation(false);
+    editor(&mut p, &hud);
+    let runtime = UiRuntime::new(1);
+    frame(&mut p, &runtime, [1280, 720], 1.);
+    assert!(emits(&p, [0, 0, 255, 255]), "unselected outline");
+    assert!(emits(&p, [255, 255, 0, 255]), "resize handle");
+    assert!(
+        !emits(&p, [76, 217, 255, 255]),
+        "built-in handle color is replaced"
+    );
+    click(&mut p, "hud.card:0");
+    frame(&mut p, &runtime, [1280, 720], 1.);
+    assert!(emits(&p, [255, 0, 255, 255]), "selected outline");
+}
+#[test]
 fn normalized_titleless_cards_keep_foreground_opaque_and_fit_after_resize() {
     let mut p = presentation(false);
     let mut hud = content();
@@ -273,7 +305,7 @@ fn normalized_titleless_cards_keep_foreground_opaque_and_fit_after_resize() {
     let runtime = UiRuntime::new(1);
     p.set_mod_hud(Some(&hud)).unwrap();
     let clear = frame(&mut p, &runtime, [1280, 720], 1.);
-    let catalog = Arc::clone(&p.mod_ui().mod_widgets_state().unwrap().catalog);
+    let catalog = Arc::clone(p.mod_ui().mod_widgets_state().unwrap().catalog);
     for opacity in [0., 0.35, 1.] {
         hud.cards[0].background_opacity = opacity;
         p.set_mod_hud(Some(&hud)).unwrap();
@@ -299,7 +331,7 @@ fn normalized_titleless_cards_keep_foreground_opaque_and_fit_after_resize() {
     );
     assert!(Arc::ptr_eq(
         &catalog,
-        &p.mod_ui().mod_widgets_state().unwrap().catalog
+        p.mod_ui().mod_widgets_state().unwrap().catalog
     ));
     for (size, dpi, scale) in [
         ([1280, 720], 1., 0.5),

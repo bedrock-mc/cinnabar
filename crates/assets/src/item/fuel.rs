@@ -150,6 +150,7 @@ mod tests {
         let visual = ItemVisualDefinition {
             grip: crate::item::grip::ItemGrip::Unresolved,
             fuel: builtin_item_fuel("minecraft:coal"),
+            glint: crate::item::glint::ItemGlint::Unresolved,
             armour: crate::item::armour::ItemArmour::Unresolved,
             durability: crate::item::durability::ItemDurability::Unresolved,
             key: crate::ItemVisualKey {

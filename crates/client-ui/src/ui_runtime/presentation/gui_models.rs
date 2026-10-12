@@ -307,10 +307,14 @@ impl UiPresentationRuntime {
         };
         let armor = std::array::from_fn(|slot| {
             let texture = self.player_preview_gear.armor[slot].as_ref()?;
-            self.gui_models.pack_equipment.region(slot).or_else(|| {
-                let key = atlas::key([texture.width, texture.height], &texture.rgba);
-                self.gui_models.textures.get(&key).copied()
-            })
+            self.gui_models
+                .pack_equipment
+                .region(slot)
+                .or_else(|| {
+                    let key = atlas::key([texture.width, texture.height], &texture.rgba);
+                    self.gui_models.textures.get(&key).copied()
+                })
+                .map(|icon| icon.with_glint(self.player_preview_gear.armor_glint[slot]))
         });
         let held = self.player_preview_gear.hands.each_ref().map(|hand| {
             let hand = hand.as_ref()?;
@@ -333,7 +337,7 @@ impl UiPresentationRuntime {
                         metadata: 0,
                     })
                 })
-                .map(|model| model.with_grip(hand.grip))
+                .map(|model| model.with_grip(hand.grip).with_glint(hand.glint))
         });
         let unposed = [None; 6];
         let body = if self.player_preview_view == player_preview::PreviewView::Hud {

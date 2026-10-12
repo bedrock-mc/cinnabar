@@ -265,10 +265,10 @@ Describe 'Phase 3 production marker evidence validation' {
 
     It 'keeps visual movement evidence on debug while reserving release for the binding transfer witness' {
         $launcher = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'scripts\acceptance\Phase3Launcher.ps1')
-        $launcher | Should Match 'target\\\$buildProfile\\bedrock-client'
+        $launcher | Should Match 'target\\\$buildProfile\\cinnabar'
         $launcher | Should Match "FastTransferWitness'.*'release'.*'debug'"
         $launcher | Should Match "appBuildArguments \+= '--release'"
-        $launcher | Should Match "'build', '--locked', '-p', 'bedrock-client'"
+        $launcher | Should Match "'build', '--locked', '-p', 'cinnabar'"
         $launcher | Should Match 'Resolve-Phase3ContainedPath'
         $launcher | Should Match '-AuthCache \$authCacheFull'
         $launcher | Should Match '-ScenarioManifestPath \$scenarioManifestPath'

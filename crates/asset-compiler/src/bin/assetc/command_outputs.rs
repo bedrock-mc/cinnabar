@@ -138,7 +138,9 @@ pub(super) fn validate_command_outputs(command: &Command) -> Result<(), AssetErr
             outputs.push(out)
         }
         AudioBank { out, report, .. } => outputs.extend([out.as_path(), report.as_path()]),
-        LanguageAssets { .. } | VanillaPack { .. } | Prepare { .. } => return Ok(()),
+        LanguageAssets { .. } | VanillaPack { .. } | Prepare { .. } | KitFiles { .. } => {
+            return Ok(());
+        }
     }
     match command {
         EntityAssets { out, .. } => {

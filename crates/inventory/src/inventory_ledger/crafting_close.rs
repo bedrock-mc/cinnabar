@@ -166,7 +166,7 @@ impl PlayerInventoryLedger {
     }
 
     pub(super) fn note_close_return_failure(&self, error: InventoryGestureError) {
-        tracing::warn!(target: "bedrock_client::inventory_requests",
+        tracing::warn!(target: "cinnabar::inventory_requests",
             ?error, "inventory closed without returning its inputs");
     }
 }

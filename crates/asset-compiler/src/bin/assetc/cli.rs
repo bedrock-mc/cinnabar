@@ -352,6 +352,12 @@ pub(super) enum Command {
         #[arg(long)]
         clouds_override: Option<PathBuf>,
     },
+    /// Print every checkout-relative file `prepare --kit` reads; installers stage exactly these.
+    KitFiles {
+        /// Checkout the tracked inputs resolve against.
+        #[arg(long, default_value = ".")]
+        root: PathBuf,
+    },
     /// Download (when missing), verify and unpack the pinned sample pack below `.local/assets`.
     VanillaPack {
         /// Tracked manifest pinning the pack; its paths resolve against the current directory.

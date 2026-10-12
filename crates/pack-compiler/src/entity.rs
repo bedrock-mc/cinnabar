@@ -260,6 +260,10 @@ fn compile_with_behavior(
             assets::item::fuel::SOURCE_BYTES,
         ),
         raw(
+            assets::item::glint::SOURCE_PATH,
+            assets::item::glint::SOURCE_BYTES,
+        ),
+        raw(
             assets::item::grip::GRIP_SOURCE_PATH,
             assets::item::grip::GRIP_SOURCE_BYTES,
         ),

@@ -50,7 +50,7 @@
 - Create: `.github/workflows/ci.yml`
 
 **Interfaces:**
-- Produces a Cargo workspace with packages `bridge`, `protocol`, `world`, `render`, and `bedrock-client`.
+- Produces a Cargo workspace with packages `bridge`, `protocol`, `world`, `render`, and `cinnabar`.
 - Produces Go module `github.com/hashimthearab/rust-mcbe/core` and binary `bedrock-core`.
 
 - [ ] **Step 1: Create workspace manifests and zero-behaviour crate entry points**
@@ -436,7 +436,7 @@
   Run: `cargo test --workspace`
   Expected: all Rust tests pass.
 
-  Run: `cargo run -p bedrock-client -- --help`
+  Run: `cargo run -p cinnabar -- --help`
   Expected: documents all four app flags and exits zero.
 
 - [x] **Step 9: Commit**

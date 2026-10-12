@@ -29,7 +29,7 @@
     "--offline",
     "--locked",
     "-p",
-    "bedrock-client",
+    "cinnabar",
     "--timings"
   ],
   "probe": "// Timing probe: behavior-neutral source edit.",
@@ -45,14 +45,14 @@
       "report_sha256": "bc7be609cfcbdce8ad58ace3998775f639796d92a6dc018ad49d2023ef22207b",
       "compiled_units": [
         {
-          "name": "bedrock-client",
+          "name": "cinnabar",
           "target": "",
           "start_seconds": 0.9,
           "duration_seconds": 68.25
         },
         {
-          "name": "bedrock-client",
-          "target": " bin \"bedrock-client\"",
+          "name": "cinnabar",
+          "target": " bin \"cinnabar\"",
           "start_seconds": 69.15,
           "duration_seconds": 1.75
         }
@@ -66,14 +66,14 @@
       "report_sha256": "5ef1cf4d1c4cca87dc952b23db2b73979cf562f3d6ee2e82c49b7fb191b3882d",
       "compiled_units": [
         {
-          "name": "bedrock-client",
+          "name": "cinnabar",
           "target": "",
           "start_seconds": 0.52,
           "duration_seconds": 68.22
         },
         {
-          "name": "bedrock-client",
-          "target": " bin \"bedrock-client\"",
+          "name": "cinnabar",
+          "target": " bin \"cinnabar\"",
           "start_seconds": 68.74,
           "duration_seconds": 1.93
         }
@@ -93,14 +93,14 @@
           "duration_seconds": 3.63
         },
         {
-          "name": "bedrock-client",
+          "name": "cinnabar",
           "target": "",
           "start_seconds": 1.74,
           "duration_seconds": 57.76
         },
         {
-          "name": "bedrock-client",
-          "target": " bin \"bedrock-client\"",
+          "name": "cinnabar",
+          "target": " bin \"cinnabar\"",
           "start_seconds": 59.5,
           "duration_seconds": 1.44
         }
@@ -114,14 +114,14 @@
       "report_sha256": "716b4fd6011baa0896118482d92595e2689355a78f355d8a82ff3c5b15e93ce5",
       "compiled_units": [
         {
-          "name": "bedrock-client",
+          "name": "cinnabar",
           "target": "",
           "start_seconds": 0.35,
           "duration_seconds": 52.13
         },
         {
-          "name": "bedrock-client",
-          "target": " bin \"bedrock-client\"",
+          "name": "cinnabar",
+          "target": " bin \"cinnabar\"",
           "start_seconds": 52.47,
           "duration_seconds": 1.29
         }

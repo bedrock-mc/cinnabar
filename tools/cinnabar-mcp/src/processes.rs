@@ -38,7 +38,7 @@ impl Client {
     pub fn launch(launch: Launch<'_>) -> Result<(Self, Endpoint), String> {
         if !launch.binary.is_file() {
             return Err(format!(
-                "{} does not exist; build it with `cargo build -p bedrock-client --features developer-control`",
+                "{} does not exist; build it with `cargo build -p cinnabar --features developer-control`",
                 launch.binary.display()
             ));
         }

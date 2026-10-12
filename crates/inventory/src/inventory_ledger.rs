@@ -624,7 +624,7 @@ impl PlayerInventoryLedger {
             return false;
         };
         pending.state = InventoryPendingState::AwaitingResponse;
-        tracing::debug!(target: "bedrock_client::inventory_requests",
+        tracing::debug!(target: "cinnabar::inventory_requests",
             request_id = pending.request_id, "inventory request admitted to transport");
         pending.transport_deadline_millis = None;
         pending.deadline_millis = Some(now_millis.saturating_add(INVENTORY_REQUEST_TIMEOUT_MILLIS));

@@ -249,6 +249,7 @@ fn item_carrier_fixture() -> CompiledEntityAssetsV4 {
         rig_controllers: Box::new([]),
         item_visuals: vec![ItemVisualDefinition {
             grip: assets::item::grip::ItemGrip::Unresolved,
+            glint: assets::item::glint::ItemGlint::Unresolved,
             fuel: assets::item::fuel::ItemFuel::Unresolved,
             durability: assets::item::durability::ItemDurability::Unresolved,
             armour: assets::item::armour::ItemArmour::Unresolved,
@@ -452,6 +453,7 @@ fn item_carrier_round_trips_all_four_exact_routes() {
     compiled.item_visuals = vec![
         ItemVisualDefinition {
             grip: assets::item::grip::ItemGrip::Unresolved,
+            glint: assets::item::glint::ItemGlint::Unresolved,
             fuel: assets::item::fuel::ItemFuel::Unresolved,
             durability: assets::item::durability::ItemDurability::Unresolved,
             armour: assets::item::armour::ItemArmour::Unresolved,
@@ -462,6 +464,7 @@ fn item_carrier_round_trips_all_four_exact_routes() {
         base.clone(),
         ItemVisualDefinition {
             grip: assets::item::grip::ItemGrip::Unresolved,
+            glint: assets::item::glint::ItemGlint::Unresolved,
             fuel: assets::item::fuel::ItemFuel::Unresolved,
             durability: assets::item::durability::ItemDurability::Unresolved,
             armour: assets::item::armour::ItemArmour::Unresolved,
@@ -471,6 +474,7 @@ fn item_carrier_round_trips_all_four_exact_routes() {
         },
         ItemVisualDefinition {
             grip: assets::item::grip::ItemGrip::Unresolved,
+            glint: assets::item::glint::ItemGlint::Unresolved,
             fuel: assets::item::fuel::ItemFuel::Unresolved,
             durability: assets::item::durability::ItemDurability::Unresolved,
             armour: assets::item::armour::ItemArmour::Unresolved,
@@ -521,6 +525,7 @@ fn item_carrier_accepts_exact_limits_and_rejects_limit_plus_one() {
     compiled.item_visuals = (0..MAX_ITEM_VISUALS)
         .map(|index| ItemVisualDefinition {
             grip: assets::item::grip::ItemGrip::Unresolved,
+            glint: assets::item::glint::ItemGlint::Unresolved,
             fuel: assets::item::fuel::ItemFuel::Unresolved,
             durability: assets::item::durability::ItemDurability::Unresolved,
             armour: assets::item::armour::ItemArmour::Unresolved,
@@ -534,6 +539,7 @@ fn item_carrier_accepts_exact_limits_and_rejects_limit_plus_one() {
     compiled.item_visuals = (0..=MAX_ITEM_VISUALS)
         .map(|index| ItemVisualDefinition {
             grip: assets::item::grip::ItemGrip::Unresolved,
+            glint: assets::item::glint::ItemGlint::Unresolved,
             fuel: assets::item::fuel::ItemFuel::Unresolved,
             durability: assets::item::durability::ItemDurability::Unresolved,
             armour: assets::item::armour::ItemArmour::Unresolved,

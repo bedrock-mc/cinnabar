@@ -407,7 +407,7 @@ mod tests {
             ],
         ] {
             let ParseOutcome::Run(args) =
-                ClientArgs::parse_from(std::iter::once("bedrock-client").chain(flags)).unwrap()
+                ClientArgs::parse_from(std::iter::once("cinnabar").chain(flags)).unwrap()
             else {
                 panic!("expected runtime arguments")
             };

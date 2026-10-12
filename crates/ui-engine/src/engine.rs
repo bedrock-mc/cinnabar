@@ -46,6 +46,8 @@ pub struct FormEngine {
     /// Vanilla under the built-in packs: the catalog with no server pack.
     base: Arc<Catalog>,
     catalog: Arc<Catalog>,
+    /// Built-in screens' catalog carrying the installed pack's filters.
+    builtin_screens: Arc<Catalog>,
     /// What the screen families registered: catalog policy, screens and binding hooks.
     registry: &'static ScreenRegistry,
     pub formatting_palette: ui::FormattingPalette,
@@ -112,6 +114,7 @@ impl FormEngine {
             textures: TextureSet::new(first_page, remote, work).with_carrier(Arc::clone(&assets)),
             assets,
             catalog: Arc::clone(&base),
+            builtin_screens: Arc::clone(&base),
             formatting_palette: formatting_colors::from_catalog(&base),
             screens: screen_cache::ScreenCache::default(),
             vanilla,
@@ -215,11 +218,14 @@ impl FormEngine {
     /// Apply a server pack's ui files over vanilla and the built-in packs; none restores the base.
     pub fn set_server_pack(&mut self, layers: &[Vec<(String, Vec<u8>)>]) {
         if layers.iter().all(Vec::is_empty) {
-            self.install_pack_catalog(Arc::clone(&self.base));
+            self.install_pack_catalog(Arc::clone(&self.base), None);
             return;
         }
-        let catalog = self.registry.catalog().layer(&self.vanilla, layers);
-        self.install_pack_catalog(Arc::new(catalog));
+        let layered = self.registry.catalog().layer(&self.vanilla, layers);
+        self.install_pack_catalog(
+            Arc::new(layered.pack),
+            layered.builtin_screens.map(Arc::new),
+        );
     }
 
     /// Returns the original catalog used by background pack compilation.
@@ -227,8 +233,14 @@ impl FormEngine {
         self.vanilla.clone()
     }
 
-    /// Publishes a worker-resolved catalog and retires caches holding the previous one.
-    pub fn install_pack_catalog(&mut self, catalog: Arc<Catalog>) {
+    /// Publishes worker-resolved catalogs and retires caches holding the previous ones;
+    /// `builtin_screens` defaults to the base catalog.
+    pub fn install_pack_catalog(
+        &mut self,
+        catalog: Arc<Catalog>,
+        builtin_screens: Option<Arc<Catalog>>,
+    ) {
+        self.builtin_screens = builtin_screens.unwrap_or_else(|| Arc::clone(&self.base));
         self.formatting_palette = formatting_colors::from_catalog(&catalog);
         self.catalog = catalog;
         self.cache = None;
@@ -320,10 +332,11 @@ impl FormEngine {
         &self.catalog
     }
 
-    /// Registered built-in screens keep their presentation while others use the pack stack.
+    /// Registered built-in screens resolve against the base catalog carrying pack filters;
+    /// others use the pack stack.
     pub fn screen_catalog(&self, reference: &str) -> &Arc<Catalog> {
         if self.registry.builtin(reference) {
-            &self.base
+            &self.builtin_screens
         } else {
             &self.catalog
         }
@@ -337,6 +350,7 @@ impl FormEngine {
         } else {
             Arc::new(self.registry.catalog().builtin(&self.vanilla))
         };
+        self.install_pack_catalog(Arc::clone(&self.base), None);
     }
 
     pub fn context(&self) -> &Context {

@@ -116,7 +116,17 @@ fn hidden_entities_keep_lids_rings_and_map_requests() {
             (&bell_template, bell),
             (&frame_template, frame),
         ] {
-            assert_eq!(fixture.resolve(template, position, (now, 0.25), true), None);
+            let hidden = meshing::occlusion::OcclusionBudget::default().hides_box(
+                [-10.0, 64.5, 0.5],
+                position.map(|axis| axis as f32 - 2.0),
+                position.map(|axis| axis as f32 + 3.0),
+                |cell, _| cell[0] == -5,
+            );
+            assert!(hidden);
+            assert_eq!(
+                fixture.resolve(template, position, (now, 0.25), hidden),
+                None
+            );
         }
         fixture.runtime.lids.finish();
     }

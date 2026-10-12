@@ -269,6 +269,7 @@ fn equipment_batches_keep_source_pages_tint_and_shared_model_depth() {
         tint: Some([110, 70, 200]),
     };
     let gear = PreviewEquipment {
+        armor_glint: [false; 4],
         armor: [Some(armor_texture), None, None, None],
         held: None,
         ..Default::default()

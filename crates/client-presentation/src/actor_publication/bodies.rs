@@ -37,6 +37,7 @@ pub(super) struct SampledBodies<'a> {
     pub local_emote_pose: Option<actor_animation::CustomEmotePose>,
     pub java_posed: Vec<java::Posed>,
     pub native_body_sampled: bool,
+    pub occlusion: occlusion::PreparationWork,
     pub render_frame: Option<actor_animation::ActorRenderFrame<'a>>,
 }
 
@@ -47,7 +48,7 @@ pub(super) fn sample<'a>(
     view: (PoseView, Option<ActorCullView>),
     artwork: &render_model::ActorArtworkPages,
     caches: BodyCaches<'_>,
-    hides_box: impl Fn(&WorldStream, [f32; 3], [f32; 3], [f32; 3]) -> bool,
+    hides_box: impl Fn(&WorldStream, ActorCullView, [f32; 3], [f32; 3]) -> bool,
     new_geometries: &mut Vec<render_model::ActorRigGeometry>,
 ) -> SampledBodies<'a> {
     let (
@@ -78,6 +79,7 @@ pub(super) fn sample<'a>(
         })
         .flatten();
     let mut native_body_sampled = false;
+    let mut occlusion_work = occlusion::PreparationWork::default();
     let mut render_frame = stream.map(|stream| stream.authority().actor_render_frame(partial_tick));
     let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local, unrigged_actors) =
         stream
@@ -111,6 +113,9 @@ pub(super) fn sample<'a>(
                         rig
                     };
                     // Cull at the sampled frame scale; the local rig also drives the hand.
+                    let occluded = std::cell::Cell::new(false);
+                    occlusion_work.candidates +=
+                        u32::from(rig.actor.runtime_id != local_runtime_id);
                     if rig.actor.runtime_id != local_runtime_id
                         && !crate::presentation::actors::rig_may_be_visible(
                             &rig,
@@ -120,11 +125,21 @@ pub(super) fn sample<'a>(
                             render_frame.as_mut(),
                             |low, high| {
                                 cull_view.is_some_and(|view| {
-                                    hides_box(stream, view.camera_position.to_array(), low, high)
+                                    let (low, high) = occlusion::body_and_shadow_bounds(
+                                        stream,
+                                        &rig,
+                                        partial_tick,
+                                        low,
+                                        high,
+                                    );
+                                    let hidden = hides_box(stream, view, low, high);
+                                    occluded.set(hidden);
+                                    hidden
                                 })
                             },
                         )
                     {
+                        occlusion_work.hidden_by_occlusion += u32::from(occluded.get());
                         continue;
                     }
                     let profile = stream
@@ -215,6 +230,7 @@ pub(super) fn sample<'a>(
         local_emote_pose,
         java_posed,
         native_body_sampled,
+        occlusion: occlusion_work,
         render_frame,
     }
 }

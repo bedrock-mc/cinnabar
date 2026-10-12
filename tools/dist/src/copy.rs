@@ -74,11 +74,10 @@ pub(crate) fn copy_validated(
 pub(crate) fn executable_destination(platform: Platform, destination: &str) -> bool {
     match platform {
         Platform::Windows => false,
-        Platform::Linux => matches!(destination, "bin/bedrock-client" | "bin/bedrock-core"),
+        Platform::Linux => matches!(destination, "bin/cinnabar" | "bin/bedrock-core"),
         Platform::Macos => matches!(
             destination,
-            "Cinnabar.app/Contents/MacOS/bedrock-client"
-                | "Cinnabar.app/Contents/MacOS/bedrock-core"
+            "Cinnabar.app/Contents/MacOS/cinnabar" | "Cinnabar.app/Contents/MacOS/bedrock-core"
         ),
     }
 }

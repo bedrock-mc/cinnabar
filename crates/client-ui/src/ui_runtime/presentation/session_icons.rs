@@ -76,13 +76,13 @@ impl UiPresentationRuntime {
     }
 
     /// Admitted crossbow drawing roles share the pulling atlas across cells and dropped sprites.
-    pub fn item_icon_key<'a>(
-        identifier: &'a str,
+    pub fn item_icon_key(
+        identifier: &str,
         metadata: u32,
         animation: assets::item_use::ItemUseAnimation,
         charged_projectile: assets::item_use::ItemProjectileRole,
         animation_frame: Option<u32>,
-    ) -> (&'a str, u32) {
+    ) -> (&str, u32) {
         if animation != assets::item_use::ItemUseAnimation::Crossbow {
             return (identifier, metadata);
         }

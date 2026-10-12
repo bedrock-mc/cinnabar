@@ -12,11 +12,11 @@ fn exited_client_reports_startup_failure_instead_of_waiting_for_the_collector() 
             bin.join("make"),
             r#"#!/usr/bin/env python3
 import json, pathlib
-print(json.dumps({'reason':'compiler-artifact','target':{'name':'bedrock-client','kind':['bin']},'executable':str(pathlib.Path('target/debug/bedrock-client').resolve())}))
+print(json.dumps({'reason':'compiler-artifact','target':{'name':'cinnabar','kind':['bin']},'executable':str(pathlib.Path('target/debug/cinnabar').resolve())}))
 "#,
         ),
         (
-            temp.path().join("target/debug/bedrock-client"),
+            temp.path().join("target/debug/cinnabar"),
             "#!/bin/sh\nexit 37\n",
         ),
         (bin.join("tracy-csvexport"), "#!/bin/sh\nexit 0\n"),
@@ -76,11 +76,11 @@ fn capture_connects_to_its_new_client_when_the_default_port_is_occupied() {
             bin.join("make"),
             r#"#!/usr/bin/env python3
 import json, pathlib
-print(json.dumps({'reason':'compiler-artifact','target':{'name':'bedrock-client','kind':['bin']},'executable':str(pathlib.Path('target/debug/bedrock-client').resolve())}))
+print(json.dumps({'reason':'compiler-artifact','target':{'name':'cinnabar','kind':['bin']},'executable':str(pathlib.Path('target/debug/cinnabar').resolve())}))
 "#,
         ),
         (
-            temp.path().join("target/debug/bedrock-client"),
+            temp.path().join("target/debug/cinnabar"),
             r#"#!/usr/bin/env python3
 import os, signal, socket
 port = int(os.environ['TRACY_PORT'])
@@ -186,12 +186,12 @@ fn capture_launches_the_emitted_executable_and_refuses_cargo_output_overrides() 
 import json, os, pathlib
 pathlib.Path('built').touch()
 profile = os.environ['PROFILE']
-executable = (pathlib.Path('target') / ('debug' if profile == 'dev' else profile) / 'bedrock-client').resolve()
+executable = (pathlib.Path('target') / ('debug' if profile == 'dev' else profile) / 'cinnabar').resolve()
 executable.parent.mkdir(parents=True, exist_ok=True)
 executable.write_text('#!/bin/sh\nexit 37\n')
 executable.chmod(0o755)
 print(json.dumps({'reason':'compiler-artifact','target':{'name':'mod-host','kind':['bin']},'executable':'wrong-helper'}))
-print(json.dumps({'reason':'compiler-artifact','target':{'name':'bedrock-client','kind':['bin']},'executable':str(executable)}))
+print(json.dumps({'reason':'compiler-artifact','target':{'name':'cinnabar','kind':['bin']},'executable':str(executable)}))
 "#,
             ),
             (bin.join("tracy-csvexport"), "#!/bin/sh\nexit 0\n"),
@@ -260,11 +260,11 @@ fn supervisor_only_sigterm_stops_the_client_and_collector() {
             bin.join("make"),
             r#"#!/usr/bin/env python3
 import json, pathlib
-print(json.dumps({'reason':'compiler-artifact','target':{'name':'bedrock-client','kind':['bin']},'executable':str(pathlib.Path('target/debug/bedrock-client').resolve())}))
+print(json.dumps({'reason':'compiler-artifact','target':{'name':'cinnabar','kind':['bin']},'executable':str(pathlib.Path('target/debug/cinnabar').resolve())}))
 "#
             .to_owned(),
         ),
-        (temp.path().join("target/debug/bedrock-client"), waiter("client")),
+        (temp.path().join("target/debug/cinnabar"), waiter("client")),
         (bin.join("tracy-capture"), waiter("collector")),
         (bin.join("tracy-csvexport"), "#!/bin/sh\nexit 0\n".to_owned()),
     ] {

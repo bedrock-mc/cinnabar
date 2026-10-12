@@ -4,7 +4,7 @@
 
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     error::Error,
     fs,
     path::{Path, PathBuf},
@@ -13,7 +13,10 @@ use std::{
 
 use assets::{
     VanillaSource,
-    carriers::{self, CARRIERS, Carrier, Input, Recipe, STAMP_FILE, Sources, VANILLA_MANIFEST},
+    carriers::{
+        self, CARRIERS, Carrier, FONT_MANIFEST, Input, Recipe, STAMP_FILE, Sources,
+        VANILLA_MANIFEST,
+    },
     vanilla_pack::PackPaths,
 };
 use serde::{Deserialize, Serialize};
@@ -91,13 +94,50 @@ impl Context {
 
     /// The font file a font manifest names.
     pub(super) fn font_file(&self, manifest: &str) -> Result<PathBuf, Box<dyn Error>> {
-        let path = self.sources.resolve(manifest);
-        let value: serde_json::Value = serde_json::from_slice(&read(&path)?)?;
-        let name = value["font_file"]
-            .as_str()
-            .ok_or_else(|| format!("{} names no font_file", path.display()))?;
-        Ok(self.sources.resolve(&format!("assets/fonts/{name}")))
+        Ok(self.sources.resolve(&font_input(&self.sources, manifest)?))
     }
+}
+
+/// The checkout-relative font file a font manifest names.
+fn font_input(sources: &Sources, manifest: &str) -> Result<String, Box<dyn Error>> {
+    let path = sources.resolve(manifest);
+    let value: serde_json::Value = serde_json::from_slice(&read(&path)?)?;
+    let name = value["font_file"]
+        .as_str()
+        .ok_or_else(|| format!("{} names no font_file", path.display()))?;
+    Ok(format!("assets/fonts/{name}"))
+}
+
+/// Every checkout-relative file a kit-mode run reads, sorted; installers ship exactly these,
+/// at the same paths below the kit.
+pub(super) fn kit_files(sources: &Sources) -> Result<Vec<String>, Box<dyn Error>> {
+    // Every run pins the pack through the vanilla manifest; the setup window reads the UI font's.
+    let mut files = BTreeSet::from([VANILLA_MANIFEST.to_owned(), FONT_MANIFEST.to_owned()]);
+    let scope = Scope {
+        installed_only: true,
+        only: &[],
+    };
+    for carrier in select(&scope)? {
+        for input in carrier.inputs {
+            match input {
+                Input::Manifest(path) | Input::File(path) => {
+                    files.insert((*path).to_owned());
+                }
+                Input::FontFile(manifest) => {
+                    files.insert(font_input(sources, manifest)?);
+                }
+                Input::Pack | Input::BehaviorPack => {}
+            }
+            // OreUI artwork resolves beside its manifest.
+            if let (Recipe::OreUiIcons, Input::Manifest(path)) = (carrier.recipe, input) {
+                let dir = path.rsplit_once('/').map_or(0, |(dir, _)| dir.len() + 1);
+                for frame in pack_compiler::oreui_icon_sources(&sources.resolve(path))? {
+                    files.insert(format!("{}{frame}", &path[..dir]));
+                }
+            }
+        }
+    }
+    Ok(files.into_iter().collect())
 }
 
 /// Which carriers a run may build.

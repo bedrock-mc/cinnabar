@@ -516,7 +516,7 @@ mod availability_tests {
     #[test]
     fn developer_launch_requires_an_executable_sibling() {
         let directory = tempfile::tempdir().unwrap();
-        let client = directory.path().join("bedrock-client");
+        let client = directory.path().join("cinnabar");
         let helper = developer_executable(&client);
         assert_eq!(helper.parent(), client.parent());
         assert!(!developer_runtime_available(&client));

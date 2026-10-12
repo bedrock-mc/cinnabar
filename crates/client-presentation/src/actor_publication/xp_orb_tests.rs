@@ -108,7 +108,7 @@ fn installed_xp_orb_textured_face_points_toward_the_live_camera_at_every_heading
         (std::f32::consts::PI, 0.0),
     ] {
         let camera = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
-        world.set_actor_camera_rotation(super::view::actor_camera_rotation(camera));
+        world.set_actor_camera_rotation(super::views::actor_camera_rotation(camera));
         world.advance_actor_interpolation_ticks(2);
         let rig = world.actor_rig(1).expect("installed XP billboard rig");
         let actor = world.actor(1).unwrap();
@@ -186,7 +186,7 @@ fn installed_xp_orb_publishes_each_server_timed_tick_and_partial_frame() {
         .unwrap();
     for tick in 1..=10 {
         let camera = Quat::from_euler(EulerRot::YXZ, tick as f32 * 0.1, -0.5, 0.0);
-        world.set_actor_camera_rotation(super::view::actor_camera_rotation(camera));
+        world.set_actor_camera_rotation(super::views::actor_camera_rotation(camera));
         world.advance_actor_interpolation_ticks(1);
         let actor = world.actor(1).unwrap();
         assert!((actor.position[0] - tick as f32).abs() < 0.000_01);

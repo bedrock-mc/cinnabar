@@ -18,6 +18,17 @@ fn world_with_frame_layer(
     position: [f32; 3],
     frame_layer: bool,
 ) -> client_world::WorldAuthority {
+    world_with_geometry_choice(scale, axis, position, frame_layer, None)
+}
+
+/// Adds an optional controller-selected mesh extending beyond the base visibility bounds.
+fn world_with_geometry_choice(
+    scale: &str,
+    axis: bool,
+    position: [f32; 3],
+    frame_layer: bool,
+    geometry_choice: Option<&str>,
+) -> client_world::WorldAuthority {
     let slot = if axis { "scaleX" } else { "scale" };
     let entity = format!(
         r#"{{"format_version":"1.10.0","minecraft:client_entity":{{"description":{{"identifier":"minecraft:creeper","materials":{{"default":"entity"}},"textures":{{"default":"textures/entity/test"}},"geometry":{{"default":"geometry.test"}},"animations":{{"swell":"animation.test.swell"}},"scripts":{{"{slot}":"{scale}","animate":["swell"]}},"render_controllers":["controller.render.test"]}}}}}}"#
@@ -32,6 +43,22 @@ fn world_with_frame_layer(
     let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.test","texture_width":64,"texture_height":64,"visible_bounds_width":2,"visible_bounds_height":2,"visible_bounds_offset":[0,1,0]},"bones":[{"name":"body","pivot":[0,0,0],"cubes":[{"origin":[-4,0,-4],"size":[8,8,8],"uv":[0,0]}]}]}]}"#;
     let animation = br#"{"format_version":"1.8.0","animations":{"animation.test.swell":{"loop":true,"bones":{"body":{"scale":["1 + query.swell_amount",1,1]}}}}}"#;
     let controller = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#;
+    let mut geometry: serde_json::Value = serde_json::from_slice(geometry).unwrap();
+    let mut controller: serde_json::Value = serde_json::from_slice(controller).unwrap();
+    if let Some(choice) = geometry_choice {
+        entity["minecraft:client_entity"]["description"]["geometry"]["wide"] =
+            "geometry.wide".into();
+        let mut wide = geometry["minecraft:geometry"][0].clone();
+        wide["description"]["identifier"] = "geometry.wide".into();
+        wide["description"]["visible_bounds_width"] = 20.into();
+        wide["bones"][0]["cubes"][0]["origin"] = serde_json::json!([-80, 0, -4]);
+        wide["bones"][0]["cubes"][0]["size"] = serde_json::json!([160, 8, 8]);
+        geometry["minecraft:geometry"]
+            .as_array_mut()
+            .unwrap()
+            .push(wide);
+        controller["render_controllers"]["controller.render.test"]["geometry"] = choice.into();
+    }
     let mut texture = Vec::new();
     image::codecs::png::PngEncoder::new(&mut texture)
         .write_image(&[255; 4], 1, 1, image::ExtendedColorType::Rgba8)
@@ -41,9 +68,15 @@ fn world_with_frame_layer(
             "entity/creeper.json".into(),
             serde_json::to_vec(&entity).unwrap(),
         ),
-        ("models/entity/test.geo.json".into(), geometry.to_vec()),
+        (
+            "models/entity/test.geo.json".into(),
+            serde_json::to_vec(&geometry).unwrap(),
+        ),
         ("animations/test.animation.json".into(), animation.to_vec()),
-        ("render_controllers/test.json".into(), controller.to_vec()),
+        (
+            "render_controllers/test.json".into(),
+            serde_json::to_vec(&controller).unwrap(),
+        ),
         ("textures/entity/test.png".into(), texture),
     ];
     if frame_layer {
@@ -333,4 +366,107 @@ fn assert_sampled_admission(cull_completed_tick: bool) {
         assert_eq!(sampled.axis_scale, [scale[1], scale[2], scale[3]]);
         assert_eq!(world.actor_rig(1).unwrap().scale, tick.scale);
     }
+}
+
+/// Render occlusion never owns the clock that advances retained actor state.
+#[test]
+fn terrain_hidden_actors_keep_advancing_completed_ticks() {
+    let mut world = world("1", false, [0.0, 0.0, -10.0]);
+    let view = ActorCullView {
+        clip_from_world: glam::camera::rh::proj::directx::perspective_infinite_reverse(
+            1.0, 1.0, 0.1,
+        ),
+        camera_position: Vec3::ZERO,
+        max_distance: render_model::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+    };
+    let before = world.actor_rig(1).unwrap().completed_tick;
+    for tick in 1..=4 {
+        world.advance_actor_interpolation_ticks(1);
+        let rig = world.actor_rig(1).unwrap();
+        let actor = world.actor(1).unwrap();
+        assert!(!rig_may_be_visible(
+            &rig,
+            actor,
+            0.5,
+            Some(view),
+            None,
+            |_, _| true
+        ));
+        assert_eq!(rig.completed_tick, before + tick);
+    }
+    let rig = world.actor_rig(1).unwrap();
+    assert!(rig_may_be_visible(
+        &rig,
+        world.actor(1).unwrap(),
+        0.5,
+        Some(view),
+        None,
+        |_, _| false
+    ));
+}
+
+#[test]
+fn single_layer_replacements_survive_walls_covering_only_the_base_mesh() {
+    let feet = [0.0, 0.0, -10.0];
+    let camera = Vec3::Y;
+    let view = Some(ActorCullView {
+        camera_position: camera,
+        clip_from_world: glam::camera::rh::proj::directx::perspective_infinite_reverse(
+            1.0, 1.0, 0.1,
+        ) * glam::camera::rh::view::look_to_mat4(camera, -Vec3::Z, Vec3::Y),
+        max_distance: render_model::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+    });
+    let hidden = |low, high| {
+        meshing::occlusion::OcclusionBudget::default().hides_box(
+            camera.to_array(),
+            low,
+            high,
+            |cell, _| cell[2] == -5 && (-2..=1).contains(&cell[0]),
+        )
+    };
+    for choice in [
+        "Geometry.wide",
+        "query.frame_alpha > 0.25 ? Geometry.wide : Geometry.default",
+    ] {
+        let world = world_with_geometry_choice("1", false, feet, false, Some(choice));
+        let rig = world.actor_rig(1).unwrap();
+        assert_eq!(rig.render.len(), 1);
+        let (low, high) = rig.culling_bounds().at(feet, 1.0);
+        assert!(hidden(low, high), "the wall covers the base mesh");
+        if choice.starts_with("query.") {
+            assert!(rig.render[0].geometry.is_none());
+        }
+        let mut frame = world.actor_render_frame(0.5);
+        assert!(frame.may_replace_body_geometry(1));
+        let mut sampled = world.actor_render_frame(0.5);
+        let layers = sampled.layers(1).unwrap();
+        assert_eq!(layers.len(), 1);
+        let geometry = layers[0].geometry.unwrap();
+        let (assets, _) = rig.geometry_source().unwrap();
+        let (low, high) = assets
+            .geometry_visible_bounds(geometry as usize)
+            .unwrap()
+            .at(feet, 1.0);
+        assert!(!hidden(low, high), "the replacement extends past the wall");
+        assert!(rig_may_be_visible(
+            &rig,
+            world.actor(1).unwrap(),
+            0.5,
+            view,
+            Some(&mut frame),
+            hidden,
+        ));
+    }
+    let world = world("1", false, feet);
+    let rig = world.actor_rig(1).unwrap();
+    let mut frame = world.actor_render_frame(0.5);
+    assert!(!frame.may_replace_body_geometry(1));
+    assert!(!rig_may_be_visible(
+        &rig,
+        world.actor(1).unwrap(),
+        0.5,
+        view,
+        Some(&mut frame),
+        hidden,
+    ));
 }

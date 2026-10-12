@@ -340,7 +340,7 @@ fn relative_socket_dir_falls_back_to_the_development_project_root() {
         ))
         .join("long-launch-path-segment".repeat(3));
     let current_dir = root.join("launcher");
-    let executable = root.join("project/target/debug/bedrock-client.exe");
+    let executable = root.join("project/target/debug/cinnabar.exe");
     let expected = root.join("project/.local/run");
     std::fs::create_dir_all(&current_dir).unwrap();
     std::fs::create_dir_all(&expected).unwrap();

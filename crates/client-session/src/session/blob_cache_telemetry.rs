@@ -51,7 +51,7 @@ pub(super) async fn send_final_blob_cache_telemetry<S: NetworkSession, P>(
 
 pub(super) fn emit_blob_cache_telemetry(stats: BlobCacheStats) {
     tracing::info!(
-        target: "bedrock_client::blob_cache",
+        target: "cinnabar::blob_cache",
         hashes_classified = stats.hashes_classified,
         hits = stats.hits,
         misses = stats.misses,
@@ -101,7 +101,7 @@ fn emit_bounded_blob_cache_warning(previous: BlobCacheStats, current: BlobCacheS
     );
     if cached_packet_due || miss_response_due {
         tracing::warn!(
-            target: "bedrock_client::blob_cache",
+            target: "cinnabar::blob_cache",
             skipped_cached_packets = current.skipped_cached_packets,
             skipped_miss_responses = current.skipped_miss_responses,
             cached_packet_semantic_shape = current.cached_packet_semantic_shape,

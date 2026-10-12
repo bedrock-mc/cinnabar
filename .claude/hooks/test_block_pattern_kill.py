@@ -111,7 +111,7 @@ class BlockPatternKill(unittest.TestCase):
 
     def test_blocks_executed_kills(self):
         for cmd in [
-            "pkill -f bedrock-client",
+            "pkill -f cinnabar",
             "sleep 1; pkill cargo",
             "echo x && killall node",
             "ls | xargs killall",

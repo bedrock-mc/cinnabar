@@ -186,7 +186,7 @@ $script:AcceptanceValidationPhase = {
         $ClientExecutable
     }
     else {
-        Join-Path $ProjectRoot 'target\release\bedrock-client.exe'
+        Join-Path $ProjectRoot 'target\release\cinnabar.exe'
     }
     if ($hasClientExecutable) {
         Assert-PrebuiltClientPathSafe `

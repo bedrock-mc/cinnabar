@@ -39,7 +39,7 @@ fn local(action: A) -> MenuAction {
 pub(super) fn route(screen: Screen, view: &WorldsView) -> Option<Screen> {
     match screen {
         Screen::Create | Screen::Edit | Screen::Templates => Some(screen),
-        Screen::ConfirmDelete | Screen::ConfirmLeaveEdit => Some(Screen::Edit),
+        Screen::ConfirmDelete => Some(Screen::Edit),
         Screen::BackendPrompt
             if view
                 .prompt

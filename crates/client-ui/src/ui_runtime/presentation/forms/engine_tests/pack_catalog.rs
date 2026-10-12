@@ -9,6 +9,7 @@ fn layer_pack_catalog(base: &Catalog, layers: &[Vec<(String, Vec<u8>)>]) -> Cata
     super::super::screen_registry::registry()
         .catalog()
         .layer(base, layers)
+        .pack
 }
 
 mod admitted_titles;

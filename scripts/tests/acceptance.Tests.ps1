@@ -14,7 +14,7 @@ $AquaticAssets = Join-Path $TempRoot 'compiled aquatic assets.mcbea'
 $SlabStairAssets = Join-Path $TempRoot 'compiled slab stair assets.mcbea'
 $BlockRegistry = Resolve-BedrockTargetArtifact -ProjectRoot $ProjectRoot `
     -Target (Get-BedrockTargetManifest -ProjectRoot $ProjectRoot) -Artifact block_registry
-$PrebuiltClient = Join-Path $TempRoot 'opaque base client\bedrock-client.exe'
+$PrebuiltClient = Join-Path $TempRoot 'opaque base client\cinnabar.exe'
 $DryRunDirectory = Join-Path $ProjectRoot '.local\acceptance\dry-run'
 $testFailure = $null
 $tempRootCleanupFailure = $null

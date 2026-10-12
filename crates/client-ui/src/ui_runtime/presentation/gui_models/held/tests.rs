@@ -64,6 +64,7 @@ fn banner_catalog() -> (RuntimeEntityAssets, RuntimeIconCatalog) {
     compiled.item_visuals = (0..16)
         .map(|metadata| assets::ItemVisualDefinition {
             grip: assets::item::grip::ItemGrip::Unresolved,
+            glint: assets::item::glint::ItemGlint::Unresolved,
             fuel: assets::item::fuel::ItemFuel::Unresolved,
             durability: assets::item::durability::ItemDurability::Unresolved,
             armour: assets::item::armour::ItemArmour::Unresolved,
@@ -80,7 +81,7 @@ fn banner_catalog() -> (RuntimeEntityAssets, RuntimeIconCatalog) {
             dropped: assets::ItemDisplayTransform::identity(),
         })
         .collect();
-    let entities = RuntimeEntityAssets::from_compiled(compiled).unwrap();
+    let entities = RuntimeEntityAssets::from_compiled(compiled.with_unresolved_item_use()).unwrap();
     let sprites = (0..16)
         .map(|metadata| {
             let color = assets::banner::color_rgb(metadata);

@@ -526,30 +526,33 @@ fn adventure_is_offered_only_when_editing() {
 }
 
 #[test]
-fn leaving_edit_with_changes_asks_to_save_or_discard() {
+fn leaving_edit_saves_changes_before_returning_to_the_list() {
     let mut menu = loaded(&["a"]);
     menu.update(Input::BeginEdit(0));
     assert!(menu.update(Input::Back).is_empty());
     assert_eq!(menu.screen(), Screen::List, "no edits leave at once");
     menu.update(Input::BeginEdit(0));
     menu.update(Input::SetEditName("b".to_owned()));
-    menu.update(Input::Back);
-    assert_eq!(menu.screen(), Screen::ConfirmLeaveEdit);
-    menu.update(Input::Back);
-    assert_eq!(menu.screen(), Screen::Edit, "cancel keeps editing");
-    menu.update(Input::Back);
-    assert!(menu.update(Input::DiscardEdit).is_empty());
+    assert_eq!(
+        menu.update(Input::Back),
+        vec![Effect::Update {
+            id: "id0".to_owned(),
+            update: WorldUpdate {
+                name: Some("b".to_owned()),
+                ..WorldUpdate::default()
+            },
+        }]
+    );
+    assert_eq!(menu.screen(), Screen::Edit, "wait for the write");
+    assert!(menu.busy());
+    assert!(menu.update(Input::Back).is_empty(), "save only once");
+    assert!(menu.apply(Event::Updated(world("id0", "b"))).is_empty());
     assert_eq!(
         (menu.screen(), menu.worlds()[0].name.as_str()),
-        (Screen::List, "a")
+        (Screen::List, "b")
     );
     menu.update(Input::BeginEdit(0));
-    menu.update(Input::SetEditName("b".to_owned()));
-    menu.update(Input::Back);
-    assert!(matches!(
-        menu.update(Input::SubmitEdit).as_slice(),
-        [Effect::Update { .. }]
-    ));
+    assert_eq!(menu.edit_form().map(|edit| edit.name.as_str()), Some("b"));
 }
 
 #[test]
@@ -574,6 +577,65 @@ fn play_from_edit_saves_then_opens() {
         menu.apply(Event::Updated(saved)),
         vec![Effect::Open("id0".to_owned())]
     );
+}
+
+#[test]
+fn back_during_an_edit_save_cancels_play_without_losing_the_save() {
+    let mut menu = loaded(&["a"]);
+    menu.update(Input::BeginEdit(0));
+    menu.update(Input::SetGameMode(GameMode::Creative));
+    assert!(matches!(
+        menu.update(Input::PlayFromEdit).as_slice(),
+        [Effect::Update { .. }]
+    ));
+    assert!(menu.update(Input::Back).is_empty());
+    let mut saved = world("id0", "a");
+    saved.game_mode = GameMode::Creative;
+    assert!(menu.apply(Event::Updated(saved)).is_empty());
+    assert_eq!(menu.screen(), Screen::List);
+    assert_eq!(menu.worlds()[0].game_mode, GameMode::Creative);
+}
+
+#[test]
+fn invalid_edit_stays_open_on_play_and_back() {
+    for exit in [Input::PlayFromEdit, Input::Back] {
+        let mut menu = loaded(&["a"]);
+        menu.update(Input::BeginEdit(0));
+        menu.update(Input::SetEditName(String::new()));
+        assert!(menu.update(exit).is_empty());
+        assert_eq!(menu.screen(), Screen::Edit);
+        assert!(menu.form_error().is_some());
+        assert_eq!(menu.worlds()[0].name, "a");
+    }
+}
+
+#[test]
+fn failed_edit_save_keeps_the_form_for_retry() {
+    for exit in [Input::PlayFromEdit, Input::Back] {
+        let mut menu = loaded(&["a"]);
+        menu.update(Input::BeginEdit(0));
+        menu.update(Input::SetGameMode(GameMode::Creative));
+        assert!(matches!(
+            menu.update(exit).as_slice(),
+            [Effect::Update { .. }]
+        ));
+        assert!(menu.apply(Event::Failed("write failed".into())).is_empty());
+        assert_eq!(menu.screen(), Screen::Error);
+        assert!(menu.update(Input::Back).is_empty());
+        assert_eq!(menu.screen(), Screen::Edit);
+        assert_eq!(menu.edit_form().unwrap().game_mode, GameMode::Creative);
+        assert_eq!(menu.worlds()[0].game_mode, GameMode::Survival);
+        assert!(matches!(
+            menu.update(Input::Back).as_slice(),
+            [Effect::Update { .. }]
+        ));
+        let mut saved = world("id0", "a");
+        saved.game_mode = GameMode::Creative;
+        assert!(
+            menu.apply(Event::Updated(saved)).is_empty(),
+            "retry by Back never launches"
+        );
+    }
 }
 
 #[test]

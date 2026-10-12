@@ -159,6 +159,7 @@ mod tests {
     fn visual() -> ItemVisualDefinition {
         ItemVisualDefinition {
             grip: builtin_item_grip("minecraft:diamond_sword"),
+            glint: crate::item::glint::ItemGlint::Unresolved,
             fuel: crate::item::fuel::ItemFuel::Unresolved,
             armour: crate::item::armour::ItemArmour::Unresolved,
             durability: crate::item::durability::ItemDurability::Unresolved,

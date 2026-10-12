@@ -79,6 +79,7 @@ fn the_container_runner_starts_stops_and_removes_its_container() {
         "-e EULA=TRUE".to_owned(),
         format!("-e VERSION={VERSION}"),
         "-e ONLINE_MODE=false".to_owned(),
+        format!("-e FORCE_GAMEMODE={}", super::super::bds::FORCE_GAME_MODE),
         "-e LEVEL_TYPE=FLAT".to_owned(),
         "-e LEVEL_SEED=-7".to_owned(),
         "-e ENABLE_BDS_V6BIND_FIX=TRUE".to_owned(),

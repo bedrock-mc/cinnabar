@@ -93,7 +93,7 @@ fn new_crates_accept_the_domain_and_presentation_dependency_direction() {
     );
     write(
         &root.join("app/Cargo.toml"),
-        "[package]\nname='bedrock-client'\nversion='0.1.0'\n[dependencies]\nclient-ui={path='../crates/client-ui'}\nlauncher={path='../crates/launcher'}\nplayer-state={path='../crates/player-state'}\n",
+        "[package]\nname='cinnabar'\nversion='0.1.0'\n[dependencies]\nclient-ui={path='../crates/client-ui'}\nlauncher={path='../crates/launcher'}\nplayer-state={path='../crates/player-state'}\n",
     );
     assert_eq!(diagnostics(root), Vec::<String>::new());
 }
@@ -122,13 +122,7 @@ fn launcher_and_player_state_reject_engine_and_ui_dependencies_in_every_kind() {
     for name in ["launcher", "player-state"] {
         for kind in ["dependencies", "build-dependencies", "dev-dependencies"] {
             for prefix in ["", "target.'cfg(windows)'."] {
-                for package in [
-                    "bedrock-client",
-                    "client-ui",
-                    "render",
-                    "bevy_ecs",
-                    "wgpu_core",
-                ] {
+                for package in ["cinnabar", "client-ui", "render", "bevy_ecs", "wgpu_core"] {
                     let temp = fixture();
                     set_dependencies(
                         temp.path(),
@@ -155,7 +149,7 @@ fn ui_rejects_app_dependencies_even_through_a_local_adapter() {
     set_dependencies(
         root,
         "launcher",
-        "[dependencies]\nhost={package='bedrock-client',path='../../app'}",
+        "[dependencies]\nhost={package='cinnabar',path='../../app'}",
     );
     assert!(
         diagnostics(root)
@@ -249,7 +243,7 @@ fn explicit_dev_dependencies_can_enable_shared_fixture_features() {
         &temp.path().join("app/Cargo.toml"),
         r#"
         [package]
-        name='bedrock-client'
+        name='cinnabar'
         version='0.1.0'
         [dependencies]
         client-ui={path='../crates/client-ui'}
@@ -297,7 +291,7 @@ fn production_dependency_kinds_cannot_enable_fixture_features_or_aliases() {
                 write(
                     &root.join("app/Cargo.toml"),
                     &format!(
-                        "[package]\nname='bedrock-client'\nversion='0.1.0'\n[{prefix}{kind}]\nscreens={{package='client-ui',path='../crates/client-ui',features=['{feature}']}}\n"
+                        "[package]\nname='cinnabar'\nversion='0.1.0'\n[{prefix}{kind}]\nscreens={{package='client-ui',path='../crates/client-ui',features=['{feature}']}}\n"
                     ),
                 );
                 assert!(diagnostics(root).iter().any(|line| line == "app: production dependency `client-ui` enables test-support feature `test-support`"));
@@ -324,7 +318,7 @@ fn workspace_features_and_local_feature_additions_keep_the_dev_only_rule() {
         write(
             &root.join("app/Cargo.toml"),
             &format!(
-                "[package]\nname='bedrock-client'\nversion='0.1.0'\n[dependencies]\nscreens={{workspace=true{local_features}}}\n"
+                "[package]\nname='cinnabar'\nversion='0.1.0'\n[dependencies]\nscreens={{workspace=true{local_features}}}\n"
             ),
         );
         assert!(diagnostics(root).iter().any(|line| line == "app: production dependency `client-ui` enables test-support feature `test-support`"));
@@ -344,7 +338,7 @@ fn dependency_feature_forwarding_cannot_expose_test_support() {
         write(
             &root.join("app/Cargo.toml"),
             &format!(
-                "[package]\nname='bedrock-client'\nversion='0.1.0'\n[dependencies]\nscreens={{package='client-ui',path='../crates/client-ui'}}\n[features]\nmore=['{request}']\n"
+                "[package]\nname='cinnabar'\nversion='0.1.0'\n[dependencies]\nscreens={{package='client-ui',path='../crates/client-ui'}}\n[features]\nmore=['{request}']\n"
             ),
         );
         assert!(diagnostics(root).iter().any(|line| line == "app: production dependency `client-ui` enables test-support feature `test-support`"));
@@ -398,7 +392,7 @@ fn stream_facade_alias_cannot_enable_publication_fixtures_in_production() {
             write(
                 &temp.path().join("app/Cargo.toml"),
                 &format!(
-                    "[package]\nname='bedrock-client'\nversion='0.1.0'\n[{prefix}{kind}]\nclient-world={{package='chunk-pipeline',path='../crates/chunk-pipeline',features=['publication-test-support']}}\n"
+                    "[package]\nname='cinnabar'\nversion='0.1.0'\n[{prefix}{kind}]\nclient-world={{package='chunk-pipeline',path='../crates/chunk-pipeline',features=['publication-test-support']}}\n"
                 ),
             );
             assert!(diagnostics(temp.path()).iter().any(|line| line

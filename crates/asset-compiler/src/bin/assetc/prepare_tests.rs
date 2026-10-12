@@ -1,12 +1,18 @@
-use std::{collections::HashMap, fs, path::Path};
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use assets::carriers::{
-    self, AUDIO, AUDIO_PCM, BLOCK_PHYSICS, CARRIERS, Carrier, FONT, HUD, ICON, Sources, WEATHER,
-    WORLD,
+    self, AUDIO, AUDIO_PCM, BLOCK_PHYSICS, CARRIERS, Carrier, FONT, HUD, ICON, Input, Sources,
+    WEATHER, WORLD,
 };
 
 use super::{Command, Queue, Reporter, command, execute, take_ready};
-use crate::prepare_plan::{Context, Entry, Plan, Scope, Stamp, plan, read_stamp, write_stamp};
+use crate::prepare_plan::{
+    Context, Entry, Plan, Scope, Stamp, kit_files, plan, read_stamp, write_stamp,
+};
 
 const COMPILER: &str = "compiler-a";
 
@@ -489,4 +495,162 @@ fn prepared_actor_and_equipment_decode_against_the_published_entity_carrier() {
             entity.carrier_identity()
         );
     }
+}
+
+/// The list both packaging scripts stage the installer's preparation kit from.
+const KIT_LIST: &str = "packaging/common/prep-kit-files.txt";
+
+fn repository() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+fn packaged_kit_files() -> Vec<String> {
+    let list = fs::read_to_string(repository().join(KIT_LIST)).unwrap();
+    list.lines().map(str::to_owned).collect()
+}
+
+/// Copies every listed file to the same path below `kit`, as the packaging scripts do.
+fn stage_kit(kit: &Path) {
+    let (checkout, staged) = (Sources::Checkout(repository()), Sources::Kit(kit.into()));
+    for file in packaged_kit_files() {
+        let target = staged.resolve(&file);
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::copy(checkout.resolve(&file), target).unwrap_or_else(|error| panic!("{file}: {error}"));
+    }
+}
+
+const INSTALLED: Scope = Scope {
+    installed_only: true,
+    only: &[],
+};
+
+#[test]
+fn the_packaged_kit_list_names_every_file_a_kit_run_reads() {
+    let derived = kit_files(&Sources::Checkout(repository())).unwrap();
+    assert!(
+        packaged_kit_files() == derived,
+        "{KIT_LIST} is stale; regenerate it with \
+         `cargo run -p asset-compiler --bin assetc -- kit-files > {KIT_LIST}`"
+    );
+}
+
+/// Marks every file and directory below `root` read-only, or writable again.
+fn set_read_only(root: &Path, read_only: bool) -> std::io::Result<()> {
+    for entry in fs::read_dir(root)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            set_read_only(&path, read_only)?;
+        }
+        let mut permissions = fs::metadata(&path)?.permissions();
+        permissions.set_readonly(read_only);
+        fs::set_permissions(&path, permissions)?;
+    }
+    Ok(())
+}
+
+/// Keeps a tree read-only until dropped, so the temporary directory can still be removed.
+struct ReadOnly<'a>(&'a Path);
+
+impl<'a> ReadOnly<'a> {
+    fn new(root: &'a Path) -> Self {
+        set_read_only(root, true).unwrap();
+        Self(root)
+    }
+}
+
+impl Drop for ReadOnly<'_> {
+    fn drop(&mut self) {
+        let _ = set_read_only(self.0, false);
+    }
+}
+
+/// Installs once failed because the kit lacked files that planning hashes. The kit is read-only,
+/// as in an install directory, and plans the fingerprints the checkout does.
+#[test]
+fn a_kit_staged_from_the_packaged_list_plans_and_builds_without_the_checkout() {
+    let dir = tempfile::tempdir().unwrap();
+    let kit = dir.path().join("kit");
+    stage_kit(&kit);
+    let _read_only = ReadOnly::new(&kit);
+    let workspace = dir.path().join("workspace");
+    let out = dir.path().join("out");
+    let context = Context::new(Sources::Kit(kit.clone()), workspace.clone(), out, None).unwrap();
+    let planned = plan(&context, COMPILER, &INSTALLED, &Stamp::default()).unwrap();
+    let checkout = Context::new(
+        Sources::Checkout(repository()),
+        workspace,
+        dir.path().join("checkout-out"),
+        None,
+    )
+    .unwrap();
+    let from_checkout = plan(&checkout, COMPILER, &INSTALLED, &Stamp::default()).unwrap();
+    assert_eq!(planned.fingerprints, from_checkout.fingerprints);
+    for carrier in &planned.selected {
+        command(carrier, &context).unwrap_or_else(|error| panic!("{}: {error}", carrier.name));
+    }
+    let pack_free: Vec<String> = planned
+        .selected
+        .iter()
+        .filter(|carrier| {
+            !carrier
+                .inputs
+                .iter()
+                .any(|input| matches!(input, Input::Pack | Input::BehaviorPack))
+        })
+        .map(|carrier| carrier.name.to_owned())
+        .collect();
+    assert!(pack_free.iter().any(|name| name == BLOCK_PHYSICS.name));
+    let scope = Scope {
+        installed_only: true,
+        only: &pack_free,
+    };
+    let planned = plan(&context, COMPILER, &scope, &Stamp::default()).unwrap();
+    fs::create_dir_all(&context.out).unwrap();
+    execute(
+        &context,
+        &planned,
+        Stamp::default(),
+        &Reporter { json: true },
+    )
+    .unwrap();
+    let stamp = read_stamp(&context.out);
+    for name in &pack_free {
+        assert!(
+            stamp.carriers.get(name).is_some_and(|entry| !entry.failed),
+            "{name} did not build from the kit"
+        );
+    }
+}
+
+#[test]
+fn a_kit_staged_from_the_packaged_list_prepares_every_required_carrier_from_the_pinned_pack() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("out");
+    let checkout = Context::new(
+        Sources::Checkout(repository()),
+        repository(),
+        out.clone(),
+        None,
+    )
+    .unwrap();
+    if !checkout.pack.is_unpacked() {
+        eprintln!(
+            "missing fixture: pinned sample pack at {}; skipping (run `make vanilla-assets`)",
+            checkout.pack.cache.display()
+        );
+        return;
+    }
+    let kit = dir.path().join("kit");
+    stage_kit(&kit);
+    let context = Context::new(Sources::Kit(kit), repository(), out, None).unwrap();
+    let planned = plan(&context, COMPILER, &INSTALLED, &Stamp::default()).unwrap();
+    fs::create_dir_all(&context.out).unwrap();
+    execute(
+        &context,
+        &planned,
+        Stamp::default(),
+        &Reporter { json: true },
+    )
+    .unwrap();
+    assert!(carriers::required_present(&context.out));
 }

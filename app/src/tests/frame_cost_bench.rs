@@ -1,5 +1,5 @@
 //! Main-thread cost of per-frame paths, old shape against new, at crowded-server loads.
-//! Run: `cargo test -p bedrock-client --features reports --lib frame_cost_bench -- --ignored --nocapture`.
+//! Run: `cargo test -p cinnabar --features reports --lib frame_cost_bench -- --ignored --nocapture`.
 
 use std::time::{Duration, Instant};
 

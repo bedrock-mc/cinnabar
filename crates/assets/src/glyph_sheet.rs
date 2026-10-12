@@ -143,7 +143,7 @@ pub fn pack_cells(cells: &[CellGlyph], first_page: u16, side: u32, max_pages: us
     let mut ordered: Vec<&CellGlyph> = cells.iter().collect();
     ordered.sort_by_key(|cell| {
         (
-            !private_use(cell.codepoint),
+            !is_private_use_glyph(cell.codepoint),
             Reverse(cell.size[1]),
             Reverse(cell.size[0]),
             cell.codepoint,
@@ -219,14 +219,15 @@ pub fn pack_cells(cells: &[CellGlyph], first_page: u16, side: u32, max_pages: us
     }
     atlas.glyphs.sort_by_key(|glyph| {
         (
-            !private_use(glyph.metrics.codepoint),
+            !is_private_use_glyph(glyph.metrics.codepoint),
             glyph.metrics.codepoint,
         )
     });
     atlas
 }
 
-fn private_use(codepoint: char) -> bool {
+/// Reports whether a bitmap glyph uses a private-use page with intrinsic colors.
+pub fn is_private_use_glyph(codepoint: char) -> bool {
     u8::try_from(codepoint as u32 >> 8)
         .is_ok_and(|high_byte| PRIVATE_USE_SHEETS.contains(&high_byte))
 }

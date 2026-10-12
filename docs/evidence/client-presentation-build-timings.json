@@ -37,21 +37,21 @@
         "--offline",
         "--locked",
         "-p",
-        "bedrock-client",
+        "cinnabar",
         "--timings"
       ],
       "report_sha256": "6d133f71e7a911a0b9bd1e87bed58dfd37c44bc31ed85245c327694efe994559",
       "compiled_units": [
         {
-          "name": "bedrock-client",
+          "name": "cinnabar",
           "target": "",
           "start_seconds": 0.64,
           "duration_seconds": 34.47,
           "metadata_seconds": 8.24
         },
         {
-          "name": "bedrock-client",
-          "target": " bin \"bedrock-client\"",
+          "name": "cinnabar",
+          "target": " bin \"cinnabar\"",
           "start_seconds": 35.11,
           "duration_seconds": 1.17,
           "metadata_seconds": null
@@ -75,7 +75,7 @@
         "--offline",
         "--locked",
         "-p",
-        "bedrock-client",
+        "cinnabar",
         "--timings"
       ],
       "report_sha256": "b7eb15cd2bbf2c87d61c2a35e3cc984815cb71eb1a7f86cd653821054c0d7f09",
@@ -95,15 +95,15 @@
           "metadata_seconds": 0.49
         },
         {
-          "name": "bedrock-client",
+          "name": "cinnabar",
           "target": "",
           "start_seconds": 3.38,
           "duration_seconds": 30.25,
           "metadata_seconds": 6.98
         },
         {
-          "name": "bedrock-client",
-          "target": " bin \"bedrock-client\"",
+          "name": "cinnabar",
+          "target": " bin \"cinnabar\"",
           "start_seconds": 33.62,
           "duration_seconds": 1.29,
           "metadata_seconds": null

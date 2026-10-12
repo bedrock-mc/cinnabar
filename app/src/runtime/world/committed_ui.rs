@@ -155,7 +155,7 @@ pub(crate) fn drain_committed_ui_before_authority(
                     ))
                 ) {
                     bevy::log::debug!(
-                        target: "bedrock_client::runtime::world::dimension",
+                        target: "cinnabar::runtime::world::dimension",
                         sequence,
                         transfer_active = client_world.dimension_transfer.active(),
                         "player spawn readiness received"

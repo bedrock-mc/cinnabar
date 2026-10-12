@@ -10,7 +10,7 @@ overall inventory/native-parity gate. Behavior references and remaining gaps:
 
 ## Integrated BDS acceptance, 2026-10-02
 
-Canonical executable: `target/debug/bedrock-client`, built from `48038ec0` plus
+Canonical executable: `target/debug/cinnabar`, built from `48038ec0` plus
 these corrections.
 Test run: 09:03–09:10 UTC. macOS 26.3, Apple M3 Pro, Metal, debug profile,
 Retina display scale 2; logical gameplay area 1280×720, framebuffer 2048×1152.
@@ -95,7 +95,7 @@ These commands completed with exit code 0 on the combined source tree:
 - `cargo clippy --workspace --all-targets --locked -- -D warnings`.
 - `cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml`.
 - `go test ./core/...`, `go vet ./core/...`, and `git diff --check`.
-- Final `cargo build -p bedrock-client --bin bedrock-client --locked`, after
+- Final `cargo build -p cinnabar --bin cinnabar --locked`, after
   the workspace test run, at the canonical executable path.
 
 Local logs: `.local/dev/inventory-synced-workspace-retry.log`,

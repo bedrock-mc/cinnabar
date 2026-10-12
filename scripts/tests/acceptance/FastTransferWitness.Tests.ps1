@@ -551,7 +551,7 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         $entrypoint | Should Match 'microsoft-token.json'
         $entrypoint | Should Not Match 'vanilla-v[0-9]+\.mcbea'
         $launcher | Should Match 'Get-BedrockTargetManifest'
-        $launcher | Should Match 'target\\\$buildProfile\\bedrock-client'
+        $launcher | Should Match 'target\\\$buildProfile\\cinnabar'
         $launcher | Should Match "FastTransferWitness'.*'release'.*'debug'"
         $launcher | Should Match "appBuildArguments \+= '--release'"
         $launcher | Should Match 'FastTransferWitnessValidate.ps1'

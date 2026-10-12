@@ -53,7 +53,7 @@ The source is `app/src/presentation/actors.rs` before extraction and
 build_slot=/private/tmp/claude-501/-Users-hashim-Downloads-cinnabar/30f7cca3-953b-4833-843f-34f90cbe1dae/scratchpad/cslot
 "$build_slot" env RUSTC_WRAPPER= CARGO_INCREMENTAL=0 \
   CARGO_TARGET_DIR="$PWD/target" \
-  cargo build --offline --locked -p bedrock-client --timings
+  cargo build --offline --locked -p cinnabar --timings
 ```
 
 The limiter sets three jobs and `CARGO_PROFILE_DEV_DEBUG=0`. Clearing
@@ -69,7 +69,7 @@ All Cargo commands ran locally through the same limiter. The implementation pass
 - Workspace test-binary compilation: `cargo test --offline --locked --workspace --no-run`.
 - The architecture check with `tools/architecture/policy.toml`, including new
   dependency and source-boundary regression tests.
-- Clippy with `--all-targets -- -D warnings` for bedrock-client, client-presentation,
+- Clippy with `--all-targets -- -D warnings` for cinnabar, client-presentation,
   acceptance, diagnostics, assets and architecture.
 - All 2,046 non-ignored tests in those six packages. The final run selected only
   these packages from the already-built workspace to reuse its feature set.

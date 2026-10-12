@@ -1,7 +1,7 @@
 # Driving and recording the client (cinnabar-mcp)
 
 `tools/cinnabar-mcp` is a stdio MCP server that launches a client built with
-`cargo build -p bedrock-client --features developer-control` (plus `local-mods` for mods) and drives
+`cargo build -p cinnabar --features developer-control` (plus `local-mods` for mods) and drives
 it over a loopback, token-authenticated endpoint written under `.local/developer-control/`. The tool
 schemas document every argument. Agents drive the client only through this endpoint, headless
 (`headless: true`); never with OS-level input or window automation.

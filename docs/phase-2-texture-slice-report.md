@@ -118,7 +118,7 @@ and independent review passed; all subsequent gallery runs report zero errors.
 
 ## Visual inspection
 
-Computer Use discovered and activated the `bedrock-client` window. Its required
+Computer Use discovered and activated the `cinnabar` window. Its required
 snapshot then failed with the exact Windows error:
 
 ```text

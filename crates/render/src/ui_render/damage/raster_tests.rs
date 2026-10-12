@@ -468,3 +468,53 @@ fn oversized_layout_on_small_targets_emits_valid_scissors() {
         raster.snapshot(&output);
     }
 }
+
+#[test]
+fn admitted_intrinsic_glint_changes_the_production_shader_pixels() {
+    let mut input = scene();
+    input.vertices = Arc::from([]);
+    input.indices = Arc::from([]);
+    input.batches = Arc::from([]);
+    quad(
+        &mut input,
+        [0.0, 0.0, SIDE as f32, SIDE as f32],
+        [35, 55, 75, 255],
+        0,
+        None,
+    );
+    quad(
+        &mut input,
+        [8.0, 8.0, 56.0, 56.0],
+        [190, 140, 60, 255],
+        0,
+        None,
+    );
+    let Some(raster) = Raster::with_glint(&input, 1.0) else {
+        return;
+    };
+    let output = target(&raster.gpu, false);
+    raster.draw(&input, &output, None);
+    let plain = raster.pixels(&output);
+    let glint = assets::item::glint::builtin_item_glint("minecraft:enchanted_book");
+    for vertex in Arc::make_mut(&mut input.vertices).iter_mut().skip(4) {
+        vertex.style_flags = if glint.enabled().unwrap_or(false) {
+            render_model::UI_STYLE_GLINT
+        } else {
+            0
+        };
+    }
+    raster.draw(&input, &output, None);
+    let shiny = raster.pixels(&output);
+    assert_ne!(plain, shiny);
+    assert_eq!(&plain[..4], &shiny[..4], "shine stays within the item quad");
+    if let Some(directory) = std::env::var_os("CINNABAR_UI_RASTER_SNAPSHOT_DIR") {
+        let directory = std::path::PathBuf::from(directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        for (name, pixels) in [("plain-item", plain), ("intrinsic-glint-item", shiny)] {
+            image::RgbaImage::from_raw(SIDE, SIDE, pixels)
+                .unwrap()
+                .save(directory.join(format!("{name}.png")))
+                .unwrap();
+        }
+    }
+}

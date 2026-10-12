@@ -162,6 +162,7 @@ pub const ENTITY: Carrier = Carrier {
         Input::Pack,
         Input::Manifest(VANILLA_MANIFEST),
         Input::File(crate::item::grip::GRIP_INPUT_PATH),
+        Input::File(crate::item::glint::INPUT_PATH),
         Input::File(crate::item::fuel::INPUT_PATH),
         Input::File(crate::item::retail::INPUT_PATH),
         Input::BehaviorPack,
@@ -525,10 +526,8 @@ pub fn required_present(dir: &Path) -> bool {
     required().all(|carrier| dir.join(carrier.output).is_file())
 }
 
-/// Preparation-kit directories and the checkout prefixes they stand in for.
-const KIT_LAYOUT: [(&str, &str); 2] = [("assets", "assets/"), ("data", "crates/assets/data/")];
-
-/// Where tracked inputs resolve: a checkout, or an installer's preparation kit.
+/// Where tracked inputs resolve: a checkout, or an installer's preparation kit that mirrors the
+/// checkout paths it ships.
 #[derive(Clone, Debug)]
 pub enum Sources {
     Checkout(PathBuf),
@@ -536,20 +535,13 @@ pub enum Sources {
 }
 
 impl Sources {
-    /// The file a checkout-relative path names here.
+    /// The file a checkout-relative, `/`-separated path names here, joined with native separators.
     #[must_use]
     pub fn resolve(&self, relative: &str) -> PathBuf {
-        match self {
-            Self::Checkout(root) => root.join(relative),
-            Self::Kit(kit) => KIT_LAYOUT
-                .iter()
-                .find_map(|(dir, prefix)| {
-                    relative
-                        .strip_prefix(prefix)
-                        .map(|rest| kit.join(dir).join(rest))
-                })
-                .unwrap_or_else(|| kit.join(relative)),
-        }
+        let (Self::Checkout(root) | Self::Kit(root)) = self;
+        relative
+            .split('/')
+            .fold(root.clone(), |path, component| path.join(component))
     }
 }
 
@@ -656,17 +648,25 @@ mod tests {
         }
     }
 
+    /// Every input, wherever it lives in the checkout, sits at the same path below the kit.
     #[test]
-    fn kit_paths_follow_the_packaged_layout() {
+    fn kit_paths_mirror_the_checkout_with_native_separators() {
         let kit = Sources::Kit(PathBuf::from("kit"));
-        assert_eq!(
-            kit.resolve(BLOCK_REGISTRY),
-            Path::new("kit/data/block-registry-v2193.bin")
-        );
-        assert_eq!(
-            kit.resolve(VANILLA_MANIFEST),
-            Path::new("kit/assets/vanilla-source.json")
-        );
+        let native = |parts: &[&str]| parts.iter().fold(PathBuf::from("kit"), |p, c| p.join(c));
+        for (input, parts) in [
+            (
+                BLOCK_REGISTRY,
+                &["crates", "assets", "data", "block-registry-v2193.bin"][..],
+            ),
+            (VANILLA_MANIFEST, &["assets", "vanilla-source.json"][..]),
+            (
+                crate::item::retail::INPUT_PATH,
+                &["crates", "protocol", "data", "retail_items_1_26_50.tsv"][..],
+            ),
+        ] {
+            // Byte equality: `Path` equality would accept mixed separators on Windows.
+            assert_eq!(kit.resolve(input).as_os_str(), native(parts).as_os_str());
+        }
     }
 
     #[test]

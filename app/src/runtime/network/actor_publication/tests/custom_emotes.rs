@@ -3,7 +3,7 @@ use client_shell::ui_resources::UiRuntimeResource;
 use std::{sync::Arc, time::Duration};
 
 use bevy::{
-    prelude::{PerspectiveProjection, World},
+    prelude::{PerspectiveProjection, Vec3, World},
     time::Real,
 };
 use client_presentation::actor_publication::PreparedActorPublication;

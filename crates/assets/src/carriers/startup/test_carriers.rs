@@ -129,6 +129,7 @@ pub fn synthetic_entity_assets_for_item_use() -> CompiledEntityAssets {
         fuel: crate::item::fuel::ItemFuel::Unresolved,
         armour: crate::item::armour::ItemArmour::Unresolved,
         durability: crate::item::durability::ItemDurability::Unresolved,
+        glint: crate::item::glint::ItemGlint::Unresolved,
         key: crate::ItemVisualKey {
             identifier: "fixture:unadmitted".into(),
             metadata: 0,

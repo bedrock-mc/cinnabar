@@ -1,5 +1,5 @@
 [package]
-name = "bedrock-client"
+name = "cinnabar"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -28,7 +28,7 @@ doctest = false
 
 # main.rs only dispatches into the library; its tests live there.
 [[bin]]
-name = "bedrock-client"
+name = "cinnabar"
 path = "src/main.rs"
 test = false
 

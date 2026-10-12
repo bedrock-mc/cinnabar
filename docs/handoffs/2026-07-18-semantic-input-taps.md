@@ -27,8 +27,8 @@ rate or event batching.
 - Red: `captured_f5_tap_between_frames_still_cycles_perspective_once` remained
   in FirstPerson before the implementation.
 - Green: focused regression passed after the implementation.
-- `cargo test --locked -p bedrock-client --lib`: 336/336 passed.
-- `cargo clippy --locked -p bedrock-client --lib -- -D warnings`: passed.
+- `cargo test --locked -p cinnabar --lib`: 336/336 passed.
+- `cargo clippy --locked -p cinnabar --lib -- -D warnings`: passed.
 - Independent review initially found the focused harness did not model the
   transient-clear boundary. The test now clears `ButtonInput` at that exact
   boundary; fresh re-review returned APPROVE with no findings.

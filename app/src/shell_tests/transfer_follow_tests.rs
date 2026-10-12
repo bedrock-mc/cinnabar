@@ -57,7 +57,7 @@ fn missing_core_layout(root: &Path) -> InstallLayout {
     InstallLayout::resolve(
         Platform::Linux,
         &InstallEnvironment {
-            executable: root.join("target/debug/bedrock-client"),
+            executable: root.join("target/debug/cinnabar"),
             user_root: None,
             home: Some(root.join("home")),
             local_app_data: None,

@@ -15,7 +15,7 @@ cargo run -p mod-host --bin mod-host --locked -- pack \
   target/wasm32-unknown-unknown/debug/hello_mod.wasm /tmp/cinnabar-hello.wasm
 cargo run -p mod-host --bin mod-host --locked -- probe /tmp/cinnabar-hello.wasm
 cargo run -p mod-host --bin mod-host --locked -- bench /tmp/cinnabar-hello.wasm
-CINNABAR_MOD_COMPONENT=/tmp/cinnabar-hello.wasm cargo run -p bedrock-client --features local-mods --locked
+CINNABAR_MOD_COMPONENT=/tmp/cinnabar-hello.wasm cargo run -p cinnabar --features local-mods --locked
 ```
 
 Route local builds through the shared limiter as required by
@@ -30,7 +30,7 @@ window-focus check and F8 action entirely offline, run:
 
 ```sh
 CINNABAR_MOD_COMPONENT=/tmp/cinnabar-hello.wasm \
-  cargo test -p bedrock-client --features local-mods --lib configured_sample_drives_the_app_adapter_offline --locked
+  cargo test -p cinnabar --features local-mods --lib configured_sample_drives_the_app_adapter_offline --locked
 ```
 
 During gameplay, F8 changes the label. UI focus and window focus suppress the
@@ -62,7 +62,7 @@ cargo build -p time-changer-mod --target wasm32-unknown-unknown --locked
 cargo run -p mod-host --bin mod-host --locked -- pack \
   target/wasm32-unknown-unknown/debug/time_changer_mod.wasm /tmp/cinnabar-time-changer.wasm
 cargo run -p mod-host --bin mod-host --locked -- probe-environment /tmp/cinnabar-time-changer.wasm
-CINNABAR_MOD_COMPONENT=/tmp/cinnabar-time-changer.wasm cargo run -p bedrock-client --features local-mods --locked
+CINNABAR_MOD_COMPONENT=/tmp/cinnabar-time-changer.wasm cargo run -p cinnabar --features local-mods --locked
 ```
 
 Use the shared build limiter for every cargo command, as for hello. The last
@@ -131,7 +131,7 @@ default, independently of the visual time grant. Explicitly opt in at startup:
 ```sh
 CINNABAR_MOD_COMPONENT=/tmp/my-mod.wasm \
 CINNABAR_MOD_PLAYERS=1 CINNABAR_MOD_CAMERA=1 \
-  cargo run -p bedrock-client --features local-mods --locked
+  cargo run -p cinnabar --features local-mods --locked
 ```
 
 On PowerShell, set the corresponding `$env:CINNABAR_MOD_*` variables before
@@ -257,6 +257,12 @@ and dynamic expansion are rejected. The whole panel is capped at 128 KiB; its
 document at 96 KiB, 1,024 nodes and depth 32.
 Bindings update without rebuilding unchanged catalog geometry.
 
+`cinnabar_rounded_rectangle` nodes take `radius` (GUI pixels, default 6) and `color`.
+Optional `color2` fades the fill linearly from `color` along `gradient_direction`
+(`vertical`, the default, or `horizontal`). Optional `border_color` draws an inside
+border `border_width` GUI pixels wide (default 1). The fill stops at the border, so
+translucent fills never mix with it.
+
 Personal-panel surfaces support JSON-UI scroll views, including wheel input, track
 presses and scrollbar-box dragging. Wheel input stays within the view under the
 pointer; closing the panel or losing focus releases scrollbar capture. Changes
@@ -330,7 +336,7 @@ cargo run -p mod-host --bin mod-host --locked -- pack \
   target/wasm32-unknown-unknown/debug/render_sample_mod.wasm /tmp/cinnabar-render.wasm
 cargo run -p mod-host --bin mod-host --locked -- probe-render /tmp/cinnabar-render.wasm
 CINNABAR_MOD_COMPONENT=/tmp/cinnabar-render.wasm CINNABAR_MOD_RENDER=1 CINNABAR_MOD_PLAYERS=1 \
-  cargo run -p bedrock-client --features local-mods --locked
+  cargo run -p cinnabar --features local-mods --locked
 ```
 
 Replacing the component reloads it as for other mods. A rejected shader shows its error as
@@ -430,8 +436,8 @@ older clients require one update and restart.
 
 ```sh
 cargo test -p mod-host --locked
-cargo test -p bedrock-client --features local-mods --lib modding --locked
-cargo test -p bedrock-client --lib mod_hud --locked
+cargo test -p cinnabar --features local-mods --lib modding --locked
+cargo test -p cinnabar --lib mod_hud --locked
 ```
 
 To capture the real compiled sample through the existing offline renderer:
@@ -440,7 +446,7 @@ To capture the real compiled sample through the existing offline renderer:
 mkdir -p /tmp/cinnabar-mod-frames
 CINNABAR_FORM_SNAPSHOT_DIR=/tmp/cinnabar-mod-frames \
 CINNABAR_MOD_SNAPSHOT_COMPONENT=/tmp/cinnabar-hello.wasm \
-  cargo test -p bedrock-client --lib mod_spike_snapshot_with_real_carrier --locked -- --nocapture
+  cargo test -p cinnabar --lib mod_spike_snapshot_with_real_carrier --locked -- --nocapture
 ```
 
 This writes before, initial-label and keybind PNGs without starting a network
@@ -450,7 +456,7 @@ Measure the real CPU UI build with zero mods and with the sample loaded:
 
 ```sh
 CINNABAR_MOD_SNAPSHOT_COMPONENT=/tmp/cinnabar-hello.wasm \
-  cargo test -p bedrock-client --lib mod_spike_offline_frame_overhead --locked -- --ignored --nocapture
+  cargo test -p cinnabar --lib mod_spike_offline_frame_overhead --locked -- --ignored --nocapture
 ```
 
 This alternates warmed baseline/sample batches at the same viewport and reports
@@ -716,6 +722,11 @@ Each card edge and its center can align to a guide, including placement directly
 above or below the horizontal center line. Optional `reset_anchor`, `reset_offset`,
 and `reset_scale` supply factory layout without changing the current preview.
 These fields affect only the layout editor.
+Optional `editor_style` recolors the host-owned chrome: `outline` and `selected`
+card outlines, resize `handle`, `handle_hover` and `handle_pressed` colors, the
+`handle_radius` of the five-pixel handle mark (0–4), alignment `guide`, and the
+built-in `grid`. Colors are RGBA from zero to one; omitted fields keep the
+built-in appearance.
 
 The editor captures native pointer dragging, clamps cards to the available
 viewport, supports one-pixel arrow nudges, and offers optional eight-GUI-pixel

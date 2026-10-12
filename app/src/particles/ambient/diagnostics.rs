@@ -41,7 +41,7 @@ impl Diagnostics {
         if !self.report_due() {
             return;
         }
-        bevy::log::debug!(target: "bedrock_client::ambient_leaves",
+        bevy::log::debug!(target: "cinnabar::ambient_leaves",
             ticks = self.ticks, samples = self.samples, eligible = self.eligible,
             roll_hits = self.roll_hits, below_admitted = self.below_admitted,
             accepted_requests = self.accepted_requests,

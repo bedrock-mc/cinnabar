@@ -89,7 +89,7 @@ $isWindowsPlatform = [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
 $executableSuffix = if ($isWindowsPlatform) { '.exe' } else { '' }
 $buildProfile = if ($Scenario -ceq 'FastTransferWitness') { 'release' } else { 'debug' }
 $coreExecutable = Join-Path $projectRoot "target\$buildProfile\bedrock-core$executableSuffix"
-$appExecutable = Join-Path $projectRoot "target\$buildProfile\bedrock-client$executableSuffix"
+$appExecutable = Join-Path $projectRoot "target\$buildProfile\cinnabar$executableSuffix"
 $pregPath = Join-Path $projectRoot (Join-Path '.local\assets' (Split-Path -Leaf ([string]$bedrockTarget.artifacts.physics_registry)))
 $bregPath = Resolve-BedrockTargetArtifact -ProjectRoot $projectRoot -Target $bedrockTarget -Artifact block_registry
 $assetsSha256 = if ($null -eq $assetsFull) { $null } else {
@@ -219,7 +219,7 @@ else {
 
 $failurePhase = 'build_app'
 Assert-Phase3ExactCleanHead -ProjectRoot $projectRoot -ExpectedCommit $buildCommit
-$appBuildArguments = @('build', '--locked', '-p', 'bedrock-client')
+$appBuildArguments = @('build', '--locked', '-p', 'cinnabar')
 if ($buildProfile -ceq 'release') { $appBuildArguments += '--release' }
 Invoke-CheckedBuild -Executable 'cargo' `
     -Arguments $appBuildArguments `

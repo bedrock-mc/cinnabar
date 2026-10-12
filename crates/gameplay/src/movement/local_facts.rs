@@ -206,6 +206,7 @@ mod tests {
             use_animation: assets::item_use::ItemUseAnimation::None,
             charged_projectile_role: assets::item_use::ItemProjectileRole::None,
             grip: assets::item::grip::ItemGrip::Unresolved,
+            glint: assets::item::glint::ItemGlint::Unresolved,
             durability: assets::item::durability::builtin_item_durability(ELYTRA_IDENTIFIER),
             identity: assets::ItemStackIdentity {
                 network_id: 1,
@@ -246,6 +247,7 @@ mod tests {
             use_animation: assets::item_use::ItemUseAnimation::None,
             charged_projectile_role: assets::item_use::ItemProjectileRole::None,
             grip: assets::item::grip::ItemGrip::Unresolved,
+            glint: assets::item::glint::ItemGlint::Unresolved,
             durability: assets::item::durability::builtin_item_durability(ELYTRA_IDENTIFIER),
             identity: assets::ItemStackIdentity {
                 network_id: 1,

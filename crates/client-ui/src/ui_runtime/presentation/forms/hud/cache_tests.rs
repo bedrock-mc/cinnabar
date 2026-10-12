@@ -113,7 +113,8 @@ fn prepared_server_catalogs_resolve_no_hud_on_the_frame() {
                 catalog: Some(Arc::new(
                     super::super::screen_registry::registry()
                         .catalog()
-                        .layer(&base, &[]),
+                        .layer(&base, &[])
+                        .pack,
                 )),
                 ..super::super::ServerUiPack::default()
             }

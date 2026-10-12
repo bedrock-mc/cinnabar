@@ -305,12 +305,12 @@ fn a_timed_out_reply_does_not_desynchronise_later_calls() {
 fn default_binaries_carry_the_platform_executable_suffix() {
     let repo = Path::new("/repo");
     assert_eq!(
-        crate::tools::executable(repo, "target/debug/bedrock-client", ".exe"),
-        repo.join("target/debug/bedrock-client.exe")
+        crate::tools::executable(repo, "target/debug/cinnabar", ".exe"),
+        repo.join("target/debug/cinnabar.exe")
     );
     assert_eq!(
-        crate::tools::executable(repo, "target/debug/bedrock-client", ""),
-        repo.join("target/debug/bedrock-client")
+        crate::tools::executable(repo, "target/debug/cinnabar", ""),
+        repo.join("target/debug/cinnabar")
     );
 }
 

@@ -46,7 +46,7 @@ pub(super) fn worn_item(
             _ => HeldKind::Other,
         },
         dye_rgb,
-        enchanted: item.enchanted,
+        enchanted: item.enchanted || item.glint.enabled().unwrap_or(false),
     })
 }
 
@@ -213,5 +213,51 @@ mod tests {
         assert!(input.first_person && input.off_hand);
         assert_eq!(input.frame_alpha, 0.75);
         assert_eq!(input.use_elapsed_ticks, Some(2));
+    }
+    #[test]
+    fn worn_glint_combines_intrinsic_dispositions_and_enchantment_facts() {
+        let mut item = CanonicalItemStack {
+            use_animation: assets::item_use::ItemUseAnimation::None,
+            charged_projectile_role: assets::item_use::ItemProjectileRole::None,
+            grip: assets::item::grip::ItemGrip::Unresolved,
+            glint: assets::item::glint::builtin_item_glint("minecraft:enchanted_book"),
+            durability: assets::item::durability::ItemDurability::Unresolved,
+            identity: assets::ItemStackIdentity {
+                network_id: 7,
+                metadata: 0,
+                stack_network_id: -1,
+                count: 1,
+                nbt_digest: [0; 32],
+                block_runtime_id: 0,
+            },
+            identifier: Some(std::sync::Arc::from("minecraft:enchanted_book")),
+            visual: ItemVisualRoute::Missing,
+            charged_projectile: None,
+            damage: None,
+            enchanted: false,
+        };
+        assert!(
+            worn_item(&item, None, Default::default())
+                .unwrap()
+                .enchanted
+        );
+        item.glint = assets::item::glint::ItemGlint::Unresolved;
+        assert!(
+            !worn_item(&item, None, Default::default())
+                .unwrap()
+                .enchanted
+        );
+        item.enchanted = true;
+        assert!(
+            worn_item(&item, None, Default::default())
+                .unwrap()
+                .enchanted
+        );
+        item.glint = assets::item::glint::ItemGlint::Session { enabled: false };
+        assert!(
+            worn_item(&item, None, Default::default())
+                .unwrap()
+                .enchanted
+        );
     }
 }

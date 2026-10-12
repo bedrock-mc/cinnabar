@@ -144,6 +144,8 @@ wgpu-naga-bridge = { git = "https://github.com/bedrock-mc/wgpu", rev = "9686723e
 
 [profile.dev]
 opt-level = 1
+# Line tables keep backtraces and panics readable; full debuginfo made local builds 20-45% slower.
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 opt-level = 3

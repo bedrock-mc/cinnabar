@@ -90,7 +90,7 @@ fn domains_reject_app_engine_presentation_and_each_other_in_every_dependency_kin
         for kind in ["dependencies", "build-dependencies", "dev-dependencies"] {
             for prefix in ["", "target.'cfg(windows)'."] {
                 for package in [
-                    "bedrock-client",
+                    "cinnabar",
                     "client-ui",
                     "client-presentation",
                     "render",
@@ -200,7 +200,7 @@ fn domain_fixtures_cannot_be_enabled_by_production_dependencies() {
         write(
             &temp.path().join("app/Cargo.toml"),
             &format!(
-                "[package]\nname='bedrock-client'\nversion='0.1.0'\n[dependencies]\ndomain={{package='{name}',path='../crates/{name}',features=['fixtures']}}\n"
+                "[package]\nname='cinnabar'\nversion='0.1.0'\n[dependencies]\ndomain={{package='{name}',path='../crates/{name}',features=['fixtures']}}\n"
             ),
         );
         assert!(diagnostics(temp.path()).iter().any(|line| line

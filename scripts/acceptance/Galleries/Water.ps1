@@ -110,7 +110,7 @@ function New-WaterGalleryPlan {
             kind = 'runtime-biome-index-water-tint-lookup'
             distinct_biome_colours_claimed = $false
             minimum_rendered_distinct_tint_count = [uint64]1
-            multi_biome_lookup_parity_test = 'bedrock-client::tests::compiled_and_live_biome_tables_preserve_raw_id_water_colour_parity'
+            multi_biome_lookup_parity_test = 'cinnabar::tests::compiled_and_live_biome_tables_preserve_raw_id_water_colour_parity'
             note = 'Witnesses require one real rendered runtime tint. This fixture cannot set BDS biomes and does not claim they cross a biome boundary; the named app test separately proves distinct raw-biome water colours survive live lookup into the render table.'
         }
         blend_edge = [pscustomobject][ordered]@{

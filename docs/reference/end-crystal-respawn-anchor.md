@@ -92,7 +92,7 @@ suppression, sneaking and exact transaction fields. Tests using installed assets
 skip when `.local` fixtures are absent.
 
 Local verification passed, with every Cargo command routed through the owner's
-`cslot`: `cargo check --locked -p bedrock-client --tests`, affected-library
+`cslot`: `cargo check --locked -p cinnabar --tests`, affected-library
 `cargo check --tests`, and full tests for `assets`, `pack-compiler`, `client-world`,
 `chunk-pipeline` and `render`. The application library suite passed 2,252 tests
 with zero failures and 29 ignored. Formatting checks passed for all affected

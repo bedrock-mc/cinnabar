@@ -12,7 +12,7 @@ fn the_animation_view_admits_everything_the_render_cull_draws() {
         aspect_ratio: 16.0 / 9.0,
         ..Default::default()
     });
-    let view = super::view::animation_view(&camera, &projection).unwrap();
+    let view = super::views::animation_view(&camera, &projection).unwrap();
     let cull = render_model::ActorCullView {
         clip_from_world: projection.get_clip_from_view() * camera.to_matrix().inverse(),
         camera_position: camera.translation,

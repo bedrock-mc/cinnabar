@@ -147,6 +147,7 @@ struct VertexList {
     capacity_vertices: u64,
     count: u32,
     bind_group: Option<BindGroup>,
+    runs: Vec<render_model::block_entity::draw_ranges::DrawRun>,
 }
 
 impl VertexList {
@@ -156,6 +157,7 @@ impl VertexList {
             capacity_vertices: 0,
             count: 0,
             bind_group: None,
+            runs: Vec::new(),
         }
     }
 
@@ -167,6 +169,7 @@ impl VertexList {
         label: &'static str,
     ) {
         self.count = u32::try_from(vertices.len()).unwrap_or(0);
+        render_model::block_entity::draw_ranges::rebuild_runs(&mut self.runs, vertices);
         if vertices.is_empty() {
             return;
         }
@@ -776,12 +779,12 @@ struct DrawList<const LIST: u8>;
 
 impl<P: PhaseItem, const LIST: u8> RenderCommand<P> for DrawList<LIST> {
     type Param = SRes<BlockEntityGpu>;
-    type ViewQuery = Read<ViewUniformOffset>;
+    type ViewQuery = (Read<ViewUniformOffset>, Read<ExtractedView>);
     type ItemQuery = ();
 
     fn render<'w>(
         _item: &P,
-        view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
+        view: ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
         gpu: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
@@ -801,13 +804,33 @@ impl<P: PhaseItem, const LIST: u8> RenderCommand<P> for DrawList<LIST> {
         if list.count == 0 {
             return RenderCommandResult::Skip;
         }
+        let (view_offset, view) = view;
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
         let count = if LIST == OUTLINE {
             list.count / 2 * BLOCK_SELECTION_VERTICES_PER_EDGE
         } else {
             list.count
         };
-        pass.draw(0..count, 0..1);
+        if LIST == OUTLINE {
+            pass.draw(0..count, 0..1);
+        } else {
+            let _zone = bevy::log::info_span!("block_entity.submit_cull").entered();
+            let mut submitted = 0;
+            let matrix = view.clip_from_world.unwrap_or_else(|| {
+                view.clip_from_view * view.world_from_view.to_matrix().inverse()
+            });
+            for range in render_model::block_entity::draw_ranges::visible_ranges(&list.runs, matrix)
+            {
+                submitted += range.end - range.start;
+                pass.draw(range, 0..1);
+            }
+            bevy::log::trace!(
+                candidate_vertices = count,
+                submitted_vertices = submitted,
+                hidden_by_view_cone = count - submitted,
+                "block entity submission work"
+            );
+        }
         RenderCommandResult::Success
     }
 }
