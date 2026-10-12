@@ -6307,8 +6307,9 @@ the retail glint texture. Held items in both views draw vanilla's item glint:
 the `enchanted_item_glint` raster, colour (0.38, 0.19, 0.608) scaled by strength,
 1375/3750 ms scrolls, -20/80 degree layers, and a 0.5 UV scale across each atlas
 sprite with the scroll divided by that scale, as the native item-in-hand renderer
-sets them. Attachables take the item raster at unit scale. Exact pixel comparison
-remains open.
+sets them. Attachables take the item raster at unit scale. Dropped items draw
+the same glint on every stacked copy, as the native dropped-item renderer passes
+each copy through the item-in-hand path. Exact pixel comparison remains open.
 `minecraft:render_offsets` is not applied.
 Initial negotiated item-registry binding for world item visuals is also separate
 from the inventory-ledger bootstrap fix. The visual resolver still starts from

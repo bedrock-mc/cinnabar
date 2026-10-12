@@ -278,6 +278,21 @@ pub fn prepare_actor_render_frame(
             (position, (180.0 - yaw.to_degrees()).rem_euclid(360.0))
         }),
         step.partial_tick,
+        (
+            artwork.item_glint().cloned(),
+            render_model::ActorGlint {
+                time_seconds: params.time.elapsed_secs(),
+                strength: params
+                    .glint_settings
+                    .as_deref()
+                    .map_or(1.0, |settings| settings.strength),
+                speed: params
+                    .glint_settings
+                    .as_deref()
+                    .map_or(1.0, |settings| settings.speed),
+                ..Default::default()
+            },
+        ),
     );
     publish_hand_rig(
         &mut params.hand_builder.0,

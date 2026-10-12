@@ -1,8 +1,8 @@
 use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 
 use render_model::{
-    DroppedItemInstance, DroppedItemModel, ItemMeshVertex, MAX_DROPPED_ITEM_INSTANCES,
-    MAX_DYNAMIC_ITEM_VERTICES, TerrainItemInstance,
+    DroppedItemInstance, DroppedItemModel, EquipmentRaster, ItemMeshVertex,
+    MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES, TerrainItemInstance,
 };
 use std::sync::Arc;
 /// The frame's dropped items. `models_revision` must change whenever `models` changes.
@@ -17,6 +17,10 @@ pub struct DroppedItemScene {
     /// World-space geometry drawn as-is this frame (fishing line, leads).
     pub dynamic: Arc<[ItemMeshVertex]>,
     pub daylight: f32,
+    /// The item glint raster that glinting instances sample.
+    pub glint: Option<EquipmentRaster>,
+    /// This frame's glint scroll offsets at unit UV scale and strength.
+    pub glint_scroll: [f32; 3],
 }
 
 impl DroppedItemScene {
@@ -43,6 +47,16 @@ impl DroppedItemScene {
         } else {
             1.0
         };
+    }
+
+    /// Supplies the item glint raster and this frame's scroll; a malformed raster is dropped.
+    pub fn set_glint(&mut self, raster: Option<EquipmentRaster>, scroll: [f32; 3]) {
+        self.glint = raster.filter(|raster| {
+            raster.width != 0
+                && raster.height != 0
+                && raster.rgba8.len() == usize::from(raster.width) * usize::from(raster.height) * 4
+        });
+        self.glint_scroll = scroll.map(|value| if value.is_finite() { value } else { 0.0 });
     }
 
     pub fn clear(&mut self) {

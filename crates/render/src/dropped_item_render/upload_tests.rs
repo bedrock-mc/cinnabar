@@ -86,6 +86,7 @@ fn hidden_item_catalog_is_prepared_before_visibility() {
             block_level: 15,
             sky_level: 15,
             overlay_rgba8: 0,
+            glint: false,
         },
         visible: false,
         transitions: Arc::from([]),
@@ -235,6 +236,7 @@ fn cull_modes_follow_models_and_preserve_instance_order_and_mirrored_transforms(
         block_level: 15,
         sky_level: 15,
         overlay_rgba8: 0,
+        glint: false,
     };
     world.resource_mut::<DroppedItemScene>().publish(
         1,
@@ -285,4 +287,57 @@ fn one_prepared_item_selects_its_cull_mode_independently_for_each_view() {
         assert_eq!(draw.culls_in_view(Some(&view)), expected);
     }
     assert!(!draw.culls_in_view(None));
+}
+
+#[test]
+fn glinting_copies_carry_the_item_glint_scale_across_their_sprite() {
+    let sprite = render_model::DroppedItemSprite {
+        width: 16,
+        height: 16,
+        rgba8: Arc::from(vec![200_u8; 16 * 16 * 4]),
+    };
+    let mut world = item_world();
+    let glint = render_model::EquipmentRaster {
+        width: 2,
+        height: 2,
+        rgba8: Arc::from(vec![120_u8; 16]),
+    };
+    {
+        let mut scene = world.resource_mut::<DroppedItemScene>();
+        scene.publish(
+            1,
+            Arc::from([DroppedItemModel::NativeSprite(sprite)]),
+            &[],
+            &[],
+            1.0,
+        );
+        scene.set_glint(Some(glint.clone()), [-0.25, 0.5, 0.75]);
+    }
+    world.run_system_once(prepare_items).unwrap();
+    let gpu = world.resource::<ItemGpu>();
+    // A 16-pixel sprite fills half of a 32-pixel layer, so 0.5 across it is 1 across the layer.
+    assert_eq!(gpu.glint_scales, [[1.0, 1.0]]);
+    assert!(
+        gpu.glint
+            .as_ref()
+            .and_then(|(_, _, pixels)| pixels.as_ref())
+            .is_some_and(|pixels| Arc::ptr_eq(pixels, &glint.rgba8)),
+        "the scene's item glint raster is uploaded"
+    );
+    let instance = |glint| render_model::DroppedItemInstance {
+        model: 0,
+        world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 1.0),
+        block_level: 0,
+        sky_level: 15,
+        overlay_rgba8: 0,
+        glint,
+    };
+    assert_eq!(
+        pack_instance(&instance(true), &gpu.glint_scales).glint,
+        [1.0, 1.0, 0.0, 0.0]
+    );
+    assert_eq!(
+        pack_instance(&instance(false), &gpu.glint_scales).glint,
+        [0.0; 4]
+    );
 }

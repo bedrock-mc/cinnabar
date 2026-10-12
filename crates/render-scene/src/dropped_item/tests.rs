@@ -20,6 +20,7 @@ fn publish_caps_instances_and_keeps_models_until_the_revision_changes() {
         block_level: 0,
         sky_level: 15,
         overlay_rgba8: 0,
+        glint: false,
     };
     let many = vec![instance; MAX_DROPPED_ITEM_INSTANCES + 5];
     let vertex = ItemMeshVertex {

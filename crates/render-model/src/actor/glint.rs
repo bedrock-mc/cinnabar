@@ -57,9 +57,10 @@ impl ActorGlint {
 }
 
 impl ActorGlint {
-    /// Native glint layer words: both scroll offsets divided by the UV scale (as vanilla
-    /// divides them before scaling), strength, the UV scale and the raster selector.
-    pub(crate) fn parameters(self) -> [f32; 6] {
+    /// Both native scroll offsets at unit UV scale, each wrapping at its own millisecond
+    /// period after speed scales the clock, and the clamped strength.
+    #[must_use]
+    pub fn scroll(self) -> [f32; 3] {
         let time = if self.time_seconds.is_finite() {
             self.time_seconds.max(0.0)
         } else {
@@ -75,6 +76,18 @@ impl ActorGlint {
         } else {
             1.0
         };
+        let millis = ((time * 1000.0) as i32 as f32 * speed) as i32;
+        [
+            (millis % 1375) as f32 / -1375.0,
+            (millis % 3750) as f32 / 3750.0,
+            strength,
+        ]
+    }
+
+    /// Native glint layer words: both scroll offsets divided by the UV scale (as vanilla
+    /// divides them before scaling), strength, the UV scale and the raster selector.
+    pub(crate) fn parameters(self) -> [f32; 6] {
+        let [first, second, strength] = self.scroll();
         let scale = self.uv_scale.map(|scale| {
             if scale.is_finite() && scale > 0.0 {
                 scale
@@ -82,10 +95,9 @@ impl ActorGlint {
                 1.0
             }
         });
-        let millis = ((time * 1000.0) as i32 as f32 * speed) as i32;
         [
-            (millis % 1375) as f32 / -1375.0 / scale[0],
-            (millis % 3750) as f32 / 3750.0 / scale[0],
+            first / scale[0],
+            second / scale[0],
             strength,
             scale[0],
             scale[1],

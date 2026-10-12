@@ -8,8 +8,11 @@ const ITEM_ALPHA_THRESHOLD: f32 = 0.1;
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var sprites: texture_2d_array<f32>;
 @group(0) @binding(2) var sprite_sampler: sampler;
-// x = daylight scale for the sky channel.
+// x = daylight scale for the sky channel; y, z = item glint scrolls at unit UV scale;
+// w = glint strength.
 @group(0) @binding(3) var<uniform> environment: vec4<f32>;
+@group(0) @binding(4) var item_glint: texture_2d<f32>;
+@group(0) @binding(5) var glint_sampler: sampler;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -22,6 +25,8 @@ struct VertexInput {
     @location(6) packed: vec4<u32>,
     @location(7) layer: u32,
     @location(8) color: vec4<f32>,
+    // xy = item glint UV scale across the model's sprite; zero without glint.
+    @location(9) glint: vec4<f32>,
 }
 
 struct VertexOutput {
@@ -33,6 +38,7 @@ struct VertexOutput {
     @location(4) color: vec4<f32>,
     @location(5) @interpolate(flat) overlay: vec4<f32>,
     @location(6) world_position: vec3<f32>,
+    @location(7) @interpolate(flat) glint_scale: vec2<f32>,
 }
 
 // Provisional directional shade: full on top faces, half on bottom faces.
@@ -62,7 +68,20 @@ fn item_vertex(input: VertexInput) -> VertexOutput {
     out.overlay = unpack4x8unorm(input.packed.w);
     out.shade = SHADE_BASE + SHADE_SLOPE * world_normal.y;
     out.levels = vec2(input.packed.y, input.packed.z);
+    out.glint_scale = input.glint.xy;
     return out;
+}
+
+// Native item glint: two rotated layers scrolled by the unit-scale offsets divided by the
+// UV scale, then scaled, tinted and squared over the lit colour in gamma space.
+fn item_foil(uv: vec2<f32>, scale: vec2<f32>, light: vec3<f32>) -> vec3<f32> {
+    let offsets = environment.yz / scale.x;
+    let centered_uv = uv - vec2(0.5);
+    let first_uv = (vec2(0.9396926 * centered_uv.x + 0.34202015 * centered_uv.y, -0.34202015 * centered_uv.x + 0.9396926 * centered_uv.y) + vec2(offsets.x + 0.5, 0.5)) * scale;
+    let second_uv = (vec2(0.17364818 * centered_uv.x - 0.9848077 * centered_uv.y, 0.9848077 * centered_uv.x + 0.17364818 * centered_uv.y) + vec2(offsets.y + 0.5, 0.5)) * scale;
+    let layers = tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, first_uv, 0.0)).rgb + tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, second_uv, 0.0)).rgb;
+    let foil = layers * vec3(0.38, 0.19, 0.608) * environment.w * light;
+    return foil * foil;
 }
 
 @fragment
@@ -83,6 +102,10 @@ fn item_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
     color.a = cutout.coverage;
     // Native item materials compose gamma RGB with the actor /16 lightmap
     // lookup. Transfer the completed product once for Bevy's sRGB target.
-    let lit = mix(color.rgb, input.overlay.rgb, input.overlay.a) * input.shade * actor_light_colour(input.levels.x | (input.levels.y << 4u));
+    let light = actor_light_colour(input.levels.x | (input.levels.y << 4u));
+    var lit = mix(color.rgb, input.overlay.rgb, input.overlay.a) * input.shade * light;
+    if (input.glint_scale.x > 0.0) {
+        lit += item_foil(input.uv, input.glint_scale, light);
+    }
     return tint_to_linear(vec4(actor_distance_fog(lit, input.world_position, view.world_position), color.a));
 }

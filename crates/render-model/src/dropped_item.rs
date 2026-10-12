@@ -49,6 +49,8 @@ pub struct DroppedItemInstance {
     pub sky_level: u32,
     /// Packed RGBA8 colour blended over the lit result (see `pack_overlay_rgba8`); 0 disables it.
     pub overlay_rgba8: u32,
+    /// Draws vanilla's item glint across the model's sprite.
+    pub glint: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
