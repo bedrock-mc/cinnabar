@@ -158,7 +158,7 @@ struct Output {
     _release: Sender<()>,
 }
 
-/// Receives the shared output value and the sender whose drop releases its owner's stream.
+/// The shared output half from its owner thread, with a sender whose drop releases the stream.
 type Opening<H = (OutputStreamHandle, u32)> = Receiver<Option<(H, Sender<()>)>>;
 
 /// Main-thread owner. No automatic reopen, alternate device enumeration or Sink.
