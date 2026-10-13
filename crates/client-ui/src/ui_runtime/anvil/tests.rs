@@ -391,9 +391,9 @@ fn unchanged_prefilled_names_keep_whitespace_and_do_not_charge_for_a_rename() {
         );
         runtime.screen_state_mut().anvil_name = " New ".into();
         let renamed = runtime.anvil_preview(&player).unwrap();
-        assert_eq!(renamed.outcome.custom_name, Some(Some("New".into())));
+        assert_eq!(renamed.outcome.custom_name, Some(Some(" New ".into())));
         assert_eq!(renamed.outcome.cost, 1);
-        assert_eq!(runtime.anvil_rename(&player).as_deref(), Some("New"));
+        assert_eq!(runtime.anvil_rename(&player).as_deref(), Some(" New "));
         runtime.screen_state_mut().anvil_name.clear();
         assert_eq!(runtime.anvil_rename(&player).as_deref(), Some(""));
     }

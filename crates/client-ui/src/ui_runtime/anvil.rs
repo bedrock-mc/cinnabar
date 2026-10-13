@@ -114,26 +114,13 @@ impl UiRuntime {
             })
     }
 
-    /// Keeps an unchanged prefilled name exact, trimming only text the player changed.
-    fn anvil_name_text<'a>(&'a self, current_name: &str) -> &'a str {
-        let name = self.screen_state().anvil_name.as_str();
-        if name == current_name {
-            name
-        } else {
-            name.trim()
-        }
-    }
-
     /// The changed name sent with an authoritative take; empty text clears a custom name.
     pub(super) fn anvil_rename(
         &self,
         player_runtime: &player_state::PlayerState,
     ) -> Option<std::sync::Arc<str>> {
         let current = self.anvil_target_name(player_runtime);
-        let name = current.as_deref().map_or_else(
-            || self.screen_state().anvil_name.trim(),
-            |current| self.anvil_name_text(current),
-        );
+        let name = self.screen_state().anvil_name.as_str();
         if current.as_deref() == Some(name)
             || (name.is_empty() && self.anvil_target_custom_name(player_runtime).is_none())
         {
@@ -207,7 +194,7 @@ impl UiRuntime {
         let outcome = inventory::evaluate_anvil(
             &left.item(),
             right_item.as_ref(),
-            self.anvil_name_text(&current_name),
+            &self.screen_state().anvil_name,
             &current_name,
             creative,
         )?;
