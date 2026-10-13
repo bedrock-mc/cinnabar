@@ -244,9 +244,10 @@ remain unverified. No broader parity gate closes.
 Levers compile separate mounting bases and power-selected pitched handles for
 wall, floor and ceiling states, retaining independent pack materials. Original
 16/32-pixel fixtures cover all registered mounts, power motion, sprite regions,
-face winding, network-ID resolution and malformed selectors. These regressions
-have not been compiled or executed. Exact base-source binding, rendered/input
-acceptance, native-server placement and broader parity remain incomplete.
+face winding, network-ID resolution, malformed selectors and neighboring barrel/
+trapdoor controls. The base uses the cobblestone-wall top source independently of
+the handle sprite. These regressions have not been compiled or executed.
+Rendered/input acceptance, native-server placement and broader parity remain incomplete.
 
 ## Bubble column terrain geometry
 

@@ -25,8 +25,9 @@ with 16/32 pixel textures. Rendered/input acceptance and broader graphics parity
 remain open.
 
 Lever compiler fixtures cover separate base/handle geometry, eight mounts, both
-power states and 16/32-pixel artwork. These tests have not been compiled or run;
-base-source binding and rendered/native interaction acceptance remain incomplete.
+power states, 16/32-pixel sprite regions and neighboring controls. The mounting
+base retains the cobblestone-wall top material independently of the handle. These
+tests have not been compiled or run; rendered/native interaction acceptance remains incomplete.
 No completion or performance gate advances.
 
 Cape rotation limits now prevent upward flips in both player animation modes. Remote resets

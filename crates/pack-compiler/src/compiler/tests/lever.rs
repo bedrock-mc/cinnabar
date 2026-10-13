@@ -3,6 +3,16 @@ use assets::{BlockFace, CompiledBiomeAssets, ModelQuad, NetworkIdMode, RuntimeAs
 
 /// Compiles real lever identities with original independent base and handle artwork.
 fn compile_levers(size: u32, override_state: Option<&str>) -> (RuntimeAssets, Vec<RegistryRecord>) {
+    compile_fixture(size, override_state, true, true)
+}
+
+/// Compiles neighboring controls and optionally omits levers or their base source.
+fn compile_fixture(
+    size: u32,
+    override_state: Option<&str>,
+    include_levers: bool,
+    include_base: bool,
+) -> (RuntimeAssets, Vec<RegistryRecord>) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let target: serde_json::Value =
         serde_json::from_slice(include_bytes!("../../../../../assets/bedrock-target.json"))
@@ -18,13 +28,24 @@ fn compile_levers(size: u32, override_state: Option<&str>) -> (RuntimeAssets, Ve
         protocol,
     )
     .unwrap();
+    let mut wall_seen = false;
     let mut records: Vec<_> = registry
         .into_vec()
         .into_iter()
         .filter(|record| {
+            if record.name.as_ref() == "minecraft:cobblestone_wall" {
+                return !std::mem::replace(&mut wall_seen, true);
+            }
+            if record.name.as_ref() == "minecraft:lever" {
+                return include_levers;
+            }
             matches!(
                 record.name.as_ref(),
-                "minecraft:air" | "minecraft:stone" | "minecraft:cobblestone" | "minecraft:lever"
+                "minecraft:air"
+                    | "minecraft:stone"
+                    | "minecraft:cobblestone"
+                    | "minecraft:barrel"
+                    | "minecraft:trapdoor"
             )
         })
         .collect();
@@ -37,7 +58,10 @@ fn compile_levers(size: u32, override_state: Option<&str>) -> (RuntimeAssets, Ve
     }
     let directory = tempfile::tempdir().unwrap();
     let mut textures = serde_json::Map::new();
-    for (index, name) in ["base", "handle", "unused"].into_iter().enumerate() {
+    for (index, name) in ["base", "handle", "unused", "barrel", "trapdoor"]
+        .into_iter()
+        .enumerate()
+    {
         textures.insert(
             name.into(),
             serde_json::json!({"textures":format!("textures/{name}")}),
@@ -46,9 +70,9 @@ fn compile_levers(size: u32, override_state: Option<&str>) -> (RuntimeAssets, Ve
         for y in 0..size {
             for x in 0..size {
                 pixels.extend_from_slice(&[
-                    40 + index as u8 * 60,
-                    (x * 255 / size) as u8,
-                    (y * 255 / size) as u8,
+                    40 + index as u8 * 40,
+                    if x < size / 2 { 20 } else { 240 },
+                    if y < size / 2 { 30 } else { 230 },
                     255,
                 ]);
             }
@@ -60,9 +84,20 @@ fn compile_levers(size: u32, override_state: Option<&str>) -> (RuntimeAssets, Ve
             &pixels,
         );
     }
+    let mut blocks = serde_json::json!({
+        "stone":{"textures":"unused"},
+        "cobblestone":{"textures":"unused"},
+        "cobblestone_wall":{"textures":{"up":"base","down":"unused","north":"unused","south":"unused","west":"unused","east":"unused"}},
+        "lever":{"textures":{"down":"handle","up":"unused","north":"unused","south":"unused","west":"unused","east":"unused"}},
+        "barrel":{"textures":"barrel"},
+        "trapdoor":{"textures":"trapdoor"},
+    });
+    if !include_base {
+        blocks.as_object_mut().unwrap().remove("cobblestone_wall");
+    }
     write(
         directory.path().join("blocks.json"),
-        r#"{"stone":{"textures":"base"},"cobblestone":{"textures":"base"},"lever":{"textures":{"down":"handle","up":"unused","north":"unused","south":"unused","west":"unused","east":"unused"}}}"#,
+        serde_json::to_vec(&blocks).unwrap(),
     );
     write(
         directory.path().join("textures/terrain_texture.json"),
@@ -99,17 +134,37 @@ fn quads<'a>(runtime: &'a RuntimeAssets, record: &RegistryRecord) -> &'a [ModelQ
     &runtime.model_quads()[template.quad_start as usize..][..template.quad_count as usize]
 }
 
+/// Samples an admitted sprite rectangle from its actual carrier page and layer.
+fn sample(runtime: &RuntimeAssets, material: u32, uv: [u16; 2]) -> [u8; 4] {
+    let reference = runtime.material(material).texture;
+    let mip = &runtime.texture_pages()[reference.page() as usize]
+        .texture
+        .mips[0];
+    let [x, y] = uv.map(|value| (u32::from(value) * mip.size / 4096).min(mip.size - 1));
+    let offset = ((reference.layer() * mip.size * mip.size + y * mip.size + x) * 4) as usize;
+    mip.rgba8[offset..offset + 4].try_into().unwrap()
+}
+
+/// Selects a point inside the left quarter and vertical middle of a quad's UV rectangle.
+fn region_sample(quad: &ModelQuad) -> [u16; 2] {
+    let min: [u16; 2] =
+        std::array::from_fn(|axis| quad.uvs.iter().map(|uv| uv[axis]).min().unwrap());
+    let max: [u16; 2] =
+        std::array::from_fn(|axis| quad.uvs.iter().map(|uv| uv[axis]).max().unwrap());
+    [(3 * min[0] + max[0]) / 4, (min[1] + max[1]) / 2]
+}
+
 #[test]
 fn levers_have_separate_base_and_powered_handle_in_every_mount() {
     for size in [16, 32] {
         let (runtime, records) = compile_levers(size, None);
         let mut poses = BTreeMap::new();
-        let cobble = records
+        let wall = records
             .iter()
-            .find(|r| r.name.as_ref() == "minecraft:cobblestone")
+            .find(|r| r.name.as_ref() == "minecraft:cobblestone_wall")
             .unwrap();
         let base_material = runtime
-            .resolve(NetworkIdMode::Sequential, cobble.sequential_id)
+            .resolve(NetworkIdMode::Sequential, wall.sequential_id)
             .face(BlockFace::Up)
             .material_id();
         for record in records
@@ -134,6 +189,26 @@ fn levers_have_separate_base_and_powered_handle_in_every_mount() {
                     .all(|q| q.material == visual.face(BlockFace::Down).material_id())
             );
             assert_ne!(base_material, visual.face(BlockFace::Down).material_id());
+            assert_eq!(
+                sample(&runtime, base_material, [1024, 1024]),
+                [40, 20, 30, 255]
+            );
+            assert_eq!(
+                sample(&runtime, mesh[6].material, region_sample(&mesh[6])),
+                [80, 20, 30, 255]
+            );
+            assert_eq!(
+                sample(&runtime, mesh[8].material, region_sample(&mesh[8])),
+                [80, 20, 230, 255]
+            );
+            assert_ne!(
+                runtime.material(mesh[6].material).flags & assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+                0
+            );
+            assert_eq!(
+                runtime.material(mesh[6].material).flags & assets::MATERIAL_FLAG_ALPHA_BLEND,
+                0
+            );
             assert_eq!(
                 runtime
                     .resolve(NetworkIdMode::Hashed, record.network_hash)
@@ -228,6 +303,56 @@ fn levers_have_separate_base_and_powered_handle_in_every_mount() {
                 "powered handle has no motion: {direction}"
             );
         }
+    }
+}
+
+#[test]
+fn levers_keep_neighbor_geometry_and_artwork_independent() {
+    for size in [16, 32] {
+        let (with_levers, records) = compile_fixture(size, None, true, true);
+        let (without_levers, _) = compile_fixture(size, None, false, true);
+        let mut controls = 0;
+        for record in records
+            .iter()
+            .filter(|r| matches!(r.name.as_ref(), "minecraft:barrel" | "minecraft:trapdoor"))
+        {
+            controls += 1;
+            let before = quads(&without_levers, record);
+            let after = quads(&with_levers, record);
+            assert_eq!(before.len(), after.len());
+            let marker = if record.name.as_ref() == "minecraft:barrel" {
+                160
+            } else {
+                200
+            };
+            for (before, after) in before.iter().zip(after) {
+                assert_eq!(before.positions, after.positions);
+                assert_eq!(before.uvs, after.uvs);
+                assert_eq!(before.flags, after.flags);
+                assert_eq!(
+                    sample(&without_levers, before.material, [1024, 1024])[0],
+                    marker
+                );
+                assert_eq!(
+                    sample(&with_levers, after.material, [1024, 1024])[0],
+                    marker
+                );
+            }
+        }
+        assert!(controls > 0);
+    }
+}
+
+#[test]
+fn levers_keep_missing_base_artwork_diagnostic() {
+    let (runtime, records) = compile_fixture(16, None, true, false);
+    for record in records
+        .iter()
+        .filter(|r| r.name.as_ref() == "minecraft:lever")
+    {
+        let visual = runtime.resolve(NetworkIdMode::Sequential, record.sequential_id);
+        assert_eq!(visual.support(), VisualSupport::Diagnostic);
+        assert!(visual.model_template().is_none());
     }
 }
 

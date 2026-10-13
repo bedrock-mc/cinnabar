@@ -45,13 +45,13 @@ fn pose(record: &RegistryRecord) -> Option<(u8, bool)> {
     ))
 }
 
-/// Resolves the base from the pack's cobblestone top sprite, separately from lever art.
+/// Resolves the base from the pack's cobblestone-wall top sprite, separately from lever art.
 pub(in crate::compiler) fn base_descriptor(
     pack: &PackSources,
     record: &RegistryRecord,
 ) -> Option<(Descriptor, Box<str>)> {
     let mut base = record.clone();
-    base.name = "minecraft:cobblestone".into();
+    base.name = "minecraft:cobblestone_wall".into();
     base.canonical_state = "{}".into();
     let key = resolve_texture_key(&pack.blocks, &base, BlockFace::Up).key?;
     let path = pack.terrain.get(&key)?;
