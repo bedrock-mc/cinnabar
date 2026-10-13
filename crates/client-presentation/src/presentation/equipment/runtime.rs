@@ -118,8 +118,8 @@ pub struct EquipmentRuntime {
     pending: Vec<ActorRigGeometry>,
     /// Worn head geometry and texture location per skull kind.
     skulls: BTreeMap<u8, (EntityRigId, ActorArtworkLocation)>,
-    /// Held geometry and texture location per block-entity item model (chests, shulkers).
-    held_block_entities: BTreeMap<HeldBlockEntity, (EntityRigId, ActorArtworkLocation)>,
+    /// Held model rig, artwork location, and glint span per block-entity item.
+    held_block_entities: BTreeMap<HeldBlockEntity, (EntityRigId, ActorArtworkLocation, [f32; 2])>,
     item_use: Arc<BTreeMap<Box<str>, u32>>,
     use_overlays: Arc<BTreeMap<Box<str>, assets::equipment::CompiledItemUseOverlay>>,
     /// The startup catalog's use durations, before session items join them.
@@ -264,11 +264,11 @@ impl EquipmentRuntime {
         if let (Some(atlas), Some(location)) = (&skull_atlas, skull_location) {
             for (index, kind) in HeldBlockEntity::all().into_iter().enumerate() {
                 let id = equipment_rig_id(HELD_BLOCK_ENTITY_RIG_INDEX_BASE + index as u32);
-                if let Some(geometry) =
-                    render_model::block_entity::held_block_entity_geometry(id, atlas, kind)
+                if let Some(model) =
+                    render_model::block_entity::held_block_entity_model(id, atlas, kind)
                 {
-                    pending.push(geometry);
-                    held_block_entities.insert(kind, (id, location));
+                    pending.push(model.geometry);
+                    held_block_entities.insert(kind, (id, location, model.glint_span));
                 }
             }
         }
