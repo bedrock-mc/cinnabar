@@ -16,26 +16,28 @@ const INDEX: &str = "ui/_ui_defs.json";
 pub(super) fn collect_server_ui(view: &LayeredPackView) -> Option<Arc<ServerUiPack>> {
     let mut total = 0usize;
     let mut declared = BTreeSet::new();
-    let mut pack = ServerUiPack::default();
-    pack.item_glint = pack_runtime::pack_textures::decode_pack_texture(
-        view,
-        assets::entity::ITEM_GLINT_TEXTURE_IDENTIFIER,
-    )
-    .and_then(|image| {
-        render_model::UiTexturePage::owned([image.width, image.height], image.rgba8.into()).ok()
-    })
-    .map(Arc::new);
-    pack.splashes = view
-        .read_layers_capped(SPLASH_RESOURCE_PATH, MAX_SPLASH_SOURCE_BYTES)
-        .filter_map(|bytes| {
-            total += bytes.len();
-            (total <= MAX_SERVER_UI_BYTES)
-                .then(|| pack_runtime::pack_textures::parse_pack_json(&bytes))
-                .flatten()
-                .and_then(|root| SplashSource::from_json(&root))
+    let mut pack = ServerUiPack {
+        item_glint: pack_runtime::pack_textures::decode_pack_texture(
+            view,
+            assets::entity::ITEM_GLINT_TEXTURE_IDENTIFIER,
+        )
+        .and_then(|image| {
+            render_model::UiTexturePage::owned([image.width, image.height], image.rgba8.into()).ok()
         })
-        .collect::<Vec<_>>()
-        .into();
+        .map(Arc::new),
+        splashes: view
+            .read_layers_capped(SPLASH_RESOURCE_PATH, MAX_SPLASH_SOURCE_BYTES)
+            .filter_map(|bytes| {
+                total += bytes.len();
+                (total <= MAX_SERVER_UI_BYTES)
+                    .then(|| pack_runtime::pack_textures::parse_pack_json(&bytes))
+                    .flatten()
+                    .and_then(|root| SplashSource::from_json(&root))
+            })
+            .collect::<Vec<_>>()
+            .into(),
+        ..Default::default()
+    };
     for layer in view.layers() {
         let remaining = MAX_SERVER_UI_BYTES.saturating_sub(total) as u64;
         if let Some(index) = layer.read_file_with_limit(INDEX, remaining).ok().flatten()

@@ -1,4 +1,5 @@
 use super::*;
+use sha2::{Digest, Sha256};
 use std::io::Cursor;
 use std::io::Write;
 use zip::{ZipWriter, write::SimpleFileOptions};
