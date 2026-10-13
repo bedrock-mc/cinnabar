@@ -693,9 +693,7 @@ pub fn screen_data(
                 .collect();
             data.set_collection("crafting_input_items", grid);
             let output = match frame.crafting_output {
-                Some((icon, stack)) => {
-                    cells.cell(Some(&output.stack), output.icon, output.durability)
-                }
+                Some((icon, stack)) => cells.cell(Some(stack), *icon, None),
                 None => cells.cell(None, None, None),
             };
             data.set_collection("crafting_output_items", vec![output]);
