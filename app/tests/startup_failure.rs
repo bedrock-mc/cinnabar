@@ -41,7 +41,7 @@ mod fixture_client {
 #[allow(dead_code)]
 mod entry {
     use crate::fixture_client as cinnabar;
-    include!("../src/main.rs");
+    include!("../src/entry.rs");
     /// Invokes the production dispatch with the fixture lifecycle boundary.
     pub fn invoke() {
         main();
