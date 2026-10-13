@@ -25,6 +25,7 @@ impl MotionSampling {
     /// Tracks sampled motion queries and their authored variable and channel dependencies.
     pub(crate) fn new(
         assets: &RuntimeEntityAssets,
+        layout: &VariableLayout,
         rig: usize,
         geometry: usize,
         controllers: &[ControllerState],
@@ -89,29 +90,14 @@ impl MotionSampling {
             .enumerate()
             .filter_map(|(symbol, _)| {
                 let symbol = symbol as u32;
-                super::camera::camera_symbol(assets, symbol, true).then_some(symbol)
+                layout.symbol_inputs(symbol).swing.then_some(symbol)
             })
             .collect::<BTreeSet<_>>();
         let mut random = false;
-        let item_rotation_alias = assets
-            .molang_symbols()
-            .iter()
-            .position(|symbol| {
-                symbol.identifier.as_ref() == "variable.first_person_rotation_factor"
-            })
-            .zip(assets.molang_symbols().iter().position(|symbol| {
-                symbol.identifier.as_ref() == "variable.first_person_item_rotation_factor"
-            }));
         let (expressions, weighted_symbols) = loop {
             let before = (variables.len(), random);
             for &expression in &expressions {
                 propagate(assets, expression, false, &mut variables, &mut random);
-            }
-            // The native copy in set_item_rotation_factor also carries frame dependencies.
-            if let Some((source, target)) = item_rotation_alias
-                && variables.contains(&(source as u32))
-            {
-                variables.insert(target as u32);
             }
             let dependent = dependent_expressions(assets, &expressions, &variables, random);
             let (weighted, controlled) =

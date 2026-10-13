@@ -97,11 +97,11 @@ impl ActorAnimationStore {
             return;
         };
         let catalog = if state.pack {
-            self.pack.as_ref().map(|pack| &pack.assets)
+            self.pack.as_ref().map(|pack| (&pack.assets, &pack.layout))
         } else {
-            self.assets.as_ref()
+            self.assets.as_ref().map(|assets| (assets, &self.layout))
         };
-        let Some(assets) = catalog else {
+        let Some((assets, layout)) = catalog else {
             return;
         };
         let Some(clip) = assets.server_animation_clip(state.geometry_binding, &request.animation)
@@ -158,6 +158,7 @@ impl ActorAnimationStore {
             state.motion_sampling =
                 Some(super::render_frame::motion_sampling::MotionSampling::new(
                     assets,
+                    layout,
                     state.rig_binding,
                     state.geometry_binding,
                     &state.controllers,

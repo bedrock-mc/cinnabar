@@ -1,9 +1,9 @@
 use super::*;
-use crate::render_frame::camera;
 
 impl VariableLayout {
     /// Binds immutable clip reads and controller weights once per runtime asset catalog.
     pub(super) fn bind_input_reads(&mut self, assets: &RuntimeEntityAssets) {
+        self.bind_presentation_inputs(assets);
         self.clip_reads = assets
             .animation_clips()
             .iter()
@@ -42,16 +42,22 @@ impl VariableLayout {
                 reads.into_iter().collect::<Vec<_>>().into_boxed_slice()
             })
             .collect();
-        self.clip_inputs = self
-            .clip_reads
+        self.clip_inputs = assets
+            .animation_clips()
             .iter()
-            .map(|reads| PresentationReads {
-                camera: reads
+            .map(|clip| {
+                let first = clip.first_channel as usize;
+                assets.animation_channels()[first..first + clip.channel_count as usize]
                     .iter()
-                    .any(|&symbol| camera::camera_symbol(assets, symbol, false)),
-                swing: reads
-                    .iter()
-                    .any(|&symbol| camera::camera_symbol(assets, symbol, true)),
+                    .flat_map(|channel| {
+                        let first = channel.first_keyframe as usize;
+                        &assets.animation_keyframes()
+                            [first..first + channel.keyframe_count as usize]
+                    })
+                    .flat_map(|key| key.expressions.into_iter().flatten())
+                    .fold(PresentationReads::default(), |inputs, expression| {
+                        inputs.union(self.expression_inputs(expression as usize))
+                    })
             })
             .collect();
         self.controller_inputs = assets
@@ -69,10 +75,9 @@ impl VariableLayout {
                         [first..first + usize::from(state.animation_count)]
                     {
                         if let Some(expression) = animation.weight {
-                            inputs.camera |=
-                                camera::camera_expression(assets, expression as usize, false);
-                            inputs.swing |=
-                                camera::camera_expression(assets, expression as usize, true);
+                            let reads = self.expression_inputs(expression as usize);
+                            inputs.camera |= reads.camera;
+                            inputs.swing |= reads.swing;
                         }
                     }
                 }
@@ -88,7 +93,13 @@ impl VariableLayout {
 
     /// Constant-time classification of one contributing clip's presentation inputs.
     pub(crate) fn clip_inputs(&self, clip: usize) -> PresentationReads {
-        self.clip_inputs.get(clip).copied().unwrap_or_default()
+        self.clip_inputs
+            .get(clip)
+            .copied()
+            .unwrap_or(PresentationReads {
+                camera: true,
+                swing: true,
+            })
     }
 
     /// Cached presentation dependencies in a controller's authored animation weights.
