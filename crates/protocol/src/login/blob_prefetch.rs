@@ -8,7 +8,12 @@ impl PlaySession {
             .pending_blob_prefetch
             .as_ref()
             .expect("pending prefetch");
-        if *packet_bytes <= crate::MAX_CLIENT_BLOB_PENDING_BYTES {
+        if self
+            .blob_cache
+            .as_ref()
+            .expect("enabled cache")
+            .can_prefetch(packet, *packet_bytes)
+        {
             self.blob_cache
                 .as_ref()
                 .expect("enabled cache")
@@ -131,5 +136,62 @@ mod tests {
         let resolver = session.blob_cache.as_mut().unwrap();
         assert!(resolver.pop_ready().is_some());
         assert!(resolver.pop_ready().is_none());
+    }
+
+    /// Byte pressure finishes classification without waiting for a disk read, even when the
+    /// decoded body is larger than the caller's raw-size hint.
+    #[tokio::test]
+    async fn blob_cache_prefetch_pressure_uses_normal_miss_recovery() {
+        let dir = tempfile::tempdir().unwrap();
+        let listener = UnixListener::bind(bridge::session_endpoint_path(dir.path())).unwrap();
+        let (reader, frames) = bridge::connect_session(dir.path()).await.unwrap();
+        let (_peer, _) = listener.accept().await.unwrap();
+        let cache = ClientBlobCache::default();
+        let disk = Arc::new(ControlledRead {
+            ready: AtomicBool::new(false),
+            cache: cache.downgrade(),
+        });
+        let transport = SessionTransport::new(reader, frames, &[]);
+        let mut session = PlaySession::new(
+            transport,
+            Some(cache.with_store(disk)),
+            ResourcePackHandoff::default(),
+            1,
+            false,
+        );
+        let mut earlier = super::super::tests::cached_level_chunk(vec![1]);
+        earlier.chunk_position.x = wire::ZigZag32(1);
+        session
+            .blob_cache
+            .as_mut()
+            .unwrap()
+            .accept_cached_packet_with_size(
+                Packet::new(earlier),
+                crate::MAX_CLIENT_BLOB_PENDING_BYTES / 2,
+            )
+            .unwrap();
+        let mut candidate = super::super::tests::cached_level_chunk(vec![2]);
+        candidate.serialized_chunk_data = vec![0; crate::MAX_CLIENT_BLOB_PENDING_BYTES / 2].into();
+        session.pending_blob_prefetch = Some((Packet::new(candidate), 1));
+        let waker = noop_waker();
+        let mut context = Context::from_waker(&waker);
+        {
+            let mut finish = std::pin::pin!(session.finish_blob_prefetch());
+            assert!(matches!(
+                finish.as_mut().poll(&mut context),
+                Poll::Ready(Ok(()))
+            ));
+        }
+        assert!(session.pending_blob_prefetch.is_none());
+        assert!(session.blob_cache_stats().pending_bytes <= crate::MAX_CLIENT_BLOB_PENDING_BYTES);
+        assert_eq!(session.blob_cache_stats().pending_transactions, 1);
+        let delivery = session.pending_blob_cache_delivery.as_ref().unwrap();
+        let packets::Packet::ClientCacheBlobStatus(status) = &*delivery.status_packets[0].data
+        else {
+            panic!("status")
+        };
+        assert_eq!(status.missing_ids, [wire::U64LE(2)]);
+        assert!(status.found_ids.is_empty());
+        assert!(!delivery.events.is_empty());
     }
 }

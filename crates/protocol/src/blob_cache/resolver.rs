@@ -10,6 +10,7 @@ mod recovery;
 mod status;
 pub use self::status::BlobCacheStatus;
 use self::{
+    accounting::cached_packet_retained_bytes,
     helpers::stable_unique,
     ordering::{pending_packet_columns, ready_value_columns},
     reconstruction::{projected_reconstruction_bytes, reconstruct},
@@ -213,7 +214,8 @@ impl BlobCacheResolver {
         packet: Packet,
         raw_packet_bytes: Option<usize>,
     ) -> Result<BlobCacheStatus, BlobCacheError> {
-        let (packet, hashes, packet_retained_bytes) = match *packet.data {
+        let packet_retained_bytes = cached_packet_retained_bytes(&packet)?;
+        let (packet, hashes) = match *packet.data {
             packets::Packet::LevelChunk(packet) => {
                 // The blob hashes are no longer optional; whether the packet
                 // is cached is the explicit cache_enabled flag.
@@ -240,16 +242,7 @@ impl BlobCacheResolver {
                         expected,
                     });
                 }
-                let hash_bytes = packet
-                    .cache_metadata
-                    .capacity()
-                    .checked_mul(8)
-                    .ok_or(BlobCacheError::ByteCountOverflow)?;
-                let bytes = size_of::<LevelChunk>()
-                    .checked_add(packet.serialized_chunk_data.len())
-                    .and_then(|bytes| bytes.checked_add(hash_bytes))
-                    .ok_or(BlobCacheError::ByteCountOverflow)?;
-                (PendingPacket::LevelChunk(Box::new(packet)), hashes, bytes)
+                (PendingPacket::LevelChunk(Box::new(packet)), hashes)
             }
             packets::Packet::SubChunk(packet) => {
                 if !packet.cache_enabled {
@@ -257,20 +250,7 @@ impl BlobCacheResolver {
                 }
                 let entries = &packet.sub_chunk_data;
                 let mut hashes = Vec::new();
-                let mut bytes = entries
-                    .capacity()
-                    .checked_mul(size_of::<SubChunkData>())
-                    .and_then(|entries| entries.checked_add(size_of::<SubChunk>()))
-                    .ok_or(BlobCacheError::ByteCountOverflow)?;
                 for entry in entries {
-                    bytes = bytes
-                        .checked_add(
-                            entry
-                                .serialized_sub_chunk
-                                .as_ref()
-                                .map_or(0, bytes::Bytes::len),
-                        )
-                        .ok_or(BlobCacheError::ByteCountOverflow)?;
                     // A cached entry carries its blob ID; one without a blob
                     // ID was served inline even on a cache-enabled packet.
                     if entry.sub_chunk_request_result == SubChunkRequestResult::Success
@@ -279,7 +259,7 @@ impl BlobCacheResolver {
                         hashes.push(blob_id.0);
                     }
                 }
-                (PendingPacket::SubChunk(Box::new(packet)), hashes, bytes)
+                (PendingPacket::SubChunk(Box::new(packet)), hashes)
             }
             _ => return Err(BlobCacheError::NotCachedPacket),
         };
