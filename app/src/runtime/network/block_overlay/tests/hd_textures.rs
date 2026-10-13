@@ -246,7 +246,7 @@ fn diagnostic_layer_is_budgeted_before_resizing_excess_textures() {
         .flat_map(|shard| &shard.mips)
         .map(|mip| mip.rgba8.len())
         .sum::<usize>();
-    assert!(bytes <= assets::texture::policy::MAX_SUBSCRIBER_BYTES);
+    assert!(bytes <= assets::texture::policy::terrain_texture_policy().storage_bytes());
     RuntimeAssets::diagnostic()
         .with_block_overlay(1, &compiled.overlay)
         .unwrap();

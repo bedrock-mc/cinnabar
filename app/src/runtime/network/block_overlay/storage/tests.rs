@@ -1,4 +1,4 @@
-use super::super::{MIN_TILE, textures::TextureCatalog};
+use super::super::{MAX_OVERLAY_SHARDS, MIN_TILE, textures::TextureCatalog};
 use super::*;
 use resource_pack::LayeredPackView;
 
@@ -583,23 +583,50 @@ fn texture_growth_uses_the_cheapest_fitting_shard_instead_of_the_smallest_tile()
 }
 
 #[test]
-fn finish_rejects_sources_that_exceed_per_shard_or_total_layer_capacity() {
+fn finish_rejects_sources_that_exceed_the_device_layer_limit() {
     let view = view(&[]);
-    assert!(
-        occupied_builder(&view, 2, &[MIN_TILE], &[3])
-            .finish()
-            .is_none()
+    for max_layers in [2, 256, 2048, assets::MAX_TEXTURE_LAYERS] {
+        assert!(
+            occupied_builder(&view, max_layers, &[MIN_TILE], &[max_layers + 1])
+                .finish()
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn finish_accepts_pages_above_the_former_aggregate_layer_limit() {
+    let view = view(&[]);
+    let per_page = assets::MAX_TEXTURE_LAYERS / MAX_OVERLAY_SHARDS + 1;
+    let mut builder = occupied_builder(
+        &view,
+        per_page,
+        &[MIN_TILE; MAX_OVERLAY_SHARDS],
+        &[per_page; MAX_OVERLAY_SHARDS],
     );
-    let per_shard = super::super::MAX_OVERLAY_LAYERS / super::super::MAX_OVERLAY_SHARDS + 1;
-    assert!(
-        occupied_builder(
-            &view,
-            per_shard,
-            &[MIN_TILE; super::super::MAX_OVERLAY_SHARDS],
-            &[per_shard; super::super::MAX_OVERLAY_SHARDS]
-        )
-        .finish()
-        .is_none()
+    builder.texture_policy = assets::texture::policy::TexturePolicy::for_terrain(MIN_TILE, 0);
+    let upload_bytes = builder.upload_bytes;
+    assert!(upload_bytes <= builder.texture_policy.storage_bytes());
+    let compiled = builder.finish().expect("every device page fits");
+    assert_eq!(compiled.overlay.max_page_layers, per_page as u32);
+    assert_eq!(
+        compiled
+            .overlay
+            .textures
+            .iter()
+            .map(|page| page.layers as usize)
+            .collect::<Vec<_>>(),
+        vec![per_page; MAX_OVERLAY_SHARDS]
+    );
+    assert_eq!(
+        compiled
+            .overlay
+            .textures
+            .iter()
+            .flat_map(|page| &page.mips)
+            .map(|mip| mip.rgba8.len())
+            .sum::<usize>(),
+        upload_bytes
     );
 }
 

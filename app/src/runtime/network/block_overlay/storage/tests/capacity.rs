@@ -148,3 +148,55 @@ fn device_layers_are_available_independently_on_every_page() {
         wanted + 1
     );
 }
+
+#[test]
+fn finish_accepts_pages_above_the_terrain_storage_floor_on_higher_tiers() {
+    let view = view(&[]);
+    let side = 512;
+    let policy = TexturePolicy::for_terrain(side, 1);
+    let layer_bytes = policy.terrain_bytes(side, 1).unwrap();
+    let per_page = MIN_TERRAIN_BYTES / (layer_bytes * MAX_OVERLAY_SHARDS) + 1;
+    let mut builder = occupied_builder(
+        &view,
+        assets::MAX_TEXTURE_LAYERS,
+        &[side; MAX_OVERLAY_SHARDS],
+        &[per_page; MAX_OVERLAY_SHARDS],
+    );
+    builder.texture_policy = policy;
+    let upload_bytes = builder.upload_bytes;
+    assert!(upload_bytes > MIN_TERRAIN_BYTES);
+    assert!(upload_bytes <= policy.storage_bytes());
+    let compiled = builder.finish().expect("pages fit the higher-tier budget");
+    assert_eq!(
+        compiled
+            .overlay
+            .textures
+            .iter()
+            .flat_map(|page| &page.mips)
+            .map(|mip| mip.rgba8.len())
+            .sum::<usize>(),
+        upload_bytes
+    );
+}
+
+#[test]
+fn finish_rejects_pages_that_together_exceed_the_terrain_byte_budget() {
+    let view = view(&[]);
+    let side = 512;
+    for tier in [0, 1] {
+        let policy = TexturePolicy::for_terrain(side, tier);
+        let layer_bytes = policy.terrain_bytes(side, 1).unwrap();
+        let per_page = policy.storage_bytes() / (layer_bytes * MAX_OVERLAY_SHARDS) + 1;
+        let mut builder = occupied_builder(
+            &view,
+            assets::MAX_TEXTURE_LAYERS,
+            &[side; MAX_OVERLAY_SHARDS],
+            &[per_page; MAX_OVERLAY_SHARDS],
+        );
+        builder.texture_policy = policy;
+        assert!(per_page <= builder.max_layers);
+        assert!(policy.terrain_bytes(side, per_page).is_some());
+        assert!(builder.upload_bytes > policy.storage_bytes());
+        assert!(builder.finish().is_none());
+    }
+}
