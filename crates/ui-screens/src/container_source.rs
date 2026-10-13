@@ -13,6 +13,14 @@ use ui::IconRef;
 
 use crate::{furnace_book::Entries, recipe_book::BookEntry};
 
+/// The predicted station result and its resolved item decorations.
+#[derive(Clone, Debug)]
+pub struct StationOutput {
+    pub stack: NetworkItemStack,
+    pub icon: Option<IconRef>,
+    pub durability: Option<f32>,
+}
+
 /// The client's authority as the container screens read it; the client's adapter answers from
 /// its runtime, so screens never hold it.
 pub trait ContainerSource {
@@ -124,7 +132,7 @@ pub struct ContainerFrame<'a> {
     /// Output icons of the stonecutter's recipe cells.
     pub recipe_icons: &'a [Option<IconRef>],
     /// The result a recipe screen would produce now.
-    pub recipe_output: Option<&'a (Option<IconRef>, NetworkItemStack)>,
+    pub recipe_output: Option<&'a StationOutput>,
     /// Icons of the recipe book's entries, in list order.
     pub book_entries: &'a [Option<IconRef>],
     pub furnace_entries: &'a Arc<[Option<IconRef>]>,

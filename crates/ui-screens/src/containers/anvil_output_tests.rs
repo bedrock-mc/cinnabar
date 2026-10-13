@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use protocol::NetworkItemStack;
 
 use super::{Cell, station_cell};
-use crate::container_source::ContainerFrame;
+use crate::container_source::{ContainerFrame, StationOutput};
 
 /// A player with an open window of `window_type` and no server-stated output.
 fn player(window_type: i8) -> player_state::PlayerState {
@@ -32,14 +32,15 @@ fn the_anvil_output_cell_shows_the_predicted_result() {
     let (icons54, durability54) = ([None; 54], [None; 54]);
     let (icons9, icons4, durability4) = ([None; 9], [None; 4], [None; 4]);
     let entries: Arc<[Option<ui::IconRef>]> = Arc::from([]);
-    let predicted = (
-        None,
-        NetworkItemStack {
+    let predicted = StationOutput {
+        icon: None,
+        durability: Some(0.5),
+        stack: NetworkItemStack {
             network_id: 7,
             count: 1,
             ..NetworkItemStack::empty()
         },
-    );
+    };
     let frame = ContainerFrame {
         item_names: &names,
         inventory_icons: &icons36,
@@ -62,8 +63,9 @@ fn the_anvil_output_cell_shows_the_predicted_result() {
         furnace_entries: &entries,
     };
     let anvil = player(protocol::WINDOW_TYPE_ANVIL);
-    let (stack, _, _) = station_cell(&anvil, &frame, Cell::Output);
+    let (stack, _, durability) = station_cell(&anvil, &frame, Cell::Output);
     assert_eq!(stack.map(|stack| stack.network_id), Some(7));
+    assert_eq!(durability, Some(0.5));
     let loom = player(protocol::WINDOW_TYPE_LOOM);
     let (stack, _, _) = station_cell(&loom, &frame, Cell::Output);
     assert!(stack.is_none(), "other screens keep their own output path");

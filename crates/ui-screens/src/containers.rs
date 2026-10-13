@@ -693,7 +693,9 @@ pub fn screen_data(
                 .collect();
             data.set_collection("crafting_input_items", grid);
             let output = match frame.crafting_output {
-                Some((icon, stack)) => cells.cell(Some(stack), *icon, None),
+                Some((icon, stack)) => {
+                    cells.cell(Some(&output.stack), output.icon, output.durability)
+                }
                 None => cells.cell(None, None, None),
             };
             data.set_collection("crafting_output_items", vec![output]);
@@ -783,10 +785,10 @@ fn station_cell<'a>(
             let index = usize::from(protocol::CREATED_OUTPUT_SLOT);
             match (ledger.created_output_stack(), frame.recipe_output) {
                 // The anvil's result is the client's prediction until the server states one.
-                (None, Some((icon, stack)))
+                (None, Some(output))
                     if ledger.window_kind() == Some(protocol::WindowKind::Anvil) =>
                 {
-                    (Some(stack), *icon, None)
+                    (Some(&output.stack), output.icon, output.durability)
                 }
                 (stack, _) => (
                     stack,

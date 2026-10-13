@@ -175,7 +175,7 @@ pub fn id_aux_icons(
             .collect(),
         Some(WindowKind::Crafter) => frame
             .recipe_output
-            .and_then(|(icon, _)| *icon)
+            .and_then(|output| output.icon)
             .map(|icon| vec![(CRAFTER_OUTPUT_KEY, icon)])
             .unwrap_or_default(),
         Some(WindowKind::Stonecutter) => frame
@@ -253,7 +253,7 @@ fn crafter_controls(
     };
     data.set_global("#redstone_arrow_texture", Scalar::Text(arrow.to_owned()));
     let output = frame.recipe_output;
-    let shown = output.filter(|(icon, _)| icon.is_some());
+    let shown = output.filter(|output| output.icon.is_some());
     data.set_global(
         "#crafter_output_item",
         Scalar::Num(if shown.is_some() {
@@ -262,7 +262,7 @@ fn crafter_controls(
             0.0
         }),
     );
-    let count = output.map_or(0, |(_, stack)| stack.count);
+    let count = output.map_or(0, |output| output.stack.count);
     data.set_global(
         "#output_stack_count",
         Scalar::Text(match count {
@@ -272,7 +272,11 @@ fn crafter_controls(
         }),
     );
     let name = output
-        .and_then(|(_, stack)| frame.item_names.get(&(stack.network_id, stack.metadata)))
+        .and_then(|output| {
+            frame
+                .item_names
+                .get(&(output.stack.network_id, output.stack.metadata))
+        })
         .map_or_else(String::new, |name| name.to_string());
     data.set_global("#crafting_preview_info", Scalar::Text(name));
 }

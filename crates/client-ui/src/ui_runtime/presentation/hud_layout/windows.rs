@@ -52,7 +52,7 @@ pub struct WindowIcons {
     pub recipe: [Option<IconRef>; STONECUTTER_CELLS],
     /// The result a recipe screen would produce now, drawn while the server
     /// previews none.
-    pub recipe_output: Option<(Option<IconRef>, NetworkItemStack)>,
+    pub recipe_output: Option<ui_screens::container_source::StationOutput>,
     /// Faint silhouettes for empty armor, shield and smithing-template slots;
     /// absent while the item atlas carries no such art.
     pub ghost_armor: [Option<IconRef>; 4],
@@ -261,12 +261,12 @@ impl HudLayout<'_> {
         } else if slot.hit == InventoryCellHit::Craft(53) {
             self.ghost_icon(frame.window_icons.ghost_template, cell)?;
         } else if slot.hit == InventoryCellHit::CraftOutput
-            && let Some((icon, stack)) = &frame.window_icons.recipe_output
+            && let Some(output) = &frame.window_icons.recipe_output
         {
-            if let Some(icon) = icon {
-                self.icon_gui(*icon, cell)?;
+            if let Some(icon) = output.icon {
+                self.icon_gui(icon, cell)?;
             }
-            self.stack_decorations(stack, cell, None)?;
+            self.stack_decorations(&output.stack, cell, output.durability)?;
         }
         Ok(())
     }

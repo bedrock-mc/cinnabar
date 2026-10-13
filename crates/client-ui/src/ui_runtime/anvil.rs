@@ -15,13 +15,22 @@ pub struct AnvilPreview {
     pub outcome: inventory::AnvilOutcome,
 }
 
-/// The target facts whose replacement should prefill the anvil name field again.
+/// The target and resolved name last used to prefill the editable field.
+#[derive(Clone, Debug)]
+pub struct AnvilNameState {
+    target: AnvilTargetIdentity,
+    names_generation: u64,
+    prefilled: String,
+}
+
+/// Cheap target facts that change when a different item or stated name is placed.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AnvilTargetIdentity {
+struct AnvilTargetIdentity {
     network_id: i32,
     metadata: u32,
     nbt_digest: [u8; 32],
-    custom_name: Option<std::sync::Arc<str>>,
+    identifier: Option<std::sync::Arc<str>>,
+    stated_name: Option<std::sync::Arc<str>>,
 }
 
 /// One occupied anvil input with data that can be edited without losing item properties.
@@ -103,22 +112,51 @@ impl UiRuntime {
         if self.inventory_ledger(player_runtime).window_kind() != Some(WindowKind::Anvil) {
             return;
         }
-        let target = self.anvil_input(player_runtime, ANVIL_TARGET_SLOT);
-        let identity = target.as_ref().map(|input| AnvilTargetIdentity {
-            network_id: input.stack.network_id,
-            metadata: input.stack.metadata,
-            nbt_digest: input.stack.nbt_digest,
-            custom_name: input.data.custom_name.clone(),
-        });
-        if self.screen_state().anvil_target == identity {
+        let ledger = self.inventory_ledger(player_runtime);
+        let target = InventoryTarget::Craft(ANVIL_TARGET_SLOT);
+        let identity = ledger
+            .target_stack(target)
+            .filter(|stack| stack.count > 0)
+            .map(|stack| AnvilTargetIdentity {
+                network_id: stack.network_id,
+                metadata: stack.metadata,
+                nbt_digest: stack.nbt_digest,
+                identifier: ledger
+                    .negotiated_item_entry(stack.network_id)
+                    .map(|entry| entry.identifier.clone()),
+                stated_name: ledger
+                    .presented_target_overlay(target)
+                    .and_then(|overlay| overlay.custom_name.clone()),
+            });
+        let Some(identity) = identity else {
+            let state = self.screen_state_mut();
+            state.anvil_target = None;
+            state.anvil_name.clear();
+            return;
+        };
+        let names_generation = self.item_name_generation();
+        let state = self.screen_state();
+        let previous = state.anvil_target.as_ref();
+        let same_target = previous.is_some_and(|previous| previous.target == identity);
+        if same_target
+            && previous.is_some_and(|previous| previous.names_generation == names_generation)
+        {
             return;
         }
-        let name = target
+        let untouched = previous.is_some_and(|previous| state.anvil_name == previous.prefilled);
+        let name = self
+            .anvil_input(player_runtime, ANVIL_TARGET_SLOT)
             .map(|input| self.anvil_target_name(&input))
             .unwrap_or_default();
         let state = self.screen_state_mut();
-        state.anvil_target = identity;
-        state.anvil_name = name;
+        state.anvil_target = Some(AnvilNameState {
+            target: identity,
+            names_generation,
+            prefilled: name.clone(),
+        });
+        if !same_target || untouched {
+            state.anvil_name = name;
+        }
     }
 
     /// Rebuilds the prediction after an input, name or calculation rule changes.

@@ -761,6 +761,7 @@ fn unchanged_preview_is_shared_until_inputs_names_or_rules_change() {
     runtime.sync_anvil_name(&player);
     let first = runtime.anvil_preview(&player).unwrap();
     for _ in 0..128 {
+        runtime.sync_anvil_name(&player);
         let repeated = runtime.anvil_preview(&player).unwrap();
         assert!(Arc::ptr_eq(&first, &repeated));
         let shown = runtime.anvil_output(&player).unwrap();
@@ -810,5 +811,77 @@ fn unchanged_preview_is_shared_until_inputs_names_or_rules_change() {
     assert!(
         runtime.anvil_preview(&player).is_none(),
         "a removed target clears the cached result"
+    );
+}
+
+#[test]
+fn changed_default_names_refresh_only_untouched_prefills() {
+    let (mut runtime, player) = anvil();
+    for (name, edited) in [("Original", false), ("Updated", false), ("Final", true)] {
+        if edited {
+            runtime.screen_state_mut().anvil_name = "Blade".into();
+        }
+        let input = format!("item.diamond_sword.name={name}\n");
+        runtime.set_server_lang(assets::ServerLangOverlay::read(input.len(), |target| {
+            target.copy_from_slice(input.as_bytes());
+            true
+        }));
+        runtime.sync_anvil_name(&player);
+        assert_eq!(
+            runtime.screen_state().anvil_name,
+            if edited { "Blade" } else { name }
+        );
+        let preview = runtime.anvil_preview(&player).unwrap();
+        assert_eq!(preview.outcome.cost, if edited { 4 } else { 3 });
+        assert_eq!(
+            preview.outcome.custom_name,
+            edited.then(|| Some("Blade".into()))
+        );
+    }
+}
+
+#[test]
+fn captured_partial_repair_retains_result_durability() {
+    use crate::ui_runtime::presentation::{
+        UiPresentationRuntime,
+        publish::{capture_hud_frame, item_icons::ItemIconFrames},
+    };
+    let (mut runtime, mut player) = anvil();
+    let mut diamonds = runtime
+        .inventory_ledger(&player)
+        .target_stack(InventoryTarget::Craft(ANVIL_MATERIAL_SLOT))
+        .unwrap()
+        .clone();
+    diamonds.count = 1;
+    place(
+        &mut runtime,
+        &mut player,
+        u16::from(ANVIL_MATERIAL_SLOT),
+        diamonds,
+    );
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    capture_hud_frame(
+        &player,
+        &mut runtime,
+        &mut presentation,
+        None,
+        semantic_input::PerspectiveMode::FirstPerson,
+        0,
+        ItemIconFrames::default(),
+    );
+    let output = presentation
+        .hud_frame()
+        .window_icons
+        .recipe_output
+        .as_ref()
+        .unwrap();
+    assert_eq!(protocol::item_stack_damage(&output.stack), Some(610));
+    let maximum = assets::item::durability::builtin_item_durability("minecraft:diamond_sword")
+        .maximum()
+        .unwrap();
+    assert_eq!(
+        output.durability,
+        Some((maximum - 610) as f32 / maximum as f32)
     );
 }
