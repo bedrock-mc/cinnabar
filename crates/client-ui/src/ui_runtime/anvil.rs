@@ -92,18 +92,53 @@ impl UiRuntime {
         })
     }
 
+    /// The target's custom name, preferring a retained server correction to its NBT.
+    fn anvil_target_custom_name(
+        &self,
+        player_runtime: &player_state::PlayerState,
+    ) -> Option<std::sync::Arc<str>> {
+        let ledger = self.inventory_ledger(player_runtime);
+        let target = InventoryTarget::Craft(ANVIL_TARGET_SLOT);
+        let stack = ledger
+            .target_stack(target)
+            .filter(|stack| stack.count > 0)?;
+        ledger
+            .presented_target_overlay(target)
+            .and_then(|overlay| overlay.custom_name.clone())
+            .or_else(|| protocol::item_custom_name(&stack.extra_data))
+    }
+
     /// The name the target item shows: its custom name, else its localized name.
-    fn anvil_target_name(&self, input: &AnvilInput) -> String {
-        input.data.custom_name.as_deref().map_or_else(
-            || {
-                super::presentation::inventory_tooltip::default_name(
+    fn anvil_target_name(&self, player_runtime: &player_state::PlayerState) -> Option<String> {
+        self.anvil_target_custom_name(player_runtime)
+            .map(|name| name.to_string())
+            .or_else(|| {
+                let ledger = self.inventory_ledger(player_runtime);
+                let stack = ledger
+                    .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
+                    .filter(|stack| stack.count > 0)?;
+                Some(super::presentation::inventory_tooltip::default_name(
                     self,
-                    &input.entry.identifier,
-                    input.stack.metadata,
-                )
-            },
-            str::to_owned,
-        )
+                    &ledger.negotiated_item_entry(stack.network_id)?.identifier,
+                    stack.metadata,
+                ))
+            })
+    }
+
+    /// The changed name sent with an authoritative take; empty text clears a custom name.
+    pub(super) fn anvil_rename(
+        &self,
+        player_runtime: &player_state::PlayerState,
+    ) -> Option<std::sync::Arc<str>> {
+        let current = self.anvil_target_name(player_runtime);
+        let name = self.screen_state().anvil_name.as_str();
+        if current.as_deref() == Some(name)
+            || (name.is_empty() && self.anvil_target_custom_name(player_runtime).is_none())
+        {
+            None
+        } else {
+            Some(std::sync::Arc::from(name))
+        }
     }
 
     /// Prefills the name box with the target's name whenever a different target is placed,
@@ -144,10 +179,7 @@ impl UiRuntime {
             return;
         }
         let untouched = previous.is_some_and(|previous| state.anvil_name == previous.prefilled);
-        let name = self
-            .anvil_input(player_runtime, ANVIL_TARGET_SLOT)
-            .map(|input| self.anvil_target_name(&input))
-            .unwrap_or_default();
+        let name = self.anvil_target_name(player_runtime).unwrap_or_default();
         let state = self.screen_state_mut();
         state.anvil_target = Some(AnvilNameState {
             target: identity,
@@ -180,11 +212,12 @@ impl UiRuntime {
         let right_item = right.as_ref().map(AnvilInput::item);
         let creative =
             player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative);
+        let current_name = self.anvil_target_name(player_runtime)?;
         let outcome = inventory::evaluate_anvil(
             &left.item(),
             right_item.as_ref(),
             &self.screen_state().anvil_name,
-            &self.anvil_target_name(&left),
+            &current_name,
             creative,
         )?;
         let extra_data = protocol::edit_item_extra(

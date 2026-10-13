@@ -188,20 +188,11 @@ pub fn id_aux_icons(
     }
 }
 
-/// The anvil's cost line, green when affordable and red otherwise, and the cross over the
-/// arrow when a placed target makes nothing or costs too much.
+/// Shows predicted costs and invalid-result indicators only when no server output exists.
 fn anvil_cost(source: &dyn ContainerSource, data: &mut DataSource) {
-    let authoritative_output = source
-        .player()
-        .inventory
-        .ledger()
-        .created_output_stack()
-        .is_some();
-    let cost = if authoritative_output {
-        None
-    } else {
-        source.screen().anvil_cost
-    };
+    let ledger = source.player().inventory.ledger();
+    let server_output = ledger.created_output_stack().is_some();
+    let cost = source.screen().anvil_cost.filter(|_| !server_output);
     let text = cost.map_or_else(String::new, |cost| {
         if cost.too_expensive {
             source
@@ -215,10 +206,7 @@ fn anvil_cost(source: &dyn ContainerSource, data: &mut DataSource) {
         }
     });
     let affordable = cost.is_some_and(|cost| cost.affordable);
-    let target = source
-        .player()
-        .inventory
-        .ledger()
+    let target = ledger
         .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
         .is_some();
     data.set_global("#cost_text", Scalar::Text(text));
@@ -229,7 +217,7 @@ fn anvil_cost(source: &dyn ContainerSource, data: &mut DataSource) {
     );
     data.set_global(
         "#cross_out_icon",
-        Scalar::Bool(!authoritative_output && target && cost.is_none_or(|cost| cost.too_expensive)),
+        Scalar::Bool(!server_output && target && cost.is_none_or(|cost| cost.too_expensive)),
     );
 }
 
@@ -647,6 +635,9 @@ pub(crate) fn decorate(
 }
 
 #[cfg(test)]
+mod anvil_tests;
+
+#[cfg(test)]
 mod banner_tests {
     use std::{
         collections::{BTreeMap, BTreeSet},
@@ -660,9 +651,9 @@ mod banner_tests {
     static SCROLL: BTreeMap<String, f64> = BTreeMap::new();
 
     /// Answers only what the loom bindings read.
-    struct LoomSource {
-        player: player_state::PlayerState,
-        screen: ScreenView<'static>,
+    pub(super) struct LoomSource {
+        pub(super) player: player_state::PlayerState,
+        pub(super) screen: ScreenView<'static>,
     }
 
     impl ContainerSource for LoomSource {
@@ -708,7 +699,7 @@ mod banner_tests {
     }
 
     /// Supplies authoritative loom input slots and negotiated item identities.
-    fn loom_fixture() -> LoomSource {
+    pub(super) fn loom_fixture() -> LoomSource {
         let mut player = player_state::PlayerState::new(1);
         player
             .inventory
@@ -802,106 +793,6 @@ mod banner_tests {
             let mut data = DataSource::new();
             loom_controls(&source, &mut data);
             assert_eq!(data != empty, shown, "banner={banner} dye={dye}");
-        }
-    }
-
-    /// The anvil bindings `cost` sets with no target placed.
-    fn anvil_bindings(cost: Option<crate::container_source::AnvilCost>) -> DataSource {
-        let mut source = loom_fixture();
-        source.screen.anvil_cost = cost;
-        let mut data = DataSource::new();
-        anvil_cost(&source, &mut data);
-        data
-    }
-
-    /// The bindings expected for cost line `text` in the given colours, without a cross.
-    fn expected(text: &str, green: bool, red: bool) -> DataSource {
-        let mut data = DataSource::new();
-        data.set_global("#cost_text", Scalar::Text(text.to_owned()));
-        data.set_global("#cost_text_green", Scalar::Bool(green));
-        data.set_global("#cost_text_red", Scalar::Bool(red));
-        data.set_global("#cross_out_icon", Scalar::Bool(false));
-        data
-    }
-
-    #[test]
-    fn the_anvil_cost_line_colours_by_affordability_and_names_too_expensive() {
-        use crate::container_source::AnvilCost;
-        assert_eq!(anvil_bindings(None), expected("", false, false));
-        let affordable = AnvilCost {
-            levels: 5,
-            too_expensive: false,
-            affordable: true,
-        };
-        assert_eq!(anvil_bindings(Some(affordable)), expected("5", true, false));
-        let short = AnvilCost {
-            affordable: false,
-            ..affordable
-        };
-        assert_eq!(anvil_bindings(Some(short)), expected("5", false, true));
-        let expensive = AnvilCost {
-            levels: 41,
-            too_expensive: true,
-            affordable: false,
-        };
-        assert_eq!(
-            anvil_bindings(Some(expensive)),
-            expected("Too Expensive!", false, true)
-        );
-    }
-
-    #[test]
-    fn authoritative_anvil_results_hide_prediction_failure_indicators() {
-        use crate::container_source::AnvilCost;
-        for cost in [
-            None,
-            Some(AnvilCost {
-                levels: 50,
-                too_expensive: true,
-                affordable: false,
-            }),
-        ] {
-            let mut source = loom_fixture();
-            source.screen.anvil_cost = cost;
-            let ledger = source.player.inventory.ledger_mut();
-            ledger.apply(&protocol::InventoryEvent::Open(
-                protocol::ContainerOpenEvent {
-                    container: protocol::ContainerIdentity::window(5),
-                    window_type: protocol::WINDOW_TYPE_ANVIL,
-                    position: [0, 64, 0],
-                    runtime_entity_id: -1,
-                },
-            ));
-            for slot in [ANVIL_TARGET_SLOT, protocol::CREATED_OUTPUT_SLOT] {
-                ledger.apply(&protocol::InventoryEvent::Slot(
-                    protocol::InventorySlotEvent {
-                        identity: protocol::SlotIdentity {
-                            container: protocol::ContainerIdentity {
-                                window_id: Some(protocol::UI_INVENTORY_WINDOW_ID),
-                                slot_type: Some(0),
-                                dynamic_id: None,
-                            },
-                            slot: u16::from(slot),
-                        },
-                        stack: protocol::NetworkItemStack {
-                            network_id: 1,
-                            count: 1,
-                            stack_network_id: 30 + i32::from(slot),
-                            ..Default::default()
-                        },
-                        storage_item: None,
-                    },
-                ));
-            }
-            assert!(ledger.created_output_stack().is_some());
-            assert!(
-                ledger
-                    .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
-                    .is_some()
-            );
-            let mut data = DataSource::new();
-            anvil_cost(&source, &mut data);
-            assert_eq!(data, expected("", false, false));
         }
     }
 

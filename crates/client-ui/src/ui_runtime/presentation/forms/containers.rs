@@ -39,11 +39,19 @@ impl<'a> ContainerAuthority<'a> {
         let screen = ScreenView {
             mount_equipment: state.mount_equipment,
             anvil_name: &state.anvil_name,
-            anvil_cost: runtime.anvil_preview(player).map(|preview| AnvilCost {
-                levels: preview.outcome.cost,
-                too_expensive: preview.outcome.too_expensive,
-                affordable: runtime.anvil_affordable(player, &preview),
-            }),
+            anvil_cost: if runtime
+                .inventory_ledger(player)
+                .created_output_stack()
+                .is_some()
+            {
+                None
+            } else {
+                runtime.anvil_preview(player).map(|preview| AnvilCost {
+                    levels: preview.outcome.cost,
+                    too_expensive: preview.outcome.too_expensive,
+                    affordable: runtime.anvil_affordable(player, &preview),
+                })
+            },
             recipe_choice: state.recipe_choice,
             beacon: state.beacon,
             beacon_level: state.beacon_level,

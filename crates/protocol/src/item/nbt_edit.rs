@@ -37,6 +37,20 @@ pub struct ItemAnvilData {
     pub enchantments: Vec<(i16, i16)>,
 }
 
+/// Reads the full custom name without tooltip limits, independently of enchantment support.
+#[must_use]
+pub fn item_custom_name(extra_data: &[u8]) -> Option<Arc<str>> {
+    let mut nbt = decode_extra_nbt(extra_data)?;
+    let display = root_tag(&mut nbt, TAG_COMPOUND, b"display")?;
+    let (entries, _) = read_entries(display)?;
+    let entry = entries
+        .iter()
+        .find(|entry| entry.tag == TAG_STRING && entry.name == b"Name")?;
+    let mut text = entry.payload.as_slice();
+    let length = usize::from(read_u16_le(&mut text)?);
+    Some(Arc::from(std::str::from_utf8(text.get(..length)?).ok()?))
+}
+
 /// Reads complete anvil inputs. Unsupported enchantment fields or name encodings return
 /// `None` so prediction cannot discard data when rebuilding a changed enchantment list.
 #[must_use]
@@ -434,6 +448,7 @@ mod tests {
             item_anvil_data(&extra).unwrap().custom_name.as_deref(),
             Some(name.as_str())
         );
+        assert_eq!(item_custom_name(&extra).as_deref(), Some(name.as_str()));
     }
 
     #[test]

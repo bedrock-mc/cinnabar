@@ -434,6 +434,10 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   marks a target that makes nothing. Taking a prediction sends that result and consumes the
   materials it uses; server outputs keep their authoritative take path. Predictions retain
   complete enchantment levels and lists and decline unsupported enchantment fields.
+- Predictions apply retained server damage and name corrections to both inputs and the
+  resulting item data. Unchanged prefilled names retain whitespace. Server outputs suppress
+  local cost and invalid-result indicators. Damage-only corrections preserve edits in progress;
+  explicit name corrections refresh the prefilled name.
 - Provisional: repair materials and item enchantment slots follow vanilla item names rather
   than each item's native registration, and data-driven anvil recipes are not predicted.
   Current-version visual and behavior parity remains incomplete; no anvil parity gate closes.
