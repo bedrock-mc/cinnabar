@@ -11,7 +11,7 @@ use crate::{
     paths::{in_tree, relative_slash},
     policy::{IdentifierRules, Policy},
     read,
-    rust_scope::{inherited_test_files, is_rust_test},
+    rust_scope::{inherited_test_files, is_rust_test, reachable_production_files},
 };
 
 mod scan;
@@ -138,7 +138,7 @@ pub(super) fn check_identifiers(
         let relative = relative_slash(root, path);
         match syn::parse_file(&read(path)?) {
             Ok(file) => {
-                let mut scan = RustScan::new(path, is_rust_test(&relative), &features, &vocabulary);
+                let mut scan = RustScan::new(path, false, &features, &vocabulary);
                 scan.visit_file(&file);
                 scans.insert(
                     path.canonicalize().unwrap_or_else(|_| path.clone()),
@@ -151,10 +151,25 @@ pub(super) fn check_identifiers(
             )),
         }
     }
-    let test_files = inherited_test_files(
+    let test_files = inherited_test_files(scans.iter().map(|(path, (relative, scan))| {
+        (
+            path,
+            scan.file_test || is_rust_test(relative),
+            scan.modules.as_slice(),
+        )
+    }));
+    let roots = policy
+        .crate_rules
+        .iter()
+        .flat_map(|rule| {
+            ["lib.rs", "main.rs"].map(|name| root.join(&rule.path).join("src").join(name))
+        })
+        .map(|path| path.canonicalize().unwrap_or(path));
+    let production_files = reachable_production_files(
         scans
             .iter()
             .map(|(path, (_, scan))| (path, scan.file_test, scan.modules.as_slice())),
+        roots,
     );
     let mut used = vec![false; policy.identifier_literal_exceptions.len()];
     let mut exception_keys = BTreeSet::new();
@@ -175,7 +190,8 @@ pub(super) fn check_identifiers(
     let mut counts = BTreeMap::new();
     for (path, (relative, scan)) in scans {
         if scan.file_test
-            || test_files.contains(&path)
+            || ((is_rust_test(&relative) || test_files.contains(&path))
+                && !production_files.contains(&path))
             || rules.owners.iter().any(|owner| {
                 if owner.ends_with('/') {
                     in_tree(&relative, owner)

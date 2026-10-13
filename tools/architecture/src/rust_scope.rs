@@ -154,3 +154,28 @@ pub(super) fn inherited_test_files<'a>(
     }
     test_files
 }
+
+/// Finds files reached from production entrypoints without following test-only module edges.
+pub(super) fn reachable_production_files<'a>(
+    scans: impl Iterator<Item = (&'a PathBuf, bool, &'a [(PathBuf, bool)])> + Clone,
+    roots: impl IntoIterator<Item = PathBuf>,
+) -> BTreeSet<PathBuf> {
+    let mut production_files: BTreeSet<_> = roots.into_iter().collect();
+    loop {
+        let mut changed = false;
+        for (path, file_test, modules) in scans.clone() {
+            if file_test || !production_files.contains(path) {
+                continue;
+            }
+            for (module, test) in modules {
+                if !test && production_files.insert(module.clone()) {
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    production_files
+}

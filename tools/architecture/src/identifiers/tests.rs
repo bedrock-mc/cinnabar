@@ -47,6 +47,9 @@ fn gate(sources: &[(&str, &str)], configure: impl FnOnce(&mut Policy)) -> Vec<St
     let mut policy = policy();
     policy.identifier_literals.baselines.clear();
     policy.identifier_literal_exceptions.clear();
+    policy
+        .crate_rules
+        .push(toml::from_str("name = 'fixture'\npath = '.'").unwrap());
     for path in policy
         .identifier_literals
         .vocabularies
@@ -301,6 +304,62 @@ fn test_scope_propagates_through_out_of_line_and_explicit_path_modules() {
         ("src/nested/child.rs", source.as_str()),
     ];
     assert!(gate(&files, |_| {}).is_empty());
+}
+
+#[test]
+fn production_reachability_wins_when_tests_import_the_same_module_tree() {
+    let vocabulary = vocabulary();
+    let (name, _) = identity(&vocabulary);
+    let shared = format!(
+        "mod child; fn production() {{ display({name:?}); }} #[cfg(test)] const TEST: &str = {name:?};"
+    );
+    let child = format!("fn production() {{ display({name:?}); }}");
+    for entrypoint in ["src/lib.rs", "src/main.rs"] {
+        let files = [
+            (entrypoint, "mod shared;"),
+            ("src/shared.rs", shared.as_str()),
+            ("src/shared/child.rs", child.as_str()),
+            (
+                "tests/shared_import.rs",
+                "#[path = \"../src/shared.rs\"] mod shared;",
+            ),
+        ];
+        let diagnostics = gate(&files, |_| {});
+        let counts: Vec<_> = diagnostics
+            .iter()
+            .filter(|line| line.contains("count 1 exceeds budget 0"))
+            .collect();
+        assert_eq!(counts.len(), 2, "{diagnostics:?}");
+        assert!(counts.iter().any(|line| line.starts_with("src/shared.rs:")));
+        assert!(
+            counts
+                .iter()
+                .any(|line| line.starts_with("src/shared/child.rs:"))
+        );
+    }
+}
+
+#[test]
+fn production_path_imports_override_test_directory_names() {
+    let vocabulary = vocabulary();
+    let (name, _) = identity(&vocabulary);
+    let shared = format!("mod child; fn production() {{ display({name:?}); }}");
+    let child = format!("fn production() {{ display({name:?}); }}");
+    let files = [
+        ("src/lib.rs", "#[path = \"../tests/shared.rs\"] mod shared;"),
+        ("tests/shared.rs", shared.as_str()),
+        ("tests/shared/child.rs", child.as_str()),
+        ("tests/import.rs", "#[path = \"shared.rs\"] mod shared;"),
+    ];
+    let diagnostics = gate(&files, |_| {});
+    assert_eq!(
+        diagnostics
+            .iter()
+            .filter(|line| line.contains("count 1 exceeds budget 0"))
+            .count(),
+        2,
+        "{diagnostics:?}"
+    );
 }
 
 #[test]
