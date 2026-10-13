@@ -11,6 +11,15 @@ use gpu_snapshot::{Draw, Gpu};
 use render_model::ActorGpuInstance;
 use render_model::{ActorRigVertex, EntityRigId};
 
+/// Camera, actor transform and original texture inputs for a production shader raster.
+pub(crate) struct RasterScene<'a> {
+    pub clip_from_world: Mat4,
+    pub world_from_actor: [[f32; 4]; 3],
+    pub camera_position: Vec3,
+    pub texture_size: [u32; 2],
+    pub texels: &'a [[u8; 4]],
+}
+
 pub(crate) fn cube(size: [u32; 3], top: bool, bottom: bool) -> Vec<ActorRigVertex> {
     let face = |u| serde_json::json!({"uv":[u,0],"uv_size":[1,1]});
     let mut uv = serde_json::Map::new();
@@ -192,8 +201,55 @@ pub(crate) fn raster_material_with_state(
         Vec4::new(0.0, if below { 2.0 } else { -2.0 }, 0.0, 0.0),
         Vec4::new(0.0, 0.0, 0.5, 1.0),
     );
+    raster_material_in_scene(
+        gpu,
+        vertices,
+        material,
+        RasterScene {
+            clip_from_world: clip,
+            world_from_actor: [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+            ],
+            camera_position: Vec3::ZERO,
+            texture_size: [2, 1],
+            texels: &texels,
+        },
+        srgb,
+        gamma,
+        light,
+        overlay_rgba8,
+        tint_rgba8,
+        definitions,
+        state,
+    )
+}
+
+/// Renders arbitrary charts and projections through the production actor entry points.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "each knob is an independent shader input under test"
+)]
+pub(crate) fn raster_material_in_scene(
+    gpu: &Gpu,
+    vertices: &[ActorRigVertex],
+    material: render_model::ActorMaterial,
+    scene: RasterScene<'_>,
+    srgb: bool,
+    gamma: bool,
+    light: u32,
+    overlay_rgba8: u32,
+    tint_rgba8: u32,
+    definitions: &[&str],
+    state: gpu_snapshot::RasterState,
+) -> Vec<u8> {
+    assert_eq!(
+        scene.texels.len(),
+        (scene.texture_size[0] * scene.texture_size[1]) as usize
+    );
     let view = gpu.buffer(
-        &gpu_snapshot::view(clip, Vec3::ZERO),
+        &gpu_snapshot::view(scene.clip_from_world, scene.camera_position),
         wgpu::BufferUsages::UNIFORM,
     );
     let affine = [
@@ -202,7 +258,7 @@ pub(crate) fn raster_material_with_state(
         [0.0, 0.0, 1.0, 0.0],
     ];
     let instance = ActorGpuInstance {
-        world_from_actor: affine,
+        world_from_actor: scene.world_from_actor,
         partial_tick: 1.0,
         uv_anim: render_model::IDENTITY_UV_ANIM,
         light,
@@ -228,8 +284,8 @@ pub(crate) fn raster_material_with_state(
     let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("opposing cube UV witness"),
         size: wgpu::Extent3d {
-            width: 2,
-            height: 1,
+            width: scene.texture_size[0],
+            height: scene.texture_size[1],
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
@@ -241,11 +297,11 @@ pub(crate) fn raster_material_with_state(
     });
     gpu.queue.write_texture(
         texture.as_image_copy(),
-        bytemuck::cast_slice(&texels),
+        bytemuck::cast_slice(scene.texels),
         wgpu::TexelCopyBufferLayout {
             offset: 0,
-            bytes_per_row: Some(8),
-            rows_per_image: Some(1),
+            bytes_per_row: Some(scene.texture_size[0] * 4),
+            rows_per_image: Some(scene.texture_size[1]),
         },
         texture.size(),
     );
