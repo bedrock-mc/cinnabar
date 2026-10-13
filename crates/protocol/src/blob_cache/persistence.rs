@@ -74,8 +74,8 @@ impl ClientBlobCache {
 
 impl WeakClientBlobCache {
     /// Rechecks a disk body's content hash and admits it only when memory and pin limits allow.
-    /// Returns false if the cache is gone, busy, or already holds the body. No disk work runs
-    /// while the memory lock is held, and a worker never replaces a pinned body.
+    /// Returns false if the cache is gone or already holds or pins the body. Background callers
+    /// wait for the memory lock; no disk work runs while it is held.
     pub fn admit(&self, hash: u64, payload: Arc<[u8]>) -> Result<bool, BlobCacheError> {
         let actual = client_blob_hash(&payload);
         if actual != hash {
@@ -87,9 +87,7 @@ impl WeakClientBlobCache {
         let Some(store) = self.store.upgrade() else {
             return Ok(false);
         };
-        let Ok(mut store) = store.try_lock() else {
-            return Ok(false);
-        };
+        let mut store = store.lock().unwrap_or_else(|error| error.into_inner());
         if store.entries.contains_key(&hash) || store.pins.contains_key(&hash) {
             return Ok(false);
         }
