@@ -69,13 +69,6 @@ impl MeshLightSampler for MeshLightHalo {
     }
 }
 
-pub(in crate::stream) fn pack_biome_record(
-    storages: &BiomeNeighbourhood,
-    resolved: &ResolvedBiomeTints,
-) -> PackedBiomeRecord {
-    PackedBiomeRecord::from_neighbourhood(storages, |raw_id| resolved.dense_index(raw_id))
-}
-
 impl MeshSnapshot {
     pub(in crate::stream) fn neighbourhood(&self) -> MeshNeighbourhood<'_> {
         let origin = self.light_halo.center.map_or([0; 3], |key| {

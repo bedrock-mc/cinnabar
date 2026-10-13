@@ -63,6 +63,8 @@ pub enum DecodeJob {
         sequence: u64,
         batches: Vec<BlockMutationBatch>,
         events: Vec<SyncedBlockUpdateEvent>,
+        /// Earlier packet batches only for sections with active cracks.
+        crack_batches: Vec<BlockMutationBatch>,
         ids: DecodeIds,
     },
 }

@@ -94,28 +94,48 @@ impl WorldStream {
         }
     }
 
+    /// Snapshots the final burst and earlier packet states only where cracks need reconciliation.
     pub(super) fn snapshot_synced_block_mutation_batches(
         &mut self,
-        mut events: Vec<SyncedBlockUpdateEvent>,
-    ) -> (Vec<BlockMutationBatch>, Vec<SyncedBlockUpdateEvent>) {
-        events.retain(|event| match split_block_update(event.update) {
-            Ok((key, _))
-                if event.update.layer <= 1 && self.column_is_data_interesting(key.chunk()) =>
+        mut packets: Vec<Vec<SyncedBlockUpdateEvent>>,
+    ) -> (
+        Vec<BlockMutationBatch>,
+        Vec<SyncedBlockUpdateEvent>,
+        Vec<BlockMutationBatch>,
+    ) {
+        let last_packet = packets.len().saturating_sub(1);
+        let mut crack_batches = Vec::new();
+        for (index, events) in packets.iter_mut().enumerate() {
+            events.retain(|event| match split_block_update(event.update) {
+                Ok((key, _))
+                    if event.update.layer <= 1 && self.column_is_data_interesting(key.chunk()) =>
+                {
+                    true
+                }
+                Ok(_) => {
+                    self.record_normalization_error(NormalizationErrorReason::InactiveBlockUpdate);
+                    false
+                }
+                Err(_) => {
+                    self.record_normalization_error(NormalizationErrorReason::MalformedBlockUpdate);
+                    false
+                }
+            });
+            if index < last_packet
+                && events.first().is_some_and(|event| {
+                    split_block_update(event.update)
+                        .is_ok_and(|(key, _)| self.block_crack_section_active(key))
+                })
             {
-                true
+                // Coalesced packets all address the same section.
+                let updates = events.iter().map(|event| event.update).collect();
+                crack_batches.extend(self.snapshot_block_mutation_batches(updates));
             }
-            Ok(_) => {
-                self.record_normalization_error(NormalizationErrorReason::InactiveBlockUpdate);
-                false
-            }
-            Err(_) => {
-                self.record_normalization_error(NormalizationErrorReason::MalformedBlockUpdate);
-                false
-            }
-        });
+        }
+        let events = packets.into_iter().flatten().collect::<Vec<_>>();
         let batches =
             self.snapshot_block_mutation_batches(events.iter().map(|event| event.update).collect());
-        (batches, events)
+        (batches, events, crack_batches)
     }
 }
 

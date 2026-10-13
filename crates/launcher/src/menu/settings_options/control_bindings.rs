@@ -104,6 +104,37 @@ pub fn gamepad_icon(control: PhysicalControl) -> &'static str {
 }
 
 impl super::SettingsOptions {
+    /// Imports a keyboard layout as one validated batch, so swapped keys do not conflict midway.
+    pub fn import_keyboard_bindings(
+        &mut self,
+        bindings: &std::collections::BTreeMap<String, Option<PhysicalControl>>,
+    ) -> usize {
+        let mut candidate = self.clone();
+        let mut accepted = 0;
+        for (name, control) in bindings {
+            if !super::KEY_BINDINGS.iter().any(|(_, key)| *key == name)
+                && !EXTRA_KEYS.iter().any(|(key, _)| *key == name)
+            {
+                continue;
+            }
+            let code = match control {
+                None => UNBOUND_CONTROL,
+                Some(control) if !is_gamepad(*control) => match encode_control(*control) {
+                    Some(code) => code,
+                    None => continue,
+                },
+                _ => continue,
+            };
+            candidate.keys.insert(name.clone(), code);
+            accepted += 1;
+        }
+        if !candidate.stored_bindings_valid() {
+            return bindings.len();
+        }
+        *self = candidate;
+        bindings.len() - accepted
+    }
+
     /// Applies the vanilla A/B and X/Y physical-button swaps after resolving a binding.
     pub fn swap_gamepad_control(&self, control: PhysicalControl) -> PhysicalControl {
         let PhysicalControl::GamepadButton(button) = control else {

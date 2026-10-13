@@ -39,6 +39,7 @@ pub(super) fn prepare_resolved_block_mutations(
     let mut prepared = PreparedBlockMutations {
         mutations: Vec::with_capacity(batches.len()),
         relight: BTreeSet::new(),
+        crack_intermediates: Vec::new(),
     };
     for batch in batches {
         let mutation = ChunkStore::prepare_sub_chunk_blocks(
@@ -48,12 +49,16 @@ pub(super) fn prepare_resolved_block_mutations(
             ids.air(),
         )?;
         if mutation.changed()
-            && light_semantics_changed(
+            && light_semantics_changed_at(
                 ids.air,
                 &ids.assets,
                 ids.mode,
                 batch.previous.as_deref(),
                 mutation.replacement(),
+                mutation.changed_positions().map(|position| {
+                    [position.x, position.y, position.z]
+                        .map(|coordinate| coordinate.rem_euclid(world::SUB_CHUNK_SIDE as i32) as u8)
+                }),
             )
         {
             prepared.relight.insert(mutation.key());
@@ -125,43 +130,146 @@ pub fn light_semantics_changed(
     previous: Option<&SubChunk>,
     replacement: Option<&SubChunk>,
 ) -> bool {
+    light_semantics_changed_at(
+        air_network_id,
+        assets,
+        mode,
+        previous,
+        replacement,
+        (0_u8..16).flat_map(|y| (0_u8..16).flat_map(move |z| (0_u8..16).map(move |x| [x, y, z]))),
+    )
+}
+
+/// Compares combined layer inputs only at cells this mutation could have changed.
+fn light_semantics_changed_at(
+    air_network_id: u32,
+    assets: &RuntimeAssets,
+    mode: NetworkIdMode,
+    previous: Option<&SubChunk>,
+    replacement: Option<&SubChunk>,
+    positions: impl IntoIterator<Item = [u8; 3]>,
+) -> bool {
     if previous.is_some() != replacement.is_some() {
         return true;
     }
     let mut resolved = FastHashMap::<u32, (u8, u8)>::new();
-    for y in 0..16 {
-        for z in 0..16 {
-            for x in 0..16 {
-                let mut sample = |sub_chunk: Option<&SubChunk>| {
-                    let mut emission = 0;
-                    let mut has_non_air = false;
-                    let mut filter = 0;
-                    if let Some(sub_chunk) = sub_chunk {
-                        for layer in 0..sub_chunk.storages().len() {
-                            let Some(runtime_id) = sub_chunk.runtime_id(layer, x, y, z) else {
-                                continue;
-                            };
-                            if runtime_id == air_network_id {
-                                continue;
-                            }
-                            has_non_air = true;
-                            let (block_emission, block_filter) =
-                                *resolved.entry(runtime_id).or_insert_with(|| {
-                                    let properties =
-                                        assets.resolve(mode, runtime_id).light_properties();
-                                    (properties.emission(), properties.filter())
-                                });
-                            emission = emission.max(block_emission);
-                            filter = filter.max(block_filter);
-                        }
+    for [x, y, z] in positions {
+        let mut sample = |sub_chunk: Option<&SubChunk>| {
+            let mut emission = 0;
+            let mut has_non_air = false;
+            let mut filter = 0;
+            if let Some(sub_chunk) = sub_chunk {
+                for layer in 0..sub_chunk.storages().len() {
+                    let Some(runtime_id) = sub_chunk.runtime_id(layer, x, y, z) else {
+                        continue;
+                    };
+                    if runtime_id == air_network_id {
+                        continue;
                     }
-                    (has_non_air, emission, filter)
-                };
-                if sample(previous) != sample(replacement) {
-                    return true;
+                    has_non_air = true;
+                    let (block_emission, block_filter) =
+                        *resolved.entry(runtime_id).or_insert_with(|| {
+                            let properties = assets.resolve(mode, runtime_id).light_properties();
+                            (properties.emission(), properties.filter())
+                        });
+                    emission = emission.max(block_emission);
+                    filter = filter.max(block_filter);
                 }
             }
+            (has_non_air, emission, filter)
+        };
+        if sample(previous) != sample(replacement) {
+            return true;
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use world::{BlockUpdate, RawBlockIds};
+
+    /// Builds a small decoded section with explicit primary and secondary layers.
+    fn section(layers: &[u32]) -> SubChunk {
+        let mut payload = vec![9, layers.len() as u8, 0];
+        for &id in layers {
+            payload.extend([1, (id << 1) as u8]);
+        }
+        SubChunk::decode(&payload, &RawBlockIds { air: 0 })
+    }
+
+    #[test]
+    fn changed_cell_light_comparison_matches_full_section_for_layer_and_presence_changes() {
+        let assets = RuntimeAssets::diagnostic();
+        let key = SubChunkKey::new(0, -2, 0, -3);
+        for previous in [
+            None,
+            Some(section(&[1])),
+            Some(section(&[1, 0])),
+            Some(section(&[0, 1])),
+        ] {
+            for updates in [
+                vec![BlockUpdate::new(1, 2, 3, 0, 0)],
+                vec![BlockUpdate::new(1, 2, 3, 1, 1)],
+                vec![BlockUpdate::new(15, 15, 15, 0, 2)],
+                vec![
+                    BlockUpdate::new(0, 0, 0, 0, 2),
+                    BlockUpdate::new(0, 0, 0, 0, 1),
+                ],
+                vec![
+                    BlockUpdate::new(0, 0, 0, 0, 0),
+                    BlockUpdate::new(0, 0, 0, 1, 1),
+                ],
+            ] {
+                let mutation =
+                    ChunkStore::prepare_sub_chunk_blocks(key, previous.as_ref(), &updates, 0)
+                        .unwrap();
+                let full = light_semantics_changed(
+                    0,
+                    &assets,
+                    NetworkIdMode::Sequential,
+                    previous.as_ref(),
+                    mutation.replacement(),
+                );
+                let sparse = light_semantics_changed_at(
+                    0,
+                    &assets,
+                    NetworkIdMode::Sequential,
+                    previous.as_ref(),
+                    mutation.replacement(),
+                    mutation.changed_positions().map(|position| {
+                        [position.x, position.y, position.z].map(|coordinate| {
+                            coordinate.rem_euclid(world::SUB_CHUNK_SIDE as i32) as u8
+                        })
+                    }),
+                );
+                assert_eq!(
+                    sparse,
+                    full,
+                    "layers={:?}, updates={updates:?}",
+                    previous.as_ref().map(|section| section.storages().len())
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn light_neutral_comparison_visits_only_supplied_cells() {
+        let assets = RuntimeAssets::diagnostic();
+        let section = section(&[1]);
+        let mut visited = 0;
+        let positions = [[1, 2, 3], [15, 15, 15]]
+            .into_iter()
+            .inspect(|_| visited += 1);
+        assert!(!light_semantics_changed_at(
+            0,
+            &assets,
+            NetworkIdMode::Sequential,
+            Some(&section),
+            Some(&section),
+            positions
+        ));
+        assert_eq!(visited, 2);
+    }
 }

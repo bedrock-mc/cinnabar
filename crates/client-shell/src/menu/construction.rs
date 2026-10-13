@@ -23,13 +23,32 @@ impl MenuRuntime {
         Self::new_with_layout(visible, Some(gui_scale), display_name, layout, player_skin)
     }
 
-    /// Loads launcher state and both settings authorities for this install.
+    /// Loads saved launcher state without probing the host for Minecraft installations.
     pub fn new_with_layout(
         visible: bool,
         gui_scale: Option<u8>,
         display_name: String,
         layout: InstallLayout,
         player_skin: crate::player_skin::LocalPlayerSkin,
+    ) -> Self {
+        Self::new_with_import_snapshot(
+            visible,
+            gui_scale,
+            display_name,
+            layout,
+            player_skin,
+            launcher::minecraft_import::Snapshot::default(),
+        )
+    }
+
+    /// Loads launcher state with an import offer explicitly supplied by startup or a fixture.
+    pub fn new_with_import_snapshot(
+        visible: bool,
+        gui_scale: Option<u8>,
+        display_name: String,
+        layout: InstallLayout,
+        player_skin: crate::player_skin::LocalPlayerSkin,
+        minecraft_import: launcher::minecraft_import::Snapshot,
     ) -> Self {
         let config_path = layout.server_file();
         let loaded = load_servers(&config_path);
@@ -48,6 +67,9 @@ impl MenuRuntime {
         let language_pending = settings_options.language().is_some();
         let language_choices = SettingsOptions::language_choices(&layout.resource_root);
         let mut initial = MenuView::new(visible, display_name);
+        if visible && minecraft_import.phase == launcher::minecraft_import::Phase::Offered {
+            initial.dialog = Some(launcher::menu::MenuDialog::MinecraftImport);
+        }
         #[cfg(feature = "developer-control")]
         let sign_in_fixture = super::sign_in_fixture::startup();
         #[cfg(feature = "developer-control")]
@@ -155,6 +177,8 @@ impl MenuRuntime {
             accounts: Default::default(),
             global_resource_actions: Vec::new(),
             global_resources: initial.global_resources,
+            minecraft_import: std::sync::Arc::new(minecraft_import),
+            minecraft_import_requests: Vec::new(),
             settings_options: std::sync::Arc::new(settings_options),
             storage: initial.storage,
             settings_dropdown: initial.settings_dropdown,
@@ -190,6 +214,48 @@ impl MenuRuntime {
 #[cfg(test)]
 mod tests {
     use {super::*, launcher::menu::view::MenuView};
+
+    #[test]
+    fn import_detection_is_supplied_explicitly_to_menu_construction() {
+        use launcher::minecraft_import::{Action, Phase, Snapshot};
+        let layout = launcher::test_support::scratch("menu-import-detection");
+        let skin = crate::player_skin::LocalPlayerSkin::generated_default("Fixture");
+        let synthetic = MenuRuntime::new_with_layout(
+            true,
+            Some(2),
+            "Fixture".into(),
+            layout.clone(),
+            skin.clone(),
+        )
+        .view();
+        assert_eq!(synthetic.minecraft_import.phase, Phase::Idle);
+        assert_eq!(synthetic.dialog, None);
+        for visible in [false, true] {
+            let offered = MenuRuntime::new_with_import_snapshot(
+                visible,
+                Some(2),
+                "Fixture".into(),
+                layout.clone(),
+                skin.clone(),
+                Snapshot {
+                    phase: Phase::Offered,
+                    ..Default::default()
+                },
+            )
+            .view();
+            assert_eq!(offered.minecraft_import.phase, Phase::Offered);
+            assert_eq!(
+                offered.dialog,
+                visible.then_some(launcher::menu::MenuDialog::MinecraftImport)
+            );
+            if visible {
+                assert_eq!(
+                    offered.focused_action,
+                    Some(launcher::menu::MenuAction::MinecraftImport(Action::Begin))
+                );
+            }
+        }
+    }
 
     #[test]
     fn shared_initial_view_matches_the_host_before_services_are_loaded() {
