@@ -138,7 +138,15 @@ fn extra_large_bed_keeps_status_clear_of_leave_and_chat_controls() {
                     );
                     let metrics = menu.accessibility_metrics(ordinary);
                     let mut bed = BedScreen::default();
-                    let (_, nodes) = with_frame(size, metrics, |frame| {
+                    let (status_key, nodes) = with_frame(size, metrics, |frame| {
+                        // Wrapping omits break whitespace from glyphs; the key retains the full input.
+                        let request = frame.metrics.request(
+                            "Sleeping through the night",
+                            (size[0] * 64.0) as u32,
+                            frame.font,
+                        );
+                        let status_key =
+                            frame.layouts.layout(request).unwrap().key().content_sha256;
                         bed.paint(
                             BedInput {
                                 asleep_for: Some(2400),
@@ -148,9 +156,10 @@ fn extra_large_bed_keeps_status_clear_of_leave_and_chat_controls() {
                             },
                             frame,
                         )
-                        .unwrap()
+                        .unwrap();
+                        status_key
                     });
-                    let status = nodes.iter().find(|node| matches!(node.visual(), ui::UiVisual::Text { layout, .. } if layout.glyphs().iter().map(|glyph| glyph.codepoint).collect::<String>() == "Sleeping through the night")).expect("settled bed status remains visible").bounds();
+                    let status = nodes.iter().find(|node| matches!(node.visual(), ui::UiVisual::Text { layout, .. } if layout.key().content_sha256 == status_key)).expect("settled bed status remains visible").bounds();
                     assert!(
                         status.min().x() >= 0.0
                             && status.min().y() >= 0.0
