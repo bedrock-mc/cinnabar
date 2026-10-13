@@ -100,7 +100,9 @@ The owner-requested home layout places the shipped logo above the Play and inter
 panels. Servers and Settings are secondary; Realms and Marketplace are quiet text actions without
 promotional art. Compact utility buttons group account, friends, inbox and quit below the panels.
 The footer names the app version, Minecraft version and protocol number from their shared sources.
-Compact screens retain Dressing Room access and scroll the main actions.
+Compact screens retain Dressing Room access. Home scales its logo, panels, text and footer together
+when its actions would overflow, down to the client window minimum, without scrolling. Pause scales
+its actions and text together when needed. Layouts that already fit keep their existing geometry.
 
 The owner-requested motion extension uses finite cubic easing: 85 ms for highlights,
 45 ms for depression, 80 ms for release/dialog exits and 120 ms for entrances. Segmented
