@@ -51,6 +51,8 @@ impl Cell {
 pub(super) struct Held {
     pub(super) stack: NetworkItemStack,
     pub(super) overlay: Option<StackResponseOverlay>,
+    /// The accepted request that installed this held value's server stack identity.
+    pub(super) acknowledged_request_id: Option<i32>,
 }
 
 impl Held {
@@ -59,6 +61,7 @@ impl Held {
         (!stack.is_empty()).then(|| Self {
             stack: stack.clone(),
             overlay: None,
+            acknowledged_request_id: None,
         })
     }
 }

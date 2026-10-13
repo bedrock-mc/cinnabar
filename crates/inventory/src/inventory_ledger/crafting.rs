@@ -293,6 +293,7 @@ impl PlayerInventoryLedger {
             held: Held {
                 stack: created.clone(),
                 overlay: None,
+                acknowledged_request_id: None,
             },
         });
         let mut registry_bound_merge = false;
@@ -505,6 +506,7 @@ impl PlayerInventoryLedger {
                     held: Held {
                         stack,
                         overlay: None,
+                        acknowledged_request_id: None,
                     },
                 },
                 match target {

@@ -352,6 +352,7 @@ impl PlayerInventoryLedger {
             Some(held) => {
                 held.stack.count = u16::from(correction.count);
                 held.stack.stack_network_id = correction.item_stack_id;
+                held.acknowledged_request_id = Some(request.request_id);
                 merge_response_overlay(&mut held.overlay, correction);
             }
             // Screen cells restate through slot updates that follow the response.

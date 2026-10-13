@@ -44,6 +44,19 @@ impl PlayerInventoryLedger {
         self.view().get(target.cell())?.overlay.as_ref()
     }
 
+    /// Whether the current target received its server stack identity from this request.
+    /// Fresh slot or content writes replace the held value and discard this provenance.
+    #[must_use]
+    pub fn target_acknowledges_stack_id(
+        &self,
+        target: super::InventoryTarget,
+        predicted_stack_id: i32,
+    ) -> bool {
+        self.view()
+            .get(target.cell())
+            .is_some_and(|held| held.acknowledged_request_id == Some(predicted_stack_id))
+    }
+
     /// The authoritative response overlay retained for the cursor cell.
     #[must_use]
     pub fn cursor_overlay(&self) -> Option<&StackResponseOverlay> {

@@ -381,7 +381,7 @@ fn replacing_the_target_through_hotbar_swap_prefills_the_new_stack() {
     runtime.sync_anvil_name(&player);
     let prefilled = runtime.screen_state().anvil_name.clone();
     runtime.screen_state_mut().anvil_name = "Blade".into();
-    runtime
+    let request_id = runtime
         .inventory_ledger_mut(&mut player)
         .begin_hotbar_swap(InventoryTarget::Craft(ANVIL_TARGET_SLOT), 0)
         .unwrap();
@@ -392,10 +392,107 @@ fn replacing_the_target_through_hotbar_swap_prefills_the_new_stack() {
             .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
             .unwrap()
             .stack_network_id,
-        32
+        request_id
     );
     assert_eq!(runtime.screen_state().anvil_name, prefilled);
     let preview = runtime.anvil_preview(&player).unwrap();
     assert_eq!(preview.outcome.custom_name, None);
     assert_eq!(preview.outcome.cost, 3);
+}
+
+#[test]
+fn acknowledging_a_placement_preserves_an_entered_rename() {
+    use inventory::inventory_ledger::CellGesture;
+    use protocol::{
+        ItemStackResponseEvent, StackResponse, StackResponseContainer, StackResponseSlot,
+        StackResponseStatus,
+    };
+    let (mut runtime, mut player) = anvil();
+    let target = InventoryTarget::Craft(ANVIL_TARGET_SLOT);
+    runtime
+        .inventory_ledger_mut(&mut player)
+        .begin_target_gesture(target, CellGesture::Click)
+        .unwrap();
+    let request_id = runtime
+        .inventory_ledger_mut(&mut player)
+        .begin_target_gesture(target, CellGesture::Click)
+        .unwrap();
+    assert_eq!(
+        runtime
+            .inventory_ledger(&player)
+            .target_stack(target)
+            .unwrap()
+            .stack_network_id,
+        request_id
+    );
+    runtime.sync_anvil_name(&player);
+    runtime.screen_state_mut().anvil_name = "Blade".into();
+    let containers = [
+        (
+            protocol::ui_slot_container_name(ANVIL_TARGET_SLOT).unwrap(),
+            ANVIL_TARGET_SLOT,
+            true,
+        ),
+        (protocol::CONTAINER_NAME_CURSOR, 0, false),
+    ]
+    .map(|(slot_type, slot, occupied)| StackResponseContainer {
+        container: ContainerIdentity {
+            window_id: None,
+            slot_type: Some(slot_type),
+            dynamic_id: None,
+        },
+        slots: Arc::from([StackResponseSlot {
+            slot,
+            hotbar_slot: slot,
+            count: u8::from(occupied),
+            item_stack_id: if occupied { 30 } else { 0 },
+            custom_name: Arc::from(""),
+            filtered_custom_name: Arc::from(""),
+            durability_correction: if occupied { 1000 } else { 0 },
+        }]),
+    });
+    runtime
+        .inventory_ledger_mut(&mut player)
+        .apply(&InventoryEvent::Response(ItemStackResponseEvent {
+            responses: Arc::from([StackResponse {
+                request_id,
+                status: StackResponseStatus::Accepted,
+                containers: Arc::from(containers),
+            }]),
+        }));
+    assert_eq!(
+        runtime
+            .inventory_ledger(&player)
+            .target_stack(target)
+            .unwrap()
+            .stack_network_id,
+        30
+    );
+    assert!(
+        runtime
+            .inventory_ledger(&player)
+            .target_acknowledges_stack_id(target, request_id)
+    );
+    runtime.sync_anvil_name(&player);
+    assert_eq!(runtime.screen_state().anvil_name, "Blade");
+    let preview = runtime.anvil_preview(&player).unwrap();
+    assert_eq!(preview.outcome.custom_name.as_deref(), Some("Blade"));
+    assert_eq!(preview.outcome.cost, 4);
+
+    let restated = runtime
+        .inventory_ledger(&player)
+        .target_stack(target)
+        .unwrap()
+        .clone();
+    place(
+        &mut runtime,
+        &mut player,
+        u16::from(ANVIL_TARGET_SLOT),
+        restated,
+    );
+    assert!(
+        !runtime
+            .inventory_ledger(&player)
+            .target_acknowledges_stack_id(target, request_id)
+    );
 }

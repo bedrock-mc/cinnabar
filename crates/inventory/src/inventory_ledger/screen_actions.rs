@@ -208,6 +208,7 @@ impl PlayerInventoryLedger {
                 let held = Held {
                     stack,
                     overlay: None,
+                    acknowledged_request_id: None,
                 };
                 (held.clone(), Some(held))
             }
@@ -221,6 +222,7 @@ impl PlayerInventoryLedger {
                 let held = Held {
                     stack,
                     overlay: None,
+                    acknowledged_request_id: None,
                 };
                 (held.clone(), Some(held))
             }
@@ -243,6 +245,7 @@ impl PlayerInventoryLedger {
                 let held = Held {
                     stack,
                     overlay: None,
+                    acknowledged_request_id: None,
                 };
                 (held.clone(), Some(held))
             }

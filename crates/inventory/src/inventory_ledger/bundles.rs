@@ -156,6 +156,7 @@ impl PlayerInventoryLedger {
                 held: Held {
                     stack,
                     overlay: None,
+                    acknowledged_request_id: None,
                 },
             }],
             personal_generation,

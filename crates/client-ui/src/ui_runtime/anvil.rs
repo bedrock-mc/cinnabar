@@ -35,10 +35,10 @@ struct AnvilTargetIdentity {
 }
 
 impl AnvilTargetIdentity {
-    /// The item kind remains the same when a server update only changes mutable NBT.
-    fn same_item(&self, other: &Self) -> bool {
+    /// Mutable item data and an acknowledged prediction retain the placed target.
+    fn same_item(&self, other: &Self, acknowledged: bool) -> bool {
         self.network_id == other.network_id
-            && self.stack_network_id == other.stack_network_id
+            && (self.stack_network_id == other.stack_network_id || acknowledged)
             && self.metadata == other.metadata
             && self.identifier == other.identifier
     }
@@ -185,7 +185,12 @@ impl UiRuntime {
         let state = self.screen_state();
         let previous = state.anvil_target.as_ref();
         let same_facts = previous.is_some_and(|previous| previous.target == identity);
-        let same_target = previous.is_some_and(|previous| previous.target.same_item(&identity));
+        let same_target = previous.is_some_and(|previous| {
+            previous.target.same_item(
+                &identity,
+                ledger.target_acknowledges_stack_id(target, previous.target.stack_network_id),
+            )
+        });
         if same_facts
             && previous.is_some_and(|previous| previous.names_generation == names_generation)
         {

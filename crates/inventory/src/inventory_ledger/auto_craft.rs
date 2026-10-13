@@ -194,6 +194,7 @@ impl PlayerInventoryLedger {
             held: Held {
                 stack: created,
                 overlay: None,
+                acknowledged_request_id: None,
             },
         });
         groups.push(DeltaGroup::Transfer {
