@@ -371,8 +371,9 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
             .unwrap_or_else(|poison| poison.into_inner())
             .cinnabar_api
             .clone();
-        if cinnabar.is_some() && sent_cinnabar != cinnabar {
-            let config = cinnabar.as_ref().expect("checked above");
+        if let Some(config) = &cinnabar
+            && sent_cinnabar.as_ref() != Some(config)
+        {
             let sent = runtime.block_on(async {
                 tokio::time::timeout(
                     Duration::from_secs(2),
@@ -381,7 +382,7 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
                 .await
             });
             if matches!(sent, Ok(Ok(()))) {
-                sent_cinnabar = cinnabar;
+                sent_cinnabar = Some(config.clone());
             }
         }
         let generation = auth_generation(shared);
