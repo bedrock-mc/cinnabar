@@ -10,7 +10,7 @@ pub const MAX_UI_VERTICES: usize = 262_144;
 pub const MAX_UI_INDICES: usize = 393_216;
 pub const MAX_UI_BATCHES: usize = 8_192;
 pub const MAX_UI_DRAW_BYTES: usize = 16 * 1024 * 1024;
-pub const MAX_UI_TEXTURE_SIDE: u32 = 4_096;
+pub const MAX_UI_TEXTURE_SIDE: u32 = assets::texture::policy::MAX_TEXTURE_SIDE;
 pub const MAX_UI_TEXTURE_LAYERS: u32 = 256;
 /// Fixed artwork and blank native slots retain the ordinary UI budget.
 pub const MAX_UI_FIXED_TEXTURE_BYTES: usize = 128 * 1024 * 1024;

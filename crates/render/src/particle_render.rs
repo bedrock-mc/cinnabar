@@ -48,7 +48,7 @@ use bevy::{
     },
 };
 
-use particles::{ATLAS_SIDE, ParticleInstance};
+use particles::ParticleInstance;
 
 const PARTICLE_SHADER_HANDLE: Handle<Shader> = uuid_handle!("6b2f9c3e-4d1a-4e8b-9a57-3c0f1d7a2b64");
 const INSTANCE_BYTES: u64 = std::mem::size_of::<ParticleInstance>() as u64;
@@ -157,13 +157,17 @@ fn prepare_particle_resources(
 ) {
     if let Some(base) = &frame.base
         && gpu.base.as_ref().is_none_or(|old| !Arc::ptr_eq(old, base))
-        && base.len() == (ATLAS_SIDE * ATLAS_SIDE * 4) as usize
+        && assets::texture::policy::TexturePolicy::for_device(
+            render_device.limits().max_texture_dimension_2d,
+        )
+        .page_bytes(frame.atlas_side, frame.atlas_side)
+            == Some(base.len())
     {
         let texture = render_device.create_texture(&TextureDescriptor {
             label: Some("particle atlas"),
             size: Extent3d {
-                width: ATLAS_SIDE,
-                height: ATLAS_SIDE,
+                width: frame.atlas_side,
+                height: frame.atlas_side,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -177,7 +181,7 @@ fn prepare_particle_resources(
             &render_queue,
             &texture,
             [0, 0],
-            [ATLAS_SIDE, ATLAS_SIDE],
+            [frame.atlas_side, frame.atlas_side],
             base,
         );
         gpu.texture_view = Some(texture.create_view(&TextureViewDescriptor::default()));
