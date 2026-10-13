@@ -38,6 +38,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     mut removed_instances: RemovedComponents<ChunkRenderInstance>,
     mut arena: ResMut<ChunkGpuArena>,
     budget: Res<ChunkUploadBudget>,
+    capacity_hint: Option<Res<render_scene::chunk::capacity::ChunkArenaCapacityHint>>,
     mut upload_stats: ResMut<ChunkGpuUploadStats>,
     biome_tints: Res<ChunkBiomeTints>,
     texture_assets: Res<ChunkTextureAssets>,
@@ -132,14 +133,45 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         upload_reservation.migration_allowance(),
     );
     let all_instances = instances.queries.p0();
-    for &entity in &selected {
-        if arena
-            .migration
-            .as_ref()
-            .is_some_and(ArenaMigration::blocks_arena_writes)
+    let capacity_target = super::capacity::backlog_capacity_target(
+        &arena,
+        selected.iter().filter_map(|entity| {
+            all_instances
+                .get(*entity)
+                .ok()
+                .map(|(_, instance)| instance)
+        }),
+        capacity_hint.as_deref().map_or(0, |hint| hint.sections),
+    );
+    let mut migrations_started = 0;
+    let mut uploads_waiting_for_growth = 0;
+    // Reserve every empty stream before the first upload can make its prefix non-empty.
+    if arena.origin_len == 0
+        && arena.quad_len == 0
+        && arena.geometry_stream_len == 0
+        && arena.migration.is_none()
+    {
+        while let Ok(Some((stream, growth))) =
+            first_arena_growth(arena_capacities(&arena), capacity_target, arena.limits)
         {
-            break;
+            let growth = super::capacity::backlog_growth(&arena, stream, growth, capacity_target);
+            begin_arena_migration(&mut arena, uploads.device, stream, growth);
+            migrations_started += 1;
+            upload_reservation.growth_copy_bytes += advance_arena_migration(
+                &mut arena,
+                uploads,
+                upload_reservation.migration_allowance(),
+            );
+            if arena.migration.is_some() {
+                break;
+            }
         }
+    }
+    for &entity in selected.iter().take(
+        budget
+            .max_per_frame
+            .max(PublicationServiceConfig::DEFAULT.maximum_frame_items),
+    ) {
         let Ok((_, instance)) = all_instances.get(entity) else {
             continue;
         };
@@ -283,7 +315,14 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
                 Ok(None) => break true,
                 Ok(Some((stream, growth))) => {
                     if arena.migration.is_none() {
+                        let growth = super::capacity::backlog_growth(
+                            &arena,
+                            stream,
+                            growth,
+                            capacity_target,
+                        );
                         begin_arena_migration(&mut arena, uploads.device, stream, growth);
+                        migrations_started += 1;
                     }
                     // A slice copy is submitted at once; stage this frame's earlier
                     // writes first so the copy carries them into the new buffer.
@@ -302,6 +341,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             }
         };
         if !fits {
+            uploads_waiting_for_growth += 1;
             continue;
         }
         if let Some(slot) = &instance.publication_permit
@@ -318,10 +358,15 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         {
             continue;
         }
+        let charged_bytes = instance_bytes.saturating_add(super::capacity::mirrored_upload_bytes(
+            &arena,
+            stream_counts,
+            biome_required,
+        ));
         let mut next_upload_reservation = upload_reservation;
         let mut prepared_publication_permit = None;
         let reserved = if let Some(slot) = &instance.publication_permit {
-            if !next_upload_reservation.try_reserve_permitted(instance_bytes) {
+            if !next_upload_reservation.try_reserve_permitted(charged_bytes) {
                 false
             } else {
                 let Some(permit) = slot.take() else {
@@ -345,7 +390,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
                 }
             }
         } else {
-            next_upload_reservation.try_reserve(*budget, instance_bytes)
+            next_upload_reservation.try_reserve(*budget, charged_bytes)
         };
         if !reserved {
             if let Some(token) = instance.token {
@@ -578,6 +623,8 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         upload_reservation.incremental_bytes,
         upload_reservation.growth_copy_bytes,
     );
+    upload_stats.migrations_started = migrations_started;
+    upload_stats.uploads_waiting_for_growth = uploads_waiting_for_growth;
     if upload_stats.chunk_updates > upload_stats.chunk_budget {
         bevy::log::warn!(
             "chunk GPU preparation observed {} updates despite a {}-chunk upload budget",

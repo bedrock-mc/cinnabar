@@ -11,6 +11,8 @@ pub(in crate::chunk) struct ChunkGpuUploadStats {
     pub(in crate::chunk) gpu_copy_bytes: u64,
     pub(in crate::chunk) full_shadow_bytes: u64,
     pub(in crate::chunk) total_bytes: u64,
+    pub(in crate::chunk) migrations_started: usize,
+    pub(in crate::chunk) uploads_waiting_for_growth: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -445,7 +447,7 @@ pub(in crate::chunk) struct FreshChunkRanges {
     pub(in crate::chunk) biome_len: usize,
 }
 
-/// Where a fresh first-fit allocation of `required` would land and the
+/// Where a fresh best-fit allocation of `required` would land and the
 /// resulting arena length.
 fn probe_range(
     len: usize,
@@ -456,11 +458,8 @@ fn probe_range(
     if required == 0 {
         return Some((0, len));
     }
-    if let Some(range) = free
-        .iter()
-        .find(|range| range.end - range.start >= required)
-    {
-        return Some((range.start, len));
+    if let Some((_, start)) = best_free_range(free, required, 1) {
+        return Some((start, len));
     }
     let next = len.checked_add(required as usize)?;
     if next > max_items || len > u32::MAX as usize {
@@ -479,11 +478,8 @@ fn probe_aligned_range(
     if required == 0 {
         return Some((0, len));
     }
-    for range in free {
-        let start = checked_align_up(range.start, alignment)?;
-        if start.checked_add(required)? <= range.end {
-            return Some((start, len));
-        }
+    if let Some((_, start)) = best_free_range(free, required, alignment) {
+        return Some((start, len));
     }
     let start = checked_align_up(u32::try_from(len).ok()?, alignment)?;
     let end = start.checked_add(required)?;
@@ -776,12 +772,8 @@ pub(in crate::chunk) fn allocate_aligned_quad_range(
     max_items: usize,
     alignment: u32,
 ) -> Option<u32> {
-    for index in 0..free.len() {
-        let start = checked_align_up(free[index].start, alignment)?;
+    if let Some((index, start)) = best_free_range(free, required, alignment) {
         let end = start.checked_add(required)?;
-        if end > free[index].end {
-            continue;
-        }
         let source = free.remove(index);
         insert_free_quad_range(free, source.start..start);
         insert_free_quad_range(free, end..source.end);
@@ -847,14 +839,24 @@ pub(in crate::chunk) fn insert_free_quad_range(free: &mut Vec<Range<u32>>, mut f
     free.insert(index, freed);
 }
 
+/// Chooses the smallest fitting hole, preserving larger contiguous ranges for large uploads.
+fn best_free_range(free: &[Range<u32>], required: u32, alignment: u32) -> Option<(usize, u32)> {
+    free.iter()
+        .enumerate()
+        .filter_map(|(index, range)| {
+            let start = checked_align_up(range.start, alignment)?;
+            let end = start.checked_add(required)?;
+            (end <= range.end).then_some((range.end - range.start, index, start))
+        })
+        .min_by_key(|&(size, index, _)| (size, index))
+        .map(|(_, index, start)| (index, start))
+}
+
 pub(in crate::chunk) fn take_free_quad_range(
     free: &mut Vec<Range<u32>>,
     required: u32,
 ) -> Option<u32> {
-    let index = free
-        .iter()
-        .position(|range| range.end - range.start >= required)?;
-    let start = free[index].start;
+    let (index, start) = best_free_range(free, required, 1)?;
     free[index].start += required;
     if free[index].is_empty() {
         free.remove(index);

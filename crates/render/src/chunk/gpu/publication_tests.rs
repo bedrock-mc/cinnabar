@@ -679,7 +679,10 @@ fn arena_growth_is_charged_to_the_frame_not_to_an_exact_byte_permit() {
     assert_eq!(completed[0].token.generation, 2);
     assert!(completed[0].uploaded_bytes >= bytes);
     let stats = *gpu_app.world().resource::<ChunkGpuUploadStats>();
-    assert!(stats.gpu_copy_bytes > 0, "the first upload grew the arena");
+    assert_eq!(
+        stats.gpu_copy_bytes, 0,
+        "empty streams need no migration copy"
+    );
     assert_eq!(slot.stage(), None);
     assert_eq!(allowance.live_permits(), 0);
 
