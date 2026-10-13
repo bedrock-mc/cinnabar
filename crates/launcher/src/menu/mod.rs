@@ -133,6 +133,8 @@ pub enum MenuAction {
     SettingsStorage(settings_storage::StorageAction),
     SettingsSupport(settings_support::SupportAction),
     SettingsOption(u16, i32),
+    /// Applies one graphics preset without changing personal video preferences.
+    SettingsVideoPreset(settings_options::video_presets::VideoPreset),
     SettingsDropdown(u16),
     SettingsLanguage(u16),
     SettingsKey(u16),
