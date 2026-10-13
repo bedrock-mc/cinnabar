@@ -759,12 +759,13 @@ fn start_screen_text_resolves_through_the_language_table() {
         .append_menu(&runtime, &mut nodes, &mut next, metrics, 1280.0, 720.0)
         .unwrap();
     let texts = drawn_texts(&nodes);
-    for label in ["Play", "Settings", "Marketplace"] {
+    for label in ["Play", "Settings"] {
         assert!(
             texts.iter().any(|text| text == label),
             "{label} in {texts:?}"
         );
     }
+    assert!(!texts.iter().any(|text| text == "Marketplace"));
     for text in &texts {
         assert!(
             !text.starts_with('$') && !text.contains("start_screen.") && text != "Unlock Full Game",

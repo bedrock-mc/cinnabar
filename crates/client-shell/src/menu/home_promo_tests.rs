@@ -79,12 +79,12 @@ fn snapshot_core_home_promo() {
 }
 
 #[test]
-fn home_feed_keeps_inbox_identity_dates_counts_and_marketplace_ribbon() {
+fn home_feed_keeps_inbox_identity_dates_counts_and_play_ribbon() {
     let home: Home = serde_json::from_value(serde_json::json!({
         "inbox": {"unread":30,"categories":[{"type":"News","unread":30}]},
         "messages": [
             {"surface":"InboxMessage","instance_id":"instance","report_id":"report","received":"2026-10-03T10:00:00Z","sender":"Minecraft","category":"News","status":"Unread"},
-            {"surface":"MarketplaceButton","banner":"Add-ons!","colors":{"BannerTextColor":[255,200,40]},"images":[{"id":"defaultBackground","path":"/offline/art.png"},{"id":"banner","path":"/offline/ribbon.png"}]}
+            {"surface":"PlayButton","banner":"Add-ons!","colors":{"BannerTextColor":[255,200,40]},"images":[{"id":"defaultBackground","path":"/offline/art.png"},{"id":"banner","path":"/offline/ribbon.png"}]}
         ]
     })).unwrap();
     let mapped = menu_home(&home, 0);
@@ -93,7 +93,7 @@ fn home_feed_keeps_inbox_identity_dates_counts_and_marketplace_ribbon() {
     assert_eq!(mapped.inbox[0].report_id, "report");
     assert_eq!(mapped.inbox[0].received, "2026-10-03T10:00:00Z");
     assert_eq!(mapped.inbox[0].source, "Minecraft");
-    let art = mapped.store_art.unwrap();
+    let art = mapped.play_art.unwrap();
     assert_eq!(art.banner, "Add-ons!");
     assert_eq!(art.banner_texture, "/offline/ribbon.png");
     assert_eq!(art.default_background, "/offline/art.png");

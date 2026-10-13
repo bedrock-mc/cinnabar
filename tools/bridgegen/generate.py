@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def declarations(manifest):
-    """Render unique, bounded numeric constants for both bridge implementations."""
+    """Render unique, bounded numeric and string constants for both bridge implementations."""
     if manifest["schema"] != 1:
         raise ValueError("unsupported bridge contract schema")
     constants = manifest["constants"]
@@ -24,14 +24,21 @@ def declarations(manifest):
           "package bridgecontract", "", "const ("]
     for row in constants:
         value = row["value"]
-        limit = 255 if row["rust_type"] == "u8" else 2**32 - 1
-        if not isinstance(value, int) or not 0 < value <= limit:
-            raise ValueError("bridge contract values must fit their wire types")
+        rust_type = row["rust_type"]
+        if rust_type == "str":
+            if not isinstance(value, str) or not value or not value.isascii():
+                raise ValueError("bridge string constants must be nonempty ASCII")
+            value = json.dumps(value)
+            rust_type = "&str"
+        else:
+            limit = 255 if rust_type == "u8" else 2**32 - 1
+            if not isinstance(value, int) or not 0 < value <= limit:
+                raise ValueError("bridge contract values must fit their wire types")
         go += [f'    // {row["go_name"]}: {row["doc"]}', f'    {row["go_name"]} = {value}']
         if row["rust_name"]:
             visibility = "pub(crate)" if row["rust_name"] in ("CONTROL_MAX_FRAME_LEN", "MAX_PING_TARGETS") else "pub"
             rust += ["", f'/// {row["doc"]}',
-                     f'{visibility} const {row["rust_name"]}: {row["rust_type"]} = {value};']
+                     f'{visibility} const {row["rust_name"]}: {rust_type} = {value};']
     go.append(")")
     formatted = subprocess.run(["gofmt"], input="\n".join(go) + "\n", text=True,
                                capture_output=True, check=True).stdout

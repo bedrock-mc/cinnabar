@@ -754,7 +754,6 @@ const fn screen_title(screen: MenuScreen) -> &'static str {
         MenuScreen::Death => "You died!",
         MenuScreen::Inbox => "Inbox",
         MenuScreen::Friends => "Friends",
-        MenuScreen::Store => "Marketplace",
         MenuScreen::Invite => "Invite to Game",
     }
 }

@@ -74,7 +74,7 @@ The pinned `playermessaging.Client` refreshes the feed. `catalog.flatten` retain
 well-formed top-level messages without a surface whitelist. The launcher downloads
 their images, caches home data and serves it through `home.v1`. The bridge and
 protocol facade preserve the messages and image paths. Rust polls and refreshes
-the menu view, but maps only Play/Marketplace art and inbox messages. It has no
+the menu view, but maps only Play art and available inbox categories. It has no
 general message-button click handler.
 
 The upstream messaging HTTP client omitted Accept-Language. The Rust launcher

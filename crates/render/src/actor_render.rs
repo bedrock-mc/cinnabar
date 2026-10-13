@@ -445,6 +445,11 @@ pub(crate) fn prepare_actor_bind_group(
     view_uniforms: Res<ViewUniforms>,
     mut gpu: ResMut<ActorGpu>,
 ) {
+    // Bindings matter only to draws: without instances they wait instead of being rebuilt every
+    // frame, as a rig with no player skins resident (or no actors at all) would otherwise do.
+    if gpu.instance_count == 0 {
+        return;
+    }
     let Some(view_binding) = view_uniforms.uniforms.binding() else {
         gpu.bind_group = None;
         return;
