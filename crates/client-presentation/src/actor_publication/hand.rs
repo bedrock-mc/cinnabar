@@ -252,7 +252,7 @@ pub(super) fn vanilla_hand_source(
         presentation,
         body,
         items,
-        item_glint: artwork.item_glint().cloned(),
+        item_glint: artwork.item_glint.clone(),
         motion,
         java_body_camera: None,
     })

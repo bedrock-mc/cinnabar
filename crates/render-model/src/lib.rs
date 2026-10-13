@@ -163,8 +163,8 @@ pub use actor::{
     ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
     MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
 };
-pub use actor::{ActorGlint, GlintTexture, ITEM_GLINT_UV_SCALE};
 pub use actor::{ActorSkinResidency, ResidentSkin, pack_skin_slot};
+pub use actor::{GlintTexture, ITEM_GLINT_UV_SCALE};
 pub use block_entity::BeaconModel;
 pub use block_entity::ConduitModel;
 pub use block_entity::CrystalBeamModel;
