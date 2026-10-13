@@ -1,5 +1,6 @@
 //! Exercises compiler launch and Clippy isolation through the comparison preparation boundary.
 use super::*;
+#[cfg(unix)]
 #[path = "../../tests/support/mod.rs"]
 mod support;
 
