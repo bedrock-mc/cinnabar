@@ -57,7 +57,7 @@ fn tile_costs(c: &mut Criterion) {
         .filter(|column| column.x * column.x + column.z * column.z <= 144)
         .collect();
     c.bench_function("far_terrain/near_mask_radius_12", |b| {
-        b.iter(|| NearMask::from_columns(black_box([0, 0]), disc.iter().copied()));
+        b.iter(|| NearMask::from_columns(black_box([0, 0]), 12, disc.iter().copied()));
     });
 }
 

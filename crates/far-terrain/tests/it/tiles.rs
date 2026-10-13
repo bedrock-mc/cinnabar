@@ -72,7 +72,7 @@ fn near_mask_bounds_its_columns() {
         .flat_map(|x| (-25..20).map(move |z| (x, z)))
         .filter(|&(x, z)| near(x, z))
         .map(|(x, z)| ColumnPos::new(x, z));
-    let mask = NearMask::from_columns(centre, columns);
+    let mask = NearMask::from_columns(centre, 64, columns);
     let middle = [centre[0] as f32 * 16.0 + 8.0, centre[1] as f32 * 16.0 + 8.0];
     for x in -20..30 {
         for z in -25..20 {
@@ -96,7 +96,7 @@ fn near_mask_bounds_its_columns() {
         mask.inner_blocks() > 16.0,
         "only the hole limits the inner disc"
     );
-    assert_eq!(NearMask::from_columns(centre, []).inner_blocks(), 0.0);
+    assert_eq!(NearMask::from_columns(centre, 64, []).inner_blocks(), 0.0);
 }
 
 /// Inside the near edge but outside the skipped disc, only finest tiles are selected.
@@ -286,10 +286,28 @@ fn replaced_coarse_tiles_stay_until_covered_or_near() {
         [2],
         "kept until finer tiles are built"
     );
-    tiles.release_near(&NearMask::from_columns([0, 0], [ColumnPos::new(37, 0)]));
+    tiles.release_near(&NearMask::from_columns([0, 0], 64, [ColumnPos::new(37, 0)]));
     assert!(
         levels(&tiles, 600, 8).iter().all(|level| *level == 0),
         "dropped over a near column"
     );
     assert_eq!(levels(&tiles, 600, 300), [2]);
+}
+
+/// Columns left far behind by a teleport, not yet evicted, neither size nor enter the mask.
+#[test]
+fn near_mask_ignores_columns_past_its_limit() {
+    let centre = [1_000_000, -1_000_000];
+    let near = [ColumnPos::new(centre[0] + 1, centre[1])];
+    let stale = [
+        ColumnPos::new(0, 0),
+        ColumnPos::new(i32::MIN, i32::MAX),
+        ColumnPos::new(centre[0] - 40_000, centre[1]),
+    ];
+    let mask = NearMask::from_columns(centre, 32, near.into_iter().chain(stale));
+    assert!(mask.side() <= 2 * 32 + 1);
+    assert!(mask.contains(near[0]));
+    for column in stale {
+        assert!(!mask.contains(column));
+    }
 }

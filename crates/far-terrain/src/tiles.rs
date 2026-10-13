@@ -139,12 +139,25 @@ pub struct NearMask {
 const HALF_COLUMN_DIAGONAL_BLOCKS: f32 = 12.0;
 
 impl NearMask {
-    /// Exactly `columns`, around the `centre` column.
+    /// Exactly the `columns` within `limit` columns of the `centre` column; farther ones, such
+    /// as those left behind by a teleport and not yet evicted, are left out.
     #[must_use]
-    pub fn from_columns(centre: [i32; 2], columns: impl IntoIterator<Item = ColumnPos>) -> Self {
+    pub fn from_columns(
+        centre: [i32; 2],
+        limit: i32,
+        columns: impl IntoIterator<Item = ColumnPos>,
+    ) -> Self {
+        let limit = i64::from(limit.max(0));
         let columns: Vec<[i32; 2]> = columns
             .into_iter()
-            .map(|column| [column.x - centre[0], column.z - centre[1]])
+            .map(|column| {
+                [
+                    i64::from(column.x) - i64::from(centre[0]),
+                    i64::from(column.z) - i64::from(centre[1]),
+                ]
+            })
+            .filter(|[dx, dz]| dx.abs() <= limit && dz.abs() <= limit)
+            .map(|offset| offset.map(|delta| delta as i32))
             .collect();
         let reach = columns
             .iter()
@@ -196,8 +209,11 @@ impl NearMask {
 
     #[must_use]
     pub fn contains(&self, column: ColumnPos) -> bool {
-        let (dx, dz) = (column.x - self.origin[0], column.z - self.origin[1]);
-        let side = self.side as i32;
+        let (dx, dz) = (
+            i64::from(column.x) - i64::from(self.origin[0]),
+            i64::from(column.z) - i64::from(self.origin[1]),
+        );
+        let side = i64::from(self.side);
         if dx < 0 || dz < 0 || dx >= side || dz >= side {
             return false;
         }

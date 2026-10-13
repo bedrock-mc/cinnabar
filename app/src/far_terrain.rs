@@ -243,7 +243,7 @@ pub(crate) fn feed_far_terrain(
             .1
             .filter(|column| column.dimension == centre.dimension)
             .map(|column| ColumnPos::new(column.x, column.z));
-        far.near = Arc::new(NearMask::from_columns(near_view.0, drawn));
+        far.near = Arc::new(NearMask::from_columns(near_view.0, loaded + reach, drawn));
         far.near_view = Some(near_view);
     }
     let horizon_blocks = ((loaded + reach) * 16) as f32;
