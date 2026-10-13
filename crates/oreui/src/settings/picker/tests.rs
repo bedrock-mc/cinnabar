@@ -28,8 +28,10 @@ fn shipped_channel_picker_keeps_unpublished_stable_hidden() {
         unreachable!()
     };
     for published in [false, true] {
-        let mut updates = launcher::menu::updates::View::default();
-        updates.stable_available = published;
+        let updates = launcher::menu::updates::View {
+            stable_available: published,
+            ..Default::default()
+        };
         let (index, actions) = channel_picker_actions(updates);
         for (choice, metadata) in choices.iter().enumerate() {
             let action = MenuAction::SettingsOption(index, choice as i32);
