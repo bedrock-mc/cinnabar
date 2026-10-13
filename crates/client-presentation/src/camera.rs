@@ -31,6 +31,7 @@ pub mod fov;
 mod freelook_tests;
 mod hurt;
 pub mod java;
+pub mod legacy;
 pub mod look;
 pub mod motion_blur;
 mod overlay;
@@ -178,6 +179,7 @@ impl Plugin for CameraPresentationPlugin {
             .init_resource::<WalkBobState>()
             .init_resource::<HandSwayState>()
             .init_resource::<java::JavaCameraState>()
+            .init_resource::<legacy::LegacyCameraMotion>()
             .init_resource::<CameraHurtState>()
             .init_resource::<ServerCameraView>()
             .init_resource::<PortalProgress>()

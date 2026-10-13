@@ -378,6 +378,48 @@ fn launcher_words_a_transport_failure_as_vanilla_does() {
 
 // Saving, editing, cancelling or deleting a server keeps the Servers tab, as vanilla pops the form.
 #[test]
+fn adding_a_server_selects_it_over_the_previous_selection() {
+    let root = client_ui::test_support::pack_harness::scratch_dir("server-select");
+    use launcher::install_layout::{InstallEnvironment, Platform};
+    let layout = launcher::install_layout::InstallLayout::resolve(
+        Platform::Linux,
+        &InstallEnvironment {
+            executable: root.join("target/debug/cinnabar"),
+            user_root: None,
+            home: Some(root.join("home")),
+            local_app_data: None,
+            xdg_config_home: None,
+            xdg_data_home: None,
+            xdg_runtime_dir: None,
+        },
+    )
+    .unwrap();
+    let mut menu = MenuRuntime::new_with_layout(
+        true,
+        Some(2),
+        "Steve".to_owned(),
+        layout,
+        crate::player_skin::LocalPlayerSkin::generated_default("Steve"),
+    );
+    menu.activate(MenuAction::Navigate(MenuScreen::Servers));
+    for (name, address) in [("First", "127.0.0.1"), ("Second", "127.0.0.2")] {
+        menu.activate(MenuAction::PlayAddServer);
+        menu.name.set_text(name);
+        menu.address.set_text(address);
+        menu.activate(MenuAction::AddSave);
+    }
+    menu.feeds.select_saved(0);
+    menu.activate(MenuAction::PlayAddServer);
+    menu.name.set_text("Third");
+    menu.address.set_text("127.0.0.3");
+    menu.activate(MenuAction::AddSave);
+    assert_eq!(menu.servers[2].name, "Third");
+    assert_eq!(menu.view().feeds.selected_saved, Some(2));
+    menu.saves.flush();
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn server_form_returns_to_the_servers_tab() {
     let root = client_ui::test_support::pack_harness::scratch_dir("server-tab");
     use launcher::install_layout::{InstallEnvironment, Platform};

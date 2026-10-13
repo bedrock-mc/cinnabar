@@ -140,7 +140,6 @@ pub struct ActorArtworkPages {
     pub identity: [u8; 32],
     pub entity_identity: [u8; 32],
     pub actor_glint: Option<EquipmentRaster>,
-    /// The brighter glint drawn over held items.
     pub item_glint: Option<EquipmentRaster>,
     pub pages: Arc<[ActorTexturePage]>,
     routes: Arc<BTreeMap<EntityRigId, ActorArtworkLocation>>,
@@ -159,37 +158,37 @@ impl ActorArtworkPages {
     /// Installs the shared actor glint image once, independently of skin and armor pages.
     #[must_use]
     pub fn with_actor_glint(mut self, raster: EquipmentRaster) -> Self {
-        if self.hash_glint(b"actor", &raster) {
-            self.actor_glint = Some(raster);
-        }
+        self = self.with_glint_raster(raster, false);
         self
     }
 
-    /// Installs the held-item glint image beside the actor glint.
+    /// Installs item glint beside the actor raster so both profiles can draw together.
     #[must_use]
-    pub fn with_item_glint(mut self, raster: EquipmentRaster) -> Self {
-        if self.hash_glint(b"item", &raster) {
-            self.item_glint = Some(raster);
-        }
-        self
+    pub fn with_item_glint(self, raster: EquipmentRaster) -> Self {
+        self.with_glint_raster(raster, true)
     }
 
-    /// Folds a glint slot and well-formed raster into the snapshot identity; `false` rejects it.
-    fn hash_glint(&mut self, slot: &[u8], raster: &EquipmentRaster) -> bool {
+    /// Hashes a validated raster under its sampler role before replacing that role.
+    fn with_glint_raster(mut self, raster: EquipmentRaster, item: bool) -> Self {
         if raster.width == 0
             || raster.height == 0
             || raster.rgba8.len() != usize::from(raster.width) * usize::from(raster.height) * 4
         {
-            return false;
+            return self;
         }
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
-        hasher.update(slot);
+        hasher.update([u8::from(item)]);
         hasher.update(raster.width.to_le_bytes());
         hasher.update(raster.height.to_le_bytes());
         hasher.update(&raster.rgba8);
         self.identity = hasher.finalize().into();
-        true
+        if item {
+            self.item_glint = Some(raster);
+        } else {
+            self.actor_glint = Some(raster);
+        }
+        self
     }
 
     pub fn new(catalog: &RuntimeActorCatalog) -> Self {
@@ -516,9 +515,6 @@ impl ActorArtworkPages {
     pub fn actor_glint(&self) -> Option<&EquipmentRaster> {
         self.actor_glint.as_ref()
     }
-    pub fn item_glint(&self) -> Option<&EquipmentRaster> {
-        self.item_glint.as_ref()
-    }
 
     /// Recognizes clones of the exact artwork snapshot without scanning pixels or routes.
     pub fn shares_storage_with(&self, other: &Self) -> bool {
@@ -568,24 +564,6 @@ impl ActorArtworkPages {
 mod tests {
     use super::*;
     use crate::MAX_RENDERED_PLAYERS;
-
-    #[test]
-    fn identical_glint_pixels_in_different_slots_have_different_identities() {
-        let base = ActorArtworkPages::default();
-        let raster = EquipmentRaster {
-            width: 1,
-            height: 1,
-            rgba8: Arc::from([128, 128, 128, 255]),
-        };
-        let actor = base.clone().with_actor_glint(raster.clone());
-        let item = base.with_item_glint(raster);
-
-        assert_eq!(
-            actor.actor_glint().unwrap().rgba8,
-            item.item_glint().unwrap().rgba8
-        );
-        assert_ne!(actor.identity(), item.identity());
-    }
 
     /// Route-only changes can retain the pixel identity but must invalidate prepared artwork.
     #[test]

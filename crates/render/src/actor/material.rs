@@ -68,7 +68,14 @@ mod tests {
             );
         }
         assert_eq!(
-            ActorMaterial::default().gpu_word(),
+            ActorMaterial {
+                glint: render_model::ActorGlint {
+                    profile: render_api::CombatVisuals::Modern,
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+            .gpu_word(),
             assets::EntityRenderMaterial::Default as u32
         );
         assert_eq!(state(ActorMaterial::default().gpu_word()), None);

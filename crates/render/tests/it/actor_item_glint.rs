@@ -93,7 +93,7 @@ struct VertexOutput { @builtin(position) position: vec4<f32>, @location(0) uv: v
     return out;
 }
 @fragment fn fragment(input: VertexOutput) -> @location(0) vec4<f32> {
-    let layers = glint_layer_uvs(parameters.origin + input.uv * parameters.span, parameters.origin, parameters.scale, parameters.scroll, parameters.extent.x);
+    let layers = glint_layer_uvs(parameters.origin + input.uv * parameters.span, parameters.origin, parameters.scale, parameters.scroll, parameters.extent.x, false);
     return fract(vec4(layers[0], layers[1]));
 }
 "#,

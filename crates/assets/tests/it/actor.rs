@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 fn geometry(size: [f32; 3], uv: assets::EntityGeometryUv) -> assets::EntityGeometry {
     use assets::{EntityGeometryBone, EntityGeometryCube, EntityGeometryScalar as Scalar};
     assets::EntityGeometry {
+        animation_no_head_bob: false,
         visible_bounds: None,
         identifier: "geometry.projectile".into(),
         inherits: None,
@@ -241,4 +242,22 @@ fn malformed_rehashed_headers_cannot_bypass_carrier_policy_or_limits() {
     for length in [0, 8, 128, bytes.len() - 1] {
         assert!(RuntimeActorCatalog::decode(&bytes[..length], &entities).is_err());
     }
+}
+
+#[test]
+fn catalog_skin_preserves_head_bob_flag_and_old_carriers_default_to_bobbing() {
+    let mut model = geometry(
+        [1.0; 3],
+        assets::EntityGeometryUv::Box([assets::EntityGeometryScalar::ZERO; 2]),
+    );
+    let encoded = serde_json::to_value(&model).unwrap();
+    assert!(encoded.get("animation_no_head_bob").is_none());
+    let decoded: assets::EntityGeometry = serde_json::from_value(encoded).unwrap();
+    assert!(!decoded.animation_no_head_bob);
+    model.animation_no_head_bob = true;
+    assert!(
+        assets::SkinGeometry::from_catalog(&model)
+            .unwrap()
+            .animation_no_head_bob
+    );
 }

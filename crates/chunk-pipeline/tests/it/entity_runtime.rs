@@ -104,6 +104,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
         symbols,
         geometries: vec![
             EntityGeometry {
+                animation_no_head_bob: false,
                 visible_bounds: None,
                 identifier: "geometry.base".into(),
                 inherits: None,
@@ -128,6 +129,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                 .into_boxed_slice(),
             },
             EntityGeometry {
+                animation_no_head_bob: false,
                 visible_bounds: None,
                 identifier: "geometry.bee".into(),
                 inherits: Some(EntityGeometryInheritance {

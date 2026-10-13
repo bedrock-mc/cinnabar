@@ -1,6 +1,116 @@
 use super::*;
 use bevy::render::texture::CachedTexture;
 
+/// Recreates Bevy's per-frame attachment around the same cached GPU texture.
+fn attachment(texture: &CachedTexture) -> ViewDepthStencilTexture {
+    ViewDepthStencilTexture::new(texture.clone(), Some(0.0), None)
+}
+
+/// Makes a depth target with a retained default view, like Bevy's texture cache.
+fn cached_depth(device: &RenderDevice, format: wgpu::TextureFormat, samples: u32) -> CachedTexture {
+    let texture = texture(
+        device,
+        format,
+        samples,
+        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+    );
+    CachedTexture {
+        default_view: texture.create_view(&Default::default()),
+        texture,
+    }
+}
+
+#[test]
+fn unchanged_depth_attachments_reuse_sampling_views_and_resolves() {
+    let (app, _) = crate::queue_review_support::app();
+    let device = app.world().resource::<RenderDevice>();
+    for samples in [1, 4] {
+        let cached = cached_depth(device, wgpu::TextureFormat::Depth32Float, samples);
+        let first = attachment(&cached);
+        let resolved = ResolvedDepth::new(device, &first, RuntimeStage::GpuPost);
+        for _ in 0..3 {
+            let next = attachment(&cached);
+            assert_ne!(
+                first
+                    .attachment
+                    .depth_stencil_views()
+                    .depth_only_view()
+                    .unwrap()
+                    .id(),
+                next.attachment
+                    .depth_stencil_views()
+                    .depth_only_view()
+                    .unwrap()
+                    .id(),
+                "the fixture must exercise recreated attachment views"
+            );
+            assert_eq!(view_depth(&first).id(), view_depth(&next).id());
+            assert!(
+                resolved.matches(&next),
+                "unchanged depth must retain its resolve pipeline"
+            );
+        }
+
+        let replacement = attachment(&cached_depth(
+            device,
+            wgpu::TextureFormat::Depth32Float,
+            samples,
+        ));
+        assert_ne!(view_depth(&first).id(), view_depth(&replacement).id());
+        assert!(!resolved.matches(&replacement));
+        let changed_samples = attachment(&cached_depth(
+            device,
+            wgpu::TextureFormat::Depth32Float,
+            if samples == 1 { 4 } else { 1 },
+        ));
+        assert!(!resolved.matches(&changed_samples));
+    }
+}
+
+#[test]
+fn combined_depth_stencil_keeps_its_depth_only_sampling_view() {
+    let (app, _) = crate::queue_review_support::app();
+    let device = app.world().resource::<RenderDevice>();
+    let cached = cached_depth(device, wgpu::TextureFormat::Depth24PlusStencil8, 1);
+    let depth = attachment(&cached);
+    assert_ne!(view_depth(&depth).id(), cached.default_view.id());
+    assert_eq!(
+        view_depth(&depth).id(),
+        depth
+            .attachment
+            .depth_stencil_views()
+            .depth_only_view()
+            .unwrap()
+            .id()
+    );
+    // A combined all-aspect view cannot satisfy this depth binding.
+    let layout = device
+        .wgpu_device()
+        .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("depth aspect regression"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Depth,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        });
+    let _binding = device
+        .wgpu_device()
+        .create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("depth aspect regression"),
+            layout: &layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(view_depth(&depth)),
+            }],
+        });
+}
+
 /// Requests the format capabilities used by the live renderer without opening a window.
 pub(crate) fn fixture() -> Option<(RenderDevice, wgpu::Queue, wgpu::Adapter)> {
     bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::new);

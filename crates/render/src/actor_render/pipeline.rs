@@ -129,17 +129,27 @@ fn prewarm_materials() -> impl Iterator<Item = u32> {
             })
         })
     });
-    ordinary.chain(additive).flat_map(|material| {
-        [
-            Some(material),
-            Some(material | assets::EntityRenderMaterialState::DEPTH_ALWAYS),
-            (material & assets::EntityRenderMaterialState::KIND_MASK
-                == assets::EntityRenderMaterial::DissolveColor as u32)
-                .then_some(material | crate::actor::material::LATE_DISSOLVE_COLOR),
-        ]
-        .into_iter()
-        .flatten()
-    })
+    ordinary
+        .chain(additive)
+        .flat_map(|material| {
+            [
+                material,
+                material
+                    | render_model::LEGACY_COMBAT_MATERIAL_FLAG
+                    | render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG,
+            ]
+        })
+        .flat_map(|material| {
+            [
+                Some(material),
+                Some(material | assets::EntityRenderMaterialState::DEPTH_ALWAYS),
+                (material & assets::EntityRenderMaterialState::KIND_MASK
+                    == assets::EntityRenderMaterial::DissolveColor as u32)
+                    .then_some(material | crate::actor::material::LATE_DISSOLVE_COLOR),
+            ]
+            .into_iter()
+            .flatten()
+        })
 }
 
 pub(super) fn prepare_actor_pipelines(
@@ -369,6 +379,7 @@ pub(super) struct ActorPipelineContract {
     additive: bool,
     additive_alpha: bool,
     alpha_to_coverage: bool,
+    write_alpha: bool,
 }
 
 impl ActorPipelineKey {
@@ -411,10 +422,16 @@ impl ActorPipelineKey {
             depth_always: state.depth_always,
             additive: state.blend && state.additive,
             additive_alpha: state.blend && state.additive && state.additive_alpha,
+            write_alpha: self.material
+                & (render_model::LEGACY_COMBAT_MATERIAL_FLAG
+                    | render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG)
+                != (render_model::LEGACY_COMBAT_MATERIAL_FLAG
+                    | render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG),
             alpha_to_coverage: self.msaa.samples() > 1
                 && state.alpha_test
                 && !state.blend
                 && !state.emissive
+                && self.material & render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG == 0
                 && self.material & assets::EntityRenderMaterialState::KIND_MASK
                     != assets::EntityRenderMaterial::Dragon as u32
                 && kind == assets::EntityRenderMaterial::Default,
@@ -454,6 +471,12 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
                 .blend = crate::actor::material::blend_state(state);
         }
         let kind = key.material & assets::EntityRenderMaterialState::KIND_MASK;
+        if !contract.write_alpha {
+            descriptor.fragment.as_mut().unwrap().targets[0]
+                .as_mut()
+                .unwrap()
+                .write_mask = ColorWrites::COLOR;
+        }
         if kind == assets::EntityRenderMaterial::DissolveDepth as u32 {
             descriptor.fragment.as_mut().unwrap().targets[0]
                 .as_mut()

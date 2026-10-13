@@ -108,7 +108,7 @@ fn item_foil(uv: vec2<f32>, origin: vec2<f32>, instance: u32, sample: u32) -> ve
     let offsets = vec2(word_f32(base + 30u), word_f32(base + 31u));
     let strength = word_f32(base + 32u);
     let scale = vec2(word_f32(base + 33u), word_f32(base + 34u));
-    let coordinates = glint_layer_uvs(uv, origin, scale, offsets * scale.x, word_f32(base + 35u));
+    let coordinates = glint_layer_uvs(uv, origin, scale, offsets * scale.x, word_f32(base + 35u), false);
     let layers = tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, coordinates[0], 0.0)).rgb + tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, coordinates[1], 0.0)).rgb;
     let foil = layers * GLINT_TINT_RGB * strength * native_light_texel(sample);
     return foil * foil;

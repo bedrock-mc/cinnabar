@@ -14,6 +14,7 @@ pub(super) struct PoseView {
     pub partial_tick: f32,
     pub first_person: bool,
     pub java_mode: bool,
+    pub combat_visuals: render_api::CombatVisuals,
     pub sampling_camera: Option<([f32; 2], [f32; 3])>,
 }
 
@@ -56,6 +57,7 @@ pub(super) fn sample<'a>(
             partial_tick,
             first_person,
             java_mode,
+            combat_visuals,
             sampling_camera,
         },
         cull_view,
@@ -201,9 +203,11 @@ pub(super) fn sample<'a>(
                             Some(poses),
                         )
                     };
-                    let Some(presentation) = presentation else {
+                    let Some(mut presentation) = presentation else {
                         continue;
                     };
+                    presentation.submission.overlay_rgba8 =
+                        crate::presentation::combat::overlay(actor, combat_visuals);
                     if rig.actor.runtime_id == local_runtime_id {
                         canonical_local = Some(presentation);
                     } else {

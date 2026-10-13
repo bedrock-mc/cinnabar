@@ -310,8 +310,9 @@ pub(super) fn item_atlas(
 
 /// Vanilla's hand stack order: hurt tilt, walk bob, then sway about X and Y.
 pub(super) fn hand_motion_matrix(motion: &crate::camera::FirstPersonHandMotion) -> Mat4 {
-    motion.hurt
-        * motion.bob.matrix()
+    motion
+        .legacy_effect
+        .unwrap_or_else(|| motion.hurt * motion.bob.matrix())
         * Mat4::from_rotation_x(motion.sway_pitch_radians)
         * Mat4::from_rotation_y(motion.sway_yaw_radians)
 }
@@ -322,7 +323,11 @@ pub(super) fn java_light_matrix(
     look: bevy::math::Quat,
 ) -> Mat4 {
     let (yaw, pitch, _) = look.to_euler(bevy::math::EulerRot::YXZ);
-    let effects = motion.map_or(Mat4::IDENTITY, |motion| motion.hurt * motion.bob.matrix());
+    let effects = motion.map_or(Mat4::IDENTITY, |motion| {
+        motion
+            .legacy_effect
+            .unwrap_or_else(|| motion.hurt * motion.bob.matrix())
+    });
     effects * Mat4::from_rotation_x(-pitch) * Mat4::from_rotation_y(std::f32::consts::PI - yaw)
 }
 

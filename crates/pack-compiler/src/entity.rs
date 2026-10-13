@@ -92,6 +92,7 @@ struct PendingGeometry {
     texture_width: Option<u16>,
     texture_height: Option<u16>,
     visible_bounds: Option<assets::EntityGeometryBounds>,
+    animation_no_head_bob: Option<bool>,
     bones: Box<[EntityGeometryBone]>,
 }
 
@@ -385,6 +386,10 @@ fn assemble(
         return Err(invalid("entity geometry count exceeds bound"));
     }
     let pending_geometries = geometries.into_values().collect::<Vec<_>>();
+    let local_bob_flags = pending_geometries
+        .iter()
+        .map(|geometry| geometry.animation_no_head_bob)
+        .collect::<Vec<_>>();
     let local_dimensions = pending_geometries
         .iter()
         .map(|geometry| (geometry.texture_width, geometry.texture_height))
@@ -415,22 +420,29 @@ fn assemble(
                 texture_height: geometry.texture_height.unwrap_or(64),
                 bones: geometry.bones,
                 visible_bounds: geometry.visible_bounds,
+                animation_no_head_bob: geometry.animation_no_head_bob.unwrap_or(false),
             })
         })
         .collect::<Result<Vec<_>, AssetError>>()?;
     let selected_parents = validate_entity_geometry_inheritance(&geometries)?;
     for (index, geometry) in geometries.iter_mut().enumerate() {
-        geometry.texture_width = resolve_geometry_dimension(
+        geometry.texture_width = geometry::inherited_value(
             index,
-            &local_dimensions,
             &selected_parents,
-            |dimensions| dimensions.0,
+            |index| local_dimensions[index].0,
+            64,
         )?;
-        geometry.texture_height = resolve_geometry_dimension(
+        geometry.texture_height = geometry::inherited_value(
             index,
-            &local_dimensions,
             &selected_parents,
-            |dimensions| dimensions.1,
+            |index| local_dimensions[index].1,
+            64,
+        )?;
+        geometry.animation_no_head_bob = geometry::inherited_value(
+            index,
+            &selected_parents,
+            |index| local_bob_flags[index],
+            false,
         )?;
     }
     let mut molang_compiler = molang::MolangCompiler::default();
@@ -560,25 +572,6 @@ fn validate_reference_coverage(
         }
     }
     Ok(())
-}
-
-fn resolve_geometry_dimension(
-    start: usize,
-    local_dimensions: &[(Option<u16>, Option<u16>)],
-    selected_parents: &[Option<usize>],
-    select: impl Fn((Option<u16>, Option<u16>)) -> Option<u16>,
-) -> Result<u16, AssetError> {
-    let mut current = start;
-    for _ in 0..=selected_parents.len() {
-        if let Some(dimension) = select(local_dimensions[current]) {
-            return Ok(dimension);
-        }
-        let Some(parent) = selected_parents[current] else {
-            return Ok(64);
-        };
-        current = parent;
-    }
-    Err(invalid("entity geometry dimension inheritance is cyclic"))
 }
 
 fn parse_source(
