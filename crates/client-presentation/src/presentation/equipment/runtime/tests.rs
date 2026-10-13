@@ -24,7 +24,24 @@ fn held_blocks_draw_only_their_outward_faces() {
             .vertices
             .iter()
             .all(|vertex| vertex.back_uv == render_model::ONE_SIDED_BACK_UV),
-        "a held glass block hides its far faces, as vanilla does"
+        "a held stained glass block hides its far faces, as vanilla does"
+    );
+
+    let (mut runtime, _, item) = block_fixture();
+    let HeldKind::Block(visual) = item.kind else {
+        unreachable!()
+    };
+    runtime
+        .block_alpha
+        .insert(visual, render_model::HandItemAlphaMode::Cutout);
+    runtime.held_mesh(&item, true).unwrap();
+    let geometry = runtime.take_pending_geometries().pop().unwrap();
+    assert!(
+        geometry
+            .vertices
+            .iter()
+            .all(|vertex| vertex.back_uv != render_model::ONE_SIDED_BACK_UV),
+        "cutout blocks render both sides"
     );
 }
 

@@ -836,10 +836,19 @@ impl EquipmentRuntime {
             (_, None) => return None,
         };
         let vertices = match key {
-            // Held blocks draw only their outward faces, as vanilla culls a held glass block's
-            // far side; cutout faces stay double-sided where the renderers keep them.
-            MeshKey::Block(_) | MeshKey::SessionBlock(_) => one_sided(vertices),
-            MeshKey::Sprite(_) | MeshKey::Session(_) => vertices,
+            // Opaque and blended held blocks draw only their outward faces, as vanilla culls a
+            // held stained glass block's far side; cutout blocks (glass, leaves) render both
+            // sides. A session cube's alpha mode is not known here, so it keeps both sides.
+            MeshKey::Block(visual)
+                if self.block_alpha.get(&visual)
+                    != Some(&render_model::HandItemAlphaMode::Cutout) =>
+            {
+                one_sided(vertices)
+            }
+            MeshKey::Block(_)
+            | MeshKey::SessionBlock(_)
+            | MeshKey::Sprite(_)
+            | MeshKey::Session(_) => vertices,
         };
         if let MeshKey::Session(index) | MeshKey::SessionBlock(index) = key {
             let id = session::session_mesh_id(index)?;
