@@ -38,7 +38,10 @@ impl CappedFile {
             .checked_add(bytes as u64)
             .is_none_or(|end| end > self.cap)
         {
-            Err(io::Error::other("blob cache disk limit reached"))
+            Err(io::Error::other(format!(
+                "blob cache disk limit reached: offset {offset}, bytes {bytes}, cap {}",
+                self.cap
+            )))
         } else {
             Ok(())
         }

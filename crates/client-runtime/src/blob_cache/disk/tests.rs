@@ -152,9 +152,10 @@ fn blob_cache_torn_database_degrades_to_memory() {
 fn blob_cache_disk_cap_evicts_least_recently_used() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("blobs.redb");
-    let cap = 16 * 1024 * 1024;
+    // Leave room for whole database-page allocations while forcing three bodies over the live cap.
+    let cap = 20 * 1024 * 1024;
     let mut store = Store::open(&path, cap).unwrap();
-    let payloads = [vec![1; 1_500_000], vec![2; 1_500_000], vec![3; 1_500_000]];
+    let payloads = [vec![1; 1_900_000], vec![2; 1_900_000], vec![3; 1_900_000]];
     let hashes = payloads
         .each_ref()
         .map(|payload| protocol::client_blob_hash(payload));
