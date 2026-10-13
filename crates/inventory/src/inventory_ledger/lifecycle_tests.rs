@@ -36,7 +36,8 @@ fn stack(stack_network_id: i32, count: u16) -> NetworkItemStack {
     }
 }
 
-fn ledger_with_slot_zero() -> PlayerInventoryLedger {
+/// Starts a server-authoritative session with a known stack in player slot zero.
+pub(super) fn ledger_with_slot_zero() -> PlayerInventoryLedger {
     let mut ledger = PlayerInventoryLedger::default();
     ledger.begin_session(1);
     ledger.apply(&InventoryEvent::Authority(InventoryAuthority::Server));
@@ -99,7 +100,8 @@ fn inventory_request_batch_retries_atomically() {
     );
 }
 
-fn personal_open(window_id: i32) -> ContainerOpenEvent {
+/// Builds a personal open reply with the supplied server-assigned window ID.
+pub(super) fn personal_open(window_id: i32) -> ContainerOpenEvent {
     personal_open_with_actor(window_id, -1)
 }
 

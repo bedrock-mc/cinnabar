@@ -89,14 +89,6 @@ impl SentControls {
         self.entries.remove(index)
     }
 
-    /// Inspects the oldest close before treating an authoritative server close as its answer.
-    pub fn first_close(&self) -> Option<PendingClose> {
-        self.entries.iter().find_map(|sent| match sent.request {
-            ControlRequest::Close(close) => Some(close),
-            ControlRequest::PersonalOpen(_) => None,
-        })
-    }
-
     /// Releases a window's ownership without changing the order of its unanswered controls.
     pub fn supersede(&mut self, generation: u64) {
         for sent in &mut self.entries {

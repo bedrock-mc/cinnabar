@@ -2,6 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::*;
 
+mod interleavings;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Completion {
     Answered,
@@ -94,7 +96,7 @@ fn random_control_interleavings_complete_each_send_once_without_reassigning_repl
         let mut transcript = Transcript::default();
         for _ in 0..1024 {
             let word = random_word(&mut random);
-            match word % 7 {
+            match word % 9 {
                 stream @ (0 | 1) if queue.has_capacity() => {
                     let generation = u64::try_from(transcript.requests.len()).unwrap() + 1;
                     let request = if stream == 0 {
@@ -133,6 +135,15 @@ fn random_control_interleavings_complete_each_send_once_without_reassigning_repl
                 6 => {
                     queue.supersede_all();
                     transcript.superseded.extend(0..transcript.requests.len());
+                }
+                7 => interleavings::server_close(&mut queue, word),
+                8 => {
+                    // Finish the synthetic traffic before exercising a complete screen lifecycle.
+                    while transcript.replies.iter().any(|replies| !replies.is_empty()) {
+                        transcript.reply(&mut queue, 0);
+                        transcript.reply(&mut queue, 1);
+                    }
+                    interleavings::world_drop_blocked_close(&mut queue, &mut transcript, now, word);
                 }
                 _ => {}
             }

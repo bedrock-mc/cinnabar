@@ -876,22 +876,25 @@ impl PlayerInventoryLedger {
         self.surface_refreshed(CellSurface::Crafting);
     }
 
+    /// Merges unsent closes while preserving ownership of the current personal lifecycle.
     fn queue_close(&mut self, window_id: i32, window_type: i8, owner: PendingCloseOwner) {
         if !valid_raw_window_id(window_id) {
             return;
         }
+        let current_personal = self.personal_lifecycle().map(PersonalWindow::generation);
         if let Some(existing) = self
             .pending_closes
             .iter_mut()
             .find(|close| close.window_id == window_id && close.window_type == window_type)
         {
-            if owner.priority() > existing.owner.priority() {
+            if owner.priority() > existing.owner.priority()
+                || matches!(owner, PendingCloseOwner::Personal(generation) if Some(generation) == current_personal)
+            {
                 existing.owner = owner;
             }
             return;
         }
         if self.pending_closes.len() >= MAX_PENDING_CLOSES {
-            let current_personal = self.personal_lifecycle().map(PersonalWindow::generation);
             // Old cleanup and storage closes describe superseded server
             // windows. Evict the oldest such control, but preserve the close
             // that owns the still-current personal generation.

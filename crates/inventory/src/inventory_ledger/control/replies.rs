@@ -10,7 +10,7 @@ impl PlayerInventoryLedger {
     /// Routes client acknowledgements through the FIFO and server commands by their window identity.
     pub(in crate::inventory_ledger) fn apply_close(&mut self, close: ContainerCloseEvent) {
         if !close.server_initiated {
-            self.answer_control_close(false);
+            self.answer_control_close();
             return;
         }
 
@@ -22,13 +22,7 @@ impl PlayerInventoryLedger {
                     && close.window_type == storage.window_type
             })
             .map(|storage| (storage.window_id, storage.generation));
-        // An exact authoritative close also finishes the oldest matching sent close, if any.
-        if self.sent_controls.first_close().is_some_and(|sent| {
-            close.container.window_id == Some(sent.window_id)
-                && close.window_type == sent.window_type
-        }) {
-            self.answer_control_close(true);
-        }
+        // A server command ends screen ownership, but the separately sent close still needs a reply.
         let personal = self
             .personal_lifecycle()
             .copied()
@@ -77,7 +71,7 @@ impl PlayerInventoryLedger {
     }
 
     /// Consumes one close reply using its retained owner, ignoring uncorrelated payload IDs and types.
-    fn answer_control_close(&mut self, server_initiated: bool) {
+    fn answer_control_close(&mut self) {
         let Some(sent) = self.sent_controls.answer(ControlKind::Close) else {
             return;
         };
@@ -94,7 +88,7 @@ impl PlayerInventoryLedger {
                 } else if !sent.superseded
                     && matches!(self.personal, Some(PersonalWindow::Closing { generation: active, .. }) if active == generation)
                 {
-                    self.finish_personal_close(!server_initiated);
+                    self.finish_personal_close(true);
                 }
             }
             PendingCloseOwner::Storage(generation) => {
@@ -104,7 +98,7 @@ impl PlayerInventoryLedger {
                         .as_ref()
                         .is_some_and(|storage| storage.generation == generation && storage.closing)
                 {
-                    self.acknowledge_storage_close(server_initiated);
+                    self.acknowledge_storage_close(false);
                 }
             }
             PendingCloseOwner::Cleanup => {}
