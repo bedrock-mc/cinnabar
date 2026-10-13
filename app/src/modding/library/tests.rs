@@ -709,3 +709,127 @@ fn removing_an_import_preserves_a_live_environment_hosts_shared_companion() {
     drop(host);
     assert!(companion.exists());
 }
+
+#[test]
+fn active_cards_remain_actionable_after_their_source_disappears() {
+    for rename_directory in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let mods = directory.path().join("mods");
+        let registration = directory.path().join("config");
+        fs::create_dir_all(&mods).unwrap();
+        let component = mods.join("zoom.wasm");
+        fs::write(&component, b"component").unwrap();
+        select(&registration, &component, true, "enabled".into()).unwrap();
+        let camera = mod_host::ModGrants::CAPABILITIES
+            .iter()
+            .position(|capability| capability.name == "camera")
+            .unwrap();
+        selection::permission(&registration, &component, camera, true, "enabled".into()).unwrap();
+        let record: serde_json::Value = serde_json::from_slice(
+            &fs::read(registration.join(super::super::registration::REGISTRATION_FILE)).unwrap(),
+        )
+        .unwrap();
+        fs::write(registration.join(super::super::registration::STATUS_FILE),
+            serde_json::to_vec(&serde_json::json!({
+                "version": record["version"], "request_id": record["request_id"],
+                "mods": [{"component": record["mods"][0]["component"], "state": "reload-error", "message": "source missing"}]
+            })).unwrap()).unwrap();
+        let original_id = scan(&mods, &registration, String::new()).active[0].id;
+        if rename_directory {
+            fs::rename(&mods, directory.path().join("moved")).unwrap();
+        } else {
+            fs::remove_file(&component).unwrap();
+        }
+        let library = scan(&mods, &registration, String::new());
+        assert_eq!(library.active.len(), 1);
+        assert_eq!(
+            library.active[0].status,
+            launcher::mods::Status::ReloadFailed("source missing".into())
+        );
+        let (active, available) = library.groups();
+        assert_eq!(active.len(), 1);
+        assert!(available.is_empty());
+        assert_eq!(active[0].name, "zoom");
+        assert_eq!(active[0].file, "zoom.wasm");
+        let id = active[0].id;
+        assert_ne!(id, original_id);
+        assert!(active[0].permissions[camera].enabled);
+        assert!(
+            perform(
+                Action::Remove(id),
+                &mods,
+                &registration,
+                &mut 0,
+                &mut || Ok(None),
+                &mut |_| Ok(retirement_permit())
+            )
+            .is_err()
+        );
+        assert!(registered(&registration)[0].entry.enabled);
+        perform(
+            Action::Permission(id, camera, false),
+            &mods,
+            &registration,
+            &mut 0,
+            &mut || Ok(None),
+            &mut |_| Ok(retirement_permit()),
+        )
+        .unwrap();
+        assert!(!registered(&registration)[0].entry.grants.camera);
+        perform(
+            Action::Reload(id),
+            &mods,
+            &registration,
+            &mut 0,
+            &mut || Ok(None),
+            &mut |_| Ok(retirement_permit()),
+        )
+        .unwrap();
+        assert_eq!(registered(&registration)[0].entry.reload, 1);
+        perform(
+            Action::Disable(id),
+            &mods,
+            &registration,
+            &mut 0,
+            &mut || Ok(None),
+            &mut |_| Ok(retirement_permit()),
+        )
+        .unwrap();
+        let library = scan(&mods, &registration, String::new());
+        assert!(library.active.is_empty());
+        assert!(library.installed.is_empty());
+        assert!(!registered(&registration)[0].entry.enabled);
+    }
+}
+
+#[test]
+fn a_missing_sources_card_cannot_retarget_a_replacement_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let mods = directory.path().join("mods");
+    let registration = directory.path().join("config");
+    fs::create_dir_all(&mods).unwrap();
+    let component = mods.join("zoom.wasm");
+    select(&registration, &component, true, "enabled".into()).unwrap();
+    let id = scan(&mods, &registration, String::new()).active[0].id;
+    fs::write(&component, b"replacement").unwrap();
+    for action in [
+        Action::Disable(id),
+        Action::Reload(id),
+        Action::Remove(id),
+        Action::Permission(id, 0, true),
+    ] {
+        assert!(
+            perform(
+                action,
+                &mods,
+                &registration,
+                &mut 0,
+                &mut || Ok(None),
+                &mut |_| Ok(retirement_permit())
+            )
+            .is_err()
+        );
+    }
+    assert!(registered(&registration)[0].entry.enabled);
+    assert_eq!(fs::read(component).unwrap(), b"replacement");
+}

@@ -592,3 +592,76 @@ fn unrelated_registration_changes_preserve_trapped_identities_until_explicit_rel
         Some("World")
     );
 }
+
+#[test]
+fn reenable_before_disable_acknowledgment_retries_missing_hosts() {
+    for keep_other in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let (mut world, messages, _retiring) = world();
+        let first = candidate(directory.path(), "a.wasm", "Hello");
+        let a = first.registration.clone();
+        let mut entries = vec![a.clone()];
+        let mut changes = vec![change(first)];
+        if keep_other {
+            let other = candidate(directory.path(), "b.wasm", "World");
+            entries.push(other.registration.clone());
+            changes.push(change(other));
+        }
+        apply(&mut world, entries.clone(), changes);
+        messages.try_iter().for_each(drop);
+        let mut disabled = entries.clone();
+        disabled[0].enabled = false;
+        apply(&mut world, disabled, Vec::new());
+        assert_eq!(world.contains_resource::<ModRuntime>(), keep_other);
+        // Reuse arrives while the coordinator still has the old installed identity.
+        apply(&mut world, entries.clone(), Vec::new());
+        assert!(matches!(
+            messages.try_recv().unwrap(),
+            Message::Acknowledge { .. }
+        ));
+        let Message::Retry { inactive, .. } = messages.try_recv().unwrap() else {
+            panic!("missing guest falsely acknowledged as installed")
+        };
+        assert_eq!(inactive, [a.component.clone()]);
+        assert!(messages.try_recv().is_err());
+        let fresh = Box::new(build_candidate(source::source_snapshot(a).unwrap()).unwrap());
+        apply(&mut world, entries, vec![change(fresh)]);
+        let runtime = world.resource::<ModRuntime>();
+        assert!(runtime.hosts.host(0).is_active());
+        assert_eq!(runtime.hosts.host(0).label(), Some("Hello"));
+        if keep_other {
+            assert_eq!(runtime.hosts.host(1).label(), Some("World"));
+        }
+    }
+}
+
+#[test]
+fn failed_admission_acknowledges_an_absent_host_without_retrying() {
+    let directory = tempfile::tempdir().unwrap();
+    let (mut world, messages, _retiring) = world();
+    let entry = Entry {
+        component: directory.path().join("missing.wasm"),
+        enabled: true,
+        ..Default::default()
+    };
+    let result = source::source_snapshot(entry.clone())
+        .and_then(build_candidate)
+        .map(Box::new);
+    assert!(result.is_err());
+    apply(
+        &mut world,
+        vec![entry.clone()],
+        vec![Change { entry, result }],
+    );
+    let Message::Acknowledge {
+        installed,
+        statuses,
+        ..
+    } = messages.try_recv().unwrap()
+    else {
+        panic!("failed admission retried without a source change")
+    };
+    assert!(installed.is_empty());
+    assert_eq!(statuses[0].state, "error");
+    assert!(messages.try_recv().is_err());
+}

@@ -200,26 +200,25 @@ pub(super) fn apply(world: &mut World, update: Update) {
     }
     let registration = &update.registration;
     let changes = &update.changes;
-    let inactive: Vec<_> = world
-        .get_resource::<ModRuntime>()
-        .into_iter()
-        .flat_map(|runtime| {
-            runtime
-                .metadata
+    let inactive: Vec<_> = registration
+        .mods
+        .iter()
+        .filter(|entry| entry.enabled)
+        .filter(|entry| {
+            !changes
                 .iter()
-                .enumerate()
-                .filter_map(move |(index, metadata)| {
-                    let registered = metadata.registration.as_ref()?;
-                    (runtime.hosts.host(index).is_revoked()
-                        && registration.mods.iter().any(|entry| {
-                            entry.enabled && entry.component == registered.entry.component
-                        })
-                        && !changes
-                            .iter()
-                            .any(|change| change.entry.component == registered.entry.component))
-                    .then(|| registered.entry.component.clone())
-                })
+                .any(|change| change.entry.component == entry.component)
         })
+        .filter(|entry| {
+            index(world, &entry.component).is_none_or(|index| {
+                world
+                    .resource::<ModRuntime>()
+                    .hosts
+                    .host(index)
+                    .is_revoked()
+            })
+        })
+        .map(|entry| entry.component.clone())
         .collect();
     if !inactive.is_empty() {
         for change in update.changes {

@@ -31,10 +31,10 @@ pub struct Permission {
     pub requested: Option<bool>,
 }
 
-/// One component in the per-user mods directory.
+/// A directory component or an enabled registration whose source is unavailable.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InstalledMod {
-    /// Identifies this installed file revision, so a replacement rejects old card actions.
+    /// Identifies the file revision, or the registration path while its source is unavailable.
     pub id: u64,
     pub name: String,
     pub file: String,

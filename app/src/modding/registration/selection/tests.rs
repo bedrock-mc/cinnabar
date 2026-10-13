@@ -117,3 +117,46 @@ fn registration_rejects_duplicate_identity_and_excess_entries() {
         .collect();
     assert!(selected.validate().is_err());
 }
+
+#[test]
+fn permission_revocation_survives_malformed_or_missing_component_metadata() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    let component = root.join("mod.wasm");
+    let requested = ModGrants {
+        commands: vec!["ability".into()],
+        ..Default::default()
+    };
+    let mut grants = ModGrants::default();
+    for capability in ModGrants::CAPABILITIES {
+        (capability.set)(&mut grants, true, Some(&requested));
+    }
+    for missing in [false, true] {
+        std::fs::write(&component, b"\0asm").unwrap();
+        if missing {
+            std::fs::remove_file(&component).unwrap();
+        }
+        assert!(mod_host::requested_grants(&component).is_err());
+        for (index, capability) in ModGrants::CAPABILITIES.iter().enumerate() {
+            let entry = Entry {
+                component: component.clone(),
+                enabled: true,
+                grants: grants.clone(),
+                ..Default::default()
+            };
+            let mut registration = Registration::empty();
+            registration.mods.push(entry.clone());
+            write_selection(&root.join(REGISTRATION_FILE), registration).unwrap();
+            permission(root, &component, index, false, "revoke".into()).unwrap();
+            let mut expected = entry;
+            (capability.set)(&mut expected.grants, false, None);
+            assert_eq!(read(root).mods, [expected]);
+            let revoked = std::fs::read(root.join(REGISTRATION_FILE)).unwrap();
+            assert!(permission(root, &component, index, true, "grant".into()).is_err());
+            assert_eq!(
+                std::fs::read(root.join(REGISTRATION_FILE)).unwrap(),
+                revoked
+            );
+        }
+    }
+}

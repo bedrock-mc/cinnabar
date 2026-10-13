@@ -126,7 +126,10 @@ fn perform(
     pick: &mut impl FnMut() -> Result<Option<PathBuf>, String>,
     retire: &mut impl FnMut(&Receipt) -> Result<removal::Permit, String>,
 ) -> Result<String, String> {
-    let entries = installed(mods);
+    let mut entries = installed(mods);
+    if !matches!(action, Action::Enable(_) | Action::Remove(_)) {
+        include_active(&mut entries, &registered(registration));
+    }
     let path = |id: u64| {
         entries
             .iter()
@@ -311,10 +314,42 @@ fn installed(mods: &Path) -> Vec<(InstalledMod, PathBuf)> {
     found
 }
 
+/// Retains enabled registrations without directory entries under their own path identity.
+fn include_active(entries: &mut Vec<(InstalledMod, PathBuf)>, current: &[selection::Registered]) {
+    for current in current.iter().filter(|current| current.entry.enabled) {
+        let path = &current.entry.component;
+        if entries
+            .iter()
+            .any(|(_, installed)| same_path(installed, path))
+        {
+            continue;
+        }
+        entries.push((
+            InstalledMod {
+                id: selection::component_id(path),
+                name: path
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned(),
+                file: path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned(),
+                bytes: 0,
+                permissions: Vec::new(),
+            },
+            path.clone(),
+        ));
+    }
+}
+
 /// Builds all card permissions and statuses from the host's canonical registration and grants.
 fn scan(mods: &Path, registration: &Path, message: String) -> Library {
     let mut installed = installed(mods);
     let current = registered(registration);
+    include_active(&mut installed, &current);
     let active = current
         .iter()
         .filter(|current| current.entry.enabled)

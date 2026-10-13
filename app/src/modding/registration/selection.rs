@@ -54,8 +54,8 @@ pub(super) fn resolved_component(path: &Path) -> PathBuf {
         .unwrap_or_else(|| path.into())
 }
 
-/// Uses a resolved component path for stable per-owner panel identity.
-pub(super) fn component_id(component: &Path) -> u64 {
+/// Uses a resolved component path for panel ownership and cards without a source revision.
+pub(in crate::modding) fn component_id(component: &Path) -> u64 {
     let digest = Sha256::digest(component.to_string_lossy().as_bytes());
     u64::from_le_bytes(digest[..8].try_into().expect("eight digest bytes"))
 }
@@ -255,7 +255,11 @@ pub(in crate::modding) fn permission(
         let descriptor = ModGrants::CAPABILITIES
             .get(capability)
             .ok_or("Unknown capability.")?;
-        let requested = mod_host::requested_grants(component).map_err(|error| error.to_string())?;
+        let requested = if enabled {
+            mod_host::requested_grants(component).map_err(|error| error.to_string())?
+        } else {
+            None
+        };
         (descriptor.set)(&mut entry.grants, enabled, requested.as_ref());
         if enabled && !(descriptor.enabled)(&entry.grants) {
             return Err("This component does not declare requested command names.".into());

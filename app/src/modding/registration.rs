@@ -32,7 +32,7 @@ use std::{
 };
 
 pub(super) const REGISTRATION_FILE: &str = "local-mod.json";
-const STATUS_FILE: &str = "local-mod.status.json";
+pub(super) const STATUS_FILE: &str = "local-mod.status.json";
 const MAX_BYTES: usize = 64 * 1024;
 const MAX_REQUEST_BYTES: usize = 64;
 
