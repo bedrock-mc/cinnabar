@@ -40,22 +40,10 @@ fn input_app() -> (App, Entity) {
         .add_systems(PreUpdate, count_input_pass)
         .add_systems(Update, sample_motion);
     super::install(&mut app);
-    // Keep allocation accounting on the measured thread, including Bevy's input systems.
-    app.edit_schedule(Main, |schedule| {
+    // Keep all schedules on the measured thread, including Bevy's Last cleanup system.
+    for (_, schedule) in app.world_mut().resource_mut::<Schedules>().iter_mut() {
         schedule.set_executor(SingleThreadedExecutor::new());
-    });
-    app.edit_schedule(First, |schedule| {
-        schedule.set_executor(SingleThreadedExecutor::new());
-    });
-    app.edit_schedule(PreUpdate, |schedule| {
-        schedule.set_executor(SingleThreadedExecutor::new());
-    });
-    app.edit_schedule(Update, |schedule| {
-        schedule.set_executor(SingleThreadedExecutor::new());
-    });
-    app.edit_schedule(PostUpdate, |schedule| {
-        schedule.set_executor(SingleThreadedExecutor::new());
-    });
+    }
     let window = app
         .world_mut()
         .spawn((
@@ -93,29 +81,11 @@ fn warm(app: &mut App) {
 #[test]
 fn high_rate_motion_has_bounded_allocation_growth_and_one_sample_per_frame() {
     let (mut app, _) = input_app();
-    let (mut control, _) = input_app();
     app.update();
-    control.update();
     let cold = write_motion(&mut app, MAX_EVENTS_PER_FRAME, DELTA);
     // Message buffers grow geometrically rather than allocating once for each event.
     assert!(cold.calls <= 16, "cold message allocations: {cold:?}");
-    write_motion(&mut control, MAX_EVENTS_PER_FRAME, DELTA);
     warm(&mut app);
-    warm(&mut control);
-    // Framework maintenance can fall on different frames in independent apps. The whole
-    // low-rate rotation supplies the allocation envelope rather than one exact frame.
-    let mut baseline = Allocations::default();
-    for frame in 0..FRAMES_PER_SECOND {
-        let delta = if frame % 2 == 0 { DELTA } else { -DELTA };
-        assert_eq!(write_motion(&mut control, 1, delta), Allocations::default());
-        let allocations = measure(|| control.update()).1;
-        baseline.calls = baseline.calls.max(allocations.calls);
-        baseline.bytes = baseline.bytes.max(allocations.bytes);
-        let samples = control.world().resource::<Samples>();
-        assert_eq!(samples.delta, delta);
-        assert_eq!(samples.updates, frame + 1);
-        assert_eq!(samples.input_passes, frame + 1);
-    }
     let initial_updates = app.world().resource::<Samples>().updates;
     let initial_input_passes = app.world().resource::<Samples>().input_passes;
     let mut events = 0;
@@ -134,9 +104,10 @@ fn high_rate_motion_has_bounded_allocation_growth_and_one_sample_per_frame() {
             assert_eq!(app.world().resource::<Samples>().input_passes, input_before);
         }
         let frame_allocations = measure(|| app.update()).1;
-        assert!(
-            frame_allocations.calls <= baseline.calls && frame_allocations.bytes <= baseline.bytes,
-            "frame {frame}, {count} events: {frame_allocations:?} exceeds {baseline:?}"
+        assert_eq!(
+            frame_allocations,
+            Allocations::default(),
+            "frame {frame}, {count} events"
         );
         frame_allocations_total.calls += frame_allocations.calls;
         frame_allocations_total.bytes += frame_allocations.bytes;

@@ -269,12 +269,19 @@ fn custom_materials_share_the_combined_base_and_overlay_budget() {
     );
     assert_eq!(
         runtime.resolve(NetworkIdMode::Sequential, 3).kind(),
-        VisualKind::Diagnostic
+        VisualKind::Cube,
+        "budget-refused faces degrade per face instead of sinking the cube"
+    );
+    assert!(
+        compiled.overlay.visuals[1]
+            .faces
+            .iter()
+            .all(|&face| face == assets::DIAGNOSTIC_MATERIAL)
     );
 }
 
 #[test]
-fn diagnostic_custom_visuals_release_their_unpublished_face_materials() {
+fn failed_faces_degrade_per_face_without_leaking_materials() {
     let base = base();
     let view = timeline_pack(
         json!({"texture_data":{
@@ -341,10 +348,24 @@ fn diagnostic_custom_visuals_release_their_unpublished_face_materials() {
         Some(&base),
     )
     .unwrap();
-    assert_eq!(compiled.overlay.visuals[0].kind, VisualKind::Diagnostic);
+    assert_eq!(compiled.overlay.visuals[0].kind, VisualKind::Cube);
+    assert_eq!(
+        compiled.overlay.visuals[0].faces[BlockFace::East as usize],
+        assets::DIAGNOSTIC_MATERIAL,
+        "only the failed east face degrades"
+    );
     assert_eq!(compiled.overlay.visuals[1].kind, VisualKind::Cube);
-    assert_eq!(compiled.overlay.textures.first().unwrap().layers, 2);
-    assert_eq!(compiled.overlay.materials.len(), 2);
+    assert_eq!(
+        compiled
+            .overlay
+            .textures
+            .iter()
+            .map(|shard| shard.layers)
+            .collect::<Vec<_>>(),
+        [2, 1],
+        "the kept first-face raster and the good raster live on their own shards"
+    );
+    assert_eq!(compiled.overlay.materials.len(), 3);
     let runtime = base.with_block_overlay(2, &compiled.overlay).unwrap();
     let material = runtime
         .resolve(NetworkIdMode::Sequential, 3)
