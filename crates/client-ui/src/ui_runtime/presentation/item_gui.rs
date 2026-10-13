@@ -23,7 +23,7 @@ pub(super) fn shield(
 /// The native item renderer's design-pixel frame, independent of texture and display resolution.
 use assets::gui_item::GUI_ITEM_SIDE;
 
-/// Ordinary opaque cubes. `faces` retains the carried texture in `BlockFace::ALL` order.
+/// Cubes with three visible faces. `faces` retains the carried texture in `BlockFace::ALL` order.
 /// Other block shapes (slabs, stairs, fences) draw through [`block_model`].
 pub(super) fn cube(faces: [IconRef; 6]) -> Option<Arc<UiMesh>> {
     let mut vertices = Vec::with_capacity(CUBE_FACES.len() * 4);

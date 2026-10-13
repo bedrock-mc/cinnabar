@@ -34,12 +34,12 @@ pub(super) const MODEL_PAGE: usize = render_model::UI_MODEL_ATLAS_PAGE_OFFSET;
 pub(super) const MODEL_PAGES: usize = render_model::MAX_UI_MODEL_ATLAS_PAGES;
 
 /// Swaps sprites that have native models for their geometry. The player preview mesh is built
-/// at most once, and only when a node shows the preview icon. Translucent optional models
-/// retain their original sprite so faded controls keep a single layer.
+/// at most once, and only when a node shows the preview icon. Overlapping block models
+/// retain their original sprite when faded; cubes keep their three-face mesh.
 fn replace_model_icons<'a>(
     nodes: &mut [UiNode],
     preview: Option<IconKey>,
-    optional_models: &BTreeSet<IconKey>,
+    faded_thumbnails: &BTreeSet<IconKey>,
     player: impl FnOnce() -> Option<Arc<UiMesh>>,
     models: impl Fn(&IconKey) -> Option<&'a Arc<UiMesh>>,
 ) {
@@ -59,7 +59,7 @@ fn replace_model_icons<'a>(
             } => ((*texture_page, *uv), *color, true),
             _ => continue,
         };
-        if color[3] < u8::MAX && optional_models.contains(&key) {
+        if color[3] < u8::MAX && faded_thumbnails.contains(&key) {
             continue;
         }
         let mesh = if preview == Some(key) {
@@ -91,6 +91,7 @@ pub(super) struct GuiModels {
     live_player: live_player::LivePlayer,
     models: BTreeMap<IconKey, Arc<UiMesh>>,
     optional_models: BTreeSet<IconKey>,
+    faded_thumbnails: BTreeSet<IconKey>,
     required_pages: usize,
     textures: BTreeMap<atlas::TextureKey, IconRef>,
     held: BTreeMap<assets::ItemVisualKey, held::HeldModel>,
@@ -107,6 +108,7 @@ impl GuiModels {
         self.pages.truncate(self.required_pages);
         for key in std::mem::take(&mut self.optional_models) {
             self.models.remove(&key);
+            self.faded_thumbnails.remove(&key);
         }
         self.textures.retain(|_, icon| {
             let page = usize::from(icon.page);
@@ -151,59 +153,17 @@ impl UiPresentationRuntime {
         }
         let mut meshes = BTreeMap::new();
         let mut held_sources = BTreeMap::new();
-        let mut see_through = BTreeSet::new();
         for (visual, sprite) in &sources {
-            // Every source is a cube's six faces: world cube sheets, or carried sheets the icon
-            // compiler composes only for carried cubes and chests. Cut-out ones (glass, leaves)
-            // draw as cubes; translucent ones only when the world draws the block as an exact
-            // cube (stained glass), which keeps special tessellators (beacon) on thumbnails.
-            let coverage = sheet_coverage(&sprite.rgba8);
-            let admitted = match coverage {
-                SheetCoverage::Opaque | SheetCoverage::Cutout => true,
-                SheetCoverage::Translucent => ordinary.by_visual.contains_key(visual),
-            };
-            if !admitted {
+            if !ordinary_cube_sheet(&sprite.rgba8) {
                 continue;
             }
             let icon = atlas.insert([sprite.width, sprite.height], &sprite.rgba8)?;
-            if coverage == SheetCoverage::Opaque {
-                held_sources.insert(*visual, icon);
-            } else {
-                see_through.insert(*visual);
-            }
+            held_sources.insert(*visual, icon);
             if let Some(mesh) = item_gui::cube(sheet_faces(icon)) {
                 meshes.insert(*visual, mesh);
             }
         }
         let mut models = BTreeMap::new();
-        // See-through meshes keep their thumbnail in faded controls, which draw one layer.
-        let mut optional_models = BTreeSet::new();
-        for entry in icons.entries() {
-            let Some(definition) = entities.item_visuals().iter().find(|visual| {
-                visual.key.identifier == entry.identifier && visual.key.metadata == entry.metadata
-            }) else {
-                continue;
-            };
-            let ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route else {
-                continue;
-            };
-            let Some(mesh) = meshes.get(&block_visual.0) else {
-                continue;
-            };
-            let Some(icon) = self
-                .icon_refs
-                .as_deref()
-                .and_then(|refs| refs.get(entry.sprite as usize))
-            else {
-                continue;
-            };
-            models
-                .entry(icon_key(*icon))
-                .or_insert_with(|| Arc::clone(mesh));
-            if see_through.contains(&block_visual.0) {
-                optional_models.insert(icon_key(*icon));
-            }
-        }
         if let Some(equipment) = self.equipment_catalog.as_deref() {
             for texture in equipment.textures() {
                 atlas.insert([texture.width, texture.height], &texture.rgba8)?;
@@ -233,6 +193,60 @@ impl UiPresentationRuntime {
             &held_sources,
         )?;
         let required_pages = atlas.page_count();
+        let mut optional_models = BTreeSet::new();
+        let mut faded_thumbnails = BTreeSet::new();
+        for entry in icons.entries() {
+            let Some(definition) = entities.item_visuals().iter().find(|visual| {
+                visual.key.identifier == entry.identifier && visual.key.metadata == entry.metadata
+            }) else {
+                continue;
+            };
+            let ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route else {
+                continue;
+            };
+            let Some(icon) = self
+                .icon_refs
+                .as_deref()
+                .and_then(|refs| refs.get(entry.sprite as usize))
+            else {
+                continue;
+            };
+            let key = icon_key(*icon);
+            if models.contains_key(&key) {
+                continue;
+            }
+            let mesh = if let Some(mesh) = meshes.get(&block_visual.0) {
+                Arc::clone(mesh)
+            } else {
+                let Some(sprite) = sources.get(&block_visual.0) else {
+                    continue;
+                };
+                // Carried sheets only describe cubes and chests. Translucent special shapes
+                // keep their thumbnail unless the world also supplies a cube sheet.
+                let admitted = match sheet_coverage(&sprite.rgba8) {
+                    SheetCoverage::Cutout => true,
+                    SheetCoverage::Translucent => ordinary.by_visual.contains_key(&block_visual.0),
+                    SheetCoverage::Opaque => false,
+                };
+                if !admitted {
+                    continue;
+                }
+                // Optional sources follow required textures so discarding their meshes can
+                // reclaim their pages. A full atlas leaves the original thumbnail intact.
+                let Some(mesh) = atlas.try_insert(
+                    [([sprite.width, sprite.height], sprite.rgba8.as_ref())],
+                    |icons| item_gui::cube(sheet_faces(icons[0])),
+                ) else {
+                    continue;
+                };
+                meshes.insert(block_visual.0, Arc::clone(&mesh));
+                mesh
+            };
+            models.insert(key, mesh);
+            if !held_sources.contains_key(&block_visual.0) {
+                optional_models.insert(key);
+            }
+        }
         if let Some(refs) = self.icon_refs.as_deref() {
             for thumbnail in icons.block_models() {
                 if let Some(icon) = refs.get(thumbnail.sprite as usize)
@@ -241,6 +255,7 @@ impl UiPresentationRuntime {
                 {
                     models.insert(icon_key(*icon), mesh);
                     optional_models.insert(icon_key(*icon));
+                    faded_thumbnails.insert(icon_key(*icon));
                 }
             }
         }
@@ -260,6 +275,7 @@ impl UiPresentationRuntime {
         self.gui_models.pages = pages;
         self.gui_models.models = models;
         self.gui_models.optional_models = optional_models;
+        self.gui_models.faded_thumbnails = faded_thumbnails;
         self.gui_models.required_pages = required_pages;
         self.gui_models.textures = textures;
         self.gui_models.held = held;
@@ -304,7 +320,7 @@ impl UiPresentationRuntime {
         replace_model_icons(
             nodes,
             preview,
-            &self.gui_models.optional_models,
+            &self.gui_models.faded_thumbnails,
             || self.gui_player_mesh(),
             |key| {
                 self.gui_models
