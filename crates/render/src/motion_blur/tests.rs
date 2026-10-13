@@ -122,6 +122,40 @@ fn motion_blur_reprojection_is_independent_of_the_world_origin() {
 }
 
 #[test]
+fn camera_followed_actor_has_zero_translation_exposure_while_world_geometry_moves() {
+    let clip_from_view =
+        glam::camera::rh::proj::directx::perspective_infinite_reverse(1.2, 2.0, 0.1);
+    let actor_local_point = Vec3::new(0.25, 1.0, -4.0);
+    for dt in [1.0 / 60.0, 1.0 / 240.0] {
+        let translation = Vec3::new(12.0, 8.0, -6.0) * dt;
+        let mut previous = history(Vec3::ZERO, 0.0, 0);
+        let uniform = previous.advance(
+            history(translation, 0.0, 0),
+            CameraMotionBlur {
+                delta_seconds: dt,
+                ..settings()
+            },
+        );
+        // The actor and camera translate together, leaving the actor's pixel unchanged.
+        let current_actor_clip = clip_from_view.project_point3(actor_local_point);
+        let actual_previous_actor_clip = uniform
+            .previous_clip_from_clip
+            .project_point3(current_actor_clip);
+        // A stationary world point does move relative to the translated camera.
+        let current_world_clip = clip_from_view.project_point3(actor_local_point - translation);
+        let previous_world_clip = uniform
+            .previous_clip_from_clip
+            .project_point3(current_world_clip);
+        assert!(previous_world_clip.abs_diff_eq(current_actor_clip, 0.00001));
+        assert!(!previous_world_clip.abs_diff_eq(current_world_clip, 0.00001));
+        assert!(
+            actual_previous_actor_clip.abs_diff_eq(current_actor_clip, 0.00001),
+            "camera-followed actor received world translation exposure at dt={dt}: {actual_previous_actor_clip:?} != {current_actor_clip:?}"
+        );
+    }
+}
+
+#[test]
 fn disabled_or_unprepared_exposure_encodes_nothing_across_toggles() {
     let mut world = crate::render_test_support::empty_render_world();
     crate::ui_render::install_overlay_graph(&mut world);
