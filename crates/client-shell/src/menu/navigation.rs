@@ -116,6 +116,16 @@ impl MenuRuntime {
 
     /// Returns to the screen below; an in-game root closes the menu.
     pub(super) fn go_back(&mut self) {
+        if self.dialog == Some(launcher::menu::MenuDialog::MinecraftImport) {
+            let action =
+                if self.minecraft_import.phase == launcher::minecraft_import::Phase::Offered {
+                    launcher::minecraft_import::Action::NotNow
+                } else {
+                    launcher::minecraft_import::Action::Close
+                };
+            self.activate_minecraft_import(action);
+            return;
+        }
         if self.realm_membership.state.is_some() {
             self.activate_realm_membership(launcher::menu::realm_membership::Action::Back);
             return;

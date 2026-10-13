@@ -4,7 +4,7 @@ use super::world::{WorldError, failed};
 
 pub(crate) const LOCAL_SERVER_HOST: &str = "127.0.0.1";
 /// BDS's conventional TCP signaling port, which the container listens on.
-pub(crate) const BDS_CONTAINER_HTTP_PORT: u16 = 19132;
+pub(crate) const BDS_CONTAINER_HTTP_PORT: u16 = bridge::contract::DEFAULT_BEDROCK_PORT;
 pub(crate) const BDS_CONTAINER_UDP_PORT: u16 = 32000;
 /// go-nethernet's LAN discovery port, where BDS answers discovery requests.
 pub(crate) const LAN_DISCOVERY_PORT: u16 = 7551;

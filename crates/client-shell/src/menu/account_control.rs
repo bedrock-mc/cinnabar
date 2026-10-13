@@ -234,7 +234,6 @@ fn ping_targets<'a>(addresses: impl IntoIterator<Item = &'a str>) -> Vec<String>
 #[cfg(test)]
 mod tests {
     use launcher::menu::MenuAction;
-    use launcher_host::account_control::method;
     use {
         super::*,
         launcher::menu::auth::AuthState,
@@ -606,7 +605,6 @@ mod tests {
 
     #[test]
     fn control_state_feeds_the_menu_view() {
-        assert_eq!(method::SIGN_OUT, "sign_out.v1");
         let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
         let mut control = Fake {
             events: vec![AccountEvent::Disconnected {

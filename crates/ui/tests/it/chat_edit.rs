@@ -57,6 +57,55 @@ fn selection_replacement_and_deletion_use_character_boundaries() {
 }
 
 #[test]
+fn word_moves_jump_whole_words_and_extend_selections() {
+    let mut editor = ChatEditor::new(MAX_CHAT_INPUT_BYTES).unwrap();
+    editor.insert("/tp  🙂me there").unwrap();
+    editor.move_word_left(false);
+    assert_eq!(&editor.as_str()[editor.cursor_byte()..], "there");
+    editor.move_word_left(false);
+    assert_eq!(&editor.as_str()[editor.cursor_byte()..], "🙂me there");
+    editor.move_word_left(false);
+    editor.move_word_left(false);
+    assert_eq!(editor.cursor_byte(), 0);
+
+    editor.move_word_right(false);
+    assert_eq!(&editor.as_str()[editor.cursor_byte()..], "🙂me there");
+    editor.move_word_right(true);
+    assert_eq!(&editor.as_str()[editor.selection().unwrap()], "🙂me ");
+    editor.move_word_right(true);
+    editor.move_word_right(true);
+    assert_eq!(editor.cursor_byte(), editor.len_bytes());
+    assert_eq!(&editor.as_str()[editor.selection().unwrap()], "🙂me there");
+
+    editor.move_word_left(false);
+    assert!(editor.selection().is_none());
+    assert_eq!(&editor.as_str()[editor.cursor_byte()..], "there");
+}
+
+#[test]
+fn word_deletes_remove_whole_words_or_the_selection() {
+    let mut editor = ChatEditor::new(MAX_CHAT_INPUT_BYTES).unwrap();
+    editor.insert("/tp  🙂me there").unwrap();
+    editor.backspace_word();
+    assert_eq!(editor.as_str(), "/tp  🙂me ");
+    editor.backspace_word();
+    assert_eq!(editor.as_str(), "/tp  ");
+
+    editor.insert("a b").unwrap();
+    editor.move_home(false);
+    editor.delete_word();
+    assert_eq!(editor.as_str(), "a b");
+    assert_eq!(editor.cursor_byte(), 0);
+
+    editor.move_end(true);
+    editor.backspace_word();
+    assert_eq!(editor.as_str(), "");
+    editor.delete_word();
+    editor.backspace_word();
+    assert_eq!(editor.as_str(), "");
+}
+
+#[test]
 fn placed_cursor_snaps_back_to_a_character_boundary_inside_the_text() {
     let mut editor = ChatEditor::new(16).unwrap();
     editor.insert("a🙂b").unwrap();

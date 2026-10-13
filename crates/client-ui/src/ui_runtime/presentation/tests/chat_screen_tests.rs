@@ -3,6 +3,7 @@
 //! each test skips when it is absent.
 
 use json_ui::{Draw, DrawNode};
+use launcher::menu::settings_options::SettingId;
 
 use super::engine_hud_tests::{engine_presentation, engine_presentation_with};
 use super::*;
@@ -611,7 +612,7 @@ fn chat_settings_popup_routes_native_controls_and_retains_the_draft() {
     );
     let mute = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "hide_chat")
+        .position(|option| option.id == SettingId::HideChat)
         .unwrap();
     assert!(
         hits.iter()
@@ -645,7 +646,7 @@ fn creator_coordinates_bind_native_copy_dropdown_and_invalid_target() {
     let mut options = SettingsOptions::default();
     let coordinate_option = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "copy_coordinate_ui")
+        .position(|option| option.id == SettingId::CopyCoordinateUi)
         .unwrap();
     options.set(coordinate_option, 1);
     presentation.set_chat_settings_snapshot((Arc::new(options.clone()), None));

@@ -1,11 +1,13 @@
-//! Optional camera exposure, using scene depth without object motion vectors.
+//! Optional exposure with depth-derived world motion and rendered actor velocities.
 
 use render_scene::CameraMotionBlur;
 
+pub(crate) mod actor_history;
 #[cfg(test)]
 mod extraction_tests;
+mod footprint;
 pub(crate) mod graph;
-mod history;
+pub(crate) mod history;
 mod pipeline;
 mod prepare;
 #[cfg(test)]
@@ -49,17 +51,59 @@ impl Plugin for CameraMotionBlurPlugin {
                 Render,
                 (
                     graph::sync_graph.in_set(RenderSystems::Prepare),
-                    prepare::prepare_views.in_set(RenderSystems::PrepareBindGroups),
+                    prepare::prepare_views
+                        .in_set(RenderSystems::PrepareBindGroups)
+                        .after(crate::actor_render::prepare_actor_bind_group),
                 ),
             );
     }
 }
 
 fn shader_source(source: &str, multisampled: bool) -> String {
+    let source = source.replace("MOTION_TILE_SIZE", &footprint::TILE_SIZE.to_string());
     if multisampled {
-        source.replace("texture_depth_2d", "texture_depth_multisampled_2d")
+        source
+            .replace("texture_depth_2d", "texture_depth_multisampled_2d")
+            .replace(
+                "let covered_depth = textureLoad(depth, pixel, 0);",
+                r#"var covered_depth = 0.0;
+    for (var sample = 0u; sample < textureNumSamples(depth); sample++) {
+        if textureLoad(actor_velocity, pixel, i32(sample)).z >= 0.5 {
+            covered_depth = max(covered_depth, textureLoad(depth, pixel, i32(sample)));
+        }
+    }"#,
+            )
+            .replace(
+                "return textureLoad(depth, pixel, 0);",
+                r#"var nearest = 0.0;
+    for (var sample = 0u; sample < textureNumSamples(depth); sample++) {
+        nearest = max(nearest, textureLoad(depth, pixel, i32(sample)));
+    }
+    return nearest;"#,
+            )
+            .replace(
+                "var actor_velocity: texture_2d<f32>",
+                "var actor_velocity: texture_multisampled_2d<f32>",
+            )
+            .replace(
+                "return textureLoad(actor_velocity, pixel, 0);",
+                r#"var velocity = vec2<f32>(0.0);
+    var covered = 0u;
+    let samples = textureNumSamples(actor_velocity);
+    for (var sample = 0u; sample < samples; sample++) {
+        let motion = textureLoad(actor_velocity, pixel, i32(sample));
+        if motion.z >= 0.5 {
+            velocity += motion.xy;
+            covered += 1u;
+        }
+    }
+    if covered == 0u {
+        return vec4<f32>(0.0);
+    }
+    return vec4<f32>(velocity / f32(covered), 1.0, f32(covered) / f32(samples));"#,
+            )
     } else {
-        source.to_owned()
+        source
     }
 }
 
@@ -79,6 +123,9 @@ pub(crate) fn applies(world: &World, entity: Entity) -> bool {
     };
     state.active
         && cache.get_render_pipeline(state.pipeline).is_some()
+        && cache
+            .get_render_pipeline(state.footprint_pipeline)
+            .is_some()
         && state
             .binding(
                 target.main_texture_view().id(),

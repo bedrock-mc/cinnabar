@@ -1,6 +1,7 @@
 //! Converts stored values into the existing subsystem settings.
 use std::num::NonZeroU16;
 
+use super::SettingId;
 use super::{
     ANIMATIONS_OPTION, FRAME_RATE_UNLIMITED, MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION,
     SMAA_OPTION, SettingsOptions,
@@ -35,35 +36,35 @@ impl SettingsOptions {
             controls: self.controls().unwrap_or_default(),
             ..Default::default()
         };
-        settings.video.horizontal_fov_degrees = self.value("field_of_view") as f32;
-        settings.video.brightness = self.value("gamma") as f32 / 100.0;
-        settings.video.distortion_scale = self.value("screen_distortion") as f32 / 100.0;
+        settings.video.horizontal_fov_degrees = self.value(SettingId::FieldOfView) as f32;
+        settings.video.brightness = self.value(SettingId::Gamma) as f32 / 100.0;
+        settings.video.distortion_scale = self.value(SettingId::ScreenDistortion) as f32 / 100.0;
         settings.controls.gamepad_look_sensitivity =
-            (self.value("controller_sensitivity") as f32 / 50.0).max(0.01);
-        settings.controls.invert_gamepad_y = self.value("controller_invert_y_axis") != 0;
-        settings.video.camera_shake = self.value("camera_shake") != 0;
-        settings.video.damage_bob = self.value("damage_bob") as f32 / 100.0;
-        settings.video.frame_rate_limit = frame_rate_limit(self.value("max_framerate"));
-        settings.video.vsync = self.value("vsync") != 0;
+            (self.value(SettingId::ControllerSensitivity) as f32 / 50.0).max(0.01);
+        settings.controls.invert_gamepad_y = self.value(SettingId::ControllerInvertYAxis) != 0;
+        settings.video.camera_shake = self.value(SettingId::CameraShake) != 0;
+        settings.video.damage_bob = self.value(SettingId::DamageBob) as f32 / 100.0;
+        settings.video.frame_rate_limit = frame_rate_limit(self.value(SettingId::MaxFramerate));
+        settings.video.vsync = self.value(SettingId::Vsync) != 0;
         settings.video.vrr =
-            render_api::VrrPreference::from_value(self.value(super::VRR_OPTION.name));
-        settings.video.anti_aliasing_samples = self.value("msaa") as u32;
+            render_api::VrrPreference::from_value(self.value(super::VRR_OPTION.id));
+        settings.video.anti_aliasing_samples = self.value(SettingId::Msaa) as u32;
         settings.video.motion_blur =
-            ui::MotionBlurQuality::from_index(self.value(MOTION_BLUR_OPTION.name));
-        settings.video.smaa_mode = ui::SmaaMode::from_value(self.value(SMAA_OPTION.name));
-        settings.video.render_distance_chunks = self.value("render_distance") as u8;
-        settings.video.view_bobbing = self.value("view_bobbing") != 0;
-        settings.video.java_animations = self.value(ANIMATIONS_OPTION.name) == 0;
+            ui::MotionBlurQuality::from_index(self.value(MOTION_BLUR_OPTION.id));
+        settings.video.smaa_mode = ui::SmaaMode::from_value(self.value(SMAA_OPTION.id));
+        settings.video.render_distance_chunks = self.value(SettingId::RenderDistance) as u8;
+        settings.video.view_bobbing = self.value(SettingId::ViewBobbing) != 0;
+        settings.video.java_animations = self.value(ANIMATIONS_OPTION.id) == 0;
         settings.video.native_skybox_offset =
-            self.value(super::NATIVE_SKYBOX_OFFSET_OPTION.name) != 0;
-        settings.video.far_terrain = self.value(super::FAR_TERRAIN_OPTION.name) != 0;
-        settings.video.outline_selection = self.value("classic_box_selection") != 0;
-        settings.video.fov_effects_scale = self.value("field_of_view_toggle") as f32;
+            self.value(super::NATIVE_SKYBOX_OFFSET_OPTION.id) != 0;
+        settings.video.far_terrain = self.value(super::FAR_TERRAIN_OPTION.id) != 0;
+        settings.video.outline_selection = self.value(SettingId::ClassicBoxSelection) != 0;
+        settings.video.fov_effects_scale = self.value(SettingId::FieldOfViewToggle) as f32;
         settings.controls.mouse_sensitivity =
-            self.value(MOUSE_SENSITIVITY_OPTION.name) as f32 / MOUSE_SENSITIVITY_OPTION.max as f32;
-        settings.controls.invert_mouse_y = self.value("keyboard_mouse_invert_y_axis") != 0;
-        settings.gameplay.always_sprint = self.value("always_sprint") != 0;
-        settings.gameplay.default_perspective = match self.value("third_person") {
+            self.value(MOUSE_SENSITIVITY_OPTION.id) as f32 / MOUSE_SENSITIVITY_OPTION.max as f32;
+        settings.controls.invert_mouse_y = self.value(SettingId::KeyboardMouseInvertYAxis) != 0;
+        settings.gameplay.always_sprint = self.value(SettingId::AlwaysSprint) != 0;
+        settings.gameplay.default_perspective = match self.value(SettingId::ThirdPerson) {
             1 => PerspectiveMode::ThirdPersonBack,
             2 => PerspectiveMode::ThirdPersonFront,
             _ => PerspectiveMode::FirstPerson,

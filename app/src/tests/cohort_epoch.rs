@@ -66,7 +66,7 @@ fn frame_cohort_status_is_computed_for_startup_acceptance_or_metrics_only() {
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
         world_spawn_position: [0, 70, 0],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream

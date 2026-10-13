@@ -46,3 +46,45 @@ fn active_registry_regeneration_preserves_every_output_byte() {
         String::from_utf8_lossy(&compile.stderr)
     );
 }
+
+#[test]
+fn pinned_pack_vocabularies_regenerate_byte_for_byte() {
+    let root = root();
+    let source = assets::VanillaSource::read(&root.join("assets/vanilla-source.json")).unwrap();
+    let paths = source.local_paths(&root).unwrap();
+    if !paths.archive.is_file() {
+        eprintln!(
+            "missing fixture: {}; skipping pack vocabulary regeneration",
+            paths.archive.display()
+        );
+        return;
+    }
+    let scratch = tempfile::tempdir().unwrap();
+    let out = scratch.path().join("vocabulary.tsv");
+    let actors = scratch.path().join("actors.txt");
+    let result = Command::new(env!("CARGO_BIN_EXE_assetc"))
+        .arg("vocabulary")
+        .arg("--archive")
+        .arg(&paths.archive)
+        .arg("--source-manifest")
+        .arg(root.join("assets/vanilla-source.json"))
+        .arg("--out")
+        .arg(&out)
+        .arg("--actors-out")
+        .arg(&actors)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        std::fs::read(out).unwrap(),
+        include_bytes!("../../../assets/data/vanilla-pack-vocabulary-1.26.50.tsv")
+    );
+    assert_eq!(
+        std::fs::read(actors).unwrap(),
+        include_bytes!("../../../protocol/data/retail_actors_1_26_50.txt")
+    );
+}

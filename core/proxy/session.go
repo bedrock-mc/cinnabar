@@ -452,14 +452,14 @@ func newSessionDownstream(request sessionConnectRequest, claimed *device.Profile
 		claimed.Apply(&clientData)
 	}
 	pinned := minecraft.DefaultProtocol
-	if request.Protocol != pinned.ID() || clientData.GameVersion != pinned.Ver() {
+	if request.Protocol != pinned.ID() || clientData.GameVersion != bridgecontract.GameVersion {
 		// A newer client protocol finds this core outdated; any other mismatch is the client's, as
 		// gophertunnel's listener answers it.
 		key := "disconnectionScreen.outdatedClient"
 		if request.Protocol > pinned.ID() {
 			key = "disconnectionScreen.outdatedServer"
 		}
-		return nil, &sessionRefusedError{key: key, err: fmt.Errorf("unsupported session protocol %d/%s; want %d/%s", request.Protocol, clientData.GameVersion, pinned.ID(), pinned.Ver())}
+		return nil, &sessionRefusedError{key: key, err: fmt.Errorf("unsupported session protocol %d/%s; want %d/%s", request.Protocol, clientData.GameVersion, pinned.ID(), bridgecontract.GameVersion)}
 	}
 	if err := clientData.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: client data: %v", errMalformedSession, err)

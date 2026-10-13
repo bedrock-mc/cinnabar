@@ -5,6 +5,7 @@ use sha2::{Digest, Sha256};
 
 const RETAIL_ITEMS: &[u8] = include_bytes!("../../data/retail_items_1_26_50.tsv");
 const RETAIL_BIOMES: &[u8] = include_bytes!("../../data/retail_biomes_1_26_50.txt");
+const RETAIL_ACTORS: &[u8] = include_bytes!("../../data/retail_actors_1_26_50.txt");
 
 fn canonical_text(bytes: &[u8]) -> Vec<u8> {
     let mut normalized = Vec::with_capacity(bytes.len());
@@ -40,6 +41,20 @@ fn retail_biome_table_has_the_pinned_projection_fingerprint() {
         .lines()
         .collect::<HashSet<_>>();
     assert!(biomes.contains("minecraft:deep_warm_ocean"));
+}
+
+#[test]
+fn actor_table_has_the_pinned_projection_fingerprint() {
+    assert_eq!(
+        format!("{:x}", Sha256::digest(canonical_text(RETAIL_ACTORS))),
+        "74ca9c25f5342b318eb8679ae22f1de71e99e6187c4a401fcfe07250ff6b5ca1"
+    );
+    let text = std::str::from_utf8(RETAIL_ACTORS).unwrap();
+    assert!(
+        text.lines()
+            .all(|name| name.starts_with("minecraft:") && !name.contains('\t'))
+    );
+    assert!(text.lines().zip(text.lines().skip(1)).all(|(a, b)| a < b));
 }
 
 #[test]

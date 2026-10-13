@@ -1,3 +1,4 @@
+use launcher::menu::settings_options::SettingId;
 use {
     super::*,
     launcher::menu::{MenuAction, MenuScreen},
@@ -39,7 +40,7 @@ fn native_inline_options_navigate_without_commit_and_keep_each_choice_focus() {
     menu.screen = MenuScreen::Settings;
     let index = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "third_person")
+        .position(|option| option.id == SettingId::ThirdPerson)
         .unwrap() as u16;
     let original = menu.settings_options.get(usize::from(index));
     let rows = [
@@ -125,7 +126,7 @@ fn native_slider_selection_exits_on_back_focus_loss_and_empty_layout() {
     menu.screen = MenuScreen::Settings;
     let index = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "gamma")
+        .position(|option| option.id == SettingId::Gamma)
         .unwrap() as u16;
     let value = menu.settings_options.get(usize::from(index));
     let rows = [
@@ -160,7 +161,7 @@ fn toggle_activation_reads_the_current_value_between_paints_and_arrows_do_not_co
     menu.activate(MenuAction::Navigate(MenuScreen::Settings));
     let index = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "keyboard_mouse_autojump")
+        .position(|option| option.id == SettingId::KeyboardMouseAutojump)
         .unwrap();
     let initial = menu.settings_options.get(index);
     menu.refresh_settings_focus([MenuAction::SettingsOption(index as u16, 1 - initial)]);
@@ -239,9 +240,9 @@ fn review_settings_focus_reaches_visible_ordinary_controls() {
     menu.screen = MenuScreen::Settings;
     let gamma = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "gamma")
+        .position(|option| option.id == SettingId::Gamma)
         .unwrap();
-    let value = menu.settings_options.value("gamma");
+    let value = menu.settings_options.value(SettingId::Gamma);
     menu.settings_focus = vec![MenuAction::SettingsOption(gamma as u16, value)];
     assert_eq!(menu.focus_actions(), menu.settings_focus);
     menu.refresh_settings_focus([
@@ -255,7 +256,7 @@ fn review_settings_focus_reaches_visible_ordinary_controls() {
     );
     menu.move_horizontal_focus(1);
     assert_eq!(
-        menu.settings_options.value("gamma"),
+        menu.settings_options.value(SettingId::Gamma),
         value,
         "an unselected slider does not adjust"
     );
@@ -266,7 +267,7 @@ fn review_settings_focus_reaches_visible_ordinary_controls() {
         "selecting adjustment mode does not commit a value"
     );
     menu.move_horizontal_focus(1);
-    assert_eq!(menu.settings_options.value("gamma"), value + 1);
+    assert_eq!(menu.settings_options.value(SettingId::Gamma), value + 1);
 }
 
 #[test]
@@ -275,7 +276,7 @@ fn settings_picker_retains_choices_and_commits_only_when_activated() {
     menu.screen = MenuScreen::Settings;
     let index = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "third_person")
+        .position(|option| option.id == SettingId::ThirdPerson)
         .unwrap() as u16;
     let original = menu.settings_options.get(usize::from(index));
     menu.activate(MenuAction::SettingsDropdown(index));
@@ -306,7 +307,7 @@ fn settings_picker_back_keeps_the_settings_page_and_value() {
     menu.activate(MenuAction::Navigate(MenuScreen::Settings));
     let index = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "third_person")
+        .position(|option| option.id == SettingId::ThirdPerson)
         .unwrap() as u16;
     let value = menu.settings_options.get(usize::from(index));
     menu.activate(MenuAction::SettingsDropdown(index));
@@ -322,7 +323,7 @@ fn settings_pack_overlay_with_no_controls_keeps_background_input_closed() {
     menu.screen = MenuScreen::Settings;
     let index = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "gamma")
+        .position(|option| option.id == SettingId::Gamma)
         .unwrap() as u16;
     let value = menu.settings_options.get(usize::from(index));
     menu.settings_focus = vec![MenuAction::SettingsOption(index, value)];
@@ -337,12 +338,12 @@ fn settings_pack_overlay_with_no_controls_keeps_background_input_closed() {
 /// Keyboard and controller navigation retain each radio row's selected value.
 #[test]
 fn settings_dropdown_focus_reaches_and_activates_each_radio_choice() {
-    for name in ["animations", "graphics_mode"] {
+    for name in [SettingId::Animations, SettingId::GraphicsMode] {
         let mut menu = MenuRuntime::new(true, 2, "Test".into());
         menu.screen = MenuScreen::Settings;
         let index = SETTINGS_OPTIONS
             .iter()
-            .position(|option| option.name == name)
+            .position(|option| option.id == name)
             .unwrap() as u16;
         let actions = [
             MenuAction::SettingsDropdown(index),

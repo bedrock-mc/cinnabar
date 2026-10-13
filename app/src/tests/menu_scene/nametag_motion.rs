@@ -13,6 +13,7 @@ use client_presentation::{
         LocalPlayerFrameSample,
     },
 };
+use launcher::menu::settings_options::SettingId;
 use protocol::identity::FifoSequence;
 use semantic_input::PerspectiveMode;
 use simulation_clock::{PhysicsTick, identity::SessionGeneration};
@@ -69,8 +70,13 @@ fn assert_own_policy(world: &World) {
     );
     let menu = world.resource::<MenuRuntime>();
     assert!(!menu.is_visible());
-    assert_ne!(menu.settings_snapshot().0.value("ingame_player_names"), 0);
-    assert_eq!(menu.settings_snapshot().0.value("hide_hud"), 0);
+    assert_ne!(
+        menu.settings_snapshot()
+            .0
+            .value(SettingId::IngamePlayerNames),
+        0
+    );
+    assert_eq!(menu.settings_snapshot().0.value(SettingId::HideHud), 0);
 }
 
 /// Feeds completed local simulation positions through the actor authority's normal input.
