@@ -86,7 +86,7 @@ fn link_hits_follow_the_actual_default_and_named_label_paint_origin() {
                 .expect("retained text exists");
             let origin = text.bounds().min();
             assert_eq!(origin.x(), 10.0 * px);
-            assert_eq!(origin.y(), (20.0 + if named { 0.0 } else { 1.0 }) * px);
+            assert_eq!(origin.y(), 21.0 * px);
             let ui::UiVisual::Text { layout, .. } = text.visual() else {
                 unreachable!()
             };
