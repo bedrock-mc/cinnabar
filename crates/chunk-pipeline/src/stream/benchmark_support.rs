@@ -55,6 +55,7 @@ pub fn work_is_idle(stream: &WorldStream) -> bool {
         && stream.mesh_changes.is_empty()
         && stream.staged_mesh_completions.is_empty()
         && stream.requests.requested.is_empty()
+        && stream.far_summaries_idle()
 }
 
 mod dispatch;

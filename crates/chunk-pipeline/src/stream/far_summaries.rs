@@ -27,7 +27,7 @@ pub struct FarColumnSummary {
     pub summary: EncodedSummary,
     /// Issue order of the job that took it; later issues saw later blocks.
     pub generation: u64,
-    /// The column was loaded when its summary was delivered; far terrain keeps such
+    /// The column held blocks when its summary was delivered; far terrain keeps such
     /// summaries whatever its memory budget, as nothing else may draw the column.
     pub resident: bool,
 }
@@ -144,6 +144,8 @@ pub(super) struct FarTerrainFeed {
     queued: HashSet<ChunkKey>,
     /// Columns that left residency, with the blocks they held, awaiting a summary job.
     pub(super) retiring: VecDeque<(ChunkKey, ColumnSnapshot)>,
+    /// Columns that left residency since the last drain, whatever became of their summaries.
+    unloaded: Vec<ChunkKey>,
     jobs_in_flight: Arc<AtomicUsize>,
     inbox: FarSummaryInbox,
 }
@@ -156,6 +158,7 @@ impl Default for FarTerrainFeed {
             pending: VecDeque::new(),
             queued: HashSet::new(),
             retiring: VecDeque::new(),
+            unloaded: Vec::new(),
             jobs_in_flight: Arc::default(),
             inbox: FarSummaryInbox::default(),
         }
@@ -172,6 +175,7 @@ impl WorldStream {
             feed.pending.clear();
             feed.queued.clear();
             feed.retiring.clear();
+            feed.unloaded.clear();
             self.clear_near_drawn();
         } else if !was_enabled {
             // Columns already resident were never summarised or tracked as drawn while off.
@@ -216,12 +220,52 @@ impl WorldStream {
         self.far_terrain.inbox.issued_generation()
     }
 
+    /// Appends columns that left residency since the last call and are still gone, so far
+    /// terrain stops keeping their summaries whatever their summaries' fate.
+    pub fn drain_far_unloaded(&mut self, out: &mut Vec<ChunkKey>) {
+        let unloaded = std::mem::take(&mut self.far_terrain.unloaded);
+        out.extend(
+            unloaded
+                .into_iter()
+                .filter(|column| !self.far_column_resident(*column)),
+        );
+    }
+
+    /// True once no far summary waits, runs or awaits draining, so a settled view has paid
+    /// for every summary it caused.
+    #[must_use]
+    pub fn far_summaries_idle(&self) -> bool {
+        let feed = &self.far_terrain;
+        feed.pending.is_empty()
+            && feed.retiring.is_empty()
+            && feed.jobs_in_flight.load(Ordering::Acquire) == 0
+            && feed.inbox.is_idle()
+    }
+
+    /// True when columns left residency since the last drain.
+    #[must_use]
+    pub fn has_far_unloaded(&self) -> bool {
+        !self.far_terrain.unloaded.is_empty()
+    }
+
+    /// Records columns leaving residency for [`WorldStream::drain_far_unloaded`].
+    pub(super) fn note_far_unloaded(&mut self, columns: &BTreeSet<ChunkKey>) {
+        if self.far_terrain.enabled {
+            self.far_terrain.unloaded.extend(columns.iter().copied());
+        }
+    }
+
+    /// True while the column holds blocks, including during a resend.
+    fn far_column_resident(&self, column: ChunkKey) -> bool {
+        self.loaded_columns.contains(&column) || self.resident.column(column).next().is_some()
+    }
+
     /// Appends the newest summary of each column finished since the last call.
     pub fn drain_far_summaries(&mut self, out: &mut Vec<FarColumnSummary>) {
         let start = out.len();
         self.far_terrain.inbox.drain(out);
         for summary in &mut out[start..] {
-            summary.resident = self.loaded_columns.contains(&summary.column);
+            summary.resident = self.far_column_resident(summary.column);
         }
         self.note_far_summaries_delivered(&out[start..]);
     }

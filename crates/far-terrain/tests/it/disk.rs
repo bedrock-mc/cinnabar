@@ -169,3 +169,29 @@ fn region_writes_keep_the_higher_version() {
         vec![(ColumnPos::new(0, 0), newer.summary.hash)]
     );
 }
+
+/// Two worlds resolved before either writes get different epochs.
+#[test]
+fn resolutions_reserve_their_epochs() {
+    let root = tempfile::tempdir().unwrap();
+    let bounds = DiskBounds {
+        server_cap_bytes: u64::MAX,
+        global_cap_bytes: u64::MAX,
+    };
+    let disk = DiskCache::spawn(root.path().to_owned(), bounds).unwrap();
+    let world = namespace("remote:a:1").world();
+    let mut hilly_probe = hilly();
+    hilly_probe.cells_mut()[0].height += 9;
+    disk.resolve(world, 1, vec![(ColumnPos::new(0, 0), hilly())]);
+    disk.resolve(world, 2, vec![(ColumnPos::new(0, 0), hilly_probe)]);
+    disk.sync();
+    let epochs: Vec<u32> = disk
+        .events()
+        .filter_map(|event| match event {
+            DiskEvent::Resolved { epoch, .. } => Some(epoch),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(epochs.len(), 2);
+    assert_ne!(epochs[0], epochs[1]);
+}

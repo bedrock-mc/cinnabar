@@ -374,3 +374,65 @@ fn a_retiring_session_never_overwrites_a_later_visit() {
     join(&mut cache, 64, now);
     assert_eq!(reload(&mut cache, pos, now), Some(flat(90)));
 }
+
+/// Late summaries of a dimension left before its namespace resolved still reach disk.
+#[test]
+fn late_summaries_of_an_unresolved_world_are_written() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let pos = ColumnPos::new(300, 0);
+    let mut cache = cache(root.path());
+    cache.enter_world(SERVER, 42, 0);
+    cache.admit(0, ColumnPos::new(0, 0), flat(64).encode(), now);
+    cache.enter_world(SERVER, 42, -1);
+    cache.admit(0, pos, flat(90).encode(), now);
+    cache.poll(now);
+    leave(&mut cache);
+
+    join(&mut cache, 64, now);
+    assert_eq!(reload(&mut cache, pos, now), Some(flat(90)));
+}
+
+/// A retirement older than a version being written is not shown in its place.
+#[test]
+fn a_retirement_never_replaces_a_newer_write_in_flight() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let pos = ColumnPos::new(300, 0);
+    let mut cache = two_column_cache(root.path());
+    join(&mut cache, 64, now);
+    let session = cache.retire_session().unwrap();
+    cache.admit(0, pos, flat(90).encode(), now);
+    cache.flush_all();
+    evict(&mut cache, pos, now);
+    cache.persist(session, [(pos, flat(70).encode())], now);
+    assert_ne!(
+        cache.store().summary(pos).map(Result::unwrap),
+        Some(flat(70))
+    );
+}
+
+/// A focused column memory dropped is read back from disk.
+#[test]
+fn evicted_columns_in_focus_are_read_again() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let pos = ColumnPos::new(300, 0);
+    let mut cache = two_column_cache(root.path());
+    join(&mut cache, 64, now);
+    cache.admit(0, pos, flat(90).encode(), now);
+    cache.flush_all();
+    cache.sync();
+    cache.poll(now);
+    cache.set_focus(pos, 4);
+    cache.sync();
+    cache.poll(now);
+    evict(&mut cache, pos, now);
+    cache.poll(now);
+    cache.sync();
+    cache.poll(now);
+    assert_eq!(
+        cache.store().summary(pos).map(Result::unwrap),
+        Some(flat(90))
+    );
+}

@@ -1,7 +1,7 @@
 //! The disk cache: one IO thread owns every file, enforces the caps and evicts by recency.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     thread::JoinHandle,
@@ -92,6 +92,7 @@ impl DiskCache {
                     bounds,
                     index: None,
                     events,
+                    claimed: HashSet::new(),
                 };
                 for command in commands {
                     worker.run(command);
@@ -195,6 +196,9 @@ struct Worker {
     /// Built on first use, so a session that only reads never walks the whole cache.
     index: Option<FileIndex>,
     events: Sender<DiskEvent>,
+    /// Namespaces handed out by this run, so two worlds resolved before either writes
+    /// never share one.
+    claimed: HashSet<NamespaceKey>,
 }
 
 impl Worker {
@@ -313,15 +317,25 @@ impl Worker {
     }
 
     fn resolve(&mut self, world: WorldKey, probes: &[(ColumnPos, ColumnSummary)]) -> u32 {
+        let epoch = self.pick_epoch(world, probes);
+        self.claim(world.namespace(epoch));
+        epoch
+    }
+
+    /// The epoch whose cached columns match `probes`, else the newest when it holds nothing
+    /// the probes cover and no world resolved this run took it, else a new one.
+    fn pick_epoch(&self, world: WorldKey, probes: &[(ColumnPos, ColumnSummary)]) -> u32 {
         let mut epochs: Vec<u32> = fs::read_dir(self.root.join(world.server.to_string()))
             .into_iter()
             .flatten()
             .flatten()
             .filter_map(|entry| NamespaceKey::parse(world.server, entry.file_name().to_str()?))
+            .chain(self.claimed.iter().copied())
             .filter(|namespace| namespace.world() == world)
             .map(|namespace| namespace.epoch)
             .collect();
         epochs.sort_unstable_by(|a, b| b.cmp(a));
+        epochs.dedup();
         let Some(&newest) = epochs.first() else {
             return 0;
         };
@@ -337,7 +351,23 @@ impl Worker {
                 newest_overlaps = present > 0;
             }
         }
-        if newest_overlaps { newest + 1 } else { newest }
+        if newest_overlaps || self.claimed.contains(&world.namespace(newest)) {
+            newest + 1
+        } else {
+            newest
+        }
+    }
+
+    /// Reserves `namespace` before it is acknowledged, on disk as well as for this run.
+    fn claim(&mut self, namespace: NamespaceKey) {
+        let directory = self
+            .root
+            .join(namespace.server.to_string())
+            .join(namespace.directory());
+        if let Err(error) = fs::create_dir_all(&directory) {
+            tracing::warn!(server = %namespace.server, %error, "far-terrain epoch reservation failed");
+        }
+        self.claimed.insert(namespace);
     }
 
     /// Counts probes the namespace holds, and how many of those match closely.

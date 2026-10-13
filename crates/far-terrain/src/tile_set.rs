@@ -5,8 +5,7 @@ use std::{collections::BTreeMap, sync::Arc, time::Instant};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
 use crate::{
-    ColumnPos, ColumnSummary, EncodedSummary, NearMask, SummaryStore, TileGrid, TileKey, TileMesh,
-    TileView,
+    ColumnPos, ColumnSummary, EncodedSummary, SummaryStore, TileGrid, TileKey, TileMesh, TileView,
     config::{LEVEL_COUNT, MAX_TILE_BUILDS, TILE_BUILD_COLUMNS_PER_UPDATE, TILE_REBUILD_INTERVAL},
     mesh_tile, select_tiles,
     summary::COLUMN_SIDE,
@@ -74,7 +73,7 @@ impl FarTiles {
         }
         for (_, tile) in std::mem::replace(&mut self.selected, kept) {
             if let Some(mesh) = tile.mesh.filter(|mesh| !mesh.quads.is_empty()) {
-                self.retired.push(mesh);
+                self.retire(mesh);
             }
         }
         self.retire_covered();
@@ -156,27 +155,14 @@ impl FarTiles {
         selected.chain(self.retired.iter().cloned()).collect()
     }
 
-    /// Drops replaced coarser meshes over any column of `near`: only finest quads hide
-    /// themselves over near terrain.
-    pub fn release_near(&mut self, near: &NearMask) {
-        let before = self.retired.len();
-        self.retired.retain(|mesh| {
-            mesh.key.level == 0 || !mesh.key.columns().any(|pos| near.contains(pos))
-        });
-        if self.retired.len() != before {
-            self.revision += 1;
-        }
-    }
-
     /// True when a selected tile over `column` has a mesh built from its current summary.
     #[must_use]
     pub fn ready(&self, column: ColumnPos) -> bool {
-        self.selected.iter().any(|(key, tile)| {
-            tile.mesh.is_some() && !tile.dirty && tile.building.is_none() && {
-                let ([x, z], width) = (key.origin(), key.width_blocks());
-                let block = [column.x * COLUMN_SIDE as i32, column.z * COLUMN_SIDE as i32];
-                (x..x + width).contains(&block[0]) && (z..z + width).contains(&block[1])
-            }
+        let block = [column.x * COLUMN_SIDE as i32, column.z * COLUMN_SIDE as i32];
+        (0..LEVEL_COUNT).any(|level| {
+            self.selected
+                .get(&TileKey::containing(level, block[0], block[1]))
+                .is_some_and(|tile| tile.mesh.is_some() && !tile.dirty && tile.building.is_none())
         })
     }
 
@@ -195,8 +181,13 @@ impl FarTiles {
     }
 
     fn start_build(&mut self, key: TileKey, store: &mut SummaryStore, now: Instant) {
-        let columns: Vec<(ColumnPos, EncodedSummary)> = key
-            .columns()
+        // The ring of columns around the tile sets how far its edge skirts reach down.
+        let [x, z] = key
+            .origin()
+            .map(|block| block.div_euclid(COLUMN_SIDE as i32));
+        let side = key.width_blocks() / COLUMN_SIDE as i32;
+        let columns: Vec<(ColumnPos, EncodedSummary)> = (z - 1..=z + side)
+            .flat_map(|cz| (x - 1..=x + side).map(move |cx| ColumnPos::new(cx, cz)))
             .filter_map(|pos| Some((pos, store.encoded(pos)?.clone())))
             .collect();
         let tile = self.selected.get_mut(&key).expect("due tiles are selected");
@@ -224,6 +215,15 @@ impl FarTiles {
         });
     }
 
+    /// Keeps a replaced mesh drawn until its area is covered, never alongside another retired
+    /// mesh over the same area: tiles nest, so the larger of two overlapping ones covers both.
+    fn retire(&mut self, mesh: Arc<TileMesh>) {
+        self.retired.retain(|old| !contains(mesh.key, old.key));
+        if !self.retired.iter().any(|old| contains(old.key, mesh.key)) {
+            self.retired.push(mesh);
+        }
+    }
+
     /// Drops retired meshes once every selected tile over their area has a mesh.
     fn retire_covered(&mut self) {
         let selected = &self.selected;
@@ -237,6 +237,13 @@ impl FarTiles {
             self.revision += 1;
         }
     }
+}
+
+/// True when `outer`'s area holds all of `inner`'s.
+fn contains(outer: TileKey, inner: TileKey) -> bool {
+    let ([ox, oz], ow) = (outer.origin(), outer.width_blocks());
+    let ([ix, iz], iw) = (inner.origin(), inner.width_blocks());
+    ox <= ix && oz <= iz && ix + iw <= ox + ow && iz + iw <= oz + ow
 }
 
 fn overlaps(a: TileKey, b: TileKey) -> bool {

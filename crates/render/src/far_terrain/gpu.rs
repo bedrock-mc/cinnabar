@@ -101,7 +101,10 @@ impl FarTerrainGpu {
                     },
                     count: None,
                 },
-                storage(4),
+                BindGroupLayoutEntry {
+                    visibility: ShaderStages::VERTEX_FRAGMENT,
+                    ..storage(4)
+                },
             ],
         );
         let (colours, colours_view) = colour_texture(device, 1);
@@ -165,16 +168,38 @@ impl FarTerrainGpu {
             self.ranges.release(resident.quads);
             self.free_slots.push(resident.slot);
         }
-        for mesh in tiles {
+        // Tiles come finest first; when space runs out, residents later in that order make
+        // room, and only what nothing later can free is left out.
+        let priority: HashMap<TileKey, usize> = tiles
+            .iter()
+            .enumerate()
+            .map(|(index, mesh)| (mesh.key, index))
+            .collect();
+        for (index, mesh) in tiles.iter().enumerate() {
             if self.resident.contains_key(&mesh.key) {
                 continue;
             }
-            // Tiles come finest first, so a full array leaves out the farthest coarse ones.
-            let Some(slot) = self.allocate_slot(device, queue) else {
-                break;
+            let (slot, quads) = loop {
+                if let Some(slot) = self.allocate_slot(device, queue) {
+                    match self.allocate_quads(device, queue, mesh.quads.len() as u32) {
+                        Some(quads) => break (Some(slot), quads),
+                        None => self.free_slots.push(slot),
+                    }
+                }
+                let Some(evicted) = self
+                    .resident
+                    .keys()
+                    .copied()
+                    .filter(|key| priority.get(key).is_some_and(|&rank| rank > index))
+                    .max_by_key(|key| priority[key])
+                else {
+                    break (None, 0..0);
+                };
+                let resident = self.resident.remove(&evicted).expect("listed above");
+                self.ranges.release(resident.quads);
+                self.free_slots.push(resident.slot);
             };
-            let Some(quads) = self.allocate_quads(device, queue, mesh.quads.len() as u32) else {
-                self.free_slots.push(slot);
+            let Some(slot) = slot else {
                 break;
             };
             self.upload(queue, mesh, slot, &quads);

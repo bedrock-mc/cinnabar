@@ -26,6 +26,11 @@ struct VertexOutput {
     @location(2) @interpolate(flat) light: vec3<f32>,
     @location(3) @interpolate(flat) layer: u32,
     @location(4) @interpolate(flat) shade: f32,
+    // Coarser tiles hide per fragment over near columns: the tile origin in blocks, the
+    // owning block relative to it, and whether to test at all.
+    @location(5) @interpolate(flat) origin: vec2<i32>,
+    @location(6) owner_block: vec2<f32>,
+    @location(7) @interpolate(flat) coarse: u32,
 }
 
 fn near_column(column: vec2<i32>) -> bool {
@@ -85,7 +90,7 @@ fn far_vertex(@builtin(vertex_index) vertex: u32, @builtin(instance_index) slot:
     let origin = vec2(tile.origin_x, tile.origin_z);
 
     var out: VertexOutput;
-    // Only finest tiles border near terrain; their quads never cross a column.
+    // Finest quads never cross a column, so they are dropped whole over near terrain.
     let owner_block = origin + vec2<i32>(owner * cell_blocks);
     if (tile.level == 0u && near_column(vec2(owner_block.x >> 4u, owner_block.y >> 4u))) {
         out.position = vec4(0.0, 0.0, 2.0, 1.0);
@@ -99,11 +104,21 @@ fn far_vertex(@builtin(vertex_index) vertex: u32, @builtin(instance_index) slot:
     out.light = terrain_light_colour(vec2(0.0, 15.0));
     out.layer = slot;
     out.shade = face_shade(normal, false);
+    out.origin = origin;
+    out.owner_block = out.cell * cell_blocks;
+    out.coarse = select(0u, 1u, tile.level > 0u);
     return out;
 }
 
 @fragment
 fn far_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    // A coarser quad can span columns; only the part over near terrain is dropped.
+    if (in.coarse != 0u) {
+        let block = in.origin + vec2<i32>(floor(in.owner_block));
+        if (near_column(vec2(block.x >> 4u, block.y >> 4u))) {
+            discard;
+        }
+    }
     let last = i32(FAR_TERRAIN_TILE_CELLS) - 1;
     let cell = clamp(vec2<i32>(floor(in.cell)), vec2(0), vec2(last));
     let colour = textureLoad(colours, cell, i32(in.layer), 0).rgb;

@@ -177,9 +177,10 @@ fn lifting_the_limit_meshes_partial_columns() {
     assert!(meshing(&stream, 7));
 }
 
-/// Radius changes, far-terrain toggles, block changes, uploads, resends and evictions in a
-/// scrambled order never leave a column that had a drawer without one: near terrain draws it
-/// once its meshes are published, and far terrain from a delivered summary while shown.
+/// Radius changes, mode and render-distance changes (Auto crossing its threshold), block
+/// changes, uploads, resends and evictions in a scrambled order never leave a column that had
+/// a drawer without one: near terrain draws it once its meshes are published, and far terrain
+/// from a delivered summary while shown.
 #[test]
 fn covered_columns_always_keep_a_drawer() {
     const COLUMNS: i32 = 8;
@@ -200,6 +201,12 @@ fn covered_columns_always_keep_a_drawer() {
     for x in 0..COLUMNS {
         load(&mut stream, x);
     }
+    // The Far Terrain setting and the requested render distance decide it as the app does,
+    // so Auto crosses its threshold back and forth as the render distance changes.
+    use render_api::far_terrain::{DeviceTier, FarTerrainMode};
+    let tier = DeviceTier::Mid;
+    let mut mode = FarTerrainMode::On;
+    let mut render = 64;
     let mut far_on = true;
     let mut far_summaries: HashSet<ChunkKey> = HashSet::new();
     let mut covered: HashSet<ChunkKey> = HashSet::new();
@@ -212,13 +219,21 @@ fn covered_columns_always_keep_a_drawer() {
                 stream.set_full_detail_radius(radius.filter(|_| far_on));
             }
             1 => {
+                if next(2) == 0 {
+                    mode = FarTerrainMode::ALL[next(3) as usize];
+                } else {
+                    render = [16, tier.auto_full_detail_chunks(), 64][next(3) as usize];
+                }
                 // As the app does: turning off lifts the limit at once, but summaries and the
                 // far scene stay until near terrain draws every loaded column.
-                far_on = !far_on;
-                if far_on {
-                    stream.set_far_terrain_enabled(true);
-                } else {
-                    stream.set_full_detail_radius(None);
+                let wanted = mode.enabled(render, tier);
+                if wanted != far_on {
+                    far_on = wanted;
+                    if far_on {
+                        stream.set_far_terrain_enabled(true);
+                    } else {
+                        stream.set_full_detail_radius(None);
+                    }
                 }
             }
             2 => {

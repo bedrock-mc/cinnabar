@@ -24,6 +24,8 @@ pub const TORCH: u32 = 7;
 pub const NUB: u32 = 8;
 /// A full-block model with a sand top over grass-material sides.
 pub const CAPPED: u32 = 9;
+/// Seasonal leaves whose sky-exposed top material is sand.
+pub const SEASONAL_LEAVES: u32 = 10;
 /// A seasonal foliage-tinted material, after the leaf materials.
 pub const SEASONAL_MATERIAL: u32 = LEAF_MATERIAL_BASE + assets::SEASONAL_LEAF_MATERIAL_COUNT;
 
@@ -141,16 +143,26 @@ pub fn runtime_assets() -> RuntimeAssets {
     nub.model_template = 3;
     let mut capped = visual(VisualKind::Model, BlockFlags::empty(), 1, 0);
     capped.model_template = 4;
-    visuals.extend([slab, torch, nub, capped]);
+    let seasonal_leaves = visual(
+        VisualKind::Cube,
+        BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL,
+        DIAGNOSTIC_MATERIAL,
+        assets::BLOCK_VISUAL_VARIANT_SEASONAL_LEAF | LEAF_MATERIAL_BASE,
+    );
+    visuals.extend([slab, torch, nub, capped, seasonal_leaves]);
     let mut materials = vec![
         Material::unvaried(),
         material(0, MATERIAL_FLAG_GRASS_TINT),
         material(1, 0),
         material(2, MATERIAL_FLAG_WATER_TINT),
     ];
-    materials.extend(
-        (0..assets::SEASONAL_LEAF_MATERIAL_COUNT).map(|_| material(3, MATERIAL_FLAG_FOLIAGE_TINT)),
-    );
+    materials.extend((0..assets::SEASONAL_LEAF_MATERIAL_COUNT).map(|index| {
+        if index == assets::SEASONAL_LEAF_EXPOSED_OFFSET + assets::BlockFace::Up as u32 {
+            material(1, 0)
+        } else {
+            material(3, MATERIAL_FLAG_FOLIAGE_TINT)
+        }
+    }));
     materials.push(material(
         3,
         MATERIAL_FLAG_FOLIAGE_TINT | assets::MATERIAL_FLAG_SEASONAL_FOLIAGE,

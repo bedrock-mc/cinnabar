@@ -22,12 +22,16 @@ const EMPTY: i16 = SurfaceCell::EMPTY_HEIGHT;
 pub struct TileGrid {
     key: TileKey,
     cells: Box<[SurfaceCell]>,
+    /// Lowest surface among every column given, those just outside the tile included, so
+    /// edge skirts reach down to whatever a neighbouring tile shows.
+    lowest: i16,
 }
 
 impl TileGrid {
     /// Aggregates every summarised block of `columns` inside the tile. A cell's height leans
     /// toward its highest block, so ridges survive coarse levels; a cell is water, at the
-    /// water's mean surface, when most of its blocks are; colour is the mean.
+    /// water's mean surface, when most of its blocks are; colour is the mean. Columns outside
+    /// the tile only lower its skirts.
     #[must_use]
     pub fn build(key: TileKey, columns: &[(ColumnPos, ColumnSummary)]) -> Self {
         #[derive(Clone, Copy, Default)]
@@ -44,6 +48,7 @@ impl TileGrid {
         let shift = key.level;
         let [origin_x, origin_z] = key.origin();
         let mut sums = vec![Sum::default(); CELLS];
+        let mut lowest = i16::MAX;
         for (pos, summary) in columns {
             let column_x = pos.x * COLUMN_SIDE as i32 - origin_x;
             let column_z = pos.z * COLUMN_SIDE as i32 - origin_z;
@@ -51,6 +56,7 @@ impl TileGrid {
                 if cell.is_empty() {
                     continue;
                 }
+                lowest = lowest.min(cell.height);
                 let x = column_x + (index % COLUMN_SIDE) as i32;
                 let z = column_z + (index / COLUMN_SIDE) as i32;
                 let (x, z) = (x >> shift, z >> shift);
@@ -100,7 +106,7 @@ impl TileGrid {
                 }
             })
             .collect();
-        Self { key, cells }
+        Self { key, cells, lowest }
     }
 
     #[must_use]
@@ -151,8 +157,8 @@ pub fn mesh_tile(grid: &TileGrid) -> TileMesh {
         .filter(|&h| h != EMPTY);
     let (min, max) = heights.fold((i16::MAX, i16::MIN), |(lo, hi), h| (lo.min(h), hi.max(h)));
     let mut quads = Vec::new();
+    let floor = min.min(grid.lowest).saturating_sub(SKIRT_DEPTH_BLOCKS);
     if min <= max {
-        let floor = min.saturating_sub(SKIRT_DEPTH_BLOCKS);
         greedy_tops(grid, block, &mut quads);
         walls(grid, block, floor, &mut quads);
     }
@@ -169,11 +175,7 @@ pub fn mesh_tile(grid: &TileGrid) -> TileMesh {
         revision: NEXT_REVISION.fetch_add(1, Ordering::Relaxed),
         quads: quads.into_boxed_slice(),
         colours,
-        min_y: if min <= max {
-            min.saturating_sub(SKIRT_DEPTH_BLOCKS)
-        } else {
-            0
-        },
+        min_y: if min <= max { floor } else { 0 },
         max_y: if min <= max { max } else { 0 },
     }
 }

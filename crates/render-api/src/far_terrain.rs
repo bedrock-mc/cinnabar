@@ -1,7 +1,45 @@
 //! Far-terrain policy shared by settings, both menus and far terrain itself.
 
-/// Far terrain is off until the player turns it on.
-pub const DEFAULT_ENABLED: bool = false;
+/// The Far Terrain setting, in its saved order: a saved `false` reads as Auto and `true` as
+/// On, so the earlier on/off setting needs no migration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FarTerrainMode {
+    /// On only when the render distance asks for more than this device meshes in full
+    /// detail by default; otherwise exactly as Off.
+    Auto,
+    On,
+    Off,
+}
+
+impl FarTerrainMode {
+    /// Every mode, in saved order.
+    pub const ALL: [Self; 3] = [Self::Auto, Self::On, Self::Off];
+
+    /// The mode saved as `index`; an unknown index reads as Auto.
+    #[must_use]
+    pub const fn from_index(index: i32) -> Self {
+        match index {
+            1 => Self::On,
+            2 => Self::Off,
+            _ => Self::Auto,
+        }
+    }
+
+    #[must_use]
+    pub const fn index(self) -> i32 {
+        self as i32
+    }
+
+    /// True when far terrain runs at `render_distance` requested chunks on `tier`.
+    #[must_use]
+    pub const fn enabled(self, render_distance: u32, tier: DeviceTier) -> bool {
+        match self {
+            Self::Auto => render_distance > tier.auto_full_detail_chunks(),
+            Self::On => true,
+            Self::Off => false,
+        }
+    }
+}
 
 /// How much far-terrain work a device can take, judged by its recommended render distance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -111,5 +149,27 @@ mod tests {
             DeviceTier::from_recommended_render_distance(48),
             DeviceTier::High
         );
+    }
+
+    /// Auto runs far terrain only past the tier's automatic full-detail radius.
+    #[test]
+    fn auto_enables_only_past_the_full_detail_radius() {
+        for tier in [DeviceTier::Low, DeviceTier::Mid, DeviceTier::High] {
+            let threshold = tier.auto_full_detail_chunks();
+            assert!(!FarTerrainMode::Auto.enabled(threshold, tier));
+            assert!(FarTerrainMode::Auto.enabled(threshold + 1, tier));
+            assert!(FarTerrainMode::On.enabled(8, tier));
+            assert!(!FarTerrainMode::Off.enabled(255, tier));
+        }
+    }
+
+    /// The earlier on/off setting's saved values read as On and Auto.
+    #[test]
+    fn saved_booleans_read_as_on_and_auto() {
+        assert_eq!(FarTerrainMode::from_index(1), FarTerrainMode::On);
+        assert_eq!(FarTerrainMode::from_index(0), FarTerrainMode::Auto);
+        for mode in FarTerrainMode::ALL {
+            assert_eq!(FarTerrainMode::from_index(mode.index()), mode);
+        }
     }
 }

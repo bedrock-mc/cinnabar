@@ -24,6 +24,7 @@ pub(crate) struct FarTerrain {
     cache: FarTerrainCache,
     tiles: FarTiles,
     drained: Vec<FarColumnSummary>,
+    unloaded: Vec<::world::ChunkKey>,
     near: Arc<NearMask>,
     /// Centre column and drawn-set revision the mask was built for.
     near_view: Option<([i32; 2], u64)>,
@@ -57,6 +58,7 @@ impl FarTerrain {
             cache: FarTerrainCache::new(FarTerrainConfig::default(), disk_root, version_base()),
             tiles: FarTiles::default(),
             drained: Vec::new(),
+            unloaded: Vec::new(),
             near: Arc::new(NearMask::default()),
             near_view: None,
             drain_since: None,
@@ -162,12 +164,18 @@ pub(crate) fn feed_far_terrain(
                 .recommended,
         )
     });
+    // Auto runs far terrain only past what this device meshes in full detail by default;
+    // below that nothing of it runs, exactly as with Off.
+    let wanted = video
+        .far_terrain
+        .enabled(u32::from(video.render_distance_chunks), tier);
     let destination = session
         .as_deref()
         .and_then(SessionController::destination_identity);
     let now = Instant::now();
-    // Turned off, far terrain stays until near terrain has drawn every column it covered.
-    let draining = !video.far_terrain
+    // Turned off, by the setting or by Auto, far terrain stays until near terrain has drawn
+    // every column it covered.
+    let draining = !wanted
         && far.published.is_some()
         && world
             .stream
@@ -181,7 +189,7 @@ pub(crate) fn feed_far_terrain(
         .stream
         .as_ref()
         .zip(destination)
-        .filter(|_| video.far_terrain || draining)
+        .filter(|_| wanted || draining)
         .map(|(stream, destination)| {
             (
                 destination,
@@ -223,11 +231,19 @@ pub(crate) fn feed_far_terrain(
     {
         stream.drain_far_summaries(&mut far.drained);
     }
+    if world
+        .stream
+        .as_ref()
+        .is_some_and(|stream| enabled && stream.has_far_unloaded())
+        && let Some(stream) = world.stream.as_mut()
+    {
+        stream.drain_far_unloaded(&mut far.unloaded);
+    }
     // Columns past the full-detail radius skip lighting and meshing; far terrain draws them.
     let full_detail = world
         .stream
         .as_ref()
-        .filter(|_| video.far_terrain)
+        .filter(|_| wanted)
         .and_then(|stream| full_detail_radius(stream, &video, tier));
     if world
         .stream
@@ -258,6 +274,13 @@ pub(crate) fn feed_far_terrain(
             far.cache.store().set_pinned(pos, resident);
         }
         far.cache.admit(column.dimension, pos, summary, now);
+    }
+    for column in far.unloaded.drain(..) {
+        if column.dimension == dimension {
+            far.cache
+                .store()
+                .set_pinned(ColumnPos::new(column.x, column.z), false);
+        }
     }
     let centre = stream.far_terrain_centre();
     let loaded = loaded_radius(stream, &video);
@@ -301,7 +324,6 @@ pub(crate) fn feed_far_terrain(
         skip_blocks: (far.near.inner_blocks().min(skip_blocks) - EDGE_MARGIN_BLOCKS).max(0.0),
         far_blocks: (horizon_blocks - near_blocks).max(0.0),
     });
-    far.tiles.release_near(&far.near);
     far.tiles.update(far.cache.store(), now);
     // Columns leaving full detail keep their meshes until their far tiles are built.
     let store = far.cache.store();

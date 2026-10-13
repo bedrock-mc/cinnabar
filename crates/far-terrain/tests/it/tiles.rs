@@ -286,12 +286,59 @@ fn replaced_coarse_tiles_stay_until_covered_or_near() {
         [2],
         "kept until finer tiles are built"
     );
-    tiles.release_near(&NearMask::from_columns([0, 0], 64, [ColumnPos::new(37, 0)]));
-    assert!(
-        levels(&tiles, 600, 8).iter().all(|level| *level == 0),
-        "dropped over a near column"
+    assert_eq!(
+        levels(&tiles, 600, 8),
+        [2],
+        "near columns hide it per fragment, so its other columns stay covered"
     );
-    assert_eq!(levels(&tiles, 600, 300), [2]);
+    test_time::eventually("finer tiles replace it", || {
+        tiles.update(&mut store, now);
+        levels(&tiles, 600, 300).iter().all(|level| *level < 2)
+            && !levels(&tiles, 600, 300).is_empty()
+    });
+}
+
+/// Retired meshes never overlap: a finer one inside a retired coarser one is dropped.
+#[test]
+fn retired_tiles_never_overlap() {
+    let mut store = SummaryStore::new(usize::MAX);
+    for x in -80..80 {
+        for z in -80..80 {
+            store.admit(ColumnPos::new(x, z), &flat(64));
+        }
+    }
+    let wide = TileView {
+        centre: [8.0, 8.0],
+        near_blocks: 32.0,
+        skip_blocks: 32.0,
+        far_blocks: 1200.0,
+    };
+    let mut tiles = FarTiles::default();
+    tiles.set_view(wide);
+    let now = Instant::now();
+    test_time::eventually("tiles build", || {
+        tiles.update(&mut store, now);
+        tiles.drawn().len() > 4
+    });
+    // Coarsen, then refine again before anything rebuilds: both selections retire.
+    tiles.set_view(TileView {
+        near_blocks: 640.0,
+        ..wide
+    });
+    tiles.set_view(TileView {
+        near_blocks: 0.0,
+        skip_blocks: 0.0,
+        ..wide
+    });
+    let drawn = tiles.drawn();
+    for (index, a) in drawn.iter().enumerate() {
+        for b in &drawn[index + 1..] {
+            let ([ax, az], aw) = (a.key.origin(), a.key.width_blocks());
+            let ([bx, bz], bw) = (b.key.origin(), b.key.width_blocks());
+            let overlap = ax < bx + bw && bx < ax + aw && az < bz + bw && bz < az + aw;
+            assert!(!overlap, "{:?} overlaps {:?}", a.key, b.key);
+        }
+    }
 }
 
 /// A column's tile is ready once built, and again only after a change to it is rebuilt.
@@ -338,4 +385,29 @@ fn near_mask_ignores_columns_past_its_limit() {
     for column in stale {
         assert!(!mask.contains(column));
     }
+}
+
+/// Edge skirts reach down to the lowest surface just outside the tile, so a lower neighbour
+/// never shows a crack under them.
+#[test]
+fn skirts_reach_a_lower_neighbour() {
+    let key = TileKey {
+        level: 0,
+        x: 0,
+        z: 0,
+    };
+    let inside: Vec<(ColumnPos, ColumnSummary)> = (0..4)
+        .flat_map(|x| (0..4).map(move |z| (ColumnPos::new(x, z), flat(64))))
+        .collect();
+    let alone = mesh_tile(&TileGrid::build(key, &inside));
+    let mut with_ring = inside.clone();
+    with_ring.push((ColumnPos::new(-1, 0), flat(10)));
+    let beside_valley = mesh_tile(&TileGrid::build(key, &with_ring));
+    assert!(beside_valley.min_y <= 10 - far_terrain::config::SKIRT_DEPTH_BLOCKS);
+    assert!(alone.min_y > beside_valley.min_y);
+    assert_eq!(
+        TileGrid::build(key, &with_ring).cell(0, 0),
+        TileGrid::build(key, &inside).cell(0, 0),
+        "outside columns do not enter the cells"
+    );
 }

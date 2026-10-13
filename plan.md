@@ -19,16 +19,19 @@ batches and evicts the least recently used regions past the per-server (64 MiB) 
 (512 MiB) caps.
 
 The far pass draws the cached terrain beyond near terrain as blocky tiles of 64×64 cells,
-1 to 16 blocks wide, finer toward the near edge; only the finest level meets near terrain.
-Its quads hide over exactly the columns near terrain has drawn, those loaded with every mesh
-uploaded, so each column has one drawer and loading or eviction opens no hole. Tile meshes merge equal-height
-tops and runs of walls on worker threads, rebuild at most every 250 ms when their columns
-change, and keep a replaced tile drawn until its replacements are ready. The GPU holds only
+1 to 16 blocks wide, finer toward the near edge. Far terrain hides over exactly the columns
+near terrain has drawn, those loaded with every mesh uploaded: finest quads whole, coarser
+ones per fragment, so each column has one drawer and loading or eviction opens no hole. Tile
+meshes merge equal-height tops and runs of walls on worker threads, skirt their edges down to
+the lowest neighbouring surface, rebuild at most every 250 ms when their columns change, and
+keep a replaced tile drawn until its replacements are ready, never two over one area. The GPU holds only
 the selected tiles; a still camera uploads and rebuilds nothing. Cells are lit as sky-lit
 terrain faces and fogged with the terrain fog, which is unchanged. The render distance is how
 far the player sees: far terrain fills the gap between what the server sends and the render
 distance, within a budget set by the device tier (`render_api::far_terrain`). Video › Far
-Terrain (LOD) turns it on or off (default off).
+Terrain (LOD) is Auto (the default), On or Off. Auto runs it only when the render distance
+exceeds the tier's automatic full-detail radius; below that nothing of it runs. An earlier
+saved on/off reads as On/Auto.
 
 With far terrain on, only columns within the full-detail radius are lit, meshed and uploaded;
 the rest of what the server sends keeps its block data and is drawn by far terrain from its

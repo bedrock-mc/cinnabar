@@ -804,23 +804,37 @@ fn full_detail_distance_defaults_to_auto_and_snaps() {
     );
 }
 
-/// Far terrain takes the shared default, persists the opposite, and returns to the default
-/// with a Video reset.
+/// Far terrain defaults to Auto in the registry, which the video settings default matches,
+/// persists another mode, and returns to Auto with a Video reset.
 #[test]
-fn far_terrain_takes_its_default_persists_and_resets() {
-    let default = render_api::far_terrain::DEFAULT_ENABLED;
+fn far_terrain_defaults_to_auto_persists_and_resets() {
+    use render_api::far_terrain::FarTerrainMode;
+    let default = FarTerrainMode::from_index(super::FAR_TERRAIN_OPTION.default);
+    assert_eq!(default, FarTerrainMode::Auto);
+    assert_eq!(ui::VideoSettings::default().far_terrain, default);
     let mut settings = super::SettingsOptions::decode(b"{}").unwrap();
     assert_eq!(settings.user_settings().video.far_terrain, default);
-    let index = super::SETTINGS_OPTIONS
-        .iter()
-        .position(|option| option.name == super::FAR_TERRAIN_OPTION.name)
-        .unwrap();
-    settings.set(index, i32::from(!default));
+    let index = super::FAR_TERRAIN_OPTION.id.index();
+    settings.set(index, FarTerrainMode::Off.index());
     let encoded = serde_json::to_vec(&settings).unwrap();
     let mut loaded = super::SettingsOptions::decode(&encoded).unwrap();
-    assert_eq!(loaded.user_settings().video.far_terrain, !default);
+    assert_eq!(
+        loaded.user_settings().video.far_terrain,
+        FarTerrainMode::Off
+    );
     loaded.reset_group(super::SettingsGroup::Video);
     assert_eq!(loaded.user_settings().video.far_terrain, default);
+}
+
+/// A far-terrain setting saved as on/off reads as On and Auto.
+#[test]
+fn saved_far_terrain_booleans_migrate_to_on_and_auto() {
+    use render_api::far_terrain::FarTerrainMode;
+    for (saved, mode) in [(1, FarTerrainMode::On), (0, FarTerrainMode::Auto)] {
+        let bytes = format!(r#"{{"values":{{"far_terrain":{saved}}}}}"#);
+        let settings = super::SettingsOptions::decode(bytes.as_bytes()).unwrap();
+        assert_eq!(settings.user_settings().video.far_terrain, mode);
+    }
 }
 
 #[test]
