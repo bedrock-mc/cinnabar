@@ -15,7 +15,11 @@ impl QuadRanges {
         if count == 0 {
             return 0..0;
         }
-        if let Some(index) = self.free.iter().position(|range| range.len() as u32 >= count) {
+        if let Some(index) = self
+            .free
+            .iter()
+            .position(|range| range.len() as u32 >= count)
+        {
             let range = &mut self.free[index];
             let start = range.start;
             range.start += count;

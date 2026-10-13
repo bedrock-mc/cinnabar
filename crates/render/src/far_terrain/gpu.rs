@@ -29,7 +29,6 @@ use super::SHADER;
 const QUAD_BYTES: u64 = 8;
 const TILE_RECORD_BYTES: u64 = 16;
 const MASK_HEADER_WORDS: usize = 4;
-const COLOUR_LAYER_BYTES: u32 = (TILE_CELLS * TILE_CELLS * 4) as u32;
 
 struct Resident {
     mesh: Arc<TileMesh>,
@@ -63,8 +62,6 @@ pub(crate) struct FarTerrainGpu {
     pub(super) draws: Vec<FarDraw>,
     layout: BindGroupLayoutDescriptor,
     pipelines: Vec<((TextureFormat, u32), CachedRenderPipelineId)>,
-    /// Bytes written by uploads, for the unchanged-frame contract.
-    pub(crate) uploaded_bytes: u64,
 }
 
 impl FarTerrainGpu {
@@ -129,7 +126,6 @@ impl FarTerrainGpu {
             draws: Vec::new(),
             layout,
             pipelines: Vec::new(),
-            uploaded_bytes: 0,
         }
     }
 
@@ -203,7 +199,6 @@ impl FarTerrainGpu {
         if !mesh.quads.is_empty() {
             let bytes: &[u8] = bytemuck::cast_slice(&mesh.quads);
             queue.write_buffer(&self.quads, u64::from(quads.start) * QUAD_BYTES, bytes);
-            self.uploaded_bytes += bytes.len() as u64;
         }
         let [x, z] = mesh.key.origin();
         let record = [x as u32, z as u32, u32::from(mesh.key.level), 0];
@@ -235,7 +230,6 @@ impl FarTerrainGpu {
                 depth_or_array_layers: 1,
             },
         );
-        self.uploaded_bytes += TILE_RECORD_BYTES + u64::from(COLOUR_LAYER_BYTES);
     }
 
     /// A free texture layer and record slot, doubling both and re-uploading residents when full.
@@ -302,7 +296,6 @@ impl FarTerrainGpu {
             self.mask = storage_buffer(device, "far terrain near columns", self.mask_words * 4);
         }
         queue.write_buffer(&self.mask, 0, bytemuck::cast_slice(&words));
-        self.uploaded_bytes += words.len() as u64 * 4;
     }
 }
 
@@ -500,7 +493,9 @@ pub(super) fn prepare_far_terrain_views(
         let clip_from_world = view
             .clip_from_world
             .unwrap_or_else(|| view.clip_from_view * view.world_from_view.to_matrix().inverse());
-        let frustum = Frustum(bevy::shape::ViewFrustum::from_clip_from_world(&clip_from_world));
+        let frustum = Frustum(bevy::shape::ViewFrustum::from_clip_from_world(
+            &clip_from_world,
+        ));
         state.visible.clear();
         state.visible.extend(
             gpu.draws
