@@ -279,4 +279,6 @@ fn authored(
 }
 
 #[cfg(test)]
+mod session_tests;
+#[cfg(test)]
 mod tests;
