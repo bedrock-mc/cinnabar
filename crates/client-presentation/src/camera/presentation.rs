@@ -388,6 +388,16 @@ fn effect_hides_sky(
         && effect.visible_at_tick(now_tick)
 }
 
+/// Turns `pose` to a sleeper's view along its bed. Returns whether the pose changed, which the
+/// caller must write back for the turn to show.
+fn apply_sleeping_view(pose: &mut Transform, sleeping_rotation: Option<Quat>) -> bool {
+    let Some(rotation) = sleeping_rotation else {
+        return false;
+    };
+    pose.rotation = rotation;
+    true
+}
+
 /// Composes camera motion while portal distortion stays in the projection.
 #[allow(clippy::too_many_arguments)]
 pub fn apply_camera_presentation(
@@ -441,16 +451,19 @@ pub fn apply_camera_presentation(
     let override_pose = server.pose_override(&context);
     let mut pose = override_pose.unwrap_or(base);
     // A sleeper looks along its bed rather than where it last aimed.
-    if override_pose.is_none()
-        && let Some((_, rotation)) = stream.and_then(|stream| {
-            stream
-                .authority()
-                .actor(stream.local_player_runtime_id())?
-                .sleeping_bed()
+    let sleeping_rotation = override_pose
+        .is_none()
+        .then(|| {
+            stream.and_then(|stream| {
+                stream
+                    .authority()
+                    .actor(stream.local_player_runtime_id())?
+                    .sleeping_bed()
+            })
         })
-    {
-        pose.rotation = crate::local_player::sleeping_view_rotation(rotation);
-    }
+        .flatten()
+        .map(|(_, rotation)| crate::local_player::sleeping_view_rotation(rotation));
+    let slept = apply_sleeping_view(&mut pose, sleeping_rotation);
     if let (Some(stream), Some(collisions)) = (stream, collisions) {
         let world = sim::PaletteWorld::new(
             stream.collision_store(),
@@ -460,7 +473,7 @@ pub fn apply_camera_presentation(
         );
         pose = server.collision_safe_pose(&context, pose, &world);
     }
-    let mut changed = override_pose.is_some();
+    let mut changed = override_pose.is_some() || slept;
 
     if override_pose.is_none() && hand.eye_height_adjustment != 0.0 {
         pose.translation.y += hand.eye_height_adjustment;
@@ -589,6 +602,16 @@ mod tests {
             .world_mut()
             .query_filtered::<&Transform, With<FlyCamera>>();
         *query.single(app.world()).expect("one camera")
+    }
+
+    #[test]
+    fn a_sleeping_view_turns_the_presented_camera() {
+        let mut pose = Transform::from_xyz(1.0, 2.0, 3.0);
+        assert!(!apply_sleeping_view(&mut pose, None));
+        assert_eq!(pose.rotation, Quat::IDENTITY);
+        let along_bed = crate::local_player::sleeping_view_rotation(90.0);
+        assert!(apply_sleeping_view(&mut pose, Some(along_bed)));
+        assert_eq!(pose.rotation, along_bed);
     }
 
     #[test]
