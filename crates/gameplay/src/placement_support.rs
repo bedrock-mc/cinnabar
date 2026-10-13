@@ -660,11 +660,12 @@ mod tests {
     #[test]
     fn lantern_prefers_floor_except_when_clicking_a_supported_ceiling() {
         let mut names = HashSet::new();
-        for record in registry().iter().filter(|record| {
-            record.name.as_ref() == "minecraft:lantern" || record.name.ends_with("_lantern")
-        }) {
-            names.insert(record.name.as_ref());
+        for record in registry() {
             let states = registered_states(record);
+            if states.len() != 1 || !states.contains_key("hanging") {
+                continue;
+            }
+            names.insert(record.name.as_ref());
             for (below, above, face, hanging) in [
                 (true, true, 1, false),
                 (true, true, 0, true),
@@ -687,6 +688,7 @@ mod tests {
         assert!(names.contains("minecraft:lantern"));
         assert!(names.contains("minecraft:soul_lantern"));
         assert!(names.contains("minecraft:copper_lantern"));
+        assert!(!names.contains("minecraft:sea_lantern"));
     }
 
     #[test]
