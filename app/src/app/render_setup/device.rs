@@ -105,14 +105,18 @@ fn device_requirements(
     (features, limits)
 }
 
-/// Builds one backend with the shipping compiler and display policy.
+/// Builds the eligible backends together with the shipping compiler and display policy.
 pub(super) fn instance(
-    backend: Backend,
+    backends: &[Backend],
     settings: &WgpuSettings,
     display: Option<Box<dyn wgpu::wgt::WgpuHasDisplayHandle>>,
 ) -> wgpu::Instance {
     let mut descriptor = wgpu::InstanceDescriptor {
-        backends: flags(backend),
+        backends: backends
+            .iter()
+            .fold(wgpu::Backends::empty(), |mask, backend| {
+                mask | flags(*backend)
+            }),
         flags: settings.instance_flags,
         memory_budget_thresholds: settings.instance_memory_budget_thresholds,
         backend_options: Default::default(),
@@ -142,24 +146,23 @@ fn force_fallback(settings: &WgpuSettings) -> bool {
     })
 }
 
-/// Searches all allowed APIs for a requested name before starting any unnamed fallback.
+/// Searches names per API, then ranks unnamed hardware across all eligible APIs together.
 pub(super) fn search_backends<T>(
     order: &[Backend],
     requested_name: Option<&str>,
-    mut select: impl FnMut(Backend, Option<&str>) -> Result<Option<T>>,
+    mut select: impl FnMut(&[Backend], Option<&str>) -> Result<Option<T>>,
 ) -> Result<Option<T>> {
-    for name in requested_name
-        .into_iter()
-        .map(Some)
-        .chain(std::iter::once(None))
-    {
+    if let Some(name) = requested_name {
         for backend in order {
-            if let Some(selected) = select(*backend, name)? {
+            if let Some(selected) = select(std::slice::from_ref(backend), Some(name))? {
                 return Ok(Some(selected));
             }
         }
     }
-    Ok(None)
+    if order.is_empty() {
+        return Ok(None);
+    }
+    select(order, None)
 }
 
 /// Selects only the named adapter during the name pass; the later fallback uses power preference.

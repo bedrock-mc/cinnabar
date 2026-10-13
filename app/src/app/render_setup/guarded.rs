@@ -6,7 +6,7 @@ use super::device::{
     backends, identity, instance, log, request_device, requested_adapter_name, search_backends,
     select_adapter,
 };
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use bevy::{
     app::OnAppExitSystems,
     prelude::{
@@ -53,7 +53,17 @@ pub(super) fn render_plugin(
         &[],
     );
     let requested_name = requested_adapter_name(&settings);
-    let select = |backend, name: Option<&str>, guard: &mut StartupGuard| {
+    let select = |requested: &[Backend], name: Option<&str>, guard: &mut StartupGuard| {
+        let eligible: Vec<_> = requested
+            .iter()
+            .copied()
+            .filter(|backend| {
+                name.is_some() || explicit || !guard.recovery.failed_backends().contains(backend)
+            })
+            .collect();
+        let Some(&backend) = eligible.first() else {
+            return Ok(None);
+        };
         guard.begin(Attempt {
             backend,
             adapter: None,
@@ -61,24 +71,29 @@ pub(super) fn render_plugin(
             explicit,
         })?;
         log(format_args!(
-            "Renderer opening {backend:?}; DX12 shader compiler: {:?}",
+            "Renderer opening {eligible:?}; DX12 shader compiler: {:?}",
             settings.dx12_shader_compiler
         ));
         let display = app
             .world()
             .get_resource::<bevy::winit::DisplayHandleWrapper>()
             .map(|display| Box::new(display.0.clone()) as Box<dyn wgpu::wgt::WgpuHasDisplayHandle>);
-        let instance = instance(backend, &settings, display);
-        let adapter = bevy::tasks::block_on(select_adapter(&instance, &settings, name))?;
-        if let Some(adapter) = &adapter {
-            guard.begin(Attempt {
-                backend,
-                adapter: Some(identity(adapter)),
-                stage: Stage::EnumeratingAdapters,
-                explicit,
-            })?;
-        }
-        Ok::<_, anyhow::Error>(adapter.map(|adapter| (instance, adapter)))
+        let instance = instance(&eligible, &settings, display);
+        let Some(adapter) = bevy::tasks::block_on(select_adapter(&instance, &settings, name))?
+        else {
+            return Ok(None);
+        };
+        let backend = backends(adapter.get_info().backend.into())
+            .into_iter()
+            .next()
+            .context("selected adapter has an unsupported graphics API")?;
+        guard.begin(Attempt {
+            backend,
+            adapter: Some(identity(&adapter)),
+            stage: Stage::EnumeratingAdapters,
+            explicit,
+        })?;
+        Ok::<_, anyhow::Error>(Some((backend, instance, adapter)))
     };
     let mut retried = false;
     loop {
@@ -91,20 +106,24 @@ pub(super) fn render_plugin(
         );
         // Discover Windows vendor policy through DX12, using only the requested GPU in the name pass.
         let mut windows_adapter = None;
-        if !explicit && platform == Platform::Windows && order.contains(&Backend::Dx12) {
-            let mut selected = select(Backend::Dx12, requested_name.as_deref(), &mut guard);
+        if requested_name.is_some()
+            && !explicit
+            && platform == Platform::Windows
+            && order.contains(&Backend::Dx12)
+        {
+            let mut selected = select(&[Backend::Dx12], requested_name.as_deref(), &mut guard);
             let reusable = !matches!(selected, Ok(None));
             if !reusable {
                 guard.failed()?;
                 // Learn fallback vendor policy, but do not accept this unnamed GPU yet.
-                selected = select(Backend::Dx12, None, &mut guard);
+                selected = select(&[Backend::Dx12], None, &mut guard);
             }
             match selected {
-                Ok(Some((instance, adapter))) => {
+                Ok(Some((backend, instance, adapter))) => {
                     let defaults = default_order(platform, &identity(&adapter));
                     order.sort_by_key(|backend| defaults.iter().position(|api| api == backend));
                     if reusable && order.first() == Some(&Backend::Dx12) {
-                        windows_adapter = Some((instance, adapter));
+                        windows_adapter = Some((backend, instance, adapter));
                     } else {
                         // Retain this API's sentinel while native cleanup runs.
                         drop((adapter, instance));
@@ -120,17 +139,17 @@ pub(super) fn render_plugin(
                 }
             }
         }
-        let creation = search_backends(&order, requested_name.as_deref(), |backend, name| {
-            let selected = if backend == Backend::Dx12 {
+        let creation = search_backends(&order, requested_name.as_deref(), |requested, name| {
+            let selected = if name.is_some() && requested == [Backend::Dx12] {
                 windows_adapter
                     .take()
                     .map(|selected| Ok(Some(selected)))
-                    .unwrap_or_else(|| select(backend, name, &mut guard))
+                    .unwrap_or_else(|| select(requested, name, &mut guard))
             } else {
-                select(backend, name, &mut guard)
+                select(requested, name, &mut guard)
             };
             let result = selected.and_then(|selected| {
-                let Some((instance, adapter)) = selected else {
+                let Some((backend, instance, adapter)) = selected else {
                     return Ok(None);
                 };
                 if !explicit && guard.adapter_excluded(backend, &identity(&adapter))? {
@@ -146,7 +165,7 @@ pub(super) fn render_plugin(
                 other => {
                     if let Err(error) = other {
                         log(format_args!(
-                            "Renderer {backend:?} initialization failed: {error:#}"
+                            "Renderer {requested:?} initialization failed: {error:#}"
                         ));
                     }
                     guard.failed()?;

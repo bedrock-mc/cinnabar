@@ -400,8 +400,9 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 ## Graphics API startup recovery
 
 - A shared policy selects Windows Vulkan/DX12, Linux Vulkan/GL, Android Vulkan/GLES,
-  and macOS Metal. Windows Intel GPUs prefer DX12; other multi-API defaults prefer Vulkan.
-  Windows identifies the high-performance adapter through DX12 before opening Vulkan.
+  and macOS Metal. Unnamed selection makes one high-performance request across eligible APIs,
+  excluding crashed APIs. Named searches use vendor ordering: Windows Intel GPUs prefer DX12;
+  other multi-API defaults prefer Vulkan. Windows discovers named-adapter vendor policy through DX12.
 - Precedence is `WGPU_BACKEND`, the restart-only Video override, platform/vendor defaults
   and the driver blocklist, then crash-sentinel exclusions. Explicit overrides bypass automatic
   exclusions. The Video control is hidden on macOS. A lone supported API remains retryable.

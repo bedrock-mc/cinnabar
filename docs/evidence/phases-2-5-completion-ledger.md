@@ -390,6 +390,7 @@ The shared backend policy, driver blocklist, crash sentinel and restart-only Vid
 are implemented. Startup creates the renderer directly and requires base-vertex terrain draws
 and vertex storage support. Adapter/driver changes invalidate identified failures; exhausted
 exclusions permit one retry pass. Named GPU searches precede unnamed fallback across eligible APIs.
+Unnamed selection ranks high-performance hardware across all eligible APIs in one request.
 Android OS/vendor driver updates also invalidate recovery. Native crash
 reports retain the running process's renderer context independently of shared recovery files.
 Window closure and handled SIGINT/SIGTERM cancel unfinished startup and termination prevents

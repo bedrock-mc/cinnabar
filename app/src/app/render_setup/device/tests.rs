@@ -6,10 +6,10 @@ fn later_backend_named_adapter_wins_over_an_earlier_unnamed_gpu() {
     let result = search_backends(
         &[Backend::Vulkan, Backend::Dx12],
         Some("chosen"),
-        |backend, name| {
-            calls.push((backend, name.map(str::to_owned)));
-            Ok(match (backend, name) {
-                (Backend::Dx12, Some("chosen")) => Some("chosen GPU"),
+        |backends, name| {
+            calls.push((backends.to_vec(), name.map(str::to_owned)));
+            Ok(match (backends, name) {
+                ([Backend::Dx12], Some("chosen")) => Some("chosen GPU"),
                 (_, None) => Some("other GPU"),
                 _ => None,
             })
@@ -20,8 +20,8 @@ fn later_backend_named_adapter_wins_over_an_earlier_unnamed_gpu() {
     assert_eq!(
         calls,
         [
-            (Backend::Vulkan, Some("chosen".into())),
-            (Backend::Dx12, Some("chosen".into()))
+            (vec![Backend::Vulkan], Some("chosen".into())),
+            (vec![Backend::Dx12], Some("chosen".into()))
         ]
     );
 }
@@ -33,32 +33,69 @@ fn missing_name_falls_back_only_after_every_allowed_api_was_searched() {
         search_backends(
             &[Backend::Vulkan, Backend::Gl],
             Some("missing"),
-            |backend, name| {
-                calls.push((backend, name.is_some()));
-                Ok(name.is_none().then_some(backend))
+            |backends, name| {
+                calls.push((backends.to_vec(), name.is_some()));
+                Ok(name.is_none().then(|| backends.to_vec()))
             }
         )
         .unwrap(),
-        Some(Backend::Vulkan)
+        Some(vec![Backend::Vulkan, Backend::Gl])
     );
     assert_eq!(
         calls,
         [
-            (Backend::Vulkan, true),
-            (Backend::Gl, true),
-            (Backend::Vulkan, false)
+            (vec![Backend::Vulkan], true),
+            (vec![Backend::Gl], true),
+            (vec![Backend::Vulkan, Backend::Gl], false)
         ]
     );
     let mut calls = Vec::new();
     assert_eq!(
-        search_backends(&[Backend::Dx12], None, |backend, name| {
-            calls.push((backend, name.is_some()));
-            Ok(Some(backend))
+        search_backends(&[Backend::Dx12], None, |backends, name| {
+            calls.push((backends.to_vec(), name.is_some()));
+            Ok(Some(backends.to_vec()))
         })
         .unwrap(),
-        Some(Backend::Dx12)
+        Some(vec![Backend::Dx12])
     );
-    assert_eq!(calls, [(Backend::Dx12, false)]);
+    assert_eq!(calls, [(vec![Backend::Dx12], false)]);
+}
+
+#[test]
+fn unnamed_selection_ranks_discrete_dx12_above_integrated_or_software_vulkan() {
+    let mut settings = WgpuSettings::default();
+    configure_render_settings(&mut settings);
+    assert_eq!(
+        settings.power_preference,
+        wgpu::PowerPreference::HighPerformance
+    );
+
+    for vulkan_type in [wgpu::DeviceType::IntegratedGpu, wgpu::DeviceType::Cpu] {
+        let hardware = [
+            (Backend::Vulkan, vulkan_type),
+            (Backend::Dx12, wgpu::DeviceType::DiscreteGpu),
+        ];
+        let mut calls = Vec::new();
+        let selected =
+            search_backends(&[Backend::Vulkan, Backend::Dx12], None, |backends, name| {
+                calls.push((backends.to_vec(), name.is_some()));
+                // Model a high-performance request using only the APIs visible to this instance.
+                let mut visible = hardware
+                    .iter()
+                    .copied()
+                    .filter(|(api, _)| backends.contains(api));
+                Ok(visible
+                    .clone()
+                    .find(|(_, kind)| *kind == wgpu::DeviceType::DiscreteGpu)
+                    .or_else(|| visible.next()))
+            })
+            .unwrap();
+        assert_eq!(
+            selected,
+            Some((Backend::Dx12, wgpu::DeviceType::DiscreteGpu))
+        );
+        assert_eq!(calls, [(vec![Backend::Vulkan, Backend::Dx12], false)]);
+    }
 }
 
 #[test]
