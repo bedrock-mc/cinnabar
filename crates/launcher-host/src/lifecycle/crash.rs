@@ -17,7 +17,7 @@ use std::{
 
 use serde::Serialize;
 
-use crate::renderer_startup::{Attempt, StartupGuard};
+use crate::renderer_startup::Attempt;
 use launcher::install_layout::InstallLayout;
 
 const LOG_TAIL_BYTES: u64 = 16 * 1024;
@@ -86,13 +86,9 @@ fn write_report(crash_dir: &Path, core_log: &Path, data_root: &Path, message: &s
     write_at(crash_dir, millis, &bytes);
 }
 
-/// Includes the interrupted operation, or the last working GPU after startup succeeds.
+/// Attributes a crash only to a renderer used by this process, never another client's saved choice.
 fn renderer_context(data_root: &Path) -> Option<Attempt> {
-    StartupGuard::pending(data_root).ok().flatten().or_else(|| {
-        StartupGuard::saved(data_root)
-            .ok()
-            .and_then(|saved| saved.working)
-    })
+    crate::renderer_startup::context::current(data_root)
 }
 
 /// Writes one report at its timestamp without losing a simultaneous report.
@@ -139,6 +135,7 @@ fn reports(crash_dir: &Path) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::renderer_startup::StartupGuard;
 
     fn scratch(label: &str) -> PathBuf {
         let dir =
@@ -233,6 +230,85 @@ mod tests {
         let value: serde_json::Value =
             serde_json::from_slice(&fs::read(reports(&crash_dir).remove(0)).unwrap()).unwrap();
         assert_eq!(value["renderer"], serde_json::to_value(attempt).unwrap());
+    }
+
+    #[test]
+    fn renderer_context_fixture() {
+        let Some(root) = std::env::var_os("CINNABAR_RENDERER_CONTEXT_FIXTURE") else {
+            return;
+        };
+        let root = PathBuf::from(root);
+        assert!(renderer_context(&root).is_none());
+        let mut guard = StartupGuard::open(&root).unwrap();
+        guard
+            .begin(Attempt {
+                backend: launcher::graphics_backend::Backend::Gl,
+                adapter: None,
+                stage: crate::renderer_startup::Stage::FirstPresentation,
+                explicit: false,
+            })
+            .unwrap();
+        guard.presented().unwrap();
+    }
+
+    #[test]
+    fn completed_renderer_context_survives_another_clients_saved_choice() {
+        use crate::renderer_startup::Stage;
+        use launcher::graphics_backend::{Adapter, Backend};
+        let dir = tempfile::tempdir().unwrap();
+        let mut first = StartupGuard::open(dir.path()).unwrap();
+        let mut attempt = Attempt {
+            backend: Backend::Dx12,
+            adapter: Some(Adapter {
+                name: "first process GPU".into(),
+                vendor: 1,
+                device: 2,
+                driver: "driver".into(),
+                driver_info: "version".into(),
+                driver_version: "1".into(),
+                integrated: false,
+            }),
+            stage: Stage::FirstPresentation,
+            explicit: false,
+        };
+        first.begin(attempt.clone()).unwrap();
+        first.presented().unwrap();
+        attempt.stage = Stage::Ready;
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "lifecycle::crash::tests::renderer_context_fixture",
+            ])
+            .env("CINNABAR_RENDERER_CONTEXT_FIXTURE", dir.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert_eq!(
+            StartupGuard::saved(dir.path())
+                .unwrap()
+                .working
+                .unwrap()
+                .backend,
+            Backend::Gl
+        );
+        assert_eq!(renderer_context(dir.path()), Some(attempt.clone()));
+        let crash_dir = dir.path().join("crashes");
+        write_report(&crash_dir, &dir.path().join("core.log"), dir.path(), "boom");
+        let value: serde_json::Value =
+            serde_json::from_slice(&fs::read(reports(&crash_dir).remove(0)).unwrap()).unwrap();
+        assert_eq!(
+            value["renderer"],
+            serde_json::to_value(attempt.clone()).unwrap()
+        );
+        let mut retry = StartupGuard::open(dir.path()).unwrap();
+        attempt.stage = Stage::CreatingDevice;
+        retry.begin(attempt).unwrap();
+        retry.failed().unwrap();
+        assert!(renderer_context(dir.path()).is_none());
     }
 
     #[test]

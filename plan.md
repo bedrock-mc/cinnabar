@@ -411,7 +411,8 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   crashes persist driver verdicts; surface errors and timeouts remain retryable. Adapter or
   driver changes invalidate the cache. A lone backend runs directly, and Android uses the
   blocklist and sentinel fallback without synchronous lifecycle-blocking probes. GL/GLES
-  still must satisfy the renderer's device requirements.
+  still must satisfy the renderer's device requirements. Android recovery is keyed to the OS,
+  vendor image and graphics-driver build so an update permits previously failed APIs again.
 - The driver blocklist has one data source and bounded numeric version rules. Older Windows
   Intel integrated Vulkan drivers prefer DX12. Native Windows exception capture and Unix
   fatal-signal capture retain local renderer context and normal OS crash handling.
@@ -419,7 +420,8 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   sentinels include PID and process start time. Controlled exits before presentation cancel
   the pending attempt without changing its working or failed status. Saved Unix handlers receive
   the original signal information and machine context. Default hardware faults repeat their original
-  instruction after restoring the default action.
+  instruction after restoring the default action. Crash attribution uses this process's renderer
+  context even if another client changes the shared saved choice.
 - Target-device crash reproduction, Android service runtime acceptance, GL/GLES presentation
   and Video screenshots remain incomplete. This work closes no parity or performance gate.
 

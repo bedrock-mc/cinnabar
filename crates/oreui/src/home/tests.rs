@@ -9,6 +9,19 @@ use {
 
 mod fit;
 
+/// The home actions that must remain reachable at every supported viewport size.
+const HOME_ACTIONS: [MenuAction; 9] = [
+    MenuAction::Navigate(MenuScreen::Play),
+    MenuAction::Navigate(MenuScreen::Servers),
+    MenuAction::Navigate(MenuScreen::Settings),
+    MenuAction::Navigate(MenuScreen::Social),
+    MenuAction::Navigate(MenuScreen::DressingRoom),
+    MenuAction::OpenAccounts,
+    MenuAction::Navigate(MenuScreen::Friends),
+    MenuAction::Navigate(MenuScreen::Inbox),
+    MenuAction::OpenExitDialog,
+];
+
 /// A signed-in home view with a stable identity and no downloaded artwork.
 fn view() -> MenuView {
     let mut view = MenuView::new(true, "Fallback".into());
@@ -105,17 +118,7 @@ fn compact_and_short_home_keep_all_actions_reachable() {
         });
         assert!(preview.is_none(), "short screens prioritize usable actions");
         assert!(scrolls.is_empty(), "home actions fit without scrolling");
-        for action in [
-            MenuAction::Navigate(MenuScreen::Play),
-            MenuAction::Navigate(MenuScreen::Servers),
-            MenuAction::Navigate(MenuScreen::Settings),
-            MenuAction::Navigate(MenuScreen::Social),
-            MenuAction::Navigate(MenuScreen::DressingRoom),
-            MenuAction::OpenAccounts,
-            MenuAction::Navigate(MenuScreen::Friends),
-            MenuAction::Navigate(MenuScreen::Inbox),
-            MenuAction::OpenExitDialog,
-        ] {
+        for action in HOME_ACTIONS {
             let target = targets
                 .iter()
                 .find(|(found, _)| *found == action)

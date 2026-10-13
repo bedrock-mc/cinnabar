@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use launcher::graphics_backend::{Adapter, Backend, ProbeCache};
 
+pub(crate) mod context;
+#[cfg(target_os = "android")]
+mod direct_driver;
 mod owner;
 pub mod probe;
 
@@ -48,6 +51,8 @@ pub struct Attempt {
 pub struct Recovery {
     pub working: Option<Attempt>,
     failed: Vec<Backend>,
+    #[serde(default)]
+    direct_driver: Option<String>,
 }
 
 impl Recovery {
@@ -77,6 +82,7 @@ impl Recovery {
     pub fn reset(&mut self) {
         self.failed.clear();
         self.working = None;
+        self.direct_driver = None;
     }
 
     /// Remembers any completed choice and starts a new recovery cycle.
@@ -156,6 +162,25 @@ impl StartupGuard {
         save(&self.root.join(CHOICE_FILE), &self.recovery)
     }
 
+    /// Invalidates Android recovery after an OS or vendor driver build changes, without loading it.
+    pub fn refresh_direct_driver(&mut self) -> Result<()> {
+        #[cfg(target_os = "android")]
+        self.refresh_direct_identity(&direct_driver::identity()?)?;
+        Ok(())
+    }
+
+    /// Migrates unkeyed recovery and discards exclusions from a different driver build.
+    #[cfg(any(target_os = "android", test))]
+    fn refresh_direct_identity(&mut self, identity: &str) -> Result<()> {
+        self.require_lease()?;
+        if self.recovery.direct_driver.as_deref() != Some(identity) {
+            self.reset_recovery()?;
+            self.recovery.direct_driver = Some(identity.to_owned());
+            save(&self.root.join(CHOICE_FILE), &self.recovery)?;
+        }
+        Ok(())
+    }
+
     /// Flushes the next operation to disk before the caller enters a native driver.
     pub fn begin(&mut self, attempt: Attempt) -> Result<()> {
         self.require_lease()?;
@@ -166,8 +191,7 @@ impl StartupGuard {
                 attempt: attempt.clone(),
             },
         )?;
-        #[cfg(unix)]
-        crate::lifecycle::crash::unix::update(Some(&attempt));
+        context::update(&self.root, Some(&attempt));
         self.pending = Some(attempt);
         Ok(())
     }
@@ -180,8 +204,7 @@ impl StartupGuard {
                 .context("clear returned renderer startup error")?;
             self.pending = None;
         }
-        #[cfg(unix)]
-        crate::lifecycle::crash::unix::update(self.recovery.working.as_ref());
+        context::update(&self.root, None);
         Ok(())
     }
 
@@ -204,8 +227,7 @@ impl StartupGuard {
         save(&self.root.join(CHOICE_FILE), &self.recovery)?;
         fs::remove_file(self.root.join(SENTINEL_FILE))
             .context("clear renderer startup sentinel")?;
-        #[cfg(unix)]
-        crate::lifecycle::crash::unix::update(self.recovery.working.as_ref());
+        context::update(&self.root, self.recovery.working.as_ref());
         self.pending = None;
         self.lock = None;
         Ok(())

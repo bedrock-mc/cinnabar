@@ -47,6 +47,9 @@ pub(super) fn render_plugin(
         std::env::var_os("WGPU_BACKEND").map(|_| backends(settings.backends.unwrap_or_default()));
     let explicit = environment.is_some() || video.is_some();
     let isolated = uses_isolated_probe(platform, &supported, explicit);
+    if !isolated {
+        guard.refresh_direct_driver()?;
+    }
     let mut cache = if !isolated {
         Default::default()
     } else {
@@ -435,7 +438,10 @@ mod tests {
             let window = windows.single(app.world()).unwrap();
             app.world_mut()
                 .write_message(WindowCloseRequested { window });
-            app.update();
+            test_time::eventually("window closure requests application exit", || {
+                app.update();
+                app.should_exit().is_some()
+            });
             assert_eq!(app.should_exit(), Some(AppExit::Success));
             assert!(StartupGuard::pending(dir.path()).unwrap().is_none());
         }

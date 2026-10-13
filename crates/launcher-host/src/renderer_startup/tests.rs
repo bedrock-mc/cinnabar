@@ -76,6 +76,75 @@ fn returned_errors_leave_automatic_backends_retryable() {
 }
 
 #[test]
+fn direct_startup_retries_a_crashed_api_only_after_the_driver_build_changes() {
+    use launcher::graphics_backend::{Platform, candidates};
+    let dir = tempfile::tempdir().unwrap();
+    let mut first = StartupGuard::open(dir.path()).unwrap();
+    first
+        .refresh_direct_identity("system-1/vendor-1/driver-1")
+        .unwrap();
+    first.begin(attempt(Backend::Vulkan, false)).unwrap();
+    drop(first);
+    let mut fallback = StartupGuard::open(dir.path()).unwrap();
+    fallback
+        .refresh_direct_identity("system-1/vendor-1/driver-1")
+        .unwrap();
+    assert_eq!(fallback.recovery.failed_backends(), [Backend::Vulkan]);
+    fallback.begin(attempt(Backend::Gl, false)).unwrap();
+    fallback.failed().unwrap();
+    drop(fallback);
+    let mut next = StartupGuard::open(dir.path()).unwrap();
+    next.refresh_direct_identity("system-1/vendor-1/driver-1")
+        .unwrap();
+    assert_eq!(next.recovery.failed_backends(), [Backend::Vulkan]);
+    next.refresh_direct_identity("system-1/vendor-2/driver-2")
+        .unwrap();
+    assert!(next.interrupted.is_none());
+    assert!(StartupGuard::pending(dir.path()).unwrap().is_none());
+    let supported = Platform::Android.backends();
+    assert_eq!(
+        candidates(
+            supported,
+            supported,
+            None,
+            None,
+            &[],
+            &[],
+            next.recovery.failed_backends()
+        ),
+        supported
+    );
+    next.begin(attempt(Backend::Vulkan, false)).unwrap();
+    drop(next);
+    let mut restarted = StartupGuard::open(dir.path()).unwrap();
+    restarted
+        .refresh_direct_identity("system-1/vendor-2/driver-2")
+        .unwrap();
+    assert_eq!(restarted.recovery.failed_backends(), [Backend::Vulkan]);
+}
+
+#[test]
+fn direct_driver_identity_migrates_legacy_state_and_preserves_same_build_success() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join(CHOICE_FILE),
+        br#"{"working":null,"failed":["vulkan"]}"#,
+    )
+    .unwrap();
+    let mut guard = StartupGuard::open(dir.path()).unwrap();
+    guard.refresh_direct_identity("build-1").unwrap();
+    assert!(guard.recovery.failed_backends().is_empty());
+    guard.begin(attempt(Backend::Gl, false)).unwrap();
+    guard.presented().unwrap();
+    let mut next = StartupGuard::open(dir.path()).unwrap();
+    next.refresh_direct_identity("build-1").unwrap();
+    assert_eq!(next.recovery.working.as_ref().unwrap().backend, Backend::Gl);
+    next.refresh_direct_identity("build-2").unwrap();
+    assert!(next.recovery.working.is_none());
+    assert!(guard.refresh_direct_identity("build-2").is_err());
+}
+
+#[test]
 fn malformed_or_oversized_state_does_not_start_a_gpu_attempt() {
     let dir = tempfile::tempdir().unwrap();
     let sentinel = dir.path().join(SENTINEL_FILE);
