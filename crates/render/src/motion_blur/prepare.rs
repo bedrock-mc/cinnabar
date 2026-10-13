@@ -303,6 +303,9 @@ mod tests {
     use super::*;
     use bevy::{camera::MainPassResolutionOverride, ecs::system::RunSystemOnce};
 
+    #[path = "composed_tests.rs"]
+    mod composed_tests;
+
     #[test]
     fn motion_blur_uses_the_main_pass_viewport_and_resets_after_resolution_changes() {
         let (mut app, entity) = super::super::resource_tests::fixture();
