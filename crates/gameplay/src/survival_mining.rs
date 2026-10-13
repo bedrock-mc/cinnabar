@@ -389,6 +389,22 @@ pub struct SurvivalMiningRuntime {
 }
 
 impl SurvivalMiningRuntime {
+    /// Retains a block attack until a simulation tick can carry its destroy actions.
+    pub fn observe_attack_input(
+        &mut self,
+        active: bool,
+        pressed: bool,
+        held: bool,
+        _actor_in_front: bool,
+    ) -> bool {
+        if !active {
+            self.latched_press = false;
+            return false;
+        }
+        self.latched_press |= pressed;
+        held || self.latched_press
+    }
+
     /// The block and face the local player is breaking, for hit particles.
     pub fn destroying_target(&self) -> Option<([i32; 3], u8)> {
         self.machine.destroying_target()
