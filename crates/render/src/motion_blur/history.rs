@@ -42,7 +42,7 @@ impl CameraHistory {
     }
 
     /// Advance even on rejected frames so the next exposure starts at the new anchor.
-    pub fn advance(&mut self, current: Self, settings: CameraMotionBlur) -> ExposureUniform {
+    pub(super) fn advance(&mut self, current: Self, settings: CameraMotionBlur) -> ExposureUniform {
         self.advance_with_actor_motion(current, settings, false)
     }
 
@@ -72,7 +72,7 @@ impl CameraHistory {
     }
 
     /// Object movement can require exposure even when the camera itself stays still.
-    pub fn advance_with_actor_motion(
+    pub(super) fn advance_with_actor_motion(
         &mut self,
         current: Self,
         settings: CameraMotionBlur,
