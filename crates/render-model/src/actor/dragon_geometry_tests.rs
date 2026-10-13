@@ -33,7 +33,7 @@ fn downloaded_geometry() -> Option<assets::RuntimeEntityAssets> {
         std::fs::create_dir_all(scratch.path().join(family)).unwrap();
     }
     std::fs::write(scratch.path().join(relative), bytes).unwrap();
-    let compiled = pack_compiler::compile_entity_assets(scratch.path(), manifest).unwrap();
+    let compiled = pack_entity_compiler::compile_entity_assets(scratch.path(), manifest).unwrap();
     Some(
         assets::RuntimeEntityAssets::decode(&assets::encode_entity_blob(&compiled).unwrap())
             .unwrap(),

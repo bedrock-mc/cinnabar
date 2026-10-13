@@ -20,12 +20,16 @@ const CAMERA: [f32; 3] = [8.0, 8.0, 8.0];
 const SECTIONS_PER_COLUMN: usize = 4;
 const AIR: u32 = 0;
 const SOLID: u32 = 1;
+/// A second opaque block with the same light inputs as [`SOLID`], as a bulk replace sends.
+const SOLID_SWAPPED: u32 = 2;
 
 struct BurstFixture {
     stream: WorldStream,
     payloads: Arc<[Bytes; SECTIONS_PER_COLUMN]>,
     sections: usize,
     background_columns: usize,
+    /// Columns already drained before this burst, whose sequences it follows.
+    drained_columns: usize,
 }
 
 impl BurstFixture {
@@ -35,11 +39,16 @@ impl BurstFixture {
 }
 
 fn inline_payload(sections: usize) -> Bytes {
+    inline_payload_of(sections, SOLID)
+}
+
+/// An inline column whose lowest `sections` are uniform `block`.
+fn inline_payload_of(sections: usize, block: u32) -> Bytes {
     let range = vanilla_dimension_range(0).unwrap();
     let mut payload = Vec::new();
     for offset in 0..sections {
         let y = range.base_sub_chunk_y + offset as i32;
-        payload.extend([9, 1, y as i8 as u8, 1, (SOLID << 1) as u8]);
+        payload.extend([9, 1, y as i8 as u8, 1, (block << 1) as u8]);
     }
     payload.extend([1, 0]); // Uniform biome zero followed by extruded upper slots.
     payload.extend(std::iter::repeat_n(0xff, range.sub_chunk_count - 1));
@@ -54,19 +63,22 @@ fn terrain_assets() -> RuntimeAssets {
     base.with_block_overlay(
         SOLID,
         &BlockOverlay {
-            visuals: vec![BlockVisual {
-                native_material: assets::native_material::NativeMaterialFacts::Unresolved,
-                faces: [0; 6],
-                flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
-                kind: VisualKind::Cube,
-                support: VisualSupport::VanillaFallback,
-                contributor_role: ContributorRole::Primary,
-                model_template: NO_MODEL_TEMPLATE,
-                animation: NO_ANIMATION,
-                variant: 0,
-                destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
-            }],
-            light_properties: vec![LightProperties::OPAQUE_DARK],
+            visuals: vec![
+                BlockVisual {
+                    native_material: assets::native_material::NativeMaterialFacts::Unresolved,
+                    faces: [0; 6],
+                    flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+                    kind: VisualKind::Cube,
+                    support: VisualSupport::VanillaFallback,
+                    contributor_role: ContributorRole::Primary,
+                    model_template: NO_MODEL_TEMPLATE,
+                    animation: NO_ANIMATION,
+                    variant: 0,
+                    destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
+                };
+                2
+            ],
+            light_properties: vec![LightProperties::OPAQUE_DARK; 2],
             materials: vec![Material {
                 texture: TextureRef::new(1, 0).unwrap(),
                 flags: 0,
@@ -193,7 +205,7 @@ fn drain_burst(fixture: &mut BurstFixture, record_frames: bool) -> Vec<Duration>
             fixture
                 .stream
                 .submit_level_chunk_bytes(
-                    (fixture.background_columns + submitted) as u64 + 1,
+                    (fixture.background_columns + fixture.drained_columns + submitted) as u64 + 1,
                     LevelChunkEvent {
                         dimension: 0,
                         x: (submitted % side) as i32 - (side / 2) as i32,
@@ -211,7 +223,8 @@ fn drain_burst(fixture: &mut BurstFixture, record_frames: bool) -> Vec<Duration>
             frames.push(frame_started.elapsed());
         }
         if submitted == columns
-            && fixture.stream.committed_sequence() == (fixture.background_columns + columns) as u64
+            && fixture.stream.committed_sequence()
+                == (fixture.background_columns + fixture.drained_columns + columns) as u64
             && benchmark_support::work_is_idle(&fixture.stream)
         {
             break;
@@ -284,6 +297,7 @@ fn streaming_benches(c: &mut Criterion) {
             payloads: Arc::clone(&payloads),
             sections,
             background_columns,
+            drained_columns: 0,
         }
     };
     let mut group = c.benchmark_group("pipeline/inline_burst_cpu_drain");
@@ -368,9 +382,60 @@ static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[path = "chunk_costs/dispatch.rs"]
 mod dispatch;
 
+/// A loaded block of columns resent with every section swapped for a block of the same light
+/// inputs, as a server applying a bulk replace sends them; measures the resend's drain alone.
+fn resend_benches(c: &mut Criterion) {
+    const COLUMNS: usize = 500;
+    let sections = COLUMNS * SECTIONS_PER_COLUMN;
+    let assets = Arc::new(terrain_assets());
+    let loaded = Arc::new(std::array::from_fn(|index| inline_payload(index + 1)));
+    let swapped = Arc::new(std::array::from_fn(|index| {
+        inline_payload_of(index + 1, SOLID_SWAPPED)
+    }));
+    let loaded_fixture = || {
+        let mut stream = new_stream(&assets);
+        let background_columns = preload_air_boundary(&mut stream, sections);
+        let mut fixture = BurstFixture {
+            stream,
+            payloads: Arc::clone(&loaded),
+            sections,
+            background_columns,
+            drained_columns: 0,
+        };
+        drain_burst(&mut fixture, false);
+        fixture.payloads = Arc::clone(&swapped);
+        fixture.drained_columns = COLUMNS;
+        fixture
+    };
+    let mut witness = loaded_fixture();
+    let before = witness.stream.stats();
+    drain_burst(&mut witness, false);
+    let after = witness.stream.stats();
+    eprintln!(
+        "RESEND_PREFLIGHT columns={COLUMNS} sections={sections} light_jobs={} meshes={}",
+        after.accepted_light_jobs - before.accepted_light_jobs,
+        after.publication_stages.mesh_jobs_completed
+            - before.publication_stages.mesh_jobs_completed,
+    );
+    let mut group = c.benchmark_group("pipeline/inline_resend_cpu_drain");
+    group.sample_size(10);
+    group.throughput(Throughput::Elements(sections as u64));
+    group.bench_function(BenchmarkId::new("light_neutral_columns", COLUMNS), |b| {
+        b.iter_batched_ref(
+            loaded_fixture,
+            |fixture| {
+                black_box(drain_burst(fixture, false));
+            },
+            BatchSize::PerIteration,
+        );
+    });
+    group.finish();
+}
+
 criterion_group!(
     benches,
     streaming_benches,
+    resend_benches,
     cohort_benches,
     dispatch::benches
 );

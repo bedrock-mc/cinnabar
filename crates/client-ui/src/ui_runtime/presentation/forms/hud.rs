@@ -185,7 +185,7 @@ impl UiPresentationRuntime {
             next: &mut *next,
             renderers: &mut renderers,
         };
-        self.screens.hud.paint(
+        let drawn = self.screens.hud.paint(
             renderer,
             HudInput {
                 crosshair,
@@ -197,6 +197,10 @@ impl UiPresentationRuntime {
             },
             &mut paint_frame,
         )?;
+        if !crosshair {
+            // Touch selects hotbar slots through the HUD's own laid-out cells.
+            self.screens.touch.hud = drawn;
+        }
         if let Some(view) = preview_view.get() {
             self.player_preview_view = view;
         }

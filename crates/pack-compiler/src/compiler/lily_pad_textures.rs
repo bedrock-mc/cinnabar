@@ -123,7 +123,7 @@ fn copy_chain(
                 .to_vec();
             // Vanilla atlas tinting multiplies RGB only.
             // UNORM bytes are truncated after tinting; holes keep their alpha.
-            crate::apply_atlas_tint(&mut rgba8, tint);
+            pack_compile_input::apply_atlas_tint(&mut rgba8, tint);
             Ok(TextureMip {
                 size: mip.size,
                 rgba8: rgba8.into_boxed_slice(),

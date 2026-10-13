@@ -52,7 +52,7 @@ fn banner_catalog() -> (RuntimeEntityAssets, RuntimeIconCatalog) {
     let entity = br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:player","geometry":{"default":"geometry.test_player"},"render_controllers":["controller.render.test_player"]}}}"#;
     let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.test_player","texture_width":64,"texture_height":64},"bones":[{"name":"body","pivot":[0,0,0],"cubes":[{"origin":[-4,0,-2],"size":[8,12,4],"uv":[0,0]}]},{"name":"rightItem","parent":"body","pivot":[-6,12,0]},{"name":"leftItem","parent":"body","pivot":[6,12,0]}]}]}"#;
     let render = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test_player":{"geometry":"Geometry.default"}}}"#;
-    let mut compiled = pack_compiler::compile_entity_pack(vec![
+    let mut compiled = pack_entity_compiler::compile_entity_pack(vec![
         ("entity/player.json".into(), entity.to_vec()),
         ("models/entity/player.geo.json".into(), geometry.to_vec()),
         ("render_controllers/player.json".into(), render.to_vec()),

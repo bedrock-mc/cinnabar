@@ -94,14 +94,14 @@ fn base(
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, bytes).unwrap();
     }
-    let refs = pack_compiler::compile_vanilla_entity_refs(root.path()).unwrap();
+    let refs = pack_entity_compiler::compile_vanilla_entity_refs(root.path()).unwrap();
     let pack = compiled_pack(files).unwrap();
     (refs, pack, root)
 }
 
 /// Compiles an optional session layer through the same entity and equipment compiler.
 fn compiled_pack(files: Vec<(Box<str>, Vec<u8>)>) -> Option<assets::SessionEntityPack> {
-    let compiled = pack_compiler::compile_actor_pack(files).unwrap()?;
+    let compiled = pack_entity_compiler::compile_actor_pack(files).unwrap()?;
     Some(assets::SessionEntityPack {
         assets: Arc::new(assets::RuntimeEntityAssets::from_compiled(compiled.entities).unwrap()),
         textures: compiled.textures.into(),

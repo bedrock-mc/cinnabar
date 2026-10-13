@@ -751,6 +751,40 @@ fn touch_joystick_carriers_equal_the_bounded_device_sample() {
     assert_eq!(snapshot.movement, [0.0, 1.0]);
 }
 
+/// The stick and the look surface are separate fingers that route together, then release.
+#[test]
+fn stick_and_look_surface_fingers_route_together() {
+    let mut router = SemanticInputRouter::default();
+    router
+        .route(DeviceFrame {
+            touches: vec![
+                semantic_input::TouchContact {
+                    contact_id: 1,
+                    activity_sequence: 1,
+                    position: [0.8, 0.2],
+                    delta: [0.0, 1.0],
+                    hit_id: Some(semantic_input::touch::JOYSTICK),
+                },
+                semantic_input::TouchContact {
+                    contact_id: 2,
+                    activity_sequence: 2,
+                    position: [0.6, 0.5],
+                    delta: [0.01, -0.02],
+                    hit_id: Some(semantic_input::touch::LOOK_SURFACE),
+                },
+            ],
+            ..DeviceFrame::default()
+        })
+        .unwrap();
+    let snapshot = router.finalize().unwrap();
+    assert_eq!(snapshot.movement, [0.0, 1.0]);
+    assert!(snapshot.look_delta[0] > 0.0 && snapshot.look_delta[1] < 0.0);
+    router.route(DeviceFrame::default()).unwrap();
+    let released = router.finalize().unwrap();
+    assert_eq!(released.movement, [0.0, 0.0]);
+    assert_eq!(released.look_delta, [0.0, 0.0]);
+}
+
 #[test]
 fn custom_touch_layout_is_shared_by_settings_and_frame_validation() {
     let layout = TouchControlLayout::new(vec![touch_button(55)]).unwrap();

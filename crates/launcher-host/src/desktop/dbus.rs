@@ -51,32 +51,68 @@ pub fn pick_file(
     filter_name: &str,
     patterns: &[String],
 ) -> zbus::Result<Option<PathBuf>> {
+    let (code, results) = file_chooser(title, filter_name, patterns, false)?;
+    chosen_file(code, results)
+}
+
+/// Returns all chosen local files; an empty list means the chooser was dismissed.
+pub fn pick_files(
+    title: &str,
+    filter_name: &str,
+    patterns: &[String],
+) -> zbus::Result<Vec<PathBuf>> {
+    let (code, results) = file_chooser(title, filter_name, patterns, true)?;
+    chosen_files(code, results)
+}
+
+/// Opens the chooser with shared filters and the requested selection mode.
+fn file_chooser(
+    title: &str,
+    filter_name: &str,
+    patterns: &[String],
+    multiple: bool,
+) -> zbus::Result<(u32, Results)> {
     let globs = patterns
         .iter()
         .map(|pattern| (0u32, pattern.as_str()))
         .collect::<Vec<_>>();
     let mut options = HashMap::new();
     options.insert("filters", Value::from(vec![(filter_name, globs)]));
-    let (code, results) = request(
+    options.insert("multiple", Value::from(multiple));
+    request(
         "org.freedesktop.portal.FileChooser",
         "OpenFile",
         title,
         options,
         CHOOSER_TIMEOUT,
-    )?;
-    chosen_file(code, results)
+    )
 }
 
-fn chosen_file(code: u32, mut results: Results) -> zbus::Result<Option<PathBuf>> {
+/// Converts the first selected URI to a local path, preserving single-selection behavior.
+fn chosen_file(code: u32, results: Results) -> zbus::Result<Option<PathBuf>> {
+    Ok(chosen_uris(code, results)?
+        .first()
+        .and_then(|uri| file_path(uri)))
+}
+
+/// Converts every selected local URI to a path in the order returned by the portal.
+fn chosen_files(code: u32, results: Results) -> zbus::Result<Vec<PathBuf>> {
+    Ok(chosen_uris(code, results)?
+        .iter()
+        .filter_map(|uri| file_path(uri))
+        .collect())
+}
+
+/// Extracts selected URIs, returning no selections on cancellation and an error on failure.
+fn chosen_uris(code: u32, mut results: Results) -> zbus::Result<Vec<String>> {
     if !response("OpenFile", code)? {
-        return Ok(None);
+        return Ok(Vec::new());
     }
-    let uris = results
+    Ok(results
         .remove("uris")
         .map(Vec::<String>::try_from)
         .transpose()?
-        .unwrap_or_default();
-    Ok(uris.first().and_then(|uri| file_path(uri)))
+        .unwrap_or_default())
 }
 
 /// Shows a desktop notification, as `notify-send` would.
@@ -204,6 +240,12 @@ fn file_path(uri: &str) -> Option<PathBuf> {
 mod tests {
     use super::*;
 
+    /// Builds a portal response containing the supplied URI list.
+    fn uri_results(uris: &[&str]) -> Results {
+        let value = Value::from(uris.iter().map(|uri| uri.to_string()).collect::<Vec<_>>());
+        Results::from([("uris".to_owned(), OwnedValue::try_from(value).unwrap())])
+    }
+
     #[test]
     fn the_deadline_fails_a_request_that_never_answers() {
         let silent = with_deadline(
@@ -244,19 +286,44 @@ mod tests {
 
     #[test]
     fn file_chooser_separates_cancel_from_failure() {
-        let uris = |uris: &[&str]| {
-            let value = Value::from(uris.iter().map(|uri| uri.to_string()).collect::<Vec<_>>());
-            Results::from([("uris".to_owned(), OwnedValue::try_from(value).unwrap())])
-        };
         assert_eq!(
-            chosen_file(0, uris(&["file:///packs/a.mcpack"])).unwrap(),
+            chosen_file(0, uri_results(&["file:///packs/a.mcpack"])).unwrap(),
             Some(PathBuf::from("/packs/a.mcpack"))
         );
         assert_eq!(
-            chosen_file(1, uris(&["file:///packs/a.mcpack"])).unwrap(),
+            chosen_file(1, uri_results(&["file:///packs/a.mcpack"])).unwrap(),
             None
         );
         assert!(chosen_file(2, Results::new()).is_err());
+    }
+
+    #[test]
+    fn multiple_selection_returns_all_local_paths_in_order() {
+        let uris = [
+            "file:///packs/a.mcpack",
+            "https://example.test/remote.mcpack",
+            "file:///packs/My%20Pack.mcaddon",
+        ];
+        assert_eq!(
+            chosen_files(0, uri_results(&uris)).unwrap(),
+            [
+                PathBuf::from("/packs/a.mcpack"),
+                PathBuf::from("/packs/My Pack.mcaddon"),
+            ]
+        );
+        assert_eq!(
+            chosen_file(0, uri_results(&uris)).unwrap(),
+            Some(PathBuf::from("/packs/a.mcpack"))
+        );
+        assert!(chosen_files(1, uri_results(&uris)).unwrap().is_empty());
+        assert!(chosen_files(0, Results::new()).unwrap().is_empty());
+        assert!(chosen_files(2, Results::new()).is_err());
+    }
+
+    #[test]
+    fn malformed_uri_list_is_a_picker_error() {
+        let value = OwnedValue::try_from(Value::from("not an array")).unwrap();
+        assert!(chosen_files(0, Results::from([("uris".to_owned(), value)])).is_err());
     }
 
     #[test]

@@ -19,7 +19,9 @@ fn png(pixel: [u8; 4]) -> Vec<u8> {
 fn compile(
     files: Vec<(Box<str>, Vec<u8>)>,
 ) -> (Arc<RuntimeEntityAssets>, Arc<RuntimeEquipmentCatalog>) {
-    let compiled = pack_compiler::compile_actor_pack(files).unwrap().unwrap();
+    let compiled = pack_entity_compiler::compile_actor_pack(files)
+        .unwrap()
+        .unwrap();
     (
         Arc::new(RuntimeEntityAssets::from_compiled(compiled.entities).unwrap()),
         Arc::new(

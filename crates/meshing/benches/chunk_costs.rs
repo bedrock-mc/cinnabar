@@ -99,7 +99,20 @@ fn mixed_id(x: u8, y: u8, z: u8) -> u32 {
     }
 }
 
+/// Scattered blocks in open air, as in sections above the surface or in large caves.
+fn sparse_id(x: u8, y: u8, z: u8) -> u32 {
+    match (u32::from(x) * 7 + u32::from(y) * 3 + u32::from(z) * 5) % 23 {
+        0 => 1,
+        1 => 2,
+        _ => AIR,
+    }
+}
+
 fn mixed_chunk() -> SubChunk {
+    chunk_of(mixed_id)
+}
+
+fn chunk_of(id_at: fn(u8, u8, u8) -> u32) -> SubChunk {
     // Bedrock v9, one network storage, two bits/index, x-z-y ordering.
     let mut payload = vec![9, 1, 0, 5];
     let mut words = [0_u32; 256];
@@ -107,7 +120,7 @@ fn mixed_chunk() -> SubChunk {
         for z in 0..16_u8 {
             for y in 0..16_u8 {
                 let linear = (usize::from(x) << 8) | (usize::from(z) << 4) | usize::from(y);
-                words[linear / 16] |= mixed_id(x, y, z) << ((linear % 16) * 2);
+                words[linear / 16] |= id_at(x, y, z) << ((linear % 16) * 2);
             }
         }
     }
@@ -122,7 +135,7 @@ fn mixed_chunk() -> SubChunk {
     for x in 0..16_u8 {
         for z in 0..16_u8 {
             for y in 0..16_u8 {
-                assert_eq!(chunk.runtime_id(0, x, y, z), Some(mixed_id(x, y, z)));
+                assert_eq!(chunk.runtime_id(0, x, y, z), Some(id_at(x, y, z)));
             }
         }
     }
@@ -185,6 +198,7 @@ fn meshing(c: &mut Criterion) {
     let empty = uniform_chunk(AIR);
     let solid = uniform_chunk(1);
     let mixed = mixed_chunk();
+    let sparse = chunk_of(sparse_id);
     let light = MeshLightSample::try_new(11, 3).unwrap();
     let sampler = move |_coordinate: [i32; 3]| light;
     let mut group = c.benchmark_group("meshing/terrain");
@@ -192,6 +206,7 @@ fn meshing(c: &mut Criterion) {
         ("empty", &empty),
         ("uniform_solid", &solid),
         ("mixed", &mixed),
+        ("sparse", &sparse),
     ] {
         let mut neighbourhood = MeshNeighbourhood::new(chunk);
         for offset in OFFSETS {
@@ -213,6 +228,7 @@ fn meshing(c: &mut Criterion) {
             match name {
                 "empty" => assert!(output.connectivity().is_all_connected()),
                 "uniform_solid" => assert!(output.connectivity().is_empty()),
+                "sparse" => assert!(output.connectivity().is_all_connected()),
                 _ => {
                     assert!(
                         output

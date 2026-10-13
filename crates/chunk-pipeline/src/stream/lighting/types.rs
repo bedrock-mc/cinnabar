@@ -316,10 +316,15 @@ impl LightBlockAccess for LightBlockSnapshot {
         true
     }
 
+    fn is_known(&self, position: BlockPos) -> bool {
+        let (key, _) = split_light_position(self.dimension, position);
+        self.blocks.get(&key).is_some()
+    }
+
     fn sky_seed(&self, position: BlockPos) -> u8 {
         if self.overworld_top_y == Some(position.y)
             && matches!(self.profile, DimensionLightProfile::Overworld { .. })
-            && self.sample(position) != LightBlockSample::Unknown
+            && self.is_known(position)
         {
             15
         } else {

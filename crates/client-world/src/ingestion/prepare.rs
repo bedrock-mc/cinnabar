@@ -3,8 +3,13 @@
 use assets::{NetworkIdMode, RuntimeAssets};
 use hashbrown::HashMap as FastHashMap;
 use protocol::{SubChunkBatchEvent, SubChunkResult};
-use std::collections::BTreeSet;
-use world::{BlockIds, ChunkStore, DecodedSubChunk, MutationError, SubChunk, SubChunkKey};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
+use world::{
+    BlockIds, ChunkStore, DecodedLevelChunk, DecodedSubChunk, MutationError, SubChunk, SubChunkKey,
+};
 
 use super::{
     BlockMutationBatch, DecodeIds, PreparedBlockMutations, PreparedSubChunk, PreparedSubChunkResult,
@@ -84,6 +89,30 @@ pub fn prepare_sub_chunks(batch: SubChunkBatchEvent, ids: &DecodeIds) -> Vec<Pre
                     }
                 },
             }
+        })
+        .collect()
+}
+
+/// Sections of a resent column whose blocks differ from `previous` while every cell keeps its
+/// light inputs, each paired with the resident section it was compared with.
+pub fn light_neutral_sections(
+    previous: &BTreeMap<i32, Arc<SubChunk>>,
+    decoded: &DecodedLevelChunk,
+    ids: &DecodeIds,
+) -> Vec<(i32, Arc<SubChunk>)> {
+    decoded
+        .sub_chunks()
+        .filter_map(|(y, replacement)| {
+            let previous = previous.get(&y)?;
+            (previous.as_ref() != replacement.as_ref()
+                && !light_semantics_changed(
+                    ids.air,
+                    &ids.assets,
+                    ids.mode,
+                    Some(previous.as_ref()),
+                    Some(replacement.as_ref()),
+                ))
+            .then(|| (y, Arc::clone(previous)))
         })
         .collect()
 }

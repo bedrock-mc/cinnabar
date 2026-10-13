@@ -296,7 +296,7 @@ fn seed_halo<A: LightBlockAccess, P: LightReadAccess>(
                         continue;
                     };
                     debug_assert!(!bounds.contains(neighbour));
-                    if blocks.sample(neighbour).filter().is_none() {
+                    if !blocks.is_known(neighbour) {
                         continue;
                     }
                     for channel in [LightChannel::Block, LightChannel::Sky] {
@@ -411,4 +411,65 @@ fn spread(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+    use crate::{EmptyLight, LightProperties};
+
+    /// Known sections answered in bulk; `sample` counts per-block property reads.
+    struct BulkBlocks {
+        reads: Cell<usize>,
+    }
+
+    fn stone() -> LightBlockSample {
+        LightBlockSample::Resident(LightProperties::new(0, 15).unwrap())
+    }
+
+    impl LightBlockAccess for BulkBlocks {
+        fn sample(&self, _position: BlockPos) -> LightBlockSample {
+            self.reads.set(self.reads.get() + 1);
+            stone()
+        }
+
+        fn is_known(&self, _position: BlockPos) -> bool {
+            true
+        }
+
+        fn sample_section(
+            &self,
+            _key: SubChunkKey,
+            out: &mut [LightBlockSample; BLOCKS_PER_SUB_CHUNK],
+        ) -> bool {
+            out.fill(stone());
+            true
+        }
+    }
+
+    /// Seeding a section's faces asks only whether each neighbour is known, so a source that
+    /// knows its sections serves a full solve without one per-block property read.
+    #[test]
+    fn halo_seeding_reads_no_neighbour_block_properties() {
+        let bounds =
+            LightBounds::new(0, BlockPos::new(0, 0, 0), BlockPos::new(15, 15, 15)).unwrap();
+        let blocks = BulkBlocks {
+            reads: Cell::new(0),
+        };
+        solve_light_full_with_scratch(
+            &blocks,
+            &EmptyLight,
+            bounds,
+            1,
+            DimensionLightProfile::Overworld {
+                direct_sky_down: true,
+            },
+            SolverLimits::new(BLOCKS_PER_SUB_CHUNK, 1_000_000),
+            &mut LightSolverScratch::default(),
+        )
+        .unwrap();
+        assert_eq!(blocks.reads.get(), 0);
+    }
 }
