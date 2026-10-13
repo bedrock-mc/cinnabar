@@ -44,7 +44,7 @@ pub(super) fn attach(
         local_runtime_id,
         local_equipment: local_equipment_input,
         java_posed,
-        combat_visuals,
+        combat_visuals: _,
         local_emote_pose,
         native_body_sampled,
         native_pose,
@@ -85,10 +85,7 @@ pub(super) fn attach(
             batch,
             equipment,
             stream,
-            local_runtime_id,
-            local_equipment_input,
-            java_posed,
-            combat_visuals,
+            &poses,
             (partial_tick, delta_seconds, glint_settings),
         );
     }
