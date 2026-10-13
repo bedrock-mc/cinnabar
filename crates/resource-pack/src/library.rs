@@ -93,7 +93,7 @@ pub enum LibraryError {
     },
     #[error(transparent)]
     Admission(#[from] AdmissionError),
-    #[error("encrypted marketplace or password-protected packs are unsupported")]
+    #[error("encrypted or password-protected packs are unsupported")]
     Encrypted,
     #[error("open a supported resource-pack archive")]
     UnsupportedExtension,

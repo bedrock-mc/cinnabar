@@ -29,6 +29,7 @@ fn start_screen_vars(context: Context) -> Context {
     unlock_text(context)
         .with_flag("unlock_full_game_button_ignored", true)
         .with_flag("featured_world_ignored", true)
+        .with_flag("store_ignored", true)
         .with_flag("courses_ignored", true)
         .with_flag("edu_feedback_ignored", true)
         .with_flag("play_button_visible", true)
@@ -50,7 +51,7 @@ pub struct MenuScreenData {
     pub reference: &'static str,
     pub context: Context,
     pub data: DataSource,
-    /// A screen drawn over this one, which then takes all input (a Marketplace popup).
+    /// A screen drawn over this one, which then takes all input (a resource-pack dialog).
     pub overlay: Option<Box<MenuScreenData>>,
 }
 
@@ -151,12 +152,7 @@ pub fn screen_data(
                 }
                 data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
                 // A non-edu client draws the retail pause content, not edu_pause's.
-                context = unlock_text(context)
-                    .with_flag("ignore_edu_pause", true)
-                    .with_var(
-                        "store_button_text",
-                        Value::String(server_store_text(translate)),
-                    );
+                context = unlock_text(context).with_flag("ignore_edu_pause", true);
             }
             MenuScreen::Home => {
                 start_screen(view, &mut data, translate, now_unix);
@@ -172,6 +168,7 @@ pub fn screen_data(
             }
             MenuScreen::Settings => {
                 settings_screen(view, &mut data, translate);
+                data.set_global("#should_show_subscription_tab", Scalar::Bool(false));
                 super::settings_defaults::bind(&mut data, &|key: &str| {
                     translated(translate, key, key)
                 });
@@ -195,7 +192,6 @@ pub fn screen_data(
                     overlay: super::global_resources::overlay(&view.global_resources),
                 });
             }
-            MenuScreen::Store => return store_screen(view, &context, translate),
             MenuScreen::Invite => {
                 super::invite_screen::bind(view, &mut data, translate);
                 context = super::invite_screen::context(view, context);
@@ -291,26 +287,6 @@ fn local_world_progress(
     }
 }
 
-/// The Marketplace screen (and popup) for the published store state.
-fn store_screen(
-    view: &MenuView,
-    context: &Context,
-    translate: Translate<'_>,
-) -> Option<MenuScreenData> {
-    let snapshot = view.store.as_deref()?;
-    let tr = |key: &str| translated(translate, key, key);
-    let screens = crate::store::screens(snapshot, context, &tr);
-    let convert = |spec: crate::store::ScreenSpec| MenuScreenData {
-        reference: spec.reference,
-        context: spec.context,
-        data: spec.data,
-        overlay: None,
-    };
-    let mut base = convert(screens.base);
-    base.overlay = screens.overlay.map(|spec| Box::new(convert(spec)));
-    Some(base)
-}
-
 fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>, now_unix: i64) {
     let gamertag = launcher::menu::profile::current_name(view).to_owned();
     data.set_global("#playername", text(gamertag.clone()));
@@ -334,8 +310,7 @@ fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>
     data.set_global("#version", text(version_label(protocol::GAME_VERSION)));
     data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
     data.set_global("#edu_demo_only_ui_visible", Scalar::Bool(false));
-    // Retail Realms is enabled, so its row shows between Settings and
-    // Marketplace, as on the release client.
+    // Keep the Realms and Dressing Room entries available.
     flags(
         data,
         &[
@@ -366,13 +341,7 @@ fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>
     }
 }
 
-/// The pause store button on a third-party server, as vanilla names it: "%s Store" with the server's store name, else the generic "Server".
-fn server_store_text(translate: Translate<'_>) -> String {
-    let server = translated(translate, "menu.serverGenericName", "Server");
-    translated(translate, "menu.serverStore", "%s Store").replacen("%s", &server, 1)
-}
-
-/// The start screen's version: the release client shows `1.26.50` as `v26.50`.
+/// Formats the protocol game version for the start screen.
 fn version_label(game_version: &str) -> String {
     format!(
         "v{}",
@@ -618,7 +587,6 @@ fn settings_screen(view: &MenuView, data: &mut DataSource, translate: Translate<
         Some("global_texture_pack_forced_index") => "menu.globalpacks",
         Some("storage_management_forced_index") => "menu.storageManagement",
         Some("language_forced_index") => "options.language",
-        Some("view_subscriptions_forced_index") => "options.viewSubscriptions",
         _ => "options.videoTitle",
     };
     data.set_global("#section_title", text(translated(translate, title, title)));
@@ -725,9 +693,6 @@ pub fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
     {
         return Some(action);
     }
-    if view.screen == MenuScreen::Store {
-        return crate::store::action(view.store.as_deref(), region).map(MenuAction::Store);
-    }
     if view.screen == MenuScreen::Invite
         && let Some(action) = super::invite_screen::action(region)
     {
@@ -780,7 +745,6 @@ pub fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
         "button.friends_drawer" | "button.menu_friends" => {
             MenuAction::Navigate(MenuScreen::Friends)
         }
-        "button.menu_store" => MenuAction::Store(launcher::store::OPEN),
         "button.menu_play" => MenuAction::Navigate(MenuScreen::Play),
         "button.menu_realms" => MenuAction::Navigate(MenuScreen::Social),
         "button.menu_servers" => MenuAction::Navigate(MenuScreen::Servers),

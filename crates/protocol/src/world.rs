@@ -382,6 +382,9 @@ world_packets! {
     UpdateSoftEnum(packet) => WorldEvent::Ui(normalize_soft_enum(packet)?),
     AvailableCommands(packet) => WorldEvent::Ui(normalize_available_commands(*packet)),
     AddActor(packet) => WorldEvent::Actor(normalize_add_entity(*packet, current_dimension)?),
+    AddPainting(packet) => {
+        WorldEvent::Actor(crate::actor::normalize_add_painting(packet, current_dimension)?)
+    },
     AddPlayer(packet) => WorldEvent::Actor(normalize_add_player(*packet, current_dimension)?),
     RemoveActor(packet) => WorldEvent::Actor(normalize_remove_entity(packet, current_dimension)),
     MoveActorAbsolute(packet) => {

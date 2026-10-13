@@ -9,6 +9,8 @@ use bevy::prelude::{
 use semantic_input::PerspectiveMode;
 use sim::WorldCollisionIdentity;
 
+mod sleeping;
+
 use crate::camera::{
     CameraSettingsAuthority, FlyCamera, collision_safe_perspective_pose, collision_safe_rig_pose,
     perspective_pose, unavailable_world_perspective_pose,
@@ -194,10 +196,8 @@ impl LocalPlayerFrameCarrier {
     }
 }
 
-/// Authoritative local eye position and view orientation.
-///
-/// Physics owns translation. Semantic look input owns rotation. Perspective
-/// and camera collision never mutate this pose.
+/// Retains the physics position, input look, and one shared sleeping presentation pose.
+/// Presentation getters can read the bed pose without changing physics or gameplay aim.
 #[derive(Resource, Debug, Clone, Copy, PartialEq)]
 pub struct LocalViewPose {
     eye_translation: Vec3,
@@ -205,6 +205,9 @@ pub struct LocalViewPose {
     rotation: Quat,
     freelook_rotation: Option<Quat>,
     camera_reanchor_epoch: u64,
+    sleeping: Option<sleeping::SleepingPose>,
+    sleeping_camera: bool,
+    sleeping_changed: bool,
 }
 
 impl Default for LocalViewPose {
@@ -215,6 +218,9 @@ impl Default for LocalViewPose {
             rotation: Quat::IDENTITY,
             freelook_rotation: None,
             camera_reanchor_epoch: 0,
+            sleeping: None,
+            sleeping_camera: false,
+            sleeping_changed: false,
         }
     }
 }
@@ -230,12 +236,18 @@ impl LocalViewPose {
 
     #[must_use]
     pub const fn eye_translation(self) -> Vec3 {
-        self.eye_translation
+        match self.sleeping {
+            Some(pose) => pose.eye,
+            None => self.eye_translation,
+        }
     }
 
     #[must_use]
     pub const fn feet_translation(self) -> Vec3 {
-        self.feet_translation
+        match self.sleeping {
+            Some(pose) => pose.feet,
+            None => self.feet_translation,
+        }
     }
 
     #[must_use]
@@ -243,9 +255,19 @@ impl LocalViewPose {
         self.rotation
     }
 
-    /// Presentation can orbit independently while gameplay retains its facing.
-    pub fn camera_rotation(self) -> Quat {
+    /// The input heading, including freelook, before any sleeping presentation override.
+    pub fn look_rotation(self) -> Quat {
         self.freelook_rotation.unwrap_or(self.rotation)
+    }
+
+    /// The shared presentation heading; third-person orbit and gameplay keep their input heading.
+    pub fn camera_rotation(self) -> Quat {
+        if self.sleeping_camera
+            && let Some(pose) = self.sleeping
+        {
+            return pose.rotation;
+        }
+        self.look_rotation()
     }
 
     pub fn set_freelook(&mut self, held: bool) {
@@ -626,6 +648,7 @@ pub fn reset_local_player_session(
     settings.reset_perspective();
     view.reanchor_camera();
     view.set_freelook(false);
+    view.set_sleeping_presentation(None, false);
     let eye = Vec3::from_array(eye_position);
     view.set_subject_position(eye, eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET);
     avatar.begin_session(session_generation, runtime_id);
@@ -694,19 +717,8 @@ pub fn resolve_camera_pose(
         mut receipt,
     } = publication;
     let perspective = settings.perspective();
-    // Capture the sleeping turn in the camera pose and its publication proof.
-    let rotation = (perspective == PerspectiveMode::FirstPerson)
-        .then(|| {
-            client_world.stream.and_then(|stream| {
-                let (bed, _) = stream.authority().local_sleeping_bed()?;
-                Some(crate::actor_sampling::sleeping_bed_rotation(
-                    stream, collisions, bed,
-                ))
-            })
-        })
-        .flatten()
-        .map(sleeping_view_rotation)
-        .or(settings.death_rotation())
+    let rotation = settings
+        .death_rotation()
         .unwrap_or_else(|| view.camera_rotation());
     let transform = if let Some(stream) = client_world.stream.as_ref() {
         let collision_world = sim::PaletteWorld::new(

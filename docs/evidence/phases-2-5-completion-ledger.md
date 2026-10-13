@@ -212,12 +212,16 @@ camera-listener coverage. This ownership change adds no new parity evidence.
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
-| Deterministic tests | Not started |
+| Owning plan/task | `plan.md`: chat completion and quoted player names. |
+| Deterministic tests | Mention filtering, name quoting, command permissions, insertion, Tab cycling, bounds and row-text regressions are written; compilation and execution await CI. |
 | Review commit | Not started |
 | Live/native witness | Not started |
 | Performance/resource witness | Not started |
 | Final status | Open |
+
+Plain chat offers `@here` and player-list names; command targets include `@n`.
+Education selectors, selector-expansion permission and cheat gating, selector
+argument completion, and live visual acceptance remain incomplete.
 
 ## P5.4-SCOREBOARD
 
@@ -270,6 +274,12 @@ mapping, server merging, validated pack copying and a restore snapshot. Full opt
 and control-layout coverage, live checks of every supported data location and
 Android scoped-storage import remain incomplete. This leaves the settings parity
 and acceptance gates open.
+
+The global Subscriptions tab and marketplace UI/services are removed from the
+product. Settings retain the remaining category order and icon alignment;
+Realms, Dressing Room and server resource packs remain supported. Navigation
+and unused-packet regressions await CI. No rendered-frame witness was captured,
+and this visible removal closes no settings, UI parity or performance gate.
 
 | Field | Evidence |
 |---|---|

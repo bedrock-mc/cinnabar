@@ -23,7 +23,6 @@ pub const SETTINGS_SECTIONS: &[(&str, u8)] = &[
     ("account_forced_index", 19),
     ("creator_forced_index", 20),
     ("video_forced_index", 21),
-    ("view_subscriptions_forced_index", 22),
     ("sound_forced_index", 23),
     ("global_texture_pack_forced_index", 24),
     (
@@ -37,7 +36,6 @@ pub const SETTINGS_SECTIONS: &[(&str, u8)] = &[
     ("discovery_debug_forced_index", 30),
     ("ui_debug_forced_index", 31),
     ("edu_debug_forced_index", 32),
-    ("marketplace_debug_forced_index", 33),
     ("flighting_debug_forced_index", 34),
     ("realms_debug_forced_index", 35),
     ("automation_forced_index", 36),

@@ -9,7 +9,7 @@ use bulk_read::BulkRead;
 #[cfg(test)]
 mod regressions;
 
-pub const CATEGORIES: [&str; 5] = ["News", "Realms", "Invites", "Marketplace Pass", "Feedback"];
+pub const CATEGORIES: [&str; 4] = ["News", "Realms", "Invites", "Feedback"];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Action {
@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn dates_and_category_names_survive_the_feed() {
         assert_eq!(date("2026-10-02T10:00:00Z"), "10/02/2026");
-        assert_eq!(category_index("MarketplacePass"), Some(3));
+        assert_eq!(category_index("Feedback"), Some(3));
         assert_eq!(day("1970-01-01"), Some(0));
         assert_eq!(day("2026-10-03").unwrap() - day("2026-09-26").unwrap(), 7);
     }

@@ -314,8 +314,8 @@ fn tag_anchor_follows_the_same_interpolated_feet_as_the_rig() {
     actor.received_pose.position = [4.0, 64.0, -2.0];
     actor.position = actor.received_pose.position;
     for partial in [0.25, 0.5, 0.75] {
-        let anchor = tag_world_position(&actor, partial).unwrap();
         let feet = Vec3::from_array(actor.interpolated_position(partial).unwrap());
+        let anchor = tag_world_position(&actor, feet);
         assert_eq!(anchor, feet + Vec3::Y * (DEFAULT_HEIGHT + HEAD_CLEARANCE));
     }
 }
@@ -566,7 +566,8 @@ fn empty_names_hide_players_without_screen_coordinate_visibility_rules() {
 #[test]
 fn a_viewer_at_the_anchor_keeps_the_screen_aligned_tag() {
     let actor = actor();
-    let eye = tag_world_position(&actor, 0.5).unwrap();
+    let feet = Vec3::from_array(actor.interpolated_position(0.5).unwrap());
+    let eye = tag_world_position(&actor, feet);
     assert!(
         extract_nametag(
             &actor,

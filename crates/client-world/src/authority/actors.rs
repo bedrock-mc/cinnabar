@@ -2,6 +2,15 @@ use super::*;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 
 impl WorldAuthority {
+    /// Publishes local placement, reanchoring animation only when presentation changes.
+    pub fn set_local_actor_presentation_position(&mut self, position: [f32; 3], reanchor: bool) {
+        self.actors.set_local_presentation_position(
+            self.local_player_runtime_id,
+            position,
+            reanchor,
+        );
+    }
+
     /// Admits and polls appearance work without advancing animation ticks; true while work remains.
     pub fn poll_actor_appearance_preparation(&mut self) -> bool {
         self.actors.prepare_appearances(false);
@@ -456,6 +465,13 @@ impl WorldAuthority {
     pub fn pending_item_resolution_count(&self) -> usize {
         self.actors.pending_item_resolution_count()
     }
+    /// Retained hanging pictures in runtime-ID order, excluding the local player.
+    pub fn painting_actors(&self) -> impl Iterator<Item = &ActorSnapshot> {
+        self.actors
+            .painting_actors()
+            .filter(|actor| actor.runtime_id != self.local_player_runtime_id)
+    }
+
     /// Every tracked actor except the local player, in no particular order.
     pub fn remote_actors(&self) -> impl Iterator<Item = &ActorSnapshot> {
         let local = self.local_player_runtime_id;

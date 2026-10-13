@@ -23,7 +23,6 @@ pub mod local_worlds;
 pub mod menu;
 pub mod minecraft_import;
 pub mod skin_import;
-pub mod store;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 

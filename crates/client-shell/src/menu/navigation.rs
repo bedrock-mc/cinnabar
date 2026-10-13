@@ -95,9 +95,6 @@ impl MenuRuntime {
         {
             self.death_presentation.return_seconds = Some(0.0);
         }
-        if screen != MenuScreen::Store {
-            self.store_snapshot = None;
-        }
         self.screen = screen;
         self.navigation_focus.enter();
         if screen != MenuScreen::DressingRoom && self.dressing_room.editor.is_some() {
@@ -193,7 +190,6 @@ impl MenuRuntime {
         }
         match self.screen {
             MenuScreen::Death => self.activate(MenuAction::OpenDeathGameMenu),
-            MenuScreen::Store => self.store_actions.push(launcher::store::StoreAction::Back),
             _ if self.history.screens().len() > 1 => {
                 self.history.pop();
                 self.show_top();

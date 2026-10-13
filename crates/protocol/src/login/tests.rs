@@ -822,6 +822,25 @@ fn allowlisted_actor_packet_is_materialized_and_normalized() {
 }
 
 #[test]
+fn painting_wire_packet_reaches_play_dispatch_with_its_motive() {
+    let packet = crate::Packet::new(bedrock_protocol_1_26_51::packets::AddPainting {
+        target_actor_id: ActorUniqueID(-15),
+        target_runtime_id: ActorRuntimeID(73),
+        position: [3.5, 70.5, 10.03125].into(),
+        direction: wire::ZigZag32(2),
+        motif: "backyard".into(),
+    });
+    let mut batch = crate::encode(&packet).unwrap();
+    batch.advance(1);
+    let raw = decode_packet_raw(&mut batch).unwrap();
+    let event = decode_world_raw_with(raw, 0, super::decode_test_raw).unwrap();
+    assert!(
+        matches!(event,Some(WorldEvent::Actor(crate::ActorEvent::PaintingSpawn {spawn,painting}))
+        if spawn.runtime_id==73 && spawn.unique_id == -15 && painting.motive.as_ref()=="backyard")
+    );
+}
+
+#[test]
 fn allowlisted_item_and_action_packets_are_materialized_and_normalized() {
     let packets: [Packet; 4] = [
         crate::Packet::new(AddPlayer {

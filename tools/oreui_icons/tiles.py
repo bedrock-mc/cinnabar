@@ -282,7 +282,7 @@ SERVERS_TAB = tile(
 
 PLAY_TABS = [WORLDS_TAB, REALMS_TAB, SERVERS_TAB]
 
-# Inbox categories: News, Realms, Invites, Marketplace Pass (12 px), Feedback.
+# Inbox categories: News, Realms, Invites, Feedback.
 NEWS = tile(
     [
         "bbbbbbbbbb",
@@ -339,35 +339,7 @@ FEEDBACK = tile(
 )
 
 
-def marketplace_pass():
-    """The 12 px pass tile: a gold ticket on a framed indigo card."""
-    return from_map(
-        [
-            "kkkkkkkkkkkk",
-            "knnnnnnnnnnk",
-            "knnnnnnnnnnk",
-            "knyyyyyyyynk",
-            "knyYyyyyyynk",
-            "knnyyoyyynnk",
-            "knnyyoyyynnk",
-            "knyyyyyyyynk",
-            "knyyyyyyyOnk",
-            "knnnnnnnnnnk",
-            "knnnnnnnnnnk",
-            "kkkkkkkkkkkk",
-        ],
-        {
-            "k": FRAME,
-            "n": rgb("#3c3c8c"),
-            "y": rgb("#f2c440"),
-            "Y": rgb("#fff0a0"),
-            "o": rgb("#b07a18"),
-            "O": rgb("#c89020"),
-        },
-    )
-
-
-INBOX = [NEWS, REALMS_TAB, INVITES, marketplace_pass(), FEEDBACK]
+INBOX = [NEWS, REALMS_TAB, INVITES, FEEDBACK]
 
 # Settings categories, in sidebar order.
 ACCESSIBILITY = tile(
@@ -573,30 +545,6 @@ ACCOUNT = tile(
     body="cflbL",
 )
 
-SUBSCRIPTIONS = tile(
-    [
-        "rrrrrrrrrr",
-        "rrrrrrrrrr",
-        "ggggggggggr"[:10],
-        "gGGGGGGGGg",
-        "gGGGyGGGGg",
-        "gGGyyyGGGg",
-        "gGGGyGGGGg",
-        "gGGGGGGllg",
-        "gggggggggg",
-        "rrrrrrrrrr",
-    ],
-    {
-        "r": rgb("#7a2c44"),
-        "g": rgb("#2c6c5c"),
-        "G": rgb("#48a088"),
-        "y": rgb("#f8e070"),
-        "l": rgb("#c8ecdc"),
-    },
-    bevel="G",
-    body="Gyl",
-)
-
 CHEST = tile(
     [
         "kkkkkkkkkk",
@@ -690,7 +638,6 @@ SETTINGS = [
     PAINTING,
     SOUND,
     ACCOUNT,
-    SUBSCRIPTIONS,
     CHEST,
     STORAGE,
     LANGUAGE,

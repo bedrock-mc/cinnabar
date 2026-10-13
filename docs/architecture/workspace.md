@@ -21,7 +21,7 @@ and relays packets over a local stream.
 | [go-raknet](https://github.com/Sandertv/go-raknet) | RakNet transport to servers, plus server-list pings. |
 | [go-nethernet](https://github.com/df-mc/go-nethernet) | WebRTC transport for Realms and friend worlds. |
 | [go-xsapi](https://github.com/df-mc/go-xsapi) | Xbox Live identity, friends, presence and signaling. |
-| [go-playfab](https://github.com/df-mc/go-playfab) | PlayFab sign-in and the menu catalog (featured servers, marketplace). |
+| [go-playfab](https://github.com/df-mc/go-playfab) | PlayFab sign-in and the menu catalog (featured servers). |
 | [dragonfly](https://github.com/df-mc/dragonfly) | The built-in local-world server in `tools/localserver`. |
 
 Mojang assets are never committed or embedded. `make assets` fetches Mojang's official
@@ -128,7 +128,7 @@ the prepared visual data to the GPU.
 
 | Workspace member | Package | Ownership and caller guidance | Related owners |
 | --- | --- | --- | --- |
-| `crates/launcher` | `launcher` | Engine-independent account, menu, world and store models plus product identity; use these models across services and screens. | `launcher-host` owns process and persistence services; `client-shell` integrates them. |
+| `crates/launcher` | `launcher` | Engine-independent account, menu and world models plus product identity; use these models across services and screens. | `launcher-host` owns process and persistence services; `client-shell` integrates them. |
 | `crates/launcher-host` | `launcher-host` | Launcher processes, platform services, persistence and background work; use its service APIs without Bevy. | `launcher` owns models; `resource-pack` validates user pack imports; the Go core owns authentication and upstream services; `client-shell` owns ECS adapters. |
 | `crates/first-run` | `first-run` | Consent, download and preparation of local asset carriers; use its setup runner before launching the game window. | `asset-compiler` builds carriers; `launcher-host` owns ordinary launcher services. |
 | `crates/rich-presence` | `rich-presence` | Optional Discord desktop activity and RPC worker; use its presence and join-request APIs. | `client-shell` projects menu/session state; `launcher` owns product identity. |
@@ -181,7 +181,7 @@ the SDK for their own host contract; they do not import client runtime authority
 | `cmd/bedrock-core` | The core binary. |
 | `proxy` | Upstream session, resource-pack download and packet relay. |
 | `authflow`, `authcache` | Microsoft device sign-in and token cache. |
-| `catalog`, `store`, `launcher`, `control`, `xboxpresence` | Menu data and services: featured servers, Realms, friends, marketplace and presence. |
+| `catalog`, `launcher`, `control`, `xboxpresence` | Menu data and services: featured servers, Realms, friends and presence. |
 | `localworld` | The launcher's open local world as the core routes it; `proxy` hosts it for Xbox friends. |
 | `packcache` | On-disk cache of server packs. |
 

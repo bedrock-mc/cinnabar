@@ -69,7 +69,9 @@ use {
             update_atmosphere_frame, update_lightning, update_precipitation_scene,
             update_seasonal_foliage,
         },
-        local_player::{publish_local_player_frame, resolve_camera_pose},
+        local_player::{
+            publish_local_player_frame, resolve_camera_pose, resolve_local_player_presentation,
+        },
         melee::produce_melee,
         movement::{advance_local_physics, send_movement_prediction_sync},
         present_mode::{PresentModeRuntime, apply_present_mode},
@@ -227,6 +229,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         .add_systems(
             Update,
             (
+                resolve_local_player_presentation,
                 client_presentation::local_player_camera_receipt::begin_camera_publication_attempt,
                 resolve_camera_pose,
             )
