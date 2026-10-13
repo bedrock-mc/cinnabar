@@ -86,7 +86,9 @@ player-state = { path = "../crates/player-state" }
 inventory = { path = "../crates/inventory" }
 bytes.workspace = true
 anyhow.workspace = true
+pack-compile-input = { path = "../crates/pack-compiler/input" }
 pack-compiler = { path = "../crates/pack-compiler" }
+pack-entity-compiler = { path = "../crates/pack-compiler/entity" }
 assets = { path = "../crates/assets" }
 bevy.workspace = true
 glam.workspace = true
@@ -163,7 +165,9 @@ client-ui = { path = "../crates/client-ui", features = ["test-support"] }
 ui-engine = { path = "../crates/ui-engine", features = ["test-support"] }
 protocol = { path = "../crates/protocol", features = ["test-support"] }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+pack-compile-input = { path = "../crates/pack-compiler/input" }
 pack-compiler = { path = "../crates/pack-compiler" }
+pack-entity-compiler = { path = "../crates/pack-compiler/entity" }
 chunk-pipeline = { path = "../crates/chunk-pipeline", features = ["publication-test-support"] }
 render = { path = "../crates/render", features = ["publication-test-support"] }
 

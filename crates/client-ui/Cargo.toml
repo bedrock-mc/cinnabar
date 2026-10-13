@@ -74,6 +74,7 @@ protocol = { path = "../protocol", features = ["test-support"] }
 resource-pack = { path = "../resource-pack", features = ["test-support"] }
 mod-host = { path = "../mod-host" }
 pack-compiler = { path = "../pack-compiler" }
+pack-entity-compiler = { path = "../pack-compiler/entity" }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [lints]

@@ -2,7 +2,7 @@ use super::{
     MAX_SOURCE_MANIFEST_BYTES, read_bounded_with_limit, validate_output_bundle, write_output_bundle,
 };
 use assets::AssetError;
-use pack_compiler::{
+use pack_entity_compiler::{
     compile_actor_assets_for_assets, compile_entity_assets_with_behavior_report,
     compile_entity_assets_with_report,
 };
