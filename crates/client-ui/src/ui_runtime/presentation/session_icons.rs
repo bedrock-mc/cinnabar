@@ -23,6 +23,20 @@ type IconRefs = HashMap<Arc<str>, BTreeMap<u32, IconRef>>;
 const GUTTER: u32 = 1;
 const MAX_LOGGED_MISSES: usize = 512;
 
+/// Resolves session overrides before vanilla artwork, retaining the variant-zero fallback.
+pub(super) fn lookup_icon(
+    session: &SessionIconPage,
+    catalog: Option<&assets::RuntimeIconCatalog>,
+    refs: Option<&[IconRef]>,
+    identifier: &str,
+    metadata: u32,
+) -> Option<IconRef> {
+    session.icon(identifier, metadata).or_else(|| {
+        let sprite = catalog?.lookup_index(identifier, metadata)?;
+        refs?.get(sprite).copied()
+    })
+}
+
 /// One server item icon in straight-alpha RGBA8.
 #[derive(Debug)]
 pub struct SessionIcon {
@@ -56,6 +70,16 @@ pub(super) struct SessionIconPage {
     generation: u64,
     /// A newer set packing on a worker; the installed set draws until it lands.
     packing: Option<Packing>,
+}
+
+impl SessionIconPage {
+    /// Returns a session override for the requested variant, then variant zero.
+    fn icon(&self, identifier: &str, metadata: u32) -> Option<IconRef> {
+        self.refs
+            .get(identifier)
+            .and_then(|variants| variants.get(&metadata).or_else(|| variants.get(&0)))
+            .copied()
+    }
 }
 
 /// An icon set packing off the frame, and where its page lands.
@@ -97,27 +121,22 @@ impl UiPresentationRuntime {
     /// Resolves an item identity to its icon: a server icon for this session
     /// first, then the vanilla atlas. Unknown items keep only the slot frame.
     pub fn item_icon(&self, identifier: &str, metadata: u32) -> Option<IconRef> {
-        if let Some(icon) = self.session_item_icon(identifier, metadata) {
-            return Some(icon);
-        }
-        let vanilla = self
-            .icon_catalog
-            .as_ref()
-            .and_then(|catalog| catalog.lookup_index(identifier, metadata))
-            .and_then(|sprite| self.icon_refs.as_deref()?.get(sprite).copied());
-        if vanilla.is_none() {
+        let icon = lookup_icon(
+            &self.session_icons,
+            self.icon_catalog.as_deref(),
+            self.icon_refs.as_deref(),
+            identifier,
+            metadata,
+        );
+        if icon.is_none() {
             self.note_missing_icon(identifier, metadata);
         }
-        vanilla
+        icon
     }
 
     /// Returns the session override for this item variant, falling back to variant zero.
     pub(super) fn session_item_icon(&self, identifier: &str, metadata: u32) -> Option<IconRef> {
-        self.session_icons
-            .refs
-            .get(identifier)
-            .and_then(|variants| variants.get(&metadata).or_else(|| variants.get(&0)))
-            .copied()
+        self.session_icons.icon(identifier, metadata)
     }
 
     /// Logs the hotbar's identifiers and icon presence whenever they change.

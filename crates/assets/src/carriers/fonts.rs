@@ -23,6 +23,8 @@ impl AsciiBearing {
 #[derive(Clone, Copy, Debug)]
 pub struct FontFace {
     pub name: &'static str,
+    /// Pack-authored font name served by this original substitute, when supported.
+    pub json_ui_alias: Option<&'static str>,
     pub manifest: &'static [u8],
     pub units_per_em: u32,
     /// Carrier raster height, independent of the source design grid.

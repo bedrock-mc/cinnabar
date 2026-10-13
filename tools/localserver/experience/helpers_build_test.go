@@ -2,7 +2,6 @@ package experience
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -15,29 +14,18 @@ import (
 	"time"
 )
 
-// helperBuildContext cancels setup on timeout or interrupt; stop it after all builds are reaped.
+// helperBuildContext forwards interrupts and adds a deadline only for a nonzero budget.
+// Stop it after all builds are reaped.
 func helperBuildContext(parent context.Context, budget time.Duration) (context.Context, context.CancelFunc) {
 	interrupted, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
+	if budget == 0 {
+		return interrupted, stop
+	}
 	ctx, cancel := context.WithTimeout(interrupted, budget)
 	return ctx, func() {
 		cancel()
 		stop()
 	}
-}
-
-// helperBuildJobs resolves the configured Cargo budget, including CPU-relative values.
-func helperBuildJobs(cpus int, configured string) (int, error) {
-	if configured == "" || configured == "default" {
-		return cpus, nil
-	}
-	jobs, err := strconv.Atoi(configured)
-	if err != nil || jobs == 0 {
-		return 0, fmt.Errorf("invalid CARGO_BUILD_JOBS %q: expected a nonzero integer or default", configured)
-	}
-	if jobs < 0 {
-		jobs = max(cpus+jobs, 1)
-	}
-	return jobs, nil
 }
 
 // helperBuildCommand cancels the owned build tree; Run, Output or Wait reaps the command.
@@ -57,7 +45,7 @@ func helperGuestBuildArgs(root string) []string {
 	}
 	return []string{
 		"build", "--locked", "--target", "wasm32-unknown-unknown", "-p", "experience-probe",
-		"--jobs", "1", "--target-dir", target,
+		"--target-dir", target,
 		"--config", "build.build-dir=" + strconv.Quote(filepath.ToSlash(buildDir)),
 	}
 }
@@ -90,27 +78,23 @@ func TestHelperGuestBuildDirectory(t *testing.T) {
 	}
 }
 
-func TestHelperBuildJobs(t *testing.T) {
+func TestHelperBuildContextDeadline(t *testing.T) {
 	for _, test := range []struct {
-		configured string
-		want       int
-		wantErr    bool
+		name         string
+		budget       time.Duration
+		wantDeadline bool
 	}{
-		{configured: "", want: 8},
-		{configured: "default", want: 8},
-		{configured: "1", want: 1},
-		{configured: "2", want: 2},
-		{configured: "4", want: 4},
-		{configured: "16", want: 16},
-		{configured: "-2", want: 6},
-		{configured: "-16", want: 1},
-		{configured: "0", wantErr: true},
-		{configured: "invalid", wantErr: true},
+		{name: "disabled"},
+		{name: "enabled", budget: time.Minute, wantDeadline: true},
 	} {
-		t.Run(test.configured, func(t *testing.T) {
-			jobs, err := helperBuildJobs(8, test.configured)
-			if jobs != test.want || (err != nil) != test.wantErr {
-				t.Fatalf("helperBuildJobs(8, %q) = %d, %v; want %d, error %v", test.configured, jobs, err, test.want, test.wantErr)
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := helperBuildContext(context.Background(), test.budget)
+			defer cancel()
+			if _, deadline := ctx.Deadline(); deadline != test.wantDeadline {
+				t.Fatalf("setup deadline = %v; want %v", deadline, test.wantDeadline)
+			}
+			if err := ctx.Err(); err != nil {
+				t.Fatalf("new setup context is canceled: %v", err)
 			}
 		})
 	}

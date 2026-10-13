@@ -50,7 +50,7 @@ func TestHelperBuildCancellationStopsChildren(t *testing.T) {
 			if err := output.SetReadDeadline(time.Now().Add(helperPipeWaitDelay)); err != nil {
 				t.Fatal(err)
 			}
-			ctx, cancel := helperBuildContext(t.Context(), helperPipeWaitDelay)
+			ctx, cancel := helperBuildContext(t.Context(), 0)
 			defer cancel()
 			cmd := helperBuildCommand(ctx, "sh", "-c", "cat <&3 & printf 'ready\\n'; wait")
 			cmd.ExtraFiles = []*os.File{input}
