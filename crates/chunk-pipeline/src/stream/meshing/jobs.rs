@@ -308,7 +308,6 @@ impl WorldStream {
         drop(dispatch);
         // Collected after dispatch, so air the ready lane yielded is removed in the same call.
         let mut removal_candidates = Vec::new();
-        let mut air_removals_due = Vec::new();
         let removal_authority = self
             .publication_allowance
             .as_ref()
@@ -317,28 +316,7 @@ impl WorldStream {
             })
             .min(removal_budget)
             .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()));
-        // Air sections are keyed by section, so repeated changes keep one record and one permit.
-        while air_removals_due.len() < removal_authority
-            && let Some((key, revision)) = self.air_removals.pop_first()
-        {
-            let Some(pending) = self.mesh_jobs.pending.get(&key).copied() else {
-                continue;
-            };
-            // A newer revision is routed at ingress.
-            if pending.revision != revision || !self.revisions.is_current(key, revision) {
-                continue;
-            }
-            let candidate = PendingSchedulerCandidate::new(key, revision, view, pending.urgent);
-            if self.mesh_requires_geometry(key) {
-                // Geometry again: the section returns to the worker queue it may have left.
-                self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
-                    .ready
-                    .push(candidate);
-                continue;
-            }
-            air_removals_due.push((candidate, pending));
-        }
-        removal_candidates.append(&mut air_removals_due);
+        self.route_air_removals(view, removal_authority);
         if removal_authority != 0 {
             for index in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
                 if index != 0 && self.poll_budget_exhausted() {
@@ -463,6 +441,60 @@ impl WorldStream {
             self.queue_mesh_change(change);
         }
         dispatched
+    }
+    /// Moves due air sections from the keyed set into the removal lane, where removals order by
+    /// priority under the poll deadline. Bounded attempts resume after the last key examined, so
+    /// stale entries are cleared and sections that need geometry again return to the worker queue
+    /// whatever the removal credit.
+    fn route_air_removals(&mut self, view: SchedulerView, removal_authority: usize) {
+        let mut due = Vec::new();
+        let entry = |(key, revision): (&SubChunkKey, &u64)| (*key, *revision);
+        let keys = match self.air_removal_cursor.take() {
+            Some(start) => self
+                .air_removals
+                .range((std::ops::Bound::Excluded(start), std::ops::Bound::Unbounded))
+                .chain(self.air_removals.range(..=start))
+                .map(entry)
+                .take(MAX_PENDING_SCHEDULER_SCANS_PER_POLL)
+                .collect::<Vec<_>>(),
+            None => self
+                .air_removals
+                .iter()
+                .map(entry)
+                .take(MAX_PENDING_SCHEDULER_SCANS_PER_POLL)
+                .collect(),
+        };
+        for (attempt, (key, revision)) in keys.into_iter().enumerate() {
+            if attempt != 0 && self.poll_budget_exhausted() {
+                break;
+            }
+            self.air_removal_cursor = Some(key);
+            let pending = self.mesh_jobs.pending.get(&key).copied().filter(|pending| {
+                pending.revision == revision && self.revisions.is_current(key, revision)
+            });
+            // A missing or newer revision is routed at ingress.
+            let Some(pending) = pending else {
+                self.air_removals.remove(&key);
+                continue;
+            };
+            let candidate = PendingSchedulerCandidate::new(key, revision, view, pending.urgent);
+            if self.mesh_requires_geometry(key) {
+                self.air_removals.remove(&key);
+                self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+                    .ready
+                    .push(candidate);
+            } else {
+                due.push(candidate);
+            }
+        }
+        // Removal credit goes to the highest-priority air first; the rest wait in the set.
+        due.sort_unstable_by_key(|candidate| std::cmp::Reverse(*candidate));
+        for candidate in due.into_iter().take(removal_authority) {
+            self.air_removals.remove(&candidate.key);
+            self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
+                .ready
+                .push(candidate);
+        }
     }
     /// Whether `key` still needs a worker-built mesh rather than a removal.
     pub(in crate::stream) fn mesh_requires_geometry(&self, key: SubChunkKey) -> bool {

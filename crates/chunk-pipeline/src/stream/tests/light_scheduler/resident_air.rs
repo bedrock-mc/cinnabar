@@ -264,3 +264,84 @@ fn repeated_air_invalidations_without_credit_keep_one_removal() {
     );
     assert!(stream.pop_mesh_change().is_none());
 }
+
+/// A section that turns to air and back to geometry with no removal credit is rebuilt, never
+/// stranded in the removal set.
+#[test]
+fn air_turned_back_to_geometry_is_rebuilt_without_removal_credit() {
+    let mut stream = lit_stream(1);
+    let key = SubChunkKey::new(1, 0, 0, 0);
+    resident(&mut stream, key, super::uniform_sub_chunk(2));
+    install_current_light(&mut stream, key, 0, 0, false);
+    stream.mark_dirty_exact(key, Instant::now());
+    stream.set_publication_allowance(render_api::PublicationAllowance::new(
+        render_api::PublicationServiceConfig::DEFAULT,
+    ));
+    assert_eq!(stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, 1), 0);
+    resident(&mut stream, key, super::uniform_sub_chunk(0));
+    stream.mark_changed(key, Instant::now());
+    assert_eq!(stream.dispatch_mesh_jobs_with_limits([8.0; 3], 1, 1), 0);
+    assert!(stream.air_removals.contains_key(&key));
+    resident(&mut stream, key, super::uniform_sub_chunk(2));
+    stream.mark_changed(key, Instant::now());
+    settle_light(&mut stream, [8.0; 3]);
+
+    for _ in 0..2 {
+        stream.dispatch_mesh_jobs_with_limits([8.0; 3], 1, 1);
+    }
+
+    assert!(stream.mesh_jobs.in_flight.contains_key(&key));
+    assert!(stream.air_removals.is_empty());
+}
+
+/// With credit for one removal, an urgent removal goes before a queued non-urgent air section.
+#[test]
+fn urgent_removal_outranks_a_queued_air_section() {
+    let mut stream = lit_stream(1);
+    let calm = SubChunkKey::new(1, 0, 0, 0);
+    let urgent = SubChunkKey::new(1, 1, 0, 0);
+    for key in [calm, urgent] {
+        resident(&mut stream, key, super::uniform_sub_chunk(2));
+        install_current_light(&mut stream, key, 0, 0, false);
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+    assert_eq!(stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, 1), 0);
+    resident(&mut stream, calm, super::uniform_sub_chunk(0));
+    stream.mark_changed(calm, Instant::now());
+    assert!(stream.air_removals.contains_key(&calm));
+    resident(&mut stream, urgent, super::uniform_sub_chunk(0));
+    stream.mark_dirty_exact_with_priority(urgent, Instant::now(), true);
+    let config = render_api::PublicationServiceConfig::DEFAULT;
+    let allowance = render_api::PublicationAllowance::new(config);
+    allowance.begin_frame(1, 1, 0, 1, 1);
+    assert_eq!(
+        allowance.zero_byte_admission_capacity_with_priority(true),
+        1
+    );
+    stream.set_publication_allowance(allowance);
+
+    assert_eq!(stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, 4), 0);
+
+    assert!(matches!(
+        stream.pop_mesh_change(),
+        Some(WorldMeshChange::Remove { key, .. }) if key == urgent
+    ));
+    assert!(stream.pop_mesh_change().is_none());
+}
+
+/// One dispatch examines a bounded number of air entries, stale ones included.
+#[test]
+fn air_removal_routing_is_bounded_per_dispatch() {
+    let mut stream = lit_stream(1);
+    let queued = SubChunkKey::new(1, -8, 0, 0);
+    resident(&mut stream, queued, super::uniform_sub_chunk(2));
+    stream.mark_dirty_exact(queued, Instant::now());
+    for x in 0..1_000 {
+        stream.air_removals.insert(SubChunkKey::new(1, x, 0, 0), 1);
+    }
+
+    stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, 4);
+
+    assert!(stream.air_removals.len() < 1_000);
+    assert!(stream.air_removals.len() >= 1_000 - MAX_PENDING_SCHEDULER_SCANS_PER_POLL);
+}
