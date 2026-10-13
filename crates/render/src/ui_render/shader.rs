@@ -41,6 +41,30 @@ pub(crate) fn source(raw: &str) -> String {
         &format!("{}u", assets::FONT_STYLE_COVERAGE_GAMMA),
     )
     .replace("FONT_STYLE_SDF", &format!("{}u", assets::FONT_STYLE_SDF))
+    .replace(
+        "SDF_DISTANCE_SCALE",
+        &format!("{:?}", render_model::font_shading::SDF_DISTANCE_SCALE),
+    )
+    .replace(
+        "SDF_DISTANCE_BIAS",
+        &format!("{:?}", render_model::font_shading::SDF_DISTANCE_BIAS),
+    )
+    .replace(
+        "SDF_SMOOTHING_SCALE",
+        &format!("{:?}", render_model::font_shading::SDF_SMOOTHING_SCALE),
+    )
+    .replace(
+        "SDF_MIN_THRESHOLD",
+        &format!("{:?}", render_model::font_shading::SDF_MIN_THRESHOLD),
+    )
+    .replace(
+        "COVERAGE_GAMMA_BASE",
+        &format!("{:?}", render_model::font_shading::COVERAGE_GAMMA_BASE),
+    )
+    .replace("COVERAGE_LUMINANCE", &{
+        let [r, g, b] = render_model::font_shading::COVERAGE_LUMINANCE;
+        format!("vec3<f32>({r:?}, {g:?}, {b:?})")
+    })
 }
 
 pub(super) fn from_wgsl(raw: &str, path: impl Into<String>) -> Shader {

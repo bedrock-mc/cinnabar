@@ -53,5 +53,36 @@ pub(crate) fn alt_held(held: &ButtonInput<KeyCode>) -> bool {
     held.pressed(KeyCode::AltLeft) || held.pressed(KeyCode::AltRight)
 }
 
+/// Matches the command binding, also accepting a typed slash on other layouts
+/// while the default command control is selected.
+pub(crate) fn command_key(
+    menu: Option<&client_shell::menu::MenuRuntime>,
+    input: &KeyboardInput,
+) -> bool {
+    use client_shell::menu::settings_options::control_bindings::named_control;
+    binding_key(menu, "key.command", input.key_code)
+        || (input.text.as_deref() == Some("/")
+            && named_control(menu, "key.command") == named_control(None, "key.command"))
+}
+
+/// Whether `key` edits chat by whole words when the word-edit modifier is held.
+pub(crate) fn is_word_edit(key: KeyCode) -> bool {
+    matches!(
+        key,
+        KeyCode::Backspace | KeyCode::Delete | KeyCode::ArrowLeft | KeyCode::ArrowRight
+    )
+}
+
+/// Applies the word edit for `key`; `selecting` extends the selection instead of moving the caret.
+pub(crate) fn word_edit(editor: &mut ui::ChatEditor, key: KeyCode, selecting: bool) {
+    match key {
+        KeyCode::Backspace => editor.backspace_word(),
+        KeyCode::Delete => editor.delete_word(),
+        KeyCode::ArrowLeft => editor.move_word_left(selecting),
+        KeyCode::ArrowRight => editor.move_word_right(selecting),
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests;

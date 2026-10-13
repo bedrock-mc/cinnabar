@@ -28,6 +28,13 @@ opened cap texture ownership and malformed selectors across registered poses
 with 16/32 pixel textures. Rendered/input acceptance and broader graphics parity
 remain open.
 
+Lever compiler fixtures cover separate base/handle geometry, eight mounts, both
+power states, 16/32-pixel sprite regions and neighboring controls. The mounting
+base retains the cobblestone-wall top material independently of the handle. These
+tests and the focused crate check pass, with a missing-part failure on the previous
+model. Rendered/native interaction acceptance remains incomplete.
+No completion or performance gate advances.
+
 Cape rotation limits now prevent upward flips in both player animation modes. Remote resets
 discard Java chase lag, and remote Bedrock flap uses completed tick displacement instead of
 retained packet speed. Local flap keeps per-tick velocity through catch-up frames. The Bedrock
@@ -272,6 +279,12 @@ argument completion, and live visual acceptance remain incomplete.
 | Final status | Open |
 
 ## P5.8-SETTINGS
+
+Minecraft import adds explicit consent, per-profile preview, schema-checked option
+mapping, server merging, validated pack copying and a restore snapshot. Full option
+and control-layout coverage, live checks of every supported data location and
+Android scoped-storage import remain incomplete. This leaves the settings parity
+and acceptance gates open.
 
 The global Subscriptions tab and marketplace UI/services are removed from the
 product. Settings retain the remaining category order and icon alignment;

@@ -1,5 +1,6 @@
-use protocol::UiEvent;
 use std::sync::Arc;
+
+use protocol::UiEvent;
 
 use super::SequencedUiEvent;
 
