@@ -112,6 +112,12 @@ class SourceReuseTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Tracked sources changed.*value.txt"):
             cache.verify_inputs(self.root)
 
+    def test_build_cannot_add_untracked_entries_to_tracked_directories(self):
+        """Name the untracked entry that removed a directory from the input snapshot."""
+        (self.root / "src/generated.rs").write_text("")
+        with self.assertRaisesRegex(RuntimeError, "new entries: src/generated.rs"):
+            cache.verify_inputs(self.root)
+
     def test_key_changes_per_revision_and_separates_compiler_settings(self):
         """New revisions refresh caches without losing the compatible restore prefix."""
         env = {"RUNNER_OS": "Linux", "RUNNER_ARCH": "X64"}

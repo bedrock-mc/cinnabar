@@ -5,7 +5,7 @@ use assets::block_entity_geometry::BoxSpec;
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 
-use super::atlas::{AtlasRect, TextureRef};
+use super::atlas::{AtlasRect, BlockEntityAtlas, TextureRef};
 
 /// Hard ceiling on vertices per layer per frame; further quads are counted as rejected.
 pub const MAX_BLOCK_ENTITY_VERTICES: usize = 393_216;
@@ -73,6 +73,8 @@ pub struct MeshBuilder {
     /// Multiplier applied to model RGB; encoded portal planes bypass lighting.
     pub light: f32,
     pub(super) actor_light: u32,
+    /// Whether a required model texture was absent from the atlas.
+    pub(super) missing_required_texture: bool,
     pub rejected_quads: u64,
 }
 
@@ -88,8 +90,21 @@ impl MeshBuilder {
             additive: Vec::new(),
             light: 1.0,
             actor_light: 0,
+            missing_required_texture: false,
             rejected_quads: 0,
         }
+    }
+
+    /// Resolves a required model texture and records missing artwork without stopping emission.
+    pub(super) fn required_texture(
+        &mut self,
+        atlas: &BlockEntityAtlas,
+        name: &str,
+        logical: [f32; 2],
+    ) -> Option<TextureRef> {
+        let texture = atlas.texture(name, logical);
+        self.missing_required_texture |= texture.is_none();
+        texture
     }
 
     /// Emits a box; `model` maps authoring pixels to world space.

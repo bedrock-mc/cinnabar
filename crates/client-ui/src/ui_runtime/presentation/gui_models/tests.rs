@@ -1,5 +1,8 @@
 use {super::*, ui::IconRef};
 
+mod cubes;
+mod short_models;
+
 #[test]
 fn source_atlas_keeps_original_pixels_and_deduplicates_sources() {
     let pixels: Vec<u8> = (0..16 * 16)
@@ -254,6 +257,10 @@ fn review_faded_block_models_keep_single_layer_thumbnail_opacity() {
     presentation
         .gui_models
         .optional_models
+        .insert(icon_key(icon));
+    presentation
+        .gui_models
+        .faded_thumbnails
         .insert(icon_key(icon));
     let bounds = UiRect::new(
         UiPoint::new(0.0, 0.0).unwrap(),

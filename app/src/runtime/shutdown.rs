@@ -8,11 +8,12 @@ use client_runtime::network::NetworkHandle;
 #[cfg(feature = "acceptance")]
 use bevy::ecs::system::SystemParam;
 use bevy::{
-    prelude::{AppExit, MessageReader, MessageWriter, Res, ResMut},
+    prelude::{App, AppExit, Last, MessageReader, MessageWriter, Res, ResMut, Resource},
     window::WindowCloseRequested,
 };
 #[cfg(feature = "acceptance")]
 use render_scene::TransparentSortMetrics;
+use std::sync::{Arc, Mutex, PoisonError};
 
 #[cfg(feature = "acceptance")]
 use diagnostics::metrics::TransparentSortMetricsSnapshot;
@@ -27,6 +28,50 @@ pub(crate) fn record_fatal_error(fatal_error: &mut Option<String>, error: String
     if fatal_error.is_none() {
         *fatal_error = Some(error);
     }
+}
+
+/// The first fatal error behind an error exit, readable after `App::run` consumes the world.
+#[derive(Resource, Clone, Default)]
+pub(crate) struct TerminalCause(Arc<Mutex<Option<String>>>);
+
+impl TerminalCause {
+    /// Captures into a handle that outlives `app`.
+    pub(crate) fn install(app: &mut App) -> Self {
+        let cause = Self::default();
+        app.insert_resource(cause.clone())
+            .add_systems(Last, capture_terminal_cause);
+        cause
+    }
+
+    /// The process failure for an error exit, naming its cause when one was recorded.
+    pub(crate) fn exit_message(&self) -> String {
+        let cause = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        match cause.as_deref() {
+            Some(cause) => format!("Bevy app exited after a fatal runtime error: {cause}"),
+            None => "Bevy app exited after a fatal runtime error".to_owned(),
+        }
+    }
+}
+
+fn capture_terminal_cause(
+    mut exits: MessageReader<AppExit>,
+    client_world: Option<Res<ClientWorld>>,
+    cause: Res<TerminalCause>,
+) {
+    if !exits.read().any(AppExit::is_error) {
+        return;
+    }
+    let Some(error) = client_world
+        .and_then(|world| world.fatal_error.clone())
+        .filter(|error| !error.is_empty())
+    else {
+        return;
+    };
+    cause
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get_or_insert(error);
 }
 
 pub(crate) fn fatal_runtime_exit(error: &str) -> Option<AppExit> {
@@ -118,5 +163,60 @@ pub(crate) fn finish_acceptance_run(
     ) {
         network.shutdown();
         exit.write(status);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::prelude::Update;
+
+    fn failing_app(cause: &str, exit: AppExit) -> App {
+        let mut world = ClientWorld::new(Arc::new(assets::RuntimeAssets::diagnostic()));
+        world.fatal_error = Some(cause.into());
+        let mut app = App::new();
+        app.insert_resource(world)
+            .add_systems(Update, move |mut exits: MessageWriter<AppExit>| {
+                exits.write(exit.clone());
+            });
+        app
+    }
+
+    /// `App::run` consumes the world holding the error, so its cause must be captured first.
+    #[test]
+    fn error_exit_names_its_cause_after_the_app_is_consumed() {
+        let cause = "world FIFO rejected LevelChunk: truncated framing";
+        let mut app = failing_app(cause, AppExit::error());
+        let terminal = TerminalCause::install(&mut app);
+        assert!(app.run().is_error());
+        assert!(app.world().get_resource::<ClientWorld>().is_none());
+        assert!(terminal.exit_message().contains(cause));
+    }
+
+    /// A later failure during teardown must not replace the one that ended the app.
+    #[test]
+    fn first_terminal_cause_survives_later_world_failures() {
+        let first = "failed to encode PlayerAuthInput";
+        let mut app = failing_app(first, AppExit::error());
+        let terminal = TerminalCause::install(&mut app);
+        app.set_runner(|mut owned| {
+            owned.finish();
+            owned.cleanup();
+            owned.update();
+            owned.world_mut().resource_mut::<ClientWorld>().fatal_error =
+                Some("network command channel is closed".into());
+            owned.update();
+            owned.should_exit().expect("terminal updates request exit")
+        });
+        assert!(app.run().is_error());
+        assert!(terminal.exit_message().ends_with(first));
+    }
+
+    #[test]
+    fn successful_exit_does_not_capture_a_stale_failure() {
+        let mut app = failing_app("a stale session failure", AppExit::Success);
+        let terminal = TerminalCause::install(&mut app);
+        assert!(app.run().is_success());
+        assert!(!terminal.exit_message().contains("stale"));
     }
 }

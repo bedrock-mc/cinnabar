@@ -1,5 +1,5 @@
-//! Non-cube block items (slabs, stairs, walls, fences) as GUI geometry: the quads their baked
-//! thumbnail projects, drawn at the control's physical size with the item's own depth.
+//! Block items with overlapping faces as GUI geometry: the quads their baked thumbnail
+//! projects, drawn at the control's physical size with the item's own depth.
 
 use std::{collections::BTreeMap, sync::Arc};
 

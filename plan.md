@@ -756,6 +756,10 @@ authored poses. Java 1.7 takes precedence for body, arm and item poses.
 First-person hand sway deliberately uses Java tick smoothing in both combat
 profiles, independently of the Java animation option.
 Movement bob uses the physics fraction; hurt and death use the actor fraction.
+Remote movement keeps pitch in the signed half-turn range before strike poses read it.
+Frame interpolation takes the shortest pitch arc across the signed boundary in Java mode.
+Regression coverage samples repeated remote swings in Bedrock and Java modes with equivalent
+signed and wrapped pitch values; compilation and execution remain pending CI.
 Page-level body dye masks retain zero-alpha RGB and depth independently of armour cutout.
 
 Implementation and deterministic swing, sway, camera, overlay, equipment and shader fixtures
@@ -1383,7 +1387,16 @@ acceptance gate.
   custom cubes keep both sides until their alpha mode reaches the mesh build.
 - Regressions reproduce the previous gameplay-flag, alpha and missing-sheet failures.
 - Rebuilt macOS/Metal frames show cube geometry; the user confirmed the live fix.
-- Non-cube, animated and high-resolution carried geometry parity remains open.
+- Non-cube block items the inventory draws in 3D (slabs, stairs, fences, walls, anvils) hold
+  as the same template geometry, from the state their inventory model shows; items the
+  inventory draws flat (torches, plants, panes) keep their sprite.
+- Chests (normal, trapped, ender and copper), shulker boxes, decorated pots and conduits hold
+  as their placed block-entity models, closed and centred. Provisional: their held facing and
+  the native item renderer's pose for them are unmeasured. Banners still hold as sprites;
+  beds are sprites in vanilla too.
+- Held block-entity artwork follows the prepared resource-pack generation and restores startup
+  bindings after disconnect. Missing pot base or side artwork retains the sprite fallback.
+- Animated and high-resolution carried geometry parity remains open.
 - Vanilla rules: [held block items](docs/reference/held-block-items.md).
 
 ## Scaled name tags
@@ -2457,9 +2470,15 @@ first live offhand Shield exposed a missing expression-bound ModelPart origin;
 the correction now passes both hand poses and real-carrier tests.
 2026-10-07 non-cube block items (slabs, stairs, walls, fences) also draw as GUI geometry at
 display resolution instead of a 32x32 thumbnail (icon carrier v3 names each thumbnail's world
-state). Incomplete: their GUI tessellation is still the provisional cube projection, blended
-materials (stained panes) keep the thumbnail, and the bamboo fence and fence gate items show
-misplaced quads, as their thumbnails already did.
+state). Cut-out cubes (glass, leaves) draw all six alpha-tested faces, including rear faces
+visible through holes. Non-blended face alpha uses the thumbnail threshold; fractional blended
+faces (stained glass) retain their composed thumbnail. Chests (a cube of their inventory tiles)
+and blend-flagged art that is only opaque or cut out (anvils) draw as GUI geometry too. Overlapping
+meshes keep their thumbnail when faded. Optional sources follow required atlas pages and fall
+back to thumbnails when the atlas is full. Incomplete: layered translucent cube GUI geometry is
+not implemented, non-cube GUI tessellation still uses the provisional cube projection, truly
+translucent non-cube materials (stained panes) keep the thumbnail, and the bamboo fence and fence
+gate items show misplaced quads, as their thumbnails already did.
 Integration retains upstream's gamma-space UI layer, font/animation paths and
 independently inherited image/sidecar overrides. Stateful inventory/HUD providers
 explicitly clear empty icon bindings so compact icon tables cannot leave duplicate

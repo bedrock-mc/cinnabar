@@ -79,7 +79,9 @@ use {
                 receive_network_events,
                 session::{NetworkConfig, spawn_network},
             },
-            shutdown::{exit_on_fatal_runtime_error, exit_on_window_close_requested},
+            shutdown::{
+                TerminalCause, exit_on_fatal_runtime_error, exit_on_window_close_requested,
+            },
             telemetry::{
                 publish_runtime_stage_profile, record_metrics, send_player_auth_inputs,
                 update_visibility_diagnostics,
@@ -932,6 +934,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     app.add_plugins(render::startup_presentation::StartupPresentationPlugin)
         .add_systems(First, crate::lifecycle::acknowledge_startup);
     startup::install_first_frame_log(&mut app);
+    let terminal_cause = TerminalCause::install(&mut app);
     let exit = app.run();
     PlatformClipboard::shutdown();
     client_shell::discord_presence::shutdown(&mut app);
@@ -950,7 +953,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     diagnostics::console::flush_before_exit();
     shutdown_watchdog.complete();
     if exit.is_error() {
-        bail!("Bevy app exited after a fatal runtime error");
+        bail!("{}", terminal_cause.exit_message());
     }
     Ok(())
 }

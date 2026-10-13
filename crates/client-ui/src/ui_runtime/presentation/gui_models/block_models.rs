@@ -24,7 +24,8 @@ struct Shape<'a> {
 }
 
 /// The world state's GUI quads over their full-resolution tiles. `None` keeps the thumbnail: an
-/// unknown state, a refused or blended material, a UV wrapping past its tile, or a full atlas.
+/// unknown state, a refused or truly translucent material, a UV wrapping past its tile, or a
+/// full atlas.
 pub(super) fn mesh(
     world: &RuntimeAssets,
     visual: BlockVisualId,
@@ -69,7 +70,14 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
             shape.pages.get(page as usize).map(|page| &page.texture)
         })
         .ok()?;
-        if blend {
+        // Blend-flagged art that is only opaque or cut out (the anvil's) draws like cutout.
+        if blend
+            && tile
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|texel| texel[3] != 0 && texel[3] != 255)
+        {
             return None;
         }
         let side = u16::try_from(side).ok()?;

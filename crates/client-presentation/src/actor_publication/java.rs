@@ -381,6 +381,7 @@ fn third_person_input(
     }
 }
 
+/// Samples remote look over the shortest arc and uses live look for the local player.
 fn head_look(actor: &ActorSnapshot, alpha: f32, local: bool) -> (f32, f32) {
     // Local look arrives every frame; current actor angles advance only at fixed ticks.
     if local {
@@ -388,7 +389,8 @@ fn head_look(actor: &ActorSnapshot, alpha: f32, local: bool) -> (f32, f32) {
     } else {
         (
             lerp_degrees(actor.previous_pose.head_yaw, actor.head_yaw, alpha),
-            actor.previous_pose.pitch + (actor.pitch - actor.previous_pose.pitch) * alpha,
+            actor.previous_pose.pitch
+                + wrap_degrees(actor.pitch - actor.previous_pose.pitch) * alpha,
         )
     }
 }

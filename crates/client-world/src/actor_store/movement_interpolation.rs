@@ -35,11 +35,12 @@ impl ActorSnapshot {
 
     pub(super) fn start_movement_interpolation(
         &mut self,
-        pose: ActorPose,
+        mut pose: ActorPose,
         ticks: u32,
         force_completion: bool,
         teleported: bool,
     ) {
+        pose.pitch = signed_pitch(pose.pitch);
         let state = &mut self.status.movement_interpolation;
         state.last_received = Some(pose);
         if !teleported
@@ -149,7 +150,7 @@ impl MotionState {
         } else {
             rotation_ticks
         };
-        next.pitch = step(current.pitch, self.received.pitch, rotation_ticks);
+        next.pitch = signed_pitch(step(current.pitch, self.received.pitch, rotation_ticks));
         next.yaw = step(current.yaw, self.received.yaw, rotation_ticks);
         next.head_yaw = step(current.head_yaw, self.received.head_yaw, head_ticks);
     }
@@ -180,3 +181,15 @@ impl MotionState {
 fn wrap_degrees(degrees: f32) -> f32 {
     (degrees + 180.0).rem_euclid(360.0) - 180.0
 }
+
+/// Keeps pitch in the signed half-turn range so strike poses read an angle, not extra turns.
+pub(super) fn signed_pitch(pitch: f32) -> f32 {
+    if (-180.0..180.0).contains(&pitch) {
+        pitch
+    } else {
+        wrap_degrees(pitch)
+    }
+}
+
+#[cfg(test)]
+mod tests;

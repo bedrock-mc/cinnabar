@@ -60,6 +60,9 @@ pub(super) fn run(
                 && let Some(tiles) = blocks.carried_cube_tiles(root, id)?
             {
                 carried_tiles.insert(visual, tiles);
+            } else if let Some(tiles) = blocks.inventory_cube_tiles(root, id)? {
+                // Chests draw as a cube of their inventory tiles, so the GUI can draw them in 3D.
+                carried_tiles.insert(visual, tiles);
             }
         }
     }

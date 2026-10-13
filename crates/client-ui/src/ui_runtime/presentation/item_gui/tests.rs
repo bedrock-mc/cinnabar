@@ -64,6 +64,37 @@ fn cube_preserves_authored_face_uv_edges_and_glint() {
 }
 
 #[test]
+fn cutout_cubes_keep_rear_faces_and_the_thumbnail_alpha_threshold() {
+    let faces = std::array::from_fn(|index| face(index as u16));
+    let mesh = cutout_cube(faces).unwrap();
+    assert_eq!(mesh.vertices().len(), BlockFace::ALL.len() * 4);
+    assert_eq!(mesh.indices().len(), BlockFace::ALL.len() * 6);
+    for face in BlockFace::ALL {
+        let batch = mesh
+            .batches()
+            .iter()
+            .find(|batch| batch.texture_page == faces[face as usize].page)
+            .expect("front and rear faces must both remain drawable");
+        assert_eq!(batch.index_range.len(), 6);
+        assert!(batch.depth_test && batch.depth_write);
+        assert_eq!(
+            batch.alpha_cutoff,
+            Some(assets::gui_item::GUI_BLOCK_ALPHA_THRESHOLD as f32 / u8::MAX as f32)
+        );
+        let (corners, uvs) = assets::gui_item::cube_face(face);
+        let indices =
+            &mesh.indices()[batch.index_range.start as usize..batch.index_range.end as usize];
+        for ((corner, uv), index) in corners.into_iter().zip(uvs).zip([0, 1, 2, 5]) {
+            let vertex = mesh.vertices()[indices[index] as usize];
+            let [x, y, _] = assets::gui_item::project_cube(corner);
+            assert_eq!(vertex.position, [x / GUI_ITEM_SIDE, y / GUI_ITEM_SIDE]);
+            assert_eq!(vertex.uv, atlas_uv(faces[face as usize], uv).unwrap());
+            assert!(vertex.alpha_test);
+        }
+    }
+}
+
+#[test]
 fn model_uv_contract_preserves_half_texel_centers_and_rejects_nonfinite() {
     assert_eq!(atlas_uv(face(1), [0.5, 0.25]), Some([40.0, 52.0]));
     assert_eq!(
