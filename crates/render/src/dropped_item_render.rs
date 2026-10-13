@@ -146,7 +146,7 @@ struct ItemGpu {
     ranges: Vec<ItemMeshRange>,
     glint_sampler: Sampler,
     /// The uploaded item glint and the pixels it holds (`None` for the transparent fallback).
-    glint: Option<(Texture, TextureView, Option<Arc<[u8]>>)>,
+    glint: Option<glint::UploadedGlint>,
     _atlas: Option<Texture>,
     atlas_view: Option<TextureView>,
     models_revision: u64,
@@ -739,9 +739,7 @@ fn prepare_bind_group(
         gpu.bind_group = None;
         return;
     };
-    let (Some(atlas_view), Some((_, glint_view, _))) =
-        (gpu.atlas_view.as_ref(), gpu.glint.as_ref())
-    else {
+    let (Some(atlas_view), Some(glint)) = (gpu.atlas_view.as_ref(), gpu.glint.as_ref()) else {
         gpu.bind_group = None;
         return;
     };
@@ -774,7 +772,7 @@ fn prepare_bind_group(
             },
             BindGroupEntry {
                 binding: 4,
-                resource: BindingResource::TextureView(glint_view),
+                resource: BindingResource::TextureView(&glint.view),
             },
             BindGroupEntry {
                 binding: 5,

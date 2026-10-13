@@ -328,7 +328,7 @@ fn glinting_copies_carry_the_item_glint_scale_across_their_sprite() {
     assert!(
         gpu.glint
             .as_ref()
-            .and_then(|(_, _, pixels)| pixels.as_ref())
+            .and_then(|glint| glint.pixels.as_ref())
             .is_some_and(|pixels| Arc::ptr_eq(pixels, &glint.rgba8)),
         "the scene's item glint raster is uploaded"
     );
@@ -366,7 +366,7 @@ fn reshaped_dropped_glint_reuploads_shared_pixels_and_retains_unchanged_shapes()
             [0.0; 3],
         );
         glint::upload(&scene, &device, &queue, &mut gpu);
-        let texture = &gpu.glint.as_ref().unwrap().0;
+        let texture = &gpu.glint.as_ref().unwrap().texture;
         let size = [texture.width(), texture.height()];
         assert_eq!(size, [u32::from(width), u32::from(height)]);
         if let Some((previous_size, id)) = previous {

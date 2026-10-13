@@ -6,9 +6,9 @@ use bevy::{
     prelude::default,
     render::{
         render_resource::{
-            AddressMode, Extent3d, FilterMode, Sampler, SamplerDescriptor, TextureDataOrder,
-            TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
-            TextureViewDescriptor,
+            AddressMode, Extent3d, FilterMode, Sampler, SamplerDescriptor, Texture,
+            TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
+            TextureView, TextureViewDescriptor,
         },
         renderer::{RenderDevice, RenderQueue},
     },
@@ -16,6 +16,13 @@ use bevy::{
 use render_scene::DroppedItemScene;
 
 use super::{GpuItemInstance, ItemGpu};
+
+/// Uploaded foil artwork and its immutable pixel identity for retained reuse.
+pub(super) struct UploadedGlint {
+    pub(super) texture: Texture,
+    pub(super) view: TextureView,
+    pub(super) pixels: Option<Arc<[u8]>>,
+}
 
 /// Packs one drawn copy, marking whether its per-vertex item glint scale applies.
 pub(super) fn pack_instance(instance: &render_model::DroppedItemInstance) -> GpuItemInstance {
@@ -58,9 +65,9 @@ pub(super) fn upload(
         [u32::from(raster.width), u32::from(raster.height)]
     });
     let pixels = raster.map(|raster| Arc::clone(&raster.rgba8));
-    if let Some((texture, _, current)) = &gpu.glint
-        && [texture.width(), texture.height()] == size
-        && match (current, &pixels) {
+    if let Some(current) = &gpu.glint
+        && [current.texture.width(), current.texture.height()] == size
+        && match (&current.pixels, &pixels) {
             (Some(current), Some(pixels)) => Arc::ptr_eq(current, pixels),
             (None, None) => true,
             _ => false,
@@ -96,6 +103,10 @@ pub(super) fn upload(
         data,
     );
     let view = texture.create_view(&TextureViewDescriptor::default());
-    gpu.glint = Some((texture, view, pixels));
+    gpu.glint = Some(UploadedGlint {
+        texture,
+        view,
+        pixels,
+    });
     gpu.bind_group = None;
 }
