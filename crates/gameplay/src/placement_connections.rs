@@ -6,6 +6,13 @@ use sim::PaletteWorld;
 
 use crate::{block_use::placement_cell, movement::PhysicsCollisionRegistries};
 
+pub(crate) const CONNECTION_STATES: &[(&str, u8)] = &[
+    ("minecraft:connection_west", 4),
+    ("minecraft:connection_east", 5),
+    ("minecraft:connection_north", 2),
+    ("minecraft:connection_south", 3),
+];
+
 /// Resolves the same connections as rendering before selecting a registered collision shape.
 pub(crate) fn states_for_neighbours(
     collisions: &PhysicsCollisionRegistries,
@@ -64,12 +71,7 @@ fn connected_states(
     if center.role != ContributorRole::Primary {
         return None;
     }
-    for (key, face) in [
-        ("minecraft:connection_west", 4),
-        ("minecraft:connection_east", 5),
-        ("minecraft:connection_north", 2),
-        ("minecraft:connection_south", 3),
-    ] {
+    for &(key, face) in CONNECTION_STATES {
         let connects = connects_to(center, neighbor(face)?, face)?;
         set_connection(states, key, connects)?;
     }
@@ -126,7 +128,6 @@ fn set_connection(states: &mut Map<String, Value>, key: &str, connected: bool) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     /// Supplies primary model facts with no full-face occlusion.
     fn facts(family: ModelFamily) -> ConnectionFacts {
@@ -139,15 +140,18 @@ mod tests {
         }
     }
 
-    /// Makes the typed connection entries the collision registry uses.
+    /// Reads the pinned pane's typed connection entries.
     fn connection_states() -> Map<String, Value> {
-        serde_json::from_value(json!({
-            "minecraft:connection_west":{"type":"byte","value":0},
-            "minecraft:connection_east":{"type":"byte","value":0},
-            "minecraft:connection_north":{"type":"byte","value":0},
-            "minecraft:connection_south":{"type":"byte","value":0}
-        }))
-        .unwrap()
+        let records = assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap();
+        let pane = records
+            .iter()
+            .find(|record| record.name.as_ref() == "minecraft:glass_pane")
+            .unwrap();
+        serde_json::from_str(&pane.canonical_state).unwrap()
     }
 
     #[test]
@@ -196,22 +200,25 @@ mod tests {
 
     #[test]
     fn links_are_written_before_collision_identity_lookup() {
-        let mut placed = connection_states();
-        connected_states(&mut placed, facts(ModelFamily::Fence), |face| {
-            Some(if face == 2 {
-                facts(ModelFamily::Fence)
-            } else {
-                facts(ModelFamily::Cube)
+        for (linked_face, linked_key) in [
+            (2, "minecraft:connection_north"),
+            (3, "minecraft:connection_south"),
+            (4, "minecraft:connection_west"),
+            (5, "minecraft:connection_east"),
+        ] {
+            let mut placed = connection_states();
+            connected_states(&mut placed, facts(ModelFamily::Pane), |face| {
+                Some(if face == linked_face {
+                    facts(ModelFamily::Pane)
+                } else {
+                    facts(ModelFamily::Cube)
+                })
             })
-        })
-        .unwrap();
-        assert_eq!(placed["minecraft:connection_north"]["value"], 1);
-        for direction in ["west", "east", "south"] {
-            assert_eq!(
-                placed[&format!("minecraft:connection_{direction}")]["value"],
-                0
-            );
+            .unwrap();
+            for (key, entry) in &placed {
+                assert_eq!(entry["value"], u8::from(key.as_str() == linked_key));
+            }
+            assert!(connected_states(&mut placed, facts(ModelFamily::Pane), |_| None).is_none());
         }
-        assert!(connected_states(&mut placed, facts(ModelFamily::Fence), |_| None).is_none());
     }
 }

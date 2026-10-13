@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use super::summary::Category;
 use crate::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
 
 /// The conversion from a saved numeric value to a launcher option.
@@ -19,6 +20,7 @@ pub struct Mapping {
     pub source: &'static str,
     pub destination: &'static str,
     pub encoding: Encoding,
+    pub category: Category,
 }
 
 /// Supported preferences with equivalent launcher controls and explicit value encodings.
@@ -27,151 +29,181 @@ pub const MAPPINGS: &[Mapping] = &[
         source: "gfx_field_of_view",
         destination: "field_of_view",
         encoding: Encoding::Integer,
+        category: Category::Video,
     },
     Mapping {
         source: "gfx_viewdistance",
         destination: "render_distance",
         encoding: Encoding::Blocks,
+        category: Category::Video,
     },
     Mapping {
         source: "gfx_gamma",
         destination: "gamma",
         encoding: Encoding::Fraction,
+        category: Category::Video,
     },
     Mapping {
         source: "gfx_vsync",
         destination: "vsync",
         encoding: Encoding::Toggle,
+        category: Category::Video,
     },
     Mapping {
         source: "gfx_hidehud",
         destination: "hide_hud",
         encoding: Encoding::Toggle,
+        category: Category::Video,
     },
     Mapping {
         source: "gfx_hidehand",
         destination: "hide_hand",
         encoding: Encoding::Toggle,
+        category: Category::Video,
     },
     Mapping {
         source: "gfx_hidepaperdoll",
         destination: "hide_paperdoll",
         encoding: Encoding::Toggle,
+        category: Category::Video,
     },
     Mapping {
         source: "gfx_viewbobbing",
         destination: "view_bobbing",
         encoding: Encoding::Toggle,
+        category: Category::Video,
     },
     Mapping {
         source: "gfx_fancygraphics",
         destination: "graphics_mode",
         encoding: Encoding::Toggle,
+        category: Category::Video,
     },
     Mapping {
         source: "gfx_fancyskies",
         destination: "fancy_skies",
         encoding: Encoding::Toggle,
+        category: Category::Video,
     },
     Mapping {
         source: "gfx_renderclouds",
         destination: "render_clouds",
         encoding: Encoding::Toggle,
+        category: Category::Video,
     },
     Mapping {
         source: "gfx_transparentleaves",
         destination: "transparent_leaves",
         encoding: Encoding::Toggle,
+        category: Category::Video,
     },
     Mapping {
         source: "gfx_smoothlighting",
         destination: "smooth_lighting",
         encoding: Encoding::Toggle,
+        category: Category::Video,
     },
     Mapping {
         source: "gfx_field_of_view_toggle",
         destination: "field_of_view_toggle",
         encoding: Encoding::Toggle,
+        category: Category::Video,
     },
     Mapping {
         source: "gfx_thirdperson",
         destination: "third_person",
         encoding: Encoding::Integer,
+        category: Category::Video,
     },
     Mapping {
         source: "gfx_interface_opacity",
         destination: "interface_opacity",
         encoding: Encoding::Fraction,
+        category: Category::Video,
     },
     Mapping {
         source: "ctrl_sensitivity",
         destination: crate::menu::settings_options::MOUSE_SENSITIVITY_OPTION.name,
         encoding: Encoding::Fraction,
+        category: Category::Controls,
     },
     Mapping {
         source: "ctrl_invertmouse",
         destination: "keyboard_mouse_invert_y_axis",
         encoding: Encoding::Toggle,
+        category: Category::Controls,
     },
     Mapping {
         source: "ctrl_autojump",
         destination: "keyboard_mouse_autojump",
         encoding: Encoding::Toggle,
+        category: Category::Controls,
     },
     Mapping {
         source: "audio_main",
         destination: "main_volume",
         encoding: Encoding::Fraction,
+        category: Category::Audio,
     },
     Mapping {
         source: "audio_music",
         destination: "music_volume",
         encoding: Encoding::Fraction,
+        category: Category::Audio,
     },
     Mapping {
         source: "audio_sound",
         destination: "sound_volume",
         encoding: Encoding::Fraction,
+        category: Category::Audio,
     },
     Mapping {
         source: "audio_ambient",
         destination: "ambient_volume",
         encoding: Encoding::Fraction,
+        category: Category::Audio,
     },
     Mapping {
         source: "audio_block",
         destination: "block_volume",
         encoding: Encoding::Fraction,
+        category: Category::Audio,
     },
     Mapping {
         source: "audio_hostile",
         destination: "hostile_volume",
         encoding: Encoding::Fraction,
+        category: Category::Audio,
     },
     Mapping {
         source: "audio_neutral",
         destination: "neutral_volume",
         encoding: Encoding::Fraction,
+        category: Category::Audio,
     },
     Mapping {
         source: "audio_player",
         destination: "player_volume",
         encoding: Encoding::Fraction,
+        category: Category::Audio,
     },
     Mapping {
         source: "audio_record",
         destination: "record_volume",
         encoding: Encoding::Fraction,
+        category: Category::Audio,
     },
     Mapping {
         source: "audio_weather",
         destination: "weather_volume",
         encoding: Encoding::Fraction,
+        category: Category::Audio,
     },
     Mapping {
         source: "audio_texttospeech",
         destination: "texttospeech_volume",
         encoding: Encoding::Fraction,
+        category: Category::Audio,
     },
 ];
 
@@ -200,17 +232,6 @@ impl ParsedOptions {
             settings.set_language(language);
         }
         settings.import_keyboard_bindings(&self.bindings)
-    }
-
-    /// Lists the settings that will be replaced, using schema names for unknown translations.
-    pub fn names(&self) -> Vec<String> {
-        self.values
-            .keys()
-            .cloned()
-            .chain(self.bindings.keys().cloned())
-            .chain(self.language.as_ref().map(|_| "Language".to_owned()))
-            .chain(self.fullscreen.map(|_| "Fullscreen".to_owned()))
-            .collect()
     }
 }
 

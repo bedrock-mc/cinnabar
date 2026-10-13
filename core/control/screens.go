@@ -4,17 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 )
 
 // Menu screen feeds served beside the account methods.
 const (
-	methodFeaturedServers = "featured_servers.v1"
-	methodProfile         = "profile.v1"
-	methodPing            = "ping.v1"
-	methodHome            = "home.v1"
-	methodMessageEvent    = "message_event.v1"
+	methodFeaturedServers = bridgecontract.MethodFeaturedServers
+	methodProfile         = bridgecontract.MethodProfile
+	methodPing            = bridgecontract.MethodPing
+	methodHome            = bridgecontract.MethodHome
+	methodMessageEvent    = bridgecontract.MethodMessageEvent
 )
 
 var errInvalidParams = errors.New("control: invalid params")
@@ -195,11 +196,6 @@ type homeResultV1 struct {
 	Home          Home   `json:"home"`
 }
 
-// messageEventTypes are the reports a launcher may send.
-var messageEventTypes = map[string]bool{
-	"Click": true, "Dismiss": true, "Delete": true, "Impression": true, "ControlImpression": true, "ReadAll": true, "DeleteAllRead": true,
-}
-
 type pingResultV1 struct {
 	SchemaVersion uint32       `json:"schema_version"`
 	Servers       []PingResult `json:"servers"`
@@ -235,7 +231,7 @@ func screenResult(ctx context.Context, screens ScreenServices, method string, ra
 		if servers == nil {
 			servers = []PingResult{}
 		}
-		return pingResultV1{SchemaVersion: 1, Servers: servers}, nil
+		return pingResultV1{SchemaVersion: bridgecontract.ControlSchemaVersion, Servers: servers}, nil
 	}
 	if method == methodMessageEvent {
 		var params struct {
@@ -244,13 +240,13 @@ func screenResult(ctx context.Context, screens ScreenServices, method string, ra
 			ReportID   string `json:"report_id"`
 			ButtonID   string `json:"button_id"`
 		}
-		if !decodeParams(raw, &params) || !messageEventTypes[params.Type] {
+		if !decodeParams(raw, &params) || !slices.Contains(bridgecontract.MessageEventTypes[:], params.Type) {
 			return nil, errInvalidParams
 		}
 		err := screens.ReportMessage(ctx, MessageEvent{
 			Type: params.Type, InstanceID: params.InstanceID, ReportID: params.ReportID, ButtonID: params.ButtonID,
 		})
-		return emptyResultV1{SchemaVersion: 1}, err
+		return emptyResultV1{SchemaVersion: bridgecontract.ControlSchemaVersion}, err
 	}
 	includeCounts := false
 	if method == methodFeaturedServers && len(raw) != 0 {
@@ -267,7 +263,7 @@ func screenResult(ctx context.Context, screens ScreenServices, method string, ra
 	switch method {
 	case methodHome:
 		home, err := screens.Home(ctx)
-		return homeResultV1{SchemaVersion: 1, Home: home}, err
+		return homeResultV1{SchemaVersion: bridgecontract.ControlSchemaVersion, Home: home}, err
 	case methodFeaturedServers:
 		var servers []FeaturedServer
 		var err error
@@ -279,9 +275,9 @@ func screenResult(ctx context.Context, screens ScreenServices, method string, ra
 		if servers == nil {
 			servers = []FeaturedServer{}
 		}
-		return featuredServersResultV1{SchemaVersion: 1, Servers: servers}, err
+		return featuredServersResultV1{SchemaVersion: bridgecontract.ControlSchemaVersion, Servers: servers}, err
 	default:
 		profile, err := screens.Profile(ctx)
-		return profileResultV1{SchemaVersion: 1, Profile: profile}, err
+		return profileResultV1{SchemaVersion: bridgecontract.ControlSchemaVersion, Profile: profile}, err
 	}
 }

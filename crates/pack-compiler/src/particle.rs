@@ -20,8 +20,6 @@ use assets::{
 use sha2::{Digest, Sha256};
 
 const MAX_TEXTURE_SOURCE_BYTES: usize = 2 * 1024 * 1024;
-/// Pack directories whose pngs are particle-referenced textures.
-const TEXTURE_DIRS: [&str; 2] = ["textures/particle", "textures/particles"];
 const MAX_WALK_ENTRIES: usize = 100_000;
 
 #[derive(Debug)]
@@ -54,14 +52,6 @@ pub fn compile_particle_assets(
     }
 
     let mut budget = MAX_WALK_ENTRIES;
-    let mut png_paths = Vec::new();
-    for dir in TEXTURE_DIRS {
-        walk(&pack.join(dir), pack, "png", &mut png_paths, &mut budget)?;
-    }
-    let flame_file = format!("{}.png", assets::ACTOR_FLAME_TEXTURE);
-    if pack.join(&flame_file).is_file() {
-        png_paths.push(flame_file);
-    }
     let mut json_paths = Vec::new();
     walk(
         &pack.join("particles"),
@@ -70,7 +60,33 @@ pub fn compile_particle_assets(
         &mut json_paths,
         &mut budget,
     )?;
+    let mut effects = Vec::new();
+    let mut effects_skipped = 0usize;
+    for relative in &json_paths {
+        match read_effect(pack, relative)? {
+            Some(effect) => effects.push(effect),
+            None => effects_skipped += 1,
+        }
+    }
+    effects.sort_by(|a, b| a.identifier.cmp(&b.identifier));
+    effects.dedup_by(|a, b| a.identifier == b.identifier);
 
+    let mut png_paths = std::collections::BTreeSet::new();
+    for effect in &effects {
+        let value: serde_json::Value =
+            serde_json::from_slice(&effect.bytes).expect("read_effect emits canonical JSON");
+        if let Some(texture) = value
+            .pointer("/particle_effect/description/basic_render_parameters/texture")
+            .and_then(serde_json::Value::as_str)
+            .and_then(texture_file)
+        {
+            png_paths.insert(texture);
+        }
+    }
+    let flame_file = format!("{}.png", assets::ACTOR_FLAME_TEXTURE);
+    if pack.join(&flame_file).is_file() {
+        png_paths.insert(flame_file);
+    }
     let mut textures = Vec::new();
     let mut textures_skipped = 0usize;
     for relative in &png_paths {
@@ -81,17 +97,6 @@ pub fn compile_particle_assets(
     }
     textures.sort_by(|a, b| a.path.cmp(&b.path));
     textures.dedup_by(|a, b| a.path == b.path);
-
-    let mut effects: Vec<ParticleEffectFile> = Vec::new();
-    let mut effects_skipped = 0usize;
-    for relative in &json_paths {
-        match read_effect(pack, relative)? {
-            Some(effect) => effects.push(effect),
-            None => effects_skipped += 1,
-        }
-    }
-    effects.sort_by(|a, b| a.identifier.cmp(&b.identifier));
-    effects.dedup_by(|a, b| a.identifier == b.identifier);
 
     let texture_pixel_bytes = textures.iter().map(|texture| texture.rgba8.len()).sum();
     let bytes = encode_particle_catalog(source_manifest_sha256, &textures, &effects)?;
@@ -109,15 +114,37 @@ pub fn compile_particle_assets(
     })
 }
 
+/// Converts a pack-local texture reference to a PNG path; atlas names have no file.
+fn texture_file(texture: &str) -> Option<String> {
+    if !texture.starts_with("textures/")
+        || texture.contains(['\\', ':'])
+        || texture
+            .split('/')
+            .any(|part| matches!(part, "" | "." | ".."))
+    {
+        return None;
+    }
+    Some(format!(
+        "{}.png",
+        texture.strip_suffix(".png").unwrap_or(texture)
+    ))
+}
+
 /// Decodes one png; `None` when it is oversized or not a decodable PNG.
 fn decode_texture(pack: &Path, relative: &str) -> Result<Option<ParticleTexture>, AssetError> {
     let logical = relative.strip_suffix(".png").unwrap_or(relative);
     let path = pack.join(relative);
-    let file = fs::File::open(&path).map_err(|source| AssetError::TextureIo {
-        key: logical.into(),
-        path: path.clone(),
-        source,
-    })?;
+    let file = match fs::File::open(&path) {
+        Ok(file) => file,
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(source) => {
+            return Err(AssetError::TextureIo {
+                key: logical.into(),
+                path: path.clone(),
+                source,
+            });
+        }
+    };
     let mut bytes = Vec::new();
     file.take((MAX_TEXTURE_SOURCE_BYTES + 1) as u64)
         .read_to_end(&mut bytes)
@@ -276,6 +303,42 @@ mod tests {
 
     const MANIFEST: &[u8] = b"{\"schema\":1}";
 
+    #[test]
+    fn packs_textures_referenced_outside_the_particle_directories() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let pack = root.join(assets::vanilla_source().resource_pack_dir());
+        if !pack.join("particles/oozing_emitter.json").is_file()
+            || !pack.join("particles/weaving_emitter.json").is_file()
+        {
+            eprintln!(
+                "skipping packs_textures_referenced_outside_the_particle_directories: missing pinned particle effects"
+            );
+            return;
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let mut textures = Vec::new();
+        for file in ["oozing_emitter.json", "weaving_emitter.json"] {
+            let bytes = fs::read(pack.join("particles").join(file)).unwrap();
+            let value: serde_json::Value = pack_json::parse_jsonc(&bytes).unwrap();
+            let texture = value
+                .pointer("/particle_effect/description/basic_render_parameters/texture")
+                .unwrap()
+                .as_str()
+                .unwrap();
+            textures.push(texture.to_owned());
+            write(directory.path(), &format!("particles/{file}"), &bytes);
+            write(directory.path(), &format!("{texture}.png"), &png(16, 16));
+        }
+        let compiled =
+            compile_particle_assets(directory.path(), assets::VANILLA_SOURCE_MANIFEST.as_bytes())
+                .unwrap();
+        let assets = decode_particle_carrier(&compiled.bytes).unwrap();
+        for texture in textures {
+            assert!(assets.texture(&texture).is_some(), "missing {texture}");
+        }
+        assert_eq!(compiled.report.textures_packed, 2);
+    }
+
     fn write(root: &Path, relative: &str, bytes: &[u8]) {
         let path = root.join(relative);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -299,12 +362,12 @@ mod tests {
         write(
             root,
             "particles/a.json",
-            b"{\"particle_effect\":{\"description\":{\"identifier\":\"minecraft:a\"}} // c\n}",
+            b"{\"particle_effect\":{\"description\":{\"identifier\":\"minecraft:a\",\"basic_render_parameters\":{\"texture\":\"textures/particle/particles\"}}} // c\n}",
         );
         write(root, "particles/nameless.json", b"{\"particle_effect\":{}}");
         let compiled = compile_particle_assets(root, MANIFEST).unwrap();
         assert_eq!(compiled.report.textures_packed, 1);
-        assert_eq!(compiled.report.textures_skipped, 1);
+        assert_eq!(compiled.report.textures_skipped, 0);
         assert_eq!(compiled.report.effects, 1);
         assert_eq!(compiled.report.effects_skipped, 1);
         let assets = decode_particle_carrier(&compiled.bytes).unwrap();

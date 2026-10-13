@@ -17,4 +17,8 @@ func TestSharedContractIsCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("regenerate bridge declarations: %v\n%s", err, output)
 	}
+	output, err = exec.Command(python, "../../../tools/bridgegen/test_generate.py").CombinedOutput()
+	if err != nil {
+		t.Fatalf("bridge generator regression: %v\n%s", err, output)
+	}
 }

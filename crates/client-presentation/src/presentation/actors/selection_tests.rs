@@ -152,3 +152,18 @@ fn nondrawing_actors_do_not_reserve_skin_residency() {
         ActorRigRoute::NoDraw
     );
 }
+
+#[test]
+fn camera_overlap_preserves_the_visible_local_body_reservation() {
+    let local_id = 99;
+    let batch = select_actor_presentations_for_view(
+        local_id,
+        true,
+        Some(presentation(local_id, [0.0, 64.0, 0.0])),
+        [],
+        Some(view(-Vec3::Z)),
+    );
+    assert_eq!(batch.submissions.len(), 1);
+    assert_eq!(batch.submissions[0].input.identity.runtime_id, local_id);
+    assert_ne!(batch.submissions[0].route, ActorRigRoute::NoDraw);
+}

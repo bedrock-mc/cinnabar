@@ -608,8 +608,15 @@ fn complete_decode_job(stream: &mut WorldStream, job: super::QueuedDecodeJob) {
                 previous,
             } => {
                 let chunk = ChunkKey::new(event.dimension, event.x, event.z);
-                let decoded =
-                    DecodedLevelChunk::decode_inline(chunk, slots, count, &payload, &ids, &ids);
+                let decoded = DecodedLevelChunk::decode_inline_reusing(
+                    chunk,
+                    slots,
+                    count,
+                    &payload,
+                    &ids,
+                    &ids,
+                    previous.as_deref(),
+                );
                 let light_neutral = previous.map_or_else(Vec::new, |previous| {
                     client_world::ingestion::light_neutral_sections(&previous, &decoded, &ids)
                 });

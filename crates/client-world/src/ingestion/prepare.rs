@@ -109,7 +109,8 @@ pub fn light_neutral_sections(
         .sub_chunks()
         .filter_map(|(y, replacement)| {
             let previous = previous.get(&y)?;
-            (previous.as_ref() != replacement.as_ref()
+            (!Arc::ptr_eq(previous, &replacement)
+                && !previous.blocks_match(&replacement)
                 && !light_semantics_changed(
                     ids.air,
                     &ids.assets,

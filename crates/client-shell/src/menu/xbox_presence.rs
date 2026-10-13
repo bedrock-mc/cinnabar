@@ -16,11 +16,11 @@ pub(super) fn state(
     XboxPresenceState {
         in_world: true,
         game_mode: match mode {
-            Some(PlayerGameMode::Creative) => 1,
-            Some(PlayerGameMode::Adventure) => 2,
-            _ => 0,
+            Some(PlayerGameMode::Creative) => bridge::contract::PRESENCE_GAME_MODE_CREATIVE,
+            Some(PlayerGameMode::Adventure) => bridge::contract::PRESENCE_GAME_MODE_ADVENTURE,
+            _ => bridge::contract::PRESENCE_GAME_MODE_SURVIVAL,
         },
-        realm: address.starts_with("realm_id/"),
+        realm: address.starts_with(bridge::contract::REALM_TARGET_PREFIX),
         experience: featured || address.starts_with(launcher::menu::EXPERIENCE_ADDRESS_PREFIX),
     }
 }

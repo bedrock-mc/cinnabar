@@ -23,7 +23,7 @@ mod locator;
 pub use locator::actor_emitter_transform;
 mod admission;
 pub use admission::within_actor_candidate_cube;
-pub(crate) use admission::{actor_within_render_distance, sample_candidate_scale};
+pub(crate) use admission::{actor_is_render_candidate, sample_candidate_scale};
 mod tick_cache;
 pub use tick_cache::PoseConversions;
 use tick_cache::TickKey;
@@ -69,7 +69,7 @@ pub fn update_actor_rig_scene(
     )
 }
 
-/// Checks distance and frustum bounds before building a rig's presentation.
+/// Checks camera overlap, distance and frustum bounds before building a rig's presentation.
 /// Always-depth layers survive terrain occlusion, using the draw frame's cached layers when available.
 /// Controllers that can replace the base mesh bypass terrain proofs using its bounds.
 pub fn rig_may_be_visible(
@@ -80,7 +80,7 @@ pub fn rig_may_be_visible(
     frame: Option<&mut actor_animation::ActorRenderFrame<'_>>,
     occluded: impl Fn([f32; 3], [f32; 3]) -> bool,
 ) -> bool {
-    if !actor_within_render_distance(actor, partial_tick, view) {
+    if !actor_is_render_candidate(actor, partial_tick, view) {
         return false;
     }
     let (Some(view), Some(feet)) = (
