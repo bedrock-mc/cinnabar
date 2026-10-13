@@ -1,6 +1,6 @@
 //! Per-actor walk cycle, arm swing, fish phase, and body rotation that vanilla animations read through
-//! queries. Ordinary walking and turning use vanilla constants;
-//! specialized hurt/fire/jump multipliers and render-time query sampling remain incomplete.
+//! queries. Player walk cycles use horizontal movement; body turns remain independent.
+//! Specialized hurt/fire/jump multipliers and render-time query sampling remain incomplete.
 use super::query::wrap_degrees;
 
 /// Ticks one arm swing takes without haste or fatigue.
@@ -168,7 +168,7 @@ impl MotionState {
             self.speed = 0.0;
             return;
         }
-        let target = if step != 0.0 {
+        let target = if step != 0.0 || input.player {
             (WALK_STEP_GAIN * step).min(WALK_STEP_TARGET_MAX)
         } else {
             let turn = wrap_degrees(self.body_yaw - self.previous_body_yaw).abs();
@@ -308,44 +308,36 @@ mod tests {
         assert!(lag <= 56.25 + 1.0e-3, "lag {lag}");
     }
 
-    /// Turning in place moves only the head until it passes 50 degrees, then the body follows
-    /// and its turn feeds the leg swing; any nonzero step replaces the turn term.
     #[test]
-    fn player_turning_in_place_swings_limbs_by_body_turn() {
-        let mut head_only = MotionState::spawn(0.0, 0.0);
-        head_only.advance(&input([0.0; 3], true, 30.0));
-        assert_eq!((head_only.body_yaw, head_only.speed), (0.0, 0.0));
-
-        let mut turning = MotionState::spawn(0.0, 0.0);
-        let mut ticks = Vec::new();
-        for _ in 0..3 {
-            turning.advance(&input([0.0; 3], true, 90.0));
-            ticks.push((turning.body_yaw, turning.speed, turning.distance));
+    fn stationary_player_turns_do_not_advance_walk_cycle() {
+        let mut motion = MotionState::spawn(0.0, 0.0);
+        for yaw in [30.0, 90.0, 120.0, 179.0, -179.0, -90.0, 0.0] {
+            motion.advance(&input([0.0; 3], true, yaw));
+            assert_eq!(motion.speed, 0.0, "yaw {yaw}");
+            assert_eq!(motion.distance, 0.0, "yaw {yaw}");
+            assert_eq!(motion.walk_distance(), 0.0, "yaw {yaw}");
         }
-        // Head offset clamps to 75, softens to 56.25 and then 51.5625; the body turn of
-        // 33.75 saturates the turn term at 0.2, then 4.6875 adds 0.09375.
-        let expected = [
-            (33.75, 0.2, 0.2),
-            (38.4375, 0.21375, 0.41375),
-            (39.609375, 0.1516875, 0.5654375),
-        ];
-        for ((body, speed, distance), (want_body, want_speed, want_distance)) in
-            ticks.into_iter().zip(expected)
-        {
-            assert!(
-                (body - want_body).abs() < 1.0e-4,
-                "body {body} vs {want_body}"
-            );
-            assert!(
-                (speed - want_speed).abs() < 1.0e-5,
-                "speed {speed} vs {want_speed}"
-            );
-            assert!(
-                (distance - want_distance).abs() < 1.0e-5,
-                "distance {distance}"
-            );
-        }
+        assert_ne!(motion.body_yaw, 0.0, "the body still follows the head");
+    }
 
+    #[test]
+    fn turning_after_a_player_stops_does_not_restart_walking() {
+        let mut straight = MotionState::spawn(0.0, 0.0);
+        straight.advance(&input([0.2, 0.0, 0.0], true, 0.0));
+        let mut turning = straight;
+        for yaw in [120.0, -120.0, 179.0, -179.0] {
+            let previous_speed = straight.speed;
+            straight.advance(&input([0.0; 3], true, 0.0));
+            turning.advance(&input([0.0, 0.5, 0.0], true, yaw));
+            assert!(straight.speed < previous_speed);
+            assert_eq!(turning.speed, straight.speed, "yaw {yaw}");
+            assert_eq!(turning.distance, straight.distance, "yaw {yaw}");
+            assert_eq!(turning.walk_distance(), straight.walk_distance());
+        }
+    }
+
+    #[test]
+    fn player_walk_speed_uses_even_small_horizontal_steps() {
         let mut creeping = MotionState::spawn(0.0, 0.0);
         creeping.advance(&input([1.0e-4, 0.0, 0.0], true, 90.0));
         assert!(
@@ -353,6 +345,15 @@ mod tests {
             "{}",
             creeping.speed
         );
+    }
+
+    #[test]
+    fn stationary_mobs_retain_body_turn_walk_cycle() {
+        let mut motion = MotionState::spawn(0.0, 0.0);
+        motion.advance(&input([0.0; 3], false, 120.0));
+        assert_ne!(motion.body_yaw, 0.0);
+        assert!(motion.speed > 0.0);
+        assert!(motion.distance > 0.0);
     }
 
     #[test]
