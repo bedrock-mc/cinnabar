@@ -12,11 +12,13 @@ use semantic_input::InputMode;
 use sim::WorldCollisionIdentity;
 
 /// Creative pick ranges observed for the three input modes the app exposes.
-const CREATIVE_MOUSE_REACH_BLOCKS: f64 = 5.7_f32 as f64;
-const CREATIVE_GAMEPAD_REACH_BLOCKS: f64 = 5.6_f32 as f64;
-const CREATIVE_TOUCH_REACH_BLOCKS: f64 = 12.0;
+pub const CREATIVE_MOUSE_REACH_BLOCKS: f64 = 5.7_f32 as f64;
+/// Creative controller pick distance.
+pub const CREATIVE_GAMEPAD_REACH_BLOCKS: f64 = 5.6_f32 as f64;
+/// Creative touch pick distance.
+pub const CREATIVE_TOUCH_REACH_BLOCKS: f64 = 12.0;
 /// Survival keeps the mouse and gamepad ranges; touch is shorter.
-const SURVIVAL_TOUCH_REACH_BLOCKS: f64 = 6.7_f32 as f64;
+pub const SURVIVAL_TOUCH_REACH_BLOCKS: f64 = 6.7_f32 as f64;
 
 /// The identities of one frozen interaction frame. Different domains cannot be substituted.
 ///

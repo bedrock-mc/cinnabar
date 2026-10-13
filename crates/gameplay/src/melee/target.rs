@@ -154,6 +154,12 @@ fn pick_box_point(
     closest.map(|(point, _)| point)
 }
 
+/// Reconstructs a block intercept before measuring it, matching actor occlusion rounding.
+pub fn block_pick_distance(origin: [f32; 3], block: [i32; 3], relative: [f32; 3]) -> f64 {
+    let point = std::array::from_fn(|axis| block[axis] as f32 + relative[axis]);
+    f64::from(pick_distance(origin, point))
+}
+
 /// Measures a pick intercept using single-precision offsets, products and square root.
 pub fn pick_distance(origin: [f32; 3], point: [f32; 3]) -> f32 {
     pick_distance_squared(origin, point).sqrt()
