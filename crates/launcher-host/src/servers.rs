@@ -132,7 +132,7 @@ pub fn save_servers(path: &Path, servers: &[SavedServer]) -> Result<()> {
 }
 
 /// The schema limits [`load_servers`] enforces, checked before any write.
-fn validate(servers: &[SavedServer]) -> Result<()> {
+pub(crate) fn validate(servers: &[SavedServer]) -> Result<()> {
     if servers.len() > MAX_SAVED_SERVERS {
         bail!(
             "too many saved servers: {} exceeds {MAX_SAVED_SERVERS}",
@@ -229,6 +229,11 @@ pub struct ServerWriter {
 }
 
 impl ServerWriter {
+    /// Whether the loaded server file grants permission to persist replacement snapshots.
+    pub fn can_save(&self) -> bool {
+        self.allow_writes && self.jobs.is_some() && self.worker.is_some()
+    }
+
     /// Keeps failed-load snapshots read-only so they cannot overwrite recoverable data.
     pub fn new(path: PathBuf, allow_writes: bool) -> Self {
         let (jobs, queue) = crossbeam_channel::unbounded::<Job>();

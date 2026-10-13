@@ -822,6 +822,10 @@ pub(crate) fn drive_chat_keyboard_input(
                     runtime.close_chat();
                 }
             }
+            key if is_chat_edit_shortcut(&held) && chat_modifiers::is_word_edit(key) => {
+                runtime
+                    .mutate_chat_editor(|editor| chat_modifiers::word_edit(editor, key, selecting));
+            }
             KeyCode::Backspace => runtime.backspace_chat_text(),
             KeyCode::Delete => runtime.delete_chat_text(),
             KeyCode::ArrowLeft => {
