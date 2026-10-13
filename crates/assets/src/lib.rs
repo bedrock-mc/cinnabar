@@ -44,6 +44,7 @@ mod model;
 pub mod native_material;
 mod ogg;
 pub mod oreui_icons;
+pub mod painting;
 mod particle;
 mod physics_registry;
 mod pinned_content;

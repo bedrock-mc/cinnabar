@@ -11,6 +11,7 @@ use bevy::prelude::DetectChanges;
 /// Retained actor state shared by early simulation and final render preparation.
 #[derive(Resource, Default)]
 pub struct ActorFrameState {
+    pub(super) paintings: super::paintings::PaintingRoutes,
     pub(super) published_session: Option<u64>,
     pub(super) published_pack: Option<Arc<assets::SessionEntityPack>>,
     pub(super) pack_geometry_ready: SessionGeometryReady,

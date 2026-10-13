@@ -27,6 +27,7 @@ mod items_actions;
 mod local_abilities;
 mod login;
 mod login_state;
+mod paintings;
 mod persona_animation;
 mod player_auth_input;
 mod player_auth_input_block_use;

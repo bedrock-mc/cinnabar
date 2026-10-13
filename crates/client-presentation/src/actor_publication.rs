@@ -4,6 +4,7 @@ mod geometry;
 mod hand_frame;
 mod layers;
 mod occlusion;
+mod paintings;
 mod views;
 use geometry::{SessionGeometryReady, apply_session_pack, register_geometries};
 mod preparation;
@@ -168,6 +169,11 @@ pub fn prepare_actor_render_frame(
         hides_box,
         &mut new_geometries,
     );
+    state.paintings.refresh(
+        client_world.entity_assets,
+        client_world.pack_entities.as_deref(),
+        artwork,
+    );
     let hand_source = hand_frame::prepare(
         stream,
         bodies.local_runtime_id,
@@ -202,6 +208,11 @@ pub fn prepare_actor_render_frame(
         bodies.remotes,
         cull_view,
     );
+    if let Some(stream) = stream {
+        state
+            .paintings
+            .append(stream.authority(), step.partial_tick, cull_view, &mut batch);
+    }
     if let Some(stream) = stream {
         crate::presentation::actors::light_bodies(&mut batch, stream);
     }

@@ -19,6 +19,20 @@ pub struct FrozenBlockObservation {
     pub target: FrozenMiningTarget,
 }
 
+impl FrozenBlockObservation {
+    /// Distance from this ray's origin to its observed world-space block hit.
+    pub fn hit_distance(&self) -> f64 {
+        (0..3)
+            .map(|axis| {
+                (f64::from(self.target.position[axis]) + f64::from(self.target.relative_hit[axis])
+                    - f64::from(self.ray.origin[axis]))
+                .powi(2)
+            })
+            .sum::<f64>()
+            .sqrt()
+    }
+}
+
 /// Server-side pick checks measure to the block's minimum corner with this slack
 /// over the game-mode pick range. Needs independent measurement.
 const SERVER_PICK_SLACK: f64 = 0.5;
