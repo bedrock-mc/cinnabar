@@ -76,16 +76,8 @@ impl ModSource {
 
 /// Reads a bounded set file; its order is the load order.
 pub fn read_set(path: &Path) -> Result<Vec<(ModSource, ModGrants)>, String> {
-    let mut bytes = Vec::new();
-    std::fs::File::open(path)
-        .and_then(|file| {
-            use std::io::Read;
-            file.take(MAX_SET_BYTES as u64 + 1).read_to_end(&mut bytes)
-        })
+    let bytes = mod_host::local_files::read(path, MAX_SET_BYTES)
         .map_err(|error| format!("read {}: {error}", path.display()))?;
-    if bytes.len() > MAX_SET_BYTES {
-        return Err("mod set exceeds its byte limit".into());
-    }
     let set: ModSet =
         serde_json::from_slice(&bytes).map_err(|error| format!("invalid mod set: {error}"))?;
     if set.version != 1 {

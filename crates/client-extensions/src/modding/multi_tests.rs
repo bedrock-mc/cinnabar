@@ -359,40 +359,29 @@ fn grants_stay_per_mod() {
     assert_eq!(merged.commands, ["/ability flash"]);
 }
 
-/// An oversized manifest is rejected after a bounded read, even from a source that never ends.
-#[cfg(unix)]
+/// A set is bounded independently of its number of entries.
 #[test]
 fn oversized_set_is_rejected_without_reading_it_whole() {
-    use std::io::Write;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("mods.json");
+    std::fs::write(&path, vec![b' '; MAX_SET_BYTES + 1]).unwrap();
+    let error = read_set(&path).unwrap_err();
+    assert!(error.contains("byte limit"), "{error}");
+}
+
+/// Nonregular set sources fail admission without waiting for another process.
+#[cfg(unix)]
+#[test]
+fn a_set_source_must_be_a_regular_file() {
     let directory = tempfile::tempdir().unwrap();
     let fifo = directory.path().join("mods.json");
     let made = std::process::Command::new("mkfifo").arg(&fifo).status();
     if !made.is_ok_and(|status| status.success()) {
-        eprintln!(
-            "skipping oversized_set_is_rejected_without_reading_it_whole: mkfifo unavailable"
-        );
+        eprintln!("Missing fixture: mkfifo is unavailable");
         return;
     }
-    let (release, held) = std::sync::mpsc::channel::<()>();
-    let writer_path = fifo.clone();
-    let writer = std::thread::spawn(move || {
-        let mut pipe = std::fs::OpenOptions::new()
-            .write(true)
-            .open(writer_path)
-            .unwrap();
-        let _ = pipe.write_all(&vec![b' '; MAX_SET_BYTES + 64]);
-        // Keeps the pipe open, so an unbounded reader never sees end of file.
-        let _ = held.recv();
-    });
-    let (sender, result) = std::sync::mpsc::channel();
-    std::thread::spawn(move || sender.send(read_set(&fifo)));
-    let outcome = result.recv_timeout(std::time::Duration::from_secs(10));
-    drop(release);
-    writer.join().unwrap();
-    let error = outcome
-        .expect("the manifest read was unbounded")
-        .unwrap_err();
-    assert!(error.contains("byte limit"), "{error}");
+    let error = read_set(&fifo).unwrap_err();
+    assert!(error.contains("regular file"), "{error}");
 }
 
 #[test]

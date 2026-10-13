@@ -275,11 +275,11 @@ impl Instance {
         let state = State::new(grants, settings, declared);
         let mut store = Store::new(engine, state);
         store.limiter(|state| &mut state.limits);
-        store.set_fuel(FRAME_FUEL)?;
+        crate::execution::arm(&mut store, FRAME_FUEL, true)?;
         let instance = linker.instantiate(&mut store, &component)?;
         let (init, exports) = exports::Exports::find(&mut store, &instance)?;
         let budget = if exports.loads_session() {
-            store.set_fuel(LOAD_FUEL)?;
+            crate::execution::arm(&mut store, LOAD_FUEL, true)?;
             LOAD_FUEL
         } else {
             FRAME_FUEL
@@ -453,7 +453,7 @@ impl Instance {
         state.calls = 0;
         state.output = 0;
         state.pending_screens = None;
-        self.store.set_fuel(fuel)?;
+        crate::execution::arm(&mut self.store, fuel, fuel == LOAD_FUEL)?;
         let called = call(&self.exports, &mut self.store);
         self.last_fuel = fuel - self.store.get_fuel().unwrap_or(0).min(fuel);
         if let Err(error) = called {
@@ -725,5 +725,39 @@ fn commit_event(store: &mut Store<State>) {
     }
     if let Some(screens) = state.pending_screens.take() {
         state.screens = screens;
+    }
+}
+
+#[cfg(test)]
+mod epoch_tests {
+    use super::*;
+
+    #[test]
+    fn epoch_traps_quarantine_callbacks_before_output_is_committed() {
+        let (engine, _ticker) = crate::execution::engine().unwrap();
+        let mut instance = Instance::new(
+            &engine,
+            br#"(component
+            (core module $code
+                (memory 1)
+                (func (export "init"))
+                (func (export "frame") (loop $work
+                    i32.const 0 i32.const 0 i32.const 65536 memory.fill br $work)))
+            (core instance $run (instantiate $code))
+            (func (export "init") (canon lift (core func $run "init")))
+            (func (export "frame") (canon lift (core func $run "frame"))))"#,
+            ModGrants::default(),
+            String::new(),
+            Declared::default(),
+        )
+        .unwrap();
+        let result = instance.run(u64::MAX, commit, |exports, store| {
+            // Explicitly expire this newly armed callback without waiting on wall time.
+            store.set_epoch_deadline(0);
+            exports.frame(store)
+        });
+        assert!(result.is_err());
+        assert!(!instance.active);
+        assert!(instance.label().is_none());
     }
 }

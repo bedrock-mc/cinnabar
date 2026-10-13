@@ -10,8 +10,8 @@ use wasmtime::component::{Component, HasSelf, Linker, Resource, ResourceTable};
 use wasmtime::{Engine, ResourceLimiter, Store, StoreLimits, StoreLimitsBuilder};
 
 use crate::limits::{
-    EPOCH_PERIOD, MAX_CORE_INSTANCES, MAX_LOG_BYTES, MAX_LOGS, MAX_MEMORIES, MAX_MEMORY_BYTES,
-    MAX_TABLE_ELEMENTS,
+    EPOCH_PERIOD, MAX_CORE_INSTANCES, MAX_FRAME_BYTES, MAX_LOG_BYTES, MAX_LOGS, MAX_MEMORIES,
+    MAX_MEMORY_BYTES, MAX_TABLE_ELEMENTS,
 };
 use crate::manifest::SERVER_WASM;
 
@@ -238,6 +238,8 @@ impl HostState {
         };
         let mut store = Store::new(engine, state);
         store.limiter(|state| &mut state.limits);
+        // Guest-to-host copies stay within the same ceiling as one protocol frame.
+        store.set_hostcall_fuel(MAX_FRAME_BYTES);
         store.set_fuel(fuel)?;
         store.set_epoch_deadline(epoch_ticks(deadline));
         Ok(store)
