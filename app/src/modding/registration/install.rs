@@ -35,7 +35,7 @@ pub(super) fn sync_authority(world: &mut World) {
                     && entry.grants == registered.entry.grants
             });
             if !authorized {
-                runtime.hosts.host_mut(index).quarantine();
+                runtime.hosts.host_mut(index).revoke();
             }
         }
     }
@@ -210,7 +210,7 @@ pub(super) fn apply(world: &mut World, update: Update) {
                 .enumerate()
                 .filter_map(move |(index, metadata)| {
                     let registered = metadata.registration.as_ref()?;
-                    (!runtime.hosts.host(index).is_active()
+                    (runtime.hosts.host(index).is_revoked()
                         && registration.mods.iter().any(|entry| {
                             entry.enabled && entry.component == registered.entry.component
                         })
@@ -306,6 +306,7 @@ pub(super) fn apply(world: &mut World, update: Update) {
     }
     reorder(world, &update.registration.mods);
     refresh_presentation(world);
+    // A trapped identity stays admitted but cannot execute. Only revoked identities need recovery.
     let installed = world
         .get_resource::<ModRuntime>()
         .into_iter()
@@ -315,10 +316,7 @@ pub(super) fn apply(world: &mut World, update: Update) {
                 .iter()
                 .enumerate()
                 .filter_map(move |(index, metadata)| {
-                    runtime
-                        .hosts
-                        .host(index)
-                        .is_active()
+                    (!runtime.hosts.host(index).is_revoked())
                         .then_some(metadata.registration.as_ref())
                         .flatten()
                 })

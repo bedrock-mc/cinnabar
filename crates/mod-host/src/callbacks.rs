@@ -4,6 +4,16 @@ use super::*;
 use anyhow::Result;
 
 impl ModHost {
+    /// Resets frame-local outputs before input or lifecycle callbacks, preserving retained state.
+    pub fn begin_frame(&mut self) {
+        self.instance.begin_frame();
+    }
+
+    /// Whether a superseded authority transition requires a fresh instance.
+    pub fn is_revoked(&self) -> bool {
+        self.instance.is_revoked()
+    }
+
     /// Runs one bounded callback; a trap revokes its presentation and disables the guest.
     pub fn frame(&mut self, pressed: bool) -> Result<()> {
         self.frame_with_gameplay(pressed, None)
@@ -84,13 +94,18 @@ impl ModHost {
         movement: Option<GameplayMovementSnapshot>,
         controls: ControlFrame,
     ) -> Result<()> {
-        if self.dispatch(Vec::new())? == CallbackOutcome::Deferred {
-            return Ok(());
-        }
-        self.instance
-            .frame(pressed, snapshot, mobs, player_state, movement, controls)?;
+        self.begin_frame();
+        let result = match self.dispatch(Vec::new()) {
+            Ok(CallbackOutcome::Executed) => {
+                self.instance
+                    .frame(pressed, snapshot, mobs, player_state, movement, controls)
+            }
+            Ok(CallbackOutcome::Deferred) => Ok(()),
+            Err(error) => Err(error),
+        };
+        self.instance.finish_frame();
         self.queue_settings();
-        Ok(())
+        result
     }
 
     /// Supplies bounded, read-only presentation facts for the next frame callback only.
@@ -188,6 +203,6 @@ impl ModHost {
 
     /// Whether this guest can still receive callbacks.
     pub fn is_active(&self) -> bool {
-        self.instance.active
+        self.instance.is_active()
     }
 }

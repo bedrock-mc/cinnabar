@@ -481,3 +481,51 @@ fn startup_loads_companion_and_reload_keeps_current_in_memory_preferences() {
     assert_eq!(host.instance.settings(), "{\"cps\":20}");
     assert_eq!(host.label(), Some("Reloaded"));
 }
+
+/// Adds an empty lifecycle export to a policy fixture so its event lane can be deferred.
+fn load_with_view_closed(source: String, grants: ModGrants) -> (tempfile::TempDir, ModHost) {
+    let mut source = source.replace(
+        "(func (export \"init\"))",
+        "(func (export \"init\")) (func (export \"view-closed\"))",
+    );
+    let end = source.rfind(')').unwrap();
+    source.insert_str(
+        end,
+        "(func (export \"view-closed\") (canon lift (core func $run \"view-closed\")))",
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("policy.wat");
+    std::fs::write(&path, source).unwrap();
+    let host = ModHost::load_with_grants(&path, grants).unwrap();
+    (directory, host)
+}
+
+/// Queues a real lifecycle notification after another guest has reserved the event lane.
+fn defer_view_closed(host: &mut ModHost) -> CallbackBudget {
+    let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.set_frame_authority(budget.clone(), false, false, 0, HudClaims::default());
+    assert!(
+        budget
+            .reserve(server_experience::runtime::CALLBACK_FUEL)
+            .is_some()
+    );
+    assert_eq!(
+        host.dispatch(vec![ModEvent::ViewClosed]).unwrap(),
+        CallbackOutcome::Deferred
+    );
+    budget
+}
+
+#[test]
+fn authority_revocation_never_changes_a_prior_quarantine_into_recoverable_state() {
+    let (_dir, mut running) = load_fixture("");
+    running.revoke();
+    assert!(!running.is_active() && running.is_revoked());
+    running.revoke();
+    assert!(running.is_revoked());
+    let (_dir, mut trapped) = load_fixture("unreachable");
+    trapped.frame(false).unwrap_err();
+    assert!(!trapped.is_active() && !trapped.is_revoked());
+    trapped.revoke();
+    assert!(!trapped.is_active() && !trapped.is_revoked());
+}

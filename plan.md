@@ -2669,7 +2669,9 @@ Per-card permission toggles are derived from the host grant declaration and defa
 The original single registration migrates with its grants, font and UI intact. Each guest
 keeps its execution limits; regular frame callbacks share a deterministic fuel allowance,
 with bounded event and session-loading lanes preserving their full guest limits. Deferred
-lifecycle notifications remain queued until delivery.
+lifecycle notifications and bounded screen-scoped edit text remain queued until delivery.
+Frame-local outputs reset even when execution defers. Superseded authority revocations can
+rebuild; unrelated registration changes retain guest quarantine.
 Camera, time and contested HUD slots obey Active-list precedence with counted refusals.
 Modding and its Wasmtime host ship in every native build, including builds without default
 features. The host's execution modules and tests compile unconditionally. Incomplete:

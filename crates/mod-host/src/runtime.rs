@@ -104,6 +104,14 @@ struct State {
 }
 
 impl State {
+    /// Derives camera ownership from current transient policy and the retained rig.
+    fn camera_output(&self) -> bool {
+        self.world.rig.is_some()
+            || self.camera_delta.is_some()
+            || self.camera_policy.committed
+            || self.camera_policy.committed_view_scale.is_some()
+    }
+
     fn new(grants: ModGrants, settings: String, declared: Declared) -> Self {
         Self {
             limits: StoreLimitsBuilder::new()
@@ -255,10 +263,18 @@ impl cinnabar::extension::input::Host for State {
     }
 }
 
+/// An authority revocation may be rebuilt; a trapped guest requires an intentional replacement.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InstanceStatus {
+    Running,
+    Revoked,
+    Quarantined,
+}
+
 pub(super) struct Instance {
     store: Store<State>,
     exports: exports::Exports,
-    pub(super) active: bool,
+    status: InstanceStatus,
     /// Fuel the last `init` or callback consumed.
     last_fuel: u64,
     callback_budget: Option<crate::CallbackBudget>,
@@ -313,7 +329,7 @@ impl Instance {
         Ok(Self {
             store,
             exports,
-            active: true,
+            status: InstanceStatus::Running,
             last_fuel,
             callback_budget: None,
         })
@@ -406,16 +422,8 @@ impl Instance {
         Ok(())
     }
 
-    /// Restores the call budget and commits output only on successful return.
-    pub(super) fn frame(
-        &mut self,
-        pressed: bool,
-        snapshot: Option<GameplaySnapshot>,
-        mobs: Vec<GameplayMob>,
-        player_state: Option<PlayerStateSnapshot>,
-        movement: Option<GameplayMovementSnapshot>,
-        controls: crate::ControlFrame,
-    ) -> Result<()> {
+    /// Clears transient outputs even when no guest callback can execute this frame.
+    pub(super) fn begin_frame(&mut self) {
         let state = self.store.data_mut();
         state.snapshot = None;
         state.movement = None;
@@ -437,8 +445,36 @@ impl Instance {
         state.player_state.begin_frame();
         state.camera_policy = camera::CameraPolicy::default();
         state.item_use_policy = item_use::ItemUsePolicy::default();
-        if !self.active {
-            state.player_state.revoke();
+        state.exclusive.camera_claimed = state.camera_output();
+        state.pressed = false;
+        state.controls.frame = crate::empty_controls();
+    }
+
+    /// Releases callback-only observations on every executed, deferred or failed frame path.
+    pub(super) fn finish_frame(&mut self) {
+        let state = self.store.data_mut();
+        state.snapshot = None;
+        state.player_state.begin_frame();
+        state.player_state.clear_presentation();
+        state.movement = None;
+        state.world.mobs.clear();
+        state.world.incoming.clear();
+        state.controls.frame = crate::empty_controls();
+        state.pressed = false;
+    }
+
+    /// Restores the call budget and commits output only on successful return.
+    pub(super) fn frame(
+        &mut self,
+        pressed: bool,
+        snapshot: Option<GameplaySnapshot>,
+        mobs: Vec<GameplayMob>,
+        player_state: Option<PlayerStateSnapshot>,
+        movement: Option<GameplayMovementSnapshot>,
+        controls: crate::ControlFrame,
+    ) -> Result<()> {
+        if !self.is_active() {
+            self.store.data_mut().player_state.revoke();
             return Ok(());
         }
         let validation = gameplay::validate_snapshot(snapshot.as_ref())
@@ -447,7 +483,7 @@ impl Instance {
             .and_then(|()| player_state::validate(player_state.as_ref()))
             .and_then(|()| controls::validate_frame(&controls));
         if let Err(error) = validation {
-            state.player_state.revoke();
+            self.store.data_mut().player_state.revoke();
             return Err(error);
         }
         let snapshot_seconds = snapshot.as_ref().map_or(0.0, |frame| frame.frame_seconds);
@@ -460,23 +496,21 @@ impl Instance {
         state.player_state.set_snapshot(player_state)?;
         state.controls.frame = controls;
         let result = self.run(FRAME_FUEL, commit, |exports, store| exports.frame(store));
-        self.store.data_mut().snapshot = None;
-        self.store.data_mut().player_state.begin_frame();
-        self.store.data_mut().player_state.clear_presentation();
-        self.store.data_mut().movement = None;
-        self.store.data_mut().world.mobs = Vec::new();
-        self.store.data_mut().world.incoming = Vec::new();
-        self.store.data_mut().controls.frame = crate::empty_controls();
         result.map(|_| ())
+    }
+
+    /// Checks event authority and payload bounds before admitting deferred state.
+    pub(super) fn validate_event(&self, event: &ModEvent) -> Result<()> {
+        self.store.data().check_event(event)
     }
 
     /// Delivers one event callback, `data-changed` with `LOAD_FUEL` and every other event with
     /// `CALLBACK_FUEL`. An `extension` component has no event exports and receives nothing.
     pub(super) fn dispatch(&mut self, event: &ModEvent) -> Result<CallbackOutcome> {
-        if !self.active {
+        if !self.is_active() {
             return Ok(CallbackOutcome::Executed);
         }
-        self.store.data().check_event(event)?;
+        self.validate_event(event)?;
         if !self.exports.handles_event(event) {
             return Ok(CallbackOutcome::Executed);
         }
@@ -543,22 +577,13 @@ impl Instance {
     ) {
         self.callback_budget = Some(budget);
         let state = self.store.data_mut();
-        if camera
-            && !state.exclusive.camera
-            && (state.world.rig.is_some()
-                || state.camera_delta.is_some()
-                || state.camera_policy.committed
-                || state.camera_policy.committed_view_scale.is_some())
-        {
+        if camera && !state.exclusive.camera && state.exclusive.camera_claimed {
             state.exclusive.refuse();
         }
         if environment && !state.exclusive.environment && state.time_override.is_some() {
             state.exclusive.refuse();
         }
-        state.exclusive.camera_claimed = state.world.rig.is_some()
-            || state.camera_delta.is_some()
-            || state.camera_policy.committed
-            || state.camera_policy.committed_view_scale.is_some();
+        state.exclusive.camera_claimed |= state.camera_output();
         state.exclusive.camera = camera;
         state.exclusive.environment = environment;
         state.exclusive.owner = owner;
@@ -587,10 +612,29 @@ impl Instance {
         self.store.data().exclusive.refused
     }
 
+    /// Whether the guest may execute any callback.
+    pub(super) fn is_active(&self) -> bool {
+        self.status == InstanceStatus::Running
+    }
+
+    /// Whether an authority transition stopped a previously running guest.
+    pub(super) fn is_revoked(&self) -> bool {
+        self.status == InstanceStatus::Revoked
+    }
+
+    /// Revokes a running guest without reclassifying an existing trap as recoverable.
+    pub(super) fn revoke(&mut self) {
+        if self.is_active() {
+            self.quarantine();
+            self.status = InstanceStatus::Revoked;
+        }
+    }
+
     /// Disables callbacks and drops everything the guest presented or staged.
     pub(super) fn quarantine(&mut self) {
-        self.active = false;
+        self.status = InstanceStatus::Quarantined;
         let state = self.store.data_mut();
+        state.exclusive.camera_claimed = false;
         if let Some(claims) = &state.exclusive.hud {
             claims.release(state.exclusive.owner);
         }
@@ -734,7 +778,7 @@ impl Instance {
         bundle: Arc<ui::mod_panel::PanelBundle>,
     ) -> Result<()> {
         anyhow::ensure!(
-            self.active && self.store.data().grants.controls,
+            self.is_active() && self.store.data().grants.controls,
             "controls capability denied"
         );
         let controls = &mut self.store.data_mut().controls;
@@ -750,9 +794,10 @@ impl Instance {
         self.store.data().controls.open
     }
     pub(super) fn set_panel_open(&mut self, open: bool) {
+        let active = self.is_active();
         let state = self.store.data_mut();
         state.controls.open =
-            open && self.active && state.grants.controls && state.controls.panel.is_some();
+            open && active && state.grants.controls && state.controls.panel.is_some();
     }
     pub(super) fn reserved_keys(&self) -> &[String] {
         &self.store.data().controls.keys
@@ -835,10 +880,7 @@ fn commit(store: &mut Store<State>) {
         .flatten();
     state.item_use_policy.commit(state.snapshot.as_ref());
     state.camera_delta = state.pending_camera.take();
-    state.exclusive.camera_claimed = state.world.rig.is_some()
-        || state.camera_delta.is_some()
-        || state.camera_policy.committed
-        || state.camera_policy.committed_view_scale.is_some();
+    state.exclusive.camera_claimed = state.camera_output();
     if let Some(delay) = state.pending_packet_delay.take() {
         state.packet_delay_ms = delay;
     }
@@ -907,7 +949,7 @@ mod epoch_tests {
             exports.frame(store)
         });
         assert!(result.is_err());
-        assert!(!instance.active);
+        assert!(!instance.is_active());
         assert!(instance.label().is_none());
     }
 }

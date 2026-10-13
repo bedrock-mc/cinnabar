@@ -123,19 +123,23 @@ pub struct LoadedPackage {
 
 impl ModHost {
     /// Delivers coalesced events, retaining lifecycle notifications until they actually run.
-    /// Ephemeral input is not replayed against a later layout when execution is deferred.
+    /// Latest edit text remains scoped to its screen; key, click and scroll edges are not replayed.
     pub fn dispatch(&mut self, events: Vec<ModEvent>) -> Result<CallbackOutcome> {
         let result = self.dispatch_coalesced(events);
+        if !self.is_active() {
+            self.pending_events.clear();
+        }
         self.queue_settings();
         result
     }
 
     /// Retries pending lifecycle state before current events without replaying old input.
-    fn dispatch_coalesced(&mut self, events: Vec<ModEvent>) -> Result<CallbackOutcome> {
+    fn dispatch_coalesced(&mut self, mut events: Vec<ModEvent>) -> Result<CallbackOutcome> {
         if !self.is_active() {
             self.pending_events.clear();
             return Ok(CallbackOutcome::Executed);
         }
+        self.scope_text_changes(&mut events)?;
         let mut incoming = std::mem::take(&mut self.pending_events);
         incoming.extend(events);
         let mut incoming = ModEvent::coalesce(incoming).into_iter();
@@ -166,12 +170,44 @@ impl ModHost {
         })
     }
 
-    /// Keeps only bounded latest layout, changed source set and one closure notification.
+    /// Validates edit values and drops queued text when its screen or view departs.
+    fn scope_text_changes(&mut self, events: &mut Vec<ModEvent>) -> Result<()> {
+        for event in events
+            .iter()
+            .filter(|event| matches!(event, ModEvent::TextChanged { .. }))
+        {
+            self.instance.validate_event(event)?;
+        }
+        let layout = events.iter().rev().find_map(|event| match event {
+            ModEvent::ScreenChanged(layout) => Some(layout),
+            _ => None,
+        });
+        let closed = events.contains(&ModEvent::ViewClosed) || layout == Some(&None);
+        let same_screen = layout.is_none_or(|next| match (&self.layout, next) {
+            (Some(old), Some(new)) => {
+                old.screen == new.screen && old.view.is_some() == new.view.is_some()
+            }
+            (None, None) => true,
+            _ => false,
+        });
+        if closed || !same_screen {
+            self.pending_events
+                .retain(|event| !matches!(event, ModEvent::TextChanged { .. }));
+        }
+        if closed {
+            events.retain(|event| !matches!(event, ModEvent::TextChanged { .. }));
+        }
+        Ok(())
+    }
+
+    /// Keeps latest lifecycle state and one bounded edit value per declared control.
     fn retain_lifecycle(&mut self, events: impl Iterator<Item = ModEvent>) {
         let mut pending = std::mem::take(&mut self.pending_events);
         for event in events {
             match event {
-                ModEvent::ScreenChanged(_) | ModEvent::DataChanged(_) => pending.push(event),
+                ModEvent::ScreenChanged(_)
+                | ModEvent::DataChanged(_)
+                | ModEvent::TextChanged { .. } => pending.push(event),
                 ModEvent::ViewClosed if !pending.contains(&ModEvent::ViewClosed) => {
                     pending.push(event)
                 }
@@ -208,6 +244,12 @@ impl ModHost {
         self.session = Arc::clone(&session);
         self.instance.set_session(session);
         (!sources.is_empty()).then_some(ModEvent::DataChanged(sources))
+    }
+
+    /// Stops current authority immediately, preserving an existing quarantine reason.
+    pub fn revoke(&mut self) {
+        self.pending_events.clear();
+        self.instance.revoke();
     }
 
     /// Stops the guest as a trap would, removing everything it presented: the host refused

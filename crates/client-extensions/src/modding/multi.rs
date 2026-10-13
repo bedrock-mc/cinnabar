@@ -143,6 +143,9 @@ impl ModHosts {
         self.budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
         self.hud_claims.reset();
         for index in 0..self.host_count() {
+            self.host_mut(index).begin_frame();
+        }
+        for index in 0..self.host_count() {
             self.authorize(index);
         }
     }

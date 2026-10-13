@@ -499,7 +499,14 @@ existing `CALLBACK_FUEL` allowance, and session-loading callbacks retain `LOAD_F
 Separate bounded lanes admit one event and one loading callback per frame across all mods.
 A callback needing an unavailable lane defers rather than receiving a smaller guest limit.
 Latest layout, changed session sources and view-closure notifications remain queued and
-coalesced until delivery; ephemeral input is not replayed against a later layout.
+coalesced until delivery. Each declared edit control also retains one latest bounded text value
+for its current screen and view. Screen changes, view closure and host replacement discard
+old edits; key, click and wheel edges are not replayed. Frame-local camera and item-use
+policies reset even when a callback defers; retained presentation follows its existing contract.
+
+An authority revocation is distinct from a guest quarantine: restoring superseded grants
+rebuilds a revoked guest, while unrelated Settings changes preserve a trapped guest's
+quarantine and installed identity.
 
 Reload and Reload all work from Settings while in a world. Candidates re-read sources
 through the bounded admission path and initialize off-frame. An invalid reload keeps

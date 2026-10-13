@@ -439,6 +439,7 @@ fn restoring_grants_rebuilds_an_instance_revoked_during_pending_admission() {
     });
     install::sync_authority(&mut world);
     assert!(!world.resource::<ModRuntime>().hosts.host(0).is_active());
+    assert!(world.resource::<ModRuntime>().hosts.host(0).is_revoked());
     // The original bytes/grants match the coordinator cache, but its guest is no longer reusable.
     apply(&mut world, vec![original.clone()], Vec::new());
     let Message::Retry { inactive, .. } = messages.try_recv().unwrap() else {
@@ -521,4 +522,73 @@ fn settings_owner_publication_includes_environment_loaded_hosts() {
         watcher.companions.clone(),
     );
     assert!(permit.shared_companion(&mod_host::settings_companion(&entry.component)));
+}
+
+#[test]
+fn unrelated_registration_changes_preserve_trapped_identities_until_explicit_reload() {
+    let directory = tempfile::tempdir().unwrap();
+    let (mut world, messages, _retiring) = world();
+    let prepared = candidate(directory.path(), "trapped.wasm", "Hello");
+    let a = prepared.registration.clone();
+    fs::write(&a.component, fixture(true, "unreachable", "Hello")).unwrap();
+    let trapped = Box::new(build_candidate(source::source_snapshot(a.clone()).unwrap()).unwrap());
+    let identity = trapped.identity;
+    apply(&mut world, vec![a.clone()], vec![change(trapped)]);
+    messages.try_iter().for_each(drop);
+    world
+        .resource_mut::<ModRuntime>()
+        .hosts
+        .host_mut(0)
+        .frame(false)
+        .unwrap_err();
+    assert!(!world.resource::<ModRuntime>().hosts.host(0).is_revoked());
+    let other = candidate(directory.path(), "other.wasm", "World");
+    let b = other.registration.clone();
+    apply(&mut world, vec![b.clone(), a.clone()], vec![change(other)]);
+    let Message::Acknowledge { installed, .. } = messages.try_recv().unwrap() else {
+        panic!("unrelated change attempted to retry a trapped guest")
+    };
+    assert_eq!(installed.get(&a.component), Some(&identity));
+    assert!(world.resource::<ModRuntime>().hosts.host(0).is_active());
+    assert!(!world.resource::<ModRuntime>().hosts.host(1).is_active());
+    apply(&mut world, vec![a.clone(), b.clone()], Vec::new());
+    assert!(matches!(
+        messages.try_recv().unwrap(),
+        Message::Acknowledge { .. }
+    ));
+    assert!(!world.resource::<ModRuntime>().hosts.host(0).is_active());
+    // Revoking a guest that already trapped does not make an unrelated restoration retry it.
+    let mut revoked = a.clone();
+    revoked.grants.controls = false;
+    world
+        .resource::<Watcher>()
+        .desired
+        .lock()
+        .unwrap()
+        .registration
+        .as_mut()
+        .unwrap()
+        .mods[0] = revoked;
+    install::sync_authority(&mut world);
+    apply(&mut world, vec![a.clone(), b.clone()], Vec::new());
+    assert!(matches!(
+        messages.try_recv().unwrap(),
+        Message::Acknowledge { .. }
+    ));
+    assert!(!world.resource::<ModRuntime>().hosts.host(0).is_revoked());
+    let mut reload = a;
+    reload.reload += 1;
+    fs::write(&reload.component, fixture(true, "", "Fresh")).unwrap();
+    let fresh =
+        Box::new(build_candidate(source::source_snapshot(reload.clone()).unwrap()).unwrap());
+    apply(&mut world, vec![reload, b], vec![change(fresh)]);
+    assert!(world.resource::<ModRuntime>().hosts.host(0).is_active());
+    assert_eq!(
+        world.resource::<ModRuntime>().hosts.host(0).label(),
+        Some("Fresh")
+    );
+    assert_eq!(
+        world.resource::<ModRuntime>().hosts.host(1).label(),
+        Some("World")
+    );
 }
