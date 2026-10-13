@@ -357,6 +357,21 @@ pub fn dialog_model(
     translate: Translate<'_>,
 ) -> (json_ui::FormModel, MenuAction) {
     let (title, body, button1, button2, confirm) = match dialog {
+        MenuDialog::MinecraftImport => {
+            let snapshot = &view.minecraft_import;
+            let confirm = snapshot
+                .actions()
+                .first()
+                .copied()
+                .unwrap_or(launcher::minecraft_import::Action::Close);
+            (
+                snapshot.title().into(),
+                snapshot.body().to_owned(),
+                snapshot.label(confirm).into(),
+                "Close".into(),
+                MenuAction::MinecraftImport(confirm),
+            )
+        }
         MenuDialog::Accounts => (
             "Accounts".into(),
             String::new(),

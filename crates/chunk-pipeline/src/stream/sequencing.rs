@@ -372,6 +372,7 @@ impl WorldStream {
                                 NormalizationErrorReason::BlockMutationFailure,
                             );
                         } else {
+                            self.reconcile_intermediate_block_cracks(&prepared.crack_intermediates);
                             self.queue_actor_block_syncs(events);
                         }
                     }

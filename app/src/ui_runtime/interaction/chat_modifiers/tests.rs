@@ -187,6 +187,39 @@ fn held_shift_selects_across_frames_and_clipboard_adapter_enforces_chat_bound() 
 }
 
 #[test]
+fn held_control_moves_and_selects_by_word() {
+    let mut h = Harness::new();
+    h.press(KeyCode::KeyT, Some("t"));
+    h.press(KeyCode::KeyA, Some("say hello world"));
+    h.press(KeyCode::ControlLeft, None);
+    h.press(KeyCode::ArrowLeft, None);
+    h.press(KeyCode::ArrowLeft, None);
+    h.release(KeyCode::ControlLeft);
+    h.press(KeyCode::KeyX, Some("x"));
+    assert_eq!(h.text(), "say xhello world");
+    h.press(KeyCode::ControlRight, None);
+    h.press(KeyCode::ShiftLeft, None);
+    h.press(KeyCode::ArrowRight, None);
+    h.release(KeyCode::ShiftLeft);
+    h.release(KeyCode::ControlRight);
+    h.press(KeyCode::KeyY, Some("y"));
+    assert_eq!(h.text(), "say xyworld");
+}
+
+#[test]
+fn held_control_deletes_by_word() {
+    let mut h = Harness::new();
+    h.press(KeyCode::KeyT, Some("t"));
+    h.press(KeyCode::KeyA, Some("say hello world"));
+    h.press(KeyCode::ControlLeft, None);
+    h.press(KeyCode::Backspace, None);
+    assert_eq!(h.text(), "say hello ");
+    h.press(KeyCode::Home, None);
+    h.press(KeyCode::Delete, None);
+    assert_eq!(h.text(), "hello ");
+}
+
+#[test]
 fn focus_loss_drops_held_modifiers_and_discards_unfocused_events() {
     let mut h = Harness::new();
     h.press(KeyCode::KeyT, Some("t"));

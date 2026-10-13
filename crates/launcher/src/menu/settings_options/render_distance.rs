@@ -5,7 +5,11 @@ use super::{SettingDefinition, SettingsOptions};
 impl SettingsOptions {
     /// Updates the runtime recommendation without persisting a guessed user preference.
     pub fn set_render_distance_device(&mut self, device: ui::RenderDistanceDevice) -> bool {
-        let defaults = device.defaults();
+        self.set_render_distance_defaults(device.defaults())
+    }
+
+    /// Replaces runtime recommendations without changing saved render-distance choices.
+    pub fn set_render_distance_defaults(&mut self, defaults: ui::RenderDistanceDefaults) -> bool {
         if self.render_distance_defaults == defaults {
             return false;
         }
