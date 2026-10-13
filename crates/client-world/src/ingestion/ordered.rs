@@ -464,9 +464,16 @@ impl OrderedCommitState {
                 self.applying = Some(sequence);
                 CommitStep::BlockUpdates { sequence, events }
             }
-            PreparedWorldEvent::Immediate(WorldEvent::SyncedBlockUpdates(events)) => {
+            PreparedWorldEvent::Immediate(WorldEvent::SyncedBlockUpdates(mut events)) => {
                 self.last_step_heavy = heavy;
-                self.block_update_range_end = Some(sequence);
+                let mut end = sequence;
+                if let Some(key) = synced_update_key(&events) {
+                    while let Some(next) = self.take_adjacent_synced_updates(end, key, budget) {
+                        events.extend(next);
+                        end += 1;
+                    }
+                }
+                self.block_update_range_end = Some(end);
                 self.applying = Some(sequence);
                 CommitStep::SyncedBlockUpdates { sequence, events }
             }
@@ -646,6 +653,35 @@ impl OrderedCommitState {
         Some(updates)
     }
 
+    /// Merges only adjacent packets for the same section, retaining every actor message in order.
+    fn take_adjacent_synced_updates(
+        &mut self,
+        end: u64,
+        key: world::SubChunkKey,
+        budget: CommitBudget,
+    ) -> Option<Vec<SyncedBlockUpdateEvent>> {
+        let next = end.checked_add(1)?;
+        let entry = self.entries.get_mut(&next)?;
+        let Slot::Ready(PreparedWorldEvent::Immediate(WorldEvent::SyncedBlockUpdates(updates))) =
+            &entry.slot
+        else {
+            return None;
+        };
+        if synced_update_key(updates) != Some(key)
+            || self
+                .earlier
+                .blocks(&entry.footprint, budget.couple_position)
+        {
+            return None;
+        }
+        let Slot::Ready(PreparedWorldEvent::Immediate(WorldEvent::SyncedBlockUpdates(updates))) =
+            std::mem::replace(&mut entry.slot, Slot::Active)
+        else {
+            unreachable!("the adjacent synced update was inspected");
+        };
+        Some(updates)
+    }
+
     /// Installs the async fence only after the caller snapshots and enqueues a block batch.
     pub fn defer_block_updates(&mut self, sequence: u64) {
         assert_eq!(
@@ -816,6 +852,22 @@ fn block_updates_can_coalesce(events: &[BlockUpdateEvent]) -> bool {
     events
         .iter()
         .all(|event| event.layer < world::MAX_STORAGE_COUNT)
+}
+
+/// Identifies a packet-sized section batch; malformed layers retain their own failure boundary.
+fn synced_update_key(events: &[SyncedBlockUpdateEvent]) -> Option<world::SubChunkKey> {
+    let key = |event: &SyncedBlockUpdateEvent| {
+        let [x, y, z] = event
+            .update
+            .position
+            .map(|coordinate| coordinate.div_euclid(16));
+        world::SubChunkKey::new(event.update.dimension, x, y, z)
+    };
+    let first = key(events.first()?);
+    events
+        .iter()
+        .all(|event| event.update.layer < world::MAX_STORAGE_COUNT && key(event) == first)
+        .then_some(first)
 }
 
 /// Terrain that spends the heavy allowance with nothing local waiting on it; a pass without

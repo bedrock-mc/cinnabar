@@ -437,6 +437,10 @@ criterion_group!(
     streaming_benches,
     resend_benches,
     cohort_benches,
-    dispatch::benches
+    dispatch::benches,
+    subchunk_updates::benches
 );
 criterion_main!(benches);
+
+#[path = "chunk_costs/subchunk_updates.rs"]
+mod subchunk_updates;

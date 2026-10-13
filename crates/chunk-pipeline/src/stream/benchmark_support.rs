@@ -38,3 +38,6 @@ pub fn work_is_idle(stream: &WorldStream) -> bool {
 
 mod dispatch;
 pub use dispatch::DispatchFixture;
+
+mod mutations;
+pub use mutations::MutationBurstFixture;
