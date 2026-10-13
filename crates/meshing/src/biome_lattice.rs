@@ -1,4 +1,6 @@
-use super::biome::{BIOME_NEIGHBOUR_SLOT_COUNT, BiomeBlendSample, PackedBiomeRecord};
+use super::biome::{
+    BIOME_NEIGHBOUR_SLOT_COUNT, BiomeBlendSample, PackedBiomeRecord, SlotTints, biome_volume_index,
+};
 
 /// Vanilla lattice spacing and equal-weight sample radius, in blocks.
 pub const BIOME_LATTICE_STEP: i32 = 4;
@@ -145,13 +147,26 @@ impl PackedBiomeRecord {
     pub(crate) fn build_lattice(&mut self) {
         let mut cache = vec![0; LATTICE_WORDS];
         let side = LATTICE_SIDE + 2;
-        let grid = (0..side * side * side)
-            .map(|index| {
-                let position = [index / (side * side), index / side % side, index % side]
-                    .map(|v| (v as i32 - 2) * BIOME_LATTICE_STEP);
-                self.tint_index_at(position).unwrap_or(0)
-            })
-            .collect::<Vec<_>>();
+        // Each grid axis step's neighbour offset and local coordinate, and each slot's lookup,
+        // resolved once for the grid's 729 `tint_index_at` samples.
+        let axis: [(i8, u8); LATTICE_SIDE + 2] = std::array::from_fn(|v| {
+            let position = (v as i32 - 2) * BIOME_LATTICE_STEP;
+            (position.div_euclid(16) as i8, position.rem_euclid(16) as u8)
+        });
+        let slots: [SlotTints<'_>; BIOME_NEIGHBOUR_SLOT_COUNT] =
+            std::array::from_fn(|slot| self.slot_tints(slot));
+        let mut grid = Vec::with_capacity(side * side * side);
+        for &(dx, x) in &axis {
+            for &(dy, y) in &axis {
+                for &(dz, z) in &axis {
+                    grid.push(
+                        biome_volume_index(dx, dy, dz)
+                            .and_then(|slot| slots[slot].tint_index([x, y, z]))
+                            .unwrap_or(0),
+                    );
+                }
+            }
+        }
         for x in 0..LATTICE_SIDE {
             for y in 0..LATTICE_SIDE {
                 for z in 0..LATTICE_SIDE {

@@ -1,4 +1,4 @@
-use super::*;
+use client_ui::ui_runtime::UiRuntime;
 
 #[test]
 fn mining_negotiation_distinguishes_false_from_unknown_and_resets_by_session() {

@@ -268,9 +268,8 @@ pub mod test_support;
 #[global_allocator]
 static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
-// Wire-layout tests live beside the codec so packet internals stay crate-private.
+// Wire suites that inspect packet internals remain unit tests.
 #[cfg(test)]
 extern crate self as protocol;
 #[cfg(test)]
-#[path = "../tests/it/main.rs"]
-mod wire_tests;
+mod tests;

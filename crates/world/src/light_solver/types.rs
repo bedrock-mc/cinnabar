@@ -103,6 +103,12 @@ impl LightBlockSample {
 pub trait LightBlockAccess {
     fn sample(&self, position: BlockPos) -> LightBlockSample;
 
+    /// Whether [`Self::sample`] at `position` is anything but [`LightBlockSample::Unknown`].
+    /// Sources that know which sections they hold answer without reading block properties.
+    fn is_known(&self, position: BlockPos) -> bool {
+        self.sample(position) != LightBlockSample::Unknown
+    }
+
     /// Explicit sky seed at this coordinate. Unknown cells are always ignored.
     fn sky_seed(&self, _position: BlockPos) -> u8 {
         0
