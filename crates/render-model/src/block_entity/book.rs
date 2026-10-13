@@ -178,7 +178,7 @@ impl EnchantingBook {
 /// How far each of the two loose pages is through its turn after `flip` page turns, from
 /// resting on the right pages (0) to resting on the left (1).
 fn page_turns(flip: f32) -> [f32; 2] {
-    [0.25, 0.75].map(|offset| ((flip + offset).fract() * 1.6 - 0.3).clamp(0.0, 1.0))
+    [0.25, 0.75].map(|offset| ((flip + offset).rem_euclid(1.0) * 1.6 - 0.3).clamp(0.0, 1.0))
 }
 
 /// The six moving parts' turn about the spine and offset, in model pixels, in the order
@@ -390,6 +390,21 @@ mod tests {
         for page in 0..2 {
             assert!(samples.iter().any(|pages| pages[page] == 0.0));
             assert!(samples.iter().any(|pages| pages[page] == 1.0));
+        }
+    }
+
+    #[test]
+    fn backward_page_turns_follow_the_same_cycle_as_forward_turns() {
+        for step in 0..100 {
+            let progress = step as f32 / 100.0;
+            let forward = page_turns(progress);
+            let backward = page_turns(progress - 4.0);
+            for (actual, expected) in backward.into_iter().zip(forward) {
+                assert!(
+                    (actual - expected).abs() < 1.0e-5,
+                    "page progress {progress}: backward {actual}, forward {expected}"
+                );
+            }
         }
     }
 

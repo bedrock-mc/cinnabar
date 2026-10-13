@@ -337,7 +337,15 @@ fn entity_lit_faces_are_culled_from_behind() {
     let light = BlockEntityLight::Actor { block: 15, sky: 15 };
     let inputs = LightmapInputs::default();
     let center = Vec3::new(0.5, 0.25, 0.5);
-    let outside = raster_from(&gpu, &assets, light, inputs, 0.0, center + Vec3::Z * 2.0, center);
+    let outside = raster_from(
+        &gpu,
+        &assets,
+        light,
+        inputs,
+        0.0,
+        center + Vec3::Z * 2.0,
+        center,
+    );
     // From inside the head every face points away, as from behind a flat entity part.
     let inside = raster_from(&gpu, &assets, light, inputs, 0.0, center, center + Vec3::Z);
     let empty = raster_from(
@@ -350,6 +358,14 @@ fn entity_lit_faces_are_culled_from_behind() {
         center + Vec3::new(0.0, 0.0, 9.0),
     );
     let pixel = center_pixel();
-    assert_ne!(outside[pixel..pixel + 4], empty[pixel..pixel + 4], "the front draws");
-    assert_eq!(inside[pixel..pixel + 4], empty[pixel..pixel + 4], "back faces are culled");
+    assert_ne!(
+        outside[pixel..pixel + 4],
+        empty[pixel..pixel + 4],
+        "the front draws"
+    );
+    assert_eq!(
+        inside[pixel..pixel + 4],
+        empty[pixel..pixel + 4],
+        "back faces are culled"
+    );
 }

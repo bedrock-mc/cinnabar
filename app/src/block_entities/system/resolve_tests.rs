@@ -200,3 +200,26 @@ fn signs_hidden_from_their_first_frame_reveal_with_resident_text() {
         "revealing rasterized no new canvas"
     );
 }
+
+#[test]
+fn hidden_enchanting_books_resume_without_restarting_their_animation() {
+    let mut visible = Fixture::new();
+    let mut occluded = Fixture::new();
+    let template = Template::EnchantTable;
+    let position = [0, 64, 0];
+    for tick in 0..=10 {
+        visible.runtime.books.begin(f64::from(tick));
+        occluded.runtime.books.begin(f64::from(tick));
+        let frame = (f64::from(tick), 0.0);
+        let expected = visible.resolve(&template, position, frame, false);
+        let hidden = tick > 0 && tick < 10;
+        let actual = occluded.resolve(&template, position, frame, hidden);
+        if hidden {
+            assert_eq!(actual, None, "hidden books submit no geometry");
+        } else {
+            assert_eq!(actual, expected, "revealing preserves completed book ticks");
+        }
+        visible.runtime.books.finish();
+        occluded.runtime.books.finish();
+    }
+}

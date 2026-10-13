@@ -426,7 +426,11 @@ mod tests {
             let v = vertex.uv[1] * 64.0;
             ((16.0..=22.0).contains(&u) || (22.0..=28.0).contains(&u)) && (0.0..=10.0).contains(&v)
         }));
-        let depths: Vec<f32> = builder.solid.iter().map(|vertex| vertex.position[2]).collect();
+        let depths: Vec<f32> = builder
+            .solid
+            .iter()
+            .map(|vertex| vertex.position[2])
+            .collect();
         assert!(depths[..6].iter().all(|z| (*z + 0.005).abs() < 1.0e-6));
         assert!(depths[6..].iter().all(|z| (*z - 0.005).abs() < 1.0e-6));
     }

@@ -754,7 +754,7 @@ fn map_canvas(pixels: &[u32]) -> Vec<u8> {
 }
 
 /// Applies per-frame state (lid openness, sign canvases, viewer yaw) to a template; a `hidden`
-/// one still advances its lid, ring and map request and keeps its text and map canvases
+/// one still advances its book, lid, ring and map request and keeps its text and map canvases
 /// resident, but prepares no geometry.
 fn resolve(
     template: &Template,
@@ -772,6 +772,7 @@ fn resolve(
             | Template::Bell { .. }
             | Template::ItemFrame { .. }
             | Template::Sign { .. }
+            | Template::EnchantTable
     );
     if hidden && !stateful {
         return None;
@@ -807,9 +808,10 @@ fn resolve(
             );
             (!hidden).then_some(BlockEntityKind::Shulker(model))
         }
-        Template::EnchantTable => Some(BlockEntityKind::EnchantTable {
-            book: runtime.books.advance(position, context.readers),
-        }),
+        Template::EnchantTable => {
+            let book = runtime.books.advance(position, context.readers);
+            (!hidden).then_some(BlockEntityKind::EnchantTable { book })
+        }
         &Template::Conduit { active, hunting } => Some(BlockEntityKind::Conduit(ConduitModel {
             active,
             hunting,
