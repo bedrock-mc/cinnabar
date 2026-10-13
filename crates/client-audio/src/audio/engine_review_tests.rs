@@ -1,6 +1,7 @@
 use super::tests::engine;
 use super::*;
 
+use assets::audio_category::AudioCategory;
 #[test]
 fn review_replacing_a_loop_discards_its_pending_start() {
     let mut engine = engine(&[("loop.a", "ambient"), ("loop.b", "ambient")]);

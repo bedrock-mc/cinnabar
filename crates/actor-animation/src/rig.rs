@@ -57,6 +57,8 @@ pub struct ActorRigSnapshot<'a> {
     pub skin_layers: &'a [SkinRenderLayer],
     /// Swing and equip progress at the previous and current completed tick.
     pub hand: [HandPhase; 2],
+    /// Main-hand item retained until the native equip motion reaches its low point.
+    pub main_hand_equipped: Option<&'a str>,
     /// Previous/current fixed-tick item animation, independent of the avatar skeleton.
     pub item_animation: [ItemAnimationState; 2],
     /// Independent previous/current offhand equip progress; no main-hand attack swing.

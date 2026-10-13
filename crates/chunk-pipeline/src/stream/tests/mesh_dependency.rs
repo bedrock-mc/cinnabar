@@ -12,7 +12,7 @@ fn stream() -> WorldStream {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     })
 }
@@ -380,6 +380,38 @@ fn stale_mask_rejection() {
         current,
         MeshDependencyMask::new(false, true),
     ));
+}
+
+/// Queued neighbour work preserves dependency facts, while source and asset replacements expire them.
+#[test]
+fn dependency_masks_follow_blocks_and_assets_instead_of_mesh_revisions() {
+    let mut stream = stream();
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    stream
+        .authority
+        .commit_sub_chunk(key, super::uniform_sub_chunk(7))
+        .unwrap();
+    stream.sync_resident(key);
+    let now = test_time::ManualClock::new().now();
+    let generation = stream.mark_dirty_exact(key, now);
+    let mask = MeshDependencyMask::default();
+    assert!(stream.register_mesh_dependency_mask(key, generation, mask));
+    stream.mesh_jobs.clear_queued();
+    stream.mark_changed(SubChunkKey::new(0, 1, 0, 0), now);
+    assert_ne!(stream.revisions.dirty(key).unwrap().revision, generation);
+    assert_eq!(stream.current_mesh_dependency_mask(key), Some(mask));
+
+    stream
+        .authority
+        .commit_sub_chunk(key, super::uniform_sub_chunk(8))
+        .unwrap();
+    assert_eq!(stream.current_mesh_dependency_mask(key), None);
+    let generation = stream.revisions.dirty(key).unwrap().revision;
+    assert!(stream.register_mesh_dependency_mask(key, generation, mask));
+    let old_assets = std::sync::Arc::downgrade(stream.authority.runtime_assets());
+    stream.reload_resource_assets(std::sync::Arc::new(assets::RuntimeAssets::diagnostic()));
+    assert_eq!(stream.current_mesh_dependency_mask(key), None);
+    assert!(old_assets.upgrade().is_none());
 }
 
 #[test]

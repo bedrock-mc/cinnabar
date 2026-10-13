@@ -19,6 +19,7 @@ thiserror.workspace = true
 world = { path = "../world" }
 
 [dev-dependencies]
+protocol-ids = { path = "../protocol-ids" }
 render-model = { path = "../render-model" }
 test-alloc = { path = "../test-alloc" }
 actor-animation = { path = "../actor-animation", features = ["test-support"] }

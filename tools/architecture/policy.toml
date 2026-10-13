@@ -50,9 +50,15 @@ allowed_dependencies = ["test-time"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
+name = "protocol-ids"
+path = "crates/protocol-ids"
+allowed_dependencies = []
+dependency_free = true
+
+[[crates]]
 name = "protocol"
 path = "crates/protocol"
-allowed_dependencies = ["simulation-clock", "block-transform", "bridge", "render-api", "test-time"]
+allowed_dependencies = ["simulation-clock", "block-transform", "bridge", "render-api", "test-time", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 test_support_features = ["test-support"]
 
@@ -79,9 +85,9 @@ forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 [[crates]]
 name = "assets"
 path = "crates/assets"
-allowed_dependencies = ["env-compat", "block-transform"]
+allowed_dependencies = ["env-compat", "block-transform", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler", "bevy", "clap", "image", "wgpu", "diagnostics", "pack-runtime", "render", "render-model"]
-forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu"]
+forbidden_transitive_dependencies = ["protocol", "tokio", "bevy", "bevy_*", "wgpu"]
 test_support_features = ["test-support"]
 
 [[crates]]
@@ -114,7 +120,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-world"
 path = "crates/client-world"
-allowed_dependencies = ["simulation-clock", "actor-animation", "render-api", "render-model", "assets", "protocol", "world", "test-time"]
+allowed_dependencies = ["simulation-clock", "actor-animation", "render-api", "render-model", "assets", "protocol", "world", "test-time", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "chunk-pipeline", "meshing", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "chunk-pipeline", "meshing", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
 
@@ -158,7 +164,7 @@ test_support_features = ["test-support"]
 name = "chunk-pipeline"
 path = "crates/chunk-pipeline"
 test_support_features = ["publication-test-support", "benchmark-support", "runtime-profile", "benchmark-mimalloc"]
-allowed_dependencies = ["simulation-clock", "actor-animation", "client-world", "meshing", "assets", "world", "render-api", "test-time"]
+allowed_dependencies = ["simulation-clock", "actor-animation", "client-world", "meshing", "assets", "world", "render-api", "test-time", "protocol-ids"]
 # Protocol is permitted only in fixtures; production consumes client-world's admitted contracts.
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "protocol", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
@@ -166,7 +172,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "pack-
 [[crates]]
 name = "inventory"
 path = "crates/inventory"
-allowed_dependencies = ["simulation-clock", "assets", "protocol"]
+allowed_dependencies = ["simulation-clock", "assets", "protocol", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*", "client-world", "world"]
 
@@ -180,14 +186,14 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "launcher", "client-ui",
 [[crates]]
 name = "gameplay"
 path = "crates/gameplay"
-allowed_dependencies = ["env-compat", "simulation-clock", "actor-animation", "assets", "block-transform", "client-world", "inventory", "player-state", "protocol", "render-api", "semantic-input", "sim", "world"]
+allowed_dependencies = ["env-compat", "simulation-clock", "actor-animation", "assets", "block-transform", "client-world", "inventory", "player-state", "protocol", "render-api", "semantic-input", "sim", "world", "protocol-ids"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-session", "client-presentation", "acceptance", "launcher", "client-ui", "chunk-pipeline", "ui", "json-ui", "render", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
 [[crates]]
 name = "client-session"
 path = "crates/client-session"
-allowed_dependencies = ["simulation-clock", "bridge", "protocol", "server-experience", "world"]
+allowed_dependencies = ["simulation-clock", "bridge", "protocol", "server-experience", "world", "protocol-ids"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-presentation", "acceptance", "launcher", "client-ui", "client-world", "chunk-pipeline", "inventory", "player-state", "semantic-input", "ui", "json-ui", "render", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "pack-runtime", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
@@ -221,7 +227,7 @@ contract_only = true
 [[crates]]
 name = "client-runtime"
 path = "crates/client-runtime"
-allowed_dependencies = ["env-compat", "bridge", "chunk-pipeline", "client-session", "client-state", "client-ui", "client-world", "diagnostics", "launcher-host", "meshing", "pack-runtime", "protocol", "render", "render-api", "render-scene", "simulation-clock"]
+allowed_dependencies = ["env-compat", "bridge", "chunk-pipeline", "client-session", "client-state", "client-ui", "client-world", "diagnostics", "launcher-host", "meshing", "pack-runtime", "protocol", "render", "render-api", "render-scene", "simulation-clock", "protocol-ids"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-presentation", "client-audio", "client-interaction", "client-shell", "client-extensions", "acceptance", "asset-compiler"]
 test_support_features = ["test-support"]
 
@@ -236,7 +242,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "client-runtime", "clien
 name = "client-ui"
 path = "crates/client-ui"
 # Extension edges support presentation adapters; render data comes from render-model, never render.
-allowed_dependencies = ["pack-json", "env-compat", "simulation-clock", "actor-animation", "launcher-host", "bridge", "assets", "chunk-pipeline", "client-world", "player-state", "launcher", "inventory", "json-ui", "oreui", "protocol", "render-api", "render-model", "resource-pack", "semantic-input", "ui", "ui-engine", "ui-screens", "mod-ui", "world", "mod-host", "server-experience", "test-time"]
+allowed_dependencies = ["pack-json", "env-compat", "simulation-clock", "actor-animation", "launcher-host", "bridge", "assets", "chunk-pipeline", "client-world", "player-state", "launcher", "inventory", "json-ui", "oreui", "protocol", "render-api", "render-model", "resource-pack", "semantic-input", "ui", "ui-engine", "ui-screens", "mod-ui", "world", "mod-host", "server-experience", "test-time", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
@@ -245,7 +251,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-interaction"
 path = "crates/client-interaction"
-allowed_dependencies = ["simulation-clock", "actor-animation", "assets", "chunk-pipeline", "client-audio", "client-presentation", "client-state", "client-ui", "client-world", "diagnostics", "gameplay", "inventory", "player-state", "protocol", "semantic-input", "sim", "ui", "world"]
+allowed_dependencies = ["simulation-clock", "actor-animation", "assets", "chunk-pipeline", "client-audio", "client-presentation", "client-state", "client-ui", "client-world", "diagnostics", "gameplay", "inventory", "player-state", "protocol", "semantic-input", "sim", "ui", "world", "protocol-ids"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-runtime", "client-shell", "client-extensions", "acceptance", "client-session", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "pack-runtime"]
 test_support_features = ["test-support"]
 
@@ -253,7 +259,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-presentation"
 path = "crates/client-presentation"
-allowed_dependencies = ["simulation-clock", "actor-animation", "assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "launcher", "player-state", "protocol", "render-scene", "render-api", "render-model", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing", "test-time"]
+allowed_dependencies = ["simulation-clock", "actor-animation", "assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "launcher", "player-state", "protocol", "render-scene", "render-api", "render-model", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing", "test-time", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler"]
 forbidden_transitive_dependencies = ["render", "app", "cinnabar", "gameplay", "client-session", "acceptance", "asset-compiler", "client-audio"]
 test_support_features = ["test-support"]
@@ -262,7 +268,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-audio"
 path = "crates/client-audio"
-allowed_dependencies = ["pack-json", "simulation-clock", "actor-animation", "assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "particles", "player-state", "protocol", "resource-pack", "server-experience", "sim", "world", "test-time"]
+allowed_dependencies = ["pack-json", "simulation-clock", "actor-animation", "assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "particles", "player-state", "protocol", "resource-pack", "server-experience", "sim", "world", "test-time", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "client-presentation", "render"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "acceptance", "client-presentation", "render", "asset-compiler"]
 test_support_features = ["test-support"]
@@ -353,7 +359,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["pack-json", "env-compat", "simulation-clock", "actor-animation", "render-scene", "client-shell", "client-interaction", "client-runtime", "client-extensions", "client-state", "first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mimalloc", "mod-host", "objc2", "objc2-app-kit", "objc2-foundation", "objc2-quartz-core", "oreui", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "ui-engine", "ui-screens", "mod-ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio"]
+allowed_dependencies = ["pack-json", "env-compat", "simulation-clock", "actor-animation", "render-scene", "client-shell", "client-interaction", "client-runtime", "client-extensions", "client-state", "first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mimalloc", "mod-host", "objc2", "objc2-app-kit", "objc2-foundation", "objc2-quartz-core", "oreui", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "ui-engine", "ui-screens", "mod-ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -519,7 +525,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "jsonui-editor"
 path = "tools/jsonui-editor"
-allowed_dependencies = ["assets", "json-ui", "ui", "ui-engine"]
+allowed_dependencies = ["assets", "json-ui", "render-api", "render-model", "ui", "ui-engine"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
@@ -527,6 +533,12 @@ name = "jsonui-mcp"
 path = "tools/jsonui-mcp"
 allowed_dependencies = ["json-ui", "jsonui-editor", "mcp-stdio"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[crates]]
+name = "ui-snapshot"
+path = "tools/ui-snapshot"
+allowed_dependencies = ["assets", "json-ui", "jsonui-editor", "launcher", "oreui", "ui", "ui-engine", "ui-screens"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
 name = "mcp-stdio"
@@ -1187,7 +1199,7 @@ exports = [
 [[crates]]
 name = "launcher-host"
 path = "crates/launcher-host"
-allowed_dependencies = ["bridge", "launcher", "protocol", "server-experience", "test-time", "update-manifest", "update-installer"]
+allowed_dependencies = ["bridge", "launcher", "protocol", "resource-pack", "server-experience", "test-time", "update-manifest", "update-installer"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 

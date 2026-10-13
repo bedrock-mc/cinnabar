@@ -396,6 +396,11 @@ fn biome_records(c: &mut Criterion) {
     );
     let record = PackedBiomeRecord::from_neighbourhood(&boundary, |id| id);
     assert_eq!(record.uniform_tint_index(), None);
+    eprintln!(
+        "BIOME_RECORD boundary_bytes={} uniform_bytes={}",
+        record.byte_len(),
+        (meshing::biome_lattice::DESCRIPTOR_WORDS + 2) * size_of::<u32>()
+    );
     for dz in -1_i8..=1 {
         for dx in -1_i8..=1 {
             let coordinate = [

@@ -39,6 +39,7 @@ world = { path = "../world" }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 [dev-dependencies]
+protocol-ids = { path = "../protocol-ids" }
 test-alloc = { path = "../test-alloc" }
 test-time = { path = "../test-time" }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }

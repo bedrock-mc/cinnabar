@@ -1,116 +1,33 @@
-//! Reset groups follow the controls authored in general_section.json.
+//! Reset membership belongs to each registered setting.
 
-use super::{
-    INVERT_CROSSHAIR_OPTION, SETTINGS_OPTIONS, SMAA_OPTION, SettingsOptions,
-    THIRD_PERSON_CROSSHAIR_OPTION,
-};
+use super::{SETTINGS_OPTIONS, SettingId, SettingsOptions};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SettingsGroup {
     Video,
     Accessibility,
     Audio,
+    Chat,
 }
 
 impl SettingsGroup {
-    /// Limits resets to registered controls in the authored section, including shared controls.
-    fn contains(self, name: &str) -> bool {
-        if self == Self::Video
-            && [
-                THIRD_PERSON_CROSSHAIR_OPTION,
-                INVERT_CROSSHAIR_OPTION,
-                super::MOTION_BLUR_OPTION,
-                super::CHAT_POSITION_OPTION,
-                SMAA_OPTION,
-                super::VRR_OPTION,
-                super::NATIVE_SKYBOX_OFFSET_OPTION,
-            ]
+    /// Returns the settings restored by this group, in registry order.
+    pub fn options(self) -> impl Iterator<Item = &'static super::SettingDefinition> {
+        SETTINGS_OPTIONS
             .iter()
-            .any(|option| option.name == name)
-        {
-            return true;
-        }
-        match self {
-            // P:general_section.json:3000–4058; max_framerate is an inherited slider.
-            Self::Video => matches!(
-                name,
-                "graphics_mode"
-                    | "render_distance"
-                    | "gamma"
-                    | "third_person"
-                    | "full_screen"
-                    | "hide_hand"
-                    | "hide_paperdoll"
-                    | "hide_hud"
-                    | "screen_animations"
-                    | "panorama_speed"
-                    | "interface_opacity"
-                    | super::SHOW_EXACT_SERVER_PING
-                    | super::OREUI_DARK_MODE
-                    | "field_of_view"
-                    | "show_auto_save_icon"
-                    | "classic_box_selection"
-                    | "ingame_player_names"
-                    | "view_bobbing"
-                    | "animations"
-                    | "discord_presence"
-                    | "camera_shake"
-                    | "transparent_leaves"
-                    | "bubble_particles"
-                    | "render_clouds"
-                    | "fancy_skies"
-                    | "smooth_lighting"
-                    | "field_of_view_toggle"
-                    | "damage_bob"
-                    | "gui_scale"
-                    | "gui_accessibility_scaling"
-                    | "max_framerate"
-                    | "vsync"
-                    | "msaa"
-            ),
-            // P:general_section.json:4738–5158.
-            Self::Accessibility => matches!(
-                name,
-                "enable_gameplay_subtitles"
-                    | "hide_own_gameplay_subtitles"
-                    | "hide_ambient_gameplay_subtitles"
-                    | "enable_ui_text_to_speech"
-                    | "enable_chat_text_to_speech"
-                    | "texttospeech_volume"
-                    | "enable_open_chat_message"
-                    | "hud_text_background_opacity"
-                    | "chat_background_opacity"
-                    | "actionbar_text_background_opacity"
-                    | "camera_shake"
-                    | "hide_endflash"
-                    | "enable_dithering_blocks"
-                    | "enable_dithering_mobs"
-                    | "darkness"
-                    | "screen_distortion"
-                    | "glint_strength"
-                    | "glint_speed"
-                    | "toast_notification_duration"
-                    | "chat_message_duration"
-                    | "gui_scale"
-                    | "gui_accessibility_scaling"
-            ),
-            // P:general_section.json:5174–5506; mixer bindings have one shared registry.
-            Self::Audio => super::VOLUME_SETTINGS.contains(&name),
-        }
+            .filter(move |option| option.reset_group.contains(&self))
     }
 }
 
 impl SettingsOptions {
-    /// Resets only one section to registry defaults, preserving bindings and other sections.
+    /// Restores one group's defaults without changing bindings or unrelated settings.
     pub fn reset_group(&mut self, group: SettingsGroup) -> bool {
         let mut changed = false;
-        for (index, option) in SETTINGS_OPTIONS.iter().enumerate() {
-            if group.contains(option.name) {
-                if option.name == "render_distance" {
-                    changed |= self.values.remove(option.name).is_some();
-                } else {
-                    changed |= self.set(index, option.default);
-                }
+        for option in group.options() {
+            if option.id == SettingId::RenderDistance {
+                changed |= self.values.remove(option.name).is_some();
+            } else {
+                changed |= self.set(option.id.index(), option.default);
             }
         }
         changed
@@ -122,10 +39,10 @@ mod tests {
     use super::*;
 
     /// Changes a registry option without introducing another copy of its default.
-    fn change(options: &mut SettingsOptions, name: &str) -> i32 {
+    fn change(options: &mut SettingsOptions, id: SettingId) -> i32 {
         let index = SETTINGS_OPTIONS
             .iter()
-            .position(|option| option.name == name)
+            .position(|option| option.id == id)
             .unwrap();
         let option = SETTINGS_OPTIONS[index];
         let value = if option.default == option.min {
@@ -140,16 +57,20 @@ mod tests {
     #[test]
     fn section_reset_restores_defaults_and_preserves_unrelated_settings() {
         for (group, member, unrelated) in [
-            (SettingsGroup::Video, "field_of_view", "main_volume"),
+            (
+                SettingsGroup::Video,
+                SettingId::FieldOfView,
+                SettingId::MainVolume,
+            ),
             (
                 SettingsGroup::Accessibility,
-                "chat_background_opacity",
-                "field_of_view",
+                SettingId::ChatBackgroundOpacity,
+                SettingId::FieldOfView,
             ),
             (
                 SettingsGroup::Audio,
-                "main_volume",
-                "chat_background_opacity",
+                SettingId::MainVolume,
+                SettingId::ChatBackgroundOpacity,
             ),
         ] {
             let mut options = SettingsOptions::default();
@@ -159,7 +80,7 @@ mod tests {
             assert!(options.reset_group(group));
             let default = SETTINGS_OPTIONS
                 .iter()
-                .find(|option| option.name == member)
+                .find(|option| option.id == member)
                 .unwrap()
                 .default;
             assert_eq!(options.value(member), default);

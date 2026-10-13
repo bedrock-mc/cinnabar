@@ -48,6 +48,8 @@ mod overlay_tests;
 mod personal;
 mod queue;
 mod quick_move;
+#[cfg(test)]
+mod quick_move_role_tests;
 mod registry;
 #[cfg(test)]
 mod request_tests;
@@ -92,10 +94,10 @@ const MAX_PENDING_CLOSES: usize = 8;
 /// The decoded generic-storage container name
 /// (`protocol::CONTAINER_NAME_LEVEL_ENTITY`).
 pub const GENERIC_STORAGE_SLOT_TYPE: u8 = protocol::CONTAINER_NAME_LEVEL_ENTITY;
-pub const GENERIC_STORAGE_WINDOW_TYPE: i8 = 0;
+pub const GENERIC_STORAGE_WINDOW_TYPE: i8 = protocol_ids::WindowType::Container.wire_value();
 /// The crafting-table window; its 3x3 grid lives in UI slots 32..=40.
-pub const WORKBENCH_WINDOW_TYPE: i8 = 1;
-pub const PERSONAL_INVENTORY_WINDOW_TYPE: i8 = -1;
+pub const WORKBENCH_WINDOW_TYPE: i8 = protocol_ids::WindowType::Workbench.wire_value();
+pub const PERSONAL_INVENTORY_WINDOW_TYPE: i8 = protocol_ids::WindowType::Inventory.wire_value();
 pub const SMALL_STORAGE_SLOT_COUNT: usize = 27;
 pub const LARGE_STORAGE_SLOT_COUNT: usize = 54;
 /// Maximum opt-in storage-content identity diagnostics emitted per ledger
@@ -195,6 +197,8 @@ pub enum InventoryGestureError {
     ResyncRequired,
     #[error("the retained inventory request is invalid")]
     InvalidRequest,
+    #[error("the equipment slot does not accept this item")]
+    EquipmentRefused,
 }
 
 #[derive(Debug, Clone)]
@@ -224,6 +228,8 @@ pub struct PlayerInventoryLedger {
     session_generation: u64,
     next_open_generation: u64,
     personal: Option<PersonalWindow>,
+    /// Unanswered personal controls retained for correlation without owning inventory cells.
+    expired_personal: Option<PersonalWindow>,
     personal_lifecycle_failed: bool,
     /// An open press made while a close is unsent or unacknowledged; opens once it settles.
     held_open: Option<u64>,
@@ -270,6 +276,7 @@ impl Default for PlayerInventoryLedger {
             session_generation: 0,
             next_open_generation: 1,
             personal: None,
+            expired_personal: None,
             personal_lifecycle_failed: false,
             held_open: None,
             settling: VecDeque::new(),
@@ -607,11 +614,13 @@ impl PlayerInventoryLedger {
             if let Some(generation) = close.owner.personal_generation()
                 && let Some(PersonalWindow::Closing {
                     generation: current,
+                    admitted,
                     deadline_millis,
                     ..
-                }) = self.personal.as_mut()
+                }) = self.personal_lifecycle_mut()
                 && *current == generation
             {
+                *admitted = true;
                 *deadline_millis =
                     Some(now_millis.saturating_add(INVENTORY_REQUEST_TIMEOUT_MILLIS));
             }
@@ -700,46 +709,10 @@ impl PlayerInventoryLedger {
             || self.settled_close_index().is_some()
     }
 
-    /// Tests the personal window's existing admitted deadline without mutating it.
-    fn personal_timeout_due(&self, now_millis: u64) -> bool {
-        match self.personal {
-            Some(
-                PersonalWindow::Opening {
-                    admitted: true,
-                    deadline_millis: Some(deadline),
-                    ..
-                }
-                | PersonalWindow::Closing {
-                    deadline_millis: Some(deadline),
-                    ..
-                },
-            ) => now_millis >= deadline,
-            _ => false,
-        }
-    }
-
-    fn poll_personal_timeout(&mut self, now_millis: u64) -> bool {
-        if !self.personal_timeout_due(now_millis) {
-            return false;
-        }
-        let personal = self
-            .personal
-            .expect("an expired personal window was observed");
-        let generation = personal.generation();
-        self.pending_closes
-            .retain(|close| close.owner.personal_generation() != Some(generation));
-        self.abandon_requests(|pending| pending.personal_generation == Some(generation));
-        self.personal = None;
-        self.personal_lifecycle_failed = true;
-        self.held_open = None;
-        self.drop_confirmed_cursor();
-        self.refold();
-        true
-    }
-
     pub fn transport_closed(&mut self) {
         self.pending_closes.clear();
         self.personal = None;
+        self.expired_personal = None;
         self.held_open = None;
         self.settling.clear();
         self.abandon_requests(|_| true);
@@ -933,7 +906,7 @@ impl PlayerInventoryLedger {
             return;
         }
         if self.pending_closes.len() >= MAX_PENDING_CLOSES {
-            let current_personal = self.personal.as_ref().map(PersonalWindow::generation);
+            let current_personal = self.personal_lifecycle().map(PersonalWindow::generation);
             // Old cleanup and storage closes describe superseded server
             // windows. Evict the oldest such control, but preserve the close
             // that owns the still-current personal generation.

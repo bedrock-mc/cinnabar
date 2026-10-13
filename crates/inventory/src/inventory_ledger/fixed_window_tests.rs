@@ -102,11 +102,29 @@ fn captured_take_response_corrects_inventory_and_cursor_cells() {
     assert!(!ledger.resync_required());
 }
 
+/// Registers the stack helper's item as the stock item `identifier`.
+fn registry(identifier: &str) -> protocol::ItemRegistryEvent {
+    protocol::ItemRegistryEvent {
+        entries: Arc::from([protocol::ItemRegistryEntry {
+            identifier: Arc::from(identifier),
+            network_id: 6,
+            component_based: false,
+            version: protocol::ItemRegistryVersion::None,
+            components: None,
+            component_digest: [0; 32],
+            negotiated_max_stack_size: None,
+            canonical_empty_component_data: true,
+            item_tags: Arc::from([]),
+        }]),
+    }
+}
+
 /// Offhand content lands at index 0, requests address wire slot 1, and the
 /// response echo of slot 1 reconciles the same cell.
 #[test]
 fn offhand_place_uses_wire_slot_one_end_to_end() {
     let mut ledger = open_ledger(14, stack(493, 1));
+    ledger.apply_registry(&registry("minecraft:shield"));
     ledger.apply(&content(
         ContainerIdentity::window(OFFHAND_WINDOW_ID),
         vec![NetworkItemStack::default()],
@@ -135,6 +153,100 @@ fn offhand_place_uses_wire_slot_one_end_to_end() {
     assert_eq!(offhand.stack_network_id, 494);
     assert!(ledger.cursor_stack().is_none());
     assert!(!ledger.resync_required());
+}
+
+/// Opens a personal screen holding `count` of `identifier` in slot 14, with
+/// empty armor and offhand cells.
+fn equipment_ledger(identifier: &str, count: u16) -> PlayerInventoryLedger {
+    let mut ledger = open_ledger(14, stack(493, count));
+    ledger.apply_registry(&registry(identifier));
+    ledger.apply(&content(
+        ContainerIdentity::window(OFFHAND_WINDOW_ID),
+        vec![NetworkItemStack::default()],
+    ));
+    ledger.apply(&content(
+        ContainerIdentity::window(protocol::ARMOR_WINDOW_ID),
+        vec![NetworkItemStack::default(); 4],
+    ));
+    ledger
+}
+
+#[test]
+fn equipment_cells_refuse_items_they_do_not_admit() {
+    let mut ledger = equipment_ledger("minecraft:dirt", 5);
+    ledger.begin_click(14).unwrap();
+    let queued = ledger.pending_request_count();
+    for target in [InventoryTarget::Offhand, InventoryTarget::Armor(0)] {
+        for gesture in [CellGesture::Click, CellGesture::PlaceCount(1)] {
+            assert_eq!(
+                ledger.begin_target_gesture(target, gesture),
+                Err(InventoryGestureError::EquipmentRefused)
+            );
+        }
+    }
+    assert_eq!(ledger.pending_request_count(), queued);
+    assert_eq!(ledger.cursor_stack().unwrap().count, 5);
+    assert!(ledger.target_stack(InventoryTarget::Offhand).is_none());
+    assert!(ledger.target_stack(InventoryTarget::Armor(0)).is_none());
+}
+
+#[test]
+fn hotbar_key_refuses_moving_a_foreign_item_into_armor() {
+    let mut ledger = open_ledger(4, stack(493, 5));
+    ledger.apply_registry(&registry("minecraft:dirt"));
+    ledger.apply(&content(
+        ContainerIdentity::window(protocol::ARMOR_WINDOW_ID),
+        vec![NetworkItemStack::default(); 4],
+    ));
+    assert_eq!(
+        ledger.begin_hotbar_swap(InventoryTarget::Armor(3), 4),
+        Err(InventoryGestureError::EquipmentRefused)
+    );
+    assert_eq!(ledger.displayed_stack(4).unwrap().count, 5);
+}
+
+#[test]
+fn foreign_items_already_in_equipment_can_be_taken_out() {
+    let mut ledger = equipment_ledger("minecraft:dirt", 5);
+    ledger.apply(&content(
+        ContainerIdentity::window(protocol::ARMOR_WINDOW_ID),
+        vec![
+            stack(600, 1),
+            NetworkItemStack::default(),
+            NetworkItemStack::default(),
+            NetworkItemStack::default(),
+        ],
+    ));
+    ledger
+        .begin_target_gesture(InventoryTarget::Armor(0), CellGesture::Click)
+        .unwrap();
+    assert!(ledger.target_stack(InventoryTarget::Armor(0)).is_none());
+    let Some(StackRequestAction::Take { source, .. }) = ledger.newest_action() else {
+        panic!("taking out of the helmet cell");
+    };
+    assert_eq!(source.stack_network_id, 600);
+    assert!(ledger.cursor_stack().is_some());
+}
+
+#[test]
+fn admitted_head_items_fill_the_helmet_cell_one_at_a_time() {
+    let mut ledger = equipment_ledger("minecraft:carved_pumpkin", 5);
+    ledger.begin_click(14).unwrap();
+    ledger
+        .begin_target_gesture(InventoryTarget::Armor(0), CellGesture::Click)
+        .unwrap();
+    assert_eq!(
+        ledger
+            .target_stack(InventoryTarget::Armor(0))
+            .unwrap()
+            .count,
+        1
+    );
+    assert_eq!(ledger.cursor_stack().unwrap().count, 4);
+    assert_eq!(
+        ledger.begin_target_gesture(InventoryTarget::Armor(1), CellGesture::Click),
+        Err(InventoryGestureError::EquipmentRefused)
+    );
 }
 
 /// Armor content and slot updates are retained, including the body slot.

@@ -8,7 +8,7 @@ fn player_and_visible_retries_precede_far_initial_prefetch_without_losing_fifo_t
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
         world_spawn_position: [0, 70, 0],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream.poll([0.5, 70.0, 0.5], 0);
@@ -76,7 +76,7 @@ fn request_priority_uses_last_finite_polled_player_chunk_and_horizontal_distance
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
         world_spawn_position: [0, 70, 0],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream.poll([0.5, 70.0, 0.5], 0);
@@ -111,7 +111,7 @@ fn restoring_unsent_request_preserves_original_fifo_tie_identity() {
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
         world_spawn_position: [0, 70, 0],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream.poll([0.5, 70.0, 0.5], 0);
@@ -149,13 +149,17 @@ fn permit_denied_mesh_publishes_from_staging_without_a_second_mesh_job() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 0, -4, 0);
     stream
         .authority
-        .update_block(key, BlockUpdate::new(0, 0, 0, 0, 99), 12_530)
+        .update_block(
+            key,
+            BlockUpdate::new(0, 0, 0, 0, 99),
+            protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+        )
         .unwrap();
     stream.resident.insert(key);
     stream.mark_light_changed_sources([key]);

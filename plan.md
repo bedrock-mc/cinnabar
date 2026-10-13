@@ -426,8 +426,16 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   visual extension; classic Bedrock has no motion blur. Gameplay and network state do not change.
 - Depth reprojection blurs camera rotation/translation before nametags, projected UI, hands and HUD.
   Exposure uses elapsed frame time; explicit reanchors suppress the discontinuity frame.
-- Per-object blur remains incomplete and needs motion vectors from every world renderer.
-  Hardware GPU cost and frame-budget acceptance remain unmeasured; no performance gate closes.
+  Spatial anti-aliasing follows exposure so filtered silhouette colour retains the actor's sharp edge.
+- Depth-writing actors retain their previous rendered root and interpolated bone pose for object
+  exposure. Actor texels establish visible motion footprints in the background while
+  retaining stationary actor edges and nearer occluders. The motion pass preserves camera depth ranges.
+  Mixed MSAA texels with nearer non-actor samples retain their resolved colour at the source;
+  separating the actor's colour for exposure remains incomplete.
+- Per-object blur remains incomplete for blended actors and other world renderers. Hidden background
+  reconstruction, competing object velocities in a search neighbourhood, and matched flight acceptance
+  remain open. Enabled views retain a reduced actor velocity target. Hardware GPU cost and frame-budget
+  acceptance remain unmeasured; no performance gate closes.
 
 ## Item frames
 
@@ -806,6 +814,10 @@ acceptance gate.
   profile takes precedence for view bob, hurt/death motion and glint. Third person: Java's
   biped pose, body yaw, limb swing with the hurt flail, held-item grips, the cape's chasing
   swing and the sneak drops; armour flashes red, held items do not.
+- Local eating and bow draw pair gameplay use ticks with the physics frame fraction;
+  bow artwork reads the same counter. Regression coverage checks frames between ticks,
+  differing actor fractions, stopping use and retained items. Compilation, test execution
+  and rendered motion validation for this correction remain incomplete.
 - Every hurt event immediately resets the limb boost, including consecutive hits; movement
   still contributes to the phase, and death alone does not trigger a flail.
   Fourteen focused hurt tests pass. macOS/Metal captures at 1920×1080, DPI 1, GUI scale 2
@@ -1291,6 +1303,10 @@ acceptance gate.
 - Criterion exercises production palette/column decode, light solves, cube/biome
   meshing, bounded ingress-to-CPU-publication bursts, idle polls and metadata scans.
 - Fixtures validate decoded cells, lighting, exposed faces and drained stream state.
+- Biome lattices pack u16 tint indices and integer sample counts into four words per
+  point, retaining full-width indices when needed. Record reuse is bounded and scoped
+  to immutable biome, tint, pack and dimension sources. CPU and shader oracles compare
+  decoded weights and colours with the original nine-word representation.
   Benchmark fixtures run on the pinned toolchain without local carriers.
 - The largest fixture stores 871 sections in 218 target columns, with preloaded
   implicit-air neighbours. It is synthetic, not a replay of the reported FPS drop.
@@ -1628,6 +1644,11 @@ walking endpoints, including persona layers, and sampled spear poses complete
 their generated inputs before selection and channel evaluation.
 CI execution and rendered acceptance remain pending; broader motion-query parity
 and interpolation mixed with active camera clips remain incomplete.
+
+Player head and body turns no longer start or restart the native walk cycle.
+Native and Java 1.7 player walking targets use horizontal position changes and
+keep their existing easing after movement stops. Rendered acceptance and native
+player-turn parity remain incomplete.
 
 2026-10-04 user-requested custom emotes — **Incomplete native/Lunar parity**:
 the native four-slot JSON-UI wheel and remappable emote control select an original,
@@ -2887,8 +2908,12 @@ Personal inventory quick move equips stock totems into an available offhand cell
 before moving them between the hotbar and main inventory. Explicit item offhand
 permissions override stock defaults; offhand wearable declarations admit that cell.
 Occupied equipment falls back to inventory, open storage keeps its own route, and
-rejected requests restore the authoritative source. Broader stock equipment defaults
-and unsupported custom wearable declarations remain incomplete.
+rejected requests restore the authoritative source. Clicks, counted places and
+hotbar keys refuse to move an item into an armor or offhand cell that does not admit
+it, and fill armor cells one item at a time; taking any item out stays allowed. The
+stock head-block and offhand tables (arrows, fireworks, maps, nautilus shells,
+shields, totems) are provisional and still need vanilla evidence; they and
+unsupported custom wearable declarations remain incomplete.
 
 2026-10-01 inventory reconciliation: the current native sparse-container audit
 replaces delta replay over mutable backing truth with absolute request-owned cell
@@ -8380,6 +8405,7 @@ performance parity remain incomplete.
 ## Compiled item armour
 
 - Protection and player slots live in the entity carrier; HUD capture reads numeric registry facts resolved at admission. Server wearable components replace protection without per-frame parsing.
+- Inventory quick moves use the pinned armour table and shared head identities. Loom banners, smithing inputs and horse armour accept negotiated item tags with pinned membership as a fallback. Registry resends retire pending quick moves whose input role changed. Custom head items follow their declared wearable slot. Request-target regression coverage uses the retail registry and admitted server declarations. Local execution and rendered acceptance remain incomplete.
 - Incomplete: the full armour identifier/class inventory, missing-member defaults, body slots and later component versions still need parity verification. Unverified items and malformed declarations retain explicit unresolved facts.
 
 Effective item durability is shared through required entity-carrier descriptors and session registry admission. Unknown entries and invalid declared maxima stay unresolved; UI and elytra gameplay read the admitted numeric-ID fact. This gate remains incomplete: the full damageable item inventory, native class bindings, numeric component bounds and all network replacement behavior still need verification. The pinned base table preserves the existing positive values and its coverage guard checks their membership in the independent retail inventory.
@@ -8394,6 +8420,11 @@ still admits them through their collision box or server hitboxes, while aim assi
 them. Empty advertised bases retain an explicit provisional generic-mob disposition. Complete native constructor,
 mutable component, spectator pick/obstruction and class inventories are still open;
 the generic-mob disposition remains provisional and does not close a parity gate.
+
+Committed asset tables are checked against pinned block, item, actor and pack-name
+vocabularies. Retained compatibility exceptions name the exact field and fail when
+unused. Every pinned actor has an explicit interaction disposition; unsupported
+entries remain unresolved, and identifier coverage does not establish behavior parity.
 
 Compiled seat descriptors are incomplete. Every independently collected entity has a seat admission, including unresolved definitions. Authored base layouts, bounded rider counts, literal rotations and Molang rotation references are compiled before runtime; component-group names no longer select layouts. Actual group activation and rotation-expression evaluation remain unresolved, so those layouts retain streamed poses. Passenger ordering, mutable rideable components, session behavior overlays and complete native layout coverage remain open. Static count selection preserves the existing compatibility order and is provisional.
 
@@ -8494,6 +8525,10 @@ Incomplete parity: recipe eligibility and exact pattern-choice styling remain op
 
 ## Entity terrain occlusion and retained block-entity view culling
 
+- Remote player bodies containing the camera are rejected using interpolated, server-scaled
+  body bounds before model sampling and skin, cape, armor or glint preparation. The local
+  avatar keeps its perspective-owned visibility. This guard does not use the larger authored
+  visibility box. Native overlap behavior, rendered-frame and FPS acceptance remain incomplete.
 - Actor bodies and their shadow bounds use bounded, current-terrain exposed-face proofs after
   ordinary view admission. Name tags retain their independent publication. Unknown,
   dirty, unpublished, clipped, transparent or budget-exhausted terrain always draws.
@@ -8621,6 +8656,26 @@ natively too. Until that comparison exists, the counted fallback to the
 base visual is the intended semantic, locked by the connection permutation
 regression. Incomplete: mask compilation, neighbor rule, meshing selection,
 and the native comparison.
+
+
+## Import player data from Minecraft
+
+The launcher offers a one-time Import or Not now choice when a known user-data
+directory exists. File contents are read only after an explicit import action.
+General Settings retains Import from Minecraft and Revert actions. Import previews
+one selected profile with readable category counts in a bounded, scrolling modal.
+Import requires a separate confirmation; cancelling returns to the preview. It merges server endpoints, validates and copies installed
+resource packs, and preserves the chosen active order. A durable snapshot restores
+settings, servers and active pack order without removing copied packs.
+
+Supported preferences use a schema-checked mapping table. Primary desktop keyboard
+and mouse bindings use the existing binding validator. Unknown settings, secondary
+key assignments, controller and touch layouts, encrypted packs and invalid or
+over-limit entries are counted and skipped. Existing pack identities are retained.
+
+Incomplete: complete option and control-layout parity, Android scoped-storage
+imports, custom launcher data roots, and verification of every supported desktop
+location against a live install. This feature does not close a parity gate.
 
 ## Outline label sizing and alignment
 

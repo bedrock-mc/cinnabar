@@ -199,7 +199,7 @@ fn death_fov_samples_this_frames_actor_clock_and_clears_on_recovery_and_session_
         local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream
@@ -376,7 +376,7 @@ fn world_hurt_rotation_samples_actor_ticks_and_clears_when_the_stream_retires() 
         local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream

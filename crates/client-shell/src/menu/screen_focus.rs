@@ -5,6 +5,7 @@ use semantic_input::InputMode;
 
 use super::{MenuRuntime, settings_options::control_bindings};
 use crate::ui_resources::{UiPresentationResource, UiRuntimeResource};
+use launcher::menu::settings_options::BindingId;
 
 /// Samples the current screen stack after shell and UI changes become authoritative.
 pub fn publish_screen_focus(
@@ -44,11 +45,11 @@ pub fn publish_gameplay_screen_controls(
 ) {
     *controls = GameplayScreenControls {
         pick_block_pressed: menu.is_some()
-            && (control_bindings::binding_gamepad(menu.as_deref(), "key.pickItem", &pads)
+            && (control_bindings::binding_gamepad(menu.as_deref(), BindingId::PickItem, &pads)
                 || keys.zip(mouse).is_some_and(|(keys, mouse)| {
                     control_bindings::binding_pressed(
                         menu.as_deref(),
-                        "key.pickItem",
+                        BindingId::PickItem,
                         &keys,
                         &mouse,
                     )

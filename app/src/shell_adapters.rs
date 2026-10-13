@@ -58,61 +58,20 @@ pub(crate) fn drive_menu_services(
     );
 }
 
-use client_audio::audio::{AudioCategory, AudioSettings};
-/// The sound section's mixer categories; text-to-speech persists without a mixer backend.
-const VOLUME_SLIDERS: [(&str, Option<AudioCategory>); 11] = [
-    (
-        launcher::menu::settings_options::VOLUME_SETTINGS[0],
-        Some(AudioCategory::Master),
-    ),
-    (
-        launcher::menu::settings_options::VOLUME_SETTINGS[1],
-        Some(AudioCategory::Music),
-    ),
-    (
-        launcher::menu::settings_options::VOLUME_SETTINGS[2],
-        Some(AudioCategory::Sound),
-    ),
-    (
-        launcher::menu::settings_options::VOLUME_SETTINGS[3],
-        Some(AudioCategory::Ambient),
-    ),
-    (
-        launcher::menu::settings_options::VOLUME_SETTINGS[4],
-        Some(AudioCategory::Blocks),
-    ),
-    (
-        launcher::menu::settings_options::VOLUME_SETTINGS[5],
-        Some(AudioCategory::Hostile),
-    ),
-    (
-        launcher::menu::settings_options::VOLUME_SETTINGS[6],
-        Some(AudioCategory::Neutral),
-    ),
-    (
-        launcher::menu::settings_options::VOLUME_SETTINGS[7],
-        Some(AudioCategory::Players),
-    ),
-    (
-        launcher::menu::settings_options::VOLUME_SETTINGS[8],
-        Some(AudioCategory::Records),
-    ),
-    (
-        launcher::menu::settings_options::VOLUME_SETTINGS[9],
-        Some(AudioCategory::Weather),
-    ),
-    (launcher::menu::settings_options::VOLUME_SETTINGS[10], None),
-];
-
+use assets::audio_category::AudioCategory;
+use client_audio::audio::AudioSettings;
 /// Applies the saved sound values to the live mixer.
 pub(crate) fn sync_audio_settings(menu: &MenuRuntime, settings: Option<ResMut<AudioSettings>>) {
     let Some(mut settings) = settings else {
         return;
     };
     let (options, _) = menu.settings_snapshot();
-    for (name, category) in VOLUME_SLIDERS {
-        if let Some(category) = category {
-            let volume = options.value(name) as f32 / 100.0;
+    for option in launcher::menu::settings_options::volume_settings() {
+        if let Some(category) = option
+            .volume
+            .filter(|category| *category != AudioCategory::TextToSpeech)
+        {
+            let volume = options.value(option.id) as f32 / 100.0;
             if settings.volume(category) != volume {
                 settings.set(category, volume);
             }

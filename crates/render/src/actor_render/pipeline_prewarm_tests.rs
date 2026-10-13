@@ -7,7 +7,7 @@ use bevy::{
     render::{camera::ExtractedCamera, render_resource::PipelineCache},
 };
 
-use super::super::ActorPipeline;
+use super::super::{ActorPipeline, ActorPipelineKey, motion};
 
 #[test]
 fn actor_pipeline_prewarm_empty_view_requests_pipelines_without_publishing_pending_work() {
@@ -27,6 +27,16 @@ fn actor_pipeline_prewarm_empty_view_requests_pipelines_without_publishing_pendi
     assert!(
         pipeline
             .draw_variant(msaa, view.hdr, false, EntityRenderMaterial::Default as u32)
+            .is_some()
+    );
+    assert!(
+        pipeline
+            .motion_variant(ActorPipelineKey {
+                msaa,
+                hdr: view.hdr,
+                enhanced: false,
+                material: EntityRenderMaterial::Default as u32,
+            })
             .is_some()
     );
     assert!(!pipeline.ready(cache, msaa, view.hdr, false));
@@ -127,6 +137,18 @@ fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
                                 depth_write,
                                 ..Default::default()
                             }));
+                            if motion::eligible(material) {
+                                let key = ActorPipelineKey {
+                                    msaa,
+                                    hdr,
+                                    enhanced: false,
+                                    material,
+                                };
+                                assert!(
+                                    pipeline.motion_variant(key).is_some(),
+                                    "motion must be prewarmed: {kind:?}, {material:#x}"
+                                );
+                            }
                             descriptors.insert(
                                 pipeline.draw_variant(msaa, hdr, false, material).expect(
                                     "authored raster states are requested before an actor exists",
@@ -168,6 +190,9 @@ fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
             52,
             "additive source factors add eight contracts per raster kind"
         );
+        let allocated = test_alloc::thread_allocations();
+        pipeline.prewarm(cache, msaa, hdr, false).unwrap();
+        assert_eq!(test_alloc::thread_allocations(), allocated);
     });
 }
 
@@ -286,6 +311,29 @@ fn actor_coverage_variants_are_prewarmed_without_changing_blend_emissive_or_diss
                         );
                         let warmed = crate::queue_review_support::queued_descriptor(&mut cache, id);
                         assert_eq!(warmed.multisample.alpha_to_coverage_enabled, enabled);
+                        if motion::eligible(material) {
+                            let motion_id = pipeline
+                                .motion_variant(ActorPipelineKey {
+                                    msaa,
+                                    hdr: false,
+                                    enhanced: false,
+                                    material,
+                                })
+                                .expect("motion coverage is prepared before actors exist");
+                            let warmed = crate::queue_review_support::queued_descriptor(
+                                &mut cache, motion_id,
+                            );
+                            assert_eq!(warmed.multisample.alpha_to_coverage_enabled, enabled);
+                            let fragment = warmed.fragment.as_ref().unwrap();
+                            assert_eq!(
+                                fragment.entry_point.as_deref(),
+                                Some("actor_motion_fragment")
+                            );
+                            assert_eq!(
+                                fragment.targets[0].as_ref().unwrap().format,
+                                motion::MOTION_FORMAT
+                            );
+                        }
                     }
                 }
             }

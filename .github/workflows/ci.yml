@@ -355,6 +355,10 @@ jobs:
           go -C tools/registrygen test ./... -count=1
           unset GOFLAGS
           go -C tools/registrygen vet ./...
+      - name: Test protocol packet fixtures and ID contracts
+        env:
+          GOFLAGS: ${{ env.RACE_TEST_FLAGS }}
+        run: go -C tools/fixturegen test ./... -count=1
       - name: Prepare local server Rust fixtures
         # Keep cold fixture compilation outside Go's test-binary deadline.
         # Separate native builds preserve the feature sets requested by the test helpers.

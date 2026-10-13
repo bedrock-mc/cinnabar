@@ -3,6 +3,7 @@
 //! Needs the gitignored UI carrier; each test skips when it is absent.
 
 use json_ui::{Draw, DrawNode};
+use launcher::menu::settings_options::SettingId;
 use protocol::{
     ActorEffectAction, ActorEffectEvent, ActorMetadata, ActorMetadataValue, ContainerIdentity,
     InventoryContentEvent, InventoryEvent, NetworkItemStack, PlayerGameMode,
@@ -1125,7 +1126,7 @@ fn settings_hide_hud_suppresses_the_rendered_overlay() {
     let mut options = SettingsOptions::default();
     let index = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "hide_hud")
+        .position(|option| option.id == SettingId::HideHud)
         .unwrap();
     options.set(index, 1);
     presentation.set_chat_settings_snapshot((Arc::new(options.clone()), None));

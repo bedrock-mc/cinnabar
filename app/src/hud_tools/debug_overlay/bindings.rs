@@ -1,10 +1,11 @@
 //! Retained desktop controls and help text for the debug overlay.
 
+use launcher::menu::settings_options::BindingId;
 use std::sync::Arc;
 
 use bevy::prelude::{ButtonInput, KeyCode, MouseButton};
 use client_shell::physical_input::{keyboard_usage, mouse_button_code};
-use launcher::menu::settings_options::{DEBUG_OVERLAY_KEY, SettingsOptions, key_name};
+use launcher::menu::settings_options::{SettingsOptions, key_name};
 use semantic_input::PhysicalControl;
 
 pub(super) struct DebugBindings {
@@ -18,7 +19,7 @@ impl Default for DebugBindings {
         let settings = SettingsOptions::default();
         Self {
             settings: None,
-            control: settings.named_key_control(DEBUG_OVERLAY_KEY),
+            control: settings.named_key_control(BindingId::DebugOverlay),
             hint: binding_hint(&settings),
         }
     }
@@ -36,7 +37,7 @@ impl DebugBindings {
         }
         let defaults = SettingsOptions::default();
         let resolved = settings.map_or(&defaults, Arc::as_ref);
-        self.control = resolved.named_key_control(DEBUG_OVERLAY_KEY);
+        self.control = resolved.named_key_control(BindingId::DebugOverlay);
         self.hint = binding_hint(resolved);
         self.settings = settings.cloned();
     }
@@ -76,7 +77,7 @@ fn binding_hint(settings: &SettingsOptions) -> String {
     };
     format!(
         "{}: hide debug | {}: screenshot",
-        name(DEBUG_OVERLAY_KEY),
-        name("key.screenshot"),
+        name(BindingId::DebugOverlay),
+        name(BindingId::Screenshot),
     )
 }

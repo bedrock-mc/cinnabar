@@ -13,27 +13,7 @@ use ui::IconRef;
 use ui_engine::engine::screen::PaintError;
 use ui_engine::engine::screen::Translate;
 
-const TABS: [(&str, &str); 13] = [
-    ("accessibility_forced_index", "menu.accessibility.tab.title"),
-    (
-        "keyboard_and_mouse_forced_index",
-        "menu.keyboardAndMouse.tab.title",
-    ),
-    (
-        "controller_and_switch_forced_index",
-        "menu.controller.tab.title",
-    ),
-    ("touch_forced_index", "menu.touch.tab.title"),
-    ("party_forced_index", "options.party"),
-    ("general_forced_index", "menu.general.tab.title"),
-    ("video_forced_index", "menu.video.tab.title"),
-    ("sound_forced_index", "menu.audio.tab.title"),
-    ("account_forced_index", "menu.account.tab.title"),
-    ("global_texture_pack_forced_index", "menu.globalpacks"),
-    ("storage_management_forced_index", "menu.storage.tab.title"),
-    ("language_forced_index", "menu.language.tab.title"),
-    ("creator_forced_index", "menu.creator.tab.title"),
-];
+use launcher::menu::settings_sections::SETTINGS_TABS as TABS;
 
 const _: () = assert!(TABS.len() == SETTINGS_ICONS.len());
 

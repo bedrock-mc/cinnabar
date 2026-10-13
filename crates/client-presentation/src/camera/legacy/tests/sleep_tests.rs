@@ -304,24 +304,25 @@ fn sleeping_pose_is_shared_before_camera_publication_and_reanchors_only_on_trans
                     view.apply_actor_presentation(&mut feed);
                     // Seed the initial retained pose; later snaps must come from the shared source.
                     feed.teleported |= sequence == 4;
-                    let mut world = app.world_mut().resource_mut::<TestWorld>();
-                    world.0.sync_local_player_pose(&feed);
-                    let actor = world.0.authority().actor(2).unwrap();
-                    for alpha in [0.0, 0.5, 1.0] {
-                        let attachment = crate::presentation::actors::actor_emitter_transform(
-                            actor,
-                            None,
-                            &[],
-                            None,
-                            alpha,
-                        )
-                        .unwrap();
-                        assert_eq!(
-                            attachment.position,
-                            if sleeping { feet } else { awake_feet }.to_array()
-                        );
+                    {
+                        let mut world = app.world_mut().resource_mut::<TestWorld>();
+                        world.0.sync_local_player_pose(&feed);
+                        let actor = world.0.authority().actor(2).unwrap();
+                        for alpha in [0.0, 0.5, 1.0] {
+                            let attachment = crate::presentation::actors::actor_emitter_transform(
+                                actor,
+                                None,
+                                &[],
+                                None,
+                                alpha,
+                            )
+                            .unwrap();
+                            assert_eq!(
+                                attachment.position,
+                                if sleeping { feet } else { awake_feet }.to_array()
+                            );
+                        }
                     }
-                    drop(world);
                     app.update();
                     let blur = app
                         .world()
