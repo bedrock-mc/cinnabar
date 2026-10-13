@@ -751,6 +751,7 @@ impl MenuRuntime {
             | MenuAction::SettingsFullscreen(_)
             | MenuAction::SettingsSection(_)
             | MenuAction::SettingsOption(..)
+            | MenuAction::SettingsVideoPreset(_)
             | MenuAction::SettingsLanguage(_)
             | MenuAction::SettingsDropdown(_)
             | MenuAction::SettingsResetBindings(_)
