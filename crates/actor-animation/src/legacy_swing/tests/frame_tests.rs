@@ -176,3 +176,88 @@ fn third_person_swing_keeps_smooth_tick_motion_at_every_physics_fraction() {
         }
     }
 }
+
+#[test]
+fn local_player_swing_samples_native_item_rotation_alias() {
+    let mut compiled = crate::test_support::counting_random_compiled("minecraft:player");
+    compiled.rig_bindings[0].initialize = None;
+    compiled.rig_bindings[0].pre_animation = Some(0);
+    compiled.render.layers[0].color = None;
+    compiled.molang_symbols = [
+        (MolangSymbolKind::Name, "wield"),
+        (MolangSymbolKind::Variable, "variable.attack_time"),
+        (
+            MolangSymbolKind::Variable,
+            "variable.first_person_item_rotation_factor",
+        ),
+        (
+            MolangSymbolKind::Variable,
+            "variable.first_person_rotation_factor",
+        ),
+    ]
+    .map(|(kind, identifier)| MolangSymbol {
+        kind,
+        identifier: identifier.into(),
+    })
+    .into();
+    compiled.molang_ops = vec![
+        MolangOp::LoadVariable(1),
+        MolangOp::Push(crate::test_support::scalar(90.0)),
+        MolangOp::Multiply,
+        MolangOp::StoreVariable(3),
+        MolangOp::Push(crate::test_support::scalar(0.0)),
+        MolangOp::LoadVariable(2),
+    ]
+    .into();
+    compiled.molang_expressions = [(0, 5, 2), (5, 1, 1)]
+        .map(|(first_op, op_count, max_stack)| CompiledMolangExpression {
+            first_op,
+            op_count,
+            max_stack,
+        })
+        .into();
+    compiled.animation_channels[0].property = EntityAnimationProperty::Rotation;
+    compiled.animation_keyframes[0].expressions = [Some(1), None, None];
+    let assets = Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+    );
+    let actor = player();
+    let actors = HashMap::from([(actor.runtime_id, actor.clone())]);
+    let mut store = ActorAnimationStore::with_assets(assets);
+    store.insert(1, 0, &actor);
+    let context = ActorTickContext {
+        is_local: true,
+        is_local_player: true,
+        combat_visuals: CombatVisuals::Modern,
+        ..Default::default()
+    };
+    for _ in 0..3 {
+        store.advance_tick(&actors, None, Some(1), true, true, |_| context.clone());
+    }
+    let rig = store.get(1).unwrap();
+    let committed = (rig.previous.to_vec(), rig.current.to_vec());
+    for physics_alpha in [0.0, 0.25, 0.75, 1.0, 0.25] {
+        let progress = LocalSwingProgress {
+            bedrock: [0.2, 0.6],
+            java: [0.2, 0.6],
+            frame_alpha: Some(physics_alpha),
+        };
+        store.sync_local_swing(1, progress);
+        let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;
+        let sampled = store
+            .render_layers(&actor, 0.5, [0.0; 2], [0.0; 3], &mut budget, false)
+            .unwrap();
+        let expected = pose::quat_from_euler([-90.0 * progress.bedrock_progress(0.5), 0.0, 0.0]);
+        for bones in [&sampled.render[0].previous_pose, &sampled.render[0].pose] {
+            for (actual, expected) in bones[0].rotation.into_iter().zip(expected) {
+                assert!(
+                    (actual - expected).abs() < 1.0e-6,
+                    "item rotation at {physics_alpha}: {actual} vs {expected}"
+                );
+            }
+        }
+    }
+    let unchanged = store.get(1).unwrap();
+    assert_eq!(unchanged.previous, committed.0);
+    assert_eq!(unchanged.current, committed.1);
+}

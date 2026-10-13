@@ -93,10 +93,25 @@ impl MotionSampling {
             })
             .collect::<BTreeSet<_>>();
         let mut random = false;
+        let item_rotation_alias = assets
+            .molang_symbols()
+            .iter()
+            .position(|symbol| {
+                symbol.identifier.as_ref() == "variable.first_person_rotation_factor"
+            })
+            .zip(assets.molang_symbols().iter().position(|symbol| {
+                symbol.identifier.as_ref() == "variable.first_person_item_rotation_factor"
+            }));
         let (expressions, weighted_symbols) = loop {
             let before = (variables.len(), random);
             for &expression in &expressions {
                 propagate(assets, expression, false, &mut variables, &mut random);
+            }
+            // The native copy in set_item_rotation_factor also carries frame dependencies.
+            if let Some((source, target)) = item_rotation_alias
+                && variables.contains(&(source as u32))
+            {
+                variables.insert(target as u32);
             }
             let dependent = dependent_expressions(assets, &expressions, &variables, random);
             let (weighted, controlled) =
