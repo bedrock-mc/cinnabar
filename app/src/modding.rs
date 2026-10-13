@@ -426,6 +426,22 @@ fn drive_mod(
         gameplay.synchronize_jump_scope(false, &ui);
         gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed, &ui);
     }
+    // Reconcile screen departures before frame callbacks retry deferred edits.
+    let cursor = windows
+        .single()
+        .ok()
+        .and_then(|(window, _)| window.cursor_position())
+        .map(|point| point.to_array());
+    screens::drive(
+        &mut extension,
+        &player_runtime,
+        &ui,
+        &mut presentation,
+        menu.as_deref(),
+        cursor,
+        focused && !menu_open,
+        &mut screen_input,
+    );
     let pressed = keybind_allowed(focused, absorbed) && keys.just_pressed(DEMO_KEY);
     let controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
     let (network, camera, cues, item_use) = outputs;
@@ -594,21 +610,11 @@ fn drive_mod(
         editor_session,
         focused || driven.is_some(),
     );
-    let cursor = windows
-        .single()
-        .ok()
-        .and_then(|(window, _)| window.cursor_position())
-        .map(|point| point.to_array());
-    screens::drive(
-        &mut extension,
-        &player_runtime,
-        &ui,
-        &mut presentation,
-        menu.as_deref(),
-        cursor,
-        focused && !menu_open,
-        &mut screen_input,
-    );
+    if let Some(owner) = extension.hosts.screen_owner() {
+        screens::publish(extension.hosts.host(owner), &mut presentation);
+    } else {
+        presentation.set_mod_screens(None);
+    }
 }
 
 /// Granted commands travel the session-fenced UI packet lane as vanilla command requests.

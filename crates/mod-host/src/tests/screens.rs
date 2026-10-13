@@ -882,3 +882,37 @@ fn deferred_edits_keep_one_latest_value_for_each_declared_control() {
     host.frame(false).unwrap();
     assert_eq!(text(&host, "#search"), "probe.search=new-search");
 }
+
+#[test]
+fn escaping_cancels_deferred_edits_before_actions_and_closes_their_view() {
+    let (_dir, mut host) = probe();
+    let open = ModEvent::Action {
+        id: "probe.view".into(),
+        index: None,
+    };
+    host.dispatch(vec![ModEvent::ScreenChanged(Some(layout())), open.clone()])
+        .unwrap();
+    let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.set_frame_authority(budget.clone(), false, false, 0, crate::HudClaims::default());
+    assert!(
+        budget
+            .reserve(server_experience::runtime::CALLBACK_FUEL)
+            .is_some()
+    );
+    assert_eq!(
+        host.dispatch(vec![edit("old")]).unwrap(),
+        crate::CallbackOutcome::Deferred
+    );
+    budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.dispatch_and_close_view(vec![open, edit("current")])
+        .unwrap();
+    assert!(host.is_active());
+    assert!(host.screens().view.is_none());
+    assert_eq!(text(&host, "#action"), "probe.view:None:Ok(())");
+    for _ in 0..2 {
+        budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+        host.frame(false).unwrap();
+        assert_eq!(value(&host, "#search"), None);
+    }
+    assert_eq!(value(&host, "#view_closed"), Some(&Value::Integer(1)));
+}

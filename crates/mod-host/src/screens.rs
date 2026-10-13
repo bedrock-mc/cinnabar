@@ -259,6 +259,17 @@ impl ModHost {
         self.instance.quarantine();
     }
 
+    /// Cancels edits for a departing view, delivers its other input, then closes it.
+    /// Pointer actions run before closure so they cannot reopen the escaped view.
+    pub fn dispatch_and_close_view(&mut self, mut events: Vec<ModEvent>) -> Result<()> {
+        self.pending_events
+            .retain(|event| !matches!(event, ModEvent::TextChanged { .. }));
+        events.retain(|event| !matches!(event, ModEvent::TextChanged { .. }));
+        let result = self.dispatch(events).map(|_| ());
+        self.close_view()?;
+        result
+    }
+
     /// Closes the view as Escape does over it, and tells the guest with `view-closed`.
     pub fn close_view(&mut self) -> Result<()> {
         if self.instance.close_view() {
