@@ -25,10 +25,10 @@ pub(crate) fn attachment_states(
     if identifier == "minecraft:vine" {
         return crate::placement_vines::attachment_states(canonical, input.face, supports);
     }
-    if crate::placement_multiface::is_multiface(identifier) {
+    if crate::placement_multiface::is_multiface(canonical) {
         return crate::placement_multiface::attachment_states(canonical, input.face, supports);
     }
-    if is_torch(identifier) {
+    if canonical.contains_key("torch_facing_direction") {
         if !known_keys(canonical, &["torch_facing_direction"]) {
             return None;
         }
@@ -111,9 +111,8 @@ pub(crate) fn attachment_states(
         }
         set_state(&mut states, "facing_direction", Value::from(input.face))?;
         set_state(&mut states, "button_pressed_bit", Value::from(0))?;
-    } else if is_lantern(identifier) {
-        if !known_keys(canonical, &["hanging_bit"]) || state_bit(canonical, "hanging_bit").is_none()
-        {
+    } else if known_keys(canonical, &["hanging"]) {
+        if state_bit(canonical, "hanging").is_none() {
             return None;
         }
         let below = supports[0]?;
@@ -121,7 +120,7 @@ pub(crate) fn attachment_states(
         if hanging && !supports[1]? {
             return None;
         }
-        set_state(&mut states, "hanging_bit", Value::from(u8::from(hanging)))?;
+        set_state(&mut states, "hanging", Value::from(u8::from(hanging)))?;
     } else {
         return None;
     }
@@ -145,14 +144,14 @@ pub(crate) fn support_requirement(
         return crate::placement_vines::support_face(states)
             .map_or(SupportRequirement::Unsupported, SupportRequirement::Face);
     }
-    if crate::placement_multiface::is_multiface(identifier) {
+    if crate::placement_multiface::is_multiface(states) {
         return crate::placement_multiface::support_face(states)
             .map_or(SupportRequirement::Unsupported, SupportRequirement::Face);
     }
     if let Some(face) = crate::placement_signs::support_face(identifier, states) {
         return SupportRequirement::Face(face);
     }
-    if is_torch(identifier) {
+    if states.contains_key("torch_facing_direction") {
         return match state_value(states, "torch_facing_direction").and_then(Value::as_str) {
             Some("top") => SupportRequirement::Face(0),
             Some("north") => SupportRequirement::Face(2),
@@ -179,8 +178,8 @@ pub(crate) fn support_requirement(
             _ => SupportRequirement::Unsupported,
         };
     }
-    if is_lantern(identifier) {
-        return match state_bit(states, "hanging_bit") {
+    if known_keys(states, &["hanging"]) {
+        return match state_bit(states, "hanging") {
             Some(false) => SupportRequirement::Face(0),
             Some(true) => SupportRequirement::Face(1),
             None => SupportRequirement::Unsupported,
@@ -286,24 +285,6 @@ fn state_bit(states: &Map<String, Value>, key: &str) -> Option<bool> {
     })
 }
 
-/// These variants share the wall and upright torch placement rule.
-fn is_torch(identifier: &str) -> bool {
-    matches!(
-        identifier,
-        "minecraft:torch"
-            | "minecraft:soul_torch"
-            | "minecraft:redstone_torch"
-            | "minecraft:unlit_redstone_torch"
-    )
-}
-
-/// Copper and soul variants keep lantern support and hanging-state behavior.
-fn is_lantern(identifier: &str) -> bool {
-    identifier == "minecraft:lantern"
-        || identifier == "minecraft:soul_lantern"
-        || identifier.ends_with("copper_lantern")
-}
-
 /// Ordinary candles share count and support rules; candle cakes use another placement path.
 pub(crate) fn is_candle(identifier: &str) -> bool {
     identifier == "minecraft:candle"
@@ -325,141 +306,158 @@ fn is_leaves(identifier: &str) -> bool {
         || identifier.ends_with("_leaves")
 }
 
+const UNRESOLVED_SURVIVAL_SUFFIXES: &[&str] = &[
+    "_shrub",
+    "_grass",
+    "_shulker_box",
+    "_flower",
+    "_tulip",
+    "_sapling",
+    "_mushroom",
+    "_roots",
+    "_fungus",
+    "_rail",
+    "_pressure_plate",
+    "_sign",
+    "_wall_sign",
+    "_hanging_sign",
+    "_coral",
+    "_coral_fan",
+    "_coral_wall_fan",
+    "_candle",
+    "_candle_cake",
+    "_door",
+    "_bed",
+    "_bush",
+    "_skull",
+    "_head",
+    "_chain",
+];
+const UNRESOLVED_SURVIVAL_IDENTIFIERS: &[&str] = &[
+    "minecraft:bush",
+    "minecraft:unlit_redstone_torch",
+    "minecraft:lever",
+    "minecraft:rail",
+    "minecraft:redstone_wire",
+    "minecraft:unpowered_repeater",
+    "minecraft:powered_repeater",
+    "minecraft:unpowered_comparator",
+    "minecraft:powered_comparator",
+    "minecraft:snow_layer",
+    "minecraft:candle",
+    "minecraft:sea_pickle",
+    "minecraft:vine",
+    "minecraft:glow_lichen",
+    "minecraft:sculk_vein",
+    "minecraft:standing_sign",
+    "minecraft:wall_sign",
+    "minecraft:bed",
+    "minecraft:wooden_door",
+    "minecraft:iron_door",
+    "minecraft:cactus",
+    "minecraft:chorus_plant",
+    "minecraft:chorus_flower",
+    "minecraft:scaffolding",
+    "minecraft:short_grass",
+    "minecraft:tall_grass",
+    "minecraft:fern",
+    "minecraft:large_fern",
+    "minecraft:deadbush",
+    "minecraft:seagrass",
+    "minecraft:kelp",
+    "minecraft:reeds",
+    "minecraft:bamboo",
+    "minecraft:bamboo_sapling",
+    "minecraft:azalea",
+    "minecraft:flowering_azalea",
+    "minecraft:dandelion",
+    "minecraft:golden_dandelion",
+    "minecraft:poppy",
+    "minecraft:blue_orchid",
+    "minecraft:allium",
+    "minecraft:azure_bluet",
+    "minecraft:oxeye_daisy",
+    "minecraft:cornflower",
+    "minecraft:lily_of_the_valley",
+    "minecraft:closed_eyeblossom",
+    "minecraft:open_eyeblossom",
+    "minecraft:wither_rose",
+    "minecraft:torchflower",
+    "minecraft:sunflower",
+    "minecraft:lilac",
+    "minecraft:rose_bush",
+    "minecraft:peony",
+    "minecraft:pitcher_plant",
+    "minecraft:pitcher_crop",
+    "minecraft:brown_mushroom",
+    "minecraft:red_mushroom",
+    "minecraft:wheat",
+    "minecraft:carrots",
+    "minecraft:potatoes",
+    "minecraft:beetroot",
+    "minecraft:melon_stem",
+    "minecraft:pumpkin_stem",
+    "minecraft:nether_wart",
+    "minecraft:cocoa",
+    "minecraft:waterlily",
+    "minecraft:moss_carpet",
+    "minecraft:pale_moss_carpet",
+    "minecraft:hanging_roots",
+    "minecraft:nether_sprouts",
+    "minecraft:weeping_vines",
+    "minecraft:twisting_vines",
+    "minecraft:pointed_dripstone",
+    "minecraft:small_dripleaf_block",
+    "minecraft:big_dripleaf",
+    "minecraft:turtle_egg",
+    "minecraft:sniffer_egg",
+    "minecraft:frog_spawn",
+    "minecraft:spore_blossom",
+    "minecraft:pink_petals",
+    "minecraft:wildflowers",
+    "minecraft:leaf_litter",
+    "minecraft:fire",
+    "minecraft:soul_fire",
+    "minecraft:ladder",
+    "minecraft:bell",
+    "minecraft:tripwire_hook",
+    "minecraft:trip_wire",
+    "minecraft:flower_pot",
+    "minecraft:lantern",
+    "minecraft:grindstone",
+    "minecraft:brewing_stand",
+];
+
 /// Substrate, fluid, growth and multi-cell rules require additional verified world facts.
 fn survival_is_unresolved(identifier: &str) -> bool {
-    const SUFFIXES: &[&str] = &[
-        "_shrub",
-        "_grass",
-        "_shulker_box",
-        "_flower",
-        "_tulip",
-        "_sapling",
-        "_mushroom",
-        "_roots",
-        "_fungus",
-        "_rail",
-        "_pressure_plate",
-        "_sign",
-        "_wall_sign",
-        "_hanging_sign",
-        "_coral",
-        "_coral_fan",
-        "_coral_wall_fan",
-        "_candle",
-        "_candle_cake",
-        "_door",
-        "_bed",
-        "_bush",
-    ];
-    const IDENTIFIERS: &[&str] = &[
-        "minecraft:bush",
-        "minecraft:unlit_redstone_torch",
-        "minecraft:lever",
-        "minecraft:rail",
-        "minecraft:redstone_wire",
-        "minecraft:unpowered_repeater",
-        "minecraft:powered_repeater",
-        "minecraft:unpowered_comparator",
-        "minecraft:powered_comparator",
-        "minecraft:snow_layer",
-        "minecraft:candle",
-        "minecraft:sea_pickle",
-        "minecraft:vine",
-        "minecraft:glow_lichen",
-        "minecraft:sculk_vein",
-        "minecraft:standing_sign",
-        "minecraft:wall_sign",
-        "minecraft:bed",
-        "minecraft:wooden_door",
-        "minecraft:iron_door",
-        "minecraft:cactus",
-        "minecraft:chorus_plant",
-        "minecraft:chorus_flower",
-        "minecraft:scaffolding",
-        "minecraft:short_grass",
-        "minecraft:tall_grass",
-        "minecraft:fern",
-        "minecraft:large_fern",
-        "minecraft:deadbush",
-        "minecraft:seagrass",
-        "minecraft:kelp",
-        "minecraft:reeds",
-        "minecraft:bamboo",
-        "minecraft:bamboo_sapling",
-        "minecraft:azalea",
-        "minecraft:flowering_azalea",
-        "minecraft:dandelion",
-        "minecraft:poppy",
-        "minecraft:blue_orchid",
-        "minecraft:allium",
-        "minecraft:azure_bluet",
-        "minecraft:oxeye_daisy",
-        "minecraft:cornflower",
-        "minecraft:lily_of_the_valley",
-        "minecraft:closed_eyeblossom",
-        "minecraft:open_eyeblossom",
-        "minecraft:wither_rose",
-        "minecraft:torchflower",
-        "minecraft:sunflower",
-        "minecraft:lilac",
-        "minecraft:rose_bush",
-        "minecraft:peony",
-        "minecraft:pitcher_plant",
-        "minecraft:pitcher_crop",
-        "minecraft:double_plant",
-        "minecraft:yellow_flower",
-        "minecraft:red_flower",
-        "minecraft:sapling",
-        "minecraft:brown_mushroom",
-        "minecraft:red_mushroom",
-        "minecraft:wheat",
-        "minecraft:carrots",
-        "minecraft:potatoes",
-        "minecraft:beetroot",
-        "minecraft:melon_stem",
-        "minecraft:pumpkin_stem",
-        "minecraft:nether_wart",
-        "minecraft:cocoa",
-        "minecraft:waterlily",
-        "minecraft:lily_pad",
-        "minecraft:moss_carpet",
-        "minecraft:pale_moss_carpet",
-        "minecraft:hanging_roots",
-        "minecraft:nether_sprouts",
-        "minecraft:weeping_vines",
-        "minecraft:twisting_vines",
-        "minecraft:pointed_dripstone",
-        "minecraft:small_dripleaf_block",
-        "minecraft:big_dripleaf",
-        "minecraft:big_dripleaf_stem",
-        "minecraft:turtle_egg",
-        "minecraft:sniffer_egg",
-        "minecraft:frog_spawn",
-        "minecraft:spore_blossom",
-        "minecraft:pink_petals",
-        "minecraft:wildflowers",
-        "minecraft:leaf_litter",
-        "minecraft:fire",
-        "minecraft:soul_fire",
-        "minecraft:ladder",
-        "minecraft:bell",
-        "minecraft:skull",
-        "minecraft:tripwire_hook",
-        "minecraft:trip_wire",
-        "minecraft:tripwire",
-        "minecraft:flower_pot",
-        "minecraft:lantern",
-        "minecraft:chain",
-        "minecraft:grindstone",
-        "minecraft:brewing_stand",
-    ];
-    IDENTIFIERS.contains(&identifier) || SUFFIXES.iter().any(|suffix| identifier.ends_with(suffix))
+    UNRESOLVED_SURVIVAL_IDENTIFIERS.contains(&identifier)
+        || UNRESOLVED_SURVIVAL_SUFFIXES
+            .iter()
+            .any(|suffix| identifier.ends_with(suffix))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::{collections::HashSet, sync::OnceLock};
+
+    /// Loads the committed palette once, including its real typed state envelopes.
+    fn registry() -> &'static [assets::RegistryRecord] {
+        static REGISTRY: OnceLock<Box<[assets::RegistryRecord]>> = OnceLock::new();
+        REGISTRY.get_or_init(|| {
+            assets::read_registry_for_protocol(
+                assets::pinned_block_registry_bytes(),
+                assets::active_content_registry_protocol(),
+            )
+            .unwrap()
+        })
+    }
+
+    /// Decodes a state from the pinned palette without replacing its keys or values.
+    fn registered_states(record: &assets::RegistryRecord) -> Map<String, Value> {
+        serde_json::from_str(&record.canonical_state).unwrap()
+    }
 
     /// Provides one placement input with only the tested face differing.
     fn input(face: u8) -> PlacementInput {
@@ -471,12 +469,14 @@ mod tests {
         }
     }
 
-    /// Uses the same typed envelope as the block palette.
+    /// Supplies an actual held torch state from the pinned palette.
     fn torch_states() -> Map<String, Value> {
-        serde_json::from_value(
-            json!({"torch_facing_direction":{"type":"string","value":"unknown"}}),
+        registered_states(
+            registry()
+                .iter()
+                .find(|record| record.name.as_ref() == "minecraft:torch")
+                .unwrap(),
         )
-        .unwrap()
     }
 
     #[test]
@@ -556,31 +556,6 @@ mod tests {
     }
 
     #[test]
-    fn torch_faces_point_toward_support() {
-        for (face, expected, support) in [
-            (1, "top", 0),
-            (2, "south", 3),
-            (3, "north", 2),
-            (4, "east", 5),
-            (5, "west", 4),
-        ] {
-            let mut supports = [Some(false); 6];
-            supports[support] = Some(true);
-            let states =
-                attachment_states("minecraft:torch", &torch_states(), input(face), supports)
-                    .unwrap();
-            assert_eq!(
-                state_value(&states, "torch_facing_direction"),
-                Some(&Value::from(expected))
-            );
-            assert_eq!(
-                support_requirement("minecraft:torch", &states),
-                SupportRequirement::Face(support as u8)
-            );
-        }
-    }
-
-    #[test]
     fn torch_fallback_uses_first_supported_wall_before_floor() {
         let supports = [
             Some(true),
@@ -623,6 +598,42 @@ mod tests {
     }
 
     #[test]
+    fn registered_torch_faces_point_toward_support() {
+        let mut names = HashSet::new();
+        for record in registry() {
+            let canonical = registered_states(record);
+            if !canonical.contains_key("torch_facing_direction") {
+                continue;
+            }
+            names.insert(record.name.as_ref());
+            for (face, expected, support) in [
+                (1, "top", 0),
+                (2, "south", 3),
+                (3, "north", 2),
+                (4, "east", 5),
+                (5, "west", 4),
+            ] {
+                let mut supports = [Some(false); 6];
+                supports[support] = Some(true);
+                let placed = attachment_states(&record.name, &canonical, input(face), supports)
+                    .unwrap_or_else(|| panic!("{} {}", record.name, record.canonical_state));
+                assert_eq!(
+                    state_value(&placed, "torch_facing_direction"),
+                    Some(&json!(expected))
+                );
+                assert_eq!(
+                    support_requirement(&record.name, &placed),
+                    SupportRequirement::Face(support as u8)
+                );
+            }
+            assert!(
+                attachment_states(&record.name, &canonical, input(1), [Some(false); 6]).is_none()
+            );
+        }
+        assert!(names.contains("minecraft:copper_torch"));
+    }
+
+    #[test]
     fn buttons_require_the_opposite_support_face() {
         let states = serde_json::from_value(json!({"facing_direction":{"type":"int","value":0},"button_pressed_bit":{"type":"byte","value":1}})).unwrap();
         for face in 0..=5 {
@@ -648,24 +659,117 @@ mod tests {
 
     #[test]
     fn lantern_prefers_floor_except_when_clicking_a_supported_ceiling() {
-        let states =
-            serde_json::from_value(json!({"hanging_bit":{"type":"byte","value":0}})).unwrap();
-        for (below, above, face, hanging) in [
-            (true, true, 1, false),
-            (true, true, 0, true),
-            (true, false, 0, false),
-            (false, true, 1, true),
-        ] {
-            let mut supports = [Some(false); 6];
-            supports[0] = Some(below);
-            supports[1] = Some(above);
-            let placed =
-                attachment_states("minecraft:lantern", &states, input(face), supports).unwrap();
-            assert_eq!(state_bit(&placed, "hanging_bit"), Some(hanging));
+        let mut names = HashSet::new();
+        for record in registry().iter().filter(|record| {
+            record.name.as_ref() == "minecraft:lantern" || record.name.ends_with("_lantern")
+        }) {
+            names.insert(record.name.as_ref());
+            let states = registered_states(record);
+            for (below, above, face, hanging) in [
+                (true, true, 1, false),
+                (true, true, 0, true),
+                (true, false, 0, false),
+                (false, true, 1, true),
+            ] {
+                let mut supports = [Some(false); 6];
+                supports[0] = Some(below);
+                supports[1] = Some(above);
+                let placed = attachment_states(&record.name, &states, input(face), supports)
+                    .expect(&record.name);
+                assert_eq!(state_bit(&placed, "hanging"), Some(hanging));
+                assert_eq!(
+                    support_requirement(&record.name, &placed),
+                    SupportRequirement::Face(u8::from(hanging))
+                );
+            }
+            assert!(attachment_states(&record.name, &states, input(1), [Some(false); 6]).is_none());
         }
-        assert!(
-            attachment_states("minecraft:lantern", &states, input(1), [Some(false); 6]).is_none()
-        );
+        assert!(names.contains("minecraft:lantern"));
+        assert!(names.contains("minecraft:soul_lantern"));
+        assert!(names.contains("minecraft:copper_lantern"));
+    }
+
+    #[test]
+    fn registered_multiface_blocks_resolve_each_attachment_and_require_support() {
+        let mut names = HashSet::new();
+        for record in registry().iter().filter(|record| {
+            matches!(
+                record.model_family,
+                assets::ModelFamily::GlowLichen
+                    | assets::ModelFamily::SculkVein
+                    | assets::ModelFamily::ResinClump
+            )
+        }) {
+            let canonical = registered_states(record);
+            names.insert(record.name.as_ref());
+            for (face, expected) in [2, 1, 4, 16, 32, 8].into_iter().enumerate() {
+                let placed =
+                    attachment_states(&record.name, &canonical, input(face as u8), [Some(true); 6])
+                        .expect(&record.name);
+                assert_eq!(
+                    state_value(&placed, "multi_face_direction_bits"),
+                    Some(&json!(expected))
+                );
+                assert_eq!(
+                    support_requirement(&record.name, &placed),
+                    SupportRequirement::Face(face as u8 ^ 1)
+                );
+            }
+            assert!(
+                attachment_states(&record.name, &canonical, input(1), [Some(false); 6]).is_none()
+            );
+        }
+        assert!(names.contains("minecraft:resin_clump"));
+    }
+
+    #[test]
+    fn unresolved_survival_entries_exist_in_the_pinned_registry() {
+        let names: HashSet<_> = registry()
+            .iter()
+            .map(|record| record.name.as_ref())
+            .collect();
+        for &identifier in UNRESOLVED_SURVIVAL_IDENTIFIERS {
+            assert!(
+                names.contains(identifier),
+                "unregistered survival identifier: {identifier}"
+            );
+        }
+        for &suffix in UNRESOLVED_SURVIVAL_SUFFIXES {
+            assert!(
+                names.iter().any(|name| name.ends_with(suffix)),
+                "unmatched survival suffix: {suffix}"
+            );
+        }
+    }
+
+    #[test]
+    fn current_heads_chains_and_golden_dandelion_wait_for_survival_rules() {
+        for name in [
+            "minecraft:skeleton_skull",
+            "minecraft:wither_skeleton_skull",
+            "minecraft:zombie_head",
+            "minecraft:player_head",
+            "minecraft:creeper_head",
+            "minecraft:dragon_head",
+            "minecraft:piglin_head",
+            "minecraft:iron_chain",
+            "minecraft:copper_chain",
+            "minecraft:golden_dandelion",
+        ] {
+            let records: Vec<_> = registry()
+                .iter()
+                .filter(|record| record.name.as_ref() == name)
+                .collect();
+            assert!(!records.is_empty(), "missing registered block: {name}");
+            for record in records {
+                assert_eq!(
+                    support_requirement(name, &registered_states(record)),
+                    SupportRequirement::Unsupported,
+                    "{name} {}",
+                    record.canonical_state
+                );
+            }
+        }
     }
 
     #[test]
