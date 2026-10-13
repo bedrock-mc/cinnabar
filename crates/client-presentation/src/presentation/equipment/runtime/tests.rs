@@ -15,6 +15,20 @@ use {
 };
 
 #[test]
+fn held_blocks_draw_only_their_outward_faces() {
+    let (mut runtime, _, item) = block_fixture();
+    runtime.held_mesh(&item, true).unwrap();
+    let geometry = runtime.take_pending_geometries().pop().unwrap();
+    assert!(
+        geometry
+            .vertices
+            .iter()
+            .all(|vertex| vertex.back_uv == render_model::ONE_SIDED_BACK_UV),
+        "a held glass block hides its far faces, as vanilla does"
+    );
+}
+
+#[test]
 fn held_block_faces_keep_local_glint_origins_after_atlas_placement() {
     for atlas_side in [512, 1024] {
         for authored in [false, true] {
