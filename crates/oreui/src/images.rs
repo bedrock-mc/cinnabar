@@ -1,5 +1,5 @@
-//! OreUI artwork is decoded once at runtime: shipped original images, plus install-only art
-//! from an installed bundle.
+//! OreUI artwork is decoded once at runtime from shipped original images.
+//! Comparison captures can explicitly select a local bundle instead.
 
 mod catalog;
 pub mod dimensions;
@@ -25,7 +25,7 @@ const MAX_IMAGE_SIDE: u32 = render_model::MAX_UI_TEXTURE_SIDE;
 const MAX_ANIMATION_FRAMES: usize = 256;
 const MAX_ANIMATION_PIXELS_BYTES: usize = 64 * 1024 * 1024;
 const MAX_BUNDLE_FILES: usize = 4096;
-/// Create-world artwork resolves from the installed native bundle.
+/// Optional Create World preview key; missing artwork leaves the drawn background.
 pub const WORLD_PREVIEW: &str = "assets/world-preview-default-d0210bba13d939ca9e72.jpg";
 pub const WORLD_CATEGORY_ICONS: [&str; 7] = [
     "assets/general-icon-8ce31666e00cf3491940.png",
@@ -68,7 +68,7 @@ pub const PLAY_TAB_ICONS: [&str; 3] = [
     "assets/UI_Menu_RealmsTab-c7419af9abd527149fcc.png",
     "assets/UI_Menu_ServerTab-e7c3c035b7d6ba5a414b.png",
 ];
-/// Standalone category images from the installed OreUI bundle, in sidebar order.
+/// Category images, in sidebar order.
 pub const INBOX_ICONS: [&str; 5] = [
     "assets/News-f81489154ff3c38f5b5f.png",
     "assets/Realms-c7419af9abd527149fcc.png",
@@ -86,7 +86,7 @@ pub const INBOX_EMPTY_IMAGES: [&str; 5] = [
     "assets/Inbox_NoFeedback-85b4273f92f8e5f1b44a.png",
 ];
 
-/// Settings category art, read only from the optional installed bundle.
+/// Settings category artwork, in sidebar order.
 pub(crate) const SETTINGS_ICONS: [&str; 14] = [
     "assets/accessibility-41a033eee6f8f8726f5e.png",
     "assets/keyboard-mouse-58d767999df54b704830.png",
@@ -122,7 +122,7 @@ pub(crate) const PROFILE_BANNERS: [&str; 8] = [
     "assets/screenshot_7-6cfec1e1e1009ea73447.jpg",
     "assets/screenshot_8-b5f240429090c0ddd613.jpg",
 ];
-/// Profile error art, loaded only from an install at runtime.
+/// Profile error artwork.
 pub(crate) const PROFILE_ERRORS: [&str; 3] = [
     "assets/nothing_to_see-1107fc6902173eb98f28.png",
     "assets/generic_error-aa90619c4c1746eb7ac0.png",
@@ -232,9 +232,6 @@ const REFERENCED_KEY_GROUPS: &[&[&str]] = &[
     &BUTTON_DESTRUCTIVE_IMAGES,
     &PLAY_TAB_IMAGES,
 ];
-
-/// Photographic art that is not shipped and still loads from an installed bundle.
-const INSTALL_ONLY_KEY_GROUPS: &[&[&str]] = &[&[WORLD_PREVIEW], &PROFILE_BANNERS];
 
 /// Lists exact native artwork keys used by screens; hashed sleep names match the prefix above.
 pub(crate) fn referenced_keys() -> impl Iterator<Item = &'static str> {
@@ -347,36 +344,12 @@ struct AtlasRect {
     height: u32,
 }
 
-/// Finds the installed bundle, with an explicit path taking precedence.
-pub fn bundle_dir() -> Option<PathBuf> {
-    if let Some(root) = std::env::var_os(BUNDLE_OVERRIDE_ENV) {
-        return bundle_at(Path::new(&root));
-    }
-    let mut roots = Vec::new();
-    if let Some(home) = std::env::var_os("HOME") {
-        let home = PathBuf::from(home);
-        roots.push(home.join(
-            "Library/Containers/io.playcover.PlayCover/Applications/com.mojang.minecraftpe.app",
-        ));
-        roots.push(home.join("Applications/Minecraft.app"));
-    }
-    roots.push(PathBuf::from("/Applications/Minecraft.app"));
-    roots.push(PathBuf::from(".local/assets/oreui"));
-    if let Some(program_files) = std::env::var_os("ProgramFiles") {
-        let packages = PathBuf::from(program_files).join("WindowsApps");
-        if let Ok(entries) = std::fs::read_dir(packages) {
-            roots.extend(entries.take(256).flatten().filter_map(|entry| {
-                entry
-                    .file_name()
-                    .to_str()
-                    .filter(|name| name.starts_with("Microsoft.MinecraftUWP_"))
-                    .map(|_| entry.path())
-            }));
-        }
-    }
-    roots.into_iter().find_map(|root| bundle_at(&root))
+/// Finds a bundle only when a comparison path was explicitly supplied.
+fn bundle_dir(override_root: Option<&Path>) -> Option<PathBuf> {
+    bundle_at(override_root?)
 }
 
+/// Resolves a bundle directory or a bundle nested inside the supplied root.
 fn bundle_at(root: &Path) -> Option<PathBuf> {
     [
         root.to_path_buf(),
@@ -387,60 +360,61 @@ fn bundle_at(root: &Path) -> Option<PathBuf> {
     .find(|dir| dir.join("atlas.json").is_file())
 }
 
-/// Selects the installed bundle for every referenced key; comparison captures only.
+/// Selects a local bundle for every referenced key; comparison captures only.
 pub const BUNDLE_OVERRIDE_ENV: &str = "CINNABAR_OREUI_LOCAL_ASSETS";
 
 static IMAGES: OnceLock<Option<OreUiImages>> = OnceLock::new();
 
-/// Decodes OreUI artwork once: shipped art from `compiled_dir`, plus the install-only keys from an
-/// installed bundle. [`BUNDLE_OVERRIDE_ENV`] replaces shipped art with the bundle's.
+/// Decodes shipped OreUI artwork once from `compiled_dir`, without searching for game installs.
+/// [`BUNDLE_OVERRIDE_ENV`] explicitly replaces shipped art for comparison captures.
 pub fn load_optional_oreui_images(compiled_dir: &Path) -> Option<OreUiImages> {
     IMAGES
         .get_or_init(|| {
-            let comparison = std::env::var_os(BUNDLE_OVERRIDE_ENV).is_some();
-            let shipped = if comparison {
-                Vec::new()
-            } else {
-                shipped::read(compiled_dir).unwrap_or_else(|reason| {
-                    eprintln!("{reason}");
-                    Vec::new()
-                })
-            };
-            let wanted = if comparison {
-                is_referenced
-            } else {
-                is_install_only
-            };
-            let (mut art, source) = match bundle_dir().map(|dir| (read_bundle(&dir, wanted), dir)) {
-                Some((Ok((art, source)), dir)) => {
-                    eprintln!(
-                        "OreUI installed assets: {} ({} images)",
-                        dir.display(),
-                        art.len()
-                    );
-                    (art, Some(source))
-                }
-                Some((Err(reason), dir)) => {
-                    eprintln!("OreUI bundle at {} unusable ({reason})", dir.display());
-                    (Vec::new(), None)
-                }
-                None => (Vec::new(), None),
-            };
-            art.extend(shipped);
-            let mut images = pack(art, source).unwrap_or_else(|reason| {
-                eprintln!("OreUI artwork unusable ({reason})");
-                OreUiImages {
-                    pages: Vec::new(),
-                    sprites: Default::default(),
-                    loading_frames: Default::default(),
-                    animations: Default::default(),
-                    source: None,
-                }
-            });
+            let override_root = std::env::var_os(BUNDLE_OVERRIDE_ENV);
+            let mut images = load_images(compiled_dir, override_root.as_deref().map(Path::new));
             dimensions::install(&mut images);
             (!images.pages.is_empty()).then_some(images)
         })
         .clone()
+}
+
+/// Loads shipped art or an explicit comparison bundle without caching startup state.
+fn load_images(compiled_dir: &Path, override_root: Option<&Path>) -> OreUiImages {
+    let (art, source) = if override_root.is_some() {
+        match bundle_dir(override_root).map(|dir| (read_bundle(&dir, is_referenced), dir)) {
+            Some((Ok((art, source)), dir)) => {
+                eprintln!(
+                    "OreUI comparison assets: {} ({} images)",
+                    dir.display(),
+                    art.len()
+                );
+                (art, Some(source))
+            }
+            Some((Err(reason), dir)) => {
+                eprintln!("OreUI bundle at {} unusable ({reason})", dir.display());
+                (Vec::new(), None)
+            }
+            None => (Vec::new(), None),
+        }
+    } else {
+        (
+            shipped::read(compiled_dir).unwrap_or_else(|reason| {
+                eprintln!("{reason}");
+                Vec::new()
+            }),
+            None,
+        )
+    };
+    pack(art, source).unwrap_or_else(|reason| {
+        eprintln!("OreUI artwork unusable ({reason})");
+        OreUiImages {
+            pages: Vec::new(),
+            sprites: Default::default(),
+            loading_frames: Default::default(),
+            animations: Default::default(),
+            source: None,
+        }
+    })
 }
 
 /// The artwork decoded at startup, if any.
@@ -458,12 +432,6 @@ pub fn checkout_compiled_dir() -> PathBuf {
 
 fn is_referenced(key: &str) -> bool {
     key.starts_with(SLEEP_ANIMATION_PREFIX) || referenced_keys().any(|known| known == key)
-}
-
-fn is_install_only(key: &str) -> bool {
-    INSTALL_ONLY_KEY_GROUPS
-        .iter()
-        .any(|group| group.contains(&key))
 }
 
 /// A decoded image: a still, or animation frames with their own durations.

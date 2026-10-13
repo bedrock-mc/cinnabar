@@ -58,7 +58,7 @@ pub(super) fn draw(
     let top = bounds[1] + edge + pad - scroll.offset;
     let preview = [inner[0], top, inner[1], top + preview_height];
     canvas.fill(preview, NEUTRAL80.fill)?;
-    // An edited world shows its own last view; a new one, the install's default preview.
+    // An edited world uses its thumbnail; otherwise optional art covers the drawn background.
     let thumbnail = view
         .local
         .edited

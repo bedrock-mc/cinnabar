@@ -1,6 +1,6 @@
 //! The OreUI design system, drawn in our own code, and the screens vanilla shows
-//! with OreUI by default (`docs/oreui.md`). Installed icon and control artwork
-//! and the shipped OreUI fonts are read at runtime.
+//! with OreUI by default (`docs/oreui.md`). Shipped original artwork and OreUI
+//! fonts are read at runtime.
 
 mod accounts;
 mod add_server;
@@ -85,11 +85,11 @@ use ui_engine::text_metrics::TextMetrics;
 pub enum Look {
     #[default]
     Drawn,
-    /// The install's sprites where the drawn look would approximate them.
+    /// Available artwork sprites where the drawn look would approximate them.
     Originals,
 }
 
-/// OreUI's installed artwork, look and motion, carried across builds.
+/// OreUI's artwork, look and motion, carried across builds.
 #[derive(Default)]
 pub struct OreUiScreen {
     pub originals: Option<Arc<Originals>>,

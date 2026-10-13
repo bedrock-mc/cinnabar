@@ -1,9 +1,29 @@
 use super::*;
 
-/// Packs every referenced key an installed bundle holds, as comparison captures do.
+/// Packs every referenced key a local bundle holds, as comparison captures do.
 fn load(dir: &Path) -> Result<OreUiImages, String> {
     let (art, source) = read_bundle(dir, is_referenced)?;
     pack(art, Some(source))
+}
+
+/// Writes a synthetic original-art carrier for the supplied artwork keys.
+fn write_shipped_carrier(dir: &Path, keys: &[&str]) {
+    let icons: Vec<_> = keys
+        .iter()
+        .map(|key| assets::oreui_icons::OreUiIcon {
+            key: (*key).into(),
+            width: 2,
+            height: 2,
+            frames: vec![assets::oreui_icons::OreUiIconFrame {
+                millis: 0,
+                rgba8: [30, 60, 90, 255].repeat(4).into(),
+            }],
+        })
+        .collect();
+    let manifest =
+        assets::canonical_source_manifest_sha256(assets::oreui_icons::OREUI_ICONS_SOURCE_MANIFEST);
+    let bytes = assets::oreui_icons::encode_oreui_icons(manifest, &icons).unwrap();
+    std::fs::write(dir.join(assets::carriers::OREUI_ICONS.output), bytes).unwrap();
 }
 
 /// Makes authored GIF bytes without requiring any installed assets.
@@ -175,10 +195,13 @@ fn standalone_art_masks_and_demand_pages_keep_source_pixels_and_reuse_cache() {
 }
 
 #[test]
-fn installed_core_has_native_settings_art_within_texture_budget() {
-    let Some(dir) = bundle_dir() else {
+fn local_core_has_native_settings_art_within_texture_budget() {
+    let root = std::env::var_os(BUNDLE_OVERRIDE_ENV)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/oreui"));
+    let Some(dir) = bundle_dir(Some(&root)) else {
         eprintln!(
-            "skipping installed_core_has_native_settings_art_within_texture_budget: installed OreUI bundle unavailable"
+            "skipping local_core_has_native_settings_art_within_texture_budget: explicit or checkout OreUI fixture unavailable"
         );
         return;
     };
@@ -382,8 +405,68 @@ fn shipped_carrier_packs_masks_animations_and_loading_frames_without_game_files(
 }
 
 #[test]
-fn shipped_mode_reads_only_install_only_art_from_a_bundle() {
+fn bundle_discovery_requires_an_explicit_comparison_path() {
+    assert_eq!(bundle_dir(None), None);
+    for relative in [
+        "",
+        "data/gui/dist/hbui",
+        "gui/dist/hbui",
+        ".local/assets/oreui",
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join(relative);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("atlas.json"), "[]").unwrap();
+        assert_eq!(bundle_dir(None), None);
+        let expected = (relative != ".local/assets/oreui").then_some(dir.clone());
+        assert_eq!(bundle_dir(Some(root.path())), expected);
+        assert_eq!(bundle_dir(Some(&dir)), Some(dir));
+    }
+}
+
+#[test]
+fn normal_startup_uses_shipped_art_without_a_local_bundle_source() {
     let dir = tempfile::tempdir().unwrap();
+    write_shipped_carrier(dir.path(), &[HARDCORE_ICON]);
+    std::fs::create_dir(dir.path().join("assets")).unwrap();
+    std::fs::write(dir.path().join("atlas.json"), "[]").unwrap();
+    let photographic_keys: Vec<_> = [WORLD_PREVIEW].into_iter().chain(PROFILE_BANNERS).collect();
+    for key in &photographic_keys {
+        image::RgbImage::from_pixel(6, 4, image::Rgb([80, 120, 160]))
+            .save(dir.path().join(key))
+            .unwrap();
+    }
+    let images = load_images(dir.path(), None);
+    assert!(images.sprites.contains_key(HARDCORE_ICON));
+    assert!(images.source.is_none());
+    for key in photographic_keys {
+        assert!(
+            !images.contains(key),
+            "unselected local artwork loaded: {key}"
+        );
+        assert!(images.with_artwork(&[key]).is_err());
+    }
+}
+
+#[test]
+fn normal_startup_keeps_shipped_preview_and_banners_when_available() {
+    let dir = tempfile::tempdir().unwrap();
+    let keys: Vec<_> = [WORLD_PREVIEW].into_iter().chain(PROFILE_BANNERS).collect();
+    write_shipped_carrier(dir.path(), &keys);
+    let images = load_images(dir.path(), None);
+    assert!(images.source.is_none());
+    for key in keys {
+        assert!(
+            images.sprites.contains_key(key),
+            "shipped art missing: {key}"
+        );
+    }
+}
+
+#[test]
+fn comparison_override_loads_referenced_art_instead_of_shipped_art() {
+    let dir = tempfile::tempdir().unwrap();
+    write_shipped_carrier(dir.path(), &[CHEVRON_LEFT_IMAGE]);
     std::fs::create_dir(dir.path().join("assets")).unwrap();
     std::fs::write(dir.path().join("atlas.json"), "[]").unwrap();
     for key in [WORLD_PREVIEW, PROFILE_BANNERS[0], HARDCORE_ICON] {
@@ -392,10 +475,11 @@ fn shipped_mode_reads_only_install_only_art_from_a_bundle() {
             .unwrap();
     }
     std::fs::write(dir.path().join(LOADING_ANIMATION), synthetic_animation(2)).unwrap();
-    let (art, source) = read_bundle(dir.path(), is_install_only).unwrap();
-    let images = pack(art, Some(source)).unwrap();
+    let images = load_images(dir.path(), Some(dir.path()));
     assert!(images.sprites.contains_key(WORLD_PREVIEW));
     assert!(images.sprites.contains_key(PROFILE_BANNERS[0]));
-    assert!(!images.sprites.contains_key(HARDCORE_ICON));
-    assert!(images.loading_frames.is_empty());
+    assert!(images.sprites.contains_key(HARDCORE_ICON));
+    assert!(!images.sprites.contains_key(CHEVRON_LEFT_IMAGE));
+    assert_eq!(images.loading_frames.len(), 2);
+    assert!(images.source.is_some());
 }

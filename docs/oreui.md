@@ -126,9 +126,11 @@ their native artwork. Live animation review remains open.
   `assets/oreui-icons-source.json`; `make oreui-icons-assets` compiles the hash-checked carrier.
   Button faces keep the native state-specific nine-slice insets. Switches, sliders, segmented
   controls and radio diamonds use their native role fills and bevel geometry.
-- An installed bundle supplies only the profile banners and Create New World preview.
-  `CINNABAR_OREUI_LOCAL_ASSETS=<install root or its data/gui/dist/hbui>` instead loads all of its
-  artwork, for comparison captures only.
+- Startup never searches installed Minecraft or the checkout's `.local/assets/oreui` directory.
+  Profile banners and the Create New World preview use shipped artwork when available; otherwise
+  they keep their drawn backgrounds. World thumbnails and featured profile images take precedence.
+  `CINNABAR_OREUI_LOCAL_ASSETS=<bundle root or its data/gui/dist/hbui>` explicitly loads local
+  artwork for developer comparison captures only.
 - Cinnangles Seven supplies body text and Cinnangles Ten supplies headings. The compiled
   carriers retain each face's em and vertical metrics for semantic sizes, line heights and
   letter spacing. The default HUD and JSON-UI font remains independently selectable.
