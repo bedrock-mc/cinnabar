@@ -1,6 +1,7 @@
 use super::*;
 use crate::gpu_snapshot::{self, Draw, Gpu, RasterState};
 use bevy::math::{Mat4, Vec3};
+use render_model::dropped_item::cube_mesh;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
