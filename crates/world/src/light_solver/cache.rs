@@ -143,6 +143,13 @@ impl<A: LightBlockAccess> LightBlockAccess for CachedLightBlockAccess<'_, A> {
             .map_or_else(|| self.source.sample(position), |index| self.samples[index])
     }
 
+    fn is_known(&self, position: BlockPos) -> bool {
+        self.index(position).map_or_else(
+            || self.source.is_known(position),
+            |index| self.samples[index] != LightBlockSample::Unknown,
+        )
+    }
+
     fn sky_seed(&self, position: BlockPos) -> u8 {
         self.index(position).map_or_else(
             || self.source.sky_seed(position),

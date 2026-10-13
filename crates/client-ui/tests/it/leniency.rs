@@ -9,8 +9,14 @@ use protocol::{
 };
 use ui::BoundedStat;
 
-use super::*;
+use client_ui::ui_runtime::{
+    SequencedLocalAttributes, SequencedUiEvent, UiApplyOutcome, UiRuntime,
+};
 
+use super::fixtures::envelope;
+use super::support::text;
+
+/// Builds an actor attribute with the supplied bounds.
 fn attribute(name: &str, current: f32, min: f32, max: f32) -> ActorAttribute {
     ActorAttribute {
         name: Arc::from(name),
@@ -22,6 +28,7 @@ fn attribute(name: &str, current: f32, min: f32, max: f32) -> ActorAttribute {
     }
 }
 
+/// Wraps attributes in ordered session and clock metadata.
 fn local_attributes(
     session: u64,
     sequence: u64,

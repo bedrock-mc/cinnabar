@@ -1,15 +1,16 @@
-use super::*;
+use client_ui::ui_runtime::UiRuntime;
 use protocol::{
     InventoryAuthority, InventoryContentEvent, InventoryEvent, NetworkItemStack,
     PLAYER_INVENTORY_SLOTS, PLAYER_INVENTORY_WINDOW_ID,
 };
+use protocol::{WorldEvent, decode_batch, into_world_event};
 
+/// Decodes the pinned inventory pickup fixture.
 fn pickup() -> InventoryEvent {
-    let batch: Vec<_> =
-        include_str!("../../../../protocol/fixtures/inventory_transaction_pickup.hex")
-            .split_whitespace()
-            .map(|byte| u8::from_str_radix(byte, 16).unwrap())
-            .collect();
+    let batch: Vec<_> = include_str!("../../../protocol/fixtures/inventory_transaction_pickup.hex")
+        .split_whitespace()
+        .map(|byte| u8::from_str_radix(byte, 16).unwrap())
+        .collect();
     let packet = decode_batch(batch.into()).unwrap().pop().unwrap();
     let Some(WorldEvent::Inventory(event)) = into_world_event(packet, 0).unwrap() else {
         panic!()
@@ -91,5 +92,4 @@ fn vanilla_pickup_replaces_closed_inventory_and_hud_before_the_next_drop() {
     assert_eq!(predicted.stack_network_id, request);
 }
 
-#[path = "mount_quick_move_tests.rs"]
-mod mount_quick_move_tests;
+mod mount_quick_move;

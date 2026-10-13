@@ -1,6 +1,11 @@
 //! Server death reasons survive either packet order and retire on recovery.
 
-use super::*;
+use std::sync::Arc;
+
+use client_ui::ui_runtime::{SequencedLocalAttributes, UiRuntime};
+use protocol::{HudEvent, UiEvent};
+
+use super::fixtures::envelope;
 
 /// Builds a reason without adding a chat broadcast.
 fn reason(key: &str, parameters: &[&str]) -> UiEvent {

@@ -348,8 +348,14 @@ impl WorldStream {
                     return Ok(());
                 };
                 let ids = self.decode_ids(event.dimension);
+                let previous = self
+                    .authority
+                    .terrain()
+                    .chunk(ChunkKey::new(event.dimension, event.x, event.z))
+                    .map(world::Chunk::shared_sub_chunks);
                 self.enqueue_decode_job(DecodeJob::InlineLevelChunk {
                     sequence,
+                    previous,
                     payload: level_chunk_payload
                         .take()
                         .unwrap_or_else(|| Bytes::from(std::mem::take(&mut event.payload))),
