@@ -203,3 +203,31 @@ fn coalesced_air_conversion_is_removed_behind_a_capacity_blocked_nearer_mesh() {
         Some(WorldMeshChange::Remove { key, generation, .. }) if key == far && generation == revision
     ));
 }
+
+/// A coalesced removal and the original candidate routed to the removal lane spend one
+/// zero-byte permit and publish one removal.
+#[test]
+fn duplicate_removal_records_spend_one_permit() {
+    let mut stream = lit_stream(1);
+    let key = SubChunkKey::new(1, 0, 0, 0);
+    resident(&mut stream, key, super::uniform_sub_chunk(2));
+    install_current_light(&mut stream, key, 0, 0, false);
+    stream.mark_dirty_exact(key, Instant::now());
+    assert_eq!(stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, 1), 0);
+    resident(&mut stream, key, super::uniform_sub_chunk(0));
+    stream.mark_changed(key, Instant::now());
+    let config = render_api::PublicationServiceConfig::DEFAULT;
+    let allowance = render_api::PublicationAllowance::new(config);
+    allowance.begin_frame(1, 0, 0, 0, config.minimum_items_per_second as usize);
+    stream.set_publication_allowance(allowance.clone());
+    let before = allowance.remaining_zero_byte_operations();
+
+    assert_eq!(stream.dispatch_mesh_jobs_with_limits([8.0; 3], 1, 4), 0);
+
+    assert_eq!(allowance.remaining_zero_byte_operations(), before - 1);
+    assert!(matches!(
+        stream.pop_mesh_change(),
+        Some(WorldMeshChange::Remove { key: removed, .. }) if removed == key
+    ));
+    assert!(stream.pop_mesh_change().is_none());
+}

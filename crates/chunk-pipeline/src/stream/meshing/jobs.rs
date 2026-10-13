@@ -367,6 +367,12 @@ impl WorldStream {
                 self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
                     .ready
                     .push(candidate);
+            } else if removal_candidates.iter().any(
+                |(collected, _): &(PendingSchedulerCandidate, PendingMesh)| collected.key == key,
+            ) {
+                // A coalesced removal and the original candidate can both reach this lane; one
+                // removal spends one permit.
+                continue;
             } else if removal_candidates.len() >= removal_authority {
                 self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
                     .deferred
