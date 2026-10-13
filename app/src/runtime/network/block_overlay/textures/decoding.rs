@@ -4,6 +4,25 @@ use super::*;
 use pack_runtime::pack_textures::resolve_pack_texture_with_policy;
 
 impl TextureCatalog<'_> {
+    /// Reports an absent static pack source without decoding or borrowing carrier pixels.
+    pub(in super::super) fn static_source_missing(
+        &self,
+        route: &super::super::TextureRoute,
+    ) -> bool {
+        let Some((_, _, choice)) = self.resolve_choice(route) else {
+            return false;
+        };
+        let reason = diagnostics::failure_reason(self.view, &choice.path);
+        if reason != FailureReason::TextureFileMissing {
+            return false;
+        }
+        if self.terrain.contains_key(route.key()) {
+            self.diagnostics
+                .failure(reason, route.key(), Some(&choice.path));
+        }
+        true
+    }
+
     /// Resolves the winning pack or carrier filename before looking up reusable frames.
     pub(in super::super) fn reusable_image_path(
         &self,

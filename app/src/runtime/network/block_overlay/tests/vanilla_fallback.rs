@@ -133,6 +133,73 @@ fn vanilla_faces_reuse_the_base_page_without_missing_textures() {
     assert_eq!(admitted.kind(), VisualKind::Cube);
 }
 
+#[test]
+fn absent_pack_faces_reuse_the_base_page_after_every_overlay_shard_is_full() {
+    let view = view_with_geometry(
+        br#"{"format_version":"1.12.0","minecraft:geometry":[{
+            "description":{"identifier":"geometry.floor","texture_width":16,"texture_height":16},
+            "bones":[{"name":"floor","cubes":[{"origin":[-8,0,-8],"size":[16,1,16],"uv":[0,0]}]}]
+        }]}"#,
+    );
+    let mut materials = base_materials();
+    materials[1].texture = assets::TextureRef::new(0, 1).unwrap();
+    let base = base(materials);
+    let keys = keys();
+    for geometry in [super::super::FULL_BLOCK, "geometry.floor"] {
+        let mut floor = chair("test:floor", "oak_planks");
+        Arc::make_mut(&mut floor.visual).base.geometry = Some(geometry.into());
+        let blocks = CustomBlocks {
+            blocks: vec![
+                chair("test:static", "lucky"),
+                chair("test:animated", "gen"),
+                floor,
+            ]
+            .into(),
+            ..Default::default()
+        };
+        let compiled =
+            super::super::compile_block_overlay(&view, &blocks, false, Some(&keys), 1, Some(&base))
+                .unwrap();
+        assert_eq!(
+            compiled.overlay.textures.len(),
+            super::super::MAX_OVERLAY_SHARDS
+        );
+        assert!(
+            compiled
+                .overlay
+                .textures
+                .iter()
+                .all(|shard| shard.layers == 1)
+        );
+        assert_eq!(compiled.gaps.missing_textures, 0);
+        assert_eq!(
+            compiled.overlay.visuals[2].kind,
+            if geometry == super::super::FULL_BLOCK {
+                VisualKind::Cube
+            } else {
+                VisualKind::Model
+            }
+        );
+        let session = base.with_block_overlay(1, &compiled.overlay).unwrap();
+        let visual = session.resolve(NetworkIdMode::Sequential, 3);
+        for face in BlockFace::ALL {
+            let material = session.material(visual.face(face).material_id());
+            assert_eq!(material.texture, base.material(1).texture);
+            assert_eq!(material.animation, assets::NO_ANIMATION);
+        }
+        if let Some(template) = visual.model_template() {
+            let template = session.model_templates()[template as usize];
+            let start = template.quad_start as usize;
+            for quad in &session.model_quads()[start..start + template.quad_count as usize] {
+                assert_eq!(
+                    session.material(quad.material).texture,
+                    base.material(1).texture
+                );
+            }
+        }
+    }
+}
+
 // Without base materials the same chair degrades per face instead of
 // sinking the whole cube.
 #[test]
