@@ -68,11 +68,14 @@ pub fn collect_held(
     collect_shapes(world, entities, Some(&display))
 }
 
+/// Resolves an item's inventory display state while borrowing its startup catalog.
+type DisplayState<'a> = dyn Fn(&assets::ItemVisualKey) -> Option<u32> + 'a;
+
 /// Collects cube sheets, and template models when `display` is given.
 fn collect_shapes(
     world: &RuntimeAssets,
     entities: &RuntimeEntityAssets,
-    display: Option<&dyn Fn(&assets::ItemVisualKey) -> Option<u32>>,
+    display: Option<&DisplayState<'_>>,
 ) -> BlockSheets {
     let mut sheets = Vec::new();
     let mut by_materials = BTreeMap::<[u32; 6], usize>::new();
