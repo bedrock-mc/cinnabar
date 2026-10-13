@@ -55,7 +55,7 @@ fn merge_stack(network_id: i32, count: u16, stack_network_id: i32) -> NetworkIte
 }
 
 fn apple_registry() -> ItemRegistryEvent {
-    protocol::test_support::component_item_registry(
+    protocol::test_support::items::component_item_registry(
         "minecraft:apple",
         6,
         protocol::ITEM_DEFAULT_MAX_STACK_SIZE,

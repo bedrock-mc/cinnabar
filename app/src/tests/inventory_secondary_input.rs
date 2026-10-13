@@ -783,7 +783,7 @@ fn cursor_content(cursor: Option<NetworkItemStack>) -> InventoryEvent {
 
 fn apply_apple_registry(player_runtime: &mut PlayerRuntime, runtime: &mut UiRuntime) {
     runtime.inventory_ledger_mut(player_runtime).apply_registry(
-        &protocol::test_support::component_item_registry(
+        &protocol::test_support::items::component_item_registry(
             "minecraft:apple",
             6,
             protocol::ITEM_DEFAULT_MAX_STACK_SIZE,

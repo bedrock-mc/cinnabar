@@ -41,7 +41,7 @@ fn bootstrap_registry_precedes_authority_and_enables_first_occupied_merge() {
     let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(7));
 
     let mut runtime = UiRuntime::new(7);
-    let registry = protocol::test_support::component_item_registry(
+    let registry = protocol::test_support::items::component_item_registry(
         "minecraft:apple",
         878,
         protocol::ITEM_DEFAULT_MAX_STACK_SIZE,
@@ -331,7 +331,7 @@ fn item_registry_and_inventory_authority_share_one_bounded_fifo() {
             InventoryEvent::Authority(InventoryAuthority::Server),
         )
         .unwrap();
-    let registry = protocol::test_support::component_item_registry(
+    let registry = protocol::test_support::items::component_item_registry(
         "minecraft:apple",
         6,
         protocol::ITEM_DEFAULT_MAX_STACK_SIZE,

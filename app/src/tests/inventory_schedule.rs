@@ -875,7 +875,7 @@ fn same_frame_registry_and_inventory_authority_precede_occupied_merge_input() {
     };
     window.set_cursor_position(Some(pointer));
     let ingress = SameFrameMergeIngress {
-        registry: Some(protocol::test_support::component_item_registry(
+        registry: Some(protocol::test_support::items::component_item_registry(
             "minecraft:apple",
             6,
             protocol::ITEM_DEFAULT_MAX_STACK_SIZE,

@@ -38,7 +38,7 @@ fn known_ledger(slots: &[(usize, NetworkItemStack)]) -> PlayerInventoryLedger {
     let mut ledger = PlayerInventoryLedger::default();
     ledger.begin_session(1);
     ledger.apply(&InventoryEvent::Authority(InventoryAuthority::Server));
-    ledger.apply_registry(&protocol::test_support::component_item_registry(
+    ledger.apply_registry(&protocol::test_support::items::component_item_registry(
         "minecraft:apple",
         6,
         protocol::ITEM_DEFAULT_MAX_STACK_SIZE,

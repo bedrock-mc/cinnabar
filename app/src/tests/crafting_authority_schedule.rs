@@ -915,7 +915,7 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
             PERSONAL_INVENTORY_WINDOW_TYPE, PLAYER_INVENTORY_SLOT_COUNT,
         };
         let mut app = app();
-        let registry = protocol::test_support::component_item_registry(
+        let registry = protocol::test_support::items::component_item_registry(
             "minecraft:apple",
             878,
             protocol::ITEM_DEFAULT_MAX_STACK_SIZE,
