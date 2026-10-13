@@ -1891,6 +1891,10 @@ routes agree with the pinned effect texture arrays; the current native potion
 table constructor and auxiliary values without reviewed routes remain incomplete.
 This correction does not close the broader actor parity gate.
 
+Projectile controllers now keep their primary sprite draw instead of drawing an
+auxiliary glint raster as a separate quad. The admitted three-sampler material
+keeps its grouped draw. Other secondary material samplers remain incomplete.
+
 The canonical v21 debug build passes, along with focused snowball, explosion,
 credits, boss UI/wire/app/session, orb, portal overlay GPU and shader checks.
 Formatting, architecture and diff checks pass. It is running through a persistent
