@@ -753,6 +753,7 @@ mod epoch_tests {
         .unwrap();
         let result = instance.run(u64::MAX, commit, |exports, store| {
             // Explicitly expire this newly armed callback without waiting on wall time.
+            store.epoch_deadline_callback(|_| Err(wasmtime::Trap::Interrupt.into()));
             store.set_epoch_deadline(0);
             exports.frame(store)
         });

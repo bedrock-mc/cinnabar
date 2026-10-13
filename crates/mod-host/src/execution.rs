@@ -9,7 +9,7 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
-use wasmtime::{Config, Engine, Store};
+use wasmtime::{Config, Engine, Store, Trap, UpdateDeadline};
 
 const EPOCH_PERIOD: Duration = Duration::from_millis(10);
 const CALLBACK_DEADLINE: Duration = Duration::from_millis(250);
@@ -65,6 +65,17 @@ pub(crate) fn engine() -> Result<(Engine, EpochTicker)> {
 
 /// Restores fuel and a fresh epoch deadline before guest execution, including post-return.
 pub(crate) fn arm<T>(store: &mut Store<T>, fuel: u64, loading: bool) -> Result<()> {
+    let start = Instant::now();
+    arm_with_elapsed(store, fuel, loading, move || start.elapsed())
+}
+
+/// Arms a store using elapsed callback time, so delayed idle ticks cannot expire fresh work.
+fn arm_with_elapsed<T>(
+    store: &mut Store<T>,
+    fuel: u64,
+    loading: bool,
+    mut elapsed: impl FnMut() -> Duration + Send + Sync + 'static,
+) -> Result<()> {
     store.set_hostcall_fuel(HOSTCALL_BYTES);
     store.set_fuel(fuel)?;
     let deadline = if loading {
@@ -72,8 +83,20 @@ pub(crate) fn arm<T>(store: &mut Store<T>, fuel: u64, loading: bool) -> Result<(
     } else {
         CALLBACK_DEADLINE
     };
-    store.set_epoch_deadline(deadline.as_nanos().div_ceil(EPOCH_PERIOD.as_nanos()) as u64);
+    store.epoch_deadline_callback(move |_| {
+        let remaining = deadline.saturating_sub(elapsed());
+        if remaining.is_zero() {
+            return Err(Trap::Interrupt.into());
+        }
+        Ok(UpdateDeadline::Continue(epoch_ticks(remaining)))
+    });
+    store.set_epoch_deadline(epoch_ticks(deadline));
     Ok(())
+}
+
+/// Rounds a positive remaining duration up to whole ticker periods.
+fn epoch_ticks(duration: Duration) -> u64 {
+    duration.as_nanos().div_ceil(EPOCH_PERIOD.as_nanos()) as u64
 }
 
 impl Drop for EpochTicker {
@@ -89,11 +112,12 @@ impl Drop for EpochTicker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicU64;
     use wasmtime::{Instance, Module, Trap};
 
-    /// Advances a deadline without waiting for the ticker or reading wall time.
-    fn expire(engine: &Engine) {
-        let ticks = LOAD_DEADLINE.as_nanos().div_ceil(EPOCH_PERIOD.as_nanos());
+    /// Simulates a delayed ticker catching up past either deadline without advancing time.
+    fn catch_up(engine: &Engine) {
+        let ticks = epoch_ticks(LOAD_DEADLINE);
         for _ in 0..=ticks {
             engine.increment_epoch();
         }
@@ -121,12 +145,48 @@ mod tests {
             .get_typed_func::<(), ()>(&mut store, "idle")
             .unwrap();
         for loading in [true, false] {
-            arm(&mut store, u64::MAX, loading).unwrap();
-            expire(&engine);
+            arm_with_elapsed(&mut store, u64::MAX, loading, || LOAD_DEADLINE).unwrap();
+            catch_up(&engine);
             let error = work.call(&mut store, ()).unwrap_err();
             assert_eq!(error.downcast_ref::<Trap>(), Some(&Trap::Interrupt));
-            arm(&mut store, u64::MAX, loading).unwrap();
+            arm_with_elapsed(&mut store, u64::MAX, loading, || Duration::ZERO).unwrap();
             idle.call(&mut store, ()).unwrap();
+        }
+    }
+
+    #[test]
+    fn idle_catch_up_preserves_work_until_its_elapsed_deadline() {
+        let (engine, _ticker) = engine().unwrap();
+        let module = Module::new(&engine, "(module (func (export \"idle\")))").unwrap();
+        let mut store = Store::new(&engine, ());
+        arm_with_elapsed(&mut store, u64::MAX, true, || Duration::ZERO).unwrap();
+        let instance = Instance::new(&mut store, &module, &[]).unwrap();
+        let idle = instance
+            .get_typed_func::<(), ()>(&mut store, "idle")
+            .unwrap();
+        for loading in [true, false] {
+            let elapsed = Arc::new(AtomicU64::new(0));
+            let clock = Arc::clone(&elapsed);
+            arm_with_elapsed(&mut store, u64::MAX, loading, move || {
+                Duration::from_nanos(clock.load(Ordering::Acquire))
+            })
+            .unwrap();
+            catch_up(&engine);
+            idle.call(&mut store, ()).unwrap();
+
+            let deadline = if loading {
+                LOAD_DEADLINE
+            } else {
+                CALLBACK_DEADLINE
+            };
+            elapsed.store(deadline.as_nanos() as u64 - 1, Ordering::Release);
+            catch_up(&engine);
+            idle.call(&mut store, ()).unwrap();
+
+            elapsed.store(deadline.as_nanos() as u64, Ordering::Release);
+            catch_up(&engine);
+            let error = idle.call(&mut store, ()).unwrap_err();
+            assert_eq!(error.downcast_ref::<Trap>(), Some(&Trap::Interrupt));
         }
     }
 
@@ -151,8 +211,8 @@ mod tests {
         )
         .unwrap();
         let mut store = Store::new(&engine, ());
-        arm(&mut store, u64::MAX, true).unwrap();
-        expire(&engine);
+        arm_with_elapsed(&mut store, u64::MAX, true, || LOAD_DEADLINE).unwrap();
+        catch_up(&engine);
         let error = Instance::new(&mut store, &module, &[]).err().unwrap();
         assert_eq!(error.downcast_ref::<Trap>(), Some(&Trap::Interrupt));
     }

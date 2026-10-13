@@ -3,11 +3,13 @@
 //! [`v0_3`] and [`v0_4`] keep the worlds that older artifacts target.
 
 use std::fmt;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use wasmtime::component::{Component, HasSelf, Linker, Resource, ResourceTable};
-use wasmtime::{Engine, ResourceLimiter, Store, StoreLimits, StoreLimitsBuilder};
+use wasmtime::{
+    Engine, ResourceLimiter, Store, StoreLimits, StoreLimitsBuilder, Trap, UpdateDeadline,
+};
 
 use crate::limits::{
     EPOCH_PERIOD, MAX_CORE_INSTANCES, MAX_FRAME_BYTES, MAX_LOG_BYTES, MAX_LOGS, MAX_MEMORIES,
@@ -241,15 +243,74 @@ impl HostState {
         // Guest-to-host copies stay within the same ceiling as one protocol frame.
         store.set_hostcall_fuel(MAX_FRAME_BYTES);
         store.set_fuel(fuel)?;
-        store.set_epoch_deadline(epoch_ticks(deadline));
+        let start = Instant::now();
+        set_deadline(&mut store, deadline, move || start.elapsed());
         Ok(store)
     }
+}
+
+/// Counts only this store's elapsed work when delayed epoch ticks reach its deadline.
+fn set_deadline<T>(
+    store: &mut Store<T>,
+    deadline: Duration,
+    mut elapsed: impl FnMut() -> Duration + Send + Sync + 'static,
+) {
+    store.epoch_deadline_callback(move |_| {
+        let remaining = deadline.saturating_sub(elapsed());
+        if remaining.is_zero() {
+            return Err(Trap::Interrupt.into());
+        }
+        Ok(UpdateDeadline::Continue(epoch_ticks(remaining)))
+    });
+    store.set_epoch_deadline(epoch_ticks(deadline));
 }
 
 /// Whole epoch periods in `deadline`, rounded up.
 fn epoch_ticks(deadline: Duration) -> u64 {
     let ticks = deadline.as_nanos().div_ceil(EPOCH_PERIOD.as_nanos());
     u64::try_from(ticks).unwrap_or(u64::MAX)
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::*;
+    use crate::limits::{CALLBACK_DEADLINE, REGISTER_DEADLINE, REGISTER_FUEL};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    };
+    use wasmtime::{Instance, Module};
+
+    #[test]
+    fn idle_catch_up_preserves_work_until_its_elapsed_deadline() {
+        let (engine, _ticker) = crate::load::engine().unwrap();
+        let module = Module::new(&engine, "(module (func (export \"idle\")))").unwrap();
+        for deadline in [CALLBACK_DEADLINE, REGISTER_DEADLINE] {
+            let mut store = HostState::store(&engine, "catch-up", REGISTER_FUEL, deadline).unwrap();
+            let elapsed = Arc::new(AtomicU64::new(0));
+            let clock = Arc::clone(&elapsed);
+            set_deadline(&mut store, deadline, move || {
+                Duration::from_nanos(clock.load(Ordering::Acquire))
+            });
+            let instance = Instance::new(&mut store, &module, &[]).unwrap();
+            let idle = instance
+                .get_typed_func::<(), ()>(&mut store, "idle")
+                .unwrap();
+            for elapsed_time in [Duration::ZERO, deadline - Duration::from_nanos(1), deadline] {
+                elapsed.store(elapsed_time.as_nanos() as u64, Ordering::Release);
+                for _ in 0..=epoch_ticks(REGISTER_DEADLINE) {
+                    engine.increment_epoch();
+                }
+                let result = idle.call(&mut store, ());
+                if elapsed_time < deadline {
+                    result.unwrap();
+                } else {
+                    let error = result.unwrap_err();
+                    assert_eq!(error.downcast_ref::<Trap>(), Some(&Trap::Interrupt));
+                }
+            }
+        }
+    }
 }
 
 /// The store limits from [`crate::limits`]. Growth they refuse traps with [`LimitExceeded`].
