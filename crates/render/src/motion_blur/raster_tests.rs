@@ -497,6 +497,59 @@ fn actor_velocity_keeps_camera_followed_pixels_sharp_without_erasing_object_moti
 }
 
 #[test]
+fn stationary_camera_actor_exposure_spreads_colour_into_the_swept_background() {
+    let Some(raster) = Raster::new("moving actor exterior exposure raster") else {
+        return;
+    };
+    let bounds = UVec4::new(60, 48, 8, 32);
+    let input = image(|x, y| {
+        if x >= bounds.x && x < bounds.x + bounds.z && y >= bounds.y && y < bounds.y + bounds.w {
+            [255, 0, 0, 255]
+        } else {
+            [0, 128, 0, 255]
+        }
+    });
+    let z = projection().project_point3(Vec3::new(0.0, 0.0, -4.0)).z;
+    let mut uniform = exposure(Mat4::IDENTITY);
+    uniform.strength.x = 1.0;
+    uniform.strength.y = 17.0;
+    for &samples in &raster.depth_samples {
+        let output = raster.draw_with_motion(
+            &input,
+            uniform,
+            samples,
+            z,
+            Some(ActorMotion {
+                velocity: [0.125, 0.0, 1.0, 1.0],
+                bounds,
+            }),
+        );
+        let row = &output[(SIDE / 2 * SIDE * 4) as usize..((SIDE / 2 + 1) * SIDE * 4) as usize];
+        for x in [bounds.x - 3, bounds.x + bounds.z + 2] {
+            assert!(
+                row[x as usize * 4] > 8,
+                "moving actor must expose background beyond both silhouette edges at {samples}x MSAA"
+            );
+        }
+        let energy: u32 = row.chunks_exact(4).map(|pixel| u32::from(pixel[0])).sum();
+        let input_energy = bounds.z * 255;
+        assert!(
+            energy.abs_diff(input_energy) <= input_energy / 20,
+            "exposure must conserve actor colour within quantization tolerance: {energy}/{input_energy}/{samples}x MSAA"
+        );
+        for pixel in row.chunks_exact(4) {
+            assert_eq!(pixel[2], 0, "exposure invented a blue component");
+            assert_eq!(pixel[3], 255, "opaque scene exposure changed alpha");
+            let complementary_green = 128.0 * (1.0 - f32::from(pixel[0]) / 255.0);
+            assert!(
+                (f32::from(pixel[1]) - complementary_green).abs() <= 2.0,
+                "actor exposure must blend the covered background rather than add light"
+            );
+        }
+    }
+}
+
+#[test]
 fn moving_actor_silhouettes_blur_against_world_pixels() {
     let Some(raster) = Raster::new("actor silhouette exposure raster") else {
         return;

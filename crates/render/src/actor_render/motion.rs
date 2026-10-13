@@ -247,6 +247,8 @@ pub(crate) fn prepare(
 mod raster_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod viewport_raster_tests;
 
 /// Fills covered actor samples without changing world depth, color or presentation witnesses.
 pub(crate) fn draw(
