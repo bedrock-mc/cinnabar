@@ -7912,6 +7912,13 @@ Incomplete parity: experimental low-memory overrides, advanced graphics presets,
 and native VRAM probes on unsupported backends are not verified. These remain
 open and do not close a parity gate.
 
+Video settings offer owner-requested Performance, Balanced (the default), and
+Quality presets. Balanced restores existing defaults, including the device
+render-distance recommendation. The selection is derived from current values;
+manual graphics edits show Custom, and personal and accessibility options are
+preserved. These presets are a custom feature and do not close a parity gate.
+CI verification and owner visual acceptance remain pending.
+
 ### Authored particle lifecycle fields
 
 The core block-membership, expiration-expression, and optional parametric-field
