@@ -281,7 +281,7 @@ pub fn initialize_log(path: &std::path::Path, limit: u64) -> std::io::Result<()>
     let destination = if terminal {
         None
     } else {
-        Some(raw_stderr::original()?)
+        raw_stderr::original()?
     };
     initialize_log_with_destination(path, limit, terminal, destination)
 }
@@ -304,7 +304,10 @@ fn initialize_log_with_destination(
         Box::new(std::io::stderr())
     } else {
         // Keep the launch destination before fd 2 becomes the capture pipe.
-        Box::new(destination.ok_or_else(|| std::io::Error::other("stderr unavailable"))?)
+        match destination {
+            Some(destination) => Box::new(destination),
+            None => Box::new(std::io::sink()),
+        }
     };
     let mut console = Console::spawn_with_log(std::io::stdout(), stderr, Some(log));
     if !terminal {
