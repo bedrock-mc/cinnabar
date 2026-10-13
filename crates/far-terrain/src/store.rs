@@ -1,6 +1,6 @@
 //! Compressed in-memory summaries with least-recently-used eviction under a byte budget.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::{ColumnSummary, EncodedSummary, SummaryDecodeError};
 
@@ -41,7 +41,8 @@ pub struct SummaryStore {
     next_stamp: u64,
     bytes: usize,
     budget_bytes: usize,
-    changed: Vec<ColumnPos>,
+    /// Bounded by the entries: an evicted position leaves the set.
+    changed: BTreeSet<ColumnPos>,
 }
 
 impl SummaryStore {
@@ -53,7 +54,7 @@ impl SummaryStore {
             next_stamp: 0,
             bytes: 0,
             budget_bytes,
-            changed: Vec::new(),
+            changed: BTreeSet::new(),
         }
     }
 
@@ -87,7 +88,7 @@ impl SummaryStore {
         self.recency.insert(stamp, pos);
         self.bytes += bytes;
         if admission != Admission::Unchanged {
-            self.changed.push(pos);
+            self.changed.insert(pos);
         }
         self.evict_to_budget();
         admission
@@ -126,9 +127,9 @@ impl SummaryStore {
         self.bytes
     }
 
-    /// Positions whose content was inserted or replaced since the last call, in order.
+    /// Resident positions whose content was inserted or replaced since the last call.
     pub fn take_changed(&mut self) -> Vec<ColumnPos> {
-        std::mem::take(&mut self.changed)
+        std::mem::take(&mut self.changed).into_iter().collect()
     }
 
     /// Drops every summary, as when the namespace changes.
@@ -166,6 +167,7 @@ impl SummaryStore {
             if let Some(entry) = self.entries.remove(&pos) {
                 self.bytes -= entry_bytes(&entry.summary);
             }
+            self.changed.remove(&pos);
         }
     }
 }

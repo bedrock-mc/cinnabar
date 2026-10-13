@@ -25,7 +25,7 @@ pub const GRASS_TINT: [f32; 3] = [0.2, 0.5, 0.1];
 pub const FOLIAGE_TINT: [f32; 3] = [0.1, 0.4, 0.1];
 pub const WATER_TINT: [f32; 3] = [0.1, 0.2, 0.8];
 
-const LEAF_MATERIAL_BASE: u32 = 3;
+const LEAF_MATERIAL_BASE: u32 = 4;
 
 fn visual(kind: VisualKind, flags: BlockFlags, material: u32, variant: u32) -> BlockVisual {
     BlockVisual {
@@ -94,10 +94,10 @@ pub fn runtime_assets() -> RuntimeAssets {
             DIAGNOSTIC_MATERIAL,
             0,
         ),
-        visual(VisualKind::Cube, cube, 0, 0),
         visual(VisualKind::Cube, cube, 1, 0),
-        visual(VisualKind::Liquid, BlockFlags::empty(), 2, 0),
-        visual(VisualKind::Cross, BlockFlags::empty(), 1, 0),
+        visual(VisualKind::Cube, cube, 2, 0),
+        visual(VisualKind::Liquid, BlockFlags::empty(), 3, 0),
+        visual(VisualKind::Cross, BlockFlags::empty(), 2, 0),
         visual(
             VisualKind::Cube,
             BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL,
@@ -106,6 +106,7 @@ pub fn runtime_assets() -> RuntimeAssets {
         ),
     ];
     let mut materials = vec![
+        Material::unvaried(),
         material(0, MATERIAL_FLAG_GRASS_TINT),
         material(1, 0),
         material(2, MATERIAL_FLAG_WATER_TINT),

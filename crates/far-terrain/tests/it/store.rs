@@ -12,7 +12,8 @@ fn resent_column_replaces_only_when_content_differs() {
     let mut edited = summary.clone();
     edited.cells_mut()[0].height += 1;
     assert_eq!(store.admit(pos, &edited), Admission::Replaced);
-    assert_eq!(store.take_changed(), vec![pos, pos]);
+    assert_eq!(store.take_changed(), vec![pos]);
+    assert!(store.take_changed().is_empty());
     assert_eq!(store.summary(pos), Some(Ok(edited)));
     assert_eq!(store.len(), 1);
 }
@@ -31,4 +32,9 @@ fn byte_budget_evicts_least_recently_used_first() {
     assert!(!store.contains(ColumnPos::new(1, 0)));
     assert!(store.contains(ColumnPos::new(2, 0)));
     assert!(store.bytes() <= probe.bytes() * 2);
+    assert_eq!(
+        store.take_changed(),
+        vec![ColumnPos::new(0, 0), ColumnPos::new(2, 0)],
+        "evicted positions leave the change queue"
+    );
 }
