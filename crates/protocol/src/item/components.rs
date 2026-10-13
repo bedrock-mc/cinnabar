@@ -52,6 +52,10 @@ pub struct ItemComponents {
     /// Retains declaration presence when its maximum is absent or invalid.
     pub durability_declared: bool,
     pub max_stack_size: Option<u8>,
+    /// The components carry an `item_properties` entry, whose stack size a component item takes.
+    pub item_properties_declared: bool,
+    /// The components carry a top-level `minecraft:max_stack_size` entry.
+    pub max_stack_size_component_declared: bool,
     /// `use_animation` by name (`eat`, `drink`, `bow`...); the legacy enum maps 1 and 2.
     pub use_animation: Option<Arc<str>>,
     pub use_duration_ticks: Option<u32>,
@@ -261,6 +265,8 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
         max_stack_size: count(property("max_stack_size").or(component("minecraft:max_stack_size")))
             .filter(|size| (1..=255).contains(size))
             .map(|size| size as u8),
+        item_properties_declared: properties.is_some(),
+        max_stack_size_component_declared: component("minecraft:max_stack_size").is_some(),
         use_animation: text(
             component("minecraft:use_animation").and_then(|animation| animation.field("value")),
         )
@@ -645,6 +651,8 @@ mod tests {
         assert!(components.glint == Some(true) && components.hand_equipped == Some(true));
         assert_eq!(components.max_durability, Some(250));
         assert_eq!(components.max_stack_size, Some(16));
+        assert!(components.item_properties_declared);
+        assert!(!components.max_stack_size_component_declared);
         assert_eq!(components.use_animation.as_deref(), Some("eat"));
         assert_eq!(components.use_duration_ticks, Some(32));
         assert_eq!(components.wearable_slot.as_deref(), Some("slot.armor.head"));
@@ -683,6 +691,8 @@ mod tests {
         let components = parse_components(&nbt).unwrap();
         assert!(components.glint == Some(true) && components.hand_equipped == Some(false));
         assert_eq!(components.max_stack_size, Some(1));
+        assert!(components.max_stack_size_component_declared);
+        assert!(!components.item_properties_declared);
         assert_eq!(components.use_duration_ticks, Some(32));
         assert_eq!(components.use_animation.as_deref(), Some("drink"));
         assert_eq!(components.rarity.as_deref(), Some("epic"));

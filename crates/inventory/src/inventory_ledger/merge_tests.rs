@@ -13,6 +13,8 @@ use super::*;
 
 mod blocks;
 
+/// A registry entry: DataDriven when `component_based` and Legacy otherwise, with the
+/// `negotiated` stack size declared through `item_properties`.
 fn entry(
     network_id: i32,
     identifier: &str,
@@ -24,8 +26,18 @@ fn entry(
         identifier: Arc::from(identifier),
         network_id,
         component_based,
-        version: ItemRegistryVersion::DataDriven,
-        components: None,
+        version: if component_based {
+            ItemRegistryVersion::DataDriven
+        } else {
+            ItemRegistryVersion::Legacy
+        },
+        components: negotiated.map(|size| {
+            Arc::new(protocol::ItemComponents {
+                max_stack_size: Some(size),
+                item_properties_declared: true,
+                ..protocol::ItemComponents::default()
+            })
+        }),
         component_digest: [network_id as u8; 32],
         negotiated_max_stack_size: negotiated,
         canonical_empty_component_data: canonical_empty,
@@ -330,16 +342,11 @@ fn unsupported_stack_shapes_never_guess_a_merge_rule() {
         assert!(ledger.newest_request().is_none());
     }
 
-    let unsupported_component = registry(vec![entry(6, "minecraft:apple", None, true, true)]);
-    let mut ledger = player_ledger(
-        Some(unsupported_component),
-        stack(6, 60, 60),
-        stack(6, 33, 3),
-    );
-    assert_eq!(
-        ledger.begin_click(0),
-        Err(InventoryGestureError::InvalidRequest)
-    );
+    // An empty component item and an unknown item version keep the item default, as the
+    // native registry does.
+    let empty_component = registry(vec![entry(6, "minecraft:apple", None, true, true)]);
+    let mut ledger = player_ledger(Some(empty_component), stack(6, 60, 60), stack(6, 33, 3));
+    assert_eq!(ledger.begin_click(0), Ok(-3));
 
     let mut unknown_version_entry = entry(6, "minecraft:apple", Some(64), true, false);
     unknown_version_entry.version = ItemRegistryVersion::Unknown(99);
@@ -348,10 +355,7 @@ fn unsupported_stack_shapes_never_guess_a_merge_rule() {
         stack(6, 60, 60),
         stack(6, 33, 3),
     );
-    assert_eq!(
-        unknown_version.begin_click(0),
-        Err(InventoryGestureError::InvalidRequest)
-    );
+    assert_eq!(unknown_version.begin_click(0), Ok(-3));
 
     let mut meaningful_overlay =
         player_ledger(Some(apple_registry()), stack(6, 60, 60), stack(6, 33, 3));

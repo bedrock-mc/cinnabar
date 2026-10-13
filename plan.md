@@ -1162,6 +1162,17 @@ acceptance gate.
   maintainer's report of vanilla. Whether desktop vanilla shows the close button on every
   container screen is likewise unconfirmed by capture.
 
+## Item stack sizes
+
+- Merge capacity follows the native item registry. DataDriven entries register as component
+  items before the vanilla item classes, so they replace a vanilla item of the same name and
+  stack to `item_properties.max_stack_size`, else the item default of 64. Legacy and
+  unversioned entries keep the vanilla class of their name; other names become component items
+  when component based and plain 64 items otherwise.
+- Provisional: a component item's top-level `minecraft:max_stack_size` component is read when
+  it has no `item_properties`, and plain or vanilla items carrying that component leave their
+  capacity unsettled; neither read is traced natively.
+
 ## Eating and drinking presentation
 
 - While a player uses an admitted food or drink, the client sets `variable.use_item_startup_progress` and
