@@ -1,5 +1,6 @@
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
+use render_model::dropped_item::cube_mesh;
 
 use std::sync::Arc;
 use {render_model::ItemMeshVertex, render_scene::DroppedItemScene};

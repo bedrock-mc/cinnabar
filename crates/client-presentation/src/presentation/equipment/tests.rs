@@ -990,7 +990,7 @@ fn glinting_held_items_draw_the_item_glint_across_their_sprite_in_every_view() {
         };
         let mut materials = runtime
             .layers_for(&body, &input, None)
-            .into_iter()
+            .iter()
             .map(|layer| layer.submission.material)
             .collect::<Vec<_>>();
         materials.push(
