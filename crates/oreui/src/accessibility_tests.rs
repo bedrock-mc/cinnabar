@@ -1,5 +1,8 @@
 //! Accessibility sizing through the same screen entry point the client paints.
 
+#[path = "accessibility_route_tests.rs"]
+mod routes;
+
 use std::{collections::HashMap, sync::Arc};
 
 use launcher::menu::{
