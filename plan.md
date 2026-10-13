@@ -6230,6 +6230,8 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   Glide travel, firework glide boosts (replayed from their stamped tick), glide start/stop and
   the seven-tick flight double-tap follow the identified vanilla systems; the held-jump glide
   lift gated by an unidentified movement ability and geyser boosts remain incomplete.
+  Rocket launch audio, offhand air use and an integrated comparison of boost timing and
+  flight speed remain incomplete; numerical travel regressions alone do not close these gates.
   Water and lava travel read the underwater and lava movement attributes, and a swimmer's
   dolphin boost scales speed and drag as vanilla does; riptide launches remain unimplemented.
   Incomplete safety bound (a known divergence; vanilla is unbounded): Depth Strider's water-speed
