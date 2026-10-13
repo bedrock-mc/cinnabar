@@ -23,7 +23,7 @@ fn system() -> ParticleSystem {
 }
 
 /// Gives the routing boundary a player with an explicit native-position offset.
-fn stream() -> WorldStream {
+pub(super) fn stream() -> WorldStream {
     let mut stream = WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,

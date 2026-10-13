@@ -64,6 +64,9 @@ pub(super) struct EngineSlots {
     pub(super) chest_layer_visible: Option<usize>,
     pub(super) is_blocking: Option<usize>,
     pub(super) damage_nearby_mobs: Option<usize>,
+    /// The eat/drink arm raise and bob the pack's `use_item_progress` pose reads.
+    pub(super) use_item_startup_progress: Option<usize>,
+    pub(super) use_item_interval_progress: Option<usize>,
     /// Refreshed per tick so the root controller tracks live perspective, not only its seed.
     pub(super) is_first_person: Option<usize>,
     pub(super) context_first_person: Option<usize>,
@@ -171,6 +174,8 @@ impl VariableLayout {
                 chest_layer_visible: slot("variable.chest_layer_visible"),
                 is_blocking: slot("variable.is_blocking"),
                 damage_nearby_mobs: slot("variable.damage_nearby_mobs"),
+                use_item_startup_progress: slot("variable.use_item_startup_progress"),
+                use_item_interval_progress: slot("variable.use_item_interval_progress"),
                 is_first_person: slot("variable.is_first_person"),
                 context_first_person: slot("context.is_first_person"),
                 context_paperdoll: slot("context.is_paperdoll"),

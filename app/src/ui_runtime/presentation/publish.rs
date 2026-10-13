@@ -35,7 +35,7 @@ pub(crate) fn platform_safe_area_insets() -> SafeArea {
 }
 
 /// CPU hand carriers follow the same camera capability as the animated hand rig.
-fn hand_first_person(
+pub(crate) fn hand_first_person(
     perspective: semantic_input::PerspectiveMode,
     server: Option<&client_presentation::camera::ServerCameraView>,
 ) -> bool {

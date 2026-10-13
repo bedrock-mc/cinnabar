@@ -674,7 +674,8 @@ impl HudLayout<'_> {
                 | Widget::LoomPatternAt(_)
                 | Widget::BookRecipe(_)
                 | Widget::BookPage { .. }
-                | Widget::Reader(_) => {}
+                | Widget::Reader(_)
+                | Widget::Close => {}
             }
         }
         Ok(())

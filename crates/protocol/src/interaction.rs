@@ -466,6 +466,7 @@ pub enum SwingSource {
     Interact,
     Attack,
     ThrowItem,
+    DropItem,
 }
 
 impl SwingSource {
@@ -478,6 +479,7 @@ impl SwingSource {
             Self::Interact => "interact",
             Self::Attack => "attack",
             Self::ThrowItem => "throwitem",
+            Self::DropItem => "dropitem",
         }
     }
 }

@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use assets::block_entity_geometry::heads::HeadModel;
+
 #[path = "scene/cache.rs"]
 mod cache;
 use cache::{CachedSubmission, PreviousFragments};
@@ -19,7 +21,7 @@ use super::{
     crystal_beam::CrystalBeamModel,
     dragon_death::DragonDeathModel,
     frame::ItemFrameModel,
-    heads::{HeadModel, HeadModels},
+    heads::HeadModels,
     mesh::{BlockEntityVertex, MeshBuilder},
     mob::MobModels,
     pot::DecoratedPotModel,

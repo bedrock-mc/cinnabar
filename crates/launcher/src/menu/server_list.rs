@@ -11,7 +11,7 @@ pub enum ServerGroup {
 }
 
 impl ServerGroup {
-    pub const ALL: [Self; 3] = [Self::Featured, Self::Creator, Self::Saved];
+    pub const ALL: [Self; 3] = [Self::Saved, Self::Featured, Self::Creator];
 
     const fn index(self) -> usize {
         match self {
@@ -106,7 +106,10 @@ mod tests {
     fn moving_sections_retains_other_sections_and_does_not_save_a_noop() {
         use ServerGroup::{Creator, Featured, Saved};
         let mut prefs = ServerListPreferences::default();
-        assert!(prefs.apply(ServerListAction::MoveBefore(Saved, Some(Featured))));
+        assert_eq!(prefs.order(), [Saved, Featured, Creator]);
+        assert!(prefs.apply(ServerListAction::MoveBefore(Creator, Some(Saved))));
+        assert_eq!(prefs.order(), [Creator, Saved, Featured]);
+        assert!(prefs.apply(ServerListAction::MoveBefore(Creator, None)));
         assert_eq!(prefs.order(), [Saved, Featured, Creator]);
         assert!(!prefs.apply(ServerListAction::MoveBefore(Saved, Some(Featured))));
         assert!(!prefs.apply(ServerListAction::MoveBefore(Saved, Some(Saved))));
@@ -119,26 +122,45 @@ mod tests {
     fn server_list_visibility_and_order_survive_a_settings_round_trip() {
         let mut settings = SettingsOptions::default();
         settings.apply_server_list(ServerListAction::Toggle(ServerGroup::Featured));
-        settings.apply_server_list(ServerListAction::MoveBefore(
-            ServerGroup::Saved,
-            Some(ServerGroup::Creator),
-        ));
-        settings.apply_server_list(ServerListAction::MoveBefore(
-            ServerGroup::Saved,
-            Some(ServerGroup::Featured),
-        ));
+        settings.apply_server_list(ServerListAction::MoveBefore(ServerGroup::Saved, None));
         let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
         assert_eq!(
             loaded.server_list().order(),
             [
-                ServerGroup::Saved,
                 ServerGroup::Featured,
-                ServerGroup::Creator
+                ServerGroup::Creator,
+                ServerGroup::Saved
             ]
         );
         assert!(loaded.server_list().collapsed(ServerGroup::Featured));
         assert!(!loaded.server_list().collapsed(ServerGroup::Creator));
         assert!(!loaded.server_list().collapsed(ServerGroup::Saved));
+    }
+
+    #[test]
+    fn saved_orders_including_the_previous_default_are_preserved() {
+        use ServerGroup::{Creator, Featured, Saved};
+        for order in [[Featured, Creator, Saved], [Creator, Saved, Featured]] {
+            let bytes = serde_json::to_vec(&serde_json::json!({
+                "server_list": {"order": order}
+            }))
+            .unwrap();
+            let loaded = SettingsOptions::decode(&bytes).unwrap();
+            assert_eq!(loaded.server_list().order(), order);
+        }
+    }
+
+    #[test]
+    fn absent_orders_put_saved_servers_first() {
+        use ServerGroup::{Creator, Featured, Saved};
+        assert_eq!(
+            SettingsOptions::default().server_list().order(),
+            [Saved, Featured, Creator]
+        );
+        for bytes in [b"{}".as_slice(), br#"{"server_list":{}}"#.as_slice()] {
+            let loaded = SettingsOptions::decode(bytes).unwrap();
+            assert_eq!(loaded.server_list().order(), [Saved, Featured, Creator]);
+        }
     }
 
     #[test]

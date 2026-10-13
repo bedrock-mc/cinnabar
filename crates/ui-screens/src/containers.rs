@@ -20,7 +20,7 @@ use ui_engine::engine::{
 };
 use ui_engine::frame::EngineFrame;
 
-use crate::container_actions::InventoryCellHit;
+use crate::container_actions::{InventoryCellHit, Widget};
 use crate::container_data;
 use crate::container_kinds::{Cell, ContainerKind};
 use crate::container_source::{ContainerFrame, ContainerSource};
@@ -71,6 +71,9 @@ impl ScreenLayout {
     /// equal GUI px).
     pub fn hit(self, frame: &EngineFrame, gui: [f32; 2]) -> Option<InventoryCellHit> {
         let region = hit_test(&frame.hits, [f64::from(gui[0]), f64::from(gui[1])])?;
+        if !matches!(self, ScreenLayout::Book) && region.pressed.as_deref() == Some(CLOSE_BUTTON) {
+            return Some(InventoryCellHit::Widget(Widget::Close));
+        }
         let widget = || match self {
             ScreenLayout::Station(kind) => furnace_book::hit(kind.screen, region).or_else(|| {
                 container_data::widget_hit(kind.screen, region).map(InventoryCellHit::Widget)
@@ -785,6 +788,9 @@ fn station_cell<'a>(
     }
 }
 
+/// The button the pack's close (X) controls press, as `$close_button_to_button_id`.
+const CLOSE_BUTTON: &str = "button.menu_exit";
+
 /// The classic survival layout on desktop: no recipe book, no creative tabs.
 fn survival_globals(data: &mut DataSource, title: &str) {
     for (name, value) in [
@@ -797,6 +803,8 @@ fn survival_globals(data: &mut DataSource, title: &str) {
         ("#needs_crafting_table", false),
         ("#show_persistent_bundle_hover_text", true),
         ("#gamepad_helper_visible", false),
+        // Desktop screens show their close (X) button; it presses `CLOSE_BUTTON`.
+        ("#close_button_visible", true),
         ("#filtering_enabled", false),
     ] {
         data.set_global(name, Scalar::Bool(value));

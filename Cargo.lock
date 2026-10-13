@@ -448,6 +448,7 @@ dependencies = [
  "block-transform",
  "env-compat",
  "flate2",
+ "glam",
  "lewton",
  "rayon",
  "rustix 1.1.4",

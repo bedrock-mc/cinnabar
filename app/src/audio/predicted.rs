@@ -54,6 +54,7 @@ pub(crate) fn drive_consume_audio(
     engine: ResMut<AudioEngine>,
     state: Local<ConsumeAudio>,
     profiler: Option<Res<render_scene::RuntimeStageProfiler>>,
+    eating: bevy::prelude::MessageWriter<client_audio::audio::predicted::LocalEatingCue>,
 ) {
     let _timer = profiler
         .as_deref()
@@ -68,6 +69,7 @@ pub(crate) fn drive_consume_audio(
         view.eye_translation(),
         engine,
         state,
+        eating,
     );
 }
 

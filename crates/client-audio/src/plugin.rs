@@ -10,6 +10,7 @@ impl bevy::prelude::Plugin for ClientAudioPlugin {
             .init_resource::<crate::audio::AudioEngine>()
             .init_resource::<AudioSettings>()
             .add_message::<UiSoundCue>()
-            .add_message::<LocalBlockCue>();
+            .add_message::<LocalBlockCue>()
+            .add_message::<crate::audio::predicted::LocalEatingCue>();
     }
 }

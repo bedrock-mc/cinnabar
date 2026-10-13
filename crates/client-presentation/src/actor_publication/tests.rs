@@ -66,6 +66,28 @@ fn hand_progress_interpolates_the_swing_forward_and_counts_the_use() {
     assert_eq!(idle.consume, None);
 }
 
+#[test]
+fn the_first_person_eat_position_moves_forward_every_frame_across_its_ticks() {
+    let at = |elapsed, frame_alpha| actor_animation::AttachableAnimationInput {
+        use_elapsed_ticks: Some(elapsed),
+        frame_alpha,
+        ..Default::default()
+    };
+    let samples = [at(4, 0.25), at(4, 0.9), at(5, 0.1), at(5, 0.6)].map(|input| {
+        super::hand::local_consume(Some(&input), Some(32))
+            .unwrap()
+            .0
+    });
+    assert!(
+        samples.windows(2).all(|pair| pair[0] < pair[1]),
+        "{samples:?}"
+    );
+    assert_eq!(
+        super::hand::local_consume(Some(&at(40, 0.5)), Some(32)),
+        Some((32.0, 32.0))
+    );
+}
+
 // The pack's first-person arm offset sits behind the model's left side; vanilla's facing puts
 // that ahead of the view and to its right.
 #[test]

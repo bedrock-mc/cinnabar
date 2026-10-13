@@ -44,7 +44,7 @@ fn player_spawn(runtime_id: u64, unique_id: i64, x: f32) -> ActorEvent {
     ActorEvent::Spawn(spawn)
 }
 
-fn entity_spawn(
+pub(super) fn entity_spawn(
     runtime_id: u64,
     unique_id: i64,
     identifier: &str,
@@ -61,7 +61,7 @@ fn entity_spawn(
     ActorEvent::Spawn(spawn)
 }
 
-fn network_move(runtime_id: u64, y: f32, teleported: bool) -> ActorEvent {
+pub(super) fn network_move(runtime_id: u64, y: f32, teleported: bool) -> ActorEvent {
     ActorEvent::Move(ActorMoveEvent {
         dimension: 0,
         runtime_id,

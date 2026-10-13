@@ -69,6 +69,17 @@ impl ActorSnapshot {
         }
     }
 
+    pub(super) fn shift_interpolation_targets_y(&mut self, delta: f32) {
+        let state = &mut self.status.movement_interpolation;
+        for pose in state
+            .last_received
+            .iter_mut()
+            .chain(state.queued.iter_mut().map(|queued| &mut queued.pose))
+        {
+            pose.position[1] += delta;
+        }
+    }
+
     /// The pose state an interpolation tick reads and writes.
     pub(super) fn motion_state(&self) -> MotionState {
         MotionState {

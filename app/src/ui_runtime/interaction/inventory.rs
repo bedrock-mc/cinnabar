@@ -8,6 +8,7 @@ use bevy::{
 };
 use client_shell::menu::settings_options::control_bindings::binding_keyboard_key;
 use client_ui::ui_runtime::interaction::dispatch_inventory_key;
+use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 use ui::UiPoint;
 use {
     client_ui::ui_runtime::{
@@ -233,5 +234,82 @@ pub(super) fn scroll_container(
             .screen_state_mut()
             .container_scroll
             .insert(view.key.clone(), offset);
+    }
+}
+
+/// Syncs `swings` to the movement `authority` before swinging for `tick`, so the later swing
+/// producers' sync this frame keeps the swing rather than resetting it.
+pub(super) fn swing_before_tick(
+    swings: &mut client_interaction::melee::SwingTracker,
+    authority: (SessionGeneration, PositionAuthorityGeneration),
+    completed_tick: u64,
+    effects: &client_interaction::movement::LocalMovementEffectTimeline,
+    item_duration: Option<u32>,
+    tick: u64,
+) -> bool {
+    swings.sync_ticks_for_item(authority, completed_tick, effects, item_duration);
+    swings.try_swing_before_tick_for_item(
+        tick,
+        effects.mining_tick(tick, completed_tick).0,
+        item_duration,
+    )
+}
+
+#[cfg(test)]
+mod drop_swing_tests {
+    use client_interaction::{melee::SwingTracker, movement::LocalMovementEffectTimeline};
+    use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
+
+    fn authority(session: u64) -> (SessionGeneration, PositionAuthorityGeneration) {
+        (
+            SessionGeneration::new(session),
+            PositionAuthorityGeneration::new(0),
+        )
+    }
+
+    /// A drop swing under a new movement authority survives the block-use producer's sync.
+    #[test]
+    fn a_drop_swing_survives_the_next_sync_under_a_new_authority() {
+        let effects = LocalMovementEffectTimeline::default();
+        let mut swings = SwingTracker::default();
+        swings.sync_ticks(authority(1), 4, &effects);
+
+        assert!(super::swing_before_tick(
+            &mut swings,
+            authority(2),
+            4,
+            &effects,
+            None,
+            5
+        ));
+        swings.sync_ticks_for_item(authority(2), 4, &effects, None);
+
+        assert!(swings.take_started().is_some());
+    }
+
+    /// A drop keeps the selected item's Bedrock swing duration and the default Java timing.
+    #[test]
+    fn a_drop_swing_keeps_the_selected_items_swing_duration() {
+        const ITEM_DURATION: u32 = 19;
+        let effects = LocalMovementEffectTimeline::default();
+        let mut authored = SwingTracker::default();
+        let mut default = SwingTracker::default();
+
+        for (swings, duration) in [(&mut authored, Some(ITEM_DURATION)), (&mut default, None)] {
+            assert!(super::swing_before_tick(
+                swings,
+                authority(1),
+                4,
+                &effects,
+                duration,
+                5,
+            ));
+        }
+
+        assert_eq!(authored.take_started(), Some(ITEM_DURATION as i32));
+        let authored = authored.published_progress(6);
+        let default = default.published_progress(6);
+        assert_eq!(authored.bedrock[1], 1.0 / ITEM_DURATION as f32);
+        assert_eq!(authored.java, default.java);
     }
 }

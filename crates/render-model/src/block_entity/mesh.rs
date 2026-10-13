@@ -1,6 +1,7 @@
 //! CPU vertex emission for block-entity models: boxes with the entity-geometry UV
 //! unwrap, free quads, and separate draw layers.
 
+use assets::block_entity_geometry::BoxSpec;
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 
@@ -37,40 +38,6 @@ pub enum Layer {
     Crack,
     /// Native portal normal/depth encoding, composited in coplanar layer order.
     Portal,
-}
-
-/// A box in entity-geometry authoring space: pixels, front toward -Z, +Y up.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct BoxSpec {
-    pub origin: [f32; 3],
-    pub size: [f32; 3],
-    /// Box-UV origin in texels of the logical texture.
-    pub uv: [f32; 2],
-    pub inflate: f32,
-}
-
-impl BoxSpec {
-    #[must_use]
-    pub const fn new(origin: [f32; 3], size: [f32; 3], uv: [f32; 2]) -> Self {
-        Self {
-            origin,
-            size,
-            uv,
-            inflate: 0.0,
-        }
-    }
-
-    #[must_use]
-    pub const fn inflated(mut self, inflate: f32) -> Self {
-        self.inflate = inflate;
-        self
-    }
-}
-
-impl From<assets::block_entity_geometry::ModelBox> for BoxSpec {
-    fn from((origin, size, uv): assets::block_entity_geometry::ModelBox) -> Self {
-        Self::new(origin, size, uv)
-    }
 }
 
 // Directional face shade; needs native measurement against Bedrock entity lighting.
@@ -126,9 +93,7 @@ impl MeshBuilder {
         spec: BoxSpec,
         tint: [f32; 4],
     ) {
-        let faces =
-            assets::block_entity_geometry::box_faces(spec.origin, spec.size, spec.uv, spec.inflate);
-        self.box_faces(layer, texture, model, faces, tint);
+        self.box_faces(layer, texture, model, spec.faces(), tint);
     }
 
     /// Emits a box with no depth, such as a book cover, as its front and back faces moved

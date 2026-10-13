@@ -29,8 +29,8 @@ fn server_list_actions_save_preferences_without_changing_selection_or_gameplay()
         ServerGroup::Featured,
     )));
     menu.activate(MenuAction::ServerList(ServerListAction::MoveBefore(
-        ServerGroup::Saved,
-        Some(ServerGroup::Featured),
+        ServerGroup::Creator,
+        Some(ServerGroup::Saved),
     )));
     assert!(menu.settings_dirty);
     assert!(!menu.settings_apply);
@@ -39,7 +39,14 @@ fn server_list_actions_save_preferences_without_changing_selection_or_gameplay()
     assert!(!menu.settings_dirty);
     let saved = SettingsOptions::load(&menu.config_path.with_file_name(SETTINGS_FILE));
     assert!(saved.server_list().collapsed(ServerGroup::Featured));
-    assert_eq!(saved.server_list().order()[0], ServerGroup::Saved);
+    assert_eq!(
+        saved.server_list().order(),
+        [
+            ServerGroup::Creator,
+            ServerGroup::Saved,
+            ServerGroup::Featured
+        ]
+    );
 }
 
 #[test]

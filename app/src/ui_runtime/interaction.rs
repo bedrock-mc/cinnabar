@@ -4,6 +4,7 @@ mod chat;
 mod chat_coordinates;
 pub(crate) mod chat_modifiers;
 pub(super) mod command_macros;
+mod drop_swing;
 pub(crate) mod input_capture;
 mod inventory;
 pub(crate) use chat::drive_chat_ui_actions;
@@ -47,6 +48,7 @@ use client_ui::ui_runtime::interaction::{
     ChatFlushError, PointerRouter, PressRoute, dispatch_chat_ui_action, dispatch_inventory_hotbar,
     flush_chat_sends, flush_inventory_send, is_chat_edit_shortcut, paste_chat_shortcut,
 };
+use drop_swing::DropSwing;
 use input_capture::{
     ordered_pointer_presses, restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
     suppress_gameplay_input_for_inventory,
@@ -308,6 +310,7 @@ pub(crate) fn drive_world_inventory_keys(
     presentation: Option<Res<UiPresentationResource>>,
     mut runtime: ResMut<UiRuntimeResource>,
     emote_input: Option<Res<super::emotes::EmoteInputConsumed>>,
+    swing: DropSwing,
 ) {
     if emote_input.is_some_and(|consumed| consumed.0) {
         return;
@@ -337,9 +340,13 @@ pub(crate) fn drive_world_inventory_keys(
         return;
     };
     let control = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
-    let _ = runtime
+    if runtime
         .inventory_ledger_mut(&mut player_runtime)
-        .begin_world_drop(slot, (!control).then_some(1));
+        .begin_world_drop(slot, (!control).then_some(1))
+        .is_ok()
+    {
+        swing.swing(&player_runtime);
+    }
 }
 
 /// Drops keyboard input another owner handles while keeping inventory modifiers in step

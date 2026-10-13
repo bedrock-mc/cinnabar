@@ -450,6 +450,68 @@ fn is_first_person_variable_tracks_the_local_camera_context() {
 }
 
 #[test]
+fn eating_raises_the_arm_then_bobs_and_other_held_items_stay_lowered() {
+    use assets::item_use::ItemConsumption;
+
+    let engine = EngineSlots {
+        use_item_startup_progress: Some(0),
+        use_item_interval_progress: Some(1),
+        ..EngineSlots::default()
+    };
+    let actor = actor_with_metadata(HashMap::new());
+    let motion = MotionState::default();
+    let holding = |identifier: &str, consumption| ActorTickContext {
+        main_hand: Some(identifier.into()),
+        main_hand_consumption: consumption,
+        ..ActorTickContext::default()
+    };
+    let progress = |context: &ActorTickContext, item_use_ticks: u32| {
+        let mut variables = MolangVariables::slots(2);
+        let input = ActorTickInput {
+            item_use_ticks,
+            ..ActorTickInput::default()
+        };
+        tick::apply_engine_variables(&engine, &mut variables, &actor, context, &input, &motion);
+        [
+            variables.number_at(0).unwrap(),
+            variables.number_at(1).unwrap(),
+        ]
+    };
+    let apple = holding("minecraft:golden_apple", ItemConsumption::Eat);
+    assert_eq!(progress(&apple, 0), [0.0, 0.0]);
+    assert!(progress(&apple, 2)[0] > 0.0 && progress(&apple, 2)[0] < 1.0);
+    let raised: Vec<_> = (4..=12).map(|ticks| progress(&apple, ticks)).collect();
+    assert!(raised.iter().all(|[startup, _]| *startup == 1.0));
+    assert!(raised.iter().any(|[_, interval]| *interval > 0.5));
+    assert!(raised.iter().any(|[_, interval]| *interval == 0.0));
+    assert_eq!(
+        progress(&holding("minecraft:bow", ItemConsumption::None), 8),
+        [0.0, 0.0]
+    );
+    assert_eq!(
+        progress(&holding("minecraft:golden_apple", ItemConsumption::None), 8),
+        [0.0, 0.0]
+    );
+    assert_eq!(
+        progress(
+            &holding("minecraft:golden_apple", ItemConsumption::Unresolved),
+            8
+        ),
+        [0.0, 0.0]
+    );
+    for consumption in [
+        ItemConsumption::Eat,
+        ItemConsumption::Drink,
+        ItemConsumption::Honey,
+    ] {
+        assert_eq!(
+            progress(&holding("fixture:custom_consumable", consumption), 8),
+            progress(&apple, 8)
+        );
+    }
+}
+
+#[test]
 fn first_person_driver_variables_track_pitch_and_enable_view_bob() {
     let engine = EngineSlots {
         player_x_rotation: Some(0),

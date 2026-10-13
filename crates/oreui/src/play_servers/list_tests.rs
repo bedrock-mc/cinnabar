@@ -135,23 +135,32 @@ fn section_height_interpolates_on_reopening_and_collapse_and_respects_motion_set
 }
 
 #[test]
-fn server_list_order_moves_custom_rows_above_catalog_without_changing_actions() {
+fn server_list_defaults_to_custom_rows_first_and_reorders_without_changing_actions() {
     let mut view = view();
-    std::sync::Arc::make_mut(&mut view.settings_options).apply_server_list(
-        ServerListAction::MoveBefore(ServerGroup::Saved, Some(ServerGroup::Featured)),
-    );
-    let (_, hits, _) = paint(HashMap::new(), |canvas| {
-        draw(
-            canvas,
-            &view,
-            &Grid::new(canvas.rem, 1280.0),
-            [20.0, 100.0, 1260.0, 700.0],
-            &HashMap::new(),
-        )
-        .unwrap();
-    });
+    let render = |view: &MenuView| {
+        paint(HashMap::new(), |canvas| {
+            draw(
+                canvas,
+                view,
+                &Grid::new(canvas.rem, 1280.0),
+                [20.0, 100.0, 1260.0, 700.0],
+                &HashMap::new(),
+            )
+            .unwrap();
+        })
+    };
+    let (_, hits, _) = render(&view);
     let top = |action| hits.iter().find(|(a, _)| *a == action).unwrap().1.min().y();
     assert!(top(MenuAction::SelectSaved(0)) < top(MenuAction::SelectFeatured(0)));
+    assert!(top(MenuAction::SelectSaved(0)) < top(MenuAction::SelectFeatured(1)));
+    assert!(
+        std::sync::Arc::make_mut(&mut view.settings_options).apply_server_list(
+            ServerListAction::MoveBefore(ServerGroup::Featured, Some(ServerGroup::Saved)),
+        )
+    );
+    let (_, hits, _) = render(&view);
+    let top = |action| hits.iter().find(|(a, _)| *a == action).unwrap().1.min().y();
+    assert!(top(MenuAction::SelectFeatured(0)) < top(MenuAction::SelectSaved(0)));
     assert!(top(MenuAction::SelectSaved(0)) < top(MenuAction::SelectFeatured(1)));
     // Each header is one click/drag target, with no separate reorder buttons.
     assert_eq!(
@@ -168,6 +177,61 @@ fn server_list_order_moves_custom_rows_above_catalog_without_changing_actions() 
             |(a, _)| *a == MenuAction::ServerList(ServerListAction::Toggle(ServerGroup::Saved))
         )
     );
+}
+
+#[test]
+fn every_server_category_header_has_a_muted_grip_that_brightens_on_hover() {
+    let mut view = view();
+    std::sync::Arc::make_mut(&mut view.settings_options)
+        .apply_server_list(ServerListAction::Toggle(ServerGroup::Saved));
+    for hovered in std::iter::once(None).chain(ServerGroup::ALL.into_iter().map(Some)) {
+        view.hovered = hovered.map(|group| MenuAction::ServerList(ServerListAction::Toggle(group)));
+        let mut dot = 0.0;
+        let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
+            dot = canvas.r(super::super::theme::EDGE);
+            draw(
+                canvas,
+                &view,
+                &Grid::new(canvas.rem, 1280.0),
+                [20.0, 100.0, 1260.0, 700.0],
+                &HashMap::new(),
+            )
+            .unwrap();
+        });
+        let fills = solids(&nodes);
+        for group in ServerGroup::ALL {
+            let action = MenuAction::ServerList(ServerListAction::Toggle(group));
+            let headers: Vec<_> = hits.iter().filter(|(a, _)| *a == action).collect();
+            assert_eq!(headers.len(), 1, "{group:?} keeps one click/drag target");
+            let header = headers[0].1;
+            let dots: Vec<_> = fills
+                .iter()
+                .filter(|(b, _)| {
+                    b[0] >= header.min().x()
+                        && b[1] >= header.min().y()
+                        && b[2] <= header.max().x()
+                        && b[3] <= header.max().y()
+                        && (b[2] - b[0] - dot).abs() < 0.01
+                        && (b[3] - b[1] - dot).abs() < 0.01
+                })
+                .collect();
+            assert_eq!(dots.len(), 6, "{group:?} has a six-dot grip");
+            let color = if hovered == Some(group) {
+                TEXT_DIMMER
+            } else {
+                super::super::theme::TEXT_DIMMEST
+            };
+            assert!(dots.iter().all(|(_, c)| *c == color));
+            let mut columns: Vec<_> = dots.iter().map(|(b, _)| b[0]).collect();
+            let mut rows: Vec<_> = dots.iter().map(|(b, _)| b[1]).collect();
+            columns.sort_by(f32::total_cmp);
+            rows.sort_by(f32::total_cmp);
+            columns.dedup();
+            rows.dedup();
+            assert_eq!(columns.len(), 2);
+            assert_eq!(rows.len(), 3);
+        }
+    }
 }
 
 #[test]

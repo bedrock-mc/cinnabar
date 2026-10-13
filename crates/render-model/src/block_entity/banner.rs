@@ -4,12 +4,12 @@
 //! 20x2x2 bar). The 2/3 model scale, mounting heights and sway parameters need native
 //! measurement.
 
-use assets::block_entity_geometry as geometry;
+use assets::block_entity_geometry::{self as geometry, BoxSpec};
 use glam::{Mat4, Vec3};
 
 use super::{
     atlas::BlockEntityAtlas,
-    mesh::{BoxSpec, Facing, Layer, MeshBuilder, model_matrix},
+    mesh::{Facing, Layer, MeshBuilder, model_matrix},
     scene::SceneClock,
 };
 

@@ -149,12 +149,9 @@ impl ActorStore {
                     kind: BlockEntityKind::Falling {
                         block_runtime_id: *block,
                     },
-                    center: [
-                        feet[0],
-                        feet[1] + super::FALLING_BLOCK_NETWORK_OFFSET,
-                        feet[2],
-                    ],
-                    scale: 1.0,
+                    // The block's centre is its network position, half its scaled size up.
+                    center: [feet[0], feet[1] + actor.network_position_offset(), feet[2]],
+                    scale: actor.render_scale(),
                     flash: false,
                 })
             }

@@ -6,14 +6,14 @@
 
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
-use assets::block_entity_geometry as geometry;
+use assets::block_entity_geometry::{self as geometry, BoxSpec};
 use glam::{Mat4, Vec3};
 
 use crate::celestial::lerp;
 
 use super::{
     atlas::BlockEntityAtlas,
-    mesh::{BoxSpec, Layer, MeshBuilder, WHITE, model_matrix},
+    mesh::{Layer, MeshBuilder, WHITE, model_matrix},
 };
 
 /// Players farther than this from the book's centre leave it closing.

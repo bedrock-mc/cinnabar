@@ -1,7 +1,49 @@
 //! Static authoring geometry shared by placed block entities and their inventory models.
 
+pub mod heads;
+
 pub type ModelBox = ([f32; 3], [f32; 3], [f32; 2]);
 pub type ModelFace = ([[f32; 3]; 4], [f32; 4]);
+
+/// A box in entity-geometry authoring space: pixels, front toward -Z, +Y up.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BoxSpec {
+    pub origin: [f32; 3],
+    pub size: [f32; 3],
+    /// Box-UV origin in texels of the logical texture.
+    pub uv: [f32; 2],
+    pub inflate: f32,
+}
+
+impl BoxSpec {
+    #[must_use]
+    pub const fn new(origin: [f32; 3], size: [f32; 3], uv: [f32; 2]) -> Self {
+        Self {
+            origin,
+            size,
+            uv,
+            inflate: 0.0,
+        }
+    }
+
+    #[must_use]
+    pub const fn inflated(mut self, inflate: f32) -> Self {
+        self.inflate = inflate;
+        self
+    }
+
+    /// The box's faces in [`box_faces`] order.
+    #[must_use]
+    pub fn faces(self) -> [ModelFace; 6] {
+        box_faces(self.origin, self.size, self.uv, self.inflate)
+    }
+}
+
+impl From<ModelBox> for BoxSpec {
+    fn from((origin, size, uv): ModelBox) -> Self {
+        Self::new(origin, size, uv)
+    }
+}
 
 pub const BANNER_TEXTURE: (&str, [f32; 2]) = ("textures/entity/banner/banner_base", [64.0; 2]);
 pub const BANNER_POLE: ModelBox = ([-1.0, -30.0, -1.0], [2.0, 42.0, 2.0], [44.0, 0.0]);
@@ -25,6 +67,34 @@ pub const ITEM_FRAME_TEXTURES: [&str; 3] = [
     "textures/blocks/itemframe_background",
     "textures/blocks/glow_item_frame",
 ];
+
+/// The 8-texel head cube of a box-model skull, bottom on the floor and front toward -Z.
+pub const SKULL_HEAD: ModelBox = ([-4.0, 0.0, -4.0], [8.0; 3], [0.0, 0.0]);
+/// The hat layer over [`SKULL_HEAD`] that humanoid heads draw, inflated by [`SKULL_HAT_INFLATE`].
+pub const SKULL_HAT: ModelBox = ([-4.0, 0.0, -4.0], [8.0; 3], [32.0, 0.0]);
+pub const SKULL_HAT_INFLATE: f32 = 0.25;
+
+/// The pack texture of a box-model head and the size its UVs were authored against, by legacy
+/// `SkullType` ordinal (see [`crate::vanilla_skull_type`]). Dragon and piglin heads draw their
+/// mob geometry instead and have none here.
+#[must_use]
+pub const fn skull_texture(skull_type: u8) -> Option<(&'static str, [f32; 2])> {
+    Some(match skull_type {
+        0 => ("textures/entity/skulls/skeleton", [64.0, 32.0]),
+        1 => ("textures/entity/skulls/wither_skeleton", [64.0, 32.0]),
+        2 => ("textures/entity/skulls/zombie", [64.0, 32.0]),
+        3 => ("textures/entity/steve", [64.0, 64.0]),
+        4 => ("textures/entity/skulls/creeper", [64.0, 32.0]),
+        _ => return None,
+    })
+}
+
+/// Whether a head of legacy `SkullType` ordinal `skull_type` draws [`SKULL_HAT`]: zombie and
+/// player heads do.
+#[must_use]
+pub const fn skull_has_hat(skull_type: u8) -> bool {
+    matches!(skull_type, 2 | 3)
+}
 
 pub const SHULKER_BASE: ModelBox = ([-8.0, 0.0, -8.0], [16.0, 8.0, 16.0], [0.0, 28.0]);
 pub const SHULKER_LID: ModelBox = ([-8.0, 4.0, -8.0], [16.0, 12.0, 16.0], [0.0, 0.0]);

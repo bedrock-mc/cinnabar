@@ -188,7 +188,8 @@ impl ActorStatus {
 }
 
 impl ActorSnapshot {
-    fn eating_position(&self) -> [f32; 3] {
+    /// Where this actor's eating crumbs scatter from: a player's mouth, else its position.
+    pub fn eating_position(&self) -> [f32; 3] {
         let mut position = self.position;
         position[1] += self.network_position_offset();
         if matches!(self.kind, protocol::ActorKind::Player { .. }) {

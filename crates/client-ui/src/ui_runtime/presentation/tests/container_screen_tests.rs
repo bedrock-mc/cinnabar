@@ -481,10 +481,13 @@ fn every_container_screen_draws_through_the_engine() {
                 presentation.engine_container_hit(center)
             })
             .collect();
-        // Every screen but the book shows the player's inventory.
-        let player_cells = if name.starts_with("book") { 0 } else { 36 };
-        let player = (0..player_cells).map(InventoryCellHit::Player);
-        for hit in expected.into_iter().chain(player) {
+        // Every screen but the book shows the player's inventory and a close button.
+        let book = name.starts_with("book");
+        let player = (0..if book { 0 } else { 36 }).map(InventoryCellHit::Player);
+        let close = (!book).then_some(InventoryCellHit::Widget(
+            ui_screens::container_actions::Widget::Close,
+        ));
+        for hit in expected.into_iter().chain(player).chain(close) {
             assert!(reached.contains(&hit), "{name}: {hit:?} unreachable");
         }
     }
@@ -1020,4 +1023,21 @@ fn bench_frames(default: u64) -> u64 {
         .and_then(|value| value.parse().ok())
         .unwrap_or(default)
         .max(1)
+}
+
+/// A shift-held click on the close button still closes the screen.
+#[test]
+fn shift_clicking_the_close_button_closes_the_screen() {
+    use crate::ui_runtime::inventory_drag::PointerAction;
+    use ui_screens::container_actions::Widget as W;
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let mut runtime = opened(&mut player_runtime, protocol::WINDOW_TYPE_FURNACE, 3);
+    assert!(runtime.inventory_open());
+
+    runtime.perform_pointer_action(
+        &mut player_runtime,
+        PointerAction::QuickMove(InventoryCellHit::Widget(W::Close)),
+    );
+
+    assert!(!runtime.inventory_open());
 }

@@ -1,10 +1,10 @@
 //! The head block draws the complete bed geometry from the runtime entity catalog.
 
+use assets::block_entity_geometry::heads::HeadModel;
 use glam::{Mat4, Vec3};
 
 use super::{
     atlas::BlockEntityAtlas,
-    heads::HeadModel,
     mesh::{Layer, MeshBuilder, WHITE, model_matrix},
 };
 

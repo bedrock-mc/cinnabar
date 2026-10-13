@@ -67,6 +67,8 @@ pub enum Widget {
     },
     /// A book reader or editor button.
     Reader(ReaderButton),
+    /// The screen's close (X) button, which closes it as the inventory key does.
+    Close,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

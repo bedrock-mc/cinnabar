@@ -504,12 +504,11 @@ pub(super) fn hand_source(
         let progress = FirstPersonHand {
             swing: hand.swing,
             equip: hand.equip,
-            consume: hand_progress(
-                rig.hand,
-                consume_ticks.filter(|_| retained == selected),
-                alpha,
-            )
-            .consume,
+            consume: {
+                let consume_ticks = consume_ticks.filter(|_| retained == selected);
+                super::hand::local_consume(item_animation.as_ref(), consume_ticks)
+                    .or(hand_progress(rig.hand, consume_ticks, alpha).consume)
+            },
         };
         let mut source = vanilla_hand_source(
             HandInputs {

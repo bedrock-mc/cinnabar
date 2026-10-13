@@ -1,6 +1,6 @@
 use super::super::*;
-use crate::block_entity::{heads::HeadBox, mesh::BoxSpec};
 use crate::{BedModel, BlockEntityAtlas};
+use assets::block_entity_geometry::{BoxSpec, heads::HeadBox};
 use assets::{BlockEntityPlacement, RuntimeBlockEntityAssets, encode_block_entity_catalog};
 use glam::Vec3;
 
