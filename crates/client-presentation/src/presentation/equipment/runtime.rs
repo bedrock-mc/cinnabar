@@ -853,6 +853,21 @@ impl EquipmentRuntime {
             )?,
             (_, None) => return None,
         };
+        let vertices = match key {
+            // Opaque and blended held blocks draw only their outward faces, as vanilla culls a
+            // held stained glass block's far side; cutout blocks (glass, leaves) render both
+            // sides. A session cube's alpha mode is not known here, so it keeps both sides.
+            MeshKey::Block(visual)
+                if self.block_alpha.get(&visual)
+                    != Some(&render_model::HandItemAlphaMode::Cutout) =>
+            {
+                one_sided(vertices)
+            }
+            MeshKey::Block(_)
+            | MeshKey::SessionBlock(_)
+            | MeshKey::Sprite(_)
+            | MeshKey::Session(_) => vertices,
+        };
         if let MeshKey::Session(index) | MeshKey::SessionBlock(index) = key {
             let id = session::session_mesh_id(index)?;
             let geometry = ActorRigGeometry::new(id, vertices, vec![[0.0; 3]]).ok()?;
@@ -862,6 +877,14 @@ impl EquipmentRuntime {
             self.build_item_mesh(|id| ActorRigGeometry::new(id, vertices, vec![[0.0; 3]]).ok())
         }
     }
+}
+
+/// Marks every face of a held block one-sided, so renderers discard its back faces.
+fn one_sided(mut vertices: Vec<render_model::ActorRigVertex>) -> Vec<render_model::ActorRigVertex> {
+    for vertex in &mut vertices {
+        vertex.back_uv = render_model::ONE_SIDED_BACK_UV;
+    }
+    vertices
 }
 
 /// Memo keys of the first-person arm mask and held item, which no worn layer uses.

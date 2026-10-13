@@ -275,7 +275,8 @@ fn invalid_nonempty_server_stop_is_counted_once_and_skips_playback() {
 fn display_actor_uses_custom_rig_and_keeps_a_separate_lifetime_namespace() {
     let mut custom = compiled();
     custom.symbols[0].identifier = "custom:display_actor".into();
-    let custom = Arc::new(RuntimeEntityAssets::from_compiled(custom).unwrap());
+    let custom =
+        Arc::new(RuntimeEntityAssets::from_compiled(custom.with_unresolved_admissions()).unwrap());
     let mut displays = crate::DisplayActorStore::new(0, Arc::clone(&custom));
     let mut second = crate::DisplayActorStore::new(0, Arc::clone(&custom));
     let position = [1, 64, 2];
@@ -351,7 +352,8 @@ fn display_actor_retires_a_replacement_with_a_cached_rigless_identifier() {
 fn display_actor_retires_a_reused_lifetime_whose_pack_rig_was_removed() {
     let mut custom = compiled();
     custom.symbols[0].identifier = "custom:display_actor".into();
-    let custom = Arc::new(RuntimeEntityAssets::from_compiled(custom).unwrap());
+    let custom =
+        Arc::new(RuntimeEntityAssets::from_compiled(custom.with_unresolved_admissions()).unwrap());
     let mut displays = crate::DisplayActorStore::new(0, assets());
     displays.set_pack(Some((Arc::clone(&custom), vec![0])));
     let position = [3, 64, 4];

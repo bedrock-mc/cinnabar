@@ -108,6 +108,10 @@ fn draw(target: &mut Target, triangle: [Placed; 3], texture: &Image) {
             if depth >= target.depth[index] {
                 continue;
             }
+            // A one-sided face's back is discarded, as both actor shaders do.
+            if !front && triangle[0].back_uv[0] < -1.0e8 {
+                continue;
+            }
             let uv_of = |vertex: &Placed| if front { vertex.uv } else { vertex.back_uv };
             let uv: [f32; 2] = std::array::from_fn(|axis| {
                 (uv_of(&triangle[0])[axis] * w0 / a.z
