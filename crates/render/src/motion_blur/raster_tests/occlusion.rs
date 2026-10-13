@@ -219,6 +219,17 @@ fn mixed_msaa_actor_sources_do_not_spread_stationary_occluder_colour() {
             "unoccluded partial actor must expose the background"
         );
         let mixed = draw(true);
+        let mixed_input = input(true);
+        for y in bounds.y..bounds.y + bounds.w {
+            for x in bounds.x..bounds.x + bounds.z {
+                let offset = ((y * SIDE + x) * 4) as usize;
+                assert_eq!(
+                    &mixed[offset..offset + 4],
+                    &mixed_input[offset..offset + 4],
+                    "nearer non-actor samples faded inside mixed source at ({x},{y})/{samples}x MSAA"
+                );
+            }
+        }
         for x in bounds.x - 8..bounds.x + bounds.z + 8 {
             if x >= bounds.x && x < bounds.x + bounds.z {
                 continue;
