@@ -17,6 +17,9 @@ use crate::{runtime::world::ClientWorld, session::SessionController};
 /// Seconds for the fog reach to close most of the gap to a new coverage.
 const FOG_SETTLE_SECONDS: f32 = 1.0;
 
+/// Coverage is resampled at most this often while columns keep arriving.
+const COVERAGE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+
 /// The far-terrain cache, the selected tiles and the view they were chosen for.
 #[derive(Resource)]
 pub(crate) struct FarTerrain {
@@ -28,6 +31,9 @@ pub(crate) struct FarTerrain {
     published: Option<u64>,
     /// Share of the ring just past near terrain that has cached columns.
     coverage: f32,
+    coverage_at: Option<Instant>,
+    /// Columns changed since coverage was last sampled.
+    coverage_stale: bool,
 }
 
 impl FarTerrain {
@@ -41,6 +47,8 @@ impl FarTerrain {
             near_view: None,
             published: None,
             coverage: 0.0,
+            coverage_at: None,
+            coverage_stale: false,
         }
     }
 }
@@ -70,11 +78,12 @@ pub(crate) fn feed_far_terrain(
     session: Option<Res<SessionController>>,
     settings: Res<RuntimeSettings>,
     time: Res<Time>,
-    mut scene: ResMut<FarTerrainScene>,
-    mut fog: ResMut<FarTerrainFog>,
+    scene: Option<ResMut<FarTerrainScene>>,
+    fog: Option<ResMut<FarTerrainFog>>,
     mut active: Local<ActiveWorld>,
 ) {
-    let (Some(mut far), Some(mut world)) = (far, world) else {
+    let (Some(mut far), Some(mut world), Some(mut scene), Some(mut fog)) = (far, world, scene, fog)
+    else {
         return;
     };
     let far = &mut *far;
@@ -160,7 +169,13 @@ pub(crate) fn feed_far_terrain(
         far.near = Arc::new(NearMask::retained(near_view.0, radius));
         far.near_view = Some(near_view);
     }
-    if near_changed || !changed.is_empty() {
+    let coverage_due = far
+        .coverage_at
+        .is_none_or(|at| now.saturating_duration_since(at) >= COVERAGE_INTERVAL);
+    far.coverage_stale |= !changed.is_empty();
+    if near_changed || (far.coverage_stale && coverage_due) {
+        far.coverage_at = Some(now);
+        far.coverage_stale = false;
         far.coverage = ring_coverage(
             far.cache.store(),
             ColumnPos::new(centre.x, centre.z),
