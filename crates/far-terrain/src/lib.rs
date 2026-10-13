@@ -12,7 +12,7 @@ mod region;
 mod store;
 mod summary;
 
-pub use cache::FarTerrainCache;
+pub use cache::{FarTerrainCache, RetiringSession};
 pub use disk::{DiskBounds, DiskCache, DiskEvent};
 pub use identity::{NamespaceKey, ServerKey, WorldKey, surface_similarity};
 pub use region::{

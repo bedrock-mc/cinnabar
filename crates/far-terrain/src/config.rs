@@ -27,6 +27,10 @@ pub const WORLD_PROBE_EPOCHS: usize = 3;
 /// Columns held while the world's cache namespace is being resolved.
 pub const MAX_UNRESOLVED_COLUMNS: usize = 4096;
 
+/// A world that has not shown enough non-empty columns to probe by now resolves with the
+/// probes it has, so sparse worlds are still persisted.
+pub const WORLD_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// Water deeper than this many blocks is summarised as open water without a floor.
 pub const MAX_WATER_SCAN_DEPTH: u8 = 32;
 

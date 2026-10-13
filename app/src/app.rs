@@ -926,7 +926,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     if let Some(service) = client_runtime::world_service::WorldServiceSlot::from_environment()? {
         app.insert_resource(service);
     }
-    app.insert_resource(crate::far_terrain::FarTerrain::new(Some(far_terrain_dir)));
+    app.insert_resource(crate::far_terrain::FarTerrain::new(Some(far_terrain_dir)))
+        .add_systems(
+            Last,
+            crate::far_terrain::finish_far_terrain_on_exit.after(arm_shutdown_watchdog),
+        );
     crate::modding::configure_from_environment(&mut app);
     #[cfg(feature = "developer-control")]
     crate::developer_control::configure(&mut app);
