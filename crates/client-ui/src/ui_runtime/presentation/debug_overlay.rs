@@ -73,7 +73,7 @@ impl OverlayCache {
     pub(super) fn matches_lines(&self, lines: &DebugLines) -> bool {
         self.laid
             .as_ref()
-            .is_some_and(|laid| visible::same_lines(&laid.lines, lines, laid.root))
+            .is_some_and(|laid| visible::same_lines(&laid.lines, lines, laid.layout.root()))
     }
 
     #[cfg(test)]
@@ -84,8 +84,7 @@ impl OverlayCache {
 
 struct LaidOverlay {
     lines: DebugLines,
-    root: [f64; 2],
-    scale: f32,
+    layout: json_ui::LayoutCacheKey,
     render: FormRender,
 }
 
@@ -119,10 +118,11 @@ pub(super) fn render<'a>(
     (root, scale): ([f64; 2], f32),
     env: &LayoutEnv,
 ) -> &'a FormRender {
+    let layout = json_ui::LayoutCacheKey::new(root, scale, env);
     let same_frame = cache
         .laid
         .as_ref()
-        .is_some_and(|laid| laid.root == root && laid.scale == scale);
+        .is_some_and(|laid| laid.layout == layout);
     if same_frame
         && cache
             .laid
@@ -174,8 +174,7 @@ pub(super) fn render<'a>(
         .laid
         .insert(LaidOverlay {
             lines: lines.clone(),
-            root,
-            scale,
+            layout,
             render,
         })
         .render

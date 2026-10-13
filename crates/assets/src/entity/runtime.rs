@@ -59,7 +59,6 @@ impl RuntimeEntityAssets {
         let item_visual_count = u32_at(bytes, 76)? as usize;
         if source_count == 0
             || source_count > MAX_ENTITY_ASSET_SOURCES
-            || symbol_count == 0
             || symbol_count > MAX_ENTITY_ASSET_SYMBOLS
             || geometry_count > MAX_ENTITY_GEOMETRIES
             || animation_clip_count > MAX_ENTITY_ANIMATION_CLIPS

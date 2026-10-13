@@ -26,12 +26,15 @@ use super::{SourcePayloads, invalid, json::parse_unique_json, read_bounded_sourc
 mod item_attack;
 mod item_food;
 pub use item_food::compile_item_foods;
+mod dependencies;
 mod resources;
 mod textures;
+pub use dependencies::EquipmentBindingDependencies;
 pub use item_attack::compile_item_attack_timings;
 pub(super) use resources::controller_resources;
 use resources::{ControllerResources, named_resource};
 use textures::compile_texture_identifiers_with;
+pub use textures::decode_raster as decode_equipment_raster;
 pub use textures::{compile_textures_for_assets, compile_textures_for_assets_with};
 
 /// Literal transforms an item's attachable exposed, keyed by item identifier.

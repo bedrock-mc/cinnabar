@@ -319,12 +319,12 @@ fn fire_topology_group_covers_every_attachment_phase_and_uv_orientation() {
     let base = visual.model_template;
     let up = visual.faces[BlockFace::Up as usize];
     let down = visual.faces[BlockFace::Down as usize];
-    assert_eq!(assets::FIRE_TEMPLATE_COUNT, 129);
+    assert_eq!(assets::fire::FIRE_TEMPLATE_COUNT, 129);
     let mut offsets = BTreeSet::new();
     for alternate in [false, true] {
         for flip_u in [false, true] {
             for mask in 0..32_u8 {
-                let offset = assets::fire_attachment_template_offset(mask, alternate, flip_u);
+                let offset = assets::fire::fire_attachment_template_offset(mask, alternate, flip_u);
                 assert!(offsets.insert(offset));
                 let template = compiled.model_templates[(base + offset) as usize];
                 assert_eq!(template.flags, assets::MODEL_TEMPLATE_FLAG_FIRE);
@@ -351,7 +351,7 @@ fn fire_topology_group_covers_every_attachment_phase_and_uv_orientation() {
                 }
                 let opposite_flip = template_quads(
                     &compiled,
-                    base + assets::fire_attachment_template_offset(mask, alternate, !flip_u),
+                    base + assets::fire::fire_attachment_template_offset(mask, alternate, !flip_u),
                 );
                 for (quad, flipped) in quads[..side_count].iter().zip(opposite_flip) {
                     assert_eq!(quad.positions, flipped.positions);
@@ -363,21 +363,24 @@ fn fire_topology_group_covers_every_attachment_phase_and_uv_orientation() {
             }
         }
     }
-    assert_eq!(offsets.len() + 1, assets::FIRE_TEMPLATE_COUNT as usize);
+    assert_eq!(
+        offsets.len() + 1,
+        assets::fire::FIRE_TEMPLATE_COUNT as usize
+    );
     assert_eq!(offsets.first().copied(), Some(1));
     assert_eq!(
         offsets.last().copied(),
-        Some(assets::FIRE_TEMPLATE_COUNT - 1)
+        Some(assets::fire::FIRE_TEMPLATE_COUNT - 1)
     );
     let west = template_quads(
         &compiled,
-        base + assets::fire_attachment_template_offset(1, false, false),
+        base + assets::fire::fire_attachment_template_offset(1, false, false),
     );
     assert_eq!(west[0].positions[0], [51, 374, 256]);
     assert_eq!(west[0].positions[1], [0, 16, 256]);
     let east = template_quads(
         &compiled,
-        base + assets::fire_attachment_template_offset(2, false, false),
+        base + assets::fire::fire_attachment_template_offset(2, false, false),
     );
     assert_eq!(east[0].uvs[0][0], 0, "opposite walls reverse U orientation");
     assert_eq!(west[0].uvs[0][0], 4096);
@@ -390,11 +393,11 @@ fn above_attached_fire_uses_two_different_slopes_and_changes_axis_with_parity() 
     let visual = compiled.visuals[fixture.record("minecraft:fire").sequential_id as usize];
     let normal = template_quads(
         &compiled,
-        visual.model_template + assets::fire_attachment_template_offset(16, false, false),
+        visual.model_template + assets::fire::fire_attachment_template_offset(16, false, false),
     );
     let alternate = template_quads(
         &compiled,
-        visual.model_template + assets::fire_attachment_template_offset(16, true, false),
+        visual.model_template + assets::fire::fire_attachment_template_offset(16, true, false),
     );
     assert_eq!(normal.len(), 2);
     assert_eq!(alternate.len(), 2);
@@ -438,7 +441,7 @@ fn fire_carrier_rejects_truncated_groups_and_references_to_attachment_members() 
     let base = compiled.visuals[record.sequential_id as usize].model_template;
     let mut truncated = compiled.clone();
     truncated.model_templates =
-        truncated.model_templates[..(base + assets::FIRE_TEMPLATE_COUNT - 1) as usize].into();
+        truncated.model_templates[..(base + assets::fire::FIRE_TEMPLATE_COUNT - 1) as usize].into();
     assert_invalid(&truncated, "fire template group is truncated");
     let mut member_reference = compiled.clone();
     member_reference.visuals[record.sequential_id as usize].model_template += 1;
@@ -461,7 +464,8 @@ fn fire_carrier_rejects_truncated_groups_and_references_to_attachment_members() 
         .position(|bytes| bytes == table)
         .unwrap();
     let flags_offset = table_offset
-        + (base + assets::FIRE_TEMPLATE_COUNT - 1) as usize * std::mem::size_of::<ModelTemplate>()
+        + (base + assets::fire::FIRE_TEMPLATE_COUNT - 1) as usize
+            * std::mem::size_of::<ModelTemplate>()
         + std::mem::offset_of!(ModelTemplate, flags);
     encoded[flags_offset..flags_offset + std::mem::size_of::<u32>()]
         .copy_from_slice(&0_u32.to_le_bytes());

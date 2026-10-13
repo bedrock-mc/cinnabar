@@ -37,7 +37,8 @@ pub(super) fn draw(
             color: [0, 0, 0, (102.0 * opacity).round() as u8],
             model_light: 1.0,
             overlay_color: [45.0 / 255.0, 4.0 / 255.0, 4.0 / 255.0, 0.8 * opacity],
-            style_flags: render_model::UI_STYLE_RADIAL_GRADIENT as u8,
+            style_flags: u16::try_from(render_model::UI_STYLE_RADIAL_GRADIENT)
+                .expect("gradient style fits UI flags"),
             alpha_test: false,
         })
         .collect();

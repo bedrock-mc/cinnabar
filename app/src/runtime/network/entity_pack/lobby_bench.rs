@@ -310,6 +310,8 @@ fn build_world(
         let pack = pack_runtime::entity_pack::compile(
             &view,
             pack_runtime::entity_pack::vanilla_refs().as_deref(),
+            pack_runtime::entity_pack::vanilla_pack_dir().as_deref(),
+            None,
         )
         .expect("the pack defines entities");
         (pack, super::pack_property_defaults(&view))

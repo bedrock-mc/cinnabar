@@ -31,22 +31,21 @@ impl EquipmentRuntime {
         input: AttachableAnimationInput<'_>,
         java_hand: Option<render_model::java_animation::JavaHand>,
     ) -> Option<FirstPersonItem> {
-        let (catalog, from_pack) = self.binding_source(&item.identifier)?;
-        let assets = if from_pack {
-            Arc::clone(&self.pack.as_ref()?.assets)
-        } else {
-            Arc::clone(&self.assets)
-        };
         let (_, body_bones) = self.body_bones_for(body.input.rig)?;
-        let runtime = if from_pack {
-            &mut self.pack.as_mut()?.attachables
+        let (catalog, from_pack) = self.binding_source(&item.identifier)?;
+        let (assets, runtime) = if from_pack {
+            let pack = self.pack.as_mut()?;
+            (Arc::clone(&pack.assets), &mut pack.attachables)
         } else {
-            &mut self.attachables
+            (Arc::clone(&self.assets), &mut self.attachables)
         };
         let evaluated = runtime.evaluate(&item.identifier, owner, owner_rig, input)?;
         // Each hand has its own item texture page. Multi-layer attachables remain
         // explicitly incomplete rather than accidentally displaying an enchantment layer.
-        let selected = evaluated.render.first()?;
+        let selected = evaluated
+            .render
+            .iter()
+            .find(|layer| layer.texture_slot == 0)?;
         let geometry_index = selected.geometry.unwrap_or(evaluated.geometry);
         let pose = if selected.pose.is_empty() {
             evaluated.pose
@@ -93,12 +92,14 @@ impl EquipmentRuntime {
             .strip_suffix(".png")
             .or_else(|| source.path.strip_suffix(".tga"))
             .unwrap_or(&source.path);
-        let texture = catalog
-            .textures()
-            .iter()
-            .find(|t| &*t.identifier == texture_identifier)?;
-        let key = (from_pack, geometry_index, selected.source);
-        let location = self.texture_location(&texture.identifier, from_pack)?;
+        let (artwork, texture_index, location) =
+            self.draw_artwork(&item.identifier, texture_identifier, (catalog, from_pack))?;
+        let texture = &artwork.textures()[texture_index];
+        let key = (
+            from_pack,
+            geometry_index,
+            (location.page(), location.layer()),
+        );
         // Java draws a raster attachable (the bow's pull frames) as its own flat item.
         let java = java_hand
             .filter(|_| super::java::java_draws_attachable(&item.identifier))

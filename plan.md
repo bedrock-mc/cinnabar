@@ -2516,7 +2516,7 @@ events and native crack bounds/cadence. No complete particle parity gate is clos
 see [vanilla rules](docs/reference/block-break-particles.md). Local, uncommitted.
 
 2026-10-01 actor name tags: native-port correction in progress. World-plane projection,
-eye-facing cubic-angle billboard, fixed font-pixel world size, ten-pixel line pitch,
+position-facing billboard, fixed font-pixel world size, ten-pixel line pitch,
 independent line centering, full multiline 0.25-black plate, multiline world lift and
 0.125-alpha depth-tested sneaking text follow vanilla behaviour. Player tags use synced name metadata, not just their spawn username; scores share
 the same path and honor the native ten-block score gate. Provisional, labeled incomplete:
@@ -2529,6 +2529,12 @@ smoke pass at Retina scale 2; controlled near/far drift, sneak/occlusion/clippin
 version-matched native frame comparisons remain pending. Workspace tests, formatting,
 strict Clippy and the architecture gate pass locally. Changes are uncommitted. No name-tag
 visual parity gate is closed; see [vanilla rules](docs/reference/nametag-rendering.md).
+
+Actor nametag facing deliberately deviates from vanilla's cubic angle approximation:
+CPU geometry and the GPU shader use exact yaw and pitch toward the camera eye from
+the original anchor. A vertical eye direction uses zero yaw without perturbing the
+direction. World scale and multiline lift are unchanged. Rendered-frame acceptance
+remains incomplete; no name-tag visual parity gate is closed.
 
 2026-10-01 first-person item rendering: ordinary icons and opaque full-cube blocks now use
 their separate native camera-space stacks, not the third-person grip on the avatar's
@@ -2964,6 +2970,23 @@ light at their feet through the shared light curve with daylight fixed at 1 (the
 texture, tint and sample point are unmatched), pack attachables (held/worn on player bodies) layer over the equipment runtime per session
 (pack bindings win by item identifier; pack property defaults seed only from `entities/` in
 resource packs), rigs depending on vanilla clips are attributed as fallbacks; server pack admission converts first-entry priority into low-to-high merge layers. No vanilla acceptance gate is closed by this change.
+
+Texture-only equipment overrides replace artwork at validated startup texture paths;
+startup bindings, controllers and geometry remain active without loose resource files.
+Artwork-only layers support item textures with no entity symbols, create no pack attachable
+bindings and need no sidecar rebuild. Each item's authored dependencies decide whether it
+uses this path. Mixed texture and geometry, controller or material overrides retain the
+installed attachable binding against the replacement definitions. Classification uses
+the binding compiler's description inputs and material parser, including inherited
+material defines and skinning variants. The decision combines all variants of each bound
+item; recompiling one keeps its preferred player variant available to the binding compiler.
+Compiles and artwork use the accepted stack's content identity and loaded startup texture-path
+digest, so rebuilding carriers under the same source pin refreshes changed artwork paths.
+Mixed packs reuse the compiler's decoded equipment rasters; startup-path artwork is decoded
+separately only when that compiler table lacks it, within the remaining pixel and count budgets.
+Authored pack attachables remain separate. Held pixel meshes and Java raster frames include
+the resolved artwork page and layer in their cache keys. Controller glint samplers do not
+replace startup primary artwork. Rendered acceptance remains incomplete.
 
 2026-10-12 protocol codec: `protocol` decodes and encodes through protocolgen's generated
 contract crate (`bedrock-protocol-1-26-51`, contract 1), vendored byte for byte and pinned by

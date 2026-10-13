@@ -30,9 +30,9 @@ pub struct UiRenderVertex {
     pub style_flags: u32,
     /// Negative disables explicit model-material sampled alpha testing.
     pub alpha_cutoff: f32,
-    /// Native linear model lighting, interpolated without byte-color quantization.
+    /// Native linear lighting, or border area for coverage paint, without byte quantization.
     pub model_light: f32,
-    /// Native entity overlay RGB and its mix amount, without byte quantization.
+    /// Entity overlay RGB and mix amount, or the coverage paint's packed constant colors.
     pub overlay_color: [f32; 4],
 }
 

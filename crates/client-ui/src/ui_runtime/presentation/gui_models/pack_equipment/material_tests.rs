@@ -126,7 +126,7 @@ fn armor_shading(presentation: &UiPresentationRuntime) -> (Vec<[u8; 4]>, bool) {
     colors.dedup();
     let masked = vertices
         .iter()
-        .any(|vertex| vertex.style_flags & render_model::UI_STYLE_COLOR_MASK as u8 != 0);
+        .any(|vertex| u32::from(vertex.style_flags) & render_model::UI_STYLE_COLOR_MASK != 0);
     (colors, masked)
 }
 

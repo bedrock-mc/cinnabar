@@ -50,7 +50,15 @@ fn previews_use_pack_armor_reuse_unchanged_pages_and_restore_base_on_removal() {
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let base = catalog([22, 33, 44, 255]);
-    let pack = catalog([77, 88, 99, 255]);
+    let painted = catalog([77, 88, 99, 255]);
+    let pack = Arc::new(
+        assets::RuntimeEquipmentCatalog::from_parts(
+            [2; 32],
+            Vec::new(),
+            painted.textures().to_vec(),
+        )
+        .unwrap(),
+    );
     presentation.set_equipment_catalog(Some(base.clone()));
     presentation.gui_models.enabled = true;
     presentation.set_player_preview_skin(None, Default::default());
@@ -91,6 +99,36 @@ fn previews_use_pack_armor_reuse_unchanged_pages_and_restore_base_on_removal() {
     );
     assert!(presentation.gui_models.pack_equipment.pages.is_empty());
     assert!(presentation.gui_models.pack_equipment.regions.is_empty());
+}
+
+#[test]
+fn preview_armour_keeps_base_art_when_the_pack_has_only_secondary_artwork() {
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    let base = catalog([22, 33, 44, 255]);
+    let secondary = assets::EquipmentTexture {
+        identifier: assets::ACTOR_GLINT_TEXTURE_IDENTIFIER.into(),
+        width: 1,
+        height: 1,
+        rgba8: Arc::from([77, 88, 99, 255]),
+    };
+    let pack = Arc::new(
+        assets::RuntimeEquipmentCatalog::from_parts(
+            [2; 32],
+            base.bindings().to_vec(),
+            vec![secondary],
+        )
+        .unwrap(),
+    );
+    presentation.set_equipment_catalog(Some(Arc::clone(&base)));
+    presentation.set_preview_pack_equipment(Some(pack));
+    for gui_enabled in [false, true] {
+        presentation.gui_models.enabled = gui_enabled;
+        wear_chestplate(&mut presentation);
+        let texture = presentation.player_preview_gear.armor[1].as_ref().unwrap();
+        assert!(Arc::ptr_eq(&texture.rgba, &base.textures()[0].rgba8));
+        assert_eq!(&texture.rgba[..4], &[22, 33, 44, 255]);
+    }
 }
 
 #[test]

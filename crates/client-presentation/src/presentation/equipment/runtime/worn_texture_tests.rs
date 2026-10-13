@@ -2,10 +2,10 @@
 
 use super::{
     elytra_tests::{layers, owner, owner_rig, selected_pixel},
-    pack_runtime, player_body,
+    pack_catalog, pack_runtime, player_body, startup_runtime,
 };
 use crate::presentation::equipment::runtime::{
-    ActorEquipmentInput, EquipmentAnimation, HeldKind, WornItem,
+    ActorEquipmentInput, EquipmentAnimation, EquipmentRuntime, HeldKind, WornItem,
 };
 use protocol::ActorMetadataValue;
 use std::sync::Arc;
@@ -93,6 +93,59 @@ fn worn_pack_armour_follows_the_owner_driven_render_controller_texture() {
     let painted = layers(&mut runtime, &body, &owner, &input, 2);
     assert_eq!(painted.len(), 1);
     assert_eq!(selected_pixel(&pages, &painted[0]), PAINTED);
+}
+
+#[test]
+fn armour_uses_a_controller_alternative_before_startup_fallback() {
+    let (mut runtime, base_pages) = startup_runtime(coat_pack("v.coat=0;"));
+    let body = player_body(&mut runtime);
+    let owner = owner();
+    let input = helmet();
+    let mut files = coat_pack("v.coat=1;");
+    files.retain(|(path, _)| path.as_ref() != "textures/models/coat_plain.png");
+    let (_, controller) = files
+        .iter_mut()
+        .find(|(path, _)| path.as_ref() == "render_controllers/coat.json")
+        .unwrap();
+    let mut document: serde_json::Value = serde_json::from_slice(controller).unwrap();
+    let controller = &mut document["render_controllers"]["controller.render.test_coat"];
+    controller.as_object_mut().unwrap().remove("arrays");
+    controller["textures"] = serde_json::json!(["Texture.painted"]);
+    let (_, bytes) = files
+        .iter_mut()
+        .find(|(path, _)| path.as_ref() == "render_controllers/coat.json")
+        .unwrap();
+    *bytes = serde_json::to_vec(&document).unwrap();
+    let (entities, catalog) = pack_catalog(files);
+    let binding = catalog.binding("test:coat_helmet").unwrap();
+    assert!(catalog.texture(&binding.texture.identifier).is_none());
+    let (pages, locations) =
+        base_pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
+    runtime.set_pack_layer(Some((entities, Some(catalog), locations)));
+    let drawn = layers(&mut runtime, &body, &owner, &input, 1);
+    assert_eq!(drawn.len(), 1);
+    assert_eq!(selected_pixel(&pages, &drawn[0]), PAINTED);
+}
+
+#[test]
+fn armour_uses_the_pack_default_when_it_is_available() {
+    let (mut runtime, base_pages) = startup_runtime(coat_pack("v.coat=0;"));
+    let body = player_body(&mut runtime);
+    let owner = owner();
+    let input = helmet();
+    let mut files = coat_pack("v.coat=0;");
+    let (_, bytes) = files
+        .iter_mut()
+        .find(|(path, _)| path.as_ref() == "textures/models/coat_plain.png")
+        .unwrap();
+    *bytes = texture(PAINTED);
+    let (entities, catalog) = pack_catalog(files);
+    let (pages, locations) =
+        base_pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
+    runtime.set_pack_layer(Some((entities, Some(catalog), locations)));
+    let drawn = layers(&mut runtime, &body, &owner, &input, 1);
+    assert_eq!(drawn.len(), 1);
+    assert_eq!(selected_pixel(&pages, &drawn[0]), PAINTED);
 }
 
 #[test]

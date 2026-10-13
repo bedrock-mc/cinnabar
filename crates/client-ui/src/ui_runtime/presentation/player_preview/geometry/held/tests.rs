@@ -311,9 +311,9 @@ fn held_glint_overrides_preserve_geometry_and_reach_both_hands() {
         let vertices =
             &mesh.vertices()[batch.index_range.start as usize..batch.index_range.end as usize];
         assert!(
-            vertices
-                .iter()
-                .all(|vertex| (vertex.style_flags & ui::UI_STYLE_GLINT != 0) == expected)
+            vertices.iter().all(
+                |vertex| (vertex.style_flags & u16::from(ui::UI_STYLE_GLINT) != 0) == expected
+            )
         );
     }
 }

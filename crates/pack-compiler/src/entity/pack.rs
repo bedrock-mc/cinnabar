@@ -263,11 +263,15 @@ fn compile_selected(
         });
         payloads.insert(path, bytes.into());
     }
-    // Attachables alone (custom armor and held models) still make a pack worth compiling.
+    // Authored attachables and texture-only artwork each make a pack worth retaining.
     let has_attachables = sources
         .iter()
         .any(|source| source.path.starts_with("attachables/"));
+    let has_artwork = sources
+        .iter()
+        .any(|source| source.path.ends_with(".png") || source.path.ends_with(".tga"));
     if !has_attachables
+        && !has_artwork
         && !symbols
             .keys()
             .any(|(kind, ..)| *kind == EntityAssetKind::Entity)
