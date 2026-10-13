@@ -173,12 +173,17 @@ pub fn update_look(
     mut view: ResMut<LocalViewPose>,
     mut server: Option<ResMut<ServerCameraView>>,
 ) {
-    let held = input.phase(Action::Freelook).held && !auto_fly.presentation_paused();
+    let death_view = settings.death_view();
+    let held = input.phase(Action::Freelook).held && !auto_fly.presentation_paused() && !death_view;
     if settings.freelook != held {
         smoother.reset();
     }
     settings.freelook = held;
     view.set_freelook(held);
+    if death_view {
+        smoother.reset();
+        return;
+    }
     if auto_fly.presentation_paused() {
         return;
     }

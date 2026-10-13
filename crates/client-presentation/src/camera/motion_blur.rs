@@ -13,6 +13,7 @@ struct CameraAnchor {
     server: u64,
     perspective: PerspectiveMode,
     rig: Option<CameraRig>,
+    death_rotation: Option<Quat>,
 }
 
 /// Tracks the camera anchors consumed by the rendered pose, independently of gameplay prediction.
@@ -47,6 +48,7 @@ pub fn apply_camera_motion_blur(
         server: server.camera_reanchor_epoch(),
         perspective: settings.perspective(),
         rig: settings.rig(),
+        death_rotation: settings.death_rotation(),
     };
     let reanchored = history.previous != Some(anchor);
     if reanchored {
@@ -190,6 +192,47 @@ mod tests {
         assert_eq!(*app.world().resource::<LocalViewPose>(), player);
         app.update();
         assert!(blur(&app, camera).exposure_seconds > 0.0);
+    }
+
+    #[test]
+    fn death_view_transitions_reset_blur_in_an_existing_third_person_view() {
+        for front in [false, true] {
+            let (mut app, camera) = app();
+            select(&mut app, ui::MotionBlurQuality::Medium);
+            let mut settings = app.world_mut().resource_mut::<CameraSettingsAuthority>();
+            settings.cycle_perspective();
+            if front {
+                settings.cycle_perspective();
+            }
+            let perspective = settings.perspective();
+            app.update();
+            app.update();
+            let previous = blur(&app, camera);
+            assert!(previous.exposure_seconds > 0.0);
+
+            for death_rotation in [Some(Quat::from_rotation_x(0.8)), None] {
+                let before = blur(&app, camera);
+                app.world_mut()
+                    .resource_mut::<CameraSettingsAuthority>()
+                    .set_death_view(death_rotation);
+                app.update();
+                let transition = blur(&app, camera);
+                assert_eq!(transition.exposure_seconds, 0.0);
+                assert_ne!(transition.reset_epoch, before.reset_epoch);
+                assert_eq!(
+                    app.world()
+                        .resource::<CameraSettingsAuthority>()
+                        .perspective(),
+                    perspective
+                );
+                app.update();
+                assert_eq!(blur(&app, camera).reset_epoch, transition.reset_epoch);
+                assert_eq!(
+                    blur(&app, camera).exposure_seconds,
+                    previous.exposure_seconds
+                );
+            }
+        }
     }
 
     #[test]

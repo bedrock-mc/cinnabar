@@ -1913,7 +1913,9 @@ open, independently of this regression check.
 
 The user's latest matched spruce views also identified missing shading, face
 orientation and sampler contracts. Vanilla shade brightness
-assigns primary leaves/emitting blocks .2 independently of cached solid occlusion.
+assigns primary leaves .2 independently of cached solid occlusion; light emission
+does not count, so non-solid emitters such as torches leave neighbouring faces
+unshaded.
 Vanilla ambient occlusion averages outward/side/diagonal shade and raises
 average*face-coefficient to the authored exponent before vertex interpolation;
 solid side tests alone decide the diagonal fallback. Direct/cached lighting
@@ -6405,8 +6407,7 @@ the `enchanted_item_glint` raster, colour (0.38, 0.19, 0.608) scaled by strength
 1375/3750 ms scrolls, -20/80 degree layers, and a 0.5 UV scale across each atlas
 sprite with the scroll divided by that scale, as the native item-in-hand renderer
 sets them. Attachables take the item raster at unit scale. Dropped items draw
-the same glint on every stacked copy, as the native dropped-item renderer passes
-each copy through the item-in-hand path. Exact pixel comparison remains open.
+the same glint on every stacked copy. Exact pixel comparison remains open.
 `minecraft:render_offsets` is not applied.
 Initial negotiated item-registry binding for world item visuals is also separate
 from the inventory-ledger bootstrap fix. The visual resolver still starts from
