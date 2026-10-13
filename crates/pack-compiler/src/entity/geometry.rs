@@ -1,3 +1,4 @@
+use assets::entity::GEOMETRY_NO_HEAD_BOB_FIELD;
 mod locator;
 use std::{collections::BTreeMap, path::Path};
 
@@ -53,7 +54,12 @@ pub(super) fn parse_geometry(
             .as_array()
             .ok_or_else(|| invalid(format!("invalid geometry array in {}", path.display())))?;
         for geometry in geometries {
-            validate_object_fields(geometry, path, &["description", "bones"], &["description"])?;
+            validate_object_fields(
+                geometry,
+                path,
+                &["description", "bones", GEOMETRY_NO_HEAD_BOB_FIELD],
+                &["description"],
+            )?;
             let description = geometry.get("description").ok_or_else(|| {
                 invalid(format!(
                     "missing geometry description in {}",
@@ -90,7 +96,10 @@ pub(super) fn parse_geometry(
                 None,
                 relative_path,
                 [texture_width, texture_height],
-                assets::EntityGeometryBounds::from_description(description),
+                (
+                    assets::EntityGeometryBounds::from_description(description),
+                    optional_bool(geometry, GEOMETRY_NO_HEAD_BOB_FIELD, path)?,
+                ),
                 bones,
             )?;
         }
@@ -122,6 +131,7 @@ pub(super) fn parse_geometry(
                 &[
                     "texturewidth",
                     "textureheight",
+                    GEOMETRY_NO_HEAD_BOB_FIELD,
                     "visible_bounds_width",
                     "visible_bounds_height",
                     "visible_bounds_offset",
@@ -149,7 +159,10 @@ pub(super) fn parse_geometry(
                 inherits,
                 relative_path,
                 [texture_width, texture_height],
-                assets::EntityGeometryBounds::from_description(geometry),
+                (
+                    assets::EntityGeometryBounds::from_description(geometry),
+                    optional_bool(geometry, GEOMETRY_NO_HEAD_BOB_FIELD, path)?,
+                ),
                 bones,
             )?;
         }
@@ -163,7 +176,7 @@ fn insert_geometry(
     inherits: Option<&str>,
     source_path: &str,
     texture_dimensions: [Option<u16>; 2],
-    visible_bounds: Option<assets::EntityGeometryBounds>,
+    (visible_bounds, animation_no_head_bob): (Option<assets::EntityGeometryBounds>, Option<bool>),
     bones: Box<[EntityGeometryBone]>,
 ) -> Result<(), AssetError> {
     let identifier: Box<str> = identifier.into();
@@ -175,6 +188,7 @@ fn insert_geometry(
         texture_width: texture_dimensions[0],
         texture_height: texture_dimensions[1],
         visible_bounds,
+        animation_no_head_bob,
         bones,
     };
     if geometries
@@ -632,4 +646,24 @@ fn validate_known_deferred_bone_fields(value: &Value, path: &Path) -> Result<(),
     optional_bool(value, "neverRender", path)?;
     optional_bool(value, "reset", path)?;
     Ok(())
+}
+
+/// Resolves one geometry property from the selected parent chain, retaining explicit false.
+pub(super) fn inherited_value<T: Copy>(
+    start: usize,
+    selected_parents: &[Option<usize>],
+    select: impl Fn(usize) -> Option<T>,
+    default: T,
+) -> Result<T, AssetError> {
+    let mut current = start;
+    for _ in 0..=selected_parents.len() {
+        if let Some(value) = select(current) {
+            return Ok(value);
+        }
+        let Some(parent) = selected_parents[current] else {
+            return Ok(default);
+        };
+        current = parent;
+    }
+    Err(invalid("entity geometry inheritance is cyclic"))
 }

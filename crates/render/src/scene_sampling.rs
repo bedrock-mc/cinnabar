@@ -13,8 +13,14 @@ use render_scene::RuntimeStage;
 #[cfg(test)]
 pub(crate) mod tests;
 
-/// Selects the 3D view's depth aspect without exposing stencil samples to depth-reading shaders.
+/// Reuses the cached view for depth-only textures; combined formats need a depth-aspect view.
 pub(crate) fn view_depth(depth: &ViewDepthStencilTexture) -> &TextureView {
+    let format = depth.texture().format();
+    if format.has_depth_aspect() && !format.has_stencil_aspect() {
+        // Bevy rebuilds the attachment's aspect views every frame, even when its texture is
+        // unchanged. Its cached default view keeps dependent bindings and resolves reusable.
+        return &depth.attachment.texture.default_view;
+    }
     depth
         .attachment
         .depth_stencil_views()

@@ -16,6 +16,30 @@ pub struct WorldObservation<'a> {
 pub trait PhysicsObservation {
     /// Returns the last completed simulation state.
     fn state(&self) -> Option<&PlayerState>;
+    /// Visits completed movement ticks so camera motion is independent of frame cadence.
+    fn visit_camera_ticks(&self, after: Option<u64>, visit: &mut dyn FnMut(CameraMovementTick)) {
+        if let Some(state) = self.state()
+            && after.is_none_or(|tick| state.tick > tick)
+        {
+            let vector = |v: sim::Vec3| [v.x as f32, v.y as f32, v.z as f32];
+            visit(CameraMovementTick {
+                tick: state.tick,
+                position: vector(state.position),
+                movement: vector(state.movement),
+                velocity: vector(state.velocity),
+                on_ground: state.on_ground,
+                riding: self.mode() == sim::MovementMode::Riding,
+                walks: state.collisions.y
+                    && !self
+                        .latest_sneak_sprint()
+                        .is_some_and(|(sneaking, _)| sneaking)
+                    && !matches!(
+                        self.mode(),
+                        sim::MovementMode::Flying | sim::MovementMode::Riding
+                    ),
+            });
+        }
+    }
     /// Returns the sneak and sprint flags of the last completed tick.
     fn latest_sneak_sprint(&self) -> Option<(bool, bool)>;
     /// Returns the pose selected by the completed simulation tick.
@@ -30,6 +54,18 @@ pub trait PhysicsObservation {
     fn tick_alpha(&self) -> f32 {
         1.0
     }
+}
+
+/// Collision-resolved camera observations borrowed from the movement owner.
+#[derive(Debug, Clone, Copy)]
+pub struct CameraMovementTick {
+    pub tick: u64,
+    pub position: [f32; 3],
+    pub movement: [f32; 3],
+    pub velocity: [f32; 3],
+    pub on_ground: bool,
+    pub riding: bool,
+    pub walks: bool,
 }
 
 /// Collision facts used by camera obstruction and actor surface queries.

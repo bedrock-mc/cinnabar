@@ -12,6 +12,7 @@ fn scalar(value: f32) -> Scalar {
 
 fn geometry() -> EntityGeometry {
     EntityGeometry {
+        animation_no_head_bob: false,
         visible_bounds: None,
         identifier: "geometry.fixture".into(),
         inherits: None,

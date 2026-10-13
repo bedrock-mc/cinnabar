@@ -72,3 +72,38 @@ fn downloaded_quadruped_models_preserve_native_rotation_pivots() {
         );
     }
 }
+
+#[test]
+fn authored_head_bob_flag_is_parsed_and_inherits_without_overriding_false() {
+    for modern in [false, true] {
+        let mut geometry = serde_json::json!({"bones":[{"name":"body"}]});
+        geometry[GEOMETRY_NO_HEAD_BOB_FIELD] = true.into();
+        let source = if modern {
+            geometry["description"] = serde_json::json!({"identifier":"geometry.synthetic"});
+            serde_json::json!({"format_version":"1.12.0", "minecraft:geometry":[geometry]})
+        } else {
+            serde_json::json!({"format_version":"1.8.0", "geometry.synthetic":geometry})
+        };
+        let mut payloads = BTreeMap::new();
+        parse_geometry(
+            "synthetic.geo.json",
+            Path::new("synthetic.geo.json"),
+            &source,
+            &mut BTreeMap::new(),
+            &mut payloads,
+        )
+        .unwrap();
+        assert_eq!(
+            payloads.values().next().unwrap().animation_no_head_bob,
+            Some(true)
+        );
+    }
+    let parents = [None, Some(0), Some(1)];
+    for local in [None, Some(false), Some(true)] {
+        let flags = [Some(true), local, None];
+        assert_eq!(
+            inherited_value(2, &parents, |index| flags[index], false).unwrap(),
+            local.unwrap_or(true)
+        );
+    }
+}
