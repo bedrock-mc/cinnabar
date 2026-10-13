@@ -85,7 +85,7 @@ pub(super) fn append(
             model_light,
             overlay_color: [0.0; 4],
             style_flags: if model.source.glint {
-                UI_STYLE_GLINT
+                u16::from(UI_STYLE_GLINT)
             } else {
                 0
             },

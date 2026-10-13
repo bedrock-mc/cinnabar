@@ -32,66 +32,27 @@ fn shared_glint_overrides_are_collected_without_json_references() {
 }
 
 #[test]
-fn resource_pack_texture_only_armor_inherits_its_vanilla_attachable() {
+fn texture_only_packs_do_not_inherit_loose_attachable_bindings() {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir(root.path().join("attachables")).unwrap();
-    let path = "attachables/fixture.player.json";
-    let attachable = json!({"minecraft:attachable":{"description":{
-        "identifier":"fixture:armor.player", "item":{"fixture:armor":"1"},
-        "textures":{"default":"textures/models/armor/fixture"},
-        "geometry":{"default":"geometry.fixture.armor"},
-        "render_controllers":["controller.render.armor"]
-    }}});
     std::fs::write(
-        root.path().join(path),
-        serde_json::to_vec(&attachable).unwrap(),
+        root.path().join("attachables/fixture.json"),
+        json!({
+            "format_version": "1.10.0", "minecraft:attachable": {"description": {"identifier": "fixture:armor",
+                "textures": {"default": "textures/models/armor/fixture"}}}
+        })
+        .to_string(),
     )
     .unwrap();
-    let texture = "textures/models/armor/fixture.png";
-    let view = resource_pack::LayeredPackView::tracked(crate::test_support::stack(&[(
-        texture,
+    let view = resource_pack::LayeredPackView::new(crate::test_support::stack(&[(
+        "textures/models/armor/fixture.png",
         b"pack pixels",
     )]));
-    let files = super::collect_files(&view, None, Some(root.path()));
-    assert!(
-        files.iter().any(|(name, bytes)| name.as_ref() == path
-            && serde_json::from_slice::<serde_json::Value>(bytes).unwrap() == attachable),
-        "texture-only packs must retain the base attachable that uses their image"
-    );
-    assert!(
-        files
-            .iter()
-            .any(|(name, bytes)| name.as_ref() == texture && bytes == b"pack pixels")
-    );
-    let reads = view.dependencies().unwrap().snapshot();
-    assert!(reads.contains(&resource_pack::PackDependency::Directory(
-        "textures/".into()
-    )));
-    assert!(reads.iter().any(|dependency| matches!(dependency,
-        resource_pack::PackDependency::File { path, .. } if path == texture
-    )));
-    let tga_view = resource_pack::LayeredPackView::new(crate::test_support::stack(&[(
-        "textures/models/armor/fixture.tga",
-        b"TGA pack pixels",
-    )]));
-    let tga_files = super::collect_files(&tga_view, None, Some(root.path()));
-    assert!(tga_files.iter().any(|(name, _)| name.as_ref() == path));
-    assert!(
-        tga_files
-            .iter()
-            .any(|(name, bytes)| name.ends_with(".tga") && bytes == b"TGA pack pixels")
-    );
-    let empty = resource_pack::LayeredPackView::new(crate::test_support::stack(&[]));
-    assert!(
-        !super::collect_files(&empty, None, Some(root.path()))
-            .iter()
-            .any(|(name, _)| name.starts_with("attachables/")),
-        "removing the texture removes the pack binding"
-    );
+    assert!(super::collect_files(&view, None, Some(root.path())).is_empty());
 }
 
 #[test]
-fn authored_attachable_keeps_precedence_over_texture_only_inheritance() {
+fn authored_attachables_are_collected_without_loose_base_bindings() {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir(root.path().join("attachables")).unwrap();
     let native = json!({"minecraft:attachable":{"description":{
@@ -120,6 +81,138 @@ fn authored_attachable_keeps_precedence_over_texture_only_inheritance() {
         .collect::<Vec<_>>();
     assert_eq!(attachables.len(), 1);
     assert_eq!(attachables[0].0.as_ref(), "attachables/custom.json");
+}
+
+#[test]
+fn changing_mob_geometry_keeps_the_preferred_player_armour_variant() {
+    let item = "fixture:chestplate";
+    let texture = "textures/items/fixture_armor";
+    let player_geometry = "geometry.fixture.player.chestplate";
+    let mob_geometry = "geometry.fixture.mob.chestplate";
+    let geometry = |identifier: &str, size: [u8; 3]| {
+        json!({
+        "format_version": "1.12.0", "minecraft:geometry": [{
+            "description": {"identifier": identifier, "texture_width": 4, "texture_height": 2},
+            "bones": [{"name": "body", "cubes": [{"origin": [0, 0, 0], "size": size, "uv": [0, 0]}]}]
+        }]
+    }).to_string().into_bytes()
+    };
+    let attachable = |identifier: &str, geometry: &str, texture: &str| {
+        json!({
+            "format_version": "1.10.0", "minecraft:attachable": {"description": {
+                "identifier": identifier, "geometry": {"default": geometry},
+                "textures": {"default": texture}, "materials": {"default": "armor"},
+                "render_controllers": ["controller.render.fixture"]
+            }}
+        })
+    };
+    let png = |color: [u8; 4]| {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(4, 2, image::Rgba(color))
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        bytes.into_inner()
+    };
+    let original = png([10, 20, 30, 255]);
+    let pixels = png([40, 50, 60, 255]);
+    // The dependencies and texture can change in the same variant or different variants.
+    for shared_texture in [true, false] {
+        let root = tempfile::tempdir().unwrap();
+        let mob_texture = if shared_texture {
+            texture
+        } else {
+            "textures/items/fixture_mob"
+        };
+        let mob = attachable(item, mob_geometry, mob_texture);
+        let mut player = attachable(&format!("{item}.player"), player_geometry, texture);
+        player["minecraft:attachable"]["description"]["item"] =
+            json!({(item): "query.owner_identifier == 'minecraft:player'"});
+        let unrelated = attachable("fixture:unrelated", player_geometry, texture);
+        let mut files: Vec<(Box<str>, Vec<u8>)> = vec![
+            ("attachables/fixture.json".into(), mob.to_string().into_bytes()),
+            ("attachables/fixture.player.json".into(), player.to_string().into_bytes()),
+            ("attachables/unrelated.json".into(), unrelated.to_string().into_bytes()),
+            ("models/entity/mob.json".into(), geometry(mob_geometry, [2, 2, 2])),
+            ("models/entity/player.json".into(), geometry(player_geometry, [1, 1, 1])),
+            (format!("{texture}.png").into(), original.clone()),
+            ("render_controllers/fixture.json".into(), json!({
+                "format_version": "1.8.0", "render_controllers": {"controller.render.fixture": {
+                    "geometry": "Geometry.default", "materials": [{"*": "Material.default"}], "textures": ["Texture.default"]
+                }}
+            }).to_string().into_bytes()),
+        ];
+        if !shared_texture {
+            files.push((format!("{mob_texture}.png").into(), original.clone()));
+        }
+        for (path, bytes) in &files {
+            let path = root.path().join(path.as_ref());
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, bytes).unwrap();
+        }
+        let vanilla = pack_compiler::compile_vanilla_entity_refs(root.path()).unwrap();
+        let startup = pack_compiler::compile_actor_pack(files).unwrap().unwrap();
+        assert_eq!(
+            startup
+                .equipment_bindings
+                .iter()
+                .find(|binding| binding.identifier.as_ref() == item)
+                .unwrap()
+                .geometry
+                .identifier
+                .as_ref(),
+            player_geometry
+        );
+        let replacement = geometry(mob_geometry, [3, 4, 5]);
+        let view = resource_pack::LayeredPackView::new(crate::test_support::stack(&[
+            (&format!("{texture}.png"), &pixels),
+            ("models/entity/replacement.json", &replacement),
+        ]));
+        let compiled = pack_compiler::compile_actor_pack(super::collect_files(
+            &view,
+            Some(&vanilla),
+            Some(root.path()),
+        ))
+        .unwrap()
+        .unwrap();
+        let binding = compiled
+            .equipment_bindings
+            .iter()
+            .find(|binding| binding.identifier.as_ref() == item)
+            .unwrap();
+        assert_eq!(binding.geometry.identifier.as_ref(), player_geometry);
+        assert!(
+            compiled
+                .equipment_bindings
+                .iter()
+                .all(|binding| binding.identifier.as_ref() != "fixture:unrelated")
+        );
+        let selected = compiled
+            .entities
+            .geometries
+            .iter()
+            .find(|geometry| geometry.identifier.as_ref() == player_geometry)
+            .unwrap();
+        assert_eq!(
+            selected.bones[0].cubes[0].size.map(|value| value.get()),
+            [1.0; 3]
+        );
+        let mob = compiled
+            .entities
+            .geometries
+            .iter()
+            .find(|geometry| geometry.identifier.as_ref() == mob_geometry)
+            .unwrap();
+        assert_eq!(
+            mob.bones[0].cubes[0].size.map(|value| value.get()),
+            [3.0, 4.0, 5.0]
+        );
+        let artwork = compiled
+            .equipment_textures
+            .iter()
+            .find(|image| image.identifier.as_ref() == texture)
+            .unwrap();
+        assert_eq!(&artwork.rgba8[..4], &[40, 50, 60, 255]);
+    }
 }
 
 fn archive(id: u128, material: serde_json::Value) -> protocol::ResourcePackArchive {
@@ -332,4 +425,131 @@ fn vanilla_texture_lookup_does_not_leave_the_pack_root() {
     std::fs::write(parent.path().join("outside.png"), b"outside").unwrap();
     let view = resource_pack::LayeredPackView::new(crate::test_support::stack(&[]));
     assert!(super::texture_file(&view, Some(&base), "textures/../../outside").is_none());
+}
+
+#[test]
+fn artwork_only_is_decided_from_each_items_authored_dependencies() {
+    use super::attachables::binding_inputs_unchanged;
+    use std::collections::BTreeSet;
+    let document = json!({"format_version": "1.10.0", "minecraft:attachable": {"description": {
+        "identifier": "fixture:coat.player", "item": {"fixture:coat": "1"},
+        "geometry": {"default": "geometry.fixture.coat", "alternate": "geometry.fixture.alternate"},
+        "materials": {"default": "armor_leather", "enchanted": "armor_leather_enchanted"},
+        "render_controllers": [{"controller.render.coat": "1"}],
+        "animations": {"idle": "animation.coat.idle", "controller": "controller.animation.coat",
+            "wield_first_person": "animation.coat.first", "wield_third_person": "animation.coat.third"},
+        "animation_controllers": [{"active": "controller.animation.coat.extra"}]
+    }}});
+    let inputs = pack_compiler::EquipmentBindingDependencies::default();
+    let authored = BTreeSet::new();
+    let unrelated = BTreeSet::from(["geometry.other".into(), "controller.render.other".into()]);
+    assert!(binding_inputs_unchanged(
+        &document,
+        &authored,
+        &unrelated,
+        None,
+        Some(&inputs)
+    ));
+    for changed in [
+        "geometry.fixture.coat",
+        "geometry.fixture.alternate",
+        "controller.render.coat",
+        "animation.coat.idle",
+        "animation.coat.first",
+        "animation.coat.third",
+        "controller.animation.coat",
+        "controller.animation.coat.extra",
+        "armor_leather",
+        "armor_leather_enchanted",
+    ] {
+        assert!(
+            !binding_inputs_unchanged(
+                &document,
+                &authored,
+                &BTreeSet::from([changed.into()]),
+                None,
+                Some(&inputs)
+            ),
+            "{changed}"
+        );
+    }
+    assert!(!binding_inputs_unchanged(
+        &document,
+        &BTreeSet::from(["fixture:coat".into()]),
+        &BTreeSet::new(),
+        None,
+        Some(&inputs),
+    ));
+    let mut vanilla = assets::VanillaEntityRefs::new();
+    vanilla.geometry_parent.insert(
+        "geometry.fixture.coat".into(),
+        "geometry.fixture.parent".into(),
+    );
+    let parent = BTreeSet::from(["geometry.fixture.parent".into()]);
+    assert!(!binding_inputs_unchanged(
+        &document,
+        &authored,
+        &parent,
+        Some(&vanilla),
+        Some(&inputs)
+    ));
+    assert!(!binding_inputs_unchanged(
+        &document,
+        &authored,
+        &BTreeSet::new(),
+        None,
+        None
+    ));
+}
+
+#[test]
+fn artwork_only_checks_installed_material_parents_and_skinning_variants() {
+    use super::attachables::binding_inputs_unchanged;
+    use std::collections::BTreeSet;
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("materials")).unwrap();
+    std::fs::write(
+        root.path().join("materials/fixture.material"),
+        json!({"materials": {
+            "coat:coat_parent": {}, "coat_parent:armor_leather": {}
+        }})
+        .to_string(),
+    )
+    .unwrap();
+    let document = json!({"format_version": "1.10.0", "minecraft:attachable": {"description": {
+        "identifier": "fixture:coat", "materials": {"default": "coat.skinning"}
+    }}});
+    for (declaration, fields, unchanged) in [
+        ("armor_leather", json!({"defines": []}), false),
+        ("coat_parent:entity", json!({}), false),
+        (
+            "+coat_parent:armor_leather",
+            json!({"-defines": ["USE_COLOR_MASK"]}),
+            false,
+        ),
+        (
+            "coat:entity",
+            json!({"+defines": ["USE_COLOR_MASK"]}),
+            false,
+        ),
+        ("unrelated:entity", json!({"defines": []}), true),
+    ] {
+        let mut materials = serde_json::Map::new();
+        materials.insert(declaration.into(), fields);
+        let authored = json!({"materials": materials});
+        let inputs =
+            pack_compiler::EquipmentBindingDependencies::load(Some(root.path()), Some(&authored))
+                .unwrap();
+        assert_eq!(
+            binding_inputs_unchanged(
+                &document,
+                &BTreeSet::new(),
+                inputs.authored_materials(),
+                None,
+                Some(&inputs)
+            ),
+            unchanged,
+            "{declaration}"
+        );
+    }
 }

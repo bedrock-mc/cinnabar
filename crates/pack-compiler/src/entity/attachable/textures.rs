@@ -57,7 +57,8 @@ pub(super) fn compile_texture_identifiers_with(
     Ok(textures)
 }
 
-fn decode_raster(
+/// Decodes one equipment raster within the per-image and remaining pixel budgets.
+pub fn decode_raster(
     bytes: &[u8],
     format: ImageFormat,
     remaining: usize,

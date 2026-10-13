@@ -1,12 +1,12 @@
 //! A screen bound and laid out once per model: its resolved tree is kept per catalog and its
-//! layout until the data, view, viewport, scale, language or texture metadata change.
+//! layout until the data, view, viewport, physical pixel grid, language or texture metadata change.
 
 use std::sync::Arc;
 
 use json_ui::{
     BindState, CachedLibrary, Catalog, CatalogLibrary, Context, DataSource, FormRender,
-    ResolveCache, ResolvedControl, ViewState, bind_incremental, rebind, render_bound_cached,
-    resolve,
+    LayoutCacheKey, ResolveCache, ResolvedControl, ViewState, bind_incremental, rebind,
+    render_bound_cached, resolve,
 };
 
 /// One screen's resolved tree per catalog and its last layout per model.
@@ -38,8 +38,7 @@ struct Laid {
     catalog: Arc<Catalog>,
     data: Arc<DataSource>,
     view: ViewState,
-    root: [f64; 2],
-    px: f32,
+    layout: LayoutCacheKey,
     language: [usize; 3],
     texture_metadata: u64,
     render: FormRender,
@@ -137,12 +136,12 @@ impl CachedScreen {
         view: &ViewState,
     ) -> Option<&FormRender> {
         let texture_metadata = env.textures.metadata_revision();
+        let layout = LayoutCacheKey::new(root, px, env);
         let fresh = self.laid.as_ref().is_some_and(|laid| {
             !self.binding.has_pending_visibility()
                 && laid.reference == reference
                 && Arc::ptr_eq(&laid.catalog, catalog)
-                && laid.root == root
-                && laid.px == px
+                && laid.layout == layout
                 && laid.language == language
                 && laid.texture_metadata == texture_metadata
                 && self
@@ -183,8 +182,7 @@ impl CachedScreen {
             };
             let previous = self.laid.take().filter(|_| current);
             let same_frame = previous.as_ref().is_some_and(|laid| {
-                laid.root == root
-                    && laid.px == px
+                laid.layout == layout
                     && laid.language == language
                     && laid.texture_metadata == texture_metadata
             });
@@ -216,8 +214,7 @@ impl CachedScreen {
                 render: render_bound_cached(bound, root, env, view, &mut self.measures),
                 data,
                 view: view.clone(),
-                root,
-                px,
+                layout,
                 language,
                 texture_metadata,
             });
@@ -225,6 +222,9 @@ impl CachedScreen {
         self.laid.as_ref().map(|laid| &laid.render)
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 impl CachedScreen {
     /// The last laid-out draw nodes, in virtual px.

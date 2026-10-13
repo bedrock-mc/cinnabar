@@ -21,6 +21,10 @@ pub(crate) fn source(raw: &str) -> String {
         &format!("{}u", render_model::UI_STYLE_ALPHA_TEST),
     )
     .replace(
+        "UI_STYLE_COVERAGE_PAINT",
+        &format!("{}u", render_api::UI_STYLE_COVERAGE_PAINT),
+    )
+    .replace(
         "UI_STYLE_GLINT",
         &format!("{}u", render_model::UI_STYLE_GLINT),
     )

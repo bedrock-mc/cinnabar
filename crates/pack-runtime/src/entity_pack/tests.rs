@@ -18,7 +18,7 @@ fn texture_only_glint_pack_publishes_its_equipment_raster() {
         path.as_str(),
         png.get_ref(),
     )]));
-    let pack = super::compile_encoded(&view, None, None, false, &|| false)
+    let pack = super::compile_encoded(&view, None, None, None, false, &|| false)
         .unwrap()
         .0
         .unwrap();

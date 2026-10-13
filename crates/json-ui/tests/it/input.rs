@@ -603,3 +603,299 @@ fn review_scroll_culling_preserves_unclipped_controls_and_escaping_descendants()
         );
     }
 }
+
+/// Places a round cap at the right edge of a node, with input restricted to its authored cell.
+fn overflowing_path(name: &str, offset: [f64; 2], bag: bool) -> ResolvedControl {
+    let data = json!({"view_box": [0, 0, 16, 16], "stroke_width": 4,
+        "paths": [[[0, 8], [16, 8]]]});
+    let mut properties = json!({"size": [16, 16], "offset": offset,
+        "anchor_from": "top_left", "anchor_to": "top_left",
+        "renderer": json_ui::vector_path::RENDERER, "collection_index": 0});
+    if bag {
+        properties["property_bag"] = data;
+    } else {
+        properties
+            .as_object_mut()
+            .unwrap()
+            .extend(data.as_object().unwrap().clone());
+    }
+    ctrl(name, "custom", properties, vec![])
+}
+
+/// Ordinary emission and scroll culling retain visible stroke overflow without growing hit cells.
+#[test]
+fn path_caps_outside_the_node_survive_primitive_and_scroll_culling() {
+    for scrolling in [false, true] {
+        for bag in [false, true] {
+            let paths = vec![
+                overflowing_path("cap", [-16.0, 0.0], bag),
+                overflowing_path("far", [-20.0, 0.0], bag),
+            ];
+            let root = if scrolling {
+                let mut root = screen(vec![scroll_view(200.0)]);
+                root.children[0].children[0].children[0].children = paths;
+                root
+            } else {
+                screen(paths)
+            };
+            let state = ViewState::default();
+            let normal = json_ui::render_bound(root.clone(), [200.0, 100.0], &env(), &state);
+            let gated = json_ui::render_bound_gated(
+                root,
+                [200.0, 100.0],
+                &env(),
+                &state,
+                &mut json_ui::MeasureCache::default(),
+            );
+            for render in [normal, gated] {
+                let cap = render.nodes.iter().find(|node| node.name == "cap").unwrap();
+                assert_eq!(
+                    [cap.dest.x, cap.dest.y, cap.dest.w, cap.dest.h],
+                    [-16.0, 0.0, 16.0, 16.0]
+                );
+                assert!(render.nodes.iter().all(|node| node.name != "far"));
+                let hit = render.hits.iter().find(|hit| hit.name == "cap").unwrap();
+                assert_eq!(
+                    [hit.rect.x, hit.rect.y, hit.rect.w, hit.rect.h],
+                    [-16.0, 0.0, 16.0, 16.0]
+                );
+                assert!(
+                    !hit.contains([1.0, 8.0]),
+                    "paint overflow must not enlarge input"
+                );
+            }
+        }
+    }
+}
+
+/// Builds a one-column scrolling grid with authored path cells.
+fn path_grid(paths: Value) -> ResolvedControl {
+    let mut root = screen(vec![scroll_view(200.0)]);
+    let content = &mut root.children[0].children[0].children[0];
+    content.control_type = Some("grid".into());
+    content.properties.insert("size".into(), json!([16, 160]));
+    content
+        .properties
+        .insert("grid_dimensions".into(), json!([1, 10]));
+    content
+        .properties
+        .insert("grid_item_template".into(), json!("t.cell"));
+    content.children = (0..10)
+        .map(|index| {
+            let mut path = overflowing_path("cell", [0.0, 0.0], false);
+            path.properties
+                .insert("collection_index".into(), json!(index));
+            path.properties.insert("paths".into(), paths.clone());
+            path
+        })
+        .collect();
+    root
+}
+
+/// Indexed scroll rows must include a cap extending back into the viewport from the next row.
+#[test]
+fn indexed_scroll_rows_include_path_coverage_overflow() {
+    let root = path_grid(json!([[[8, 0], [8, 16]]]));
+    let state = ViewState {
+        scroll: [("/root/scroll".into(), 14.0)].into_iter().collect(),
+        ..ViewState::default()
+    };
+    let normal = json_ui::render_bound(root.clone(), [200.0, 100.0], &env(), &state);
+    let gated = json_ui::render_bound_gated(
+        root,
+        [200.0, 100.0],
+        &env(),
+        &state,
+        &mut json_ui::MeasureCache::default(),
+    );
+    let cells = |render: &json_ui::FormRender| {
+        render
+            .nodes
+            .iter()
+            .filter(|node| node.name == "cell")
+            .map(|node| node.dest)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(cells(&normal), cells(&gated));
+    assert!(cells(&gated).iter().any(|dest| dest.y == 50.0));
+}
+
+/// Retained emission refreshes coverage culling when physical pixels change size.
+#[test]
+fn cached_path_culling_tracks_the_physical_pixel_size() {
+    struct PixelText(std::cell::Cell<f64>);
+    impl TextMeasure for PixelText {
+        /// Leaves synthetic controls independent of font fixtures.
+        fn extent(&self, _: &str) -> [f64; 2] {
+            [0.0; 2]
+        }
+
+        /// Supplies the live physical-to-layout conversion for coverage bounds.
+        fn physical_pixel_size(&self) -> f64 {
+            self.0.get()
+        }
+    }
+    let text = PixelText(std::cell::Cell::new(1.0));
+    let env = LayoutEnv {
+        text: &text,
+        textures: &NoTextures,
+    };
+    let mut tree = screen(vec![overflowing_path("cap", [-18.25, 0.0], false)]);
+    let mut measures = json_ui::MeasureCache::default();
+    for (pixel, visible) in [(1.0, true), (0.25, false), (2.0, true)] {
+        text.0.set(pixel);
+        let render = json_ui::render_bound_cached(
+            tree,
+            [200.0, 100.0],
+            &env,
+            &ViewState::default(),
+            &mut measures,
+        );
+        assert_eq!(render.nodes.iter().any(|node| node.name == "cap"), visible);
+        tree = render.bound;
+    }
+}
+
+/// Current draw data, rather than a second style cache, determines emission after tree updates.
+#[test]
+fn updated_paths_enter_the_clip_in_both_cached_layouts() {
+    for gated in [false, true] {
+        let mut cache = json_ui::MeasureCache::default();
+        let render = |tree, cache: &mut json_ui::MeasureCache| {
+            if gated {
+                json_ui::render_bound_gated(
+                    tree,
+                    [200.0, 100.0],
+                    &env(),
+                    &ViewState::default(),
+                    cache,
+                )
+            } else {
+                json_ui::render_bound_cached(
+                    tree,
+                    [200.0, 100.0],
+                    &env(),
+                    &ViewState::default(),
+                    cache,
+                )
+            }
+        };
+        let mut path = overflowing_path("cap", [-16.0, 0.0], false);
+        path.properties
+            .insert("paths".into(), json!([[[0, 8], [4, 8]]]));
+        let mut result = render(screen(vec![path]), &mut cache);
+        assert!(result.nodes.is_empty());
+        for end in [16, 4, 16] {
+            let mut next = result.bound.clone();
+            next.children[0]
+                .properties
+                .insert("paths".into(), json!([[[0, 8], [end, 8]]]));
+            cache.update_tree(&mut result.bound, next);
+            result = render(result.bound, &mut cache);
+            assert_eq!(
+                result.nodes.iter().any(|node| node.name == "cap"),
+                end == 16
+            );
+        }
+    }
+}
+
+/// Paint above the viewport must not remove authored hit area or clipped visible descendants.
+#[test]
+fn path_subtree_culling_preserves_hit_cells_and_children() {
+    for mode in ["leaf", "clipped", "grid"] {
+        let paths = json!([[[0, 2], [16, 2]]]);
+        let root = if mode == "grid" {
+            path_grid(paths)
+        } else {
+            let mut path = overflowing_path("cell", [0.0, -10.0], false);
+            path.properties.insert("paths".into(), paths);
+            if mode == "clipped" {
+                path.properties.insert("clips_children".into(), json!(true));
+                path.children.push(ctrl(
+                    "inside",
+                    "image",
+                    json!({
+                        "size": [4, 4], "offset": [4, 12], "color": [1, 1, 1],
+                        "anchor_from": "top_left", "anchor_to": "top_left"
+                    }),
+                    vec![],
+                ));
+            }
+            let mut root = screen(vec![scroll_view(200.0)]);
+            root.children[0].children[0].children[0].children = vec![path];
+            root
+        };
+        let mut state = ViewState::default();
+        if mode == "grid" {
+            state.scroll.insert("/root/scroll".into(), 10.0);
+        }
+        let normal = json_ui::render_bound(root.clone(), [200.0, 100.0], &env(), &state);
+        let gated = json_ui::render_bound_gated(
+            root,
+            [200.0, 100.0],
+            &env(),
+            &state,
+            &mut json_ui::MeasureCache::default(),
+        );
+        for result in [normal, gated] {
+            let hit = result
+                .hits
+                .iter()
+                .find(|hit| hit.name == "cell" && hit.collection_index == Some(0))
+                .unwrap();
+            assert_eq!([hit.rect.y, hit.rect.h], [-10.0, 16.0]);
+            assert!(hit.contains([8.0, 2.0]));
+            assert!(
+                result
+                    .nodes
+                    .iter()
+                    .all(|node| node.name != "cell" || node.dest.y != -10.0)
+            );
+            if mode == "clipped" {
+                assert!(result.nodes.iter().any(|node| node.name == "inside"));
+            }
+        }
+    }
+}
+
+/// A fractional offscreen cell paints when snapping brings its cap into the first screen column.
+#[test]
+fn path_emission_uses_the_painting_destination_for_snapping() {
+    struct SnappedText;
+    impl TextMeasure for SnappedText {
+        /// Keeps the synthetic cell independent of text metrics.
+        fn extent(&self, _: &str) -> [f64; 2] {
+            [0.0; 2]
+        }
+
+        /// Supplies the painter's known snapped destination for this fractional fixture.
+        fn paint_rect(&self, _: json_ui::Rect) -> json_ui::Rect {
+            json_ui::Rect::new(-19.0, 0.0, 17.0, 17.0)
+        }
+    }
+    let env = LayoutEnv {
+        text: &SnappedText,
+        textures: &NoTextures,
+    };
+    for scrolling in [false, true] {
+        let mut path = overflowing_path("cap", [-19.1, 0.0], false);
+        path.properties.insert("size".into(), json!([16.1, 16.1]));
+        let root = if scrolling {
+            let mut root = screen(vec![scroll_view(200.0)]);
+            root.children[0].children[0].children[0].children = vec![path];
+            root
+        } else {
+            screen(vec![path])
+        };
+        let result = json_ui::render_bound_gated(
+            root,
+            [200.0, 100.0],
+            &env,
+            &ViewState::default(),
+            &mut json_ui::MeasureCache::default(),
+        );
+        let cap = result.nodes.iter().find(|node| node.name == "cap").unwrap();
+        assert_eq!([cap.dest.x, cap.dest.w], [-19.1, 16.1]);
+    }
+}

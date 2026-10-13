@@ -214,6 +214,7 @@ pub struct RuntimeEquipmentCatalog {
     entity_blob_sha256: [u8; 32],
     bindings: Arc<[EquipmentBinding]>,
     textures: Arc<[EquipmentTexture]>,
+    texture_paths_sha256: [u8; 32],
     item_use: Arc<[ItemUseDuration]>,
     item_attack: Arc<[CompiledItemAttackTiming]>,
     item_food: Arc<[CompiledItemFood]>,
@@ -270,6 +271,7 @@ impl RuntimeEquipmentCatalog {
             item_use: Arc::from(payload.item_use),
             item_attack: Arc::from(payload.item_attack),
             item_food: Arc::from(payload.item_food),
+            texture_paths_sha256: texture_paths_sha256(&textures),
             textures: Arc::from(textures),
         })
     }
@@ -292,6 +294,7 @@ impl RuntimeEquipmentCatalog {
             source_manifest_sha256: identity,
             entity_blob_sha256: identity,
             bindings: Arc::from(bindings),
+            texture_paths_sha256: texture_paths_sha256(&textures),
             textures: Arc::from(textures),
             item_use_overlays: Arc::from([]),
             item_use: Arc::from(Vec::new()),
@@ -303,6 +306,12 @@ impl RuntimeEquipmentCatalog {
     #[must_use]
     pub const fn source_manifest_sha256(&self) -> [u8; 32] {
         self.source_manifest_sha256
+    }
+
+    /// Identifies the loaded texture paths that equipment artwork compilation reads.
+    #[must_use]
+    pub const fn texture_paths_sha256(&self) -> [u8; 32] {
+        self.texture_paths_sha256
     }
 
     /// SHA-256 the sibling entity carrier had at compile time; a consumer that
@@ -378,6 +387,16 @@ impl RuntimeEquipmentCatalog {
             .ok()
             .map(|index| &self.bindings[index])
     }
+}
+
+/// Hashes the validated, sorted texture identifiers with unambiguous length framing.
+fn texture_paths_sha256(textures: &[EquipmentTexture]) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    for texture in textures {
+        hash.update((texture.identifier.len() as u64).to_le_bytes());
+        hash.update(texture.identifier.as_bytes());
+    }
+    hash.finalize().into()
 }
 
 pub fn encode_equipment_catalog(
@@ -918,74 +937,5 @@ mod tests {
 }
 
 #[cfg(test)]
-mod from_parts_tests {
-    use super::*;
-
-    fn binding(identifier: &str) -> EquipmentBinding {
-        let reference = |identifier: &str| EquipmentReference {
-            identifier: identifier.into(),
-            resolution: EntityDependencyResolution::Catalog,
-        };
-        EquipmentBinding {
-            identifier: identifier.into(),
-            category: EquipmentCategory::Held,
-            geometry: reference("geometry.a"),
-            texture: reference("textures/entity/a"),
-            material: "entity".into(),
-            color_mask: EquipmentColorMask::NoMask,
-            render_controller: "controller.render.a".into(),
-            first_person: EquipmentTransform::NeedsMeasurement,
-            third_person: EquipmentTransform::NeedsMeasurement,
-            dropped: EquipmentTransform::NeedsMeasurement,
-            poses: Box::new([]),
-        }
-    }
-
-    // Bindings sort and dedupe by identifier; a zero identity is refused.
-    #[test]
-    fn from_parts_sorts_dedupes_and_requires_an_identity() {
-        let catalog = RuntimeEquipmentCatalog::from_parts(
-            [1; 32],
-            vec![binding("b:item"), binding("a:item"), binding("b:item")],
-            Vec::new(),
-        )
-        .unwrap();
-        let identifiers = catalog
-            .bindings()
-            .iter()
-            .map(|binding| binding.identifier.as_ref())
-            .collect::<Vec<_>>();
-        assert_eq!(identifiers, ["a:item", "b:item"]);
-        assert!(catalog.binding("b:item").is_some());
-        assert!(
-            RuntimeEquipmentCatalog::from_parts([0; 32], vec![binding("a:item")], Vec::new())
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn compiled_mask_capability_applies_dye_without_inspecting_the_material_name() {
-        let red = Some(0x00b0_2e26);
-        let worn = |material: &str, color_mask| EquipmentBinding {
-            material: material.into(),
-            color_mask,
-            ..binding("custom:chestplate")
-        };
-        assert_eq!(
-            worn("renamed", EquipmentColorMask::Dye).color_mask_rgb(red),
-            red
-        );
-        assert_eq!(
-            worn("renamed", EquipmentColorMask::Dye).color_mask_rgb(None),
-            Some(DEFAULT_LEATHER_RGB)
-        );
-        assert_eq!(
-            worn("leather_decoy", EquipmentColorMask::NoMask).color_mask_rgb(red),
-            None
-        );
-        assert_eq!(
-            worn("unknown", EquipmentColorMask::Unresolved).color_mask_rgb(red),
-            None
-        );
-    }
-}
+#[path = "equipment/from_parts_tests.rs"]
+mod from_parts_tests;

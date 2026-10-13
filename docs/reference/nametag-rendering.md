@@ -14,9 +14,11 @@ to the HUD's minimum/maximum, a one-line plate behind multiline text, a separate
 score renderer, and collision-ray whole-tag occlusion. The merged upstream path retains the
 shared UI font-layout cache and glyph-line atlas, publishing compact font-pixel records to
 the environmental-text GPU renderer. The shader constructs homogeneous world quads for
-perspective-correct glyphs and near-plane clipping, preserving the verified native cubic
-billboard, base anchor and multiline lift rather than the upstream exact-angle/text-shift
-approximation. World tags render before first-person hands and HUD. Plates do not write depth;
+perspective-correct glyphs and near-plane clipping. Actor nametags deliberately use exact
+yaw and pitch toward the camera eye instead of vanilla's cubic angle approximation.
+Facing uses the base anchor before multiline lift, and a directly vertical eye direction
+uses zero yaw. Primitive-shape debug text retains its cubic facing.
+World tags render before first-person hands and HUD. Plates do not write depth;
 glyphs do. Sneak tags additionally test world depth, while ordinary tags use Always.
 
 ## Verified geometry and constants

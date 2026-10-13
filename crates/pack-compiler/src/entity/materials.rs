@@ -13,6 +13,7 @@ struct Definition {
     fields: Map<String, Value>,
 }
 
+#[derive(Default)]
 pub(super) struct MaterialStates {
     definitions: BTreeMap<Box<str>, Option<Definition>>,
 }
@@ -24,7 +25,7 @@ impl MaterialStates {
         payloads: &SourcePayloads,
         sources: &[EntityAssetSource],
     ) -> Result<Self, AssetError> {
-        let mut definitions = BTreeMap::new();
+        let mut states = Self::default();
         for source in sources.iter().filter(|source| {
             source.path.starts_with("materials/") && source.path.ends_with(".material")
         }) {
@@ -32,40 +33,72 @@ impl MaterialStates {
                 .get(source.path.as_ref())
                 .ok_or_else(|| super::invalid("retained material source payload is absent"))?;
             let value = parse_unique_json(&root.join(source.path.as_ref()), bytes)?;
-            let Some(entries) = value.get("materials").and_then(Value::as_object) else {
+            states.read(&value);
+        }
+        Ok(states)
+    }
+
+    /// Admits declarations with the compiler's duplicate and count rules.
+    pub(super) fn read(&mut self, value: &Value) {
+        let Some(entries) = value.get("materials").and_then(Value::as_object) else {
+            return;
+        };
+        for (declaration, value) in entries {
+            let Some(fields) = value.as_object() else {
                 continue;
             };
-            for (declaration, value) in entries {
-                let Some(fields) = value.as_object() else {
-                    continue;
-                };
-                let (name, parent) = declaration
-                    .split_once(':')
-                    .map_or((declaration.as_str(), None), |(name, parent)| {
-                        (name, Some(parent.into()))
-                    });
-                let name = name.strip_prefix('+').unwrap_or(name);
-                if name.is_empty() || definitions.len() >= assets::MAX_ENTITY_ASSET_SYMBOLS {
-                    continue;
-                }
-                definitions
-                    .entry(name.into())
-                    .and_modify(|existing| *existing = None)
-                    .or_insert_with(|| {
-                        Some(Definition {
-                            parent,
-                            fields: fields.clone(),
-                        })
-                    });
+            let (name, parent) = declaration
+                .split_once(':')
+                .map_or((declaration.as_str(), None), |(name, parent)| {
+                    (name, Some(parent.into()))
+                });
+            let name = name.strip_prefix('+').unwrap_or(name);
+            if name.is_empty() || self.definitions.len() >= assets::MAX_ENTITY_ASSET_SYMBOLS {
+                continue;
+            }
+            self.definitions
+                .entry(name.into())
+                .and_modify(|existing| *existing = None)
+                .or_insert_with(|| {
+                    Some(Definition {
+                        parent,
+                        fields: fields.clone(),
+                    })
+                });
+        }
+    }
+
+    /// Replaces lower declarations with a separately admitted layer and returns its names.
+    pub(super) fn overlay(&mut self, upper: Self) -> BTreeSet<String> {
+        let names = upper.definitions.keys().map(ToString::to_string).collect();
+        self.definitions.extend(upper.definitions);
+        names
+    }
+
+    /// Includes the same normalized names and parent links used by material resolution.
+    pub(super) fn extend_dependencies(&self, names: &mut BTreeSet<String>) {
+        let mut pending = names
+            .iter()
+            .map(|name| material_name(name).to_owned())
+            .collect::<Vec<_>>();
+        let mut seen = BTreeSet::new();
+        while let Some(name) = pending.pop() {
+            if !seen.insert(name.clone()) {
+                continue;
+            }
+            names.insert(name.clone());
+            if let Some(Some(definition)) = self.definitions.get(name.as_str())
+                && let Some(parent) = &definition.parent
+            {
+                pending.push(parent.to_string());
             }
         }
-        Ok(Self { definitions })
     }
 
     /// Resolves the dye mask from authored defines, preserving an unknown parent as unresolved.
     pub(super) fn color_mask(&self, target: &str) -> assets::EquipmentColorMask {
         use assets::EquipmentColorMask;
-        let mut name = target.strip_suffix(".skinning").unwrap_or(target);
+        let mut name = material_name(target);
         let mut seen = BTreeSet::new();
         let mut chain = Vec::new();
         let mut enabled;
@@ -126,7 +159,7 @@ impl MaterialStates {
 
     /// Resolves supported render states through a bounded, acyclic parent chain.
     pub(super) fn resolve(&self, target: &str) -> Option<EntityRenderMaterialState> {
-        let target = target.strip_suffix(".skinning").unwrap_or(target);
+        let target = material_name(target);
         let mut name = target;
         let mut seen = BTreeSet::new();
         let mut chain = Vec::new();
@@ -160,6 +193,11 @@ impl MaterialStates {
         state.alpha_test &= !state.blend;
         Some(state)
     }
+}
+
+/// Skinning variants use their base material's declaration.
+fn material_name(target: &str) -> &str {
+    target.strip_suffix(".skinning").unwrap_or(target)
 }
 
 fn builtin(name: &str) -> Option<EntityRenderMaterialState> {

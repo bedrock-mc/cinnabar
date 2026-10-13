@@ -7,6 +7,15 @@ use assets::{RuntimeEntityAssets, RuntimeEquipmentCatalog};
 use resource_pack::LayeredPackView;
 
 pub mod collect;
+mod equipment_artwork;
+
+static BASE_EQUIPMENT: std::sync::OnceLock<Arc<RuntimeEquipmentCatalog>> =
+    std::sync::OnceLock::new();
+
+/// Installs the validated startup artwork paths before any stack is compiled.
+pub fn set_base_equipment_catalog(catalog: Arc<RuntimeEquipmentCatalog>) {
+    let _ = BASE_EQUIPMENT.set(catalog);
+}
 use collect::collect_files;
 
 use crate::{StackFingerprint, pack_textures::parse_pack_json};
@@ -63,6 +72,7 @@ pub fn compile_session_entities(
         stack: fingerprint.clone(),
         vanilla: vanilla_refs(),
         vanilla_pack_dir: vanilla_pack_dir(),
+        equipment: BASE_EQUIPMENT.get().cloned(),
     };
     ENTITY_CACHE.get_or_compile(
         inputs,
@@ -78,12 +88,12 @@ pub fn compile_session_entities(
 pub fn compile(
     view: &LayeredPackView,
     vanilla: Option<&assets::VanillaEntityRefs>,
+    vanilla_pack_dir: Option<&std::path::Path>,
+    equipment: Option<&RuntimeEquipmentCatalog>,
 ) -> Option<Arc<SessionEntityPack>> {
-    compile_encoded(view, vanilla, vanilla_pack_dir().as_deref(), false, &|| {
-        false
-    })
-    .expect("an uncancellable compile completes")
-    .0
+    compile_encoded(view, vanilla, vanilla_pack_dir, equipment, false, &|| false)
+        .expect("an uncancellable compile completes")
+        .0
 }
 
 /// `encode` also returns the entity blob, which only a disk-cached compile needs. Checks
@@ -92,14 +102,16 @@ fn compile_encoded(
     view: &LayeredPackView,
     vanilla: Option<&assets::VanillaEntityRefs>,
     vanilla_pack_dir: Option<&std::path::Path>,
+    base_equipment: Option<&RuntimeEquipmentCatalog>,
     encode: bool,
     cancelled: &dyn Fn() -> bool,
 ) -> Option<Compiled> {
-    let files = collect_files(view, vanilla, vanilla_pack_dir);
+    let mut files = collect_files(view, vanilla, vanilla_pack_dir);
+    let artwork_sources = equipment_artwork::collect(view, base_equipment, &mut files);
     if cancelled() {
         return None;
     }
-    let compiled = match pack_compiler::compile_actor_pack_unless(files, cancelled)? {
+    let mut compiled = match pack_compiler::compile_actor_pack_unless(files, cancelled)? {
         Ok(Some(compiled)) => compiled,
         Ok(None) => return Some((None, None)),
         Err(error) => {
@@ -120,6 +132,18 @@ fn compile_encoded(
             rigs_without_artwork = compiled.fallbacks.len(),
             "server pack entities are incomplete"
         );
+    }
+    equipment_artwork::merge(view, &mut compiled.equipment_textures, artwork_sources);
+    if compiled.equipment_textures.is_empty()
+        && !compiled.entities.symbols.iter().any(|symbol| {
+            matches!(
+                symbol.kind,
+                assets::EntityAssetKind::Entity | assets::EntityAssetKind::Attachable
+            )
+        })
+    {
+        // Invalid artwork-only sources do not publish an empty layer.
+        return Some((None, None));
     }
     let equipment =
         if compiled.equipment_bindings.is_empty() && compiled.equipment_textures.is_empty() {

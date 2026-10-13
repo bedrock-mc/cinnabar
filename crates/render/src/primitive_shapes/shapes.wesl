@@ -78,7 +78,7 @@ fn shape_vertex(@location(0) vertex: vec4<f32>, @builtin(instance_index) index: 
     return output;
 }
 
-// Billboard angles preserve the shared nametag approximation.
+// Debug text retains its cubic billboard angles.
 fn native_acos(value:f32) -> f32 {
     return (ACOS_CUBIC_VALUE*value*value*value-ACOS_LINEAR_VALUE*value)+1.5707963267948966;
 }

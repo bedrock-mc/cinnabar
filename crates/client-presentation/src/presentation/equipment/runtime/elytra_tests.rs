@@ -1,6 +1,6 @@
 //! Worn wings keep authored poses and textures while riding the player's body.
 
-use super::{pack_runtime, player_body};
+use super::{pack_catalog, pack_runtime, player_body, startup_runtime};
 use crate::presentation::equipment::{
     display::LAYER_CHESTPLATE,
     runtime::{
@@ -773,4 +773,136 @@ fn java_grip_preserves_authored_wing_poses_and_enchantment() {
             EntityRenderMaterial::Glint
         );
     }
+}
+
+/// Supplies two independently activated wing draws with visibly different primary rasters.
+fn two_wing_groups(active: bool) -> Vec<(Box<str>, Vec<u8>)> {
+    let mut files = wing_pack();
+    let (_, bytes) = files
+        .iter_mut()
+        .find(|(path, _)| path.as_ref() == "attachables/elytra.json")
+        .unwrap();
+    let mut document: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    let description = &mut document["minecraft:attachable"]["description"];
+    description["textures"]["alternative"] = serde_json::json!("textures/models/alternative_wings");
+    let condition = if active { "1" } else { "0" };
+    description["render_controllers"] = serde_json::json!([
+        {"controller.render.wings": condition}, {"controller.render.alternative_wings": condition}
+    ]);
+    *bytes = serde_json::to_vec(&document).unwrap();
+    let (_, bytes) = files
+        .iter_mut()
+        .find(|(path, _)| path.as_ref() == "render_controllers/wings.json")
+        .unwrap();
+    let mut document: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    let mut alternative = document["render_controllers"]["controller.render.wings"].clone();
+    alternative["textures"] = serde_json::json!(["Texture.alternative"]);
+    document["render_controllers"]["controller.render.alternative_wings"] = alternative;
+    *bytes = serde_json::to_vec(&document).unwrap();
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(64, 32, image::Rgba([30, 150, 70, 255]))
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    files.push((
+        "textures/models/alternative_wings.png".into(),
+        bytes.into_inner(),
+    ));
+    files
+}
+
+#[test]
+fn inactive_wing_controllers_without_default_artwork_stay_hidden() {
+    let (mut runtime, pages) = startup_runtime(wing_pack());
+    let body = player_body(&mut runtime);
+    let owner = owner();
+    assert_eq!(
+        layers(&mut runtime, &body, &owner, &worn(false), 1).len(),
+        1
+    );
+    let mut files = two_wing_groups(false);
+    files.retain(|(path, _)| path.as_ref() != "textures/models/wings.png");
+    let (entities, catalog) = pack_catalog(files);
+    assert!(catalog.texture("textures/models/wings").is_none());
+    assert!(
+        catalog
+            .texture("textures/models/alternative_wings")
+            .is_some()
+    );
+    let (_, locations) = pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
+    runtime.set_pack_layer(Some((entities, Some(catalog), locations)));
+    assert!(layers(&mut runtime, &body, &owner, &worn(false), 2).is_empty());
+}
+
+#[test]
+fn later_wing_groups_draw_when_the_first_group_has_no_artwork_location() {
+    for with_startup in [false, true] {
+        let files = two_wing_groups(true);
+        let (mut runtime, pages) = if with_startup {
+            startup_runtime(wing_pack())
+        } else {
+            pack_runtime(files.clone())
+        };
+        let body = player_body(&mut runtime);
+        let owner = owner();
+        let (entities, catalog) = pack_catalog(files);
+        let (pages, mut locations) =
+            pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
+        let first = catalog
+            .textures()
+            .iter()
+            .position(|texture| texture.identifier.as_ref() == "textures/models/wings")
+            .unwrap();
+        locations[first] = None;
+        runtime.set_pack_layer(Some((entities, Some(catalog), locations)));
+        let drawn = layers(&mut runtime, &body, &owner, &worn(false), 1);
+        assert_eq!(drawn.len(), if with_startup { 2 } else { 1 });
+        assert_eq!(
+            selected_pixel(&pages, drawn.last().unwrap()),
+            [30, 150, 70, 255]
+        );
+        if with_startup {
+            assert_eq!(selected_pixel(&pages, &drawn[0]), [200, 40, 40, 255]);
+        }
+    }
+}
+
+#[test]
+fn a_glint_only_layer_keeps_the_startup_wing_controllers_primary_sampler() {
+    let mut files = wing_pack();
+    let (_, bytes) = files
+        .iter_mut()
+        .find(|(path, _)| path.as_ref() == "attachables/elytra.json")
+        .unwrap();
+    let mut document: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    document["minecraft:attachable"]["description"]["textures"]["enchanted"] =
+        serde_json::json!(assets::ACTOR_GLINT_TEXTURE_IDENTIFIER);
+    *bytes = serde_json::to_vec(&document).unwrap();
+    let (_, bytes) = files
+        .iter_mut()
+        .find(|(path, _)| path.as_ref() == "render_controllers/wings.json")
+        .unwrap();
+    let mut document: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    document["render_controllers"]["controller.render.wings"]["textures"] =
+        serde_json::json!(["Texture.default", "Texture.enchanted"]);
+    *bytes = serde_json::to_vec(&document).unwrap();
+    let path: Box<str> = format!("{}.png", assets::ACTOR_GLINT_TEXTURE_IDENTIFIER).into();
+    let mut glint = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(64, 32, image::Rgba([3, 4, 5, 255]))
+        .write_to(&mut glint, image::ImageFormat::Png)
+        .unwrap();
+    let glint = glint.into_inner();
+    files.push((path.clone(), glint.clone()));
+    let (mut runtime, base_pages) = startup_runtime(files);
+    let body = player_body(&mut runtime);
+    let owner = owner();
+    let before = layers(&mut runtime, &body, &owner, &worn(true), 1)[0].clone();
+    let (entities, catalog) = pack_catalog(vec![(path, glint)]);
+    let (pages, locations) =
+        base_pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
+    runtime.set_pack_layer(Some((entities, Some(catalog), locations)));
+    let after = layers(&mut runtime, &body, &owner, &worn(true), 2);
+    assert_eq!(after.len(), 1);
+    assert_eq!(after[0].location, before.location);
+    assert_eq!(after[0].submission.input.rig, before.submission.input.rig);
+    assert_eq!(selected_pixel(&pages, &after[0]), [200, 40, 40, 255]);
 }
