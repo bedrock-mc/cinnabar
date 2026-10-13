@@ -60,7 +60,11 @@ impl DeviceTier {
 /// The radius meshed in full detail, or `None` when everything within the render distance
 /// is: the setting (Auto picks by tier), capped at the render distance.
 #[must_use]
-pub const fn full_detail_chunks(setting: u32, render_distance: u32, tier: DeviceTier) -> Option<u32> {
+pub const fn full_detail_chunks(
+    setting: u32,
+    render_distance: u32,
+    tier: DeviceTier,
+) -> Option<u32> {
     let chosen = if setting == FULL_DETAIL_AUTO {
         tier.auto_full_detail_chunks()
     } else if setting < MIN_FULL_DETAIL_CHUNKS {
@@ -68,7 +72,11 @@ pub const fn full_detail_chunks(setting: u32, render_distance: u32, tier: Device
     } else {
         setting
     };
-    if chosen < render_distance { Some(chosen) } else { None }
+    if chosen < render_distance {
+        Some(chosen)
+    } else {
+        None
+    }
 }
 
 /// How far past the server's loaded radius cached terrain is drawn: out to the render
