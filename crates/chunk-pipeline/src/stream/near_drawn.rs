@@ -19,17 +19,20 @@ impl WorldStream {
         )
     }
 
-    /// Adds `column` once it is loaded and every section it holds has an uploaded mesh with
-    /// no newer one pending. A drawn column keeps its meshes on screen while they are redone.
+    /// Adds `column` once it is loaded, holds sections, and every one of them has a published
+    /// mesh with no newer one pending. A column without sections stays with far terrain, whose
+    /// summary of it is empty. A drawn column keeps its meshes on screen while they are redone.
     pub(super) fn note_near_drawn(&mut self, column: ChunkKey) {
         if self.near_drawn.columns.contains(&column) || !self.loaded_columns.contains(&column) {
             return;
         }
-        let uploaded = self
+        let mut keys = self
             .resident
             .column(column)
             .chain(self.known_air.column(column))
-            .all(|key| {
+            .peekable();
+        let uploaded = keys.peek().is_some()
+            && keys.all(|key| {
                 self.applied_mesh_generations.contains_key(key)
                     && self.revisions.dirty(*key).is_none()
             });

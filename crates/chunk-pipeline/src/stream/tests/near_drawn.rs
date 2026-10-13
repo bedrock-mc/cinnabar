@@ -49,3 +49,83 @@ fn columns_are_drawn_once_their_meshes_upload() {
     stream.evict_column(column);
     assert!(!drawn(&stream, column));
 }
+
+/// Near-drawn columns are loaded and every section they hold has a published mesh.
+fn assert_near_drawn_invariant(stream: &WorldStream) {
+    for column in stream.near_drawn_columns().1 {
+        assert!(
+            stream.loaded_columns.contains(&column),
+            "{column:?} is not loaded"
+        );
+        let keys: Vec<SubChunkKey> = stream
+            .resident
+            .column(column)
+            .chain(stream.known_air.column(column))
+            .copied()
+            .collect();
+        assert!(!keys.is_empty(), "{column:?} holds no sections");
+        for key in keys {
+            assert!(
+                stream.applied_mesh_generations.contains_key(&key),
+                "{key:?} has no published mesh"
+            );
+        }
+    }
+}
+
+/// Loads, resends, partial uploads and evictions in a scrambled order never leave a column
+/// near-drawn before its meshes are published.
+#[test]
+fn near_drawn_columns_always_have_published_meshes() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    let mut seed = 0x2545_f491_u64;
+    let mut next = move |bound: u64| {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        (seed >> 33) % bound
+    };
+    let mut sequence = 0;
+    let mut ever_drawn = false;
+    for _ in 0..200 {
+        let x = next(4) as i32;
+        match next(4) {
+            0 => {
+                sequence += 1;
+                stream
+                    .submit(sequence, inline_block_entity_event(x, 7, Vec::new()))
+                    .unwrap();
+                complete_pending_decode_jobs(&mut stream);
+            }
+            1 | 2 => {
+                let column = ChunkKey::new(0, x, 0);
+                let dirty: Vec<(SubChunkKey, u64, Instant)> = stream
+                    .resident
+                    .column(column)
+                    .chain(stream.known_air.column(column))
+                    .filter_map(|key| {
+                        stream
+                            .revisions
+                            .dirty(*key)
+                            .map(|dirty| (*key, dirty.revision, dirty.since))
+                    })
+                    .collect();
+                if let Some(&(key, revision, since)) =
+                    dirty.get(next(dirty.len().max(1) as u64) as usize)
+                {
+                    stream.acknowledge_mesh_upload(key, revision, since, Instant::now());
+                }
+            }
+            _ => stream.evict_column(ChunkKey::new(0, x, 0)),
+        }
+        assert_near_drawn_invariant(&stream);
+        ever_drawn |= stream.near_drawn_columns().1.next().is_some();
+    }
+    assert!(ever_drawn, "uploads hand columns to near terrain");
+}

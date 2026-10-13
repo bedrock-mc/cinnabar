@@ -22,6 +22,10 @@ pub const SLAB: u32 = 6;
 pub const TORCH: u32 = 7;
 /// A floating 8×8 cube, whose top and bottom together are half a block.
 pub const NUB: u32 = 8;
+/// A full-block model with a sand top over grass-material sides.
+pub const CAPPED: u32 = 9;
+/// A seasonal foliage-tinted material, after the leaf materials.
+pub const SEASONAL_MATERIAL: u32 = LEAF_MATERIAL_BASE + assets::SEASONAL_LEAF_MATERIAL_COUNT;
 
 pub const SAND_RGB: [u8; 3] = [200, 180, 100];
 pub const LEAF_RGB: [u8; 3] = [60, 160, 60];
@@ -135,7 +139,9 @@ pub fn runtime_assets() -> RuntimeAssets {
     torch.model_template = 2;
     let mut nub = slab;
     nub.model_template = 3;
-    visuals.extend([slab, torch, nub]);
+    let mut capped = visual(VisualKind::Model, BlockFlags::empty(), 1, 0);
+    capped.model_template = 4;
+    visuals.extend([slab, torch, nub, capped]);
     let mut materials = vec![
         Material::unvaried(),
         material(0, MATERIAL_FLAG_GRASS_TINT),
@@ -145,6 +151,10 @@ pub fn runtime_assets() -> RuntimeAssets {
     materials.extend(
         (0..assets::SEASONAL_LEAF_MATERIAL_COUNT).map(|_| material(3, MATERIAL_FLAG_FOLIAGE_TINT)),
     );
+    materials.push(material(
+        3,
+        MATERIAL_FLAG_FOLIAGE_TINT | assets::MATERIAL_FLAG_SEASONAL_FOLIAGE,
+    ));
     let compiled = CompiledAssets {
         light_properties: vec![assets::LightProperties::default(); visuals.len()]
             .into_boxed_slice(),
@@ -153,7 +163,7 @@ pub fn runtime_assets() -> RuntimeAssets {
             .collect(),
         visuals: visuals.into_boxed_slice(),
         materials: materials.into_boxed_slice(),
-        model_templates: Box::new([(0, 1), (1, 2), (3, 1), (4, 2)].map(
+        model_templates: Box::new([(0, 1), (1, 2), (3, 1), (4, 2), (6, 1)].map(
             |(quad_start, quad_count)| assets::ModelTemplate {
                 quad_start,
                 quad_count,
@@ -183,6 +193,10 @@ pub fn runtime_assets() -> RuntimeAssets {
             faced_quad(
                 [[64, 64, 64], [192, 64, 64], [192, 64, 192], [64, 64, 192]],
                 1,
+            ),
+            faced_quad(
+                [[0, 256, 0], [0, 256, 256], [256, 256, 256], [256, 256, 0]],
+                2,
             ),
         ]),
         animations: Box::new([]),

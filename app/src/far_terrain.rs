@@ -3,7 +3,7 @@
 
 use std::{
     sync::Arc,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use bevy::prelude::{AppExit, Local, MessageReader, Res, ResMut, Resource};
@@ -31,6 +31,13 @@ pub(crate) struct FarTerrain {
     retiring: Vec<Retiring>,
 }
 
+/// Microseconds since the Unix epoch: summary versions this run stamps exceed earlier runs'.
+fn version_base() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_micros() as u64)
+}
+
 /// Longest an exit waits for retiring sessions' final summaries.
 const EXIT_SUMMARY_WAIT: Duration = Duration::from_secs(1);
 
@@ -45,7 +52,7 @@ impl FarTerrain {
     /// A cache persisted under `disk_root`, or memory-only without one.
     pub(crate) fn new(disk_root: Option<std::path::PathBuf>) -> Self {
         Self {
-            cache: FarTerrainCache::new(FarTerrainConfig::default(), disk_root),
+            cache: FarTerrainCache::new(FarTerrainConfig::default(), disk_root, version_base()),
             tiles: FarTiles::default(),
             drained: Vec::new(),
             near: Arc::new(NearMask::default()),
@@ -113,14 +120,14 @@ impl FarTerrain {
         }
         let now = Instant::now();
         self.drain_retiring_until(now, Some(now + EXIT_SUMMARY_WAIT));
-        self.cache.flush_all();
+        self.cache.leave_world();
         self.cache.sync();
     }
 }
 
-/// Far tiles kept built this far inside the drawn disc, so a column leaving near terrain is
-/// already covered.
-const SKIP_MARGIN_BLOCKS: f32 = 4.0 * 16.0;
+/// Finest tiles are kept built this far either side of the drawn columns' edge, so a column
+/// changing drawer already has its far tile.
+const EDGE_MARGIN_BLOCKS: f32 = 4.0 * 16.0;
 
 /// The world the cache was last pointed at, so unchanged frames skip the identity hash.
 #[derive(Default)]
@@ -245,18 +252,15 @@ pub(crate) fn feed_far_terrain(
     far.cache.poll(now);
     let changed = far.cache.store().take_changed();
     far.tiles.mark_changed(&changed);
-    // Only finest tiles, which hide per column, reach anywhere near terrain may draw; tiles
+    // Only finest tiles, which hide per column, reach the drawn columns and a margin past
+    // them, so a coarser tile is replaced before near terrain takes any of its columns. Tiles
     // wholly inside the drawn disc, short of a margin kept ready for columns leaving it, are
     // left out.
-    let retained = stream.retained_view_radius().unwrap_or(loaded).max(loaded);
-    let near_blocks = far
-        .near
-        .outer_blocks()
-        .max(((retained + ::world::CHUNK_VIEW_SLACK + 1) * 16) as f32);
+    let near_blocks = far.near.outer_blocks() + EDGE_MARGIN_BLOCKS;
     far.tiles.set_view(TileView {
         centre: [centre.x as f32 * 16.0 + 8.0, centre.z as f32 * 16.0 + 8.0],
         near_blocks,
-        skip_blocks: (far.near.inner_blocks() - SKIP_MARGIN_BLOCKS).max(0.0),
+        skip_blocks: (far.near.inner_blocks() - EDGE_MARGIN_BLOCKS).max(0.0),
         far_blocks: (horizon_blocks - near_blocks).max(0.0),
     });
     far.tiles.release_near(&far.near);
@@ -339,7 +343,7 @@ mod tests {
         app.update();
 
         let mut reader =
-            FarTerrainCache::new(FarTerrainConfig::default(), Some(root.path().into()));
+            FarTerrainCache::new(FarTerrainConfig::default(), Some(root.path().into()), 0);
         join(&mut reader, now);
         reader.set_focus(ColumnPos::new(300, 0), 4);
         reader.sync();
