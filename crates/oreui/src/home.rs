@@ -274,16 +274,9 @@ fn action_panel(
     link(
         canvas,
         view,
-        [x, y, midpoint - gap * 0.5, y + canvas.r(3.6)],
+        [x, y, right, y + canvas.r(3.6)],
         "Realms",
         MenuAction::Navigate(MenuScreen::Social),
-    )?;
-    link(
-        canvas,
-        view,
-        [midpoint + gap * 0.5, y, right, y + canvas.r(3.6)],
-        "Marketplace",
-        MenuAction::Store(launcher::store::StoreAction::Open),
     )?;
     y += canvas.r(4.4);
     if compact {

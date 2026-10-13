@@ -4,10 +4,6 @@ use chunk_pipeline::WorldStream;
 use particles::{ParticleSystem, SpawnRequest};
 
 use super::AmbientParticles;
-use {
-    crate::particles::world_adapter::StreamParticleWorld,
-    client_interaction::movement::PhysicsCollisionRegistries,
-};
 
 const NORTH_SOUTH: &str = "minecraft:portal_north_south";
 const EAST_WEST: &str = "minecraft:portal_east_west";
@@ -18,21 +14,16 @@ pub(super) fn effects_present(system: &ParticleSystem) -> bool {
 }
 
 impl AmbientParticles {
+    /// Emits the portal burst for the portal block `runtime_id` at `block`, which the caller
+    /// identified.
     pub(super) fn try_portal(
         &mut self,
         block: [i32; 3],
+        runtime_id: u32,
         stream: &WorldStream,
-        world: &StreamParticleWorld<'_>,
-        collisions: &PhysicsCollisionRegistries,
         system: &mut ParticleSystem,
     ) {
-        let Some(runtime_id) = world.block_runtime_id(block) else {
-            return;
-        };
         let mode = stream.network_id_mode();
-        if collisions.block_identifier(mode, runtime_id) != Some(assets::NETHER_PORTAL_IDENTIFIER) {
-            return;
-        }
         // Native consumes the portal ambient sound roll before selecting its
         // particle effect. Keep the random stream aligned with later samples.
         let _sound_roll = self.random.bounded(10);

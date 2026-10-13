@@ -43,6 +43,12 @@ type framedRead struct {
 	err     error
 }
 
+// FramePayloadReader lets remote transports buffer payloads incrementally after the shared header
+// validation. ReadFramePayload must read exactly size bytes or return a read error.
+type FramePayloadReader interface {
+	ReadFramePayload(size int) ([]byte, error)
+}
+
 // NewFramedConn wraps conn in the local bridge framing contract.
 func NewFramedConn(conn net.Conn) *FramedConn {
 	return &FramedConn{Conn: conn}
@@ -100,8 +106,15 @@ func (c *FramedConn) readFrame() ([]byte, error) {
 	if err := validateFrameLength64(uint64(length)); err != nil {
 		return nil, err
 	}
-	payload := make([]byte, int(length))
-	if _, err := io.ReadFull(c.Conn, payload); err != nil {
+	var payload []byte
+	var err error
+	if reader, ok := c.Conn.(FramePayloadReader); ok {
+		payload, err = reader.ReadFramePayload(int(length))
+	} else {
+		payload = make([]byte, int(length))
+		_, err = io.ReadFull(c.Conn, payload)
+	}
+	if err != nil {
 		if errors.Is(err, io.EOF) {
 			err = io.ErrUnexpectedEOF
 		}

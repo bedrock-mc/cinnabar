@@ -75,7 +75,6 @@ pub mod sign_editor;
 #[cfg(any(test, feature = "test-support"))]
 pub mod snapshot;
 #[cfg(test)]
-mod store_tests;
 #[cfg(test)]
 pub mod tests;
 mod texture_sources;
@@ -748,7 +747,6 @@ pub fn host_screen_references() -> impl Iterator<Item = &'static str> {
         ui_screens::emote_screen::EMOTE_EQUIP_POPUP,
         ui_screens::npc::NPC_SCREEN,
         ui_screens::toast_screen::TOAST_SCREEN,
-        launcher::store::SDL_SCREEN,
         ui_screens::credits_screen::CREDITS_SCREEN,
     ]
     .into_iter()

@@ -2,19 +2,16 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
 	"testing"
 
-	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
-	"github.com/hashimthearab/rust-mcbe/core/store"
 )
 
 // fill sets every exported field reachable from v to a distinct non-zero value.
@@ -88,23 +85,7 @@ func TestControlWireMatchesTheSourceJSON(t *testing.T) {
 	sameWire(t, "ping", func(result catalog.PingResult) control.PingResult { return control.PingResult(result) })
 	sameWire(t, "home", wireHome)
 	sameWire(t, "message event", func(event control.MessageEvent) catalog.MessageEvent { return catalog.MessageEvent(event) })
-
-	sameWire(t, "store page", wireStorePage)
-	sameWire(t, "store search", wireStoreSearchResults)
-	sameWire(t, "store offer", wireStoreOfferDetail)
-	sameWire(t, "store row more", wireStoreRowMore)
-	sameWire(t, "store balance", func(balance store.Balance) control.StoreBalance { return control.StoreBalance(balance) })
-	sameWire(t, "store entitlements", func(owned store.Entitlements) control.StoreEntitlements { return control.StoreEntitlements(owned) })
-	sameWire(t, "store purchase", func(result store.PurchaseResult) control.StorePurchaseResult {
-		return control.StorePurchaseResult(result)
-	})
-	sameWire(t, "store query", func(query control.StoreSearchQuery) store.SearchQuery { return store.SearchQuery(query) })
-	sameWire(t, "store purchase request", func(request control.StorePurchaseRequest) store.PurchaseRequest {
-		return store.PurchaseRequest(request)
-	})
-
 	sameWire(t, "local world", localStatus)
-
 	sameWire(t, "pack admission", wirePackAdmission)
 	sameWire(t, "connect progress", wireConnectProgress)
 	sameWire(t, "server trust", func(prompt proxy.ServerTrustPrompt) control.ServerTrustPrompt {
@@ -144,36 +125,11 @@ func TestClassifiedErrorsKeepTheirMessageAndChain(t *testing.T) {
 	if worldErr(nil) != nil {
 		t.Fatal("nil error classified as a failure")
 	}
-	signedOut := classify(fmt.Errorf("store: %w", control.ErrSignedOut), &storeSentinels)
-	if !errors.Is(signedOut, control.ErrSignedOut) || errors.Is(signedOut, control.ErrPurchaseBusy) {
-		t.Fatalf("classified sign-out = %v", signedOut)
-	}
 	// World replies show a sentinel's own message, which must stay the one clients already see.
 	for _, pair := range worldSentinels {
 		if pair.reported != control.ErrWorldInvalid && pair.reported.Error() != pair.wrapped.Error() {
 			t.Errorf("control reports %q for %q", pair.reported, pair.wrapped)
 		}
-	}
-}
-
-// A malformed offer id or continuation is refused before the session checks the account.
-func TestStoreControlRefusesMalformedIDsBeforeTheSession(t *testing.T) {
-	checks := 0
-	market := storeControl{store.NewSession(func() (*authcache.Account, error) {
-		checks++
-		return nil, control.ErrSignedOut
-	})}
-	if _, err := market.Offer(context.Background(), "bad id"); !errors.Is(err, control.ErrStoreInvalidRequest) {
-		t.Fatalf("Offer() = %v", err)
-	}
-	if _, err := market.MoreOffers(context.Background(), ""); !errors.Is(err, control.ErrStoreInvalidRequest) {
-		t.Fatalf("MoreOffers() = %v", err)
-	}
-	if checks != 0 {
-		t.Fatalf("account checked %d times for malformed requests", checks)
-	}
-	if _, err := market.Balances(context.Background()); !errors.Is(err, control.ErrSignedOut) || checks != 1 {
-		t.Fatalf("Balances() = %v after %d checks", err, checks)
 	}
 }
 

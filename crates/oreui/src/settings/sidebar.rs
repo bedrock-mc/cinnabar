@@ -13,7 +13,7 @@ use ui::IconRef;
 use ui_engine::engine::screen::PaintError;
 use ui_engine::engine::screen::Translate;
 
-const TABS: [(&str, &str); 14] = [
+const TABS: [(&str, &str); 13] = [
     ("accessibility_forced_index", "menu.accessibility.tab.title"),
     (
         "keyboard_and_mouse_forced_index",
@@ -29,15 +29,13 @@ const TABS: [(&str, &str); 14] = [
     ("video_forced_index", "menu.video.tab.title"),
     ("sound_forced_index", "menu.audio.tab.title"),
     ("account_forced_index", "menu.account.tab.title"),
-    (
-        "view_subscriptions_forced_index",
-        "options.viewSubscriptions",
-    ),
     ("global_texture_pack_forced_index", "menu.globalpacks"),
     ("storage_management_forced_index", "menu.storage.tab.title"),
     ("language_forced_index", "menu.language.tab.title"),
     ("creator_forced_index", "menu.creator.tab.title"),
 ];
+
+const _: () = assert!(TABS.len() == SETTINGS_ICONS.len());
 
 #[cfg(test)]
 mod tests;
@@ -210,7 +208,7 @@ fn icon(canvas: &mut Canvas<'_>, index: usize, at: [f32; 2]) -> Result<(), Paint
         )
     };
     block(0.0, 0.0, 16.0, 16.0, theme::BORDER)?;
-    let colors = [
+    let colors: [[u8; 4]; TABS.len()] = [
         [65, 99, 216, 255],
         [147, 145, 132, 255],
         [147, 145, 132, 255],
@@ -220,7 +218,6 @@ fn icon(canvas: &mut Canvas<'_>, index: usize, at: [f32; 2]) -> Result<(), Paint
         [193, 142, 62, 255],
         [141, 90, 59, 255],
         [121, 76, 45, 255],
-        [151, 116, 27, 255],
         [159, 108, 44, 255],
         [141, 126, 73, 255],
         [55, 110, 187, 255],
@@ -264,14 +261,10 @@ fn icon(canvas: &mut Canvas<'_>, index: usize, at: [f32; 2]) -> Result<(), Paint
             block(5.0, 12.0, 6.0, 2.0, [74, 45, 30, 255])?;
         }
         9 => {
-            block(2.0, 4.0, 12.0, 3.0, [159, 46, 34, 255])?;
-            block(2.0, 9.0, 12.0, 2.0, [218, 182, 59, 255])?;
-        }
-        10 => {
             block(2.0, 7.0, 12.0, 2.0, theme::BORDER)?;
             block(7.0, 6.0, 2.0, 5.0, [216, 208, 177, 255])?;
         }
-        11 => {
+        10 => {
             for row in [3.0, 7.0, 11.0] {
                 block(2.0, row, 12.0, 2.0, [185, 166, 98, 255])?;
             }
