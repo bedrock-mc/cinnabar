@@ -186,9 +186,16 @@ fn render_distance(actor: &ActorSnapshot) -> f32 {
     .min(java_distance)
 }
 
+/// Applies explicit always-show overrides before the ordinary show-name gate.
 fn visible(actor: &ActorSnapshot, picked_actor: Option<u64>) -> bool {
     if actor_flag(actor, ACTOR_FLAG_INVISIBLE) {
         return false;
+    }
+    let always = actor_flag(actor, ACTOR_FLAG_ALWAYS_SHOW_NAME)
+        || matches!(actor.metadata.get(&METADATA_ALWAYS_SHOW_NAMETAG),
+            Some(ActorMetadataValue::Byte(value)) if *value != 0 && *value != -1);
+    if always {
+        return true;
     }
     // Missing flags retain the player default; an explicit server hide stays authoritative.
     if matches!(
@@ -198,11 +205,8 @@ fn visible(actor: &ActorSnapshot, picked_actor: Option<u64>) -> bool {
     {
         return false;
     }
-    let always = matches!(actor.kind, ActorKind::Player { .. })
-        || actor_flag(actor, ACTOR_FLAG_ALWAYS_SHOW_NAME)
-        || matches!(actor.metadata.get(&METADATA_ALWAYS_SHOW_NAMETAG),
-            Some(ActorMetadataValue::Byte(value)) if *value != 0);
-    always || (actor_flag(actor, ACTOR_FLAG_SHOW_NAME) && picked_actor == Some(actor.runtime_id))
+    matches!(actor.kind, ActorKind::Player { .. })
+        || (actor_flag(actor, ACTOR_FLAG_SHOW_NAME) && picked_actor == Some(actor.runtime_id))
 }
 
 fn tag_text(

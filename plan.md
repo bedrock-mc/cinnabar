@@ -2754,8 +2754,9 @@ to front by camera depth, independently of viewer-distance limits and score rang
 with depth selection on each quad. Sneaking tags draw only their depth-tested background
 and dim text. Only tested text writes depth; labels use no depth bias and test final
 alpha against `0.1`. Visibility uses strict viewer-distance limits of 64 blocks, or
-32 when sneaking, shortened by server limits. Invisible actors, mounts carrying riders
-and explicit server hides suppress tags; the local player's tag stays hidden by default.
+32 when sneaking, shortened by server limits. Invisible actors and mounts carrying riders
+suppress tags; the local player's tag stays hidden by default. Explicit always-show metadata
+overrides a cleared show-name flag; otherwise explicit server hides suppress tags.
 The open font, server text and formatting, score lines, debug text and explicit debug
 quaternions retain their existing paths. Rendered-frame acceptance remains incomplete;
 no name-tag visual parity gate is closed. See [rendering rules](docs/reference/nametag-rendering.md).
