@@ -443,6 +443,16 @@ impl WorldStream {
         }
         dispatched
     }
+    /// Whether `key` still needs a worker-built mesh rather than a removal.
+    pub(in crate::stream) fn mesh_requires_geometry(&self, key: SubChunkKey) -> bool {
+        requires_geometry(
+            &self.resident,
+            &self.known_air,
+            self.authority.terrain(),
+            self.classifier,
+            key,
+        )
+    }
     /// Returns an undispatched candidate to the ready lane it came from, or to the woken set when
     /// it was probed or woken outside any queue.
     fn requeue_mesh_candidate(&mut self, candidate: PendingSchedulerCandidate, queued: bool) {

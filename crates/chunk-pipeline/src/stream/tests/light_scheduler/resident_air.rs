@@ -176,3 +176,30 @@ fn resident_air_reclassifies_a_cached_geometry_candidate_while_old_worker_is_ret
     stream.accept_mesh_completion(old_completion);
     assert!(stream.mesh_changes.is_empty());
 }
+
+/// An air conversion coalesced into a queued mesh is removed even when a nearer geometry
+/// candidate meets zero worker capacity first.
+#[test]
+fn coalesced_air_conversion_is_removed_behind_a_capacity_blocked_nearer_mesh() {
+    let mut stream = lit_stream(1);
+    let near = SubChunkKey::new(1, 0, 0, 0);
+    let far = SubChunkKey::new(1, 3, 0, 0);
+    for key in [near, far] {
+        resident(&mut stream, key, super::uniform_sub_chunk(2));
+        install_current_light(&mut stream, key, 0, 0, false);
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+    let revision = stream.mesh_jobs.pending[&far].revision;
+    assert_eq!(stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, 1), 0);
+    resident(&mut stream, far, super::uniform_sub_chunk(0));
+    stream.mark_changed(far, Instant::now());
+    assert_eq!(stream.mesh_jobs.pending[&far].revision, revision);
+
+    assert_eq!(stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, 1), 0);
+
+    assert!(stream.mesh_jobs.in_flight.is_empty());
+    assert!(matches!(
+        stream.pop_mesh_change(),
+        Some(WorldMeshChange::Remove { key, generation, .. }) if key == far && generation == revision
+    ));
+}
