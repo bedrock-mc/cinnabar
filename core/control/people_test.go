@@ -1,6 +1,7 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -65,5 +66,29 @@ func TestFriendsPeopleFitsOneFrame(t *testing.T) {
 	friends := reply.Result.Friends
 	if len(friends) == 0 || len(friends) >= len(people) || friends[0] != people[0] || friends[len(friends)-1] != people[len(friends)-1] {
 		t.Fatalf("kept %d friends", len(friends))
+	}
+}
+
+func TestPeopleResultLeavesResponseEnvelopeHeadroom(t *testing.T) {
+	person := Person{XUID: "1"}
+	base, err := json.Marshal(peopleResultV1{SchemaVersion: 1, Friends: []Person{person}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	person.Gamertag = strings.Repeat("n", frameBudget-len(base))
+	result := peopleResult([]Person{person})
+	if len(result.Friends) != 1 || result.Friends[0] != person {
+		t.Fatal("a friend exactly within the result budget must remain unchanged")
+	}
+	var framed bytes.Buffer
+	if err := writeResponse(&framed, response{JSONRPC: "2.0", ID: ^uint64(0), Result: result}); err != nil {
+		t.Fatalf("maximum request ID must fit with the bounded result: %v", err)
+	}
+	if _, err := readFrame(&framed); err != nil {
+		t.Fatalf("bounded reply must be accepted by the frame reader: %v", err)
+	}
+	person.Gamertag += "n"
+	if result := peopleResult([]Person{person}); len(result.Friends) != 0 || result.Friends == nil {
+		t.Fatal("a friend above the result budget must leave an empty JSON array")
 	}
 }
