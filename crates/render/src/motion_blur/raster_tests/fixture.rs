@@ -517,13 +517,18 @@ impl Raster {
     return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
 }}
 @group(0) @binding(0) var<uniform> velocity: vec4<f32>;
-struct Motion {{ @location(0) velocity: vec4<f32>, @builtin(frag_depth) depth: f32 }}
+struct Motion {{
+    @location(0) velocity: vec4<f32>,
+    @builtin(frag_depth) depth: f32,
+    @builtin(sample_mask) coverage: u32,
+}}
 @fragment fn motion_fragment(@builtin(position) position: vec4<f32>) -> Motion {{
-    return Motion(velocity, {depth} + (position.x - {centre}) * {depth_slope});
+    return Motion(velocity, {depth} + (position.x - {centre}) * {depth_slope}, {mask}u);
 }}
 "#,
                 depth = motion.depth.unwrap_or(z),
                 centre = SIDE as f32 * 0.5,
+                mask = sample_mask as u32,
             );
             let shader = self
                 .gpu

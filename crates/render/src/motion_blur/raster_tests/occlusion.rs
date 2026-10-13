@@ -27,9 +27,11 @@ impl Raster {
                 source: wgpu::ShaderSource::Wgsl(
                     format!(
                         r#"{}
-@fragment fn occluder() -> @builtin(frag_depth) f32 {{ return 0.5; }}
+struct Occluder {{ @builtin(frag_depth) depth: f32, @builtin(sample_mask) coverage: u32 }}
+@fragment fn occluder() -> Occluder {{ return Occluder(0.5, {}u); }}
 "#,
-                        super::super::shader_source(include_str!("../../motion_blur.wgsl"), false)
+                        super::super::shader_source(include_str!("../../motion_blur.wgsl"), false),
+                        mask as u32,
                     )
                     .into(),
                 ),

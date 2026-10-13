@@ -140,15 +140,26 @@ fn stationary_actor_in_footprint(position: vec2<f32>) -> bool {
         || (weight.x > 0.0 && weight.y > 0.0 && stationary_actor(corner + vec2<i32>(1, 1)));
 }
 
-// Every contributing texel must respect the actor's depth, including fractional edge taps.
-fn nearer_surface_in_footprint(position: vec2<f32>, z: f32) -> bool {
+// A continuous moving surface may slope toward the camera without becoming its own occluder.
+fn nearer_occluder(pixel: vec2<i32>, z: f32, velocity: vec2<f32>) -> bool {
+    let nearest = scene_depth(pixel);
+    if nearest <= z {
+        return false;
+    }
+    let motion = object_motion(pixel);
+    return motion.z < 0.5 || nearest > actor_depth(pixel)
+        || length(actor_velocity_pixels(motion) - velocity) >= MIN_BLUR_SPEED;
+}
+
+// Every contributing texel must reject nearer occluders, including fractional edge taps.
+fn nearer_occluder_in_footprint(position: vec2<f32>, z: f32, velocity: vec2<f32>) -> bool {
     let texel = position - vec2(0.5);
     let corner = vec2<i32>(floor(texel));
     let weight = fract(texel);
-    return scene_depth(corner) > z
-        || (weight.x > 0.0 && scene_depth(corner + vec2(1, 0)) > z)
-        || (weight.y > 0.0 && scene_depth(corner + vec2(0, 1)) > z)
-        || (weight.x > 0.0 && weight.y > 0.0 && scene_depth(corner + vec2(1, 1)) > z);
+    return nearer_occluder(corner, z, velocity)
+        || (weight.x > 0.0 && nearer_occluder(corner + vec2(1, 0), z, velocity))
+        || (weight.y > 0.0 && nearer_occluder(corner + vec2(0, 1), z, velocity))
+        || (weight.x > 0.0 && weight.y > 0.0 && nearer_occluder(corner + vec2(1, 1), z, velocity));
 }
 
 @vertex
@@ -193,7 +204,7 @@ fn surface_gather(position: vec2<f32>, velocity: vec2<f32>, base: vec4<f32>) -> 
             }
             color += tap;
         } else {
-            if nearer_surface_in_footprint(sample_position, actor_depth(vec2<i32>(position))) {
+            if nearer_occluder_in_footprint(sample_position, actor_depth(vec2<i32>(position)), bounded) {
                 color += base;
             } else {
                 color += textureSampleLevel(scene, scene_sampler, sample_position / dimensions, 0.0);
