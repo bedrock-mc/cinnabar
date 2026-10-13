@@ -438,11 +438,14 @@ pub(super) fn lift(world_from_actor: &mut [[f32; 4]; 3], sneaking: bool, local: 
 
 type ArmKey = (actor_animation::ActorLifetimeId, u32, u64);
 
-/// Frame-to-frame state of Java's first-person hand.
+/// Retained artwork and poses for both first-person animation modes.
 #[derive(Default)]
 pub(super) struct HandCache {
+    lifetime: Option<actor_animation::ActorLifetimeId>,
     /// The main-hand item still drawn through an equip dip.
     shown: Option<WornItem>,
+    /// Native and Java equip clocks can adopt the selected item on different ticks.
+    native_shown: Option<WornItem>,
     pub(super) native_pose: super::hand::NativePoseCache,
     /// The empty hand's rest pose, by actor lifetime, rig and rest generation.
     arm: Option<(ArmKey, Arc<[RenderBoneTransform]>)>,
@@ -454,8 +457,23 @@ fn is_held(item: &WornItem, held: &JavaHeldItem) -> bool {
 }
 
 impl HandCache {
-    /// Remembers the held item once Java's equip adopts it, in any perspective.
+    /// Remembers each mode's adopted stack, including while the player is in third person.
     pub(super) fn remember(&mut self, rig: &ActorRigSnapshot<'_>, main: Option<&WornItem>) {
+        if self.lifetime != Some(rig.actor) {
+            self.lifetime = Some(rig.actor);
+            self.shown = None;
+            self.native_shown = None;
+        }
+        if rig.main_hand_equipped.is_none() {
+            self.native_shown = None;
+        } else if let Some(item) = main
+            && Some(item.identifier.as_ref()) == rig.main_hand_equipped
+        {
+            self.native_shown = Some(item.clone());
+        }
+        if rig.java_equipped.is_none() {
+            self.shown = None;
+        }
         if let (Some(item), Some(equipped)) = (main, rig.java_equipped)
             && is_held(item, equipped)
         {
@@ -473,12 +491,25 @@ impl HandCache {
         let equipped = equipped?;
         match selected {
             Some(item) if is_held(item, equipped) => Some(item.clone()),
-            _ => self
-                .shown
-                .clone()
-                .filter(|old| is_held(old, equipped))
-                .or_else(|| selected.cloned()),
+            _ => self.shown.clone().filter(|old| is_held(old, equipped)),
         }
+    }
+
+    /// Keeps native artwork on the retained item while selection has already changed.
+    pub(super) fn native_displayed_main(
+        &self,
+        equipped: Option<&str>,
+        selected: Option<&WornItem>,
+    ) -> Option<WornItem> {
+        let equipped = equipped?;
+        selected
+            .filter(|item| item.identifier.as_ref() == equipped)
+            .or_else(|| {
+                self.native_shown
+                    .as_ref()
+                    .filter(|item| item.identifier.as_ref() == equipped)
+            })
+            .cloned()
     }
 }
 

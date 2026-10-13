@@ -1,5 +1,6 @@
 //! One handoff applies menu edits to the camera, input, window and sound authorities.
 
+use launcher::menu::settings_options::SettingId;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -7,9 +8,7 @@ use std::{
 
 use bevy::prelude::ResMut;
 
-use launcher::menu::settings_options::{
-    SETTINGS_OPTIONS, SettingsOptions, persistence::SETTINGS_FILE,
-};
+use launcher::menu::settings_options::{SettingsOptions, persistence::SETTINGS_FILE};
 use {crate::menu::MenuRuntime, client_state::RuntimeSettings};
 
 /// Limits disk retries after a failed write without discarding pending preferences.
@@ -43,16 +42,16 @@ impl MenuRuntime {
     /// Publishes normalized glint factors to the shared UI renderer.
     pub fn ui_glint_settings(&self) -> render_scene::UiGlintSettings {
         render_scene::UiGlintSettings {
-            strength: self.settings_options.value("glint_strength") as f32 / 100.0,
-            speed: self.settings_options.value("glint_speed") as f32 / 100.0,
+            strength: self.settings_options.value(SettingId::GlintStrength) as f32 / 100.0,
+            speed: self.settings_options.value(SettingId::GlintSpeed) as f32 / 100.0,
         }
     }
 
     /// Reads the desktop scoping option for the device that produced this frame's turn.
     pub fn spyglass_damping(&self, mode: semantic_input::InputMode) -> f32 {
         let name = match mode {
-            semantic_input::InputMode::KeyboardMouse => "spyglass_mouse_dampening",
-            semantic_input::InputMode::GamePad => "spyglass_gamepad_dampening",
+            semantic_input::InputMode::KeyboardMouse => SettingId::SpyglassMouseDampening,
+            semantic_input::InputMode::GamePad => SettingId::SpyglassGamepadDampening,
             semantic_input::InputMode::Touch => return 0.0,
         };
         self.settings_options.value(name) as f32 / 100.0
@@ -117,24 +116,14 @@ impl MenuRuntime {
         Arc::new(settings)
     }
 
-    /// Bridges legacy named menu actions into the persisted option registry.
-    pub fn set_named_option(&mut self, name: &str, value: i32) {
-        if let Some(index) = SETTINGS_OPTIONS
-            .iter()
-            .position(|option| option.name == name)
-        {
-            self.set_option(index as u16, value);
-        }
+    /// Applies a registered setting through the persisted option controller.
+    pub fn set_named_option(&mut self, id: SettingId, value: i32) {
+        self.set_option(id.index() as u16, value);
     }
 
-    /// Overrides `name` in memory only (saves keep the persisted value); `None` restores it.
-    pub fn set_session_option(&mut self, name: &str, value: Option<i32>) {
-        let Some(index) = SETTINGS_OPTIONS
-            .iter()
-            .position(|option| option.name == name)
-        else {
-            return;
-        };
+    /// Overrides a setting in memory; None restores the saved preference.
+    pub fn set_session_option(&mut self, id: SettingId, value: Option<i32>) {
+        let index = id.index();
         let slot = self
             .session_overrides
             .iter()

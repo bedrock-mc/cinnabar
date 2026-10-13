@@ -4,6 +4,7 @@ use launcher::menu::{MenuView, settings_options::SETTINGS_OPTIONS};
 use std::{collections::HashMap, sync::Arc};
 use ui::UiVisual;
 
+use launcher::menu::settings_options::SettingId;
 #[test]
 fn preset_choices_precede_video_controls_and_fit_narrow_and_wide_panels() {
     for width in [300.0, 800.0] {
@@ -20,7 +21,11 @@ fn preset_choices_precede_video_controls_and_fit_narrow_and_wide_panels() {
                     translate: &|_| None,
                     nested: false,
                 };
-                super::super::sections::draw(&mut content, "video_forced_index").unwrap();
+                super::super::sections::draw(
+                    &mut content,
+                    launcher::menu::settings_sections::SettingSection::Video,
+                )
+                .unwrap();
                 for preset in VideoPreset::ALL {
                     assert!(content.canvas.focus_targets.iter().any(|target| {
                         target.action == MenuAction::SettingsVideoPreset(preset)
@@ -65,7 +70,7 @@ fn selection_caption_is_derived_and_description_stays_below_the_choices() {
         if selected.is_none() {
             let index = SETTINGS_OPTIONS
                 .iter()
-                .position(|option| option.name == "max_framerate")
+                .position(|option| option.id == SettingId::MaxFramerate)
                 .unwrap();
             settings.set(index, SETTINGS_OPTIONS[index].min);
         }

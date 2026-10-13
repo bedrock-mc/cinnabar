@@ -1,5 +1,6 @@
 use crate::runtime::network::resource_packs::PackApplication;
 use client_runtime::network::NetworkHandle;
+use launcher::menu::settings_options::BindingId;
 mod chat;
 mod chat_coordinates;
 pub(crate) mod chat_modifiers;
@@ -251,13 +252,13 @@ fn route_press(
         .is_some_and(|view| view.mod_ui().mod_view_shown());
     if !runtime.chat_focused() && (!runtime.screen_state().text_focused() || mod_view) && !mod_text
     {
-        if binding_mouse_button(menu, "key.inventory", button) {
+        if binding_mouse_button(menu, BindingId::Inventory, button) {
             runtime.toggle_inventory(player_runtime);
             return (PressRoute::Binding, true);
         }
         if !runtime.inventory_open() {
-            let chat = binding_mouse_button(menu, "key.chat", button);
-            if chat || binding_mouse_button(menu, "key.command", button) {
+            let chat = binding_mouse_button(menu, BindingId::Chat, button);
+            if chat || binding_mouse_button(menu, BindingId::Command, button) {
                 runtime.open_chat(player_runtime);
                 if !chat {
                     let _ = runtime.insert_chat_text("/");
@@ -280,11 +281,11 @@ pub(crate) fn inventory_consumes_key(
     key: KeyCode,
     view: bool,
 ) -> bool {
-    if binding_key(menu, "key.inventory", key) || key == KeyCode::Escape {
+    if binding_key(menu, BindingId::Inventory, key) || key == KeyCode::Escape {
         return true;
     }
     !view
-        && (binding_key(menu, "key.drop", key)
+        && (binding_key(menu, BindingId::Drop, key)
             || keyboard_usage(key).is_some_and(|code| {
                 hotbar_control_slots(menu, semantic_input::PhysicalControl::KeyboardUsage(code))
                     .next()
@@ -318,9 +319,9 @@ pub(crate) fn drive_world_inventory_keys(
     if emote_input.is_some_and(|consumed| consumed.0) {
         return;
     }
-    let drop = binding_pressed(menu.as_deref(), "key.drop", &keys, &mouse)
-        || binding_gamepad(menu.as_deref(), "key.drop", &gamepads);
-    let use_book = binding_pressed(menu.as_deref(), "key.use", &keys, &mouse)
+    let drop = binding_pressed(menu.as_deref(), BindingId::Drop, &keys, &mouse)
+        || binding_gamepad(menu.as_deref(), BindingId::Drop, &gamepads);
+    let use_book = binding_pressed(menu.as_deref(), BindingId::Use, &keys, &mouse)
         || touch.is_some_and(|touch| touch.pressed(semantic_input::touch::USE));
     if !window.focused
         || client_shell::screen_policy::absorbs_input(
@@ -553,22 +554,22 @@ pub(crate) fn drive_chat_keyboard_input(
         .is_some_and(|view| view.mod_ui().mod_view_shown());
     if !runtime.chat_focused() && (!runtime.screen_state().text_focused() || mod_view) && !mod_text
     {
-        if (mouse_bindings && binding_mouse(menu.as_deref(), "key.inventory", &mouse_buttons))
-            || binding_gamepad(menu.as_deref(), "key.inventory", &gamepads)
+        if (mouse_bindings && binding_mouse(menu.as_deref(), BindingId::Inventory, &mouse_buttons))
+            || binding_gamepad(menu.as_deref(), BindingId::Inventory, &gamepads)
         {
             runtime.toggle_inventory(&mut player_runtime);
             dismissed |= !runtime.inventory_open();
             inventory_ownership_changed = true;
             consumed_gameplay = true;
         } else if !runtime.inventory_open()
-            && ((mouse_bindings && binding_mouse(menu.as_deref(), "key.chat", &mouse_buttons))
-                || binding_gamepad(menu.as_deref(), "key.chat", &gamepads))
+            && ((mouse_bindings && binding_mouse(menu.as_deref(), BindingId::Chat, &mouse_buttons))
+                || binding_gamepad(menu.as_deref(), BindingId::Chat, &gamepads))
         {
             runtime.open_chat(&mut player_runtime);
             consumed_gameplay = true;
         } else if !runtime.inventory_open()
             && mouse_bindings
-            && binding_mouse(menu.as_deref(), "key.command", &mouse_buttons)
+            && binding_mouse(menu.as_deref(), BindingId::Command, &mouse_buttons)
         {
             runtime.open_chat(&mut player_runtime);
             let _ = runtime.insert_chat_text("/");
@@ -692,8 +693,8 @@ pub(crate) fn drive_chat_keyboard_input(
                 // An OS repeat of a held key is not a new press, so it never toggles the screen.
                 key if input.repeat
                     && (key == KeyCode::Escape
-                        || binding_key(menu.as_deref(), "key.inventory", key)) => {}
-                key if binding_key(menu.as_deref(), "key.inventory", key) => {
+                        || binding_key(menu.as_deref(), BindingId::Inventory, key)) => {}
+                key if binding_key(menu.as_deref(), BindingId::Inventory, key) => {
                     runtime.toggle_inventory(&mut player_runtime);
                     inventory_ownership_changed = true;
                 }
@@ -720,7 +721,7 @@ pub(crate) fn drive_chat_keyboard_input(
                         focus.authorize_screen_return();
                     }
                 }
-                key if binding_key(menu.as_deref(), "key.chat", key) => {
+                key if binding_key(menu.as_deref(), BindingId::Chat, key) => {
                     runtime.open_chat(&mut player_runtime);
                 }
                 _ if chat_modifiers::command_key(menu.as_deref(), input) => {
@@ -747,12 +748,12 @@ pub(crate) fn drive_chat_keyboard_input(
                 continue;
             }
             match input.key_code {
-                key if binding_key(menu.as_deref(), "key.inventory", key) => {
+                key if binding_key(menu.as_deref(), BindingId::Inventory, key) => {
                     runtime.toggle_inventory(&mut player_runtime);
                     inventory_ownership_changed = true;
                     consumed_gameplay = true;
                 }
-                key if binding_key(menu.as_deref(), "key.chat", key) => {
+                key if binding_key(menu.as_deref(), BindingId::Chat, key) => {
                     runtime.open_chat(&mut player_runtime);
                     consumed_gameplay = true;
                 }

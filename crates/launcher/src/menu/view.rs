@@ -698,13 +698,13 @@ impl MenuView {
         option: &super::settings_options::SettingDefinition,
         choice: usize,
     ) -> bool {
-        if option.name == super::settings_options::graphics_api::OPTION.name {
+        if option.id == super::settings_options::graphics_api::OPTION.id {
             return super::settings_options::graphics_api::visible(
                 choice,
                 crate::graphics_backend::Platform::current(),
             );
         }
-        option.name != super::settings_options::UPDATE_CHANNEL_OPTION.name
+        option.id != super::settings_options::UPDATE_CHANNEL_OPTION.id
             || self.updates.channel_visible(choice)
     }
 

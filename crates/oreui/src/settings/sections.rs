@@ -3,38 +3,42 @@
 use super::super::theme::{self, BODY, CAPTION, EDGE, NEUTRAL80, TEXT, TEXT_DIMMER};
 use super::super::widgets::{self, Interaction};
 use super::{Content, button};
+use launcher::menu::settings_options::SettingId;
+use launcher::menu::settings_sections::SettingSection;
 use launcher::menu::{
     MenuAction, MenuField,
     settings_options::{
-        ANIMATIONS_OPTION, CHAT_POSITION_OPTION, COMMAND_MACRO_COUNT, EXTRA_GAMEPAD, EXTRA_KEYS,
-        GAMEPAD_BINDINGS, GAMEPAD_OFFSET, INVERT_CROSSHAIR_OPTION, KEY_BINDINGS,
-        MOTION_BLUR_OPTION, SMAA_OPTION, SettingsGroup, SettingsOptions,
-        THIRD_PERSON_CROSSHAIR_OPTION, VOLUME_SETTINGS, custom_key_label, key_name, macro_message,
-        macro_row, macro_row_index, macro_title,
+        COMMAND_MACRO_COUNT, EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET,
+        KEY_BINDINGS, SettingsGroup, SettingsOptions, custom_key_label, key_name,
+        layout::SettingPanel, macro_message, macro_row, macro_row_index, macro_title,
     },
     settings_support::{SupportAction, SupportDialog, SupportLink},
 };
 use ui_engine::engine::screen::PaintError;
 
-pub(super) fn draw(content: &mut Content<'_, '_>, section: &str) -> Result<(), PaintError> {
+pub(super) fn draw(
+    content: &mut Content<'_, '_>,
+    section: SettingSection,
+) -> Result<(), PaintError> {
     if super::services::draw(content, section)? {
         return Ok(());
     }
     match section {
-        "accessibility_forced_index" => accessibility(content),
-        "video_forced_index" => video(content),
-        "sound_forced_index" => audio(content),
-        "keyboard_and_mouse_forced_index" => keyboard(content),
-        "controller_and_switch_forced_index" => controller(content),
-        "general_forced_index" => general(content),
-        "creator_forced_index" => creator(content),
+        SettingSection::Accessibility => accessibility(content),
+        SettingSection::Video => video(content),
+        SettingSection::Sound => audio(content),
+        SettingSection::KeyboardAndMouse => keyboard(content),
+        SettingSection::ControllerAndSwitch => controller(content),
+        SettingSection::General => general(content),
+        SettingSection::Creator => creator(content),
         _ => Ok(()),
     }
 }
 
-fn options(content: &mut Content<'_, '_>, names: &[&str]) -> Result<(), PaintError> {
-    for name in names {
-        content.option(name)?;
+/// Draws the rows assigned to a panel by the settings registry.
+fn options(content: &mut Content<'_, '_>, panel: SettingPanel) -> Result<(), PaintError> {
+    for option in panel.options() {
+        content.option(option.id)?;
     }
     Ok(())
 }
@@ -48,49 +52,17 @@ fn accessibility(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "menu.accessibility.tab.tts.title",
         "menu.accessibility.tab.tts.description",
     )?;
-    options(
-        content,
-        &[
-            "enable_ui_text_to_speech",
-            "enable_chat_text_to_speech",
-            "texttospeech_volume",
-            "enable_open_chat_message",
-        ],
-    )?;
+    options(content, SettingPanel::AccessibilityTts)?;
     content.heading(
         "menu.accessibility.tab.gameplay.title",
         "menu.accessibility.tab.gameplay.description",
     )?;
-    options(
-        content,
-        &[
-            "enable_gameplay_subtitles",
-            "camera_shake",
-            "hide_endflash",
-            "enable_dithering_blocks",
-            "enable_dithering_mobs",
-            "darkness",
-            "screen_distortion",
-            "glint_strength",
-            "glint_speed",
-        ],
-    )?;
+    options(content, SettingPanel::AccessibilityGameplay)?;
     content.heading(
         "menu.accessibility.tab.ui.title",
         "menu.accessibility.tab.ui.description",
     )?;
-    options(
-        content,
-        &[
-            "actionbar_text_background_opacity",
-            "chat_background_opacity",
-            "hud_text_background_opacity",
-            "chat_message_duration",
-            "toast_notification_duration",
-            "gui_scale",
-            "gui_accessibility_scaling",
-        ],
-    )?;
+    options(content, SettingPanel::AccessibilityUi)?;
     reset(
         content,
         SettingsGroup::Accessibility,
@@ -101,19 +73,18 @@ fn accessibility(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
 fn video(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.video.tab.title", "menu.video.tab.description")?;
     super::presets::draw(content)?;
-    content.option(launcher::menu::settings_options::graphics_api::OPTION.name)?;
+    content.option(SettingId::GraphicsApi)?;
     content.heading(
         "menu.video.group.general",
         "menu.video.group.general.description",
     )?;
-    options(content, &["field_of_view", "third_person"])?;
-    content.option(CHAT_POSITION_OPTION.name)?;
+    options(content, SettingPanel::VideoGeneral)?;
     content.heading(
         "menu.video.group.performance",
         "menu.video.group.performance.description",
     )?;
-    content.option("graphics_mode")?;
-    let graphics = if content.view.settings_options.value("graphics_mode") == 0 {
+    options(content, SettingPanel::VideoPerformance)?;
+    let graphics = if content.view.settings_options.value(SettingId::GraphicsMode) == 0 {
         "options.graphicsModeOptions.simple"
     } else {
         "options.graphicsModeOptions.fancy"
@@ -121,73 +92,26 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading(graphics, "")?;
     {
         content.nested = true;
-        options(
-            content,
-            &[
-                "gamma",
-                "max_framerate",
-                "vsync",
-                launcher::menu::settings_options::VRR_OPTION.name,
-                "msaa",
-                SMAA_OPTION.name,
-                MOTION_BLUR_OPTION.name,
-                "smooth_lighting",
-                "fancy_skies",
-                launcher::menu::settings_options::NATIVE_SKYBOX_OFFSET_OPTION.name,
-                "render_distance",
-            ],
-        )?;
+        options(content, SettingPanel::VideoGraphics)?;
         content.nested = false;
     }
-    options(
-        content,
-        &["render_clouds", "transparent_leaves", "bubble_particles"],
-    )?;
+    options(content, SettingPanel::VideoClouds)?;
     content.heading(
         "menu.video.group.customization",
         "menu.video.group.customization.description",
     )?;
-    options(
-        content,
-        &[
-            "full_screen",
-            "hide_hand",
-            "hide_paperdoll",
-            "hide_hud",
-            THIRD_PERSON_CROSSHAIR_OPTION.name,
-            INVERT_CROSSHAIR_OPTION.name,
-            "classic_box_selection",
-            "ingame_player_names",
-            "interface_opacity",
-            "show_auto_save_icon",
-            launcher::menu::settings_options::SHOW_EXACT_SERVER_PING,
-            launcher::menu::settings_options::OREUI_DARK_MODE,
-        ],
-    )?;
+    options(content, SettingPanel::VideoCustomization)?;
     content.heading(
         "menu.video.group.accessibility",
         "menu.video.group.accessibility.description",
     )?;
-    options(
-        content,
-        &[
-            "gui_scale",
-            "gui_accessibility_scaling",
-            "screen_animations",
-            "panorama_speed",
-            "view_bobbing",
-            ANIMATIONS_OPTION.name,
-            "damage_bob",
-            "camera_shake",
-            "field_of_view_toggle",
-        ],
-    )?;
+    options(content, SettingPanel::VideoAccessibility)?;
     reset(content, SettingsGroup::Video, "options.video.resetSettings")
 }
 
 fn audio(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.audio.tab.title", "menu.audio.tab.description")?;
-    options(content, &VOLUME_SETTINGS)?;
+    options(content, SettingPanel::Audio)?;
     reset(content, SettingsGroup::Audio, "options.sound.resetSettings")
 }
 
@@ -206,17 +130,7 @@ fn keyboard(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "menu.keyboardAndMouse.tab.title",
         "menu.keyboardAndMouse.tab.description",
     )?;
-    options(
-        content,
-        &[
-            "keyboard_mouse_sensitivity",
-            "spyglass_mouse_dampening",
-            "keyboard_mouse_invert_y_axis",
-            "keyboard_mouse_autojump",
-            "always_sprint",
-            "keyboard_show_full_keyboard_options",
-        ],
-    )?;
+    options(content, SettingPanel::Keyboard)?;
     content.heading(
         "menu.keyboardAndMouse.tab.mappings.title",
         "menu.keyboardAndMouse.tab.mappings.description",
@@ -419,20 +333,7 @@ fn controller(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "menu.controller.tab.title",
         "menu.controller.tab.description",
     )?;
-    options(
-        content,
-        &[
-            "controller_sensitivity",
-            "spyglass_gamepad_dampening",
-            "controller_invert_y_axis",
-            "controller_autojump",
-            "hide_tooltips",
-            "hide_gamepad_cursor",
-            "controller_clear_hotbar",
-            "swap_gamepad_ab_buttons",
-            "swap_gamepad_xy_buttons",
-        ],
-    )?;
+    options(content, SettingPanel::Controller)?;
     content.heading(
         "menu.controller.tab.mappings.title",
         "menu.controller.tab.mappings.description",
@@ -540,7 +441,10 @@ fn binding(
         let mut value = control
             .map(key_name)
             .unwrap_or_else(|| content.word("controllerLayoutScreen.unassigned"));
-        if let Some(secondary) = content.view.settings_options.secondary_key_control(key) {
+        if let Some(secondary) = content.view.settings_options.secondary_key_control(
+            launcher::menu::settings_options::BindingId::from_name(key)
+                .expect("registered binding row"),
+        ) {
             value.push_str(" / ");
             value.push_str(&key_name(secondary));
         }
@@ -590,29 +494,19 @@ fn gamepad_name(control: semantic_input::PhysicalControl) -> String {
 
 fn general(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.general.tab.title", "menu.general.tab.description")?;
-    options(content, &["only_trusted_skins_allowed", "filter_profanity"])?;
+    options(content, SettingPanel::General)?;
     content.heading(
         "menu.general.tab.pause.title",
         "menu.general.tab.pause.description",
     )?;
-    options(
-        content,
-        &["pause_option_toggle", "pause_menu_on_focus_lost"],
-    )?;
+    options(content, SettingPanel::GeneralPause)?;
     content.heading(
         "menu.general.tab.network.title",
         "menu.general.tab.network.description",
     )?;
-    options(content, &["websockets_enabled", "websocket_encryption"])?;
+    options(content, SettingPanel::GeneralNetwork)?;
     if content.view.updates.active {
-        options(
-            content,
-            &[
-                launcher::menu::settings_options::AUTO_UPDATE_OPTION.name,
-                launcher::menu::settings_options::INSTALL_ON_QUIT_OPTION.name,
-                launcher::menu::settings_options::UPDATE_CHANNEL_OPTION.name,
-            ],
-        )?;
+        options(content, SettingPanel::GeneralUpdates)?;
     }
     if content.view.updates.active && !content.view.over_world {
         if let Some(message) = &content.view.updates.message {
@@ -634,7 +528,7 @@ fn general(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "menu.general.tab.miscellaneous.title",
         "menu.general.tab.miscellaneous.description",
     )?;
-    content.option("ecomode_toggle")?;
+    options(content, SettingPanel::GeneralMisc)?;
     super::services::action_row(
         content,
         "Import from Minecraft",
@@ -686,77 +580,35 @@ fn general(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
 
 fn creator(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.creator.tab.title", "menu.creator.tab.description")?;
-    content.option("copy_coordinate_ui")?;
-    for (title, names) in [
+    options(content, SettingPanel::CreatorCoordinates)?;
+    for (title, panel) in [
         (
             "menu.creator.group.contentLog",
-            &[
-                "content_log_file",
-                "content_log_gui",
-                "content_log_gui_show_on_errors",
-                "content_log_gui_level",
-            ][..],
+            SettingPanel::CreatorContentLog,
         ),
         (
             "menu.creator.group.scriptDebugger",
-            &[
-                "script_debugger_passcode_required",
-                "script_debugger_auto_attach",
-            ][..],
+            SettingPanel::CreatorDebugger,
         ),
         (
             "menu.creator.group.scriptDiagnostic",
-            &["serverbound_client_diagnostics_enabled"][..],
+            SettingPanel::CreatorDiagnostic,
         ),
         (
             "menu.creator.group.scriptWatchdog",
-            &[
-                "script_watchdog_spike_warning",
-                "script_watchdog_slow_warning",
-            ][..],
+            SettingPanel::CreatorWatchdog,
         ),
-        (
-            "menu.creator.group.deviceInfo",
-            &["device_info_use_memory_tier_override"][..],
-        ),
-        (
-            "menu.creator.group.editor",
-            &["editor_collect_network_metrics"][..],
-        ),
+        ("menu.creator.group.deviceInfo", SettingPanel::CreatorDevice),
+        ("menu.creator.group.editor", SettingPanel::CreatorEditor),
         (
             "menu.creator.group.textFiltering",
-            &["debug_text_filtering_use_delay_sec_override"][..],
+            SettingPanel::CreatorFiltering,
         ),
     ] {
         content.heading(title, "")?;
-        options(content, names)?;
+        options(content, panel)?;
     }
     Ok(())
-}
-
-pub(super) fn option_label(name: &str, default: &'static str) -> &'static str {
-    match name {
-        "controller_sensitivity" => "options.controller.sensitivity.name",
-        "keyboard_mouse_sensitivity" => "options.sensitivity.Mouse.name",
-        "spyglass_gamepad_dampening" | "spyglass_mouse_dampening" => "options.spyglassdampen.name",
-        "field_of_view" => "options.fov.name",
-        "field_of_view_toggle" => "options.fov.toggle.name",
-        "show_auto_save_icon" => "options.showautosaveicon.name",
-        "ingame_player_names" => "options.ingamePlayerNames.name",
-        "keyboard_mouse_invert_y_axis" | "controller_invert_y_axis" => "options.invertYAxis.name",
-        "keyboard_mouse_autojump" | "controller_autojump" => "options.autojump.name",
-        "keyboard_show_full_keyboard_options" => "options.fullKeyboardGameplay.name",
-        "websockets_enabled" => "options.websocketsEnabled.name",
-        "only_trusted_skins_allowed" => "options.onlyTrustedSkinsAllowed.name",
-        "filter_profanity" => "options.filterProfanity.name",
-        "ecomode_toggle" => "options.enableEcoMode.name",
-        "copy_coordinate_ui" => "options.copyCoordinateUI.name",
-        "content_log_gui_show_on_errors" => "options.content_log_gui_show_on_errors.name",
-        "gui_accessibility_scaling" => "options.guiAccessibilityScaling.name",
-        "graphics_mode" => "menu.video.mode",
-        "render_clouds" => "options.renderClouds",
-        _ => default,
-    }
 }
 
 pub(super) fn fallback(key: &str) -> &str {

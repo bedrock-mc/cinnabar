@@ -112,11 +112,11 @@ pub(in super::super) fn capture(
         // The third-person preference never overrides the spectator gate.
         crosshair: sheet
             .filter(|_| {
-                (frame.first_person || options.value(THIRD_PERSON_CROSSHAIR_OPTION.name) != 0)
+                (frame.first_person || options.value(THIRD_PERSON_CROSSHAIR_OPTION.id) != 0)
                     && mode_allows_hotbar
             })
             .map(|sheet| sheet_sprite(sheet, HudTextureRole::Crosshair)),
-        crosshair_blend: if options.value(INVERT_CROSSHAIR_OPTION.name) != 0 {
+        crosshair_blend: if options.value(INVERT_CROSSHAIR_OPTION.id) != 0 {
             ui::UiBlendMode::Invert
         } else {
             ui::UiBlendMode::Alpha

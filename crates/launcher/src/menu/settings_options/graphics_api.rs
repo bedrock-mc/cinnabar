@@ -1,6 +1,6 @@
 //! Graphics API choices persist through the existing settings registry and apply at startup.
 
-use super::{SettingDefinition, SettingKind, SettingsOptions, definitions::SettingChoice};
+use super::{SettingDefinition, SettingId, SettingsOptions, definitions::SettingChoice};
 use crate::graphics_backend::{Backend, Platform};
 
 /// Returns the backend represented by a stable saved choice; zero is Auto.
@@ -37,15 +37,7 @@ const fn choices() -> [SettingChoice; Backend::ALL.len() + 1] {
 /// Choice values remain stable even when a platform hides an unavailable API.
 pub const CHOICES: &[SettingChoice] = &choices();
 /// The registry owner for the restart-only graphics preference.
-pub const OPTION: SettingDefinition = SettingDefinition {
-    name: "graphics_api",
-    label: "Graphics API",
-    kind: SettingKind::Dropdown(CHOICES),
-    min: 0,
-    max: CHOICES.len() as i32 - 1,
-    step: 1,
-    default: 0,
-};
+pub const OPTION: SettingDefinition = SettingId::GraphicsApi.definition();
 
 impl SettingsOptions {
     /// Identifies explicit API selections, including choosing the current Auto value again.
@@ -55,7 +47,7 @@ impl SettingsOptions {
 
     /// Reads the saved startup override; unsupported transferred preferences become Auto.
     pub fn graphics_api(&self) -> Option<Backend> {
-        backend(self.value(OPTION.name) as usize)
+        backend(self.value(OPTION.id) as usize)
             .filter(|backend| Platform::current().backends().contains(backend))
     }
 }
@@ -108,7 +100,7 @@ mod tests {
             } else {
                 0
             };
-            assert_eq!(loaded.value(OPTION.name), expected);
+            assert_eq!(loaded.value(OPTION.id), expected);
             assert_eq!(loaded.user_settings().video, video);
             if let Some(backend) = backend(choice) {
                 assert_eq!(definition.name, backend.name());

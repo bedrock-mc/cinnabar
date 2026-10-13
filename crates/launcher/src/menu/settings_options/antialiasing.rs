@@ -1,5 +1,6 @@
 //! Device capabilities constrain the vanilla MSAA slider without rewriting saved preferences.
 
+use super::SettingId;
 use super::{SETTINGS_OPTIONS, SettingsOptions};
 
 impl SettingsOptions {
@@ -23,7 +24,7 @@ impl SettingsOptions {
             return 0;
         };
         let value = self.get(index);
-        if option.name == super::graphics_api::OPTION.name {
+        if option.id == SettingId::GraphicsApi {
             return (option.min..=option.max)
                 .filter(|choice| {
                     super::graphics_api::visible(
@@ -41,7 +42,7 @@ impl SettingsOptions {
                 .min_by_key(|choice| choice.abs_diff(value))
                 .unwrap_or(value);
         }
-        if option.name != "msaa" {
+        if option.id != SettingId::Msaa {
             return value.saturating_add(direction * option.step);
         }
         let counts: Vec<_> = self.anti_aliasing_support.counts().collect();
@@ -62,7 +63,7 @@ mod tests {
     fn index() -> usize {
         SETTINGS_OPTIONS
             .iter()
-            .position(|option| option.name == "msaa")
+            .position(|option| option.id == SettingId::Msaa)
             .unwrap()
     }
 
