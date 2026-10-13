@@ -26,8 +26,8 @@ pub struct TileGrid {
 
 impl TileGrid {
     /// Aggregates every summarised block of `columns` inside the tile. A cell's height leans
-    /// toward its highest block, so ridges survive coarse levels; colour is the mean, and a
-    /// cell is water when most of its blocks are.
+    /// toward its highest block, so ridges survive coarse levels; a cell is water, at the
+    /// water's mean surface, when most of its blocks are; colour is the mean.
     #[must_use]
     pub fn build(key: TileKey, columns: &[(ColumnPos, ColumnSummary)]) -> Self {
         #[derive(Clone, Copy, Default)]
@@ -38,6 +38,8 @@ impl TileGrid {
             rgb: [u32; 3],
             water: u32,
             depth: u32,
+            /// Sum of water surface heights, so a mostly-water cell sits at sea level.
+            water_height: i64,
         }
         let shift = key.level;
         let [origin_x, origin_z] = key.origin();
@@ -69,6 +71,7 @@ impl TileGrid {
                 if cell.water_depth > 0 {
                     sum.water += 1;
                     sum.depth += u32::from(cell.water_depth);
+                    sum.water_height += i64::from(cell.height);
                 }
             }
         }
@@ -78,11 +81,18 @@ impl TileGrid {
                 if sum.count == 0 {
                     return SurfaceCell::EMPTY;
                 }
-                let mean = sum.height as f32 / sum.count as f32;
+                let water = sum.water * 2 > sum.count;
+                let height = if water {
+                    // Shores would otherwise lift the sea toward the land's highest block.
+                    (sum.water_height as f32 / sum.water as f32).round() as i16
+                } else {
+                    let mean = sum.height as f32 / sum.count as f32;
+                    ((mean + f32::from(sum.max)) / 2.0).round() as i16
+                };
                 SurfaceCell {
-                    height: ((mean + f32::from(sum.max)) / 2.0).round() as i16,
+                    height,
                     rgb: sum.rgb.map(|channel| (channel / sum.count) as u8),
-                    water_depth: if sum.water * 2 > sum.count {
+                    water_depth: if water {
                         (sum.depth / sum.water).max(1) as u8
                     } else {
                         0

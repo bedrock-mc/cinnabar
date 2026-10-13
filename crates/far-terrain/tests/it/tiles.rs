@@ -159,3 +159,27 @@ fn tiles_build_on_workers_and_rebuild_on_change() {
         edited(&tiles) != before
     });
 }
+
+/// A mostly-water coarse cell stays at sea level even with an island in it.
+#[test]
+fn coarse_water_cells_keep_the_sea_level() {
+    let key = TileKey {
+        level: 4,
+        x: 0,
+        z: 0,
+    };
+    let mut summary = ColumnSummary::default();
+    summary.cells_mut().fill(SurfaceCell {
+        height: 63,
+        rgb: [20, 60, 200],
+        water_depth: 6,
+    });
+    summary.cells_mut()[0] = SurfaceCell {
+        height: 90,
+        rgb: [30, 140, 40],
+        water_depth: 0,
+    };
+    let grid = TileGrid::build(key, &[(ColumnPos::new(0, 0), summary)]);
+    assert_eq!(grid.cell(0, 0).height, 63);
+    assert!(grid.cell(0, 0).water_depth > 0);
+}
