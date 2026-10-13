@@ -122,28 +122,33 @@ impl GuiModels {
     }
 }
 
-/// A sheet can become a cube only when an existing carried model spans the full cube.
-/// Shortened models keep the shaped-model path even when their source texels are transparent.
-fn cube_sheet_admitted(
+/// Existing carried geometry must span the full cube before either cube fast path can use it.
+fn cube_geometry_admitted(
     ordinary: &render_model::equipment::blocks::BlockSheets,
     visual: u32,
-    pixels: &[u8],
 ) -> bool {
-    if ordinary.models.get(&visual).is_some_and(|vertices| {
+    !ordinary.models.get(&visual).is_some_and(|vertices| {
         vertices.iter().any(|vertex| {
             vertex
                 .position
                 .iter()
                 .any(|coordinate| coordinate.abs() != 0.5)
         })
-    }) {
-        return false;
-    }
-    match sheet_coverage(pixels) {
-        SheetCoverage::Cutout => true,
-        SheetCoverage::Translucent => ordinary.by_visual.contains_key(&visual),
-        SheetCoverage::Opaque => false,
-    }
+    })
+}
+
+/// Shortened models keep their shaped path; unsupported translucent sheets keep their thumbnail.
+fn cube_sheet_admitted(
+    ordinary: &render_model::equipment::blocks::BlockSheets,
+    visual: u32,
+    pixels: &[u8],
+) -> bool {
+    cube_geometry_admitted(ordinary, visual)
+        && match sheet_coverage(pixels) {
+            SheetCoverage::Cutout => true,
+            SheetCoverage::Translucent => ordinary.by_visual.contains_key(&visual),
+            SheetCoverage::Opaque => false,
+        }
 }
 
 impl UiPresentationRuntime {
@@ -192,7 +197,7 @@ impl UiPresentationRuntime {
         let mut meshes = BTreeMap::new();
         let mut held_sources = BTreeMap::new();
         for (visual, sprite) in &sources {
-            if !ordinary_cube_sheet(&sprite.rgba8) {
+            if !cube_geometry_admitted(&ordinary, *visual) || !ordinary_cube_sheet(&sprite.rgba8) {
                 continue;
             }
             let icon = atlas.insert([sprite.width, sprite.height], &sprite.rgba8)?;

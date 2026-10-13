@@ -7,6 +7,11 @@ const VISUAL: assets::BlockVisualId = assets::BlockVisualId(1);
 
 /// Creates two item icons sharing one cut-out cube sheet, without installed carriers.
 fn catalog() -> (UiPresentationRuntime, RuntimeEntityAssets) {
+    catalog_for(ITEM)
+}
+
+/// Binds the same original item fixture to the requested identifier.
+pub(super) fn catalog_for(item: &str) -> (UiPresentationRuntime, RuntimeEntityAssets) {
     let entity_path = "entity/fixture.json";
     let entity = br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"fixture:cube","geometry":{"default":"geometry.fixture"},"render_controllers":["controller.render.fixture"]}}}"#;
     let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.fixture","texture_width":16,"texture_height":16},"bones":[{"name":"body","cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]}]}]}"#;
@@ -33,7 +38,7 @@ fn catalog() -> (UiPresentationRuntime, RuntimeEntityAssets) {
             durability: assets::item::durability::ItemDurability::Unresolved,
             armour: assets::item::armour::ItemArmour::Unresolved,
             key: assets::ItemVisualKey {
-                identifier: ITEM.into(),
+                identifier: item.into(),
                 metadata,
             },
             source,

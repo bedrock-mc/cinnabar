@@ -1,6 +1,7 @@
 use {super::*, ui::IconRef};
 
 mod cubes;
+mod short_models;
 
 #[test]
 fn source_atlas_keeps_original_pixels_and_deduplicates_sources() {
