@@ -8,8 +8,16 @@ content, so an identical resend leaves the cache unchanged. The in-memory cache 
 compressed under a byte budget and drops the least recently used first. All bounds live in
 `far_terrain::config`.
 
-Incomplete: summaries are not yet persisted, namespaced per server and world, or drawn. No
-parity gate closes here.
+Summaries persist under the user data root in 32×32-column region files, namespaced by a
+hashed server identity, the dimension and a hash of StartGame's seed, level ID and level name.
+Before reusing a namespace, the first non-empty columns received are compared with it; a
+mismatch starts a new epoch, so servers that reuse coordinates for different maps keep them
+apart. Transfers and dimension changes switch namespace. An IO thread writes each region in
+batches and evicts the least recently used regions past the per-server (64 MiB) and global
+(512 MiB) caps.
+
+Incomplete: summaries are not yet drawn, and nothing enables the cache until the Video setting
+lands. No parity gate closes here.
 
 ## Experimental Android client
 
