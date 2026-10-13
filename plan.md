@@ -426,8 +426,16 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   visual extension; classic Bedrock has no motion blur. Gameplay and network state do not change.
 - Depth reprojection blurs camera rotation/translation before nametags, projected UI, hands and HUD.
   Exposure uses elapsed frame time; explicit reanchors suppress the discontinuity frame.
-- Per-object blur remains incomplete and needs motion vectors from every world renderer.
-  Hardware GPU cost and frame-budget acceptance remain unmeasured; no performance gate closes.
+  Spatial anti-aliasing follows exposure so filtered silhouette colour retains the actor's sharp edge.
+- Depth-writing actors retain their previous rendered root and interpolated bone pose for object
+  exposure. Actor texels establish visible motion footprints in the background while
+  retaining stationary actor edges and nearer occluders. The motion pass preserves camera depth ranges.
+  Mixed MSAA texels with nearer non-actor samples retain their resolved colour at the source;
+  separating the actor's colour for exposure remains incomplete.
+- Per-object blur remains incomplete for blended actors and other world renderers. Hidden background
+  reconstruction, competing object velocities in a search neighbourhood, and matched flight acceptance
+  remain open. Enabled views retain a reduced actor velocity target. Hardware GPU cost and frame-budget
+  acceptance remain unmeasured; no performance gate closes.
 
 ## Item frames
 
@@ -806,6 +814,10 @@ acceptance gate.
   profile takes precedence for view bob, hurt/death motion and glint. Third person: Java's
   biped pose, body yaw, limb swing with the hurt flail, held-item grips, the cape's chasing
   swing and the sneak drops; armour flashes red, held items do not.
+- Local eating and bow draw pair gameplay use ticks with the physics frame fraction;
+  bow artwork reads the same counter. Regression coverage checks frames between ticks,
+  differing actor fractions, stopping use and retained items. Compilation, test execution
+  and rendered motion validation for this correction remain incomplete.
 - Every hurt event immediately resets the limb boost, including consecutive hits; movement
   still contributes to the phase, and death alone does not trigger a flail.
   Fourteen focused hurt tests pass. macOS/Metal captures at 1920×1080, DPI 1, GUI scale 2
@@ -8391,6 +8403,7 @@ performance parity remain incomplete.
 ## Compiled item armour
 
 - Protection and player slots live in the entity carrier; HUD capture reads numeric registry facts resolved at admission. Server wearable components replace protection without per-frame parsing.
+- Inventory quick moves use the pinned armour table and shared head identities. Loom banners, smithing inputs and horse armour accept negotiated item tags with pinned membership as a fallback. Registry resends retire pending quick moves whose input role changed. Custom head items follow their declared wearable slot. Request-target regression coverage uses the retail registry and admitted server declarations. Local execution and rendered acceptance remain incomplete.
 - Incomplete: the full armour identifier/class inventory, missing-member defaults, body slots and later component versions still need parity verification. Unverified items and malformed declarations retain explicit unresolved facts.
 
 Effective item durability is shared through required entity-carrier descriptors and session registry admission. Unknown entries and invalid declared maxima stay unresolved; UI and elytra gameplay read the admitted numeric-ID fact. This gate remains incomplete: the full damageable item inventory, native class bindings, numeric component bounds and all network replacement behavior still need verification. The pinned base table preserves the existing positive values and its coverage guard checks their membership in the independent retail inventory.
@@ -8510,6 +8523,10 @@ Incomplete parity: recipe eligibility and exact pattern-choice styling remain op
 
 ## Entity terrain occlusion and retained block-entity view culling
 
+- Remote player bodies containing the camera are rejected using interpolated, server-scaled
+  body bounds before model sampling and skin, cape, armor or glint preparation. The local
+  avatar keeps its perspective-owned visibility. This guard does not use the larger authored
+  visibility box. Native overlap behavior, rendered-frame and FPS acceptance remain incomplete.
 - Actor bodies and their shadow bounds use bounded, current-terrain exposed-face proofs after
   ordinary view admission. Name tags retain their independent publication. Unknown,
   dirty, unpublished, clipped, transparent or budget-exhausted terrain always draws.

@@ -765,7 +765,7 @@ struct ActorWitnessCase { normal: vec4<f32>, words: vec4<u32>, distance_multi: v
     out.back_uv = actor_witness.glint_uv.xy;
     out.tint = actor_witness.words.y;
     out.overlay = unpack4x8unorm(actor_witness.words.z);
-    out.uv_wrap = 0u;
+    out.skin_info.w = 0u;
     out.light = actor_witness.words.w;
     out.world_position = vec3(actor_witness.distance_multi.x, 0.0, 0.0);
     out.multitexture_layers = select(vec2(0xffffffffu), vec2(2u, 3u), bitcast<u32>(actor_witness.distance_multi.y) != 0u);

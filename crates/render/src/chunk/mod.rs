@@ -171,11 +171,13 @@ use gpu::types::{
     transparent_model_direct_draw_command,
 };
 #[allow(unused_imports)]
+use gpu::upload::model_validation::validate_partitioned_model_streams;
+#[allow(unused_imports)]
 use gpu::upload::{
     absolutize_model_lighting_bases, absolutize_partitioned_model_draw_refs,
     chunk_instance_upload_byte_len, liquid_quad_centroid, packed_lighting_records,
     packed_stream_range_matches, prepare_gpu_chunks, transparent_allocation_matches,
-    transparent_model_allocation_matches, validate_partitioned_model_streams,
+    transparent_model_allocation_matches,
 };
 #[allow(unused_imports)]
 use pipeline::commands::{

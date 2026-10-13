@@ -1,5 +1,6 @@
 //! Adapters that project runtime authority into OreUI's typed inputs and apply its outputs.
 
+use launcher::menu::settings_options::SettingId;
 use std::sync::Arc;
 
 use launcher::menu::{MenuAction, MenuScreen, MenuView};
@@ -45,7 +46,7 @@ impl UiPresentationRuntime {
         let progress = view.connecting || view.local.progress.is_some();
         let screen = view.screen;
         self.menu_scrolls.configure_motion(
-            view.settings_options.value("screen_animations") != 0,
+            view.settings_options.value(SettingId::ScreenAnimations) != 0,
             self.menu_seconds,
         );
         let title_artwork = if screen == MenuScreen::Home && !progress {

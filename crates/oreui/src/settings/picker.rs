@@ -44,7 +44,7 @@ pub(super) fn draw(
             |text| text.to_string(),
         )
     };
-    let title = word(sections::option_label(option.name, option.label));
+    let title = word(option.oreui_label.unwrap_or(option.label));
     let visible: Vec<_> = (0..choices.len())
         .filter(|choice| view.setting_choice_visible(option, *choice))
         .collect();
