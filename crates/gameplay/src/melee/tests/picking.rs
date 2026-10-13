@@ -282,3 +282,39 @@ fn pick_distance_uses_the_rounded_world_intercept() {
             .sqrt(),
     );
 }
+
+#[test]
+fn distinct_squared_distances_keep_the_nearer_actor_when_roots_tie() {
+    let actors = [
+        actor(2, "minecraft:pig", [0.0; 3], None),
+        actor(1, "minecraft:pig", [0.0; 3], None),
+    ];
+    let origin = [0.0, 8192.0, 0.0];
+    let boxes = |actor: &ActorSnapshot| {
+        let offset = if actor.runtime_id == 1 { 2 } else { 3 };
+        let x = f32::from_bits(2.1_f32.to_bits() + offset);
+        [([x, 8193.0, -0.5], [3.0, 8195.0, 0.5])]
+    };
+    let far = pick_actor_by(
+        actors[..1].iter(),
+        boxes,
+        None,
+        origin,
+        [1.0, 1.0, 0.0],
+        5.0,
+    )
+    .unwrap();
+    let near = pick_actor_by(
+        actors[1..].iter(),
+        boxes,
+        None,
+        origin,
+        [1.0, 1.0, 0.0],
+        5.0,
+    )
+    .unwrap();
+    assert!(near.point[0] < far.point[0]);
+    assert_eq!(near.distance, far.distance);
+    let hit = pick_actor_by(actors.iter(), boxes, None, origin, [1.0, 1.0, 0.0], 5.0).unwrap();
+    assert_eq!(hit.runtime_id, near.runtime_id);
+}
