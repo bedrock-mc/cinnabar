@@ -6,9 +6,11 @@ import (
 	"errors"
 	"net"
 	"time"
+
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 )
 
-const methodRealmMembership = "realm_membership.v1"
+const methodRealmMembership = bridgecontract.MethodRealmMembership
 
 var errMembershipUnavailable = errors.New("control: Realm membership unavailable")
 
@@ -57,5 +59,5 @@ func (server *Server) serveRealmMembership(conn net.Conn, raw json.RawMessage, s
 		SchemaVersion uint32 `json:"schema_version"`
 		Code          string `json:"code"`
 		Realm         Realm  `json:"realm"`
-	}{SchemaVersion: 1, Code: code, Realm: realm}, nil
+	}{SchemaVersion: bridgecontract.ControlSchemaVersion, Code: code, Realm: realm}, nil
 }

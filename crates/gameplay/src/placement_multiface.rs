@@ -14,9 +14,9 @@ const OTHER_FACES: [[usize; 5]; 6] = [
     [1, 0, 2, 3, 4],
 ];
 
-/// Recognizes the vanilla blocks that use the six-face attachment mask.
-pub(crate) fn is_multiface(identifier: &str) -> bool {
-    matches!(identifier, "minecraft:glow_lichen" | "minecraft:sculk_vein")
+/// Recognizes states that declare the six-face attachment mask.
+pub(crate) fn is_multiface(states: &Map<String, Value>) -> bool {
+    states.contains_key("multi_face_direction_bits")
 }
 
 /// Resolves a first attachment in air; unknown fallback supports defer placement.
@@ -62,10 +62,27 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// Supplies a typed held state whose mask must not leak into first placement.
+    /// Supplies a registered held mask that must not leak into first placement.
     fn canonical() -> Map<String, Value> {
-        serde_json::from_value(json!({"multi_face_direction_bits":{"type":"int","value":63}}))
-            .unwrap()
+        static STATE: std::sync::OnceLock<Map<String, Value>> = std::sync::OnceLock::new();
+        STATE
+            .get_or_init(|| {
+                assets::read_registry_for_protocol(
+                    assets::pinned_block_registry_bytes(),
+                    assets::active_content_registry_protocol(),
+                )
+                .unwrap()
+                .iter()
+                .filter(|record| record.name.as_ref() == "minecraft:glow_lichen")
+                .find_map(|record| {
+                    let state: Map<String, Value> =
+                        serde_json::from_str(&record.canonical_state).unwrap();
+                    (value(&state, "multi_face_direction_bits") == Some(&json!(63)))
+                        .then_some(state)
+                })
+                .expect("registered glow lichen with all six attachments")
+            })
+            .clone()
     }
 
     #[test]

@@ -8,21 +8,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/df-mc/go-xsapi/v2"
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
 	"github.com/sandertv/gophertunnel/minecraft/service"
 	"golang.org/x/oauth2"
-	"net/http"
-	"sync"
 )
 
 // File is the small JSON contract consumed by the Rust launcher.
@@ -229,7 +230,7 @@ func listRealms(ctx context.Context, client *realms.Client) ([]Realm, error) {
 }
 
 // GatheringTargetPrefix marks a catalog address as an experience ID joined at connect time.
-const GatheringTargetPrefix = "gathering/"
+const GatheringTargetPrefix = bridgecontract.GatheringTargetPrefix
 
 // errNoAccount is returned when a call needs the signed-in account and there is none.
 var errNoAccount = errors.New("catalog: no signed-in account")

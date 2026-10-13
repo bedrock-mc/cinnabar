@@ -42,7 +42,7 @@ pub async fn packet_delay_with_position(
 ) -> Result<PacketDelayLease, BridgeError> {
     crate::account::call(
         socket_dir,
-        "packet_delay.v1",
+        crate::contract::METHOD_PACKET_DELAY,
         Some(Request {
             delay_ms,
             show_real_position,
