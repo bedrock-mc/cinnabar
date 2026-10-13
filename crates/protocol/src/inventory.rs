@@ -44,8 +44,8 @@ pub use address::{
     personal_craft_slot_index, project_container_cell,
 };
 pub use client_packets::{
-    BookEdit, MAX_BOOK_PAGE_BYTES, block_pick_request_packet, book_edit_packet,
-    crafter_slot_toggle_packet, lectern_update_packet,
+    BookEdit, MAX_BOOK_PAGE_BYTES, actor_pick_request_packet, block_pick_request_packet,
+    book_edit_packet, crafter_slot_toggle_packet, lectern_update_packet,
 };
 pub(crate) use raw_scan::validate_raw_inventory_packet;
 pub use request::mining::{MineBlockRequest, MineBlockRequestError};

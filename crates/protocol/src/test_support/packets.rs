@@ -219,6 +219,26 @@ pub fn move_actor_absolute_event(
     into_world_event(crate::Packet::new(packet), 0)
 }
 
+/// Normalizes a dedicated AddPainting packet without exposing vendor types to fixture consumers.
+pub fn add_painting_event(
+    unique_id: i64,
+    runtime_id: u64,
+    motive: &str,
+    direction: i32,
+    position: [f32; 3],
+) -> Result<Option<WorldEvent>, WorldPacketError> {
+    into_world_event(
+        crate::Packet::new(bedrock_protocol_1_26_51::packets::AddPainting {
+            target_actor_id: ActorUniqueID(unique_id),
+            target_runtime_id: ActorRuntimeID(runtime_id),
+            position: position.into(),
+            direction: wire::ZigZag32(direction),
+            motif: motive.into(),
+        }),
+        0,
+    )
+}
+
 /// Normalizes an AddActor spawning `identifier` with short-typed `metadata`, in dimension 0.
 pub fn add_actor_event(
     unique_id: i64,

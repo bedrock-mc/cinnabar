@@ -97,6 +97,9 @@ pub(super) fn sample<'a>(
                     let Some(actor) = stream.authority().actor(rig.actor.runtime_id) else {
                         continue;
                     };
+                    if actor.painting.is_some() {
+                        continue;
+                    }
                     let mut sample_scale = |rig| {
                         render_frame
                             .as_mut()

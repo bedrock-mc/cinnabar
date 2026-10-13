@@ -32,6 +32,8 @@ mod native_bind_pose;
 mod native_dragon_geometry;
 mod native_held_items;
 mod pack;
+mod painting;
+mod policy_sources;
 mod sanitize;
 mod vanilla_refs;
 mod versions;
@@ -46,7 +48,7 @@ pub use pack::{
 use collect::{collect_family, collect_optional_family, collect_optional_file};
 use geometry::parse_geometry;
 use pack_compile_input::json::parse_fully_unique_json;
-use pack_compile_input::json::{parse_semantic_json, parse_unique_json};
+use pack_compile_input::json::{parse_semantic_json, parse_unique_json, validate_root_fields};
 use pack_compile_input::source::read_bounded_source;
 use pack_compile_input::source::validate_source_manifest;
 
@@ -158,6 +160,12 @@ fn compile_with_behavior(
     )?;
     collect_optional_family(
         root,
+        "textures/painting",
+        &["json", "png", "tga"],
+        &mut selected,
+    )?;
+    collect_optional_family(
+        root,
         "textures/items",
         &["json", "png", "tga"],
         &mut selected,
@@ -243,6 +251,14 @@ fn compile_with_behavior(
         &mut source_payloads,
         &mut symbols,
         &mut geometries,
+    )?;
+    total_source_bytes += painting::complete_bindings(
+        root,
+        &mut sources,
+        &mut source_payloads,
+        &mut symbols,
+        &mut geometries,
+        None,
     )?;
     total_source_bytes = total_source_bytes
         .checked_add(native_binding_bytes)
@@ -337,19 +353,8 @@ fn assemble(
     source_manifest_sha256: [u8; 32],
     include_items: bool,
 ) -> Result<EntityAssetCompilation, AssetError> {
-    sources.push(EntityAssetSource {
-        path: assets::placement::SOURCE_PATH.into(),
-        source_bytes: assets::placement::SOURCE_BYTES.len() as u32,
-        source_sha256: Sha256::digest(assets::placement::SOURCE_BYTES).into(),
-    });
+    sources.extend(policy_sources::records());
     mount::admit(&mut sources, include_items);
-    sources.sort_by(|left, right| left.path.cmp(&right.path));
-    let (length, hash) = assets::interactions::source_identity();
-    sources.push(EntityAssetSource {
-        path: assets::interactions::SOURCE_PATH.into(),
-        source_bytes: length,
-        source_sha256: hash,
-    });
     sources.sort_by(|left, right| left.path.cmp(&right.path));
     if symbols.len() > MAX_ENTITY_ASSET_SYMBOLS {
         return Err(invalid("entity asset symbol count exceeds bound"));
@@ -951,28 +956,6 @@ fn insert_symbol(
     }
     if symbols.len() > MAX_ENTITY_ASSET_SYMBOLS {
         return Err(invalid("entity asset symbol count exceeds bound"));
-    }
-    Ok(())
-}
-
-fn validate_root_fields(
-    value: &Value,
-    path: &Path,
-    allowed: &[&str],
-    required: &[&str],
-) -> Result<(), AssetError> {
-    let object = value
-        .as_object()
-        .ok_or_else(|| invalid(format!("JSON root must be an object in {}", path.display())))?;
-    if object
-        .keys()
-        .any(|field| !allowed.contains(&field.as_str()))
-        || required.iter().any(|field| !object.contains_key(*field))
-    {
-        return Err(invalid(format!(
-            "unknown or missing entity family root field in {}",
-            path.display()
-        )));
     }
     Ok(())
 }

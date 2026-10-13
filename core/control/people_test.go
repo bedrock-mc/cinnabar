@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -11,6 +12,58 @@ import (
 type stubPeople struct {
 	stubServices
 	people []Person
+}
+
+func TestFriendsPeopleSerializedBoundaries(t *testing.T) {
+	const id = ^uint64(0)
+	first := Person{XUID: "1", Gamertag: "first", Online: true}
+	boundary := []Person{first, {XUID: "2", Gamertag: "last", Gamerpic: Image{URL: "x"}}}
+	encoded, err := json.Marshal(peopleResultV1{SchemaVersion: 1, Friends: boundary})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Fill the result budget using actual JSON sizes, including the optional URL field.
+	boundary[1].Gamerpic.URL = strings.Repeat("x", frameBudget-len(encoded)+1)
+	overBoundary := append([]Person{}, boundary...)
+	overBoundary[1].Gamerpic.URL += "x"
+	oversized := Person{XUID: "3", Gamertag: strings.Repeat("<\"\\", MaxFrameLen)}
+	for _, tc := range []struct {
+		name   string
+		people []Person
+		want   []Person
+	}{
+		{name: "nil", want: []Person{}},
+		{name: "empty", people: []Person{}, want: []Person{}},
+		{name: "at result budget", people: boundary, want: boundary},
+		{name: "one byte over result budget", people: overBoundary, want: []Person{first}},
+		{name: "oversized only friend", people: []Person{oversized}, want: []Person{}},
+		{name: "escaped oversized trailing friend", people: []Person{first, oversized}, want: []Person{first}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := startServices(t, NewStore(), &stubPeople{people: tc.people})
+			raw := exchange(t, dir, []byte(fmt.Sprintf(
+				`{"jsonrpc":"2.0","id":%d,"method":%q}`, id, methodFriendsPeople)))
+			if len(raw) > MaxFrameLen {
+				t.Fatalf("reply with envelope = %d bytes", len(raw))
+			}
+			var reply struct {
+				JSONRPC string         `json:"jsonrpc"`
+				ID      uint64         `json:"id"`
+				Result  peopleResultV1 `json:"result"`
+				Error   *responseError `json:"error"`
+			}
+			if err := json.Unmarshal(raw, &reply); err != nil {
+				t.Fatal(err)
+			}
+			if reply.JSONRPC != "2.0" || reply.ID != id || reply.Error != nil || reply.Result.SchemaVersion != 1 {
+				t.Fatalf("invalid reply envelope: version %q, id %d, error %+v, schema %d",
+					reply.JSONRPC, reply.ID, reply.Error, reply.Result.SchemaVersion)
+			}
+			if !reflect.DeepEqual(reply.Result.Friends, tc.want) {
+				t.Fatalf("kept %d friends, want %d with their original values", len(reply.Result.Friends), len(tc.want))
+			}
+		})
+	}
 }
 
 func (s *stubPeople) People(context.Context) ([]Person, error) { return s.people, s.err }
