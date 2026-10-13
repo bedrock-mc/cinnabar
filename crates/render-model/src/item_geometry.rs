@@ -303,6 +303,81 @@ mod tests {
         vec![255; width * height * 4]
     }
 
+    /// Scales an original eight-cell silhouette with a hole and one-cell-wide protrusions.
+    fn resolution_fixture(width: usize, height: usize) -> Vec<u8> {
+        (0..height)
+            .flat_map(|row| {
+                (0..width).flat_map(move |column| {
+                    let (x, y) = (column * 8 / width, row * 8 / height);
+                    let solid = ((1..7).contains(&x)
+                        && (1..7).contains(&y)
+                        && !((3..5).contains(&x) && (3..5).contains(&y)))
+                        || (x == y);
+                    [29, 173, 211, if solid { 255 } else { 0 }]
+                })
+            })
+            .collect()
+    }
+
+    /// Measures total outward side area by axis, including walls inside transparent holes.
+    fn side_areas(vertices: &[crate::ActorRigVertex]) -> [f32; 2] {
+        let mut areas = [0.0; 2];
+        for triangle in vertices.as_chunks::<3>().0 {
+            let normal = triangle[0].normal;
+            if normal[2] != 0.0 {
+                continue;
+            }
+            let [a, b, c] = [0, 1, 2].map(|index| triangle[index].position);
+            let axis = usize::from(normal[0] == 0.0);
+            let along = 1 - axis;
+            areas[axis] += ((b[along] - a[along]) * (c[2] - a[2])
+                - (c[along] - a[along]) * (b[2] - a[2]))
+                .abs()
+                * 0.5;
+        }
+        areas
+    }
+
+    #[test]
+    fn held_sprite_depth_and_contour_do_not_change_with_pack_resolution() {
+        let region = [0.25, 0.5, 0.5, 0.75];
+        for rectangular in [false, true] {
+            let mut reference_areas = None;
+            for side in [8, 16, 32, 64] {
+                let height = if rectangular { side / 2 } else { side };
+                let pixels = resolution_fixture(side, height);
+                let vertices = held_sprite_vertices(side, height, &pixels, region).unwrap();
+                let (mut min, mut max) = ([f32::MAX; 3], [f32::MIN; 3]);
+                for vertex in &vertices {
+                    for axis in 0..3 {
+                        min[axis] = min[axis].min(vertex.position[axis]);
+                        max[axis] = max[axis].max(vertex.position[axis]);
+                    }
+                    if vertex.normal[2] == 0.0 {
+                        let [u, v] = std::array::from_fn(|axis| {
+                            (vertex.uv[axis] - region[axis]) / (region[axis + 2] - region[axis])
+                        });
+                        let column = (u * side as f32).floor() as usize;
+                        let row = (v * height as f32).floor() as usize;
+                        assert_eq!(pixels[(row * side + column) * 4 + 3], 255);
+                        assert_eq!(vertex.uv, vertex.back_uv);
+                    }
+                    assert_eq!(vertex.glint_origin, [region[0], region[1]]);
+                }
+                assert_eq!(min, [-1.0, 0.0, -1.0 / 16.0], "resolution {side}x{height}");
+                assert_eq!(max, [0.0, height as f32 / side as f32, 0.0]);
+                let areas = side_areas(&vertices);
+                let reference = *reference_areas.get_or_insert(areas);
+                for (actual, expected) in areas.into_iter().zip(reference) {
+                    assert!(
+                        (actual - expected).abs() < 1e-6,
+                        "resolution {side}x{height}"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn opaque_slab_has_two_faces_and_only_outer_edges() {
         let single = extruded_sprite_vertices(1, 1, &opaque(1, 1), FULL).unwrap();
