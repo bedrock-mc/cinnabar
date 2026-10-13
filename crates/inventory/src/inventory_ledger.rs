@@ -70,7 +70,7 @@ use personal::PersonalWindow;
 pub use queue::MAX_PENDING_REQUESTS;
 use queue::PendingRequest;
 pub use response::StackResponseOverlay;
-pub use screen_actions::ScreenCraft;
+pub use screen_actions::{ANVIL_MATERIAL_SLOT, ANVIL_TARGET_SLOT, ScreenCraft};
 use settling::SettlingWindow;
 
 use helpers::valid_raw_window_id;

@@ -1,5 +1,6 @@
 //! Client presentation state and commands, with player authority borrowed from its owner.
 
+pub mod anvil;
 pub mod bed;
 pub mod book_screen;
 mod boss;

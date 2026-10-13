@@ -420,6 +420,21 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - Exact texture rotation/crop parity remains incomplete; the models retain provisional support
   until a matching native directional gallery verifies texel orientation. No parity gate closes.
 
+## Anvil screen
+
+- The anvil predicts its result and cost as the 1.26.10 client does: repair materials restore a
+  quarter of the durability each for a level each, a second damaged copy adds its remaining
+  durability plus 12% for two levels, and enchantments merge by the native registry's slots,
+  caps, rarity multipliers and exclusivity. A second item that changes nothing clears the
+  result; renaming adds a level, and a rename alone stays below 40 levels and keeps the
+  prior-work penalty, which other takes double plus one.
+- The name box prefills from each new target. The result slot shows the prediction, the cost
+  line turns green or red by the player's levels or shows "Too Expensive!", and the cross
+  marks a target that makes nothing. Taking sends the predicted result and consumes the
+  materials it uses.
+- Provisional: repair materials and item enchantment slots follow vanilla item names rather
+  than each item's native registration, and data-driven anvil recipes are not predicted.
+
 ## OreUI menus, appearance and motion
 
 - Home, Pause, Play, Inbox, world creation, Accounts and confirmation dialogs use shared OreUI

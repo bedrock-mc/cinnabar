@@ -112,10 +112,17 @@ pub(super) fn screen_outputs(
                 }
             }
         }
-        if runtime
+        let no_server_output = runtime
             .inventory_ledger(player_runtime)
             .created_output_stack()
-            .is_none()
+            .is_none();
+        if kind == protocol::WindowKind::Anvil
+            && no_server_output
+            && let Some(preview) = runtime.anvil_preview(player_runtime)
+        {
+            let icon = items.icon(&preview.stack, None);
+            window_icons.recipe_output = Some((icon, preview.stack));
+        } else if no_server_output
             && let Some(output) = runtime.predicted_screen_output(player_runtime)
         {
             let stack = output_stack(output);

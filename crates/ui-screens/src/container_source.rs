@@ -45,6 +45,8 @@ pub struct ScreenView<'a> {
     /// Admitted equipment facts of the open mount.
     pub mount_equipment: MountEquipment,
     pub anvil_name: &'a str,
+    /// The open anvil's cost line, when its inputs make a result.
+    pub anvil_cost: Option<AnvilCost>,
     /// The stonecutter recipe the player picked.
     pub recipe_choice: Option<u32>,
     /// Chosen beacon effects; `0` means none.
@@ -70,6 +72,17 @@ pub struct ScreenView<'a> {
     pub text_focused: bool,
     /// The book, sign-off or lectern reader being shown.
     pub book: Option<BookView<'a>>,
+}
+
+/// What taking the open anvil's predicted result costs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AnvilCost {
+    /// Experience levels.
+    pub levels: i32,
+    /// Survival players cannot take it at any level count.
+    pub too_expensive: bool,
+    /// The player can take it now.
+    pub affordable: bool,
 }
 
 /// A book reader or editor's state, borrowed from the client's book state.

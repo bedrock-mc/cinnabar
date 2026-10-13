@@ -34,6 +34,8 @@ pub struct ScreenState {
     pub loom_row: usize,
     pub anvil_name: String,
     pub anvil_focused: bool,
+    /// The anvil target the name box was last filled from: its item and data digest.
+    pub anvil_target: Option<(i32, [u8; 32])>,
     /// The beacon's pyramid level, from its block entity.
     pub beacon_level: Option<u8>,
     pub crafter: CrafterView,
@@ -114,6 +116,7 @@ impl ScreenState {
             self.loom_row = 0;
             self.anvil_name.clear();
             self.anvil_focused = false;
+            self.anvil_target = None;
             self.beacon_level = None;
             self.crafter = CrafterView::default();
             self.mount_identifier = None;

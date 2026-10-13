@@ -88,55 +88,6 @@ fn potion_effect_lines(
     })
 }
 
-/// The language key suffix of an enchantment id, in protocol order.
-const fn enchantment_key(id: i16) -> Option<&'static str> {
-    Some(match id {
-        0 => "protect.all",
-        1 => "protect.fire",
-        2 => "protect.fall",
-        3 => "protect.explosion",
-        4 => "protect.projectile",
-        5 => "thorns",
-        6 => "oxygen",
-        7 => "waterWalker",
-        8 => "waterWorker",
-        9 => "damage.all",
-        10 => "damage.undead",
-        11 => "damage.arthropods",
-        12 => "knockback",
-        13 => "fire",
-        14 => "lootBonus",
-        15 => "digging",
-        16 => "untouching",
-        17 => "durability",
-        18 => "lootBonusDigger",
-        19 => "arrowDamage",
-        20 => "arrowKnockback",
-        21 => "arrowFire",
-        22 => "arrowInfinite",
-        23 => "lootBonusFishing",
-        24 => "fishingSpeed",
-        25 => "frostwalker",
-        26 => "mending",
-        27 => "curse.binding",
-        28 => "curse.vanishing",
-        29 => "tridentImpaling",
-        30 => "tridentRiptide",
-        31 => "tridentLoyalty",
-        32 => "tridentChanneling",
-        33 => "crossbowMultishot",
-        34 => "crossbowPiercing",
-        35 => "crossbowQuickCharge",
-        36 => "soul_speed",
-        37 => "swift_sneak",
-        38 => "wind_burst",
-        39 => "density",
-        40 => "breach",
-        41 => "lunge",
-        _ => return None,
-    })
-}
-
 fn level_text(runtime: &UiRuntime, level: u8) -> String {
     runtime
         .translation(&format!("enchantment.level.{level}"))
@@ -145,7 +96,8 @@ fn level_text(runtime: &UiRuntime, level: u8) -> String {
 
 /// An enchantment's localized name and level numeral (`Sharpness II`).
 pub(super) fn enchantment_name(runtime: &UiRuntime, id: i16, level: u8) -> String {
-    let label = enchantment_key(id)
+    let label = inventory::enchantments::enchantment(id)
+        .map(|enchantment| enchantment.lang_key)
         .and_then(|key| runtime.translation(&format!("enchantment.{key}")))
         .map_or_else(|| format!("Enchantment {id}"), |text| text.to_string());
     format!("{label} {}", level_text(runtime, level))
@@ -234,15 +186,4 @@ pub(super) fn tooltip_lines(
         color: LORE_COLOR,
     }));
     lines
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_protocol_enchantment_has_a_key() {
-        assert!((0..=41).all(|id| enchantment_key(id).is_some()));
-        assert!(enchantment_key(42).is_none());
-    }
 }
