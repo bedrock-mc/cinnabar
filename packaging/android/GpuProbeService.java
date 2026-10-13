@@ -49,7 +49,7 @@ public final class GpuProbeService extends Service {
                 try { result = execute(arguments, surface); }
                 finally { surface.release(); texture.release(); }
             } catch (Throwable error) {
-                result = "{\"verdict\":\"failed\",\"stdout\":\"\"}";
+                result = "{\"verdict\":\"inconclusive\",\"stdout\":\"\"}";
             }
             final String output = result;
             main.post(() -> finishProbe(callback, output));

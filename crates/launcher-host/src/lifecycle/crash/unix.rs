@@ -7,7 +7,7 @@ use std::{
     sync::atomic::{AtomicBool, AtomicPtr, Ordering},
 };
 
-const SIGNALS: [i32; 5] = [
+pub(crate) const SIGNALS: [i32; 5] = [
     libc::SIGSEGV,
     libc::SIGBUS,
     libc::SIGILL,
@@ -59,14 +59,16 @@ pub(super) fn install(layout: &InstallLayout) {
         }
     }
     update(super::renderer_context(&layout.user_data_root).as_ref());
+    let previous = capture.previous;
     CAPTURE.store(Box::into_raw(capture), Ordering::Release);
-    for signal in SIGNALS {
+    for (signal, saved) in SIGNALS.into_iter().zip(previous) {
         // SAFETY: All fields are set for the three-argument signal callback.
         let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
         action.sa_sigaction = unhandled as *const () as libc::sighandler_t;
-        action.sa_flags = libc::SA_SIGINFO;
+        action.sa_flags = libc::SA_SIGINFO
+            | (saved.sa_flags & (libc::SA_ONSTACK | libc::SA_NODEFER | libc::SA_RESTART));
+        action.sa_mask = saved.sa_mask;
         unsafe {
-            libc::sigfillset(&mut action.sa_mask);
             libc::sigaction(signal, &action, std::ptr::null_mut());
         }
     }
@@ -84,11 +86,11 @@ pub(crate) fn update(attempt: Option<&Attempt>) {
     METADATA.store(Box::into_raw(Box::new(bytes)), Ordering::Release);
 }
 
-/// Writes without allocation, locks, unwinding, Rust I/O or driver calls, then re-delivers the signal.
+/// Writes without allocation or locks, then forwards the original fault to the saved handler.
 unsafe extern "C" fn unhandled(
     signal: i32,
     info: *mut libc::siginfo_t,
-    _context: *mut libc::c_void,
+    context: *mut libc::c_void,
 ) {
     let capture = CAPTURE.load(Ordering::Acquire);
     if capture.is_null() {
@@ -143,10 +145,69 @@ unsafe extern "C" fn unhandled(
         }
     }
     if let Some(index) = SIGNALS.iter().position(|candidate| *candidate == signal) {
-        // SAFETY: Restore the saved action and let normal OS/runtime crash handling receive the signal.
+        // SAFETY: The saved action and the kernel-supplied fault pointers remain valid here.
         unsafe {
-            libc::sigaction(signal, &capture.previous[index], std::ptr::null_mut());
-            libc::raise(signal);
+            forward(signal, info, context, &capture.previous[index]);
+        }
+    }
+}
+
+/// Calls a saved handler with the original fault, or lets a hardware instruction fault again.
+unsafe fn forward(
+    signal: i32,
+    info: *mut libc::siginfo_t,
+    context: *mut libc::c_void,
+    previous: &libc::sigaction,
+) {
+    let handler = previous.sa_sigaction;
+    // SAFETY: Restore the disposition before returning or invoking a saved handler.
+    unsafe {
+        libc::sigaction(signal, previous, std::ptr::null_mut());
+    }
+    if handler == libc::SIG_IGN {
+        return;
+    }
+    if handler == libc::SIG_DFL {
+        let code = if info.is_null() {
+            0
+        } else {
+            unsafe { (*info).si_code }
+        };
+        // BSD reserves the high 16 bits for sender codes; Linux uses nonpositive sender codes.
+        let hardware = code > 0
+            && code < 0x10000
+            && matches!(
+                signal,
+                libc::SIGSEGV | libc::SIGBUS | libc::SIGILL | libc::SIGFPE
+            );
+        if !hardware {
+            // SAFETY: Software signals have no faulting instruction to repeat after this return.
+            unsafe {
+                libc::raise(signal);
+            }
+        }
+        return;
+    }
+    if previous.sa_flags & libc::SA_RESETHAND != 0 {
+        // SAFETY: A one-shot saved handler must have the default disposition while it runs.
+        let mut reset: libc::sigaction = unsafe { std::mem::zeroed() };
+        reset.sa_sigaction = libc::SIG_DFL;
+        unsafe {
+            libc::sigaction(signal, &reset, std::ptr::null_mut());
+        }
+    }
+    if previous.sa_flags & libc::SA_SIGINFO != 0 {
+        // SAFETY: SA_SIGINFO selects the three-argument C callback stored in the action.
+        let callback: unsafe extern "C" fn(i32, *mut libc::siginfo_t, *mut libc::c_void) =
+            unsafe { std::mem::transmute(handler) };
+        unsafe {
+            callback(signal, info, context);
+        }
+    } else {
+        // SAFETY: Without SA_SIGINFO the saved action holds a one-argument C callback.
+        let callback: unsafe extern "C" fn(i32) = unsafe { std::mem::transmute(handler) };
+        unsafe {
+            callback(signal);
         }
     }
 }
@@ -195,6 +256,24 @@ impl Buffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    static FAULT_ADDRESS: AtomicPtr<libc::c_void> = AtomicPtr::new(std::ptr::null_mut());
+
+    /// Checks that chaining retains the kernel's fault address, cause and machine context.
+    unsafe extern "C" fn previous_siginfo_handler(
+        signal: i32,
+        info: *mut libc::siginfo_t,
+        context: *mut libc::c_void,
+    ) {
+        let original = signal == libc::SIGSEGV
+            && !info.is_null()
+            && !context.is_null()
+            && unsafe {
+                (*info).si_code > 0 && (*info).si_addr() == FAULT_ADDRESS.load(Ordering::Relaxed)
+            };
+        unsafe {
+            libc::_exit(if original { 77 } else { 78 });
+        }
+    }
     /// Exits through the handler installed before capture, proving it remains in control.
     unsafe extern "C" fn previous_handler(_signal: i32) {
         unsafe {
@@ -209,6 +288,13 @@ mod tests {
         };
         let mut layout = launcher::test_support::checkout();
         layout.user_data_root = std::path::PathBuf::from(root);
+        let hardware = std::env::var_os("CINNABAR_SIGNAL_HARDWARE").is_some();
+        let software_fault = std::env::var_os("CINNABAR_SIGNAL_SOFTWARE_FAULT").is_some();
+        let signal = if hardware || software_fault {
+            libc::SIGSEGV
+        } else {
+            libc::SIGABRT
+        };
         // SAFETY: This test runs in a disposable subprocess; disable core files and install its handler.
         unsafe {
             let limit = libc::rlimit {
@@ -217,10 +303,17 @@ mod tests {
             };
             libc::setrlimit(libc::RLIMIT_CORE, &limit);
             if std::env::var_os("CINNABAR_SIGNAL_CHAIN").is_some() {
-                libc::signal(
-                    libc::SIGABRT,
-                    previous_handler as *const () as libc::sighandler_t,
-                );
+                if hardware {
+                    let mut action: libc::sigaction = std::mem::zeroed();
+                    action.sa_sigaction =
+                        previous_siginfo_handler as *const () as libc::sighandler_t;
+                    action.sa_flags = libc::SA_SIGINFO;
+                    libc::sigaction(libc::SIGSEGV, &action, std::ptr::null_mut());
+                } else {
+                    libc::signal(signal, previous_handler as *const () as libc::sighandler_t);
+                }
+            } else {
+                libc::signal(signal, libc::SIG_DFL);
             }
         }
         install(&layout);
@@ -232,7 +325,23 @@ mod tests {
         };
         update(Some(&attempt));
         unsafe {
-            libc::raise(libc::SIGABRT);
+            if hardware {
+                let page_size = libc::sysconf(libc::_SC_PAGESIZE);
+                assert!(page_size > 0);
+                let address = libc::mmap(
+                    std::ptr::null_mut(),
+                    page_size as usize,
+                    libc::PROT_NONE,
+                    libc::MAP_PRIVATE | libc::MAP_ANON,
+                    -1,
+                    0,
+                );
+                assert_ne!(address, libc::MAP_FAILED);
+                FAULT_ADDRESS.store(address, Ordering::Relaxed);
+                std::ptr::read_volatile(address.cast::<u8>());
+            } else {
+                libc::raise(signal);
+            }
         }
         panic!("fatal signal unexpectedly returned");
     }
@@ -240,7 +349,13 @@ mod tests {
     #[test]
     fn unix_signal_capture_records_context_and_preserves_previous_handling() {
         use std::{os::unix::process::ExitStatusExt, process::Command};
-        for chain in [false, true] {
+        for (chain, hardware, software_fault) in [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (true, true, false),
+            (false, false, true),
+        ] {
             let directory = tempfile::tempdir().unwrap();
             let mut command = Command::new(std::env::current_exe().unwrap());
             command
@@ -253,6 +368,17 @@ mod tests {
             if chain {
                 command.env("CINNABAR_SIGNAL_CHAIN", "1");
             }
+            if hardware {
+                command.env("CINNABAR_SIGNAL_HARDWARE", "1");
+            }
+            if software_fault {
+                command.env("CINNABAR_SIGNAL_SOFTWARE_FAULT", "1");
+            }
+            let signal = if hardware || software_fault {
+                libc::SIGSEGV
+            } else {
+                libc::SIGABRT
+            };
             let mut child = command.spawn().unwrap();
             let mut status = None;
             let complete = test_time::wait_until(test_time::DEFAULT_TIMEOUT, || {
@@ -268,13 +394,17 @@ mod tests {
             if chain {
                 assert_eq!(status.code(), Some(77));
             } else {
-                assert_eq!(status.signal(), Some(libc::SIGABRT));
+                assert_eq!(status.signal(), Some(signal));
             }
             let reports = super::super::reports(&directory.path().join("crashes"));
             assert_eq!(reports.len(), 1);
             let report: serde_json::Value =
                 serde_json::from_slice(&std::fs::read(&reports[0]).unwrap()).unwrap();
-            assert_eq!(report["signal"], libc::SIGABRT);
+            assert_eq!(report["signal"], signal);
+            if hardware {
+                assert!(report["signal_code"].as_i64().unwrap() > 0);
+                assert!(report["fault_address"].as_u64().unwrap() > 0);
+            }
             assert_eq!(report["renderer"]["stage"], "creating_device");
             assert_eq!(report["source"], "native");
         }

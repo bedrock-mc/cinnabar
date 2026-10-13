@@ -394,13 +394,19 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - Precedence is `WGPU_BACKEND`, the restart-only Video override, a cached probe verdict,
   the platform/vendor default, then the startup sentinel as a final fallback filter.
   Explicit overrides bypass automatic exclusions. The Video control is hidden on macOS.
-- Isolated inventory and presentation helpers do not load assets or start a Bevy app.
-  Presentation probes have a five-second deadline and durable driver-specific verdicts;
-  adapter or driver changes invalidate the cache. Android runs the same Rust probe in
-  a private service process. GL/GLES still must satisfy the renderer's device requirements.
+- Isolated desktop inventory and presentation helpers do not load assets or start a Bevy app.
+  Presentation probes have a five-second deadline. Only completed presentations and native
+  crashes persist driver verdicts; surface errors and timeouts remain retryable. Adapter or
+  driver changes invalidate the cache. A lone backend runs directly, and Android uses the
+  blocklist and sentinel fallback without synchronous lifecycle-blocking probes. GL/GLES
+  still must satisfy the renderer's device requirements.
 - The driver blocklist has one data source and bounded numeric version rules. Older Windows
   Intel integrated Vulkan drivers prefer DX12. Native Windows exception capture and Unix
   fatal-signal capture retain local renderer context and normal OS crash handling.
+- Startup recovery files have an exclusive OS lease through the first completed frame;
+  sentinels include PID and process start time. Saved Unix handlers receive the original
+  signal information and machine context. Default hardware faults repeat their original
+  instruction after restoring the default action.
 - Target-device crash reproduction, Android service runtime acceptance, GL/GLES presentation
   and Video screenshots remain incomplete. This work closes no parity or performance gate.
 

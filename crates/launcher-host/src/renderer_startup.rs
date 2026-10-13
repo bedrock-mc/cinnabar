@@ -11,7 +11,18 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use launcher::graphics_backend::{Adapter, Backend, ProbeCache};
 
+mod owner;
 pub mod probe;
+
+use owner::Owner;
+
+#[derive(Serialize, Deserialize)]
+struct Sentinel {
+    #[serde(default)]
+    owner: Option<Owner>,
+    #[serde(flatten)]
+    attempt: Attempt,
+}
 
 /// The last operation that must finish before startup is considered successful.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -79,15 +90,33 @@ impl Recovery {
 /// Owns the two local files used to diagnose an interrupted renderer startup.
 pub struct StartupGuard {
     root: PathBuf,
+    lock: Option<fs::File>,
+    owner: Owner,
     pub recovery: Recovery,
     pub interrupted: Option<Attempt>,
     pending: Option<Attempt>,
 }
 
 impl StartupGuard {
-    /// Consumes the previous launch's sentinel before any GPU backend is loaded.
+    /// Leases recovery state before consuming a sentinel left by an exited startup.
     pub fn open(root: &Path) -> Result<Self> {
-        let interrupted = Self::pending(root)?;
+        fs::create_dir_all(root)?;
+        let lock = fs::File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(root.join(LOCK_FILE))?;
+        lock.try_lock().map_err(|error| match error {
+            fs::TryLockError::WouldBlock => std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "another client is starting its renderer; retry after its first frame",
+            ),
+            fs::TryLockError::Error(error) => error,
+        })?;
+        let owner = Owner::current()?;
+        let interrupted =
+            load::<Sentinel>(&root.join(SENTINEL_FILE))?.map(|sentinel| sentinel.attempt);
         let mut recovery = Self::saved(root)?;
         if let Some(attempt) = &interrupted {
             recovery.recover(attempt);
@@ -95,6 +124,8 @@ impl StartupGuard {
         save(&root.join(CHOICE_FILE), &recovery)?;
         Ok(Self {
             root: root.to_owned(),
+            lock: Some(lock),
+            owner,
             recovery,
             interrupted,
             pending: None,
@@ -103,7 +134,10 @@ impl StartupGuard {
 
     /// Reads the pending operation for a local crash report without changing recovery state.
     pub fn pending(root: &Path) -> Result<Option<Attempt>> {
-        load(&root.join(SENTINEL_FILE))
+        let owner = Owner::current()?;
+        Ok(load::<Sentinel>(&root.join(SENTINEL_FILE))?
+            .filter(|sentinel| sentinel.owner.as_ref() == Some(&owner))
+            .map(|sentinel| sentinel.attempt))
     }
 
     /// Reads the last successful choice and the bounded failure history.
@@ -113,6 +147,7 @@ impl StartupGuard {
 
     /// Persists a fresh recovery cycle when the adapter set or driver versions changed.
     pub fn reset_recovery(&mut self) -> Result<()> {
+        self.require_lease()?;
         self.recovery.reset();
         self.interrupted = None;
         if self.root.join(SENTINEL_FILE).exists() {
@@ -123,19 +158,31 @@ impl StartupGuard {
 
     /// Flushes the next operation to disk before the caller enters a native driver.
     pub fn begin(&mut self, attempt: Attempt) -> Result<()> {
-        save(&self.root.join(SENTINEL_FILE), &attempt)?;
+        self.require_lease()?;
+        save(
+            &self.root.join(SENTINEL_FILE),
+            &Sentinel {
+                owner: Some(self.owner.clone()),
+                attempt: attempt.clone(),
+            },
+        )?;
         #[cfg(unix)]
         crate::lifecycle::crash::unix::update(Some(&attempt));
         self.pending = Some(attempt);
         Ok(())
     }
 
-    /// Records a returned initialization error before trying another supported backend.
+    /// Clears a returned initialization error without classifying it as a native crash.
     pub fn failed(&mut self) -> Result<()> {
-        if let Some(attempt) = &self.pending {
-            self.recovery.recover(attempt);
+        self.require_lease()?;
+        if self.pending.is_some() {
+            fs::remove_file(self.root.join(SENTINEL_FILE))
+                .context("clear returned renderer startup error")?;
+            self.pending = None;
         }
-        save(&self.root.join(CHOICE_FILE), &self.recovery)
+        #[cfg(unix)]
+        crate::lifecycle::crash::unix::update(self.recovery.working.as_ref());
+        Ok(())
     }
 
     /// Saves the successful choice before removing the first-frame sentinel.
@@ -143,6 +190,7 @@ impl StartupGuard {
         let Some(attempt) = self.pending.clone() else {
             return Ok(());
         };
+        self.require_lease()?;
         self.recovery.succeeded(attempt);
         save(&self.root.join(CHOICE_FILE), &self.recovery)?;
         fs::remove_file(self.root.join(SENTINEL_FILE))
@@ -150,11 +198,21 @@ impl StartupGuard {
         #[cfg(unix)]
         crate::lifecycle::crash::unix::update(self.recovery.working.as_ref());
         self.pending = None;
+        self.lock = None;
+        Ok(())
+    }
+
+    /// Prevents a completed guard from mutating files leased by a later startup.
+    fn require_lease(&self) -> Result<()> {
+        if self.lock.is_none() {
+            bail!("renderer startup already completed");
+        }
         Ok(())
     }
 }
 
 const SENTINEL_FILE: &str = "renderer-startup.json";
+const LOCK_FILE: &str = "renderer-startup.lock";
 const CHOICE_FILE: &str = "renderer-choice.json";
 const MAX_FILE_BYTES: u64 = 64 * 1024;
 const PROBE_CACHE_FILE: &str = "graphics-probe-cache.json";

@@ -157,20 +157,27 @@ pub fn default_order(platform: Platform, selected: &Adapter) -> Vec<Backend> {
     order
 }
 
-/// A completed probe has a durable verdict even when it crashed or timed out.
+/// Only a completed presentation or a native crash establishes a durable driver verdict.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Verdict {
     Passed,
     Failed,
     TimedOut,
+    Inconclusive,
 }
 
-/// A running process is undecided before the deadline; only exit zero passes.
-pub fn probe_verdict(exit_success: Option<bool>, elapsed: Duration) -> Option<Verdict> {
-    match exit_success {
-        Some(true) => Some(Verdict::Passed),
-        Some(false) => Some(Verdict::Failed),
+impl Verdict {
+    /// Only a completed presentation or native crash may classify a driver across launches.
+    pub fn is_durable(self) -> bool {
+        matches!(self, Self::Passed | Self::Failed)
+    }
+}
+
+/// Keeps a timeout separate from the completed process's crash or presentation result.
+pub fn probe_verdict(exit: Option<Verdict>, elapsed: Duration) -> Option<Verdict> {
+    match exit {
+        Some(verdict) => Some(verdict),
         None if elapsed >= PROBE_TIMEOUT => Some(Verdict::TimedOut),
         None => None,
     }
@@ -183,10 +190,13 @@ struct ProbeEntry {
     verdict: Verdict,
 }
 
+const PROBE_CACHE_VERSION: u32 = 2;
+
 /// Driver-specific probe results with bounded invalidation when the adapter set changes.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProbeCache {
+    version: u32,
     fingerprint: Vec<AdapterKey>,
     entries: Vec<ProbeEntry>,
 }
@@ -199,24 +209,37 @@ impl ProbeCache {
 
     /// Invalidates all verdicts after an adapter or driver change, independent of enumeration order.
     pub fn refresh(&mut self, fingerprint: Vec<AdapterKey>) -> bool {
-        if self.fingerprint == fingerprint {
+        if self.version == PROBE_CACHE_VERSION && self.fingerprint == fingerprint {
             return false;
         }
         self.fingerprint = fingerprint;
+        self.version = PROBE_CACHE_VERSION;
         self.entries.clear();
         true
     }
 
     /// Returns an existing verdict so callers never probe an already tested driver.
     pub fn get(&self, adapter: &AdapterKey, backend: Backend) -> Option<Verdict> {
+        if self.version != PROBE_CACHE_VERSION {
+            return None;
+        }
         self.entries
             .iter()
-            .find(|entry| entry.adapter == *adapter && entry.backend == backend)
+            .find(|entry| {
+                entry.adapter == *adapter && entry.backend == backend && entry.verdict.is_durable()
+            })
             .map(|entry| entry.verdict)
     }
 
     /// Replaces the verdict for one adapter and API without accumulating duplicate entries.
     pub fn record(&mut self, adapter: AdapterKey, backend: Backend, verdict: Verdict) {
+        if !verdict.is_durable() {
+            return;
+        }
+        if self.version != PROBE_CACHE_VERSION {
+            self.entries.clear();
+            self.version = PROBE_CACHE_VERSION;
+        }
         self.entries
             .retain(|entry| entry.adapter != adapter || entry.backend != backend);
         self.entries.push(ProbeEntry {
@@ -264,7 +287,7 @@ pub fn candidates(
                         .iter()
                         .find(|(api, _)| api == backend)
                         .map(|(_, verdict)| *verdict),
-                    Some(Verdict::Failed | Verdict::TimedOut)
+                    Some(Verdict::Failed)
                 )
         })
         .collect();

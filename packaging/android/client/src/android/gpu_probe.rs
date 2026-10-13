@@ -24,7 +24,7 @@ pub(super) fn register(env: &mut JNIEnv<'_>) -> jni::errors::Result<()> {
     )
 }
 
-/// Calls Java on the native client thread; Android handles service callbacks on its UI thread.
+/// Calls Java only after activity lifecycle processing can continue on the native client thread.
 pub(super) fn run(arguments: &[String]) -> Result<Output> {
     let app = bevy::android::ANDROID_APP
         .get()
@@ -109,7 +109,7 @@ extern "system" fn execute(
         Err(error) => {
             eprintln!("GPU probe failed: {error:#}");
             Output {
-                verdict: Verdict::Failed,
+                verdict: Verdict::Inconclusive,
                 stdout: String::new(),
             }
         }

@@ -70,7 +70,7 @@ pub fn run(args: &[String]) -> Result<Output> {
     Ok(Output { verdict, stdout })
 }
 
-/// Runs and persists only a missing verdict; transport errors leave the driver unclassified.
+/// Persists only completed presentations or native crashes; transient errors remain retryable.
 pub fn cached(
     root: &std::path::Path,
     cache: &mut launcher::graphics_backend::ProbeCache,
@@ -82,8 +82,10 @@ pub fn cached(
         return Ok(verdict);
     }
     let verdict = execute()?.verdict;
-    cache.record(key.clone(), backend, verdict);
-    super::save_probe_cache(root, cache)?;
+    if verdict.is_durable() {
+        cache.record(key.clone(), backend, verdict);
+        super::save_probe_cache(root, cache)?;
+    }
     Ok(verdict)
 }
 
@@ -91,16 +93,16 @@ pub fn cached(
 #[cfg(any(not(target_os = "android"), test))]
 trait Process {
     /// Reports a completed exit without blocking on the process.
-    fn exited(&mut self) -> Result<Option<bool>>;
+    fn exited(&mut self) -> Result<Option<Verdict>>;
     /// Stops only this operation and releases its process resources.
     fn stop(&mut self) -> Result<()>;
 }
 
 #[cfg(not(target_os = "android"))]
 impl Process for std::process::Child {
-    /// Reports whether this exact child exited successfully, including signal deaths.
-    fn exited(&mut self) -> Result<Option<bool>> {
-        Ok(self.try_wait()?.map(|exit| exit.success()))
+    /// Separates native process crashes from normal helper errors and cancellation.
+    fn exited(&mut self) -> Result<Option<Verdict>> {
+        Ok(self.try_wait()?.map(exit_verdict))
     }
     /// Kills and reaps only the child created for this probe.
     fn stop(&mut self) -> Result<()> {
@@ -109,6 +111,41 @@ impl Process for std::process::Child {
         waited.context("reap GPU probe")?;
         killed.context("stop GPU probe")
     }
+}
+
+/// Recognizes native faults without treating a returned error or external termination as a crash.
+#[cfg(not(target_os = "android"))]
+fn exit_verdict(status: std::process::ExitStatus) -> Verdict {
+    if status.success() {
+        return Verdict::Passed;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if status
+            .signal()
+            .is_some_and(|signal| crate::lifecycle::crash::unix::SIGNALS.contains(&signal))
+        {
+            return Verdict::Failed;
+        }
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::{
+            EXCEPTION_ACCESS_VIOLATION, EXCEPTION_ILLEGAL_INSTRUCTION, EXCEPTION_IN_PAGE_ERROR,
+        };
+        if matches!(
+            status.code(),
+            Some(
+                EXCEPTION_ACCESS_VIOLATION
+                    | EXCEPTION_ILLEGAL_INSTRUCTION
+                    | EXCEPTION_IN_PAGE_ERROR
+            )
+        ) {
+            return Verdict::Failed;
+        }
+    }
+    Verdict::Inconclusive
 }
 
 /// Polls an isolated operation against a caller-owned clock and stops it on timeout or poll error.
@@ -141,12 +178,12 @@ mod tests {
     use super::*;
     use launcher::graphics_backend::PROBE_TIMEOUT;
     struct Child {
-        exit: Option<bool>,
+        exit: Option<Verdict>,
         stops: u32,
     }
     impl Process for Child {
         /// Returns the synthetic exit status without invoking an OS process.
-        fn exited(&mut self) -> Result<Option<bool>> {
+        fn exited(&mut self) -> Result<Option<Verdict>> {
             Ok(self.exit)
         }
         /// Records exactly one cancellation of this synthetic child.
@@ -167,7 +204,7 @@ mod tests {
             driver_info: String::new(),
             driver_version: "1.0".into(),
         };
-        for verdict in [Verdict::Passed, Verdict::Failed, Verdict::TimedOut] {
+        for verdict in [Verdict::Passed, Verdict::Failed] {
             let mut cache = ProbeCache::default();
             assert_eq!(
                 cached(root.path(), &mut cache, &key, Backend::Vulkan, || Ok(
@@ -232,6 +269,86 @@ mod tests {
     }
 
     #[test]
+    fn surface_errors_and_timeouts_are_retried_without_persisting_a_failure() {
+        use launcher::graphics_backend::{AdapterKey, Backend, ProbeCache};
+        let root = tempfile::tempdir().unwrap();
+        let key = AdapterKey {
+            name: "test".into(),
+            vendor: 1,
+            device: 2,
+            driver: "test".into(),
+            driver_info: String::new(),
+            driver_version: "1.0".into(),
+        };
+        for verdict in [Verdict::Inconclusive, Verdict::TimedOut] {
+            let mut cache = ProbeCache::default();
+            assert_eq!(
+                cached(root.path(), &mut cache, &key, Backend::Vulkan, || Ok(
+                    Output {
+                        verdict,
+                        stdout: String::new()
+                    }
+                ))
+                .unwrap(),
+                verdict
+            );
+            assert_eq!(cache.get(&key, Backend::Vulkan), None);
+            let mut reloaded = super::super::load_probe_cache(root.path()).unwrap();
+            assert_eq!(
+                cached(root.path(), &mut reloaded, &key, Backend::Vulkan, || Ok(
+                    Output {
+                        verdict: Verdict::Passed,
+                        stdout: String::new()
+                    }
+                ))
+                .unwrap(),
+                Verdict::Passed
+            );
+            std::fs::remove_file(root.path().join(super::super::PROBE_CACHE_FILE)).unwrap();
+        }
+    }
+
+    #[cfg(all(unix, not(target_os = "android")))]
+    #[test]
+    fn returned_helper_errors_and_external_signals_are_not_driver_crashes() {
+        use std::{os::unix::process::ExitStatusExt, process::ExitStatus};
+        assert_eq!(exit_verdict(ExitStatus::from_raw(0)), Verdict::Passed);
+        assert_eq!(
+            exit_verdict(ExitStatus::from_raw(1 << 8)),
+            Verdict::Inconclusive
+        );
+        assert_eq!(
+            exit_verdict(ExitStatus::from_raw(libc::SIGTERM)),
+            Verdict::Inconclusive
+        );
+        assert_eq!(
+            exit_verdict(ExitStatus::from_raw(libc::SIGKILL)),
+            Verdict::Inconclusive
+        );
+        assert_eq!(
+            exit_verdict(ExitStatus::from_raw(libc::SIGSEGV)),
+            Verdict::Failed
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn returned_helper_errors_are_not_windows_driver_exceptions() {
+        use std::{os::windows::process::ExitStatusExt, process::ExitStatus};
+        use windows_sys::Win32::Foundation::{EXCEPTION_ACCESS_VIOLATION, STATUS_DLL_NOT_FOUND};
+        assert_eq!(exit_verdict(ExitStatus::from_raw(0)), Verdict::Passed);
+        assert_eq!(exit_verdict(ExitStatus::from_raw(1)), Verdict::Inconclusive);
+        assert_eq!(
+            exit_verdict(ExitStatus::from_raw(STATUS_DLL_NOT_FOUND as u32)),
+            Verdict::Inconclusive
+        );
+        assert_eq!(
+            exit_verdict(ExitStatus::from_raw(EXCEPTION_ACCESS_VIOLATION as u32)),
+            Verdict::Failed
+        );
+    }
+
+    #[test]
     fn timeout_stops_and_reaps_only_the_owned_child() {
         let mut child = Child {
             exit: None,
@@ -252,9 +369,9 @@ mod tests {
     }
     #[test]
     fn completed_crash_and_success_do_not_kill_a_finished_child() {
-        for (exit, verdict) in [(false, Verdict::Failed), (true, Verdict::Passed)] {
+        for verdict in [Verdict::Failed, Verdict::Passed, Verdict::Inconclusive] {
             let mut child = Child {
-                exit: Some(exit),
+                exit: Some(verdict),
                 stops: 0,
             };
             assert_eq!(

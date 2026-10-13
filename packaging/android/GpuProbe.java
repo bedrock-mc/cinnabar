@@ -11,7 +11,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-/** Synchronous native-thread bridge to the private GPU service; UI callbacks remain responsive. */
+/** Private GPU service bridge; callers must allow native activity lifecycle events to run. */
 public final class GpuProbe {
     /** Runs one isolated request with the timeout supplied by the Rust policy. */
     public static String run(Context context, String arguments, long timeoutMillis) throws Exception {
@@ -40,24 +40,24 @@ public final class GpuProbe {
                     data.writeStrongBinder(callback);
                     service.transact(IBinder.FIRST_CALL_TRANSACTION, data, null, IBinder.FLAG_ONEWAY);
                 } catch (android.os.RemoteException error) {
-                    result.compareAndSet(null, "{\"verdict\":\"failed\",\"stdout\":\"\"}");
+                    result.compareAndSet(null, "{\"verdict\":\"inconclusive\",\"stdout\":\"\"}");
                     done.countDown();
                 } finally { data.recycle(); }
             }
-            /** A native crash leaves no reply; release the wait as a failed probe. */
+            /** A missing reply cannot distinguish a native crash from service shutdown. */
             @Override public void onServiceDisconnected(ComponentName name) {
                 // The death recipient completes the wait after any synchronous result callback.
             }
         };
         if (!context.bindService(new Intent(context, GpuProbeService.class), connection, Context.BIND_AUTO_CREATE)) {
-            return "{\"verdict\":\"failed\",\"stdout\":\"\"}";
+            return "{\"verdict\":\"inconclusive\",\"stdout\":\"\"}";
         }
         try {
             if (!done.await(timeoutMillis, TimeUnit.MILLISECONDS)) {
                 return "{\"verdict\":\"timed_out\",\"stdout\":\"\"}";
             }
             String output = result.get();
-            return output == null ? "{\"verdict\":\"failed\",\"stdout\":\"\"}" : output;
+            return output == null ? "{\"verdict\":\"inconclusive\",\"stdout\":\"\"}" : output;
         } finally { context.unbindService(connection); }
     }
 }

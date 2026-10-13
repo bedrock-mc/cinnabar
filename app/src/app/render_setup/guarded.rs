@@ -42,17 +42,18 @@ pub(super) fn render_plugin(
     let environment =
         std::env::var_os("WGPU_BACKEND").map(|_| backends(settings.backends.unwrap_or_default()));
     let explicit = environment.is_some() || video.is_some();
-    let mut cache = if explicit {
+    let isolated = uses_isolated_probe(platform, &supported, explicit);
+    let mut cache = if !isolated {
         Default::default()
     } else {
         load_probe_cache(root)?
     };
-    let inventories = if explicit {
+    let inventories = if !isolated {
         Vec::new()
     } else {
         inventory(platform, &supported)?
     };
-    let mut order = if explicit {
+    let mut order = if !isolated {
         candidates(
             platform.backends(),
             &supported,
@@ -60,7 +61,11 @@ pub(super) fn render_plugin(
             video,
             &[],
             &[],
-            guard.recovery.failed_backends(),
+            if supported.len() == 1 {
+                &[]
+            } else {
+                guard.recovery.failed_backends()
+            },
         )
     } else {
         let selected = &inventories
@@ -143,7 +148,7 @@ pub(super) fn render_plugin(
             log(format_args!(
                 "GPU probe verdict: {backend:?} {key:?}: {verdict:?}"
             ));
-            if verdict != Verdict::Passed {
+            if matches!(verdict, Verdict::Failed | Verdict::TimedOut) {
                 continue;
             }
         }
@@ -181,10 +186,6 @@ pub(super) fn render_plugin(
                 log(format_args!(
                     "Renderer {backend:?} initialization failed: {error:#}"
                 ));
-                if let Some(key) = &key {
-                    cache.record(key.clone(), backend, Verdict::Failed);
-                    save_probe_cache(root, &cache)?;
-                }
                 guard.failed()?;
             }
         }
@@ -192,6 +193,11 @@ pub(super) fn render_plugin(
     bail!(
         "No safe supported graphics API remains. See client.log and crashes; update GPU drivers or choose an explicit Graphics API to retry."
     );
+}
+
+/// Probes only automatic multi-API desktop startup, where native lifecycle events can run.
+fn uses_isolated_probe(platform: Platform, supported: &[Backend], explicit: bool) -> bool {
+    !explicit && supported.len() > 1 && platform != Platform::Android
 }
 
 /// Inventories the requested high-performance GPU outside the parent, falling back after ICD failure.
@@ -240,6 +246,15 @@ async fn create_renderer(
     let instance = instance(backend, settings, display);
     let adapter = select_adapter(&instance, settings, key).await?;
     let info = adapter.get_info();
+    if !explicit {
+        let identity = identity(&adapter);
+        if let Some(rule) = blocklist::rules()
+            .iter()
+            .find(|rule| rule.backend == backend && rule.matches(Platform::current(), &identity))
+        {
+            bail!("Graphics API {backend:?} is blocklisted: {}", rule.reason);
+        }
+    }
     let attempt = |stage| Attempt {
         backend,
         adapter: Some(identity(&adapter)),
@@ -289,6 +304,35 @@ fn mark_presented(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lone_backend_and_android_never_start_synchronous_helpers() {
+        assert!(!uses_isolated_probe(
+            Platform::Macos,
+            &[Backend::Metal],
+            false
+        ));
+        assert!(!uses_isolated_probe(
+            Platform::Linux,
+            &[Backend::Vulkan],
+            false
+        ));
+        assert!(!uses_isolated_probe(
+            Platform::Android,
+            Platform::Android.backends(),
+            false
+        ));
+        assert!(uses_isolated_probe(
+            Platform::Windows,
+            Platform::Windows.backends(),
+            false
+        ));
+        assert!(!uses_isolated_probe(
+            Platform::Windows,
+            Platform::Windows.backends(),
+            true
+        ));
+    }
 
     #[test]
     fn backend_mask_uses_the_policy_order_and_skips_unsupported_gl() {

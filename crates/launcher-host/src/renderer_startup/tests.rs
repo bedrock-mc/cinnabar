@@ -32,6 +32,7 @@ fn successful_fallback_clears_the_sentinel_and_survives_relaunch() {
     let dir = tempfile::tempdir().unwrap();
     let mut first = StartupGuard::open(dir.path()).unwrap();
     first.begin(attempt(Backend::Vulkan, false)).unwrap();
+    drop(first); // Release the OS lease as an exited process would.
     let mut second = StartupGuard::open(dir.path()).unwrap();
     assert_eq!(second.interrupted, Some(attempt(Backend::Vulkan, false)));
     assert_eq!(second.recovery.failed_backends(), [Backend::Vulkan]);
@@ -42,6 +43,36 @@ fn successful_fallback_clears_the_sentinel_and_survives_relaunch() {
     assert!(third.interrupted.is_none());
     assert_eq!(third.recovery.working.as_ref().unwrap().stage, Stage::Ready);
     assert!(third.recovery.failed_backends().is_empty());
+}
+
+#[test]
+fn concurrent_startup_cannot_consume_or_change_a_live_sentinel() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut first = StartupGuard::open(dir.path()).unwrap();
+    first.begin(attempt(Backend::Vulkan, false)).unwrap();
+    let sentinel = fs::read(dir.path().join(SENTINEL_FILE)).unwrap();
+    let choice = fs::read(dir.path().join(CHOICE_FILE)).unwrap();
+    assert!(StartupGuard::open(dir.path()).is_err());
+    assert_eq!(fs::read(dir.path().join(SENTINEL_FILE)).unwrap(), sentinel);
+    assert_eq!(fs::read(dir.path().join(CHOICE_FILE)).unwrap(), choice);
+    assert!(first.recovery.failed_backends().is_empty());
+    first.presented().unwrap();
+    let second = StartupGuard::open(dir.path()).unwrap();
+    assert!(second.interrupted.is_none());
+    assert!(second.recovery.failed_backends().is_empty());
+}
+
+#[test]
+fn returned_errors_leave_automatic_backends_retryable() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut guard = StartupGuard::open(dir.path()).unwrap();
+    guard.begin(attempt(Backend::Vulkan, false)).unwrap();
+    guard.failed().unwrap();
+    drop(guard);
+    let next = StartupGuard::open(dir.path()).unwrap();
+    assert!(next.interrupted.is_none());
+    assert!(next.recovery.failed_backends().is_empty());
+    assert!(StartupGuard::pending(dir.path()).unwrap().is_none());
 }
 
 #[test]
@@ -88,10 +119,45 @@ fn probe_verdict_is_saved_under_the_data_root_and_survives_restart() {
     }
     .key();
     let mut cache = load_probe_cache(dir.path()).unwrap();
-    cache.record(key.clone(), Backend::Gl, Verdict::TimedOut);
+    cache.record(key.clone(), Backend::Gl, Verdict::Passed);
     save_probe_cache(dir.path(), &cache).unwrap();
     assert_eq!(
         load_probe_cache(dir.path()).unwrap().get(&key, Backend::Gl),
-        Some(Verdict::TimedOut)
+        Some(Verdict::Passed)
     );
+}
+
+#[test]
+fn a_completed_guard_cannot_overwrite_the_next_startup() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut first = StartupGuard::open(dir.path()).unwrap();
+    first.begin(attempt(Backend::Vulkan, false)).unwrap();
+    first.presented().unwrap();
+    let mut second = StartupGuard::open(dir.path()).unwrap();
+    let pending = attempt(Backend::Dx12, false);
+    second.begin(pending.clone()).unwrap();
+    assert!(first.begin(attempt(Backend::Gl, false)).is_err());
+    assert!(first.reset_recovery().is_err());
+    assert!(first.failed().is_err());
+    first.presented().unwrap();
+    assert_eq!(StartupGuard::pending(dir.path()).unwrap(), Some(pending));
+}
+
+#[test]
+fn reports_do_not_attribute_another_process_or_reused_pid_to_this_client() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut guard = StartupGuard::open(dir.path()).unwrap();
+    guard.begin(attempt(Backend::Vulkan, false)).unwrap();
+    let path = dir.path().join(SENTINEL_FILE);
+    let mut sentinel: serde_json::Value =
+        serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let owner = sentinel["owner"].clone();
+    sentinel["owner"]["start_time"] =
+        serde_json::json!(owner["start_time"].as_u64().unwrap().wrapping_add(1));
+    fs::write(&path, serde_json::to_vec(&sentinel).unwrap()).unwrap();
+    assert!(StartupGuard::pending(dir.path()).unwrap().is_none());
+    sentinel["owner"] = owner;
+    sentinel["owner"]["pid"] = serde_json::json!(std::process::id().wrapping_add(1));
+    fs::write(&path, serde_json::to_vec(&sentinel).unwrap()).unwrap();
+    assert!(StartupGuard::pending(dir.path()).unwrap().is_none());
 }

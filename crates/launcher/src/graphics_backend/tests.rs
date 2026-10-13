@@ -123,7 +123,7 @@ fn cache_invalidates_on_driver_or_adapter_change_but_not_enumeration_order() {
     };
     let mut cache = ProbeCache::default();
     assert!(cache.refresh(inventory.fingerprint()));
-    for verdict in [Verdict::Passed, Verdict::Failed, Verdict::TimedOut] {
+    for verdict in [Verdict::Passed, Verdict::Failed] {
         cache.record(gpu.key(), Backend::Dx12, verdict);
         let mut loaded: ProbeCache =
             serde_json::from_slice(&serde_json::to_vec(&cache).unwrap()).unwrap();
@@ -158,20 +158,55 @@ fn selecting_another_gpu_resets_the_recovery_inventory() {
 }
 
 #[test]
-fn timeout_crash_and_nonzero_exit_are_durable_failures() {
+fn deadlines_do_not_override_completed_probe_results() {
     assert_eq!(
         probe_verdict(None, PROBE_TIMEOUT - Duration::from_nanos(1)),
         None
     );
     assert_eq!(probe_verdict(None, PROBE_TIMEOUT), Some(Verdict::TimedOut));
     assert_eq!(
-        probe_verdict(Some(false), Duration::ZERO),
+        probe_verdict(Some(Verdict::Failed), Duration::ZERO),
         Some(Verdict::Failed)
     );
     assert_eq!(
-        probe_verdict(Some(true), PROBE_TIMEOUT),
+        probe_verdict(Some(Verdict::Passed), PROBE_TIMEOUT),
         Some(Verdict::Passed)
     );
+}
+
+#[test]
+fn transient_surface_errors_and_timeouts_never_exclude_a_backend() {
+    let gpu = adapter(0x10de, false);
+    let mut cache = ProbeCache::default();
+    for verdict in [Verdict::TimedOut, Verdict::Inconclusive] {
+        cache.record(gpu.key(), Backend::Vulkan, verdict);
+        assert_eq!(cache.get(&gpu.key(), Backend::Vulkan), None);
+        assert_eq!(
+            candidates(
+                Platform::Windows.backends(),
+                Platform::Windows.backends(),
+                None,
+                None,
+                &[(Backend::Vulkan, verdict)],
+                &[],
+                &[]
+            ),
+            Platform::Windows.backends()
+        );
+    }
+}
+
+#[test]
+fn legacy_probe_cache_cannot_retain_an_ambiguous_failed_verdict() {
+    let gpu = adapter(0x10de, false);
+    let legacy = serde_json::json!({
+        "fingerprint": [gpu.key()],
+        "entries": [{"adapter": gpu.key(), "backend": Backend::Vulkan, "verdict": Verdict::Failed}],
+    });
+    let mut cache: ProbeCache = serde_json::from_value(legacy).unwrap();
+    assert_eq!(cache.get(&gpu.key(), Backend::Vulkan), None);
+    assert!(cache.refresh(vec![gpu.key()]));
+    assert_eq!(cache.get(&gpu.key(), Backend::Vulkan), None);
 }
 
 #[test]
