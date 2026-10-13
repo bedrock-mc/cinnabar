@@ -38,6 +38,8 @@ mod hollow_containers;
 mod isotropic;
 #[path = "tests/lantern.rs"]
 mod lantern;
+#[path = "tests/lever.rs"]
+mod lever;
 #[path = "tests/lightning_rod.rs"]
 mod lightning_rod;
 #[path = "tests/potted_plants.rs"]
