@@ -191,7 +191,7 @@ impl UiRuntime {
         let same_target = previous.is_some_and(|previous| {
             previous.target.same_item(
                 &identity,
-                ledger.target_acknowledges_stack_id(target, previous.target.stack_network_id),
+                ledger.target_retains_stack_id(target, previous.target.stack_network_id),
             )
         });
         if same_facts
@@ -262,6 +262,16 @@ impl UiRuntime {
             },
         )?;
         let mut stack = left.stack;
+        if let Some(identifier) = outcome.result_identifier {
+            let entry = self
+                .inventory_ledger(player_runtime)
+                .negotiated_item_registry()?
+                .values()
+                .find(|entry| entry.identifier.as_ref() == identifier)?;
+            stack.network_id = entry.network_id;
+            stack.metadata = 0;
+            stack.block_runtime_id = 0;
+        }
         stack.stack_network_id = 0;
         stack.nbt_digest = Sha256::digest(&extra_data).into();
         stack.extra_data = extra_data;

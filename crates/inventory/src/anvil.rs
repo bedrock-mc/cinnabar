@@ -30,6 +30,8 @@ pub struct AnvilItem<'a> {
 /// What taking the anvil result does.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AnvilOutcome {
+    /// A changed result kind; the client resolves its identity from the negotiated registry.
+    pub result_identifier: Option<&'static str>,
     /// The result's new damage, when it changed.
     pub damage: Option<u32>,
     /// The result's enchantments, when they changed.
@@ -194,6 +196,14 @@ pub fn evaluate_anvil(
             }
             if let Some((merged, cost)) = merge_enchantments(left, right, book) {
                 outcome.enchantments = Some(merged);
+                if left
+                    .identifier
+                    .strip_prefix("minecraft:")
+                    .unwrap_or(left.identifier)
+                    == "book"
+                {
+                    outcome.result_identifier = Some("minecraft:enchanted_book");
+                }
                 work = work.saturating_add(cost);
             }
             // The take consumes as many second items as the result holds; a book

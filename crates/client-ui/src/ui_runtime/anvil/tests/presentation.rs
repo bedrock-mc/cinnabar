@@ -471,7 +471,7 @@ fn acknowledging_a_placement_preserves_an_entered_rename() {
     assert!(
         runtime
             .inventory_ledger(&player)
-            .target_acknowledges_stack_id(target, request_id)
+            .target_retains_stack_id(target, request_id)
     );
     runtime.sync_anvil_name(&player);
     assert_eq!(runtime.screen_state().anvil_name, "Blade");
@@ -493,7 +493,7 @@ fn acknowledging_a_placement_preserves_an_entered_rename() {
     assert!(
         !runtime
             .inventory_ledger(&player)
-            .target_acknowledges_stack_id(target, request_id)
+            .target_retains_stack_id(target, request_id)
     );
 }
 
@@ -564,4 +564,103 @@ fn drained_authority_updates_anvil_names_before_a_same_frame_take() {
         Some("Server blade"),
         "the actual take must retain the corrected name"
     );
+}
+
+#[test]
+fn count_only_predictions_preserve_a_rename_on_the_remaining_target() {
+    use inventory::inventory_ledger::{CellGesture, DropSource};
+    for split in [true, false] {
+        let (mut runtime, mut player) = anvil();
+        let target = InventoryTarget::Craft(ANVIL_TARGET_SLOT);
+        let stack = NetworkItemStack {
+            network_id: DIAMOND,
+            stack_network_id: 30,
+            count: 4,
+            ..NetworkItemStack::empty()
+        };
+        place(
+            &mut runtime,
+            &mut player,
+            u16::from(ANVIL_TARGET_SLOT),
+            stack,
+        );
+        runtime.sync_anvil_name(&player);
+        runtime.screen_state_mut().anvil_name = "Blade".into();
+        let ledger = runtime.inventory_ledger_mut(&mut player);
+        if split {
+            ledger
+                .begin_target_gesture(target, CellGesture::TakeCount(2))
+                .unwrap();
+        } else {
+            ledger
+                .begin_drop(DropSource::Target(target), Some(1))
+                .unwrap();
+        }
+        runtime.sync_anvil_name(&player);
+        assert_eq!(runtime.screen_state().anvil_name, "Blade");
+        assert_eq!(
+            runtime
+                .inventory_ledger(&player)
+                .target_stack(target)
+                .unwrap()
+                .count,
+            if split { 2 } else { 3 }
+        );
+    }
+}
+
+#[test]
+fn enchanting_a_plain_book_predicts_the_negotiated_enchanted_book_kind() {
+    let (mut runtime, mut player) = anvil();
+    let plain_book = 13;
+    let mut entries: Vec<_> = runtime
+        .inventory_ledger(&player)
+        .negotiated_item_registry()
+        .unwrap()
+        .values()
+        .cloned()
+        .collect();
+    entries.push(entry("minecraft:book", plain_book));
+    runtime
+        .inventory_ledger_mut(&mut player)
+        .apply_registry(&ItemRegistryEvent {
+            entries: entries.into(),
+        });
+    place(
+        &mut runtime,
+        &mut player,
+        u16::from(ANVIL_TARGET_SLOT),
+        NetworkItemStack {
+            network_id: plain_book,
+            stack_network_id: 34,
+            count: 1,
+            ..NetworkItemStack::empty()
+        },
+    );
+    place_book(&mut runtime, &mut player, vec![(9, 1)]);
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Creative);
+    runtime.sync_anvil_name(&player);
+    let preview = runtime.anvil_preview(&player).unwrap();
+    assert_eq!(preview.stack.network_id, BOOK);
+    assert_eq!(
+        preview.outcome.result_identifier,
+        Some("minecraft:enchanted_book")
+    );
+    assert_eq!(
+        protocol::item_anvil_data(&preview.stack.extra_data)
+            .unwrap()
+            .enchantments,
+        [(9, 1)]
+    );
+    runtime.perform_pointer_action(
+        &mut player,
+        crate::ui_runtime::inventory_drag::PointerAction::Click(
+            ui_screens::container_actions::InventoryCellHit::CraftOutput,
+        ),
+    );
+    let ledger = runtime.inventory_ledger(&player);
+    assert_eq!(ledger.cursor_stack().unwrap().network_id, BOOK);
+    assert_eq!(ledger.pending_request_count(), 1);
 }

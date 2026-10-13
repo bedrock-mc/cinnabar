@@ -44,17 +44,58 @@ impl PlayerInventoryLedger {
         self.view().get(target.cell())?.overlay.as_ref()
     }
 
-    /// Whether the current target received its server stack identity from this request.
-    /// Fresh slot or content writes replace the held value and discard this provenance.
+    /// Whether a target keeps this stack through count-only predictions or an accepted response.
+    /// Fresh slot and content writes discard response provenance; replacement operations break it.
     #[must_use]
-    pub fn target_acknowledges_stack_id(
+    pub fn target_retains_stack_id(
         &self,
         target: super::InventoryTarget,
-        predicted_stack_id: i32,
+        previous_stack_id: i32,
     ) -> bool {
-        self.view()
-            .get(target.cell())
-            .is_some_and(|held| held.acknowledged_request_id == Some(predicted_stack_id))
+        let cell = target.cell();
+        let Some(held) = self.view().get(cell) else {
+            return false;
+        };
+        let mut current_id = held.stack.stack_network_id;
+        if current_id == previous_stack_id
+            || held.acknowledged_request_id == Some(previous_stack_id)
+        {
+            return true;
+        }
+        for request in self.queue.iter().rev() {
+            if request.request_id != current_id {
+                continue;
+            }
+            let Some(prediction) = request
+                .predicted
+                .iter()
+                .find(|prediction| prediction.cell == cell)
+            else {
+                return false;
+            };
+            let Some(before) = &prediction.before else {
+                return false;
+            };
+            let mut touched = false;
+            for group in &request.groups {
+                if group.touched().any(|candidate| candidate == cell) {
+                    touched = true;
+                    if !group.retains_item_at(cell) {
+                        return false;
+                    }
+                }
+            }
+            if !touched {
+                return false;
+            }
+            current_id = before.stack.stack_network_id;
+            if current_id == previous_stack_id
+                || before.acknowledged_request_id == Some(previous_stack_id)
+            {
+                return true;
+            }
+        }
+        false
     }
 
     /// The authoritative response overlay retained for the cursor cell.
