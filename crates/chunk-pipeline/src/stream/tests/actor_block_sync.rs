@@ -8,7 +8,7 @@ fn fixture() -> (WorldStream, SubChunkKey) {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 0, -4, 0);
@@ -42,7 +42,13 @@ fn fixture() -> (WorldStream, SubChunkKey) {
             })),
         )
         .unwrap();
-    synced_update(&mut stream, 2, 0, protocol::SEQUENTIAL_AIR_NETWORK_ID, 1);
+    synced_update(
+        &mut stream,
+        2,
+        0,
+        protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+        1,
+    );
     (stream, key)
 }
 
@@ -90,7 +96,7 @@ fn falling_sync_respects_render_notification_flags_without_delaying_collision_up
     for flags in [0, 1, 6, 3] {
         let (mut stream, key) = fixture();
         let network_id = if flags == 3 {
-            protocol::SEQUENTIAL_AIR_NETWORK_ID
+            protocol_ids::SEQUENTIAL_AIR_NETWORK_ID
         } else {
             99
         };
@@ -227,11 +233,23 @@ fn falling_sync_for_extra_storage_does_not_change_actor_visibility() {
 fn falling_sync_for_unpublished_noop_air_waits_for_empty_mesh_ack() {
     let (mut stream, key) = fixture();
     stream.applied_mesh_generations.remove(&key);
-    synced_update(&mut stream, 3, 0, protocol::SEQUENTIAL_AIR_NETWORK_ID, 2);
+    synced_update(
+        &mut stream,
+        3,
+        0,
+        protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+        2,
+    );
     assert_eq!(stream.authority().block_entities(1.0).len(), 1);
     acknowledge_current(&mut stream, key);
     assert!(stream.authority().block_entities(1.0).is_empty());
-    synced_update(&mut stream, 4, 0, protocol::SEQUENTIAL_AIR_NETWORK_ID, 1);
+    synced_update(
+        &mut stream,
+        4,
+        0,
+        protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+        1,
+    );
     assert!(
         stream.revisions.dirty(key).is_none(),
         "empty acknowledged terrain stays clean"
@@ -261,7 +279,7 @@ fn falling_render_fences_preserve_handoff_order_across_source_and_landing_sectio
             dimension: 0,
             position: [0, -48, 0],
             layer: 0,
-            network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         },
         flags: 0x13,
         sync: ActorBlockSyncMessage {

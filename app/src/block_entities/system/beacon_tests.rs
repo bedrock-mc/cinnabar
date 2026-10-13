@@ -75,7 +75,7 @@ fn fixture(beacon_count: usize, eye: Vec3, fill_portals: bool) -> World {
         local_player_unique_id: 1,
         player_position: eye.to_array(),
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let range = protocol::vanilla_dimension_range(0).unwrap();

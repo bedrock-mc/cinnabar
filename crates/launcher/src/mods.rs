@@ -1,7 +1,9 @@
 //! Mod-management commands and immutable Settings snapshots, independent of guest execution.
 
 /// The Mods tab's settings selector variable.
-pub const SECTION: &str = "cinnabar_mods_index";
+pub const SECTION: &str = crate::menu::settings_sections::SettingSection::Mods
+    .definition()
+    .name;
 /// File extension of an importable mod component.
 pub const COMPONENT_EXTENSION: &str = "wasm";
 

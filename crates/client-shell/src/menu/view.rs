@@ -97,6 +97,7 @@ impl MenuRuntime {
             join_request: self.join_request_view(),
             global_resources: self.global_resources.clone(),
             mods: self.mods.clone(),
+            minecraft_import: self.minecraft_import.clone(),
         }
     }
 }

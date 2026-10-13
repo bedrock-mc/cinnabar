@@ -38,139 +38,89 @@ enum Glyph {
     Puzzle,
 }
 
-const fn tab(
-    section: &'static str,
-    title: &'static str,
-    art: Option<&'static str>,
-    fill: [u8; 3],
-    glyph: Glyph,
-) -> Tab {
+/// Adds OreUI artwork to the shared section metadata.
+const fn tab(section: launcher::menu::settings_sections::SettingSection) -> Tab {
+    use launcher::menu::settings_sections::SettingSection::*;
+    let (art, fill, glyph, group) = match section {
+        Accessibility => (Some(SETTINGS_ICONS[0]), [65, 99, 216], Glyph::Person, None),
+        KeyboardAndMouse => (
+            Some(SETTINGS_ICONS[1]),
+            [147, 145, 132],
+            Glyph::Mouse,
+            Some("options.group.input"),
+        ),
+        ControllerAndSwitch => (
+            Some(SETTINGS_ICONS[2]),
+            [147, 145, 132],
+            Glyph::Gamepad,
+            None,
+        ),
+        Touch => (Some(SETTINGS_ICONS[3]), [147, 145, 132], Glyph::Grid, None),
+        Party => (
+            Some(SETTINGS_ICONS[4]),
+            [158, 101, 64],
+            Glyph::Grid,
+            Some("options.social"),
+        ),
+        General => (
+            Some(SETTINGS_ICONS[5]),
+            [152, 100, 50],
+            Glyph::Grid,
+            Some("options.general"),
+        ),
+        Video => (
+            Some(SETTINGS_ICONS[6]),
+            [193, 142, 62],
+            Glyph::Landscape,
+            None,
+        ),
+        Sound => (Some(SETTINGS_ICONS[7]), [141, 90, 59], Glyph::Grid, None),
+        Account => (Some(SETTINGS_ICONS[8]), [121, 76, 45], Glyph::Face, None),
+        GlobalTexturePack => (Some(SETTINGS_ICONS[9]), [159, 108, 44], Glyph::Chest, None),
+        Mods => (None, [112, 76, 160], Glyph::Puzzle, None),
+        StorageManagement => (
+            Some(SETTINGS_ICONS[10]),
+            [141, 126, 73],
+            Glyph::Shelves,
+            None,
+        ),
+        Language => (Some(SETTINGS_ICONS[11]), [55, 110, 187], Glyph::Grid, None),
+        Creator => (Some(SETTINGS_ICONS[12]), [159, 105, 65], Glyph::Grid, None),
+        _ => panic!("visible settings section needs artwork"),
+    };
+    let definition = section.definition();
     Tab {
-        section,
-        title,
-        group: None,
+        section: definition.name,
+        title: match definition.tab_title {
+            Some(title) => title,
+            None => panic!("sidebar section needs a title"),
+        },
+        group,
         art,
         fill: [fill[0], fill[1], fill[2], 255],
         glyph,
     }
 }
 
-const fn grouped(group: &'static str, tab: Tab) -> Tab {
-    Tab {
-        group: Some(group),
-        ..tab
+/// Follows the shared registry's visible sections and order.
+const fn tabs() -> [Tab; launcher::menu::settings_sections::SETTINGS_TABS.len()] {
+    use launcher::menu::settings_sections::{SECTION_DEFINITIONS, SettingSection};
+    let mut tabs = [const { tab(SettingSection::Accessibility) };
+        launcher::menu::settings_sections::SETTINGS_TABS.len()];
+    let mut index = 0;
+    let mut row = 0;
+    while index < SECTION_DEFINITIONS.len() {
+        let definition = SECTION_DEFINITIONS[index];
+        if definition.tab_title.is_some() {
+            tabs[row] = tab(definition.id);
+            row += 1;
+        }
+        index += 1;
     }
+    tabs
 }
 
-const TABS: [Tab; 14] = [
-    tab(
-        "accessibility_forced_index",
-        "menu.accessibility.tab.title",
-        Some(SETTINGS_ICONS[0]),
-        [65, 99, 216],
-        Glyph::Person,
-    ),
-    grouped(
-        "options.group.input",
-        tab(
-            "keyboard_and_mouse_forced_index",
-            "menu.keyboardAndMouse.tab.title",
-            Some(SETTINGS_ICONS[1]),
-            [147, 145, 132],
-            Glyph::Mouse,
-        ),
-    ),
-    tab(
-        "controller_and_switch_forced_index",
-        "menu.controller.tab.title",
-        Some(SETTINGS_ICONS[2]),
-        [147, 145, 132],
-        Glyph::Gamepad,
-    ),
-    tab(
-        "touch_forced_index",
-        "menu.touch.tab.title",
-        Some(SETTINGS_ICONS[3]),
-        [147, 145, 132],
-        Glyph::Grid,
-    ),
-    grouped(
-        "options.social",
-        tab(
-            "party_forced_index",
-            "options.party",
-            Some(SETTINGS_ICONS[4]),
-            [158, 101, 64],
-            Glyph::Grid,
-        ),
-    ),
-    grouped(
-        "options.general",
-        tab(
-            "general_forced_index",
-            "menu.general.tab.title",
-            Some(SETTINGS_ICONS[5]),
-            [152, 100, 50],
-            Glyph::Grid,
-        ),
-    ),
-    tab(
-        "video_forced_index",
-        "menu.video.tab.title",
-        Some(SETTINGS_ICONS[6]),
-        [193, 142, 62],
-        Glyph::Landscape,
-    ),
-    tab(
-        "sound_forced_index",
-        "menu.audio.tab.title",
-        Some(SETTINGS_ICONS[7]),
-        [141, 90, 59],
-        Glyph::Grid,
-    ),
-    tab(
-        ACCOUNT,
-        "menu.account.tab.title",
-        Some(SETTINGS_ICONS[8]),
-        [121, 76, 45],
-        Glyph::Face,
-    ),
-    tab(
-        "global_texture_pack_forced_index",
-        "menu.globalpacks",
-        Some(SETTINGS_ICONS[9]),
-        [159, 108, 44],
-        Glyph::Chest,
-    ),
-    tab(
-        launcher::mods::SECTION,
-        "Mods",
-        None,
-        [112, 76, 160],
-        Glyph::Puzzle,
-    ),
-    tab(
-        "storage_management_forced_index",
-        "menu.storage.tab.title",
-        Some(SETTINGS_ICONS[10]),
-        [141, 126, 73],
-        Glyph::Shelves,
-    ),
-    tab(
-        "language_forced_index",
-        "menu.language.tab.title",
-        Some(SETTINGS_ICONS[11]),
-        [55, 110, 187],
-        Glyph::Grid,
-    ),
-    tab(
-        "creator_forced_index",
-        "menu.creator.tab.title",
-        Some(SETTINGS_ICONS[12]),
-        [159, 105, 65],
-        Glyph::Grid,
-    ),
-];
+const TABS: [Tab; launcher::menu::settings_sections::SETTINGS_TABS.len()] = tabs();
 
 /// The category whose icon is the signed-in player's gamerpic.
 const ACCOUNT: &str = "account_forced_index";

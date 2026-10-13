@@ -12,6 +12,7 @@ use client_runtime::network::NetworkHandle;
 use client_runtime::session::{
     begin_session, format_transfer_address, release_off_frame, transfer_handoff_address,
 };
+use launcher::menu::settings_options::SettingId;
 use launcher_host::{
     core_process::{CoreProcessGuard, spawn_core_for_address},
     server_trust::SessionTrust,
@@ -508,8 +509,8 @@ pub(crate) fn login_settings(
             }),
         gui_scale_offset: menu.gui_scale_offset(),
         memory_tier: protocol::login_memory_tier(launcher_host::memory::physical_bytes()),
-        graphics_mode: u8::from(menu.settings_snapshot().0.value("graphics_mode") != 0),
-        filter_profanity: menu.settings_snapshot().0.value("filter_profanity") != 0,
+        graphics_mode: u8::from(menu.settings_snapshot().0.value(SettingId::GraphicsMode) != 0),
+        filter_profanity: menu.settings_snapshot().0.value(SettingId::FilterProfanity) != 0,
         resource_pack_cache_dir: Some(menu.layout().resource_pack_cache_dir()),
     }
 }
@@ -749,7 +750,7 @@ mod tests {
 
         let index = SETTINGS_OPTIONS
             .iter()
-            .position(|option| option.name == "filter_profanity")
+            .position(|option| option.id == SettingId::FilterProfanity)
             .unwrap();
         for filter_profanity in [false, true] {
             let layout =

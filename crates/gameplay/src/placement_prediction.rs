@@ -42,6 +42,7 @@ pub fn predicted_placement(
 ) -> Option<PredictedPlacement> {
     let identifier = collisions.block_identifier(mode, held)?;
     let canonical = collisions.block_canonical_state(mode, held)?;
+    let original = serde_json::from_str(canonical).ok()?;
     if context.input.face > 5 {
         return None;
     }
@@ -101,7 +102,7 @@ pub fn predicted_placement(
     if crate::placement_support::is_candle(identifier)
         || identifier == "minecraft:sea_pickle"
         || identifier == "minecraft:vine"
-        || crate::placement_multiface::is_multiface(identifier)
+        || crate::placement_multiface::is_multiface(&original)
     {
         use sim::CollisionWorld;
         let sample = world.block_physics(position).ok()?;
@@ -144,7 +145,6 @@ pub fn predicted_placement(
         {
             (name, states, false)
         } else {
-            let original = serde_json::from_str(canonical).ok()?;
             let states = attachment_states(identifier, &original, context.input, support)
                 .or_else(|| {
                     crate::placement_facing::facing_states(

@@ -84,6 +84,7 @@ fn camera_environment_samples_the_live_biome_for_atmosphere_profiles() {
         stream: Some(stream),
         ..Default::default()
     })
+    .init_resource::<render_scene::chunk::capacity::ChunkArenaCapacityHint>()
     .init_resource::<CameraMediumState>()
     .init_resource::<EnvironmentContext>()
     .init_resource::<FogBindings>()

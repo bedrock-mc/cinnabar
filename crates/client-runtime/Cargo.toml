@@ -30,6 +30,7 @@ simulation-clock = { path = "../simulation-clock" }
 tokio.workspace = true
 
 [dev-dependencies]
+protocol-ids = { path = "../protocol-ids" }
 client-session = { path = "../client-session", features = ["test-support"] }
 
 [lints]

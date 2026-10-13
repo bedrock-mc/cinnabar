@@ -61,6 +61,7 @@ pub enum MenuServerTab {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuDialog {
+    MinecraftImport,
     Accounts,
     Exit,
     DeathQuit,
@@ -88,6 +89,7 @@ pub enum MenuField {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuAction {
+    MinecraftImport(crate::minecraft_import::Action),
     Update(updates::Action),
     OpenAccounts,
     AddAccount,
@@ -225,7 +227,7 @@ pub fn menu_reference(screen: MenuScreen) -> Option<&'static str> {
 }
 
 /// The default Bedrock server port displayed by launcher address fields.
-pub const DEFAULT_PORT: &str = "19132";
+pub const DEFAULT_PORT: &str = bridge::contract::DEFAULT_BEDROCK_PORT_TEXT;
 
 /// The vanilla screen shared by launcher and in-world settings.
 pub const SETTINGS_SCREEN: &str = "settings.screen_controls_and_settings";

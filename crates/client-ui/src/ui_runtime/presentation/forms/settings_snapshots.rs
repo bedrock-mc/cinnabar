@@ -1,6 +1,7 @@
 //! Offline settings gallery through the installed vanilla UI carrier.
 
 use launcher::menu::MenuScreen;
+use launcher::menu::settings_options::SettingId;
 
 struct Metrics;
 
@@ -106,7 +107,7 @@ fn settings_sections_gallery() {
 fn settings_video_graphics_mode_open() {
     let index = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "graphics_mode")
+        .position(|option| option.id == SettingId::GraphicsMode)
         .unwrap();
     section_with(
         "video_forced_index",
@@ -128,7 +129,7 @@ fn open_graphics_mode_rows_select_their_own_choice() {
     };
     let index = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "graphics_mode")
+        .position(|option| option.id == SettingId::GraphicsMode)
         .unwrap() as u16;
     let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
     view.screen = MenuScreen::Settings;
@@ -195,7 +196,7 @@ fn settings_video_graphics_options_expanded() {
 fn simple_graphics(view: &mut launcher::menu::MenuView) {
     let index = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "graphics_mode")
+        .position(|option| option.id == SettingId::GraphicsMode)
         .unwrap();
     std::sync::Arc::make_mut(&mut view.settings_options).set(index, 0);
 }

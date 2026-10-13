@@ -75,10 +75,10 @@ impl MenuRealmCard {
 }
 
 /// Marks a featured address as an experience's ID, joined when selected.
-pub const EXPERIENCE_ADDRESS_PREFIX: &str = "gathering/";
+pub const EXPERIENCE_ADDRESS_PREFIX: &str = bridge::contract::GATHERING_TARGET_PREFIX;
 
 /// Marks an address as the friend world hosted by this XUID.
-pub const FRIEND_ADDRESS_PREFIX: &str = "friend_xuid/";
+pub const FRIEND_ADDRESS_PREFIX: &str = bridge::contract::FRIEND_TARGET_PREFIX;
 
 /// Whether the server at `address` can be pinged; an experience has no server until joined.
 pub fn pingable(address: &str) -> bool {
@@ -548,6 +548,7 @@ pub struct MenuView {
     pub player_skin_model: crate::dressing_room::SkinModel,
     pub global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
     pub mods: std::sync::Arc<crate::mods::Snapshot>,
+    pub minecraft_import: std::sync::Arc<crate::minecraft_import::Snapshot>,
     /// Why the last session ended, shown until acknowledged.
     pub disconnect_message: Option<String>,
     /// The failed remote destination can be retried by the current account.
@@ -698,7 +699,7 @@ impl MenuView {
         option: &super::settings_options::SettingDefinition,
         choice: usize,
     ) -> bool {
-        option.name != super::settings_options::UPDATE_CHANNEL_OPTION.name
+        option.id != super::settings_options::UPDATE_CHANNEL_OPTION.id
             || self.updates.channel_visible(choice)
     }
 
@@ -797,6 +798,7 @@ impl MenuView {
             player_skin_model: Default::default(),
             global_resources: Default::default(),
             mods: Default::default(),
+            minecraft_import: Default::default(),
             disconnect_message: None,
             can_reconnect: false,
             editing: None,

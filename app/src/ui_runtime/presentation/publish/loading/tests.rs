@@ -40,7 +40,7 @@ fn release_local_terrain(
         local_player_unique_id: 42,
         player_position: position,
         world_spawn_position: [0, 64, 0],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let slots = protocol::vanilla_dimension_range(dimension)

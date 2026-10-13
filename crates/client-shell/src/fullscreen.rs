@@ -8,6 +8,7 @@ use bevy::{
     prelude::{Entity, Local, MessageReader, Query, ResMut, With},
     window::{MonitorSelection, PrimaryWindow, Window, WindowMode},
 };
+use launcher::menu::settings_options::BindingId;
 
 use {crate::menu::MenuRuntime, client_state::RuntimeSettings};
 
@@ -33,7 +34,7 @@ pub fn toggle_fullscreen_hotkey(
             input.window == entity
                 && crate::menu::settings_options::control_bindings::binding_key(
                     Some(&menu),
-                    "key.fullscreen",
+                    BindingId::Fullscreen,
                     input.key_code,
                 )
                 && input.state == ButtonState::Pressed

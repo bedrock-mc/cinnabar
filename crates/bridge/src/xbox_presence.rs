@@ -20,7 +20,7 @@ pub async fn report_xbox_presence(
     socket_dir: &Path,
     state: &XboxPresenceState,
 ) -> Result<(), BridgeError> {
-    call::<Accepted, _>(socket_dir, "presence.v1", Some(state)).await?;
+    call::<Accepted, _>(socket_dir, crate::contract::METHOD_PRESENCE, Some(state)).await?;
     Ok(())
 }
 

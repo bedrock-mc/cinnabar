@@ -27,6 +27,7 @@ mod realm_membership;
 pub use join_requests::open_join_requests_from_key;
 pub mod launcher_account;
 mod launcher_core;
+mod minecraft_import;
 mod navigation;
 mod presence_targets;
 mod reconnect;
@@ -182,6 +183,8 @@ pub struct MenuRuntime {
     /// Mods-tab work for the mod runtime; disclosure toggles apply in place.
     pub mod_actions: Vec<launcher::mods::Action>,
     pub mods: std::sync::Arc<launcher::mods::Snapshot>,
+    minecraft_import: std::sync::Arc<launcher::minecraft_import::Snapshot>,
+    minecraft_import_requests: Vec<launcher_host::minecraft_import::Request>,
     settings_options: std::sync::Arc<launcher::menu::settings_options::SettingsOptions>,
     storage: std::sync::Arc<launcher::menu::settings_storage::StorageView>,
     settings_dropdown: Option<u16>,
@@ -190,8 +193,8 @@ pub struct MenuRuntime {
     /// Failed writes wait until this deadline while retaining the newest edits.
     settings_retry_at: Option<std::time::Instant>,
     settings_apply: bool,
-    /// In-memory option overrides (index, persisted value) that saves never write.
-    session_overrides: Vec<(usize, i32)>,
+    /// Stored choices beneath session-only overrides, restored before saving preferences.
+    session_overrides: Vec<launcher::menu::settings_options::OptionPreference>,
     /// A developer controller is driving: hotkey toggles stay in memory.
     transient_toggles: bool,
     language_choices: std::sync::Arc<[(String, String)]>,
@@ -456,6 +459,9 @@ impl MenuRuntime {
     }
 
     pub fn activate(&mut self, action: MenuAction) {
+        if self.dismiss_minecraft_import(action) {
+            return;
+        }
         if self.disconnect_message.is_some() && self.join_request_prompted() {
             if let MenuAction::JoinRequest(accept) = action {
                 self.answer_join_request(accept);
@@ -512,6 +518,7 @@ impl MenuRuntime {
         self.message = None;
         self.disconnect_message = None;
         match action {
+            MenuAction::MinecraftImport(action) => self.activate_minecraft_import(action),
             MenuAction::SelectProfileTab(tab) => self.profile_tab = tab,
             MenuAction::RefreshProfile => {
                 self.feeds.profile.loaded = false;

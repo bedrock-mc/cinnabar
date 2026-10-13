@@ -45,7 +45,17 @@ type manifestEntry struct {
 
 func main() {
 	out := flag.String("out", "", "directory to write protocol fixtures")
+	idsOut := flag.String("ids-out", "", "file to write protocol ID constants")
 	flag.Parse()
+	if *idsOut != "" {
+		if err := writeProtocolIDs(*idsOut); err != nil {
+			fmt.Fprintf(os.Stderr, "fixturegen: %v\n", err)
+			os.Exit(1)
+		}
+		if *out == "" {
+			return
+		}
+	}
 	if *out == "" {
 		fmt.Fprintln(os.Stderr, "fixturegen: -out is required")
 		os.Exit(2)

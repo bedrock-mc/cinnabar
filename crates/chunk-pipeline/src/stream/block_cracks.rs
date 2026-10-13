@@ -193,6 +193,45 @@ impl WorldStream {
         }
     }
 
+    /// Reports whether a section needs its intermediate packet states retained.
+    pub(super) fn block_crack_section_active(&self, key: SubChunkKey) -> bool {
+        self.block_cracks
+            .columns
+            .get(&key.chunk())
+            .is_some_and(|entries| {
+                entries
+                    .keys()
+                    .any(|position| position[1].div_euclid(16) == key.y)
+            })
+    }
+
+    /// Retires cracks changed by earlier packets after the final atomic commit succeeds.
+    pub(super) fn reconcile_intermediate_block_cracks(
+        &mut self,
+        mutations: &[PreparedSubChunkMutation],
+    ) {
+        for mutation in mutations.iter().filter(|mutation| mutation.changed()) {
+            let key = mutation.key();
+            let Some(mut entries) = self.block_cracks.columns.remove(&key.chunk()) else {
+                continue;
+            };
+            let before = entries.len();
+            entries.retain(|position, entry| {
+                if position[1].div_euclid(16) != key.y {
+                    return true;
+                }
+                let [x, y, z] = position.map(|value| value.rem_euclid(16) as u8);
+                mutation.replacement().is_some_and(|section| {
+                    std::array::from_fn(|layer| section.runtime_id(layer, x, y, z)) == entry.layers
+                })
+            });
+            self.retire_block_crack_count(before - entries.len());
+            if !entries.is_empty() {
+                self.block_cracks.columns.insert(key.chunk(), entries);
+            }
+        }
+    }
+
     /// Called at each successful mutation, before the next ordered event can commit.
     pub(super) fn reconcile_block_crack_column(&mut self, column: ChunkKey) {
         let Some(mut entries) = self.block_cracks.columns.remove(&column) else {

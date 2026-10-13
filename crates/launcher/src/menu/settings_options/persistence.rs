@@ -1,5 +1,6 @@
 //! Bounded settings loading and atomic replacement keep incomplete writes out of the store.
 
+use super::SettingId;
 use std::{
     fs,
     io::{self, Read},
@@ -42,12 +43,17 @@ impl SettingsOptions {
         }
         let mut validated = Self::default();
         for (index, option) in SETTINGS_OPTIONS.iter().enumerate() {
+            if matches!(option.kind, super::SettingKind::Host) {
+                continue;
+            }
             if let Some(value) = saved.values.get(option.name) {
-                if option.name == "max_framerate" && !(option.min..=option.max).contains(value) {
+                if option.id == SettingId::MaxFramerate
+                    && !(option.min..=option.max).contains(value)
+                {
                     // Unsupported FPS values keep the default instead of clamping to one FPS.
                     continue;
                 }
-                if option.name == "render_distance" && *value == 4 {
+                if option.id == SettingId::RenderDistance && *value == 4 {
                     // Preserve the old minimum when the user explicitly saved it.
                     validated.values.insert(option.name.to_owned(), *value);
                     continue;

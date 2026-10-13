@@ -1,57 +1,11 @@
 //! The core's side of local worlds: where it routes the launcher's open world, and friend invites.
 
+use crate::contract::{Backend, GameMode, Transport, WorldState};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
 use crate::BridgeError;
-
-/// Game mode a world starts players in.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GameMode {
-    #[default]
-    Survival,
-    Creative,
-    Adventure,
-}
-
-/// Server backend a world runs on; fixed when the world is created.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Backend {
-    /// Bedrock Dedicated Server: vanilla terrain and mobs.
-    Bds,
-    /// Built-in Dragonfly server with flat or natural terrain.
-    #[default]
-    Dragonfly,
-}
-
-/// Lifecycle of the open local world.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum WorldState {
-    #[default]
-    Idle,
-    Starting,
-    Running,
-    Stopping,
-    /// Kept until the world is closed, so a failed open never falls through to another target.
-    Failed,
-}
-
-/// How the core dials the open world's server.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-pub enum Transport {
-    #[serde(rename = "raknet")]
-    RakNet,
-    /// BDS's loopback HTTP signaling.
-    #[serde(rename = "nethernet")]
-    NetherNet,
-    /// BDS found through its loopback LAN discovery advertisement.
-    #[serde(rename = "nethernet-lan")]
-    NetherNetLan,
-}
 
 /// The open world's loopback server.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -100,7 +54,12 @@ struct InviteParams<'a> {
 /// Tells the core about the open local world; while one is open it outranks `-upstream` for the
 /// next session, and a world that begins opening clears any pending selection or transfer.
 pub async fn set_local_world(socket_dir: &Path, world: &LocalWorld) -> Result<(), BridgeError> {
-    crate::account::call::<Acknowledged, _>(socket_dir, "local_world.v1", Some(world)).await?;
+    crate::account::call::<Acknowledged, _>(
+        socket_dir,
+        crate::contract::METHOD_LOCAL_WORLD,
+        Some(world),
+    )
+    .await?;
     Ok(())
 }
 
@@ -109,7 +68,7 @@ pub async fn set_local_world(socket_dir: &Path, world: &LocalWorld) -> Result<()
 pub async fn invite_to_world(socket_dir: &Path, xuid: &str) -> Result<(), BridgeError> {
     crate::account::call::<Acknowledged, _>(
         socket_dir,
-        "world_invite.v1",
+        crate::contract::METHOD_WORLD_INVITE,
         Some(InviteParams { xuid }),
     )
     .await?;
