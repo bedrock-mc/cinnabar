@@ -1,4 +1,5 @@
 use super::*;
+use crate::block_entity::mesh::BLOCK_ENTITY_CULL_BACK_FACES;
 use crate::{BlockEntityScene, BlockEntitySubmission, CrackInstance};
 use crate::{Facing, SkullKind, SkullModel, SkullMount, floor_yaw_degrees, pack_actor_light};
 use glam::{Mat4, Vec3};
@@ -83,7 +84,11 @@ fn skull_base_and_hat_carry_rotated_outward_normals_without_terrain_shading() {
             for vertex in vertices {
                 assert!(Vec3::from_array(vertex.normal).abs_diff_eq(expected, 1.0e-5));
                 assert_eq!(vertex.color, [1.0; 4], "native shader owns face shading");
-                assert_eq!(vertex.actor_light, pack_actor_light(4, 11));
+                assert_eq!(
+                    vertex.actor_light & !BLOCK_ENTITY_CULL_BACK_FACES,
+                    pack_actor_light(4, 11)
+                );
+                assert_ne!(vertex.actor_light & BLOCK_ENTITY_CULL_BACK_FACES, 0);
             }
         }
     }
@@ -107,7 +112,8 @@ fn retained_skull_levels_invalidate_the_cache_and_do_not_light_later_cracks() {
         first
             .solid
             .iter()
-            .all(|vertex| vertex.actor_light == pack_actor_light(0, 0))
+            .all(|vertex| vertex.actor_light & !BLOCK_ENTITY_CULL_BACK_FACES
+                == pack_actor_light(0, 0))
     );
     // Darkness is a valid native sample, distinct from the legacy/unlit zero sentinel.
     assert_ne!(pack_actor_light(0, 0), 0);
@@ -115,12 +121,9 @@ fn retained_skull_levels_invalidate_the_cache_and_do_not_light_later_cracks() {
         .update(SceneClock::default(), &cracks, &[skull(mount, 0, 15)])
         .clone();
     assert_ne!(first.revision, second.revision);
-    assert!(
-        second
-            .solid
-            .iter()
-            .all(|vertex| vertex.actor_light == pack_actor_light(0, 15))
-    );
+    assert!(second.solid.iter().all(
+        |vertex| vertex.actor_light & !BLOCK_ENTITY_CULL_BACK_FACES == pack_actor_light(0, 15)
+    ));
     assert!(!second.crack.is_empty());
     assert!(second.crack.iter().all(|vertex| vertex.actor_light == 0));
     let cached = scene.update(SceneClock::default(), &cracks, &[skull(mount, 0, 15)]);

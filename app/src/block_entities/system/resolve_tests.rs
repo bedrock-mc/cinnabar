@@ -285,3 +285,92 @@ fn hidden_stateless_models_and_held_items_submit_no_geometry() {
         assert!(fixture.held.is_empty(), "hidden items submit no placements");
     }
 }
+
+#[test]
+fn player_appearance_readiness_does_not_gate_enchanting_book_readers() {
+    let assets = Arc::new(assets::RuntimeAssets::diagnostic());
+    let entities = actor_animation::test_support::counting_random_assets_for("minecraft:player");
+    let mut stream = chunk_pipeline::WorldStream::new_with_asset_sets(
+        WorldBootstrap {
+            dimension: 0,
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            player_position: [100.0, 64.0, 0.0],
+            world_spawn_position: [0, 64, 0],
+            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            block_network_ids_are_hashes: false,
+        },
+        assets,
+        entities,
+        [100.0, 64.0, 0.0],
+        None,
+    );
+    stream
+        .submit(
+            1,
+            WorldEvent::Actor(protocol::ActorEvent::PlayerList(
+                protocol::PlayerListUpdateEvent {
+                    entries: Arc::from([protocol::PlayerListEntry::Add {
+                        uuid: [2; 16],
+                        unique_id: 2,
+                        username: "reader".into(),
+                        verified: true,
+                        skin: protocol::PlayerSkin::Standard(render_api::StandardSkin {
+                            width: render_api::CLASSIC_SKIN_SIDE as u32,
+                            height: render_api::CLASSIC_SKIN_SIDE as u32,
+                            rgba8: vec![
+                                255;
+                                render_api::CLASSIC_SKIN_SIDE
+                                    * render_api::CLASSIC_SKIN_SIDE
+                                    * 4
+                            ]
+                            .into(),
+                            cape: None,
+                            geometry: None,
+                        }),
+                    }]),
+                },
+            )),
+        )
+        .unwrap();
+    let remote_eye = [2.0, 64.0 + protocol::PLAYER_NETWORK_OFFSET, 0.0];
+    stream
+        .submit(
+            2,
+            WorldEvent::Actor(protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
+                dimension: 0,
+                unique_id: 2,
+                runtime_id: 2,
+                kind: protocol::ActorKind::Player {
+                    uuid: [2; 16],
+                    username: "reader".into(),
+                },
+                position: remote_eye,
+                velocity: [0.0; 3],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+                body_yaw: 0.0,
+                held_item: Default::default(),
+                metadata: Arc::from([]),
+                attributes: Arc::from([]),
+                properties: Arc::from([]),
+                links: Arc::from([]),
+            })),
+        )
+        .unwrap();
+    assert!(stream.authority().actor(2).is_some());
+    assert!(
+        stream.authority().render_players().is_empty(),
+        "the skin has not been published"
+    );
+    let local_eye = Vec3::new(100.0, 64.0, 0.0);
+    let readers = book_readers(&stream, local_eye);
+    assert_eq!(readers, [local_eye, Vec3::from_array(remote_eye)]);
+    let mut book = render_model::EnchantingBook::new([2, 64, 0]);
+    book.tick(book.nearest_reader(readers));
+    assert!(
+        book.pose(1.0).open > 0.0,
+        "the nearby player opens the book before their skin appears"
+    );
+}

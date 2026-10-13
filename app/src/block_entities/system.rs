@@ -664,9 +664,9 @@ struct FrameContext<'a> {
 fn book_readers(stream: &chunk_pipeline::WorldStream, eye: Vec3) -> Vec<Vec3> {
     let remote = stream
         .authority()
-        .render_players()
-        .into_iter()
-        .map(|(actor, _)| {
+        .remote_actors()
+        .filter(|actor| matches!(&actor.kind, protocol::ActorKind::Player { .. }))
+        .map(|actor| {
             let [x, y, z] = actor.position;
             Vec3::new(x, y + protocol::PLAYER_NETWORK_OFFSET, z)
         });
