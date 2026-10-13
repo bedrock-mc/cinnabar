@@ -14,7 +14,7 @@ const TEXTURE_WIDTH_SHIFT: u32 = assets::TEXTURE_LAYER_MASK.count_ones();
 const TEXTURE_HEIGHT_SHIFT: u32 = TEXTURE_WIDTH_SHIFT + TEXTURE_SIZE_BITS;
 const TEXTURE_GRID_SHIFT: u32 = TEXTURE_HEIGHT_SHIFT + TEXTURE_SIZE_BITS;
 const TEXTURE_SIZE_EXPONENT_MASK: u32 = (1 << TEXTURE_SIZE_BITS) - 1;
-const _: () = assert!(assets::MAX_TILE_SIZE.ilog2() + 1 <= TEXTURE_SIZE_EXPONENT_MASK);
+const _: () = assert!(assets::MAX_TILE_SIZE.ilog2() < TEXTURE_SIZE_EXPONENT_MASK);
 
 /// Encodes admitted power-of-two dimensions above the shared page and layer fields.
 pub(crate) fn gpu_texture_ref(
