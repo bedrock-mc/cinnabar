@@ -49,7 +49,6 @@ pub(super) fn prepare(source: &Source, state: &UserState, library: &GlobalPackLi
     if binding_skips != 0 {
         options.bindings.clear();
     }
-    let option_names = options.names();
     let new_servers = &merged[state.servers.len()..];
     servers.entries = new_servers.to_vec();
     let pack_metadata = packs
@@ -89,10 +88,10 @@ pub(super) fn prepare(source: &Source, state: &UserState, library: &GlobalPackLi
         })
         .collect::<Vec<_>>();
     let body = format!(
-        "{}\n\nSettings ({})\n{}\n\nNew servers ({})\n{}\n\nResource packs ({})\n{}\n\nActive packs, highest priority first ({})\n{}\n\nSkipped: {skipped}. Unsupported or malformed settings, duplicate servers, existing packs, unavailable active packs and rejected or over-limit data are kept out of the import.\n\nExisting active packs follow the imported order. A backup lets you revert settings, servers and pack order. Copied packs remain installed.",
+        "{}\n\nSettings ({})\n{}\n\nNew servers ({})\n{}\n\nResource packs ({})\n{}\n\nActive packs, highest priority first ({})\n{}\n\nSkipped: {skipped} unsupported, duplicate or unavailable entries.\n\nRevert later in Settings; copied packs stay installed.",
         source.label,
-        option_names.len(),
-        names(option_names.iter().map(String::as_str)),
+        options.count(),
+        options.summary(),
         new_servers.len(),
         names(new_servers.iter().map(|server| server.name.as_str())),
         pack_metadata.len(),

@@ -19,13 +19,22 @@ fn saved_state(settings: &SettingsOptions) -> UserState {
     serde_json::from_slice(&serde_json::to_vec(&state).unwrap()).unwrap()
 }
 
-/// Delivers one queued import action to a fixture service and publishes its outcome.
+/// Delivers an import operation, including its confirmation when applying preferences.
 fn perform(
     menu: &mut MenuRuntime,
     service: &mut launcher_host::minecraft_import::Service,
     library: &mut resource_pack::GlobalPackLibrary,
-    action: Action,
+    mut action: Action,
 ) -> UserState {
+    if action == Action::Apply {
+        menu.activate(MenuAction::MinecraftImport(Action::Apply));
+        let request = menu.take_minecraft_import_requests().remove(0);
+        let outcome = service.act(request, library);
+        assert_eq!(outcome.snapshot.phase, Phase::ConfirmImport);
+        assert!(outcome.state.is_none());
+        menu.publish_minecraft_import(outcome.snapshot, outcome.state);
+        action = Action::ConfirmApply;
+    }
     menu.activate(MenuAction::MinecraftImport(action));
     let mut requests = menu.take_minecraft_import_requests();
     assert_eq!(requests.len(), 1);
@@ -364,4 +373,45 @@ fn saving_the_active_session_choice_after_import_replaces_its_underlying_prefere
     assert_eq!(saved.value("hide_hand"), 1);
     menu.set_session_option("hide_hand", None);
     assert_eq!(menu.settings_options.value("hide_hand"), 1);
+}
+
+#[test]
+fn escape_and_generic_dismissal_cancel_confirmation_without_applying() {
+    for escape in [true, false] {
+        let mut menu = MenuRuntime::new(true, 2, "Import fixture".into());
+        let data = menu.layout.user_data_root.join("synthetic-minecraft");
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(data.join("options.txt"), b"gfx_field_of_view:80").unwrap();
+        let mut service = launcher_host::minecraft_import::Service::new_with_data_root(
+            menu.layout.user_config_root.clone(),
+            data,
+        );
+        let mut library = resource_pack::GlobalPackLibrary::open(
+            menu.layout.user_data_root.join("packs"),
+            [0; 3],
+        )
+        .unwrap();
+        perform(&mut menu, &mut service, &mut library, Action::Begin);
+        let preview = menu.view().minecraft_import.body.clone();
+        let original = menu.settings_options.value("field_of_view");
+        menu.activate(MenuAction::MinecraftImport(Action::Apply));
+        let request = menu.take_minecraft_import_requests().remove(0);
+        let outcome = service.act(request, &mut library);
+        assert!(outcome.state.is_none());
+        menu.publish_minecraft_import(outcome.snapshot, outcome.state);
+        assert_eq!(menu.view().minecraft_import.phase, Phase::ConfirmImport);
+        if escape {
+            menu.go_back();
+        } else {
+            menu.activate(MenuAction::DismissDialog);
+        }
+        let request = menu.take_minecraft_import_requests().remove(0);
+        assert_eq!(request.action, Action::Close);
+        let outcome = service.act(request, &mut library);
+        assert!(outcome.state.is_none());
+        menu.publish_minecraft_import(outcome.snapshot, outcome.state);
+        assert_eq!(menu.view().minecraft_import.phase, Phase::Preview);
+        assert_eq!(menu.view().minecraft_import.body, preview);
+        assert_eq!(menu.settings_options.value("field_of_view"), original);
+    }
 }

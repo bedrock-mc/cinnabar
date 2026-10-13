@@ -11,8 +11,22 @@ fn paint(
     view: &MenuView,
     scrolls: &mut MenuScrolls<MenuAction>,
 ) -> (Vec<(MenuAction, UiRect)>, Vec<UiNode>) {
+    paint_at(screen, view, scrolls, SIZE)
+}
+
+/// Paints at a caller-selected viewport using the same GUI scale clamping as the client.
+fn paint_at(
+    screen: &mut OreUiScreen,
+    view: &MenuView,
+    scrolls: &mut MenuScrolls<MenuAction>,
+    size: [f32; 2],
+) -> (Vec<(MenuAction, UiRect)>, Vec<UiNode>) {
     let font = fixture_font();
-    let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), Some(2));
+    let metrics = TextMetrics::for_viewport(
+        size.map(|value| value as u32),
+        DpiScale::new(1.0).unwrap(),
+        Some(2),
+    );
     let (mut nodes, mut next, mut layouts) =
         (Vec::new(), 1, TextLayoutCache::new(128, 1024 * 1024));
     let mut frame = PaintFrame {
@@ -21,7 +35,7 @@ fn paint(
         metrics,
         solid_page: 0,
         safe_area: SafeArea::ZERO,
-        content: SIZE,
+        content: size,
         translate: &|_| None,
         language: [0; 3],
         now: 0.0,
@@ -30,7 +44,7 @@ fn paint(
         renderers: &mut [],
     };
     let hits = screen
-        .paint_minecraft_import(view, SIZE, scrolls, &mut frame)
+        .paint_minecraft_import(view, size, scrolls, &mut frame)
         .unwrap();
     (hits, nodes)
 }
@@ -158,4 +172,80 @@ fn long_preview_scrolls_its_text_while_the_apply_button_stays_fixed() {
     let button =
         |hits: &[(MenuAction, UiRect)]| hits.iter().find(|(action, _)| *action == apply).unwrap().1;
     assert_eq!(button(&initial_hits), button(&scrolled_hits));
+}
+
+#[test]
+fn small_preview_caps_the_panel_and_keeps_controls_fixed_while_scrolling() {
+    let size = [360.0, 240.0];
+    let mut view = MenuView::new(true, "Fixture".into());
+    view.focused_action = None;
+    let state = Arc::make_mut(&mut view.minecraft_import);
+    state.phase = Phase::Preview;
+    state.body = "Readable preview entry\n".repeat(80);
+    let mut screen = OreUiScreen::default();
+    let mut scrolls = MenuScrolls::default();
+    let (initial_hits, nodes) = paint_at(&mut screen, &view, &mut scrolls, size);
+    let panel = crate::test_support::solids(&nodes)
+        .into_iter()
+        .find_map(|(bounds, color)| (color == crate::theme::BORDER).then_some(bounds))
+        .expect("the import modal has a bordered panel");
+    assert!(panel[1] >= 0.0 && panel[3] <= size[1]);
+    assert!(panel[3] - panel[1] <= size[1] * MAX_HEIGHT_FRACTION);
+    for (_, bounds) in &initial_hits {
+        assert!(bounds.min().y() >= panel[1]);
+        assert!(bounds.max().y() <= panel[3]);
+    }
+    let viewport = nodes
+        .iter()
+        .find(|node| node.clips_children())
+        .expect("the preview body has a clipped viewport")
+        .bounds();
+    assert!(viewport.height() > 0.0);
+    assert!(
+        scrolls.wheel(
+            UiPoint::new(
+                (viewport.min().x() + viewport.max().x()) * 0.5,
+                (viewport.min().y() + viewport.max().y()) * 0.5,
+            )
+            .unwrap(),
+            -100000.0,
+            true
+        )
+    );
+    let (scrolled_hits, scrolled_nodes) = paint_at(&mut screen, &view, &mut scrolls, size);
+    assert_eq!(
+        initial_hits, scrolled_hits,
+        "header and buttons remain fixed"
+    );
+    assert!(scrolls.offsets()[modal::SCROLL] > 0.0);
+    let title = |nodes: &[UiNode]| {
+        let node = nodes
+            .iter()
+            .find(|node| matches!(node.visual(), UiVisual::Text { .. }))
+            .unwrap();
+        window_vertical_bounds(nodes, node)
+    };
+    assert_eq!(title(&nodes), title(&scrolled_nodes));
+}
+
+#[test]
+fn confirmation_shows_only_import_and_cancel_controls_at_small_sizes() {
+    let mut view = MenuView::new(true, "Fixture".into());
+    Arc::make_mut(&mut view.minecraft_import).phase = Phase::ConfirmImport;
+    let (hits, _) = paint_at(
+        &mut OreUiScreen::default(),
+        &view,
+        &mut MenuScrolls::default(),
+        [360.0, 240.0],
+    );
+    for expected in [Action::ConfirmApply, Action::Close] {
+        assert!(
+            hits.iter()
+                .any(|(action, _)| *action == MenuAction::MinecraftImport(expected))
+        );
+    }
+    assert!(hits.iter().all(|(action, _)| matches!(
+        action,
+        MenuAction::MinecraftImport(Action::ConfirmApply | Action::Close)
+    )));
 }

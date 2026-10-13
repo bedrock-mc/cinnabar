@@ -136,6 +136,9 @@ impl Service {
                 self.preview = None;
                 self.snapshot.phase = Phase::Idle;
             }
+            Action::Close if self.snapshot.phase == Phase::ConfirmImport => {
+                self.snapshot.phase = Phase::Preview;
+            }
             Action::Close => {
                 self.preview = None;
                 self.snapshot.phase = Phase::Idle;
@@ -163,6 +166,9 @@ impl Service {
                 self.select(index, &state, library)?
             }
             Action::Apply if self.snapshot.phase == Phase::Preview => {
+                self.snapshot.phase = Phase::ConfirmImport;
+            }
+            Action::ConfirmApply if self.snapshot.phase == Phase::ConfirmImport => {
                 let mut preview = self
                     .preview
                     .take()
