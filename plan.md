@@ -405,9 +405,9 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - Precedence is `WGPU_BACKEND`, the restart-only Video override, vendor defaults and the
   driver blocklist, then crash exclusions. Explicit overrides bypass automatic filters.
   The Video control is hidden on macOS.
-- All eligible adapters are ranked by device type (discrete, integrated, virtual, CPU), then
-  vendor backend order. Windows Intel adapters prefer DX12 on ties; other multi-API defaults
-  prefer Vulkan. A requested adapter name restricts candidates across every API.
+- All eligible adapters are ranked by device type (discrete, integrated, virtual, other, CPU),
+  then vendor backend order. Low-power preference puts integrated hardware before discrete.
+  Windows Intel adapters prefer DX12 on ties; other multi-API defaults prefer Vulkan. A requested adapter name restricts candidates across every API.
 - Startup tries each ranked candidate until a device supports terrain base-vertex draws and
   the required vertex-stage storage buffers. Returned failures advance to the next candidate.
   Crash exclusions identify only the backend and survive successful fallback. Client version

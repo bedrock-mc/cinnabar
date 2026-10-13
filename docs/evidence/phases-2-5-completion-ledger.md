@@ -388,7 +388,8 @@ executed locally. No existing completion entry is advanced.
 
 The shared backend policy, driver blocklist, crash sentinel and restart-only Video override
 are implemented. Each API is enumerated under its own sentinel before eligible adapters are
-ranked by device type and vendor backend order. Device failures advance through all candidates;
+ranked by power preference, device type and vendor backend order, with unclassified hardware
+ahead of software. Device failures advance through all candidates;
 named GPU selection restricts every API. Exclusions are keyed only by backend and reset on a
 client version change or Graphics API selection, including choosing Auto again. All-excluded
 startup permits one retry pass. Every device requires base-vertex terrain draws and vertex

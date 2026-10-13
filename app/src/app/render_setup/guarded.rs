@@ -110,7 +110,7 @@ pub(super) fn render_plugin(
             }
         }
     }
-    rank(&mut adapters, platform);
+    rank(&mut adapters, platform, settings.power_preference);
     let creation = try_candidates(adapters, &mut guard, explicit, |candidate| {
         let (instance, adapter) = candidate.native;
         bevy::tasks::block_on(create_renderer(instance, adapter, &settings))

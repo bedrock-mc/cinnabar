@@ -65,23 +65,28 @@ pub(super) fn eligible<T>(
             }))
 }
 
-/// Orders hardware classes without letting an earlier API's slower adapter win.
-fn device_rank(kind: wgpu::DeviceType) -> u8 {
+/// Honors low-power hardware preference while keeping software behind unclassified hardware.
+fn device_rank(kind: wgpu::DeviceType, preference: wgpu::PowerPreference) -> u8 {
+    let low_power = preference == wgpu::PowerPreference::LowPower;
     match kind {
-        wgpu::DeviceType::DiscreteGpu => 0,
-        wgpu::DeviceType::IntegratedGpu => 1,
+        wgpu::DeviceType::DiscreteGpu => u8::from(low_power),
+        wgpu::DeviceType::IntegratedGpu => u8::from(!low_power),
         wgpu::DeviceType::VirtualGpu => 2,
-        wgpu::DeviceType::Cpu => 3,
-        wgpu::DeviceType::Other => 4,
+        wgpu::DeviceType::Other => 3,
+        wgpu::DeviceType::Cpu => 4,
     }
 }
 
-/// Uses device type first, then the adapter vendor's default backend order.
-pub(super) fn rank<T>(candidates: &mut [Candidate<T>], platform: Platform) {
+/// Ranks device types by power preference, then uses the vendor's default backend order.
+pub(super) fn rank<T>(
+    candidates: &mut [Candidate<T>],
+    platform: Platform,
+    preference: wgpu::PowerPreference,
+) {
     candidates.sort_by_key(|candidate| {
         let order = default_order(platform, &candidate.identity);
         (
-            device_rank(candidate.device_type),
+            device_rank(candidate.device_type, preference),
             order
                 .iter()
                 .position(|backend| *backend == candidate.backend),

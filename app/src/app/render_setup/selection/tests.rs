@@ -97,7 +97,11 @@ fn discrete_dx12_beats_integrated_or_software_vulkan_and_vendor_order_breaks_tie
             candidate(Backend::Vulkan, kind, 0),
             candidate(Backend::Dx12, wgpu::DeviceType::DiscreteGpu, 0),
         ];
-        rank(&mut adapters, Platform::Windows);
+        rank(
+            &mut adapters,
+            Platform::Windows,
+            wgpu::PowerPreference::HighPerformance,
+        );
         assert_eq!(adapters[0].backend, Backend::Dx12);
     }
     for (vendor, preferred) in [(INTEL_PCI_VENDOR, Backend::Dx12), (0, Backend::Vulkan)] {
@@ -105,7 +109,11 @@ fn discrete_dx12_beats_integrated_or_software_vulkan_and_vendor_order_breaks_tie
             candidate(Backend::Vulkan, wgpu::DeviceType::DiscreteGpu, vendor),
             candidate(Backend::Dx12, wgpu::DeviceType::DiscreteGpu, vendor),
         ];
-        rank(&mut adapters, Platform::Windows);
+        rank(
+            &mut adapters,
+            Platform::Windows,
+            wgpu::PowerPreference::HighPerformance,
+        );
         assert_eq!(adapters[0].backend, preferred);
     }
     let mut adapters: Vec<_> = [
@@ -117,7 +125,11 @@ fn discrete_dx12_beats_integrated_or_software_vulkan_and_vendor_order_breaks_tie
     .into_iter()
     .map(|kind| candidate(Backend::Vulkan, kind, 0))
     .collect();
-    rank(&mut adapters, Platform::Windows);
+    rank(
+        &mut adapters,
+        Platform::Windows,
+        wgpu::PowerPreference::HighPerformance,
+    );
     assert_eq!(
         adapters.iter().map(|a| a.device_type).collect::<Vec<_>>(),
         [
@@ -219,4 +231,36 @@ fn unused_candidates_are_dropped_under_their_own_api_before_restoring_presentati
     let pending = StartupGuard::pending(root.path()).unwrap().unwrap();
     assert_eq!(pending.backend, Backend::Dx12);
     assert_eq!(pending.stage, Stage::FirstPresentation);
+}
+
+#[test]
+fn unclassified_gl_hardware_ranks_ahead_of_software_vulkan() {
+    for preference in [
+        wgpu::PowerPreference::None,
+        wgpu::PowerPreference::LowPower,
+        wgpu::PowerPreference::HighPerformance,
+    ] {
+        let mut adapters = vec![
+            candidate(Backend::Vulkan, wgpu::DeviceType::Cpu, 0),
+            candidate(Backend::Gl, wgpu::DeviceType::Other, 0),
+        ];
+        rank(&mut adapters, Platform::Linux, preference);
+        assert_eq!(adapters[0].backend, Backend::Gl);
+    }
+}
+
+#[test]
+fn low_power_prefers_integrated_hardware_over_discrete_hardware() {
+    for (preference, preferred) in [
+        (wgpu::PowerPreference::LowPower, Backend::Vulkan),
+        (wgpu::PowerPreference::HighPerformance, Backend::Dx12),
+        (wgpu::PowerPreference::None, Backend::Dx12),
+    ] {
+        let mut adapters = vec![
+            candidate(Backend::Dx12, wgpu::DeviceType::DiscreteGpu, 0),
+            candidate(Backend::Vulkan, wgpu::DeviceType::IntegratedGpu, 0),
+        ];
+        rank(&mut adapters, Platform::Windows, preference);
+        assert_eq!(adapters[0].backend, preferred);
+    }
 }
