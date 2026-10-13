@@ -310,6 +310,7 @@ pub(in crate::compiler) fn is_model_visual(record: &RegistryRecord) -> bool {
         || super::visuals::campfire::is_record(record)
         || super::visuals::grindstone::is_record(record)
         || super::visuals::tripwire_hook::is_record(record)
+        || super::visuals::lever::is_record(record)
         || super::visuals::portal::is_record(record)
         || super::visuals::shelf::is_record(record)
         || super::visuals::end_portal_frame::is_record(record)

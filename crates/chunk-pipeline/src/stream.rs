@@ -296,18 +296,32 @@ impl SchedulerView {
         }
     }
 
-    /// Changes when the camera crosses a sub-chunk or turns into another eighth of the compass.
-    fn cell(self) -> [i32; 4] {
-        let [x, y, z] = self
-            .position
-            .map(|value| floor_to_i32(value).div_euclid(16));
-        let sector = self.forward.map_or(-1, |forward| {
-            ((forward[2].atan2(forward[0]) / std::f32::consts::TAU * 8.0).floor() as i32)
-                .rem_euclid(8)
-        });
-        [x, y, z, sector]
+    /// The sub-chunk holding the camera.
+    fn cell(self) -> [i32; 3] {
+        self.position
+            .map(|value| floor_to_i32(value).div_euclid(16))
+    }
+
+    /// Whether ranks queued under `previous` are stale: the camera changed sub-chunk or startup
+    /// footing, or its view direction turned, in any axis, by more than a sixth of the 60° cone.
+    fn reranks_from(self, previous: Self) -> bool {
+        self.cell() != previous.cell()
+            || self.startup_center != previous.startup_center
+            || match (self.forward, previous.forward) {
+                (None, None) => false,
+                (Some(current), Some(previous)) => {
+                    current[0].mul_add(
+                        previous[0],
+                        current[1].mul_add(previous[1], current[2] * previous[2]),
+                    ) < RERANK_TURN_COSINE
+                }
+                _ => true,
+            }
     }
 }
+
+/// Cosine of the 10° turn after which queued view ranks are refreshed.
+const RERANK_TURN_COSINE: f32 = 0.984_807_8;
 
 use model::{
     CorrelatedSubChunkAttempts, MeshChangeQueue, MeshCompletion, NormalizationErrorReason,
