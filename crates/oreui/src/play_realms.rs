@@ -14,6 +14,9 @@ const PRIMARY_TINT: [u8; 4] = [0x6c, 0xc3, 0x49, 255];
 /// Closed and expired tag fill (needs the OreUI reference).
 const WARNING_TINT: [u8; 4] = [0xd0, 0x3c, 0x3c, 255];
 const PLAY_HEIGHT: f32 = 4.4;
+const DETAILS_PAD: f32 = 2.4;
+/// A complete Play control and its trailing inset must fit when scrolled to the end.
+pub(super) const MIN_DETAILS_HEIGHT: f32 = PLAY_HEIGHT + DETAILS_PAD;
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
@@ -161,7 +164,7 @@ fn draw_details(
         TEXT_DIMMER,
         false,
     )?;
-    let pad = canvas.r(2.4);
+    let pad = canvas.r(DETAILS_PAD);
     let mut y = image[3] + space(canvas, 3);
     y += canvas.text(
         &realm.name,

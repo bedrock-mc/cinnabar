@@ -47,6 +47,8 @@ pub(super) fn draw_tab(
     let chrome = HEADER_HEIGHT + EDGE + SPACE[0] + TAB_HEIGHT + SPACE[1] * 2.0;
     let content = if selected == 0 {
         CREATE_HEIGHT + SPACE[0] + WORLD_ROW_HEIGHT * 0.5
+    } else if selected == 1 && !view.realms.is_empty() {
+        play_realms::MIN_DETAILS_HEIGHT
     } else {
         super::theme::BODY.line
     };
