@@ -313,13 +313,15 @@ pub(crate) fn drive_world_inventory_keys(
     mut runtime: ResMut<UiRuntimeResource>,
     emote_input: Option<Res<super::emotes::EmoteInputConsumed>>,
     swing: DropSwing,
+    touch: Option<Res<crate::semantic_controls::SemanticTouchTargets>>,
 ) {
     if emote_input.is_some_and(|consumed| consumed.0) {
         return;
     }
     let drop = binding_pressed(menu.as_deref(), "key.drop", &keys, &mouse)
         || binding_gamepad(menu.as_deref(), "key.drop", &gamepads);
-    let use_book = binding_pressed(menu.as_deref(), "key.use", &keys, &mouse);
+    let use_book = binding_pressed(menu.as_deref(), "key.use", &keys, &mouse)
+        || touch.is_some_and(|touch| touch.pressed(semantic_input::touch::USE));
     if !window.focused
         || client_shell::screen_policy::absorbs_input(
             &player_runtime,

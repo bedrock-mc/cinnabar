@@ -255,9 +255,14 @@ enum SemanticTouchTarget {
     Control(u16, Option<[f32; 2]>),
 }
 
-/// This frame's touch control per held contact, plus contacts that lifted this frame.
+/// This frame's touch control per held contact, contacts that lifted this frame, and the
+/// controls a finger newly pressed this frame.
 #[derive(Resource, Debug, Default)]
-pub struct SemanticTouchTargets(HashMap<u64, SemanticTouchTarget>, Vec<TouchContact>);
+pub struct SemanticTouchTargets(
+    HashMap<u64, SemanticTouchTarget>,
+    Vec<TouchContact>,
+    Vec<u16>,
+);
 
 impl SemanticTouchTargets {
     pub fn set(&mut self, contact_id: u64, hit_id: u16) {
@@ -290,6 +295,16 @@ impl SemanticTouchTargets {
         std::mem::take(&mut self.1)
     }
 
+    /// Records a control a finger pressed this frame, for UI handlers keyed on press edges.
+    pub(crate) fn press(&mut self, hit_id: u16) {
+        self.2.push(hit_id);
+    }
+
+    /// Whether a finger pressed this control this frame, including a tap that already lifted.
+    pub(crate) fn pressed(&self, hit_id: u16) -> bool {
+        self.2.contains(&hit_id)
+    }
+
     pub fn clear(&mut self, contact_id: u64) {
         self.0.remove(&contact_id);
     }
@@ -312,6 +327,7 @@ impl SemanticTouchTargets {
     pub fn release_all(&mut self) {
         self.0.clear();
         self.1.clear();
+        self.2.clear();
     }
 }
 

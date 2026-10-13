@@ -18,14 +18,23 @@ use client_shell::{
 /// Provisional until measured against the native touch look curve.
 const LOOK_GAIN: [f32; 2] = [4.0, 2.0];
 
+/// One frame of touch events applied to the captured fingers.
+#[derive(Debug, Default, PartialEq)]
+struct TouchFrame {
+    /// Lifted contacts' last samples, one per id.
+    lifted: Vec<TouchContact>,
+    /// Controls a finger newly captured, even if it lifted again in the same frame.
+    pressed: Vec<u16>,
+}
+
 /// Applies touch events in arrival order, so an id Android reuses after a lift starts a fresh
-/// contact. Returns the lifted contacts' last samples, or the screen-opening control a press hit.
+/// contact. A press on a screen-opening control stops and returns that control.
 fn apply_touch_events(
     state: &mut TouchControlState,
     events: impl IntoIterator<Item = (u64, TouchPhase, [f32; 2])>,
     region: impl Fn([f32; 2]) -> Option<TouchControlRegion>,
-) -> Result<Vec<TouchContact>, u16> {
-    let mut lifted = Vec::new();
+) -> Result<TouchFrame, u16> {
+    let mut frame = TouchFrame::default();
     for (id, phase, position) in events {
         match phase {
             TouchPhase::Started => {
@@ -36,7 +45,11 @@ fn apply_touch_events(
                 {
                     return Err(hit_id);
                 }
-                state.begin(id, position, 0, region);
+                if state.begin(id, position, 0, region)
+                    && let Some(region) = region
+                {
+                    frame.pressed.push(region.hit_id);
+                }
             }
             TouchPhase::Moved => {
                 state.move_to(id, position, 0);
@@ -45,14 +58,16 @@ fn apply_touch_events(
                 state.move_to(id, position, 0);
                 if let Some(sample) = state.end(id) {
                     // A reused id may lift twice in one frame; a frame carries each id once.
-                    lifted.retain(|earlier: &TouchContact| earlier.contact_id != id);
-                    lifted.push(sample);
+                    frame
+                        .lifted
+                        .retain(|earlier: &TouchContact| earlier.contact_id != id);
+                    frame.lifted.push(sample);
                 }
             }
             TouchPhase::Canceled => state.release(id),
         }
     }
-    Ok(lifted)
+    Ok(frame)
 }
 
 #[allow(
@@ -101,10 +116,10 @@ pub(crate) fn drive_gameplay_touch_targets(
         ];
         (event.id, event.phase, position)
     });
-    let lifted = match apply_touch_events(&mut state, events, |position| {
+    let TouchFrame { lifted, pressed } = match apply_touch_events(&mut state, events, |position| {
         presentation.gameplay_touch_region(position, size)
     }) {
-        Ok(lifted) => lifted,
+        Ok(frame) => frame,
         Err(hit_id) => {
             if hit_id == touch::INVENTORY {
                 let _ = ui.toggle_inventory(&mut player);
@@ -124,6 +139,9 @@ pub(crate) fn drive_gameplay_touch_targets(
             return;
         }
     };
+    for hit_id in pressed {
+        targets.press(hit_id);
+    }
     let held = state.sample();
     presentation.set_touch_contacts(held.clone());
     let look_scaled = |sample: TouchContact| {
@@ -179,7 +197,8 @@ mod tests {
             [(3, TouchPhase::Ended, at), (3, TouchPhase::Started, at)],
             stick,
         )
-        .unwrap();
+        .unwrap()
+        .lifted;
         assert_eq!(lifted.len(), 1);
         let held = state.sample();
         assert_eq!(held.len(), 1);
@@ -227,7 +246,8 @@ mod tests {
             ],
             controls,
         )
-        .unwrap();
+        .unwrap()
+        .lifted;
         assert_eq!(lifted.len(), 1);
         let mut touches = state.sample();
         touches.extend(lifted);
@@ -239,6 +259,38 @@ mod tests {
             })
             .unwrap();
         assert!(router.finalize().unwrap().movement[1] > 0.0);
+    }
+
+    /// A Use tap that starts and lifts within one frame still reports its press, which opens a
+    /// held book.
+    #[test]
+    fn a_tap_within_one_frame_reports_its_press() {
+        let mut state = TouchControlState::default();
+        let use_button = |_| {
+            Some(TouchControlRegion {
+                hit_id: touch::USE,
+                bounds: TouchBounds {
+                    min: [0.0; 2],
+                    max: [1.0; 2],
+                },
+            })
+        };
+        let frame = apply_touch_events(
+            &mut state,
+            [
+                (4, TouchPhase::Started, [0.5; 2]),
+                (4, TouchPhase::Ended, [0.5; 2]),
+            ],
+            use_button,
+        )
+        .unwrap();
+        assert_eq!(frame.pressed, [touch::USE]);
+        assert_eq!(frame.lifted.len(), 1);
+        let mut targets = SemanticTouchTargets::default();
+        targets.press(touch::USE);
+        assert!(targets.pressed(touch::USE) && !targets.pressed(touch::ATTACK));
+        targets.release_all();
+        assert!(!targets.pressed(touch::USE));
     }
 
     /// Pause and inventory presses stop processing and open their screens.
