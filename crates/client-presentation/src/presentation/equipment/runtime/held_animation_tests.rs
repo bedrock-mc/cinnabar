@@ -329,8 +329,9 @@ fn an_inactive_pack_controller_does_not_draw_the_startup_model() {
             catalog.texture("textures/items/held").is_none(),
             omit_default
         );
-        let (_, locations) =
-            base_pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
+        let (_, locations) = base_pages
+            .clone()
+            .with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
         runtime.set_pack_layer(Some((entities, Some(catalog), locations)));
         assert!(
             runtime
