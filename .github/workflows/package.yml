@@ -664,6 +664,27 @@ jobs:
           # Keep the generated changelog and installation notes from release creation.
           gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" \
             --draft=false --prerelease=false --latest=true
+      - name: Announce the release to the Cinnabar API
+        # Clients still verify the signed manifest; a failed notice only waits for their next check.
+        continue-on-error: true
+        env:
+          CINNABAR_API_RELEASE_HOOK_SECRET: ${{ secrets.CINNABAR_API_RELEASE_HOOK_SECRET }}
+        run: |
+          if [[ -z "$CINNABAR_API_RELEASE_HOOK_SECRET" ]]; then
+            echo "::warning::CINNABAR_API_RELEASE_HOOK_SECRET is unset; skipping the Cinnabar API release notice"
+            exit 0
+          fi
+          base="$(jq -r '.constants[] | select(.go_name == "CinnabarAPIBaseURL") | .value' \
+            "$GITHUB_WORKSPACE/release-tools/crates/bridge/data/contract.json")"
+          body="$(jq -cn --arg channel "$RELEASE_CHANNEL" --arg version "$RELEASE_VERSION" \
+            '{channel: $channel, version: $version}')"
+          # The header comes from a builtin through a pipe, so the secret never reaches a process argument.
+          status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -X POST "$base/v1/releases" \
+            -H @<(printf 'Authorization: Bearer %s\n' "$CINNABAR_API_RELEASE_HOOK_SECRET") \
+            -H 'Content-Type: application/json' --data "$body")" || true
+          if [[ "$status" != 204 ]]; then
+            echo "::warning::Cinnabar API release notice failed (HTTP ${status:-none}); clients pick the release up on their next check"
+          fi
       - name: Post the changelog to Discord
         if: steps.prepare_publish.outputs.created == 'true'
         continue-on-error: true
