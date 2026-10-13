@@ -45,7 +45,8 @@ impl ChestVariant {
         })
     }
 
-    fn texture(self, double: bool) -> String {
+    /// Returns the pack-relative texture path for this chest layout.
+    pub(super) fn texture(self, double: bool) -> String {
         let stem = match self {
             Self::Normal => "normal",
             Self::Trapped => "trapped",
@@ -114,7 +115,8 @@ pub(super) fn emit(
             [128.0, 64.0],
         ),
     };
-    let Some(texture) = atlas.texture(&model.variant.texture(double), logical) else {
+    let Some(texture) = builder.required_texture(atlas, &model.variant.texture(double), logical)
+    else {
         return;
     };
     let base = model_matrix(block, center, model.facing.yaw_degrees());

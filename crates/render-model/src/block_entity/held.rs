@@ -171,14 +171,6 @@ pub fn held_block_entity_model(
 ) -> Option<HeldBlockEntityModel> {
     let [atlas_width, atlas_height] = atlas.size();
     let static_height = atlas.static_height();
-    if kind == HeldBlockEntity::DecoratedPot {
-        for (name, size) in [
-            assets::block_entity_geometry::POT_BASE_TEXTURE,
-            assets::block_entity_geometry::POT_SIDE_TEXTURE,
-        ] {
-            atlas.texture(name, size)?;
-        }
-    }
     if static_height == 0 {
         return None;
     }
@@ -186,7 +178,7 @@ pub fn held_block_entity_model(
     // The actor rig needs face normals; its submission supplies the actual light.
     builder.actor_light = crate::pack_actor_light(0, 0);
     kind.emit(&mut builder, atlas);
-    if builder.solid.is_empty() {
+    if builder.missing_required_texture || builder.solid.is_empty() {
         return None;
     }
     let (min, max) = builder.solid.iter().fold(
@@ -251,6 +243,10 @@ pub fn held_block_entity_model(
         glint_span,
     })
 }
+
+#[cfg(test)]
+#[path = "held/residency_tests.rs"]
+mod residency_tests;
 
 /// Resolves an emitted face's texture from its interior UV point, before static UV rescaling.
 fn face_texture(atlas: &BlockEntityAtlas, face: &[BlockEntityVertex; 6]) -> Option<AtlasRect> {

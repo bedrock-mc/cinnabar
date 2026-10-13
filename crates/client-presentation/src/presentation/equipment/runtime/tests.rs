@@ -6,6 +6,9 @@ mod missing_artwork_tests;
 #[path = "held_block_entity_tests.rs"]
 mod held_block_entity_tests;
 
+#[path = "held_model_residency_tests.rs"]
+mod held_model_residency_tests;
+
 use actor_animation::ItemAnimationState;
 use bevy::math::Quat;
 use render_api::PoseGeneration;

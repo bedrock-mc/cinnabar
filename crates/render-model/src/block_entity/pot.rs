@@ -38,7 +38,11 @@ pub(super) fn emit(
     model: &DecoratedPotModel,
 ) {
     let matrix = model_matrix(block, [0.5, 0.0, 0.5], model.facing.yaw_degrees());
-    if let Some(base) = atlas.texture(geometry::POT_BASE_TEXTURE.0, geometry::POT_BASE_TEXTURE.1) {
+    if let Some(base) = builder.required_texture(
+        atlas,
+        geometry::POT_BASE_TEXTURE.0,
+        geometry::POT_BASE_TEXTURE.1,
+    ) {
         builder.cuboid(
             Layer::Solid,
             &base,
@@ -77,8 +81,11 @@ pub(super) fn emit(
             builder.quad_uv(Layer::Solid, corners, uvs, WHITE);
         }
     }
-    let Some(side) = atlas.texture(geometry::POT_SIDE_TEXTURE.0, geometry::POT_SIDE_TEXTURE.1)
-    else {
+    let Some(side) = builder.required_texture(
+        atlas,
+        geometry::POT_SIDE_TEXTURE.0,
+        geometry::POT_SIDE_TEXTURE.1,
+    ) else {
         return;
     };
     // Faces as outward direction, top-left first when seen from outside; index into `sherds`.
@@ -97,9 +104,9 @@ pub(super) fn emit(
             })
         };
         builder.textured_quad(Layer::Solid, world([0.0; 3]), side.rect, WHITE);
-        let pattern = model.sherds[index]
-            .as_deref()
-            .and_then(|stem| atlas.texture(&format!("textures/blocks/{stem}"), [16.0, 16.0]));
+        let pattern = model.sherds[index].as_deref().and_then(|stem| {
+            builder.required_texture(atlas, &format!("textures/blocks/{stem}"), [16.0, 16.0])
+        });
         if let Some(pattern) = pattern {
             let rect: AtlasRect = pattern.rect;
             builder.textured_quad(Layer::Solid, world(lift), rect, WHITE);
