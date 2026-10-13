@@ -1,5 +1,5 @@
-//! Relights that cannot change light are not queued: a never-solved arrival seeds no neighbour,
-//! and retiring a section whose face light every survivor cell already exceeds supports nothing.
+//! Retiring a section whose face light every survivor cell already exceeds supports nothing, so
+//! its survivors keep their light; streaming still converges to the light of a single load.
 
 use super::*;
 
@@ -10,29 +10,6 @@ fn arrive(stream: &mut WorldStream, key: SubChunkKey, section: SubChunk) {
     stream.authority.commit_sub_chunk(key, section).unwrap();
     stream.resident.insert(key);
     stream.mark_changed(key, Instant::now());
-}
-
-/// A section that has never been lit is an untrusted boundary, so its arrival relights only itself;
-/// once lit, its changes relight its neighbours as before.
-#[test]
-fn arrival_relights_only_the_arriving_section_until_it_is_lit() {
-    let mut stream = lit_stream(1);
-    let lit = SubChunkKey::new(1, 0, 0, 0);
-    let arriving = SubChunkKey::new(1, 1, 0, 0);
-    stream
-        .authority
-        .commit_sub_chunk(lit, super::uniform_sub_chunk(3))
-        .unwrap();
-    install_current_light(&mut stream, lit, 0, 0, false);
-
-    arrive(&mut stream, arriving, super::uniform_sub_chunk(3));
-    assert!(stream.lighting.jobs.pending.contains_key(&arriving));
-    assert!(!stream.lighting.jobs.pending.contains_key(&lit));
-    assert!(stream.light_is_current(lit));
-
-    settle_light(&mut stream, CAMERA);
-    stream.mark_changed(arriving, Instant::now());
-    assert!(stream.lighting.jobs.pending.contains_key(&lit));
 }
 
 /// Retiring a neighbour keeps a survivor's light unless the neighbour could seed a face cell up to
@@ -120,18 +97,29 @@ fn gated_streaming_converges_to_the_light_of_a_single_load() {
         .filter(|column| !retired.contains(column))
         .flat_map(keys)
         .collect::<Vec<_>>();
-    let mut loaded = lit_stream(1);
-    for &key in &surviving {
-        loaded
-            .authority
-            .commit_sub_chunk(key, section(key))
-            .unwrap();
-        loaded.resident.insert(key);
-    }
-    loaded.mark_changed_sources(surviving.iter().copied(), Instant::now());
-    settle_light(&mut loaded, CAMERA);
+    assert_light_matches_single_load(
+        &streamed,
+        1,
+        surviving.into_iter().map(|key| (key, section(key))),
+    );
+}
 
-    for key in surviving {
+/// Each section's light in `streamed` equals the light of committing `sections` at once.
+fn assert_light_matches_single_load(
+    streamed: &WorldStream,
+    dimension: i32,
+    sections: impl IntoIterator<Item = (SubChunkKey, SubChunk)>,
+) {
+    let mut loaded = lit_stream(dimension);
+    let mut keys = Vec::new();
+    for (key, section) in sections {
+        loaded.authority.commit_sub_chunk(key, section).unwrap();
+        loaded.resident.insert(key);
+        keys.push(key);
+    }
+    loaded.mark_changed_sources(keys.iter().copied(), Instant::now());
+    settle_light(&mut loaded, CAMERA);
+    for key in keys {
         assert!(streamed.light_is_current(key) && loaded.light_is_current(key));
         let (streamed, loaded) = (
             streamed.lighting.store.light(key).unwrap(),
@@ -148,4 +136,65 @@ fn gated_streaming_converges_to_the_light_of_a_single_load() {
             }
         }
     }
+}
+
+/// Replacing an emitter while its batch with the section below is in flight leaves no light
+/// from the removed emitter in either section.
+#[test]
+fn replacing_an_emitter_during_its_first_batch_relights_the_section_below() {
+    let mut stream = lit_stream(1);
+    let lower = SubChunkKey::new(1, 0, 0, 0);
+    let upper = SubChunkKey::new(1, 0, 1, 0);
+    arrive(&mut stream, lower, super::uniform_sub_chunk(3));
+    arrive(&mut stream, upper, super::uniform_sub_chunk(1));
+    assert!(stream.dispatch_light_jobs(CAMERA, usize::MAX) > 0);
+
+    stream
+        .authority
+        .commit_sub_chunk(upper, super::uniform_sub_chunk(2))
+        .unwrap();
+    stream.mark_changed(upper, Instant::now());
+    settle_light(&mut stream, CAMERA);
+
+    assert_light_matches_single_load(
+        &stream,
+        1,
+        [
+            (lower, super::uniform_sub_chunk(3)),
+            (upper, super::uniform_sub_chunk(2)),
+        ],
+    );
+}
+
+/// An opaque section arriving above a settled sky-lit one moves the column's sky seed plane, so
+/// the section below loses its direct sky light.
+#[test]
+fn a_first_arrival_above_the_column_top_relights_the_section_below() {
+    let mut stream = lit_stream(0);
+    let lower = SubChunkKey::new(0, 0, 19, 0);
+    let upper = SubChunkKey::new(0, 0, 20, 0);
+    arrive(&mut stream, lower, super::uniform_sub_chunk(3));
+    settle_light(&mut stream, CAMERA);
+    let sky_top = |stream: &WorldStream| {
+        stream
+            .lighting
+            .store
+            .light(lower)
+            .unwrap()
+            .get(LightChannel::Sky, 8, 15, 8)
+    };
+    assert_eq!(sky_top(&stream), Some(15));
+
+    arrive(&mut stream, upper, super::uniform_sub_chunk(2));
+    settle_light(&mut stream, CAMERA);
+
+    assert_ne!(sky_top(&stream), Some(15));
+    assert_light_matches_single_load(
+        &stream,
+        0,
+        [
+            (lower, super::uniform_sub_chunk(3)),
+            (upper, super::uniform_sub_chunk(2)),
+        ],
+    );
 }

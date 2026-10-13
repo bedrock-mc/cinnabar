@@ -136,7 +136,8 @@ fn complete_one_light(stream: &mut WorldStream, camera: [f32; 3]) {
 
 /// Advances bounded scheduler turns until test lighting is current and its workers are idle.
 pub(super) fn settle_light(stream: &mut WorldStream, camera: [f32; 3]) {
-    for _ in 0..128 {
+    // Emitter-dense fields take hundreds of boundary exchanges to settle.
+    for _ in 0..1024 {
         stream.dispatch_light_jobs(camera, usize::MAX);
         if stream.lighting.jobs.in_flight.is_empty() {
             // Retired jobs can still own slots after their in-flight entries are removed.
