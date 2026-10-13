@@ -3,7 +3,8 @@
 use super::*;
 use assets::{IconBlockSheet, IconEntry, IconSprite, ItemVisualKey, RuntimeIconCatalog};
 
-/// Fills the actual shelf budget with distinct opaque sheets, preceded by a cutout source.
+/// Fills a bounded shelf with distinct opaque sheets and keeps the carrier's sheet-count limit.
+/// Required equipment textures fill any remaining atlas pages in larger budget fixtures.
 fn sheets_at_capacity(pages: usize) -> Vec<IconSprite> {
     let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE;
     let mut cutout = vec![255; usize::from(width) * usize::from(height) * 4];
@@ -14,7 +15,8 @@ fn sheets_at_capacity(pages: usize) -> Vec<IconSprite> {
         rgba8: cutout.into(),
     }];
     let mut atlas = atlas::Atlas::new(1, pages);
-    for index in 1..=assets::MAX_ICON_SPRITES {
+    let limit = assets::MAX_ICON_BLOCK_SHEETS.min(assets::MAX_ICON_SPRITES);
+    for index in 1..limit {
         let [red, green, blue, _] = (index as u32).to_le_bytes();
         let rgba8 = [red, green, blue, 255].repeat(usize::from(width) * usize::from(height));
         if atlas.insert([width, height], &rgba8).is_err() {
@@ -27,7 +29,7 @@ fn sheets_at_capacity(pages: usize) -> Vec<IconSprite> {
             rgba8: rgba8.into(),
         });
     }
-    panic!("the icon source bound must exceed the tested model atlas capacity")
+    panic!("the requested shelf capacity exceeds the carrier's sheet limit; use equipment pages")
 }
 
 /// Builds original compiled item routes and admitted sheets without needing game carriers.
@@ -105,13 +107,32 @@ fn node(icon: IconRef) -> UiNode {
 
 #[test]
 fn full_required_cube_atlas_keeps_cutout_thumbnail_without_failing_installation() {
-    let (entities, icons) = catalog(sheets_at_capacity(MODEL_PAGES));
+    let cube_pages = 1;
+    let (entities, icons) = catalog(sheets_at_capacity(cube_pages));
     let mut presentation = UiPresentationRuntime::with_hud_and_icons(
         ui_engine::test_support::fixture_font(),
         crate::test_support::fixture_hud(),
         Arc::new(icons),
     )
     .unwrap();
+    let side = render_model::UI_MODEL_ATLAS_SIDE as u16;
+    presentation.set_equipment_catalog(Some(Arc::new(
+        assets::RuntimeEquipmentCatalog::from_parts(
+            entities.source_manifest_sha256(),
+            Vec::new(),
+            (cube_pages..MODEL_PAGES)
+                .map(|page| assets::EquipmentTexture {
+                    identifier: format!("textures/fixture/budget_{page:02}").into(),
+                    width: side,
+                    height: side,
+                    rgba8: [page as u8, 17, 23, 255]
+                        .repeat(usize::from(side) * usize::from(side))
+                        .into(),
+                })
+                .collect(),
+        )
+        .unwrap(),
+    )));
     let cutout = presentation.item_icon("fixture:cube_00000", 0).unwrap();
     let opaque = presentation.item_icon("fixture:cube_00001", 0).unwrap();
     presentation
