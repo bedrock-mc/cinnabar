@@ -264,6 +264,25 @@ fn nonlocal_head_keeps_tick_interpolation_and_takes_the_short_yaw_path() {
     }
 }
 
+#[test]
+fn nonlocal_head_pitch_takes_the_short_path_across_the_signed_boundary() {
+    let mut stream = head_stream();
+    stream.sync_local_player_pose(&head_feed());
+    stream.prepare_actor_appearance_fixture();
+    stream.advance_actor_interpolation_frame(1);
+    let mut actor = stream.authority().actor(1).unwrap().clone();
+    actor.received_pose.pitch = -40.0;
+    let rig = stream.authority().actor_rig(1).unwrap();
+    for (previous, current, delta) in [(179.0, -179.0, 2.0), (-179.0, 179.0, -2.0)] {
+        actor.previous_pose.pitch = previous;
+        actor.pitch = current;
+        for alpha in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let input = third_person_input(&rig, &actor, None, alpha, false);
+            assert_eq!(input.head_pitch, previous + delta * alpha);
+        }
+    }
+}
+
 /// Draw and eat timing count from the first using tick, a tick behind the frame.
 #[test]
 fn use_timing_maps_java_counts() {

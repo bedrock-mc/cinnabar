@@ -68,6 +68,45 @@ fn label(chop: WordChop) -> TextWrap {
 }
 
 #[test]
+fn line_capacity_uses_layout_rounding_and_padding_only_between_lines() {
+    let font = font();
+    let mut layouts = TextLayoutCache::new(4, 64 * 1024);
+    for scale in [0.30769232, 2.0 / 3.0, 1.0] {
+        for device in [0, 65_536, 98_304] {
+            for padding in [-64, 0, 96] {
+                for count in [1, 2, 13] {
+                    let text = "\n".repeat(count - 1);
+                    let request = TextLayoutRequest {
+                        text: &text,
+                        style: TextStyle::default(),
+                        width_64: 800 * 64,
+                        line_height_64: 8 * 64,
+                        baseline_64: 0,
+                        scale: UiScale::new_display(scale).unwrap(),
+                        font: &font,
+                        wrap: TextWrap {
+                            line_padding_64: padding,
+                            device_scale_65536: device,
+                            ..Default::default()
+                        },
+                    };
+                    let height = layouts.layout(request).unwrap().size_64()[1];
+                    assert_eq!(request.max_lines_in_height(height).unwrap(), count as u16);
+                    assert_eq!(
+                        request.max_lines_in_height(height - 1).unwrap(),
+                        (count - 1) as u16
+                    );
+                    assert_eq!(
+                        request.max_lines_in_height(u32::MAX).unwrap(),
+                        ui::MAX_WRAP_LINES as u16
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn letter_spacing_moves_the_pen_and_changes_wrap_without_changing_ink() {
     let spacing = TextWrap {
         letter_spacing_64: 64,
