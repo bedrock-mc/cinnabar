@@ -2,13 +2,14 @@
 //! Open Notification key or a press on the toast opens its popup over the pause screen, and the
 //! answers wait here for the Discord adapter to send.
 
+use launcher::menu::settings_options::BindingId;
 use std::{collections::VecDeque, ops::DerefMut, sync::Arc, time::Duration};
 
 use crate::ui_resources::UiRuntimeResource;
 use bevy::prelude::{Res, ResMut};
 use launcher::menu::{
     join_requests::{self, JoinRequests},
-    settings_options::{OPEN_NOTIFICATION_KEY, key_name},
+    settings_options::key_name,
 };
 use semantic_input::Action;
 use ui::{StandingToast, ToastPress};
@@ -81,7 +82,7 @@ impl MenuRuntime {
         }
         let hint = self
             .settings_options
-            .named_key_control(OPEN_NOTIFICATION_KEY)
+            .named_key_control(BindingId::InteractWithToast)
             .map(|key| join_requests::respond_hint(&key_name(key)))
             .unwrap_or_default();
         runtime.stand_toast(StandingToast {

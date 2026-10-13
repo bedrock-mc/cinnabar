@@ -1,6 +1,6 @@
 //! Video presets share one table with application and derived selection.
 
-use super::{FRAME_RATE_UNLIMITED, SETTINGS_OPTIONS, SMAA_OPTION, SettingsOptions};
+use super::{FRAME_RATE_UNLIMITED, SETTINGS_OPTIONS, SettingId, SettingsOptions};
 
 /// Named graphics choices; a selection is Custom when none matches.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -32,8 +32,8 @@ impl VideoPreset {
     }
 
     /// Identifies real edits that replace a temporary override of a preset option.
-    pub fn controls(name: &str) -> bool {
-        PRESET_OPTIONS.iter().any(|option| option.name == name)
+    pub fn controls(id: SettingId) -> bool {
+        PRESET_OPTIONS.iter().any(|option| option.id == id)
     }
 }
 
@@ -47,7 +47,7 @@ enum Value {
 }
 
 struct PresetOption {
-    name: &'static str,
+    id: SettingId,
     values: [Value; VideoPreset::ALL.len()],
 }
 
@@ -56,7 +56,7 @@ use Value::{Default, Fixed, HighestSamples, PerformanceDistance, QualityDistance
 // Each row supplies every preset. Balanced reads existing defaults, including device limits.
 const PRESET_OPTIONS: &[PresetOption] = &[
     PresetOption {
-        name: "render_distance",
+        id: SettingId::RenderDistance,
         values: [
             PerformanceDistance(12),
             Default,
@@ -67,7 +67,7 @@ const PRESET_OPTIONS: &[PresetOption] = &[
         ],
     },
     PresetOption {
-        name: "msaa",
+        id: SettingId::Msaa,
         values: [
             Fixed(ui::ANTI_ALIASING_SAMPLE_COUNTS[0] as i32),
             Default,
@@ -75,7 +75,7 @@ const PRESET_OPTIONS: &[PresetOption] = &[
         ],
     },
     PresetOption {
-        name: SMAA_OPTION.name,
+        id: SettingId::Smaa,
         values: [
             Fixed(ui::SmaaMode::Off as i32),
             Default,
@@ -83,7 +83,7 @@ const PRESET_OPTIONS: &[PresetOption] = &[
         ],
     },
     PresetOption {
-        name: "max_framerate",
+        id: SettingId::MaxFramerate,
         values: [
             Fixed(FRAME_RATE_UNLIMITED),
             Default,
@@ -91,31 +91,31 @@ const PRESET_OPTIONS: &[PresetOption] = &[
         ],
     },
     PresetOption {
-        name: "vsync",
+        id: SettingId::Vsync,
         values: [Fixed(0), Default, Fixed(1)],
     },
     PresetOption {
-        name: "graphics_mode",
+        id: SettingId::GraphicsMode,
         values: [Fixed(0), Default, Fixed(1)],
     },
     PresetOption {
-        name: "smooth_lighting",
+        id: SettingId::SmoothLighting,
         values: [Fixed(0), Default, Fixed(1)],
     },
     PresetOption {
-        name: "fancy_skies",
+        id: SettingId::FancySkies,
         values: [Fixed(0), Default, Fixed(1)],
     },
     PresetOption {
-        name: "render_clouds",
+        id: SettingId::RenderClouds,
         values: [Fixed(0), Default, Fixed(1)],
     },
     PresetOption {
-        name: "transparent_leaves",
+        id: SettingId::TransparentLeaves,
         values: [Fixed(0), Default, Fixed(1)],
     },
     PresetOption {
-        name: "bubble_particles",
+        id: SettingId::BubbleParticles,
         values: [Fixed(0), Default, Fixed(1)],
     },
 ];
@@ -123,10 +123,7 @@ const PRESET_OPTIONS: &[PresetOption] = &[
 impl PresetOption {
     /// Finds the owning registry entry; the table coverage test guards this contract.
     fn index(&self) -> usize {
-        SETTINGS_OPTIONS
-            .iter()
-            .position(|option| option.name == self.name)
-            .expect("preset option must be registered")
+        self.id.index()
     }
 
     /// Resolves a table cell against the same defaults and capabilities as the controls.
@@ -151,7 +148,7 @@ impl PresetOption {
                 .next_back()
                 .unwrap_or(1) as i32,
         };
-        if self.name == "msaa" {
+        if self.id == SettingId::Msaa {
             settings.anti_aliasing_support().select(value as u32) as i32
         } else {
             value
@@ -165,7 +162,7 @@ impl SettingsOptions {
         VideoPreset::ALL.into_iter().find(|preset| {
             PRESET_OPTIONS
                 .iter()
-                .all(|option| self.value(option.name) == option.value(self, *preset))
+                .all(|option| self.value(option.id) == option.value(self, *preset))
         })
     }
 
@@ -174,7 +171,7 @@ impl SettingsOptions {
         let mut changed = false;
         for option in PRESET_OPTIONS {
             if preset == VideoPreset::Balanced {
-                changed |= self.values.remove(option.name).is_some();
+                changed |= self.values.remove(option.id.name()).is_some();
             } else {
                 changed |= self.set(option.index(), option.value(self, preset));
             }

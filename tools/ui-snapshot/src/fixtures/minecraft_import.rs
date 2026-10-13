@@ -2,7 +2,7 @@
 
 use super::{Arc, Fixture, MenuView};
 use launcher::{
-    menu::{MenuDialog, settings_options::SETTINGS_OPTIONS},
+    menu::MenuDialog,
     minecraft_import::{
         Phase,
         options::{MAPPINGS, ParsedOptions},
@@ -15,11 +15,8 @@ fn options() -> ParsedOptions {
         values: MAPPINGS
             .iter()
             .map(|mapping| {
-                let definition = SETTINGS_OPTIONS
-                    .iter()
-                    .find(|option| option.name == mapping.destination)
-                    .expect("registered import destination");
-                (mapping.destination.to_owned(), definition.default)
+                let definition = mapping.destination.definition();
+                (mapping.destination.name().to_owned(), definition.default)
             })
             .collect(),
         bindings: launcher::menu::settings_options::KEY_BINDINGS

@@ -15,7 +15,7 @@ fn ability_fifo_waits_for_predecessor_and_joins_unique_not_runtime_identity() {
         local_player_unique_id: 7,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream.submit(2, ability(7, 0)).unwrap();

@@ -52,7 +52,7 @@ fn app_audio_seam_drains_each_committed_event_once_in_the_same_call() {
         local_player_unique_id: 1,
         player_position: [0.0, 64.0, 0.0],
         world_spawn_position: [0, 64, 0],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream.submit(1, audio_event("first")).unwrap();
@@ -216,7 +216,7 @@ fn connected_client_world() -> ClientWorld {
             local_player_unique_id: 1,
             player_position: [0.0, 64.0, 0.0],
             world_spawn_position: [0, 64, 0],
-            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
             block_network_ids_are_hashes: false,
         })),
         ..ClientWorld::default()

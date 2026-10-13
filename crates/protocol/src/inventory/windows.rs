@@ -4,67 +4,78 @@
 //! whose cells follow content order, and the personal UI inventory (anvil,
 //! enchanting table, ...) whose cells sit at fixed UI slots.
 
+use protocol_ids::{ContainerName, WindowType};
+
 use super::container_policy::CONTAINER_NAME_CREATED_OUTPUT;
 use super::request::StackRequestContainer;
 
 /// Unspecified type used by client closes and acknowledgements for absent windows.
 pub const NO_CONTAINER_WINDOW_TYPE: i8 = -9;
-pub const WINDOW_TYPE_CONTAINER: i8 = 0;
-pub const WINDOW_TYPE_WORKBENCH: i8 = 1;
-pub const WINDOW_TYPE_FURNACE: i8 = 2;
-pub const WINDOW_TYPE_ENCHANTMENT: i8 = 3;
-pub const WINDOW_TYPE_BREWING_STAND: i8 = 4;
-pub const WINDOW_TYPE_ANVIL: i8 = 5;
-pub const WINDOW_TYPE_DISPENSER: i8 = 6;
-pub const WINDOW_TYPE_DROPPER: i8 = 7;
-pub const WINDOW_TYPE_HOPPER: i8 = 8;
-pub const WINDOW_TYPE_CART_CHEST: i8 = 10;
-pub const WINDOW_TYPE_CART_HOPPER: i8 = 11;
-pub const WINDOW_TYPE_HORSE: i8 = 12;
-pub const WINDOW_TYPE_BEACON: i8 = 13;
-pub const WINDOW_TYPE_LOOM: i8 = 24;
-pub const WINDOW_TYPE_LECTERN: i8 = 25;
-pub const WINDOW_TYPE_GRINDSTONE: i8 = 26;
-pub const WINDOW_TYPE_BLAST_FURNACE: i8 = 27;
-pub const WINDOW_TYPE_SMOKER: i8 = 28;
-pub const WINDOW_TYPE_STONECUTTER: i8 = 29;
-pub const WINDOW_TYPE_CARTOGRAPHY: i8 = 30;
-pub const WINDOW_TYPE_SMITHING_TABLE: i8 = 33;
-pub const WINDOW_TYPE_CHEST_BOAT: i8 = 34;
-pub const WINDOW_TYPE_CRAFTER: i8 = 36;
+pub const WINDOW_TYPE_CONTAINER: i8 = WindowType::Container.wire_value();
+pub const WINDOW_TYPE_WORKBENCH: i8 = WindowType::Workbench.wire_value();
+pub const WINDOW_TYPE_FURNACE: i8 = WindowType::Furnace.wire_value();
+pub const WINDOW_TYPE_ENCHANTMENT: i8 = WindowType::Enchantment.wire_value();
+pub const WINDOW_TYPE_BREWING_STAND: i8 = WindowType::BrewingStand.wire_value();
+pub const WINDOW_TYPE_ANVIL: i8 = WindowType::Anvil.wire_value();
+pub const WINDOW_TYPE_DISPENSER: i8 = WindowType::Dispenser.wire_value();
+pub const WINDOW_TYPE_DROPPER: i8 = WindowType::Dropper.wire_value();
+pub const WINDOW_TYPE_HOPPER: i8 = WindowType::Hopper.wire_value();
+pub const WINDOW_TYPE_CART_CHEST: i8 = WindowType::CartChest.wire_value();
+pub const WINDOW_TYPE_CART_HOPPER: i8 = WindowType::CartHopper.wire_value();
+pub const WINDOW_TYPE_HORSE: i8 = WindowType::Horse.wire_value();
+pub const WINDOW_TYPE_BEACON: i8 = WindowType::Beacon.wire_value();
+pub const WINDOW_TYPE_LOOM: i8 = WindowType::Loom.wire_value();
+pub const WINDOW_TYPE_LECTERN: i8 = WindowType::Lectern.wire_value();
+pub const WINDOW_TYPE_GRINDSTONE: i8 = WindowType::Grindstone.wire_value();
+pub const WINDOW_TYPE_BLAST_FURNACE: i8 = WindowType::BlastFurnace.wire_value();
+pub const WINDOW_TYPE_SMOKER: i8 = WindowType::Smoker.wire_value();
+pub const WINDOW_TYPE_STONECUTTER: i8 = WindowType::Stonecutter.wire_value();
+pub const WINDOW_TYPE_CARTOGRAPHY: i8 = WindowType::Cartography.wire_value();
+pub const WINDOW_TYPE_SMITHING_TABLE: i8 = WindowType::SmithingTable.wire_value();
+pub const WINDOW_TYPE_CHEST_BOAT: i8 = WindowType::ChestBoat.wire_value();
+pub const WINDOW_TYPE_CRAFTER: i8 = WindowType::Crafter.wire_value();
 
-const NAME_ANVIL_INPUT: u8 = 0;
-const NAME_ANVIL_MATERIAL: u8 = 1;
-const NAME_SMITHING_INPUT: u8 = 3;
-const NAME_SMITHING_MATERIAL: u8 = 4;
-const NAME_BEACON_PAYMENT: u8 = 8;
-const NAME_BREWING_INPUT: u8 = 9;
-const NAME_BREWING_RESULT: u8 = 10;
-const NAME_BREWING_FUEL: u8 = 11;
-const NAME_CRAFTING_INPUT: u8 = 13;
-const NAME_ENCHANTING_INPUT: u8 = 22;
-const NAME_ENCHANTING_MATERIAL: u8 = 23;
-const NAME_FURNACE_FUEL: u8 = 24;
-const NAME_FURNACE_INGREDIENT: u8 = 25;
-const NAME_FURNACE_RESULT: u8 = 26;
-const NAME_HORSE_EQUIP: u8 = 27;
-const NAME_SHULKER_BOX: u8 = 30;
-const NAME_LOOM_INPUT: u8 = 41;
-const NAME_LOOM_DYE: u8 = 42;
-const NAME_LOOM_MATERIAL: u8 = 43;
-const NAME_BLAST_FURNACE_INGREDIENT: u8 = 45;
-const NAME_SMOKER_INGREDIENT: u8 = 46;
-const NAME_GRINDSTONE_INPUT: u8 = 50;
-const NAME_GRINDSTONE_ADDITIONAL: u8 = 51;
-const NAME_STONECUTTER_INPUT: u8 = 53;
-const NAME_CARTOGRAPHY_INPUT: u8 = 55;
-const NAME_CARTOGRAPHY_ADDITIONAL: u8 = 56;
-const NAME_BARREL: u8 = 58;
-const NAME_SMITHING_TEMPLATE: u8 = 61;
-const NAME_CRAFTER: u8 = 62;
+const NAME_ANVIL_INPUT: u8 = ContainerName::AnvilInput.wire_value();
+const NAME_ANVIL_MATERIAL: u8 = ContainerName::AnvilMaterial.wire_value();
+const NAME_SMITHING_INPUT: u8 = ContainerName::SmithingTableInput.wire_value();
+const NAME_SMITHING_MATERIAL: u8 = ContainerName::SmithingTableMaterial.wire_value();
+const NAME_BEACON_PAYMENT: u8 = ContainerName::BeaconPayment.wire_value();
+const NAME_BREWING_INPUT: u8 = ContainerName::BrewingStandInput.wire_value();
+const NAME_BREWING_RESULT: u8 = ContainerName::BrewingStandResult.wire_value();
+const NAME_BREWING_FUEL: u8 = ContainerName::BrewingStandFuel.wire_value();
+const NAME_CRAFTING_INPUT: u8 = ContainerName::CraftingInput.wire_value();
+const NAME_ENCHANTING_INPUT: u8 = ContainerName::EnchantingInput.wire_value();
+const NAME_ENCHANTING_MATERIAL: u8 = ContainerName::EnchantingMaterial.wire_value();
+const NAME_FURNACE_FUEL: u8 = ContainerName::FurnaceFuel.wire_value();
+const NAME_FURNACE_INGREDIENT: u8 = ContainerName::FurnaceIngredient.wire_value();
+const NAME_FURNACE_RESULT: u8 = ContainerName::FurnaceResult.wire_value();
+const NAME_HORSE_EQUIP: u8 = ContainerName::HorseEquip.wire_value();
+const NAME_SHULKER_BOX: u8 = ContainerName::ShulkerBox.wire_value();
+const NAME_LOOM_INPUT: u8 = ContainerName::LoomInput.wire_value();
+const NAME_LOOM_DYE: u8 = ContainerName::LoomDye.wire_value();
+const NAME_LOOM_MATERIAL: u8 = ContainerName::LoomMaterial.wire_value();
+const NAME_BLAST_FURNACE_INGREDIENT: u8 = ContainerName::BlastFurnaceIngredient.wire_value();
+const NAME_SMOKER_INGREDIENT: u8 = ContainerName::SmokerIngredient.wire_value();
+const NAME_GRINDSTONE_INPUT: u8 = ContainerName::GrindstoneInput.wire_value();
+const NAME_GRINDSTONE_ADDITIONAL: u8 = ContainerName::GrindstoneAdditional.wire_value();
+const NAME_STONECUTTER_INPUT: u8 = ContainerName::StonecutterInput.wire_value();
+const NAME_CARTOGRAPHY_INPUT: u8 = ContainerName::CartographyInput.wire_value();
+const NAME_CARTOGRAPHY_ADDITIONAL: u8 = ContainerName::CartographyAdditional.wire_value();
+const NAME_BARREL: u8 = ContainerName::Barrel.wire_value();
+const NAME_SMITHING_TEMPLATE: u8 = ContainerName::SmithingTableTemplate.wire_value();
+const NAME_CRAFTER: u8 = ContainerName::CrafterLevelEntity.wire_value();
 
 /// Result-preview container names; each shows the screen's output at UI slot 50.
-const RESULT_PREVIEW_NAMES: [u8; 8] = [2, 5, 14, 44, 52, 54, 57, 33];
+const RESULT_PREVIEW_NAMES: [u8; 8] = [
+    ContainerName::AnvilResultPreview.wire_value(),
+    ContainerName::SmithingTableResultPreview.wire_value(),
+    ContainerName::CraftingOutputPreview.wire_value(),
+    ContainerName::LoomResultPreview.wire_value(),
+    ContainerName::GrindstoneResultPreview.wire_value(),
+    ContainerName::StonecutterResultPreview.wire_value(),
+    ContainerName::CartographyResultPreview.wire_value(),
+    ContainerName::TradeResultPreview.wire_value(),
+];
 
 /// Slots of the personal UI inventory (cursor, inputs, grids, output).
 pub const UI_SLOT_COUNT: usize = 54;
@@ -140,7 +151,10 @@ const BREWING_SEGMENTS: [WindowSegment; 3] = [
     seg(NAME_BREWING_RESULT, 1, 3),
     seg(NAME_BREWING_FUEL, 4, 1),
 ];
-const HORSE_SEGMENTS: [WindowSegment; 2] = [seg(NAME_HORSE_EQUIP, 0, 2), seg(7, 2, 0)];
+const HORSE_SEGMENTS: [WindowSegment; 2] = [
+    seg(NAME_HORSE_EQUIP, 0, 2),
+    seg(ContainerName::LevelEntity.wire_value(), 2, 0),
+];
 const CRAFTER_SEGMENTS: [WindowSegment; 1] = [seg(NAME_CRAFTER, 0, 0)];
 
 impl WindowKind {

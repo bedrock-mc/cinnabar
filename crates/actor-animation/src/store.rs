@@ -386,6 +386,7 @@ impl ActorAnimationStore {
                 .and_then(|skeleton| skeleton.prepared.mesh.as_ref()),
             skin_layers: &state.skin_layers,
             hand: state.hand_phases(),
+            main_hand_equipped: state.equipped_main.as_deref(),
             item_animation: state.hand_phases().map(ItemAnimationState::from),
             off_hand_animation: state.off_hand_animation,
             animation_variables: ActorAnimationVariables::new(
