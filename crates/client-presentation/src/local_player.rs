@@ -694,8 +694,16 @@ pub fn resolve_camera_pose(
         mut receipt,
     } = publication;
     let perspective = settings.perspective();
-    let rotation = settings
-        .death_rotation()
+    // Capture the sleeping turn in the camera pose and its publication proof.
+    let rotation = (perspective == PerspectiveMode::FirstPerson)
+        .then(|| {
+            client_world
+                .stream
+                .and_then(|stream| stream.authority().local_sleeping_bed())
+        })
+        .flatten()
+        .map(|(_, rotation)| sleeping_view_rotation(rotation))
+        .or(settings.death_rotation())
         .unwrap_or_else(|| view.camera_rotation());
     let transform = if let Some(stream) = client_world.stream.as_ref() {
         let collision_world = sim::PaletteWorld::new(

@@ -1476,7 +1476,8 @@ frame-budget or identical-version pixel gates.
   position faces south 90, west 0, north 270 and east 180 degrees, and a sleeper without a
   bed position reads 0. The local sleeper presents lying on the bed top at the block centre,
   with its eye at the sleeping offset, while its physics stays where it stood. Java animations
-  retain that sleeping eye height. Provisional:
+  retain that sleeping eye height. The sleeping view rotation is captured with the camera pose
+  and its publication proof so named audio keeps an eligible first-person camera. Provisional:
   the first-person view looks level from the pillow toward the foot, and third person keeps
   its ordinary orbit around the body; the native sleeping camera is unmeasured.
 - Falling blocks retain variant metadata, full block geometry and packet-centred

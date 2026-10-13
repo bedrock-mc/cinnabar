@@ -20,6 +20,7 @@ struct TestPhysics {
     state: sim::PlayerState,
     ticks: Vec<CameraMovementTick>,
     alpha: f32,
+    world_identity: Option<sim::WorldCollisionIdentity>,
 }
 impl PhysicsObservation for TestPhysics {
     /// Returns the deterministic completed state.
@@ -46,9 +47,9 @@ impl PhysicsObservation for TestPhysics {
     fn fall_fly_ticks(&self) -> u32 {
         0
     }
-    /// No collision provenance is needed for camera sampling.
+    /// Returns the completed collision observation when a publication test supplies it.
     fn last_world_identity(&self) -> Option<&sim::WorldCollisionIdentity> {
-        None
+        self.world_identity.as_ref()
     }
     /// Translation is simulation-owned in this fixture.
     fn is_active(&self) -> bool {
@@ -135,6 +136,7 @@ fn camera_app() -> App {
             state: sim::PlayerState::new(sim::Vec3::ZERO),
             ticks: Vec::new(),
             alpha: 0.5,
+            world_identity: None,
         });
     app
 }
