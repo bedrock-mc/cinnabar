@@ -496,3 +496,104 @@ fn review_carried_item_draws_after_the_recipe_panel() {
         "the recipe panel painted over the carried item"
     );
 }
+
+/// Book entries resolve icons like inventory slots, so enchanted items glint in the list too.
+#[test]
+fn recipe_book_entries_glint_like_inventory_slots() {
+    use crate::ui_runtime::presentation::publish::capture_hud_frame;
+    const ENCHANTED_BOOK: i32 = 531;
+    let stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 42,
+        player_position: [0.; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    });
+    // An empty `ench` list, which glints whatever the item's intrinsic facts say.
+    let mut enchantments = vec![0xff, 0xff, 0x01, 0x0a, 0x00, 0x00, 0x09];
+    enchantments.extend_from_slice(&4u16.to_le_bytes());
+    enchantments.extend_from_slice(b"ench");
+    enchantments.extend_from_slice(&[0x0a, 0, 0, 0, 0, 0]);
+    let book = NetworkItemStack {
+        network_id: ENCHANTED_BOOK,
+        count: 1,
+        nbt_digest: <sha2::Sha256 as sha2::Digest>::digest(&enchantments).into(),
+        extra_data: Arc::from(enchantments),
+        ..NetworkItemStack::empty()
+    };
+    assert_eq!(
+        stream
+            .authority()
+            .canonical_item_stack(&book)
+            .unwrap()
+            .identifier
+            .as_deref(),
+        Some("minecraft:enchanted_book"),
+        "the fixture must follow the retained real registry"
+    );
+    let icons = Arc::new(
+        assets::RuntimeIconCatalog::decode(
+            &assets::encode_icon_catalog(
+                [6; 32],
+                &[assets::IconSprite {
+                    width: 16,
+                    height: 16,
+                    rgba8: vec![255; 16 * 16 * 4].into(),
+                }],
+                &[assets::IconEntry {
+                    identifier: "minecraft:enchanted_book".into(),
+                    metadata: 0,
+                    sprite: 0,
+                }],
+            )
+            .unwrap(),
+        )
+        .unwrap(),
+    );
+    let mut presentation =
+        UiPresentationRuntime::with_hud_and_icons(fixture_font(), fixture_hud(), icons).unwrap();
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let mut runtime = personal_inventory(&mut player_runtime, None);
+    player_runtime
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Creative);
+    runtime
+        .inventory_ledger_mut(&mut player_runtime)
+        .apply(&InventoryEvent::Creative(protocol::CreativeContentEvent {
+            groups: vec![protocol::CreativeGroup {
+                category: protocol::CreativeCategory::Items,
+                name: "".into(),
+                icon: None,
+            }]
+            .into(),
+            items: vec![protocol::CreativeItem {
+                creative_network_id: 1,
+                group: 0,
+                stack: book,
+            }]
+            .into(),
+            skipped: 0,
+        }));
+    // Search lists the whole catalog flat, independent of the default tab.
+    runtime.screen_state_mut().creative_tab = ui_screens::container_actions::SEARCH_TAB;
+    capture_hud_frame(
+        &player_runtime,
+        &mut runtime,
+        &mut presentation,
+        Some(&stream),
+        semantic_input::PerspectiveMode::FirstPerson,
+        1,
+        Default::default(),
+    );
+    let entries = &presentation.hud_frame().window_icons.book_entries;
+    assert!(
+        entries.iter().flatten().next().is_some(),
+        "the catalog lists the enchanted book"
+    );
+    assert!(
+        entries.iter().flatten().all(|icon| icon.glint),
+        "listed enchanted books glint like they do in a slot"
+    );
+}

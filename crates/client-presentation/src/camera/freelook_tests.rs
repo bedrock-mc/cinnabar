@@ -34,6 +34,58 @@ fn drive(
 }
 
 #[test]
+fn death_view_discards_pending_cinematic_look_and_ignores_new_input() {
+    let mut configured = ui::UserSettings::default();
+    configured.video.cinematic_camera = true;
+    let mut settings = CameraSettingsAuthority::default();
+    settings.replace(1, &configured).unwrap();
+    settings.set_death_view(Some(Quat::IDENTITY));
+    let initial = Quat::from_euler(EulerRot::YXZ, 0.4, 0.2, 0.0);
+    let mut smoother = look::LookSmoother::default();
+    let delta = std::time::Duration::from_secs_f32(1.0 / 60.0);
+    assert_ne!(
+        smoother.filter(Vec2::new(80.0, 20.0), delta.as_secs_f32()),
+        Vec2::ZERO
+    );
+    let mut time = Time::<()>::default();
+    time.advance_by(delta);
+    let mut app = App::new();
+    app.insert_resource(settings)
+        .insert_resource(LocalViewPose::new(Vec3::Y * 70.0, initial))
+        .insert_resource(AutoFly::new(false))
+        .insert_resource(time)
+        .insert_resource(smoother)
+        .add_systems(Update, drive);
+    let mut router = SemanticInputRouter::default();
+    router.route(DeviceFrame::default()).unwrap();
+    app.insert_resource(Routed(router.finalize().unwrap()));
+    app.update();
+    assert_eq!(app.world().resource::<LocalViewPose>().rotation(), initial);
+
+    router
+        .route(DeviceFrame {
+            keyboard_mouse: Some(KeyboardMouseFrame {
+                activity_sequence: 1,
+                mouse_motion: [80.0, 20.0],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+    app.insert_resource(Routed(router.finalize().unwrap()));
+    app.update();
+    assert_eq!(app.world().resource::<LocalViewPose>().rotation(), initial);
+
+    app.world_mut()
+        .resource_mut::<CameraSettingsAuthority>()
+        .set_death_view(None);
+    router.route(DeviceFrame::default()).unwrap();
+    app.insert_resource(Routed(router.finalize().unwrap()));
+    app.update();
+    assert_eq!(app.world().resource::<LocalViewPose>().rotation(), initial);
+}
+
+#[test]
 fn freelook_orbits_without_turning_gameplay_and_restores_on_release_or_focus_loss() {
     for focus_loss in [false, true] {
         let mut router = SemanticInputRouter::default();
