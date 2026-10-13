@@ -218,7 +218,9 @@ fn duplicate_removal_records_spend_one_permit() {
     stream.mark_changed(key, Instant::now());
     let config = render_api::PublicationServiceConfig::DEFAULT;
     let allowance = render_api::PublicationAllowance::new(config);
-    allowance.begin_frame(1, 0, 0, 0, config.minimum_items_per_second as usize);
+    // Grants several zero-byte operations, so a second removal permit would be admitted.
+    allowance.begin_frame(1, 8, 0, 8, 8);
+    assert!(allowance.zero_byte_admission_capacity_with_priority(true) >= 2);
     stream.set_publication_allowance(allowance.clone());
     let before = allowance.remaining_zero_byte_operations();
 
