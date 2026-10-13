@@ -21,6 +21,9 @@ mod settling_tests;
 #[path = "timeout_tests.rs"]
 mod timeout_tests;
 
+#[path = "open_race_tests.rs"]
+mod open_race_tests;
+
 fn stack(stack_network_id: i32, count: u16) -> NetworkItemStack {
     NetworkItemStack {
         network_id: 6,

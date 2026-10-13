@@ -268,6 +268,15 @@ impl PlayerInventoryLedger {
         true
     }
 
+    /// Retires an unacknowledged personal open when a valid storage reply takes its place.
+    pub(super) fn supersede_pending_personal_open(&mut self) {
+        let Some(PersonalWindow::Opening { generation, .. }) = self.personal else {
+            return;
+        };
+        self.personal = None;
+        self.abandon_requests(|pending| pending.personal_generation == Some(generation));
+    }
+
     /// Cancels unsent cleanup when storage reuses its ID, because close packets carry only an ID.
     pub(super) fn supersede_expired_personal_close(&mut self, storage_window_id: i32) {
         if let Some(PersonalWindow::Closing {

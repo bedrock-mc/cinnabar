@@ -473,7 +473,10 @@ impl PlayerInventoryLedger {
             self.apply_personal_open(open);
             return;
         }
-        if self.personal.is_some() {
+        if matches!(
+            self.personal,
+            Some(super::PersonalWindow::Open { .. } | super::PersonalWindow::Closing { .. })
+        ) {
             if let Some(window_id) = open.container.window_id {
                 self.queue_close(window_id, open.window_type, PendingCloseOwner::Cleanup);
             }
@@ -497,6 +500,7 @@ impl PlayerInventoryLedger {
             self.confirmed.clear_storage();
             return;
         };
+        self.supersede_pending_personal_open();
         self.enchant_options = None;
         self.supersede_expired_personal_close(window_id);
         self.remove_pending_close(window_id, open.window_type);
