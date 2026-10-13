@@ -1,6 +1,10 @@
 use super::*;
 use crate::policy::{IdentifierException, LineBaseline};
 
+mod patterns;
+mod scopes;
+mod targets;
+
 /// Reads the real policy so fixtures use the same pinned identifiers and owner exclusions.
 fn policy() -> Policy {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -47,9 +51,17 @@ fn gate(sources: &[(&str, &str)], configure: impl FnOnce(&mut Policy)) -> Vec<St
     let mut policy = policy();
     policy.identifier_literals.baselines.clear();
     policy.identifier_literal_exceptions.clear();
-    policy
-        .crate_rules
-        .push(toml::from_str("name = 'fixture'\npath = '.'").unwrap());
+    policy.crate_rules = vec![
+        toml::from_str("name = 'fixture'\npath = '.'\ntest_support_features = ['test-support']")
+            .unwrap(),
+    ];
+    fs::write(
+        temp.path().join("Cargo.toml"),
+        "[package]\nname = 'fixture'\nversion = '0.1.0'\nedition = '2024'\n",
+    )
+    .unwrap();
+    fs::create_dir_all(temp.path().join("src")).unwrap();
+    fs::write(temp.path().join("src/lib.rs"), "").unwrap();
     for path in policy
         .identifier_literals
         .vocabularies

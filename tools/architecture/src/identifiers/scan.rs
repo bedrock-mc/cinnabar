@@ -11,7 +11,8 @@ use syn::{
 };
 
 use super::Vocabulary;
-use crate::rust_scope::{ModulePaths, item_attributes, test_attributes};
+use super::scopes::attribute_scopes;
+use crate::rust_scope::{ModulePaths, test_attributes};
 
 /// One source occurrence; overlapping rejection shapes count only once.
 pub(super) struct Violation {
@@ -36,20 +37,32 @@ impl<'a> RustScan<'a> {
     /// Starts a production scan; file-level test attributes are applied by the visitor.
     pub(super) fn new(
         path: &Path,
-        file_test: bool,
+        crate_root: bool,
         features: &'a BTreeSet<String>,
         vocabulary: &'a Vocabulary,
     ) -> Self {
         Self {
             vocabulary,
             features,
-            in_test: file_test,
+            in_test: false,
             bare_context: false,
-            paths: ModulePaths::new(path),
-            file_test,
+            paths: if crate_root {
+                ModulePaths::crate_root(path)
+            } else {
+                ModulePaths::new(path)
+            },
+            file_test: false,
             modules: Vec::new(),
             violations: BTreeMap::new(),
         }
+    }
+
+    /// Applies a node's test attributes for exactly the duration of its traversal.
+    fn with_attributes(&mut self, attributes: &[syn::Attribute], visit: impl FnOnce(&mut Self)) {
+        let previous = self.in_test;
+        self.in_test |= test_attributes(attributes, self.features);
+        visit(self);
+        self.in_test = previous;
     }
 
     /// Records a vocabulary literal or a repeated proper affix, once per token position.
@@ -151,7 +164,14 @@ impl<'a> RustScan<'a> {
                 }
                 TokenTree::Group(group) => {
                     self.with_bare(pattern || group.delimiter() == Delimiter::Bracket, |scan| {
-                        scan.macro_tokens("", group.stream());
+                        if group.delimiter() == Delimiter::Brace
+                            && let Ok(block) =
+                                syn::parse2::<syn::Block>(TokenTree::Group(group.clone()).into())
+                        {
+                            scan.visit_block(&block);
+                        } else {
+                            scan.macro_tokens("", group.stream());
+                        }
                     });
                 }
                 TokenTree::Literal(token) => {
@@ -233,54 +253,15 @@ impl Parse for Matches {
     }
 }
 
-impl<'ast> Visit<'ast> for RustScan<'_> {
-    /// Inherits test-only attributes attached to the whole source file.
-    fn visit_file(&mut self, file: &'ast syn::File) {
-        self.file_test |= test_attributes(&file.attrs, self.features);
-        self.in_test = self.file_test;
+impl RustScan<'_> {
+    /// Remembers file-level test scope before visiting its contents.
+    fn scan_file(&mut self, file: &syn::File) {
+        self.file_test |= self.in_test;
         visit::visit_file(self, file);
     }
 
-    /// Keeps item test scope local to its subtree.
-    fn visit_item(&mut self, item: &'ast syn::Item) {
-        let previous = self.in_test;
-        self.in_test |= test_attributes(item_attributes(item), self.features);
-        visit::visit_item(self, item);
-        self.in_test = previous;
-    }
-
-    /// Applies test-only attributes to impl members independently of sibling methods.
-    fn visit_impl_item(&mut self, item: &'ast syn::ImplItem) {
-        let attrs = match item {
-            syn::ImplItem::Const(item) => &item.attrs[..],
-            syn::ImplItem::Fn(item) => &item.attrs[..],
-            syn::ImplItem::Type(item) => &item.attrs[..],
-            syn::ImplItem::Macro(item) => &item.attrs[..],
-            _ => &[],
-        };
-        let previous = self.in_test;
-        self.in_test |= test_attributes(attrs, self.features);
-        visit::visit_impl_item(self, item);
-        self.in_test = previous;
-    }
-
-    /// Applies test-only attributes to trait defaults without exempting the whole trait.
-    fn visit_trait_item(&mut self, item: &'ast syn::TraitItem) {
-        let attrs = match item {
-            syn::TraitItem::Const(item) => &item.attrs[..],
-            syn::TraitItem::Fn(item) => &item.attrs[..],
-            syn::TraitItem::Type(item) => &item.attrs[..],
-            syn::TraitItem::Macro(item) => &item.attrs[..],
-            _ => &[],
-        };
-        let previous = self.in_test;
-        self.in_test |= test_attributes(attrs, self.features);
-        visit::visit_trait_item(self, item);
-        self.in_test = previous;
-    }
-
-    /// Tracks both ordinary and explicitly named test module files.
-    fn visit_item_mod(&mut self, module: &'ast syn::ItemMod) {
+    /// Tracks ordinary and explicitly named module files with their declaration scope.
+    fn scan_module(&mut self, module: &syn::ItemMod) {
         if module.content.is_some() {
             let previous = self.paths.clone();
             self.paths.push_inline(&module.ident.to_string());
@@ -291,65 +272,8 @@ impl<'ast> Visit<'ast> for RustScan<'_> {
         }
     }
 
-    /// Checks production attribute values while leaving documentation prose out of the scan.
-    fn visit_attribute(&mut self, attribute: &'ast syn::Attribute) {
-        if attribute.path().is_ident("doc") {
-            return;
-        }
-        match &attribute.meta {
-            syn::Meta::List(list) => self.macro_tokens("", list.tokens.clone()),
-            syn::Meta::NameValue(pair) => self.visit_expr(&pair.value),
-            syn::Meta::Path(_) => {}
-        }
-    }
-
-    /// Rejects fully qualified identities everywhere, and bare names in selected contexts.
-    fn visit_lit_str(&mut self, literal: &'ast syn::LitStr) {
-        self.record(literal, false);
-    }
-
-    /// Checks match patterns while preserving the normal scope of guards and bodies.
-    fn visit_arm(&mut self, arm: &'ast syn::Arm) {
-        let previous = self.in_test;
-        self.in_test |= test_attributes(&arm.attrs, self.features);
-        for attribute in &arm.attrs {
-            self.visit_attribute(attribute);
-        }
-        self.with_bare(true, |scan| scan.visit_pat(&arm.pat));
-        if let Some((_, guard)) = &arm.guard {
-            self.visit_expr(guard);
-        }
-        self.visit_expr(&arm.body);
-        self.in_test = previous;
-    }
-
-    /// Arrays and constant initializers are identity-table contexts; comparisons are selectors.
-    fn visit_expr(&mut self, expression: &'ast syn::Expr) {
-        let bare = matches!(
-            expression,
-            syn::Expr::Array(_) | syn::Expr::Repeat(_) | syn::Expr::Const(_)
-        ) || matches!(expression, syn::Expr::Binary(binary) if matches!(binary.op, syn::BinOp::Eq(_) | syn::BinOp::Ne(_)));
-        self.with_bare(bare, |scan| visit::visit_expr(scan, expression));
-    }
-
-    /// Keeps test-only local declarations out of production counts.
-    fn visit_local(&mut self, local: &'ast syn::Local) {
-        let previous = self.in_test;
-        self.in_test |= test_attributes(&local.attrs, self.features);
-        visit::visit_local(self, local);
-        self.in_test = previous;
-    }
-
-    /// Applies test-only scope to explicitly attributed blocks.
-    fn visit_expr_block(&mut self, block: &'ast syn::ExprBlock) {
-        let previous = self.in_test;
-        self.in_test |= test_attributes(&block.attrs, self.features);
-        visit::visit_expr_block(self, block);
-        self.in_test = previous;
-    }
-
-    /// Applies table context to free and associated constant values, including static tables.
-    fn visit_item_const(&mut self, item: &'ast syn::ItemConst) {
+    /// Scans a free constant's value as an identity table.
+    fn scan_const(&mut self, item: &syn::ItemConst) {
         for attribute in &item.attrs {
             self.visit_attribute(attribute);
         }
@@ -358,8 +282,8 @@ impl<'ast> Visit<'ast> for RustScan<'_> {
         self.with_bare(true, |scan| scan.visit_expr(&item.expr));
     }
 
-    /// Static identity tables have the same literal policy as constant tables.
-    fn visit_item_static(&mut self, item: &'ast syn::ItemStatic) {
+    /// Scans a static value as an identity table.
+    fn scan_static(&mut self, item: &syn::ItemStatic) {
         for attribute in &item.attrs {
             self.visit_attribute(attribute);
         }
@@ -367,8 +291,8 @@ impl<'ast> Visit<'ast> for RustScan<'_> {
         self.with_bare(true, |scan| scan.visit_expr(&item.expr));
     }
 
-    /// Applies table context to constants declared by an impl.
-    fn visit_impl_item_const(&mut self, item: &'ast syn::ImplItemConst) {
+    /// Scans an impl constant's value as an identity table.
+    fn scan_impl_const(&mut self, item: &syn::ImplItemConst) {
         for attribute in &item.attrs {
             self.visit_attribute(attribute);
         }
@@ -377,8 +301,8 @@ impl<'ast> Visit<'ast> for RustScan<'_> {
         self.with_bare(true, |scan| scan.visit_expr(&item.expr));
     }
 
-    /// Applies table context to default constants declared by a trait.
-    fn visit_trait_item_const(&mut self, item: &'ast syn::TraitItemConst) {
+    /// Scans a trait constant's default value as an identity table.
+    fn scan_trait_const(&mut self, item: &syn::TraitItemConst) {
         for attribute in &item.attrs {
             self.visit_attribute(attribute);
         }
@@ -390,9 +314,7 @@ impl<'ast> Visit<'ast> for RustScan<'_> {
     }
 
     /// Checks literal method arguments and visits the receiver in its normal context.
-    fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
-        let previous = self.in_test;
-        self.in_test |= test_attributes(&call.attrs, self.features);
+    fn scan_method_call(&mut self, call: &syn::ExprMethodCall) {
         for attribute in &call.attrs {
             self.visit_attribute(attribute);
         }
@@ -403,13 +325,10 @@ impl<'ast> Visit<'ast> for RustScan<'_> {
         for argument in &call.args {
             self.argument(&call.method.to_string(), argument);
         }
-        self.in_test = previous;
     }
 
-    /// Checks fully qualified string-method calls as well as ordinary method syntax.
-    fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
-        let previous = self.in_test;
-        self.in_test |= test_attributes(&call.attrs, self.features);
+    /// Checks fully qualified string-method calls as well as ordinary function syntax.
+    fn scan_call(&mut self, call: &syn::ExprCall) {
         for attribute in &call.attrs {
             self.visit_attribute(attribute);
         }
@@ -427,10 +346,44 @@ impl<'ast> Visit<'ast> for RustScan<'_> {
                 self.visit_expr(argument);
             }
         }
-        self.in_test = previous;
+    }
+}
+
+impl<'ast> Visit<'ast> for RustScan<'_> {
+    attribute_scopes!('ast);
+
+    /// Checks attribute values while leaving documentation prose out of the scan.
+    fn visit_attribute(&mut self, attribute: &'ast syn::Attribute) {
+        if attribute.path().is_ident("doc") {
+            return;
+        }
+        match &attribute.meta {
+            syn::Meta::List(list) => self.macro_tokens("", list.tokens.clone()),
+            syn::Meta::NameValue(pair) => self.visit_expr(&pair.value),
+            syn::Meta::Path(_) => {}
+        }
     }
 
-    /// Scans macro arguments without executing or expanding third-party macros.
+    /// Rejects full identifiers everywhere and bare names in selector and table contexts.
+    fn visit_lit_str(&mut self, literal: &'ast syn::LitStr) {
+        self.record(literal, false);
+    }
+
+    /// Applies the same bare-name context to every Rust pattern position.
+    fn visit_pat(&mut self, pattern: &'ast syn::Pat) {
+        self.with_bare(true, |scan| visit::visit_pat(scan, pattern));
+    }
+
+    /// Arrays and comparisons select identities without changing unrelated expression contexts.
+    fn visit_expr(&mut self, expression: &'ast syn::Expr) {
+        let bare = matches!(
+            expression,
+            syn::Expr::Array(_) | syn::Expr::Repeat(_) | syn::Expr::Const(_)
+        ) || matches!(expression, syn::Expr::Binary(binary) if matches!(binary.op, syn::BinOp::Eq(_) | syn::BinOp::Ne(_)));
+        self.with_bare(bare, |scan| visit::visit_expr(scan, expression));
+    }
+
+    /// Scans macro arguments without executing or expanding macros.
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
         self.macro_tokens(
             &mac.path

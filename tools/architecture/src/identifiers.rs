@@ -15,6 +15,8 @@ use crate::{
 };
 
 mod scan;
+mod scopes;
+mod targets;
 #[cfg(test)]
 mod tests;
 
@@ -130,20 +132,28 @@ pub(super) fn check_identifiers(
         .iter()
         .flat_map(|rule| rule.test_support_features.iter().cloned())
         .collect();
+    let targets = targets::production_targets(root, policy, files, diagnostics)?;
     let mut scans = BTreeMap::new();
     for path in files {
-        if path.extension().is_none_or(|extension| extension != "rs") {
+        let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
+        if path.extension().is_none_or(|extension| extension != "rs")
+            && !targets.production.contains(&canonical)
+            && !targets.development.contains(&canonical)
+        {
             continue;
         }
         let relative = relative_slash(root, path);
         match syn::parse_file(&read(path)?) {
             Ok(file) => {
-                let mut scan = RustScan::new(path, false, &features, &vocabulary);
-                scan.visit_file(&file);
-                scans.insert(
-                    path.canonicalize().unwrap_or_else(|_| path.clone()),
-                    (relative, scan),
+                let mut scan = RustScan::new(
+                    path,
+                    targets.production.contains(&canonical)
+                        || targets.development.contains(&canonical),
+                    &features,
+                    &vocabulary,
                 );
+                scan.visit_file(&file);
+                scans.insert(canonical, (relative, scan));
             }
             Err(error) => diagnostics.push(format!(
                 "{relative}:{}: cannot parse Rust for identifier_literals: {error}",
@@ -154,22 +164,18 @@ pub(super) fn check_identifiers(
     let test_files = inherited_test_files(scans.iter().map(|(path, (relative, scan))| {
         (
             path,
-            scan.file_test || is_rust_test(relative),
+            scan.file_test
+                || is_rust_test(relative)
+                || targets::development_path(relative)
+                || targets.development.contains(path),
             scan.modules.as_slice(),
         )
     }));
-    let roots = policy
-        .crate_rules
-        .iter()
-        .flat_map(|rule| {
-            ["lib.rs", "main.rs"].map(|name| root.join(&rule.path).join("src").join(name))
-        })
-        .map(|path| path.canonicalize().unwrap_or(path));
     let production_files = reachable_production_files(
         scans
             .iter()
             .map(|(path, (_, scan))| (path, scan.file_test, scan.modules.as_slice())),
-        roots,
+        targets.production,
     );
     let mut used = vec![false; policy.identifier_literal_exceptions.len()];
     let mut exception_keys = BTreeSet::new();
@@ -190,7 +196,10 @@ pub(super) fn check_identifiers(
     let mut counts = BTreeMap::new();
     for (path, (relative, scan)) in scans {
         if scan.file_test
-            || ((is_rust_test(&relative) || test_files.contains(&path))
+            || ((is_rust_test(&relative)
+                || targets::development_path(&relative)
+                || targets.development.contains(&path)
+                || test_files.contains(&path))
                 && !production_files.contains(&path))
             || rules.owners.iter().any(|owner| {
                 if owner.ends_with('/') {

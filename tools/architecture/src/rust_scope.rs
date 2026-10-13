@@ -84,6 +84,15 @@ pub(super) struct ModulePaths {
 }
 
 impl ModulePaths {
+    /// Starts an entrypoint's module directories beside the crate root source file.
+    pub(super) fn crate_root(path: &Path) -> Self {
+        let parent = path.parent().unwrap_or(Path::new("."));
+        Self {
+            module_dir: parent.to_path_buf(),
+            path_dir: parent.to_path_buf(),
+        }
+    }
+
     /// Starts Rust's default module directory and explicit-path directory.
     pub(super) fn new(path: &Path) -> Self {
         let parent = path.parent().unwrap_or(Path::new("."));
