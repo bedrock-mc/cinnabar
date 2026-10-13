@@ -26,7 +26,8 @@ pub(super) fn duration(interpolation: ActorInterpolation) -> Option<u32> {
 }
 
 impl ActorSnapshot {
-    pub(super) fn last_received_pose(&self) -> ActorPose {
+    /// Returns the latest decoded movement target, including a queued target.
+    pub(crate) fn last_received_pose(&self) -> ActorPose {
         self.status
             .movement_interpolation
             .last_received
@@ -121,10 +122,10 @@ impl MotionState {
             self.received
         };
         if self.remaining > 1 {
-            let divisor = self.remaining as f32;
+            let fraction = 1.0 / self.remaining as f32;
             let target = self.received;
             next.position = std::array::from_fn(|axis| {
-                current.position[axis] + (target.position[axis] - current.position[axis]) / divisor
+                current.position[axis] + (target.position[axis] - current.position[axis]) * fraction
             });
         }
         self.interpolate_rotation(current, &mut next);

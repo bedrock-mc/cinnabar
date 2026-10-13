@@ -4,6 +4,35 @@ use protocol::{ActorEvent, ActorKind, ActorMoveEvent, ActorPositionOrigin};
 
 mod swing;
 
+#[test]
+fn movement_step_uses_the_rounded_float_reciprocal() {
+    let mut store = player(0.0);
+    store.apply(
+        1,
+        2,
+        ActorEvent::Move(ActorMoveEvent {
+            dimension: 0,
+            runtime_id: 1,
+            position: [Some(10.0), None, Some(-10.0)],
+            position_origin: ActorPositionOrigin::Feet,
+            pitch: None,
+            yaw: None,
+            head_yaw: None,
+            on_ground: Some(true),
+            teleported: false,
+            player_mode: None,
+            source_tick: None,
+            interpolation: Default::default(),
+        }),
+    );
+    store.advance_interpolation_ticks(1);
+    let position = store.get(1).unwrap().position;
+    assert_eq!(position[0].to_bits(), 0x4055_5556);
+    assert_eq!(position[2].to_bits(), 0xc055_5556);
+    store.advance_interpolation_ticks(2);
+    assert_eq!(store.get(1).unwrap().position, [10.0, 0.0, -10.0]);
+}
+
 /// Spawns a remote player with the supplied wire pitch.
 fn player(pitch: f32) -> ActorStore {
     let mut store = ActorStore::new(1, 0);

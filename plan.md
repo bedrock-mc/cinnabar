@@ -6724,8 +6724,15 @@ Entity combat is part of this tranche and is strictly vanilla:
 Pick ranges, box inflation and the strict attack/occlusion margin use the native
 float limits. Personal reach requests can only shorten those limits. Fresh attack
 presses may each swing before the next tick advances the animation counter.
+The attack click is the world-space intercept of a float segment with the inflated
+pick box. Remote movement steps multiply by the rounded reciprocal tick count.
+Forced MoveActor updates below half a block interpolate in resident terrain;
+missing target columns snap. Scaled collision dimensions retain a 0.005 minimum.
+Latency probes share actor commit ordering, including parked movement and metadata.
 Incomplete: full pose-dependent reach, per-entity pick radii, catch-up-frame attack
-positions, and latency-reply ordering still need end-to-end verification. These
+positions, specialized actor motion, and complete batch/latency timing still need
+end-to-end verification. Terrain availability during asynchronous chunk ingestion
+and native-origin rounding also remain unverified. These
 changes do not close the combat parity gate.
 
 - sample one immutable local eye/look pose, selected stack, actor snapshot,

@@ -3,6 +3,8 @@ use client_world::ActorSnapshot;
 
 /// Default pick-box inflation and actor-versus-block bias, evaluated as native floats.
 const ACTOR_PICK_RADIUS: f32 = 0.1;
+/// Axes with a smaller squared segment displacement do not supply a clipping plane.
+const PICK_AXIS_EPSILON_SQUARED: f32 = 1e-7;
 /// The nearest pickable actor along the crosshair ray.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActorHit {
@@ -75,27 +77,25 @@ pub fn pick_actor_by<'a, Boxes>(
 where
     Boxes: IntoIterator<Item = ([f32; 3], [f32; 3])>,
 {
-    let pick_origin = origin;
-    let origin = origin.map(f64::from);
     let length = direction
         .into_iter()
         .map(|axis| f64::from(axis).powi(2))
         .sum::<f64>()
         .sqrt();
-    if !length.is_finite() || length == 0.0 {
+    if !length.is_finite() || length == 0.0 || !reach.is_finite() || reach < 0.0 {
         return None;
     }
-    let direction = direction.map(|axis| f64::from(axis) / length);
+    let direction = direction.map(|axis| (f64::from(axis) / length) as f32);
+    let end = std::array::from_fn(|axis| origin[axis] + direction[axis] * reach as f32);
     actors
         .filter(|actor| Some(actor.unique_id) != excluded_unique_id && actor_is_pickable(actor))
         .filter_map(|actor| {
-            let distance = hit_boxes(actor).into_iter().find_map(|(min, max)| {
-                let min = min.map(|axis| f64::from(axis - ACTOR_PICK_RADIUS));
-                let max = max.map(|axis| f64::from(axis + ACTOR_PICK_RADIUS));
-                ray_box_entry(origin, direction, min, max).filter(|distance| *distance <= reach)
+            let point = hit_boxes(actor).into_iter().find_map(|(min, max)| {
+                let min = min.map(|axis| axis - ACTOR_PICK_RADIUS);
+                let max = max.map(|axis| axis + ACTOR_PICK_RADIUS);
+                pick_box_point(origin, end, min, max)
             })?;
-            let point = [0, 1, 2].map(|axis| (origin[axis] + direction[axis] * distance) as f32);
-            let distance_squared = pick_distance_squared(pick_origin, point);
+            let distance_squared = pick_distance_squared(origin, point);
             Some((
                 ActorHit {
                     runtime_id: actor.runtime_id,
@@ -107,6 +107,51 @@ where
         })
         .min_by(|(_, left), (_, right)| left.total_cmp(right))
         .map(|(hit, _)| hit)
+}
+
+/// Clips a float world-space segment to the inflated box, retaining the closest face.
+/// An origin inside the box is itself the hit point; tied faces retain axis order.
+fn pick_box_point(
+    origin: [f32; 3],
+    end: [f32; 3],
+    min: [f32; 3],
+    max: [f32; 3],
+) -> Option<[f32; 3]> {
+    if !origin
+        .into_iter()
+        .chain(end)
+        .chain(min)
+        .chain(max)
+        .all(f32::is_finite)
+        || (0..3).any(|axis| min[axis] >= max[axis])
+    {
+        return None;
+    }
+    if (0..3).all(|axis| (min[axis]..=max[axis]).contains(&origin[axis])) {
+        return Some(origin);
+    }
+    let delta: [f32; 3] = std::array::from_fn(|axis| end[axis] - origin[axis]);
+    let mut closest: Option<([f32; 3], f32)> = None;
+    for axis in 0..3 {
+        if delta[axis] * delta[axis] < PICK_AXIS_EPSILON_SQUARED {
+            continue;
+        }
+        for plane in [min[axis], max[axis]] {
+            let fraction = (plane - origin[axis]) / delta[axis];
+            if !(0.0..=1.0).contains(&fraction) {
+                continue;
+            }
+            let point = std::array::from_fn(|i| origin[i] + delta[i] * fraction);
+            if (0..3).any(|i| i != axis && !(min[i]..=max[i]).contains(&point[i])) {
+                continue;
+            }
+            let distance = pick_distance_squared(origin, point);
+            if closest.is_none_or(|(_, previous)| distance < previous) {
+                closest = Some((point, distance));
+            }
+        }
+    }
+    closest.map(|(point, _)| point)
 }
 
 /// Measures a pick intercept using single-precision offsets, products and square root.
@@ -178,3 +223,7 @@ pub fn classify(
         _ => Crosshair::Miss,
     }
 }
+
+#[cfg(test)]
+#[path = "target_tests.rs"]
+mod tests;
