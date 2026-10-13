@@ -60,8 +60,9 @@ pub use actor::{
     MAX_ACTOR_IDENTIFIERS, MAX_ACTOR_LINKS_PER_SPAWN, MAX_ACTOR_METADATA_ENTRIES,
     MAX_ACTOR_METADATA_NBT_BYTES, MAX_ACTOR_METADATA_STRING_BYTES, MAX_ACTOR_NAME_BYTES,
     MAX_ACTOR_PROPERTIES, MAX_PLAYER_LIST_RECORDS, MAX_PLAYER_LIST_SKIN_BYTES,
-    MINING_FATIGUE_EFFECT_ID, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin,
-    PlayerSkinUnavailable, normalize_classic_skin_rgba8, normalize_custom_skin_rgba8,
+    MINING_FATIGUE_EFFECT_ID, PaintingData, PaintingDirection, PlayerListEntry,
+    PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable, normalize_classic_skin_rgba8,
+    normalize_custom_skin_rgba8,
 };
 pub use audio::{
     AudioEvent, LevelAudioEvent, LevelEventSound, MAX_AUDIO_IDENTIFIER_BYTES, PlayAudioEvent,
@@ -117,8 +118,8 @@ pub use inventory::{
     container_window, is_personal_ui_inventory,
 };
 pub use inventory::{
-    BookEdit, MAX_BOOK_PAGE_BYTES, block_pick_request_packet, book_edit_packet,
-    crafter_slot_toggle_packet, lectern_update_packet,
+    BookEdit, MAX_BOOK_PAGE_BYTES, actor_pick_request_packet, block_pick_request_packet,
+    book_edit_packet, crafter_slot_toggle_packet, lectern_update_packet,
 };
 pub use inventory::{
     CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,

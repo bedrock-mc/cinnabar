@@ -1,10 +1,10 @@
 package control
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -12,6 +12,58 @@ import (
 type stubPeople struct {
 	stubServices
 	people []Person
+}
+
+func TestFriendsPeopleSerializedBoundaries(t *testing.T) {
+	const id = ^uint64(0)
+	first := Person{XUID: "1", Gamertag: "first", Online: true}
+	boundary := []Person{first, {XUID: "2", Gamertag: "last", Gamerpic: Image{URL: "x"}}}
+	encoded, err := json.Marshal(peopleResultV1{SchemaVersion: 1, Friends: boundary})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Fill the result budget using actual JSON sizes, including the optional URL field.
+	boundary[1].Gamerpic.URL = strings.Repeat("x", frameBudget-len(encoded)+1)
+	overBoundary := append([]Person{}, boundary...)
+	overBoundary[1].Gamerpic.URL += "x"
+	oversized := Person{XUID: "3", Gamertag: strings.Repeat("<\"\\", MaxFrameLen)}
+	for _, tc := range []struct {
+		name   string
+		people []Person
+		want   []Person
+	}{
+		{name: "nil", want: []Person{}},
+		{name: "empty", people: []Person{}, want: []Person{}},
+		{name: "at result budget", people: boundary, want: boundary},
+		{name: "one byte over result budget", people: overBoundary, want: []Person{first}},
+		{name: "oversized only friend", people: []Person{oversized}, want: []Person{}},
+		{name: "escaped oversized trailing friend", people: []Person{first, oversized}, want: []Person{first}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := startServices(t, NewStore(), &stubPeople{people: tc.people})
+			raw := exchange(t, dir, []byte(fmt.Sprintf(
+				`{"jsonrpc":"2.0","id":%d,"method":%q}`, id, methodFriendsPeople)))
+			if len(raw) > MaxFrameLen {
+				t.Fatalf("reply with envelope = %d bytes", len(raw))
+			}
+			var reply struct {
+				JSONRPC string         `json:"jsonrpc"`
+				ID      uint64         `json:"id"`
+				Result  peopleResultV1 `json:"result"`
+				Error   *responseError `json:"error"`
+			}
+			if err := json.Unmarshal(raw, &reply); err != nil {
+				t.Fatal(err)
+			}
+			if reply.JSONRPC != "2.0" || reply.ID != id || reply.Error != nil || reply.Result.SchemaVersion != 1 {
+				t.Fatalf("invalid reply envelope: version %q, id %d, error %+v, schema %d",
+					reply.JSONRPC, reply.ID, reply.Error, reply.Result.SchemaVersion)
+			}
+			if !reflect.DeepEqual(reply.Result.Friends, tc.want) {
+				t.Fatalf("kept %d friends, want %d with their original values", len(reply.Result.Friends), len(tc.want))
+			}
+		})
+	}
 }
 
 func (s *stubPeople) People(context.Context) ([]Person, error) { return s.people, s.err }
@@ -66,29 +118,5 @@ func TestFriendsPeopleFitsOneFrame(t *testing.T) {
 	friends := reply.Result.Friends
 	if len(friends) == 0 || len(friends) >= len(people) || friends[0] != people[0] || friends[len(friends)-1] != people[len(friends)-1] {
 		t.Fatalf("kept %d friends", len(friends))
-	}
-}
-
-func TestPeopleResultLeavesResponseEnvelopeHeadroom(t *testing.T) {
-	person := Person{XUID: "1"}
-	base, err := json.Marshal(peopleResultV1{SchemaVersion: 1, Friends: []Person{person}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	person.Gamertag = strings.Repeat("n", frameBudget-len(base))
-	result := peopleResult([]Person{person})
-	if len(result.Friends) != 1 || result.Friends[0] != person {
-		t.Fatal("a friend exactly within the result budget must remain unchanged")
-	}
-	var framed bytes.Buffer
-	if err := writeResponse(&framed, response{JSONRPC: "2.0", ID: ^uint64(0), Result: result}); err != nil {
-		t.Fatalf("maximum request ID must fit with the bounded result: %v", err)
-	}
-	if _, err := readFrame(&framed); err != nil {
-		t.Fatalf("bounded reply must be accepted by the frame reader: %v", err)
-	}
-	person.Gamertag += "n"
-	if result := peopleResult([]Person{person}); len(result.Friends) != 0 || result.Friends == nil {
-		t.Fatal("a friend above the result budget must leave an empty JSON array")
 	}
 }

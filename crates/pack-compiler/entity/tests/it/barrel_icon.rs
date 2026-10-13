@@ -49,6 +49,7 @@ fn barrel_world(root: &Path) -> (assets::CompiledAssets, BlockVisualId) {
         "barrel_side":{"textures":["textures/blocks/barrel_side","textures/blocks/barrel_side"]}
     }}"#);
     write(root, "textures/flipbook_textures.json", b"[]");
+    fs::create_dir_all(root.join("textures/blocks")).unwrap();
     for (index, name) in [
         "stone",
         "trapdoor",

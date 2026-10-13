@@ -1,21 +1,6 @@
 package control
 
-import (
-	"encoding/json"
-	"net"
-)
-
-// frameBudget leaves headroom under MaxFrameLen for the envelope.
-const frameBudget = MaxFrameLen - 2048
-
-// encodedLen measures a result's JSON bytes, treating encoding failures as over budget.
-func encodedLen(value any) int {
-	payload, err := json.Marshal(value)
-	if err != nil {
-		return frameBudget + 1
-	}
-	return len(payload)
-}
+import "net"
 
 // responseWriter binds the common JSON-RPC envelope to one request.
 type responseWriter struct {

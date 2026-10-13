@@ -5,7 +5,8 @@
 use super::*;
 
 /// Sources one pack may contribute before the rest are ignored.
-pub const MAX_PACK_ENTITY_SOURCES: usize = 8_192;
+pub const MAX_PACK_ENTITY_SOURCES: usize =
+    assets::MAX_ENTITY_ASSET_SOURCES - super::policy_sources::SOURCE_COUNT;
 /// Total source bytes one pack may contribute before the rest are ignored.
 pub const MAX_PACK_ENTITY_BYTES: usize = 128 * 1024 * 1024;
 
@@ -205,6 +206,12 @@ fn compile_selected(
     let mut symbols = BTreeMap::new();
     let mut geometries = BTreeMap::new();
     let mut total = 0usize;
+    let policy_bytes = super::policy_sources::records()
+        .map(|source| source.source_bytes as usize)
+        .sum();
+    let byte_limit = MAX_PACK_ENTITY_BYTES
+        .min(assets::MAX_ENTITY_TOTAL_SOURCE_BYTES)
+        .saturating_sub(policy_bytes);
     for (index, source) in selected.iter().enumerate() {
         if omit == Some(index) {
             continue;
@@ -235,7 +242,7 @@ fn compile_selected(
             continue;
         }
         let next_total = total.saturating_add(bytes.len());
-        if sources.len() >= MAX_PACK_ENTITY_SOURCES || next_total > MAX_PACK_ENTITY_BYTES {
+        if sources.len() >= MAX_PACK_ENTITY_SOURCES || next_total > byte_limit {
             skipped.over_budget += 1;
             continue;
         }
@@ -263,6 +270,15 @@ fn compile_selected(
         });
         payloads.insert(path, bytes.into());
     }
+    let remaining_budget = (MAX_PACK_ENTITY_SOURCES - sources.len(), byte_limit - total);
+    super::painting::complete_bindings(
+        Path::new(""),
+        &mut sources,
+        &mut payloads,
+        &mut symbols,
+        &mut geometries,
+        Some(remaining_budget),
+    )?;
     // Authored attachables and texture-only artwork each make a pack worth retaining.
     let has_attachables = sources
         .iter()

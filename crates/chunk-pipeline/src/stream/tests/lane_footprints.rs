@@ -18,7 +18,7 @@ const REMOTE: u64 = 9;
 const ITEM: u64 = 10;
 
 /// Wire kinds; adding a `WorldEvent` variant fails to compile here until it gets a sample.
-const KINDS: usize = 47;
+const KINDS: usize = 48;
 
 /// Assigns every wire event a coverage index without accepting unknown variants.
 fn kind(event: &WorldEvent) -> usize {
@@ -65,6 +65,7 @@ fn kind(event: &WorldEvent) -> usize {
             ActorEvent::Skin { .. } => 38,
             ActorEvent::Status(_) => 39,
             ActorEvent::TakeItem(_) => 40,
+            ActorEvent::PaintingSpawn { .. } => 47,
         },
         WorldEvent::ActorEffect(_) => 41,
         WorldEvent::ActorLink(_) => 42,
@@ -159,6 +160,27 @@ fn player_spawn(runtime_id: u64) -> WorldEvent {
     WorldEvent::Actor(ActorEvent::PlayerSpawn {
         spawn,
         game_mode: GameModeUpdate::Explicit(PlayerGameMode::Survival),
+    })
+}
+
+/// Creates a dedicated painting spawn with the same actor identity fields as other samples.
+fn painting_spawn(runtime_id: u64) -> WorldEvent {
+    let WorldEvent::Actor(ActorEvent::Spawn(mut spawn)) = mob_spawn(runtime_id) else {
+        unreachable!("mob spawns are actor spawns");
+    };
+    let direction = protocol::PaintingDirection::South;
+    spawn.kind = ActorKind::Entity {
+        identifier: "minecraft:painting".into(),
+    };
+    spawn.yaw = direction.yaw_degrees();
+    spawn.head_yaw = spawn.yaw;
+    spawn.body_yaw = spawn.yaw;
+    WorldEvent::Actor(ActorEvent::PaintingSpawn {
+        spawn,
+        painting: protocol::PaintingData {
+            motive: assets::painting::PAINTING_MOTIVES[0].title.into(),
+            direction,
+        },
     })
 }
 
@@ -400,6 +422,8 @@ fn samples() -> Vec<WorldEvent> {
         })),
         WorldEvent::Actor(ActorEvent::Identifiers(Default::default())),
         mob_spawn(11),
+        painting_spawn(13),
+        painting_spawn(REMOTE),
         WorldEvent::Actor(ActorEvent::Remove(ActorRemoveEvent {
             dimension: 0,
             unique_id: REMOTE as i64,

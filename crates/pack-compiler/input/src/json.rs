@@ -147,6 +147,34 @@ impl<'de> de::Visitor<'de> for UniqueNestedValueVisitor {
     }
 }
 
+/// Rejects unsupported root fields and missing required family maps.
+pub fn validate_root_fields(
+    value: &Value,
+    path: &Path,
+    allowed: &[&str],
+    required: &[&str],
+) -> Result<(), AssetError> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| AssetError::InvalidCompiledAssets {
+            detail: format!("JSON root must be an object in {}", path.display()).into(),
+        })?;
+    if object
+        .keys()
+        .any(|field| !allowed.contains(&field.as_str()))
+        || required.iter().any(|field| !object.contains_key(*field))
+    {
+        return Err(AssetError::InvalidCompiledAssets {
+            detail: format!(
+                "unknown or missing entity family root field in {}",
+                path.display()
+            )
+            .into(),
+        });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{parse_semantic_json, parse_unique_json};

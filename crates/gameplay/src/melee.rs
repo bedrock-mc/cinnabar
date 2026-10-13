@@ -10,10 +10,12 @@ use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration}
 /// independent measurement.
 const ATTACK_BUILD_BLOCK_MILLIS: u64 = 200;
 
+#[cfg(test)]
+mod painting_tests;
 mod target;
 pub use target::{
-    ActorHit, Crosshair, actor_is_pickable, classify, obstructs_placement, pick_actor,
-    pick_actor_by, ray_box_entry,
+    ActorHit, Crosshair, actor_is_pickable, classify, obstructs_placement, painting_pick_unique_id,
+    pick_actor, pick_actor_by, ray_box_entry,
 };
 
 /// Bedrock swing length in ticks, with the stronger Haste or Conduit Power taking priority.

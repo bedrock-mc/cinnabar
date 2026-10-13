@@ -12,6 +12,7 @@ pub(super) struct EffectMembers {
     pub ropes: BTreeSet<u64>,
     pub crystals: BTreeSet<u64>,
     pub dragons: BTreeSet<u64>,
+    pub paintings: BTreeSet<u64>,
 }
 
 impl EffectMembers {
@@ -22,6 +23,11 @@ impl EffectMembers {
             _ => "",
         };
         let runtime = actor.runtime_id;
+        set(
+            &mut self.paintings,
+            runtime,
+            identifier == "minecraft:painting",
+        );
         set(
             &mut self.blocks,
             runtime,
@@ -52,6 +58,7 @@ impl EffectMembers {
         self.ropes.remove(&runtime);
         self.crystals.remove(&runtime);
         self.dragons.remove(&runtime);
+        self.paintings.remove(&runtime);
     }
 }
 
