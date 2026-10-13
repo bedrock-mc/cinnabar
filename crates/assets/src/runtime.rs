@@ -2,6 +2,7 @@ mod decode;
 mod face_overrides;
 #[cfg(test)]
 mod geometry_tests;
+mod hashed_ids;
 mod id_remap;
 mod overlay;
 mod server_defined_blocks;
@@ -138,7 +139,7 @@ const fn diagnostic_visual() -> BlockVisual {
 pub struct RuntimeAssets {
     visuals: Box<[BlockVisual]>,
     light_properties: Box<[LightProperties]>,
-    hashed: Box<[(u32, u32)]>,
+    hashed: hashed_ids::HashedIds,
     materials: Box<[Material]>,
     model_templates: Box<[ModelTemplate]>,
     model_random_offsets: Box<[(u32, block_transform::random_offset::RandomOffsetComponent)]>,
@@ -182,7 +183,7 @@ impl RuntimeAssets {
         Self {
             visuals: vec![diagnostic_visual()].into_boxed_slice(),
             light_properties: vec![LightProperties::OPAQUE_DARK].into_boxed_slice(),
-            hashed: Box::new([]),
+            hashed: hashed_ids::HashedIds::new(Box::new([])),
             materials: vec![Material {
                 texture: TextureRef::DIAGNOSTIC,
                 flags: 0,
@@ -338,10 +339,7 @@ impl RuntimeAssets {
     /// distinct states may intentionally share byte-identical visuals.
     #[must_use]
     pub fn sequential_id_for_hash(&self, network_hash: u32) -> Option<u32> {
-        self.hashed
-            .binary_search_by_key(&network_hash, |entry| entry.0)
-            .ok()
-            .map(|index| self.hashed[index].1)
+        self.hashed.get(network_hash)
     }
 
     /// Returns the unique network identity marked as air by the validated
@@ -363,6 +361,7 @@ impl RuntimeAssets {
 
         let mut air_hashes = self
             .hashed
+            .entries()
             .iter()
             .filter(|(_, mapped_id)| *mapped_id == sequential_id)
             .map(|(network_hash, _)| *network_hash);

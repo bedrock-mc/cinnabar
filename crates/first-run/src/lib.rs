@@ -46,6 +46,10 @@ pub fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
     if !needs_preparation(layout) {
         return Ok(Outcome::NotNeeded);
     }
+    if cfg!(target_os = "android") {
+        // Android's setup activity runs `prepare_headless` before the game activity starts.
+        bail!("game assets are not prepared; close and reopen the app to finish setup");
+    }
     // An earlier run's report must not describe this one.
     let _ = fs::remove_file(progress_file(layout));
     match window::run_in_child() {
@@ -56,6 +60,37 @@ pub fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
             layout.log_dir().join("first-run.log").display()
         ),
         window::ChildOutcome::Unavailable => ensure_with(layout, &NativePrompter, env_consent()),
+    }
+}
+
+/// Prepares without a window or dialogs, as Android's setup activity does: `consent` asks with a
+/// title and body only when none is recorded, `progress` receives each status line, and setting
+/// `cancel` quits without publishing.
+pub fn prepare_headless(
+    layout: &InstallLayout,
+    cancel: &AtomicBool,
+    consent: impl FnOnce(&str, &str) -> bool,
+    mut progress: impl FnMut(&str),
+) -> Result<Outcome> {
+    if !needs_preparation(layout) {
+        return Ok(Outcome::NotNeeded);
+    }
+    let mut report = reporter(layout, |status: &Status| {
+        progress(status.summary().as_str())
+    });
+    if !consent_recorded(layout) {
+        report(Status::awaiting_consent());
+        if !consent(setup_title(None).as_str(), CONSENT_BODY) {
+            report(Status::failed("Declined", "setup declined"));
+            return Ok(Outcome::Quit);
+        }
+        record_consent(layout)?;
+    }
+    report(Status::starting());
+    match prepare(layout, cancel, &mut report) {
+        Ok(()) => Ok(Outcome::Prepared),
+        Err(error) if error.is::<runner::Cancelled>() => Ok(Outcome::Quit),
+        Err(error) => Err(error),
     }
 }
 

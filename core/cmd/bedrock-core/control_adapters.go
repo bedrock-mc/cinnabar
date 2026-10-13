@@ -9,7 +9,6 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/launcher"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
-	"github.com/hashimthearab/rust-mcbe/core/store"
 )
 
 // mapSlice converts each element, keeping a nil slice nil so it still encodes as null.
@@ -179,101 +178,6 @@ func wireMessage(message catalog.Message) control.Message {
 		Buttons: mapSlice(message.Buttons, func(button catalog.MessageButton) control.MessageButton {
 			return control.MessageButton(button)
 		}),
-	}
-}
-
-// storeSentinels are the store failures the control plane reports by code.
-var storeSentinels = []sentinelPair{
-	{control.ErrStoreInvalidRequest, store.ErrInvalidRequest},
-	{control.ErrPurchaseBusy, store.ErrPurchaseBusy},
-	{control.ErrPurchaseReused, store.ErrPurchaseReused},
-}
-
-// storeControl serves the control plane's store methods from a Marketplace session.
-type storeControl struct{ session *store.Session }
-
-func (s storeControl) Home(ctx context.Context, page string) (control.StorePage, error) {
-	result, err := s.session.Home(ctx, page)
-	return wireStorePage(result), classify(err, &storeSentinels)
-}
-
-func (s storeControl) Search(ctx context.Context, query control.StoreSearchQuery) (control.StoreSearchResults, error) {
-	result, err := s.session.Search(ctx, store.SearchQuery(query))
-	return wireStoreSearchResults(result), classify(err, &storeSentinels)
-}
-
-// Offer refuses a malformed id before the session checks the account or opens a client.
-func (s storeControl) Offer(ctx context.Context, id string) (control.StoreOfferDetail, error) {
-	if !store.ValidOfferID(id) {
-		return control.StoreOfferDetail{}, control.ErrStoreInvalidRequest
-	}
-	result, err := s.session.Offer(ctx, id)
-	return wireStoreOfferDetail(result), classify(err, &storeSentinels)
-}
-
-func (s storeControl) Balances(ctx context.Context) ([]control.StoreBalance, error) {
-	balances, err := s.session.Balances(ctx)
-	return mapSlice(balances, func(balance store.Balance) control.StoreBalance {
-		return control.StoreBalance(balance)
-	}), classify(err, &storeSentinels)
-}
-
-func (s storeControl) Entitlements(ctx context.Context, offset, limit int, refresh bool) (control.StoreEntitlements, error) {
-	result, err := s.session.Entitlements(ctx, offset, limit, refresh)
-	return control.StoreEntitlements(result), classify(err, &storeSentinels)
-}
-
-// MoreOffers refuses a malformed token before the session checks the account or opens a client.
-func (s storeControl) MoreOffers(ctx context.Context, token string) (control.StoreRowMore, error) {
-	if !store.ValidContinuation(token) {
-		return control.StoreRowMore{}, control.ErrStoreInvalidRequest
-	}
-	result, err := s.session.MoreOffers(ctx, token)
-	return wireStoreRowMore(result), classify(err, &storeSentinels)
-}
-
-func (s storeControl) Purchase(ctx context.Context, request control.StorePurchaseRequest) (control.StorePurchaseResult, error) {
-	result, err := s.session.Purchase(ctx, store.PurchaseRequest(request))
-	return control.StorePurchaseResult(result), classify(err, &storeSentinels)
-}
-
-func wireStorePage(page store.Page) control.StorePage {
-	return control.StorePage{
-		ID: page.ID, Rows: mapSlice(page.Rows, wireStoreRow), InventoryVersion: page.InventoryVersion, Truncated: page.Truncated,
-	}
-}
-
-func wireStoreSearchResults(results store.SearchResults) control.StoreSearchResults {
-	return control.StoreSearchResults{
-		Offers: mapSlice(results.Offers, wireStoreOffer), Continuation: results.Continuation, Truncated: results.Truncated,
-	}
-}
-
-func wireStoreOfferDetail(detail store.OfferDetail) control.StoreOfferDetail {
-	return control.StoreOfferDetail{
-		StoreOffer: wireStoreOffer(detail.Offer), Description: detail.Description,
-		ScreenshotURLs: detail.ScreenshotURLs, DisplayVersion: detail.DisplayVersion, Platforms: detail.Platforms,
-	}
-}
-
-func wireStoreRowMore(more store.RowMore) control.StoreRowMore {
-	return control.StoreRowMore{Offers: mapSlice(more.Offers, wireStoreOffer), Continuation: more.Continuation}
-}
-
-func wireStoreRow(row store.Row) control.StoreRow {
-	return control.StoreRow{
-		ID: row.ID, Title: row.Title, Kind: row.Kind,
-		Offers: mapSlice(row.Offers, wireStoreOffer), Continuation: row.Continuation,
-	}
-}
-
-func wireStoreOffer(offer store.Offer) control.StoreOffer {
-	return control.StoreOffer{
-		ID: offer.ID, Title: offer.Title, Creator: offer.Creator, ContentType: offer.ContentType,
-		ThumbnailURL: offer.ThumbnailURL, StoreID: offer.StoreID,
-		Prices: mapSlice(offer.Prices, func(price store.Price) control.StorePrice { return control.StorePrice(price) }),
-		Rating: (*control.StoreRating)(offer.Rating),
-		Tags:   offer.Tags, Owned: offer.Owned,
 	}
 }
 

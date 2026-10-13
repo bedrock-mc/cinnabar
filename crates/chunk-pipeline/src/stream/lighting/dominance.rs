@@ -114,7 +114,7 @@ impl WorldStream {
             return false;
         };
 
-        let mut destination_sub_chunk = None;
+        let mut filters = DestinationFilters::default();
         face_cells(face).all(|(source_position, destination_position)| {
             let get = |light: &SubChunkLight, channel, position: [u8; 3]| {
                 light
@@ -148,11 +148,9 @@ impl WorldStream {
             ) {
                 return true;
             }
-            let Some(filter) = self.destination_filter(
-                destination_key,
-                destination_position,
-                &mut destination_sub_chunk,
-            ) else {
+            let Some(filter) =
+                self.destination_filter(destination_key, destination_position, &mut filters)
+            else {
                 return false;
             };
             incoming_is_dominated(
@@ -167,33 +165,120 @@ impl WorldStream {
         })
     }
 
+    /// Whether retiring `removed` can change `survivor`'s current light. It cannot when every
+    /// cell on their shared face already holds more light, in each channel, than `removed` could
+    /// seed into it: seeds below their entry cells' values support no value anywhere.
+    pub(in crate::stream) fn removal_can_change_light(
+        &self,
+        removed: SubChunkKey,
+        survivor: SubChunkKey,
+    ) -> bool {
+        if self.lighting.jobs.pending.contains_key(&survivor)
+            || self.lighting.jobs.in_flight.contains_key(&survivor)
+            || !self.light_is_current(survivor)
+        {
+            return true;
+        }
+        let Some(face) = LIGHT_NEIGHBOUR_OFFSETS
+            .into_iter()
+            .position(|offset| offset_sub_chunk_key(removed, offset) == Some(survivor))
+        else {
+            return true;
+        };
+        // A section with no stored light never seeded a neighbour.
+        let Some(source) = self.lighting.store.light(removed) else {
+            return false;
+        };
+        let Some(destination) = self.lighting.store.light(survivor) else {
+            return true;
+        };
+        let uniform = |light: &SubChunkLight| {
+            [LightChannel::Block, LightChannel::Sky]
+                .iter()
+                .all(|&channel| light.channel(channel).is_uniform())
+        };
+        // Uniform light holds one value per channel on every face cell.
+        if uniform(source) && uniform(destination) {
+            let cell = [LightChannel::Block, LightChannel::Sky].map(|channel| {
+                (
+                    source.get(channel, 0, 0, 0).unwrap_or(0),
+                    destination.get(channel, 0, 0, 0).unwrap_or(0),
+                )
+            });
+            if removed_seed_is_dominated(cell, 0) {
+                return false;
+            }
+        }
+        let mut filters = DestinationFilters::default();
+        !face_cells(face).all(|(source_position, destination_position)| {
+            let get = |light: &SubChunkLight, channel, position: [u8; 3]| {
+                light
+                    .get(channel, position[0], position[1], position[2])
+                    .expect("face coordinates are in range")
+            };
+            let cell = [LightChannel::Block, LightChannel::Sky].map(|channel| {
+                (
+                    get(source, channel, source_position),
+                    get(destination, channel, destination_position),
+                )
+            });
+            removed_seed_is_dominated(cell, 0)
+                || self
+                    .destination_filter(survivor, destination_position, &mut filters)
+                    .is_some_and(|filter| removed_seed_is_dominated(cell, filter))
+        })
+    }
+
     fn destination_filter(
         &self,
         key: SubChunkKey,
         position: [u8; 3],
-        destination_sub_chunk: &mut Option<Arc<SubChunk>>,
+        filters: &mut DestinationFilters,
     ) -> Option<u8> {
         if self.known_air.contains(&key) {
             return Some(0);
         }
-        if destination_sub_chunk.is_none() {
-            *destination_sub_chunk = self.authority.terrain().sub_chunk(key);
+        if filters.sub_chunk.is_none() {
+            filters.sub_chunk = self.authority.terrain().sub_chunk(key);
         }
-        let sub_chunk = destination_sub_chunk.as_deref()?;
+        let sub_chunk = filters.sub_chunk.as_deref()?;
+        let resolved = &mut filters.resolved;
         match sample_resident_light(sub_chunk, position, self.classifier, |runtime_id| {
-            let properties = self
+            if let Some(&(_, properties)) = resolved.iter().find(|(id, _)| *id == runtime_id) {
+                return properties;
+            }
+            let light = self
                 .authority
                 .runtime_assets()
                 .resolve(self.authority.network_id_mode(), runtime_id)
                 .light_properties();
-            SolverLightProperties::new(properties.emission(), properties.filter())
-                .expect("runtime light properties are nibble-bounded")
+            let properties = SolverLightProperties::new(light.emission(), light.filter())
+                .expect("runtime light properties are nibble-bounded");
+            resolved.push((runtime_id, properties));
+            properties
         }) {
             LightBlockSample::KnownAir => Some(0),
             LightBlockSample::Resident(properties) => Some(properties.filter()),
             LightBlockSample::Unknown => None,
         }
     }
+}
+
+/// Whether a seed from a removed neighbour into a cell with `filter` supports nothing there: each
+/// channel's `(source, destination)` seed is zero or strictly below the cell's light. Horizontal
+/// faces carry no direct sky.
+/// One destination section's blocks and the light properties of the runtime ids read so far.
+#[derive(Default)]
+struct DestinationFilters {
+    sub_chunk: Option<Arc<SubChunk>>,
+    resolved: Vec<(u32, SolverLightProperties)>,
+}
+
+fn removed_seed_is_dominated(channels: [(u8, u8); 2], filter: u8) -> bool {
+    channels.into_iter().all(|(source, destination)| {
+        let seed = source.saturating_sub(filter.max(1));
+        seed == 0 || seed < destination
+    })
 }
 
 fn incoming_is_dominated(

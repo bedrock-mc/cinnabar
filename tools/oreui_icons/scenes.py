@@ -148,25 +148,6 @@ MAILBOX = from_map(
     WOOD | {"e": EDGE, "B": rgb("#3c6cc8"), "b": rgb("#5c8ce0"), "r": rgb("#e04434")},
 )
 
-GIFT = from_map(
-    [
-        "....rr...rr....",
-        "...rRRr.rRRr...",
-        "....rrRrRrr....",
-        "eeeeeeeRRRreeee",
-        "eGGGGGRRRRGGGGe",
-        "eGgggggRRgggGGe",
-        "eeeeeeeRReeeeee",
-        ".eGgggRRggggGe.",
-        ".eGgggRRggggGe.",
-        ".eGgggRRggggGe.",
-        ".eGgggRRggggGe.",
-        ".eGGGGRRGGGGGe.",
-        ".eeeeeeeeeeeee.",
-    ],
-    {"e": EDGE, "G": rgb("#3c9a6c"), "g": rgb("#56c08c"), "r": rgb("#f6d24c"), "R": rgb("#e0a828")},
-)
-
 BUBBLE_SIGN = from_map(
     [
         "..eeeeeeeeeeeeeee..",
@@ -298,7 +279,6 @@ INBOX_EMPTY = [
     scene(NOTICE_BOARD, 20, 0, 3, clouds_and_birds),
     scene(TOWER, 22, 0, 5, clouds_and_birds),
     scene(MAILBOX, 22, 0, 7, clouds_and_birds),
-    scene(GIFT, 22, 0, 9, lambda c: [sparkle(c, 40, 12), sparkle(c, 86, 8), sparkle(c, 96, 22)]),
     scene(BUBBLE_SIGN, 20, 0, 13, clouds_and_birds),
 ]
 

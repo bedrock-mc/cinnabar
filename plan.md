@@ -15,6 +15,22 @@ session/world/render clock migration and browser dependency composition still ne
 wasm build gate. Shader output comparisons on WebGPU and Metal and indivisible browser
 job costs remain unverified. No browser release or parity gate closes here.
 
+## Experimental Android client
+
+`packaging/android/build-apk.sh` builds an arm64-v8a APK holding the client library, the Go
+core and `assetc` as native libraries and the prep kit as assets. A setup activity asks for
+consent and runs headless first-run preparation; the NativeActivity then runs the client with
+the install layout under the app's private files. Gameplay touch controls are a built-in JSON-UI
+screen whose painted rectangles capture fingers; inventory and server forms take one finger as
+the pointer. The Android workflow builds the APK for Android packaging changes, on a schedule
+and on demand.
+
+Incomplete: the touch layout, its sizes, the look gain and the stick behaviour are provisional,
+not matched to the native touch schemes, safe areas or settings. There is no keyboard or IME,
+Back routing, clipboard, browser links, local worlds, Microsoft sign-in background service,
+menu touch scrolling or touch-mode form scrolling. Device frames, audio, suspend and resume,
+and performance have no Android acceptance. No parity gate closes here.
+
 ## Runtime terrain bindings
 
 Optional terrain catalogs retain each material's source key, state variant, tint, and
@@ -171,7 +187,7 @@ and closes no parity gate.
 `ui-screens` owns the engine-drawn vanilla screens: containers with the recipe and furnace books
 and their hit vocabulary, the HUD with its native renderers and catalog patches, chat, signs, NPC
 dialogue, credits, loading, toasts, the roster, the emote wheel, and the menu shell's screen
-bindings, settings binders and store bindings. Screens read typed inputs; `client-ui` keeps their
+bindings and settings binders. Screens read typed inputs; `client-ui` keeps their
 runtime adapters, scene selection, the menu composition, the server-form fallback, the menu title
 and caret state, the player preview and the Java-styled fallback. This move has not been compiled
 or executed and closes no parity gate.
@@ -1559,9 +1575,14 @@ frame-budget or identical-version pixel gates.
 - Sleepers turn by the bed's sleep rotation: the bed at the streamed bed
   position faces south 90, west 0, north 270 and east 180 degrees, and a sleeper without a
   bed position reads 0. The local sleeper presents lying on the bed top at the block centre,
-  with its eye at the sleeping offset, while its physics stays where it stood. Java animations
-  retain that sleeping eye height. The sleeping view rotation is captured with the camera pose
-  and its publication proof so named audio keeps an eligible first-person camera. Provisional:
+  with its eye at the sleeping offset, while its physics stays where it stood. One shared pose
+  samples loaded bed headings before Camera, including frames without actor ticks, and feeds
+  camera publication, actor camera queries, body placement and particle attachments. Sleep
+  transitions reanchor camera history once; stable sleeping frames retain motion-blur history.
+  Actor transitions also reanchor displacement and cape position history without restarting
+  animation; stable frames preserve that history.
+  Java animations retain the sleeping eye height, and named audio keeps an eligible first-person
+  camera. Gameplay look stays independent. Provisional:
   the first-person view looks level from the pillow toward the foot, and third person keeps
   its ordinary orbit around the body; the native sleeping camera is unmeasured.
 - Falling blocks retain variant metadata, full block geometry and packet-centred
@@ -2566,6 +2587,12 @@ select-all/copy/paste use the shared editor. Selected text now reaches the
 existing inversion painter through the authored edit target and clipping panel.
 Provisional, labeled incomplete: exact Windows Bedrock selection tint/blend
 parity remains unverified; visible selection alone does not close that gate.
+
+Chat completion offers `@here` and roster names in plain chat, quotes player
+names when needed, and includes `@n` in command targets. Suggestion rows highlight
+the typed match and translate built-in descriptions. Incomplete: Education
+selectors, selector-expansion permission and cheat gating, selector argument
+completion, and live visual acceptance. This does not close the chat parity gate.
 
 2026-10-01 JSON-UI control rendering: images follow 1.26.50 `SpriteComponent`
 (keep_ratio on by default, fill, uv/uv_size defaults, control nine-slice, tiled
@@ -6736,6 +6763,14 @@ gates.
 
 ## Phase 6 — Online product surface
 
+The marketplace, its store services and purchases, Marketplace Pass inbox category,
+and the global Subscriptions settings tab are removed by product policy. Server
+resource packs, skins/Dressing Room and Realms remain available. Store packets are
+still wire-checked, counted and discarded without opening UI. Navigation, remaining
+category icons and local template creation retain their ordering. Compilation and
+rendered-frame acceptance of this visible removal remain unverified; no parity
+or performance gate closes with it.
+
 Scope: main menu + settings (video/controls/audio/account); server browser (saved servers);
 Realms and friends lists in-UI (control-channel data from Phase 1) with one-click join;
 transfer/reconnect UX; **server resource packs applied at runtime** (cache from core →
@@ -6743,15 +6778,6 @@ transfer/reconnect UX; **server resource packs applied at runtime** (cache from 
 system from Phase 2 must have been built pack-stack-aware); disconnect screens with real
 reasons; auth/device-code UX polish. Optional stretch: Lunar module toggles surfaced in-client
 via control channel (v1.x, not v1).
-
-- **Marketplace rows — provisional, incomplete.** The home is the `storeRoot` known page. Curated rows carry
-  their offers inline; `StoreRow` and `HeroRow` draw vanilla's pre-content-card cards, as the live session
-  config sends no `contentCardStyles` (the client's content-card flight is not read). Query rows are filled
-  from their first query via `marketplace.Query.SearchFilter` onto PlayFab `Catalog/Search`, whose vanilla
-  request body is unconfirmed. Not drawn yet: `PromoBanner`, `NavButtonRow`, `CoinBundleRow`, the `Layout`
-  top-bar row, offer type badges (icon overlays), the rating count beside the average, and the row's "See
-  All" tile and page (the item list's `linksTo`). Does not close the store parity gate
-  (`docs/marketplace-services.md`).
 
 ## Phase 7 — Local worlds on dragonfly
 
@@ -7406,7 +7432,7 @@ not close it. No live server connection was made.
 The HUD now dispatches its pack-authored live player control through the shared
 GUI model pipeline, with native trigger timers, settings and a full-body pose
 when the camera is in first person. Home exposes its player and Profile control;
-menu doll framing uses the native model origin. Marketplace ribbon fields now
+menu doll framing uses the native model origin. Play-button ribbon fields
 survive the core feed, and Inbox has categories, dated sections, read state and
 confirmed deletion. See `docs/reference/hud-paper-doll.md` for exact source
 references, offline evidence and limitations.

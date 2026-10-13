@@ -17,6 +17,7 @@ impl MenuRuntime {
     pub(super) fn focus_pointer(&mut self, action: MenuAction) {
         let action = match action {
             MenuAction::CloseSignIn => MenuAction::CancelSignIn,
+            MenuAction::CloseExitDialog => MenuAction::DismissDialog,
             action => action,
         };
         if let Some(index) = self.focus_actions().iter().position(|candidate| {
@@ -414,11 +415,6 @@ impl MenuRuntime {
             MenuScreen::Home => {
                 let mut actions = nav();
                 actions[4] = MenuAction::OpenAccounts;
-                let realms = actions
-                    .iter()
-                    .position(|action| *action == MenuAction::Navigate(MenuScreen::Social))
-                    .expect("home navigation includes Realms");
-                actions.insert(realms + 1, MenuAction::Store(launcher::store::OPEN));
                 actions.push(MenuAction::Navigate(MenuScreen::DressingRoom));
                 actions.extend((0..self.friends.len().min(1)).map(MenuAction::PlayFriend));
                 actions.extend((0..self.realms.len().min(1)).map(MenuAction::PlayRealm));
@@ -616,7 +612,6 @@ impl MenuRuntime {
                 actions
             }
             MenuScreen::Friends => vec![MenuAction::Navigate(MenuScreen::Home)],
-            MenuScreen::Store => vec![MenuAction::Store(launcher::store::StoreAction::Back)],
             MenuScreen::Invite => self.invite_focus_actions(),
         }
     }

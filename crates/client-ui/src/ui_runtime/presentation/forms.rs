@@ -75,11 +75,11 @@ pub mod sign_editor;
 #[cfg(any(test, feature = "test-support"))]
 pub mod snapshot;
 #[cfg(test)]
-mod store_tests;
 #[cfg(test)]
 pub mod tests;
 mod texture_sources;
 pub mod toast_screen;
+mod touch_controls;
 
 pub use containers::observe_station_block;
 
@@ -137,6 +137,7 @@ pub(super) struct ScreenStates {
     credits_hits: Vec<(ui_screens::credits_screen::CreditsAction, UiRect)>,
     /// OreUI's artwork, look and motion.
     oreui: oreui::OreUiScreen,
+    touch: touch_controls::TouchControls,
 }
 
 /// What the last build exposes to input and the next build; reset as each build starts.
@@ -598,6 +599,7 @@ impl UiPresentationRuntime {
             ..FrameProjections::default()
         };
         self.screens.mod_ui.begin_mod_screens_frame();
+        self.screens.touch.begin_frame();
     }
 
     /// Draws the open container's engine screen.
@@ -745,7 +747,6 @@ pub fn host_screen_references() -> impl Iterator<Item = &'static str> {
         ui_screens::emote_screen::EMOTE_EQUIP_POPUP,
         ui_screens::npc::NPC_SCREEN,
         ui_screens::toast_screen::TOAST_SCREEN,
-        launcher::store::SDL_SCREEN,
         ui_screens::credits_screen::CREDITS_SCREEN,
     ]
     .into_iter()

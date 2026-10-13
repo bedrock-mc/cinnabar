@@ -98,6 +98,10 @@ pub(super) fn check_reads(
                 && names_path(literal);
             if relative_to_crate {
                 if let Some(target) = foreign(resolve(crate_root, literal.trim_start_matches('/')))
+                    // Rejected input strings in nested packages are not reads of absent parent files.
+                    && (existing.contains(&target)
+                        || owning_crate(&roots, &target)
+                            .is_none_or(|(owner, _)| !within(crate_root, owner)))
                 {
                     required
                         .entry(name)

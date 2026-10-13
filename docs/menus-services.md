@@ -23,19 +23,18 @@ also send `Session-Id` and, for messaging, `Accept-Language`.
 | Persona head | `GET {persona}/api/v1.0/profile/xuid/<xuid>/image/head` (image bytes) | MCToken | `home.v1` `persona_head` |
 | Server rows | RakNet unconnected ping (players, max, round trip) | none | `ping.v1` |
 
-Message placement follows each message's `surface`: `PlayButton`/`MarketplaceButton` (start
-button art), `InboxMessage`, `LoginAnnouncement`, `MarketplaceAnnouncement`,
-`ToastNotification`, `SystemWhisper`. Messages need `id`, `surface` and `template`.
+Cinnabar maps `PlayButton` to start-button art and `InboxMessage` to the available
+News, Realms, Invites and Feedback categories. Other message surfaces remain unused.
 
 Not served: persona appearance pieces for the paper doll (`{persona}/api/v1.0/appearance/*`,
-piece JSON not decoded), gathering venue/eligibility, store layout pages, player-safety polling.
+piece JSON not decoded), gathering venue/eligibility and player-safety polling.
 
 ## Screen bindings each feed populates
 
 - **Start screen** (`start.start_screen`): `#gamertag_label`, `#playername`,
   `#gamertag_pic_and_label_visible` (profile); `#gathering_*` button and countdown
-  (gatherings); `#realms_notification_count` (invites, not served); Play/Store art
-  (`#play_button_art_*`, `#store_button_art_*`) and `#unread_notification_icon` (messaging, not
+  (gatherings); `#realms_notification_count` (invites, not served); Play art
+  (`#play_button_art_*`) and `#unread_notification_icon` (messaging, not
   served). The home news carousel of newer clients is OreUI, not part of `ui/*.json`.
 - **Play screen** (`play.play_screen`): `third_party_server_network_worlds` items
   (`#third_party_server_name`, `#third_party_server_message`,
@@ -44,7 +43,7 @@ piece JSON not decoded), gathering venue/eligibility, store layout pages, player
   `server_screenshot_collection`); `personal_realms` / `friends_realms`
   (`#realms_world_player_count`, expiry); `friends_network_worlds` (`#network_world_header`,
   `#network_world_details`, `#network_world_player_count`); `servers_network_worlds` (saved).
-- **Start screen** extras: messaging art on `#play_button_art_*`/`#store_button_art_*`
+- **Start screen** extras: messaging art on `#play_button_art_*`
   (drawn by the gif renderer, first frame), banners, `#unread_notification_icon_visibility`,
   `#realms_notification_count`, and the `#gathering_*` live-event button.
 - **OreUI routes** (bundle `data/gui/dist/hbui` of a local install; `routes.json`): profile

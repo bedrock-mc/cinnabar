@@ -44,9 +44,9 @@ pub(super) fn prepare_over(
     base: &RuntimeBlockEntityAssets,
     preparer: &BlockEntityArtworkPreparer,
 ) -> Option<PreparedBlockEntityArtwork> {
-    let assets = pack_compiler::overlay_block_entity_assets(base, |size| preparer.accepts_size(size), |name| {
+    let assets = pack_entity_compiler::overlay_block_entity_assets(base, |size| preparer.accepts_size(size), |name| {
         pack_runtime::pack_textures::decode_pack_texture(view, name).map(|texture| {
-            pack_compiler::BlockEntityTexture {
+            pack_entity_compiler::BlockEntityTexture {
                 width: texture.width, height: texture.height, rgba8: texture.rgba8,
             }
         })

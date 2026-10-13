@@ -8,11 +8,11 @@ network transports. This migration does not introduce a frame of command latency
 
 | Crate | Owns | App adapter |
 | --- | --- | --- |
-| `launcher` | Menu actions and views, screen identities, account state, settings models, local-world forms/progress, store state and installation paths | `MenuRuntime`, account/core processes, filesystem operations and store/world service drivers |
+| `launcher` | Menu actions and views, screen identities, account state, settings models, local-world forms/progress and installation paths | `MenuRuntime`, account/core processes, filesystem operations and world service drivers |
 | `client-ui` | Retained HUD/chat/forms/screens, JSON-UI bindings, UI gesture state, item/player previews and presentation | Existing Bevy input, transport, world-query and publication systems |
 | `ui-engine` | The portable JSON-UI engine: screen registration, catalog policy, layout caches, painting, texture lookup and the on-demand atlas | `client-ui` supplies the installed vanilla pack and remote downloads through its source interfaces |
 | `oreui` | OreUI screens drawn in our own code: design canvas, widgets, motion, transitions, presentation state, artwork loading and shipped fonts | `client-ui` projects menu, loading and bed state into its typed inputs and applies its hits, focus and geometry |
-| `ui-screens` | Vanilla screen families over the engine: containers with their recipe and furnace books and hit vocabulary, the HUD, chat, signs, NPC dialogue, credits, loading, toasts, the roster, the emote wheel, and the menu shell's screen, settings and store bindings | `client-ui` adapters project runtime authority into typed inputs, compose menus, OreUI and the server-form fallback, and supply preview and mod renderers |
+| `ui-screens` | Vanilla screen families over the engine: containers with their recipe and furnace books and hit vocabulary, the HUD, chat, signs, NPC dialogue, credits, loading, toasts, the roster, the emote wheel, and the menu shell's screen and settings bindings | `client-ui` adapters project runtime authority into typed inputs, compose menus, OreUI and the server-form fallback, and supply preview and mod renderers |
 | `mod-ui` | Presentation of mod- and server-experience-owned surfaces: consent chrome, the client part's modal, player-mod screens, the personal panel and HUD editor, personal HUD cards and label, package templates and the cosmetic cursor renderer | `client-ui` resolves item icons and container layouts, chooses scene order and passes paint frames |
 | `player-state` | The shared composition of inventory authority and local-player facts | `PlayerRuntime` wraps it as the existing Bevy resource |
 
@@ -55,7 +55,8 @@ remain synchronous:
 currently name that dependency `client-world` to preserve their `WorldStream`
 callers. `player-state` depends directly on the smaller `client-world` crate for
 `LocalPlayerFacts`; it does not depend on the stream coordinator. UI compilation
-fixtures use `pack-compiler`, while `asset-compiler` remains the offline CLI.
+fixtures use `pack-compiler` for UI carriers and `pack-entity-compiler` for actor
+artwork, while `asset-compiler` remains the offline CLI.
 The gate keeps reusable compilation out of UI production and out of launcher
 models, including their test dependencies. The UI's extension chrome retains
 `mod-host` and `server-experience`. These are explicit temporary dependencies in
@@ -87,7 +88,8 @@ these cases.
 
 This is a relocation of existing behavior, not a new parity claim. The source
 migration audit retained all 624 original UI test names and all 216 launcher,
-local-world, store and installation test names. Later upstream audit deletions,
+local-world, store and installation test names. Store-only coverage is removed with the
+marketplace. Later upstream audit deletions,
 consolidations and fixture guards are preserved at their moved locations. Tests
 needing app resources or services remain app integration tests; pure projections
 and reducers move with their owner. The launcher constructor comparison checks

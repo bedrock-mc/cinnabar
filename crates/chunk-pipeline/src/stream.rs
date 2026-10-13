@@ -272,21 +272,29 @@ impl SchedulerView {
         }
     }
 
-    /// Squared distance, quadrupled (twice the distance) behind the view plane.
+    /// Squared distance, doubled more than 60° off the view axis and quadrupled behind the view
+    /// plane, so sections in the view cone build before nearer ones beside or behind it.
     fn rank(self, key: SubChunkKey) -> f32 {
         let distance = distance_squared(key, self.position);
-        let behind = self.forward.is_some_and(|forward| {
-            let offset = [
-                key.x as f32 * 16.0 + 8.0 - self.position[0],
-                key.y as f32 * 16.0 + 8.0 - self.position[1],
-                key.z as f32 * 16.0 + 8.0 - self.position[2],
-            ];
-            offset[0].mul_add(
-                forward[0],
-                offset[1].mul_add(forward[1], offset[2] * forward[2]),
-            ) < -8.0
-        });
-        if behind { distance * 4.0 } else { distance }
+        let Some(forward) = self.forward else {
+            return distance;
+        };
+        let offset = [
+            key.x as f32 * 16.0 + 8.0 - self.position[0],
+            key.y as f32 * 16.0 + 8.0 - self.position[1],
+            key.z as f32 * 16.0 + 8.0 - self.position[2],
+        ];
+        let along = offset[0].mul_add(
+            forward[0],
+            offset[1].mul_add(forward[1], offset[2] * forward[2]),
+        );
+        if along < -8.0 {
+            distance * 4.0
+        } else if along < 0.5 * distance.sqrt() {
+            distance * 2.0
+        } else {
+            distance
+        }
     }
 
     /// Changes when the camera crosses a sub-chunk or turns into another eighth of the compass.

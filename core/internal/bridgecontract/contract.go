@@ -25,4 +25,40 @@ const (
 	SessionPackChunkBytes = 4194304
 	// HostedWorldMaxPlayers: Vanilla's player limit for a hosted local world, the host included.
 	HostedWorldMaxPlayers = 8
+	// RelayVersion: Browser relay protocol version.
+	RelayVersion = 2
+	// RelayControlBytes: Largest relay Hello or control JSON payload in bytes.
+	RelayControlBytes = 4096
+	// RelayPlayMessageBytes: Largest WebSocket play message and upload burst in bytes.
+	RelayPlayMessageBytes = 8388608
+	// RelayKeepAliveSeconds: Interval between control keepalives.
+	RelayKeepAliveSeconds = 30
+	// RelayTransportPath: WebTransport Extended CONNECT route.
+	RelayTransportPath = "/v2/transport"
+	// RelayControlPath: WebSocket control route.
+	RelayControlPath = "/v2/control"
+	// RelayPlayPath: WebSocket play route.
+	RelayPlayPath = "/v2/play"
+	// RelaySocketProtocol: WebSocket protocol token; credentials travel in Hello.
+	RelaySocketProtocol = "cinnabar.relay.v2"
+	// RelayChannelControl: Reliable account and progress channel.
+	RelayChannelControl = "control"
+	// RelayChannelPlay: Reliable bridge channel, including resource packs.
+	RelayChannelPlay = "play"
+	// RelayOpSignIn: Request Microsoft device-code sign-in.
+	RelayOpSignIn = "sign_in"
+	// RelayOpSignOut: Forget the in-memory account.
+	RelayOpSignOut = "sign_out"
+	// RelayOpPong: Answer a keepalive.
+	RelayOpPong = "pong"
+	// RelayEventWelcome: Issue the current resume capability and play generation.
+	RelayEventWelcome = "welcome"
+	// RelayEventPing: Refresh the resume capability and request pong.
+	RelayEventPing = "ping"
+	// RelayEventAccount: Report the latest auth.v1 state.
+	RelayEventAccount = "account"
+	// RelayEventConnect: Report the latest join progress.
+	RelayEventConnect = "connect"
+	// RelayEventError: Report a bounded public refusal code.
+	RelayEventError = "error"
 )

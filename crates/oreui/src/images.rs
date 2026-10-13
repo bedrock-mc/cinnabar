@@ -69,25 +69,26 @@ pub const PLAY_TAB_ICONS: [&str; 3] = [
     "assets/UI_Menu_ServerTab-e7c3c035b7d6ba5a414b.png",
 ];
 /// Standalone category images from the installed OreUI bundle, in sidebar order.
-pub const INBOX_ICONS: [&str; 5] = [
+pub const INBOX_ICONS: [&str; 4] = [
     "assets/News-f81489154ff3c38f5b5f.png",
     "assets/Realms-c7419af9abd527149fcc.png",
     "assets/Invites-6a62211ac071c98b2994.png",
-    "assets/MarketplacePass-8eb08ee1dd714dd15307.png",
     "assets/Feedback-ecfce4d670046c25d3df.png",
 ];
 
 /// Empty-message illustrations, in the same order as the category icons.
-pub const INBOX_EMPTY_IMAGES: [&str; 5] = [
+pub const INBOX_EMPTY_IMAGES: [&str; 4] = [
     "assets/Inbox_NoNews-c959e7726f6bab89cf50.png",
     "assets/Inbox_NoRealmsNews-714f9275b786d6ffa804.png",
     "assets/Inbox_NoInvites-d82f3107d60a8e227c18.png",
-    "assets/Inbox_NoMarketplacePass-a2fc4019bcd55acf2183.png",
     "assets/Inbox_NoFeedback-85b4273f92f8e5f1b44a.png",
 ];
 
+const _: () = assert!(INBOX_ICONS.len() == launcher::menu::inbox::CATEGORIES.len());
+const _: () = assert!(INBOX_EMPTY_IMAGES.len() == INBOX_ICONS.len());
+
 /// Settings category art, read only from the optional installed bundle.
-pub(crate) const SETTINGS_ICONS: [&str; 14] = [
+pub(crate) const SETTINGS_ICONS: [&str; 13] = [
     "assets/accessibility-41a033eee6f8f8726f5e.png",
     "assets/keyboard-mouse-58d767999df54b704830.png",
     "assets/controls-5b4a0c8bc7ac0539b349.png",
@@ -97,7 +98,6 @@ pub(crate) const SETTINGS_ICONS: [&str; 14] = [
     "assets/painting-c9fe53a4df86136c1e14.png",
     "assets/sound-block-0abbefc33b0871e358ac.png",
     "assets/account-46c198f87391d9c79cf7.png",
-    "assets/subscriptions-ad5676c80eb176fff46a.png",
     "assets/chest-67b965a3181be3553287.png",
     "assets/storage-101411b344fe42108e57.png",
     "assets/language-47127a2e274f540f09de.png",

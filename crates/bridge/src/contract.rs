@@ -32,3 +32,57 @@ pub const PACK_CHUNK_BYTES: usize = 4194304;
 
 /// Vanilla's player limit for a hosted local world, the host included.
 pub const HOSTED_WORLD_MAX_PLAYERS: u32 = 8;
+
+/// Browser relay protocol version.
+pub const RELAY_VERSION: u32 = 2;
+
+/// Largest relay Hello or control JSON payload in bytes.
+pub const RELAY_CONTROL_BYTES: usize = 4096;
+
+/// Largest WebSocket play message and upload burst in bytes.
+pub const RELAY_PLAY_MESSAGE_BYTES: usize = 8388608;
+
+/// Interval between control keepalives.
+pub const RELAY_KEEPALIVE_SECONDS: u32 = 30;
+
+/// WebTransport Extended CONNECT route.
+pub const RELAY_TRANSPORT_PATH: &str = "/v2/transport";
+
+/// WebSocket control route.
+pub const RELAY_CONTROL_PATH: &str = "/v2/control";
+
+/// WebSocket play route.
+pub const RELAY_PLAY_PATH: &str = "/v2/play";
+
+/// WebSocket protocol token; credentials travel in Hello.
+pub const RELAY_SOCKET_PROTOCOL: &str = "cinnabar.relay.v2";
+
+/// Reliable account and progress channel.
+pub const RELAY_CHANNEL_CONTROL: &str = "control";
+
+/// Reliable bridge channel, including resource packs.
+pub const RELAY_CHANNEL_PLAY: &str = "play";
+
+/// Request Microsoft device-code sign-in.
+pub const RELAY_OP_SIGN_IN: &str = "sign_in";
+
+/// Forget the in-memory account.
+pub const RELAY_OP_SIGN_OUT: &str = "sign_out";
+
+/// Answer a keepalive.
+pub const RELAY_OP_PONG: &str = "pong";
+
+/// Issue the current resume capability and play generation.
+pub const RELAY_EVENT_WELCOME: &str = "welcome";
+
+/// Refresh the resume capability and request pong.
+pub const RELAY_EVENT_PING: &str = "ping";
+
+/// Report the latest auth.v1 state.
+pub const RELAY_EVENT_ACCOUNT: &str = "account";
+
+/// Report the latest join progress.
+pub const RELAY_EVENT_CONNECT: &str = "connect";
+
+/// Report a bounded public refusal code.
+pub const RELAY_EVENT_ERROR: &str = "error";

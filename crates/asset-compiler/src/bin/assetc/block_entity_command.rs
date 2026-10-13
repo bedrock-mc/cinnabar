@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use assets::AssetError;
-use pack_compiler::compile_block_entity_assets;
+use pack_entity_compiler::compile_block_entity_assets;
 use serde::Serialize;
 
 use super::{

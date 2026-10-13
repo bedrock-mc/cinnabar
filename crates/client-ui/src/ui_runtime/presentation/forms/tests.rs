@@ -640,8 +640,9 @@ fn retail_settings_hide_debug_and_automation_sections() {
         return;
     };
     let files = carrier.ui_files();
-    let catalog =
+    let mut catalog =
         json_ui::Catalog::from_files(files.iter().map(|file| (&*file.path, &*file.bytes))).unwrap();
+    ui_screens::menu_policy::apply(&mut catalog);
     let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
     view.screen = launcher::menu::MenuScreen::Settings;
     let settings = ui_screens::menu_screens::screen_data(&view, &|_| None, 0).unwrap();
@@ -662,7 +663,6 @@ fn retail_settings_hide_debug_and_automation_sections() {
         "video_button",
         "sound_button",
         "account_button",
-        "view_subscriptions_button",
         "global_texture_pack_button",
         "storage_management_button",
         "language_button",
@@ -671,6 +671,7 @@ fn retail_settings_hide_debug_and_automation_sections() {
         assert!(names.contains(&shown), "{shown} missing");
     }
     for hidden in [
+        "view_subscriptions_button",
         "touch_button",
         "switch_controller_button",
         "party_button",

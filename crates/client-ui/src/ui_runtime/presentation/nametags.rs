@@ -168,11 +168,9 @@ fn tag_height(actor: &ActorSnapshot) -> f32 {
     (height + HEAD_CLEARANCE) * actor.render_scale() - offset
 }
 
-fn tag_world_position(actor: &ActorSnapshot, partial_tick: f32) -> Option<Vec3> {
-    Some(
-        Vec3::from_array(actor.interpolated_position(partial_tick.clamp(0.0, 1.0))?)
-            + Vec3::Y * tag_height(actor),
-    )
+/// Adds the actor's current label height to the selected render feet.
+fn tag_world_position(actor: &ActorSnapshot, feet: Vec3) -> Vec3 {
+    feet + Vec3::Y * tag_height(actor)
 }
 
 fn render_distance(actor: &ActorSnapshot) -> f32 {
@@ -239,16 +237,26 @@ fn nametag_geometry(
     picked_actor: Option<u64>,
     partial_tick: f32,
 ) -> Option<(Vec3, f32)> {
+    let feet = Vec3::from_array(actor.interpolated_position(partial_tick.clamp(0.0, 1.0))?);
+    nametag_geometry_at_feet(actor, viewer_position, picked_actor, feet)
+}
+
+/// Applies actor visibility and distance rules to the caller's current render feet.
+fn nametag_geometry_at_feet(
+    actor: &ActorSnapshot,
+    viewer_position: Vec3,
+    picked_actor: Option<u64>,
+    feet: Vec3,
+) -> Option<(Vec3, f32)> {
     if !visible(actor, picked_actor) {
         return None;
     }
-    let feet = Vec3::from_array(actor.interpolated_position(partial_tick.clamp(0.0, 1.0))?);
     let distance_squared = viewer_position.distance_squared(feet);
     let maximum = render_distance(actor);
     if !distance_squared.is_finite() || distance_squared >= maximum * maximum {
         return None;
     }
-    let position = tag_world_position(actor, partial_tick)?;
+    let position = tag_world_position(actor, feet);
     if !position.is_finite() {
         return None;
     }
@@ -307,11 +315,25 @@ pub fn extract_nametag(
     scoreboards: &ui::ScoreboardStore,
     partial_tick: f32,
 ) -> Option<NametagAnchor> {
+    let feet = Vec3::from_array(actor.interpolated_position(partial_tick.clamp(0.0, 1.0))?);
+    extract_nametag_at_feet(actor, view, picked_actor, name, scoreboards, feet)
+}
+
+/// Extracts a tag from the same render feet as its body, without interpolating the
+/// actor again. Metadata, visibility, score range and text limits remain authoritative.
+pub fn extract_nametag_at_feet(
+    actor: &ActorSnapshot,
+    view: NametagView,
+    picked_actor: Option<u64>,
+    name: Arc<str>,
+    scoreboards: &ui::ScoreboardStore,
+    feet: Vec3,
+) -> Option<NametagAnchor> {
     if name.is_empty() {
         return None;
     }
     let (position, distance_squared) =
-        nametag_geometry(actor, view.viewer_position, picked_actor, partial_tick)?;
+        nametag_geometry_at_feet(actor, view.viewer_position, picked_actor, feet)?;
     let text = tag_text(actor, name, distance_squared, scoreboards);
     nametag_with_lines(actor, position, view, nametag_lines(&text))
 }

@@ -1,5 +1,5 @@
 use assets::texture::flipbook::MAX_FLIPBOOK_FRAMES;
-use pack_compiler::{MAX_FLIPBOOKS, read_pack};
+use pack_compile_input::{MAX_FLIPBOOKS, read_pack};
 use {super::support::*, assets::AssetError};
 
 #[test]

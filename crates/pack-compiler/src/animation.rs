@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 
 use assets::{AssetError, TextureMip, TextureRef, texture::flipbook::FlipbookSource};
 
-use crate::{
+use pack_compile_input::{
     PackSources,
     image::{build_texture_mip_chain, diagnostic_pixels, normalize_texture_tile},
 };
@@ -532,9 +532,9 @@ mod tests {
     use super::{
         AnimationLimits, DecodedImage, compile_animation_plan, texture_ref_from_linear_index,
     };
-    use crate::read_pack;
     use assets::TextureRef;
     use assets::{AssetError, MIP_COUNT, TILE_SIZE};
+    use pack_compile_input::read_pack;
 
     fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
         let path = path.as_ref();
@@ -544,7 +544,10 @@ mod tests {
         fs::write(path, contents).expect("write fixture");
     }
 
-    fn synthetic_pack(terrain: &str, flipbooks: &str) -> (TempDir, crate::PackSources) {
+    fn synthetic_pack(
+        terrain: &str,
+        flipbooks: &str,
+    ) -> (TempDir, pack_compile_input::PackSources) {
         let directory = tempfile::tempdir().expect("create pack fixture");
         write(directory.path().join("blocks.json"), "{}");
         write(

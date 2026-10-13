@@ -33,7 +33,7 @@ fn fixture_with_skin(with_skin: bool) -> World {
         {"name":"leftLeg","parent":"root","pivot":[2,12,0],"cubes":[{"origin":[0,0,-2],"size":[4,12,4],"uv":[16,48]}]},
         {"name":"rightLeg","parent":"root","pivot":[-2,12,0],"cubes":[{"origin":[-4,0,-2],"size":[4,12,4],"uv":[0,16]}]}]}]}"#;
     let controller = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test_player":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#;
-    let compiled = pack_compiler::compile_entity_pack(vec![
+    let compiled = pack_entity_compiler::compile_entity_pack(vec![
         ("entity/player.json".into(), entity.to_vec()),
         ("models/entity/player.geo.json".into(), geometry.to_vec()),
         ("render_controllers/player.json".into(), controller.to_vec()),

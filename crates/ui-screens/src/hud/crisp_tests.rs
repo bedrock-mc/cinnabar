@@ -194,20 +194,22 @@ fn paint(
         renderers: &mut [],
     };
     match screens {
-        Some(screens) => screens
-            .paint(
-                engine,
-                HudInput {
-                    crosshair,
-                    catalog: engine.catalog(),
-                    context: &context,
-                    data: Arc::new(DataSource::default()),
-                    paint: &hud,
-                    icons: &[],
-                },
-                &mut frame,
-            )
-            .unwrap(),
+        Some(screens) => {
+            screens
+                .paint(
+                    engine,
+                    HudInput {
+                        crosshair,
+                        catalog: engine.catalog(),
+                        context: &context,
+                        data: Arc::new(DataSource::default()),
+                        paint: &hud,
+                        icons: &[],
+                    },
+                    &mut frame,
+                )
+                .unwrap();
+        }
         None => {
             engine
                 .render_screen(
