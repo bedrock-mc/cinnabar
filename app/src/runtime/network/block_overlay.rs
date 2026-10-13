@@ -279,7 +279,11 @@ impl Builder<'_> {
         {
             let checkpoint = self.texture_checkpoint();
             let carried = self.cube(&state.components);
-            if carried.support == VisualSupport::Exact {
+            // Diagnostic faces have no carried sheet; admitting them would
+            // fail session validation and drop the whole overlay.
+            if carried.support == VisualSupport::Exact
+                && !carried.faces.contains(&DIAGNOSTIC_MATERIAL)
+            {
                 self.overlay
                     .carried_cube_faces
                     .push((self.overlay.visuals.len() as u32, carried.faces));
@@ -341,9 +345,10 @@ impl Builder<'_> {
             opaque &= flags == 0;
             *slot = material;
         }
+        // Failed faces keep the diagnostic material so the cube still
+        // renders; one missing texture never sinks the other five faces.
         if faces.contains(&DIAGNOSTIC_MATERIAL) {
             self.gaps.missing_textures += 1;
-            return diagnostic_visual();
         }
         let mut flags = BlockFlags::CUBE_GEOMETRY;
         flags.set(BlockFlags::OCCLUDES_FULL_FACE, opaque);
@@ -387,6 +392,7 @@ impl Builder<'_> {
         }
         let mut quads = Vec::new();
         let mut first_material = None;
+        let mut failed = false;
         let shown = geometry
             .cubes
             .iter()
@@ -409,10 +415,9 @@ impl Builder<'_> {
                 }
                 let (material, _, two_sided) =
                     self.face_material(components, FACE_NAMES[face_quad.face], instance, false, 0);
-                if material == DIAGNOSTIC_MATERIAL {
-                    self.gaps.missing_textures += 1;
-                    return diagnostic_visual();
-                }
+                // Failed quads keep the diagnostic material so the model
+                // still renders; one missing texture never sinks the mesh.
+                failed |= material == DIAGNOSTIC_MATERIAL;
                 first_material.get_or_insert(material);
                 if let Some(quad) = quantize(&face_quad, geometry, components, material, two_sided)
                 {
@@ -423,6 +428,9 @@ impl Builder<'_> {
         let Some(material) = first_material.filter(|_| !quads.is_empty()) else {
             return diagnostic_visual();
         };
+        if failed {
+            self.gaps.missing_textures += 1;
+        }
         let template = self.overlay.model_templates.len() as u32;
         let mut start = self.overlay.model_quads.len() as u32;
         let count = quads.len().div_ceil(assets::MAX_MODEL_TEMPLATE_QUADS);
@@ -460,6 +468,7 @@ impl Builder<'_> {
 
     /// Resolves a face's material instance: an explicit geometry name, then the
     /// face, then `side` for horizontal faces, then `*`.
+    /// Diagnostic fallback keeps the selected instance's sidedness.
     fn face_material(
         &mut self,
         components: &CustomVisualComponents,
@@ -521,10 +530,10 @@ impl Builder<'_> {
             return (material, alpha_flags, two_sided);
         }
         if !self.can_admit_materials(1) {
-            return (DIAGNOSTIC_MATERIAL, 0, false);
+            return (DIAGNOSTIC_MATERIAL, 0, two_sided);
         }
         let Some(slot) = self.texture_slot(&texture) else {
-            return (DIAGNOSTIC_MATERIAL, 0, false);
+            return (DIAGNOSTIC_MATERIAL, 0, two_sided);
         };
         let material = self.overlay.materials.len() as u32;
         self.overlay.materials.push(Material {

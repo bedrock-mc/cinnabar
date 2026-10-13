@@ -1338,6 +1338,9 @@ acceptance gate.
 - Authored carried faces fall back to ordinary pack faces; transparent cube templates
   and cutout/blended sheets retain block geometry in both hands.
 - First-person material modes preserve ice blending and cutout holes.
+- Opaque and blended held blocks draw only their outward faces, so a held stained glass block
+  hides its far side as in vanilla; cutout blocks (glass, leaves) render both sides. Session
+  custom cubes keep both sides until their alpha mode reaches the mesh build.
 - Regressions reproduce the previous gameplay-flag, alpha and missing-sheet failures.
 - Rebuilt macOS/Metal frames show cube geometry; the user confirmed the live fix.
 - Non-cube, animated and high-resolution carried geometry parity remains open.
@@ -8426,6 +8429,30 @@ server-raster precedence, diagnostic fallback, and admission refusals. Live
 visual verification remains pending. Block-item sheets and inventory icons
 still use placeholders for borrowed faces, and animated vanilla art remains
 limited to base blocks.
+
+## Partial server faces keep the diagnostic material
+
+A failed face no longer sinks its whole visual: cubes keep rendering with
+the diagnostic material on failed faces, and model quads with failed
+textures stay in the mesh instead of collapsing the visual. One missing
+texture still counts once per visual, and server rasters keep precedence.
+Random-offset cubes with failed faces skip carried-face publication, since
+diagnostic carried faces would fail session validation and drop the whole
+overlay. Failed faces never consume layers: materials are only pushed for
+admitted textures, so the texture checkpoint rollback for fully diagnostic
+visuals is unchanged.
+
+Regression coverage: per-face cube and model tests asserting the surviving
+kind, the diagnostic face material, session application, and gap counts;
+both fail on the previous implementation. Existing suites updated to the
+new kind expectations with unchanged gap totals. Block-item sheets still
+fall back to placeholders for diagnostic faces; inventory 3D icons raster
+the surviving mesh with diagnostic quads.
+
+Failed model faces preserve the selected material's two-sided flag even
+when a texture is missing or the material budget is full. Regression
+coverage checks render methods, rotated and axis-aligned quads, and session
+application.
 
 ## Cubeless server geometry draws nothing
 

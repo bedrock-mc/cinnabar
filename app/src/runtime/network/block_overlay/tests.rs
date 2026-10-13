@@ -34,6 +34,7 @@ mod flipbooks;
 mod hd_textures;
 mod legacy;
 mod lighting;
+mod partial_faces;
 mod random_offset;
 mod session;
 mod texture_budget;
@@ -244,9 +245,10 @@ fn compiled() -> super::CompiledBlockOverlay {
     compile_block_overlay(&view(), &blocks, false, None).expect("overlay")
 }
 
-// Full blocks become cubes on page 1; missing textures stay diagnostic and are counted.
+// Full blocks become cubes on page 1; missing textures paint their faces
+// diagnostic while the cube still renders, and are counted.
 #[test]
-fn full_block_is_a_page_one_cube_and_missing_texture_is_diagnostic() {
+fn full_block_is_a_page_one_cube_and_missing_textures_degrade_per_face() {
     let compiled = compiled();
     let overlay = &compiled.overlay;
     assert_eq!(
@@ -258,7 +260,15 @@ fn full_block_is_a_page_one_cube_and_missing_texture_is_diagnostic() {
     assert_eq!(lucky.kind, VisualKind::Cube);
     let material = overlay.materials[lucky.faces[BlockFace::Up as usize] as usize];
     assert_eq!((material.texture.page(), material.flags), (1, 0));
-    assert_eq!(overlay.visuals[5].kind, VisualKind::Diagnostic);
+    let missing = overlay.visuals[5];
+    assert_eq!(missing.kind, VisualKind::Cube);
+    assert!(
+        missing
+            .faces
+            .iter()
+            .all(|&face| face == assets::DIAGNOSTIC_MATERIAL),
+        "failed faces keep the diagnostic material instead of sinking the cube"
+    );
     assert_eq!(
         compiled.gaps,
         OverlayGaps {
@@ -445,7 +455,15 @@ fn incomplete_state_identity_preserves_neighboring_custom_blocks() {
     for id in [2, 3] {
         assert_eq!(
             assets.resolve(NetworkIdMode::Sequential, id).kind(),
-            VisualKind::Diagnostic
+            VisualKind::Cube,
+            "material-free states still render their cube"
+        );
+        assert!(
+            compiled.overlay.visuals[id as usize - 1]
+                .faces
+                .iter()
+                .all(|&face| face == assets::DIAGNOSTIC_MATERIAL),
+            "their faces keep the diagnostic material"
         );
     }
 }
