@@ -208,18 +208,21 @@ pub(crate) fn feed_far_terrain(
     ) as i32;
     let horizon_chunks = loaded + reach;
     // Near terrain owns the full-detail columns it has drawn, or everything the server sends.
-    let (near_chunks, near_view) = match full_detail {
+    // Inside the full-detail radius, finest tiles stand in until promoted columns are meshed;
+    // only an inner core, always meshed in ordinary movement, is left to near terrain alone.
+    let (near_chunks, skip_chunks, near_view) = match full_detail {
         Some(radius) => {
             let (revision, _) = stream.drawn_full_detail_columns();
             (
                 radius + FULL_DETAIL_HYSTERESIS_CHUNKS + 1,
+                (radius - FULL_DETAIL_CORE_MARGIN_CHUNKS).max(0),
                 NearView::FullDetail(revision, radius),
             )
         }
-        None => (
-            loaded + ::world::CHUNK_VIEW_SLACK + 1,
-            NearView::Loaded([centre.x, centre.z], loaded),
-        ),
+        None => {
+            let near = loaded + ::world::CHUNK_VIEW_SLACK + 1;
+            (near, near, NearView::Loaded([centre.x, centre.z], loaded))
+        }
     };
     far.cache
         .set_memory_budget(summary_budget_bytes(horizon_chunks));
@@ -231,6 +234,7 @@ pub(crate) fn feed_far_terrain(
     far.tiles.set_view(TileView {
         centre: [centre.x as f32 * 16.0 + 8.0, centre.z as f32 * 16.0 + 8.0],
         near_blocks: (near_chunks * 16) as f32,
+        skip_blocks: (skip_chunks * 16) as f32,
         far_blocks: ((horizon_chunks - near_chunks).max(0) * 16) as f32,
     });
     far.tiles.update(far.cache.store(), now);
@@ -258,6 +262,9 @@ pub(crate) fn feed_far_terrain(
         far.published = Some(revision);
     }
 }
+
+/// Chunks inside the full-detail radius where far tiles still stand in for unmeshed columns.
+const FULL_DETAIL_CORE_MARGIN_CHUNKS: i32 = 4;
 
 // Entities are drawn only on full-detail terrain: their render distance stays inside the
 // smallest full-detail radius.

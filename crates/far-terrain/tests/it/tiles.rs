@@ -19,6 +19,7 @@ fn view() -> TileView {
     TileView {
         centre: [8.0, 8.0],
         near_blocks: 15.0 * 16.0,
+        skip_blocks: 15.0 * 16.0,
         far_blocks: 64.0 * 16.0,
     }
 }

@@ -78,8 +78,10 @@ impl TileKey {
 pub struct TileView {
     /// Horizontal camera position.
     pub centre: [f32; 2],
-    /// Distance at which near terrain may end; tiles inside it are left out.
+    /// Distance at which near terrain may end; only the finest level reaches inside it.
     pub near_blocks: f32,
+    /// Tiles wholly inside this distance are left out; near terrain always draws there.
+    pub skip_blocks: f32,
     /// Reach of far terrain beyond the near edge.
     pub far_blocks: f32,
 }
@@ -107,7 +109,7 @@ pub fn select_tiles(view: TileView) -> Vec<TileKey> {
         .collect();
     while let Some(tile) = pending.pop() {
         let (nearest, farthest) = tile.distances(view.centre);
-        if nearest > reach || farthest < view.near_blocks {
+        if nearest > reach || farthest < view.skip_blocks {
             continue;
         }
         let split = view.near_blocks + LEVEL_SPLIT_DISTANCE * tile.width_blocks() as f32;
