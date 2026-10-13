@@ -95,19 +95,29 @@ where
                 ray_box_entry(origin, direction, min, max).filter(|distance| *distance <= reach)
             })?;
             let point = [0, 1, 2].map(|axis| (origin[axis] + direction[axis] * distance) as f32);
-            Some(ActorHit {
-                runtime_id: actor.runtime_id,
-                distance: f64::from(pick_distance(pick_origin, point)),
-                point,
-            })
+            let distance_squared = pick_distance_squared(pick_origin, point);
+            Some((
+                ActorHit {
+                    runtime_id: actor.runtime_id,
+                    distance: f64::from(distance_squared.sqrt()),
+                    point,
+                },
+                distance_squared,
+            ))
         })
-        .min_by(|left, right| left.distance.total_cmp(&right.distance))
+        .min_by(|(_, left), (_, right)| left.total_cmp(right))
+        .map(|(hit, _)| hit)
 }
 
 /// Measures a pick intercept using single-precision offsets, products and square root.
 pub fn pick_distance(origin: [f32; 3], point: [f32; 3]) -> f32 {
+    pick_distance_squared(origin, point).sqrt()
+}
+
+/// Keeps nearest-hit ordering precise when distinct squared distances share a rounded root.
+fn pick_distance_squared(origin: [f32; 3], point: [f32; 3]) -> f32 {
     let [x, y, z] = std::array::from_fn(|axis| point[axis] - origin[axis]);
-    (z * z + y * y + x * x).sqrt()
+    z * z + y * y + x * x
 }
 
 /// Reads the admitted obstruction disposition independently from picking.
