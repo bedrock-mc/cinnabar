@@ -7,6 +7,9 @@ use crate::motion_blur::{
 };
 use bevy::render::{renderer::RenderContext, view::ViewDepthStencilTexture};
 
+mod buffer;
+use buffer::MotionBuffer;
+
 pub(crate) const MOTION_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 
 /// Shared actor bindings occupy groups zero and one; only the velocity pass binds group two.
@@ -77,7 +80,7 @@ impl Specializer<RenderPipeline> for MotionSpecializer {
 }
 
 /// Only surfaces represented in the final scene depth can overwrite its camera velocity.
-fn eligible(material: u32) -> bool {
+pub(super) fn eligible(material: u32) -> bool {
     let kind = material & assets::EntityRenderMaterialState::KIND_MASK;
     !super::phase::sorted(material)
         && kind != assets::EntityRenderMaterial::DissolveDepth as u32
@@ -89,8 +92,8 @@ pub(crate) struct MotionView {
     texture: Texture,
     pub view: TextureView,
     history: ActorHistory,
-    instances: Buffer,
-    bones: Buffer,
+    instances: MotionBuffer,
+    bones: MotionBuffer,
     binding: Option<BindGroup>,
     draws: Vec<(crate::actor::gpu::ActorDrawSpan, CachedRenderPipelineId)>,
     frame_generation: u64,
@@ -115,8 +118,8 @@ impl MotionView {
             view: texture.create_view(&Default::default()),
             texture,
             history: ActorHistory::default(),
-            instances: buffer(device, size_of::<MotionInstance>()),
-            bones: buffer(device, render_model::ACTOR_BONE_MATRIX_BYTES),
+            instances: MotionBuffer::new(device, size_of::<MotionInstance>()),
+            bones: MotionBuffer::new(device, render_model::ACTOR_BONE_MATRIX_BYTES),
             binding: None,
             draws: Vec::new(),
             frame_generation: 0,
@@ -124,28 +127,6 @@ impl MotionView {
             ready: false,
         }
     }
-}
-
-/// Reusable storage never has a zero-length binding, even for the first history frame.
-fn buffer(device: &RenderDevice, bytes: usize) -> Buffer {
-    device.create_buffer(&BufferDescriptor {
-        label: Some("actor velocity history"),
-        size: bytes as u64,
-        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    })
-}
-
-/// Grows only a view's own buffers; callers rebuild bindings when the storage identity changes.
-fn upload(device: &RenderDevice, queue: &RenderQueue, storage: &mut Buffer, bytes: &[u8]) -> bool {
-    let resized = storage.size() < bytes.len() as u64;
-    if resized {
-        *storage = buffer(device, bytes.len());
-    }
-    if !bytes.is_empty() {
-        queue.write_buffer(storage, 0, bytes);
-    }
-    resized
 }
 
 /// Prepares exact current instance ordering after ordinary actor resource preparation.
@@ -157,7 +138,7 @@ pub(crate) fn prepare(
     state: &mut Option<MotionView>,
     frame: Option<&ActorRenderFrame>,
     gpu: Option<&ActorGpu>,
-    pipeline: Option<&mut ActorPipeline>,
+    pipeline: Option<&ActorPipeline>,
     previous_camera: CameraHistory,
     current_camera: CameraHistory,
     continuous: bool,
@@ -197,17 +178,15 @@ pub(crate) fn prepare(
     state.moved = state
         .history
         .advance(&frame.rig, previous_camera, current_camera, continuous);
-    let instances_changed = upload(
+    let instances_changed = state.instances.upload(
         device,
-        queue,
-        &mut state.instances,
         bytemuck::cast_slice(&state.history.instances),
+        |buffer, bytes| queue.write_buffer(buffer, 0, bytes),
     );
-    let bones_changed = upload(
+    let bones_changed = state.bones.upload(
         device,
-        queue,
-        &mut state.bones,
         bytemuck::cast_slice(&state.history.bones),
+        |buffer, bytes| queue.write_buffer(buffer, 0, bytes),
     );
     if instances_changed || bones_changed || state.binding.is_none() {
         state.binding = Some(device.create_bind_group(
@@ -216,11 +195,11 @@ pub(crate) fn prepare(
             &[
                 BindGroupEntry {
                     binding: 0,
-                    resource: state.instances.as_entire_binding(),
+                    resource: state.instances.buffer.as_entire_binding(),
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: state.bones.as_entire_binding(),
+                    resource: state.bones.buffer.as_entire_binding(),
                 },
             ],
         ));
@@ -246,16 +225,9 @@ pub(crate) fn prepare(
             enhanced,
             material: span.material,
         };
-        let contract = key.contract();
-        let id = if let Some(&id) = pipeline.motion_ids.get(&contract) {
-            id
-        } else {
-            let Ok(id) = pipeline.motion_variants.specialize(cache, key) else {
-                state.ready = false;
-                continue;
-            };
-            pipeline.motion_ids.insert(contract, id);
-            id
+        let Some(id) = pipeline.motion_variant(key) else {
+            state.ready = false;
+            continue;
         };
         state.ready &= cache.get_render_pipeline(id).is_some();
         if span.page != 0 {

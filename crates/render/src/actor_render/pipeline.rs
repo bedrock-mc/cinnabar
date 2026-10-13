@@ -1,5 +1,6 @@
 use super::*;
 use render_model::{ActorGpuInstance, ActorRigGeometrySpan};
+use std::collections::hash_map::Entry;
 
 pub(super) struct ActorPipelineSpecializer;
 
@@ -11,8 +12,8 @@ pub(crate) struct ActorPipeline {
         ActorPipelineContract,
         bevy::render::render_resource::CachedRenderPipelineId,
     >,
-    pub(super) motion_variants: Variants<RenderPipeline, super::motion::MotionSpecializer>,
-    pub(super) motion_ids: std::collections::HashMap<ActorPipelineContract, CachedRenderPipelineId>,
+    motion_variants: Variants<RenderPipeline, super::motion::MotionSpecializer>,
+    motion_ids: std::collections::HashMap<ActorPipelineContract, CachedRenderPipelineId>,
 }
 
 impl FromWorld for ActorPipeline {
@@ -32,6 +33,7 @@ impl FromWorld for ActorPipeline {
 }
 
 impl ActorPipeline {
+    /// Queues draw and eligible motion contracts before actors enter a view.
     pub(super) fn prewarm(
         &mut self,
         cache: &PipelineCache,
@@ -47,11 +49,16 @@ impl ActorPipeline {
                 material,
             };
             let contract = key.contract();
-            if self.draw_variants.contains_key(&contract) {
-                continue;
+            if let Entry::Vacant(entry) = self.draw_variants.entry(contract) {
+                let id = self.variants.specialize(cache, key).ok()?;
+                entry.insert(id);
             }
-            let id = self.variants.specialize(cache, key).ok()?;
-            self.draw_variants.insert(contract, id);
+            if super::motion::eligible(material)
+                && let Entry::Vacant(entry) = self.motion_ids.entry(contract)
+            {
+                let id = self.motion_variants.specialize(cache, key).ok()?;
+                entry.insert(id);
+            }
         }
         self.draw_variant(
             msaa,
@@ -81,6 +88,12 @@ impl ActorPipeline {
             .copied()
     }
 
+    /// Looks up a motion contract already requested by the loading path.
+    pub(super) fn motion_variant(&self, key: ActorPipelineKey) -> Option<CachedRenderPipelineId> {
+        self.motion_ids.get(&key.contract()).copied()
+    }
+
+    /// Loading completes only when both color and eligible motion pipelines are compiled.
     pub(super) fn ready(
         &self,
         cache: &PipelineCache,
@@ -91,6 +104,15 @@ impl ActorPipeline {
         prewarm_materials().all(|material| {
             self.draw_variant(msaa, hdr, enhanced, material)
                 .is_some_and(|id| cache.get_render_pipeline(id).is_some())
+                && (!super::motion::eligible(material)
+                    || self
+                        .motion_variant(ActorPipelineKey {
+                            msaa,
+                            hdr,
+                            enhanced,
+                            material,
+                        })
+                        .is_some_and(|id| cache.get_render_pipeline(id).is_some()))
         })
     }
 }

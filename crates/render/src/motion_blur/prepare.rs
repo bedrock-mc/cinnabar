@@ -20,7 +20,7 @@ use std::mem::size_of;
 pub(super) struct ActorResources<'w> {
     frame: Option<Res<'w, render_scene::ActorRenderFrame>>,
     gpu: Option<Res<'w, crate::actor_render::ActorGpu>>,
-    pipeline: Option<ResMut<'w, crate::actor_render::pipeline::ActorPipeline>>,
+    pipeline: Option<Res<'w, crate::actor_render::pipeline::ActorPipeline>>,
 }
 
 #[derive(Component)]
@@ -83,7 +83,7 @@ pub(super) fn prepare_views(
     queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
     mut pipeline: ResMut<BlurPipeline>,
-    mut actors: ActorResources,
+    actors: ActorResources,
     mut views: Views,
     removed: RemovedViews,
 ) {
@@ -133,7 +133,7 @@ pub(super) fn prepare_views(
                 &queue,
                 &pipeline,
                 &cache,
-                &mut actors,
+                &actors,
                 enhanced.is_some(),
                 &neutral_motion,
             );
@@ -152,7 +152,7 @@ pub(super) fn prepare_views(
             &queue,
             &pipeline,
             &cache,
-            &mut actors,
+            &actors,
             enhanced.is_some(),
             &neutral_motion,
         );
@@ -174,7 +174,7 @@ fn update(
     queue: &RenderQueue,
     pipeline: &BlurPipeline,
     cache: &PipelineCache,
-    actors: &mut ActorResources,
+    actors: &ActorResources,
     enhanced: bool,
     neutral_motion: &TextureView,
 ) {
@@ -182,7 +182,7 @@ fn update(
         &mut state.actors,
         actors.frame.as_deref(),
         actors.gpu.as_deref(),
-        actors.pipeline.as_deref_mut(),
+        actors.pipeline.as_deref(),
         state.history,
         history,
         state.history.continuous(history, settings),

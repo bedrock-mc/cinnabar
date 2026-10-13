@@ -33,6 +33,90 @@ fn actor_velocity_shaders_validate_with_and_without_multisample_cutout_coverage(
 }
 
 #[test]
+fn production_motion_fragment_fits_default_device_interface_limits() {
+    let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    for (defines, samples) in [
+        (&["ACTOR_MOTION"][..], 1),
+        (&["ACTOR_MOTION", "ALPHA_TO_COVERAGE"][..], 4),
+    ] {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("production actor motion interface"),
+            source: wgpu::ShaderSource::Wgsl(shader_source(defines).into()),
+        });
+        let _pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("default actor motion limits"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("actor_vertex"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("actor_motion_fragment"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: MOTION_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: samples,
+                alpha_to_coverage_enabled: samples > 1,
+                ..Default::default()
+            },
+            multiview_mask: None,
+            cache: None,
+        });
+    }
+}
+
+#[test]
+fn stationary_actor_publications_keep_both_motion_buffers_without_uploads() {
+    use bevy::math::{Mat4, UVec4};
+    let (device, _) = wgpu::Device::noop(&Default::default());
+    let device = RenderDevice::from(device);
+    let camera = CameraHistory::new(
+        Mat4::IDENTITY,
+        Mat4::IDENTITY,
+        UVec4::new(0, 0, 640, 320),
+        0,
+    );
+    let mut history = ActorHistory::default();
+    let mut instances = MotionBuffer::new(&device, size_of::<MotionInstance>());
+    let mut bones = MotionBuffer::new(&device, render_model::ACTOR_BONE_MATRIX_BYTES);
+    let mut frame = crate::motion_blur::actor_history::tests::frame(Vec3::ZERO, [0.0, 2.0, 0.25]);
+    for generation in 0..4 {
+        frame.frame_generation = generation;
+        assert!(!history.advance(&frame, camera, camera, generation != 0));
+        let mut uploaded = 0;
+        instances.upload(
+            &device,
+            bytemuck::cast_slice(&history.instances),
+            |_, bytes| uploaded += bytes.len(),
+        );
+        bones.upload(&device, bytemuck::cast_slice(&history.bones), |_, bytes| {
+            uploaded += bytes.len()
+        });
+        if generation < 2 {
+            assert!(
+                uploaded > 0,
+                "first history frames populate the GPU buffers"
+            );
+        } else {
+            assert_eq!(
+                uploaded, 0,
+                "unchanged actor publications must not stage GPU writes"
+            );
+        }
+    }
+}
+
+#[test]
 fn actor_velocity_preserves_cutout_culling_and_reads_depth_without_changing_it() {
     let material =
         assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
