@@ -39,6 +39,7 @@ pub(super) fn prepare_resolved_block_mutations(
     let mut prepared = PreparedBlockMutations {
         mutations: Vec::with_capacity(batches.len()),
         relight: BTreeSet::new(),
+        crack_intermediates: Vec::new(),
     };
     for batch in batches {
         let mutation = ChunkStore::prepare_sub_chunk_blocks(

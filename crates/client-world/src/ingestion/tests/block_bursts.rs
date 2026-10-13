@@ -25,10 +25,12 @@ fn synced_burst_keeps_every_actor_message_and_one_decode_fence() {
     queue(&mut state, 1, synced(1, 0, 0), true);
     queue(&mut state, 2, synced(2, 0, 1), true);
     queue(&mut state, 3, PreparedWorldEvent::CommitOnly, false);
-    let Some(CommitStep::SyncedBlockUpdates { sequence, events }) = state.next_commit() else {
+    let Some(CommitStep::SyncedBlockUpdates { sequence, packets }) = state.next_commit() else {
         panic!("synced burst must prepare together");
     };
     assert_eq!(sequence, 1);
+    assert_eq!(packets.iter().map(Vec::len).collect::<Vec<_>>(), [1, 1]);
+    let events = packets.into_iter().flatten().collect::<Vec<_>>();
     assert_eq!(
         events
             .iter()
@@ -48,6 +50,7 @@ fn synced_burst_keeps_every_actor_message_and_one_decode_fence() {
         result: Ok(PreparedBlockMutations {
             mutations: Vec::new(),
             relight: Default::default(),
+            crack_intermediates: Vec::new(),
         }),
         events,
         duration: Duration::ZERO,
@@ -70,10 +73,11 @@ fn synced_burst_keeps_section_and_malformed_packet_boundaries() {
         let mut state = OrderedCommitState::new(1);
         queue(&mut state, 1, synced(1, 0, 0), true);
         queue(&mut state, 2, next, true);
-        let Some(CommitStep::SyncedBlockUpdates { sequence, events }) = state.next_commit() else {
+        let Some(CommitStep::SyncedBlockUpdates { sequence, packets }) = state.next_commit() else {
             panic!("first packet must prepare");
         };
-        assert_eq!(events.len(), 1);
+        assert_eq!(packets.len(), 1);
+        assert_eq!(packets[0].len(), 1);
         assert!(state.finish_commit(sequence));
         assert_eq!(state.committed_sequence(), 1);
         assert_eq!(state.heavy_count(), 1);
@@ -89,10 +93,11 @@ fn synced_burst_cannot_cross_controls_missing_sequences_or_plain_updates() {
             queue(&mut state, 2, middle, true);
         }
         queue(&mut state, 3, synced(3, 0, 0), true);
-        let Some(CommitStep::SyncedBlockUpdates { events, .. }) = state.next_commit() else {
+        let Some(CommitStep::SyncedBlockUpdates { packets, .. }) = state.next_commit() else {
             panic!("first packet must prepare");
         };
-        assert_eq!(events.len(), 1);
+        assert_eq!(packets.len(), 1);
+        assert_eq!(packets[0].len(), 1);
     }
 }
 
@@ -110,6 +115,7 @@ fn completed_updates() -> PreparedWorldEvent {
         result: Ok(PreparedBlockMutations {
             mutations: Vec::new(),
             relight: Default::default(),
+            crack_intermediates: Vec::new(),
         }),
         duration: Duration::ZERO,
     }

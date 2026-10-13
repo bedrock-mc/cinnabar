@@ -6,12 +6,14 @@ use world::{RawBlockIds, SubChunk};
 const PACKETS: usize = client_world::ingestion::MAX_ADMITTED_HEAVY_EVENTS;
 const UPDATES_PER_PACKET: usize = 128;
 
-/// Alternating opaque blocks keep every packet changed without starting a relight.
+/// Alternates opaque blocks and leaves changed cells in every section without starting a relight.
 fn fixture(assets: &Arc<RuntimeAssets>, sections: usize) -> MutationBurstFixture {
+    assert!(sections > 0 && PACKETS.is_multiple_of(sections));
+    let packets_per_section = PACKETS / sections;
     let section = SubChunk::decode(&[9, 1, 0, 1, (SOLID << 1) as u8], &RawBlockIds { air: AIR });
     let packets = (0..PACKETS)
         .map(|packet| {
-            let section_index = packet / (PACKETS / sections);
+            let section_index = packet / packets_per_section;
             (0..UPDATES_PER_PACKET)
                 .map(|cell| SyncedBlockUpdateEvent {
                     update: BlockUpdateEvent {
@@ -22,7 +24,9 @@ fn fixture(assets: &Arc<RuntimeAssets>, sections: usize) -> MutationBurstFixture
                             ((cell >> 4) & 15) as i32,
                         ],
                         layer: 0,
-                        network_id: if packet % 2 == 0 {
+                        network_id: if packet % 2 == 0
+                            || packet % packets_per_section == packets_per_section - 1
+                        {
                             SOLID_SWAPPED
                         } else {
                             SOLID

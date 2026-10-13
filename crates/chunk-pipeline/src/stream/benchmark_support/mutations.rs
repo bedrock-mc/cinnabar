@@ -4,10 +4,11 @@ use super::*;
 pub struct MutationBurstFixture {
     stream: WorldStream,
     last_sequence: u64,
+    initial_sections: BTreeMap<SubChunkKey, Arc<SubChunk>>,
 }
 
 impl MutationBurstFixture {
-    /// Installs packed sections and admits a burst together, without doing worker preparation.
+    /// Installs sections and admits a burst that must leave each section changed after draining.
     pub fn new(
         mut stream: WorldStream,
         packets: Vec<Vec<SyncedBlockUpdateEvent>>,
@@ -15,6 +16,7 @@ impl MutationBurstFixture {
     ) -> Self {
         let generation = stream.lighting.next_block_generation.wrapping_add(1).max(1);
         stream.lighting.next_block_generation = generation;
+        let mut initial_sections = BTreeMap::new();
         for packet in &packets {
             let event = packet.first().expect("benchmark packets contain updates");
             let (key, _) = split_block_update(event.update).unwrap();
@@ -22,6 +24,7 @@ impl MutationBurstFixture {
                 .authority
                 .commit_sub_chunk(key, section.clone())
                 .unwrap();
+            initial_sections.insert(key, stream.authority.terrain().sub_chunk(key).unwrap());
             stream.resident.insert(key);
             stream.lighting.block_generations.insert(key, generation);
             stream
@@ -60,6 +63,7 @@ impl MutationBurstFixture {
         Self {
             stream,
             last_sequence,
+            initial_sections,
         }
     }
 
@@ -72,6 +76,13 @@ impl MutationBurstFixture {
             let Some(QueuedDecodeJob { queued_at, job }) = self.stream.pending_decode.pop_front()
             else {
                 assert_eq!(self.stream.committed_sequence(), self.last_sequence);
+                self.assert_changed_sections();
+                for &key in self.initial_sections.keys() {
+                    assert!(
+                        self.stream.revisions.dirty(key).is_some(),
+                        "changed section must need a mesh"
+                    );
+                }
                 return jobs;
             };
             self.stream.accept_decode_completion(job.run(queued_at));
@@ -105,6 +116,16 @@ impl MutationBurstFixture {
             }
             if self.stream.committed_sequence() == self.last_sequence && work_is_idle(&self.stream)
             {
+                self.assert_changed_sections();
+                let stages = self.stream.stats.publication_stages;
+                assert!(stages.mesh_jobs_completed >= self.initial_sections.len() as u64);
+                assert!(stages.mesh_uploads_acknowledged >= self.initial_sections.len() as u64);
+                for key in self.initial_sections.keys() {
+                    assert!(
+                        self.stream.applied_mesh_generations.contains_key(key),
+                        "changed section must be uploaded"
+                    );
+                }
                 return self.stream.stats();
             }
             assert!(
@@ -113,6 +134,18 @@ impl MutationBurstFixture {
                 self.stream.stats()
             );
             std::thread::yield_now();
+        }
+    }
+
+    /// Rejects fixtures that drain without changing every installed section's terrain.
+    fn assert_changed_sections(&self) {
+        assert!(!self.initial_sections.is_empty());
+        for (&key, initial) in &self.initial_sections {
+            assert_ne!(
+                self.stream.authority.terrain().sub_chunk(key).as_ref(),
+                Some(initial),
+                "burst must change section {key:?}"
+            );
         }
     }
 }

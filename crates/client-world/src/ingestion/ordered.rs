@@ -26,7 +26,8 @@ pub enum CommitStep {
     },
     SyncedBlockUpdates {
         sequence: u64,
-        events: Vec<SyncedBlockUpdateEvent>,
+        /// Packet boundaries preserve intermediate crack target changes.
+        packets: Vec<Vec<SyncedBlockUpdateEvent>>,
     },
 }
 
@@ -464,18 +465,20 @@ impl OrderedCommitState {
                 self.applying = Some(sequence);
                 CommitStep::BlockUpdates { sequence, events }
             }
-            PreparedWorldEvent::Immediate(WorldEvent::SyncedBlockUpdates(mut events)) => {
+            PreparedWorldEvent::Immediate(WorldEvent::SyncedBlockUpdates(events)) => {
                 self.last_step_heavy = heavy;
                 let mut end = sequence;
-                if let Some(key) = synced_update_key(&events) {
+                let key = synced_update_key(&events);
+                let mut packets = vec![events];
+                if let Some(key) = key {
                     while let Some(next) = self.take_adjacent_synced_updates(end, key, budget) {
-                        events.extend(next);
+                        packets.push(next);
                         end += 1;
                     }
                 }
                 self.block_update_range_end = Some(end);
                 self.applying = Some(sequence);
-                CommitStep::SyncedBlockUpdates { sequence, events }
+                CommitStep::SyncedBlockUpdates { sequence, packets }
             }
             event => {
                 self.last_step_heavy = heavy;
