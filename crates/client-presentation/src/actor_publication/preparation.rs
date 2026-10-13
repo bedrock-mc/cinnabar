@@ -15,6 +15,7 @@ pub struct ActorFrameState {
     pub(super) published_pack: Option<Arc<assets::SessionEntityPack>>,
     pub(super) pack_geometry_ready: SessionGeometryReady,
     pub(super) published_items: Option<Arc<crate::session_assets::SessionItems>>,
+    published_artwork: Option<Arc<crate::prepared_actor_artwork::PreparedActorArtwork>>,
     pub(super) actor_clock: ActorFrameClock,
     pub(super) session_artwork: Option<render_model::ActorArtworkPages>,
     pub(super) cape_state: crate::presentation::cape::CapeState,
@@ -120,6 +121,7 @@ pub fn advance_actor_frame(
         published_pack,
         pack_geometry_ready,
         published_items,
+        published_artwork,
         actor_clock,
         motion_step,
         session_artwork,
@@ -181,12 +183,20 @@ pub fn advance_actor_frame(
             .map(|items| Arc::as_ptr(items).cast()),
         items.as_ref().map(|items| Arc::as_ptr(items).cast()),
     );
-    if new_session || pack_changed || items_changed || artwork.is_changed() {
+    let prepared = client_world.prepared_actor_artwork.clone();
+    let prepared_changed = !same(
+        published_artwork
+            .as_ref()
+            .map(|art| Arc::as_ptr(art).cast()),
+        prepared.as_ref().map(|art| Arc::as_ptr(art).cast()),
+    );
+    if new_session || pack_changed || items_changed || prepared_changed || artwork.is_changed() {
         let _setup = profiler
             .as_deref()
             .map(|profiler| profiler.time(render_scene::RuntimeStage::ActorSessionSetup));
         *published_pack = pack.clone();
         *published_items = items.clone();
+        *published_artwork = prepared.clone();
         let staged = StagedSessionIcons::stage(items.as_deref());
         if new_session || pack_changed {
             *pack_geometry_ready = SessionGeometryReady::default();
@@ -197,7 +207,7 @@ pub fn advance_actor_frame(
         let resources = crate::prepared_actor_artwork::session_resources(
             &artwork,
             pack.as_ref(),
-            client_world.prepared_actor_artwork.as_deref(),
+            prepared.as_deref(),
         );
         drop(artwork_timer);
         // Always republished: presentation selects from these pages, the scene validates them.

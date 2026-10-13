@@ -123,7 +123,10 @@ fn held_block_entity_models_keep_cutout_alpha_and_block_grips() {
         item.identifier = Arc::from(identifier);
         let kind = HeldBlockEntity::from_item(identifier).unwrap();
         let rig = equipment_rig_id(held_block_entities::RIG_INDEX_BASE + index as u32);
-        runtime.held_block_entities.insert(kind, (rig, location));
+        runtime
+            .held_block_entities
+            .models
+            .insert(kind, (rig, location));
         for held_kind in [HeldKind::Block(7), HeldKind::Sprite, HeldKind::Other] {
             item.kind = held_kind;
             let main = runtime.first_person_item(&body, &item, animation).unwrap();
@@ -160,6 +163,7 @@ fn held_block_entity_alpha_uses_only_admitted_models_after_session_materials() {
     let rig = equipment_rig_id(held_block_entities::RIG_INDEX_BASE);
     runtime
         .held_block_entities
+        .models
         .insert(kind, (rig, fallback.presentation.location));
     let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
     for (flags, expected) in [

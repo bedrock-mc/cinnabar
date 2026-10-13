@@ -1355,6 +1355,8 @@ acceptance gate.
   as their placed block-entity models, closed and centred. Provisional: their held facing and
   the native item renderer's pose for them are unmeasured. Banners still hold as sprites;
   beds are sprites in vanilla too.
+- Held block-entity artwork follows the prepared resource-pack generation and restores startup
+  bindings after disconnect. Missing pot base or side artwork retains the sprite fallback.
 - Animated and high-resolution carried geometry parity remains open.
 - Vanilla rules: [held block items](docs/reference/held-block-items.md).
 

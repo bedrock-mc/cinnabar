@@ -49,7 +49,7 @@ impl EquipmentRuntime {
         self.session_block_alpha(&item.identifier)
             .or_else(|| {
                 HeldBlockEntity::from_item(&item.identifier)
-                    .filter(|kind| self.held_block_entities.contains_key(kind))
+                    .filter(|kind| self.held_block_entities.models.contains_key(kind))
                     .map(|_| HandItemAlphaMode::Cutout)
             })
             .or_else(|| match item.kind {
