@@ -180,6 +180,7 @@ pub const FONT: Carrier = Carrier {
     font_face: Some(FontFace {
         native_raster: false,
         name: "Cinnangles Sans",
+        json_ui_alias: None,
         ascii_bearing: None,
         space_em_1000: None,
         manifest: include_bytes!("../../../assets/cinnangles-sans-source.json"),
@@ -205,6 +206,7 @@ pub const FONT_TEN: Carrier = Carrier {
     font_face: Some(FontFace {
         native_raster: true,
         name: "Cinnangles Ten",
+        json_ui_alias: Some("MinecraftTen"),
         ascii_bearing: None,
         space_em_1000: None,
         manifest: include_bytes!("../../../assets/cinnangles-ten-source.json"),
@@ -230,6 +232,7 @@ pub const FONT_SEVEN: Carrier = Carrier {
     font_face: Some(FontFace {
         native_raster: true,
         name: "Cinnangles Seven",
+        json_ui_alias: None,
         ascii_bearing: None,
         space_em_1000: None,
         manifest: include_bytes!("../../../assets/cinnangles-seven-source.json"),
@@ -255,6 +258,7 @@ pub const FONT_FIVE: Carrier = Carrier {
     font_face: Some(FontFace {
         native_raster: true,
         name: "Cinnangles Five",
+        json_ui_alias: None,
         ascii_bearing: None,
         space_em_1000: None,
         manifest: include_bytes!("../../../assets/cinnangles-five-source.json"),
@@ -280,6 +284,7 @@ pub const FONT_FIVE_BOLD: Carrier = Carrier {
     font_face: Some(FontFace {
         native_raster: true,
         name: "Cinnangles Five Bold",
+        json_ui_alias: None,
         ascii_bearing: None,
         space_em_1000: None,
         manifest: include_bytes!("../../../assets/cinnangles-five-bold-source.json"),

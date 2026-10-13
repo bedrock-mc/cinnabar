@@ -4,7 +4,7 @@ use super::{
     SettingsOptions,
     control_bindings::{
         EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, SECONDARY_KEYS,
-        decode_control, encode_control, is_gamepad,
+        UNBOUND_CONTROL, decode_control, encode_control, is_gamepad,
     },
 };
 use semantic_input::{Action, ControlSettings, InputContext, PhysicalControl};
@@ -122,8 +122,9 @@ impl SettingsOptions {
                     let Some(code) = self.keys.get(&name) else {
                         return true;
                     };
-                    decode_control(*code)
-                        .is_some_and(|control| is_gamepad(control) == (index >= GAMEPAD_OFFSET))
+                    *code == UNBOUND_CONTROL
+                        || decode_control(*code)
+                            .is_some_and(|control| is_gamepad(control) == (index >= GAMEPAD_OFFSET))
                 })
     }
 
@@ -146,6 +147,9 @@ impl SettingsOptions {
     /// Reads the persisted device binding, falling back to the gameplay router's defaults.
     pub fn key_control(&self, index: usize) -> Option<PhysicalControl> {
         let (name, action, fallback) = self.binding(index)?;
+        if self.keys.get(&name) == Some(&UNBOUND_CONTROL) {
+            return None;
+        }
         if action.is_some_and(|action| self.default_yields(action)) {
             return None;
         }
@@ -232,6 +236,30 @@ impl SettingsOptions {
         true
     }
 
+    /// Clears one action's keyboard and mouse assignments, preserving the gamepad layout.
+    pub fn unbind_key(&mut self, index: usize) -> bool {
+        if index >= GAMEPAD_OFFSET {
+            return false;
+        }
+        let Some((name, _, _)) = self.binding(index) else {
+            return false;
+        };
+        let previous_defaults = self.active_late_defaults();
+        self.keys.insert(name, UNBOUND_CONTROL);
+        for (action, control) in previous_defaults {
+            if control.is_none() {
+                let (_, name) = KEY_BINDINGS
+                    .iter()
+                    .find(|(candidate, _)| *candidate == action)
+                    .expect("late defaults belong to the keyboard layout");
+                self.keys
+                    .entry((*name).to_owned())
+                    .or_insert(UNBOUND_CONTROL);
+            }
+        }
+        true
+    }
+
     /// Restores one action's default control while preserving other remaps.
     pub fn reset_key(&mut self, index: usize) -> bool {
         let Some((name, action, _)) = self.binding(index) else {
@@ -273,18 +301,28 @@ impl SettingsOptions {
             let Some((name, Some(action), _)) = self.binding(index) else {
                 continue;
             };
-            let Some(control) = self.keys.get(&name).and_then(|code| decode_control(*code)) else {
+            let Some(code) = self.keys.get(&name) else {
                 continue;
             };
+            let control = decode_control(*code);
+            if control.is_none() && *code != UNBOUND_CONTROL {
+                continue;
+            }
             let mut replaced = false;
             bindings.retain_mut(|binding| {
                 if binding.action != action
                     || binding.context != InputContext::Gameplay
                     || is_gamepad(binding.chord.control) != (index >= GAMEPAD_OFFSET)
-                    || matches!(binding.chord.control, PhysicalControl::MouseAxis(_))
+                    || matches!(
+                        binding.chord.control,
+                        PhysicalControl::MouseAxis(_) | PhysicalControl::TouchControl(_)
+                    )
                 {
                     return true;
                 }
+                let Some(control) = control else {
+                    return false;
+                };
                 if replaced {
                     return false;
                 }
@@ -349,6 +387,10 @@ pub fn key_name(control: PhysicalControl) -> String {
 #[cfg(test)]
 #[path = "overlay_binding_tests.rs"]
 mod overlay_binding_tests;
+
+#[cfg(test)]
+#[path = "unbound_tests.rs"]
+mod unbound_tests;
 
 #[cfg(test)]
 mod tests {

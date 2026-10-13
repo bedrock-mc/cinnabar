@@ -180,7 +180,7 @@ impl<'a> Binder<'a> {
         let supplied = key.as_ref().and_then(|key| self.data.collections.get(key));
         let roles: Vec<Option<String>> = match node.native.collection_length.as_ref() {
             // A bound count takes each instance's role from its supplied item.
-            Some(length) => bound_roles(length, factory)
+            Some(length) => bound_roles(length)
                 .into_iter()
                 .enumerate()
                 .map(|(index, role)| role.or_else(|| supplied?.get(index)?.role.clone()))
@@ -190,12 +190,21 @@ impl<'a> Binder<'a> {
                 None => unsupplied_roles(factory, &node.own),
             },
         };
-        let mut nodes = Vec::with_capacity(roles.len());
-        for (index, role) in roles.iter().enumerate() {
-            if !self.can_create() {
+        let capped = factory.max_children_size.is_some();
+        let cap = factory.max_children_size.unwrap_or(roles.len());
+        let mut nodes = Vec::with_capacity(cap.min(roles.len()));
+        let mut surviving = Vec::new();
+        // Only successfully resolved creations count toward the insertion cap.
+        for offset in 0..roles.len() {
+            if (capped && surviving.len() == cap) || !self.can_create() {
                 break;
             }
-            let role = role.as_deref();
+            let index = if capped {
+                roles.len() - 1 - offset
+            } else {
+                offset
+            };
+            let role = roles[index].as_deref();
             let Some(reference) = select_control(factory, role) else {
                 self.note(format!(
                     "{}: factory has no control for role {role:?}",
@@ -225,7 +234,19 @@ impl<'a> Binder<'a> {
             let instance = Src::root(resolved).patched(|patch| {
                 patch.name = role.and_then(|role| factory.instance_names.get(role).cloned());
             });
-            nodes.push(self.build(with_index(instance, index), &child_scope, 0));
+            let instance = with_index(instance, index);
+            if capped {
+                surviving.push((instance, child_scope));
+            } else {
+                nodes.push(self.build(instance, &child_scope, 0));
+            }
+        }
+        // Bind in creation order; placement still owns front/back insertion and literal children.
+        for (instance, child_scope) in surviving.into_iter().rev() {
+            if !self.can_create() {
+                break;
+            }
+            nodes.push(self.build(instance, &child_scope, 0));
         }
         nodes
     }
@@ -284,8 +305,9 @@ pub(crate) const MAX_FACTORY_ITEMS: usize = 4096;
 
 /// Roles for a bound `#collection_length`: one per control id, or that many
 /// of a `control_name` template.
-fn bound_roles(length: &Value, factory: &Factory) -> Vec<Option<String>> {
-    let cap = factory.max_children_size.unwrap_or(MAX_FACTORY_ITEMS);
+fn bound_roles(length: &Value) -> Vec<Option<String>> {
+    // The factory evicts children after insertion, preserving the newest collection cursor.
+    let cap = MAX_FACTORY_ITEMS;
     match length {
         Value::Array(ids) => ids
             .iter()

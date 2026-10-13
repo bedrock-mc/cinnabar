@@ -109,7 +109,7 @@ class SourceReuseTests(unittest.TestCase):
     def test_build_cannot_change_inputs_before_save(self):
         """Avoid saving artifacts against a snapshot of different source content."""
         (self.root / "value.txt").write_text("changed during build")
-        with self.assertRaisesRegex(RuntimeError, "Tracked sources changed"):
+        with self.assertRaisesRegex(RuntimeError, "Tracked sources changed.*value.txt"):
             cache.verify_inputs(self.root)
 
     def test_key_changes_per_revision_and_separates_compiler_settings(self):

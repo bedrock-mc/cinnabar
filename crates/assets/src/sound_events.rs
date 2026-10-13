@@ -61,6 +61,7 @@ enum Entry {
 
 #[derive(Clone, Debug, PartialEq)]
 struct EventSet {
+    base: Option<Box<str>>,
     volume: FloatRange,
     pitch: FloatRange,
     events: HashMap<Box<str>, Entry>,
@@ -69,6 +70,7 @@ struct EventSet {
 impl Default for EventSet {
     fn default() -> Self {
         Self {
+            base: None,
             volume: FloatRange::ONE,
             pitch: FloatRange::ONE,
             events: HashMap::new(),
@@ -136,7 +138,14 @@ fn entry(value: &Value) -> Entry {
 
 fn event_set(value: &Value) -> Option<EventSet> {
     let map = value.as_object()?;
-    let mut set = EventSet::default();
+    let mut set = EventSet {
+        base: map
+            .get("base")
+            .and_then(Value::as_str)
+            .filter(|name| !name.is_empty())
+            .map(Into::into),
+        ..Default::default()
+    };
     if let Some(range) = map.get("volume").and_then(FloatRange::from_json) {
         set.volume = range;
     }
@@ -312,9 +321,28 @@ impl SoundEventTables {
             .map(AsRef::as_ref)
     }
 
-    /// Break/place/hit/etc. route of a block sound material.
+    /// Resolves a block event through its base materials, preserving explicit silence and
+    /// the defining material's ranges. Named inherited events precede default fallbacks.
     pub fn block(&self, material: &str, event: &str) -> Option<SoundRoute> {
-        resolve(self.blocks.get(material)?, event, None)
+        let mut material = material;
+        let mut fallback = None;
+        // A valid chain visits each material once; this also bounds malformed cycles.
+        for _ in 0..self.blocks.len() {
+            let Some(set) = self.blocks.get(material) else {
+                break;
+            };
+            if set.events.contains_key(event) {
+                return resolve(set, event, None);
+            }
+            if fallback.is_none() && set.events.contains_key("default") {
+                fallback = Some(resolve(set, "default", None));
+            }
+            let Some(base) = set.base.as_deref() else {
+                break;
+            };
+            material = base;
+        }
+        fallback.flatten()
     }
 
     /// Route of an actor event; `variant` selects a `variants.map` entry when the base lacks it.
@@ -392,6 +420,10 @@ impl SoundEventTables {
         self.individual.get(event).and_then(Option::as_ref)
     }
 }
+
+#[cfg(test)]
+#[path = "sound_events/block_tests.rs"]
+mod block_tests;
 
 #[cfg(test)]
 mod tests {

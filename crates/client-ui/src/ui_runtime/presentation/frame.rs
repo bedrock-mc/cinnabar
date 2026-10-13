@@ -248,6 +248,10 @@ impl UiPresentationRuntime {
                     Scene::ServerForm | Scene::ServerSettingsForm => {
                         self.append_server_form(
                             runtime,
+                            runtime
+                                .inventory_ledger(player_runtime)
+                                .item_registry_snapshot()
+                                .map(AsRef::as_ref),
                             nodes,
                             next,
                             metrics,

@@ -113,6 +113,9 @@ impl ControllerFrame {
         ) {
             input.sprinting = false;
         }
+        if input.mode == sim::MovementMode::Riding {
+            input.sneaking = false;
+        }
         modes.restore_controls(input.sprinting, input.sneaking);
         if self.sprint_override.is_some() || self.mode_override.is_some() {
             crate::movement::speed_authority::preserve_effective_speed(input, previous_sprinting);
