@@ -1,0 +1,356 @@
+{
+  "schema": 1,
+  "entries": [
+    {
+      "reference": {
+        "file": "block-destroy-v2193.tsv",
+        "pointer": "/183/0",
+        "domain": "block",
+        "identifier": "minecraft:chalkboard"
+      },
+      "reason": "Retained source-catalog block omitted from the admitted registry and sample block vocabulary; its destroy facts remain provisional."
+    },
+    {
+      "reference": {
+        "file": "block-item-routes-v1001.json",
+        "pointer": "/routes/11/identifier",
+        "domain": "item",
+        "identifier": "minecraft:air"
+      },
+      "reason": "Generated block-state route without a corresponding pack item; retain the placeholder route."
+    },
+    {
+      "reference": {
+        "file": "block-item-routes-v1001.json",
+        "pointer": "/routes/368/identifier",
+        "domain": "item",
+        "identifier": "minecraft:invisible_bedrock"
+      },
+      "reason": "Generated block-state route without a corresponding pack item; retain the placeholder route."
+    },
+    {
+      "reference": {
+        "file": "block-item-routes-v2193.json",
+        "pointer": "/routes/12/identifier",
+        "domain": "item",
+        "identifier": "minecraft:air"
+      },
+      "reason": "Generated block-state route without a corresponding pack item; retain the placeholder route."
+    },
+    {
+      "reference": {
+        "file": "block-item-routes-v2193.json",
+        "pointer": "/routes/397/identifier",
+        "domain": "item",
+        "identifier": "minecraft:invisible_bedrock"
+      },
+      "reason": "Generated block-state route without a corresponding pack item; retain the placeholder route."
+    },
+    {
+      "reference": {
+        "file": "entity-interactions.json",
+        "pointer": "/entries/minecraft:balloon",
+        "domain": "actor",
+        "identifier": "minecraft:balloon"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "entity-interactions.json",
+        "pointer": "/entries/minecraft:chalkboard",
+        "domain": "actor",
+        "identifier": "minecraft:chalkboard"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "entity-interactions.json",
+        "pointer": "/entries/minecraft:elder_guardian_ghost",
+        "domain": "actor",
+        "identifier": "minecraft:elder_guardian_ghost"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "entity-interactions.json",
+        "pointer": "/entries/minecraft:evocation_fang",
+        "domain": "actor",
+        "identifier": "minecraft:evocation_fang"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "entity-interactions.json",
+        "pointer": "/entries/minecraft:falling_block",
+        "domain": "actor",
+        "identifier": "minecraft:falling_block"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "entity-interactions.json",
+        "pointer": "/entries/minecraft:ice_bomb",
+        "domain": "actor",
+        "identifier": "minecraft:ice_bomb"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "entity-interactions.json",
+        "pointer": "/entries/minecraft:item",
+        "domain": "actor",
+        "identifier": "minecraft:item"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "entity-interactions.json",
+        "pointer": "/entries/minecraft:leash_knot",
+        "domain": "actor",
+        "identifier": "minecraft:leash_knot"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "entity-interactions.json",
+        "pointer": "/entries/minecraft:moving_block",
+        "domain": "actor",
+        "identifier": "minecraft:moving_block"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "entity-interactions.json",
+        "pointer": "/entries/minecraft:painting",
+        "domain": "actor",
+        "identifier": "minecraft:painting"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "entity-interactions.json",
+        "pointer": "/entries/minecraft:shield",
+        "domain": "actor",
+        "identifier": "minecraft:shield"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "item-use-profiles.json",
+        "pointer": "/entries/minecraft:camera",
+        "domain": "retail_item",
+        "identifier": "minecraft:camera"
+      },
+      "reason": "The pinned behavior pack declares this item, but the positive retail item surface omits it; retain its provisional use profile."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/14/0",
+        "domain": "retail_item",
+        "identifier": "minecraft:balloon"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current positive retail item surface."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/14/2",
+        "domain": "item_texture",
+        "identifier": "balloon"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current item texture atlas; current default sprite bindings take precedence."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/199/0",
+        "domain": "retail_item",
+        "identifier": "minecraft:ice_bomb"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current positive retail item surface."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/199/2",
+        "domain": "item_texture",
+        "identifier": "ice_bomb"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current item texture atlas; current default sprite bindings take precedence."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/286/0",
+        "domain": "retail_item",
+        "identifier": "minecraft:lodestone_compass"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current positive retail item surface."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/296/2",
+        "domain": "item_texture",
+        "identifier": "mangrove_propagule"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current item texture atlas; current default sprite bindings take precedence."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/298/0",
+        "domain": "retail_item",
+        "identifier": "minecraft:medicine"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current positive retail item surface."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/298/2",
+        "domain": "item_texture",
+        "identifier": "medicine"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current item texture atlas; current default sprite bindings take precedence."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/33/0",
+        "domain": "retail_item",
+        "identifier": "minecraft:bleach"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current positive retail item surface."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/33/2",
+        "domain": "item_texture",
+        "identifier": "bleach"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current item texture atlas; current default sprite bindings take precedence."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/363/0",
+        "domain": "retail_item",
+        "identifier": "minecraft:photo_item"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current positive retail item surface."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/363/2",
+        "domain": "item_texture",
+        "identifier": "photo"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current item texture atlas; current default sprite bindings take precedence."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/370/0",
+        "domain": "retail_item",
+        "identifier": "minecraft:portfolio"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current positive retail item surface."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/38/0",
+        "domain": "retail_item",
+        "identifier": "minecraft:board"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current positive retail item surface."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/430/0",
+        "domain": "retail_item",
+        "identifier": "minecraft:rapid_fertilizer"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current positive retail item surface."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/430/2",
+        "domain": "item_texture",
+        "identifier": "rapid_fertilizer"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current item texture atlas; current default sprite bindings take precedence."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/434/2",
+        "domain": "item_texture",
+        "identifier": "recovery_compass_item"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current item texture atlas; current default sprite bindings take precedence."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/458/0",
+        "domain": "retail_item",
+        "identifier": "minecraft:sparkler"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current positive retail item surface."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/458/2",
+        "domain": "item_texture",
+        "identifier": "sparkler"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current item texture atlas; current default sprite bindings take precedence."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/559/0",
+        "domain": "retail_item",
+        "identifier": "minecraft:written_book"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current positive retail item surface."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/82/0",
+        "domain": "retail_item",
+        "identifier": "minecraft:compound"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current positive retail item surface."
+    },
+    {
+      "reference": {
+        "file": "legacy-icon-routes-26.30.tsv",
+        "pointer": "/82/2",
+        "domain": "item_texture",
+        "identifier": "compound"
+      },
+      "reason": "Retained 26.30 compatibility route outside the current item texture atlas; current default sprite bindings take precedence."
+    }
+  ]
+}

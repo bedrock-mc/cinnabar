@@ -544,11 +544,11 @@ settings! {
     OreuiDarkMode => "oreui_dark_mode", toggle("options.oreuiDarkMode", false),
         [(SettingPanel::VideoCustomization, 11)], [SettingsGroup::Video], None, None;
     DiscordPresence => "discord_presence", toggle("Discord Rich Presence", true),
-        [], [SettingsGroup::Video], None, None;
+        [], [], None, None;
     NativeSkyboxOffset => "native_skybox_offset", toggle("Bedrock Skybox Vertical Offset", assets::DEFAULT_NATIVE_SKYBOX_OFFSET),
         [(SettingPanel::VideoGraphics, 9)], [SettingsGroup::Video], None, None;
     FullScreen => "full_screen", host("options.fullscreen"),
-        [(SettingPanel::VideoCustomization, 0)], [SettingsGroup::Video], None, None;
+        [(SettingPanel::VideoCustomization, 0)], [], None, None;
     GuiScale => "gui_scale", host("options.guiScale.optionName"),
-        [(SettingPanel::AccessibilityUi, 5), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
+        [(SettingPanel::AccessibilityUi, 5), (SettingPanel::VideoAccessibility, 0)], [], None, None;
 }

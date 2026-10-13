@@ -303,6 +303,7 @@ pub(in crate::compiler) fn is_cutout_model_visual(record: &RegistryRecord) -> bo
 
 pub(in crate::compiler) fn is_model_visual(record: &RegistryRecord) -> bool {
     super::visuals::coral::is_record(record)
+        || super::visuals::lantern::is_record(record)
         || pack_compile_input::respawn_anchor::is_record(record)
         || super::visuals::candle_cake::is_record(record)
         || super::visuals::sea_pickle::is_record(record)

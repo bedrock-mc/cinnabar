@@ -1,12 +1,14 @@
 package localworld
 
+import "github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+
 // Transport identifies the local server's version-matched connection protocol.
 type Transport string
 
 const (
-	TransportRakNet        Transport = "raknet"
-	TransportNetherNetHTTP Transport = "nethernet"
-	TransportNetherNetLAN  Transport = "nethernet-lan"
+	TransportRakNet        Transport = bridgecontract.TransportRakNet
+	TransportNetherNetHTTP Transport = bridgecontract.TransportNetherNet
+	TransportNetherNetLAN  Transport = bridgecontract.TransportNetherNetLan
 )
 
 // ConnectionTarget keeps the server address and its transport together.

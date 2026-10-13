@@ -11,6 +11,7 @@ mod camera_hand_tests;
 mod commit;
 mod cooldowns;
 mod loading;
+mod menu_icons;
 use client_ui::ui_runtime::presentation::{
     ItemIconFrames, PendingUiPublication, PreviewCapture, capture_hud_frame, nametags,
     player_preview,
@@ -458,10 +459,7 @@ pub(crate) fn prepare_ui_runtime(
         for server in view.featured.iter_mut() {
             server.icon = presentation.menu_artwork_icon(&server.image_path);
         }
-        view.featured_icon = presentation.item_icon("minecraft:compass_item", 0);
-        view.realm_icon = presentation.item_icon("minecraft:ender_pearl", 0);
-        view.friend_icon = presentation.item_icon("minecraft:heart_of_the_sea", 0);
-        view.saved_icon = presentation.item_icon("minecraft:book_normal", 0);
+        menu_icons::install(&presentation, &mut view);
         view.profile_icon = presentation.player_preview_icon();
         view
     });

@@ -665,10 +665,12 @@ fn lang_catalog_resolves_rawtext_translation_and_item_names() {
     let mut runtime = UiRuntime::new(1);
     runtime.set_lang_catalog(std::sync::Arc::clone(&catalog));
 
-    // Localized item names prefer item.* then tile.* keys; unknown identifiers
-    // fall back to the mechanical title case.
+    // Unknown identifiers fall back to the mechanical title case.
     assert_eq!(runtime.localized_item_name("minecraft:emerald"), "Emerald");
-    assert_eq!(runtime.localized_item_name("minecraft:grass"), "Grass");
+    assert_eq!(
+        runtime.localized_item_name("minecraft:grass_block"),
+        "Grass"
+    );
     assert_eq!(
         runtime.localized_item_name("minecraft:mystery_thing"),
         "Mystery Thing"
@@ -1183,3 +1185,6 @@ fn empty_offhand_content_preserves_known_equipment() {
     }));
     assert_eq!(state.offhand_stack().unwrap().network_id, 77);
 }
+
+#[path = "item_names_tests.rs"]
+mod item_names;

@@ -184,7 +184,7 @@ fn scale_independent_distance_gate_retains_edges_and_rejects_far_actors() {
         );
         assert_eq!(candidate.is_some(), expected);
         assert_eq!(
-            actor_within_render_distance(
+            actor_is_render_candidate(
                 actor,
                 0.5,
                 Some(ActorCullView {
@@ -195,7 +195,7 @@ fn scale_independent_distance_gate_retains_edges_and_rejects_far_actors() {
             expected,
             "distance admission is independent of even a large authored scale: {feet:?}"
         );
-        assert!(actor_within_render_distance(actor, 0.5, None));
+        assert!(actor_is_render_candidate(actor, 0.5, None));
     }
 }
 
@@ -468,5 +468,138 @@ fn single_layer_replacements_survive_walls_covering_only_the_base_mesh() {
         view,
         Some(&mut frame),
         hidden,
+    ));
+}
+
+/// A camera looking forward through a player's body at the supplied eye position.
+fn overlap_view(camera: Vec3) -> ActorCullView {
+    ActorCullView {
+        camera_position: camera,
+        clip_from_world: glam::camera::rh::proj::directx::perspective_infinite_reverse(
+            90_f32.to_radians(),
+            1.0,
+            render_api::CAMERA_NEAR_PLANE_BLOCKS,
+        ) * glam::camera::rh::view::look_to_mat4(camera, -Vec3::Z, Vec3::Y),
+        max_distance: render_model::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+    }
+}
+
+#[test]
+fn camera_inside_remote_player_skips_scale_and_layer_preparation() {
+    let world = world("1", false, [0.0; 3]);
+    let rig = world.actor_rig(1).unwrap();
+    let mut actor = world.actor(1).unwrap().clone();
+    actor.kind = ActorKind::Player {
+        uuid: [1; 16],
+        username: "overlap fixture".into(),
+    };
+    let view = Some(overlap_view(Vec3::new(0.0, 1.5, 0.0)));
+    assert!(
+        sample_candidate_scale(rig, &actor, 0.5, view, |_| {
+            panic!("a player containing the camera must not sample its model")
+        })
+        .is_none()
+    );
+    let mut layers = rig.render.to_vec();
+    layers[0].material_state = Some(assets::EntityRenderMaterialState {
+        depth_always: true,
+        ..Default::default()
+    });
+    let layered = ActorRigSnapshot {
+        render: &layers,
+        ..rig
+    };
+    assert!(!rig_may_be_visible(
+        &layered,
+        &actor,
+        0.5,
+        view,
+        None,
+        |_, _| panic!("camera overlap must reject before terrain and layer checks"),
+    ));
+}
+
+#[test]
+fn camera_overlap_tracks_interpolated_feet_and_resumes_sampling_after_exit() {
+    let world = world("1", false, [0.0; 3]);
+    let rig = world.actor_rig(1).unwrap();
+    let mut actor = super::glide_tests::player([0.0; 3], 0);
+    actor.previous_pose.position = [-2.0, 0.0, 0.0];
+    actor.position = [2.0, 0.0, 0.0];
+    let view = Some(overlap_view(Vec3::new(0.0, 1.5, 0.0)));
+    for (partial_tick, expected) in [(0.0, true), (0.5, false), (1.0, true)] {
+        let sampled = std::cell::Cell::new(false);
+        let candidate = sample_candidate_scale(rig, &actor, partial_tick, view, |rig| {
+            sampled.set(true);
+            rig
+        });
+        assert_eq!(candidate.is_some(), expected);
+        assert_eq!(sampled.get(), expected);
+    }
+}
+
+#[test]
+fn camera_overlap_uses_scaled_body_dimensions_instead_of_visibility_bounds() {
+    use client_world::{
+        BOUNDING_BOX_HEIGHT_METADATA_KEY, BOUNDING_BOX_WIDTH_METADATA_KEY, SCALE_METADATA_KEY,
+    };
+    let mut actor = super::glide_tests::player([0.0; 3], 0);
+    for scale in [1.0, 2.0] {
+        actor
+            .metadata
+            .insert(SCALE_METADATA_KEY, ActorMetadataValue::Float(scale));
+        actor.metadata.insert(
+            BOUNDING_BOX_WIDTH_METADATA_KEY,
+            ActorMetadataValue::Float(0.4),
+        );
+        actor.metadata.insert(
+            BOUNDING_BOX_HEIGHT_METADATA_KEY,
+            ActorMetadataValue::Float(1.2),
+        );
+        let (low, high) = actor.bounding_box().unwrap();
+        let center = Vec3::from_array(std::array::from_fn(|axis| (low[axis] + high[axis]) * 0.5));
+        assert!(!actor_is_render_candidate(
+            &actor,
+            0.5,
+            Some(overlap_view(center)),
+        ));
+        for axis in 0..3 {
+            for edge in [low[axis], high[axis]] {
+                let mut camera = center;
+                camera[axis] = edge;
+                assert!(!actor_is_render_candidate(
+                    &actor,
+                    0.5,
+                    Some(overlap_view(camera)),
+                ));
+                camera[axis] += if edge == low[axis] { -0.01 } else { 0.01 };
+                assert!(actor_is_render_candidate(
+                    &actor,
+                    0.5,
+                    Some(overlap_view(camera)),
+                ));
+            }
+        }
+    }
+}
+
+#[test]
+fn camera_overlap_leaves_mobs_and_missing_or_invalid_camera_data_admitted() {
+    let world = world("1", false, [0.0; 3]);
+    let view = overlap_view(Vec3::new(0.0, 1.5, 0.0));
+    assert!(actor_is_render_candidate(
+        world.actor(1).unwrap(),
+        0.5,
+        Some(view),
+    ));
+    let player = super::glide_tests::player([0.0; 3], 0);
+    assert!(actor_is_render_candidate(&player, 0.5, None));
+    assert!(actor_is_render_candidate(
+        &player,
+        0.5,
+        Some(ActorCullView {
+            camera_position: Vec3::splat(f32::NAN),
+            ..view
+        }),
     ));
 }

@@ -44,14 +44,26 @@ impl ArenaWrites {
 
         let mut staged = Vec::new();
         stage(&mut staged, PACKED_QUAD_BYTES, &quads);
-        write_merged(uploads, &arena.quad_buffer, &mut staged);
+        write_stream(
+            uploads,
+            arena,
+            ArenaStream::Quads,
+            &arena.quad_buffer,
+            &mut staged,
+        );
         staged.extend(origins.iter().map(|(index, origin)| {
             (
                 u64::from(*index) * CHUNK_ORIGIN_BYTES,
                 bytemuck::bytes_of(origin),
             )
         }));
-        write_merged(uploads, &arena.origin_buffer, &mut staged);
+        write_stream(
+            uploads,
+            arena,
+            ArenaStream::Origins,
+            &arena.origin_buffer,
+            &mut staged,
+        );
         let word = GEOMETRY_STREAM_WORD_BYTES;
         stage(&mut staged, word, &model);
         stage(&mut staged, word, &model_lighting);
@@ -60,10 +72,40 @@ impl ArenaWrites {
         stage(&mut staged, word, &liquid);
         stage(&mut staged, word, &liquid_lighting);
         stage(&mut staged, word, &cube_lighting);
-        write_merged(uploads, &arena.geometry_stream_buffer, &mut staged);
+        write_stream(
+            uploads,
+            arena,
+            ArenaStream::GeometryStreams,
+            &arena.geometry_stream_buffer,
+            &mut staged,
+        );
         stage(&mut staged, BIOME_WORD_BYTES, &biome);
-        write_merged(uploads, &arena.biome_buffer, &mut staged);
+        write_stream(
+            uploads,
+            arena,
+            ArenaStream::Biomes,
+            &arena.biome_buffer,
+            &mut staged,
+        );
     }
+}
+
+/// Mirrors writes into the replacement buffer so uploads remain valid after any copy slice.
+fn write_stream(
+    uploads: TerrainUploads<'_>,
+    arena: &ChunkGpuArena,
+    stream: ArenaStream,
+    buffer: &Buffer,
+    staged: &mut Vec<(u64, &[u8])>,
+) {
+    if let Some(migration) = arena
+        .migration
+        .as_ref()
+        .filter(|migration| migration.stream == stream)
+    {
+        write_merged(uploads, &migration.buffer, &mut staged.clone());
+    }
+    write_merged(uploads, buffer, staged);
 }
 
 /// Appends each non-empty record run as its byte offset and bytes, in issue order.
@@ -380,6 +422,38 @@ mod tests {
         let bytes = read(&device, &queue, &arena.quad_buffer, 32 * PACKED_QUAD_BYTES);
         let words: Vec<[u32; 2]> = [[7, 1]; 16].into_iter().chain([[7, 2]; 16]).collect();
         assert_eq!(bytes, bytemuck::cast_slice::<[u32; 2], u8>(&words));
+    }
+
+    /// A write to an already-copied prefix is retained when later slices finish the migration.
+    #[test]
+    fn writes_during_migration_update_both_copied_and_uncopied_ranges() {
+        let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+        let (device, queue) = (RenderDevice::from(device), RenderQueue::new(queue));
+        let (staging, mut arena) = staged_arena(&device);
+        let uploads = TerrainUploads {
+            device: &device,
+            queue: &queue,
+            staging: Some(&staging),
+        };
+        begin_arena_migration(
+            &mut arena,
+            &device,
+            ArenaStream::Quads,
+            ArenaGrowthPlan {
+                new_capacity: 1024,
+                gpu_copy_bytes: 512 * PACKED_QUAD_BYTES,
+            },
+        );
+        assert_eq!(advance_arena_migration(&mut arena, uploads, 128), 128);
+        quad_writes(9).issue(&arena, uploads);
+        assert_eq!(
+            advance_arena_migration(&mut arena, uploads, u64::MAX),
+            512 * PACKED_QUAD_BYTES - 128
+        );
+        end_frame(&device, &queue, &staging);
+        let bytes = read(&device, &queue, &arena.quad_buffer, 32 * PACKED_QUAD_BYTES);
+        let expected: Vec<[u32; 2]> = [[9, 1]; 16].into_iter().chain([[9, 2]; 16]).collect();
+        assert_eq!(bytes, bytemuck::cast_slice::<[u32; 2], u8>(&expected));
     }
 
     /// Recurring terrain uploads create no Metal buffers; the queue path made one per run.

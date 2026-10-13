@@ -187,7 +187,7 @@ impl super::PlayerInventoryLedger {
             .queue
             .iter()
             .filter(|pending| {
-                pending.furnace_route.is_none()
+                pending.quick_move_route.is_none()
                     && pending.predicted.iter().any(|prediction| {
                         prediction.cell == super::Cell::Storage(0)
                             && placed_into(prediction).is_some_and(|held| {
@@ -202,7 +202,7 @@ impl super::PlayerInventoryLedger {
         if !readmitted.is_empty() {
             self.abandon_requests(|pending| readmitted.contains(&pending.request_id));
         }
-        self.retire_rerouted_furnace_moves();
+        self.retire_rerouted_quick_moves();
         self.refold();
     }
 
