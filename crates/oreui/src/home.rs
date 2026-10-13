@@ -1,6 +1,7 @@
 //! The owner's home layout keeps play, identity and utility actions together.
 
 mod footer;
+mod layout;
 #[cfg(test)]
 mod tests;
 
@@ -23,22 +24,40 @@ pub(super) fn draw(
     portrait: Option<IconRef>,
     translate: Translate<'_>,
 ) -> Result<Option<CharacterPreview>, PaintError> {
+    let layout = layout::Layout::new(
+        canvas.rem,
+        size,
+        canvas.title_artwork,
+        view.feeds.home.live_event.is_some(),
+        view.updates.ready.is_some(),
+    );
+    canvas.with_scale(layout.scale, |canvas| {
+        draw_layout(canvas, view, size, portrait, translate, layout)
+    })
+}
+
+/// Draws the home group at the fitted scale and preserves its existing breakpoints.
+fn draw_layout(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    size: [f32; 2],
+    portrait: Option<IconRef>,
+    translate: Translate<'_>,
+    layout: layout::Layout,
+) -> Result<Option<CharacterPreview>, PaintError> {
     canvas.overlay(size, [0, 0, 0, 96])?;
-    let margin = canvas.r(3.2).min(size[0] * 0.04).min(size[1] * 0.035);
-    let width = canvas.r(86.0).min(size[0] - margin * 2.0);
-    let compact = width < canvas.r(68.0) || size[1] < canvas.r(44.0);
-    let compact_footer = width < canvas.r(60.0);
-    let gap = canvas.r(1.6);
-    let footer_height = canvas.r(if compact_footer { 10.8 } else { 4.8 });
-    let version_height = canvas.r(if compact_footer { 4.0 } else { 2.8 });
-    let logo_width = canvas.r(56.0).min(width * 0.78);
-    let logo_height = canvas.title_artwork.map_or(canvas.r(6.4), |icon| {
-        let ratio =
-            f32::from(icon.uv[2] - icon.uv[0]) / f32::from((icon.uv[3] - icon.uv[1]).max(1));
-        logo_width / ratio
-    });
-    let outside = logo_height + gap * 2.0 + footer_height + version_height;
-    let height = canvas.r(36.8).min(size[1] - margin * 2.0 - outside);
+    let layout::Layout {
+        width,
+        height,
+        outside,
+        gap,
+        footer_height,
+        logo_width,
+        logo_height,
+        compact,
+        compact_footer,
+        ..
+    } = layout;
     let left = (size[0] - width) * 0.5;
     let group_top = (size[1] - height - outside) * 0.5;
     let logo_left = (size[0] - logo_width) * 0.5;
@@ -160,9 +179,7 @@ fn action_panel(
     translate: Translate<'_>,
 ) -> Result<(), PaintError> {
     widgets::panel(canvas, bounds)?;
-    let pad = canvas
-        .r(if compact { 2.0 } else { 3.2 })
-        .min((bounds[2] - bounds[0]) * 0.08);
+    let pad = layout::action_padding(canvas.rem, bounds[2] - bounds[0], compact);
     let viewport = [
         bounds[0] + canvas.r(EDGE),
         bounds[1] + canvas.r(EDGE),
@@ -176,21 +193,23 @@ fn action_panel(
         true,
     )?;
     canvas.focus_delegate(Some(MenuAction::Navigate(MenuScreen::Play)), None);
-    let scroll = canvas.begin_scroll("oreui_home/actions", viewport)?;
+    let clip = canvas.begin_clip(viewport)?;
     let event_height = if view.feeds.home.live_event.is_some() {
-        5.2
+        layout::LIVE_EVENT_HEIGHT
     } else {
         0.0
     };
     let update_height = if view.updates.ready.is_some() {
-        12.8
+        layout::UPDATE_NOTICE_HEIGHT
     } else {
         0.0
     };
-    let group_height = canvas.r((if compact { 30.0 } else { 24.0 }) + update_height);
-    let content_height =
-        (bounds[3] - bounds[1]).max(group_height + pad * 2.0 + canvas.r(event_height));
-    let origin = bounds[1] - scroll.offset;
+    let group_height = canvas.r(layout::action_group_height(
+        compact,
+        view.updates.ready.is_some(),
+    ));
+    let content_height = bounds[3] - bounds[1];
+    let origin = bounds[1];
     let x = bounds[0] + pad;
     let right = bounds[2] - pad;
     let mut y = origin
@@ -198,7 +217,12 @@ fn action_panel(
         + canvas.r(event_height)
         + (content_height - pad * 2.0 - group_height - canvas.r(event_height)).max(0.0) * 0.5;
     if let Some(event) = &view.feeds.home.live_event {
-        let b = [x, y - canvas.r(5.2), right, y - canvas.r(1.2)];
+        let b = [
+            x,
+            y - canvas.r(layout::LIVE_EVENT_HEIGHT),
+            right,
+            y - canvas.r(1.2),
+        ];
         live_event(canvas, view, b, event, translate)?;
     }
     if view.updates.ready.is_some() {
@@ -272,7 +296,7 @@ fn action_panel(
             Some(MenuAction::Navigate(MenuScreen::DressingRoom)),
         )?;
     }
-    canvas.end_scroll(scroll, content_height - canvas.r(EDGE * 2.0))?;
+    canvas.end_clip(clip);
     canvas.end_focus_region(content);
     Ok(())
 }

@@ -8,6 +8,45 @@ use launcher::menu::{MenuAction, MenuScreen, MenuView};
 use ui_engine::engine::screen::PaintError;
 use ui_engine::engine::screen::Translate;
 
+#[cfg(test)]
+mod tests;
+
+const ACTION_HEIGHT: f32 = 4.8;
+const ACTION_GAP: f32 = 1.2;
+const COMPACT_PADDING: f32 = 1.6;
+const VERTICAL_PADDING: f32 = 3.2;
+const LOGO_TOP_GAP: f32 = 0.8;
+const LOGO_HEIGHT: f32 = 8.8;
+const LOGO_BOTTOM_GAP: f32 = 2.0;
+const HEADING_HEIGHT: f32 = HEADER5.line + 0.8;
+const CAPTION_HEIGHT: f32 = CAPTION.line + 1.6;
+
+/// The compact card includes the wardrobe among its actions.
+fn action_count(compact: bool) -> f32 {
+    if compact { 4.0 } else { 3.0 }
+}
+
+/// The space needed for the heading, full-height actions and optional title art, in rem.
+fn minimum_height(compact: bool, title: bool) -> f32 {
+    let count = action_count(compact);
+    let padding = if compact {
+        COMPACT_PADDING
+    } else {
+        VERTICAL_PADDING
+    };
+    let logo = if !compact && title {
+        LOGO_TOP_GAP + LOGO_HEIGHT + LOGO_BOTTOM_GAP
+    } else {
+        0.0
+    };
+    padding * 2.0
+        + logo
+        + HEADING_HEIGHT
+        + CAPTION_HEIGHT
+        + ACTION_HEIGHT * count
+        + ACTION_GAP * (count - 1.0)
+}
+
 /// A uniform world overlay frames the actions and the interactive character together.
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
@@ -15,17 +54,40 @@ pub(super) fn draw(
     size: [f32; 2],
     translate: Translate<'_>,
 ) -> Result<Option<CharacterPreview>, PaintError> {
-    widgets::screen_overlay(canvas, size)?;
     let margin = canvas.r(2.4).min(size[0] * 0.04).min(size[1] * 0.025);
     let width = canvas.r(78.0).min(size[0] - margin * 2.0);
     let compact = width < canvas.r(58.0) || size[1] < canvas.r(44.0);
-    let pad = canvas.r(if compact { 1.6 } else { 2.4 });
-    let vertical_pad = if compact { pad } else { canvas.r(3.2) };
-    let gap = canvas.r(1.2);
-    let action_height = canvas.r(4.8);
+    let minimum = minimum_height(compact, canvas.title_artwork.is_some());
+    let scale = ((size[1] - margin * 2.0) / canvas.r(minimum)).min(1.0);
+    canvas.with_scale(scale, |canvas| {
+        draw_layout(canvas, view, size, translate, margin, compact, minimum)
+    })
+}
+
+/// Draws the pause group with its original layout and a shared geometry and text scale.
+fn draw_layout(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    size: [f32; 2],
+    translate: Translate<'_>,
+    margin: f32,
+    compact: bool,
+    minimum: f32,
+) -> Result<Option<CharacterPreview>, PaintError> {
+    widgets::screen_overlay(canvas, size)?;
+    let width = canvas.r(78.0).min(size[0] - margin * 2.0);
+    let pad = canvas.r(if compact { COMPACT_PADDING } else { 2.4 });
+    let vertical_pad = if compact {
+        pad
+    } else {
+        canvas.r(VERTICAL_PADDING)
+    };
+    let gap = canvas.r(ACTION_GAP);
+    let action_height = canvas.r(ACTION_HEIGHT);
     let height = canvas
         .r(if compact { 32.0 } else { 49.6 })
-        .min(size[1] - margin * 2.0);
+        .min(size[1] - margin * 2.0)
+        .max(canvas.r(minimum));
     let left = (size[0] - width) * 0.5;
     let top = (size[1] - height) * 0.5;
     let bottom = top + height;
@@ -39,8 +101,8 @@ pub(super) fn draw(
     let right = action_right - pad;
     let mut y = top + vertical_pad;
     if !compact && let Some(icon) = canvas.title_artwork {
-        y += canvas.r(0.8);
-        let box_height = canvas.r(8.8);
+        y += canvas.r(LOGO_TOP_GAP);
+        let box_height = canvas.r(LOGO_HEIGHT);
         let ratio =
             f32::from(icon.uv[2] - icon.uv[0]) / f32::from((icon.uv[3] - icon.uv[1]).max(1));
         let art_width = (box_height * ratio).min(right - x);
@@ -55,11 +117,11 @@ pub(super) fn draw(
                 y + (box_height + art_height) * 0.5,
             ],
         )?;
-        y += box_height + canvas.r(2.0);
+        y += box_height + canvas.r(LOGO_BOTTOM_GAP);
     }
-    let count = if compact { 4.0 } else { 3.0 };
-    let heading_height = canvas.r(HEADER5.line + 0.8);
-    let caption_height = canvas.r(CAPTION.line + 1.6);
+    let count = action_count(compact);
+    let heading_height = canvas.r(HEADING_HEIGHT);
+    let caption_height = canvas.r(CAPTION_HEIGHT);
     if !compact {
         let group_height =
             heading_height + caption_height + action_height * count + gap * (count - 1.0);
@@ -131,7 +193,7 @@ pub(super) fn draw(
     )?;
     canvas.text_line(
         launcher::menu::profile::current_name(view),
-        [cx, top + vertical_pad + canvas.r(HEADER5.line + 0.8)],
+        [cx, top + vertical_pad + heading_height],
         cr - cx,
         CAPTION,
         TEXT_DIMMER,

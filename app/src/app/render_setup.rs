@@ -7,7 +7,7 @@ use bevy::{
         RenderPlugin,
         settings::{Backends, RenderCreation, WgpuSettings},
     },
-    window::{PresentMode, Window},
+    window::{PresentMode, Window, WindowResizeConstraints},
 };
 
 /// The primary window; `frame_latency` must suit the session's VSync choice from the start.
@@ -20,6 +20,11 @@ pub(super) fn primary_window(
         title,
         present_mode,
         desired_maximum_frame_latency: Some(frame_latency),
+        resize_constraints: WindowResizeConstraints {
+            min_width: ui::MIN_WINDOW_LOGICAL_SIZE[0],
+            min_height: ui::MIN_WINDOW_LOGICAL_SIZE[1],
+            ..Default::default()
+        },
         ..Default::default()
     }
 }
@@ -109,6 +114,14 @@ mod tests {
                 Some(queued)
             );
             assert_eq!(window.present_mode, PresentMode::Fifo);
+            assert_eq!(
+                window.resize_constraints.min_width,
+                ui::MIN_WINDOW_LOGICAL_SIZE[0]
+            );
+            assert_eq!(
+                window.resize_constraints.min_height,
+                ui::MIN_WINDOW_LOGICAL_SIZE[1]
+            );
         }
     }
 }

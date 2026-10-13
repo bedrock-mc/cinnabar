@@ -1,3 +1,6 @@
+/// The client window's minimum width and height in logical pixels.
+pub const MIN_WINDOW_LOGICAL_SIZE: [f32; 2] = [180.0, 120.0];
+
 /// Rejection reason for invalid UI geometry or scale values.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GeometryError {
