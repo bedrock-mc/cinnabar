@@ -94,6 +94,24 @@ impl PartialEq for SubChunk {
 impl Eq for SubChunk {}
 
 impl SubChunk {
+    /// Compares resolved block values and layers, independent of wire headers and palette packing.
+    #[must_use]
+    pub fn blocks_match(&self, other: &Self) -> bool {
+        self.storages == other.storages
+            || (self.storages.len() == other.storages.len()
+                && self
+                    .storages
+                    .iter()
+                    .zip(other.storages.iter())
+                    .all(|(a, b)| {
+                        (0..16).all(|x| {
+                            (0..16).all(|y| {
+                                (0..16).all(|z| a.runtime_id(x, y, z) == b.runtime_id(x, y, z))
+                            })
+                        })
+                    }))
+    }
+
     /// Decodes one network sub-chunk, ignoring any bytes vanilla would leave unread.
     pub fn decode(bytes: &[u8], ids: &dyn BlockIds) -> Self {
         Self::decode_prefix(bytes, ids).0

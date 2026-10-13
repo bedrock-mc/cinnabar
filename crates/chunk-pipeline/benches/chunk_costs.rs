@@ -475,6 +475,14 @@ fn resend_benches(c: &mut Criterion) {
         drain_burst(&mut witness, false);
         let drain_ms = started.elapsed().as_secs_f64() * 1000.0;
         let after = witness.stream.stats();
+        if Arc::ptr_eq(&initial, &replacement) {
+            assert_eq!(
+                after.publication_stages.mesh_jobs_completed
+                    - before.publication_stages.mesh_jobs_completed,
+                0,
+                "identical resends must not build meshes",
+            );
+        }
         eprintln!(
             "RESEND_PREFLIGHT case={name} columns={COLUMNS} sections={sections} decoded={} reused={} worker_cpu_ms={:.3} drain_ms={drain_ms:.3} light_jobs={} meshes={}",
             after.publication_stages.inline_sections_decoded

@@ -9,6 +9,7 @@ use std::{
 pub(super) struct InlinePayload {
     length: usize,
     hash: [u8; 32],
+    y_index: Option<i8>,
     context: Arc<dyn Any + Send + Sync>,
 }
 
@@ -57,11 +58,21 @@ impl std::fmt::Debug for InlinePayload {
 impl SubChunk {
     /// Skips exactly the bytes consumed by an earlier complete decode with matching registries.
     /// Truncated decodes have no cache entry because appended bytes could change their result.
-    pub(crate) fn reuse_inline(&self, reader: &mut Reader<'_>, ids: &dyn BlockIds) -> bool {
+    /// The cached wire Y must fit the slot even if an equivalent encoding kept an older header.
+    pub(crate) fn reuse_inline(
+        &self,
+        reader: &mut Reader<'_>,
+        ids: &dyn BlockIds,
+        slot_y: i32,
+    ) -> bool {
         let Some(payload) = self.inline_payload.snapshot() else {
             return false;
         };
-        if !ids.inline_cache_context_matches(payload.context.as_ref()) {
+        if payload
+            .y_index
+            .is_some_and(|actual| i32::from(actual) != slot_y)
+            || !ids.inline_cache_context_matches(payload.context.as_ref())
+        {
             return false;
         }
         let Some(bytes) = reader.remaining().get(..payload.length) else {
@@ -74,13 +85,13 @@ impl SubChunk {
         true
     }
 
-    /// Transfers a freshly decoded wire identity when structural equality keeps the resident Arc.
+    /// Transfers a freshly decoded wire identity when equal block values keep the resident Arc.
     pub(crate) fn retain_inline_identity_from(&self, decoded: &Self) {
         self.inline_payload
             .replace(decoded.inline_payload.snapshot());
     }
 
-    /// Decodes a section and retains only its byte length, digest, and immutable registry context.
+    /// Retains the consumed byte length, digest, wire Y, and registry identity after a complete decode.
     pub(crate) fn read_inline(
         reader: &mut Reader<'_>,
         ids: &dyn BlockIds,
@@ -97,6 +108,7 @@ impl SubChunk {
             section.inline_payload.replace(Some(Arc::new(InlinePayload {
                 length,
                 hash: Sha256::digest(&bytes[..length]).into(),
+                y_index: section.y_index(),
                 context: Arc::clone(context),
             })));
         }

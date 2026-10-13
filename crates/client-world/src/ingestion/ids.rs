@@ -2,7 +2,7 @@
 
 use assets::{NetworkIdMode, ResolvedBiomeTints, RuntimeAssets};
 use protocol::DimensionRange;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use world::{BiomeIds, BlockIds, DimensionSlots};
 
 /// Session registries that decode workers resolve raw ids against, as the
@@ -22,6 +22,55 @@ pub struct DecodeIds {
     pub default_biome: u32,
 }
 
+/// Identifies block resolution inputs without keeping registry data or textures alive.
+#[derive(PartialEq)]
+struct InlineRegistryIdentity {
+    assets: RegistryIdentity<RuntimeAssets>,
+    custom_blocks: std::ops::Range<u32>,
+    custom_identities: RegistryIdentity<std::collections::HashMap<u32, u32>>,
+    remap: RegistryIdentity<assets::SequentialIdRemap>,
+    session_id: u64,
+    mode: NetworkIdMode,
+    air: u32,
+}
+
+/// Keeps an allocation's identity stable after its data has been dropped.
+struct RegistryIdentity<T>(Weak<T>);
+
+impl<T> PartialEq for RegistryIdentity<T> {
+    /// Compares allocation identities without upgrading either weak reference.
+    fn eq(&self, other: &Self) -> bool {
+        self.0.ptr_eq(&other.0)
+    }
+}
+
+impl From<&DecodeIds> for InlineRegistryIdentity {
+    /// Captures only inputs used by block resolution; biome and diagnostic data stay on jobs.
+    fn from(ids: &DecodeIds) -> Self {
+        let DecodeIds {
+            assets,
+            custom_blocks,
+            custom_identities,
+            remap,
+            session_id,
+            mode,
+            air,
+            diagnostics: _,
+            biome_tints: _,
+            default_biome: _,
+        } = ids;
+        Self {
+            assets: RegistryIdentity(Arc::downgrade(assets)),
+            custom_blocks: custom_blocks.clone(),
+            custom_identities: RegistryIdentity(Arc::downgrade(custom_identities)),
+            remap: RegistryIdentity(Arc::downgrade(remap)),
+            session_id: *session_id,
+            mode: *mode,
+            air: *air,
+        }
+    }
+}
+
 impl std::fmt::Debug for DecodeIds {
     /// Summarizes registry identity without retaining bulky asset debug output.
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -35,35 +84,16 @@ impl std::fmt::Debug for DecodeIds {
 }
 
 impl BlockIds for DecodeIds {
-    /// Retains every immutable registry input used by runtime and persistent palettes.
+    /// Retains weak identities for the registries used by runtime and persistent palettes.
     fn inline_cache_context(&self) -> Option<Arc<dyn std::any::Any + Send + Sync>> {
-        Some(Arc::new(self.clone()))
+        Some(Arc::new(InlineRegistryIdentity::from(self)))
     }
 
     /// Compares all resolution inputs; the exhaustive pattern makes added registry fields explicit.
     fn inline_cache_context_matches(&self, context: &(dyn std::any::Any + Send + Sync)) -> bool {
-        let Some(previous) = context.downcast_ref::<Self>() else {
-            return false;
-        };
-        let Self {
-            assets,
-            custom_blocks,
-            custom_identities,
-            remap,
-            session_id,
-            mode,
-            air,
-            diagnostics: _,
-            biome_tints: _,
-            default_biome: _,
-        } = self;
-        Arc::ptr_eq(assets, &previous.assets)
-            && Arc::ptr_eq(remap, &previous.remap)
-            && Arc::ptr_eq(custom_identities, &previous.custom_identities)
-            && *custom_blocks == previous.custom_blocks
-            && *session_id == previous.session_id
-            && *mode == previous.mode
-            && *air == previous.air
+        context
+            .downcast_ref::<InlineRegistryIdentity>()
+            .is_some_and(|previous| *previous == InlineRegistryIdentity::from(self))
     }
 
     /// Returns the active registry's air value.
@@ -250,6 +280,64 @@ mod tests {
             change(&mut changed);
             assert!(!changed.inline_cache_context_matches(context.as_ref()));
         }
+    }
+
+    /// Resident section caches do not keep any superseded decode generation alive.
+    #[test]
+    fn cached_sections_release_superseded_registry_generations() {
+        let mut resident = Vec::new();
+        for session_id in 0..3 {
+            let assets = Arc::new(RuntimeAssets::diagnostic());
+            let ids = DecodeIds {
+                biome_tints: Arc::new(assets.biome_assets().resolve_live(&[]).unwrap()),
+                assets,
+                custom_blocks: 0..0,
+                custom_identities: Arc::default(),
+                remap: Arc::default(),
+                diagnostics: Arc::default(),
+                session_id,
+                mode: NetworkIdMode::Sequential,
+                air: 0,
+                default_biome: 0,
+            };
+            let old_assets = Arc::downgrade(&ids.assets);
+            let old_tints = Arc::downgrade(&ids.biome_tints);
+            let old_custom = Arc::downgrade(&ids.custom_identities);
+            let old_remap = Arc::downgrade(&ids.remap);
+            let old_diagnostics = Arc::downgrade(&ids.diagnostics);
+            let payload = [9, 1, 0, 1, 2, 1, 0, 0];
+            let slots = DimensionSlots {
+                base_sub_chunk_y: 0,
+                count: 1,
+            };
+            let decoded = world::DecodedLevelChunk::decode_inline(
+                world::ChunkKey::new(0, session_id as i32, 0),
+                slots,
+                1,
+                &payload,
+                &ids,
+                &ids,
+            );
+            let previous = decoded.sub_chunks().collect();
+            let reused = world::DecodedLevelChunk::decode_inline_reusing(
+                world::ChunkKey::new(0, session_id as i32, 0),
+                slots,
+                1,
+                &payload,
+                &ids,
+                &ids,
+                Some(&previous),
+            );
+            assert_eq!(reused.decode_work().reused_sections, 1);
+            resident.push(reused.sub_chunk(0).unwrap());
+            drop(ids);
+            assert!(old_assets.upgrade().is_none());
+            assert!(old_tints.upgrade().is_none());
+            assert!(old_custom.upgrade().is_none());
+            assert!(old_remap.upgrade().is_none());
+            assert!(old_diagnostics.upgrade().is_none());
+        }
+        assert_eq!(resident.len(), 3);
     }
 
     #[test]

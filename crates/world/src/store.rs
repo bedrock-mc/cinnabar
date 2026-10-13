@@ -776,8 +776,7 @@ impl ChunkStore {
             if let Some(previous) =
                 old.and_then(|chunk| chunk.sub_chunks.get(&y))
                     .filter(|previous| {
-                        Arc::ptr_eq(previous, replacement)
-                            || previous.as_ref() == replacement.as_ref()
+                        Arc::ptr_eq(previous, replacement) || previous.blocks_match(replacement)
                     })
             {
                 if !Arc::ptr_eq(previous, replacement) {

@@ -167,19 +167,12 @@ impl WorldStream {
                 let mut changed_sources = applied.changed.into_iter().collect::<BTreeSet<_>>();
                 changed_sources.extend(new_keys.difference(&old_keys).copied());
                 changed_sources.extend(old_keys.difference(&new_keys).copied());
-                if light_neutral.is_empty() {
-                    self.mark_changed_sources_with_mesh_dirty(
-                        changed_sources,
-                        preexpanded_dirty,
-                        now,
-                    );
-                } else {
-                    let (unlit, relit) = changed_sources
-                        .into_iter()
-                        .partition::<BTreeSet<_>, _>(|key| light_neutral.contains(key));
-                    self.mark_changed_sources_with_mesh_dirty(relit, preexpanded_dirty, now);
-                    self.mark_light_neutral_sources(unlit, now);
-                }
+                self.mark_inline_changed_sources(
+                    changed_sources,
+                    preexpanded_dirty,
+                    &light_neutral,
+                    now,
+                );
                 self.stats.last_chunk_commit_at = Some(now);
             }
             PreparedWorldEvent::RequestLevelChunk {

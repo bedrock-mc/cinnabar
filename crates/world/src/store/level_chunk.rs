@@ -209,10 +209,7 @@ fn read_sub_chunks(
         }
         let y = slots.slot_y(slot);
         if let Some(resident) = previous.and_then(|previous| previous.get(&y))
-            && resident
-                .y_index()
-                .is_none_or(|actual| i32::from(actual) == y)
-            && resident.reuse_inline(reader, ids)
+            && resident.reuse_inline(reader, ids, y)
         {
             sub_chunks.insert(y, Arc::clone(resident));
             work.reused_sections += 1;

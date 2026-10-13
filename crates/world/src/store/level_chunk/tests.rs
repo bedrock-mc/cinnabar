@@ -207,6 +207,58 @@ fn structural_reuse_retains_new_wire_hashes_for_later_resends() {
     );
 }
 
+/// Equivalent palette packing and wire headers retain the resident blocks without dirty meshes.
+#[test]
+fn equivalent_block_encodings_publish_no_change_and_refresh_the_cache() {
+    let ids = RawBlockIds { air: 0 };
+    let key = ChunkKey::new(0, 0, 0);
+    let mut store = ChunkStore::new();
+    store
+        .commit_level_chunk(key, decode(&payload(2, 0), &ids, None))
+        .unwrap();
+    let original = store.chunk(key).unwrap().shared_sub_chunks();
+    let original_revision = store.collision_revision(key);
+
+    // Version eight omits Y, and a packed palette may repeat the same resolved value.
+    let mut equivalent = vec![8, 1, 3];
+    for _ in 0..crate::BLOCKS_PER_SUB_CHUNK.div_ceil(u32::BITS as usize) {
+        equivalent.extend(0xaaaa_aaaa_u32.to_le_bytes());
+    }
+    equivalent.extend([4, 2, 2]);
+    equivalent.extend_from_slice(&payload(2, 0)[5..]);
+    let decoded = decode(&equivalent, &ids, Some(&original));
+    assert_eq!(decoded.decode_work().decoded_sections, 1);
+    let applied = store.commit_level_chunk(key, decoded).unwrap();
+    assert!(applied.changed.is_empty());
+    assert!(applied.dirty.is_empty());
+    assert_eq!(store.collision_revision(key), original_revision);
+    let resident = store.chunk(key).unwrap().shared_sub_chunks();
+    assert!(Arc::ptr_eq(&original[&0], &resident[&0]));
+    assert_eq!(
+        decode(&equivalent, &ids, Some(&resident))
+            .decode_work()
+            .reused_sections,
+        2
+    );
+
+    equivalent[3] ^= 1;
+    let changed = decode(&equivalent, &ids, Some(&resident));
+    // Duplicate palette entries still resolve to the same block after an index-only edit.
+    assert!(
+        store
+            .commit_level_chunk(key, changed)
+            .unwrap()
+            .changed
+            .is_empty()
+    );
+    equivalent[3 + crate::BLOCKS_PER_SUB_CHUNK.div_ceil(u32::BITS as usize) * 4 + 2] = 6;
+    let changed = decode(&equivalent, &ids, Some(&resident));
+    assert_eq!(
+        store.commit_level_chunk(key, changed).unwrap().changed,
+        vec![SubChunkKey::from_chunk(key, 0)]
+    );
+}
+
 /// A cached section moved to another Y slot must still obey the ordinary misplaced-Y rule.
 #[test]
 fn reused_payloads_cannot_bypass_slot_y_validation() {
@@ -222,6 +274,55 @@ fn reused_payloads_cannot_bypass_slot_y_validation() {
     assert_eq!(cached, ordinary);
     assert_eq!(cached.decode_work().reused_sections, 1);
     assert!(!cached.sub_chunks.contains_key(&1));
+}
+
+/// Cache transfers retain the current wire Y even when semantic reuse keeps an older header.
+#[test]
+fn equivalent_header_reuse_cannot_hide_a_misplaced_wire_y() {
+    let ids = RawBlockIds { air: 0 };
+    let key = ChunkKey::new(0, 0, 0);
+    let mut bytes = payload(2, 0);
+    bytes[0] = 8;
+    bytes.remove(2);
+    let mut store = ChunkStore::new();
+    store
+        .commit_level_chunk(key, decode(&bytes, &ids, None))
+        .unwrap();
+    let original = store.chunk(key).unwrap().shared_sub_chunks();
+    let resent = decode(&payload(2, 0), &ids, Some(&original));
+    assert!(
+        store
+            .commit_level_chunk(key, resent)
+            .unwrap()
+            .changed
+            .is_empty()
+    );
+    let mut moved = store
+        .chunk(key)
+        .unwrap()
+        .shared_sub_chunks()
+        .as_ref()
+        .clone();
+    assert!(Arc::ptr_eq(&original[&0], &moved[&0]));
+    assert_eq!(moved[&0].y_index(), None);
+    moved.insert(1, Arc::clone(&original[&0]));
+    let mut bytes = payload(2, 0);
+    bytes[7] = 0;
+    bytes[9] = 2;
+    let ordinary = decode(&bytes, &ids, None);
+    let cached = decode(&bytes, &ids, Some(&moved));
+    assert!(
+        cached
+            .sub_chunk(0)
+            .unwrap()
+            .blocks_match(&ordinary.sub_chunk(0).unwrap())
+    );
+    assert_eq!(
+        cached.block_bytes_consumed(),
+        ordinary.block_bytes_consumed()
+    );
+    assert_eq!(cached.decode_work().reused_sections, 1);
+    assert!(cached.sub_chunk(1).is_none());
 }
 
 /// A truncated palette varint must not turn into a hash hit after its missing byte arrives.
