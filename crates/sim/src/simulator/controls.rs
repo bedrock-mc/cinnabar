@@ -17,45 +17,31 @@ pub struct ControlledTickResult {
     pub jump_initiated: bool,
 }
 
+/// Processes both raw and already-scaled controls entirely in wire precision.
 pub(super) fn process(input: MovementInput) -> ProcessedControls {
     let slowed = input.sneaking || input.mode == MovementMode::Crawling;
-    if input.move_vector_is_raw {
-        // Primary controls are a wire-f32 contract: vanilla scales the axes by
-        // pose, then by the item factor, rounding each product.
-        let item = input.item_use_movement_modifier.map_or(
-            if input.using_consumable {
-                super::CONSUMABLE_INPUT_MULTIPLIER as f32
-            } else {
-                1.0
-            },
-            |value| value as f32,
-        );
-        let pose = if slowed {
-            sneak_factor(input.swift_sneak)
+    let item = input.item_use_movement_modifier.map_or(
+        if input.using_consumable {
+            super::CONSUMABLE_INPUT_MULTIPLIER as f32
         } else {
             1.0
-        };
-        return ProcessedControls {
-            move_vector: [
-                f64::from((input.strafe as f32).clamp(-1.0, 1.0) * pose * item),
-                f64::from((input.forward as f32).clamp(-1.0, 1.0) * pose * item),
-            ],
-        };
-    }
-    let item = input
-        .item_use_movement_modifier
-        .unwrap_or(if input.using_consumable {
-            super::CONSUMABLE_INPUT_MULTIPLIER
+        },
+        |value| value as f32,
+    );
+    let pose = if slowed {
+        sneak_factor(input.swift_sneak)
+    } else {
+        1.0
+    };
+    let process_axis = |axis: f64| {
+        let axis = axis as f32;
+        f64::from(if input.move_vector_is_raw {
+            axis.clamp(-1.0, 1.0) * pose * item
         } else {
-            1.0
-        });
-    let factor = item
-        * if slowed {
-            f64::from(sneak_factor(input.swift_sneak))
-        } else {
-            1.0
-        };
-    let process_axis = |axis: f64| axis.clamp(-factor, factor);
+            let factor = item * pose;
+            axis.clamp(-factor, factor)
+        })
+    };
     ProcessedControls {
         move_vector: [process_axis(input.strafe), process_axis(input.forward)],
     }

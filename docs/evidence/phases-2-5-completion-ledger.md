@@ -74,6 +74,10 @@ incomplete. This change closes no parity or performance gate.
 
 ## P3-MOVEMENT
 
+Remaining double intermediates in processed controls, block-height contact, support
+offsets, climb requests and fallback travel drag now use f32 operations. Precision
+regressions await CI; full numeric and trajectory parity remains open.
+
 Spectator regressions cover forced flight without MayFly, solid and unloaded
 terrain traversal, and embedded server anchors. The full native trajectory,
 platform, and performance gates remain open.

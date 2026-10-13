@@ -7332,6 +7332,9 @@ and exhaustive Windows-versus-host sinf bit equivalence still need validation.
 Water acceleration now multiplies the effective Depth Strider level before dividing by
 its maximum.
 Collision flags use the native float epsilon, with exact boundary witnesses.
+Processed control limits, block-height contact, support offsets, climb requests and
+fallback travel drag now round within the same f32 simulation boundaries. New
+precision regressions await CI; these changes do not close D01.
 
 ### Registry collision continuation (2026-10-02)
 
