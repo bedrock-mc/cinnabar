@@ -100,7 +100,7 @@ fn extra_large_progress_keeps_status_and_cancel_inside_small_windows() {
                 view.local.progress = Some(launcher::local_worlds::Progress {
                     stage: launcher::local_worlds::Stage::DownloadingServer,
                     fraction: Some(0.5),
-                    detail: "World download status ".repeat(40),
+                    detail: "World download status ".repeat(160),
                 });
                 let metrics = TextMetrics::for_viewport(
                     size.map(|value| (value * dpi) as u32),
@@ -137,6 +137,30 @@ fn extra_large_progress_keeps_status_and_cancel_inside_small_windows() {
             }
         }
     }
+}
+
+#[test]
+fn progress_text_that_fits_does_not_create_a_scroll_range() {
+    let size = [752.0, 500.0];
+    let mut view = MenuView::new(true, "Fixture".into());
+    view.local.progress = Some(launcher::local_worlds::Progress {
+        stage: launcher::local_worlds::Stage::DownloadingServer,
+        fraction: Some(0.5),
+        detail: "World download status ".repeat(40),
+    });
+    let metrics = TextMetrics::for_viewport(
+        size.map(|value| (value * 2.0) as u32),
+        DpiScale::new(2.0).unwrap(),
+        Some(2),
+    );
+    let mut screen = OreUiScreen::default();
+    paint(&mut screen, &view, metrics, size);
+    let areas = screen.take_paint().unwrap().scrolls;
+    let status = areas
+        .iter()
+        .find(|area| area.key == "loading_status")
+        .unwrap();
+    assert_eq!(status.max, 0.0, "fitting status text needs no scroll range");
 }
 
 #[test]
