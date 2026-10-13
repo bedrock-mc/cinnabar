@@ -3,7 +3,7 @@
 use super::{FRAME_RATE_UNLIMITED, SETTINGS_OPTIONS, SMAA_OPTION, SettingsOptions};
 
 /// Named graphics choices; a selection is Custom when none matches.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum VideoPreset {
     Performance,
     Balanced,
@@ -160,6 +160,16 @@ impl PresetOption {
 }
 
 impl SettingsOptions {
+    /// Resolves a preset through the same table used by manual preset buttons.
+    pub fn video_preset_values(
+        &self,
+        preset: VideoPreset,
+    ) -> impl Iterator<Item = (&'static str, i32)> + '_ {
+        PRESET_OPTIONS
+            .iter()
+            .map(move |option| (option.name, option.value(self, preset)))
+    }
+
     /// Derives the selected preset from effective option values; None means Custom.
     pub fn video_preset(&self) -> Option<VideoPreset> {
         VideoPreset::ALL.into_iter().find(|preset| {
@@ -173,6 +183,7 @@ impl SettingsOptions {
     pub fn apply_video_preset(&mut self, preset: VideoPreset) -> bool {
         let mut changed = false;
         for option in PRESET_OPTIONS {
+            changed |= self.graphics_detection.protect(option.name);
             if preset == VideoPreset::Balanced {
                 changed |= self.values.remove(option.name).is_some();
             } else {

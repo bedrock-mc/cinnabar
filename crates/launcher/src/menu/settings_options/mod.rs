@@ -6,6 +6,7 @@ pub mod command_macros;
 pub mod control_bindings;
 pub mod definitions;
 pub mod emotes;
+pub mod graphics_detection;
 pub mod keybindings;
 pub mod language;
 pub mod persistence;
@@ -67,6 +68,7 @@ pub struct SettingsOptions {
     /// Version of the stored settings format.
     schema: u32,
     values: BTreeMap<String, i32>,
+    graphics_detection: graphics_detection::Preferences,
     #[serde(skip)]
     anti_aliasing_support: ui::AntiAliasingSupport,
     #[serde(skip)]
@@ -85,6 +87,7 @@ impl Default for SettingsOptions {
         Self {
             schema: SETTINGS_SCHEMA,
             values: BTreeMap::new(),
+            graphics_detection: graphics_detection::Preferences::default(),
             anti_aliasing_support: ui::AntiAliasingSupport::default(),
             render_distance_defaults: ui::RenderDistanceDefaults::default(),
             keys: BTreeMap::new(),
@@ -153,6 +156,7 @@ impl SettingsOptions {
             .values
             .get(definition.name)
             .copied()
+            .or_else(|| self.graphics_detection.value(definition.name))
             .unwrap_or_else(|| self.option_default(definition));
         if definition.name == "msaa" {
             self.anti_aliasing_support.select(value.max(1) as u32) as i32
@@ -184,6 +188,7 @@ impl SettingsOptions {
         } else {
             value
         };
+        let protected = self.graphics_detection.protect(definition.name);
         if self
             .values
             .get(definition.name)
@@ -192,7 +197,7 @@ impl SettingsOptions {
             == value
             && (definition.name != "render_distance" || self.values.contains_key(definition.name))
         {
-            return false;
+            return protected;
         }
         self.values.insert(definition.name.to_owned(), value);
         true

@@ -3,6 +3,7 @@
 mod actions;
 mod chat;
 pub mod control_bindings;
+pub mod graphics_detection;
 mod language;
 mod reset;
 mod runtime;

@@ -5,6 +5,37 @@ use std::{collections::HashMap, sync::Arc};
 use ui::UiVisual;
 
 #[test]
+fn instant_detection_has_one_accessible_action() {
+    let view = MenuView::new(true, "Player".into());
+    let (_, hits, _) = paint(HashMap::new(), |canvas| {
+        canvas.capture_focus = true;
+        let mut content = Content {
+            canvas,
+            view: &view,
+            span: [100.0, 900.0],
+            column_width: 800.0,
+            y: 100.0,
+            translate: &|_| None,
+            nested: false,
+        };
+        draw(&mut content).unwrap();
+        assert!(
+            content
+                .canvas
+                .focus_targets
+                .iter()
+                .any(|target| target.action == MenuAction::SettingsDetectGraphics)
+        );
+    });
+    assert_eq!(
+        hits.iter()
+            .filter(|(action, _)| *action == MenuAction::SettingsDetectGraphics)
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn preset_choices_precede_video_controls_and_fit_narrow_and_wide_panels() {
     for width in [300.0, 800.0] {
         let view = MenuView::new(true, "Player".into());
@@ -101,12 +132,13 @@ fn selection_caption_is_derived_and_description_stays_below_the_choices() {
         )
         .replace(' ', "");
         assert!(labels.contains(&caption));
-        assert!(labels.contains("Balancedisthedefault."));
+        assert!(labels.contains("IndividualchangesshowCustom."));
         for preset in VideoPreset::ALL {
             assert!(labels.contains(&preset.label().replace(' ', "")));
         }
         let bottom = hits
             .iter()
+            .filter(|(action, _)| matches!(action, MenuAction::SettingsVideoPreset(_)))
             .map(|(_, bounds)| bounds.max().y())
             .fold(0.0_f32, f32::max);
         let description = nodes

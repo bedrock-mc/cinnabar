@@ -7,6 +7,7 @@ pub mod catalog;
 pub mod catalog_art;
 pub mod client_random_id;
 pub mod core_process;
+pub mod cpu;
 pub mod desktop;
 pub mod launcher_account;
 pub mod launcher_core;

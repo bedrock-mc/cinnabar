@@ -190,6 +190,7 @@ pub struct MenuRuntime {
     /// Failed writes wait until this deadline while retaining the newest edits.
     settings_retry_at: Option<std::time::Instant>,
     settings_apply: bool,
+    pub(crate) graphics_detection_requested: bool,
     /// Stored choices beneath session-only overrides, restored before saving preferences.
     session_overrides: Vec<launcher::menu::settings_options::OptionPreference>,
     /// A developer controller is driving: hotkey toggles stay in memory.
@@ -731,6 +732,7 @@ impl MenuRuntime {
             | MenuAction::SettingsSection(_)
             | MenuAction::SettingsOption(..)
             | MenuAction::SettingsVideoPreset(_)
+            | MenuAction::SettingsDetectGraphics
             | MenuAction::SettingsLanguage(_)
             | MenuAction::SettingsDropdown(_)
             | MenuAction::SettingsResetBindings(_)

@@ -343,6 +343,15 @@ impl UiRuntime {
         Ok(())
     }
 
+    /// Queues an original client notice on the same stack as server toasts.
+    pub fn push_client_toast(&mut self, title: impl Into<std::sync::Arc<str>>, now_millis: u64) {
+        let mut toast = Toast::new(title.into(), "".into(), 0, now_millis);
+        toast.expires_millis = now_millis
+            .saturating_add(self.toast_display_millis)
+            .saturating_add(ui::TOAST_SLIDE_OUT_MILLIS);
+        self.hud.push_toast(toast);
+    }
+
     /// Stands a client toast that stays while its cause lasts.
     pub fn stand_toast(&mut self, toast: ui::StandingToast) {
         self.hud.stand_toast(toast);

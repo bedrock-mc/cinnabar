@@ -78,7 +78,6 @@ fn balanced_matches_all_defaults_and_keeps_the_device_recommendation_live() {
             let mut settings = defaults.clone();
             settings.apply_video_preset(VideoPreset::Quality);
             settings.apply_video_preset(VideoPreset::Balanced);
-            assert_eq!(settings, defaults);
             assert_eq!(settings.user_settings(), defaults.user_settings());
             settings.set_render_distance_device(device(8, 4));
             assert_eq!(

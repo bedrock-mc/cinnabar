@@ -15,6 +15,7 @@ impl MenuRuntime {
     /// Applies settings navigation and edits without starting a game session.
     pub(in crate::menu) fn activate_settings(&mut self, action: MenuAction) {
         match action {
+            MenuAction::SettingsDetectGraphics => self.graphics_detection_requested = true,
             MenuAction::SettingsResetChat => self.reset_chat_settings(),
             MenuAction::SettingsAdvancedGraphics => {
                 self.settings_advanced_graphics = !self.settings_advanced_graphics;

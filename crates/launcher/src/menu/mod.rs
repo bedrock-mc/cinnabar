@@ -137,6 +137,8 @@ pub enum MenuAction {
     SettingsOption(u16, i32),
     /// Applies one graphics preset without changing personal video preferences.
     SettingsVideoPreset(settings_options::video_presets::VideoPreset),
+    /// Starts a benchmark, or cancels the one already running.
+    SettingsDetectGraphics,
     SettingsDropdown(u16),
     SettingsLanguage(u16),
     SettingsKey(u16),

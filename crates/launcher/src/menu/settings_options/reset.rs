@@ -108,6 +108,7 @@ impl SettingsOptions {
             if group.contains(option.name) {
                 if option.name == "render_distance" {
                     changed |= self.values.remove(option.name).is_some();
+                    changed |= self.graphics_detection.protect(option.name);
                 } else {
                     changed |= self.set(index, option.default);
                 }

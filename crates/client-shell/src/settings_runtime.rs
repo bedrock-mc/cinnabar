@@ -1,6 +1,6 @@
 use client_state::RuntimeSettings;
 mod device_render_distance;
-pub use device_render_distance::initialize_render_distance;
+pub use device_render_distance::initialize_hardware;
 
 /// Applies the persisted window mode once per settings revision.
 pub fn apply_window_settings(

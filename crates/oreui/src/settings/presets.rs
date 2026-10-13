@@ -11,10 +11,7 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "Video preset: {}",
         selected.map_or("Custom", VideoPreset::label)
     );
-    let description = format!(
-        "Choose a graphics preset. {} is the default. Individual changes show Custom.",
-        VideoPreset::Balanced.label()
-    );
+    let description = "Choose a graphics preset. Individual changes show Custom.";
     let [left, right] = content.inset();
     let width = (right - left).max(1.0);
     let cell_width = width / VideoPreset::ALL.len() as f32;
@@ -26,7 +23,7 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         })?;
     let description_height = content
         .canvas
-        .measure_height(&description, width, CAPTION)?
+        .measure_height(description, width, CAPTION)?
         .max(content.canvas.r(CAPTION.line));
     let extra = control_height + description_height + content.canvas.r(1.2);
     let bounds = content.row(&title, "", width, None, extra)?;
@@ -57,12 +54,19 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         }
     }
     content.canvas.text(
-        &description,
+        description,
         [left, top + control_height + content.canvas.r(0.8)],
         width,
         CAPTION,
         TEXT_DIMMER,
         false,
+    )?;
+    super::services::action_row(
+        content,
+        "Automatic graphics settings",
+        "Tune untouched settings for this device. Your edits are kept.",
+        "Detect best settings",
+        Some(MenuAction::SettingsDetectGraphics),
     )?;
     Ok(())
 }

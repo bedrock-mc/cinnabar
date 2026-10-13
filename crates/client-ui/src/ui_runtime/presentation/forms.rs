@@ -49,6 +49,8 @@ pub(super) use retained_menu::RetainedMenu;
 pub(crate) mod compatibility_tests;
 #[cfg(test)]
 mod font_snapshots;
+#[cfg(test)]
+mod graphics_detection_snapshots;
 #[cfg(any(test, feature = "test-support"))]
 pub mod pack_harness;
 #[cfg(test)]

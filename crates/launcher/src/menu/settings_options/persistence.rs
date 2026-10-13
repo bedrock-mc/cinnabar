@@ -66,6 +66,10 @@ impl SettingsOptions {
         }
         validated.keys = saved.keys;
         validated.server_list = saved.server_list;
+        validated.graphics_detection = saved.graphics_detection.validated();
+        for name in validated.values.keys() {
+            validated.graphics_detection.protect(name);
+        }
         if let Some(slots) = saved.emote_slots {
             validated.set_emote_slots(slots);
         }
