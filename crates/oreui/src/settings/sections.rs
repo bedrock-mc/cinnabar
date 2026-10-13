@@ -135,7 +135,6 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
                 launcher::menu::settings_options::NATIVE_SKYBOX_OFFSET_OPTION.name,
                 "render_distance",
                 launcher::menu::settings_options::FAR_TERRAIN_OPTION.name,
-                launcher::menu::settings_options::FAR_TERRAIN_DISTANCE_OPTION.name,
             ],
         )?;
         content.nested = false;

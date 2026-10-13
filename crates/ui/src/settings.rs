@@ -200,8 +200,6 @@ pub struct VideoSettings {
     pub native_skybox_offset: bool,
     /// Draw cached terrain past the render distance.
     pub far_terrain: bool,
-    /// Far-terrain reach past the render distance, in chunks.
-    pub far_terrain_distance_chunks: u32,
 }
 
 impl Default for VideoSettings {
@@ -229,7 +227,6 @@ impl Default for VideoSettings {
             java_animations: false,
             native_skybox_offset: assets::DEFAULT_NATIVE_SKYBOX_OFFSET,
             far_terrain: render_api::far_terrain::DEFAULT_ENABLED,
-            far_terrain_distance_chunks: render_api::far_terrain::DEFAULT_DISTANCE_CHUNKS,
         }
     }
 }

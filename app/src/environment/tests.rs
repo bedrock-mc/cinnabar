@@ -516,7 +516,6 @@ fn end_dimension_fallback_applies_exact_profile_and_exposes_provisional_lighting
         camera_biome_identifier: None,
         camera_biome_temperature: None,
         render_distance_blocks: Some(256.0),
-        far_fog_blocks: 0.0,
     };
     let biomes = profiles();
     let fogs = fog_profiles();
@@ -565,7 +564,6 @@ fn known_camera_biome_takes_precedence_over_dimension_fallback() {
         camera_biome_identifier: Some("minecraft:plains".into()),
         camera_biome_temperature: None,
         render_distance_blocks: Some(256.0),
-        far_fog_blocks: 0.0,
     };
     let (frame, route) = derive_profiled_atmosphere_frame(
         WorldClock::default(),
@@ -596,7 +594,6 @@ fn pinned_shape_plains_air_falls_back_to_the_exact_default_fog_layer() {
         camera_biome_identifier: Some("minecraft:plains".into()),
         camera_biome_temperature: None,
         render_distance_blocks: Some(256.0),
-        far_fog_blocks: 0.0,
     };
     let (frame, _) = derive_profiled_atmosphere_frame(
         WorldClock::default(),
@@ -627,7 +624,6 @@ fn biome_specific_medium_takes_precedence_over_the_default_fog_layer() {
         camera_biome_identifier: Some("minecraft:plains".into()),
         camera_biome_temperature: None,
         render_distance_blocks: Some(256.0),
-        far_fog_blocks: 0.0,
     };
     let mut fogs = fog_profiles();
     let default_water = fogs
@@ -676,7 +672,6 @@ fn active_rain_uses_the_exact_weather_fog_endpoint_from_the_default_layer() {
         camera_biome_identifier: Some("minecraft:plains".into()),
         camera_biome_temperature: None,
         render_distance_blocks: Some(256.0),
-        far_fog_blocks: 0.0,
     };
     let (frame, _) = derive_profiled_atmosphere_frame(
         clock,

@@ -34,4 +34,4 @@ pub use tile_mesh::{
     TileMesh, mesh_tile,
 };
 pub use tile_set::FarTiles;
-pub use tiles::{NearMask, TileKey, TileView, ring_coverage, select_tiles};
+pub use tiles::{NearMask, TileKey, TileView, select_tiles};

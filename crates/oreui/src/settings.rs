@@ -407,8 +407,6 @@ impl Content<'_, '_> {
         } else if name == launcher::menu::settings_options::FAR_TERRAIN_OPTION.name {
             "Draw terrain you have already visited beyond the render distance, in less detail."
                 .to_owned()
-        } else if name == launcher::menu::settings_options::FAR_TERRAIN_DISTANCE_OPTION.name {
-            "How far past the render distance far terrain reaches.".to_owned()
         } else if name == "screen_animations" {
             "Smooth highlights, button presses and screen transitions. Turn off for an instant interface.".to_owned()
         } else if (name == "render_clouds"
@@ -445,12 +443,6 @@ impl Content<'_, '_> {
                     "render_distance" => self
                         .word("options.renderDistanceFormat")
                         .replace("%s", &value.to_string()),
-                    name if name
-                        == launcher::menu::settings_options::FAR_TERRAIN_DISTANCE_OPTION.name =>
-                    {
-                        self.word("options.renderDistanceFormat")
-                            .replace("%s", &value.to_string())
-                    }
                     "max_framerate" => {
                         launcher::menu::settings_options::frame_rate_label(value, &|key: &str| {
                             self.word(key)

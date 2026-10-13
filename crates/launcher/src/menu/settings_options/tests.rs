@@ -773,33 +773,19 @@ fn native_skybox_offset_defaults_on_and_persists_both_states() {
     }
 }
 
-/// Far terrain defaults on at the configured reach, snaps the reach to whole steps, and resets.
+/// Far terrain defaults on, persists off, and comes back on with a Video reset.
 #[test]
-fn far_terrain_defaults_on_and_persists_its_reach() {
-    let settings = super::SettingsOptions::decode(b"{}").unwrap();
-    let video = settings.user_settings().video;
-    assert!(video.far_terrain);
-    assert_eq!(
-        video.far_terrain_distance_chunks,
-        render_api::far_terrain::DEFAULT_DISTANCE_CHUNKS
-    );
-    let index = |name| {
-        super::SETTINGS_OPTIONS
-            .iter()
-            .position(|option| option.name == name)
-            .unwrap()
-    };
-    let mut settings = settings;
-    settings.set(index(super::FAR_TERRAIN_OPTION.name), 0);
-    settings.set(index(super::FAR_TERRAIN_DISTANCE_OPTION.name), 37);
+fn far_terrain_defaults_on_persists_and_resets() {
+    let mut settings = super::SettingsOptions::decode(b"{}").unwrap();
+    assert!(settings.user_settings().video.far_terrain);
+    let index = super::SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == super::FAR_TERRAIN_OPTION.name)
+        .unwrap();
+    settings.set(index, 0);
     let encoded = serde_json::to_vec(&settings).unwrap();
     let mut loaded = super::SettingsOptions::decode(&encoded).unwrap();
-    let video = loaded.user_settings().video;
-    assert!(!video.far_terrain);
-    assert_eq!(
-        video.far_terrain_distance_chunks % render_api::far_terrain::DISTANCE_STEP_CHUNKS,
-        0
-    );
+    assert!(!loaded.user_settings().video.far_terrain);
     loaded.reset_group(super::SettingsGroup::Video);
     assert!(loaded.user_settings().video.far_terrain);
 }

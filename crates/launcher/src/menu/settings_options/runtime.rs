@@ -57,8 +57,6 @@ impl SettingsOptions {
         settings.video.native_skybox_offset =
             self.value(super::NATIVE_SKYBOX_OFFSET_OPTION.name) != 0;
         settings.video.far_terrain = self.value(super::FAR_TERRAIN_OPTION.name) != 0;
-        settings.video.far_terrain_distance_chunks =
-            self.value(super::FAR_TERRAIN_DISTANCE_OPTION.name) as u32;
         settings.video.outline_selection = self.value("classic_box_selection") != 0;
         settings.video.fov_effects_scale = self.value("field_of_view_toggle") as f32;
         settings.controls.mouse_sensitivity =

@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use far_terrain::{
     ColumnPos, ColumnSummary, FACE_UP, FarTiles, NearMask, SummaryStore, SurfaceCell, TileGrid,
-    TileKey, TileView, config::TILE_CELLS, mesh_tile, ring_coverage, select_tiles,
+    TileKey, TileView, config::TILE_CELLS, mesh_tile, select_tiles,
 };
 
 fn flat(height: i16) -> ColumnSummary {
@@ -158,18 +158,4 @@ fn tiles_build_on_workers_and_rebuild_on_change() {
         tiles.update(&mut store, later);
         edited(&tiles) != before
     });
-}
-
-/// Cached columns near terrain still draws do not open the fog.
-#[test]
-fn coverage_ignores_columns_near_terrain_owns() {
-    let mut store = SummaryStore::new(usize::MAX);
-    let near = NearMask::retained([0, 0], 12);
-    let owned = ColumnPos::new(14, 7);
-    assert!(near.contains(owned));
-    store.admit(owned, &flat(64));
-    let centre = ColumnPos::new(0, 0);
-    assert_eq!(ring_coverage(&store, &near, centre, 15, 8), 0.0);
-    store.admit(ColumnPos::new(20, 0), &flat(64));
-    assert!(ring_coverage(&store, &near, centre, 15, 8) > 0.0);
 }

@@ -140,6 +140,12 @@ impl WorldStream {
         self.far_terrain.enabled
     }
 
+    /// The radius the server last said it sends, in chunks.
+    #[must_use]
+    pub const fn server_view_radius(&self) -> Option<i32> {
+        self.chunk_radius
+    }
+
     /// The radius the client's chunk grid retains, once the server has confirmed one.
     #[must_use]
     pub fn retained_view_radius(&self) -> Option<i32> {

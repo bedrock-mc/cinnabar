@@ -37,11 +37,8 @@ pub const LEVEL_COUNT: u8 = 5;
 /// many of its own widths.
 pub const LEVEL_SPLIT_DISTANCE: f32 = 1.0;
 
-/// Video setting defaults and bounds, kept where the settings crates may read them.
-pub use render_api::far_terrain::{
-    DEFAULT_DISTANCE_CHUNKS, DEFAULT_ENABLED, DISTANCE_STEP_CHUNKS, MAX_DISTANCE_CHUNKS,
-    MIN_DISTANCE_CHUNKS,
-};
+/// The setting default and the reach policy, kept where the settings crates may read them.
+pub use render_api::far_terrain::{DEFAULT_ENABLED, DeviceTier, far_reach_chunks};
 
 /// Blocks tile-edge skirts reach below a tile's lowest surface, hiding cracks between levels.
 pub const SKIRT_DEPTH_BLOCKS: i16 = 16;
@@ -54,9 +51,6 @@ pub const MAX_TILE_BUILDS: usize = 4;
 
 /// Columns gathered for new tile builds per update, bounding the owner thread's share.
 pub const TILE_BUILD_COLUMNS_PER_UPDATE: usize = 1024;
-
-/// Chunks beyond the near edge sampled to decide how far fog may open up.
-pub const COVERAGE_RING_CHUNKS: i32 = 8;
 
 /// Water deeper than this many blocks is summarised as open water without a floor.
 pub const MAX_WATER_SCAN_DEPTH: u8 = 32;

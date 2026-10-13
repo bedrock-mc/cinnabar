@@ -78,18 +78,6 @@ pub const FAR_TERRAIN_OPTION: SettingDefinition = toggle(
     render_api::far_terrain::DEFAULT_ENABLED,
 );
 
-/// How far far terrain reaches past the render distance, in chunks.
-pub const FAR_TERRAIN_DISTANCE_OPTION: SettingDefinition = SettingDefinition {
-    step: render_api::far_terrain::DISTANCE_STEP_CHUNKS as i32,
-    ..slider(
-        "far_terrain_distance",
-        "Far Terrain Distance",
-        render_api::far_terrain::MIN_DISTANCE_CHUNKS as i32,
-        render_api::far_terrain::MAX_DISTANCE_CHUNKS as i32,
-        render_api::far_terrain::DEFAULT_DISTANCE_CHUNKS as i32,
-    )
-};
-
 pub const MOTION_BLUR_CHOICES: &[SettingChoice] = &[
     SettingChoice {
         name: "motion_blur_radio_off",
@@ -671,5 +659,4 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     DISCORD_PRESENCE_OPTION,
     NATIVE_SKYBOX_OFFSET_OPTION,
     FAR_TERRAIN_OPTION,
-    FAR_TERRAIN_DISTANCE_OPTION,
 ];
