@@ -40,6 +40,7 @@ Vanilla behaviour is the default. Everything below is extra:
 | Feature | What it does |
 | --- | --- |
 | **Performance** | Frame pacing, latency and chunk streaming built to beat vanilla. |
+| **1.12 PvP feel** | Ships with Bedrock 1.12-style combat visuals: the classic attack swing, hurt flash, enchantment glint and view bob, plus Java-style first-person hand sway and nametags. |
 | **Live resource packs** | Add, remove or reorder packs without leaving the world. |
 | **Multi-account manager** | Sign in with several Microsoft accounts and switch between them from the launcher, no signing out. |
 | **Custom skins** | Import custom-geometry (4D/5D) skins and skin packs. See [docs/custom-skins.md](docs/custom-skins.md). |

@@ -94,10 +94,15 @@ def verify_inputs(root):
     """Refuse to save artifacts if a build changed the tracked source inputs."""
     before = json.loads((root / "target/.ci-inputs.json").read_text())
     after = snapshot(root)
-    if before.keys() != after.keys() or any(
-        not same_content(before[name], after[name]) for name in before
-    ):
-        raise RuntimeError("Tracked sources changed during the build; refusing to cache outputs")
+    changed = sorted(
+        name for name in before.keys() | after.keys()
+        if name not in before or name not in after or not same_content(before[name], after[name])
+    )
+    if changed:
+        raise RuntimeError(
+            "Tracked sources changed during the build; refusing to cache outputs: "
+            + ", ".join(changed[:20])
+        )
 
 
 def plan(root, language, lane, env):

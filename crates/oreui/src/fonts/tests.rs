@@ -106,6 +106,23 @@ fn compiled_faces_load_without_a_game_bundle_and_preserve_default_glyphs() {
 }
 
 #[test]
+fn pack_title_font_selects_the_shipped_ten_face() {
+    let directory = tempfile::tempdir().unwrap();
+    write_face(directory.path(), OreUiFont::Ten);
+    let fonts = install(fixture_font(), directory.path());
+    let title = fonts.font_named("MinecraftTen");
+    assert_eq!(
+        title.identity(),
+        fonts.font_named(OreUiFont::Ten.name()).identity()
+    );
+    assert_eq!(title.rendering(), assets::FontRendering::NativeSdf);
+    assert_eq!(
+        title.line_metrics(),
+        fonts.font_named(OreUiFont::Ten.name()).line_metrics()
+    );
+}
+
+#[test]
 fn missing_optional_carriers_use_the_default_font() {
     let directory = tempfile::tempdir().unwrap();
     let base = fixture_font();

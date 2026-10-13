@@ -16,8 +16,7 @@ use bevy::{
 };
 use protocol::{
     CONTAINER_NAME_CURSOR, CONTAINER_NAME_LEVEL_ENTITY, ContainerIdentity, ContainerOpenEvent,
-    InventoryAuthority, InventoryContentEvent, InventoryEvent, ItemRegistryEntry,
-    ItemRegistryEvent, ItemRegistryVersion, NetworkItemStack,
+    InventoryAuthority, InventoryContentEvent, InventoryEvent, NetworkItemStack,
 };
 use semantic_input::Action;
 use ui::UiPoint;
@@ -783,21 +782,14 @@ fn cursor_content(cursor: Option<NetworkItemStack>) -> InventoryEvent {
 }
 
 fn apply_apple_registry(player_runtime: &mut PlayerRuntime, runtime: &mut UiRuntime) {
-    runtime
-        .inventory_ledger_mut(player_runtime)
-        .apply_registry(&ItemRegistryEvent {
-            entries: Arc::from([ItemRegistryEntry {
-                identifier: Arc::from("minecraft:apple"),
-                network_id: 6,
-                component_based: true,
-                version: ItemRegistryVersion::DataDriven,
-                components: None,
-                component_digest: [6; 32],
-                negotiated_max_stack_size: Some(64),
-                canonical_empty_component_data: false,
-                item_tags: std::sync::Arc::from([]),
-            }]),
-        });
+    runtime.inventory_ledger_mut(player_runtime).apply_registry(
+        &protocol::test_support::items::component_item_registry(
+            "minecraft:apple",
+            6,
+            protocol::ITEM_DEFAULT_MAX_STACK_SIZE,
+            0,
+        ),
+    );
 }
 
 fn stack(count: u16, stack_network_id: i32) -> NetworkItemStack {
