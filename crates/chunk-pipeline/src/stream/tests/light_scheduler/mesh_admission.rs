@@ -597,23 +597,28 @@ fn stationary_mesh_ingress_preserves_unrelated_backoff() {
 fn deadline_keeps_an_unexamined_woken_mesh_for_the_next_poll() {
     let (mut stream, view) = stationary_stream_with_blocked_far_meshes();
     let blocked = SubChunkKey::new(1, 0, 0, 0);
-    let ready = SubChunkKey::new(1, -3, 0, 0);
-    for key in [blocked, ready] {
+    let ready = [
+        SubChunkKey::new(1, -3, 0, 0),
+        SubChunkKey::new(1, 0, 0, scheduler::NEAR_CAMERA_RADIUS),
+    ];
+    for key in std::iter::once(blocked).chain(ready) {
         stream
             .authority
             .commit_sub_chunk(key, super::uniform_sub_chunk(2))
             .unwrap();
         stream.resident.insert(key);
     }
-    install_current_light(&mut stream, ready, 0, 0, false);
-    for key in [blocked, ready] {
+    for key in ready {
+        install_current_light(&mut stream, key, 0, 0, false);
+    }
+    for key in std::iter::once(blocked).chain(ready) {
         let revision = stream.mark_dirty_exact(key, Instant::now());
         stream.mesh_jobs.lanes[RESIDENT_MESH_LANE]
             .deferred
             .push(PendingSchedulerCandidate::new(key, revision, view, false));
     }
     stream.mesh_jobs.scan.clear();
-    for key in [blocked, ready] {
+    for key in std::iter::once(blocked).chain(ready) {
         stream.mark_changed_light_mesh_dependents(key, [false; 6], Instant::now(), false);
     }
     assert_eq!(
@@ -621,6 +626,73 @@ fn deadline_keeps_an_unexamined_woken_mesh_for_the_next_poll() {
         0,
         "the blocked nearest mesh spends the expired slice"
     );
+    for key in ready {
+        assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 1);
+        finish_mesh(&mut stream, key);
+    }
+}
+
+/// Wakeups beyond the probe limit must survive until higher-ranked work retires.
+#[test]
+fn truncation_keeps_unexamined_woken_meshes_for_later_polls() {
+    let (mut stream, view) = stationary_stream_with_blocked_far_meshes();
+    let radius = scheduler::NEAR_CAMERA_RADIUS;
+    let ready = SubChunkKey::new(1, radius, radius, radius);
+    let earlier: Vec<_> = scheduler::near_camera_keys(view, ready.dimension)
+        .filter(|key| view.rank(*key) < view.rank(ready))
+        .take(MAX_PENDING_SCHEDULER_SCANS_PER_POLL)
+        .collect();
+    assert_eq!(earlier.len(), MAX_PENDING_SCHEDULER_SCANS_PER_POLL);
+    for key in earlier.iter().copied().chain([ready]) {
+        stream
+            .authority
+            .commit_sub_chunk(key, super::uniform_sub_chunk(2))
+            .unwrap();
+        install_current_light(&mut stream, key, 0, 0, false);
+        let revision = stream.mark_dirty_exact(key, Instant::now());
+        stream.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+            .deferred
+            .push(PendingSchedulerCandidate::new(key, revision, view, false));
+        stream.mesh_jobs.refresh.wake_near(key);
+    }
+    stream.mesh_jobs.scan.clear();
+    stream
+        .admitted_mesh_jobs
+        .store(usize::MAX, Ordering::Release);
+    assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 0);
+    stream.mesh_jobs.pending.retain(|key, _| *key == ready);
+    stream.admitted_mesh_jobs.store(0, Ordering::Release);
     assert_eq!(stream.dispatch_mesh_jobs(view.position, 1), 1);
+    finish_mesh(&mut stream, ready);
+}
+
+/// A camera move cannot discard an already woken mesh while worker capacity is exhausted.
+#[test]
+fn capacity_retry_keeps_a_woken_mesh_after_the_camera_moves() {
+    let (mut stream, view) = stationary_stream_with_blocked_far_meshes();
+    let earlier: Vec<_> = stream.mesh_jobs.pending.keys().copied().collect();
+    let ready = SubChunkKey::new(1, -scheduler::NEAR_CAMERA_RADIUS, 0, 0);
+    stream
+        .authority
+        .commit_sub_chunk(ready, super::uniform_sub_chunk(2))
+        .unwrap();
+    install_current_light(&mut stream, ready, 0, 0, false);
+    let revision = stream.mark_dirty_exact(ready, Instant::now());
+    stream.mesh_jobs.scan.clear();
+    stream.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+        .deferred
+        .push(PendingSchedulerCandidate::new(ready, revision, view, false));
+    stream.mesh_jobs.refresh.wake_near(ready);
+    let moved = stream.scheduler_view([view.position[0] + 16.0, 8.0, 8.0]);
+    assert!(!scheduler::mesh_is_near(moved, ready));
+    stream
+        .admitted_mesh_jobs
+        .store(usize::MAX, Ordering::Release);
+    assert_eq!(stream.dispatch_mesh_jobs(moved.position, 1), 0);
+    for key in earlier {
+        stream.mesh_jobs.pending.remove(&key);
+    }
+    stream.admitted_mesh_jobs.store(0, Ordering::Release);
+    assert_eq!(stream.dispatch_mesh_jobs(moved.position, 1), 1);
     finish_mesh(&mut stream, ready);
 }
