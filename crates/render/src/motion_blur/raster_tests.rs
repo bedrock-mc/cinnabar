@@ -565,6 +565,42 @@ fn moving_actor_silhouettes_blur_against_world_pixels() {
     }
 }
 
+#[test]
+fn bilinear_world_gathers_do_not_leak_stationary_actor_colour() {
+    let Some(raster) = Raster::new("stationary actor bilinear footprint raster") else {
+        return;
+    };
+    let bounds = UVec4::new(60, 40, 8, 48);
+    let input = image(|x, y| {
+        if x >= bounds.x && x < bounds.x + bounds.z && y >= bounds.y && y < bounds.y + bounds.w {
+            [255, 0, 0, 255]
+        } else {
+            [0, 128, 0, 255]
+        }
+    });
+    let uniform = exposure(Mat4::from_translation(Vec3::new(0.27, 0.0, 0.0)));
+    let z = projection().project_point3(Vec3::new(0.0, 0.0, -4.0)).z;
+    for &samples in &raster.depth_samples {
+        let output = raster.draw_with_motion(
+            &input,
+            uniform,
+            samples,
+            z,
+            Some(ActorMotion {
+                velocity: [0.0, 0.0, 1.0, 1.0],
+                bounds,
+            }),
+        );
+        for x in bounds.x - 3..bounds.x {
+            let offset = ((SIDE / 2 * SIDE + x) * 4) as usize;
+            assert_eq!(
+                output[offset], 0,
+                "actor colour leaked into world at x={x}/{samples}x MSAA"
+            );
+        }
+    }
+}
+
 fn projection() -> Mat4 {
     glam::camera::rh::proj::directx::perspective_infinite_reverse(
         std::f32::consts::FRAC_PI_2,
