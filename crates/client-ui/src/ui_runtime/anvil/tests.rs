@@ -859,13 +859,30 @@ fn captured_partial_repair_retains_result_durability() {
         u16::from(ANVIL_MATERIAL_SLOT),
         diamonds,
     );
+    runtime.inventory_open = true;
+    let mut stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+        local_player_unique_id: 1,
+        local_player_runtime_id: 1,
+        dimension: 0,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    });
+    assert!(stream.seed_item_registry(protocol::ItemRegistryEvent {
+        entries: Arc::from([
+            entry("minecraft:diamond_sword", SWORD),
+            entry("minecraft:diamond", DIAMOND),
+            entry("minecraft:enchanted_book", BOOK)
+        ]),
+    }));
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     capture_hud_frame(
         &player,
         &mut runtime,
         &mut presentation,
-        None,
+        Some(&stream),
         semantic_input::PerspectiveMode::FirstPerson,
         0,
         ItemIconFrames::default(),
