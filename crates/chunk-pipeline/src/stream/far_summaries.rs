@@ -25,6 +25,8 @@ const MAX_JOBS_IN_FLIGHT: usize = 4;
 pub struct FarColumnSummary {
     pub column: ChunkKey,
     pub summary: EncodedSummary,
+    /// Issue order of the job that took it; later issues saw later blocks.
+    pub generation: u64,
 }
 
 type SharedColours = Arc<OnceLock<Arc<SurfaceColours>>>;
@@ -75,6 +77,11 @@ impl FarSummaryInbox {
         self.next_generation
     }
 
+    /// The generation of the latest job issued; any issued later saw later blocks.
+    pub(super) const fn issued_generation(&self) -> u64 {
+        self.next_generation
+    }
+
     /// Appends the newest summary of each column finished since the last call.
     pub fn drain(&mut self, out: &mut Vec<FarColumnSummary>) {
         while let Ok(finished) = self.rx.try_recv() {
@@ -107,6 +114,7 @@ impl FarSummaryInbox {
             out.push(FarColumnSummary {
                 column: finished.column,
                 summary: finished.summary,
+                generation: finished.generation,
             });
         }
     }
@@ -196,6 +204,11 @@ impl WorldStream {
     #[must_use]
     pub fn has_far_summaries(&self) -> bool {
         self.far_terrain.inbox.has_finished()
+    }
+
+    /// The generation of the latest summary job issued.
+    pub(super) const fn far_terrain_issued_generation(&self) -> u64 {
+        self.far_terrain.inbox.issued_generation()
     }
 
     /// Appends the newest summary of each column finished since the last call.

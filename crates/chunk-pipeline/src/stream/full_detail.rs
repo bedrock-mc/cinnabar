@@ -20,9 +20,16 @@ pub(super) struct FullDetail {
     centre: Option<ChunkKey>,
     /// Columns within the radius, plus those not yet past the hysteresis band.
     columns: HashSet<ChunkKey>,
-    /// Near-drawn columns past the band, still meshed until far terrain covers them, and
-    /// whether a summary taken since they left (or last changed) has been delivered.
-    handoffs: HashMap<ChunkKey, bool>,
+    /// Near-drawn columns past the band, still meshed until far terrain covers them.
+    handoffs: HashMap<ChunkKey, Handoff>,
+}
+
+#[derive(Clone, Copy)]
+struct Handoff {
+    /// Summaries issued after this generation saw the column's blocks since it left or last
+    /// changed.
+    after: u64,
+    delivered: bool,
 }
 
 impl FullDetail {
@@ -55,23 +62,22 @@ impl WorldStream {
             return;
         }
         let was_limited = self.full_detail.radius.is_some();
-        self.full_detail.radius = radius;
-        self.full_detail.centre = None;
         if radius.is_none() {
             // Everything is full detail again: relight and remesh what was left out, including
-            // columns still arriving.
-            let demoted: Vec<ChunkKey> = self
+            // columns still arriving. Collected while the old radius still says what that is.
+            let left_out: Vec<ChunkKey> = self
                 .resident
                 .columns()
                 .filter(|column| !self.wants_mesh(*column))
                 .collect();
-            self.full_detail.columns.clear();
-            self.full_detail.handoffs.clear();
-            for column in demoted {
+            self.full_detail = FullDetail::default();
+            for column in left_out {
                 self.refresh_full_detail_column(column);
             }
             return;
         }
+        self.full_detail.radius = radius;
+        self.full_detail.centre = None;
         if !was_limited {
             // Every column was full detail; those past the new radius are demoted below.
             let columns: Vec<ChunkKey> = self.resident.columns().collect();
@@ -187,7 +193,8 @@ impl WorldStream {
     /// terrain still draws it.
     fn demote_full_detail_column(&mut self, column: ChunkKey) {
         if self.near_drawn_contains(column) {
-            self.full_detail.handoffs.insert(column, false);
+            let handoff = self.pending_handoff();
+            self.full_detail.handoffs.insert(column, handoff);
             self.note_far_column_complete(column);
         } else {
             self.withdraw_full_detail_column(column);
@@ -217,13 +224,18 @@ impl WorldStream {
         self.full_detail
             .handoffs
             .iter()
-            .filter(|(_, delivered)| **delivered)
+            .filter(|(_, handoff)| handoff.delivered)
             .map(|(column, _)| *column)
     }
 
     /// Withdraws a column's meshes now that far terrain draws it from a delivered summary.
     pub fn finish_far_handoff(&mut self, column: ChunkKey) {
-        if self.full_detail.handoffs.get(&column) == Some(&true) {
+        if self
+            .full_detail
+            .handoffs
+            .get(&column)
+            .is_some_and(|handoff| handoff.delivered)
+        {
             self.full_detail.handoffs.remove(&column);
             self.withdraw_full_detail_column(column);
         }
@@ -248,8 +260,9 @@ impl WorldStream {
         if !self.loaded_columns.contains(&column) {
             return;
         }
-        if let Some(delivered) = self.full_detail.handoffs.get_mut(&column) {
-            *delivered = false;
+        let pending = self.pending_handoff();
+        if let Some(handoff) = self.full_detail.handoffs.get_mut(&column) {
+            *handoff = pending;
         } else if self.wants_mesh(column) {
             return;
         }
@@ -259,9 +272,19 @@ impl WorldStream {
     /// Marks handing-over columns whose summary was just delivered.
     pub(super) fn note_far_summaries_delivered(&mut self, delivered: &[FarColumnSummary]) {
         for summary in delivered {
-            if let Some(ready) = self.full_detail.handoffs.get_mut(&summary.column) {
-                *ready = true;
+            if let Some(handoff) = self.full_detail.handoffs.get_mut(&summary.column)
+                && summary.generation > handoff.after
+            {
+                handoff.delivered = true;
             }
+        }
+    }
+
+    /// A hand-over waiting for a summary issued from now on.
+    fn pending_handoff(&self) -> Handoff {
+        Handoff {
+            after: self.far_terrain_issued_generation(),
+            delivered: false,
         }
     }
 

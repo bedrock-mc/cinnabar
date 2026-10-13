@@ -272,3 +272,49 @@ fn covered_columns_always_keep_a_drawer() {
     }
     assert!(!covered.is_empty());
 }
+
+/// A hand-over completes only on a summary issued after the column left full detail.
+#[test]
+fn hand_over_waits_for_a_summary_taken_after_demotion() {
+    let mut stream = stream();
+    stream
+        .submit(1, inline_block_entity_event(5, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    stream.dispatch_far_summaries();
+    upload(&mut stream, 5);
+    stream.set_full_detail_radius(Some(1));
+    let five = ChunkKey::new(0, 5, 0);
+    let mut delivered = Vec::new();
+    test_time::eventually("the earlier summary", || {
+        stream.drain_far_summaries(&mut delivered);
+        !delivered.is_empty()
+    });
+    assert_eq!(
+        stream.far_handoffs().count(),
+        0,
+        "taken before the demotion"
+    );
+    test_time::eventually("the hand-over summary", || {
+        stream.dispatch_far_summaries();
+        stream.drain_far_summaries(&mut Vec::new());
+        stream.far_handoffs().any(|column| column == five)
+    });
+}
+
+/// Evicting a column mid hand-over still withdraws its meshes.
+#[test]
+fn evicting_mid_hand_over_withdraws_meshes() {
+    let mut stream = stream();
+    stream
+        .submit(1, inline_block_entity_event(5, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    upload(&mut stream, 5);
+    stream.set_full_detail_radius(Some(1));
+    assert!(drawn(&stream, 5));
+    stream.mesh_jobs.pending.clear();
+    stream.evict_column(ChunkKey::new(0, 5, 0));
+    assert!(meshing(&stream, 5), "its removal is queued");
+    assert!(!drawn(&stream, 5));
+}

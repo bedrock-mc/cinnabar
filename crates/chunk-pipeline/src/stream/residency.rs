@@ -132,7 +132,8 @@ impl WorldStream {
             if !removing_all {
                 self.lighting.remove_key(key);
             }
-            self.mark_dirty_exact(key, now);
+            // Removals publish whatever detail the column had, so no mesh outlives it.
+            self.mark_dirty_exact_ungated(key, now, false);
         }
         for key in light_dirty {
             self.mark_light_dirty_exact_with_priority(key, false);

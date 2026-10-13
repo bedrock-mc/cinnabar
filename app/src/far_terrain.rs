@@ -7,9 +7,7 @@ use std::{
 };
 
 use bevy::prelude::{AppExit, Local, MessageReader, Res, ResMut, Resource};
-use chunk_pipeline::{
-    FULL_DETAIL_HYSTERESIS_CHUNKS, FarColumnSummary, FarSummaryInbox, WorldStream,
-};
+use chunk_pipeline::{FarColumnSummary, FarSummaryInbox, WorldStream};
 use client_state::RuntimeSettings;
 use far_terrain::{
     ColumnPos, EncodedSummary, FarTerrainCache, FarTerrainConfig, FarTiles, NearMask,
@@ -246,7 +244,10 @@ pub(crate) fn feed_far_terrain(
         }
         return;
     };
-    for FarColumnSummary { column, summary } in far.drained.drain(..) {
+    for FarColumnSummary {
+        column, summary, ..
+    } in far.drained.drain(..)
+    {
         far.cache.admit(
             column.dimension,
             ColumnPos::new(column.x, column.z),

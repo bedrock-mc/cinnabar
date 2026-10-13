@@ -1,7 +1,7 @@
 //! Far-terrain policy shared by settings, both menus and far terrain itself.
 
-/// Far terrain is on unless the player turns it off.
-pub const DEFAULT_ENABLED: bool = true;
+/// Far terrain is off until the player turns it on.
+pub const DEFAULT_ENABLED: bool = false;
 
 /// How much far-terrain work a device can take, judged by its recommended render distance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

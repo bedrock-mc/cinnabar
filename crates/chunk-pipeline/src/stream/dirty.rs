@@ -104,7 +104,11 @@ impl WorldStream {
         } = scope;
         let sources = sources.into_iter().collect::<BTreeSet<_>>();
         // A far summary reads only its own column's blocks, so only sources refresh one.
-        for column in sources.iter().map(|key| key.chunk()).collect::<BTreeSet<_>>() {
+        for column in sources
+            .iter()
+            .map(|key| key.chunk())
+            .collect::<BTreeSet<_>>()
+        {
             self.note_far_change(column);
         }
         if relight {
