@@ -17,7 +17,9 @@ fn pack() -> assets::SessionEntityPack {
             .unwrap();
         files.push((format!("{texture}.png").into_boxed_str(), png.into_inner()));
     }
-    let compiled = pack_compiler::compile_actor_pack(files).unwrap().unwrap();
+    let compiled = pack_entity_compiler::compile_actor_pack(files)
+        .unwrap()
+        .unwrap();
     assets::SessionEntityPack {
         assets: Arc::new(assets::RuntimeEntityAssets::from_compiled(compiled.entities).unwrap()),
         textures: compiled.textures.into(),
