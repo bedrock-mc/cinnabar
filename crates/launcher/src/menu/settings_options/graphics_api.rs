@@ -48,6 +48,11 @@ pub const OPTION: SettingDefinition = SettingDefinition {
 };
 
 impl SettingsOptions {
+    /// Identifies explicit API selections, including choosing the current Auto value again.
+    pub fn graphics_api_revision(&self) -> u64 {
+        self.graphics_api_revision
+    }
+
     /// Reads the saved startup override; unsupported transferred preferences become Auto.
     pub fn graphics_api(&self) -> Option<Backend> {
         backend(self.value(OPTION.name) as usize)
@@ -58,6 +63,34 @@ impl SettingsOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn selecting_auto_again_and_changing_apis_persists_a_new_recovery_revision() {
+        use super::super::SETTINGS_OPTIONS;
+        let index = SETTINGS_OPTIONS
+            .iter()
+            .position(|option| option.name == OPTION.name)
+            .unwrap();
+        let mut options = SettingsOptions::default();
+        assert_eq!(options.graphics_api_revision(), 0);
+        for choice in [0, 1, 0, 0] {
+            let previous = options.graphics_api_revision();
+            assert!(options.set(index, choice));
+            assert_ne!(options.graphics_api_revision(), previous);
+            let loaded = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+            assert_eq!(
+                loaded.graphics_api_revision(),
+                options.graphics_api_revision()
+            );
+            options = loaded;
+        }
+        let previous = options.graphics_api_revision();
+        options.reset_group(super::super::SettingsGroup::Video);
+        assert_ne!(options.graphics_api_revision(), previous);
+        let previous = options.graphics_api_revision();
+        options.reset_group(super::super::SettingsGroup::Audio);
+        assert_eq!(options.graphics_api_revision(), previous);
+    }
+
     #[test]
     fn choices_derive_from_policy_and_round_trip_without_changing_runtime_video() {
         use super::super::SETTINGS_OPTIONS;

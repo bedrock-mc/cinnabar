@@ -123,9 +123,6 @@ pub fn candidates(
     defaults
         .iter()
         .copied()
-        .filter(|backend| {
-            supported.contains(backend)
-                && (supported.len() == 1 || !sentinel_failed.contains(backend))
-        })
+        .filter(|backend| supported.contains(backend) && !sentinel_failed.contains(backend))
         .collect()
 }

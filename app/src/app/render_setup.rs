@@ -4,6 +4,7 @@ use std::num::NonZeroU32;
 
 mod device;
 mod guarded;
+mod selection;
 
 use bevy::{
     render::settings::WgpuSettings,
@@ -32,6 +33,7 @@ pub(super) fn primary_window(
 /// Initializes the renderer after winit has supplied the real display connection.
 pub(super) struct RendererSetup {
     pub data_root: std::path::PathBuf,
+    pub graphics_api_revision: u64,
     pub video_override: Option<launcher::graphics_backend::Backend>,
 }
 
@@ -40,8 +42,14 @@ impl bevy::prelude::Plugin for RendererSetup {
     fn build(&self, app: &mut bevy::prelude::App) {
         let mut settings = WgpuSettings::default();
         device::configure_render_settings(&mut settings);
-        let renderer = guarded::render_plugin(app, &self.data_root, self.video_override, settings)
-            .unwrap_or_else(|error| panic!("Renderer startup failed: {error:#}"));
+        let renderer = guarded::render_plugin(
+            app,
+            &self.data_root,
+            self.video_override,
+            self.graphics_api_revision,
+            settings,
+        )
+        .unwrap_or_else(|error| panic!("Renderer startup failed: {error:#}"));
         app.add_plugins(renderer);
     }
 }

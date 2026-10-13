@@ -9,7 +9,6 @@ use std::io::Write;
 pub(super) fn configure_render_settings(settings: &mut WgpuSettings) {
     // Shipping installs use FXC; a DLL in the launch directory must not change that.
     settings.dx12_shader_compiler = wgpu::Dx12Compiler::Fxc;
-    settings.power_preference = wgpu::PowerPreference::HighPerformance;
     settings.limits.max_storage_buffers_per_shader_stage = settings
         .limits
         .max_storage_buffers_per_shader_stage
@@ -17,7 +16,7 @@ pub(super) fn configure_render_settings(settings: &mut WgpuSettings) {
 }
 
 /// Converts the policy's backend to wgpu's flags without keeping a separate order table.
-fn flags(backend: Backend) -> wgpu::Backends {
+pub(super) fn flags(backend: Backend) -> wgpu::Backends {
     match backend {
         Backend::Vulkan => wgpu::Backends::VULKAN,
         Backend::Dx12 => wgpu::Backends::DX12,
@@ -105,18 +104,14 @@ fn device_requirements(
     (features, limits)
 }
 
-/// Builds the eligible backends together with the shipping compiler and display policy.
+/// Builds exactly one backend with the shipping compiler and display policy.
 pub(super) fn instance(
-    backends: &[Backend],
+    backend: Backend,
     settings: &WgpuSettings,
     display: Option<Box<dyn wgpu::wgt::WgpuHasDisplayHandle>>,
 ) -> wgpu::Instance {
     let mut descriptor = wgpu::InstanceDescriptor {
-        backends: backends
-            .iter()
-            .fold(wgpu::Backends::empty(), |mask, backend| {
-                mask | flags(*backend)
-            }),
+        backends: flags(backend),
         flags: settings.instance_flags,
         memory_budget_thresholds: settings.instance_memory_budget_thresholds,
         backend_options: Default::default(),
@@ -131,68 +126,18 @@ pub(super) fn instance(
     wgpu::Instance::new(descriptor)
 }
 
-/// Reads the adapter-name preference unless software fallback was explicitly requested.
+/// Reads the adapter-name restriction shared by all backend probes.
 pub(super) fn requested_adapter_name(settings: &WgpuSettings) -> Option<String> {
     std::env::var("WGPU_ADAPTER_NAME")
         .ok()
         .or_else(|| settings.adapter_name.clone())
-        .filter(|_| !force_fallback(settings))
 }
 
 /// Preserves the environment override for software-adapter selection.
-fn force_fallback(settings: &WgpuSettings) -> bool {
+pub(super) fn force_fallback(settings: &WgpuSettings) -> bool {
     std::env::var("WGPU_FORCE_FALLBACK_ADAPTER").map_or(settings.force_fallback_adapter, |value| {
         !(value.is_empty() || value == "0" || value == "false")
     })
-}
-
-/// Searches names per API, then ranks unnamed hardware across all eligible APIs together.
-pub(super) fn search_backends<T>(
-    order: &[Backend],
-    requested_name: Option<&str>,
-    mut select: impl FnMut(&[Backend], Option<&str>) -> Result<Option<T>>,
-) -> Result<Option<T>> {
-    if let Some(name) = requested_name {
-        for backend in order {
-            if let Some(selected) = select(std::slice::from_ref(backend), Some(name))? {
-                return Ok(Some(selected));
-            }
-        }
-    }
-    if order.is_empty() {
-        return Ok(None);
-    }
-    select(order, None)
-}
-
-/// Selects only the named adapter during the name pass; the later fallback uses power preference.
-pub(super) async fn select_adapter(
-    instance: &wgpu::Instance,
-    settings: &WgpuSettings,
-    name: Option<&str>,
-) -> Result<Option<wgpu::Adapter>> {
-    if let Some(name) = name {
-        let adapters = instance
-            .enumerate_adapters(wgpu::Instance::enabled_backend_features())
-            .await;
-        return Ok(adapters.into_iter().find(|adapter| {
-            adapter
-                .get_info()
-                .name
-                .to_lowercase()
-                .contains(&name.to_lowercase())
-        }));
-    }
-    instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: settings.power_preference,
-            force_fallback_adapter: force_fallback(settings),
-            compatible_surface: None,
-            apply_limit_buckets: false,
-        })
-        .await
-        .map(Some)
-        .context("select high-performance renderer adapter")
 }
 
 /// Opens a device only when it supports the renderer's terrain and storage requirements.

@@ -400,18 +400,19 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 ## Graphics API startup recovery
 
 - A shared policy selects Windows Vulkan/DX12, Linux Vulkan/GL, Android Vulkan/GLES,
-  and macOS Metal. Unnamed selection makes one high-performance request across eligible APIs,
-  excluding crashed APIs. Named searches use vendor ordering: Windows Intel GPUs prefer DX12;
-  other multi-API defaults prefer Vulkan. Windows discovers named-adapter vendor policy through DX12.
-- Precedence is `WGPU_BACKEND`, the restart-only Video override, platform/vendor defaults
-  and the driver blocklist, then crash-sentinel exclusions. Explicit overrides bypass automatic
-  exclusions. The Video control is hidden on macOS. A lone supported API remains retryable.
-- Startup creates the renderer directly. All backends must support terrain base-vertex draws
-  and the required vertex-stage storage buffers. Returned initialization errors remain retryable;
-  successful fallback retains exclusions for crashed APIs. Identified failures are keyed to the
-  adapter and driver; changed hardware or drivers permit another attempt. If exclusions exhaust
-  the allowed APIs, startup clears them for one retry pass. Named-adapter selection searches every
-  eligible API before unnamed fallback. Android OS/vendor build changes also reset recovery.
+  and macOS Metal. Each API has its own instance and enumeration sentinel. Known vendor
+  defaults order probes; fresh installs use platform order until hardware is identified.
+- Precedence is `WGPU_BACKEND`, the restart-only Video override, vendor defaults and the
+  driver blocklist, then crash exclusions. Explicit overrides bypass automatic filters.
+  The Video control is hidden on macOS.
+- All eligible adapters are ranked by device type (discrete, integrated, virtual, CPU), then
+  vendor backend order. Windows Intel adapters prefer DX12 on ties; other multi-API defaults
+  prefer Vulkan. A requested adapter name restricts candidates across every API.
+- Startup tries each ranked candidate until a device supports terrain base-vertex draws and
+  the required vertex-stage storage buffers. Returned failures advance to the next candidate.
+  Crash exclusions identify only the backend and survive successful fallback. Client version
+  changes and Graphics API selections, including reselecting Auto, clear exclusions at startup.
+  If every allowed API is excluded, startup clears those exclusions for exactly one attempt pass.
 - The driver blocklist has one data source and bounded numeric version rules. Native Windows
   exception capture and Unix fatal-signal capture retain local renderer context and normal OS
   crash handling.

@@ -693,6 +693,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let renderer = RendererSetup {
         data_root: renderer_data_root,
         video_override: saved_settings.graphics_api(),
+        graphics_api_revision: saved_settings.graphics_api_revision(),
     };
     let plugins = DefaultPlugins
         .set(WindowPlugin {

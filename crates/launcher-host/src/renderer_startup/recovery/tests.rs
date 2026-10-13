@@ -1,127 +1,97 @@
 use super::*;
 
-/// Records an identified device failure without loading a native driver.
-fn attempt(backend: Backend, adapter: Option<Adapter>) -> Attempt {
+/// Models an interrupted API probe without requiring a native driver.
+fn attempt(backend: Backend) -> Attempt {
     Attempt {
         backend,
-        adapter,
-        stage: Stage::CreatingDevice,
+        adapter: None,
+        stage: Stage::EnumeratingAdapters,
         explicit: false,
     }
 }
 
-/// Identifies one synthetic adapter and its installed driver.
-fn adapter() -> Adapter {
-    Adapter {
-        name: "test GPU".into(),
-        vendor: 1,
-        device: 2,
-        driver: "driver".into(),
-        driver_info: "version 1".into(),
-        driver_version: "1".into(),
-        integrated: false,
-    }
-}
-
 #[test]
-fn device_exclusions_expire_after_gpu_or_driver_changes_and_stay_expired() {
-    let original = adapter();
-    for replacement in [
-        Adapter {
-            driver_version: "2".into(),
-            ..original.clone()
-        },
-        Adapter {
-            driver_info: "version 2".into(),
-            ..original.clone()
-        },
-        Adapter {
-            vendor: 3,
-            ..original.clone()
-        },
-        Adapter {
-            device: 4,
-            ..original.clone()
-        },
-    ] {
-        let root = tempfile::tempdir().unwrap();
-        let mut first = StartupGuard::open(root.path()).unwrap();
-        first
-            .begin(attempt(Backend::Vulkan, Some(original.clone())))
-            .unwrap();
-        drop(first);
-        let mut next = StartupGuard::open(root.path()).unwrap();
-        assert!(next.recovery.enumeration_exclusions().is_empty());
-        next.begin(attempt(Backend::Vulkan, None)).unwrap();
-        assert!(next.adapter_excluded(Backend::Vulkan, &original).unwrap());
-        assert!(
-            !next
-                .adapter_excluded(Backend::Vulkan, &replacement)
-                .unwrap()
-        );
-        next.failed().unwrap();
-        drop(next);
-        let reopened = StartupGuard::open(root.path()).unwrap();
-        assert!(reopened.recovery.failed_backends().is_empty());
-    }
-}
-
-#[test]
-fn comparing_different_apis_does_not_clear_an_unchanged_device_failure() {
+fn version_change_clears_exclusions_and_does_not_recover_an_old_sentinel() {
     let root = tempfile::tempdir().unwrap();
-    let original = adapter();
+    let mut first = StartupGuard::open_version(root.path(), "one").unwrap();
+    first.begin(attempt(Backend::Vulkan)).unwrap();
+    drop(first);
+    let mut same = StartupGuard::open_version(root.path(), "one").unwrap();
+    assert_eq!(same.recovery.failed_backends(), [Backend::Vulkan]);
+    same.begin(attempt(Backend::Dx12)).unwrap();
+    drop(same);
+    let next = StartupGuard::open_version(root.path(), "two").unwrap();
+    assert!(next.interrupted.is_none());
+    assert!(next.recovery.failed_backends().is_empty());
+    assert!(StartupGuard::pending(root.path()).unwrap().is_none());
+    drop(next);
+    let reopened = StartupGuard::open_version(root.path(), "two").unwrap();
+    assert!(reopened.recovery.failed_backends().is_empty());
+}
+
+#[test]
+fn graphics_api_selection_resets_exclusions_and_persists_the_revision() {
+    let root = tempfile::tempdir().unwrap();
     let mut first = StartupGuard::open(root.path()).unwrap();
-    first
-        .begin(attempt(Backend::Vulkan, Some(original.clone())))
-        .unwrap();
+    first.refresh_settings(1).unwrap();
+    first.begin(attempt(Backend::Vulkan)).unwrap();
     drop(first);
     let mut next = StartupGuard::open(root.path()).unwrap();
-    let other_api = Adapter {
-        driver: "other API driver".into(),
-        ..original.clone()
-    };
-    assert!(!next.adapter_excluded(Backend::Dx12, &other_api).unwrap());
-    assert!(next.adapter_excluded(Backend::Vulkan, &original).unwrap());
+    next.refresh_settings(1).unwrap();
+    assert_eq!(next.recovery.failed_backends(), [Backend::Vulkan]);
+    next.refresh_settings(2).unwrap();
+    assert!(next.interrupted.is_none());
+    assert!(next.recovery.failed_backends().is_empty());
+    next.begin(attempt(Backend::Dx12)).unwrap();
+    drop(next);
+    let mut reopened = StartupGuard::open(root.path()).unwrap();
+    reopened.refresh_settings(2).unwrap();
+    assert_eq!(reopened.recovery.failed_backends(), [Backend::Dx12]);
+    reopened.refresh_settings(3).unwrap();
+    assert!(reopened.recovery.failed_backends().is_empty());
 }
 
 #[test]
-fn exhausted_legacy_exclusions_are_cleared_once_and_persisted() {
+fn all_excluded_retries_once_and_partial_exclusions_do_not_retry() {
+    let root = tempfile::tempdir().unwrap();
+    let mut guard = StartupGuard::open(root.path()).unwrap();
+    let allowed = [Backend::Vulkan, Backend::Dx12];
+    guard.recovery.recover(&attempt(Backend::Vulkan));
+    assert!(!guard.retry_exclusions(&allowed).unwrap());
+    guard.recovery.recover(&attempt(Backend::Dx12));
+    guard.recovery.recover(&attempt(Backend::Gl));
+    assert!(guard.retry_exclusions(&allowed).unwrap());
+    assert_eq!(guard.recovery.failed_backends(), [Backend::Gl]);
+    assert_eq!(
+        StartupGuard::saved(root.path()).unwrap().failed_backends(),
+        [Backend::Gl]
+    );
+    for backend in allowed {
+        guard.recovery.recover(&attempt(backend));
+    }
+    assert!(!guard.retry_exclusions(&allowed).unwrap());
+    assert!(!guard.retry_exclusions(&[]).unwrap());
+}
+
+#[test]
+fn lone_backend_exclusion_has_the_same_bounded_retry() {
+    let root = tempfile::tempdir().unwrap();
+    let mut guard = StartupGuard::open(root.path()).unwrap();
+    guard.recovery.recover(&attempt(Backend::Metal));
+    assert!(guard.retry_exclusions(&[Backend::Metal]).unwrap());
+    guard.recovery.recover(&attempt(Backend::Metal));
+    assert!(!guard.retry_exclusions(&[Backend::Metal]).unwrap());
+}
+
+#[test]
+fn legacy_identity_fields_are_discarded_on_version_migration() {
     let root = tempfile::tempdir().unwrap();
     fs::write(
         root.path().join(CHOICE_FILE),
-        br#"{"working":null,"failed":["vulkan","dx12","gl"]}"#,
+        br#"{"working":null,"failed":["vulkan"],"direct_driver":"old","failed_adapters":[]}"#,
     )
     .unwrap();
-    let mut guard = StartupGuard::open(root.path()).unwrap();
-    let allowed = [Backend::Vulkan, Backend::Dx12];
-    assert!(
-        allowed
-            .iter()
-            .all(|api| guard.recovery.enumeration_exclusions().contains(api))
-    );
-    assert!(guard.retry_exclusions(&allowed).unwrap());
-    assert!(!guard.retry_exclusions(&allowed).unwrap());
-    assert_eq!(guard.recovery.failed_backends(), [Backend::Gl]);
-    drop(guard);
-    let reopened = StartupGuard::open(root.path()).unwrap();
-    assert_eq!(reopened.recovery.failed_backends(), [Backend::Gl]);
-}
-
-#[test]
-fn exhausted_identified_failures_allow_one_retry_of_the_same_drivers() {
-    let root = tempfile::tempdir().unwrap();
-    let allowed = [Backend::Vulkan, Backend::Dx12];
-    for backend in allowed {
-        let mut guard = StartupGuard::open(root.path()).unwrap();
-        guard.begin(attempt(backend, Some(adapter()))).unwrap();
-    }
-    let mut guard = StartupGuard::open(root.path()).unwrap();
-    for backend in allowed {
-        assert!(guard.adapter_excluded(backend, &adapter()).unwrap());
-    }
-    assert!(guard.retry_exclusions(&allowed).unwrap());
-    for backend in allowed {
-        assert!(!guard.adapter_excluded(backend, &adapter()).unwrap());
-    }
-    assert!(!guard.retry_exclusions(&allowed).unwrap());
+    let guard = StartupGuard::open(root.path()).unwrap();
+    assert!(guard.recovery.failed_backends().is_empty());
+    assert_eq!(guard.recovery.version, launcher::PRODUCT_VERSION);
 }

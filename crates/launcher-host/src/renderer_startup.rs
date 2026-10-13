@@ -13,8 +13,6 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use launcher::graphics_backend::{Adapter, Backend};
 
 pub(crate) mod context;
-#[cfg(target_os = "android")]
-mod direct_driver;
 mod owner;
 mod recovery;
 pub(crate) mod termination;
@@ -54,9 +52,9 @@ pub struct Recovery {
     pub working: Option<Attempt>,
     failed: Vec<Backend>,
     #[serde(default)]
-    direct_driver: Option<String>,
+    version: String,
     #[serde(default)]
-    failed_adapters: Vec<(Backend, Adapter)>,
+    graphics_api_revision: u64,
 }
 
 /// Owns the two local files used to diagnose an interrupted renderer startup.
@@ -67,11 +65,17 @@ pub struct StartupGuard {
     pub recovery: Recovery,
     pub interrupted: Option<Attempt>,
     pending: Option<Attempt>,
+    retried: bool,
 }
 
 impl StartupGuard {
     /// Leases recovery state before consuming a sentinel left by an exited startup.
     pub fn open(root: &Path) -> Result<Self> {
+        Self::open_version(root, launcher::PRODUCT_VERSION)
+    }
+
+    /// Starts a recovery cycle for this client version, discarding older crash exclusions.
+    fn open_version(root: &Path, version: &str) -> Result<Self> {
         let mut active = termination::active()?;
         fs::create_dir_all(root)?;
         let lock = fs::File::options()
@@ -88,13 +92,21 @@ impl StartupGuard {
             fs::TryLockError::Error(error) => error,
         })?;
         let owner = Owner::current()?;
-        let interrupted =
+        let mut interrupted =
             load::<Sentinel>(&root.join(SENTINEL_FILE))?.map(|sentinel| sentinel.attempt);
         let mut recovery = Self::saved(root)?;
+        if recovery.version != version {
+            recovery.reset();
+            recovery.version = version.to_owned();
+            interrupted = None;
+        }
         if let Some(attempt) = &interrupted {
             recovery.recover(attempt);
         }
         save(&root.join(CHOICE_FILE), &recovery)?;
+        if root.join(SENTINEL_FILE).exists() {
+            fs::remove_file(root.join(SENTINEL_FILE))?;
+        }
         let lock = Arc::new(lock);
         active.register(root, &lock);
         Ok(Self {
@@ -104,6 +116,7 @@ impl StartupGuard {
             recovery,
             interrupted,
             pending: None,
+            retried: false,
         })
     }
 
@@ -120,32 +133,14 @@ impl StartupGuard {
         Ok(load(&root.join(CHOICE_FILE))?.unwrap_or_default())
     }
 
-    /// Persists a fresh recovery cycle when the adapter set or driver versions changed.
-    pub fn reset_recovery(&mut self) -> Result<()> {
+    /// Clears exclusions after a saved Graphics API choice, including choosing Auto again.
+    pub fn refresh_settings(&mut self, revision: u64) -> Result<()> {
         let _active = termination::active()?;
         self.require_lease()?;
-        self.recovery.reset();
-        self.interrupted = None;
-        if self.root.join(SENTINEL_FILE).exists() {
-            fs::remove_file(self.root.join(SENTINEL_FILE))?;
-        }
-        save(&self.root.join(CHOICE_FILE), &self.recovery)
-    }
-
-    /// Invalidates Android recovery after an OS or vendor driver build changes, without loading it.
-    pub fn refresh_direct_driver(&mut self) -> Result<()> {
-        #[cfg(target_os = "android")]
-        self.refresh_direct_identity(&direct_driver::identity()?)?;
-        Ok(())
-    }
-
-    /// Migrates unkeyed recovery and discards exclusions from a different driver build.
-    #[cfg(any(target_os = "android", test))]
-    fn refresh_direct_identity(&mut self, identity: &str) -> Result<()> {
-        self.require_lease()?;
-        if self.recovery.direct_driver.as_deref() != Some(identity) {
-            self.reset_recovery()?;
-            self.recovery.direct_driver = Some(identity.to_owned());
+        if self.recovery.graphics_api_revision != revision {
+            self.recovery.reset();
+            self.recovery.graphics_api_revision = revision;
+            self.interrupted = None;
             save(&self.root.join(CHOICE_FILE), &self.recovery)?;
         }
         Ok(())
@@ -167,7 +162,7 @@ impl StartupGuard {
         Ok(())
     }
 
-    /// Clears a returned initialization error without classifying it as a native crash.
+    /// Clears a completed probe or returned error without classifying it as a native crash.
     pub fn failed(&mut self) -> Result<()> {
         let _active = termination::active()?;
         self.require_lease()?;

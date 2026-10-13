@@ -71,11 +71,11 @@ fn precedence_respects_overrides_defaults_and_sentinel() {
 }
 
 #[test]
-fn a_lone_supported_api_remains_retryable_without_a_fallback() {
+fn a_lone_supported_api_obeys_exclusions_before_the_bounded_retry() {
     for backend in Backend::ALL {
         assert_eq!(
             candidates(&[*backend], &[*backend], None, None, &[*backend]),
-            [*backend]
+            []
         );
     }
 }

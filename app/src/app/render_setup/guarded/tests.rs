@@ -3,6 +3,7 @@ use bevy::{
     prelude::{Entity, With},
     window::{PrimaryWindow, WindowCloseRequested, WindowPlugin},
 };
+use launcher_host::renderer_startup::{Attempt, Stage};
 use render_scene::startup_presentation::StartupPresentation;
 
 /// Builds an unfinished first frame without loading a graphics driver.
