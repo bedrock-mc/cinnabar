@@ -1,4 +1,5 @@
 //! Tests shared build caches with small offline packages and lock ownership with fake Cargo.
+#[cfg(unix)]
 mod support;
 #[cfg(unix)]
 mod unix {
