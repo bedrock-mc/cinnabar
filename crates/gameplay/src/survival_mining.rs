@@ -389,17 +389,21 @@ pub struct SurvivalMiningRuntime {
 }
 
 impl SurvivalMiningRuntime {
-    /// Retains a block attack until a simulation tick can carry its destroy actions.
+    /// Retains block presses until a tick can carry them, excluding attacks owned by melee.
     pub fn observe_attack_input(
         &mut self,
         active: bool,
         pressed: bool,
         held: bool,
-        _actor_in_front: bool,
+        actor_in_front: bool,
     ) -> bool {
         if !active {
             self.latched_press = false;
             return false;
+        }
+        if actor_in_front {
+            self.latched_press = false;
+            return pressed || held;
         }
         self.latched_press |= pressed;
         held || self.latched_press

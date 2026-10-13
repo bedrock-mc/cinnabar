@@ -118,7 +118,31 @@ fn an_unstepped_block_attack_survives_release_until_its_destroy_is_carried() {
 
 #[test]
 fn a_held_attack_can_mine_after_the_actor_moves_away() {
+    let mut ticker = ticker_with_ticks(1);
+    flush_player_auth_inputs(&mut ticker, 8, Some(evidence()), |_, _| Ok::<_, ()>(())).unwrap();
+    let support = DestroyTarget {
+        instant: true,
+        ..target([3, 4, 5], "minecraft:stone", None)
+    };
+    let mut melee = attack_painting(&ticker, &support);
     let mut mining = SurvivalMiningRuntime::default();
-    assert!(mining.observe_attack_input(true, true, true, true));
-    assert!(mining.observe_attack_input(true, false, true, false));
+    assert!(mining.observe_attack_input(true, true, true, melee.actor_in_front()));
+    mining.break_on_press(
+        &ticker,
+        DestroyInput::Held(None),
+        Server,
+        |_| {},
+        |_| panic!("the actor is still in front"),
+    );
+    melee.observe_crosshair(Crosshair::Block);
+    assert!(mining.observe_attack_input(true, false, true, melee.actor_in_front()));
+    let mut predicted = Vec::new();
+    mining.break_on_press(
+        &ticker,
+        DestroyInput::Held(Some(&support)),
+        Server,
+        |_| {},
+        |cell| predicted.push(cell),
+    );
+    assert_eq!(predicted, [support.position]);
 }
