@@ -65,7 +65,7 @@ fn line_geometry(layout: &ui::TextLayout) -> [i32; 2] {
 }
 
 #[test]
-fn minecraftten_alias_normalizes_native_glyph_height_and_line_pitch() {
+fn minecraftten_alias_normalizes_outline_line_height_across_rasters() {
     let face = assets::carriers::FONT_TEN.font_face.unwrap();
     let alias = face.json_ui_alias.unwrap();
     let default = fixture_font();
@@ -86,18 +86,6 @@ fn minecraftten_alias_normalizes_native_glyph_height_and_line_pitch() {
                 };
                 let dest = [0.0, 0.0, 800.0, 800.0];
                 let mut layouts = TextLayoutCache::new(4, 1 << 20);
-                let bitmap = layouts
-                    .layout(painted_label_request(
-                        metrics,
-                        "0\n0",
-                        dest,
-                        &font,
-                        factor,
-                        &TextOptions::default(),
-                        TextAlign::Left,
-                        px,
-                    ))
-                    .unwrap();
                 let native = layouts
                     .layout(painted_label_request(
                         metrics,
@@ -110,16 +98,16 @@ fn minecraftten_alias_normalizes_native_glyph_height_and_line_pitch() {
                         px,
                     ))
                     .unwrap();
-                let bitmap_geometry = line_geometry(&bitmap);
                 let native_geometry = line_geometry(&native);
-                if dpi == 1.0 && factor == 13.0 {
-                    assert_eq!(bitmap_geometry, native_geometry);
-                }
-                for (bitmap, native) in bitmap_geometry.into_iter().zip(native_geometry) {
-                    // Layout rounds scale to 1/1024 and glyph edges to 1/64 pixels.
+                let source = font.font_named(alias).line_metrics().unwrap();
+                let height = (source.ascent_64 + source.descent_64) as f32;
+                let expected = [source.em_64 as f32 / height * 12.0, 12.0]
+                    .map(|value| (value * factor * px * 64.0).round() as i32);
+                for (expected, actual) in expected.into_iter().zip(native_geometry) {
+                    // Scale and glyph edges have fixed-point rounding at each raster size.
                     assert!(
-                        (bitmap - native).abs() <= 3,
-                        "em {em}, DPI {dpi}, factor {factor}: {bitmap} != {native}"
+                        (expected - actual).abs() <= 5,
+                        "em {em}, DPI {dpi}, factor {factor}: {expected} != {actual}"
                     );
                 }
                 let shape = LabelShape {
@@ -530,6 +518,103 @@ fn named_styled_font_effects_use_display_units_at_every_raster_resolution() {
                         "bold paint and pen advance must agree"
                     );
                 }
+            }
+        }
+    }
+}
+
+/// Original cap rectangles expose label sizing and baseline placement without external art.
+fn cap_font(em: u16) -> RuntimeFontCatalog {
+    let cap = (u32::from(em) * 7 / 10) as u16;
+    let pixels: Arc<[u8]> = vec![255; usize::from(em) * usize::from(cap)].into();
+    let page = FontTexturePage {
+        source_path: "font/original-cap.png".into(),
+        source_bytes: pixels.len() as u32,
+        source_sha256: [3; 32],
+        pixels_sha256: Sha256::digest(&pixels).into(),
+        width: u32::from(em),
+        height: u32::from(cap),
+        pixels: FontPixels::Coverage(pixels),
+    };
+    let source = assets::carriers::FONT_TEN
+        .font_face
+        .unwrap()
+        .line_metrics_at(u32::from(em));
+    let glyphs = ['0', '\u{fffd}'].map(|codepoint| GlyphMetrics {
+        codepoint,
+        page: 0,
+        uv: [0, 0, em, cap],
+        bearing: [0, -(cap as i16)],
+        advance_64: em as i16 * 64,
+    });
+    let bytes = encode_font_catalog([3; 32], &glyphs, &[page]).unwrap();
+    RuntimeFontCatalog::decode(&bytes, [3; 32])
+        .unwrap()
+        .with_rendering(FontRendering::NativeSdf)
+        .with_line_metrics(source)
+        .unwrap()
+}
+
+#[test]
+fn centered_outline_title_retains_cap_size_and_gui_pixel_inset() {
+    let face = assets::carriers::FONT_TEN.font_face.unwrap();
+    for em in [40, 80] {
+        let font = fixture_font()
+            .with_named_font(face.name, &cap_font(em))
+            .unwrap();
+        for gui in [2, 3] {
+            for dpi in [1.0, 1.5] {
+                let metrics =
+                    TextMetrics::for_viewport([1280, 720], DpiScale::new(dpi).unwrap(), Some(gui));
+                let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+                let mut layouts = TextLayoutCache::new(4, 1 << 20);
+                let options = TextOptions {
+                    font_type: face.json_ui_alias.map(str::to_owned),
+                    ..Default::default()
+                };
+                let height = Measure {
+                    layouts: &RefCell::new(&mut layouts),
+                    font: &font,
+                    metrics,
+                    px,
+                    translate: &|_| None,
+                }
+                .named_label(
+                    "0",
+                    face.name,
+                    None,
+                    LabelShape {
+                        scale: 1.3,
+                        line_padding: 0.0,
+                        hide_hyphen: false,
+                    },
+                )[1] as f32;
+                let top = (26.0 - height) * 0.5 - 2.5;
+                let dest = [0.0, top * px, 200.0 * px, (top + height) * px];
+                let request = painted_label_request(
+                    metrics,
+                    "0",
+                    dest,
+                    &font,
+                    1.3,
+                    &options,
+                    TextAlign::Left,
+                    px,
+                );
+                let layout = layouts.layout(request).unwrap();
+                let glyph = &layout.glyphs()[0];
+                let origin = label_origin(dest, &font, &options, px);
+                let ink_height = (glyph.bounds_64[3] - glyph.bounds_64[1]) as f32 / 64.0 / px;
+                let center =
+                    (origin[1] + (glyph.bounds_64[1] + glyph.bounds_64[3]) as f32 / 128.0) / px;
+                assert!(
+                    (ink_height - 8.8).abs() < 0.15,
+                    "em {em}, GUI {gui}, DPI {dpi}: cap height {ink_height}"
+                );
+                assert!(
+                    (center - 11.75).abs() < 0.15,
+                    "em {em}, GUI {gui}, DPI {dpi}: title center {center}"
+                );
             }
         }
     }
