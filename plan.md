@@ -8589,3 +8589,56 @@ natively too. Until that comparison exists, the counted fallback to the
 base visual is the intended semantic, locked by the connection permutation
 regression. Incomplete: mask compilation, neighbor rule, meshing selection,
 and the native comparison.
+
+## Distant terrain (LOD)
+
+- Opt-in Cinnabar extension in progress, off by default and not vanilla behaviour: render
+  terrain the player has already seen beyond the server view distance. Gameplay and network
+  state do not change. Third-party LOD mods inform the design only; no code is copied.
+- `crates/lod` (Bevy-free, clock-free, no IO) holds the foundation: 32³ sections at levels
+  L0–L6 with level-major 64-bit keys; a 32-bit voxel word (material 18, light 8, coverage 3,
+  water 1, 2 spare) defined once with canonical air and hidden words; palette + bit-packed
+  sections with a dense scratch form, a 32×32 surface-biome grid and tri-state child
+  existence. The word has no `exposed` flag: exposure depends on neighbours and is derived
+  where needed. A section summarises as empty only when all eight children are known
+  empty, so partly explored space never mips into sky-lit air.
+- Level-0 sampling reads a column's sub-chunks, waterlogging layer, biomes and optional
+  solved light through a caller-supplied block classifier. Unsent sub-chunks between and
+  beside the stored ones, up to whole level-0 sections, are air; out-of-range and
+  malformed data is skipped and counted. Missing light falls back, per channel, to sky 15
+  above the highest opaque block and 0 below, block light 0. Opaque blocks enclosed by
+  opaque blocks inside the column become the hidden word.
+- The mip policy (any-child occupancy by material, exposed majority, water surface, opaque
+  leaves, see-through light mean, hidden fallback) is a named table. Exposure reads the
+  caller's neighbour face planes (full 6-neighbour data); a changed plane re-mips the
+  touching one-voxel slab. The per-sub-chunk L0–L4 chain stops exactly at unchanged
+  parents and records tri-state child existence; L5–L6 re-mip from eight children with
+  caller-supplied child states. Tests cover the policy rows, occupancy containment,
+  incremental-against-full equality of voxels, biomes and child masks (including L5–L6 at
+  the key extremes), and equality of L1–L6 with and without the hidden pass outside
+  the listed fallback cases.
+- The material registry is an append-only, checksummed table from persistent keys (Bedrock
+  block-state network hash, or name and canonical state text for server-custom blocks) to
+  material ids; appearance is never stored. Section records carry a CRC32-checked header
+  (magic, version, key, palette length, child mask) and a deflate-6 body; malformed,
+  oversized or mismatched records fail with typed errors.
+- World epochs keep a 16-bit signature of each block column's solid surface (top Y and
+  material, water ignored), 512 bytes per chunk, grouped in 64×64-block regions. A region
+  votes once both sides have recorded 1,024 columns: 32 columns drawn at random from
+  those, at a 50% threshold, as measured. It abstains when either side's draws share one
+  signature; a session merges when matching − 2·mismatching > 10 and splits when
+  mismatching − 2·matching > 100. Replaying the epoch measurement's six worlds through
+  `lod::epoch` gave no wrong region vote in 20,000 draws per pair; sessions merged both
+  edited worlds and split the one pair with more than 100 overlapping regions.
+  `crates/lod/benches/section_costs.rs` measures sampling, mips, packing and records.
+- Incomplete: the client adapter from session block ids to registry keys, signature and
+  access-table persistence, disk store (including dropping sections above a re-sent,
+  shorter column), ingestion hooks and the neighbour-plane scheduling they drive, LOD
+  meshing (including a material for exposed hidden voxels), rendering, fog and Video
+  settings. Surface biomes ignore vertical biome changes within a column. Epoch rules are
+  untested on proxied lobby recordings.
+- Provisional approximations: across a face whose neighbour is unknown, the mip exposes
+  non-hidden voxels and never hidden ones. After the parent-group fallback, exposed
+  all-hidden groups also try the nearest exposed material in their own columns. The water
+  surface rule fires when more than half of the non-air top-layer children are water,
+  looser than a fully water top layer. No parity or performance gate closes from this work.

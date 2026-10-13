@@ -119,6 +119,7 @@ the prepared visual data to the GPU.
 | Workspace member | Package | Ownership and caller guidance | Related owners |
 | --- | --- | --- | --- |
 | `crates/meshing` | `meshing` | CPU chunk, fluid, biome and cloud geometry; use its mesh builders over world and asset inputs. | `chunk-pipeline` schedules terrain work; `render` uploads the results. |
+| `crates/lod` | `lod` | Opt-in distant terrain data: section keys, voxel words, packed sections, level-0 column sampling, mips, the persistent material registry, section records and world-epoch voting; use its pure transforms with caller-supplied block classes and network hashes. | `chunk-pipeline` will schedule sampling; `world` supplies column snapshots; `render` will draw meshes. |
 | `crates/render-api` | `render-api` | Dependency-free publication, pacing and skin-layout contracts; use these values across publication boundaries. | `render-model` owns richer CPU geometry; `render-scene` owns ECS submission resources. |
 | `crates/render-model` | `render-model` | Engine-free render data and CPU geometry for actors, equipment and text; use its frame and geometry types. | `client-presentation` prepares data; `render-scene` carries submissions; `render` owns GPU work. |
 | `crates/render-scene` | `render-scene` | Shared ECS render submission resources and frame acknowledgments; use these at the presentation/backend boundary. | `render-model` defines CPU data; `client-presentation` publishes; `render` consumes it. |

@@ -1,0 +1,33 @@
+[package]
+name = "lod"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+# Sub-chunk, biome and classifier fixtures for tests and benches in dependent crates.
+test-support = []
+# Bench binaries allocate through mimalloc, as the client does.
+benchmark-mimalloc = []
+
+[dependencies]
+# Section record bodies and checksums.
+flate2.workspace = true
+# Palette lookup while packing sections.
+foldhash.workspace = true
+thiserror.workspace = true
+world = { path = "../world" }
+
+[dev-dependencies]
+criterion.workspace = true
+# Enables the fixtures for this crate's own bench, so plain `--all-targets` builds it.
+lod = { path = ".", features = ["test-support"] }
+mimalloc.workspace = true
+
+[[bench]]
+name = "section_costs"
+harness = false
+
+[lints]
+workspace = true

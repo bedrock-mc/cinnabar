@@ -41,6 +41,16 @@ connectivity search from the surface and from a sealed pocket.
 cargo bench --locked -p world -p meshing -p chunk-pipeline --features chunk-pipeline/benchmark-support --bench flight_costs
 ```
 
+`section_costs` times the opt-in distant terrain (LOD) foundation on synthetic fixture
+columns: level-0 sampling of one column with fallback or solved light, the local L0–L4 mip
+chain for a new and an unchanged sub-chunk, a full re-mip from eight children, and
+section packing and record encode/decode. Mips run without neighbour planes.
+
+```sh
+cargo bench --locked -p lod --features lod/benchmark-mimalloc --bench section_costs -- --test
+cargo bench --locked -p lod --features lod/benchmark-mimalloc --bench section_costs -- --save-baseline lod
+```
+
 These are CPU baselines, not join-time or FPS evidence. They omit socket framing,
 real server terrain, GPU preparation/uploads/draws and the rest of the Bevy frame.
 Native performance acceptance still follows [live testing](docs/agents/live-testing.md).

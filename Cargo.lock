@@ -4793,6 +4793,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "lod"
+version = "0.1.17"
+dependencies = [
+ "criterion",
+ "flate2",
+ "foldhash 0.2.0",
+ "lod",
+ "mimalloc",
+ "thiserror 2.0.18",
+ "world",
+]
+
+[[package]]
 name = "log"
 version = "0.4.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"

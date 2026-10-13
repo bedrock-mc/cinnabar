@@ -27,7 +27,7 @@ test-support = []
 env-compat = { path = "../env-compat" }
 block-transform = { path = "../block-transform" }
 bitflags = "2"
-flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+flate2.workspace = true
 glam.workspace = true
 lewton = "0.10.2"
 rayon.workspace = true

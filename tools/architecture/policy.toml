@@ -103,6 +103,15 @@ test_support_features = ["benchmark-mimalloc"]
 allowed_dependencies = ["assets", "block-transform", "world"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
+# Distant terrain LOD data model: Bevy-free, clock-free and IO-free; never reaches world authority or scheduling.
+[[crates]]
+name = "lod"
+path = "crates/lod"
+test_support_features = ["benchmark-mimalloc", "test-support"]
+allowed_dependencies = ["world"]
+forbidden_dependencies = ["asset-compiler", "chunk-pipeline", "client-world", "protocol", "render", "render-scene", "bevy", "wgpu"]
+forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu"]
+
 [[crates]]
 name = "actor-animation"
 path = "crates/actor-animation"
@@ -1018,6 +1027,7 @@ clock_free_crates = [
     "crates/input",
     "crates/inventory",
     "crates/json-ui",
+    "crates/lod",
     "crates/pack-json",
     "crates/meshing",
     "crates/player-state",

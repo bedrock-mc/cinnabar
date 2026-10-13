@@ -18,7 +18,7 @@ enhanced-diagnostics = []
 [dependencies]
 simulation-clock = { path = "../simulation-clock" }
 hashbrown = { version = "0.16.1", default-features = false }
-foldhash = { version = "0.2.0", default-features = false }
+foldhash.workspace = true
 block-transform = { path = "../block-transform" }
 mod-api = { path = "../mod-api" }
 image.workspace = true
