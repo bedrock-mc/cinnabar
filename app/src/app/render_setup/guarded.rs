@@ -6,7 +6,9 @@ use super::device::{
     backends, flags, force_fallback, identity, instance, log, meets_requirements, request_device,
     requested_adapter_name,
 };
-use super::selection::{Candidate, eligible, probe_backend, rank, try_candidates, with_recovery};
+use super::selection::{
+    Candidate, eligible, probe_backend, rank, try_candidates, with_recovery, with_video_fallback,
+};
 use anyhow::Result;
 use bevy::{
     app::OnAppExitSystems,
@@ -46,7 +48,6 @@ pub(super) fn render_plugin(
         .collect();
     let environment =
         std::env::var_os("WGPU_BACKEND").map(|_| backends(settings.backends.unwrap_or_default()));
-    let explicit = environment.is_some() || video.is_some();
     let defaults = guard
         .recovery
         .working
@@ -56,69 +57,74 @@ pub(super) fn render_plugin(
             || platform.backends().to_vec(),
             |adapter| default_order(platform, adapter),
         );
-    let allowed = candidates(&defaults, &supported, environment.as_deref(), video, &[]);
     let requested_name = requested_adapter_name(&settings);
     let software = force_fallback(&settings);
-    let creation = with_recovery(&mut guard, &allowed, explicit, |guard| {
-        let order = candidates(
-            &allowed,
-            &allowed,
-            environment.as_deref(),
-            video,
-            guard.recovery.failed_backends(),
-        );
-        let mut adapters = Vec::new();
-        for backend in order {
-            let found = probe_backend(guard, backend, explicit, || {
-                log(format_args!(
-                    "Renderer probing {backend:?}; DX12 shader compiler: {:?}",
-                    settings.dx12_shader_compiler
-                ));
-                let display = app
-                    .world()
-                    .get_resource::<bevy::winit::DisplayHandleWrapper>()
-                    .map(|display| {
-                        Box::new(display.0.clone()) as Box<dyn wgpu::wgt::WgpuHasDisplayHandle>
-                    });
-                let instance = instance(backend, &settings, display);
-                let mut found = Vec::new();
-                for adapter in bevy::tasks::block_on(instance.enumerate_adapters(flags(backend))) {
-                    if let Err(error) = meets_requirements(&adapter) {
-                        log(format_args!(
-                            "Renderer skipping incompatible adapter {:?}: {error:#}",
-                            adapter.get_info()
-                        ));
-                        continue;
+    let creation = with_video_fallback(environment.is_some(), video, |video| {
+        let explicit = environment.is_some() || video.is_some();
+        let allowed = candidates(&defaults, &supported, environment.as_deref(), video, &[]);
+        with_recovery(&mut guard, &allowed, explicit, |guard| {
+            let order = candidates(
+                &allowed,
+                &allowed,
+                environment.as_deref(),
+                video,
+                guard.recovery.failed_backends(),
+            );
+            let mut adapters = Vec::new();
+            for backend in order {
+                let found = probe_backend(guard, backend, explicit, || {
+                    log(format_args!(
+                        "Renderer probing {backend:?}; DX12 shader compiler: {:?}",
+                        settings.dx12_shader_compiler
+                    ));
+                    let display = app
+                        .world()
+                        .get_resource::<bevy::winit::DisplayHandleWrapper>()
+                        .map(|display| {
+                            Box::new(display.0.clone()) as Box<dyn wgpu::wgt::WgpuHasDisplayHandle>
+                        });
+                    let instance = instance(backend, &settings, display);
+                    let mut found = Vec::new();
+                    for adapter in
+                        bevy::tasks::block_on(instance.enumerate_adapters(flags(backend)))
+                    {
+                        if let Err(error) = meets_requirements(&adapter) {
+                            log(format_args!(
+                                "Renderer skipping incompatible adapter {:?}: {error:#}",
+                                adapter.get_info()
+                            ));
+                            continue;
+                        }
+                        let candidate = Candidate {
+                            backend,
+                            identity: identity(&adapter),
+                            device_type: adapter.get_info().device_type,
+                            native: (instance.clone(), adapter),
+                        };
+                        if eligible(
+                            &candidate,
+                            platform,
+                            requested_name.as_deref(),
+                            software,
+                            explicit,
+                        ) {
+                            found.push(candidate);
+                        }
                     }
-                    let candidate = Candidate {
-                        backend,
-                        identity: identity(&adapter),
-                        device_type: adapter.get_info().device_type,
-                        native: (instance.clone(), adapter),
-                    };
-                    if eligible(
-                        &candidate,
-                        platform,
-                        requested_name.as_deref(),
-                        software,
-                        explicit,
-                    ) {
-                        found.push(candidate);
+                    Ok(found)
+                });
+                match found {
+                    Ok(found) => adapters.extend(found),
+                    Err(error) => {
+                        log(format_args!("Renderer {backend:?} probe failed: {error:#}"));
                     }
-                }
-                Ok(found)
-            });
-            match found {
-                Ok(found) => adapters.extend(found),
-                Err(error) => {
-                    log(format_args!("Renderer {backend:?} probe failed: {error:#}"));
                 }
             }
-        }
-        rank(&mut adapters, platform, settings.power_preference);
-        try_candidates(adapters, guard, explicit, |candidate| {
-            let (instance, adapter) = candidate.native;
-            bevy::tasks::block_on(create_renderer(instance, adapter, &settings))
+            rank(&mut adapters, platform, settings.power_preference);
+            try_candidates(adapters, guard, explicit, |candidate| {
+                let (instance, adapter) = candidate.native;
+                bevy::tasks::block_on(create_renderer(instance, adapter, &settings))
+            })
         })
     })?;
     install_guard(app, guard);

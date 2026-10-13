@@ -69,6 +69,7 @@ impl OptionPreference {
 #[serde(default)]
 pub struct SettingsOptions {
     /// Version of the stored settings format.
+    #[serde(default = "persistence::legacy_schema")]
     schema: u32,
     values: BTreeMap<String, i32>,
     /// Increments on Graphics API selections so choosing Auto can reset crash recovery.

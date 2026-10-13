@@ -6,6 +6,23 @@ use launcher_host::renderer_startup::{Attempt, Stage, StartupGuard};
 
 use super::device::log;
 
+/// Falls back to Auto for this launch after a saved Video choice fails; the environment is strict.
+pub(super) fn with_video_fallback<T>(
+    environment: bool,
+    video: Option<Backend>,
+    mut attempt: impl FnMut(Option<Backend>) -> Result<T>,
+) -> Result<T> {
+    match attempt(video) {
+        Err(error) if !environment && video.is_some() => {
+            log(format_args!(
+                "Saved Graphics API {video:?} failed: {error:#}; falling back to Auto for this launch"
+            ));
+            attempt(None)
+        }
+        result => result,
+    }
+}
+
 /// Retries exhausted automatic selection once with previously excluded APIs restored.
 pub(super) fn with_recovery<T>(
     guard: &mut StartupGuard,

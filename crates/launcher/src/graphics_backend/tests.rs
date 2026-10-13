@@ -22,10 +22,7 @@ fn vendor_defaults_follow_the_render_adapter() {
             [Backend::Dx12, Backend::Vulkan]
         );
         for platform in [Platform::Linux, Platform::Android] {
-            assert_eq!(
-                default_order(platform, &intel),
-                [Backend::Vulkan, Backend::Gl]
-            );
+            assert_eq!(default_order(platform, &intel), [Backend::Vulkan]);
         }
         assert_eq!(default_order(Platform::Macos, &intel), [Backend::Metal]);
     }
@@ -131,4 +128,28 @@ fn older_intel_windows_vulkan_rule_ends_at_the_known_working_driver() {
     gpu.driver_version = "101.2114".into();
     gpu.integrated = false;
     assert!(!matches(&gpu));
+}
+
+#[test]
+fn available_registry_matches_all_platform_candidates_without_gl() {
+    assert!(!Backend::AVAILABLE.contains(&Backend::Gl));
+    let platforms = [
+        Platform::Windows,
+        Platform::Linux,
+        Platform::Android,
+        Platform::Macos,
+    ];
+    for platform in platforms {
+        let supported = platform.backends();
+        assert!(supported.iter().all(|api| Backend::AVAILABLE.contains(api)));
+        assert_eq!(candidates(supported, supported, None, None, &[]), supported);
+        assert!(!supported.contains(&Backend::Gl));
+    }
+    for api in Backend::ALL {
+        assert_eq!(Backend::AVAILABLE.contains(api), *api != Backend::Gl);
+        assert_eq!(
+            Backend::AVAILABLE.contains(api),
+            platforms.iter().any(|p| p.backends().contains(api))
+        );
+    }
 }

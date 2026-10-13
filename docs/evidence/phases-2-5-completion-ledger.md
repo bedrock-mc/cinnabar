@@ -387,7 +387,9 @@ executed locally. No existing completion entry is advanced.
 ## Graphics API startup recovery
 
 The shared backend policy, driver blocklist, crash sentinel and restart-only Video override
-are implemented. Each API is enumerated under its own sentinel before eligible adapters are
+are implemented. GL/GLES is absent from choices and candidates; older saved GL choices read
+as Auto. Android requires Vulkan. Failed saved Video choices retry Auto for the current launch,
+while WGPU_BACKEND stays strict. Each API is enumerated under its own sentinel before eligible adapters are
 ranked by power preference, device type and vendor backend order, with unclassified hardware
 ahead of software. Device failures advance through all candidates;
 named GPU selection restricts every API. Exclusions are keyed only by backend and reset on a
@@ -399,5 +401,5 @@ sufficient storage limits. Native crash reports retain the running process's ren
 independently of shared recovery files.
 Window closure and handled SIGINT/SIGTERM cancel unfinished startup and termination prevents
 later sentinel writes. Panics and native faults remain recoverable. Hardware crash reproduction,
-GL/GLES presentation and rendered Video acceptance remain incomplete as recorded in `plan.md`.
+Android lifecycle and rendered Video acceptance remain incomplete as recorded in `plan.md`.
 No parity or performance completion entry advances.

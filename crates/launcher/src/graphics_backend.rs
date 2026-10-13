@@ -31,6 +31,9 @@ macro_rules! backends {
 backends!(Vulkan => ("vulkan", "Vulkan"), Dx12 => ("dx12", "DX12"), Gl => ("gl", "GL"), Metal => ("metal", "Metal"));
 
 impl Backend {
+    /// Renderer-supported APIs shared by the Video choices and native candidate discovery.
+    pub const AVAILABLE: &'static [Self] = &[Self::Vulkan, Self::Dx12, Self::Metal];
+
     /// Parses a single backend, rejecting lists and unsupported spellings.
     pub fn parse(value: &str) -> Option<Self> {
         Self::ALL
@@ -64,11 +67,11 @@ impl Platform {
         }
     }
 
-    /// The single source for available APIs, Video choices and default ordering.
+    /// The platform subset of available APIs in default order.
     pub const fn backends(self) -> &'static [Backend] {
         match self {
             Self::Windows => &[Backend::Vulkan, Backend::Dx12],
-            Self::Linux | Self::Android => &[Backend::Vulkan, Backend::Gl],
+            Self::Linux | Self::Android => &[Backend::Vulkan],
             Self::Macos => &[Backend::Metal],
         }
     }

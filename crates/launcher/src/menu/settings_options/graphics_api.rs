@@ -3,12 +3,12 @@
 use super::{SettingDefinition, SettingId, SettingsOptions, definitions::SettingChoice};
 use crate::graphics_backend::{Backend, Platform};
 
-/// Returns the backend represented by a stable saved choice; zero is Auto.
+/// Returns the backend represented by a current saved choice; zero is Auto.
 pub const fn backend(choice: usize) -> Option<Backend> {
-    if choice == 0 || choice > Backend::ALL.len() {
+    if choice == 0 || choice > Backend::AVAILABLE.len() {
         None
     } else {
-        Some(Backend::ALL[choice - 1])
+        Some(Backend::AVAILABLE[choice - 1])
     }
 }
 
@@ -18,23 +18,23 @@ pub fn visible(choice: usize, platform: Platform) -> bool {
 }
 
 /// Derives names and labels from the policy's backend registry.
-const fn choices() -> [SettingChoice; Backend::ALL.len() + 1] {
+const fn choices() -> [SettingChoice; Backend::AVAILABLE.len() + 1] {
     let mut choices = [SettingChoice {
         name: "auto",
         label: "Auto",
-    }; Backend::ALL.len() + 1];
+    }; Backend::AVAILABLE.len() + 1];
     let mut i = 0;
-    while i < Backend::ALL.len() {
+    while i < Backend::AVAILABLE.len() {
         choices[i + 1] = SettingChoice {
-            name: Backend::ALL[i].name(),
-            label: Backend::ALL[i].label(Platform::current()),
+            name: Backend::AVAILABLE[i].name(),
+            label: Backend::AVAILABLE[i].label(Platform::current()),
         };
         i += 1;
     }
     choices
 }
 
-/// Choice values remain stable even when a platform hides an unavailable API.
+/// Choices share the native candidate registry; persistence migrates older indices.
 pub const CHOICES: &[SettingChoice] = &choices();
 /// The registry owner for the restart-only graphics preference.
 pub const OPTION: SettingDefinition = SettingId::GraphicsApi.definition();
@@ -107,6 +107,46 @@ mod tests {
             }
             options.reset_group(super::super::SettingsGroup::Video);
             assert_eq!(options.graphics_api(), None);
+        }
+    }
+    #[test]
+    fn offered_choices_match_native_candidates_and_omit_gl() {
+        assert_eq!(CHOICES.len(), Backend::AVAILABLE.len() + 1);
+        assert!(
+            !CHOICES
+                .iter()
+                .any(|choice| matches!(choice.name, "gl" | "gles"))
+        );
+        for platform in [
+            Platform::Windows,
+            Platform::Linux,
+            Platform::Android,
+            Platform::Macos,
+        ] {
+            let offered: Vec<_> = (0..CHOICES.len())
+                .filter(|&choice| visible(choice, platform))
+                .filter_map(backend)
+                .collect();
+            assert_eq!(offered, platform.backends());
+        }
+    }
+
+    #[test]
+    fn legacy_gl_reads_as_auto_and_metal_keeps_its_meaning() {
+        for schema in [None, Some(1)] {
+            for (old, expected) in [(3, None), (4, Some(Backend::Metal))] {
+                let mut saved = serde_json::json!({"values": {"graphics_api": old}});
+                if let Some(schema) = schema {
+                    saved["schema"] = schema.into();
+                }
+                let loaded = SettingsOptions::decode(&serde_json::to_vec(&saved).unwrap()).unwrap();
+                let expected = expected.filter(|api| Platform::current().backends().contains(api));
+                assert_eq!(loaded.graphics_api(), expected);
+                let reloaded =
+                    SettingsOptions::decode(&serde_json::to_vec(&loaded).unwrap()).unwrap();
+                assert_eq!(reloaded.graphics_api(), expected);
+                assert_eq!(reloaded.schema, super::super::SETTINGS_SCHEMA);
+            }
         }
     }
 }

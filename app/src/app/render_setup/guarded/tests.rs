@@ -72,4 +72,5 @@ fn backend_mask_uses_the_policy_order() {
     );
     assert_eq!(backends(wgpu::Backends::DX12), [Backend::Dx12]);
     assert!(backends(wgpu::Backends::empty()).is_empty());
+    assert!(backends(wgpu::Backends::GL).is_empty());
 }

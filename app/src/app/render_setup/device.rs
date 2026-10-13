@@ -26,7 +26,7 @@ pub(super) fn flags(backend: Backend) -> wgpu::Backends {
 
 /// Filters the single policy order by the compiled or explicitly requested backend mask.
 pub(super) fn backends(mask: wgpu::Backends) -> Vec<Backend> {
-    Backend::ALL
+    Backend::AVAILABLE
         .iter()
         .copied()
         .filter(|backend| mask.contains(flags(*backend)))

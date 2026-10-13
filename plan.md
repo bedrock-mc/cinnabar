@@ -412,11 +412,13 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 
 ## Graphics API startup recovery
 
-- A shared policy selects Windows Vulkan/DX12, Linux Vulkan/GL, Android Vulkan/GLES,
+- A shared policy selects Windows Vulkan/DX12, Linux Vulkan, Android Vulkan,
   and macOS Metal. Each API has its own instance and enumeration sentinel. Known vendor
   defaults order probes; fresh installs use platform order until hardware is identified.
 - Precedence is `WGPU_BACKEND`, the restart-only Video override, vendor defaults and the
   driver blocklist, then crash exclusions. Explicit overrides bypass automatic filters.
+  A failed saved Video choice retries Auto for that launch; only the environment override is strict.
+  GL/GLES is unavailable, saved GL choices become Auto, and Android requires Vulkan.
   The Video control is hidden on macOS.
 - All eligible adapters are ranked by device type (discrete, integrated, virtual, other, CPU),
   then vendor backend order. Low-power preference puts integrated hardware before discrete.
@@ -438,7 +440,7 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   writes, while panics and native faults retain crash evidence. Saved Unix handlers receive the
   original signal information and machine context; default hardware faults repeat their original
   instruction. Another client's saved choice cannot change this process's crash attribution.
-- Target-device crash reproduction, Android lifecycle acceptance, GL/GLES presentation
+- Target-device crash reproduction, Android lifecycle acceptance
   and Video screenshots remain incomplete. This work closes no parity or performance gate.
 
 ## UI text and presentation failure recovery

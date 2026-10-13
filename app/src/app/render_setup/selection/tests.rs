@@ -341,3 +341,43 @@ fn working_fallback_and_explicit_selection_do_not_reset_exclusions() {
         assert_eq!(guard.recovery.failed_backends(), [Backend::Vulkan]);
     }
 }
+
+#[test]
+fn failed_video_choice_retries_auto_only_for_the_current_launch() {
+    for auto_succeeds in [false, true] {
+        let saved = Some(Backend::Dx12);
+        let mut attempts = Vec::new();
+        let result = with_video_fallback(false, saved, |video| {
+            attempts.push(video);
+            if video.is_none() && auto_succeeds {
+                Ok(Backend::Vulkan)
+            } else {
+                bail!("device rejected")
+            }
+        });
+        assert_eq!(attempts, [saved, None]);
+        assert_eq!(result.is_ok(), auto_succeeds);
+    }
+}
+
+#[test]
+fn environment_is_strict_and_successful_video_choices_do_not_retry() {
+    for (environment, video, succeeds) in [
+        (true, Some(Backend::Dx12), false),
+        (true, None, false),
+        (false, None, false),
+        (false, Some(Backend::Dx12), true),
+    ] {
+        let mut attempts = Vec::new();
+        let result = with_video_fallback(environment, video, |choice| {
+            attempts.push(choice);
+            if succeeds {
+                Ok(())
+            } else {
+                bail!("device rejected")
+            }
+        });
+        assert_eq!(attempts, [video]);
+        assert_eq!(result.is_ok(), succeeds);
+    }
+}
