@@ -4,6 +4,8 @@
 mod native;
 #[cfg(any(windows, test))]
 mod native_address;
+#[cfg(unix)]
+pub(crate) mod unix;
 
 use std::{
     backtrace::Backtrace,
@@ -40,6 +42,8 @@ pub fn install_panic_hook(layout: &InstallLayout, flush_logs: fn()) {
     let data_root = layout.user_data_root.clone();
     #[cfg(windows)]
     native::install(layout, flush_logs);
+    #[cfg(unix)]
+    unix::install(layout);
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         write_report(&crash_dir, &core_log, &data_root, &info.to_string());
@@ -205,7 +209,8 @@ mod tests {
 
     #[test]
     fn panic_report_retains_the_pending_renderer_stage_and_gpu() {
-        use crate::renderer_startup::{Adapter, Backend, Stage};
+        use crate::renderer_startup::Stage;
+        use launcher::graphics_backend::{Adapter, Backend};
         let dir = tempfile::tempdir().unwrap();
         let mut guard = StartupGuard::open(dir.path()).unwrap();
         let attempt = Attempt {
@@ -216,6 +221,8 @@ mod tests {
                 device: 2,
                 driver: "driver".into(),
                 driver_info: "version".into(),
+                driver_version: String::new(),
+                integrated: false,
             }),
             stage: Stage::FirstPresentation,
             explicit: false,

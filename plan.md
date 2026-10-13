@@ -386,16 +386,23 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - The reported unfocused macOS startup panic remains incomplete until a matching
   headless startup capture reproduces it. No native parity or frame-budget gate closes.
 
-## Windows renderer startup recovery
+## Graphics API startup recovery
 
-- Renderer startup flushes backend, adapter and driver diagnostics before native GPU calls.
-  A local sentinel records adapter enumeration, device creation and first presentation.
-- Interrupted automatic attempts exclude their backend on the next launch. The bounded order
-  is Vulkan, DX12, then GL/ANGLE when supported; explicit `WGPU_BACKEND` takes precedence.
-  The first completed primary-window presentation clears the sentinel and saves the working GPU.
-- Windows native exception reports stay local and include the fault module and offset,
-  thread, best-effort backtrace and renderer state. Existing runtime exception handlers retain
-  their normal behavior. This recovery policy does not close a Bedrock parity gate.
+- A shared policy selects Windows Vulkan/DX12, Linux Vulkan/GL, Android Vulkan/GLES,
+  and macOS Metal. Windows Intel integrated GPUs prefer DX12; other multi-API defaults
+  prefer Vulkan. Adapter selection requests high performance on hybrid systems.
+- Precedence is `WGPU_BACKEND`, the restart-only Video override, a cached probe verdict,
+  the platform/vendor default, then the startup sentinel as a final fallback filter.
+  Explicit overrides bypass automatic exclusions. The Video control is hidden on macOS.
+- Isolated inventory and presentation helpers do not load assets or start a Bevy app.
+  Presentation probes have a five-second deadline and durable driver-specific verdicts;
+  adapter or driver changes invalidate the cache. Android runs the same Rust probe in
+  a private service process. GL/GLES still must satisfy the renderer's device requirements.
+- The driver blocklist has one data source and bounded numeric version rules. Older Windows
+  Intel integrated Vulkan drivers prefer DX12. Native Windows exception capture and Unix
+  fatal-signal capture retain local renderer context and normal OS crash handling.
+- Target-device crash reproduction, Android service runtime acceptance, GL/GLES presentation
+  and Video screenshots remain incomplete. This work closes no parity or performance gate.
 
 ## UI text and presentation failure recovery
 

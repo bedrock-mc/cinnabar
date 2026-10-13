@@ -1,63 +1,172 @@
 //! Selects a single backend and adapter before entering native GPU device creation.
 
-use std::{io::Write, path::Path};
+use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use crate::gpu_probe::device::{backends, identity, instance, log, request_device, select_adapter};
+use anyhow::{Result, bail};
 use bevy::{
     prelude::{App, Local, Res, ResMut, Resource, Update},
     render::{
         RenderPlugin,
         renderer::{RenderAdapter, RenderAdapterInfo, RenderDevice, RenderInstance, RenderQueue},
-        settings::{RenderCreation, WgpuSettings, WgpuSettingsPriority},
+        settings::{RenderCreation, WgpuSettings},
     },
 };
-use launcher_host::renderer_startup::{Adapter, Attempt, Backend, Stage, StartupGuard};
+use launcher::graphics_backend::{
+    AdapterKey, Backend, INVENTORY_FLAG, Inventory, PROBE_FLAG, Platform, Verdict, blocklist,
+    candidates, default_order,
+};
+use launcher_host::renderer_startup::{
+    Attempt, Stage, StartupGuard, load_probe_cache, probe, save_probe_cache,
+};
 
 #[derive(Resource)]
 struct RendererGuard(StartupGuard);
 
-/// Creates only supported, unblocked backends and keeps the sentinel through first presentation.
+/// Applies override, probe and vendor policy before loading one native backend in the parent.
 pub(super) fn render_plugin(
     app: &mut App,
     root: &Path,
+    video: Option<Backend>,
     settings: WgpuSettings,
 ) -> Result<RenderPlugin> {
     let mut guard = StartupGuard::open(root)?;
     if let Some(previous) = &guard.interrupted {
-        log(format_args!(
-            "Renderer startup interrupted: {previous:?}; choosing a fallback unless WGPU_BACKEND is set"
-        ));
+        log(format_args!("Renderer startup interrupted: {previous:?}"));
     }
-    let supported = backends(wgpu::Instance::enabled_backend_features());
-    let explicit =
+    let platform = Platform::current();
+    let supported: Vec<_> = backends(wgpu::Instance::enabled_backend_features())
+        .into_iter()
+        .filter(|backend| platform.backends().contains(backend))
+        .collect();
+    let environment =
         std::env::var_os("WGPU_BACKEND").map(|_| backends(settings.backends.unwrap_or_default()));
-    let candidates = guard.recovery.candidates(&supported, explicit.as_deref());
-    if candidates.is_empty() {
-        bail!(
-            "No untried supported renderer backend remains. See client.log and crashes/*.json; set WGPU_BACKEND explicitly to retry after updating GPU drivers."
-        );
-    }
-    for backend in candidates {
-        let preferred = guard
-            .recovery
-            .working
-            .as_ref()
-            .filter(|working| working.backend == backend)
-            .and_then(|working| working.adapter.clone());
+    let explicit = environment.is_some() || video.is_some();
+    let mut cache = if explicit {
+        Default::default()
+    } else {
+        load_probe_cache(root)?
+    };
+    let inventories = if explicit {
+        Vec::new()
+    } else {
+        inventory(platform, &supported)?
+    };
+    let mut order = if explicit {
+        candidates(
+            platform.backends(),
+            &supported,
+            environment.as_deref(),
+            video,
+            &[],
+            &[],
+            guard.recovery.failed_backends(),
+        )
+    } else {
+        let selected = &inventories
+            .first()
+            .ok_or_else(|| {
+                anyhow::anyhow!("No graphics adapter could be inventoried on the supported APIs")
+            })?
+            .1
+            .selected;
+        let fingerprint: Vec<_> = inventories
+            .iter()
+            .flat_map(|(_, inventory)| inventory.fingerprint())
+            .collect();
+        let known = cache.has_inventory();
+        if cache.refresh(fingerprint) && known {
+            guard.reset_recovery()?;
+        }
+        // A sentinel failure overrides a formerly successful probe for this driver revision.
+        for (backend, inventory) in &inventories {
+            if guard.recovery.failed_backends().contains(backend) {
+                cache.record(inventory.selected.key(), *backend, Verdict::Failed);
+            }
+        }
+        let defaults = default_order(platform, selected);
+        let available: Vec<_> = inventories.iter().map(|(backend, _)| *backend).collect();
+        let verdicts: Vec<_> = inventories
+            .iter()
+            .filter_map(|(backend, inventory)| {
+                cache
+                    .get(&inventory.selected.key(), *backend)
+                    .map(|verdict| (*backend, verdict))
+            })
+            .collect();
+        let blocked: Vec<_> = inventories
+            .iter()
+            .filter_map(|(backend, inventory)| {
+                blocklist::rules()
+                    .iter()
+                    .find(|rule| {
+                        rule.backend == *backend && rule.matches(platform, &inventory.selected)
+                    })
+                    .map(|rule| {
+                        log(format_args!(
+                            "Renderer avoiding {backend:?}: {}",
+                            rule.reason
+                        ));
+                        *backend
+                    })
+            })
+            .collect();
+        for (backend, verdict) in &verdicts {
+            log(format_args!("GPU probe cached: {backend:?}: {verdict:?}"));
+        }
+        save_probe_cache(root, &cache)?;
+        candidates(
+            &defaults,
+            &available,
+            None,
+            None,
+            &verdicts,
+            &blocked,
+            guard.recovery.failed_backends(),
+        )
+    };
+    order.retain(|backend| supported.contains(backend));
+    for backend in order {
+        let key = inventories
+            .iter()
+            .find(|(api, _)| *api == backend)
+            .map(|(_, inventory)| inventory.selected.key());
+        if let Some(key) = &key {
+            let verdict = probe::cached(root, &mut cache, key, backend, || {
+                log(format_args!("GPU probe starting: {backend:?} {key:?}"));
+                probe::run(&[
+                    PROBE_FLAG.into(),
+                    backend.name().into(),
+                    serde_json::to_string(key)?,
+                ])
+            })?;
+            log(format_args!(
+                "GPU probe verdict: {backend:?} {key:?}: {verdict:?}"
+            ));
+            if verdict != Verdict::Passed {
+                continue;
+            }
+        }
         guard.begin(Attempt {
             backend,
             adapter: None,
             stage: Stage::EnumeratingAdapters,
-            explicit: explicit.is_some(),
+            explicit,
         })?;
         log(format_args!(
-            "Renderer enumerating {backend:?}; DX12 shader compiler: {:?}",
+            "Renderer opening {backend:?}; DX12 shader compiler: {:?}",
             settings.dx12_shader_compiler
         ));
         match bevy::tasks::block_on(create_renderer(
             backend,
-            preferred.as_ref(),
+            key.as_ref(),
             &settings,
+            explicit,
+            app.world()
+                .get_resource::<bevy::winit::DisplayHandleWrapper>()
+                .map(|display| {
+                    Box::new(display.0.clone()) as Box<dyn wgpu::wgt::WgpuHasDisplayHandle>
+                }),
             &mut guard,
         )) {
             Ok(creation) => {
@@ -72,134 +181,75 @@ pub(super) fn render_plugin(
                 log(format_args!(
                     "Renderer {backend:?} initialization failed: {error:#}"
                 ));
+                if let Some(key) = &key {
+                    cache.record(key.clone(), backend, Verdict::Failed);
+                    save_probe_cache(root, &cache)?;
+                }
                 guard.failed()?;
             }
         }
     }
     bail!(
-        "All requested renderer backends failed. See client.log and crashes/*.json; WGPU_BACKEND=dx12 selects DX12 explicitly."
-    )
+        "No safe supported graphics API remains. See client.log and crashes; update GPU drivers or choose an explicit Graphics API to retry."
+    );
 }
 
-/// Converts the policy's backend to wgpu's flags without keeping a separate order table.
-fn flags(backend: Backend) -> wgpu::Backends {
-    match backend {
-        Backend::Vulkan => wgpu::Backends::VULKAN,
-        Backend::Dx12 => wgpu::Backends::DX12,
-        Backend::Gl => wgpu::Backends::GL,
-    }
-}
-
-/// Filters the single policy order by the compiled or explicitly requested backend mask.
-fn backends(mask: wgpu::Backends) -> Vec<Backend> {
-    Backend::ORDER
+/// Inventories the requested high-performance GPU outside the parent, falling back after ICD failure.
+fn inventory(platform: Platform, supported: &[Backend]) -> Result<Vec<(Backend, Inventory)>> {
+    let mut inventories = Vec::new();
+    for backend in platform
+        .inventory_order()
         .iter()
-        .copied()
-        .filter(|backend| mask.contains(flags(*backend)))
-        .collect()
-}
-
-/// Copies diagnostic identity from the selected adapter rather than inferring a GPU from its name.
-fn identity(info: &wgpu::AdapterInfo) -> Adapter {
-    Adapter {
-        name: info.name.clone(),
-        vendor: info.vendor,
-        device: info.device,
-        driver: info.driver.clone(),
-        driver_info: info.driver_info.clone(),
+        .filter(|backend| supported.contains(backend))
+    {
+        log(format_args!("GPU inventory starting: {backend:?}"));
+        match probe::run(&[INVENTORY_FLAG.into(), backend.name().into()]) {
+            Ok(output) if output.verdict == Verdict::Passed => {
+                match serde_json::from_str::<Inventory>(&output.stdout) {
+                    Ok(inventory) => {
+                        log(format_args!(
+                            "GPU inventory selected: {:?}",
+                            inventory.selected
+                        ));
+                        inventories.push((*backend, inventory));
+                    }
+                    Err(error) => log(format_args!("GPU inventory invalid: {error}")),
+                }
+            }
+            Ok(output) => log(format_args!(
+                "GPU inventory verdict: {backend:?}: {:?}",
+                output.verdict
+            )),
+            Err(error) => log(format_args!(
+                "GPU inventory transport failed: {backend:?}: {error:#}"
+            )),
+        }
     }
+    Ok(inventories)
 }
 
-/// Flushes each startup boundary to client.log before executing the next native call.
-fn log(message: std::fmt::Arguments<'_>) {
-    let _ = writeln!(diagnostics::console::stderr(), "{message}");
-    diagnostics::console::flush();
-}
-
-/// Initializes one exact adapter, preserving Bevy's feature and limit policy.
+/// Initializes the exact probed adapter, retaining the sentinel until the real first frame.
 async fn create_renderer(
     backend: Backend,
-    preferred: Option<&Adapter>,
+    key: Option<&AdapterKey>,
     settings: &WgpuSettings,
+    explicit: bool,
+    display: Option<Box<dyn wgpu::wgt::WgpuHasDisplayHandle>>,
     guard: &mut StartupGuard,
 ) -> Result<RenderCreation> {
-    let mut descriptor = wgpu::InstanceDescriptor {
-        backends: flags(backend),
-        flags: settings.instance_flags,
-        memory_budget_thresholds: settings.instance_memory_budget_thresholds,
-        backend_options: Default::default(),
-        display: None,
-    };
-    descriptor.backend_options.dx12.shader_compiler = settings.dx12_shader_compiler.clone();
-    descriptor.backend_options.dx12.presentation_system =
-        wgpu::wgt::Dx12SwapchainKind::from_env().unwrap_or_default();
-    descriptor.backend_options.dx12.latency_waitable_object =
-        wgpu::wgt::Dx12UseFrameLatencyWaitableObject::from_env().unwrap_or_default();
-    descriptor.backend_options.gl.gles_minor_version = settings.gles3_minor_version;
-    let instance = wgpu::Instance::new(descriptor);
-    let adapters = instance.enumerate_adapters(flags(backend)).await;
-    for adapter in &adapters {
-        log(format_args!("Renderer adapter: {:?}", adapter.get_info()));
-    }
-    let desired_name = std::env::var("WGPU_ADAPTER_NAME")
-        .ok()
-        .or_else(|| settings.adapter_name.clone());
-    let force_fallback = std::env::var("WGPU_FORCE_FALLBACK_ADAPTER")
-        .map_or(settings.force_fallback_adapter, |value| {
-            !(value.is_empty() || value == "0" || value == "false")
-        });
-    let adapter = if !force_fallback {
-        adapters.into_iter().find(|adapter| {
-            let info = adapter.get_info();
-            if let Some(name) = &desired_name {
-                info.name.to_lowercase().contains(&name.to_lowercase())
-            } else {
-                preferred.is_some_and(|preferred| identity(&info) == *preferred)
-            }
-        })
-    } else {
-        None
-    };
-    let adapter = match adapter {
-        Some(adapter) => adapter,
-        None => instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: settings.power_preference,
-                force_fallback_adapter: force_fallback,
-                compatible_surface: None,
-                apply_limit_buckets: false,
-            })
-            .await
-            .context("select renderer adapter")?,
-    };
+    let instance = instance(backend, settings, display);
+    let adapter = select_adapter(&instance, settings, key).await?;
     let info = adapter.get_info();
-    let explicit = std::env::var_os("WGPU_BACKEND").is_some();
-    guard.begin(Attempt {
+    let attempt = |stage| Attempt {
         backend,
-        adapter: Some(identity(&info)),
-        stage: Stage::CreatingDevice,
+        adapter: Some(identity(&adapter)),
+        stage,
         explicit,
-    })?;
+    };
+    guard.begin(attempt(Stage::CreatingDevice))?;
     log(format_args!("Renderer creating device: {info:?}"));
-    let (features, limits) = device_requirements(&adapter, settings);
-    let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor {
-            label: settings.device_label.as_deref(),
-            required_features: features,
-            required_limits: limits,
-            // SAFETY: These are the same experimental features enabled by Bevy's renderer.
-            experimental_features: unsafe { wgpu::ExperimentalFeatures::enabled() },
-            memory_hints: settings.memory_hints.clone(),
-            trace: wgpu::Trace::Off,
-        })
-        .await
-        .context("create renderer device")?;
-    guard.begin(Attempt {
-        backend,
-        adapter: Some(identity(&info)),
-        stage: Stage::FirstPresentation,
-        explicit,
-    })?;
+    let (device, queue) = request_device(&adapter, settings).await?;
+    guard.begin(attempt(Stage::FirstPresentation))?;
     log(format_args!(
         "Renderer device ready; awaiting first presentation: {info:?}"
     ));
@@ -210,30 +260,6 @@ async fn create_renderer(
         RenderAdapter::new(adapter),
         RenderInstance::new(instance),
     ))
-}
-
-/// Applies the existing automatic feature selection and constrained device limits.
-fn device_requirements(
-    adapter: &wgpu::Adapter,
-    settings: &WgpuSettings,
-) -> (wgpu::Features, wgpu::Limits) {
-    let mut features = wgpu::Features::empty();
-    let mut limits = settings.limits.clone();
-    if matches!(settings.priority, WgpuSettingsPriority::Functionality) {
-        features = adapter.features();
-        limits = adapter.limits();
-        if adapter.get_info().device_type == wgpu::DeviceType::DiscreteGpu {
-            features.remove(wgpu::Features::MAPPABLE_PRIMARY_BUFFERS);
-        }
-    }
-    if let Some(disabled) = settings.disabled_features {
-        features.remove(disabled);
-    }
-    features |= settings.features;
-    if let Some(constrained) = &settings.constrained_limits {
-        limits = limits.or_worse_values_from(constrained);
-    }
-    (features, limits)
 }
 
 /// Clears the guard only after a primary-window presentation and GPU completion.

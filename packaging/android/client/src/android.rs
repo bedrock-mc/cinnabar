@@ -1,6 +1,7 @@
 //! The NativeActivity entry that runs the client, and the setup activity's natives.
 
 mod bootstrap;
+mod gpu_probe;
 
 use std::{
     path::{Path, PathBuf},
@@ -58,6 +59,7 @@ fn run_client() -> Result<()> {
         .internal_data_path()
         .context("Android reported no private files directory")?;
     configure_android(layout(&files_dir, &native_library_dir(app)?))?;
+    launcher_host::renderer_startup::probe::set_runner(gpu_probe::run)?;
     if cinnabar::lifecycle::before_run(false)? {
         cinnabar::run(cinnabar::args::ClientArgs {
             force_vsync: true,

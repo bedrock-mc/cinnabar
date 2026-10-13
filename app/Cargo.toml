@@ -125,9 +125,13 @@ tokio.workspace = true
 ui = { path = "../crates/ui" }
 ui-engine = { path = "../crates/ui-engine" }
 ui-screens = { path = "../crates/ui-screens" }
+raw-window-handle = "0.6.2"
 wgpu.workspace = true
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 world = { path = "../crates/world" }
+
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+wgpu = { workspace = true, features = ["gles"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
@@ -137,7 +141,6 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CADisplayLink", "CAFrameRateRange"] }
 
 [target.'cfg(windows)'.dependencies]
-raw-window-handle = "0.6.2"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_UI_Input_KeyboardAndMouse",

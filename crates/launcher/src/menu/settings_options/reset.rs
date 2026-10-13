@@ -35,6 +35,7 @@ impl SettingsGroup {
             Self::Video => matches!(
                 name,
                 "graphics_mode"
+                    | "graphics_api"
                     | "render_distance"
                     | "gamma"
                     | "third_person"

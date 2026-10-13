@@ -23,6 +23,14 @@ pub(crate) fn dispatch() {
     {
         std::process::exit(first_run::run_setup_process());
     }
+    #[cfg(not(target_os = "android"))]
+    if std::env::args_os().nth(1).is_some_and(|arg| {
+        arg == launcher::graphics_backend::PROBE_FLAG
+            || arg == launcher::graphics_backend::INVENTORY_FLAG
+    }) {
+        let args = std::env::args().skip(1).collect::<Vec<_>>();
+        std::process::exit(cinnabar::gpu_probe::dispatch(&args));
+    }
     match ClientArgs::parse_env() {
         Ok(ParseOutcome::Help) => print!("{}", cinnabar::args::HELP),
         Ok(ParseOutcome::Run(args)) => {

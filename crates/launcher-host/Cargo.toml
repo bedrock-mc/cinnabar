@@ -38,6 +38,7 @@ url = "2"
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [target.'cfg(unix)'.dependencies]
+libc = "0.2"
 rustix = { version = "1", default-features = false, features = ["fs", "process", "std", "stdio"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -66,8 +67,6 @@ windows-sys = { version = "0.61", features = [
 test-time = { path = "../test-time" }
 launcher = { path = "../launcher", features = ["test-support"] }
 
-[target.'cfg(unix)'.dev-dependencies]
-libc = "0.2"
 
 [lints]
 workspace = true

@@ -18,6 +18,7 @@ pub mod accounts;
 pub mod branding;
 pub mod dressing_room;
 pub mod global_resources;
+pub mod graphics_backend;
 pub mod install_layout;
 pub mod local_worlds;
 pub mod menu;

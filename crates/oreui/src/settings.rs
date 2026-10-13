@@ -369,6 +369,14 @@ impl Content<'_, '_> {
     }
 
     pub(super) fn option(&mut self, name: &str) -> Result<(), PaintError> {
+        if name == launcher::menu::settings_options::graphics_api::OPTION.name
+            && launcher::graphics_backend::Platform::current()
+                .backends()
+                .len()
+                < 2
+        {
+            return Ok(());
+        }
         if name == "full_screen" {
             let action = MenuAction::SettingsFullscreen(!self.view.fullscreen);
             let title = self.word("options.fullscreen");
@@ -396,7 +404,9 @@ impl Content<'_, '_> {
         };
         let description =
             (self.translate)(&description_key).map_or_else(String::new, |text| text.to_string());
-        let description = if name == launcher::menu::settings_options::VRR_OPTION.name {
+        let description = if name == launcher::menu::settings_options::graphics_api::OPTION.name {
+            "Restart required. Auto checks driver stability before choosing an API. WGPU_BACKEND takes priority over this setting.".to_owned()
+        } else if name == launcher::menu::settings_options::VRR_OPTION.name {
             "Automatic uses display detection. Choose On if variable refresh is enabled in your display and system settings, or Off to disable the VRR frame cap.".to_owned()
         } else if name == launcher::menu::settings_options::AUTO_UPDATE_OPTION.name {
             "Check the selected channel and download verified updates in the background.".to_owned()

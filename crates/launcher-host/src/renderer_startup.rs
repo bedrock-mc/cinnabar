@@ -9,31 +9,9 @@ use std::{
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-// The enum and its recovery order have one source so another backend cannot be omitted silently.
-macro_rules! define_backends {
-    ($($backend:ident),+ $(,)?) => {
-        /// Backends in automatic startup order; the caller skips unsupported backends.
-        #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-        #[serde(rename_all = "lowercase")]
-        pub enum Backend { $($backend),+ }
+use launcher::graphics_backend::{Adapter, Backend, ProbeCache};
 
-        impl Backend {
-            /// The recovery order shared by policy and renderer setup.
-            pub const ORDER: &'static [Self] = &[$(Self::$backend),+];
-        }
-    };
-}
-define_backends!(Vulkan, Dx12, Gl);
-
-/// Adapter identity and driver details recorded before device creation.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct Adapter {
-    pub name: String,
-    pub vendor: u32,
-    pub device: u32,
-    pub driver: String,
-    pub driver_info: String,
-}
+pub mod probe;
 
 /// The last operation that must finish before startup is considered successful.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -79,23 +57,15 @@ impl Recovery {
         }
     }
 
-    /// Returns a bounded list, preferring the last working backend unless explicitly overridden.
-    pub fn candidates(&self, supported: &[Backend], explicit: Option<&[Backend]>) -> Vec<Backend> {
-        if let Some(explicit) = explicit {
-            return Backend::ORDER
-                .iter()
-                .copied()
-                .filter(|backend| supported.contains(backend) && explicit.contains(backend))
-                .collect();
-        }
-        let mut order = Backend::ORDER.to_vec();
-        if let Some(working) = &self.working {
-            order.sort_by_key(|backend| *backend != working.backend);
-        }
-        order
-            .into_iter()
-            .filter(|backend| supported.contains(backend) && !self.failed.contains(backend))
-            .collect()
+    /// The sentinel exclusions are applied after automatic probe and vendor ordering.
+    pub fn failed_backends(&self) -> &[Backend] {
+        &self.failed
+    }
+
+    /// Allows a new driver or adapter set to begin a fresh recovery cycle.
+    pub fn reset(&mut self) {
+        self.failed.clear();
+        self.working = None;
     }
 
     /// Remembers any completed choice and starts a new recovery cycle.
@@ -141,9 +111,21 @@ impl StartupGuard {
         Ok(load(&root.join(CHOICE_FILE))?.unwrap_or_default())
     }
 
+    /// Persists a fresh recovery cycle when the adapter set or driver versions changed.
+    pub fn reset_recovery(&mut self) -> Result<()> {
+        self.recovery.reset();
+        self.interrupted = None;
+        if self.root.join(SENTINEL_FILE).exists() {
+            fs::remove_file(self.root.join(SENTINEL_FILE))?;
+        }
+        save(&self.root.join(CHOICE_FILE), &self.recovery)
+    }
+
     /// Flushes the next operation to disk before the caller enters a native driver.
     pub fn begin(&mut self, attempt: Attempt) -> Result<()> {
         save(&self.root.join(SENTINEL_FILE), &attempt)?;
+        #[cfg(unix)]
+        crate::lifecycle::crash::unix::update(Some(&attempt));
         self.pending = Some(attempt);
         Ok(())
     }
@@ -165,6 +147,8 @@ impl StartupGuard {
         save(&self.root.join(CHOICE_FILE), &self.recovery)?;
         fs::remove_file(self.root.join(SENTINEL_FILE))
             .context("clear renderer startup sentinel")?;
+        #[cfg(unix)]
+        crate::lifecycle::crash::unix::update(self.recovery.working.as_ref());
         self.pending = None;
         Ok(())
     }
@@ -173,6 +157,17 @@ impl StartupGuard {
 const SENTINEL_FILE: &str = "renderer-startup.json";
 const CHOICE_FILE: &str = "renderer-choice.json";
 const MAX_FILE_BYTES: u64 = 64 * 1024;
+const PROBE_CACHE_FILE: &str = "graphics-probe-cache.json";
+
+/// Reads bounded driver verdicts without loading a graphics library.
+pub fn load_probe_cache(root: &Path) -> Result<ProbeCache> {
+    Ok(load(&root.join(PROBE_CACHE_FILE))?.unwrap_or_default())
+}
+
+/// Flushes driver verdicts before the parent enters a cached backend.
+pub fn save_probe_cache(root: &Path, cache: &ProbeCache) -> Result<()> {
+    save(&root.join(PROBE_CACHE_FILE), cache)
+}
 
 /// Reads a bounded local state file, treating an absent file as a fresh install.
 fn load<T: DeserializeOwned>(path: &Path) -> Result<Option<T>> {

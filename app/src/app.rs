@@ -135,7 +135,7 @@ use {
 };
 
 mod render_setup;
-use render_setup::render_plugin;
+use render_setup::RendererSetup;
 
 const PHYSICS_REGISTRY_SHA256: &str =
     include_str!("../../crates/assets/data/block-physics-v2193.sha256");
@@ -687,13 +687,17 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let primary_window = crate::developer_control::primary_window(primary_window);
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
-    let renderer = render_plugin(&mut app, &renderer_data_root)?;
+    let renderer = RendererSetup {
+        data_root: renderer_data_root,
+        video_override: saved_settings.graphics_api(),
+    };
     let plugins = DefaultPlugins
         .set(WindowPlugin {
             primary_window: Some(primary_window),
             ..default()
         })
-        .set(renderer)
+        .add_before::<bevy::render::RenderPlugin>(renderer)
+        .disable::<bevy::render::RenderPlugin>()
         .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
         // The world camera installs only the opt-in depth-based spatial filter.
         .disable::<AntiAliasPlugin>()

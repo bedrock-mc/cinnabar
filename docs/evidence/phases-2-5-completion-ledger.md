@@ -370,3 +370,11 @@ JSON-UI banner controls draw ordered front-cloth layers from the active artwork.
 normalization machinery are gone. Packet routing and UI budgets derive from the generated packet
 table and field sites rather than hand-maintained ID lists. The ported tests have not been
 executed locally. No existing completion entry is advanced.
+
+## Graphics API startup recovery
+
+The shared backend policy, isolated presentation probe, driver verdict cache and restart-only
+Video override are implemented. Native startup capture covers Windows exceptions and Unix
+fatal signals. Hardware crash reproduction, GL/GLES and Android service presentation, and
+rendered Video acceptance remain incomplete as recorded in `plan.md`. No parity or performance
+completion entry advances.

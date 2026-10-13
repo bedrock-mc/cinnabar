@@ -6,6 +6,7 @@ pub mod command_macros;
 pub mod control_bindings;
 pub mod definitions;
 pub mod emotes;
+pub mod graphics_api;
 pub mod keybindings;
 pub mod language;
 pub mod persistence;
@@ -122,6 +123,11 @@ impl SettingsOptions {
             .get(definition.name)
             .copied()
             .unwrap_or_else(|| self.option_default(definition));
+        if definition.name == graphics_api::OPTION.name
+            && !graphics_api::visible(value as usize, crate::graphics_backend::Platform::current())
+        {
+            return 0;
+        }
         if definition.name == "msaa" {
             self.anti_aliasing_support.select(value.max(1) as u32) as i32
         } else {

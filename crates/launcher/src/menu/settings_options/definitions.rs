@@ -651,4 +651,5 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     toggle(super::OREUI_DARK_MODE, "options.oreuiDarkMode", false),
     DISCORD_PRESENCE_OPTION,
     NATIVE_SKYBOX_OFFSET_OPTION,
+    super::graphics_api::OPTION,
 ];
