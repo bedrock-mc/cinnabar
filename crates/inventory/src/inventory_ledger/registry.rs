@@ -109,17 +109,10 @@ impl PlayerInventoryLedger {
             };
         }
         if self.authority == Some(protocol::InventoryAuthority::Server)
-            && ((source.stack_network_id <= 0
-                && !self
-                    .queue
-                    .iter()
-                    .any(|request| request.request_id == source.stack_network_id))
-                || (destination.stack_network_id <= 0
-                    && !self
-                        .queue
-                        .iter()
-                        .any(|request| request.request_id == destination.stack_network_id))
-                || (source.stack_network_id > 0
+            && (self.stack_awaiting_identity(source)
+                || self.stack_awaiting_identity(destination)
+                || ((source.stack_network_id > 0
+                    || protocol::is_legacy_request_id(source.stack_network_id))
                     && source.stack_network_id == destination.stack_network_id))
         {
             return OccupiedStackRelation::Unsupported;

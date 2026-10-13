@@ -115,6 +115,7 @@ mod job_snapshots;
 mod light_scheduler;
 mod local_retention;
 mod neighbour_deadlines;
+mod resend_light;
 
 mod mesh_dependency;
 mod seasonal_foliage;
@@ -604,15 +605,20 @@ fn complete_decode_job(stream: &mut WorldStream, job: super::QueuedDecodeJob) {
                 slots,
                 count,
                 ids,
+                previous,
             } => {
                 let chunk = ChunkKey::new(event.dimension, event.x, event.z);
+                let decoded =
+                    DecodedLevelChunk::decode_inline(chunk, slots, count, &payload, &ids, &ids);
+                let light_neutral = previous.map_or_else(Vec::new, |previous| {
+                    client_world::ingestion::light_neutral_sections(&previous, &decoded, &ids)
+                });
                 (
                     sequence,
                     super::PreparedWorldEvent::InlineLevelChunk {
                         event,
-                        decoded: DecodedLevelChunk::decode_inline(
-                            chunk, slots, count, &payload, &ids, &ids,
-                        ),
+                        decoded,
+                        light_neutral,
                         duration: std::time::Duration::ZERO,
                     },
                 )

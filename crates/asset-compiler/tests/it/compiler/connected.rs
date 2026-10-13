@@ -6,7 +6,7 @@ use {
         MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_PANE,
         ModelFamily, ModelStateField, RegistryRecord, VisualKind, encode_blob, read_registry,
     },
-    pack_compiler::{read_pack, resolve_texture_key},
+    pack_compile_input::{read_pack, resolve_texture_key},
     std::{collections::HashSet, path::Path},
 };
 

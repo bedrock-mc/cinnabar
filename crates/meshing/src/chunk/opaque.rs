@@ -140,6 +140,10 @@ impl AxisColumns {
         self.z[x][y] |= 1 << z;
     }
 
+    const fn contains(&self, x: usize, y: usize, z: usize) -> bool {
+        self.x[y][z] & (1 << x) != 0
+    }
+
     const fn column(&self, face: Face, u: usize, v: usize) -> u64 {
         match face {
             Face::NegativeX | Face::PositiveX => self.x[v][u],
@@ -181,22 +185,30 @@ impl VisibilityMasks {
                     geometry: AxisColumns::empty(),
                     occluders: AxisColumns::empty(),
                 };
-                for x in 0..SIDE {
-                    for y in 0..SIDE {
-                        for z in 0..SIDE {
-                            let entry = facts.at(x, y, z);
-                            if entry.emits_cube_geometry() {
-                                masks.geometry.set(x, y, z);
-                            }
-                            if entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE) {
-                                masks.occluders.set(x, y, z);
-                            }
+                facts.for_each_voxel_class(
+                    |entry| {
+                        (
+                            entry.emits_cube_geometry(),
+                            entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE),
+                        )
+                    },
+                    |x, y, z, (geometry, occluder)| {
+                        if geometry {
+                            masks.geometry.set(x, y, z);
                         }
-                    }
-                }
+                        if occluder {
+                            masks.occluders.set(x, y, z);
+                        }
+                    },
+                );
                 masks
             }
         }
+    }
+
+    /// Whether the voxel fully occludes its faces; cave connectivity walks the voxels that don't.
+    pub(crate) const fn occludes(&self, x: usize, y: usize, z: usize) -> bool {
+        self.occluders.contains(x, y, z)
     }
 }
 

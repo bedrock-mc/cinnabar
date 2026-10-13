@@ -8,6 +8,8 @@ pub struct CursorFocus {
     lost_this_frame: bool,
     waiting_for_return: bool,
     activated: bool,
+    /// Gameplay holds the pointer on platforms without an OS cursor grab, as a lock would.
+    grab_free_capture: bool,
 }
 
 impl Default for CursorFocus {
@@ -18,6 +20,7 @@ impl Default for CursorFocus {
             lost_this_frame: false,
             waiting_for_return: false,
             activated: false,
+            grab_free_capture: false,
         }
     }
 }
@@ -76,10 +79,21 @@ impl CursorFocus {
         self.available() && !self.waiting_for_return
     }
 
+    /// Records whether gameplay holds the pointer where the platform cannot lock the cursor.
+    pub fn set_grab_free_capture(&mut self, captured: bool) {
+        self.grab_free_capture = captured;
+    }
+
+    /// Whether gameplay holds the pointer without an OS grab, while capture stays authorized.
+    pub const fn grab_free_capture(&self) -> bool {
+        self.grab_free_capture && self.capture_allowed()
+    }
+
     /// Retires implicit capture authorization when desktop input leaves the game.
     fn lose_input(&mut self) {
         self.lost_this_frame = true;
         self.waiting_for_return = true;
+        self.grab_free_capture = false;
     }
 }
 

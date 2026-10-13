@@ -8,7 +8,7 @@ use server_experience::{
     screen,
 };
 use wasmtime::{
-    Config, Engine, Store, StoreLimits, StoreLimitsBuilder,
+    Store, StoreLimits, StoreLimitsBuilder,
     component::{Component, Func, HasSelf, Instance, Linker},
 };
 
@@ -277,6 +277,7 @@ pub struct BundleHost {
     active: bool,
     /// Fuel the last `init` or callback consumed.
     last_fuel: u64,
+    _ticker: crate::execution::EpochTicker,
 }
 
 impl BundleHost {
@@ -322,12 +323,7 @@ impl BundleHost {
                 && capabilities.scope.memory_bytes <= MAX_GUEST_MEMORY,
             "invalid guest memory limit"
         );
-        let mut config = Config::new();
-        config
-            .wasm_component_model(true)
-            .consume_fuel(true)
-            .max_wasm_stack(256 * 1024);
-        let engine = Engine::new(&config)?;
+        let (engine, ticker) = crate::execution::engine()?;
         let component = Component::new(&engine, source)?;
         let mut linker = Linker::new(&engine);
         ServerBundle::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
@@ -339,6 +335,7 @@ impl BundleHost {
             component,
             active: true,
             last_fuel: 0,
+            _ticker: ticker,
         };
         host.last_fuel = host.fuel_used();
         Ok(host)
@@ -373,7 +370,7 @@ impl BundleHost {
         state.begin_output()?;
         let mut store = Store::new(linker.engine(), state);
         store.limiter(|state| &mut state.limits);
-        store.set_fuel(CALLBACK_FUEL)?;
+        crate::execution::arm(&mut store, CALLBACK_FUEL, true)?;
         let instance = linker.instantiate(&mut store, component)?;
         let (init, exports) = Exports::find(&mut store, &instance)?;
         let init = init.typed::<(), ()>(&store)?;
@@ -408,7 +405,7 @@ impl BundleHost {
         };
         state.epoch = epoch;
         state.begin_output()?;
-        self.store.set_fuel(CALLBACK_FUEL)?;
+        crate::execution::arm(&mut self.store, CALLBACK_FUEL, false)?;
         let called = self.call(event);
         self.last_fuel = self.fuel_used();
         if let Err(error) = called {

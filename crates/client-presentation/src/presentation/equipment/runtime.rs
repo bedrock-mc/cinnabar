@@ -242,7 +242,7 @@ impl EquipmentRuntime {
             Some(glint) => artwork.with_item_glint(glint),
             None => artwork,
         };
-        let (artwork, locations) = artwork.with_equipment_rasters(&rasters);
+        let (mut artwork, locations) = artwork.with_equipment_rasters(&rasters);
         let texture_locations = textures
             .iter()
             .zip(&locations[atlas_layers..])
@@ -260,7 +260,8 @@ impl EquipmentRuntime {
                 }
             }
         }
-        let held_block_entities = held_block_entities::build(skull_atlas.as_ref(), skull_location);
+        let held_block_entities =
+            held_block_entities::build(skull_atlas.as_ref(), skull_location, &mut artwork);
         pending.extend(held_block_entities.geometries.iter().cloned());
         let mut geometries = catalog
             .iter()

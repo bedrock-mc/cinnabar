@@ -1010,6 +1010,71 @@ fn a_held_ingredient_marks_uncraftable_recipes_as_partly_held() {
 }
 
 #[test]
+fn rebased_crafting_preserves_same_request_output_references() {
+    use protocol::test_support::recipes::{StackActionObservation, stack_request_actions};
+
+    let catalog = catalog();
+    let recipe = catalog
+        .crafting_handles()
+        .into_iter()
+        .find(|recipe| recipe.network_id() == 1)
+        .unwrap();
+    for automatic in [false, true] {
+        let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+        let (target, container, slot) = if automatic {
+            ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+                identity: SlotIdentity {
+                    container: ContainerIdentity::window(0),
+                    slot: 2,
+                },
+                stack: stack(LOG, 101, 3),
+                storage_item: None,
+            }));
+            (
+                InventoryTarget::Player(2),
+                protocol::CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+                2,
+            )
+        } else {
+            ledger.apply(&craft_slot(29, stack(LOG, 101, 3)));
+            (InventoryTarget::Craft(29), CONTAINER_NAME_CRAFT_INPUT, 29)
+        };
+        let predecessor = ledger
+            .begin_drop(DropSource::Target(target), Some(1))
+            .unwrap();
+        assert!(ledger.mark_transport_enqueued(20));
+        let craft = if automatic {
+            ledger.begin_auto_craft(&recipe)
+        } else {
+            ledger.begin_craft(&recipe, 1)
+        }
+        .unwrap();
+        respond(&mut ledger, predecessor, &[(container, slot, 2, 91)]);
+        let (packet, count) = ledger.pending_batch().unwrap().unwrap();
+        assert_eq!(count, 1);
+        let actions = stack_request_actions(&packet).unwrap();
+        assert!(actions.iter().any(|action| matches!(action,
+            StackActionObservation::Consume { source, .. } if source.stack_network_id == 91
+        )));
+        assert!(
+            matches!(actions.last(), Some(StackActionObservation::Take { source, .. })
+            if source.stack_network_id == craft)
+        );
+        assert_eq!(ledger.target_stack(target).unwrap().count, 1);
+        assert_eq!(ledger.cursor_stack().unwrap().network_id, PLANKS);
+        assert_eq!(ledger.cursor_stack().unwrap().count, 1);
+        assert!(ledger.mark_transport_enqueued(21));
+        respond(
+            &mut ledger,
+            craft,
+            &[(container, slot, 1, 92), (CONTAINER_NAME_CURSOR, 0, 1, 93)],
+        );
+        assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, 93);
+        assert!(!ledger.resync_required());
+    }
+}
+
+#[test]
 fn review_overlapping_ingredients_find_a_complete_assignment() {
     let mut body = Vec::new();
     varuint(&mut body, 0);

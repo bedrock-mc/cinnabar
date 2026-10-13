@@ -33,7 +33,7 @@ impl SettlingWindow {
 impl PlayerInventoryLedger {
     /// Whether `window` has a request the server admitted and may still answer in time.
     pub(super) fn has_unanswered(&self, window: SettlingWindow) -> bool {
-        self.queue.iter().any(|request| {
+        self.pending_requests().any(|request| {
             window.owns(request)
                 && request.state == InventoryPendingState::AwaitingResponse
                 && !request.timed_out
@@ -93,7 +93,7 @@ impl PlayerInventoryLedger {
     pub(super) fn settled_close_index(&self) -> Option<usize> {
         self.settling
             .iter()
-            .position(|window| !self.queue.iter().any(|request| window.owns(request)))
+            .position(|window| !self.pending_requests().any(|request| window.owns(request)))
     }
 
     /// Runs deferred cleanup for every closed window whose last request has settled.

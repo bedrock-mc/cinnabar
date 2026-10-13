@@ -445,6 +445,34 @@ impl<'a> PaletteFacts<'a> {
         [contributors.primary, contributors.covered_plant]
     }
 
+    /// Visits every voxel with `classify` applied to its [`Self::at`] answer. A decoded section
+    /// classifies each distinct answer once instead of once per voxel.
+    pub(crate) fn for_each_voxel_class<T: Copy>(
+        &self,
+        classify: impl Fn(&ResolvedPaletteEntry) -> T,
+        mut visit: impl FnMut(usize, usize, usize, T),
+    ) {
+        if let Some(decoded) = &self.decoded {
+            let classes = decoded.entries.iter().map(&classify).collect::<Vec<_>>();
+            for (linear, &slot) in decoded.voxels.iter().enumerate() {
+                visit(
+                    linear >> 8,
+                    linear & 15,
+                    (linear >> 4) & 15,
+                    classes[usize::from(slot)],
+                );
+            }
+            return;
+        }
+        for x in 0..SIDE {
+            for y in 0..SIDE {
+                for z in 0..SIDE {
+                    visit(x, y, z, classify(&self.at(x, y, z)));
+                }
+            }
+        }
+    }
+
     /// Resolves the surface used by cube visibility and neighbour occlusion.
     pub(crate) fn at(&self, x: usize, y: usize, z: usize) -> ResolvedPaletteEntry {
         if let Some((decoded, slot)) = self.decoded_slot(x, y, z) {

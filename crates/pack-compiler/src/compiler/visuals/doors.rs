@@ -1,98 +1,136 @@
 use super::context::{
-    CuboidTemplateKey, ModelStorage, RuleInputs, diagnostic_visual, intern_cuboid_template,
-    set_model_visual,
+    ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
-use {super::super::*, assets::BlockFace};
+use super::geometry::cuboid_quads;
+use super::state::{exact_tagged_byte, exact_tagged_int, exact_tagged_string};
+use {
+    super::super::*,
+    assets::{BlockFace, door::DoorPose},
+};
 
+/// A class keeps distinct topology even when a pack shares its artwork with another door.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(in crate::compiler) struct TemplateKey {
+    name: Box<str>,
+    materials: [u32; 2],
+}
+
+/// Admits the complete typed door state and its matching compiled selectors.
+fn state(record: &RegistryRecord) -> Option<DoorPose> {
+    let state: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(&record.canonical_state).ok()?;
+    if state.len() != 4 {
+        return None;
+    }
+    let direction = if let Some(value) = state.get("minecraft:cardinal_direction") {
+        match exact_tagged_string(value)? {
+            "south" => 0,
+            "west" => 1,
+            "north" => 2,
+            "east" => 3,
+            _ => return None,
+        }
+    } else {
+        exact_tagged_int(state.get("direction")?, 3)?
+    };
+    let open = exact_tagged_byte(state.get("open_bit")?, 1)?;
+    let hinge = exact_tagged_byte(state.get("door_hinge_bit")?, 1)?;
+    let upper = exact_tagged_byte(state.get("upper_block_bit")?, 1)?;
+    for (field, value) in [
+        (ModelStateField::Orientation, direction),
+        (ModelStateField::Open, u32::from(open)),
+        (ModelStateField::Hinge, u32::from(hinge)),
+        (ModelStateField::Flags, u32::from(upper) << 7),
+    ] {
+        if record.model_state.get(field)? != value {
+            return None;
+        }
+    }
+    Some(DoorPose {
+        direction,
+        open: open != 0,
+        hinge_right: hinge != 0,
+        upper: upper != 0,
+    })
+}
+
+/// Compiles all poses so world meshing can combine selectors across door halves.
 pub(in crate::compiler) fn compile_rule(
     record: &RegistryRecord,
     inputs: &RuleInputs<'_>,
-    templates: &mut BTreeMap<CuboidTemplateKey, u32>,
+    templates: &mut BTreeMap<TemplateKey, u32>,
     storage: &mut ModelStorage<'_>,
 ) -> Result<CompileRuleResult, AssetError> {
     if !is_door(record) {
         return Ok(CompileRuleResult::NoMatch);
     }
     let mut visual = diagnostic_visual(record);
-    if is_door(record) {
-        const UPPER: u32 = 1 << 7;
-        if let (Some(orientation @ 0..=3), Some(open @ 0..=1), Some(hinge @ 0..=1), Some(flags)) = (
-            record.model_state.get(ModelStateField::Orientation),
-            record.model_state.get(ModelStateField::Open),
-            record.model_state.get(ModelStateField::Hinge),
-            record.model_state.get(ModelStateField::Flags),
-        ) && flags & !UPPER == 0
-        {
-            let face = if flags & UPPER == 0 {
-                BlockFace::Down
-            } else {
-                BlockFace::South
-            };
-            if let Some(material) = inputs.material(record, face) {
-                let materials = [material; 6];
-                let (min, max) = door_bounds(orientation, open, hinge);
-                let template = intern_cuboid_template(
-                    materials,
-                    min,
-                    max,
-                    templates,
+    if let Some(pose) = state(record)
+        && let (Some(lower), Some(upper)) = (
+            inputs.material(record, BlockFace::Down),
+            inputs.material(record, BlockFace::South),
+        )
+    {
+        let key = TemplateKey {
+            name: record.name.clone(),
+            materials: [lower, upper],
+        };
+        let base = if let Some(&base) = templates.get(&key) {
+            base
+        } else {
+            let base = u32::try_from(storage.templates.len()).map_err(|_| {
+                AssetError::BlobSizeOverflow {
+                    section: "door template",
+                }
+            })?;
+            for offset in 0..assets::door::TEMPLATE_COUNT {
+                let pose = DoorPose::from_offset(offset).expect("bounded door pose");
+                let material = if pose.upper { upper } else { lower };
+                let (min, max) = door_bounds(
+                    pose.direction,
+                    u32::from(pose.open),
+                    u32::from(pose.hinge_right),
+                );
+                push_model_template(
+                    cuboid_quads([material; 6], min, max).to_vec(),
+                    assets::MODEL_TEMPLATE_FLAG_DOOR,
                     storage.templates,
                     storage.quads,
                 )?;
-                set_model_visual(&mut visual, materials, template);
             }
-        }
+            templates.insert(key, base);
+            base
+        };
+        set_model_visual(
+            &mut visual,
+            [if pose.upper { upper } else { lower }; 6],
+            base + pose.offset(),
+        );
+        visual.variant = pose.offset() << 2;
     }
     Ok(CompileRuleResult::Compiled(visual))
 }
 
+/// Builds the native door plane in fixed-point model coordinates.
 pub(in crate::compiler) fn door_bounds(
-    orientation: u32,
+    direction: u32,
     open: u32,
     hinge: u32,
 ) -> ([i16; 3], [i16; 3]) {
-    const THICKNESS: i16 = 3 * 16;
+    const THICKNESS: i16 = (assets::door::THICKNESS * 256.0 + 0.5) as i16;
     const HIGH: i16 = 256 - THICKNESS;
-    // Dragonfly writes `Door.Facing.RotateRight()` into the Bedrock cardinal
-    // state. Decode that stored orientation back to the logical closed facing
-    // before applying model.Door's open/hinge rotations.
-    const NORTH: u32 = 0;
-    const SOUTH: u32 = 1;
-    const WEST: u32 = 2;
-    const EAST: u32 = 3;
-    let facing = match orientation {
-        0 => EAST,  // encoded south
-        1 => SOUTH, // encoded west
-        2 => WEST,  // encoded north
-        3 => NORTH, // encoded east
-        _ => unreachable!("door selectors are checked before geometry generation"),
-    };
-    let rotate_right = |facing| match facing {
-        NORTH => EAST,
-        EAST => SOUTH,
-        SOUTH => WEST,
-        WEST => NORTH,
-        _ => unreachable!(),
-    };
-    let rotate_left = |facing| match facing {
-        NORTH => WEST,
-        WEST => SOUTH,
-        SOUTH => EAST,
-        EAST => NORTH,
-        _ => unreachable!(),
-    };
-    let effective = match (open, hinge) {
-        (0, 0 | 1) => facing,
-        (1, 0) => rotate_right(facing),
-        (1, 1) => rotate_left(facing),
-        _ => unreachable!("door selectors are checked before geometry generation"),
-    };
-    match effective {
-        NORTH => ([0, 0, HIGH], [256, 256, 256]),
-        SOUTH => ([0, 0, 0], [256, 256, THICKNESS]),
-        WEST => ([HIGH, 0, 0], [256, 256, 256]),
-        EAST => ([0, 0, 0], [THICKNESS, 256, 256]),
-        _ => unreachable!(),
+    let plane = DoorPose {
+        direction,
+        open: open != 0,
+        hinge_right: hinge != 0,
+        upper: false,
+    }
+    .plane();
+    match plane {
+        0 => ([0, 0, 0], [256, 256, THICKNESS]),
+        1 => ([HIGH, 0, 0], [256, 256, 256]),
+        2 => ([0, 0, HIGH], [256, 256, 256]),
+        _ => ([0, 0, 0], [THICKNESS, 256, 256]),
     }
 }

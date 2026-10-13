@@ -1,107 +1,7 @@
-//! Projects the committed crack progress onto the block's model surfaces.
-
-use std::{
-    collections::HashMap,
-    sync::{Arc, Weak},
-};
+//! Projects committed crack progress onto model surfaces.
 
 use chunk_pipeline::ActiveBlockCrack;
-use render_model::{CrackInstance, CrackShape, crack_shape_from_template};
-
-/// Keeps shapes only while their admitted asset identity is current.
-#[derive(Default)]
-pub(super) struct CrackShapeCache {
-    assets: Option<Weak<assets::RuntimeAssets>>,
-    shapes: HashMap<(u32, u32), CachedCrackShape>,
-}
-
-impl CrackShapeCache {
-    /// Clears a session's surfaces and owner while retaining the cache's buckets.
-    pub(super) fn clear(&mut self) {
-        self.shapes.clear();
-        self.assets = None;
-    }
-
-    /// Reports whether any surfaces are retained for the current asset identity.
-    #[cfg(test)]
-    pub(super) fn is_empty(&self) -> bool {
-        self.shapes.is_empty()
-    }
-
-    /// Drops surfaces when resource reload publishes a different asset generation.
-    fn bind_assets(&mut self, assets: &Arc<assets::RuntimeAssets>) {
-        if self
-            .assets
-            .as_ref()
-            .is_some_and(|current| current.as_ptr() == Arc::as_ptr(assets))
-        {
-            return;
-        }
-        self.shapes.clear();
-        self.assets = Some(Arc::downgrade(assets));
-    }
-}
-
-/// Retains one column per runtime identity and transform without growing with world positions.
-pub(super) struct CachedCrackShape {
-    pub(super) column: Option<[i32; 2]>,
-    pub(super) shape: CrackShape,
-}
-
-/// Caches model surfaces by runtime identity, transform and admitted column displacement.
-pub(super) fn crack_shape(
-    cache: &mut CrackShapeCache,
-    assets: &Arc<assets::RuntimeAssets>,
-    mode: assets::NetworkIdMode,
-    runtime_id: Option<u32>,
-    block: [i32; 3],
-) -> CrackShape {
-    cache.bind_assets(assets);
-    let Some(runtime_id) = runtime_id else {
-        return CrackShape::Cube;
-    };
-    let visual = assets.resolve(mode, runtime_id);
-    let transform = visual
-        .model_template()
-        .and_then(|template| assets.model_templates().get(template as usize))
-        .map_or(visual.variant(), |template| {
-            assets::bamboo::transform_for_template(template.flags, visual.variant(), block)
-        });
-    let column = visual.model_template().and_then(|template| {
-        has_component_offset(assets, template).then_some([block[0], block[2]])
-    });
-    let build = || CachedCrackShape {
-        column,
-        shape: visual
-            .model_template()
-            .and_then(|template| {
-                crack_shape_from_template(assets, template, visual.variant(), block)
-            })
-            .unwrap_or_default(),
-    };
-    let cached = cache
-        .shapes
-        .entry((runtime_id, transform))
-        .or_insert_with(build);
-    if cached.column != column {
-        *cached = build();
-    }
-    cached.shape.clone()
-}
-
-/// Checks every part because a compound surface may admit displacement after its first part.
-fn has_component_offset(assets: &assets::RuntimeAssets, mut template: u32) -> bool {
-    while let Some(part) = assets.model_templates().get(template as usize) {
-        if assets.model_random_offset(template).is_some() {
-            return true;
-        }
-        if part.flags & assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT == 0 {
-            break;
-        }
-        template += 1;
-    }
-    false
-}
+use render_model::{CrackInstance, CrackShape};
 
 /// The destroy stage (`0..=9`) for progress below completion.
 pub(super) fn stage_for_progress(progress: f32) -> u8 {
@@ -149,10 +49,6 @@ pub(super) fn crack_instances(
         })
         .collect()
 }
-
-#[cfg(test)]
-#[path = "crack_shape_tests.rs"]
-mod shape_tests;
 
 #[cfg(test)]
 mod tests {

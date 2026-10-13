@@ -346,3 +346,77 @@ fn review_render_uniform_sentinel_tint_keeps_a_valid_blending_record() {
             .all(|sample| sample.tint_index == u32::MAX)
     );
 }
+
+/// A one-bit storage whose cells alternate between `a` and `b` in coarse slabs along X and Z.
+fn striped_storage(a: i32, b: i32) -> Arc<world::BiomeStorage> {
+    let mut payload = vec![3]; // Network palette, one bit per index.
+    let mut packed = vec![0_u32; 128];
+    for linear in 0..4096_usize {
+        let (x, z) = (linear >> 8, (linear >> 4) & 15);
+        if (x / 5 + z / 7) % 2 == 1 {
+            packed[linear / 32] |= 1 << (linear % 32);
+        }
+    }
+    for word in &packed {
+        payload.extend_from_slice(&word.to_le_bytes());
+    }
+    payload.extend(zig_zag_i32(2));
+    payload.extend(zig_zag_i32(a));
+    payload.extend(zig_zag_i32(b));
+    DecodedBiomeColumn::decode(0, 1, &payload, &BIOMES)
+        .storage(0)
+        .unwrap()
+}
+
+/// Every lattice point holds the four most frequent tints of its 27 samples, in first-seen order
+/// among equal counts, exactly as counted from `tint_index_at`.
+#[test]
+fn lattice_points_count_the_tints_their_samples_read() {
+    use meshing::biome_lattice::{
+        BIOME_LATTICE_STEP, DESCRIPTOR_WORDS, LATTICE_BIOME_LIMIT, LATTICE_POINT_WORDS,
+        LATTICE_SIDE, LATTICE_STENCIL_SAMPLES, lattice_index,
+    };
+    let halo: [Option<Arc<world::BiomeStorage>>; BIOME_NEIGHBOUR_SLOT_COUNT] =
+        std::array::from_fn(|slot| match slot % 5 {
+            0 => None,
+            1 => Some(striped_storage(3, 11)),
+            2 => Some(uniform_storage(5)),
+            3 => Some(striped_storage(11, 7)),
+            _ => Some(uniform_storage(3)),
+        });
+    let record = PackedBiomeRecord::from_neighbourhood(&halo, |id| id + 100);
+    assert_eq!(record.uniform_tint_index(), None);
+    let words = record.words();
+    for x in 0..LATTICE_SIDE {
+        for y in 0..LATTICE_SIDE {
+            for z in 0..LATTICE_SIDE {
+                let mut counts: Vec<(u32, u32)> = Vec::new();
+                for dz in 0..3 {
+                    for dy in 0..3 {
+                        for dx in 0..3 {
+                            let sample = [x + dx, y + dy, z + dz]
+                                .map(|v| (v as i32 - 2) * BIOME_LATTICE_STEP);
+                            let tint = record.tint_index_at(sample).unwrap_or(0);
+                            match counts.iter_mut().find(|(seen, _)| *seen == tint) {
+                                Some((_, count)) => *count += 1,
+                                None => counts.push((tint, 1)),
+                            }
+                        }
+                    }
+                }
+                counts.sort_by_key(|&(_, count)| std::cmp::Reverse(count));
+                let position = [x, y, z].map(|v| (v as i32 - 1) * BIOME_LATTICE_STEP);
+                let start = DESCRIPTOR_WORDS + lattice_index(position) * LATTICE_POINT_WORDS;
+                let point = &words[start..start + LATTICE_POINT_WORDS];
+                assert_eq!(point[0] as usize, counts.len().min(LATTICE_BIOME_LIMIT));
+                for (i, &(tint, count)) in counts.iter().take(LATTICE_BIOME_LIMIT).enumerate() {
+                    assert_eq!(point[1 + i], tint, "point {position:?} tint {i}");
+                    assert_eq!(
+                        point[1 + LATTICE_BIOME_LIMIT + i],
+                        (count as f32 / LATTICE_STENCIL_SAMPLES as f32).to_bits()
+                    );
+                }
+            }
+        }
+    }
+}

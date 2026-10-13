@@ -287,6 +287,10 @@ func newUpstreamDialerForAdmission(
 		EnableBatchReading:   true,
 		MaxDecompressedLen:   maxUpstreamDecompressedBatch,
 		FlushRate:            -1, // the relay's packet readers own flushing
+		// Only the primary local player is present, so ignore server data routed to a second one.
+		AcceptPacketHeader: func(h packet.Header) bool {
+			return h.SenderSubClient == 0 && h.TargetSubClient == 0
+		},
 		// The Rust client owns the spawn sequence; the server's startup reaches it unchanged.
 		Handoff: minecraft.HandoffAtStartGame,
 		// A static opt-in, not the downstream status: the upstream login completes before it arrives.

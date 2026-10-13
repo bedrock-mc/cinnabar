@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "app",
+    "packaging/android/client",
     "crates/acceptance",
     "crates/actor-animation",
     "crates/diagnostics",
@@ -19,6 +20,9 @@ members = [
     "crates/chunk-pipeline",
     "crates/pack-json",
     "crates/pack-compiler",
+    "crates/pack-compiler/input",
+    "crates/pack-compiler/entity",
+    "crates/pack-compiler/font",
     "crates/pack-runtime",
     "crates/experience-sdk",
     "crates/experience-runtime",

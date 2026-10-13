@@ -107,3 +107,51 @@ fn held_block_entity_preparation_rejects_a_different_source_generation() {
     assert!(!prepared.matches_sources(&pages, None, Some(&next)));
     assert!(!prepared.matches_sources(&pages, None, None));
 }
+
+#[test]
+fn unchanged_startup_artwork_reuses_pixels_bindings_and_registered_geometry() {
+    let (base, body, mut item) = block_fixture();
+    item.identifier = Arc::from("minecraft:conduit");
+    item.kind = HeldKind::Other;
+    let carrier = Arc::new(conduit_carrier([20, 80, 200, 255], 0));
+    let (mut runtime, pages, _) = EquipmentRuntime::build(
+        Arc::clone(&base.assets),
+        None,
+        Arc::clone(&base.icons),
+        None,
+        Some(Arc::clone(&carrier)),
+        ActorArtworkPages::default(),
+    );
+    runtime.register_skin_rig(body.input.rig, vec!["rightItem".into()]);
+    runtime.take_pending_geometries();
+    let before = runtime
+        .first_person_item(&body, &item, ItemAnimationState::default())
+        .unwrap();
+    let art = Arc::new(
+        render_model::BlockEntityScene::default()
+            .artwork_preparer()
+            .prepare(&carrier)
+            .unwrap(),
+    );
+    let prepared = PreparedActorArtwork::new_with_block_entity_artwork(&pages, None, Some(&art));
+    let resources = session_resources(&pages, None, Some(&prepared));
+    assert!(
+        resources.pages.shares_storage_with(&pages),
+        "no unchanged atlas may be copied, hashed, or appended"
+    );
+    assert_eq!(resources.pages.identity(), pages.identity());
+    assert_eq!(resources.pages.pages().len(), pages.pages().len());
+    let allocations = test_alloc::thread_allocations();
+    runtime.set_block_entity_artwork(resources.held_block_entities.as_ref());
+    assert_eq!(test_alloc::thread_allocations(), allocations);
+    assert!(
+        runtime.take_pending_geometries().is_empty(),
+        "unchanged bindings retain registered meshes"
+    );
+    let after = runtime.first_person_offhand(&body, &item).unwrap();
+    assert_eq!(after.presentation.location, before.presentation.location);
+    assert_eq!(
+        after.presentation.submission.input.rig,
+        before.presentation.submission.input.rig
+    );
+}

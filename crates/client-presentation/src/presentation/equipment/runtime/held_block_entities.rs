@@ -8,8 +8,12 @@ use render_model::block_entity::PreparedHeldBlockModels;
 pub(super) fn build(
     atlas: Option<&BlockEntityAtlas>,
     location: Option<ActorArtworkLocation>,
+    pages: &mut ActorArtworkPages,
 ) -> PreparedHeldBlockEntities {
     let source = atlas.map(PreparedHeldBlockModels::new);
+    if let Some((source, location)) = source.as_ref().zip(location) {
+        pages.register_equipment_artwork(source.identity(), location);
+    }
     bindings(source.as_ref(), location)
 }
 
@@ -40,7 +44,10 @@ impl EquipmentRuntime {
         artwork: &render_model::PreparedBlockEntityArtwork,
     ) -> (ActorArtworkPages, PreparedHeldBlockEntities) {
         let source = artwork.held_models();
-        let (pages, location) = source.raster().map_or_else(
+        if let Some(location) = pages.equipment_artwork_location(source.identity()) {
+            return (pages.clone(), bindings(Some(source), Some(location)));
+        }
+        let (mut pages, location) = source.raster().map_or_else(
             || (pages.clone(), None),
             |raster| {
                 let (pages, locations) = pages
@@ -49,6 +56,9 @@ impl EquipmentRuntime {
                 (pages, locations[0])
             },
         );
+        if let Some(location) = location {
+            pages.register_equipment_artwork(source.identity(), location);
+        }
         (pages, bindings(Some(source), location))
     }
 

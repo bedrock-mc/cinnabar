@@ -93,7 +93,9 @@ fn encode_request(
         let prior_request = slot.stack_network_id < -1
             && slot.stack_network_id & 1 != 0
             && slot.stack_network_id > request_id;
-        if slot.stack_network_id < -1 && !created_output && !prior_request {
+        // Legacy transactions and item stack requests have independent id sequences.
+        let prior_legacy = super::is_legacy_request_id(slot.stack_network_id);
+        if slot.stack_network_id < -1 && !created_output && !prior_request && !prior_legacy {
             return Err(InventoryPacketError::InvalidRequestStackNetworkId(
                 slot.stack_network_id,
             ));
@@ -214,18 +216,21 @@ mod tests {
         let bytes = request.encode_to_vec().unwrap();
         let decoded = ItemStackRequest::decode_exact(&bytes).unwrap();
         assert_eq!(decoded, request);
-        for invalid in [-4, -9, -7] {
-            assert!(
-                item_stack_request_packet(
-                    -7,
-                    &[StackRequestAction::Drop {
-                        amount: 1,
-                        source: slot(invalid),
-                        randomly: false,
-                    }]
-                )
-                .is_err()
-            );
+        let drop_from = |id| {
+            item_stack_request_packet(
+                -7,
+                &[StackRequestAction::Drop {
+                    amount: 1,
+                    source: slot(id),
+                    randomly: false,
+                }],
+            )
+        };
+        for invalid in [-9, -7] {
+            assert!(drop_from(invalid).is_err());
         }
+        // A stack an earlier drop transaction left behind is named by its legacy id.
+        assert!(drop_from(-4).is_ok());
+        assert!(drop_from(-8).is_ok());
     }
 }

@@ -115,6 +115,7 @@ pub(in crate::chunk) struct ChunkGpuArena {
     pub(in crate::chunk) free_geometry_stream_words: Vec<Range<u32>>,
     pub(in crate::chunk) free_origins: Vec<u32>,
     pub(in crate::chunk) free_biomes: Vec<Range<u32>>,
+    pub(in crate::chunk) shared_biome_ranges: SharedBiomeRanges,
     pub(in crate::chunk) allocations: HashMap<Entity, ArenaAllocation>,
     /// The transparent water of `allocations`, updated wherever an allocation changes.
     pub(in crate::chunk) transparent_liquids: TransparentLiquidResidents,
@@ -195,6 +196,7 @@ impl ChunkGpuArena {
             free_geometry_stream_words: Vec::new(),
             free_origins: Vec::new(),
             free_biomes: Vec::new(),
+            shared_biome_ranges: SharedBiomeRanges::default(),
             allocations: HashMap::new(),
             transparent_liquids: TransparentLiquidResidents::default(),
             retired_allocations: Vec::new(),
@@ -886,6 +888,31 @@ pub(in crate::chunk) fn release_origin(arena: &mut ChunkGpuArena, index: u32) {
     }
 }
 
+/// Biome ranges that more than one generation holds, keyed by range start. A generation whose
+/// record is unchanged keeps its predecessor's range, and either may still be drawn until its own
+/// retirement releases, so the range is reusable only once its last holder has released it.
+#[derive(Default)]
+pub(in crate::chunk) struct SharedBiomeRanges(HashMap<u32, u32>);
+
+impl SharedBiomeRanges {
+    /// Records one more generation holding the range starting at `start`.
+    pub(in crate::chunk) fn share(&mut self, start: u32) {
+        *self.0.entry(start).or_insert(0) += 1;
+    }
+
+    /// Drops one holder of the range starting at `start`; true when it was the last.
+    pub(in crate::chunk) fn release(&mut self, start: u32) -> bool {
+        let Some(extra) = self.0.get_mut(&start) else {
+            return true;
+        };
+        *extra -= 1;
+        if *extra == 0 {
+            self.0.remove(&start);
+        }
+        false
+    }
+}
+
 pub(in crate::chunk) fn release_completed_transparent_retirements(
     arena: &mut ChunkGpuArena,
     completed_epoch: u64,
@@ -918,7 +945,9 @@ pub(in crate::chunk) fn release_completed_transparent_retirements(
                 range.start..range.start + capacity,
             );
         }
-        if let Some((range, capacity)) = retirement.biome {
+        if let Some((range, capacity)) = retirement.biome
+            && arena.shared_biome_ranges.release(range.start)
+        {
             release_quad_range(
                 &mut arena.biome_len,
                 &mut arena.free_biomes,

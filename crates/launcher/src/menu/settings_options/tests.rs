@@ -242,6 +242,13 @@ fn all_option_families_round_trip_and_reject_unknown_fields() {
     assert!(SettingsOptions::decode(b"broken").is_none());
 }
 
+/// The FOV slider uses the shared maximum for video settings.
+#[test]
+fn field_of_view_slider_uses_the_shared_maximum() {
+    let slider = &SETTINGS_OPTIONS[index("field_of_view")];
+    assert_eq!(slider.max, ui::MAX_FOV_DEGREES);
+}
+
 /// Fresh user settings and the FOV slider must start from the same vanilla default.
 #[test]
 fn fresh_settings_use_the_field_of_view_slider_default() {

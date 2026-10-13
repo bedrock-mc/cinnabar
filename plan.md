@@ -1,3 +1,19 @@
+## Experimental Android client
+
+`packaging/android/build-apk.sh` builds an arm64-v8a APK holding the client library, the Go
+core and `assetc` as native libraries and the prep kit as assets. A setup activity asks for
+consent and runs headless first-run preparation; the NativeActivity then runs the client with
+the install layout under the app's private files. Gameplay touch controls are a built-in JSON-UI
+screen whose painted rectangles capture fingers; inventory and server forms take one finger as
+the pointer. The Android workflow builds the APK for Android packaging changes, on a schedule
+and on demand.
+
+Incomplete: the touch layout, its sizes, the look gain and the stick behaviour are provisional,
+not matched to the native touch schemes, safe areas or settings. There is no keyboard or IME,
+Back routing, clipboard, browser links, local worlds, Microsoft sign-in background service,
+menu touch scrolling or touch-mode form scrolling. Device frames, audio, suspend and resume,
+and performance have no Android acceptance. No parity gate closes here.
+
 ## Runtime terrain bindings
 
 Optional terrain catalogs retain each material's source key, state variant, tint, and
@@ -783,6 +799,19 @@ acceptance gate.
   still contributes to the phase, and death alone does not trigger a flail.
   Fourteen focused hurt tests pass. macOS/Metal captures at 1920×1080, DPI 1, GUI scale 2
   verify single and repeated hits, walking while hurt, and recovery to idle.
+- Cape rotation is bounded at the shoulder in both animation modes: Java tilt is capped at
+  90° and sideways swing at ±90°; Bedrock bounds the cape's actual direction after bind
+  retargeting and preserves hanging authored rotations. These are deliberate presentation
+  limits. Regression coverage includes vertical and fast horizontal
+  flight, frame interpolation, local/remote actors and stopping. Remote teleport and interpolation
+  resets now discard both Java chase endpoints; unflagged steps beyond ten blocks re-anchor
+  without old lag. Remote Bedrock flap uses completed tick displacement instead of retained
+  packet speed and ignores those large steps. Local flap retains per-tick velocity through
+  catch-up frames. Regressions cover remote knockback, repeated hits, teleports, interpolation
+  resets, local catch-up frames, hanging yaw/roll and upward directions near horizontal.
+  Compilation, test execution and rendered-frame validation remain incomplete; the exact
+  Bedrock flap calculation also remains incomplete. This change
+  closes no parity or performance gate.
 - Worn elytra retains authored wing poses and glint in both modes, suppresses the separate cape,
   and uses the cape texture when present. Native controller blend composition stays intact.
 - Golden tests assert composed stacks and projected arm, item and cape points against Java's
@@ -2568,7 +2597,9 @@ fonts currently use provisional alpha rasterization. No visual gate is closed.
 Runtime terrain, item and particle images share checked source-area, device-size
 and retained-page budgets. Tall strips are decoded before cutting square frames;
 admitted HD terrain and inventory, held and dropped item art retain source detail.
-Terrain routes that exceed full-resolution storage keep their existing fallback.
+Terrain storage uses the device texture limits and pack memory tier. Byte pressure
+reduces texture resolution while retaining materials and animation timelines.
+Incomplete: exact mip-drop ordering and memory-pressure parity remain unverified.
 Incomplete: native frame and process-memory acceptance for HD packs, exact GUI
 sampling at high UI scales, and pack coverage beyond the supported device and
 storage bounds. This does not close a rendered parity gate.
@@ -4610,7 +4641,8 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       acceptance, strict Clippy/formatting, and independent re-review are green.
     - [x] Door and trapdoor templates: all 672 door states and 336 trapdoor
       states compile through compact six-quad alpha-cutout cuboids with exact
-      typed open/orientation/hinge/half selection, 3/16-block thickness,
+      typed open/orientation/hinge/half selection, native door thickness and
+      3/16-block trapdoor thickness,
       lower/upper door materials, conservative partial-model culling, and
       deterministic template reuse. Trapdoor templates also retain facing/top-half
       artwork orientation and the top three sprite rows on thin edges, including
@@ -4625,6 +4657,14 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       strict Clippy/formatting, full 16,913-state ratchet, and independent review
       green). Deterministic gallery/native GPU evidence remains in the shared
       residual-family live gate.
+    - [ ] Paired door rendering acceptance: world meshing resolves lower
+      direction/open and upper hinge within the same door class, including
+      vertical subchunk neighbors; missing pairs emit no door geometry.
+      Highlights and mining cracks use the same paired model surfaces; crack
+      caches retain the resolved pose so neighbor updates change their geometry.
+      Focused regressions cover different stored selectors. Source-bound
+      before/after frames, native-server toggle/picking input, directional
+      server artwork and final independent review remain incomplete.
     - [ ] Barrel and adjacent trapdoor render parity: barrel facing/open artwork,
       grain direction, material ownership and carried-item rendering have regression
       and rendered coverage. The reported texture leakage was not reproduced;
@@ -5312,6 +5352,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
           bobs. Flat covers and pages draw as two-faced sheets, and entity-lit
           back faces are culled. Its entity lighting from the table's glow is
           provisional, and the lectern stand placement needs native measurement.
+          Standing and wall banner cloth share the crossbar's authoring pivot,
+          with matching mounting scale and wave direction. Full banner parity
+          remains incomplete: animation lookup quantization, pattern composition
+          and native rendered/input acceptance remain open.
     - [ ] Merge both the Axolotl protocol-fix branch and Cinnabar feature branch
       into their respective `main` branches through reviewed PRs using normal
       history-preserving merge commits (never squash or rebase the feature
@@ -7736,9 +7780,10 @@ does not close the broader native body-motion or live visual parity gate. See
 ## Server pack compatibility
 
 Resource-pack admission accepts corrected chunk-transfer sizes within its archive
-and selected-stack byte limits. Required packs retain their acquired archive and
-actual size through the session handoff. Incomplete: unrestricted pack-size parity
-and exact native admission comparisons remain open.
+and selected-stack byte limits. Repeated offer identities consume the count and
+byte budgets once, retaining the first entry's size estimate. Required packs retain
+their acquired archive and actual size through the session handoff. Incomplete:
+unrestricted pack-size parity and exact native admission comparisons remain open.
 
 Galaxite's full-block geometry, composite Battle Pass models, translucent podium
 glows, state-filtered path borders, correctly lit benches, custom hotbar/held items

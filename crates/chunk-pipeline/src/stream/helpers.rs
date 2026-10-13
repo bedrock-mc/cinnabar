@@ -90,34 +90,54 @@ pub(super) fn light_face_changed(
             || sky_before != sky_after
             || direct_before != direct_after;
     }
-    for a in 0_u8..16 {
-        for b in 0_u8..16 {
-            let [x, y, z] = match offset {
-                [-1, 0, 0] => [0, a, b],
-                [1, 0, 0] => [15, a, b],
-                [0, -1, 0] => [a, 0, b],
-                [0, 1, 0] => [a, 15, b],
-                [0, 0, -1] => [a, b, 0],
-                [0, 0, 1] => [a, b, 15],
-                _ => return false,
-            };
-            for channel in [LightChannel::Block, LightChannel::Sky] {
-                let before = previous
-                    .and_then(|light| light.get(channel, x, y, z))
-                    .unwrap_or(0);
-                let after = replacement.get(channel, x, y, z).unwrap_or(0);
-                if before != after {
-                    return true;
-                }
-            }
-            if previous_direct.is_some_and(|direct| direct.get(x, y, z))
-                != replacement_direct.get(x, y, z)
-            {
+    for [x, y, z] in sampled_light_shell(offset) {
+        for channel in [LightChannel::Block, LightChannel::Sky] {
+            let before = previous
+                .and_then(|light| light.get(channel, x, y, z))
+                .unwrap_or(0);
+            let after = replacement.get(channel, x, y, z).unwrap_or(0);
+            if before != after {
                 return true;
             }
         }
+        if previous_direct.is_some_and(|direct| direct.get(x, y, z))
+            != replacement_direct.get(x, y, z)
+        {
+            return true;
+        }
     }
     false
+}
+
+/// Local cells of a section that a mesh centred one section away along `toward` samples light
+/// from: the planes facing that centre, or the whole section when `toward` is zero. Meshes read
+/// light only within one cell of their own section.
+pub(super) fn sampled_light_shell(toward: [i32; 3]) -> impl Iterator<Item = [u8; 3]> {
+    let [xs, ys, zs] = toward.map(|offset| match offset.signum() {
+        -1 => 0..=0_u8,
+        1 => 15..=15,
+        _ => 0..=15,
+    });
+    xs.flat_map(move |x| {
+        let zs = zs.clone();
+        ys.clone()
+            .flat_map(move |y| zs.clone().map(move |z| [x, y, z]))
+    })
+}
+
+/// Whether a mesh centred one section away along `toward` samples different light from
+/// `replacement` than it did from `previous`.
+pub(super) fn sampled_light_changed(
+    previous: &SubChunkLight,
+    replacement: &SubChunkLight,
+    toward: [i32; 3],
+) -> bool {
+    !light_levels_equal(previous, replacement)
+        && sampled_light_shell(toward).any(|[x, y, z]| {
+            [LightChannel::Block, LightChannel::Sky]
+                .into_iter()
+                .any(|channel| previous.get(channel, x, y, z) != replacement.get(channel, x, y, z))
+        })
 }
 
 pub(super) fn light_levels_equal(left: &SubChunkLight, right: &SubChunkLight) -> bool {

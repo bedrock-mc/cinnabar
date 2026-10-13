@@ -49,7 +49,7 @@ fn mounted_stream(identifier: &str, mount_yaw: f32) -> WorldStream {
     };
     let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.mounted","texture_width":64,"texture_height":64},"bones":[{"name":"head","pivot":[0,24,0]},{"name":"body","pivot":[0,24,0]},{"name":"rightarm","pivot":[5,22,0]},{"name":"leftarm","pivot":[-5,22,0]},{"name":"rightleg","pivot":[1.9,12,0]},{"name":"leftleg","pivot":[-1.9,12,0]}]}]}"#;
     let controller = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.mounted":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#;
-    let compiled = pack_compiler::compile_entity_pack(vec![
+    let compiled = pack_entity_compiler::compile_entity_pack(vec![
         ("entity/player.json".into(), entity("minecraft:player")),
         ("entity/mount.json".into(), entity(identifier)),
         ("models/entity/mounted.geo.json".into(), geometry.to_vec()),

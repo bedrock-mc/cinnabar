@@ -132,8 +132,9 @@ pub use inventory::{
     PLAYER_INVENTORY_SLOTS, PLAYER_INVENTORY_WINDOW_ID, SelectedSlotEvent, SlotIdentity,
     StackRequestAction, StackRequestContainer, StackRequestSlot, StackResponse,
     StackResponseContainer, StackResponseSlot, StackResponseStatus, UI_INVENTORY_WINDOW_ID,
-    VerifiedNetworkItemStack, container_close_packet, item_stack_request_batch,
-    item_stack_request_packet, item_stack_request_packet_filtered,
+    VerifiedNetworkItemStack, container_close_packet, inventory_drop_transaction_packet,
+    is_legacy_request_id, item_stack_request_batch, item_stack_request_packet,
+    item_stack_request_packet_filtered, next_legacy_request_id,
     normal_inventory_transaction_packet, normalize_authority, open_inventory_packet,
     personal_craft_content_indices, personal_craft_slot_index, project_container_cell,
     validate_item_nbt_size,
@@ -267,9 +268,8 @@ pub mod test_support;
 #[global_allocator]
 static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
-// Wire-layout tests live beside the codec so packet internals stay crate-private.
+// Wire suites that inspect packet internals remain unit tests.
 #[cfg(test)]
 extern crate self as protocol;
 #[cfg(test)]
-#[path = "../tests/it/main.rs"]
-mod wire_tests;
+mod tests;

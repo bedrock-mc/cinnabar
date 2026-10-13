@@ -1,4 +1,5 @@
 //! Checks external executables and unusable inherited wrapper records.
+//! Python runs with `-B` so importing the wrapper module leaves no `__pycache__` in `tools/`.
 #[cfg(unix)]
 mod support;
 
@@ -8,7 +9,7 @@ fn external_binary_target_survives_nested_wrappers() {
     use std::process::Command;
     let temp = tempfile::tempdir().unwrap();
     let tools = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    let result = support::bounded_output(Command::new("python3").args(["-c", r#"
+    let result = support::bounded_output(Command::new("python3").args(["-B", "-c", r#"
 import pathlib, subprocess, sys
 sys.path.insert(0, sys.argv[1])
 from compiler_workspace_wrapper import workspace_wrapper
@@ -41,6 +42,7 @@ fn cycles_and_missing_owned_records_fail_without_forwarding() {
     let result = support::bounded_output(
         Command::new("python3")
             .args([
+                "-B",
                 "-c",
                 r#"
 import json, pathlib, sys
@@ -76,7 +78,7 @@ fn cargo_config_wrapper_precedence_preserves_relative_paths() {
     let temp = tempfile::tempdir().unwrap();
     let tools = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let result = support::bounded_output(Command::new("python3")
-        .args(["-c", r#"
+        .args(["-B", "-c", r#"
 import os, pathlib, sys
 sys.path.insert(0, sys.argv[1])
 from compiler_workspace_wrapper import effective_workspace_wrapper
@@ -128,7 +130,7 @@ fn symlinked_external_wrappers_run_through_their_invoked_path() {
     use std::process::Command;
     let temp = tempfile::tempdir().unwrap();
     let tools = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    let result = support::bounded_output(Command::new("python3").args(["-c", r#"
+    let result = support::bounded_output(Command::new("python3").args(["-B", "-c", r#"
 import json, os, pathlib, subprocess, sys
 sys.path.insert(0, sys.argv[1])
 from compiler_workspace_wrapper import MARKER, effective_workspace_wrapper, workspace_wrapper

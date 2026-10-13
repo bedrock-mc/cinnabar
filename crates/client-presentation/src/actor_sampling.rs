@@ -49,12 +49,25 @@ pub fn sample_actor_bed_rotations(stream: &mut WorldStream, collisions: &dyn Col
         .actor_bed_sample_points()
         .into_iter()
         .filter_map(|(runtime_id, block)| {
-            let runtime = world.primary_runtime_id(block).ok()?;
-            let state = collisions.block_canonical_state(mode, runtime)?;
-            Some((runtime_id, bed_rotation_degrees(state)?))
+            Some((
+                runtime_id,
+                sampled_bed_rotation(&world, collisions, mode, block)?,
+            ))
         })
         .collect();
     stream.set_actor_bed_rotations(&beds);
+}
+
+/// Resolves the shared bed-direction state for camera and actor sampling.
+fn sampled_bed_rotation(
+    world: &sim::PaletteWorld<'_>,
+    collisions: &dyn CollisionLookup,
+    mode: assets::NetworkIdMode,
+    bed: [i32; 3],
+) -> Option<f32> {
+    let runtime = world.primary_runtime_id(bed).ok()?;
+    let state = collisions.block_canonical_state(mode, runtime)?;
+    bed_rotation_degrees(state)
 }
 
 /// The body-box point tested for submersion: the eye at nine tenths of the height, as vanilla

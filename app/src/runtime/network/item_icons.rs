@@ -204,7 +204,7 @@ pub(super) fn custom_block_icons(
                 .insert(Arc::clone(identifier), material_flags);
             result.block_sheets.push(session_icon(identifier, sheet));
         }
-        match visual.and_then(|visual| pack_compiler::overlay_block_icon(overlay, visual)) {
+        match visual.and_then(|visual| pack_entity_compiler::overlay_block_icon(overlay, visual)) {
             Some(sprite) => result.icons.push(session_icon(identifier, sprite)),
             None => result.misses.push((
                 Arc::clone(identifier),

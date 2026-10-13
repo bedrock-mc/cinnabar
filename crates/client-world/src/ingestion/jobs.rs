@@ -5,6 +5,7 @@ use protocol::{
     BlockEntityUpdateEvent, LevelChunkEvent, SubChunkBatchEvent, SyncedBlockUpdateEvent,
 };
 use std::{
+    collections::BTreeMap,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -34,6 +35,8 @@ pub enum DecodeJob {
         slots: DimensionSlots,
         count: usize,
         ids: DecodeIds,
+        /// The column's resident sections when the job was admitted, for comparing a resend.
+        previous: Option<Arc<BTreeMap<i32, Arc<SubChunk>>>>,
     },
     RequestLevelChunk {
         sequence: u64,

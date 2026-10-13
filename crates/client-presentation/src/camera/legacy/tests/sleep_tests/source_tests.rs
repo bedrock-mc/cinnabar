@@ -34,7 +34,7 @@ fn actor_feed(app: &App) -> client_world::LocalPlayerFeed {
 #[test]
 fn loaded_bed_heading_is_ready_on_the_first_metadata_frame_without_actor_ticks() {
     let mut app = pose_app();
-    sleep_state(&mut app, 2, true, Some(BED));
+    sleep_state(&mut app, 4, true, Some(BED));
     assert_eq!(
         app.world()
             .resource::<TestWorld>()
@@ -71,7 +71,7 @@ fn loaded_bed_heading_is_ready_on_the_first_metadata_frame_without_actor_ticks()
 fn actor_camera_heading_reads_the_sleeping_presentation_without_replacing_input_look() {
     let mut app = pose_app();
     let input = app.world().resource::<LocalViewPose>().look_rotation();
-    sleep_state(&mut app, 2, true, Some(BED));
+    sleep_state(&mut app, 4, true, Some(BED));
     app.world_mut()
         .run_system_cached(resolve_presentation)
         .unwrap();
@@ -92,7 +92,7 @@ fn metadata_only_sleep_and_wake_reanchor_once_while_stable_sleep_keeps_history()
         .world()
         .resource::<LocalViewPose>()
         .camera_reanchor_epoch();
-    sleep_state(&mut app, 2, true, Some(BED));
+    sleep_state(&mut app, 4, true, Some(BED));
     app.world_mut()
         .run_system_cached(resolve_presentation)
         .unwrap();
@@ -111,7 +111,7 @@ fn metadata_only_sleep_and_wake_reanchor_once_while_stable_sleep_keeps_history()
             .camera_reanchor_epoch(),
         start + 1
     );
-    sleep_state(&mut app, 3, false, Some(BED));
+    sleep_state(&mut app, 5, false, Some(BED));
     app.world_mut()
         .run_system_cached(resolve_presentation)
         .unwrap();
@@ -121,6 +121,75 @@ fn metadata_only_sleep_and_wake_reanchor_once_while_stable_sleep_keeps_history()
             .camera_reanchor_epoch(),
         start + 2
     );
+}
+
+#[test]
+fn sleep_and_wake_clear_motion_blur_once_without_moving_physics() {
+    let mut app = pose_app();
+    let position = sim::Vec3::new(2.5, 2.0, 5.5);
+    app.world_mut().resource_mut::<TestPhysics>().state.position = position;
+    let feet = Vec3::new(position.x as f32, position.y as f32, position.z as f32);
+    let eye = feet + Vec3::Y * protocol::STANDING_PLAYER_EYE_HEIGHT;
+    {
+        let mut view = app.world_mut().resource_mut::<LocalViewPose>();
+        view.set_subject_position(eye, feet);
+        view.set_rotation(Quat::IDENTITY);
+    }
+    app.add_systems(Update, crate::camera::motion_blur::apply_camera_motion_blur);
+    let camera = app
+        .world_mut()
+        .spawn((FlyCamera::default(), Camera3d::default()))
+        .id();
+    let mut settings = ui::UserSettings::default();
+    settings.gameplay.default_perspective = PerspectiveMode::ThirdPersonBack;
+    settings.video.motion_blur = ui::MotionBlurQuality::High;
+    app.world_mut()
+        .resource_mut::<CameraSettingsAuthority>()
+        .replace(1, &settings)
+        .unwrap();
+    let mut epoch = 0;
+    for (index, (sleeping, transition)) in [
+        (false, false),
+        (false, false),
+        (true, true),
+        (true, false),
+        (false, true),
+        (false, false),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        sleep_state(&mut app, index as u64 + 4, sleeping, Some(BED));
+        app.world_mut()
+            .run_system_cached(resolve_presentation)
+            .unwrap();
+        let view = *app.world().resource::<LocalViewPose>();
+        if transition {
+            epoch += 1;
+        }
+        assert_eq!(view.camera_reanchor_epoch(), epoch);
+        assert_eq!(view.rotation(), Quat::IDENTITY);
+        let expected = if sleeping {
+            crate::local_player::sleeping_subject_position(BED).0
+        } else {
+            eye
+        };
+        assert_eq!(view.eye_translation(), expected);
+        app.update();
+        let blur = app
+            .world()
+            .get::<render_scene::CameraMotionBlur>(camera)
+            .unwrap();
+        if transition {
+            assert_eq!(blur.exposure_seconds, 0.0);
+        } else if epoch > 0 {
+            assert!(blur.exposure_seconds > 0.0);
+        }
+        assert_eq!(
+            app.world().resource::<TestPhysics>().state.position,
+            position
+        );
+    }
 }
 
 #[test]
@@ -141,7 +210,7 @@ fn retained_actor_attachment_origin_snaps_to_the_bed_and_back_without_actor_tick
         .unwrap()
         .spawn_revision;
     let (_, feet) = crate::local_player::sleeping_subject_position(BED);
-    for (sequence, sleeping) in [(2, true), (3, true), (4, false)] {
+    for (sequence, sleeping) in [(4, true), (5, true), (6, false)] {
         sleep_state(&mut app, sequence, sleeping, Some(BED));
         app.world_mut()
             .run_system_cached(resolve_presentation)
@@ -210,7 +279,7 @@ fn actor_positions_preserve_awake_predictions_and_server_fallbacks_with_an_indep
     let mut avatar = crate::local_player::LocalAvatarPresentation::default();
     avatar.begin_session(SESSION, 2);
     let mut visibility = crate::local_player::LocalAvatarVisibilityCarrier::default();
-    for (sequence, sleeping) in [(2, false), (3, true), (4, false)] {
+    for (sequence, sleeping) in [(4, false), (5, true), (6, false)] {
         sleep_state(&mut app, sequence, sleeping, Some(BED));
         app.world_mut()
             .run_system_cached(resolve_presentation)
@@ -286,11 +355,11 @@ fn waking_attachments_restore_physics_or_server_feet_instead_of_the_free_camera(
         app.world_mut()
             .resource_mut::<LocalViewPose>()
             .set_subject_position(camera_feet + Vec3::Y, camera_feet);
-        sleep_state(&mut app, 2, true, Some(BED));
+        sleep_state(&mut app, 4, true, Some(BED));
         app.world_mut()
             .run_system_cached(resolve_presentation)
             .unwrap();
-        sleep_state(&mut app, 3, false, Some(BED));
+        sleep_state(&mut app, 5, false, Some(BED));
         let TestWorld(mut stream) = app.world_mut().remove_resource::<TestWorld>().unwrap();
         let collisions = app.world().resource::<TestCollisions>();
         let mut view = *app.world().resource::<LocalViewPose>();

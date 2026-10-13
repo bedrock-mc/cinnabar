@@ -229,7 +229,9 @@ fn authored_material_dye_reaches_the_player_preview() {
             attachable.to_string().into_bytes(),
         ));
     }
-    let compiled = pack_compiler::compile_entity_pack(files).unwrap().unwrap();
+    let compiled = pack_entity_compiler::compile_entity_pack(files)
+        .unwrap()
+        .unwrap();
     assert_eq!(compiled.skipped.unparsable, 0);
     let catalog = Arc::new(
         RuntimeEquipmentCatalog::from_parts(

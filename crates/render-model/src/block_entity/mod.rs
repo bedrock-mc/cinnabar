@@ -41,7 +41,10 @@ pub use bell::{BellAttachment, BellModel, swing_degrees};
 pub use book::{BookPose, EnchantingBook};
 pub use chest::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radians};
 pub use conduit::ConduitModel;
-pub use crack::{CrackQuad, CrackShape, crack_shape_from_template, crack_texture_name};
+pub use crack::{
+    CrackQuad, CrackShape, CrackShapeCache, crack_shape_for_block, crack_shape_from_template,
+    crack_texture_name,
+};
 pub use crystal_beam::CrystalBeamModel;
 pub use dragon_death::DragonDeathModel;
 pub use frame::{

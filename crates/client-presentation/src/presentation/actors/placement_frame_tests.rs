@@ -29,7 +29,7 @@ fn world(identifier: &str) -> client_world::WorldAuthority {
     image::codecs::png::PngEncoder::new(&mut texture)
         .write_image(&[230, 160, 45, 255], 1, 1, image::ExtendedColorType::Rgba8)
         .unwrap();
-    let compiled = pack_compiler::compile_entity_pack(vec![
+    let compiled = pack_entity_compiler::compile_entity_pack(vec![
         ("entity/test.json".into(), entity.into_bytes()),
         ("models/entity/test.geo.json".into(), geometry.to_vec()),
         ("animations/test.animation.json".into(), animation.to_vec()),

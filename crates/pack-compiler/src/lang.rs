@@ -10,7 +10,7 @@ use assets::{
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::entity::validate_vanilla_source_manifest;
+use pack_compile_input::source::validate_source_manifest;
 
 const LANG_RELATIVE_PATH: &str = "texts/en_US.lang";
 const LANGUAGES_RELATIVE_PATH: &str = "texts/languages.json";
@@ -128,7 +128,7 @@ fn compile_lang_file(
     source_manifest: &[u8],
     expected_source_sha256: Option<[u8; 32]>,
 ) -> Result<CompiledLangCarrier, LangCompileError> {
-    let source_manifest_sha256 = validate_vanilla_source_manifest(source_manifest)?;
+    let source_manifest_sha256 = validate_source_manifest(source_manifest)?;
     let path = root.join(relative);
     let bytes = fs::File::open(&path)
         .and_then(|file| bounded_bytes(file, MAX_LANG_SOURCE_BYTES))

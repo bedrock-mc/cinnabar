@@ -8,13 +8,13 @@ const TITLE: &str = "Import resource pack";
 const FILTER_NAME: &str = "Resource packs";
 const UNAVAILABLE_HINT: &str = "Drop a pack onto the window to import it.";
 
-/// Returns a selected filename, cancellation, or a visible picker error.
-pub(super) fn pick() -> Result<Option<PathBuf>, String> {
+/// Returns all selected files, an empty list on cancellation, or a visible picker error.
+pub(super) fn pick() -> Result<Vec<PathBuf>, String> {
     #[cfg(windows)]
-    return launcher_host::desktop::windows::pick_file(TITLE, &windows_filter())
+    return launcher_host::desktop::windows::pick_files(TITLE, &windows_filter())
         .map_err(|code| format!("File picker failed (error {code:#x}). {UNAVAILABLE_HINT}"));
     #[cfg(target_os = "linux")]
-    match launcher_host::desktop::dbus::pick_file(TITLE, FILTER_NAME, &patterns()) {
+    match launcher_host::desktop::dbus::pick_files(TITLE, FILTER_NAME, &patterns()) {
         Ok(choice) => return Ok(choice),
         Err(error) => {
             bevy::log::debug!("portal file chooser unavailable ({error}); trying dialog tools")
@@ -24,6 +24,7 @@ pub(super) fn pick() -> Result<Option<PathBuf>, String> {
     run_tools(tool_commands(std::env::consts::OS))
 }
 
+/// Derives every platform's pack filter from the supported import extensions.
 fn patterns() -> Vec<String> {
     PACK_IMPORT_EXTENSIONS
         .iter()
@@ -39,15 +40,14 @@ fn windows_filter() -> String {
 
 /// Runs the first picker tool that launches; a launched tool's failure counts as cancellation.
 #[cfg(not(windows))]
-fn run_tools(commands: Vec<Command>) -> Result<Option<PathBuf>, String> {
+fn run_tools(commands: Vec<Command>) -> Result<Vec<PathBuf>, String> {
     let mut launch_error = None;
     for mut command in commands {
         match command.output() {
             Ok(output) if output.status.success() => {
-                let path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-                return Ok((!path.is_empty()).then(|| PathBuf::from(path)));
+                return Ok(output_paths(&output.stdout));
             }
-            Ok(_) => return Ok(None),
+            Ok(_) => return Ok(Vec::new()),
             Err(error) => launch_error = Some(error),
         }
     }
@@ -57,6 +57,16 @@ fn run_tools(commands: Vec<Command>) -> Result<Option<PathBuf>, String> {
     ))
 }
 
+/// Reads one selected path per line, preserving spaces and ignoring empty output lines.
+#[cfg(any(not(windows), test))]
+fn output_paths(output: &[u8]) -> Vec<PathBuf> {
+    String::from_utf8_lossy(output)
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
 /// Picker tools in fallback order; Linux reaches these only when the portal is unavailable.
 #[cfg(any(not(windows), test))]
 fn tool_commands(platform: &str) -> Vec<Command> {
@@ -64,8 +74,14 @@ fn tool_commands(platform: &str) -> Vec<Command> {
         let types = PACK_IMPORT_EXTENSIONS
             .map(|extension| format!("\"{extension}\""))
             .join(", ");
-        let script =
-            format!("POSIX path of (choose file with prompt \"{TITLE}\" of type {{{types}}})");
+        let script = format!(
+            "set selectedFiles to choose file with prompt \"{TITLE}\" of type {{{types}}} with multiple selections allowed\n\
+             set selectedPaths to \"\"\n\
+             repeat with selectedFile in selectedFiles\n\
+             set selectedPaths to selectedPaths & (POSIX path of selectedFile) & linefeed\n\
+             end repeat\n\
+             return selectedPaths"
+        );
         let mut command = Command::new("osascript");
         command.args(["-e", &script]);
         return vec![command];
@@ -74,6 +90,8 @@ fn tool_commands(platform: &str) -> Vec<Command> {
     let mut zenity = Command::new("zenity");
     zenity.args([
         "--file-selection".to_owned(),
+        "--multiple".to_owned(),
+        "--separator=\n".to_owned(),
         format!("--title={TITLE}"),
         format!("--file-filter={FILTER_NAME} | {patterns}"),
     ]);
@@ -82,6 +100,8 @@ fn tool_commands(platform: &str) -> Vec<Command> {
         "--title".to_owned(),
         TITLE.to_owned(),
         "--getopenfilename".to_owned(),
+        "--multiple".to_owned(),
+        "--separate-output".to_owned(),
         ".".to_owned(),
         format!("{patterns}|{FILTER_NAME}"),
     ]);
@@ -92,6 +112,7 @@ fn tool_commands(platform: &str) -> Vec<Command> {
 mod tests {
     use super::*;
 
+    /// Returns a tool's arguments as strings for inspecting its dialog configuration.
     fn args(command: &Command) -> Vec<&str> {
         command
             .get_args()
@@ -145,6 +166,23 @@ mod tests {
         assert_eq!(parts.next(), None);
     }
 
+    #[test]
+    fn tool_output_returns_each_path_without_splitting_spaces_or_pipes() {
+        assert_eq!(
+            output_paths(b"/packs/First Pack.mcpack\n/packs/Second|Pack.mcaddon\n\n"),
+            [
+                PathBuf::from("/packs/First Pack.mcpack"),
+                PathBuf::from("/packs/Second|Pack.mcaddon"),
+            ]
+        );
+        assert_eq!(
+            output_paths(b"/packs/a.mcpack\n"),
+            [PathBuf::from("/packs/a.mcpack")]
+        );
+        assert!(output_paths(b"\n").is_empty());
+        assert!(output_paths(b"").is_empty());
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_missing_tool_falls_through_and_a_cancelled_one_stops() {
@@ -155,12 +193,18 @@ mod tests {
         };
         let missing = || Command::new("cinnabar-no-such-picker");
         assert_eq!(
-            run_tools(vec![missing(), shell("echo /packs/a.mcpack")]),
-            Ok(Some(PathBuf::from("/packs/a.mcpack")))
+            run_tools(vec![
+                missing(),
+                shell("printf '/packs/a.mcpack\\n/packs/b.mcpack\\n'")
+            ]),
+            Ok(vec![
+                PathBuf::from("/packs/a.mcpack"),
+                PathBuf::from("/packs/b.mcpack")
+            ])
         );
         assert_eq!(
             run_tools(vec![shell("exit 1"), shell("echo /packs/b.mcpack")]),
-            Ok(None)
+            Ok(Vec::new())
         );
         let error = run_tools(vec![missing()]).unwrap_err();
         assert!(error.contains(UNAVAILABLE_HINT), "{error}");

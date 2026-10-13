@@ -181,7 +181,7 @@ mod tests {
         let server = selected(3);
         let mut inventory = HeldPlacementInventory::default();
         let mut air = crate::item_use::ItemUseRuntime::default();
-        let id = air.next_legacy_request_id();
+        let id = protocol::next_legacy_request_id().unwrap();
         let change = inventory.prepare_change(&server, id);
         inventory.commit(server.clone(), 1, change);
         let selection = inventory.predicted_selection(&server, 1).unwrap();
@@ -215,8 +215,12 @@ mod tests {
             assert!(air.step(&frame).packets.is_empty());
         }
         let repeated = inventory.predicted_selection(&server, 1).unwrap();
-        let change = inventory.prepare_change(&repeated, air.next_legacy_request_id());
-        assert_eq!(change.legacy_request_id, -8);
+        let change =
+            inventory.prepare_change(&repeated, protocol::next_legacy_request_id().unwrap());
+        assert!(
+            change.legacy_request_id < id
+                && protocol::is_legacy_request_id(change.legacy_request_id)
+        );
         assert_eq!(change.from.count(), 2);
         assert_eq!(change.to.count(), 1);
     }
@@ -226,7 +230,8 @@ mod tests {
         let server = selected(1);
         let mut inventory = HeldPlacementInventory::default();
         let mut air = crate::item_use::ItemUseRuntime::default();
-        let change = inventory.prepare_change(&server, air.next_legacy_request_id());
+        let id = protocol::next_legacy_request_id().unwrap();
+        let change = inventory.prepare_change(&server, id);
         inventory.commit(server.clone(), 1, change);
         air.observe_press(true);
         let outcome = air.step(&crate::item_use::UseFrame {
@@ -243,6 +248,6 @@ mod tests {
             press_consumed: false,
         });
         assert!(outcome.packets.is_empty());
-        assert_eq!(air.next_legacy_request_id(), -6);
+        assert!(protocol::next_legacy_request_id().unwrap() < id);
     }
 }

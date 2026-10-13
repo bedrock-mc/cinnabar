@@ -51,7 +51,7 @@ fn captured_entity_stack_retains_animation_payloads() {
     let vanilla = assets::RuntimeEntityAssets::decode(&vanilla_bytes).unwrap();
     let view = resource_pack::LayeredPackView::new(stack);
     let files = pack_runtime::entity_pack::collect::collect_files(&view, Some(&refs), None);
-    let compiled = pack_compiler::compile_entity_pack(files.clone())
+    let compiled = pack_entity_compiler::compile_entity_pack(files.clone())
         .unwrap()
         .expect("captured stack contains entity assets")
         .assets;
@@ -71,7 +71,7 @@ fn captured_entity_stack_retains_animation_payloads() {
     );
     let runtime = assets::RuntimeEntityAssets::from_compiled(compiled)
         .expect("captured entity stack retains its compiled animation payloads");
-    let actors = pack_compiler::compile_actor_pack(files.clone())
+    let actors = pack_entity_compiler::compile_actor_pack(files.clone())
         .expect("captured entity stack compiles its actor artwork")
         .expect("captured entity stack contains actor artwork");
     let mut fallback_reasons = std::collections::BTreeMap::new();
@@ -137,7 +137,7 @@ fn captured_entity_stack_retains_animation_payloads() {
 
 fn report_title_rigs(
     vanilla: &assets::RuntimeEntityAssets,
-    actors: &pack_compiler::ActorPackCompilation,
+    actors: &pack_entity_compiler::ActorPackCompilation,
     files: &[(Box<str>, Vec<u8>)],
 ) {
     use std::sync::Arc;
@@ -377,7 +377,7 @@ fn report_local_pack_entities() {
         }
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         diagnose_references(&name, &files);
-        match pack_compiler::compile_actor_pack(files) {
+        match pack_entity_compiler::compile_actor_pack(files) {
             Ok(Some(c)) => {
                 let mut reasons = std::collections::BTreeMap::<String, Vec<String>>::new();
                 for fallback in &c.fallbacks {

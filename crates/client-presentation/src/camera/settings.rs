@@ -116,7 +116,7 @@ impl CameraSettingsAuthority {
         if !fov.is_finite() {
             return Err(CameraSettingsError::NonFiniteFov);
         }
-        if !(30.0..=120.0).contains(&fov) {
+        if !(ui::MIN_FOV_DEGREES as f32..=ui::MAX_FOV_DEGREES as f32).contains(&fov) {
             return Err(CameraSettingsError::FovOutOfRange);
         }
         self.generation = generation;
@@ -286,5 +286,22 @@ pub const fn next_perspective(current: PerspectiveMode) -> PerspectiveMode {
         PerspectiveMode::FirstPerson => PerspectiveMode::ThirdPersonBack,
         PerspectiveMode::ThirdPersonBack => PerspectiveMode::ThirdPersonFront,
         PerspectiveMode::ThirdPersonFront => PerspectiveMode::FirstPerson,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Camera settings accept both ends of the Video slider's FOV range.
+    #[test]
+    fn camera_accepts_shared_fov_bounds() {
+        for degrees in [ui::MIN_FOV_DEGREES, ui::MAX_FOV_DEGREES] {
+            let mut camera = CameraSettingsAuthority::default();
+            let mut settings = UserSettings::default();
+            settings.video.horizontal_fov_degrees = degrees as f32;
+            camera.replace(1, &settings).unwrap();
+            assert_eq!(camera.horizontal_fov_degrees(), degrees as f32);
+        }
     }
 }

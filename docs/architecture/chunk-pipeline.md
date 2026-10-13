@@ -109,8 +109,9 @@ the stream's single owner performs them in the same sequence.
 - `chunk-pipeline` may depend on `client-world`, `meshing`, `assets`, `world` and
   `render-api`. Its production code consumes explicit ingress contracts exposed
   by `client-world`; direct `protocol` use is confined to fixtures.
-- `pack-compiler` may depend internally only on `assets`. `asset-compiler` is the
-  CLI and may depend on `pack-compiler` and `assets`; the app cannot regain a
+- Pack compilation uses separate input, terrain, entity and font owners. They
+  remain engine-independent; terrain and entity have no production edge to each
+  other. `asset-compiler` composes them for the CLI; the app cannot regain a
   direct or transitive dependency on that CLI.
 - Transitive rules keep Bevy, wgpu, the app, UI and renderer out of the lower
   layers and prevent renderer back-edges into world authority or chunk scheduling.

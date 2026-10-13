@@ -4,13 +4,28 @@ use std::sync::Arc;
 
 use protocol::{
     CONTAINER_NAME_LEVEL_ENTITY, ContainerIdentity, ContainerOpenEvent, InventoryContentEvent,
-    InventoryEvent, NetworkItemStack, StackRequestAction, StackRequestContainer,
+    InventoryEvent, InventorySlotEvent, NetworkItemStack, NormalInventoryChange,
+    NormalInventorySource, SlotIdentity, StackRequestAction, StackRequestContainer,
 };
 
 use super::*;
 
 #[path = "storage_quick_move_tests.rs"]
 mod storage_tests;
+
+mod world_drop;
+
+/// Reads the reserved wire identity of a drop still awaiting transport.
+fn drop_legacy_id(ledger: &PlayerInventoryLedger, request_id: i32) -> i32 {
+    ledger
+        .queue
+        .iter()
+        .find(|request| request.request_id == request_id)
+        .expect("queued drop")
+        .world_drop
+        .expect("world drop identity")
+        .legacy_request_id
+}
 
 fn stack(network_id: i32, stack_network_id: i32, count: u16) -> NetworkItemStack {
     NetworkItemStack {
@@ -248,22 +263,105 @@ fn screen_drops_do_not_emit_world_drop_feedback() {
     assert_eq!(ledger.take_world_drops(), 0);
 }
 
+/// Like the native client, a drop key press leaves as a normal transaction rather than an item
+/// stack request, so servers see no inventory request from a player walking with no screen open.
 #[test]
-fn server_rejection_does_not_repeat_world_drop_feedback() {
-    let original = stack(8, 100, 3);
-    let mut ledger = known_ledger(&[(2, original.clone())]);
+fn world_drop_leaves_as_the_native_drop_transaction() {
+    let held = digested(stack(8, 100, 3));
+    let mut ledger = known_ledger(&[(2, held.clone())]);
     let request = ledger.begin_world_drop(2, Some(1)).unwrap();
+    let legacy_id = drop_legacy_id(&ledger, request);
+    let (packet, entries) = ledger.pending_batch().unwrap().unwrap();
+    assert_eq!(entries, 1);
+    let verify = |stack: NetworkItemStack| {
+        protocol::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest).unwrap()
+    };
+    let mut remainder = held.clone();
+    remainder.count = 2;
+    let mut dropped = held.clone();
+    dropped.count = 1;
+    let expected = protocol::inventory_drop_transaction_packet(
+        2,
+        Some(legacy_id),
+        vec![
+            NormalInventoryChange {
+                source: NormalInventorySource::Container(0),
+                slot: 2,
+                from: verify(held),
+                to: verify(remainder).renamed(legacy_id),
+            },
+            NormalInventoryChange {
+                source: NormalInventorySource::World { randomly: false },
+                slot: 0,
+                from: verify(NetworkItemStack::empty()),
+                to: verify(dropped),
+            },
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        protocol::encode(&packet).unwrap(),
+        protocol::encode(&expected).unwrap()
+    );
+
+    // The server restates the slot only when it disagrees, so the sent drop is local truth.
+    assert!(ledger.mark_transport_enqueued(10));
+    assert_eq!(ledger.pending_state(), None);
+    assert_eq!(ledger.displayed_stack(2).unwrap().count, 2);
+    assert_eq!(
+        ledger.displayed_stack(2).unwrap().stack_network_id,
+        legacy_id
+    );
+    assert!(ledger.pending_batch().unwrap().is_none());
+}
+
+/// A later request names a drop's remainder by its legacy id, which servers accept for it.
+#[test]
+fn requests_after_a_world_drop_name_the_remainder_by_its_legacy_id() {
+    let mut ledger = known_ledger(&[(2, digested(stack(8, 100, 3)))]);
+    let request = ledger.begin_world_drop(2, Some(1)).unwrap();
+    let legacy_id = drop_legacy_id(&ledger, request);
+    assert!(ledger.mark_transport_enqueued(10));
+    assert!(ledger.request_personal_open(42));
+    assert!(ledger.mark_transport_enqueued(10));
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(2),
+        window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
+        position: [0, 64, 0],
+        runtime_entity_id: -1,
+    }));
+    ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(2)), Some(1))
+        .unwrap();
+    let Some(StackRequestAction::Drop { source, .. }) = ledger.newest_action() else {
+        panic!("a screen drop");
+    };
+    assert_eq!(source.stack_network_id, legacy_id);
+    assert!(ledger.pending_batch().unwrap().is_some());
+}
+
+#[test]
+fn server_correction_does_not_repeat_world_drop_feedback() {
+    let original = digested(stack(8, 100, 3));
+    let mut ledger = known_ledger(&[(2, original.clone())]);
+    ledger.begin_world_drop(2, Some(1)).unwrap();
     assert_eq!(ledger.take_world_drops(), 1);
     assert!(ledger.mark_transport_enqueued(10));
-    ledger.apply(&InventoryEvent::Response(
-        protocol::ItemStackResponseEvent {
-            responses: Arc::from([protocol::StackResponse {
-                status: protocol::StackResponseStatus::Rejected,
-                request_id: request,
-                containers: Arc::from([]),
-            }]),
+    ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+        identity: SlotIdentity {
+            container: ContainerIdentity::window(0),
+            slot: 2,
         },
-    ));
+        stack: original.clone(),
+        storage_item: None,
+    }));
     assert_eq!(ledger.displayed_stack(2), Some(&original));
     assert_eq!(ledger.take_world_drops(), 0);
+}
+
+/// `stack` with the digest of its extra data, as stacks decoded from the wire carry.
+fn digested(mut stack: NetworkItemStack) -> NetworkItemStack {
+    use sha2::{Digest, Sha256};
+    stack.nbt_digest = Sha256::digest(&stack.extra_data).into();
+    stack
 }

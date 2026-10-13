@@ -1,5 +1,4 @@
-//! Atomic operations used only to create a request's absolute sparse snapshot.
-//! Backing slot updates and responses never rerun these operations.
+//! Atomic operations used to create snapshots and rebuild requests before transport.
 
 use super::cells::{Cell, Cells, Held};
 
@@ -38,6 +37,41 @@ pub(super) enum DeltaGroup {
 }
 
 impl DeltaGroup {
+    /// Names the current source cells when rebuilding an unsent request.
+    pub(super) fn rebind(&mut self, cells: &Cells) {
+        let name = |cell| {
+            cells
+                .get(cell)
+                .map_or(0, |held| held.stack.stack_network_id)
+        };
+        match self {
+            Self::Transfer {
+                source,
+                destination,
+                source_id,
+                destination_id,
+                ..
+            } => {
+                *source_id = name(*source);
+                *destination_id = cells
+                    .get(*destination)
+                    .map(|held| held.stack.stack_network_id);
+            }
+            Self::Swap {
+                source,
+                destination,
+                source_id,
+                destination_id,
+            } => {
+                *source_id = name(*source);
+                *destination_id = name(*destination);
+            }
+            Self::Shrink {
+                source, source_id, ..
+            } => *source_id = name(*source),
+            Self::Set { .. } => {}
+        }
+    }
     pub(super) fn touched(&self) -> impl Iterator<Item = Cell> {
         let (first, second) = match self {
             Self::Transfer {

@@ -50,7 +50,7 @@ pub(super) fn merge(
         let Some(bytes) = view.read_capped(&path, resource_pack::MAX_FILE_BYTES) else {
             continue;
         };
-        let Some((width, height, rgba8)) = pack_compiler::decode_equipment_raster(
+        let Some((width, height, rgba8)) = pack_entity_compiler::decode_equipment_raster(
             &bytes,
             format,
             assets::MAX_EQUIPMENT_PIXEL_BYTES - retained,

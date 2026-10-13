@@ -32,7 +32,10 @@ reads = [
 world = { path = "../world" }
 assets = { path = "../assets" }
 block-transform = { path = "../block-transform" }
+pack-compile-input = { path = "../pack-compiler/input" }
 pack-compiler = { path = "../pack-compiler" }
+pack-entity-compiler = { path = "../pack-compiler/entity" }
+pack-font-compiler = { path = "../pack-compiler/font" }
 clap = { version = "4", features = ["derive"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 same-file = "1"

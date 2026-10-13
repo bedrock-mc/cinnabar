@@ -39,12 +39,10 @@ fn home_quit_confirmation_uses_oreui_without_a_legacy_popup_and_traps_clicks() {
         hits.iter()
             .any(|(action, _)| *action == MenuAction::DismissDialog)
     );
-    assert!(
-        hits.iter().all(|(action, _)| matches!(
-            action,
-            MenuAction::ConfirmExit | MenuAction::DismissDialog
-        ))
-    );
+    assert!(hits.iter().all(|(action, _)| matches!(
+        action,
+        MenuAction::ConfirmExit | MenuAction::DismissDialog | MenuAction::CloseExitDialog
+    )));
     assert!(
         solids(&nodes)
             .iter()

@@ -52,9 +52,24 @@ fn fixture() -> tempfile::TempDir {
 /// Replace one crate manifest with the requested dependency declarations.
 fn set_dependencies(root: &Path, name: &str, dependencies: &str) {
     write(
-        &root.join("crates").join(name).join("Cargo.toml"),
+        &root.join(crate_path(root, name)).join("Cargo.toml"),
         &format!("[package]\nname='{name}'\nversion='0.1.0'\n{dependencies}\n"),
     );
+}
+
+/// Reads a fixture package's directory from the real ownership policy.
+fn crate_path(root: &Path, name: &str) -> String {
+    let policy: toml::Value =
+        toml::from_str(&fs::read_to_string(root.join("policy.toml")).unwrap()).unwrap();
+    policy["crates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|rule| rule["name"].as_str() == Some(name))
+        .unwrap()["path"]
+        .as_str()
+        .unwrap()
+        .to_owned()
 }
 
 /// Return all diagnostics from the fixture's copy of the real policy.
@@ -212,7 +227,13 @@ fn domain_fixtures_cannot_be_enabled_by_production_dependencies() {
 
 #[test]
 fn session_rejects_pack_compilers_directly_and_through_an_allowed_dependency() {
-    for compiler in ["pack-compiler", "pack-runtime"] {
+    for compiler in [
+        "pack-compiler",
+        "pack-compile-input",
+        "pack-entity-compiler",
+        "pack-font-compiler",
+        "pack-runtime",
+    ] {
         for indirect in [false, true] {
             let temp = fixture();
             let root = temp.path();
@@ -229,7 +250,10 @@ fn session_rejects_pack_compilers_directly_and_through_an_allowed_dependency() {
             set_dependencies(
                 root,
                 owner,
-                &format!("[dependencies]\ncompiler={{package='{compiler}',path='../{compiler}'}}"),
+                &format!(
+                    "[dependencies]\ncompiler={{package='{compiler}',path='../{}'}}",
+                    crate_path(root, compiler).strip_prefix("crates/").unwrap()
+                ),
             );
             let path = if indirect {
                 format!("client-session -> protocol -> {compiler}")
@@ -253,7 +277,7 @@ fn pack_runtime_accepts_compilation_but_rejects_engine_and_transport_edges() {
     set_dependencies(
         root,
         "pack-runtime",
-        "[dependencies]\npack-compiler={path='../pack-compiler'}\nassets={path='../assets'}\nresource-pack={path='../resource-pack'}\nprotocol={path='../protocol'}",
+        "[dependencies]\npack-compile-input={path='../pack-compiler/input'}\npack-entity-compiler={path='../pack-compiler/entity'}\nassets={path='../assets'}\nresource-pack={path='../resource-pack'}\nprotocol={path='../protocol'}",
     );
     assert_eq!(diagnostics(root), Vec::<String>::new());
     for dependency in [

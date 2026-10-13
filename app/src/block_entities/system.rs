@@ -14,8 +14,8 @@ use world::{ChunkKey, SUB_CHUNK_SIDE, SubChunkKey};
 use {
     render_model::{
         AtlasRect, BellModel, BlockEntityKind, BlockEntityLight, BlockEntityScene,
-        BlockEntitySubmission, ConduitModel, SceneClock, SignFace, SignModel, StaticItemPlacement,
-        item_frame_item_transform, matrix_rows,
+        BlockEntitySubmission, ConduitModel, CrackShapeCache, SceneClock, SignFace, SignModel,
+        StaticItemPlacement, item_frame_item_transform, matrix_rows,
     },
     render_scene::AtmosphereFrame,
 };
@@ -23,7 +23,7 @@ use {
 use super::{
     books,
     containers::{ContainerKind, ContainerLids, cue_is_open},
-    cracks::{CrackLayers, CrackShapeCache, crack_instances, crack_shape, with_second_parts},
+    cracks::{CrackLayers, crack_instances, with_second_parts},
     describe::{HeldItem, Template, describe},
     sign_text,
     state::BlockState,
@@ -434,13 +434,21 @@ pub(crate) fn update_block_entity_scene(
                 second_crack_part(&collisions, store, mode, dimension, entry)
             });
             crack_instances(&entries, |entry| {
-                crack_shape(
-                    shapes,
-                    assets,
-                    mode,
-                    entry.layers.iter().flatten().next().copied(),
-                    entry.position,
-                )
+                let runtime_id = entry.layers.iter().flatten().next().copied();
+                let template = runtime_id.and_then(|id| {
+                    assets.model_template_at(mode, id, entry.position, |position| {
+                        let side = SUB_CHUNK_SIDE as i32;
+                        let key = SubChunkKey::new(
+                            dimension,
+                            position[0].div_euclid(side),
+                            position[1].div_euclid(side),
+                            position[2].div_euclid(side),
+                        );
+                        let [x, y, z] = position.map(|value| value.rem_euclid(side) as u8);
+                        store.sub_chunk(key)?.runtime_id(0, x, y, z)
+                    })
+                });
+                shapes.shape(assets, mode, runtime_id, entry.position, template)
             })
         });
 

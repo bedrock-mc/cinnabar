@@ -153,7 +153,7 @@ fn tall_strips_retain_first_and_last_full_resolution_frames() {
 }
 
 #[test]
-fn over_budget_route_keeps_other_terrain_at_full_quality() {
+fn over_budget_routes_resize_without_diagnostic_faces() {
     let mut images = (0..48)
         .map(|i| (format!("hd{i}"), 512, 512))
         .collect::<Vec<_>>();
@@ -164,20 +164,30 @@ fn over_budget_route_keeps_other_terrain_at_full_quality() {
         .collect::<Vec<_>>();
     let (view, blocks) = fixture(&borrowed);
     let compiled = compile_block_overlay(&view, &blocks, false, None).unwrap();
-    let page = compiled.overlay.textures.first().unwrap();
-    assert_eq!(page.mips[0].size, 512);
+    assert_eq!(compiled.gaps.missing_textures, 0);
+    assert_eq!(compiled.gaps.saturated_textures, 0);
     assert!(
-        page.mips.iter().map(|mip| mip.rgba8.len()).sum::<usize>()
-            <= assets::texture::policy::MAX_SUBSCRIBER_BYTES
+        compiled
+            .overlay
+            .texture_source_sizes
+            .iter()
+            .any(|size| size[0] < 512)
     );
-    assert!(compiled.gaps.missing_textures > 0);
-    assert_eq!(compiled.overlay.texture_source_sizes[1], [512; 2]);
+    assert!(
+        compiled
+            .overlay
+            .textures
+            .iter()
+            .flat_map(|page| &page.mips)
+            .map(|mip| mip.rgba8.len())
+            .sum::<usize>()
+            <= assets::texture::policy::terrain_texture_policy().storage_bytes()
+    );
     let last = compiled.overlay.visuals.last().unwrap();
-    assert_eq!(
-        compiled.overlay.materials[last.faces[0] as usize]
-            .texture
-            .layer(),
-        0
+    assert!(
+        last.faces
+            .iter()
+            .all(|&face| face != assets::DIAGNOSTIC_MATERIAL)
     );
 }
 
@@ -202,7 +212,7 @@ fn oversized_horizontal_terrain_without_animation_keeps_the_first_frame() {
 }
 
 #[test]
-fn diagnostic_layer_is_budgeted_before_refusing_only_the_excess_texture() {
+fn diagnostic_layer_is_budgeted_before_resizing_excess_textures() {
     let mut images = (0..4)
         .map(|index| (format!("medium{index}"), 256, 256))
         .collect::<Vec<_>>();
@@ -214,15 +224,15 @@ fn diagnostic_layer_is_budgeted_before_refusing_only_the_excess_texture() {
     let (view, blocks) = fixture(&borrowed);
     let compiled = super::super::compile_block_overlay(&view, &blocks, false, None, 2048, None)
         .expect("an excess route must not discard the admitted overlay");
-    assert_eq!(compiled.gaps.missing_textures, 1);
-    let refused = compiled.overlay.visuals.last().unwrap();
-    assert_eq!(refused.kind, VisualKind::Cube);
+    assert_eq!(compiled.gaps.missing_textures, 0);
+    let resized = compiled.overlay.visuals.last().unwrap();
+    assert_eq!(resized.kind, VisualKind::Cube);
     assert!(
-        refused
+        resized
             .faces
             .iter()
-            .all(|&face| face == assets::DIAGNOSTIC_MATERIAL),
-        "the refused route degrades per face instead of sinking its cube"
+            .all(|&face| face != assets::DIAGNOSTIC_MATERIAL),
+        "byte pressure must keep every valid face textured"
     );
     assert!(
         compiled.overlay.visuals[..50]
@@ -236,7 +246,7 @@ fn diagnostic_layer_is_budgeted_before_refusing_only_the_excess_texture() {
         .flat_map(|shard| &shard.mips)
         .map(|mip| mip.rgba8.len())
         .sum::<usize>();
-    assert!(bytes <= assets::texture::policy::MAX_SUBSCRIBER_BYTES);
+    assert!(bytes <= assets::texture::policy::terrain_texture_policy().storage_bytes());
     RuntimeAssets::diagnostic()
         .with_block_overlay(1, &compiled.overlay)
         .unwrap();

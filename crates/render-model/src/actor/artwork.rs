@@ -17,6 +17,9 @@ mod multitexture;
 #[cfg(test)]
 #[path = "artwork/page_capacity_tests.rs"]
 mod page_capacity_tests;
+#[cfg(test)]
+#[path = "artwork/retained_equipment_tests.rs"]
+mod retained_equipment_tests;
 
 /// CPU draw routing selects an artwork page independently of the shader's texture layer.
 pub type ActorArtworkPageId = u16;
@@ -151,6 +154,13 @@ impl ActorTexturePage {
     }
 }
 
+/// An admitted source binding and a shared witness of the page that contains it.
+#[derive(Clone, Debug)]
+struct RetainedEquipmentArtwork {
+    location: ActorArtworkLocation,
+    page: ActorTexturePage,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ActorArtworkPages {
     pub identity: [u8; 32],
@@ -165,6 +175,8 @@ pub struct ActorArtworkPages {
     entity_locations: Arc<BTreeSet<(ActorArtworkPageId, u32)>>,
     /// `(page, layer)` of every equipment raster; equipment rigs are not entity routes.
     equipment: Arc<BTreeSet<(ActorArtworkPageId, u32)>>,
+    /// Immutable source identities retain their admitted equipment layer without scanning pixels.
+    equipment_artwork: Arc<BTreeMap<[u8; 32], RetainedEquipmentArtwork>>,
     /// Session pack textures by pack-catalog source index, a separate index space.
     pack_source_locations: Arc<BTreeMap<u32, ActorArtworkLocation>>,
     pack_locations: Arc<BTreeSet<(ActorArtworkPageId, u32)>>,
@@ -294,10 +306,59 @@ impl ActorArtworkPages {
             pages: pages.into(),
             routes: Arc::new(routes),
             equipment: Arc::new(BTreeSet::new()),
+            equipment_artwork: Arc::default(),
             pack_source_locations: Arc::default(),
             pack_locations: Arc::default(),
             rejected_bindings,
         }
+    }
+
+    /// Retains an admitted equipment layer under its immutable source identity.
+    /// The identity must cover source dimensions, pixels, placements and material interpretation.
+    pub fn register_equipment_artwork(
+        &mut self,
+        identity: [u8; 32],
+        location: ActorArtworkLocation,
+    ) {
+        if !self.equipment.contains(&(location.page, location.layer)) {
+            return;
+        }
+        let Some(page) = location
+            .page
+            .checked_sub(1)
+            .and_then(|page| self.pages.get(usize::from(page)))
+        else {
+            return;
+        };
+        if location.layer >= page.layers {
+            return;
+        }
+        Arc::make_mut(&mut self.equipment_artwork).insert(
+            identity,
+            RetainedEquipmentArtwork {
+                location,
+                page: page.clone(),
+            },
+        );
+    }
+
+    /// Reuses a retained source while its admitted page still shares the same pixels and layout.
+    /// Appending pages preserves bindings; replacing public page data invalidates the witness.
+    pub fn equipment_artwork_location(&self, identity: [u8; 32]) -> Option<ActorArtworkLocation> {
+        let retained = self.equipment_artwork.get(&identity)?;
+        let page = self
+            .pages
+            .get(usize::from(retained.location.page.checked_sub(1)?))?;
+        (Arc::ptr_eq(&page.rgba8, &retained.page.rgba8)
+            && page.width == retained.page.width
+            && page.height == retained.page.height
+            && page.layers == retained.page.layers
+            && page.color_mask == retained.page.color_mask
+            && page.multitexture == retained.page.multitexture
+            && self
+                .equipment
+                .contains(&(retained.location.page, retained.location.layer)))
+        .then_some(retained.location)
     }
 
     /// Appends pages for `rasters`, grouped by size, and returns each raster's location (`None`
@@ -542,6 +603,7 @@ impl ActorArtworkPages {
             && Arc::ptr_eq(&self.source_locations, &other.source_locations)
             && Arc::ptr_eq(&self.entity_locations, &other.entity_locations)
             && Arc::ptr_eq(&self.equipment, &other.equipment)
+            && Arc::ptr_eq(&self.equipment_artwork, &other.equipment_artwork)
             && Arc::ptr_eq(&self.pack_source_locations, &other.pack_source_locations)
             && Arc::ptr_eq(&self.pack_locations, &other.pack_locations)
     }

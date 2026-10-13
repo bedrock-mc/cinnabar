@@ -279,22 +279,27 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
                 (touch.position().x / width).clamp(0.0, 1.0),
                 (touch.position().y / height).clamp(0.0, 1.0),
             ],
-            delta: [touch.delta().x / width, touch.delta().y / height],
+            delta: touch_targets
+                .delta(touch.id())
+                .unwrap_or([touch.delta().x / width, touch.delta().y / height]),
             hit_id: touch_targets.target(touch.id()),
         };
         if contact.hit_id.is_some() {
             contacts.push(contact);
         }
     }
+    contacts.extend(touch_targets.take_pulses());
+    let bounded_contacts =
+        select_lowest_by_key(contacts, MAX_TOUCH_CONTACTS, |contact| contact.contact_id);
     TranslatedDeviceFrame {
         frame: DeviceFrame {
             keyboard_mouse,
             controllers,
-            touches: contacts,
+            touches: bounded_contacts.samples,
             ..DeviceFrame::default()
         },
         ignored_controllers: bounded_gamepads.ignored,
-        ignored_touches: bounded_touches.ignored,
+        ignored_touches: bounded_touches.ignored + bounded_contacts.ignored,
     }
 }
 
@@ -359,7 +364,6 @@ mod tests {
             .map(|(code, _)| *code)
             .collect::<Vec<_>>();
 
-        let mut unavailable_touch_bindings = 0;
         for binding in ControlSettings::default().bindings() {
             let action = binding.action;
             match binding.chord.control {
@@ -376,17 +380,12 @@ mod tests {
                     "{action:?} is bound to gamepad button {button}, which gamepad_button_codes never emits"
                 ),
                 PhysicalControl::MouseAxis(_) | PhysicalControl::GamepadAxis { .. } => {}
-                PhysicalControl::TouchControl(_) => {
-                    unavailable_touch_bindings += usize::from(
-                        !crate::ui_runtime::gameplay_touch::PRODUCTION_TOUCH_LAYOUT_AVAILABLE,
-                    );
-                }
+                PhysicalControl::TouchControl(hit_id) => assert!(
+                    semantic_input::TouchControlLayout::default().contains(hit_id),
+                    "{action:?} is bound to touch control {hit_id}, which the default layout lacks"
+                ),
             }
         }
-        assert!(
-            unavailable_touch_bindings > 0,
-            "default touch bindings must remain explicitly classified while their layout is unavailable"
-        );
     }
 
     #[test]

@@ -226,7 +226,7 @@ pub struct HeldItemRequest {
     pub player_position: [f32; 3],
 }
 
-/// The selected slot's stack before and after an air use changed it locally (a throw).
+/// The selected slot's stack before and after a locally admitted throw or placement.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PredictedSlotChange {
     /// The negative client legacy request id `to` carries; unused when `to` is empty.

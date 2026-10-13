@@ -4,6 +4,25 @@ use super::*;
 use pack_runtime::pack_textures::resolve_pack_texture_with_policy;
 
 impl TextureCatalog<'_> {
+    /// Reports an absent static pack source without decoding or borrowing carrier pixels.
+    pub(in super::super) fn static_source_missing(
+        &self,
+        route: &super::super::TextureRoute,
+    ) -> bool {
+        let Some((_, _, choice)) = self.resolve_choice(route) else {
+            return false;
+        };
+        let reason = diagnostics::failure_reason(self.view, &choice.path);
+        if reason != FailureReason::TextureFileMissing {
+            return false;
+        }
+        if self.terrain.contains_key(route.key()) {
+            self.diagnostics
+                .failure(reason, route.key(), Some(&choice.path));
+        }
+        true
+    }
+
     /// Resolves the winning pack or carrier filename before looking up reusable frames.
     pub(in super::super) fn reusable_image_path(
         &self,
@@ -52,31 +71,27 @@ impl TextureCatalog<'_> {
         let path = source.map_or(choice.path.as_str(), |source| source.texture_path.as_ref());
         #[cfg(test)]
         self.decode_attempts.set(self.decode_attempts.get() + 1);
-        let mut image = resolve_pack_texture_with_policy(
-            self.view,
-            path,
-            assets::texture::policy::device_policy(),
-            true,
-        )
-        .map(|resolved| TextureImage {
-            texture: resolved.texture,
-            image_path: resolved.image_path,
-            baked_tint: None,
-            pack: true,
-        })
-        .or_else(|| {
-            if source.is_some() {
-                return None;
-            }
-            texture_image_paths(path)
-                .into_iter()
-                .find_map(|path| carrier(&path, choice.tint))
-        });
+        let mut image =
+            resolve_pack_texture_with_policy(self.view, path, self.texture_policy, true)
+                .map(|resolved| TextureImage {
+                    texture: resolved.texture,
+                    image_path: resolved.image_path,
+                    baked_tint: None,
+                    pack: true,
+                })
+                .or_else(|| {
+                    if source.is_some() {
+                        return None;
+                    }
+                    texture_image_paths(path)
+                        .into_iter()
+                        .find_map(|path| carrier(&path, choice.tint))
+                });
         if let Some(image) = image.as_mut()
             && image.baked_tint.is_none()
             && let Some(tint) = choice.tint
         {
-            pack_compiler::apply_atlas_tint(&mut image.texture.rgba8, tint);
+            pack_compile_input::apply_atlas_tint(&mut image.texture.rgba8, tint);
         }
         if image.is_none() {
             let reason = diagnostics::failure_reason(self.view, path);

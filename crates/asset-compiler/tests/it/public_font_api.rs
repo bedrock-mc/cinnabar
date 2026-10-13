@@ -1,7 +1,7 @@
 use std::{fs, path::Path, process::Command};
 
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
-use pack_compiler::{CompiledFontCarrier, FontCompileError, FontCompileReport, compile_fonts};
+use pack_font_compiler::{CompiledFontCarrier, FontCompileError, FontCompileReport, compile_fonts};
 
 fn assert_public_type<T>() {}
 

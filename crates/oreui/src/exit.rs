@@ -46,7 +46,7 @@ impl OreUiScreen {
                     Some(MenuAction::DismissDialog),
                 ),
             ],
-            close: Some(MenuAction::DismissDialog),
+            close: Some(MenuAction::CloseExitDialog),
         };
         let mut canvas = Canvas::new(
             &mut *frame.nodes,
@@ -81,6 +81,21 @@ mod tests {
         visible: bool,
         seconds: f64,
     ) -> (Vec<UiNode>, Vec<(MenuAction, UiRect)>) {
+        frame_with_view(
+            screen,
+            visible,
+            seconds,
+            &MenuView::new(true, "Player".into()),
+        )
+    }
+
+    /// Paints the real quit dialog with caller-supplied input feedback.
+    fn frame_with_view(
+        screen: &mut OreUiScreen,
+        visible: bool,
+        seconds: f64,
+        view: &MenuView,
+    ) -> (Vec<UiNode>, Vec<(MenuAction, UiRect)>) {
         let size = [1280.0, 720.0];
         screen.transitions.begin_frame(None, false, seconds);
         let metrics =
@@ -104,12 +119,7 @@ mod tests {
                 renderers: &mut [],
             };
             screen
-                .paint_exit(
-                    &MenuView::new(true, "Player".into()),
-                    size,
-                    &|_| None,
-                    &mut frame,
-                )
+                .paint_exit(view, size, &|_| None, &mut frame)
                 .unwrap()
                 .0
         } else {
@@ -159,5 +169,66 @@ mod tests {
         let (nodes, _) = frame(&mut screen, true, 0.0);
         assert_eq!(quit_face(&nodes).unwrap().1, 255);
         assert!(frame(&mut screen, false, 0.001).0.is_empty());
+    }
+
+    /// Reads the visible fills inside a control without depending on node identities.
+    fn control_fills(nodes: &[UiNode], bounds: UiRect) -> Vec<[u8; 4]> {
+        nodes
+            .iter()
+            .filter_map(|node| match node.visual() {
+                ui::UiVisual::Solid { color, .. }
+                    if node.bounds().min().x() >= bounds.min().x()
+                        && node.bounds().min().y() >= bounds.min().y()
+                        && node.bounds().max().x() <= bounds.max().x()
+                        && node.bounds().max().y() <= bounds.max().y() =>
+                {
+                    Some(*color)
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn quit_cancel_and_close_keep_hover_press_and_focus_feedback_separate() {
+        let mut screen = OreUiScreen::default();
+        screen.transitions.configure_motion(false);
+        let mut view = MenuView::new(true, "Player".into());
+        let (idle, hits) = frame_with_view(&mut screen, true, 0.0, &view);
+        let dismiss: Vec<_> = hits
+            .iter()
+            .filter(|(action, _)| *action != MenuAction::ConfirmExit)
+            .copied()
+            .collect();
+        let [(close_action, close), (cancel_action, cancel)] = dismiss.as_slice() else {
+            panic!("quit confirmation needs a close control and a Cancel button");
+        };
+        let close_idle = control_fills(&idle, *close);
+        let cancel_idle = control_fills(&idle, *cancel);
+        assert!(!close_idle.is_empty() && !cancel_idle.is_empty());
+        for (action, active, other, other_idle) in [
+            (*cancel_action, *cancel, *close, &close_idle),
+            (*close_action, *close, *cancel, &cancel_idle),
+        ] {
+            for pressed in [false, true] {
+                view.hovered = Some(action);
+                view.pressed = pressed.then_some(action);
+                let (nodes, current_hits) = frame_with_view(&mut screen, true, 1.0, &view);
+                assert_eq!(hits, current_hits, "feedback preserves click callbacks");
+                assert_ne!(control_fills(&nodes, active), control_fills(&idle, active));
+                assert_eq!(control_fills(&nodes, other), *other_idle);
+            }
+        }
+        view.hovered = None;
+        view.pressed = None;
+        view.navigation_focus_visible = true;
+        view.focused_action = Some(MenuAction::DismissDialog);
+        let (focused, _) = frame_with_view(&mut screen, true, 2.0, &view);
+        assert_eq!(control_fills(&focused, *close), close_idle);
+        assert!(focused.iter().any(|node| {
+            node.bounds().min().x() < cancel.min().x()
+                && node.bounds().max().x() > cancel.max().x()
+                && matches!(node.visual(), ui::UiVisual::Solid { color, .. } if *color == theme::OUTLINE)
+        }), "keyboard focus outlines Cancel");
     }
 }

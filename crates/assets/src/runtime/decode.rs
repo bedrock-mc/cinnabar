@@ -1,4 +1,5 @@
 use super::RuntimeAssets;
+mod topology;
 use crate::model::{
     MODEL_QUAD_FLAG_TWO_SIDED, covered_grass_variant_is_valid, model_template_flags_are_valid,
     unit_cube_quad_geometry_is_valid,
@@ -28,6 +29,7 @@ use crate::{
     provenance::BlobProvenance,
 };
 use std::sync::atomic::AtomicU64;
+use topology::runtime_connected_bases;
 
 impl RuntimeAssets {
     /// Validates the complete world-carrier envelope, its embedded source
@@ -57,7 +59,7 @@ impl RuntimeAssets {
         let assets = Self {
             visuals: decode_visuals(sections[0])?,
             light_properties: decode_light_properties(sections[0]),
-            hashed: decode_hashes(sections[1]),
+            hashed: super::hashed_ids::HashedIds::new(decode_hashes(sections[1])),
             materials,
             model_templates: decode_templates(sections[3]),
             model_random_offsets: Box::new([]),
@@ -365,17 +367,29 @@ fn validate_fixed(
                     | MODEL_TEMPLATE_FLAG_FENCE_WOOD
                     | MODEL_TEMPLATE_FLAG_FENCE_NETHER
                     | MODEL_TEMPLATE_FLAG_FIRE
-                    | MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN);
+                    | MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN
+                    | crate::MODEL_TEMPLATE_FLAG_DOOR);
             if connected_flag != 0 {
-                let Some(base_index) = connected_bases
-                    .iter()
-                    .position(|&(base, flag)| base == template as usize && flag == connected_flag)
-                else {
+                let group_base = if connected_flag == crate::MODEL_TEMPLATE_FLAG_DOOR {
+                    let pose = crate::door::DoorPose::from_variant(u32_at(record, 40))
+                        .ok_or_else(|| invalid("door visual has invalid selectors"))?;
+                    template
+                        .checked_sub(pose.offset())
+                        .ok_or_else(|| invalid("door visual precedes its pose group"))?
+                } else {
+                    template
+                };
+                let Some(base_index) = connected_bases.iter().position(|&(base, flag)| {
+                    base == group_base as usize && flag == connected_flag
+                }) else {
                     return Err(invalid(
                         "connected visual does not reference a topology-group base",
                     ));
                 };
-                if kind != VisualKind::Model || u32_at(record, 40) != 0 {
+                if kind != VisualKind::Model
+                    || (connected_flag != crate::MODEL_TEMPLATE_FLAG_DOOR
+                        && u32_at(record, 40) != 0)
+                {
                     return Err(invalid("connected visual has invalid kind or transform"));
                 }
                 referenced_connected_bases[base_index] = true;
@@ -634,81 +648,6 @@ fn runtime_compound_tails(bytes: &[u8]) -> Result<Vec<bool>, AssetError> {
         tails[index + 1] = true;
     }
     Ok(tails)
-}
-
-fn runtime_connected_bases(bytes: &[u8]) -> Result<Vec<(usize, u32)>, AssetError> {
-    let records = bytes
-        .as_chunks::<TEMPLATE_BYTES>()
-        .0
-        .iter()
-        .map(|record| record.as_slice())
-        .collect::<Vec<_>>();
-    let mut bases = Vec::new();
-    let mut index = 0;
-    while index < records.len() {
-        let flag = u32_at(records[index], 8);
-        if flag == MODEL_TEMPLATE_FLAG_PANE {
-            let Some(group) = records.get(index..index + 16) else {
-                return Err(invalid("pane template group is truncated"));
-            };
-            if group.iter().enumerate().any(|(mask, record)| {
-                u32_at(record, 8) != flag || u32_at(record, 4) != 6 + (mask as u32).count_ones() * 4
-            }) {
-                return Err(invalid("pane template group is noncanonical"));
-            }
-            bases.push((index, flag));
-            index += 16;
-        } else if matches!(
-            flag,
-            MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER
-        ) {
-            let Some(group) = records.get(index..index + 17) else {
-                return Err(invalid("fence template group is truncated"));
-            };
-            if group.iter().enumerate().any(|(offset, record)| {
-                let expected = if offset == 0 {
-                    6
-                } else {
-                    ((offset - 1) as u32).count_ones() * 8
-                };
-                u32_at(record, 8) != flag || u32_at(record, 4) != expected
-            }) {
-                return Err(invalid("fence template group is noncanonical"));
-            }
-            bases.push((index, flag));
-            index += 17;
-        } else if flag == MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN {
-            let Some(group) =
-                records.get(index..index + crate::BUBBLE_COLUMN_TEMPLATE_COUNT as usize)
-            else {
-                return Err(invalid("bubble column template group is truncated"));
-            };
-            if group.iter().enumerate().any(|(offset, record)| {
-                u32_at(record, 8) != flag
-                    || u32_at(record, 4) != crate::bubble_column_quad_count(offset as u32)
-            }) {
-                return Err(invalid("bubble column template group is noncanonical"));
-            }
-            bases.push((index, flag));
-            index += crate::BUBBLE_COLUMN_TEMPLATE_COUNT as usize;
-        } else if flag == MODEL_TEMPLATE_FLAG_FIRE {
-            let Some(group) = records.get(index..index + crate::fire::FIRE_TEMPLATE_COUNT as usize)
-            else {
-                return Err(invalid("fire template group is truncated"));
-            };
-            if group.iter().enumerate().any(|(offset, record)| {
-                u32_at(record, 8) != flag
-                    || u32_at(record, 4) != crate::fire::fire_template_quad_count(offset as u32)
-            }) {
-                return Err(invalid("fire template group is noncanonical"));
-            }
-            bases.push((index, flag));
-            index += crate::fire::FIRE_TEMPLATE_COUNT as usize;
-        } else {
-            index += 1;
-        }
-    }
-    Ok(bases)
 }
 
 fn valid_ref(reference: TextureRef, pages: &[PageMeta]) -> Result<(), AssetError> {
