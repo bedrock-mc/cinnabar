@@ -291,24 +291,6 @@ impl UiRuntime {
                     .map(|preview| preview.stack.clone())
             })
     }
-
-    /// Whether the player can pay for `preview` now: it is not too expensive, and the player
-    /// is in creative or has the levels.
-    #[must_use]
-    pub fn anvil_affordable(
-        &self,
-        player_runtime: &player_state::PlayerState,
-        preview: &AnvilPreview,
-    ) -> bool {
-        if preview.outcome.too_expensive {
-            return false;
-        }
-        player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative)
-            || self
-                .hud
-                .experience()
-                .is_some_and(|xp| i64::from(xp.level) >= i64::from(preview.outcome.cost))
-    }
 }
 
 #[cfg(test)]

@@ -160,6 +160,11 @@ fn transfer(
         // restates either one.
         (None, None) => {
             let mut moved = from.clone();
+            if partial {
+                // The split-off stack gets a new identity when its prediction is stamped.
+                moved.source_stack_id = None;
+                moved.acknowledged_request_id = None;
+            }
             moved.stack.count = amount;
             moved
         }

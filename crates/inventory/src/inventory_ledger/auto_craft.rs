@@ -192,6 +192,7 @@ impl PlayerInventoryLedger {
         groups.push(DeltaGroup::Set {
             cell: Cell::CreatedOutput,
             held: Held {
+                source_stack_id: Some(created.stack_network_id),
                 stack: created,
                 overlay: None,
                 acknowledged_request_id: None,

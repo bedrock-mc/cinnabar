@@ -341,16 +341,34 @@ fn unchanged_response_names_and_damage_survive_a_predicted_rename() {
 
 #[test]
 fn damage_corrections_do_not_overwrite_a_name_the_player_is_editing() {
-    let (mut runtime, mut player) = anvil();
-    runtime.sync_anvil_name(&player);
-    runtime.screen_state_mut().anvil_name = "Typed".into();
-    correct_input(&mut runtime, &mut player, ANVIL_TARGET_SLOT, 800, "");
-    runtime.sync_anvil_name(&player);
-    assert_eq!(runtime.screen_state().anvil_name, "Typed");
-    assert_eq!(
-        runtime.anvil_preview(&player).unwrap().outcome.custom_name,
-        Some(Some("Typed".into()))
-    );
+    for original_name in [None, Some(" Original ")] {
+        for damage in [0, 800] {
+            let (mut runtime, mut player) = anvil();
+            if let Some(name) = original_name {
+                edit_input(
+                    &mut runtime,
+                    &mut player,
+                    ANVIL_TARGET_SLOT,
+                    protocol::ItemNbtEdit {
+                        custom_name: Some(Some(name.into())),
+                        ..Default::default()
+                    },
+                );
+            }
+            runtime.sync_anvil_name(&player);
+            runtime.screen_state_mut().anvil_name = "Typed".into();
+            correct_input(&mut runtime, &mut player, ANVIL_TARGET_SLOT, damage, "");
+            for _ in 0..2 {
+                runtime.sync_anvil_name(&player);
+                assert_eq!(runtime.screen_state().anvil_name, "Typed");
+            }
+            let preview = runtime.anvil_preview(&player).unwrap();
+            assert_eq!(preview.outcome.custom_name, Some(Some("Typed".into())));
+            assert_eq!(runtime.anvil_rename(&player).as_deref(), Some("Typed"));
+            assert_eq!(protocol::item_stack_damage(&preview.stack), Some(0));
+            assert_eq!(preview.outcome.cost, if damage == 0 { 1 } else { 4 });
+        }
+    }
 }
 
 #[test]

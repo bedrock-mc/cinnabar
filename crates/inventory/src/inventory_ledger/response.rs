@@ -44,8 +44,8 @@ impl PlayerInventoryLedger {
         self.view().get(target.cell())?.overlay.as_ref()
     }
 
-    /// Whether a target keeps this stack through count-only predictions or an accepted response.
-    /// Fresh slot and content writes discard response provenance; replacement operations break it.
+    /// Whether the target retains this item through moves, predictions or accepted corrections.
+    /// Fresh slot and content writes reset its source identity; replacements carry their own.
     #[must_use]
     pub fn target_retains_stack_id(
         &self,
@@ -57,7 +57,8 @@ impl PlayerInventoryLedger {
             return false;
         };
         let mut current_id = held.stack.stack_network_id;
-        if current_id == previous_stack_id
+        if held.source_stack_id == Some(previous_stack_id)
+            || current_id == previous_stack_id
             || held.acknowledged_request_id == Some(previous_stack_id)
         {
             return true;
@@ -89,7 +90,8 @@ impl PlayerInventoryLedger {
                 return false;
             }
             current_id = before.stack.stack_network_id;
-            if current_id == previous_stack_id
+            if before.source_stack_id == Some(previous_stack_id)
+                || current_id == previous_stack_id
                 || before.acknowledged_request_id == Some(previous_stack_id)
             {
                 return true;

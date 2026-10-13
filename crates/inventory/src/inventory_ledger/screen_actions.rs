@@ -206,6 +206,7 @@ impl PlayerInventoryLedger {
                     extra_data: user_data,
                 };
                 let held = Held {
+                    source_stack_id: Some(stack.stack_network_id),
                     stack,
                     overlay: None,
                     acknowledged_request_id: None,
@@ -220,6 +221,7 @@ impl PlayerInventoryLedger {
                 stack.stack_network_id = request_id;
                 stack.nbt_digest = Sha256::digest(&stack.extra_data).into();
                 let held = Held {
+                    source_stack_id: Some(stack.stack_network_id),
                     stack,
                     overlay: None,
                     acknowledged_request_id: None,
@@ -243,6 +245,7 @@ impl PlayerInventoryLedger {
                 stack.extra_data = Arc::from([]);
                 stack.nbt_digest = Sha256::digest([]).into();
                 let held = Held {
+                    source_stack_id: Some(stack.stack_network_id),
                     stack,
                     overlay: None,
                     acknowledged_request_id: None,
