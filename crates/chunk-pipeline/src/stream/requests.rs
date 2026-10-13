@@ -87,6 +87,9 @@ impl SubChunkRequests {
     }
     /// Removes request bookkeeping with one scan per shared queue or index.
     pub(super) fn purge_columns(&mut self, chunks: &BTreeSet<ChunkKey>) {
+        for admission in self.level_chunks.values_mut() {
+            admission.cancel_for_columns(chunks);
+        }
         for &chunk in chunks {
             if let Some(pending) = self.requested.remove(&chunk) {
                 for (y, pending) in pending {

@@ -649,6 +649,14 @@ impl WorldStream {
         sequence: Option<u64>,
     ) {
         let key = ChunkKey::new(event.dimension, event.x, event.z);
+        let early = match sequence
+            .and_then(|sequence| self.requests.level_chunks.get(&sequence))
+            .map(|request| request.state)
+        {
+            Some(request_admission::AdmissionState::Canceled) => return,
+            Some(request_admission::AdmissionState::Started) => true,
+            _ => false,
+        };
         if !self.column_is_data_interesting(key) {
             self.record_normalization_error(NormalizationErrorReason::InactiveLevelChunk);
             return;
@@ -671,9 +679,6 @@ impl WorldStream {
             }
         };
         let (biomes, block_entities) = decoded;
-        let early = sequence
-            .and_then(|sequence| self.requests.level_chunks.get(&sequence))
-            .is_some_and(|request| request.started);
         if self.authority.terrain().biome_column_matches(key, &biomes) {
             self.loaded_columns.remove(&key);
             self.requests.collision_failures.remove(&key);

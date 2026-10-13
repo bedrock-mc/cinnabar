@@ -1,11 +1,28 @@
 use super::*;
 
+/// Whether an admission is waiting, has issued requests, or lost them to cancellation.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum AdmissionState {
+    Pending,
+    Started,
+    Canceled,
+}
+
 /// Request inputs retained independently of the column's biome decode.
 pub(super) struct AdmittedRequest {
     key: ChunkKey,
     base_y: i32,
     count: usize,
-    pub(super) started: bool,
+    pub(super) state: AdmissionState,
+}
+
+impl AdmittedRequest {
+    /// Cancels issued requests for purged columns without canceling later waiting admissions.
+    pub(super) fn cancel_for_columns(&mut self, columns: &BTreeSet<ChunkKey>) {
+        if self.state == AdmissionState::Started && columns.contains(&self.key) {
+            self.state = AdmissionState::Canceled;
+        }
+    }
 }
 
 impl WorldStream {
@@ -30,7 +47,7 @@ impl WorldStream {
                     key: ChunkKey::new(event.dimension, event.x, event.z),
                     base_y: range.base_sub_chunk_y,
                     count,
-                    started: false,
+                    state: AdmissionState::Pending,
                 },
             );
             self.start_admitted_level_chunk_requests();
@@ -41,7 +58,7 @@ impl WorldStream {
     pub(super) fn start_admitted_level_chunk_requests(&mut self) {
         let mut admissions = std::mem::take(&mut self.requests.level_chunks);
         for (&sequence, request) in &mut admissions {
-            if request.started
+            if request.state != AdmissionState::Pending
                 || !self
                     .order
                     .preparation_is_unblocked(sequence, self.local_player_chunk.is_none())
@@ -53,7 +70,7 @@ impl WorldStream {
             self.requests.collision_failures.remove(&request.key);
             self.requests.purge_columns(&BTreeSet::from([request.key]));
             self.enqueue_request(request.key, request.base_y, request.count, Some(sequence));
-            request.started = true;
+            request.state = AdmissionState::Started;
         }
         self.requests.level_chunks = admissions;
     }
@@ -61,7 +78,7 @@ impl WorldStream {
     /// Cancels an early request if its column could not commit; successful commits remove it first.
     pub(super) fn cancel_admitted_level_chunk_request(&mut self, sequence: u64) {
         if let Some(request) = self.requests.level_chunks.remove(&sequence)
-            && request.started
+            && request.state == AdmissionState::Started
         {
             self.requests.purge_columns(&BTreeSet::from([request.key]));
         }

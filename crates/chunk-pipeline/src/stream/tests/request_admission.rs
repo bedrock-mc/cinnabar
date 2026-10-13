@@ -118,12 +118,113 @@ fn resend_request_waits_for_earlier_same_column_but_other_columns_start() {
 #[test]
 fn eviction_cancels_early_requests_without_decode_resurrecting_them() {
     let mut stream = stream();
+    let chunk = ChunkKey::new(0, 0, 0);
     stream.submit(1, column(0, 0)).unwrap();
-    stream.evict_column(ChunkKey::new(0, 0, 0));
+    stream.evict_column(chunk);
     assert!(stream.take_requests().is_empty());
     complete_pending_decode_jobs(&mut stream);
     assert!(stream.take_requests().is_empty());
     assert_eq!(stream.outstanding_sub_chunk_count(), 0);
+    assert!(stream.authority.terrain().chunk(chunk).is_none());
+    assert!(stream.resident.column(chunk).next().is_none());
+    assert!(stream.known_air.column(chunk).next().is_none());
+}
+
+#[test]
+fn retention_cancellation_discards_decode_despite_publisher_interest() {
+    let chunk = ChunkKey::new(0, 0, 0);
+    for serviced in [false, true] {
+        for with_terrain in [false, true] {
+            let mut stream = stream();
+            stream.submit(1, WorldEvent::ChunkRadiusUpdated(2)).unwrap();
+            stream.publisher.center = Some([0; 3]);
+            let sequence = if with_terrain {
+                stream.submit(2, inline_air_event(chunk.x)).unwrap();
+                complete_pending_decode_jobs(&mut stream);
+                3
+            } else {
+                2
+            };
+            stream.submit(sequence, column(0, chunk.x)).unwrap();
+            assert_eq!(stream.pending_request_count(), 1);
+            stream.between_frames_service = serviced;
+
+            assert!(stream.retain_local([320.0, 0.0, 0.0]));
+            assert!(stream.column_is_active(chunk));
+            assert!(stream.take_requests().is_empty());
+            assert_eq!(stream.outstanding_sub_chunk_count(), 0);
+
+            complete_pending_decode_jobs(&mut stream);
+            assert_eq!(stream.committed_sequence(), sequence);
+            assert!(stream.authority.terrain().chunk(chunk).is_none());
+            assert!(stream.resident.column(chunk).next().is_none());
+            assert!(stream.known_air.column(chunk).next().is_none());
+            assert!(stream.take_requests().is_empty());
+            assert_eq!(stream.pending_request_work_count(), 0);
+            assert_eq!(stream.outstanding_sub_chunk_count(), 0);
+        }
+    }
+}
+
+#[test]
+fn retention_cancellation_survives_reentry_and_preserves_a_waiting_resend() {
+    let mut stream = stream();
+    let chunk = ChunkKey::new(0, 0, 0);
+    stream.submit(1, WorldEvent::ChunkRadiusUpdated(2)).unwrap();
+    stream.publisher.center = Some([320, 0, 0]);
+    stream.submit(2, column(0, chunk.x)).unwrap();
+    stream.submit(3, column(0, chunk.x)).unwrap();
+    let mut requests = stream.take_requests();
+    assert_eq!(requests.len(), 1);
+    let canceled = requests.pop().unwrap();
+    acknowledge_request_sent(&mut stream, &canceled, Instant::now());
+    assert!(stream.retain_local([320.0, 0.0, 0.0]));
+    assert!(!stream.column_is_data_interesting(chunk));
+    assert!(stream.retain_local([0.0; 3]));
+    assert!(stream.column_is_data_interesting(chunk));
+    assert!(stream.take_requests().is_empty());
+    assert!(stream.requests.deadlines.is_empty());
+
+    let canceled_job = stream.pending_decode.pop_front().unwrap();
+    complete_decode_job(&mut stream, canceled_job);
+    settle_ready_commits(&mut stream);
+    assert_eq!(stream.committed_sequence(), 2);
+    assert!(stream.authority.terrain().chunk(chunk).is_none());
+    assert!(stream.known_air.column(chunk).next().is_none());
+    let mut requests = stream.take_requests();
+    assert_eq!(requests.len(), 1, "the resend is still live");
+    let replacement = requests.pop().unwrap();
+    let key = SubChunkKey::from_chunk(chunk, replacement.base_sub_chunk_y);
+    acknowledge_request_sent(&mut stream, &replacement, Instant::now());
+
+    complete_pending_decode_jobs(&mut stream);
+    assert_eq!(stream.committed_sequence(), 3);
+    assert!(stream.take_requests().is_empty());
+    assert!(stream.requests.is_expected(key));
+    assert!(
+        stream.requests.requested[&chunk][&key.y]
+            .response_deadline
+            .is_some()
+    );
+    stream
+        .submit(
+            4,
+            WorldEvent::SubChunks(SubChunkBatchEvent {
+                dimension: chunk.dimension,
+                entries: vec![SubChunkEntryEvent {
+                    position: [key.x, key.y, key.z],
+                    result: SubChunkResult::AllAir,
+                    diagnostics: None,
+                }],
+            }),
+        )
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    assert_eq!(stream.committed_sequence(), 4);
+    assert!(stream.known_air.contains(&key));
+    assert!(stream.authority.terrain().is_chunk_loaded(chunk));
+    assert_eq!(stream.outstanding_sub_chunk_count(), 0);
+    assert!(stream.requests.deadlines.is_empty());
 }
 
 #[test]
