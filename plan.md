@@ -2583,6 +2583,12 @@ existing inversion painter through the authored edit target and clipping panel.
 Provisional, labeled incomplete: exact Windows Bedrock selection tint/blend
 parity remains unverified; visible selection alone does not close that gate.
 
+Chat completion offers `@here` and roster names in plain chat, quotes player
+names when needed, and includes `@n` in command targets. Suggestion rows highlight
+the typed match and translate built-in descriptions. Incomplete: Education
+selectors, selector-expansion permission and cheat gating, selector argument
+completion, and live visual acceptance. This does not close the chat parity gate.
+
 2026-10-01 JSON-UI control rendering: images follow 1.26.50 `SpriteComponent`
 (keep_ratio on by default, fill, uv/uv_size defaults, control nine-slice, tiled
 axes and scale, clip direction none by default with pixel-perfect snapping),

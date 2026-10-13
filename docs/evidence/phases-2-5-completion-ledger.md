@@ -212,12 +212,16 @@ camera-listener coverage. This ownership change adds no new parity evidence.
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
-| Deterministic tests | Not started |
+| Owning plan/task | `plan.md`: chat completion and quoted player names. |
+| Deterministic tests | Mention filtering, name quoting, command permissions, insertion, Tab cycling, bounds and row-text regressions are written; compilation and execution await CI. |
 | Review commit | Not started |
 | Live/native witness | Not started |
 | Performance/resource witness | Not started |
 | Final status | Open |
+
+Plain chat offers `@here` and player-list names; command targets include `@n`.
+Education selectors, selector-expansion permission and cheat gating, selector
+argument completion, and live visual acceptance remain incomplete.
 
 ## P5.4-SCOREBOARD
 

@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use protocol::CompletionContext;
+use protocol::{ChatAutocompleteCatalog, CompletionContext};
 use ui::{
     ChatAutocompleteAction, ChatAutocompleteApply, ChatAutocompleteDelta, ChatAutocompleteRequest,
     ChatAutocompleteResponse, MAX_CHAT_INPUT_BYTES, PointerPhase, UiAction,
@@ -60,7 +60,7 @@ impl UiRuntime {
         let Some(suggestion) = self.chat_autocomplete.handle_action(action) else {
             return false;
         };
-        self.replace_chat_token(&suggestion);
+        self.accept_chat_suggestion(&suggestion);
         true
     }
 
@@ -83,10 +83,24 @@ impl UiRuntime {
             let Some(suggestion) = self.chat_autocomplete.selected_suggestion() else {
                 return false;
             };
-            self.replace_chat_token(&suggestion);
+            self.accept_chat_suggestion(&suggestion);
             return true;
         }
         self.handle_chat_ui_action(action)
+    }
+
+    /// Accepts a suggestion, ending completion when it already matches the active token.
+    fn accept_chat_suggestion(&mut self, value: &str) {
+        let cursor = self.chat_editor.cursor_byte();
+        let start = self.chat_token_start();
+        if &self.chat_editor.as_str()[start..cursor] == value {
+            self.chat_autocomplete.clear();
+            self.pending_chat_autocomplete_request = None;
+            self.chat_tab_cycling = false;
+            self.chat_tab_start = None;
+        } else {
+            self.replace_chat_token(value);
+        }
     }
 
     /// Tab inserts the selected suggestion; repeated Tab steps through the same list.
@@ -135,23 +149,28 @@ impl UiRuntime {
             return start;
         }
         let head = &self.chat_editor.as_str()[..self.chat_editor.cursor_byte()];
-        head.rfind(char::is_whitespace).map_or(0, |at| {
-            at + head[at..].chars().next().map_or(1, char::len_utf8)
-        })
+        ChatAutocompleteCatalog::replacement_start(head)
     }
 
-    /// Replaces the whitespace-delimited token ending at the cursor.
+    /// Replaces the active token, including any text up to its existing closing quote.
     fn replace_chat_token(&mut self, value: &str) {
         let text = self.chat_editor.as_str();
         let cursor = self.chat_editor.cursor_byte();
         let head = &text[..cursor];
         let start = self.chat_token_start();
         let tail = &text[cursor..];
+        let inside_quotes = head[start..].bytes().filter(|&byte| byte == b'"').count() % 2 != 0;
+        let tail = if inside_quotes && let Some(end) = tail.find('"') {
+            &tail[end + 1..]
+        } else {
+            tail
+        };
         if start + value.len() + tail.len() > MAX_CHAT_INPUT_BYTES {
             return;
         }
         let next = format!("{}{value}{tail}", &head[..start]);
         if next == text {
+            self.mutate_chat_editor(|editor| editor.place_cursor(start + value.len()));
             return;
         }
         let tail_chars = tail.chars().count();
