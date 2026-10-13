@@ -58,6 +58,17 @@ impl WorldStream {
         }
     }
 
+    #[must_use]
+    pub const fn far_terrain_enabled(&self) -> bool {
+        self.far_terrain.enabled
+    }
+
+    /// The local player's column, which centres retention and far terrain.
+    #[must_use]
+    pub fn player_column(&self) -> ChunkKey {
+        self.player_chunk()
+    }
+
     /// Appends summaries finished since the last call.
     pub fn drain_far_summaries(&self, out: &mut Vec<FarColumnSummary>) {
         out.extend(self.far_terrain.rx.try_iter());

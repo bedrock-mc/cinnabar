@@ -22,6 +22,8 @@ pub struct GameData {
     pub custom_blocks: CustomBlocks,
     /// Every block definition StartGame carried, including vanilla and skipped ones.
     pub block_definition_count: usize,
+    /// Hash of StartGame's world seed, level ID and level name; equal on every join of one world.
+    pub level_identity: u64,
 }
 
 /// StartGame's session settings and world rules.
@@ -91,8 +93,19 @@ impl GameData {
             items: StartupItems::from_wire(item_registry),
             custom_blocks: CustomBlocks::from_start_game(start_game),
             block_definition_count: start_game.block_properties.len(),
+            level_identity: level_identity(start_game),
         }
     }
+}
+
+/// Length-framed so the seed, ID and name cannot run into one another.
+fn level_identity(start_game: &StartGame) -> u64 {
+    let mut bytes = start_game.settings.seed.0.to_le_bytes().to_vec();
+    for text in [&start_game.level_id, &start_game.level_name] {
+        bytes.extend_from_slice(&(text.as_bytes().len() as u64).to_le_bytes());
+        bytes.extend_from_slice(text.as_bytes());
+    }
+    xxhash_rust::xxh64::xxh64(&bytes, 0)
 }
 
 impl Default for GameData {
@@ -154,6 +167,23 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    /// Far terrain separates worlds by this; framing keeps "ab"+"c" apart from "a"+"bc".
+    #[test]
+    fn level_identity_follows_seed_id_and_name() {
+        let identity = |seed, id: &str, name: &str| {
+            let mut start_game = StartGame::default();
+            start_game.settings.seed = wire::U64LE(seed);
+            start_game.level_id = id.into();
+            start_game.level_name = name.into();
+            GameData::from_wire(&start_game, &ItemRegistry::default()).level_identity
+        };
+        let base = identity(1, "ab", "c");
+        assert_eq!(base, identity(1, "ab", "c"));
+        assert_ne!(base, identity(2, "ab", "c"));
+        assert_ne!(base, identity(1, "a", "bc"));
+        assert_ne!(base, identity(1, "ab", "d"));
     }
 
     #[test]

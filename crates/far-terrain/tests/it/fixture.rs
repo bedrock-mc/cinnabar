@@ -34,7 +34,11 @@ fn visual(kind: VisualKind, flags: BlockFlags, material: u32, variant: u32) -> B
         flags,
         kind,
         support: assets::VisualSupport::Exact,
-        contributor_role: ContributorRole::Primary,
+        contributor_role: match kind {
+            VisualKind::Invisible => ContributorRole::Air,
+            VisualKind::Liquid => ContributorRole::LiquidAdditional,
+            _ => ContributorRole::Primary,
+        },
         model_template: NO_MODEL_TEMPLATE,
         animation: NO_ANIMATION,
         variant,

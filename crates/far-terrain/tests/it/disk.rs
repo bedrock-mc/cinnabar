@@ -1,0 +1,132 @@
+use far_terrain::{
+    ColumnPos, DiskBounds, DiskCache, DiskEvent, NamespaceKey, RegionPos, ServerKey, decode_region,
+    encode_region, region_index,
+};
+
+use crate::summary::hilly;
+
+fn namespace(destination: &str) -> NamespaceKey {
+    NamespaceKey {
+        server: ServerKey::from_destination(destination),
+        dimension: 0,
+        level: 7,
+        epoch: 0,
+    }
+}
+
+#[test]
+fn region_slots_cover_negative_columns() {
+    let pos = ColumnPos::new(-1, -33);
+    let region = RegionPos::of(pos);
+    assert_eq!(region, RegionPos { x: -1, z: -2 });
+    assert_eq!(region.column(region_index(pos)), pos);
+    assert_eq!(RegionPos::parse(&region.file_name()), Some(region));
+}
+
+#[test]
+fn region_codec_round_trips_and_rejects_damage() {
+    let summary = hilly().encode();
+    let bytes = encode_region(&[(3, summary.clone()), (1000, summary.clone())]);
+    assert_eq!(
+        decode_region(&bytes).unwrap(),
+        vec![(3, summary.clone()), (1000, summary)]
+    );
+    assert!(decode_region(&bytes[..bytes.len() - 1]).is_err());
+    let mut extended = bytes.clone();
+    extended.push(0);
+    assert!(decode_region(&extended).is_err());
+}
+
+#[test]
+fn server_identity_is_hashed_and_stable() {
+    let key = ServerKey::from_destination("remote:play.example.net:19132");
+    let text = key.to_string();
+    assert_eq!(text.len(), 32);
+    assert!(!text.contains("example"));
+    assert_eq!(ServerKey::from_hex(&text), Some(key));
+    assert_eq!(
+        key,
+        ServerKey::from_destination(" REMOTE:play.example.net:19132 ")
+    );
+    assert_ne!(
+        key,
+        ServerKey::from_destination("remote:play.example.net:19133")
+    );
+}
+
+fn loaded(disk: &DiskCache) -> Vec<(ColumnPos, u64)> {
+    disk.sync();
+    disk.events()
+        .flat_map(|event| match event {
+            DiskEvent::Loaded { columns, .. } => columns,
+            DiskEvent::Resolved { .. } => Vec::new(),
+        })
+        .map(|(pos, summary)| (pos, summary.hash))
+        .collect()
+}
+
+#[test]
+fn written_regions_load_back_and_later_writes_merge() {
+    let root = tempfile::tempdir().unwrap();
+    let bounds = DiskBounds {
+        server_cap_bytes: u64::MAX,
+        global_cap_bytes: u64::MAX,
+    };
+    let disk = DiskCache::spawn(root.path().to_owned(), bounds).unwrap();
+    let ns = namespace("remote:a:1");
+    let summary = hilly().encode();
+    let region = RegionPos { x: 0, z: 0 };
+    disk.write(ns, region, vec![(0, summary.clone())]);
+    disk.write(ns, region, vec![(33, summary.clone())]);
+    disk.load(ns, region);
+    assert_eq!(
+        loaded(&disk),
+        vec![
+            (ColumnPos::new(0, 0), summary.hash),
+            (ColumnPos::new(1, 1), summary.hash)
+        ]
+    );
+    let names: Vec<String> = std::fs::read_dir(root.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert_eq!(names, vec![ns.server.to_string()], "no address on disk");
+}
+
+#[test]
+fn caps_evict_least_recently_used_regions() {
+    let root = tempfile::tempdir().unwrap();
+    let summary = hilly().encode();
+    let region_bytes = encode_region(&[(0, summary.clone())]).len() as u64;
+    let bounds = DiskBounds {
+        server_cap_bytes: region_bytes * 2,
+        global_cap_bytes: region_bytes * 3,
+    };
+    let disk = DiskCache::spawn(root.path().to_owned(), bounds).unwrap();
+    let (a, b) = (namespace("remote:a:1"), namespace("remote:b:1"));
+    let regions = [0, 1, 2].map(|x| RegionPos { x, z: 0 });
+    disk.write(a, regions[0], vec![(0, summary.clone())]);
+    disk.write(a, regions[1], vec![(0, summary.clone())]);
+    disk.load(a, regions[0]);
+    disk.write(a, regions[2], vec![(0, summary.clone())]);
+    for region in regions {
+        disk.load(a, region);
+    }
+    let survivors: Vec<i32> = loaded(&disk).iter().map(|(pos, _)| pos.x).collect();
+    assert_eq!(
+        survivors,
+        vec![0, 0, 64],
+        "region 1 was least recently used"
+    );
+
+    disk.write(b, regions[0], vec![(0, summary.clone())]);
+    disk.write(b, regions[1], vec![(0, summary.clone())]);
+    for region in regions {
+        disk.load(a, region);
+    }
+    assert_eq!(
+        loaded(&disk).len(),
+        1,
+        "the global cap evicted the oldest of server a"
+    );
+}

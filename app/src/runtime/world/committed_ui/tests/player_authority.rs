@@ -548,6 +548,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
                 death_rules: protocol::DeathRules::default(),
                 packs: crate::runtime::network::resource_packs::PackApplication::default(),
                 terrain_before_spawn: true,
+                level_identity: 0,
             })
             .unwrap();
         app.insert_resource(handle);

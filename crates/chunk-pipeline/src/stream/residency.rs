@@ -359,7 +359,7 @@ impl WorldStream {
     }
 
     /// Local physics advances the player grid between server corrections.
-    fn player_chunk(&self) -> ChunkKey {
+    pub(super) fn player_chunk(&self) -> ChunkKey {
         if let Some(chunk) = self.local_player_chunk {
             return chunk;
         }

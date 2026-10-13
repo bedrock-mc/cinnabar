@@ -3,10 +3,21 @@
 
 pub mod config;
 
+mod cache;
 mod colours;
+mod disk;
 mod extract;
+mod identity;
+mod region;
 mod store;
 mod summary;
+
+pub use cache::FarTerrainCache;
+pub use disk::{DiskBounds, DiskCache, DiskEvent};
+pub use identity::{NamespaceKey, ServerKey, WorldKey, surface_similarity};
+pub use region::{
+    REGION_SIDE, RegionDecodeError, RegionPos, decode_region, encode_region, region_index,
+};
 
 pub use colours::SurfaceColours;
 pub use config::FarTerrainConfig;
