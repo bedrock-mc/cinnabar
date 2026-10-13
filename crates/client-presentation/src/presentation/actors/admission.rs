@@ -5,8 +5,8 @@ pub fn within_actor_candidate_cube(position: [f32; 3], camera: [f32; 3]) -> bool
     })
 }
 
-/// Rejects distance-ineligible actors independently of their authored frame scale.
-pub(crate) fn actor_within_render_distance(
+/// Rejects distant actors and player bodies containing the camera before frame model sampling.
+pub(crate) fn actor_is_render_candidate(
     actor: &client_world::ActorSnapshot,
     partial_tick: f32,
     view: Option<render_model::ActorCullView>,
@@ -17,12 +17,24 @@ pub(crate) fn actor_within_render_distance(
     ) else {
         return true;
     };
+    let camera = view.camera_position.to_array();
+    if matches!(actor.kind, protocol::ActorKind::Player { .. })
+        && view.camera_position.is_finite()
+        && actor.bounding_box_at(feet).is_some_and(|(low, high)| {
+            (0..3).all(|axis| {
+                low[axis] < high[axis] && camera[axis] >= low[axis] && camera[axis] <= high[axis]
+            })
+        })
+    {
+        // Reject the body before skin and equipment layers can cover the entire view.
+        return false;
+    }
     (!matches!(actor.kind, protocol::ActorKind::Entity { .. })
-        || within_actor_candidate_cube(feet, view.camera_position.to_array()))
+        || within_actor_candidate_cube(feet, camera))
         && view.contains_distance(feet)
 }
 
-/// Rejects distance-ineligible rigs before invoking their authored scale sampler.
+/// Rejects ineligible remote bodies before invoking their authored scale sampler.
 pub(crate) fn sample_candidate_scale<'a>(
     rig: actor_animation::ActorRigSnapshot<'a>,
     actor: &client_world::ActorSnapshot,
@@ -30,5 +42,5 @@ pub(crate) fn sample_candidate_scale<'a>(
     view: Option<render_model::ActorCullView>,
     sample: impl FnOnce(actor_animation::ActorRigSnapshot<'a>) -> actor_animation::ActorRigSnapshot<'a>,
 ) -> Option<actor_animation::ActorRigSnapshot<'a>> {
-    actor_within_render_distance(actor, partial_tick, view).then(|| sample(rig))
+    actor_is_render_candidate(actor, partial_tick, view).then(|| sample(rig))
 }
