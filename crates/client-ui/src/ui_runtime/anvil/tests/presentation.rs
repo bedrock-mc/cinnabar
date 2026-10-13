@@ -476,7 +476,7 @@ fn acknowledging_a_placement_preserves_an_entered_rename() {
     runtime.sync_anvil_name(&player);
     assert_eq!(runtime.screen_state().anvil_name, "Blade");
     let preview = runtime.anvil_preview(&player).unwrap();
-    assert_eq!(preview.outcome.custom_name.as_deref(), Some("Blade"));
+    assert_eq!(preview.outcome.custom_name, Some(Some("Blade".into())));
     assert_eq!(preview.outcome.cost, 4);
 
     let restated = runtime
