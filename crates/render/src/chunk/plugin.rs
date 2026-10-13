@@ -57,7 +57,8 @@ impl ChunkRenderPlugin {
 impl Plugin for ChunkRenderPlugin {
     fn build(&self, app: &mut App) {
         install_atmosphere(app);
-        app.init_resource::<ChunkRenderQueue>()
+        app.init_resource::<render_scene::chunk::capacity::ChunkArenaCapacityHint>()
+            .init_resource::<ChunkRenderQueue>()
             .init_resource::<crate::dropped_item_render::terrain_items::ImmediateTerrainMeshPublications>()
             .init_resource::<ChunkUploadAcknowledgements>()
             .init_resource::<ChunkGpuRemovalQueue>()
