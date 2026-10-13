@@ -45,14 +45,19 @@ fn tile_costs(c: &mut Criterion) {
     let view = TileView {
         centre: [8.0, 8.0],
         near_blocks: 15.0 * 16.0,
+        skip_blocks: 15.0 * 16.0,
         far_blocks: 64.0 * 16.0,
     };
     eprintln!("selected tiles: {}", select_tiles(view).len());
     c.bench_function("far_terrain/select_tiles", |b| {
         b.iter(|| select_tiles(black_box(view)))
     });
+    let disc: Vec<ColumnPos> = (-12..=12)
+        .flat_map(|x| (-12..=12).map(move |z| ColumnPos::new(x, z)))
+        .filter(|column| column.x * column.x + column.z * column.z <= 144)
+        .collect();
     c.bench_function("far_terrain/near_mask_radius_12", |b| {
-        b.iter(|| NearMask::retained(black_box([0, 0]), 12));
+        b.iter(|| NearMask::from_columns(black_box([0, 0]), disc.iter().copied()));
     });
 }
 

@@ -78,8 +78,10 @@ impl TileKey {
 pub struct TileView {
     /// Horizontal camera position.
     pub centre: [f32; 2],
-    /// Distance at which near terrain may end; tiles inside it are left out.
+    /// Distance at which near terrain may end; only the finest level reaches inside it.
     pub near_blocks: f32,
+    /// Tiles wholly inside this distance are left out; near terrain draws everything there.
+    pub skip_blocks: f32,
     /// Reach of far terrain beyond the near edge.
     pub far_blocks: f32,
 }
@@ -107,7 +109,7 @@ pub fn select_tiles(view: TileView) -> Vec<TileKey> {
         .collect();
     while let Some(tile) = pending.pop() {
         let (nearest, farthest) = tile.distances(view.centre);
-        if nearest > reach || farthest < view.near_blocks {
+        if nearest > reach || farthest < view.skip_blocks {
             continue;
         }
         let split = view.near_blocks + LEVEL_SPLIT_DISTANCE * tile.width_blocks() as f32;
@@ -121,32 +123,75 @@ pub fn select_tiles(view: TileView) -> Vec<TileKey> {
     selected
 }
 
-/// Columns near terrain owns around the player; far terrain hides itself there.
+/// Columns near terrain draws; far terrain hides itself there, so each column has one drawer.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NearMask {
     origin: [i32; 2],
     side: u32,
     bits: Box<[u32]>,
+    /// Squared column distance from the centre to the nearest column that is not near.
+    hole_squared: i64,
+    /// Squared column distance from the centre to the farthest near column, if any.
+    outer_squared: Option<i64>,
 }
 
+/// Half a column's diagonal, rounded up: how far a column's blocks reach from its middle.
+const HALF_COLUMN_DIAGONAL_BLOCKS: f32 = 12.0;
+
 impl NearMask {
-    /// The columns the client's chunk grid retains for `radius` around `centre`.
+    /// Exactly `columns`, around the `centre` column.
     #[must_use]
-    pub fn retained(centre: [i32; 2], radius: i32) -> Self {
-        let reach = world::chunk_view_distance(radius) as i32 + 1;
+    pub fn from_columns(centre: [i32; 2], columns: impl IntoIterator<Item = ColumnPos>) -> Self {
+        let columns: Vec<[i32; 2]> = columns
+            .into_iter()
+            .map(|column| [column.x - centre[0], column.z - centre[1]])
+            .collect();
+        let reach = columns
+            .iter()
+            .map(|[dx, dz]| dx.abs().max(dz.abs()))
+            .max()
+            .unwrap_or(0);
         let side = (2 * reach + 1) as u32;
         let origin = [centre[0] - reach, centre[1] - reach];
         let mut bits = vec![0_u32; (side * side).div_ceil(32) as usize].into_boxed_slice();
-        for dz in 0..side as i32 {
-            for dx in 0..side as i32 {
-                let column = [origin[0] + dx, origin[1] + dz];
-                if world::chunk_in_view(radius, column, centre) {
-                    let index = (dz as u32 * side + dx as u32) as usize;
-                    bits[index / 32] |= 1 << (index % 32);
-                }
+        let mut outer_squared = None;
+        for [dx, dz] in &columns {
+            let index = ((dz + reach) as u32 * side + (dx + reach) as u32) as usize;
+            bits[index / 32] |= 1 << (index % 32);
+            outer_squared = outer_squared.max(Some(squared(*dx, *dz)));
+        }
+        // The nearest column that is not near; past the square every column is not.
+        let mut hole_squared = squared(reach + 1, 0);
+        for index in 0..(side * side) as usize {
+            if bits[index / 32] & (1 << (index % 32)) == 0 {
+                let (dx, dz) = (
+                    index as i32 % side as i32 - reach,
+                    index as i32 / side as i32 - reach,
+                );
+                hole_squared = hole_squared.min(squared(dx, dz));
             }
         }
-        Self { origin, side, bits }
+        Self {
+            origin,
+            side,
+            bits,
+            hole_squared,
+            outer_squared,
+        }
+    }
+
+    /// Distance from the centre column's middle within which every block is near terrain.
+    #[must_use]
+    pub fn inner_blocks(&self) -> f32 {
+        (16.0 * (self.hole_squared as f32).sqrt() - HALF_COLUMN_DIAGONAL_BLOCKS).max(0.0)
+    }
+
+    /// Distance from the centre column's middle beyond which no block is near terrain.
+    #[must_use]
+    pub fn outer_blocks(&self) -> f32 {
+        self.outer_squared.map_or(0.0, |outer| {
+            16.0 * (outer as f32).sqrt() + HALF_COLUMN_DIAGONAL_BLOCKS
+        })
     }
 
     #[must_use]
@@ -176,4 +221,8 @@ impl NearMask {
     pub fn words(&self) -> &[u32] {
         &self.bits
     }
+}
+
+fn squared(dx: i32, dz: i32) -> i64 {
+    i64::from(dx).pow(2) + i64::from(dz).pow(2)
 }

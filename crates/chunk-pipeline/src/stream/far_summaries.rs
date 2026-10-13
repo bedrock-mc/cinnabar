@@ -221,6 +221,7 @@ impl WorldStream {
 
     /// Queues a column whose every section has arrived, including a resend.
     pub(super) fn note_far_column_complete(&mut self, column: ChunkKey) {
+        self.note_near_drawn(column);
         let feed = &mut self.far_terrain;
         if feed.enabled && feed.queued.insert(column) {
             feed.pending.push_back(column);

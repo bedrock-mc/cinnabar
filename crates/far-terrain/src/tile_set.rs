@@ -5,7 +5,8 @@ use std::{collections::BTreeMap, sync::Arc, time::Instant};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
 use crate::{
-    ColumnPos, ColumnSummary, EncodedSummary, SummaryStore, TileGrid, TileKey, TileMesh, TileView,
+    ColumnPos, ColumnSummary, EncodedSummary, NearMask, SummaryStore, TileGrid, TileKey, TileMesh,
+    TileView,
     config::{LEVEL_COUNT, MAX_TILE_BUILDS, TILE_BUILD_COLUMNS_PER_UPDATE, TILE_REBUILD_INTERVAL},
     mesh_tile, select_tiles,
 };
@@ -70,18 +71,11 @@ impl FarTiles {
         for key in wanted {
             kept.insert(key, self.selected.remove(&key).unwrap_or_default());
         }
-        // Only finest quads can hide over near terrain, so coarser ones reaching it go now.
-        let clear_of_near =
-            |key: TileKey| key.level == 0 || key.distances(view.centre).0 >= view.near_blocks;
         for (_, tile) in std::mem::replace(&mut self.selected, kept) {
-            if let Some(mesh) = tile
-                .mesh
-                .filter(|mesh| !mesh.quads.is_empty() && clear_of_near(mesh.key))
-            {
+            if let Some(mesh) = tile.mesh.filter(|mesh| !mesh.quads.is_empty()) {
                 self.retired.push(mesh);
             }
         }
-        self.retired.retain(|mesh| clear_of_near(mesh.key));
         self.retire_covered();
         self.revision += 1;
     }
@@ -159,6 +153,18 @@ impl FarTiles {
             (!hidden).then(|| Arc::clone(mesh))
         });
         selected.chain(self.retired.iter().cloned()).collect()
+    }
+
+    /// Drops replaced coarser meshes over any column of `near`: only finest quads hide
+    /// themselves over near terrain.
+    pub fn release_near(&mut self, near: &NearMask) {
+        let before = self.retired.len();
+        self.retired.retain(|mesh| {
+            mesh.key.level == 0 || !mesh.key.columns().any(|pos| near.contains(pos))
+        });
+        if self.retired.len() != before {
+            self.revision += 1;
+        }
     }
 
     /// Changes whenever [`FarTiles::drawn`] may differ.

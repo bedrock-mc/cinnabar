@@ -995,6 +995,7 @@ mod inventory_commit_fence;
 mod lane_footprints;
 mod lenient_decode;
 mod local_abilities;
+mod near_drawn;
 mod prediction;
 mod render_distance;
 mod service;
