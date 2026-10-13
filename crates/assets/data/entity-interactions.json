@@ -30,6 +30,7 @@
     "minecraft:cow": {"Provisional": {"pickable": true, "obstructs_placement": true, "aim_assist": true}},
     "minecraft:creaking": {"Provisional": {"pickable": true, "obstructs_placement": true, "aim_assist": true}},
     "minecraft:creeper": {"Provisional": {"pickable": true, "obstructs_placement": true, "aim_assist": true}},
+    "minecraft:cushion": "Unresolved",
     "minecraft:dolphin": {"Provisional": {"pickable": true, "obstructs_placement": true, "aim_assist": true}},
     "minecraft:donkey": {"Provisional": {"pickable": true, "obstructs_placement": true, "aim_assist": true}},
     "minecraft:dragon_fireball": {"Provisional": {"pickable": false, "obstructs_placement": false, "aim_assist": false}},

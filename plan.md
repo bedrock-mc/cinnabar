@@ -8406,6 +8406,11 @@ them. Empty advertised bases retain an explicit provisional generic-mob disposit
 mutable component, spectator pick/obstruction and class inventories are still open;
 the generic-mob disposition remains provisional and does not close a parity gate.
 
+Committed asset tables are checked against pinned block, item, actor and pack-name
+vocabularies. Retained compatibility exceptions name the exact field and fail when
+unused. Every pinned actor has an explicit interaction disposition; unsupported
+entries remain unresolved, and identifier coverage does not establish behavior parity.
+
 Compiled seat descriptors are incomplete. Every independently collected entity has a seat admission, including unresolved definitions. Authored base layouts, bounded rider counts, literal rotations and Molang rotation references are compiled before runtime; component-group names no longer select layouts. Actual group activation and rotation-expression evaluation remain unresolved, so those layouts retain streamed poses. Passenger ordering, mutable rideable components, session behavior overlays and complete native layout coverage remain open. Static count selection preserves the existing compatibility order and is provisional.
 
 ### Compiled intrinsic shine (incomplete)

@@ -10,13 +10,15 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 )
 
 const (
-	controlUnixEndpointName    = "control.sock"
-	controlWindowsEndpointName = "control.addr"
-	sessionUnixEndpointName    = "session.sock"
-	sessionWindowsEndpointName = "session.addr"
+	controlUnixEndpointName    = bridgecontract.ControlUnixEndpointName
+	controlWindowsEndpointName = bridgecontract.ControlWindowsEndpointName
+	sessionUnixEndpointName    = bridgecontract.SessionUnixEndpointName
+	sessionWindowsEndpointName = bridgecontract.SessionWindowsEndpointName
 )
 
 type endpointNames struct {

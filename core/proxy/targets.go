@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
@@ -25,15 +26,15 @@ import (
 
 // A raw NetherNet target names its signaling and ID: NetherNetTargetPrefix + signaling + "/" + id.
 const (
-	NetherNetTargetPrefix       = "nethernet/"
-	NetherNetSignalingJSONRPC   = "jsonrpc"
-	NetherNetSignalingWebSocket = "websocket"
+	NetherNetTargetPrefix       = bridgecontract.NetherNetTargetPrefix
+	NetherNetSignalingJSONRPC   = bridgecontract.NetherNetSignalingJSONRPC
+	NetherNetSignalingWebSocket = bridgecontract.NetherNetSignalingWebSocket
 )
 
 const (
-	friendTargetPrefix = "friend_xuid/"
-	realmTargetPrefix  = "realm_id/"
-	realmCodePrefix    = "realm/"
+	friendTargetPrefix = bridgecontract.FriendTargetPrefix
+	realmTargetPrefix  = bridgecontract.RealmTargetPrefix
+	realmCodePrefix    = bridgecontract.RealmCodePrefix
 )
 
 // remoteMaxMTU caps RakNet probes to addressed servers. A 1492-byte probe over a smaller

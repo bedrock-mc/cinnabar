@@ -61,4 +61,240 @@ const (
 	RelayEventConnect = "connect"
 	// RelayEventError: Report a bounded public refusal code.
 	RelayEventError = "error"
+	// GameVersion: Game version reported by the client.
+	GameVersion = "1.26.50"
+	// DefaultBedrockPort: Default port for an addressed Bedrock server.
+	DefaultBedrockPort = 19132
+	// DefaultBedrockPortText: Text form of the default Bedrock server port.
+	DefaultBedrockPortText = "19132"
+	// ControlUnixEndpointName: Control endpoint name on Unix.
+	ControlUnixEndpointName = "control.sock"
+	// SessionUnixEndpointName: Session endpoint name on Unix.
+	SessionUnixEndpointName = "session.sock"
+	// ControlWindowsEndpointName: Control endpoint name on Windows.
+	ControlWindowsEndpointName = "control.addr"
+	// SessionWindowsEndpointName: Session endpoint name on Windows.
+	SessionWindowsEndpointName = "session.addr"
+	// RealmTargetPrefix: Prefix for a Realm id target.
+	RealmTargetPrefix = "realm_id/"
+	// RealmCodePrefix: Prefix for a Realm invitation code target.
+	RealmCodePrefix = "realm/"
+	// FriendTargetPrefix: Prefix for a friend world target.
+	FriendTargetPrefix = "friend_xuid/"
+	// GatheringTargetPrefix: Prefix for an experience target.
+	GatheringTargetPrefix = "gathering/"
+	// NetherNetTargetPrefix: Prefix for a NetherNet signaling target.
+	NetherNetTargetPrefix = "nethernet/"
+	// NetherNetSignalingJSONRPC: NetherNet JSON-RPC signaling selector.
+	NetherNetSignalingJSONRPC = "jsonrpc"
+	// NetherNetSignalingWebSocket: NetherNet WebSocket signaling selector.
+	NetherNetSignalingWebSocket = "websocket"
+	// JSONRPCVersion: Version of the control JSON-RPC envelope.
+	JSONRPCVersion = "2.0"
+	// ControlSchemaVersion: Schema version of control results.
+	ControlSchemaVersion = 1
+	// MethodStatus: Control method for status.
+	MethodStatus = "status.v1"
+	// MethodPackApplication: Control method for pack application.
+	MethodPackApplication = "pack_application.v1"
+	// MethodRealmsList: Control method for realms list.
+	MethodRealmsList = "realms_list.v1"
+	// MethodFriendsList: Control method for friends list.
+	MethodFriendsList = "friends_list.v1"
+	// MethodFriendsPeople: Control method for friends people.
+	MethodFriendsPeople = "friends_people.v1"
+	// MethodConnect: Control method for connect.
+	MethodConnect = "connect.v1"
+	// MethodAccountStatus: Control method for account status.
+	MethodAccountStatus = "account_status.v1"
+	// MethodSignOut: Control method for sign out.
+	MethodSignOut = "sign_out.v1"
+	// MethodEvents: Control method for events.
+	MethodEvents = "events.v1"
+	// MethodFeaturedServers: Control method for featured servers.
+	MethodFeaturedServers = "featured_servers.v1"
+	// MethodPing: Control method for ping.
+	MethodPing = "ping.v1"
+	// MethodHome: Control method for home.
+	MethodHome = "home.v1"
+	// MethodServerTrustAnswer: Control method for server trust answer.
+	MethodServerTrustAnswer = "server_trust_answer.v1"
+	// MethodMessageEvent: Control method for message event.
+	MethodMessageEvent = "message_event.v1"
+	// MethodProfile: Control method for profile.
+	MethodProfile = "profile.v1"
+	// MethodRealmMembership: Control method for realm membership.
+	MethodRealmMembership = "realm_membership.v1"
+	// MethodPacketDelay: Control method for packet delay.
+	MethodPacketDelay = "packet_delay.v1"
+	// MethodPresence: Control method for presence.
+	MethodPresence = "presence.v1"
+	// MethodLocalWorld: Control method for local world.
+	MethodLocalWorld = "local_world.v1"
+	// MethodWorldInvite: Control method for world invite.
+	MethodWorldInvite = "world_invite.v1"
+	// RPCParseError: Control error code for parse error.
+	RPCParseError = -32700
+	// RPCInvalidRequest: Control error code for invalid request.
+	RPCInvalidRequest = -32600
+	// RPCMethodNotFound: Control error code for method not found.
+	RPCMethodNotFound = -32601
+	// RPCInvalidParams: Control error code for invalid params.
+	RPCInvalidParams = -32602
+	// RPCWorldFailed: Control error code for world failed.
+	RPCWorldFailed = -32000
+	// RPCWorldBusy: Control error code for world busy.
+	RPCWorldBusy = -32011
+	// RPCSignedOut: Control error code for signed out.
+	RPCSignedOut = -32020
+	// RPCServiceFailed: Control error code for service failed.
+	RPCServiceFailed = -32021
+	// RPCInvalidTarget: Control error code for invalid target.
+	RPCInvalidTarget = -32022
+	// RPCServicesDisabled: Control error code for services disabled.
+	RPCServicesDisabled = -32023
+	// PresenceGameModeSurvival: Xbox presence game mode for survival.
+	PresenceGameModeSurvival = 0
+	// PresenceGameModeCreative: Xbox presence game mode for creative.
+	PresenceGameModeCreative = 1
+	// PresenceGameModeAdventure: Xbox presence game mode for adventure.
+	PresenceGameModeAdventure = 2
+	// PresenceActivityMenus: Xbox presence activity menus.
+	PresenceActivityMenus = "Menus"
+	// PresenceActivityExperience: Xbox presence activity experience.
+	PresenceActivityExperience = "COM_Experience"
+	// PresenceActivitySurvival: Xbox presence activity survival.
+	PresenceActivitySurvival = "Survival"
+	// PresenceActivityCreative: Xbox presence activity creative.
+	PresenceActivityCreative = "Creative"
+	// PresenceActivityAdventure: Xbox presence activity adventure.
+	PresenceActivityAdventure = "Adventure"
+	// PresenceActivityRealmPrefix: Xbox presence activity realmprefix.
+	PresenceActivityRealmPrefix = "Realm_"
+	// MessageSurfacePlayButton: Messaging surface for play button.
+	MessageSurfacePlayButton = "PlayButton"
+	// MessageSurfaceInboxMessage: Messaging surface for inbox message.
+	MessageSurfaceInboxMessage = "InboxMessage"
+	// MessageEventImpression: Messaging event for impression.
+	MessageEventImpression = "Impression"
+	// MessageEventDeleteAllRead: Messaging event for delete all read.
+	MessageEventDeleteAllRead = "DeleteAllRead"
+	// MessageEventReadAll: Messaging event for read all.
+	MessageEventReadAll = "ReadAll"
+	// MessageEventDelete: Messaging event for delete.
+	MessageEventDelete = "Delete"
+	// MessageEventClick: Messaging event for click.
+	MessageEventClick = "Click"
+	// MessageEventDismiss: Messaging event for dismiss.
+	MessageEventDismiss = "Dismiss"
+	// MessageEventControlImpression: Messaging event for controlimpression.
+	MessageEventControlImpression = "ControlImpression"
+	// MessageStatusRead: Case-insensitive status of a read inbox message.
+	MessageStatusRead = "read"
+	// MessageArtBanner: Image id marker for banner artwork.
+	MessageArtBanner = "banner"
+	// MessageArtHover: Image id marker for hover artwork.
+	MessageArtHover = "hover"
+	// MessageArtFore: Image id marker for fore artwork.
+	MessageArtFore = "fore"
+	// MessageArtFg: Image id marker for fg artwork.
+	MessageArtFg = "fg"
+	// GameModeSurvival: Game mode a world starts players in. Survival.
+	GameModeSurvival = "survival"
+	// GameModeCreative: Game mode a world starts players in. Creative.
+	GameModeCreative = "creative"
+	// GameModeAdventure: Game mode a world starts players in. Adventure.
+	GameModeAdventure = "adventure"
+	// BackendBds: Server backend a world runs on; fixed when the world is created. Bds.
+	BackendBds = "bds"
+	// BackendDragonfly: Server backend a world runs on; fixed when the world is created. Dragonfly.
+	BackendDragonfly = "dragonfly"
+	// WorldStateIdle: Lifecycle of the open local world. Idle.
+	WorldStateIdle = "idle"
+	// WorldStateStarting: Lifecycle of the open local world. Starting.
+	WorldStateStarting = "starting"
+	// WorldStateRunning: Lifecycle of the open local world. Running.
+	WorldStateRunning = "running"
+	// WorldStateStopping: Lifecycle of the open local world. Stopping.
+	WorldStateStopping = "stopping"
+	// WorldStateFailed: Lifecycle of the open local world. Failed.
+	WorldStateFailed = "failed"
+	// TransportRakNet: How the core dials the open world's server. RakNet.
+	TransportRakNet = "raknet"
+	// TransportNetherNet: How the core dials the open world's server. NetherNet.
+	TransportNetherNet = "nethernet"
+	// TransportNetherNetLan: How the core dials the open world's server. NetherNetLan.
+	TransportNetherNetLan = "nethernet-lan"
+	// LifecycleStarting: Process lifecycle reported by the local core. Starting.
+	LifecycleStarting = "starting"
+	// LifecycleRunning: Process lifecycle reported by the local core. Running.
+	LifecycleRunning = "running"
+	// LifecycleStopping: Process lifecycle reported by the local core. Stopping.
+	LifecycleStopping = "stopping"
+	// PackOfferNone: Kind of upstream resource-pack offer observed by the core. None.
+	PackOfferNone = "none"
+	// PackOfferOptional: Kind of upstream resource-pack offer observed by the core. Optional.
+	PackOfferOptional = "optional"
+	// PackOfferRequired: Kind of upstream resource-pack offer observed by the core. Required.
+	PackOfferRequired = "required"
+	// PackAcquisitionNone: Result of acquiring the offered resource packs. None.
+	PackAcquisitionNone = "none"
+	// PackAcquisitionComplete: Result of acquiring the offered resource packs. Complete.
+	PackAcquisitionComplete = "complete"
+	// PackAcquisitionIgnored: Result of acquiring the offered resource packs. Ignored.
+	PackAcquisitionIgnored = "ignored"
+	// PackAcquisitionPartial: Result of acquiring the offered resource packs. Partial.
+	PackAcquisitionPartial = "partial"
+	// PackAcquisitionFailed: Result of acquiring the offered resource packs. Failed.
+	PackAcquisitionFailed = "failed"
+	// PackAcquisitionCancelled: Result of acquiring the offered resource packs. Cancelled.
+	PackAcquisitionCancelled = "cancelled"
+	// PackDownstreamNone: Result of applying resource-pack policy to the downstream session. None.
+	PackDownstreamNone = "none"
+	// PackDownstreamOfferedOptional: Result of applying resource-pack policy to the downstream session. OfferedOptional.
+	PackDownstreamOfferedOptional = "offered_optional"
+	// PackDownstreamHandedOffOptional: Result of applying resource-pack policy to the downstream session. HandedOffOptional.
+	PackDownstreamHandedOffOptional = "handed_off_optional"
+	// PackDownstreamOfferedRequired: Result of applying resource-pack policy to the downstream session. OfferedRequired.
+	PackDownstreamOfferedRequired = "offered_required"
+	// PackDownstreamHandedOffRequired: Result of applying resource-pack policy to the downstream session. HandedOffRequired.
+	PackDownstreamHandedOffRequired = "handed_off_required"
+	// PackDownstreamRejectedRequired: Result of applying resource-pack policy to the downstream session. RejectedRequired.
+	PackDownstreamRejectedRequired = "rejected_required"
+	// PackDownstreamStrippedIgnored: Result of applying resource-pack policy to the downstream session. StrippedIgnored.
+	PackDownstreamStrippedIgnored = "stripped_ignored"
+	// PackApplicationUnavailable: Whether the client has applied the newest attempt's handed-off packs. Unavailable.
+	PackApplicationUnavailable = "unavailable"
+	// PackApplicationApplied: Whether the client has applied the newest attempt's handed-off packs. Applied.
+	PackApplicationApplied = "applied"
+	// TargetRakNet: Where the next client connection goes. RakNet.
+	TargetRakNet = "raknet"
+	// TargetRealm: Where the next client connection goes. Realm.
+	TargetRealm = "realm"
+	// TargetFriend: Where the next client connection goes. Friend.
+	TargetFriend = "friend"
+	// TargetGathering: Where the next client connection goes. Gathering.
+	TargetGathering = "gathering"
+	// AuthOffline: Sign-in state of the core. Offline.
+	AuthOffline = "offline"
+	// AuthSignedOut: Sign-in state of the core. SignedOut.
+	AuthSignedOut = "signed_out"
+	// AuthAwaitingCode: Sign-in state of the core. AwaitingCode.
+	AuthAwaitingCode = "awaiting_code"
+	// AuthSignedIn: Sign-in state of the core. SignedIn.
+	AuthSignedIn = "signed_in"
+	// AuthFailed: Sign-in state of the core. Failed.
+	AuthFailed = "failed"
+	// ConnectStageRealm: Join progress stage reported by the core. Realm.
+	ConnectStageRealm = "realm"
+	// ConnectStagePacks: Join progress stage reported by the core. Packs.
+	ConnectStagePacks = "packs"
+	// ConnectStageConnecting: Join progress stage reported by the core. Connecting.
+	ConnectStageConnecting = "connecting"
 )
+
+// InboxCategories: Inbox category names in display order.
+var InboxCategories = [...]string{"News", "Realms", "Invites", "Feedback"}
+
+// MessageEventTypes: Messaging report types accepted by the core.
+var MessageEventTypes = [...]string{"Impression", "DeleteAllRead", "ReadAll", "Delete", "Click", "Dismiss", "ControlImpression"}

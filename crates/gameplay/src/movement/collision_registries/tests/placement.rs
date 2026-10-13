@@ -614,8 +614,40 @@ immediate_family!(
 immediate_family!(
     immediate_multiface,
     "minecraft:glow_lichen",
-    "minecraft:sculk_vein"
+    "minecraft:sculk_vein",
+    "minecraft:resin_clump"
 );
+immediate_family!(
+    immediate_registered_lanterns,
+    "minecraft:lantern",
+    "minecraft:soul_lantern",
+    "minecraft:copper_lantern",
+    "minecraft:waxed_oxidized_copper_lantern"
+);
+immediate_family!(immediate_copper_torch, "minecraft:copper_torch");
+immediate_family!(
+    immediate_copper_bars,
+    "minecraft:copper_bars",
+    "minecraft:waxed_oxidized_copper_bars"
+);
+
+#[test]
+fn current_chains_and_golden_dandelion_do_not_skip_survival_validation() {
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        for name in [
+            "minecraft:iron_chain",
+            "minecraft:copper_chain",
+            "minecraft:golden_dandelion",
+        ] {
+            let store = store(mode);
+            let around = surroundings();
+            assert!(
+                predict(name, &store, mode, &context(&around)).is_none(),
+                "{name}"
+            );
+        }
+    }
+}
 immediate_family!(
     immediate_doors,
     "minecraft:wooden_door",
