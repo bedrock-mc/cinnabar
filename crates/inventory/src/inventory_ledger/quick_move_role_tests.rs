@@ -154,6 +154,26 @@ fn tagged_entry(identifier: &str, tag: &str, wearable: Option<&str>) -> ItemRegi
     entry
 }
 
+/// Resends the current registry with one existing item's declarations replaced.
+fn resend(ledger: &mut PlayerInventoryLedger, entry: &ItemRegistryEntry) {
+    assert!(ledger.negotiated_item_entry(entry.network_id).is_some());
+    let entries: Vec<_> = ledger
+        .negotiated_item_registry()
+        .unwrap()
+        .values()
+        .map(|current| {
+            if current.network_id == entry.network_id {
+                entry.clone()
+            } else {
+                current.clone()
+            }
+        })
+        .collect();
+    ledger.apply_registry(&ItemRegistryEvent {
+        entries: entries.into(),
+    });
+}
+
 /// Writes a network-NBT string whose length fits the fixture's single-byte prefix.
 fn nbt_string(bytes: &mut Vec<u8>, value: &str) {
     assert!(value.len() < 128);
@@ -325,4 +345,127 @@ fn negotiated_horse_armour_tag_routes_a_custom_item_to_mount_equipment() {
         vec![NetworkItemStack::default(); 2],
     ));
     assert_quick_move(&mut ledger, &entry, InventoryTarget::Storage(1));
+}
+
+#[test]
+fn registry_role_changes_retire_unsent_quick_moves_and_restore_the_source() {
+    for (window, before, after, old_target, new_target) in [
+        (
+            protocol::WINDOW_TYPE_SMITHING_TABLE,
+            "minecraft:trim_materials",
+            "minecraft:trim_templates",
+            InventoryTarget::Craft(52),
+            InventoryTarget::Craft(53),
+        ),
+        (
+            protocol::WINDOW_TYPE_SMITHING_TABLE,
+            "minecraft:trim_materials",
+            "minecraft:is_food",
+            InventoryTarget::Craft(52),
+            InventoryTarget::Player(0),
+        ),
+        (
+            protocol::WINDOW_TYPE_SMITHING_TABLE,
+            "minecraft:is_food",
+            "minecraft:trim_materials",
+            InventoryTarget::Player(0),
+            InventoryTarget::Craft(52),
+        ),
+        (
+            protocol::WINDOW_TYPE_LOOM,
+            "minecraft:banner",
+            "minecraft:is_food",
+            InventoryTarget::Craft(9),
+            InventoryTarget::Player(0),
+        ),
+        (
+            protocol::WINDOW_TYPE_LOOM,
+            "minecraft:is_food",
+            "minecraft:banner",
+            InventoryTarget::Player(0),
+            InventoryTarget::Craft(9),
+        ),
+        (
+            protocol::WINDOW_TYPE_HORSE,
+            "minecraft:horse_armor",
+            "minecraft:is_food",
+            InventoryTarget::Storage(1),
+            InventoryTarget::Player(0),
+        ),
+        (
+            protocol::WINDOW_TYPE_HORSE,
+            "minecraft:is_food",
+            "minecraft:horse_armor",
+            InventoryTarget::Player(0),
+            InventoryTarget::Storage(1),
+        ),
+    ] {
+        let entry = tagged_entry("custom:ruby_ingot", before, None);
+        let mut ledger = ledger(&entry, 0);
+        open(&mut ledger, window);
+        if window == protocol::WINDOW_TYPE_HORSE {
+            ledger.apply(&content(
+                ContainerIdentity::window(3),
+                vec![NetworkItemStack::default(); 2],
+            ));
+        }
+        let source = ledger.displayed_stack(SOURCE_SLOT).unwrap().clone();
+        assert_quick_move(&mut ledger, &entry, old_target);
+        assert_eq!(ledger.pending_batch().unwrap().unwrap().1, 1);
+
+        let replacement = tagged_entry(&entry.identifier, after, None);
+        resend(&mut ledger, &replacement);
+        assert_eq!(ledger.pending_request_count(), 0);
+        assert!(ledger.pending_batch().unwrap().is_none());
+        assert_eq!(ledger.displayed_stack(SOURCE_SLOT), Some(&source));
+        assert!(ledger.target_stack(old_target).is_none());
+
+        assert_quick_move(&mut ledger, &replacement, new_target);
+    }
+}
+
+#[test]
+fn a_role_change_after_transport_requires_authoritative_recovery() {
+    let entry = tagged_entry("custom:ruby_ingot", "minecraft:trim_materials", None);
+    let mut ledger = ledger(&entry, 0);
+    open(&mut ledger, protocol::WINDOW_TYPE_SMITHING_TABLE);
+    assert_quick_move(&mut ledger, &entry, InventoryTarget::Craft(52));
+    assert!(ledger.mark_transport_enqueued(10));
+
+    let replacement = tagged_entry(&entry.identifier, "minecraft:trim_templates", None);
+    resend(&mut ledger, &replacement);
+    assert_eq!(ledger.pending_request_count(), 0);
+    assert!(ledger.pending_batch().unwrap().is_none());
+    assert!(ledger.target_stack(InventoryTarget::Craft(52)).is_none());
+    assert!(ledger.resync_required());
+    assert_eq!(
+        ledger.begin_quick_move(InventoryTarget::Player(SOURCE_SLOT)),
+        Err(InventoryGestureError::ResyncRequired)
+    );
+}
+
+#[test]
+fn registry_tag_changes_keep_pending_moves_when_the_destination_is_unchanged() {
+    let entry = tagged_entry("custom:ruby_ingot", "minecraft:trim_materials", None);
+    let mut ledger = ledger(&entry, 0);
+    open(&mut ledger, protocol::WINDOW_TYPE_SMITHING_TABLE);
+    assert_quick_move(&mut ledger, &entry, InventoryTarget::Craft(52));
+    let request_id = ledger.pending_request_id().unwrap();
+    let actions = ledger.newest_request().unwrap().actions.clone();
+    let predicted = ledger
+        .target_stack(InventoryTarget::Craft(52))
+        .unwrap()
+        .clone();
+
+    let replacement = tagged_entry(&entry.identifier, "minecraft:transform_materials", None);
+    resend(&mut ledger, &replacement);
+    assert_eq!(ledger.pending_request_count(), 1);
+    assert_eq!(ledger.pending_request_id(), Some(request_id));
+    assert_eq!(ledger.newest_request().unwrap().actions, actions);
+    assert_eq!(ledger.pending_batch().unwrap().unwrap().1, 1);
+    assert_eq!(
+        ledger.target_stack(InventoryTarget::Craft(52)),
+        Some(&predicted)
+    );
+    assert!(ledger.displayed_stack(SOURCE_SLOT).is_none());
 }
