@@ -860,7 +860,7 @@ fn synced_update_key(events: &[SyncedBlockUpdateEvent]) -> Option<world::SubChun
         let [x, y, z] = event
             .update
             .position
-            .map(|coordinate| coordinate.div_euclid(16));
+            .map(|coordinate| coordinate.div_euclid(world::SUB_CHUNK_SIDE as i32));
         world::SubChunkKey::new(event.update.dimension, x, y, z)
     };
     let first = key(events.first()?);

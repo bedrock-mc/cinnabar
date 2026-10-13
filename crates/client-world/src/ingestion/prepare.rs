@@ -56,7 +56,7 @@ pub(super) fn prepare_resolved_block_mutations(
                 mutation.replacement(),
                 mutation.changed_positions().map(|position| {
                     [position.x, position.y, position.z]
-                        .map(|coordinate| coordinate.rem_euclid(16) as u8)
+                        .map(|coordinate| coordinate.rem_euclid(world::SUB_CHUNK_SIDE as i32) as u8)
                 }),
             )
         {
@@ -238,8 +238,9 @@ mod tests {
                     previous.as_ref(),
                     mutation.replacement(),
                     mutation.changed_positions().map(|position| {
-                        [position.x, position.y, position.z]
-                            .map(|coordinate| coordinate.rem_euclid(16) as u8)
+                        [position.x, position.y, position.z].map(|coordinate| {
+                            coordinate.rem_euclid(world::SUB_CHUNK_SIDE as i32) as u8
+                        })
                     }),
                 );
                 assert_eq!(
