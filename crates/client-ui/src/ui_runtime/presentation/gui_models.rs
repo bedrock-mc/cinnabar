@@ -122,6 +122,22 @@ impl GuiModels {
     }
 }
 
+/// A sheet can become a cube only when an existing carried model spans the full cube.
+/// Shortened models keep the shaped-model path even when their source texels are transparent.
+fn cube_shape_admitted(
+    ordinary: &render_model::equipment::blocks::BlockSheets,
+    visual: u32,
+) -> bool {
+    !ordinary.models.get(&visual).is_some_and(|vertices| {
+        vertices.iter().any(|vertex| {
+            vertex
+                .position
+                .iter()
+                .any(|coordinate| coordinate.abs() != 0.5)
+        })
+    })
+}
+
 impl UiPresentationRuntime {
     /// Retains the original face and equipment texels; the GPU projects them at each control's
     /// physical size. Unsupported GUI tessellators retain their explicitly provisional thumbnail.
@@ -223,6 +239,9 @@ impl UiPresentationRuntime {
                 let Some(sprite) = sources.get(&block_visual.0) else {
                     continue;
                 };
+                if !cube_shape_admitted(&ordinary, block_visual.0) {
+                    continue;
+                }
                 // Normalize alpha-tested faces using their material mode. Fractional blended
                 // faces retain the thumbnail's composited front and rear contributions.
                 let Some(sprite) = gui_cube_sheet(world, block_visual, sprite) else {

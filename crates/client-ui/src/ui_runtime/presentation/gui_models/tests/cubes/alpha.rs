@@ -4,7 +4,7 @@ use assets::{
 };
 
 /// Binds the fixture cube's six faces to the requested material modes without installed assets.
-fn world(flags: [u32; 6]) -> RuntimeAssets {
+pub(super) fn world(flags: [u32; 6]) -> RuntimeAssets {
     let mut mips = Vec::new();
     let mut side = assets::TILE_SIZE;
     loop {
