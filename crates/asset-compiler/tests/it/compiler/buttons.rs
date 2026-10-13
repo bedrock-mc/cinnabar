@@ -490,7 +490,7 @@ fn compiler_covers_all_button_states_with_exact_geometry_uvs_materials_and_deter
 }
 
 #[test]
-fn compiler_button_texture_arrays_without_selectors_remain_diagnostic() {
+fn compiler_button_texture_arrays_without_selectors_draw_their_first_entry() {
     let directory = tempfile::tempdir().expect("create button array fixture");
     write_button_pack(directory.path());
     let path = directory.path().join("textures/terrain_texture.json");
@@ -513,16 +513,12 @@ fn compiler_button_texture_arrays_without_selectors_remain_diagnostic() {
     let compiled = compile_pack(directory.path(), &records).expect("compile button arrays");
     for record in &records {
         let visual = compiled.visuals[record.sequential_id as usize];
-        if matches!(
-            record.name.as_ref(),
-            "minecraft:stone_button" | "minecraft:wooden_button"
-        ) {
-            assert_eq!(visual.kind, VisualKind::Diagnostic, "{}", record.name);
-            assert_eq!(visual.faces, [DIAGNOSTIC_MATERIAL; 6]);
-            assert_eq!(visual.model_template, assets::NO_MODEL_TEMPLATE);
-        } else {
-            assert_eq!(visual.kind, VisualKind::Model, "{}", record.name);
-        }
+        assert_eq!(visual.kind, VisualKind::Model, "{}", record.name);
+        assert!(
+            visual.faces.iter().all(|face| *face != DIAGNOSTIC_MATERIAL),
+            "{}",
+            record.name
+        );
     }
 }
 
