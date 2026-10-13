@@ -14,7 +14,7 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-// Pinned from bedrock-mc/cinnabar-api schema/v1.json at 09b6bd7 (x-protocol 1).
+// Pinned from bedrock-mc/cinnabar-api schema/v1.json at main 57d126b34 (x-protocol 1).
 //
 //go:embed schema/v1.json
 var pinnedSchema []byte

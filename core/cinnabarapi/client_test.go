@@ -58,6 +58,10 @@ func (api *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if r.UserAgent() != userAgent("0.1.18") {
+		http.Error(w, "unexpected user agent", http.StatusForbidden)
+		return
+	}
 	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return

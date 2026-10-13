@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	mathrand "math/rand/v2"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -320,7 +321,9 @@ func (c *Client) connect(ctx context.Context, config Config) (*websocket.Conn, s
 	}
 	authCtx, cancel := context.WithTimeout(ctx, authTimeout)
 	defer cancel()
-	conn, _, err := websocket.Dial(authCtx, c.url, nil)
+	conn, _, err := websocket.Dial(authCtx, c.url, &websocket.DialOptions{
+		HTTPHeader: http.Header{"User-Agent": {userAgent(config.ClientVersion)}},
+	})
 	if err != nil {
 		return nil, "dial", err
 	}
@@ -468,6 +471,9 @@ func writeJSON(ctx context.Context, conn *websocket.Conn, value any) error {
 	}
 	return conn.Write(ctx, websocket.MessageText, payload)
 }
+
+// userAgent names the client to the API's edge, which refuses some library defaults.
+func userAgent(version string) string { return "cinnabar/" + version }
 
 // socketURL is the WebSocket form of the API origin's connect route.
 func socketURL(base string) string {

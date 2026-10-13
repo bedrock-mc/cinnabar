@@ -680,6 +680,7 @@ jobs:
             '{channel: $channel, version: $version}')"
           # The header comes from a builtin through a pipe, so the secret never reaches a process argument.
           status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -X POST "$base/v1/releases" \
+            -A "cinnabar-release/$RELEASE_VERSION" \
             -H @<(printf 'Authorization: Bearer %s\n' "$CINNABAR_API_RELEASE_HOOK_SECRET") \
             -H 'Content-Type: application/json' --data "$body")" || true
           if [[ "$status" != 204 ]]; then
