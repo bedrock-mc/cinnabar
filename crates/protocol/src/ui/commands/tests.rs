@@ -118,6 +118,38 @@ fn command_names_match_substrings_case_insensitively() {
     );
 }
 
+#[test]
+fn command_name_highlights_use_offsets_in_the_displayed_suggestion() {
+    let catalog = catalog();
+    for (input, suggestion, range) in [
+        ("/iv", "/give", 2..4),
+        ("/IV", "/give", 2..4),
+        ("/MODE", "/gamemode", 5..9),
+        ("/g", "/give", 1..2),
+        ("/m", "/gm", 2..3),
+    ] {
+        let completion = catalog.complete(input, input.len()).unwrap();
+        assert!(
+            completion
+                .suggestions
+                .iter()
+                .any(|value| &**value == suggestion)
+        );
+        assert_eq!(
+            ChatAutocompleteCatalog::suggestion_match(input, suggestion),
+            Some(range)
+        );
+    }
+    assert_eq!(
+        ChatAutocompleteCatalog::suggestion_match("/", "/give"),
+        None
+    );
+    assert_eq!(
+        ChatAutocompleteCatalog::suggestion_match("/warp /s", "/spawn"),
+        Some(0..2)
+    );
+}
+
 fn suggest(catalog: &ChatAutocompleteCatalog, input: &str) -> Vec<String> {
     complete(catalog, input, CompletionContext::default()).0
 }
@@ -151,10 +183,7 @@ fn enum_values_complete_after_the_command() {
     let catalog = catalog();
     assert_eq!(suggest(&catalog, "/gamemode "), ["creative", "survival"]);
     assert_eq!(suggest(&catalog, "/gm su"), ["survival"]);
-    assert_eq!(
-        suggest(&catalog, "/gamemode survival "),
-        ["@a", "@e", "@p", "@r", "@s"]
-    );
+    assert_eq!(suggest(&catalog, "/gamemode survival "), SELECTORS);
 }
 
 #[test]
@@ -270,4 +299,149 @@ fn out_of_range_enum_index_degrades_to_a_word_parameter() {
         CommandParamKind::Word
     );
     assert!(event.commands[0].aliases.is_empty());
+}
+
+#[test]
+fn plain_chat_mentions_offer_here_and_roster_names_without_commands() {
+    let players = [
+        Arc::from("Steve"),
+        Arc::from("Alex"),
+        Arc::from("Alice One"),
+    ];
+    let context = CompletionContext {
+        players: &players,
+        command_permission: Some(0),
+    };
+    for catalog in [ChatAutocompleteCatalog::default(), catalog()] {
+        let (suggestions, usage) = complete(&catalog, "hello @", context);
+        assert_eq!(suggestions, ["@\"Alice One\"", "@here", "@Alex", "@Steve"]);
+        assert_eq!(usage, None);
+        assert_eq!(complete(&catalog, "@h", context).0, [ALL_PLAYERS_MENTION]);
+        assert!(complete(&catalog, "@everyone", context).0.is_empty());
+        assert!(complete(&catalog, "@a[", context).0.is_empty());
+        assert!(complete(&catalog, "hello", context).0.is_empty());
+    }
+}
+
+#[test]
+fn completed_mentions_are_removed_without_hiding_longer_matches() {
+    let players = [
+        Arc::from("Alex"),
+        Arc::from("AlexTwo"),
+        Arc::from("Alice One"),
+        Arc::from("hereafter"),
+    ];
+    let context = CompletionContext {
+        players: &players,
+        command_permission: None,
+    };
+    for catalog in [ChatAutocompleteCatalog::default(), catalog()] {
+        assert_eq!(complete(&catalog, "hello @here", context).0, ["@hereafter"]);
+        assert_eq!(complete(&catalog, "hello @Alex", context).0, ["@AlexTwo"]);
+        assert!(
+            complete(&catalog, "hello @\"Alice One\"", context)
+                .0
+                .is_empty()
+        );
+    }
+}
+
+#[test]
+fn mention_filtering_is_case_insensitive_and_prefers_prefix_matches() {
+    let players = [Arc::from("Malex"), Arc::from("alex"), Arc::from("Alex")];
+    let context = CompletionContext {
+        players: &players,
+        command_permission: None,
+    };
+    assert_eq!(
+        complete(&catalog(), "@AL", context).0,
+        ["@Alex", "@alex", "@Malex"]
+    );
+    assert_eq!(
+        complete(&catalog(), "@unknown then @lex", context).0,
+        ["@Alex", "@Malex", "@alex"]
+    );
+    assert_eq!(
+        ChatAutocompleteCatalog::replacement_start("mail@example @Al"),
+        13
+    );
+}
+
+#[test]
+fn player_names_are_quoted_and_remain_one_command_argument() {
+    let players = [
+        Arc::from("Alice One"),
+        Arc::from("123"),
+        Arc::from("Alex_One"),
+    ];
+    let context = CompletionContext {
+        players: &players,
+        command_permission: None,
+    };
+    assert_eq!(
+        complete(&catalog(), "/give one", context).0,
+        ["\"Alice One\"", "Alex_One"]
+    );
+    assert_eq!(complete(&catalog(), "/give 12", context).0, ["\"123\""]);
+    assert_eq!(
+        complete(&catalog(), "/give \"Alice O", context).0,
+        ["\"Alice One\""]
+    );
+    assert_eq!(
+        complete(&catalog(), "@Alice O", context).0,
+        ["@\"Alice One\""]
+    );
+    assert!(
+        complete(&catalog(), "/give \"Alice One\" ", context)
+            .0
+            .is_empty()
+    );
+    assert_eq!(
+        ChatAutocompleteCatalog::replacement_start("/give \"Alice O"),
+        6
+    );
+}
+
+#[test]
+fn mentions_are_independent_of_command_permission() {
+    for permission in [None, Some(0), Some(1), Some(2), Some(5)] {
+        let context = CompletionContext {
+            players: &[],
+            command_permission: permission,
+        };
+        assert_eq!(complete(&catalog(), "@", context).0, [ALL_PLAYERS_MENTION]);
+    }
+}
+
+#[test]
+fn selectors_filter_against_one_catalog_and_have_matching_description_keys() {
+    let catalog = catalog();
+    assert_eq!(suggest(&catalog, "/give @"), SELECTORS);
+    for selector in SELECTORS {
+        let input = format!("/give {}", selector.to_ascii_uppercase());
+        assert_eq!(suggest(&catalog, &input), [selector]);
+        assert_eq!(
+            ChatAutocompleteCatalog::suggestion_description(&input, selector),
+            Some(format!("commands.autocomplete.{}", &selector[1..]))
+        );
+    }
+    assert_eq!(suggest(&catalog, "/give n"), ["@n"]);
+    assert!(suggest(&catalog, "/give @here").is_empty());
+    assert!(suggest(&catalog, "/give @initiator").is_empty());
+    assert!(suggest(&catalog, "/give @c").is_empty());
+    assert!(suggest(&catalog, "/give @v").is_empty());
+}
+
+#[test]
+fn mention_results_remain_bounded() {
+    let players: Vec<_> = (0..MAX_CHAT_AUTOCOMPLETE * 2)
+        .map(|index| Arc::from(format!("Player{index}")))
+        .collect();
+    let context = CompletionContext {
+        players: &players,
+        command_permission: None,
+    };
+    let completion = complete(&catalog(), "@", context).0;
+    assert_eq!(completion.len(), MAX_CHAT_AUTOCOMPLETE);
+    assert!(completion.iter().map(String::len).sum::<usize>() <= MAX_CHAT_AUTOCOMPLETE_BYTES);
 }

@@ -24,6 +24,13 @@ opened cap texture ownership and malformed selectors across registered poses
 with 16/32 pixel textures. Rendered/input acceptance and broader graphics parity
 remain open.
 
+Lever compiler fixtures cover separate base/handle geometry, eight mounts, both
+power states, 16/32-pixel sprite regions and neighboring controls. The mounting
+base retains the cobblestone-wall top material independently of the handle. These
+tests and the focused crate check pass, with a missing-part failure on the previous
+model. Rendered/native interaction acceptance remains incomplete.
+No completion or performance gate advances.
+
 Cape rotation limits now prevent upward flips in both player animation modes. Remote resets
 discard Java chase lag, and remote Bedrock flap uses completed tick displacement instead of
 retained packet speed. Local flap keeps per-tick velocity through catch-up frames. The Bedrock
@@ -212,12 +219,16 @@ camera-listener coverage. This ownership change adds no new parity evidence.
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Not started |
-| Deterministic tests | Not started |
+| Owning plan/task | `plan.md`: chat completion and quoted player names. |
+| Deterministic tests | Mention filtering, name quoting, command permissions, insertion, Tab cycling, bounds and row-text regressions are written; compilation and execution await CI. |
 | Review commit | Not started |
 | Live/native witness | Not started |
 | Performance/resource witness | Not started |
 | Final status | Open |
+
+Plain chat offers `@here` and player-list names; command targets include `@n`.
+Education selectors, selector-expansion permission and cheat gating, selector
+argument completion, and live visual acceptance remain incomplete.
 
 ## P5.4-SCOREBOARD
 
@@ -264,6 +275,12 @@ camera-listener coverage. This ownership change adds no new parity evidence.
 | Final status | Open |
 
 ## P5.8-SETTINGS
+
+The global Subscriptions tab and marketplace UI/services are removed from the
+product. Settings retain the remaining category order and icon alignment;
+Realms, Dressing Room and server resource packs remain supported. Navigation
+and unused-packet regressions await CI. No rendered-frame witness was captured,
+and this visible removal closes no settings, UI parity or performance gate.
 
 | Field | Evidence |
 |---|---|

@@ -16,11 +16,15 @@ use bedrock_protocol_1_26_51::types::{
 };
 use bedrock_protocol_1_26_51::wire;
 use bytes::Bytes;
-use thiserror::Error;
 
-use crate::{ItemPacketError, NetworkItemStack, item::normalize_item};
+use crate::{NetworkItemStack, item::normalize_item};
 
+mod error;
 pub(crate) mod identifiers;
+pub use error::ActorPacketError;
+mod painting;
+pub(crate) use painting::normalize_add_painting;
+pub use painting::{PaintingData, PaintingDirection};
 mod skin;
 pub use identifiers::{ActorIdentifier, ActorIdentifierRegistry, MAX_ACTOR_IDENTIFIERS};
 mod skin_update;
@@ -283,6 +287,10 @@ pub struct PlayerListUpdateEvent {
 pub enum ActorEvent {
     Identifiers(ActorIdentifierRegistry),
     Spawn(ActorSpawnEvent),
+    PaintingSpawn {
+        spawn: ActorSpawnEvent,
+        painting: PaintingData,
+    },
     PlayerSpawn {
         spawn: ActorSpawnEvent,
         game_mode: crate::GameModeUpdate,
@@ -298,39 +306,6 @@ pub enum ActorEvent {
     },
     Status(ActorStatusEvent),
     TakeItem(ActorTakeItemEvent),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum ActorPacketError {
-    #[error(transparent)]
-    Item(#[from] ItemPacketError),
-
-    #[error("actor identifier has {bytes} UTF-8 bytes, exceeding {max}")]
-    IdentifierTooLong { bytes: usize, max: usize },
-    #[error("actor spawn contains a non-finite {field}")]
-    NonFiniteSpawnField { field: &'static str },
-    #[error("actor collection {collection} has {count} entries, exceeding {max}")]
-    TooManyEntries {
-        collection: &'static str,
-        count: usize,
-        max: usize,
-    },
-    #[error("actor text field {field} has {bytes} UTF-8 bytes, exceeding {max}")]
-    TextTooLong {
-        field: &'static str,
-        bytes: usize,
-        max: usize,
-    },
-    #[error("actor field {field} is non-finite")]
-    NonFiniteField { field: &'static str },
-    #[error("absolute actor move has an invalid runtime ID varuint")]
-    InvalidAbsoluteMoveRuntimeId,
-    #[error(
-        "absolute actor move has {actual} body bytes after its runtime ID; expected {expected}"
-    )]
-    InvalidAbsoluteMoveLength { actual: usize, expected: usize },
-    #[error("actor update has negative tick {0}")]
-    NegativeTick(i64),
 }
 
 pub(crate) fn normalize_add_entity(

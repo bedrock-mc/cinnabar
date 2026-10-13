@@ -6,7 +6,7 @@ use super::{Canvas, PaintError};
 use crate::images::INBOX_EMPTY_IMAGES;
 use ui_engine::engine::screen::Translate;
 
-const COPY: [(&str, &str, &str, &str); 5] = [
+const COPY: [(&str, &str, &str, &str); launcher::menu::inbox::CATEGORIES.len()] = [
     (
         "emptyNewsTitle",
         "No new messages",
@@ -24,12 +24,6 @@ const COPY: [(&str, &str, &str, &str); 5] = [
         "No new invites",
         "emptyInvitesText",
         "This is where your invites will show up when someone invites you to a Realm.",
-    ),
-    (
-        "emptyMarketplacePassTitle",
-        "Stay tuned for upcoming content!",
-        "emptyMarketplacePassText",
-        "This is where you'll receive messages about your Marketplace Pass subscription.",
     ),
     (
         "feedbackSubTitle",

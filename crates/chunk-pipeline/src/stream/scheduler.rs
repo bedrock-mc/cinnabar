@@ -135,9 +135,7 @@ impl<const L: usize> SchedulerRefresh<L> {
         deadline: Option<Instant>,
         is_current: impl Fn(SubChunkKey, u64) -> bool,
     ) -> bool {
-        let moved = self.view.is_none_or(|previous| {
-            previous.cell() != view.cell() || previous.startup_center != view.startup_center
-        });
+        let moved = self.view.is_none_or(|previous| view.reranks_from(previous));
         if self.previous.iter().all(Lane::is_empty) && moved {
             std::mem::swap(&mut self.previous, queues);
             self.view = Some(view);
@@ -360,14 +358,14 @@ fn compact_scheduler_scan(
 
 /// Whether `key` lies in the neighbourhood [`near_camera_keys`] probes.
 pub(super) fn mesh_is_near(view: SchedulerView, key: SubChunkKey) -> bool {
-    let [x, y, z, _] = view.cell();
+    let [x, y, z] = view.cell();
     let radius = NEAR_CAMERA_RADIUS.unsigned_abs();
     key.x.abs_diff(x) <= radius && key.y.abs_diff(y) <= radius && key.z.abs_diff(z) <= radius
 }
 
 /// Whether `key`'s column lies in the halo [`near_light_columns`] probes.
 pub(super) fn light_column_is_near(view: SchedulerView, key: SubChunkKey) -> bool {
-    let [x, _, z, _] = view.cell();
+    let [x, _, z] = view.cell();
     let radius = NEAR_LIGHT_COLUMN_RADIUS.unsigned_abs();
     key.x.abs_diff(x) <= radius && key.z.abs_diff(z) <= radius
 }
@@ -614,5 +612,176 @@ mod tests {
             Some(spawn.key)
         );
         assert_eq!(lane.ready.len(), 1);
+    }
+
+    fn turn_view(forward: [f32; 3]) -> SchedulerView {
+        let length = forward
+            .iter()
+            .map(|value| value * value)
+            .sum::<f32>()
+            .sqrt();
+        SchedulerView {
+            position: [8.0; 3],
+            forward: Some(forward.map(|value| value / length)),
+            startup_center: None,
+        }
+    }
+
+    fn yaw(degrees: f32) -> SchedulerView {
+        let radians = degrees.to_radians();
+        turn_view([radians.cos(), 0.0, radians.sin()])
+    }
+
+    /// Runs bounded refresh passes until no re-rank remains in flight.
+    fn settle(refresh: &mut SchedulerRefresh<1>, lanes: &mut [Lane; 1], view: SchedulerView) {
+        for _ in 0..64 {
+            refresh.refresh(view, lanes, None, |_, _| true);
+            if refresh.previous[0].is_empty() {
+                return;
+            }
+        }
+        panic!("refresh did not settle");
+    }
+
+    fn lane_of(keys: &[SubChunkKey], view: SchedulerView, deferred: bool) -> Lane {
+        let heap = keys
+            .iter()
+            .map(|&key| PendingSchedulerCandidate::new(key, 1, view, false))
+            .collect();
+        if deferred {
+            Lane {
+                deferred: heap,
+                ..Lane::default()
+            }
+        } else {
+            Lane {
+                ready: heap,
+                ..Lane::default()
+            }
+        }
+    }
+
+    /// 180 sections just ahead of a camera facing +X, and one straight above it.
+    fn pitch_witness() -> (Vec<SubChunkKey>, SubChunkKey) {
+        let above = SubChunkKey::new(0, 0, 10, 0);
+        let ahead = (9..=12)
+            .flat_map(|x| {
+                (-2..=2).flat_map(move |y| (-4..=4).map(move |z| SubChunkKey::new(0, x, y, z)))
+            })
+            .chain([above])
+            .collect();
+        (ahead, above)
+    }
+
+    /// Looking up makes the section overhead the nearest in view, though the turn stays in one
+    /// compass eighth and the sections ahead outnumber one refresh pass.
+    #[test]
+    fn a_pitch_only_turn_reranks_queued_sections() {
+        let (keys, above) = pitch_witness();
+        let level = turn_view([1.0, 0.0, 0.0]);
+        let up = turn_view([0.1, 0.995, 0.0]);
+        assert!(keys.len() > MAX_PENDING_SCHEDULER_SCANS_PER_POLL);
+        let mut lanes = [lane_of(&keys, level, false)];
+        let mut refresh = SchedulerRefresh::<1>::default();
+        settle(&mut refresh, &mut lanes, level);
+        assert_ne!(lanes[0].ready.peek().unwrap().key, above);
+
+        settle(&mut refresh, &mut lanes, up);
+
+        assert_eq!(lanes[0].ready.peek().unwrap().key, above);
+        assert_eq!(lanes[0].ready.len(), keys.len());
+    }
+
+    /// Deferred work is re-ranked by the same turn, so a later wake dispatches the new favourite.
+    #[test]
+    fn a_pitch_only_turn_reranks_deferred_sections() {
+        let (keys, above) = pitch_witness();
+        let level = turn_view([1.0, 0.0, 0.0]);
+        let mut lanes = [lane_of(&keys, level, true)];
+        let mut refresh = SchedulerRefresh::<1>::default();
+        settle(&mut refresh, &mut lanes, level);
+
+        settle(&mut refresh, &mut lanes, turn_view([0.1, 0.995, 0.0]));
+
+        assert_eq!(lanes[0].deferred.peek().unwrap().key, above);
+        assert!(lanes[0].ready.is_empty());
+    }
+
+    /// A 42° turn inside one compass eighth moves one section into the view cone and another out.
+    #[test]
+    fn a_yaw_turn_within_one_compass_eighth_reranks() {
+        let entering = SubChunkKey::new(0, -6, 0, 1);
+        let leaving = SubChunkKey::new(0, 3, 0, 4);
+        let (before, after) = (yaw(92.0), yaw(134.0));
+        let mut lanes = [lane_of(&[entering, leaving], before, false)];
+        let mut refresh = SchedulerRefresh::<1>::default();
+        settle(&mut refresh, &mut lanes, before);
+        assert_eq!(lanes[0].ready.peek().unwrap().key, leaving);
+
+        settle(&mut refresh, &mut lanes, after);
+
+        assert_eq!(lanes[0].ready.peek().unwrap().key, entering);
+    }
+
+    /// Turns below the threshold leave settled queues alone, so mouse jitter costs no re-rank.
+    #[test]
+    fn small_turns_do_no_refresh_work() {
+        let (keys, _) = pitch_witness();
+        let mut lanes = [lane_of(&keys, yaw(0.0), false)];
+        let mut refresh = SchedulerRefresh::<1>::default();
+        settle(&mut refresh, &mut lanes, yaw(0.0));
+        for degrees in [3.0, 6.0, 9.0, 3.0] {
+            assert!(!refresh.refresh(yaw(degrees), &mut lanes, None, |_, _| true));
+            assert!(refresh.previous[0].is_empty());
+        }
+        assert!(refresh.refresh(yaw(12.0), &mut lanes, None, |_, _| true));
+        assert!(!refresh.previous[0].is_empty());
+    }
+
+    /// A second turn during a bounded refresh still leaves every record ranked for the newest view.
+    #[test]
+    fn a_turn_during_an_active_refresh_settles_in_the_newest_order() {
+        let keys = (-8..=8)
+            .flat_map(|x| (-8..=8).map(move |z| SubChunkKey::new(0, x, (x + z) % 3, z)))
+            .collect::<Vec<_>>();
+        assert!(keys.len() > 2 * MAX_PENDING_SCHEDULER_SCANS_PER_POLL);
+        let mut lanes = [lane_of(&keys, yaw(0.0), false)];
+        let mut refresh = SchedulerRefresh::<1>::default();
+        settle(&mut refresh, &mut lanes, yaw(0.0));
+        refresh.refresh(yaw(90.0), &mut lanes, None, |_, _| true);
+        assert!(!refresh.previous[0].is_empty());
+
+        settle(&mut refresh, &mut lanes, yaw(200.0));
+        settle(&mut refresh, &mut lanes, yaw(200.0));
+
+        let newest = yaw(200.0);
+        let mut ranks = Vec::new();
+        while let Some(candidate) = lanes[0].ready.pop() {
+            ranks.push(newest.rank(candidate.key));
+        }
+        assert_eq!(ranks.len(), keys.len());
+        assert!(ranks.windows(2).all(|pair| pair[0] <= pair[1]));
+    }
+
+    /// Spawn sections keep their startup priority through a turn that favours other sections.
+    #[test]
+    fn a_turn_keeps_startup_priority() {
+        let spawn = SubChunkKey::new(0, 0, -2, 0);
+        let ahead = SubChunkKey::new(0, 4, 0, 0);
+        let with_startup = |view: SchedulerView| SchedulerView {
+            startup_center: Some(ChunkKey::new(0, 0, 0)),
+            ..view
+        };
+        let (level, up) = (
+            with_startup(turn_view([1.0, 0.0, 0.0])),
+            with_startup(turn_view([0.1, 0.995, 0.0])),
+        );
+        let mut lanes = [lane_of(&[spawn, ahead], level, false)];
+        let mut refresh = SchedulerRefresh::<1>::default();
+        settle(&mut refresh, &mut lanes, level);
+
+        settle(&mut refresh, &mut lanes, up);
+
+        assert_eq!(lanes[0].ready.peek().unwrap().key, spawn);
     }
 }

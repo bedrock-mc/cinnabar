@@ -13,6 +13,25 @@ impl ActorSnapshot {
     /// [`Self::bounding_box`] with the feet at `position`.
     #[must_use]
     pub fn bounding_box_at(&self, position: [f32; 3]) -> Option<([f32; 3], [f32; 3])> {
+        if let Some(painting) = &self.painting {
+            use assets::painting::{PAINTING_HALF_DEPTH, PAINTING_HITBOX_INSET, motive};
+            use protocol::PaintingDirection;
+            let [width, height] = motive(&painting.motive)
+                .size
+                .map(|side| f32::from(side) / 32.0 - PAINTING_HITBOX_INSET);
+            let half = match painting.direction {
+                PaintingDirection::South | PaintingDirection::North => {
+                    [width, height, PAINTING_HALF_DEPTH]
+                }
+                PaintingDirection::West | PaintingDirection::East => {
+                    [PAINTING_HALF_DEPTH, height, width]
+                }
+            };
+            return Some((
+                std::array::from_fn(|axis| position[axis] - half[axis]),
+                std::array::from_fn(|axis| position[axis] + half[axis]),
+            ));
+        }
         let player = matches!(self.kind, ActorKind::Player { .. });
         let dimension = |key, default| match self.metadata.get(&key) {
             Some(ActorMetadataValue::Float(value)) if value.is_finite() && *value > 0.0 => {
@@ -67,6 +86,9 @@ impl ActorSnapshot {
     /// Samples 0.66 of the body height above interpolated feet.
     /// Network position offsets have already been removed by the actor store.
     pub fn brightness_sample_position(&self, mut feet: [f32; 3]) -> [f32; 3] {
+        if self.painting.is_some() {
+            return feet;
+        }
         if let Some((min, max)) = self.bounding_box() {
             feet[1] += 0.66 * (max[1] - min[1]);
         }

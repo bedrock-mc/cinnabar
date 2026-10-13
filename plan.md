@@ -170,7 +170,7 @@ and closes no parity gate.
 `ui-screens` owns the engine-drawn vanilla screens: containers with the recipe and furnace books
 and their hit vocabulary, the HUD with its native renderers and catalog patches, chat, signs, NPC
 dialogue, credits, loading, toasts, the roster, the emote wheel, and the menu shell's screen
-bindings, settings binders and store bindings. Screens read typed inputs; `client-ui` keeps their
+bindings and settings binders. Screens read typed inputs; `client-ui` keeps their
 runtime adapters, scene selection, the menu composition, the server-form fallback, the menu title
 and caret state, the player preview and the Java-styled fallback. This move has not been compiled
 or executed and closes no parity gate.
@@ -238,6 +238,17 @@ malformed selectors and replacement sprites. Matched headless frames cover all
 server. Acceptance uses externally compiled carriers with production terrain
 consumers; runtime server-pack compilation and reported server-version placement
 remain unverified. No broader parity gate closes.
+
+## Lever terrain geometry
+
+Levers compile separate mounting bases and power-selected pitched handles for
+wall, floor and ceiling states, retaining independent pack materials. Original
+16/32-pixel fixtures cover all registered mounts, power motion, sprite regions,
+face winding, network-ID resolution, malformed selectors and neighboring barrel/
+trapdoor controls. The base uses the cobblestone-wall top source independently of
+the handle sprite. Owning regressions and the focused crate check pass; the
+missing-part regression fails on the previous envelope model.
+Rendered/input acceptance, native-server placement and broader parity remain incomplete.
 
 ## Bubble column terrain geometry
 
@@ -2571,6 +2582,12 @@ existing inversion painter through the authored edit target and clipping panel.
 Provisional, labeled incomplete: exact Windows Bedrock selection tint/blend
 parity remains unverified; visible selection alone does not close that gate.
 
+Chat completion offers `@here` and roster names in plain chat, quotes player
+names when needed, and includes `@n` in command targets. Suggestion rows highlight
+the typed match and translate built-in descriptions. Incomplete: Education
+selectors, selector-expansion permission and cheat gating, selector argument
+completion, and live visual acceptance. This does not close the chat parity gate.
+
 2026-10-01 JSON-UI control rendering: images follow 1.26.50 `SpriteComponent`
 (keep_ratio on by default, fill, uv/uv_size defaults, control nine-slice, tiled
 axes and scale, clip direction none by default with pixel-perfect snapping),
@@ -2798,6 +2815,14 @@ General actor material propagation and exact per-frame nonlinear Molang remain
 open. Non-glowstone fallback at an already-selected Nether spawn needs retained
 spawn-block authority. No complete visual or interaction parity gate is closed.
 See [vanilla rules](docs/reference/end-crystal-respawn-anchor.md).
+
+2026-10-13 painting rendering is in progress: dedicated painting spawn packets
+retain their motive and wall direction, and static front/border meshes use the
+accepted pack's atlas or individual images. Hanging-picture interaction boxes
+and painting pick requests are implemented. Native-server placement, break and
+pick acceptance, source-bound before/after frames, complete motif coverage and
+painting material/lighting parity remain incomplete. No actor live parity gate
+is closed by CPU tests or carrier preparation.
 
 2026-10-01 arrow entity rendering: native per-face UV defaults now use face
 dimensions, including fractional sizes, instead of a one-by-one texel region.
@@ -6740,6 +6765,14 @@ gates.
 
 ## Phase 6 — Online product surface
 
+The marketplace, its store services and purchases, Marketplace Pass inbox category,
+and the global Subscriptions settings tab are removed by product policy. Server
+resource packs, skins/Dressing Room and Realms remain available. Store packets are
+still wire-checked, counted and discarded without opening UI. Navigation, remaining
+category icons and local template creation retain their ordering. Compilation and
+rendered-frame acceptance of this visible removal remain unverified; no parity
+or performance gate closes with it.
+
 Scope: main menu + settings (video/controls/audio/account); server browser (saved servers);
 Realms and friends lists in-UI (control-channel data from Phase 1) with one-click join;
 transfer/reconnect UX; **server resource packs applied at runtime** (cache from core →
@@ -6747,15 +6780,6 @@ transfer/reconnect UX; **server resource packs applied at runtime** (cache from 
 system from Phase 2 must have been built pack-stack-aware); disconnect screens with real
 reasons; auth/device-code UX polish. Optional stretch: Lunar module toggles surfaced in-client
 via control channel (v1.x, not v1).
-
-- **Marketplace rows — provisional, incomplete.** The home is the `storeRoot` known page. Curated rows carry
-  their offers inline; `StoreRow` and `HeroRow` draw vanilla's pre-content-card cards, as the live session
-  config sends no `contentCardStyles` (the client's content-card flight is not read). Query rows are filled
-  from their first query via `marketplace.Query.SearchFilter` onto PlayFab `Catalog/Search`, whose vanilla
-  request body is unconfirmed. Not drawn yet: `PromoBanner`, `NavButtonRow`, `CoinBundleRow`, the `Layout`
-  top-bar row, offer type badges (icon overlays), the rating count beside the average, and the row's "See
-  All" tile and page (the item list's `linksTo`). Does not close the store parity gate
-  (`docs/marketplace-services.md`).
 
 ## Phase 7 — Local worlds on dragonfly
 
@@ -7410,7 +7434,7 @@ not close it. No live server connection was made.
 The HUD now dispatches its pack-authored live player control through the shared
 GUI model pipeline, with native trigger timers, settings and a full-body pose
 when the camera is in first person. Home exposes its player and Profile control;
-menu doll framing uses the native model origin. Marketplace ribbon fields now
+menu doll framing uses the native model origin. Play-button ribbon fields
 survive the core feed, and Inbox has categories, dated sections, read state and
 confirmed deletion. See `docs/reference/hud-paper-doll.md` for exact source
 references, offline evidence and limitations.
@@ -8494,9 +8518,10 @@ font alias behavior remain unchanged and need independent verification.
 
 Model texture-array selector coverage is incomplete. Compilation retains typed
 selectors and output ranges for the existing explicit model bindings. Unrecognized
-model arrays stay unresolved instead of guessing from growth or selecting index zero.
-The generic terrain accessor, complete native binding inventory and custom selector
-expressions still need their own admission and coverage work.
+model arrays draw their first entry, as vanilla draws legacy arrays no state selects
+from (stone brick stairs, firefly bushes, stone buttons). The generic terrain
+accessor, complete native binding inventory and custom selector expressions still
+need their own admission and coverage work.
 ## Overlay texture sharding across device-limited arrays
 
 The block overlay uses up to four texture-array pages after the base carrier.
@@ -8594,3 +8619,13 @@ natively too. Until that comparison exists, the counted fallback to the
 base visual is the intended semantic, locked by the connection permutation
 regression. Incomplete: mask compilation, neighbor rule, meshing selection,
 and the native comparison.
+
+## Outline label sizing and alignment
+
+Named outline labels normalize their ascent and descent independently of the bitmap
+font's ink grid. Measurement, painting, line capacity and edit metadata share the
+resolved geometry, while text starts one GUI pixel below the authored top. Distance-field
+labels retain fractional positions, including the origin read by caret metadata. Original
+cap fixtures cover centered titles across raster sizes, GUI scales and DPI.
+Incomplete: matched rendered title size and vertical alignment still require
+verification in the reported server form; these CPU fixtures do not close that gate.
