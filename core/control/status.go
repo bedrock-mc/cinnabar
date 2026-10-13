@@ -1,14 +1,18 @@
 package control
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+)
 
 // Lifecycle is the process lifecycle exposed by Status v1.
 type Lifecycle string
 
 const (
-	LifecycleStarting Lifecycle = "starting"
-	LifecycleRunning  Lifecycle = "running"
-	LifecycleStopping Lifecycle = "stopping"
+	LifecycleStarting Lifecycle = bridgecontract.LifecycleStarting
+	LifecycleRunning  Lifecycle = bridgecontract.LifecycleRunning
+	LifecycleStopping Lifecycle = bridgecontract.LifecycleStopping
 )
 
 // StatusV1 is the complete secret-safe Status v1 result.
@@ -39,11 +43,11 @@ type PackAdmission struct {
 
 // Pack admission values the store reasons about; the relay supplies the others verbatim.
 const (
-	packNone                   = "none" // offer, acquisition and downstream outcome before any attempt
-	packHandedOffOptional      = "handed_off_optional"
-	packHandedOffRequired      = "handed_off_required"
-	packApplicationUnavailable = "unavailable"
-	packApplicationApplied     = "applied" // the client confirmed applying the handed-off packs
+	packNone                   = bridgecontract.PackOfferNone // offer, acquisition and downstream outcome before any attempt
+	packHandedOffOptional      = bridgecontract.PackDownstreamHandedOffOptional
+	packHandedOffRequired      = bridgecontract.PackDownstreamHandedOffRequired
+	packApplicationUnavailable = bridgecontract.PackApplicationUnavailable
+	packApplicationApplied     = bridgecontract.PackApplicationApplied // the client confirmed applying the handed-off packs
 )
 
 // NetworkV1 is the current upstream transport's round-trip estimate.
@@ -94,8 +98,8 @@ func NewStore() *Store {
 		auth:      AuthV1{State: AuthSignedOut},
 		latest: PackAdmission{
 			Offer:             packNone,
-			Acquisition:       packNone,
-			DownstreamOutcome: packNone,
+			Acquisition:       bridgecontract.PackAcquisitionNone,
+			DownstreamOutcome: bridgecontract.PackDownstreamNone,
 			Application:       packApplicationUnavailable,
 		},
 	}
@@ -167,7 +171,7 @@ func (store *Store) SetApplied(attemptID uint64, applied bool) {
 
 func (store *Store) Status() StatusV1 {
 	store.mu.RLock()
-	status := StatusV1{SchemaVersion: 1, Lifecycle: store.lifecycle, PackAdmission: store.latest}
+	status := StatusV1{SchemaVersion: bridgecontract.ControlSchemaVersion, Lifecycle: store.lifecycle, PackAdmission: store.latest}
 	if store.transfer != nil {
 		pending := *store.transfer
 		status.Transfer = &pending

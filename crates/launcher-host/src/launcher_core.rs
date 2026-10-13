@@ -199,7 +199,7 @@ pub fn target_for(address: &str) -> ConnectTarget {
     if let Some(id) = address.strip_prefix(launcher::menu::EXPERIENCE_ADDRESS_PREFIX) {
         return ConnectTarget::Gathering(id.to_owned());
     }
-    if let Some(id) = address.strip_prefix("realm_id/") {
+    if let Some(id) = address.strip_prefix(bridge::contract::REALM_TARGET_PREFIX) {
         return ConnectTarget::Realm(id.to_owned());
     }
     if let Some(xuid) = address.strip_prefix(launcher::menu::FRIEND_ADDRESS_PREFIX) {
@@ -286,13 +286,19 @@ mod tests {
     }
     #[test]
     fn menu_addresses_map_to_connect_targets() {
-        assert_eq!(target_for("realm_id/42"), ConnectTarget::Realm("42".into()));
         assert_eq!(
-            target_for("gathering/5b0f2bd4-8a8e-4a6e-9d3c-0a1b2c3d4e5f"),
+            target_for(&format!("{}42", bridge::contract::REALM_TARGET_PREFIX)),
+            ConnectTarget::Realm("42".into())
+        );
+        assert_eq!(
+            target_for(&format!(
+                "{}5b0f2bd4-8a8e-4a6e-9d3c-0a1b2c3d4e5f",
+                bridge::contract::GATHERING_TARGET_PREFIX
+            )),
             ConnectTarget::Gathering("5b0f2bd4-8a8e-4a6e-9d3c-0a1b2c3d4e5f".into())
         );
         assert_eq!(
-            target_for("friend_xuid/2535"),
+            target_for(&format!("{}2535", bridge::contract::FRIEND_TARGET_PREFIX)),
             ConnectTarget::Friend("2535".into())
         );
         assert_eq!(
@@ -301,7 +307,10 @@ mod tests {
         );
         assert_eq!(
             target_for("play.example.net"),
-            ConnectTarget::RakNet("play.example.net:19132".into())
+            ConnectTarget::RakNet(format!(
+                "play.example.net:{}",
+                bridge::contract::DEFAULT_BEDROCK_PORT_TEXT
+            ))
         );
         assert_eq!(
             target_for("[::1]:19134"),
@@ -309,7 +318,10 @@ mod tests {
         );
         assert_eq!(
             target_for("::1"),
-            ConnectTarget::RakNet("[::1]:19132".into())
+            ConnectTarget::RakNet(format!(
+                "[::1]:{}",
+                bridge::contract::DEFAULT_BEDROCK_PORT_TEXT
+            ))
         );
     }
     #[test]

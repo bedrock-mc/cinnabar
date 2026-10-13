@@ -17,6 +17,24 @@ fn service(root: &Path) -> Service {
     Service::new_with_data_root(root.join("cinnabar"), data)
 }
 
+/// Reviews the import confirmation before committing the retained preview.
+fn apply(service: &mut Service, state: UserState, library: &mut GlobalPackLibrary) -> Outcome {
+    service.act(
+        Request {
+            action: Action::Apply,
+            state: state.clone(),
+        },
+        library,
+    );
+    service.act(
+        Request {
+            action: Action::ConfirmApply,
+            state,
+        },
+        library,
+    )
+}
+
 /// Supplies current preferences without account data or installed assets.
 fn state() -> UserState {
     UserState {
@@ -121,13 +139,7 @@ fn combined_archive_limit_skips_activation_before_apply_and_keeps_other_data_imp
     assert_eq!(library.available(), available);
     assert_eq!(library.active(), original);
     assert!(!storage::has_backup(&service.config_root));
-    let applied = service.act(
-        Request {
-            action: Action::Apply,
-            state: state(),
-        },
-        &mut library,
-    );
+    let applied = apply(&mut service, state(), &mut library);
     assert!(applied.stack.is_some());
     let imported = applied.state.unwrap();
     assert_eq!(imported.settings.value("field_of_view"), 80);
@@ -162,14 +174,7 @@ fn revert_restores_backup_revisions_after_pack_updates_and_restart() {
         },
         &mut library,
     );
-    let imported = service
-        .act(
-            Request {
-                action: Action::Apply,
-                state: old.clone(),
-            },
-            &mut library,
-        )
+    let imported = apply(&mut service, old.clone(), &mut library)
         .state
         .unwrap();
     library.commit_selection(&imported.active).unwrap();
@@ -209,16 +214,7 @@ fn revert_restores_backup_revisions_after_pack_updates_and_restart() {
         },
         &mut library,
     );
-    let imported_again = service
-        .act(
-            Request {
-                action: Action::Apply,
-                state: restored,
-            },
-            &mut library,
-        )
-        .state
-        .unwrap();
+    let imported_again = apply(&mut service, restored, &mut library).state.unwrap();
     assert_eq!(
         imported_again.active, old.active,
         "import must retain the previewed installed revision"
@@ -264,13 +260,7 @@ fn copied_packs_follow_imported_priority_and_revert_keeps_them_installed() {
         &mut library,
     );
     assert_eq!(service.preview.as_ref().unwrap().packs.len(), 2);
-    let imported = service.act(
-        Request {
-            action: Action::Apply,
-            state: state(),
-        },
-        &mut library,
-    );
+    let imported = apply(&mut service, state(), &mut library);
     let imported = imported.state.unwrap();
     assert_eq!(
         imported
@@ -329,13 +319,7 @@ fn changed_pack_catalog_requires_a_fresh_preview() {
     library
         .import_prepared(resource_pack::prepare_import(&directory).unwrap())
         .unwrap();
-    let outcome = service.act(
-        Request {
-            action: Action::Apply,
-            state: state(),
-        },
-        &mut library,
-    );
+    let outcome = apply(&mut service, state(), &mut library);
     assert!(outcome.state.is_none());
     assert!(outcome.snapshot.body.contains("preview the import again"));
     assert!(!storage::has_backup(&service.config_root));
@@ -415,13 +399,7 @@ fn preview_is_read_only_and_revert_restores_every_replaced_authority() {
     assert!(reviewed.snapshot.body.contains("Fixture"));
     assert!(reviewed.state.is_none());
     assert!(!storage::has_backup(&service.config_root));
-    let applied = service.act(
-        Request {
-            action: Action::Apply,
-            state: old.clone(),
-        },
-        &mut library,
-    );
+    let applied = apply(&mut service, old.clone(), &mut library);
     let changed = applied.state.unwrap();
     assert!(applied.snapshot.can_revert);
     assert_eq!(changed.settings.value("field_of_view"), 80);
@@ -458,18 +436,7 @@ fn apply_requires_a_preview_and_cancelling_releases_it() {
     let root = tempfile::tempdir().unwrap();
     let mut service = service(root.path());
     let mut library = library(root.path());
-    assert!(
-        service
-            .act(
-                Request {
-                    action: Action::Apply,
-                    state: state()
-                },
-                &mut library
-            )
-            .state
-            .is_none()
-    );
+    assert!(apply(&mut service, state(), &mut library).state.is_none());
     service.act(
         Request {
             action: Action::Begin,
@@ -485,18 +452,7 @@ fn apply_requires_a_preview_and_cancelling_releases_it() {
         &mut library,
     );
     assert!(service.preview.is_none());
-    assert!(
-        service
-            .act(
-                Request {
-                    action: Action::Apply,
-                    state: state()
-                },
-                &mut library
-            )
-            .state
-            .is_none()
-    );
+    assert!(apply(&mut service, state(), &mut library).state.is_none());
 }
 
 #[test]
@@ -593,13 +549,7 @@ fn requested_source_version_wins_in_either_order_without_replacing_installed_pac
             if !installed {
                 assert_eq!(preview.packs[0].report.imported[0].version, [2, 0, 0]);
             }
-            let outcome = service.act(
-                Request {
-                    action: Action::Apply,
-                    state: state(),
-                },
-                &mut library,
-            );
+            let outcome = apply(&mut service, state(), &mut library);
             let applied = outcome.state.unwrap();
             assert_eq!(applied.active.len(), 1);
             let metadata = library.metadata(&applied.active[0]).unwrap();
@@ -652,13 +602,7 @@ fn bundle_duplicates_keep_requested_version_and_unrelated_resource_halves() {
     assert_eq!(preview.packs.len(), 2);
     assert_eq!(preview.packs[0].report.imported[0].version, [2, 0, 0]);
     assert_eq!(preview.selection.len(), 1);
-    let applied = service.act(
-        Request {
-            action: Action::Apply,
-            state: state(),
-        },
-        &mut library,
-    );
+    let applied = apply(&mut service, state(), &mut library);
     assert_eq!(library.available().len(), 2);
     let view = resource_pack::LayeredPackView::new(applied.stack.unwrap());
     assert_eq!(view.read("marker.txt").unwrap().as_ref(), b"b_selected");
@@ -718,4 +662,73 @@ fn selected_shared_version_replaces_a_profile_copy_without_reading_shared_settin
     let mut settings = SettingsOptions::default();
     preview.options.apply(&mut settings);
     assert_eq!(settings.value("field_of_view"), 80);
+}
+
+#[test]
+fn import_requires_confirmation_and_cancel_retains_the_reviewed_preview() {
+    let root = tempfile::tempdir().unwrap();
+    let mut service = service(root.path());
+    let mut library = library(root.path());
+    let original = state();
+    let preview = service.act(
+        Request {
+            action: Action::Begin,
+            state: original.clone(),
+        },
+        &mut library,
+    );
+    let bypass = service.act(
+        Request {
+            action: Action::ConfirmApply,
+            state: original.clone(),
+        },
+        &mut library,
+    );
+    assert_eq!(bypass.snapshot.phase, Phase::Preview);
+    assert!(bypass.state.is_none());
+    let confirmation = service.act(
+        Request {
+            action: Action::Apply,
+            state: original.clone(),
+        },
+        &mut library,
+    );
+    assert_eq!(confirmation.snapshot.phase, Phase::ConfirmImport);
+    assert_eq!(
+        confirmation.snapshot.actions(),
+        [Action::ConfirmApply, Action::Close]
+    );
+    assert!(confirmation.state.is_none() && confirmation.stack.is_none());
+    assert!(!storage::has_backup(&service.config_root));
+    let cancelled = service.act(
+        Request {
+            action: Action::Close,
+            state: original.clone(),
+        },
+        &mut library,
+    );
+    assert_eq!(cancelled.snapshot.phase, Phase::Preview);
+    assert_eq!(cancelled.snapshot.body, preview.snapshot.body);
+    assert!(service.preview.is_some());
+    assert!(!storage::has_backup(&service.config_root));
+    let stale_confirm = service.act(
+        Request {
+            action: Action::ConfirmApply,
+            state: original.clone(),
+        },
+        &mut library,
+    );
+    assert!(stale_confirm.state.is_none());
+    let imported = apply(&mut service, original.clone(), &mut library);
+    assert_eq!(imported.snapshot.phase, Phase::Result);
+    assert_eq!(imported.state.unwrap().settings.value("field_of_view"), 80);
+    assert!(storage::has_backup(&service.config_root));
+    let repeated = service.act(
+        Request {
+            action: Action::ConfirmApply,
+            state: original,
+        },
+        &mut library,
+    );
+    assert!(repeated.state.is_none());
 }

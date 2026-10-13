@@ -20,6 +20,9 @@ use ui_engine::{
     menu_scroll::MenuScrolls,
 };
 
+/// Import previews leave space around the panel, even when their contents overflow.
+const MAX_HEIGHT_FRACTION: f32 = 0.8;
+
 impl OreUiScreen {
     /// Draws the consent, profile, preview and restore steps with the standard modal controls.
     pub fn paint_minecraft_import(
@@ -107,7 +110,13 @@ impl OreUiScreen {
             canvas.seconds = frame.now;
             canvas.transitions = Some(&mut self.transitions);
             canvas.offsets = offsets.clone();
-            let focused = modal::draw(&mut canvas, view, size, &dialog)?;
+            let focused = modal::draw_bounded(
+                &mut canvas,
+                view,
+                size,
+                &dialog,
+                size[1] * MAX_HEIGHT_FRACTION,
+            )?;
             let (hits, areas) = (canvas.hits, canvas.scrolls);
             let used = offsets.get(modal::SCROLL).copied().unwrap_or(0.0);
             if focused.is_none() {

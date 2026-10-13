@@ -125,6 +125,11 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                     .unwrap()
                     .apply_entrance(frame.nodes, size)
                     .map_err(|error| error.to_string())?;
+                if view.dialog == Some(launcher::menu::MenuDialog::MinecraftImport) {
+                    screen
+                        .paint_minecraft_import(&view, size, &mut scrolls, &mut frame)
+                        .map_err(|error| error.to_string())?;
+                }
             }
         }
         Fixture::Chat { draft, suggestions } => {

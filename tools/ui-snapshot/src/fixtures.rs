@@ -1,5 +1,7 @@
 //! Named, anonymous screen fixtures. Add a state here when a PR needs a new capture.
 
+mod minecraft_import;
+
 use std::sync::Arc;
 
 use launcher::menu::{MenuScreen, MenuView};
@@ -23,8 +25,33 @@ pub enum Fixture {
 
 const SIZE: [u32; 2] = [1280, 720];
 const GUI_SCALE: u8 = 2;
+const SMALL_SIZE: [u32; 2] = [360, 240];
 
 pub const STATES: &[State] = &[
+    State {
+        name: "import-confirmation",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: minecraft_import::confirmation,
+    },
+    State {
+        name: "import-confirmation-small",
+        size: SMALL_SIZE,
+        gui_scale: 1,
+        fixture: minecraft_import::confirmation,
+    },
+    State {
+        name: "import-preview-many",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: minecraft_import::preview,
+    },
+    State {
+        name: "import-preview-small",
+        size: SMALL_SIZE,
+        gui_scale: 1,
+        fixture: minecraft_import::preview,
+    },
     State {
         name: "chat-mentions",
         size: SIZE,
