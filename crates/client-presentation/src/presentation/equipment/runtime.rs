@@ -117,7 +117,7 @@ pub struct EquipmentRuntime {
     pending: Vec<ActorRigGeometry>,
     /// Worn head geometry and texture location per skull kind.
     skulls: BTreeMap<u8, (EntityRigId, ActorArtworkLocation)>,
-    /// Held geometry and texture location per block-entity item model (chests, shulkers).
+    /// Held model rigs, artwork locations and texture-local glint spans.
     held_block_entities: crate::prepared_actor_artwork::PreparedHeldBlockEntities,
     startup_held_block_entities: crate::prepared_actor_artwork::PreparedHeldBlockEntities,
     item_use: Arc<BTreeMap<Box<str>, u32>>,

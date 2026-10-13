@@ -6,7 +6,7 @@ use crate::prepared_actor_artwork::PreparedHeldBlockEntities;
 /// Equipment geometry index space reserved for held block-entity item models.
 pub(super) const RIG_INDEX_BASE: u32 = 0x00ff_0100;
 
-/// Builds models whose textures are available and binds them to the static atlas raster.
+/// Builds available models, their static artwork bindings and texture-local glint spans.
 pub(super) fn build(
     atlas: Option<&BlockEntityAtlas>,
     location: Option<ActorArtworkLocation>,
@@ -18,11 +18,11 @@ pub(super) fn build(
     prepared.identity = Some(atlas.identity());
     for (index, kind) in HeldBlockEntity::all().into_iter().enumerate() {
         let id = equipment_rig_id(RIG_INDEX_BASE + index as u32);
-        if let Some(geometry) =
-            render_model::block_entity::held_block_entity_geometry(id, atlas, kind)
-        {
-            prepared.geometries.push(geometry);
-            prepared.models.insert(kind, (id, location));
+        if let Some(model) = render_model::block_entity::held_block_entity_model(id, atlas, kind) {
+            prepared.geometries.push(model.geometry);
+            prepared
+                .models
+                .insert(kind, (id, location, model.glint_span));
         }
     }
     prepared

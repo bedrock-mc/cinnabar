@@ -30,7 +30,7 @@ pub(crate) struct PreparedSessionResources {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct PreparedHeldBlockEntities {
     pub(crate) identity: Option<[u8; 32]>,
-    pub(crate) models: BTreeMap<HeldBlockEntity, (EntityRigId, ActorArtworkLocation)>,
+    pub(crate) models: BTreeMap<HeldBlockEntity, (EntityRigId, ActorArtworkLocation, [f32; 2])>,
     pub(crate) geometries: Vec<ActorRigGeometry>,
 }
 

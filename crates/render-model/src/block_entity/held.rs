@@ -7,15 +7,21 @@
 use std::sync::Arc;
 
 use super::{
-    atlas::BlockEntityAtlas,
+    atlas::{AtlasRect, BlockEntityAtlas},
     chest::{self, ChestModel, ChestPair, ChestVariant},
     conduit::{self, ConduitModel},
-    mesh::{Facing, MeshBuilder},
+    mesh::{BlockEntityVertex, Facing, MeshBuilder},
     pot::{self, DecoratedPotModel},
     scene::SceneClock,
     shulker::{self, ShulkerModel},
 };
 use crate::{ActorRigGeometry, ActorRigSurface, ActorRigVertex, EntityRigId};
+
+/// A held block-entity rig and the shared span that normalizes its texture-local glint UVs.
+pub struct HeldBlockEntityModel {
+    pub geometry: ActorRigGeometry,
+    pub glint_span: [f32; 2],
+}
 
 /// A block-entity item with a held model.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -151,15 +157,15 @@ impl HeldBlockEntity {
     }
 }
 
-/// The held model of `kind` as one-bone rig geometry: its solid faces centred on the origin,
-/// with UVs in the atlas's static region. `None` when the atlas lacks its textures.
+/// Builds a centered one-bone rig with static atlas UVs and texture-local glint coordinates.
+/// Returns `None` when the atlas lacks the model's textures.
 #[must_use]
-pub fn held_block_entity_geometry(
+pub fn held_block_entity_model(
     id: EntityRigId,
     atlas: &BlockEntityAtlas,
     kind: HeldBlockEntity,
-) -> Option<ActorRigGeometry> {
-    let [_, atlas_height] = atlas.size();
+) -> Option<HeldBlockEntityModel> {
+    let [atlas_width, atlas_height] = atlas.size();
     let static_height = atlas.static_height();
     if static_height == 0 {
         return None;
@@ -188,29 +194,174 @@ pub fn held_block_entity_geometry(
     );
     let center = (min + max) * 0.5;
     let v_scale = atlas_height as f32 / static_height as f32;
-    let mut vertices = Vec::with_capacity(builder.solid.len());
-    for vertex in &builder.solid {
-        let uv = [vertex.uv[0], vertex.uv[1] * v_scale];
-        if uv[1] > 1.0 {
-            // Animated-region texels have no place in the static raster.
-            return None;
-        }
-        vertices.push(ActorRigVertex {
-            position: (glam::Vec3::from(vertex.position) - center).to_array(),
-            normal: vertex.normal,
-            uv,
-            back_uv: uv,
-            bone_index: 0,
-            surface: ActorRigSurface::SINGLE_FACE,
-            glint_origin: [0.0, 0.0],
-        });
+    let (faces, remainder) = builder.solid.as_chunks::<6>();
+    if !remainder.is_empty() {
+        return None;
     }
-    ActorRigGeometry::new(id, Arc::from(vertices), Arc::from(vec![[0.0, 0.0, 0.0]])).ok()
+    let first_texture = face_texture(atlas, faces.first()?)?;
+    let glint_span = [
+        first_texture.width / atlas_width as f32,
+        first_texture.height / static_height as f32,
+    ];
+    let mut vertices = Vec::with_capacity(builder.solid.len());
+    for face in faces {
+        let texture = face_texture(atlas, face)?;
+        let origin = [
+            texture.x / atlas_width as f32,
+            texture.y / static_height as f32,
+        ];
+        let span = [
+            texture.width / atlas_width as f32,
+            texture.height / static_height as f32,
+        ];
+        for vertex in face {
+            let uv = [vertex.uv[0], vertex.uv[1] * v_scale];
+            if uv[1] > 1.0 {
+                // Animated-region texels have no place in the static raster.
+                return None;
+            }
+            // Different-sized textures share one draw: subtract an offset that puts each
+            // vertex's texture-local coordinates on the draw's common glint span.
+            let glint_origin = std::array::from_fn(|axis| {
+                let local = (uv[axis] - origin[axis]) / span[axis];
+                uv[axis] - local * glint_span[axis]
+            });
+            vertices.push(ActorRigVertex {
+                position: (glam::Vec3::from(vertex.position) - center).to_array(),
+                normal: vertex.normal,
+                uv,
+                back_uv: uv,
+                bone_index: 0,
+                surface: ActorRigSurface::SINGLE_FACE,
+                glint_origin,
+            });
+        }
+    }
+    let geometry =
+        ActorRigGeometry::new(id, Arc::from(vertices), Arc::from(vec![[0.0; 3]])).ok()?;
+    Some(HeldBlockEntityModel {
+        geometry,
+        glint_span,
+    })
+}
+
+/// Resolves an emitted face's texture from its interior UV point, before static UV rescaling.
+fn face_texture(atlas: &BlockEntityAtlas, face: &[BlockEntityVertex; 6]) -> Option<AtlasRect> {
+    let size = atlas.size().map(|side| side as f32);
+    let pixel = std::array::from_fn(|axis| {
+        face.iter().map(|vertex| vertex.uv[axis]).sum::<f32>() / face.len() as f32 * size[axis]
+    });
+    atlas.static_texture_at(pixel)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Builds synthetic model textures with independently varied packing and resolution.
+    fn glint_atlas(
+        size: [u32; 2],
+        offset: [u32; 2],
+        scale: [u32; 2],
+        pot_side_scale: [u32; 2],
+    ) -> BlockEntityAtlas {
+        use assets::block_entity_geometry as geometry;
+
+        let textures = [
+            ("textures/entity/chest/normal".to_owned(), [64, 64]),
+            (geometry::shulker_texture("red"), [64, 64]),
+            (geometry::POT_BASE_TEXTURE.0.to_owned(), [32, 32]),
+            (geometry::POT_SIDE_TEXTURE.0.to_owned(), [16, 16]),
+            (geometry::CONDUIT_TEXTURE.0.to_owned(), [24, 12]),
+        ];
+        let mut placements = textures
+            .into_iter()
+            .enumerate()
+            .map(|(index, (name, [width, height]))| {
+                let texture_scale = if name == geometry::POT_SIDE_TEXTURE.0 {
+                    pot_side_scale
+                } else {
+                    scale
+                };
+                assets::BlockEntityPlacement {
+                    name: name.into(),
+                    x: offset[0],
+                    y: offset[1] + index as u32 * 64 * scale[1],
+                    width: width * texture_scale[0],
+                    height: height * texture_scale[1],
+                }
+            })
+            .collect::<Vec<_>>();
+        placements.sort_by(|left, right| left.name.cmp(&right.name));
+        let bytes = assets::encode_block_entity_catalog(
+            b"{}",
+            size[0],
+            size[1],
+            &vec![255; (size[0] * size[1] * 4) as usize],
+            &placements,
+        )
+        .unwrap();
+        BlockEntityAtlas::from_assets(&assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap())
+    }
+
+    #[test]
+    fn glint_coordinates_are_independent_of_atlas_packing_and_texture_resolution() {
+        use std::collections::BTreeMap;
+
+        let mut reference = BTreeMap::new();
+        for (size, offset, scale, pot_side_scale) in [
+            ([128, 512], [0, 0], [1, 1], [1, 1]),
+            ([1024, 1024], [128, 128], [1, 1], [3, 2]),
+            ([1024, 2048], [384, 256], [2, 3], [4, 1]),
+        ] {
+            let atlas = glint_atlas(size, offset, scale, pot_side_scale);
+            for kind in [
+                HeldBlockEntity::Chest(ChestVariantKey::Normal),
+                HeldBlockEntity::Shulker("red"),
+                HeldBlockEntity::DecoratedPot,
+                HeldBlockEntity::Conduit,
+            ] {
+                let model = held_block_entity_model(EntityRigId(1), &atlas, kind).unwrap();
+                let glint = crate::ActorGlint::item(0.0, model.glint_span);
+                let coordinates = model
+                    .geometry
+                    .vertices
+                    .iter()
+                    .map(|vertex| {
+                        std::array::from_fn::<_, 2, _>(|axis| {
+                            (vertex.uv[axis] - vertex.glint_origin[axis]) * glint.uv_scale[axis]
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                let expected = reference.entry(kind).or_insert_with(|| coordinates.clone());
+                assert_eq!(coordinates.len(), expected.len());
+                for (actual, expected) in coordinates.iter().zip(expected.iter()) {
+                    assert!(
+                        glam::Vec2::from_array(*actual)
+                            .abs_diff_eq(glam::Vec2::from_array(*expected), 1.0e-5),
+                        "{kind:?}, size {size:?}, offset {offset:?}, scale {scale:?}"
+                    );
+                }
+                if kind == HeldBlockEntity::Chest(ChestVariantKey::Normal) {
+                    let span = [
+                        64.0 * scale[0] as f32 / size[0] as f32,
+                        64.0 * scale[1] as f32 / size[1] as f32,
+                    ];
+                    assert_eq!(model.glint_span, span);
+                    for vertex in &*model.geometry.vertices {
+                        let origin = [
+                            offset[0] as f32 / size[0] as f32,
+                            offset[1] as f32 / size[1] as f32,
+                        ];
+                        assert!(
+                            glam::Vec2::from_array(vertex.glint_origin)
+                                .abs_diff_eq(glam::Vec2::from_array(origin), 1.0e-5)
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn decorated_pot_requires_base_and_side_artwork() {
@@ -246,7 +397,7 @@ mod tests {
                 &assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap(),
             );
             assert_eq!(
-                held_block_entity_geometry(EntityRigId(1), &atlas, HeldBlockEntity::DecoratedPot)
+                held_block_entity_model(EntityRigId(1), &atlas, HeldBlockEntity::DecoratedPot)
                     .is_some(),
                 names.len() == 2,
                 "partial pot artwork must retain the sprite fallback: {names:?}"
@@ -299,7 +450,9 @@ mod tests {
         .into_iter()
         .chain(geometry::SHULKER_COLORS.map(HeldBlockEntity::Shulker));
         for kind in kinds {
-            let model = held_block_entity_geometry(EntityRigId(1), &atlas, kind).unwrap();
+            let model = held_block_entity_model(EntityRigId(1), &atlas, kind)
+                .unwrap()
+                .geometry;
             let (triangles, remainder) = model.vertices.as_chunks::<3>();
             assert!(remainder.is_empty());
             for triangle in triangles {
