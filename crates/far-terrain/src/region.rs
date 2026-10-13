@@ -1,12 +1,13 @@
 //! Regions of 32×32 columns, the unit of disk reads, writes and eviction.
 
-use crate::{ColumnPos, EncodedSummary};
+use crate::{ColumnPos, EncodedSummary, Versioned};
 
 /// Columns along one side of a region.
 pub const REGION_SIDE: i32 = 32;
 const REGION_COLUMNS: usize = (REGION_SIDE * REGION_SIDE) as usize;
-const MAGIC: &[u8; 8] = b"CNBRLOD1";
-const ENTRY_BYTES: usize = 2 + 4 + 8;
+const MAGIC: &[u8; 8] = b"CNBRLOD2";
+/// Slot, payload length, content hash and version.
+const ENTRY_BYTES: usize = 2 + 4 + 8 + 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct RegionPos {
@@ -60,30 +61,37 @@ pub const fn region_index(column: ColumnPos) -> u16 {
 #[error("far-terrain region file is malformed")]
 pub struct RegionDecodeError;
 
-/// Serialises summaries keyed by region slot; later duplicates of a slot win.
+/// Serialises summaries keyed by region slot, keeping the highest version of each slot.
 #[must_use]
-pub fn encode_region(columns: &[(u16, EncodedSummary)]) -> Vec<u8> {
-    let mut latest = std::collections::BTreeMap::new();
-    for (index, summary) in columns {
-        latest.insert(*index, summary);
+pub fn encode_region(columns: &[(u16, Versioned)]) -> Vec<u8> {
+    let mut latest = std::collections::BTreeMap::<u16, &Versioned>::new();
+    for (index, column) in columns {
+        let newest = latest.entry(*index).or_insert(column);
+        if column.version >= newest.version {
+            *newest = column;
+        }
     }
-    let payload: usize = latest.values().map(|summary| summary.bytes.len()).sum();
+    let payload: usize = latest
+        .values()
+        .map(|column| column.summary.bytes.len())
+        .sum();
     let mut bytes = Vec::with_capacity(MAGIC.len() + 2 + latest.len() * ENTRY_BYTES + payload);
     bytes.extend_from_slice(MAGIC);
     bytes.extend_from_slice(&(latest.len() as u16).to_le_bytes());
-    for (index, summary) in &latest {
+    for (index, column) in &latest {
         bytes.extend_from_slice(&index.to_le_bytes());
-        bytes.extend_from_slice(&(summary.bytes.len() as u32).to_le_bytes());
-        bytes.extend_from_slice(&summary.hash.to_le_bytes());
+        bytes.extend_from_slice(&(column.summary.bytes.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&column.summary.hash.to_le_bytes());
+        bytes.extend_from_slice(&column.version.to_le_bytes());
     }
-    for summary in latest.values() {
-        bytes.extend_from_slice(&summary.bytes);
+    for column in latest.values() {
+        bytes.extend_from_slice(&column.summary.bytes);
     }
     bytes
 }
 
 /// Reads [`encode_region`] output, rejecting any inconsistency rather than reading part.
-pub fn decode_region(bytes: &[u8]) -> Result<Vec<(u16, EncodedSummary)>, RegionDecodeError> {
+pub fn decode_region(bytes: &[u8]) -> Result<Vec<(u16, Versioned)>, RegionDecodeError> {
     let rest = bytes.strip_prefix(MAGIC).ok_or(RegionDecodeError)?;
     let (count, mut rest) = rest.split_first_chunk::<2>().ok_or(RegionDecodeError)?;
     let count = usize::from(u16::from_le_bytes(*count));
@@ -97,6 +105,7 @@ pub fn decode_region(bytes: &[u8]) -> Result<Vec<(u16, EncodedSummary)>, RegionD
         let index = u16::from_le_bytes([entry[0], entry[1]]);
         let len = u32::from_le_bytes(entry[2..6].try_into().expect("four bytes")) as usize;
         let hash = u64::from_le_bytes(entry[6..14].try_into().expect("eight bytes"));
+        let version = u64::from_le_bytes(entry[14..22].try_into().expect("eight bytes"));
         if usize::from(index) >= REGION_COLUMNS || len > payload.len() {
             return Err(RegionDecodeError);
         }
@@ -104,9 +113,12 @@ pub fn decode_region(bytes: &[u8]) -> Result<Vec<(u16, EncodedSummary)>, RegionD
         payload = next;
         columns.push((
             index,
-            EncodedSummary {
-                hash,
-                bytes: summary.into(),
+            Versioned {
+                version,
+                summary: EncodedSummary {
+                    hash,
+                    bytes: summary.into(),
+                },
             },
         ));
     }

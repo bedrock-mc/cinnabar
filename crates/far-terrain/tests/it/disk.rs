@@ -1,6 +1,6 @@
 use far_terrain::{
-    ColumnPos, DiskBounds, DiskCache, DiskEvent, NamespaceKey, RegionPos, ServerKey, decode_region,
-    encode_region, region_index,
+    ColumnPos, DiskBounds, DiskCache, DiskEvent, NamespaceKey, RegionPos, ServerKey, Versioned,
+    decode_region, encode_region, region_index,
 };
 
 use crate::summary::hilly;
@@ -25,7 +25,10 @@ fn region_slots_cover_negative_columns() {
 
 #[test]
 fn region_codec_round_trips_and_rejects_damage() {
-    let summary = hilly().encode();
+    let summary = Versioned {
+        version: 1,
+        summary: hilly().encode(),
+    };
     let bytes = encode_region(&[(3, summary.clone()), (1000, summary.clone())]);
     assert_eq!(
         decode_region(&bytes).unwrap(),
@@ -59,9 +62,9 @@ fn loaded(disk: &DiskCache) -> Vec<(ColumnPos, u64)> {
     disk.events()
         .flat_map(|event| match event {
             DiskEvent::Loaded { columns, .. } => columns,
-            DiskEvent::Resolved { .. } => Vec::new(),
+            DiskEvent::Resolved { .. } | DiskEvent::Written { .. } => Vec::new(),
         })
-        .map(|(pos, summary)| (pos, summary.hash))
+        .map(|(pos, column)| (pos, column.summary.hash))
         .collect()
 }
 
@@ -74,7 +77,10 @@ fn written_regions_load_back_and_later_writes_merge() {
     };
     let disk = DiskCache::spawn(root.path().to_owned(), bounds).unwrap();
     let ns = namespace("remote:a:1");
-    let summary = hilly().encode();
+    let summary = Versioned {
+        version: 1,
+        summary: hilly().encode(),
+    };
     let region = RegionPos { x: 0, z: 0 };
     disk.write(ns, region, vec![(0, summary.clone())]);
     disk.write(ns, region, vec![(33, summary.clone())]);
@@ -82,8 +88,8 @@ fn written_regions_load_back_and_later_writes_merge() {
     assert_eq!(
         loaded(&disk),
         vec![
-            (ColumnPos::new(0, 0), summary.hash),
-            (ColumnPos::new(1, 1), summary.hash)
+            (ColumnPos::new(0, 0), summary.summary.hash),
+            (ColumnPos::new(1, 1), summary.summary.hash)
         ]
     );
     let names: Vec<String> = std::fs::read_dir(root.path())
@@ -96,7 +102,10 @@ fn written_regions_load_back_and_later_writes_merge() {
 #[test]
 fn caps_evict_least_recently_used_regions() {
     let root = tempfile::tempdir().unwrap();
-    let summary = hilly().encode();
+    let summary = Versioned {
+        version: 1,
+        summary: hilly().encode(),
+    };
     let region_bytes = encode_region(&[(0, summary.clone())]).len() as u64;
     let bounds = DiskBounds {
         server_cap_bytes: region_bytes * 2,
@@ -128,5 +137,35 @@ fn caps_evict_least_recently_used_regions() {
         loaded(&disk).len(),
         1,
         "the global cap evicted the oldest of server a"
+    );
+}
+
+/// Of two writes to one slot, the higher version stays whatever order they land in.
+#[test]
+fn region_writes_keep_the_higher_version() {
+    let root = tempfile::tempdir().unwrap();
+    let bounds = DiskBounds {
+        server_cap_bytes: u64::MAX,
+        global_cap_bytes: u64::MAX,
+    };
+    let disk = DiskCache::spawn(root.path().to_owned(), bounds).unwrap();
+    let ns = namespace("remote:a:1");
+    let region = RegionPos { x: 0, z: 0 };
+    let newer = Versioned {
+        version: 9,
+        summary: hilly().encode(),
+    };
+    let mut flat = hilly();
+    flat.cells_mut()[0].height += 3;
+    let older = Versioned {
+        version: 4,
+        summary: flat.encode(),
+    };
+    disk.write(ns, region, vec![(0, newer.clone())]);
+    disk.write(ns, region, vec![(0, older)]);
+    disk.load(ns, region);
+    assert_eq!(
+        loaded(&disk),
+        vec![(ColumnPos::new(0, 0), newer.summary.hash)]
     );
 }

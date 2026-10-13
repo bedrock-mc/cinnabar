@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    sync::atomic::{AtomicU64, Ordering},
+    time::{Duration, Instant},
+};
 
 use far_terrain::{
     ColumnPos, ColumnSummary, FarTerrainCache, FarTerrainConfig, SummaryStore, SurfaceCell,
@@ -17,8 +20,15 @@ fn flat(height: i16) -> ColumnSummary {
     summary
 }
 
+/// Each cache made by a test starts its versions above every earlier one's, as a new run does.
 fn cache(root: &std::path::Path) -> FarTerrainCache {
-    FarTerrainCache::new(FarTerrainConfig::default(), Some(root.to_owned()))
+    with_config(root, FarTerrainConfig::default())
+}
+
+fn with_config(root: &std::path::Path, config: FarTerrainConfig) -> FarTerrainCache {
+    static RUNS: AtomicU64 = AtomicU64::new(1);
+    let base = RUNS.fetch_add(1, Ordering::Relaxed) << 32;
+    FarTerrainCache::new(config, Some(root.to_owned()), base)
 }
 
 /// Admits the probe columns plus one more, then waits for the namespace to resolve.
@@ -161,7 +171,7 @@ fn pending_writes_survive_memory_eviction() {
         memory_budget_bytes: 1,
         ..FarTerrainConfig::default()
     };
-    let mut tiny = FarTerrainCache::new(config, Some(root.path().to_owned()));
+    let mut tiny = with_config(root.path(), config);
     join(&mut tiny, 64, now);
     tiny.admit(0, ColumnPos::new(300, 0), flat(90).encode(), now);
     assert!(tiny.store().is_empty(), "the budget evicted everything");
@@ -201,7 +211,7 @@ fn two_column_cache(root: &std::path::Path) -> FarTerrainCache {
         memory_budget_bytes: probe.bytes() * 5 / 2,
         ..FarTerrainConfig::default()
     };
-    FarTerrainCache::new(config, Some(root.to_owned()))
+    with_config(root, config)
 }
 
 /// Writes `height` for `pos` to disk in an earlier visit.
@@ -235,9 +245,9 @@ fn waiting_writes_win_over_disk_reads() {
     assert_eq!(reload(&mut cache, pos, now), Some(flat(90)));
 }
 
-/// A read served before a newer column was handed to the disk is read again.
+/// A read served before a newer column's write landed does not replace it.
 #[test]
-fn a_read_served_before_a_write_is_read_again() {
+fn a_read_served_before_a_write_keeps_the_newer_column() {
     let root = tempfile::tempdir().unwrap();
     let now = Instant::now();
     let pos = ColumnPos::new(300, 0);
@@ -248,16 +258,52 @@ fn a_read_served_before_a_write_is_read_again() {
     cache.admit(0, pos, flat(90).encode(), now);
     evict(&mut cache, pos, now);
     cache.set_focus(pos, 4);
-    cache.sync();
     cache.flush_all();
-    cache.poll(now);
-    assert!(!cache.store().contains(pos), "the older read is not shown");
     cache.sync();
     cache.poll(now);
     assert_eq!(
         cache.store().summary(pos).map(Result::unwrap),
         Some(flat(90))
     );
+}
+
+/// Leaving a world before its namespace resolves still writes what it showed.
+#[test]
+fn leaving_before_resolution_writes_the_columns() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let pos = ColumnPos::new(300, 0);
+    let mut first = cache(root.path());
+    join(&mut first, 64, now);
+    leave(&mut first);
+    first.enter_world(SERVER, 42, 0);
+    first.admit(0, ColumnPos::new(0, 0), flat(64).encode(), now);
+    first.admit(0, pos, flat(90).encode(), now);
+    assert_eq!(first.namespace(), None);
+    leave(&mut first);
+
+    join(&mut first, 64, now);
+    assert_eq!(reload(&mut first, pos, now), Some(flat(90)));
+}
+
+/// A retirement's summaries reach disk even when the session never resolved its namespace.
+#[test]
+fn an_unresolved_retirement_is_written() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let pos = ColumnPos::new(300, 0);
+    let mut cache = cache(root.path());
+    join(&mut cache, 64, now);
+    leave(&mut cache);
+    cache.enter_world(SERVER, 42, 0);
+    let session = cache.retire_session().unwrap();
+    cache.leave_world();
+    let probes = (0..WORLD_PROBE_COLUMNS as i32).map(|x| (ColumnPos::new(x, 0), flat(64).encode()));
+    cache.persist(session, probes.chain([(pos, flat(90).encode())]), now);
+    cache.sync();
+
+    join(&mut cache, 64, now);
+    assert_eq!(reload(&mut cache, pos, now), Some(flat(90)));
 }
 
 /// A world with too few non-empty columns to probe still shows and persists them.

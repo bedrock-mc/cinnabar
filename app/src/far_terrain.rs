@@ -1,7 +1,7 @@
 //! Moves column summaries from the world stream into the far-terrain cache and keeps the
 //! cache on the server, world and dimension being played.
 
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use bevy::prelude::{AppExit, Local, MessageReader, Res, ResMut, Resource};
 use chunk_pipeline::{FarColumnSummary, FarSummaryInbox, WorldStream};
@@ -18,6 +18,13 @@ pub(crate) struct FarTerrain {
     pub(crate) distance_chunks: i32,
     drained: Vec<FarColumnSummary>,
     retiring: Vec<Retiring>,
+}
+
+/// Microseconds since the Unix epoch: summary versions this run stamps exceed earlier runs'.
+fn version_base() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_micros() as u64)
 }
 
 /// Longest an exit waits for retiring sessions' final summaries.
@@ -89,14 +96,14 @@ impl FarTerrain {
         }
         let now = Instant::now();
         self.drain_retiring_until(now, Some(now + EXIT_SUMMARY_WAIT));
-        self.cache.flush_all();
+        self.cache.leave_world();
         self.cache.sync();
     }
 
     /// A cache persisted under `disk_root`, or memory-only without one.
     pub(crate) fn new(disk_root: Option<std::path::PathBuf>) -> Self {
         Self {
-            cache: FarTerrainCache::new(FarTerrainConfig::default(), disk_root),
+            cache: FarTerrainCache::new(FarTerrainConfig::default(), disk_root, version_base()),
             enabled: false,
             distance_chunks: 0,
             drained: Vec::new(),
@@ -256,7 +263,7 @@ mod tests {
         app.update();
 
         let mut reader =
-            FarTerrainCache::new(FarTerrainConfig::default(), Some(root.path().into()));
+            FarTerrainCache::new(FarTerrainConfig::default(), Some(root.path().into()), 0);
         join(&mut reader, now);
         reader.set_focus(ColumnPos::new(300, 0), 4);
         reader.sync();
