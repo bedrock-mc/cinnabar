@@ -216,7 +216,7 @@ mod tests {
         buffer.extend([0, 0]);
         let expected = PathBuf::from(r"\\server\packs").join(OsString::from_wide(&name));
         let paths = selected_paths(&buffer);
-        assert_eq!(paths, [expected.clone()]);
+        assert_eq!(paths.as_slice(), std::slice::from_ref(&expected));
         assert_eq!(
             paths[0].as_os_str().encode_wide().collect::<Vec<_>>(),
             expected.as_os_str().encode_wide().collect::<Vec<_>>()

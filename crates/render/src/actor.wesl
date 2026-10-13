@@ -36,8 +36,8 @@ struct BoneMatrix {
 
 @if(ACTOR_MOTION)
 struct MotionInstance {
-    previous_clip_from_actor: mat4x4<f32>,
     current_clip_from_actor: mat4x4<f32>,
+    previous_clip_from_actor: mat4x4<f32>,
     pose: vec4<u32>,
 }
 @if(ACTOR_MOTION)
@@ -51,7 +51,10 @@ struct VertexOutput {
     @location(0) uv: vec4<f32>,
     // Texture layer, geometry validity and optional glint instance index.
     @location(1) @interpolate(flat) skin_info: vec3<u32>,
+    @if(!ACTOR_MOTION)
     @location(2) world_normal: vec3<f32>,
+    @if(ACTOR_MOTION)
+    @location(2) current_clip: vec4<f32>,
     @location(3) back_uv: vec2<f32>,
     @location(4) @interpolate(flat) tint: u32,
     @location(5) @interpolate(flat) overlay: vec4<f32>,
@@ -63,10 +66,7 @@ struct VertexOutput {
     @location(11) @interpolate(flat) material: u32,
     @location(12) @interpolate(flat) dissolve_multiplier: f32,
     @location(13) @interpolate(flat) surface: u32,
-    @if(!ACTOR_MOTION)
     @location(14) back_native_lighting: vec3<f32>,
-    @if(ACTOR_MOTION)
-    @location(14) current_clip: vec4<f32>,
     @if(ACTOR_MOTION)
     @location(15) previous_clip: vec4<f32>,
 }
@@ -131,7 +131,6 @@ fn actor_vertex(
     out.overlay = unpack4x8unorm(overlay_rgba8);
     out.light = instance_words[instance_base + 24u];
     out.native_lighting = vec3(1.0);
-    @if(!ACTOR_MOTION)
     out.back_native_lighting = vec3(1.0);
     out.surface = 0u;
     out.multitexture_layers = vec2(instance_words[instance_base + 25u], instance_words[instance_base + 26u]);
@@ -148,12 +147,13 @@ fn actor_vertex(
     if (vertex_index >= span.vertex_count) {
         out.position = vec4(2.0, 2.0, 2.0, 1.0);
         @if(ACTOR_MOTION)
-        out.previous_clip = out.position;
-        @if(ACTOR_MOTION)
         out.current_clip = out.position;
+        @if(ACTOR_MOTION)
+        out.previous_clip = out.position;
         out.uv = vec4(0.0);
         out.back_uv = vec2(0.0);
         out.skin_info.y = 0u;
+        @if(!ACTOR_MOTION)
         out.world_normal = vec3(0.0, 1.0, 0.0);
         return out;
     }
@@ -217,17 +217,17 @@ fn actor_vertex(
         }
     }
     out.world_position = world.xyz;
-    out.world_normal = normalize(vec3(
+    let world_normal = normalize(vec3(
         dot(instance_row(instance_base, 0u).xyz, posed_normal),
         dot(instance_row(instance_base, 1u).xyz, posed_normal),
         dot(instance_row(instance_base, 2u).xyz, posed_normal),
     ));
-    out.native_lighting = actor_lighting(out.light, out.world_normal, out.overlay.a) * light_color_multiplier;
     @if(!ACTOR_MOTION)
+    out.world_normal = world_normal;
+    out.native_lighting = actor_lighting(out.light, world_normal, out.overlay.a) * light_color_multiplier;
     out.back_native_lighting = out.native_lighting;
-    @if(!ACTOR_MOTION)
     if (out.surface != 0u) {
-        out.back_native_lighting = actor_lighting(out.light, -out.world_normal, out.overlay.a) * light_color_multiplier;
+        out.back_native_lighting = actor_lighting(out.light, -world_normal, out.overlay.a) * light_color_multiplier;
     }
     out.skin_info.y = 1u;
     return out;
@@ -341,10 +341,7 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     // Actor/Entity overlays blend BEFORE the shaded lightmap product. Vertex
     // shading preserves its interpolation and the explicit zero/unlit override.
     let overlay = select(input.overlay, vec4(0.0), material == ACTOR_MATERIAL_DISSOLVE_COLOR);
-    @if(!ACTOR_MOTION)
     let native_lighting = select(input.native_lighting, input.back_native_lighting, !front && input.surface != 0u);
-    @if(ACTOR_MOTION)
-    let native_lighting = input.native_lighting;
     let lighting = select(native_lighting, mix(vec3(1.0), native_lighting, color.a), emissive);
     var lit_gamma = mix(color.rgb, overlay.rgb, overlay.a) * lighting;
     var legacy_foil = vec3(0.0);
@@ -387,14 +384,19 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
 }
 
 @if(ACTOR_MOTION)
+// Both frames retain local detail by projecting their actor roots relative to their cameras.
+fn actor_motion_velocity(input: VertexOutput) -> vec2<f32> {
+    var velocity = vec2(0.0);
+    if (input.previous_clip.w > 0.00001 && input.current_clip.w > 0.00001) {
+        velocity = (input.current_clip.xy / input.current_clip.w - input.previous_clip.xy / input.previous_clip.w) * vec2(0.5, -0.5);
+    }
+    return velocity;
+}
+
+@if(ACTOR_MOTION)
 @fragment
 fn actor_motion_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     // The same artwork and discard rules retain cutouts and multisample alpha coverage.
     let colour = actor_colour(input, front);
-    let current_clip = input.current_clip;
-    var velocity = vec2(0.0);
-    if (input.previous_clip.w > 0.00001 && current_clip.w > 0.00001) {
-        velocity = (current_clip.xy / current_clip.w - input.previous_clip.xy / input.previous_clip.w) * vec2(0.5, -0.5);
-    }
-    return vec4(velocity, 1.0, colour.a);
+    return vec4(actor_motion_velocity(input), 1.0, colour.a);
 }

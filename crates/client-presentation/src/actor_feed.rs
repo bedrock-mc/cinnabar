@@ -115,6 +115,7 @@ pub fn prepare_local_player_feed(
         local_use,
     );
     if let Some(feed) = &mut local_feed {
+        view.apply_actor_presentation(feed);
         feed.game_mode = player.facts.player_game_mode();
         feed.prefer_client_skin = prefer_client_skin;
         feed.held_network_ids = [

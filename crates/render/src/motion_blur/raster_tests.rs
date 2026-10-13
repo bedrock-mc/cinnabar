@@ -18,6 +18,12 @@ struct Raster {
     depth_samples: Vec<u32>,
 }
 
+/// Velocity covers only this rectangle; all other samples belong to the world.
+struct ActorMotion {
+    velocity: [f32; 4],
+    bounds: UVec4,
+}
+
 impl Raster {
     fn new(name: &str) -> Option<Self> {
         let instance =
@@ -90,27 +96,27 @@ impl Raster {
         self.draw_with_motion(input, exposure, samples, z, None)
     }
 
-    /// Supplies a filled actor velocity attachment to the production exposure fragment.
+    /// Supplies bounded actor coverage to the production exposure fragment.
     fn draw_with_motion(
         &self,
         input: &[u8],
         exposure: ExposureUniform,
         samples: u32,
         z: f32,
-        motion: Option<[f64; 4]>,
+        motion: Option<ActorMotion>,
     ) -> Vec<u8> {
-        self.draw_with_coverage(input, exposure, samples, z, motion, false)
+        self.draw_with_motion_mask(input, exposure, samples, z, motion, !0)
     }
 
-    /// Partial coverage leaves sample zero as world while other samples contain the following actor.
-    fn draw_with_coverage(
+    /// Writes only selected coverage samples so sample-zero omissions exercise the real fragment.
+    fn draw_with_motion_mask(
         &self,
         input: &[u8],
         mut exposure: ExposureUniform,
         samples: u32,
         z: f32,
-        motion: Option<[f64; 4]>,
-        partial: bool,
+        motion: Option<ActorMotion>,
+        sample_mask: u64,
     ) -> Vec<u8> {
         exposure.strength.z = if motion.is_some() { 1.0 } else { 0.0 };
         let source = super::shader_source(include_str!("../motion_blur.wgsl"), samples > 1);
@@ -234,87 +240,7 @@ impl Raster {
                 ],
             });
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
-        let motion = motion.unwrap_or([0.0; 4]);
-        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("actor velocity raster fixture"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &actor_view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: motion[0],
-                        g: motion[1],
-                        b: motion[2],
-                        a: motion[3],
-                    }),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-        if partial {
-            let source = "@fragment fn partial_motion(@builtin(sample_index) sample: u32) -> @location(0) vec4<f32> { if sample == 0u { return vec4<f32>(0.0); } return vec4<f32>(0.0, 0.0, 1.0, 1.0); }";
-            let mask_shader = self
-                .gpu
-                .device
-                .create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: Some("partial actor coverage fixture"),
-                    source: wgpu::ShaderSource::Wgsl(source.into()),
-                });
-            let mask_pipeline =
-                self.gpu
-                    .device
-                    .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                        label: Some("partial actor coverage fixture"),
-                        layout: None,
-                        vertex: wgpu::VertexState {
-                            module: &shader,
-                            entry_point: Some("vertex"),
-                            compilation_options: Default::default(),
-                            buffers: &[],
-                        },
-                        fragment: Some(wgpu::FragmentState {
-                            module: &mask_shader,
-                            entry_point: Some("partial_motion"),
-                            compilation_options: Default::default(),
-                            targets: &[Some(wgpu::ColorTargetState {
-                                format: crate::actor_render::motion::MOTION_FORMAT,
-                                blend: None,
-                                write_mask: wgpu::ColorWrites::ALL,
-                            })],
-                        }),
-                        depth_stencil: None,
-                        primitive: Default::default(),
-                        multisample: wgpu::MultisampleState {
-                            count: samples,
-                            ..Default::default()
-                        },
-                        multiview_mask: None,
-                        cache: None,
-                    });
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("partial actor coverage fixture"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &actor_view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_pipeline(&mask_pipeline);
-            pass.draw(0..3, 0..1);
-        }
+        self.draw_motion(&mut encoder, &actor_view, samples, motion, sample_mask);
         {
             let _clear = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("motion blur fixture depth clear"),
@@ -387,6 +313,110 @@ impl Raster {
             .expect("readback buffer is mapped")
             .to_vec()
     }
+
+    /// Clears world coverage and rasterizes the actor rectangle at every supported sample count.
+    fn draw_motion(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        samples: u32,
+        motion: Option<ActorMotion>,
+        sample_mask: u64,
+    ) {
+        let resources = motion.map(|motion| {
+            let source = format!(
+                "{}\n{}",
+                include_str!("../motion_blur.wgsl"),
+                r#"
+@group(0) @binding(5) var<uniform> velocity: vec4<f32>;
+@fragment fn motion_fragment() -> @location(0) vec4<f32> {
+    return velocity;
+}
+"#
+            );
+            let shader = self
+                .gpu
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("bounded actor velocity fixture"),
+                    source: wgpu::ShaderSource::Wgsl(source.into()),
+                });
+            let pipeline =
+                self.gpu
+                    .device
+                    .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                        label: Some("actor coverage fixture"),
+                        layout: None,
+                        vertex: wgpu::VertexState {
+                            module: &shader,
+                            entry_point: Some("vertex"),
+                            compilation_options: Default::default(),
+                            buffers: &[],
+                        },
+                        fragment: Some(wgpu::FragmentState {
+                            module: &shader,
+                            entry_point: Some("motion_fragment"),
+                            compilation_options: Default::default(),
+                            targets: &[Some(wgpu::ColorTargetState {
+                                format: crate::actor_render::motion::MOTION_FORMAT,
+                                blend: None,
+                                write_mask: wgpu::ColorWrites::ALL,
+                            })],
+                        }),
+                        primitive: Default::default(),
+                        depth_stencil: None,
+                        multisample: wgpu::MultisampleState {
+                            count: samples,
+                            mask: sample_mask,
+                            ..Default::default()
+                        },
+                        multiview_mask: None,
+                        cache: None,
+                    });
+            let uniform = self
+                .gpu
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("actor fixture velocity"),
+                    contents: bytemuck::bytes_of(&motion.velocity),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                });
+            let binding = self
+                .gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: None,
+                    layout: &pipeline.get_bind_group_layout(0),
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: uniform.as_entire_binding(),
+                    }],
+                });
+            (pipeline, binding, motion.bounds)
+        });
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("actor velocity raster fixture"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        if let Some((pipeline, binding, bounds)) = &resources {
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, binding, &[]);
+            pass.set_scissor_rect(bounds.x, bounds.y, bounds.z, bounds.w);
+            pass.draw(0..3, 0..1);
+        }
+    }
 }
 
 #[test]
@@ -398,17 +428,20 @@ fn actor_coverage_outside_msaa_sample_zero_does_not_receive_world_translation_bl
     let uniform = exposure(Mat4::from_translation(Vec3::new(0.5, 0.0, 0.0)));
     let z = projection().project_point3(Vec3::new(0.0, 0.0, -4.0)).z;
     for &samples in raster.depth_samples.iter().filter(|&&samples| samples > 1) {
-        let output = raster.draw_with_coverage(
+        let output = raster.draw_with_motion_mask(
             &input,
             uniform,
             samples,
             z,
-            Some([0.0, 0.0, 1.0, 1.0]),
-            true,
+            Some(ActorMotion {
+                velocity: [0.0, 0.0, 1.0, 1.0],
+                bounds: UVec4::new(0, 0, SIDE, SIDE),
+            }),
+            1 << (samples - 1),
         );
         assert_eq!(
             output, input,
-            "covered actor in nonzero samples blurred at {samples}x MSAA"
+            "actor covered only by the last sample blurred at {samples}x MSAA"
         );
     }
 }
@@ -424,8 +457,16 @@ fn actor_velocity_keeps_camera_followed_pixels_sharp_without_erasing_object_moti
     for &samples in &raster.depth_samples {
         let world = raster.draw(&input, uniform, samples, z);
         assert!(extent(&world)[0] > extent(&input)[0]);
-        let followed =
-            raster.draw_with_motion(&input, uniform, samples, z, Some([0.0, 0.0, 1.0, 1.0]));
+        let followed = raster.draw_with_motion(
+            &input,
+            uniform,
+            samples,
+            z,
+            Some(ActorMotion {
+                velocity: [0.0, 0.0, 1.0, 1.0],
+                bounds: UVec4::new(0, 0, SIDE, SIDE),
+            }),
+        );
         assert_eq!(
             followed, input,
             "following actor changed at {samples}x MSAA"
@@ -437,7 +478,10 @@ fn actor_velocity_keeps_camera_followed_pixels_sharp_without_erasing_object_moti
             stationary_camera,
             samples,
             z,
-            Some([0.125, 0.0, 1.0, 1.0]),
+            Some(ActorMotion {
+                velocity: [0.125, 0.0, 1.0, 1.0],
+                bounds: UVec4::new(0, 0, SIDE, SIDE),
+            }),
         );
         assert!(
             extent(&moving)[0] > 6,
@@ -448,6 +492,75 @@ fn actor_velocity_keeps_camera_followed_pixels_sharp_without_erasing_object_moti
             save("following-actor", &followed);
             save("moving-actor", &moving);
             save("world-translation", &world);
+        }
+    }
+}
+
+#[test]
+fn moving_actor_silhouettes_blur_against_world_pixels() {
+    let Some(raster) = Raster::new("actor silhouette exposure raster") else {
+        return;
+    };
+    let bounds = UVec4::new(SIDE / 2 - 4, SIDE / 2 - 16, 8, 32);
+    let input = image(|x, y| {
+        let value =
+            if x >= bounds.x && x < bounds.x + bounds.z && y >= bounds.y && y < bounds.y + bounds.w
+            {
+                255
+            } else {
+                0
+            };
+        [value, value, value, 255]
+    });
+    let z = projection().project_point3(Vec3::new(0.0, 0.0, -4.0)).z;
+    let pixel = |pixels: &[u8], x: u32| pixels[((SIDE / 2 * SIDE + x) * 4) as usize];
+    for &samples in &raster.depth_samples {
+        for camera in [
+            Mat4::IDENTITY,
+            Mat4::from_translation(Vec3::new(1.0, 0.0, 0.0)),
+        ] {
+            let mut uniform = exposure(camera);
+            uniform.strength.x = 1.0;
+            let moving = raster.draw_with_motion(
+                &input,
+                uniform,
+                samples,
+                z,
+                Some(ActorMotion {
+                    velocity: [-0.125, 0.0, 1.0, 1.0],
+                    bounds,
+                }),
+            );
+            assert!(
+                pixel(&moving, bounds.x) < 240,
+                "moving silhouette kept its sharp edge at {samples}x MSAA"
+            );
+            if camera != Mat4::IDENTITY {
+                assert!(
+                    pixel(&moving, bounds.x - 3) > 8,
+                    "camera pan must gather across a moving actor boundary at {samples}x MSAA"
+                );
+            }
+            let followed = raster.draw_with_motion(
+                &input,
+                uniform,
+                samples,
+                z,
+                Some(ActorMotion {
+                    velocity: [0.0, 0.0, 1.0, 1.0],
+                    bounds,
+                }),
+            );
+            assert_eq!(
+                pixel(&followed, bounds.x),
+                255,
+                "screen-stationary actor edge must remain sharp"
+            );
+            assert_eq!(
+                pixel(&followed, bounds.x - 3),
+                0,
+                "world blur must reject screen-stationary actors"
+            );
         }
     }
 }

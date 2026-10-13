@@ -9,7 +9,9 @@ struct Exposure {
 @group(0) @binding(3) var<uniform> exposure: Exposure;
 @group(0) @binding(4) var actor_velocity: texture_2d<f32>;
 
-// Multisampled views resolve actor velocity across covered samples, including silhouette cutouts.
+const MIN_BLUR_SPEED: f32 = 0.5;
+
+// Multisampled views resolve actor motion across covered samples, including silhouette cutouts.
 // Mixed actor/world pixels retain the covered actor's motion instead of smearing its silhouette.
 fn object_motion(pixel: vec2<i32>) -> vec4<f32> {
     if exposure.strength.z <= 0.0 {
@@ -45,7 +47,7 @@ fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
         velocity = (uv - previous_uv) * exposure.viewport.zw * exposure.strength.x;
     }
     let speed = length(velocity);
-    if speed < 0.5 {
+    if speed < MIN_BLUR_SPEED {
         return base;
     }
     velocity *= min(1.0, 96.0 / speed);
@@ -58,9 +60,9 @@ fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     for (var i = 0u; i < count; i++) {
         let step = f32(i) / f32(count - 1u) - 0.5;
         let sample_position = clamp(position.xy + velocity * step, lower, upper);
-        // A stationary following actor must not leak into blurred world gathers or vice versa.
+        // Protect screen-stationary actors while allowing moving silhouettes to blur.
         let sample_actor = object_motion(vec2<i32>(sample_position));
-        if (sample_actor.z >= 0.5) != (actor.z >= 0.5) {
+        if sample_actor.z >= 0.5 && length(sample_actor.xy * exposure.viewport.zw * exposure.strength.x) < MIN_BLUR_SPEED {
             continue;
         }
         color += textureSampleLevel(scene, scene_sampler, sample_position / dimensions, 0.0);

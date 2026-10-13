@@ -2,6 +2,15 @@ use super::*;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 
 impl WorldAuthority {
+    /// Publishes local placement, reanchoring animation only when presentation changes.
+    pub fn set_local_actor_presentation_position(&mut self, position: [f32; 3], reanchor: bool) {
+        self.actors.set_local_presentation_position(
+            self.local_player_runtime_id,
+            position,
+            reanchor,
+        );
+    }
+
     /// Admits and polls appearance work without advancing animation ticks; true while work remains.
     pub fn poll_actor_appearance_preparation(&mut self) -> bool {
         self.actors.prepare_appearances(false);

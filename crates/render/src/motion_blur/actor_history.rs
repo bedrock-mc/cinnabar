@@ -10,8 +10,8 @@ use std::collections::HashMap;
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct MotionInstance {
-    pub previous_clip_from_actor: Mat4,
     pub current_clip_from_actor: Mat4,
+    pub previous_clip_from_actor: Mat4,
     /// Bone offset and history-valid flag, followed by uniform storage padding.
     pub pose: [u32; 4],
 }
@@ -74,9 +74,9 @@ impl ActorHistory {
                         && self.previous.geometry_revision == current.geometry_revision
                 });
             let mut motion = MotionInstance {
-                previous_clip_from_actor: Mat4::IDENTITY,
                 current_clip_from_actor: current_projection
                     .clip_from_actor(instance.world_from_actor),
+                previous_clip_from_actor: Mat4::IDENTITY,
                 pose: [0; 4],
             };
             if let Some(index) = old {
@@ -121,7 +121,10 @@ impl ActorHistory {
                             projection.clip_from_actor(old.world_from_actor);
                         motion.pose = [
                             base,
-                            u32::from(motion.previous_clip_from_actor.is_finite()),
+                            u32::from(
+                                motion.current_clip_from_actor.is_finite()
+                                    && motion.previous_clip_from_actor.is_finite(),
+                            ),
                             0,
                             0,
                         ];
@@ -160,4 +163,4 @@ impl ActorHistory {
 }
 
 #[cfg(test)]
-pub(super) mod tests;
+pub(crate) mod tests;

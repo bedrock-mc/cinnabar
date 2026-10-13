@@ -272,6 +272,8 @@ pub(crate) fn prepare(
 }
 
 #[cfg(test)]
+mod raster_tests;
+#[cfg(test)]
 mod tests;
 
 /// Fills covered actor samples without changing world depth, color or presentation witnesses.
