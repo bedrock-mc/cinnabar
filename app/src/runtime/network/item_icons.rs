@@ -7,13 +7,15 @@ use std::{
 };
 
 mod catalog;
+mod images;
+use images::{first_frame, icon, resolve_key};
 mod vanilla;
 pub(crate) use vanilla::{set_vanilla_item_paths, vanilla_item_paths_installed};
 
 use resource_pack::LayeredPackView;
 
-use client_ui::ui_runtime::presentation::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
-use pack_runtime::pack_textures::{DecodedTexture, decode_pack_texture};
+use assets::texture::policy::MAX_SUBSCRIBER_BYTES;
+use client_ui::ui_runtime::presentation::{SessionIcon, SessionIcons};
 use render_model::equipment::blocks::overlay_sheet;
 
 /// One icon per registry item, the most a session can name.
@@ -56,6 +58,14 @@ pub(super) fn compile_session_icons(
         .filter(|(identifier, _)| !block_rendered.contains(identifier))
         .partition(|(identifier, key)| key.as_ref() == short_name(identifier));
     let mut icons = Vec::new();
+    let mut retained_bytes = 0;
+    let mut bounded_sheets = Vec::new();
+    append_block_icons(
+        &mut bounded_sheets,
+        block_sheets.into_iter(),
+        &mut retained_bytes,
+    );
+    let block_sheets = bounded_sheets;
     let mut misses = std::collections::HashMap::new();
     for (identifier, reason) in block_misses {
         if misses.len() < MAX_SESSION_ICONS {
@@ -67,11 +77,7 @@ pub(super) fn compile_session_icons(
     for (index, (identifier, key)) in explicit.into_iter().chain(guessed).enumerate() {
         // Block items rank after explicit icons and before short-name guesses.
         if index == explicit_count {
-            icons.extend(
-                block_icons
-                    .by_ref()
-                    .take(MAX_SESSION_ICONS.saturating_sub(icons.len())),
-            );
+            append_block_icons(&mut icons, block_icons.by_ref(), &mut retained_bytes);
         }
         if icons.len() >= MAX_SESSION_ICONS {
             break;
@@ -81,14 +87,16 @@ pub(super) fn compile_session_icons(
             &paths,
             key,
             MAX_SESSION_ICONS.saturating_sub(icons.len()),
+            MAX_SUBSCRIBER_BYTES.saturating_sub(retained_bytes),
         ) {
             Ok(textures) => {
                 for (metadata, texture) in textures {
                     if icons.len() >= MAX_SESSION_ICONS {
                         break;
                     }
-                    let mut sprite = icon(Arc::clone(identifier), first_frame(texture));
+                    let mut sprite = icon(Arc::clone(identifier), texture);
                     sprite.metadata = metadata;
+                    retained_bytes += sprite.rgba8.len();
                     icons.push(sprite);
                 }
             }
@@ -100,8 +108,8 @@ pub(super) fn compile_session_icons(
             }
         }
     }
-    icons.extend(block_icons.take(MAX_SESSION_ICONS.saturating_sub(icons.len())));
-    vanilla::append(view, &mut icons);
+    append_block_icons(&mut icons, block_icons, &mut retained_bytes);
+    vanilla::append(view, &mut icons, &mut retained_bytes);
     (!icons.is_empty() || !misses.is_empty()).then(|| {
         Arc::new(SessionIcons {
             icons,
@@ -110,6 +118,23 @@ pub(super) fn compile_session_icons(
             misses,
         })
     })
+}
+
+/// Preserves block icon priority without exceeding the shared retained pixel budget.
+fn append_block_icons(
+    icons: &mut Vec<SessionIcon>,
+    blocks: impl Iterator<Item = SessionIcon>,
+    retained_bytes: &mut usize,
+) {
+    for icon in blocks {
+        if icons.len() >= MAX_SESSION_ICONS {
+            break;
+        }
+        if icon.rgba8.len() <= MAX_SUBSCRIBER_BYTES.saturating_sub(*retained_bytes) {
+            *retained_bytes += icon.rgba8.len();
+            icons.push(icon);
+        }
+    }
 }
 
 /// Custom block item thumbnails and cube sheets, and why a block item has no thumbnail.
@@ -182,93 +207,6 @@ pub(super) fn custom_block_icons(
         }
     }
     result
-}
-
-/// The image for icon `key`: the catalog's path, else `textures/items/<key>`.
-fn resolve_key(
-    view: &LayeredPackView,
-    paths: &std::collections::HashMap<String, Vec<String>>,
-    key: &str,
-    remaining: usize,
-) -> Result<Vec<(u32, DecodedTexture)>, String> {
-    if remaining == 0 {
-        return Ok(Vec::new());
-    }
-    let mut tried = Vec::new();
-    if let Some(variants) = paths.get(key) {
-        let textures: Vec<_> = variants
-            .iter()
-            .enumerate()
-            .filter_map(|(metadata, path)| {
-                decode_pack_texture(view, path).map(|texture| (metadata as u32, texture))
-            })
-            .take(remaining)
-            .collect();
-        if !textures.is_empty() {
-            return Ok(textures);
-        }
-        tried.push(format!("catalog key {key} has no readable images"));
-    } else {
-        tried.push(format!("key '{key}' not in the merged item_texture.json"));
-    }
-    let bare = key.rsplit_once(':').map_or(key, |(_, name)| name);
-    for path in [
-        format!("textures/items/{key}"),
-        format!("textures/items/{bare}"),
-    ] {
-        if let Some(texture) = decode_pack_texture(view, &path) {
-            return Ok(vec![(0, texture)]);
-        }
-    }
-    tried.push(format!("no textures/items/{bare}"));
-    Err(tried.join("; "))
-}
-
-/// Vertical strips animate in vanilla; the static icon is their first frame.
-fn first_frame(texture: DecodedTexture) -> DecodedTexture {
-    let side = texture.width;
-    if texture.height <= side || !texture.height.is_multiple_of(side) {
-        return texture;
-    }
-    let bytes = (side * side * 4) as usize;
-    DecodedTexture {
-        width: side,
-        height: side,
-        rgba8: texture.rgba8[..bytes].into(),
-    }
-}
-
-/// Keeps icons up to the page limit as-is and reduces larger ones by
-/// nearest-neighbour sampling, preserving aspect.
-fn icon(identifier: Arc<str>, texture: DecodedTexture) -> SessionIcon {
-    let longest = texture.width.max(texture.height);
-    if longest <= MAX_SESSION_ICON_SIDE {
-        return SessionIcon {
-            identifier,
-            metadata: 0,
-            width: texture.width,
-            height: texture.height,
-            rgba8: texture.rgba8,
-        };
-    }
-    let scale = |side: u32| (side * MAX_SESSION_ICON_SIDE / longest).max(1);
-    let (width, height) = (scale(texture.width), scale(texture.height));
-    let mut rgba8 = Vec::with_capacity((width * height * 4) as usize);
-    for y in 0..height {
-        let source_y = y * texture.height / height;
-        for x in 0..width {
-            let source_x = x * texture.width / width;
-            let offset = ((source_y * texture.width + source_x) * 4) as usize;
-            rgba8.extend_from_slice(&texture.rgba8[offset..offset + 4]);
-        }
-    }
-    SessionIcon {
-        identifier,
-        metadata: 0,
-        width,
-        height,
-        rgba8: rgba8.into(),
-    }
 }
 
 #[cfg(test)]

@@ -4,6 +4,23 @@ use bevy::ecs::system::RunSystemOnce;
 use render_scene::ParticleGpuFrame;
 
 #[test]
+fn particle_upload_retains_the_prepared_atlas_dimensions() {
+    let Some(mut app) = crate::upload_allocation_tests::app(ParticleRenderPlugin) else {
+        return;
+    };
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let side = 2048;
+    world.insert_resource(ParticleGpuFrame {
+        base: Some(vec![255; (side * side * 4) as usize].into()),
+        atlas_side: side,
+        ..Default::default()
+    });
+    world.run_system_once(prepare_particle_resources).unwrap();
+    let texture = world.resource::<ParticleGpu>().texture.as_ref().unwrap();
+    assert_eq!([texture.width(), texture.height()], [side; 2]);
+}
+
+#[test]
 fn recurring_particle_updates_allocate_no_gpu_staging_buffers() {
     let Some(mut app) = crate::upload_allocation_tests::app(ParticleRenderPlugin) else {
         return;

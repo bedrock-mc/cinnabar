@@ -207,8 +207,8 @@ pub use celestial::{
 pub use dropped_item::ItemMeshVertex;
 pub use dropped_item::{
     DroppedItemInstance, DroppedItemModel, MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES,
-    MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE, TerrainItemInstance, TerrainItemTransition, WHITE_LAYER,
-    dropped_item_transform,
+    MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE, MIN_ITEM_ATLAS_SIDE, TerrainItemInstance,
+    TerrainItemTransition, WHITE_LAYER, dropped_item_transform,
 };
 pub use dropped_item::{DroppedItemShape, DroppedItemSpawnPose, native_dropped_item_transform};
 pub use dropped_item::{rope_color, rope_point, rope_ribbon};

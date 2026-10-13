@@ -87,6 +87,8 @@ fn terrain_override_mips_average_unassociated_leaf_alpha_and_colours() {
         overlay: Default::default(),
         sources: Vec::new(),
         source_bytes: 0,
+        tile_size: super::super::MIN_TILE,
+        texture_policy: assets::texture::policy::device_policy(),
         max_layers: assets::MAX_TEXTURE_LAYERS,
         textures: Default::default(),
         materials: Default::default(),
@@ -247,6 +249,8 @@ fn overlay_images(
             .map(super::super::Source::Image)
             .collect(),
         source_bytes: 0,
+        tile_size: super::super::MIN_TILE,
+        texture_policy: assets::texture::policy::device_policy(),
         max_layers: assets::MAX_TEXTURE_LAYERS,
         textures: Default::default(),
         materials: Default::default(),
@@ -430,7 +434,7 @@ fn terrain_override_subtile_images_use_the_minimum_atlas_pixel_size() {
 }
 
 #[test]
-fn terrain_grid_budget_fallback_preserves_unrelated_texture_layers() {
+fn terrain_page_rejects_over_budget_sources_without_shrinking() {
     let view = view();
     let mut builder = super::super::Builder {
         catalog: super::super::textures::TextureCatalog::new(&view, None),
@@ -438,6 +442,8 @@ fn terrain_grid_budget_fallback_preserves_unrelated_texture_layers() {
         overlay: Default::default(),
         sources: Vec::new(),
         source_bytes: 0,
+        tile_size: super::super::MIN_TILE,
+        texture_policy: assets::texture::policy::device_policy(),
         max_layers: assets::MAX_TEXTURE_LAYERS,
         textures: Default::default(),
         materials: Default::default(),
@@ -462,18 +468,10 @@ fn terrain_grid_budget_fallback_preserves_unrelated_texture_layers() {
     builder
         .sources
         .extend((0..768).map(|_| super::super::Source::Diagnostic));
-    let compiled = builder
-        .finish()
-        .expect("one unsupported reduced grid cannot discard unrelated pack data");
-    let texture = compiled.overlay.texture.unwrap();
-    assert_eq!(texture.mips[0].size, 64);
-    let layer_bytes = (texture.mips[0].size * texture.mips[0].size * 4) as usize;
-    assert_eq!(
-        &texture.mips[0].rgba8[layer_bytes..][..4],
-        &[23, 57, 91, 255]
+    assert!(
+        builder.finish().is_none(),
+        "unadmitted sources cannot force the page to reduce its resolution"
     );
-    assert_eq!(compiled.gaps.missing_textures, 1);
-    assert_eq!(compiled.overlay.texture_source_grids[0], 0);
 }
 
 #[test]
