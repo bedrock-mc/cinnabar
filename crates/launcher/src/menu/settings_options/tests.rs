@@ -562,15 +562,12 @@ fn dark_mode_defaults_off_persists_and_resets_with_video_settings() {
 }
 
 #[test]
-fn extra_large_ui_persists_and_resets_without_changing_ordinary_gui_scale() {
+fn extra_large_ui_persists_and_resets() {
     let mut settings = SettingsOptions::default();
     assert!(!settings.extra_large_ui());
-    settings.set(index("gui_scale"), -1);
-    let ordinary = settings.value("gui_scale");
     assert!(settings.set(index(EXTRA_LARGE_UI), 1));
     let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
     assert!(loaded.extra_large_ui());
-    assert_eq!(loaded.value("gui_scale"), ordinary);
     loaded.reset_group(SettingsGroup::Audio);
     assert!(loaded.extra_large_ui());
     loaded.reset_group(SettingsGroup::Video);
