@@ -28,7 +28,9 @@ fn startup_custom_item_survives_empty_registry_duplicate_in_first_person() {
         assert!(
             frame
                 .rgba8
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|pixel| { pixel[0] > 0 && pixel[0] <= 15 && pixel[1] == 0 && pixel[2] == 0 }),
             "the held mesh must sample the original fixture's red texture"
         );
