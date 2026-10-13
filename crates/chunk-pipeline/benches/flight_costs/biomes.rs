@@ -72,8 +72,12 @@ impl PayloadProbe {
         if !self.tracking {
             return;
         }
+        if mesh.is_empty() {
+            self.previous.remove(&key);
+            return;
+        }
         let previous = self.previous.insert(key, record.clone());
-        if !self.active || mesh.is_empty() {
+        if !self.active {
             return;
         }
         self.publications += 1;
