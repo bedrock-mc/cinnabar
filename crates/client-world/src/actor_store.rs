@@ -61,7 +61,8 @@ pub(crate) const ACTOR_FLAG_SITTING: u32 = 24;
 const ACTOR_FLAG_HAS_GRAVITY: u32 = 49;
 const ACTOR_FLAG_USES_UNIFORM_AIR_DRAG: u32 = 128;
 
-const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
+/// A sleeping player's offset from its feet to its native actor-state position (its eye).
+pub const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
 /// A vanilla falling block's network offset, for its vanilla box height.
 const FALLING_BLOCK_NETWORK_OFFSET: f32 = 0.5;
 const FALLING_BLOCK_HEIGHT: f32 = 0.98;
@@ -984,6 +985,9 @@ mod movement_duration_tests;
 
 #[cfg(test)]
 mod scale_tests;
+
+#[cfg(test)]
+mod sleep_tests;
 
 #[cfg(test)]
 mod bounds_tests;

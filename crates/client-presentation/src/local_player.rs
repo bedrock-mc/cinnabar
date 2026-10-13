@@ -645,6 +645,32 @@ pub struct CameraPublicationContext<'a, 'w> {
     pub receipt: ResMut<'w, crate::local_player_camera_receipt::CameraPublicationAttempt>,
 }
 
+/// Height of a bed's top above its block, where a sleeper lies (as `startSleepInBed` places it,
+/// which Dragonfly mirrors).
+pub const BED_TOP_HEIGHT: f32 = 0.5625;
+
+/// The eye and feet a player sleeping in `bed` presents: lying on the bed top at the block's
+/// centre, with the eye at the sleeping actor-state offset.
+#[must_use]
+pub fn sleeping_subject_position(bed: [i32; 3]) -> (Vec3, Vec3) {
+    let feet = Vec3::new(
+        bed[0] as f32 + 0.5,
+        bed[1] as f32 + BED_TOP_HEIGHT,
+        bed[2] as f32 + 0.5,
+    );
+    (feet + Vec3::Y * client_world::SLEEPING_PLAYER_NETWORK_OFFSET, feet)
+}
+
+/// The view a player sleeping with `sleep_rotation` degrees looks along: from the pillow
+/// toward the foot of the bed, level, matching the sleeping animation's `270 - rotation` turn.
+///
+/// Provisional: the native first-person sleeping view is unmeasured.
+#[must_use]
+pub fn sleeping_view_rotation(sleep_rotation: f32) -> Quat {
+    let yaw = 270.0 - sleep_rotation;
+    Quat::from_euler(bevy::math::EulerRot::YXZ, (180.0 - yaw).to_radians(), 0.0, 0.0)
+}
+
 /// Publishes presentation from the supplied committed world and completed physics observations.
 pub fn resolve_camera_pose(
     client_world: crate::observations::WorldObservation<'_>,
@@ -762,3 +788,23 @@ pub fn publish_local_player_frame(
         receipt.finish(camera_proof, frame.pose_generation());
     }
 }
+
+#[cfg(test)]
+mod sleeping_tests {
+    use bevy::math::Vec3;
+
+    use super::{sleeping_subject_position, sleeping_view_rotation};
+
+    #[test]
+    fn sleepers_lie_on_the_bed_top_and_look_toward_its_foot() {
+        let (eye, feet) = sleeping_subject_position([2, 70, -5]);
+        assert_eq!(feet, Vec3::new(2.5, 70.5625, -4.5));
+        assert!((eye.y - feet.y - client_world::SLEEPING_PLAYER_NETWORK_OFFSET).abs() < 1e-4);
+        // A south-facing bed (sleep rotation 90) puts the head south, so the view faces north.
+        let forward = sleeping_view_rotation(90.0) * Vec3::NEG_Z;
+        assert!(forward.abs_diff_eq(Vec3::NEG_Z, 1e-5), "{forward}");
+        let forward = sleeping_view_rotation(0.0) * Vec3::NEG_Z;
+        assert!(forward.abs_diff_eq(Vec3::X, 1e-5), "west-facing bed looks east: {forward}");
+    }
+}
+

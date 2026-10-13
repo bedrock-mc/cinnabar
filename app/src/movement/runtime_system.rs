@@ -113,7 +113,7 @@ pub(crate) fn advance_local_physics(
     locals.observe_dismount(&frame, movement_ticker.session_generation());
     if !movement_ticker.can_advance_physics_frame() {
         // Retain presses and publish the pose while transport pauses simulation.
-        publish_physics_view(&physics, &mut view);
+        publish_physics_view(&physics, &mut view, sleeping_bed(stream));
         return;
     }
     let world = sim::PaletteWorld::for_movement(
@@ -137,11 +137,30 @@ pub(crate) fn advance_local_physics(
             network.send_inventory_packets(vec![packet])
         });
     }
-    publish_physics_view(&physics, &mut view);
+    publish_physics_view(&physics, &mut view, sleeping_bed(stream));
 }
 
-/// Publishes the retained interpolated pose even while transport pauses simulation.
-fn publish_physics_view(physics: &LocalPhysicsController, view: &mut LocalViewPose) {
+/// The bed the local player sleeps in, once the server says so.
+fn sleeping_bed(stream: &chunk_pipeline::WorldStream) -> Option<[i32; 3]> {
+    stream
+        .authority()
+        .actor(stream.local_player_runtime_id())?
+        .sleeping_bed()
+        .map(|(bed, _)| bed)
+}
+
+/// Publishes the retained interpolated pose even while transport pauses simulation. A sleeper
+/// presents lying on its bed, where the native client puts it, while its physics stays put.
+fn publish_physics_view(
+    physics: &LocalPhysicsController,
+    view: &mut LocalViewPose,
+    bed: Option<[i32; 3]>,
+) {
+    if let Some(bed) = bed {
+        let (eye, feet) = client_presentation::local_player::sleeping_subject_position(bed);
+        view.set_subject_position(eye, feet);
+        return;
+    }
     if let (Some(eye), Some(feet)) = (
         physics.render_eye_position(),
         physics.render_feet_position(),

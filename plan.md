@@ -1469,6 +1469,12 @@ frame-budget or identical-version pixel gates.
 - Beds compile the pinned authored model and render once from the head block with
   both halves' light. Six bed tests passed. Fresh Metal red/white galleries and the
   actual BDS platform show a mattress, pillow, blanket and wooden legs.
+- Sleepers turn by the native sleep rotation (`0x145F80E30`): the bed at the streamed bed
+  position faces south 90, west 0, north 270 and east 180 degrees, and a sleeper without a
+  bed position reads 0. The local sleeper presents lying on the bed top at the block centre,
+  with its eye at the sleeping offset, while its physics stays where it stood. Provisional:
+  the first-person view looks level from the pillow toward the foot; the native sleeping
+  camera is unmeasured.
 - Falling blocks retain variant metadata, full block geometry and packet-centred
   placement, including stepped dragon eggs. Spawn and movement no longer disagree
   by half a block. Egg, sand and gravel Metal galleries use the production mesh.

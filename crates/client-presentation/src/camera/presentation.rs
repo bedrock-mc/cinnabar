@@ -440,6 +440,17 @@ pub fn apply_camera_presentation(
 
     let override_pose = server.pose_override(&context);
     let mut pose = override_pose.unwrap_or(base);
+    // A sleeper looks along its bed rather than where it last aimed.
+    if override_pose.is_none()
+        && let Some((_, rotation)) = stream.and_then(|stream| {
+            stream
+                .authority()
+                .actor(stream.local_player_runtime_id())?
+                .sleeping_bed()
+        })
+    {
+        pose.rotation = crate::local_player::sleeping_view_rotation(rotation);
+    }
     if let (Some(stream), Some(collisions)) = (stream, collisions) {
         let world = sim::PaletteWorld::new(
             stream.collision_store(),
