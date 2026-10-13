@@ -18,6 +18,8 @@ pub const SAND: u32 = 2;
 pub const WATER: u32 = 3;
 pub const FLOWER: u32 = 4;
 pub const LEAVES: u32 = 5;
+pub const SLAB: u32 = 6;
+pub const TORCH: u32 = 7;
 
 pub const SAND_RGB: [u8; 3] = [200, 180, 100];
 pub const LEAF_RGB: [u8; 3] = [60, 160, 60];
@@ -80,6 +82,15 @@ fn textures() -> TextureArray {
     }
 }
 
+fn model_quad(positions: [[i16; 3]; 4]) -> assets::ModelQuad {
+    assets::ModelQuad {
+        positions,
+        uvs: [[0; 2]; 4],
+        material: 2,
+        flags: 0,
+    }
+}
+
 fn material(layer: u32, flags: u32) -> Material {
     Material {
         texture: TextureRef::new(0, layer).unwrap(),
@@ -111,13 +122,20 @@ pub fn runtime_assets() -> RuntimeAssets {
     ];
     let mut visuals = visuals;
     visuals[FLOWER as usize].model_template = 0;
+    let mut slab = visual(VisualKind::Model, BlockFlags::empty(), 2, 0);
+    slab.model_template = 1;
+    let mut torch = slab;
+    torch.model_template = 2;
+    visuals.extend([slab, torch]);
     let mut materials = vec![
         Material::unvaried(),
         material(0, MATERIAL_FLAG_GRASS_TINT),
         material(1, 0),
         material(2, MATERIAL_FLAG_WATER_TINT),
     ];
-    materials.extend((0..6).map(|_| material(3, MATERIAL_FLAG_FOLIAGE_TINT)));
+    materials.extend(
+        (0..assets::SEASONAL_LEAF_MATERIAL_COUNT).map(|_| material(3, MATERIAL_FLAG_FOLIAGE_TINT)),
+    );
     let compiled = CompiledAssets {
         light_properties: vec![assets::LightProperties::default(); visuals.len()]
             .into_boxed_slice(),
@@ -126,17 +144,25 @@ pub fn runtime_assets() -> RuntimeAssets {
             .collect(),
         visuals: visuals.into_boxed_slice(),
         materials: materials.into_boxed_slice(),
-        model_templates: Box::new([assets::ModelTemplate {
-            quad_start: 0,
-            quad_count: 1,
-            flags: 0,
-        }]),
-        model_quads: Box::new([assets::ModelQuad {
-            positions: [[0, 0, 0], [256, 0, 256], [256, 256, 256], [0, 256, 0]],
-            uvs: [[0; 2]; 4],
-            material: 2,
-            flags: 0,
-        }]),
+        model_templates: Box::new([(0, 1), (1, 2), (3, 1)].map(|(quad_start, quad_count)| {
+            assets::ModelTemplate {
+                quad_start,
+                quad_count,
+                flags: 0,
+            }
+        })),
+        model_quads: Box::new([
+            // A cross plane, a half slab's top and bottom, and a torch's small cap.
+            model_quad([[0, 0, 0], [256, 0, 256], [256, 256, 256], [0, 256, 0]]),
+            model_quad([[0, 128, 0], [0, 128, 256], [256, 128, 256], [256, 128, 0]]),
+            model_quad([[0, 0, 0], [256, 0, 0], [256, 0, 256], [0, 0, 256]]),
+            model_quad([
+                [112, 160, 112],
+                [112, 160, 144],
+                [144, 160, 144],
+                [144, 160, 112],
+            ]),
+        ]),
         animations: Box::new([]),
         animation_frames: Box::new([]),
         texture_pages: vec![TexturePage::new(textures())].into_boxed_slice(),

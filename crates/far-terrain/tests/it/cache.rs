@@ -126,3 +126,69 @@ fn writes_wait_for_a_batch_and_dimension_changes_switch_namespace() {
         Some(flat(70))
     );
 }
+
+/// Returning to an older map whose columns the newest epoch never saw finds the older epoch.
+#[test]
+fn an_older_matching_epoch_beats_reusing_the_newest() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let mut cache = cache(root.path());
+    join(&mut cache, 64, now);
+    let first = cache.namespace().unwrap();
+    for x in 200..205 {
+        cache.admit(0, ColumnPos::new(x, 0), flat(64).encode(), now);
+    }
+    leave(&mut cache);
+    join(&mut cache, 20, now);
+    assert_ne!(cache.namespace(), Some(first));
+    leave(&mut cache);
+
+    cache.enter_world(SERVER, 42, 0);
+    for x in 200..205 {
+        cache.admit(0, ColumnPos::new(x, 0), flat(64).encode(), now);
+    }
+    cache.sync();
+    cache.poll(now);
+    assert_eq!(cache.namespace(), Some(first));
+}
+
+/// Columns evicted from memory before their region is written still reach disk.
+#[test]
+fn pending_writes_survive_memory_eviction() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let config = FarTerrainConfig {
+        memory_budget_bytes: 1,
+        ..FarTerrainConfig::default()
+    };
+    let mut tiny = FarTerrainCache::new(config, Some(root.path().to_owned()));
+    join(&mut tiny, 64, now);
+    tiny.admit(0, ColumnPos::new(300, 0), flat(90).encode(), now);
+    assert!(tiny.store().is_empty(), "the budget evicted everything");
+    leave(&mut tiny);
+    drop(tiny);
+
+    let mut cache = cache(root.path());
+    join(&mut cache, 64, now);
+    assert_eq!(
+        reload(&mut cache, ColumnPos::new(300, 0), now),
+        Some(flat(90))
+    );
+}
+
+/// A resolution sent before leaving does not apply to a later visit of the same world.
+#[test]
+fn a_stale_resolution_is_ignored_after_reentering() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let mut cache = cache(root.path());
+    cache.enter_world(SERVER, 42, 0);
+    for x in 0..WORLD_PROBE_COLUMNS as i32 {
+        cache.admit(0, ColumnPos::new(x, 0), flat(64).encode(), now);
+    }
+    cache.leave_world();
+    cache.enter_world(SERVER, 42, 0);
+    cache.sync();
+    cache.poll(now);
+    assert_eq!(cache.namespace(), None);
+}

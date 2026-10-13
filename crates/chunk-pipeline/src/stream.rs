@@ -65,7 +65,7 @@ mod dimension_transfer;
 mod dirty;
 mod entity_occlusion;
 mod far_summaries;
-pub use far_summaries::FarColumnSummary;
+pub use far_summaries::{FarColumnSummary, FarSummaryInbox};
 mod helpers;
 mod light_diagnostics;
 mod light_queries;

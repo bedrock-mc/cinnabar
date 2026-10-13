@@ -33,8 +33,13 @@ pub enum DiskEvent {
         region: RegionPos,
         columns: Vec<(ColumnPos, EncodedSummary)>,
     },
-    /// The epoch whose cached terrain matches the probes, or a new one.
-    Resolved { world: WorldKey, epoch: u32 },
+    /// The epoch whose cached terrain matches the probes, or a new one, for the caller's
+    /// world-entry token.
+    Resolved {
+        world: WorldKey,
+        entry: u64,
+        epoch: u32,
+    },
 }
 
 enum Command {
@@ -49,6 +54,7 @@ enum Command {
     },
     Resolve {
         world: WorldKey,
+        entry: u64,
         probes: Vec<(ColumnPos, ColumnSummary)>,
     },
     Sync(Sender<()>),
@@ -107,8 +113,12 @@ impl DiskCache {
     }
 
     /// Picks the epoch of `world` whose cached columns match `probes`.
-    pub fn resolve(&self, world: WorldKey, probes: Vec<(ColumnPos, ColumnSummary)>) {
-        self.send(Command::Resolve { world, probes });
+    pub fn resolve(&self, world: WorldKey, entry: u64, probes: Vec<(ColumnPos, ColumnSummary)>) {
+        self.send(Command::Resolve {
+            world,
+            entry,
+            probes,
+        });
     }
 
     /// Events finished so far.
@@ -177,9 +187,17 @@ impl Worker {
                     columns,
                 });
             }
-            Command::Resolve { world, probes } => {
+            Command::Resolve {
+                world,
+                entry,
+                probes,
+            } => {
                 let epoch = self.resolve(world, &probes);
-                let _ = self.events.send(DiskEvent::Resolved { world, epoch });
+                let _ = self.events.send(DiskEvent::Resolved {
+                    world,
+                    entry,
+                    epoch,
+                });
             }
             Command::Sync(done) => {
                 let _ = done.send(());
@@ -258,34 +276,49 @@ impl Worker {
         let Some(&newest) = epochs.first() else {
             return 0;
         };
+        // A positive match anywhere wins before an empty newest epoch is reused, so returning
+        // to an older map never writes it into the newer map's namespace.
+        let mut newest_overlaps = true;
         for (rank, &epoch) in epochs.iter().take(WORLD_PROBE_EPOCHS).enumerate() {
-            let namespace = world.namespace(epoch);
-            let mut regions = BTreeMap::<RegionPos, Vec<(u16, EncodedSummary)>>::new();
-            let (mut present, mut similar) = (0, 0);
-            for (pos, probe) in probes {
-                let region = RegionPos::of(*pos);
-                let columns = regions.entry(region).or_insert_with(|| {
-                    read_region(&self.region_path(namespace, region)).unwrap_or_default()
-                });
-                let slot = region_index(*pos);
-                let Some(cached) = columns
-                    .iter()
-                    .rev()
-                    .find(|(index, _)| *index == slot)
-                    .and_then(|(_, summary)| ColumnSummary::decode(&summary.bytes).ok())
-                else {
-                    continue;
-                };
-                present += 1;
-                if surface_similarity(&cached, probe) >= WORLD_PROBE_SIMILARITY {
-                    similar += 1;
-                }
-            }
-            if (present == 0 && rank == 0) || (present > 0 && similar == present) {
+            let (present, similar) = self.compare(world.namespace(epoch), probes);
+            if present > 0 && similar == present {
                 return epoch;
             }
+            if rank == 0 {
+                newest_overlaps = present > 0;
+            }
         }
-        newest + 1
+        if newest_overlaps { newest + 1 } else { newest }
+    }
+
+    /// Counts probes the namespace holds, and how many of those match closely.
+    fn compare(
+        &self,
+        namespace: NamespaceKey,
+        probes: &[(ColumnPos, ColumnSummary)],
+    ) -> (usize, usize) {
+        let mut regions = BTreeMap::<RegionPos, Vec<(u16, EncodedSummary)>>::new();
+        let (mut present, mut similar) = (0, 0);
+        for (pos, probe) in probes {
+            let region = RegionPos::of(*pos);
+            let columns = regions.entry(region).or_insert_with(|| {
+                read_region(&self.region_path(namespace, region)).unwrap_or_default()
+            });
+            let slot = region_index(*pos);
+            let Some(cached) = columns
+                .iter()
+                .rev()
+                .find(|(index, _)| *index == slot)
+                .and_then(|(_, summary)| ColumnSummary::decode(&summary.bytes).ok())
+            else {
+                continue;
+            };
+            present += 1;
+            if surface_similarity(&cached, probe) >= WORLD_PROBE_SIMILARITY {
+                similar += 1;
+            }
+        }
+        (present, similar)
     }
 
     fn index(&mut self) -> &mut FileIndex {

@@ -4,11 +4,11 @@
 use std::{sync::Arc, time::Instant};
 
 use bevy::prelude::{Local, Res, ResMut, Resource, Time};
-use chunk_pipeline::FarColumnSummary;
+use chunk_pipeline::{FarColumnSummary, FarSummaryInbox, WorldStream};
 use client_state::RuntimeSettings;
 use far_terrain::{
-    ColumnPos, FarTerrainCache, FarTerrainConfig, FarTiles, NearMask, TileView,
-    config::COVERAGE_RING_CHUNKS, ring_coverage,
+    ColumnPos, EncodedSummary, FarTerrainCache, FarTerrainConfig, FarTiles, NamespaceKey, NearMask,
+    TileView, config::COVERAGE_RING_CHUNKS, ring_coverage,
 };
 use render_scene::FarTerrainScene;
 
@@ -34,6 +34,14 @@ pub(crate) struct FarTerrain {
     coverage_at: Option<Instant>,
     /// Columns changed since coverage was last sampled.
     coverage_stale: bool,
+    retiring: Vec<Retiring>,
+}
+
+/// A retired session's final summaries, written to its namespace once all have arrived.
+struct Retiring {
+    namespace: NamespaceKey,
+    inbox: FarSummaryInbox,
+    columns: Vec<(ColumnPos, EncodedSummary)>,
 }
 
 impl FarTerrain {
@@ -49,6 +57,49 @@ impl FarTerrain {
             coverage: 0.0,
             coverage_at: None,
             coverage_stale: false,
+            retiring: Vec::new(),
+        }
+    }
+
+    /// Summarises the stream's resident columns before it is dropped, so this session's
+    /// edits reach the cache even though no column retires through eviction.
+    pub(crate) fn retire_stream(&mut self, stream: &mut WorldStream) {
+        let Some(namespace) = self
+            .cache
+            .namespace()
+            .filter(|_| stream.far_terrain_enabled())
+        else {
+            return;
+        };
+        self.retiring.push(Retiring {
+            namespace,
+            inbox: stream.retire_far_terrain(),
+            columns: Vec::new(),
+        });
+    }
+
+    /// Collects retiring summaries and persists each session's once its inbox is empty.
+    fn drain_retiring(&mut self, now: Instant) {
+        let mut index = 0;
+        while index < self.retiring.len() {
+            let retiring = &mut self.retiring[index];
+            retiring.inbox.drain(&mut self.drained);
+            let dimension = retiring.namespace.dimension;
+            retiring.columns.extend(
+                self.drained
+                    .drain(..)
+                    .filter(|finished| finished.column.dimension == dimension)
+                    .map(|finished| {
+                        let column = finished.column;
+                        (ColumnPos::new(column.x, column.z), finished.summary)
+                    }),
+            );
+            if retiring.inbox.is_idle() {
+                let done = self.retiring.swap_remove(index);
+                self.cache.persist(done.namespace, done.columns, now);
+            } else {
+                index += 1;
+            }
         }
     }
 }
@@ -129,15 +180,24 @@ pub(crate) fn feed_far_terrain(
         active.0 = target
             .map(|(destination, level, dimension)| (destination.to_owned(), level, dimension));
     }
+    let now = Instant::now();
+    far.drain_retiring(now);
+    if world
+        .stream
+        .as_ref()
+        .is_some_and(|stream| enabled && stream.has_far_summaries())
+        && let Some(stream) = world.stream.as_mut()
+    {
+        stream.drain_far_summaries(&mut far.drained);
+    }
     let Some(stream) = world.stream.as_ref().filter(|_| enabled) else {
+        far.cache.poll(now);
         ease_fog(&mut fog, 0.0, time.delta_secs());
         if far.published.take().is_some() {
             *scene = FarTerrainScene::default();
         }
         return;
     };
-    let now = Instant::now();
-    stream.drain_far_summaries(&mut far.drained);
     for FarColumnSummary { column, summary } in far.drained.drain(..) {
         far.cache.admit(
             column.dimension,
