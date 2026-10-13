@@ -25,5 +25,9 @@ tempfile = "3"
 name = "summary_costs"
 harness = false
 
+[[bench]]
+name = "tile_costs"
+harness = false
+
 [lints]
 workspace = true
