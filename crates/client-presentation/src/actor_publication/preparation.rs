@@ -111,6 +111,7 @@ pub fn advance_actor_frame(
         mut hand_builder,
         hand_motion,
         mut equipment,
+        block_entities,
         profiler,
         mut partial_tick,
         ..
@@ -181,7 +182,13 @@ pub fn advance_actor_frame(
             .map(|items| Arc::as_ptr(items).cast()),
         items.as_ref().map(|items| Arc::as_ptr(items).cast()),
     );
-    if new_session || pack_changed || items_changed || artwork.is_changed() {
+    let held_source = session_id
+        .and_then(|_| block_entities.as_ref())
+        .and_then(|scene| scene.held_models());
+    let held_changed = equipment
+        .as_deref()
+        .is_some_and(|equipment| equipment.held_artwork_changed(held_source));
+    if new_session || pack_changed || items_changed || artwork.is_changed() || held_changed {
         let _setup = profiler
             .as_deref()
             .map(|profiler| profiler.time(render_scene::RuntimeStage::ActorSessionSetup));
@@ -201,7 +208,7 @@ pub fn advance_actor_frame(
         );
         drop(artwork_timer);
         // Always republished: presentation selects from these pages, the scene validates them.
-        let (effective, staged, locations) = apply_session_pack(
+        let (mut effective, staged, locations) = apply_session_pack(
             &mut scene,
             &resources,
             pack.as_deref(),
@@ -210,6 +217,13 @@ pub fn advance_actor_frame(
             equipment.as_deref_mut(),
             profiler.as_deref(),
         );
+        if let Some(equipment) = equipment.as_deref_mut()
+            && let Some(pages) = equipment
+                .bind_held_artwork(held_source, effective.as_ref().unwrap_or(&resources.pages))
+        {
+            scene.configure_artwork(pages.clone());
+            effective = Some(pages);
+        }
         *session_artwork = effective;
         if let Some(equipment) = equipment.as_deref_mut() {
             equipment.set_session_items(items.as_deref(), staged, locations);

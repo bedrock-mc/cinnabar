@@ -118,7 +118,7 @@ pub struct EquipmentRuntime {
     /// Worn head geometry and texture location per skull kind.
     skulls: BTreeMap<u8, (EntityRigId, ActorArtworkLocation)>,
     /// Held geometry and texture location per block-entity item model (chests, shulkers).
-    held_block_entities: BTreeMap<HeldBlockEntity, (EntityRigId, ActorArtworkLocation)>,
+    held_block_entities: held_block_entities::HeldModels,
     item_use: Arc<BTreeMap<Box<str>, u32>>,
     use_overlays: Arc<BTreeMap<Box<str>, assets::equipment::CompiledItemUseOverlay>>,
     /// The startup catalog's use durations, before session items join them.

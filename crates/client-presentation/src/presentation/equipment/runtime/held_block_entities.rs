@@ -1,28 +1,91 @@
-//! Startup admission of cached held block-entity geometry and artwork.
+//! Binds worker-prepared held models to current actor pages and restores startup on disconnect.
 
 use super::*;
+use render_model::block_entity::PreparedHeldBlockModels;
 
-/// Equipment geometry index space reserved for held block-entity item models.
-pub(super) const RIG_INDEX_BASE: u32 = 0x00ff_0100;
+/// Startup fallback and the currently accepted held-artwork bindings.
+pub(super) struct HeldModels {
+    startup: Option<PreparedHeldBlockModels>,
+    startup_location: Option<ActorArtworkLocation>,
+    current: Option<[u8; 32]>,
+    pub(super) models: BTreeMap<HeldBlockEntity, (EntityRigId, ActorArtworkLocation)>,
+}
 
-/// Queues models whose textures are available and binds them to the static atlas raster.
+/// Queues startup models and retains them for restoring after a session.
 pub(super) fn build(
     atlas: Option<&BlockEntityAtlas>,
     location: Option<ActorArtworkLocation>,
     pending: &mut Vec<ActorRigGeometry>,
-) -> BTreeMap<HeldBlockEntity, (EntityRigId, ActorArtworkLocation)> {
-    let mut models = BTreeMap::new();
-    let Some((atlas, location)) = atlas.zip(location) else {
-        return models;
-    };
-    for (index, kind) in HeldBlockEntity::all().into_iter().enumerate() {
-        let id = equipment_rig_id(RIG_INDEX_BASE + index as u32);
-        if let Some(geometry) =
-            render_model::block_entity::held_block_entity_geometry(id, atlas, kind)
-        {
-            pending.push(geometry);
-            models.insert(kind, (id, location));
-        }
+) -> HeldModels {
+    let startup = atlas.map(PreparedHeldBlockModels::new);
+    let current = startup.as_ref().map(PreparedHeldBlockModels::identity);
+    let models = startup
+        .as_ref()
+        .zip(location)
+        .map_or_else(BTreeMap::new, |(source, location)| {
+            source
+                .models()
+                .iter()
+                .map(|(kind, geometry)| {
+                    pending.push(geometry.clone());
+                    (*kind, (geometry.id, location))
+                })
+                .collect()
+        });
+    HeldModels {
+        startup,
+        startup_location: location,
+        current,
+        models,
     }
-    models
+}
+
+impl EquipmentRuntime {
+    /// Detects accepted artwork changes without rebuilding meshes on frames or dynamic text changes.
+    pub fn held_artwork_changed(&self, source: Option<&PreparedHeldBlockModels>) -> bool {
+        self.held_block_entities.current
+            != source
+                .or(self.held_block_entities.startup.as_ref())
+                .map(PreparedHeldBlockModels::identity)
+    }
+
+    /// Binds the accepted static raster into fresh session pages; disconnect restores startup.
+    /// Geometry is queued only when the source identity changes, while page locations always rebind.
+    pub fn bind_held_artwork(
+        &mut self,
+        source: Option<&PreparedHeldBlockModels>,
+        pages: &ActorArtworkPages,
+    ) -> Option<ActorArtworkPages> {
+        let held = &mut self.held_block_entities;
+        let source = source.or(held.startup.as_ref());
+        let identity = source.map(PreparedHeldBlockModels::identity);
+        let startup = identity == held.startup.as_ref().map(PreparedHeldBlockModels::identity);
+        let (extended, location) = if startup {
+            (None, held.startup_location)
+        } else if let Some(raster) = source.and_then(PreparedHeldBlockModels::raster) {
+            let (extended, locations) = pages.with_equipment_rasters(std::slice::from_ref(raster));
+            (Some(extended), locations[0])
+        } else {
+            (None, None)
+        };
+        if identity != held.current {
+            self.pending.extend(
+                source
+                    .into_iter()
+                    .flat_map(|source| source.models())
+                    .map(|(_, geometry)| geometry.clone()),
+            );
+            held.current = identity;
+        }
+        held.models = source
+            .zip(location)
+            .map_or_else(BTreeMap::new, |(source, location)| {
+                source
+                    .models()
+                    .iter()
+                    .map(|(kind, geometry)| (*kind, (geometry.id, location)))
+                    .collect()
+            });
+        extended
+    }
 }

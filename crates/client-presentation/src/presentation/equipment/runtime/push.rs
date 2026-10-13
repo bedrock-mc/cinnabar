@@ -131,7 +131,7 @@ impl EquipmentRuntime {
                 });
         if session.is_none()
             && let Some(&(rig, location)) = HeldBlockEntity::from_item(&item.identifier)
-                .and_then(|kind| self.held_block_entities.get(&kind))
+                .and_then(|kind| self.held_block_entities.models.get(&kind))
         {
             // Block-entity items hold as their placed model over the whole static raster.
             return Some((rig, location, true, [1.0, 1.0]));
