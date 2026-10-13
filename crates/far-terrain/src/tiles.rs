@@ -61,7 +61,7 @@ impl TileKey {
     }
 
     /// Horizontal distances from `point` to the nearest and farthest points of the tile.
-    fn distances(self, point: [f32; 2]) -> (f32, f32) {
+    pub(crate) fn distances(self, point: [f32; 2]) -> (f32, f32) {
         let [x0, z0] = self.origin().map(|block| block as f32);
         let width = self.width_blocks() as f32;
         let near = |p: f32, low: f32| (low - p).max(p - (low + width)).max(0.0);

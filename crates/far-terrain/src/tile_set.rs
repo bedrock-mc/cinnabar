@@ -70,11 +70,18 @@ impl FarTiles {
         for key in wanted {
             kept.insert(key, self.selected.remove(&key).unwrap_or_default());
         }
+        // Only finest quads can hide over near terrain, so coarser ones reaching it go now.
+        let clear_of_near =
+            |key: TileKey| key.level == 0 || key.distances(view.centre).0 >= view.near_blocks;
         for (_, tile) in std::mem::replace(&mut self.selected, kept) {
-            if let Some(mesh) = tile.mesh.filter(|mesh| !mesh.quads.is_empty()) {
+            if let Some(mesh) = tile
+                .mesh
+                .filter(|mesh| !mesh.quads.is_empty() && clear_of_near(mesh.key))
+            {
                 self.retired.push(mesh);
             }
         }
+        self.retired.retain(|mesh| clear_of_near(mesh.key));
         self.retire_covered();
         self.revision += 1;
     }
