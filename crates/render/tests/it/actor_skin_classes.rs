@@ -163,11 +163,11 @@ fn raster(
         texture(10, views[2]),
         texture(11, views[3]),
         texture(12, &glint),
-        texture(14, &glint),
         wgpu::BindGroupEntry {
             binding: 13,
             resource: wgpu::BindingResource::Sampler(&sampler),
         },
+        texture(14, &glint),
         buffer(20, &lightmap),
         buffer(21, &atmosphere),
     ];

@@ -78,10 +78,15 @@ pub struct ActorRigVertex {
     pub back_uv: [f32; 2],
     pub bone_index: u32,
     pub surface: ActorRigSurface,
+    /// Atlas origin of an item sprite or block face; zero for standalone actor textures.
+    pub glint_origin: [f32; 2],
 }
 
 pub const ACTOR_RIG_VERTEX_WORDS: usize = std::mem::size_of::<ActorRigVertex>() / 4;
 const _: () = assert!(std::mem::size_of::<ActorRigVertex>() == ACTOR_RIG_VERTEX_WORDS * 4);
+// Both vertex pullers read the origin from the final two storage words.
+const _: () =
+    assert!(std::mem::offset_of!(ActorRigVertex, glint_origin) == (ACTOR_RIG_VERTEX_WORDS - 2) * 4);
 
 #[derive(Clone, Debug)]
 pub struct ActorRigGeometry {
@@ -134,6 +139,7 @@ impl ActorRigGeometry {
                 .chain(vertex.normal.iter())
                 .chain(vertex.uv.iter())
                 .chain(vertex.back_uv.iter())
+                .chain(vertex.glint_origin.iter())
                 .any(|value| !value.is_finite())
                 || vertex.bone_index as usize >= bone_pivots.len()
                 || !vertex.surface.is_valid()
@@ -257,6 +263,7 @@ pub fn diagnostic_geometry() -> ActorRigGeometry {
             back_uv: vertex.uv,
             bone_index: vertex.part,
             surface: ActorRigSurface::SINGLE_FACE,
+            glint_origin: [0.0; 2],
         })
         .collect::<Vec<_>>();
     for triangle in vertices.as_chunks_mut::<3>().0 {

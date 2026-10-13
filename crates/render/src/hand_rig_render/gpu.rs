@@ -21,6 +21,15 @@ pub(super) struct HandRigAtlas {
     pub(super) size: [u32; 3],
 }
 
+/// The uploaded held-item glint, retained while its pixels are unchanged.
+pub(super) struct HandRigGlint {
+    pub(super) _texture: Texture,
+    pub(super) view: TextureView,
+    pub(super) pixels: Option<Arc<[u8]>>,
+    /// Original raster dimensions, before device fitting.
+    pub(super) source_size: [u32; 2],
+}
+
 pub(super) struct HandRigSkin {
     pub(super) _texture: Texture,
     pub(super) view: TextureView,
@@ -44,6 +53,8 @@ pub(super) struct HandRigGpu {
     pub(super) current_bones: Option<Buffer>,
     pub(super) skin: Option<HandRigSkin>,
     pub(super) atlases: [Option<HandRigAtlas>; 2],
+    pub(super) glint_sampler: Sampler,
+    pub(super) glint: Option<HandRigGlint>,
     pub(super) instance_count: u32,
     pub(super) depth: Option<HandRigDepth>,
     pub(super) bind_group: Option<BindGroup>,
@@ -92,6 +103,15 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         current_bones: None,
         skin: None,
         atlases: [None, None],
+        glint_sampler: device.create_sampler(&SamplerDescriptor {
+            label: Some("first-person repeat glint sampler"),
+            address_mode_u: AddressMode::Repeat,
+            address_mode_v: AddressMode::Repeat,
+            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Linear,
+            ..default()
+        }),
+        glint: None,
         instance_count: 0,
         depth: None,
         bind_group: None,
@@ -143,6 +163,7 @@ pub(super) fn prepare(
     upload_pose(&mut gpu, &device, &queue, staging.as_deref(), frame);
     upload_skin(&mut gpu, &device, &queue, frame);
     upload_atlas(&mut gpu, &device, &queue, frame);
+    upload_glint(&mut gpu, &device, &queue, frame);
     ensure_depth(&mut gpu, &device, size, samples);
     let aspect = viewport.z as f32 / viewport.w as f32;
     let projection = glam::camera::rh::proj::directx::perspective_infinite_reverse(
@@ -433,6 +454,67 @@ pub(super) fn upload_atlas(
     }
 }
 
+/// Uploads the frame's held-item glint, or a transparent texel without one, keeping the texture
+/// while its dimensions and pixels are unchanged.
+pub(super) fn upload_glint(
+    gpu: &mut HandRigGpu,
+    device: &RenderDevice,
+    queue: &RenderQueue,
+    frame: &HandRigFrame,
+) {
+    let raster = frame.item_glint.as_ref();
+    let size = raster.map_or([1, 1], |raster| {
+        [u32::from(raster.width), u32::from(raster.height)]
+    });
+    let pixels = raster.map(|raster| Arc::clone(&raster.rgba8));
+    if let Some(current) = &gpu.glint
+        && current.source_size == size
+        && match (&current.pixels, &pixels) {
+            (Some(current), Some(pixels)) => Arc::ptr_eq(current, pixels),
+            (None, None) => true,
+            _ => false,
+        }
+    {
+        return;
+    }
+    let fitted = raster.map(|raster| raster.fit_within(device.limits().max_texture_dimension_2d));
+    let (width, height, data): (u32, u32, &[u8]) = match fitted.as_deref() {
+        Some(raster) => (
+            u32::from(raster.width),
+            u32::from(raster.height),
+            &raster.rgba8,
+        ),
+        None => (1, 1, &[0; 4]),
+    };
+    let texture = device.create_texture_with_data(
+        queue,
+        &TextureDescriptor {
+            label: Some("first-person item glint"),
+            size: Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        },
+        TextureDataOrder::LayerMajor,
+        data,
+    );
+    let view = texture.create_view(&TextureViewDescriptor::default());
+    gpu.glint = Some(HandRigGlint {
+        _texture: texture,
+        view,
+        pixels,
+        source_size: size,
+    });
+    gpu.bind_group = None;
+}
+
 /// Matches the private hand depth attachment to the scene extent and sample count.
 pub(super) fn ensure_depth(
     gpu: &mut HandRigGpu,
@@ -476,81 +558,63 @@ pub(super) fn build_bind_group(gpu: &mut HandRigGpu, device: &RenderDevice, cach
     if gpu.bind_group.is_some() {
         return;
     }
-    let (Some(instances), Some(vertices), Some(spans), Some(previous), Some(current), Some(skin)) = (
+    let (
+        Some(instances),
+        Some(vertices),
+        Some(spans),
+        Some(previous),
+        Some(current),
+        Some(skin),
+        Some(glint),
+    ) = (
         gpu.instances.as_ref(),
         gpu.vertices.buffer(),
         gpu.spans.as_ref(),
         gpu.previous_bones.as_ref(),
         gpu.current_bones.as_ref(),
         gpu.skin.as_ref(),
-    ) else {
+        gpu.glint.as_ref(),
+    )
+    else {
         return;
     };
-    gpu.bind_group = Some(
-        device.create_bind_group(
-            "first-person rig bind group",
-            &cache.get_bind_group_layout(&gpu.layout),
-            &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: gpu.view_uniform.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: instances.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: vertices.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 3,
-                    resource: spans.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 4,
-                    resource: previous.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 5,
-                    resource: current.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 6,
-                    resource: BindingResource::TextureView(&skin.view),
-                },
-                BindGroupEntry {
-                    binding: 7,
-                    resource: BindingResource::Sampler(&gpu.sampler),
-                },
-                BindGroupEntry {
-                    binding: 8,
-                    resource: gpu.material.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 9,
-                    resource: gpu.light_uniform.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 10,
-                    // Without an item atlas the skin view stands in; no instance selects it.
-                    resource: BindingResource::TextureView(
-                        gpu.atlases[0]
-                            .as_ref()
-                            .map_or(&skin.view, |atlas| &atlas.view),
-                    ),
-                },
-                BindGroupEntry {
-                    binding: 11,
-                    resource: BindingResource::TextureView(
-                        gpu.atlases[1]
-                            .as_ref()
-                            .map_or(&skin.view, |atlas| &atlas.view),
-                    ),
-                },
-            ],
-        ),
+    let mut entries = Vec::from(
+        bindings::HandFragmentBindings {
+            instances,
+            skins: &skin.view,
+            skin_sampler: &gpu.sampler,
+            material: &gpu.material,
+            light: &gpu.light_uniform,
+            // Without an item atlas the skin view stands in; no instance selects it.
+            main_atlas: gpu.atlases[0]
+                .as_ref()
+                .map_or(&skin.view, |atlas| &atlas.view),
+            offhand_atlas: gpu.atlases[1]
+                .as_ref()
+                .map_or(&skin.view, |atlas| &atlas.view),
+            item_glint: &glint.view,
+            glint_sampler: &gpu.glint_sampler,
+        }
+        .entries(),
     );
+    entries.extend(
+        [
+            (0, &gpu.view_uniform),
+            (2, vertices),
+            (3, spans),
+            (4, previous),
+            (5, current),
+        ]
+        .map(|(binding, buffer)| BindGroupEntry {
+            binding,
+            resource: buffer.as_entire_binding(),
+        }),
+    );
+    gpu.bind_group = Some(device.create_bind_group(
+        "first-person rig bind group",
+        &cache.get_bind_group_layout(&gpu.layout),
+        &entries,
+    ));
 }
 
 /// Creates an immutable storage buffer for the supplied packed geometry.
@@ -660,7 +724,11 @@ pub(super) fn hand_rig_layout() -> BindGroupLayoutDescriptor {
                 },
                 count: None,
             },
-            storage_entry(1, size_of::<ActorGpuInstance>() as u64),
+            // The fragment stage reads glint words of item instances.
+            BindGroupLayoutEntry {
+                visibility: ShaderStages::VERTEX_FRAGMENT,
+                ..storage_entry(1, size_of::<ActorGpuInstance>() as u64)
+            },
             storage_entry(2, size_of::<ActorRigVertex>() as u64),
             storage_entry(3, size_of::<ActorRigGeometrySpan>() as u64),
             storage_entry(4, size_of::<[[f32; 4]; 3]>() as u64),
@@ -719,6 +787,22 @@ pub(super) fn hand_rig_layout() -> BindGroupLayoutDescriptor {
                     view_dimension: TextureViewDimension::D2Array,
                     multisampled: false,
                 },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 12,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 13,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
                 count: None,
             },
         ],

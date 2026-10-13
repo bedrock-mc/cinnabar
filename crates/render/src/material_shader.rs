@@ -83,6 +83,7 @@ pub(crate) fn glint_tint_source() -> String {
 
 pub(crate) fn source(source: &str) -> String {
     source
+        .replace("ITEM_GLINT_UV_SCALE", &format!("{:?}", render_model::ITEM_GLINT_UV_SCALE))
         .replace("GLINT_TINT_RGB", &glint_tint_source())
         .replace("ACTOR_LIGHT_WORLD_FLAG", &format!("{}u", render_api::ACTOR_LIGHT_WORLD))
         .replace("ACTOR_LIGHT_DIRECTIONAL_FLAG", &format!("{}u", render_api::ACTOR_LIGHT_DIRECTIONAL))

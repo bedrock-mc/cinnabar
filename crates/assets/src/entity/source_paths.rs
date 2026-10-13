@@ -1,7 +1,7 @@
 use super::{AssetError, EntityAssetKind, MAX_ENTITY_ASSET_PATH_BYTES, invalid};
 
 pub const ACTOR_GLINT_TEXTURE_IDENTIFIER: &str = "textures/misc/enchanted_actor_glint";
-/// Shared item raster also used by Bedrock 1.12 worn-armour glint.
+/// Shared item raster used by held and dropped items and Bedrock 1.12 worn-armour glint.
 pub const ITEM_GLINT_TEXTURE_IDENTIFIER: &str = "textures/misc/enchanted_item_glint";
 /// Every shared glint raster the entity carrier keeps beside equipment art.
 pub const GLINT_TEXTURE_IDENTIFIERS: [&str; 2] = [

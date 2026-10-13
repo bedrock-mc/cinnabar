@@ -171,6 +171,7 @@ fn sheet_model(quads: &[assets::ModelQuad]) -> Option<([u32; 6], Vec<crate::Acto
                 back_uv: uv,
                 bone_index: 0,
                 surface: crate::ActorRigSurface::SINGLE_FACE,
+                glint_origin: [rect[0], rect[1]],
             });
         }
     }

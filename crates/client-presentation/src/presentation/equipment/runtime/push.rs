@@ -105,18 +105,15 @@ impl EquipmentRuntime {
             return false;
         };
         let poses = self.poses.share(body, layer, [&[previous], &[current]]);
-        layers.push(layer_presentation(
-            body,
-            layer,
-            geometry.rig,
-            poses,
-            location,
-            0,
+        layers.push(attachable_glint(
+            layer_presentation(body, layer, geometry.rig, poses, location, 0),
+            item,
         ));
         true
     }
 
-    /// The held item's generated mesh and artwork, and whether the mesh is a block cube. A
+    /// The held item's generated mesh and artwork, whether the mesh is a block cube, and the
+    /// UV span of its atlas region that the item glint covers. A
     /// server pack's icon replaces the vanilla one, as it does in the inventory, and a custom
     /// block item with a cube sheet is held as that cube. With `icon_fallback`, a block with no
     /// plain cube sheet takes its icon sprite instead.
@@ -124,7 +121,7 @@ impl EquipmentRuntime {
         &mut self,
         item: &WornItem,
         icon_fallback: bool,
-    ) -> Option<(EntityRigId, ActorArtworkLocation, bool)> {
+    ) -> Option<(EntityRigId, ActorArtworkLocation, bool, [f32; 2])> {
         let session = match item.kind {
             HeldKind::Sprite | HeldKind::Other => {
                 self.session_held(&item.identifier, item.metadata)
@@ -160,7 +157,8 @@ impl EquipmentRuntime {
         };
         let mesh = self.mesh_for(key, index, placement)?;
         let block = matches!(key, MeshKey::Block(_) | MeshKey::SessionBlock(_));
-        Some((mesh, location, block))
+        let span = glint_span(placement.uv_rect(), block);
+        Some((mesh, location, block, span))
     }
 
     /// A held or worn sprite/cube on `bone`, placed by `display` or the kind's held placement.
@@ -176,7 +174,8 @@ impl EquipmentRuntime {
         let Some(hand) = bone else {
             return;
         };
-        let Some((mesh, location, block)) = self.held_mesh(item, override_display.is_none()) else {
+        let Some((mesh, location, block, span)) = self.held_mesh(item, override_display.is_none())
+        else {
             return;
         };
         let display = override_display.unwrap_or_else(|| {
@@ -199,7 +198,11 @@ impl EquipmentRuntime {
             return;
         };
         let poses = self.poses.share(body, layer, [&[previous], &[current]]);
-        layers.push(layer_presentation(body, layer, mesh, poses, location, 0));
+        layers.push(held_glint(
+            layer_presentation(body, layer, mesh, poses, location, 0),
+            item,
+            span,
+        ));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -388,5 +391,80 @@ impl EquipmentRuntime {
         };
         let poses = self.poses.share(body, layer, [&[*previous], &[*current]]);
         layers.push(layer_presentation(body, layer, rig, poses, location, 0));
+    }
+}
+
+/// Returns one sprite's UV span, or one face's span within a block's six-face sheet.
+fn glint_span([u0, v0, u1, v1]: [f32; 4], block: bool) -> [f32; 2] {
+    let mut span = [u1 - u0, v1 - v0];
+    if block {
+        for (span, divisions) in span.iter_mut().zip(assets::BLOCK_ITEM_SHEET_GRID) {
+            *span /= f32::from(divisions);
+        }
+    }
+    span
+}
+
+/// Draws `presentation` with vanilla's item glint over its `span` of the atlas when the held
+/// stack glints; the frame clock is applied at publication.
+pub(super) fn held_glint(
+    presentation: EquipmentPresentation,
+    item: &WornItem,
+    span: [f32; 2],
+) -> EquipmentPresentation {
+    with_glint(
+        presentation,
+        item,
+        render_model::ActorGlint::item(0.0, span),
+    )
+}
+
+/// An attachable's own model takes the item glint raster at the actor glint's unit UV scale,
+/// as its render controller's glint material draws it.
+pub(super) fn attachable_glint(
+    presentation: EquipmentPresentation,
+    item: &WornItem,
+) -> EquipmentPresentation {
+    with_glint(
+        presentation,
+        item,
+        render_model::ActorGlint {
+            profile: render_api::CombatVisuals::Modern,
+            texture: render_model::GlintTexture::Item,
+            ..Default::default()
+        },
+    )
+}
+
+/// Adds the requested glint material when the item's stack is enchanted.
+fn with_glint(
+    mut presentation: EquipmentPresentation,
+    item: &WornItem,
+    glint: render_model::ActorGlint,
+) -> EquipmentPresentation {
+    if item.enchanted {
+        presentation.submission.material = render_model::ActorMaterial {
+            glint,
+            ..presentation.submission.material
+        };
+    }
+    presentation
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn block_sheet_glint_covers_one_face_at_the_sprite_scale() {
+        let face_span = 0.125;
+        let [columns, rows] = assets::BLOCK_ITEM_SHEET_GRID.map(f32::from);
+        let rect = [0.0, 0.0, face_span * columns, face_span * rows];
+        let glint = render_model::ActorGlint::item(0.0, glint_span(rect, true));
+        assert_eq!(
+            glint.uv_scale,
+            [render_model::ITEM_GLINT_UV_SCALE / face_span; 2]
+        );
+        assert_eq!(glint_span(rect, false), [rect[2], rect[3]]);
     }
 }

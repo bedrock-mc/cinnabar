@@ -1,6 +1,7 @@
 //! First-person lighting through the production vertex and fragment entry points.
 use crate::{
     gpu_snapshot::{Draw, Gpu},
+    hand_rig_bindings::HandFragmentBindings,
     shader_safety, shader_source,
 };
 use bevy::math::{Mat4, Vec3};
@@ -92,6 +93,7 @@ fn java_hand_lights_normals_and_composes_texture_in_gamma() {
         ..Default::default()
     });
     let sampler = gpu.device.create_sampler(&Default::default());
+    let glint = gpu.blank_texture_view();
     for (layer, basis, stretch) in [
         (0, Mat4::IDENTITY, 1.0),
         (render_model::HAND_ITEM_LAYER_FLAG, Mat4::IDENTITY, 1.0),
@@ -162,13 +164,10 @@ fn java_hand_lights_normals_and_composes_texture_in_gamma() {
             );
             let buffers = [
                 (0, &projection),
-                (1, &instances),
                 (2, &vertices),
                 (3, &spans),
                 (4, &bones),
                 (5, &bones),
-                (8, &material),
-                (9, &light),
                 (20, &lightmap),
             ];
             let mut bindings: Vec<_> = buffers
@@ -178,14 +177,20 @@ fn java_hand_lights_normals_and_composes_texture_in_gamma() {
                     resource: buffer.as_entire_binding(),
                 })
                 .collect();
-            bindings.extend([6, 10, 11].map(|binding| wgpu::BindGroupEntry {
-                binding,
-                resource: wgpu::BindingResource::TextureView(&atlas),
-            }));
-            bindings.push(wgpu::BindGroupEntry {
-                binding: 7,
-                resource: wgpu::BindingResource::Sampler(&sampler),
-            });
+            bindings.extend(
+                HandFragmentBindings {
+                    instances: &instances,
+                    skins: &atlas,
+                    skin_sampler: &sampler,
+                    material: &material,
+                    light: &light,
+                    main_atlas: &atlas,
+                    offhand_atlas: &atlas,
+                    item_glint: &glint,
+                    glint_sampler: &sampler,
+                }
+                .entries(),
+            );
             let pixels = gpu.render_srgb(
                 &source(),
                 "hand_vertex",

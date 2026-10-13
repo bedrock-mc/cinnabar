@@ -44,7 +44,7 @@ mod entry {
     include!("../src/entry.rs");
     /// Invokes the production dispatch with the fixture lifecycle boundary.
     pub fn invoke() {
-        main();
+        dispatch();
     }
 }
 

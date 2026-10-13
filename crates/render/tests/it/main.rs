@@ -3,6 +3,8 @@
 mod chunk_constants;
 #[path = "support/gpu_snapshot.rs"]
 mod gpu_snapshot;
+#[path = "../../src/hand_rig_render/bindings.rs"]
+mod hand_rig_bindings;
 #[path = "../../src/material_shader.rs"]
 #[allow(dead_code, reason = "shared production shader substitutions")]
 mod material_shader;
@@ -19,6 +21,7 @@ mod shader_source;
 mod ui_shader;
 
 mod actor_colour;
+mod actor_item_glint;
 mod actor_rig;
 mod actor_sidedness;
 mod actor_skin_classes;

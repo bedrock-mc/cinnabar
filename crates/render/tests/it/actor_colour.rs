@@ -581,6 +581,7 @@ fn render_cases(gpu: &Gpu, cases: Vec<Case>) {
         instance_words[30] = case.offsets[0];
         instance_words[31] = case.offsets[1];
         instance_words[32] = case.strength;
+        instance_words[33..35].fill(1.0);
         let instance = gpu.buffer(&instance_words, wgpu::BufferUsages::STORAGE);
         let glint = glint_view(gpu, case.glint_texel, false);
         let item_glint = glint_view(gpu, case.item_glint_texel, case.foil_pattern);
@@ -755,8 +756,9 @@ struct ActorWitnessCase { normal: vec4<f32>, words: vec4<u32>, distance_multi: v
 @vertex fn actor_witness_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     let corners = array(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
     var out: VertexOutput;
+    out.skin_info.z = select(0xffffffffu, 0u, (bitcast<u32>(actor_witness.distance_multi.z) & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT);
     out.position = vec4(corners[index], actor_witness.distance_multi.w, 1.0);
-    out.uv = actor_witness.glint_uv.xy;
+    out.uv = vec4(actor_witness.glint_uv.xy, vec2(0.0));
     out.skin_info.x = actor_witness.words.x;
     out.skin_info.y = 1u;
     let normals = array(vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(0.0, -1.0, 0.0));

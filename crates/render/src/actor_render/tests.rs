@@ -226,6 +226,7 @@ fn first_generic_only_frame_prepares_after_an_empty_skin_revision() {
             back_uv: [0.0; 2],
             bone_index: 0,
             surface: Default::default(),
+            glint_origin: [0.0; 2],
         }; 3],
     );
     frame.rig.geometry_spans = Arc::from([render_model::ActorRigGeometrySpan {

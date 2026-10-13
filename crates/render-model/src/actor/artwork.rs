@@ -37,6 +37,22 @@ pub struct EquipmentRaster {
     pub rgba8: Arc<[u8]>,
 }
 
+impl EquipmentRaster {
+    /// Box-filters this raster by the smallest power of two that fits the device limit.
+    pub fn fit_within(&self, limit: u32) -> std::borrow::Cow<'_, Self> {
+        let Some(([width, height], rgba8)) =
+            crate::fit_rgba_within(self.width, self.height, &self.rgba8, limit)
+        else {
+            return std::borrow::Cow::Borrowed(self);
+        };
+        std::borrow::Cow::Owned(Self {
+            width,
+            height,
+            rgba8: rgba8.into(),
+        })
+    }
+}
+
 fn within_page_budget(generic_pages: usize, declared_pixel_bytes: usize) -> bool {
     generic_pages < MAX_ACTOR_TEXTURE_PAGES && declared_pixel_bytes <= MAX_ACTOR_GPU_PIXEL_BYTES
 }

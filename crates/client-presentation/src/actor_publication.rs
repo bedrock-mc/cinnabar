@@ -285,7 +285,7 @@ pub fn prepare_actor_render_frame(
         hand_source.filter(|_| !input.hide_hand),
         hand_camera_fov,
         hand_light,
-        step.partial_tick,
+        (step.partial_tick, params.glint_settings.as_deref()),
     );
 }
 

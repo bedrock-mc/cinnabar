@@ -10,6 +10,72 @@ use {
     render_scene::HandRigScene,
 };
 
+#[test]
+fn reshaped_hand_glint_reuploads_shared_pixels_and_retains_unchanged_shapes() {
+    use bevy::ecs::system::RunSystemOnce;
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue::new(queue);
+    let mut world = World::new();
+    world.insert_resource(device.clone());
+    world.run_system_once(init_gpu).unwrap();
+    let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    let mut scene = HandRigScene::default();
+    assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 1));
+    let pixels: Arc<[u8]> = vec![255; 4 * 2 * 4].into();
+    let mut previous = None;
+    for (width, height) in [(4, 2), (2, 4), (2, 4)] {
+        scene.set_item_glint(Some(render_model::EquipmentRaster {
+            width,
+            height,
+            rgba8: Arc::clone(&pixels),
+        }));
+        upload_glint(&mut gpu, &device, &queue, scene.frame.as_ref().unwrap());
+        let texture = &gpu.glint.as_ref().unwrap()._texture;
+        let size = [texture.width(), texture.height()];
+        assert_eq!(size, [u32::from(width), u32::from(height)]);
+        if let Some((previous_size, id)) = previous {
+            assert_eq!(texture.id() == id, size == previous_size);
+        }
+        previous = Some((size, texture.id()));
+    }
+}
+
+#[test]
+fn oversized_hand_glint_is_fitted_and_unchanged_uploads_are_retained() {
+    use bevy::ecs::system::RunSystemOnce;
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue::new(queue);
+    let mut world = World::new();
+    world.insert_resource(device.clone());
+    world.run_system_once(init_gpu).unwrap();
+    let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    let mut scene = HandRigScene::default();
+    assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 1));
+    let limit = device.limits().max_texture_dimension_2d;
+    let width = u16::try_from(limit * 2).expect("the noop device admits oversized pack artwork");
+    let pixels: Arc<[u8]> = vec![255; usize::from(width) * 4].into();
+    scene.set_item_glint(Some(render_model::EquipmentRaster {
+        width,
+        height: 1,
+        rgba8: Arc::clone(&pixels),
+    }));
+    let frame = scene.frame.as_ref().unwrap();
+    upload_glint(&mut gpu, &device, &queue, frame);
+    let glint = gpu.glint.as_ref().unwrap();
+    assert_eq!(
+        [glint._texture.width(), glint._texture.height()],
+        [limit, 1]
+    );
+    assert!(Arc::ptr_eq(glint.pixels.as_ref().unwrap(), &pixels));
+    let id = glint._texture.id();
+    let allocations = test_alloc::thread_allocations();
+    upload_glint(&mut gpu, &device, &queue, frame);
+    assert_eq!(test_alloc::thread_allocations() - allocations, 0);
+    assert_eq!(gpu.glint.as_ref().unwrap()._texture.id(), id);
+}
+
 fn single_instance_frame() -> ActorRigRenderFrame {
     ActorRigRenderFrame {
         frame_generation: 1,

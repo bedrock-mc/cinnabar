@@ -35,6 +35,7 @@ pub(super) fn append(
             back_uv: uv,
             bone_index,
             surface: super::ActorRigSurface::SINGLE_FACE,
+            glint_origin: [0.0; 2],
         });
     }
     Ok(())

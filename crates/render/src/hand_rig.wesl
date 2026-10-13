@@ -1,4 +1,5 @@
 import render::lighting::{lit_colour, light_colour, native_light_texel, tint_to_gamma, tint_to_linear};
+import render::glint::glint_layer_uvs;
 
 // Near-camera first-person rig pass. It reuses the actor rig's packed storage layout
 // (Rust-strided instances and vertices, bones as 3x vec4 rows) so the
@@ -47,15 +48,20 @@ struct HandMaterial {
 // Instances whose texture layer has its top bit set sample this equipment atlas page instead.
 @group(0) @binding(10) var item_atlas: texture_2d_array<f32>;
 @group(0) @binding(11) var offhand_atlas: texture_2d_array<f32>;
+// Held-item enchantment glint, sampled with repeat addressing.
+@group(0) @binding(12) var item_glint: texture_2d<f32>;
+@group(0) @binding(13) var glint_sampler: sampler;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     // Keep edge samples inside the item's atlas region under MSAA.
-    @location(0) @interpolate(perspective, centroid) uv: vec2<f32>,
+    @location(0) @interpolate(perspective, centroid) uv: vec4<f32>,
     @location(1) @interpolate(flat) skin_layer: u32,
     @location(2) @interpolate(flat) valid: u32,
     @location(3) @interpolate(perspective, centroid) back_uv: vec2<f32>,
     @location(4) @interpolate(flat) shade: f32,
+    // Instance index whose glint words apply, or MAX without glint.
+    @location(5) @interpolate(flat) glint_instance: u32,
 }
 
 fn word_f32(index: u32) -> f32 {
@@ -95,6 +101,19 @@ fn java_shade(normal: vec3<f32>) -> f32 {
     return min(0.4 + 0.6 * (first + second), 1.0);
 }
 
+// Native item glint: two rotated, scrolled layers of the item raster at the instance's UV
+// scale, tinted and squared over the lit colour in gamma space.
+fn item_foil(uv: vec2<f32>, origin: vec2<f32>, instance: u32, sample: u32) -> vec3<f32> {
+    let base = instance * ACTOR_GPU_INSTANCE_WORDS;
+    let offsets = vec2(word_f32(base + 30u), word_f32(base + 31u));
+    let strength = word_f32(base + 32u);
+    let scale = vec2(word_f32(base + 33u), word_f32(base + 34u));
+    let coordinates = glint_layer_uvs(uv, origin, scale, offsets * scale.x, word_f32(base + 35u), false);
+    let layers = tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, coordinates[0], 0.0)).rgb + tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, coordinates[1], 0.0)).rgb;
+    let foil = layers * GLINT_TINT_RGB * strength * native_light_texel(sample);
+    return foil * foil;
+}
+
 @vertex
 fn hand_vertex(
     @builtin(vertex_index) vertex_index: u32,
@@ -111,9 +130,12 @@ fn hand_vertex(
     var out: VertexOutput;
     out.skin_layer = texture_layer;
     out.shade = 1.0;
+    let material = instance_words[instance_base + 27u];
+    let has_glint = (material & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT || word_f32(instance_base + 35u) != 0.0;
+    out.glint_instance = select(0xffffffffu, instance_index, has_glint);
     if (vertex_index >= span.vertex_count) {
         out.position = vec4(2.0, 2.0, 2.0, 1.0);
-        out.uv = vec2(0.0);
+        out.uv = vec4(0.0);
         out.back_uv = vec2(0.0);
         out.valid = 0u;
         return out;
@@ -125,10 +147,15 @@ fn hand_vertex(
         bitcast<f32>(vertex_words[vertex_base + 1u]),
         bitcast<f32>(vertex_words[vertex_base + 2u]),
     );
-    out.uv = vec2(
+    let artwork_uv = vec2(
         bitcast<f32>(vertex_words[vertex_base + 6u]),
         bitcast<f32>(vertex_words[vertex_base + 7u]),
     );
+    let glint_origin = vec2(
+        bitcast<f32>(vertex_words[vertex_base + ACTOR_RIG_VERTEX_WORDS - 2u]),
+        bitcast<f32>(vertex_words[vertex_base + ACTOR_RIG_VERTEX_WORDS - 1u]),
+    );
+    out.uv = vec4(artwork_uv, glint_origin);
     out.back_uv = vec2(
         bitcast<f32>(vertex_words[vertex_base + 8u]),
         bitcast<f32>(vertex_words[vertex_base + 9u]),
@@ -173,7 +200,7 @@ fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @lo
     if (reverse_cube && !cutout) {
         discard;
     }
-    let uv = select(input.back_uv, input.uv, front || reverse_cube);
+    let uv = select(input.back_uv, input.uv.xy, front || reverse_cube);
     let layer = i32(input.skin_layer & hand_material.layer_mask.x);
     let skin_color = textureSample(skins, skin_sampler, uv, layer);
     let main_color = textureSample(item_atlas, skin_sampler, uv, layer);
@@ -188,6 +215,10 @@ fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @lo
     var lit = lit_colour(color.rgb, light_colour(sample));
     if (hand_light.java_lights[0].w != 0.0) {
         lit = tint_to_linear(vec4(tint_to_gamma(color).rgb * input.shade * native_light_texel(sample), 1.0)).rgb;
+    }
+    if (is_item && input.glint_instance != 0xffffffffu) {
+        let foiled = tint_to_gamma(vec4(lit, 1.0)).rgb + item_foil(uv, input.uv.zw, input.glint_instance, sample);
+        lit = tint_to_linear(vec4(foiled, 1.0)).rgb;
     }
     let blend = is_item && (input.skin_layer & hand_material.texture_flags.z) != 0u;
     return vec4(lit, select(1.0, color.a, blend));

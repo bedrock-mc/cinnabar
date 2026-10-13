@@ -1,6 +1,6 @@
 use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 use render_api::SkinRgba8;
-use render_model::{ActorRigRenderFrame, HandItemAtlas, HandRigLight};
+use render_model::{ActorRigRenderFrame, EquipmentRaster, HandItemAtlas, HandRigLight};
 /// One frame's local first-person arms and held items in camera space, with their
 /// artwork, lighting, and base FOV.
 #[derive(Clone, Debug)]
@@ -11,6 +11,8 @@ pub struct HandRigFrame {
     pub fov_radians: f32,
     pub revision: u64,
     pub item_atlases: [Option<HandItemAtlas>; 2],
+    /// The held-item glint raster for item instances drawn with the glint material.
+    pub item_glint: Option<EquipmentRaster>,
 }
 
 /// Published by the app each frame the first-person hand should draw; empty otherwise.
@@ -59,6 +61,7 @@ impl HandRigScene {
             fov_radians,
             revision,
             item_atlases: [None, None],
+            item_glint: None,
         });
         true
     }
@@ -78,6 +81,19 @@ impl HandRigScene {
         };
         if let Some(frame) = &mut self.frame {
             frame.item_atlases = atlases.map(|atlas| atlas.filter(valid));
+        }
+    }
+
+    /// Supplies the held-item glint raster of the published frame; ignored when inactive or
+    /// when the raster is malformed.
+    pub fn set_item_glint(&mut self, glint: Option<EquipmentRaster>) {
+        let valid = |raster: &EquipmentRaster| {
+            raster.width != 0
+                && raster.height != 0
+                && raster.rgba8.len() == usize::from(raster.width) * usize::from(raster.height) * 4
+        };
+        if let Some(frame) = &mut self.frame {
+            frame.item_glint = glint.filter(valid);
         }
     }
 

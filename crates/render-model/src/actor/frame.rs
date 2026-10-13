@@ -103,7 +103,7 @@ pub struct ActorRigSubmission {
 pub struct ActorMaterial {
     /// Alpha weights leather dye independently of the page's other materials.
     pub color_mask: bool,
-    /// Animated actor glint factors; unused by other material kinds.
+    /// Animated glint factors. Item glint overlays preserve the base material's coverage.
     pub glint: super::ActorGlint,
     pub kind: assets::EntityRenderMaterial,
     pub state: Option<assets::EntityRenderMaterialState>,
@@ -170,7 +170,7 @@ pub struct ActorGpuInstance {
     pub material: u32,
     pub dissolve_multiplier: f32,
     pub light_color_multiplier: f32,
-    pub glint: [f32; 3],
+    pub glint: [f32; 6],
 }
 
 impl Default for ActorGpuInstance {

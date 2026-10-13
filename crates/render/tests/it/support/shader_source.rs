@@ -183,6 +183,10 @@ fn compile(source: &str, definitions: &[&str], prune: bool) -> String {
             material_shader::source(include_str!("../../../src/lighting.wesl")),
         ),
         (
+            "render::glint",
+            material_shader::source(include_str!("../../../src/glint.wesl")),
+        ),
+        (
             "render::biome_tint",
             material_shader::bind_biome_tables(&meshing::biome_lattice::shader_source(
                 include_str!("../../../src/biome_tint.wesl"),

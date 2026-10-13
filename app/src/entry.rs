@@ -5,7 +5,7 @@ use cinnabar::{
 use std::io::Write;
 
 /// Dispatches client startup and reports failures before the process exits.
-fn main() {
+pub(crate) fn dispatch() {
     if std::env::args_os()
         .nth(1)
         .is_some_and(|arg| arg == update_manifest::build::QUERY_FLAG)

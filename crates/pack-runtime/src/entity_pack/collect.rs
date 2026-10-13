@@ -90,7 +90,7 @@ impl References {
 /// Every entity source of the stack as `(pack-relative path, bytes)`. Named definitions are
 /// merged into one file per family with the highest layer winning each identifier (a vanilla
 /// client keeps the last definition it loads); definitions the actors reference but the
-/// stack lacks come from `vanilla`. Only rasters the sources name are read.
+/// stack lacks come from `vanilla`. Reads named rasters and the shared enchantment rasters.
 pub fn collect_files(
     view: &LayeredPackView,
     vanilla: Option<&VanillaEntityRefs>,
@@ -189,7 +189,9 @@ pub fn collect_files(
     }
     files.extend(attachables);
     files.extend(geometry);
-    for stem in referenced_textures(&files) {
+    let mut textures = referenced_textures(&files);
+    textures.extend(assets::entity::GLINT_TEXTURE_IDENTIFIERS.map(str::to_owned));
+    for stem in textures {
         if let Some(texture) = texture_file(view, vanilla_pack_dir, &stem) {
             files.push(texture);
         }
