@@ -9,6 +9,7 @@ use crate::{
     TileView,
     config::{LEVEL_COUNT, MAX_TILE_BUILDS, TILE_BUILD_COLUMNS_PER_UPDATE, TILE_REBUILD_INTERVAL},
     mesh_tile, select_tiles,
+    summary::COLUMN_SIDE,
 };
 
 #[derive(Default)]
@@ -165,6 +166,18 @@ impl FarTiles {
         if self.retired.len() != before {
             self.revision += 1;
         }
+    }
+
+    /// True when a selected tile over `column` has a mesh built from its current summary.
+    #[must_use]
+    pub fn ready(&self, column: ColumnPos) -> bool {
+        self.selected.iter().any(|(key, tile)| {
+            tile.mesh.is_some() && !tile.dirty && tile.building.is_none() && {
+                let ([x, z], width) = (key.origin(), key.width_blocks());
+                let block = [column.x * COLUMN_SIDE as i32, column.z * COLUMN_SIDE as i32];
+                (x..x + width).contains(&block[0]) && (z..z + width).contains(&block[1])
+            }
+        })
     }
 
     /// Changes whenever [`FarTiles::drawn`] may differ.

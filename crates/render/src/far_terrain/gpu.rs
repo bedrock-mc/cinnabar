@@ -173,7 +173,10 @@ impl FarTerrainGpu {
             let Some(slot) = self.allocate_slot(device, queue) else {
                 break;
             };
-            let quads = self.allocate_quads(device, queue, mesh.quads.len() as u32);
+            let Some(quads) = self.allocate_quads(device, queue, mesh.quads.len() as u32) else {
+                self.free_slots.push(slot);
+                break;
+            };
             self.upload(queue, mesh, slot, &quads);
             self.resident.insert(
                 mesh.key,
@@ -258,16 +261,26 @@ impl FarTerrainGpu {
         Some(old)
     }
 
-    /// A quad range, doubling the buffer and re-uploading residents when it outgrows it.
+    /// A quad range, doubling the buffer and re-uploading residents when it outgrows it;
+    /// `None` once the buffer would pass what the device can bind.
     fn allocate_quads(
         &mut self,
         device: &RenderDevice,
         queue: &RenderQueue,
         count: u32,
-    ) -> Range<u32> {
+    ) -> Option<Range<u32>> {
+        let limits = device.limits();
+        let max_quads = (u64::from(limits.max_storage_buffer_binding_size)
+            .min(limits.max_buffer_size)
+            / QUAD_BYTES)
+            .min(u64::from(u32::MAX)) as u32;
         let range = self.ranges.allocate(count);
+        if range.end > max_quads {
+            self.ranges.release(range);
+            return None;
+        }
         if range.end > self.quad_capacity {
-            self.quad_capacity = range.end.next_power_of_two();
+            self.quad_capacity = range.end.next_power_of_two().min(max_quads);
             self.quads = storage_buffer(
                 device,
                 "far terrain quads",
@@ -275,7 +288,7 @@ impl FarTerrainGpu {
             );
             self.reupload_residents(queue);
         }
-        range
+        Some(range)
     }
 
     fn reupload_residents(&mut self, queue: &RenderQueue) {

@@ -200,7 +200,9 @@ impl WorldStream {
 
     /// Appends the newest summary of each column finished since the last call.
     pub fn drain_far_summaries(&mut self, out: &mut Vec<FarColumnSummary>) {
+        let start = out.len();
         self.far_terrain.inbox.drain(out);
+        self.note_far_summaries_delivered(&out[start..]);
     }
 
     /// Summarises every complete column before the stream is dropped, and hands over the
@@ -312,9 +314,7 @@ impl WorldStream {
                         generation,
                         summary,
                     };
-                    if tx.send(finished).is_err() {
-                        break;
-                    }
+                    workers::send_result(&tx, finished);
                 }
                 in_flight.fetch_sub(1, Ordering::AcqRel);
             });

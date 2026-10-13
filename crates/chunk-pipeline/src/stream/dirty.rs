@@ -103,6 +103,10 @@ impl WorldStream {
             cells,
         } = scope;
         let sources = sources.into_iter().collect::<BTreeSet<_>>();
+        // A far summary reads only its own column's blocks, so only sources refresh one.
+        for column in sources.iter().map(|key| key.chunk()).collect::<BTreeSet<_>>() {
+            self.note_far_change(column);
+        }
         if relight {
             self.mark_light_changed_sources_reaching(sources.iter().copied(), urgent, reach, cells);
         }
@@ -203,12 +207,8 @@ impl WorldStream {
         now: Instant,
         urgent: bool,
     ) -> u64 {
-        // Columns past full detail are drawn by far terrain, so a change there refreshes their
-        // summary instead; promotion remeshes them.
+        // Columns past full detail are drawn by far terrain; promotion remeshes them.
         if !self.wants_mesh(key.chunk()) {
-            if self.loaded_columns.contains(&key.chunk()) {
-                self.note_far_column_complete(key.chunk());
-            }
             return 0;
         }
         self.mark_dirty_exact_ungated(key, now, urgent)

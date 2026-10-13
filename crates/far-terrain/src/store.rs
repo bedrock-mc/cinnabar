@@ -23,13 +23,23 @@ impl ColumnPos {
 pub enum Admission {
     Inserted,
     Replaced,
-    /// The stored summary already had this content; only its recency changed.
+    /// The stored summary already had this content; only its recency and version changed.
     Unchanged,
+    /// The stored summary is at least as new; nothing changed.
+    Stale,
+}
+
+/// A summary with the version it was taken at; of two, the higher version is newer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Versioned {
+    pub version: u64,
+    pub summary: EncodedSummary,
 }
 
 #[derive(Debug)]
 struct Entry {
     summary: EncodedSummary,
+    version: u64,
     stamp: u64,
 }
 
@@ -58,23 +68,43 @@ impl SummaryStore {
         }
     }
 
-    /// Stores `summary` unless an entry with equal content exists, comparing hashes first.
+    /// Stores `summary` as newer than anything stored; equal content only refreshes recency.
     pub fn admit(&mut self, pos: ColumnPos, summary: &ColumnSummary) -> Admission {
-        if let Some(entry) = self.entries.get(&pos)
+        let version = self.version(pos).map_or(0, |version| version + 1);
+        if let Some(entry) = self.entries.get_mut(&pos)
             && entry.summary.hash == summary.content_hash()
         {
+            entry.version = version;
             self.touch(pos);
             return Admission::Unchanged;
         }
-        self.admit_encoded(pos, summary.encode())
+        self.admit_versioned(
+            pos,
+            Versioned {
+                version,
+                summary: summary.encode(),
+            },
+        )
     }
 
-    /// Stores already-encoded content, as read back from disk.
-    pub fn admit_encoded(&mut self, pos: ColumnPos, summary: EncodedSummary) -> Admission {
+    /// Stores `summary` unless the stored one is at least as new.
+    pub fn admit_versioned(&mut self, pos: ColumnPos, summary: Versioned) -> Admission {
+        if self
+            .version(pos)
+            .is_some_and(|stored| stored >= summary.version)
+        {
+            return Admission::Stale;
+        }
+        let Versioned { version, summary } = summary;
         let stamp = self.stamp();
         let bytes = entry_bytes(&summary);
         let hash = summary.hash;
-        let admission = match self.entries.insert(pos, Entry { summary, stamp }) {
+        let entry = Entry {
+            summary,
+            version,
+            stamp,
+        };
+        let admission = match self.entries.insert(pos, entry) {
             Some(old) => {
                 self.retire(&old);
                 if old.summary.hash == hash {
@@ -98,6 +128,12 @@ impl SummaryStore {
     pub fn summary(&mut self, pos: ColumnPos) -> Option<Result<ColumnSummary, SummaryDecodeError>> {
         self.touch(pos)?;
         Some(ColumnSummary::decode(&self.entries[&pos].summary.bytes))
+    }
+
+    /// The stored summary's version, without changing recency.
+    #[must_use]
+    pub fn version(&self, pos: ColumnPos) -> Option<u64> {
+        self.entries.get(&pos).map(|entry| entry.version)
     }
 
     /// The stored encoding, without changing recency.

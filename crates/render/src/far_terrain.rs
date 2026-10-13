@@ -56,7 +56,8 @@ impl Plugin for FarTerrainRenderPlugin {
     }
 }
 
-/// Orders far terrain after opaque terrain and its late cull, before translucent geometry.
+/// Orders far terrain after opaque terrain and its late cull, before the enhanced-rendering
+/// scene snapshot that reflections sample and before translucent geometry.
 fn install_graph(world: &mut World) {
     if world.contains_resource::<FarTerrainPassInstalled>() {
         return;
@@ -68,6 +69,7 @@ fn install_graph(world: &mut World) {
                     .in_set(FarTerrainLabel)
                     .after(crate::scene_target::ScenePass::Opaque)
                     .after(crate::chunk::GpuCullLateLabel)
+                    .before(crate::enhanced::EnhancedSnapshotLabel)
                     .before(crate::scene_target::ScenePass::Transparent)
                     .in_set(Core3dSystems::MainPass),
             );

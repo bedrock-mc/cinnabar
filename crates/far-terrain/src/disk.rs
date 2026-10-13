@@ -11,7 +11,7 @@ use std::{
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
 use crate::{
-    ColumnPos, ColumnSummary, EncodedSummary, NamespaceKey, ServerKey, WorldKey,
+    ColumnPos, ColumnSummary, NamespaceKey, ServerKey, Versioned, WorldKey,
     config::{WORLD_PROBE_EPOCHS, WORLD_PROBE_SIMILARITY},
     identity::surface_similarity,
     region::{RegionPos, decode_region, encode_region, region_index},
@@ -31,7 +31,13 @@ pub enum DiskEvent {
     Loaded {
         namespace: NamespaceKey,
         region: RegionPos,
-        columns: Vec<(ColumnPos, EncodedSummary)>,
+        columns: Vec<(ColumnPos, Versioned)>,
+    },
+    /// These column versions reached the region file, or were dropped if it could not be
+    /// written; a read asked for afterwards sees them.
+    Written {
+        namespace: NamespaceKey,
+        columns: Vec<(ColumnPos, u64)>,
     },
     /// The epoch whose cached terrain matches the probes, or a new one, for the caller's
     /// world-entry token.
@@ -46,7 +52,7 @@ enum Command {
     Write {
         namespace: NamespaceKey,
         region: RegionPos,
-        columns: Vec<(u16, EncodedSummary)>,
+        columns: Vec<(u16, Versioned)>,
     },
     Load {
         namespace: NamespaceKey,
@@ -56,6 +62,11 @@ enum Command {
         world: WorldKey,
         entry: u64,
         probes: Vec<(ColumnPos, ColumnSummary)>,
+    },
+    ResolveWrite {
+        world: WorldKey,
+        probes: Vec<(ColumnPos, ColumnSummary)>,
+        columns: Vec<(ColumnPos, Versioned)>,
     },
     Sync(Sender<()>),
 }
@@ -94,12 +105,12 @@ impl DiskCache {
         })
     }
 
-    /// Replaces the stored summaries of the given slots in one region.
+    /// Stores the given slots in one region, keeping whichever version of each is higher.
     pub fn write(
         &self,
         namespace: NamespaceKey,
         region: RegionPos,
-        columns: Vec<(u16, EncodedSummary)>,
+        columns: Vec<(u16, Versioned)>,
     ) {
         self.send(Command::Write {
             namespace,
@@ -118,6 +129,21 @@ impl DiskCache {
             world,
             entry,
             probes,
+        });
+    }
+
+    /// Writes `columns` to the epoch of `world` that `probes` resolve to, for a world left
+    /// before its namespace resolved.
+    pub fn resolve_and_write(
+        &self,
+        world: WorldKey,
+        probes: Vec<(ColumnPos, ColumnSummary)>,
+        columns: Vec<(ColumnPos, Versioned)>,
+    ) {
+        self.send(Command::ResolveWrite {
+            world,
+            probes,
+            columns,
         });
     }
 
@@ -178,7 +204,17 @@ impl Worker {
                 namespace,
                 region,
                 columns,
-            } => self.write(namespace, region, columns),
+            } => {
+                let written = columns
+                    .iter()
+                    .map(|(slot, column)| (region.column(*slot), column.version))
+                    .collect();
+                self.write(namespace, region, columns);
+                let _ = self.events.send(DiskEvent::Written {
+                    namespace,
+                    columns: written,
+                });
+            }
             Command::Load { namespace, region } => {
                 let columns = self.load(namespace, region);
                 let _ = self.events.send(DiskEvent::Loaded {
@@ -199,6 +235,23 @@ impl Worker {
                     epoch,
                 });
             }
+            Command::ResolveWrite {
+                world,
+                probes,
+                columns,
+            } => {
+                let namespace = world.namespace(self.resolve(world, &probes));
+                let mut regions = BTreeMap::<RegionPos, Vec<(u16, Versioned)>>::new();
+                for (pos, column) in columns {
+                    regions
+                        .entry(RegionPos::of(pos))
+                        .or_default()
+                        .push((region_index(pos), column));
+                }
+                for (region, columns) in regions {
+                    self.write(namespace, region, columns);
+                }
+            }
             Command::Sync(done) => {
                 let _ = done.send(());
             }
@@ -216,7 +269,7 @@ impl Worker {
         &mut self,
         namespace: NamespaceKey,
         region: RegionPos,
-        columns: Vec<(u16, EncodedSummary)>,
+        columns: Vec<(u16, Versioned)>,
     ) {
         let path = self.region_path(namespace, region);
         let mut merged = read_region(&path).unwrap_or_default();
@@ -231,11 +284,7 @@ impl Worker {
         self.enforce_caps();
     }
 
-    fn load(
-        &mut self,
-        namespace: NamespaceKey,
-        region: RegionPos,
-    ) -> Vec<(ColumnPos, EncodedSummary)> {
+    fn load(&mut self, namespace: NamespaceKey, region: RegionPos) -> Vec<(ColumnPos, Versioned)> {
         let path = self.region_path(namespace, region);
         if !path.exists() {
             return Vec::new();
@@ -297,7 +346,7 @@ impl Worker {
         namespace: NamespaceKey,
         probes: &[(ColumnPos, ColumnSummary)],
     ) -> (usize, usize) {
-        let mut regions = BTreeMap::<RegionPos, Vec<(u16, EncodedSummary)>>::new();
+        let mut regions = BTreeMap::<RegionPos, Vec<(u16, Versioned)>>::new();
         let (mut present, mut similar) = (0, 0);
         for (pos, probe) in probes {
             let region = RegionPos::of(*pos);
@@ -309,7 +358,7 @@ impl Worker {
                 .iter()
                 .rev()
                 .find(|(index, _)| *index == slot)
-                .and_then(|(_, summary)| ColumnSummary::decode(&summary.bytes).ok())
+                .and_then(|(_, column)| ColumnSummary::decode(&column.summary.bytes).ok())
             else {
                 continue;
             };
@@ -427,7 +476,7 @@ impl FileIndex {
     }
 }
 
-fn read_region(path: &Path) -> Option<Vec<(u16, EncodedSummary)>> {
+fn read_region(path: &Path) -> Option<Vec<(u16, Versioned)>> {
     decode_region(&fs::read(path).ok()?).ok()
 }
 

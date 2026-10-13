@@ -2,9 +2,10 @@
 //! keep their block data and are drawn by far terrain from their summaries.
 //!
 //! A column with resident data is promoted when it comes within the radius and demoted once
-//! it is more than [`FULL_DETAIL_HYSTERESIS_CHUNKS`] past it. Promotion remeshes it and near
-//! terrain takes it over only when every mesh is uploaded; demotion hands it back to far
-//! terrain at once, re-summarised from its current blocks, before its meshes are withdrawn.
+//! it is more than [`FULL_DETAIL_HYSTERESIS_CHUNKS`] past it. Both hand-overs are two-phase:
+//! promotion remeshes the column and near terrain takes it only when every mesh is published;
+//! demotion re-summarises it and keeps its meshes until far terrain reports its tile built
+//! ([`WorldStream::finish_far_handoff`]), and only then withdraws them.
 
 use super::*;
 
@@ -19,12 +20,17 @@ pub(super) struct FullDetail {
     centre: Option<ChunkKey>,
     /// Columns within the radius, plus those not yet past the hysteresis band.
     columns: HashSet<ChunkKey>,
+    /// Near-drawn columns past the band, still meshed until far terrain covers them, and
+    /// whether a summary taken since they left (or last changed) has been delivered.
+    handoffs: HashMap<ChunkKey, bool>,
 }
 
 impl FullDetail {
     /// True when `column` is meshed and uploaded; every column is without a radius.
     pub(super) fn wants_mesh(&self, column: ChunkKey) -> bool {
-        self.radius.is_none() || self.columns.contains(&column)
+        self.radius.is_none()
+            || self.columns.contains(&column)
+            || self.handoffs.contains_key(&column)
     }
 
     fn within(&self, column: ChunkKey, extra: i32) -> bool {
@@ -57,9 +63,10 @@ impl WorldStream {
             let demoted: Vec<ChunkKey> = self
                 .resident
                 .columns()
-                .filter(|column| !self.full_detail.columns.contains(column))
+                .filter(|column| !self.wants_mesh(*column))
                 .collect();
             self.full_detail.columns.clear();
+            self.full_detail.handoffs.clear();
             for column in demoted {
                 self.refresh_full_detail_column(column);
             }
@@ -128,8 +135,14 @@ impl WorldStream {
         for dz in -radius..=radius {
             for dx in -radius..=radius {
                 let column = ChunkKey::new(centre.dimension, centre.x + dx, centre.z + dz);
-                if self.full_detail.within(column, 0) && !self.full_detail.columns.contains(&column)
+                if !self.full_detail.within(column, 0) || self.full_detail.columns.contains(&column)
                 {
+                    continue;
+                }
+                // A column still handing over keeps its meshes and needs no remesh.
+                if self.full_detail.handoffs.remove(&column).is_some() {
+                    self.full_detail.columns.insert(column);
+                } else {
                     promoted.push(column);
                 }
             }
@@ -169,8 +182,19 @@ impl WorldStream {
         self.note_near_drawn(column);
     }
 
-    /// Withdraws a column's meshes and summarises it, so far terrain draws its latest state.
+    /// Starts handing a column to far terrain: a drawn one is re-summarised and keeps its
+    /// meshes until [`WorldStream::finish_far_handoff`]; any other is withdrawn now, as far
+    /// terrain still draws it.
     fn demote_full_detail_column(&mut self, column: ChunkKey) {
+        if self.near_drawn_contains(column) {
+            self.full_detail.handoffs.insert(column, false);
+            self.note_far_column_complete(column);
+        } else {
+            self.withdraw_full_detail_column(column);
+        }
+    }
+
+    fn withdraw_full_detail_column(&mut self, column: ChunkKey) {
         self.forget_near_drawn([&column]);
         let keys: Vec<SubChunkKey> = self
             .resident
@@ -185,6 +209,67 @@ impl WorldStream {
         if self.loaded_columns.contains(&column) {
             self.note_far_column_complete(column);
         }
+    }
+
+    /// Columns leaving full detail whose current summary has been delivered; each is
+    /// withdrawn by [`WorldStream::finish_far_handoff`] once far terrain draws it.
+    pub fn far_handoffs(&self) -> impl Iterator<Item = ChunkKey> + '_ {
+        self.full_detail
+            .handoffs
+            .iter()
+            .filter(|(_, delivered)| **delivered)
+            .map(|(column, _)| *column)
+    }
+
+    /// Withdraws a column's meshes now that far terrain draws it from a delivered summary.
+    pub fn finish_far_handoff(&mut self, column: ChunkKey) {
+        if self.full_detail.handoffs.get(&column) == Some(&true) {
+            self.full_detail.handoffs.remove(&column);
+            self.withdraw_full_detail_column(column);
+        }
+    }
+
+    /// True once every loaded column holding sections is drawn by near terrain.
+    #[must_use]
+    pub fn all_loaded_near_drawn(&self) -> bool {
+        self.loaded_columns.iter().all(|column| {
+            self.near_drawn_contains(*column)
+                || self
+                    .resident
+                    .column(*column)
+                    .chain(self.known_air.column(*column))
+                    .next()
+                    .is_none()
+        })
+    }
+
+    /// A change in a column far terrain draws, or is about to, refreshes its summary.
+    pub(super) fn note_far_change(&mut self, column: ChunkKey) {
+        if !self.loaded_columns.contains(&column) {
+            return;
+        }
+        if let Some(delivered) = self.full_detail.handoffs.get_mut(&column) {
+            *delivered = false;
+        } else if self.wants_mesh(column) {
+            return;
+        }
+        self.note_far_column_complete(column);
+    }
+
+    /// Marks handing-over columns whose summary was just delivered.
+    pub(super) fn note_far_summaries_delivered(&mut self, delivered: &[FarColumnSummary]) {
+        for summary in delivered {
+            if let Some(ready) = self.full_detail.handoffs.get_mut(&summary.column) {
+                *ready = true;
+            }
+        }
+    }
+
+    /// Drops evicted columns from any hand-over.
+    pub(super) fn forget_full_detail_handoffs(&mut self, columns: &BTreeSet<ChunkKey>) {
+        self.full_detail
+            .handoffs
+            .retain(|column, _| !columns.contains(column));
     }
 }
 

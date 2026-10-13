@@ -101,13 +101,13 @@ impl SurfaceContext {
         match block.kind() {
             VisualKind::Invisible | VisualKind::Cross => Class::Through,
             VisualKind::Liquid if self.colours.is_water(top) => Class::Water(top),
-            VisualKind::Model
-                if variant & BLOCK_VISUAL_VARIANT_TOP_SNOW == 0
-                    && !block
-                        .model_template()
-                        .is_some_and(|template| self.colours.model_covers_top(template)) =>
-            {
-                Class::Through
+            VisualKind::Model if variant & BLOCK_VISUAL_VARIANT_TOP_SNOW == 0 => {
+                match block.model_template() {
+                    Some(template) if self.colours.model_covers_top(template) => Class::Solid(
+                        Some(self.colours.model_top_material(template).unwrap_or(top)),
+                    ),
+                    _ => Class::Through,
+                }
             }
             _ => Class::Solid(Some(top)),
         }

@@ -1,8 +1,8 @@
 use far_terrain::{SurfaceCell, SurfaceContext, summarise_column};
 
 use crate::fixture::{
-    AIR, FLOWER, FOLIAGE_TINT, GRASS, GRASS_TINT, LEAF_RGB, LEAVES, NUB, SAND, SAND_RGB, SLAB,
-    TORCH, WATER, column, context, section,
+    AIR, CAPPED, FLOWER, FOLIAGE_TINT, GRASS, GRASS_TINT, LEAF_RGB, LEAVES, NUB, SAND, SAND_RGB,
+    SEASONAL_MATERIAL, SLAB, TORCH, WATER, column, context, section, tints,
 };
 
 fn srgb(linear: f32) -> f32 {
@@ -140,4 +140,35 @@ fn session_air_unknown_to_the_assets_is_seen_through() {
     };
     let cell = summarise_column(&context, &column([(0, ground)])).cell(5, 5);
     assert_eq!((cell.height, cell.rgb), (1, SAND_RGB));
+}
+
+/// A model's top colour comes from its upward faces, not the material of its sides.
+#[test]
+fn models_take_their_top_material() {
+    let ground = section(|_, y, _| match y {
+        0 => [CAPPED, AIR],
+        _ => [AIR, AIR],
+    });
+    let cell = summarise_column(&context(), &column([(0, ground)])).cell(2, 2);
+    assert_eq!((cell.height, cell.rgb), (1, SAND_RGB));
+}
+
+/// Seasonal foliage in a seasonal biome takes the seasonal palette, as the terrain shader does.
+#[test]
+fn seasonal_foliage_uses_the_seasonal_palette() {
+    let colours = context().colours;
+    let mut seasonal = tints().records[0];
+    seasonal.flags |= assets::BIOME_TINT_FLAG_SEASONAL_FOLIAGE;
+    seasonal.seasonal_foliage =
+        [[0.9, 0.9, 0.95, 1.0]; assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT];
+    let mut plain = tints().records[0];
+    plain.foliage = [0.9, 0.9, 0.95, 1.0];
+    assert_eq!(
+        colours.tinted(SEASONAL_MATERIAL, Some(&seasonal)),
+        colours.tinted(SEASONAL_MATERIAL, Some(&plain))
+    );
+    assert_ne!(
+        colours.tinted(SEASONAL_MATERIAL, Some(&seasonal)),
+        colours.tinted(SEASONAL_MATERIAL, Some(&tints().records[0]))
+    );
 }
