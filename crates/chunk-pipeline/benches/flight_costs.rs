@@ -200,6 +200,9 @@ enum Ingress {
 
 struct Flight {
     stream: WorldStream,
+    /// Mesh bytes handed to the renderer since the fixture began.
+    uploaded_bytes: u64,
+    far_summaries: Vec<chunk_pipeline::FarColumnSummary>,
     radius: i32,
     blocks_per_second: f32,
     camera_x: f32,
@@ -211,8 +214,17 @@ struct Flight {
 
 impl Flight {
     fn new(assets: &Arc<RuntimeAssets>, radius: i32) -> Self {
+        Self::with_full_detail(assets, radius, None)
+    }
+
+    /// A settled view of `radius` meshing only within `full_detail`, summarising the rest.
+    fn with_full_detail(
+        assets: &Arc<RuntimeAssets>,
+        radius: i32,
+        full_detail: Option<i32>,
+    ) -> Self {
         let camera = [8.0, EYE_Y, 8.0];
-        let stream = WorldStream::new_with_assets(
+        let mut stream = WorldStream::new_with_assets(
             WorldBootstrap {
                 local_player_unique_id: 1,
                 dimension: 0,
@@ -226,8 +238,12 @@ impl Flight {
             camera,
             None,
         );
+        stream.set_far_terrain_enabled(full_detail.is_some());
+        stream.set_full_detail_radius(full_detail);
         let mut flight = Self {
             stream,
+            uploaded_bytes: 0,
+            far_summaries: Vec::new(),
             radius,
             blocks_per_second: 0.0,
             camera_x: 8.0,
@@ -378,6 +394,8 @@ impl Flight {
                     biome,
                     ..
                 } => {
+                    self.uploaded_bytes +=
+                        meshing::chunk_publication_byte_len(&mesh, &biome) as u64;
                     black_box((&mesh, &biome));
                     (key, generation, dirty_since)
                 }
@@ -391,6 +409,8 @@ impl Flight {
             self.stream
                 .acknowledge_mesh_upload(key, generation, dirty_since, Instant::now());
         }
+        self.stream.drain_far_summaries(&mut self.far_summaries);
+        self.far_summaries.clear();
         let elapsed = started.elapsed();
         let now = Instant::now();
         self.next_frame = (self.next_frame + FRAME).max(now);
@@ -484,6 +504,74 @@ fn flight_benches(c: &mut Criterion) {
     group.finish();
 }
 
+/// Process CPU time across every thread, in seconds; zero where unmeasured.
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn cpu_seconds() -> f64 {
+    0.0
+}
+
+/// Process CPU time across every thread, in seconds.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn cpu_seconds() -> f64 {
+    // SAFETY: getrusage only writes the zeroed struct it is given.
+    let usage = unsafe {
+        let mut usage = std::mem::zeroed::<libc::rusage>();
+        libc::getrusage(libc::RUSAGE_SELF, &mut usage);
+        usage
+    };
+    let seconds = |time: libc::timeval| time.tv_sec as f64 + time.tv_usec as f64 / 1e6;
+    seconds(usage.ru_utime) + seconds(usage.ru_stime)
+}
+
+/// Joining at a large render distance with everything full detail against a 32-chunk
+/// full-detail radius: work, bytes and memory to settle, then a still frame's cost.
+fn hybrid_join_benches(c: &mut Criterion) {
+    let assets = Arc::new(terrain_assets());
+    let mut group = c.benchmark_group("pipeline/hybrid_join_still_frame");
+    group.sampling_mode(SamplingMode::Flat);
+    group.sample_size(10);
+    group.measurement_time(Duration::from_secs(2));
+    let radii: Vec<i32> = std::env::var("HYBRID_RADII")
+        .ok()
+        .map(|list| {
+            list.split(',')
+                .filter_map(|radius| radius.parse().ok())
+                .collect()
+        })
+        .unwrap_or_else(|| vec![32, 64, 128]);
+    for radius in radii {
+        for full_detail in [None, Some(32)] {
+            let id = BenchmarkId::new(
+                format!("radius_{radius}"),
+                full_detail.map_or("all_full_detail".to_owned(), |n| format!("full_detail_{n}")),
+            );
+            let mut fixture = None;
+            group.bench_function(id, |b| {
+                let flight = fixture.get_or_insert_with(|| {
+                    let (cpu, wall) = (cpu_seconds(), Instant::now());
+                    let flight = Flight::with_full_detail(&assets, radius, full_detail);
+                    let (cpu, wall) = (cpu_seconds() - cpu, wall.elapsed().as_secs_f64());
+                    let stats = flight.stream.stats();
+                    let columns = flight.stream.loaded_column_count().max(1);
+                    let block_bytes = benchmark_support::terrain_block_bytes(&flight.stream);
+                    eprintln!(
+                        "HYBRID_JOIN radius={radius} full_detail={full_detail:?} columns={columns} sections={} join_wall_s={wall:.2} join_cpu_s={cpu:.2} light_jobs={} mesh_jobs={} meshes_acknowledged={} uploaded_mib={:.1} block_bytes_per_column={}",
+                        stats.resident_sub_chunks,
+                        stats.publication_stages.light_jobs_completed,
+                        stats.publication_stages.mesh_jobs_completed,
+                        stats.publication_stages.mesh_uploads_acknowledged,
+                        flight.uploaded_bytes as f64 / (1024.0 * 1024.0),
+                        block_bytes / columns,
+                    );
+                    flight
+                });
+                b.iter_custom(|frames| (0..frames).map(|_| flight.frame()).sum());
+            });
+        }
+    }
+    group.finish();
+}
+
 fn eviction_benches(c: &mut Criterion) {
     let assets = Arc::new(terrain_assets());
     let mut group = c.benchmark_group("pipeline/row_eviction_on_chunk_crossing");
@@ -570,6 +658,7 @@ criterion_group!(
     flight_benches,
     eviction_benches,
     cave_visibility_benches,
+    hybrid_join_benches,
     camera::camera_benches
 );
 criterion_main!(benches);
