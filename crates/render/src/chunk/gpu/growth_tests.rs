@@ -71,6 +71,7 @@ fn join_sized_arena_uploads_avoid_repeated_migrations() {
     let mut migrations = 0;
     let mut copied = 0;
     let mut blocked = 0;
+    let mut growth_wait_frames = 0;
     let mut frames = 0;
     let mut max_prepare = Duration::ZERO;
     let mut total_prepare = Duration::ZERO;
@@ -85,17 +86,19 @@ fn join_sized_arena_uploads_avoid_repeated_migrations() {
         let stats = *app.world().resource::<ChunkGpuUploadStats>();
         migrations += stats.migrations_started;
         copied += stats.gpu_copy_bytes;
-        blocked += usize::from(stats.uploads_waiting_for_growth > 0);
+        growth_wait_frames += usize::from(stats.uploads_waiting_for_growth > 0);
+        blocked += usize::from(stats.uploads_waiting_for_growth > 0 && stats.chunk_updates == 0);
         assert!(stats.total_bytes <= PublicationServiceConfig::DEFAULT.maximum_frame_bytes);
     }
     eprintln!(
-        "join sections={sections} frames={frames} migrations={migrations} copied_bytes={copied} blocked_frames={blocked} max_prepare_us={} total_prepare_us={}",
+        "join sections={sections} frames={frames} migrations={migrations} copied_bytes={copied} blocked_frames={blocked} growth_wait_frames={growth_wait_frames} max_prepare_us={} total_prepare_us={}",
         max_prepare.as_micros(),
         total_prepare.as_micros()
     );
     assert!(migrations <= 3);
     assert_eq!(copied, 0);
     assert_eq!(blocked, 0);
+    assert_eq!(growth_wait_frames, 0);
     assert_eq!(frames, (sections as usize).div_ceil(512));
 }
 
