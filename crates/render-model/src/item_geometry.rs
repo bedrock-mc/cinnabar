@@ -308,7 +308,7 @@ mod tests {
         (0..height)
             .flat_map(|row| {
                 (0..width).flat_map(move |column| {
-                    let (x, y) = (column * 8 / width, row * 8 / height);
+                    let (x, y) = (column * 8 / width, row * 8 / width);
                     let solid = ((1..7).contains(&x)
                         && (1..7).contains(&y)
                         && !((3..5).contains(&x) && (3..5).contains(&y)))
