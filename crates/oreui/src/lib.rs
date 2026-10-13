@@ -3,6 +3,8 @@
 //! and the shipped OreUI fonts are read at runtime.
 
 mod accounts;
+#[cfg(test)]
+mod accessibility_tests;
 mod add_server;
 mod artwork;
 pub mod bed_screen;
