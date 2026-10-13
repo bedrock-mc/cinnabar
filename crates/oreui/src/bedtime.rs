@@ -19,6 +19,11 @@ const BANDS_IN_MILLIS: f32 = 2_400.0;
 const STATUS_DELAY_MILLIS: f32 = 200.0;
 const BUTTONS_DELAY_MILLIS: f32 = 1_200.0;
 const FADE_MILLIS: f32 = 1_000.0;
+const COLUMN_WIDTH: f32 = 36.0;
+const STATUS_TOP: f32 = 0.258;
+const BUTTONS_BOTTOM: f32 = 0.172;
+const BUTTON_HEIGHT: f32 = 4.0;
+const BUTTON_GAP: f32 = 0.4;
 /// Clicks count only once the screen is interactive.
 pub const INTERACTIVE_MILLIS: u64 = 1_500;
 
@@ -85,10 +90,33 @@ fn fade(elapsed: f32, delay: f32) -> f32 {
     ease_in((elapsed - delay) / FADE_MILLIS)
 }
 
+/// Fits the status and settled control block between their authored vertical anchors.
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     state: &Bedtime,
     size: [f32; 2],
+) -> Result<Vec<(BedHit, UiRect)>, PaintError> {
+    let status = status_message(state);
+    let column = canvas.r(COLUMN_WIDTH).min(size[0]);
+    let status_height = canvas
+        .measure_height(&status, column, HEADER5)?
+        .max(canvas.r(HEADER5.line));
+    let count = if state.remote_players { 2.0 } else { 1.0 };
+    let block = canvas.r(BUTTON_HEIGHT * count + BUTTON_GAP * (count - 1.0));
+    let available = size[1] * (1.0 - BUTTONS_BOTTOM - STATUS_TOP);
+    let scale = (available / (status_height + block + canvas.r(BUTTON_GAP))).min(1.0);
+    canvas.with_scale(scale, |canvas| {
+        draw_fitted(canvas, state, size, &status, scale < 1.0)
+    })
+}
+
+/// Paints gradients and controls while retaining the existing timing and input admission.
+fn draw_fitted(
+    canvas: &mut Canvas<'_>,
+    state: &Bedtime,
+    size: [f32; 2],
+    status: &str,
+    fitted: bool,
 ) -> Result<Vec<(BedHit, UiRect)>, PaintError> {
     let [width, height] = size;
     let elapsed = state.elapsed as f32;
@@ -110,27 +138,31 @@ pub(super) fn draw(
             colour,
         )?;
     }
-    let column = canvas.r(36.0).min(width);
+    let column = canvas.r(COLUMN_WIDTH).min(width);
     let left = (width - column) * 0.5;
     canvas.alpha = fade(elapsed, STATUS_DELAY_MILLIS);
-    let status = status_message(state);
-    let top = height * 0.258;
-    canvas.text_centred(
-        &status,
-        [left, top, left + column, top + canvas.r(HEADER5.line)],
-        HEADER5,
-        TEXT,
-        false,
-    )?;
+    let top = height * STATUS_TOP;
+    // Full-width columns cannot accommodate the centered line's extra pixel allowance.
+    if fitted || column >= width {
+        canvas.centered_wrapped_text(status, [left, top], column, HEADER5, TEXT)?;
+    } else {
+        canvas.text_centred(
+            status,
+            [left, top, left + column, top + canvas.r(HEADER5.line)],
+            HEADER5,
+            TEXT,
+            false,
+        )?;
+    }
     canvas.alpha = fade(elapsed, BUTTONS_DELAY_MILLIS);
-    let button_height = canvas.r(4.0);
-    let gap = canvas.r(0.4);
+    let button_height = canvas.r(BUTTON_HEIGHT);
+    let gap = canvas.r(BUTTON_GAP);
     let mut buttons = vec![(BedHit::LeaveBed, LEAVE_BED)];
     if state.remote_players {
         buttons.push((BedHit::OpenChat, OPEN_CHAT));
     }
     let block = button_height * buttons.len() as f32 + gap * (buttons.len() - 1) as f32;
-    let mut y = height * (1.0 - 0.172) - block;
+    let mut y = height * (1.0 - BUTTONS_BOTTOM) - block;
     let interactive = state.elapsed >= INTERACTIVE_MILLIS;
     let mut hits = Vec::new();
     for (hit, label) in buttons {

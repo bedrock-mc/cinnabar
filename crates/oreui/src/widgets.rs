@@ -21,6 +21,9 @@ use ui::IconRef;
 use ui_engine::caret::{TextSpot, caret_byte};
 use ui_engine::engine::screen::PaintError;
 
+/// Standard height in rem of the fixed route tab row.
+pub(super) const TAB_HEIGHT: f32 = 4.8;
+
 /// How a control is being interacted with this frame.
 #[derive(Clone, Copy, Default)]
 pub(super) struct Interaction {

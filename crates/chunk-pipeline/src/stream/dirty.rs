@@ -119,6 +119,16 @@ impl WorldStream {
             cells,
         } = scope;
         let sources = sources.into_iter().collect::<BTreeSet<_>>();
+        // A far summary reads only its own column's blocks, so only sources refresh one.
+        if self.far_terrain_enabled() {
+            for column in sources
+                .iter()
+                .map(|key| key.chunk())
+                .collect::<BTreeSet<_>>()
+            {
+                self.note_far_change(column);
+            }
+        }
         if relight {
             self.mark_light_changed_sources_reaching(sources.iter().copied(), urgent, reach, cells);
         }
@@ -239,6 +249,19 @@ impl WorldStream {
         self.mark_dirty_exact_with_priority(key, now, false)
     }
     pub(super) fn mark_dirty_exact_with_priority(
+        &mut self,
+        key: SubChunkKey,
+        now: Instant,
+        urgent: bool,
+    ) -> u64 {
+        // Columns past full detail are drawn by far terrain; promotion remeshes them.
+        if !self.wants_mesh(key.chunk()) {
+            return 0;
+        }
+        self.mark_dirty_exact_ungated(key, now, urgent)
+    }
+    /// Marks `key` for a mesh or removal whether or not its column is full detail.
+    pub(super) fn mark_dirty_exact_ungated(
         &mut self,
         key: SubChunkKey,
         now: Instant,

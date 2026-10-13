@@ -4,6 +4,7 @@ use {super::*, simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION};
 
 mod input_reads;
 mod owner_variables;
+mod presentation;
 
 /// Runtime values retain the attachable's owning actor reference without numeric coercion.
 #[derive(Clone, Debug, PartialEq)]
@@ -41,6 +42,8 @@ pub(super) struct VariableLayout {
     clip_reads: Vec<Box<[u32]>>,
     clip_inputs: Vec<PresentationReads>,
     controller_inputs: Vec<PresentationReads>,
+    presentation_symbols: Vec<PresentationReads>,
+    expression_inputs: Vec<PresentationReads>,
     pub(super) engine: EngineSlots,
 }
 
@@ -160,6 +163,8 @@ impl VariableLayout {
             clip_reads: Vec::new(),
             clip_inputs: Vec::new(),
             controller_inputs: Vec::new(),
+            presentation_symbols: Vec::new(),
+            expression_inputs: Vec::new(),
             engine: EngineSlots {
                 seeded: SEEDED_VARIABLES
                     .iter()

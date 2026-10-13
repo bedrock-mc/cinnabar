@@ -9,6 +9,9 @@ use launcher::menu::{MenuAction, MenuView};
 use ui_engine::engine::screen::PaintError;
 use ui_engine::engine::screen::Translate;
 
+const ACTION_GAP: f32 = 1.0;
+const ACTION_BOTTOM_SPACE: f32 = 3.0;
+
 /// Samples a CSS cubic Bezier by solving its horizontal parameter first.
 fn bezier(t: f64, control: [f64; 4]) -> f32 {
     let t = t.clamp(0.0, 1.0);
@@ -59,6 +62,19 @@ pub(super) fn draw(
     size: [f32; 2],
     translate: Translate<'_>,
 ) -> Result<(), PaintError> {
+    let minimum = canvas
+        .r(theme::HEADER3.line + theme::BUTTON_HEIGHT * 2.0 + ACTION_GAP + ACTION_BOTTOM_SPACE);
+    let scale = (size[1] / minimum).min(1.0);
+    canvas.with_scale(scale, |canvas| draw_fitted(canvas, view, size, translate))
+}
+
+/// Draws the timed content with geometry, text and pointer targets at the fitted scale.
+fn draw_fitted(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    size: [f32; 2],
+    translate: Translate<'_>,
+) -> Result<(), PaintError> {
     let state = view.death_presentation;
     let pending_age = state.respawn_seconds.or(view.death_loading.then_some(1.0));
     background(canvas, state, size)?;
@@ -102,8 +118,8 @@ pub(super) fn draw(
     let title_height = canvas.r(theme::HEADER3.line);
     let primary_height = canvas.r(theme::BUTTON_HEIGHT);
     let secondary_height = canvas.r(theme::BUTTON_HEIGHT);
-    let gap = canvas.r(1.0);
-    let action_height = primary_height + gap + secondary_height + canvas.r(3.0);
+    let gap = canvas.r(ACTION_GAP);
+    let action_height = primary_height + gap + secondary_height + canvas.r(ACTION_BOTTOM_SPACE);
     let reason_limit = (size[1] - title_height - action_height).max(0.0);
     let reason_layout =
         canvas.bounded_centered_layout(&view.death_reason, width, reason_limit, theme::BODY)?;
