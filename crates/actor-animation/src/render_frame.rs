@@ -501,6 +501,7 @@ impl ActorAnimationStore {
         context.camera_position = camera_position;
         let evaluator = evaluation::Evaluator {
             assets,
+            pack: state.pack,
             layout,
             program: None,
             actor,

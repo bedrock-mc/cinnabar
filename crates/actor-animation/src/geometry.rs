@@ -73,6 +73,7 @@ pub(super) fn resolve_binding(
     let context = ActorTickContext::default();
     let evaluator = Evaluator {
         assets,
+        pack: false,
         layout,
         program: None,
         actor,
@@ -487,6 +488,7 @@ fn reselect_geometry_with_checkpoint(
     let input = state.history.back().copied()?;
     let evaluator = Evaluator {
         assets,
+        pack: state.pack,
         layout,
         program: None,
         actor,

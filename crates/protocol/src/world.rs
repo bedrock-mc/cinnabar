@@ -21,7 +21,8 @@ use crate::{
         normalize_slot,
     },
     item::{
-        normalize_animate, normalize_animate_entity, normalize_equipment, normalize_item_registry,
+        normalize_actor_attack, normalize_animate, normalize_animate_entity, normalize_equipment,
+        normalize_item_registry,
     },
     packet::GameHeader,
     ui::{
@@ -385,10 +386,14 @@ world_packets! {
     )),
     TakeItemActor(packet) => WorldEvent::Actor(crate::actor::normalize_take_item_actor(packet)),
     ActorEvent(packet) => {
-        let Some(event) = crate::actor::normalize_actor_event(packet) else {
-            return Ok(None);
-        };
-        WorldEvent::Actor(event)
+        if packet.event_id == bedrock_protocol_1_26_51::enums::ActorEventType::StartAttacking {
+            WorldEvent::ItemActor(normalize_actor_attack(packet.target_runtime_id)?)
+        } else {
+            let Some(event) = crate::actor::normalize_actor_event(packet) else {
+                return Ok(None);
+            };
+            WorldEvent::Actor(event)
+        }
     },
     ItemRegistry(packet) => {
         WorldEvent::ItemActor(ItemActorEvent::Registry(normalize_item_registry(packet)?))

@@ -70,6 +70,7 @@ fn sample(
     };
     let evaluator = Evaluator {
         assets: &assets,
+        pack: false,
         layout: &layout,
         program: None,
         actor,

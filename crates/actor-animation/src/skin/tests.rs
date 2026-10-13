@@ -224,6 +224,7 @@ fn legacy_attack_targets_preserve_custom_skin_and_persona_geometry() {
     let context = ActorTickContext::default();
     let evaluator = Evaluator {
         assets: &assets,
+        pack: false,
         layout: &layout,
         program: None,
         actor: &actor,
