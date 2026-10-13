@@ -34,8 +34,10 @@ fn findings_at(source: &str, alpha_metadata: &str, alpha_root: &str) -> Vec<Stri
     write(&root.join("plan.md"), "# Plan\n");
     write(
         &root.join("policy.toml"),
-        "production_rust_max=1000\nmodule_root_max=300\npowershell_max=800\ntest_max=1200\n\
-         [[crates]]\nname='alpha'\npath='crates/alpha'\n[[crates]]\nname='beta'\npath='crates/beta'\n",
+        &format!(
+            "production_rust_max=1000\nmodule_root_max=300\npowershell_max=800\ntest_max=1200\n\
+             [[crates]]\nname='alpha'\npath='{alpha_root}'\n[[crates]]\nname='beta'\npath='crates/beta'\n"
+        ),
     );
     check_repository(root, &root.join("policy.toml"))
         .unwrap()
