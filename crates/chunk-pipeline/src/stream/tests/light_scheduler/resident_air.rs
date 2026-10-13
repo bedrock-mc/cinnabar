@@ -233,3 +233,34 @@ fn duplicate_removal_records_spend_one_permit() {
     ));
     assert!(stream.pop_mesh_change().is_none());
 }
+
+/// Repeated changes to an air section with no removal credit keep one pending removal.
+#[test]
+fn repeated_air_invalidations_without_credit_keep_one_removal() {
+    let mut stream = lit_stream(1);
+    let key = SubChunkKey::new(1, 0, 0, 0);
+    resident(&mut stream, key, super::uniform_sub_chunk(2));
+    install_current_light(&mut stream, key, 0, 0, false);
+    stream.mark_dirty_exact(key, Instant::now());
+    let allowance =
+        render_api::PublicationAllowance::new(render_api::PublicationServiceConfig::DEFAULT);
+    stream.set_publication_allowance(allowance);
+    assert_eq!(stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, 1), 0);
+    resident(&mut stream, key, super::uniform_sub_chunk(0));
+
+    for _ in 0..8 {
+        stream.mark_changed(key, Instant::now());
+        assert_eq!(stream.dispatch_mesh_jobs_with_limits([8.0; 3], 1, 1), 0);
+    }
+
+    assert_eq!(stream.air_removals.len(), 1);
+    let removal_lane = &stream.mesh_jobs.lanes[MESH_REMOVAL_LANE];
+    assert!(
+        removal_lane
+            .ready
+            .iter()
+            .chain(&removal_lane.deferred)
+            .all(|candidate| candidate.key != key)
+    );
+    assert!(stream.pop_mesh_change().is_none());
+}

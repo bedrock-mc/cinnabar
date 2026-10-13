@@ -308,19 +308,11 @@ impl WorldStream {
                 pending.urgent = true;
                 self.mesh_jobs.scan.push_front((key, pending.revision));
             }
-            let pending = *pending;
+            let revision = pending.revision;
             // A coalesced change that leaves only air queues its removal now, so no state of the
             // geometry lane can hold the old mesh on screen.
             if !self.mesh_requires_geometry(key) {
-                let view = self.scheduler_view(self.last_camera_position);
-                self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
-                    .ready
-                    .push(PendingSchedulerCandidate::new(
-                        key,
-                        pending.revision,
-                        view,
-                        pending.urgent,
-                    ));
+                self.air_removals.insert(key, revision);
             }
             return;
         }

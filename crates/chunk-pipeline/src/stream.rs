@@ -377,6 +377,8 @@ pub struct WorldStream {
     admitted_mesh_jobs: Arc<AtomicUsize>,
     mesh_memory: meshing::memory::MeshMemoryBudget,
     mesh_cancellations: HashMap<SubChunkKey, Arc<AtomicBool>>,
+    /// Queued sections found to be air, by their pending revision; drained under removal credit.
+    air_removals: BTreeMap<SubChunkKey, u64>,
     urgent_mesh_in_flight: HashSet<SubChunkKey>,
     staged_mesh_completions: VecDeque<MeshCompletion>,
     staged_mesh_bytes: u64,

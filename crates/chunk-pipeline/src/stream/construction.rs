@@ -118,6 +118,7 @@ impl WorldStream {
             dimension_transfer_priority: None,
             admitted_mesh_jobs: Arc::new(AtomicUsize::new(0)),
             mesh_cancellations: HashMap::new(),
+            air_removals: BTreeMap::new(),
             urgent_mesh_in_flight: HashSet::new(),
             staged_mesh_completions: VecDeque::new(),
             staged_mesh_bytes: 0,

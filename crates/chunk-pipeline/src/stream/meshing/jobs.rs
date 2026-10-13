@@ -146,16 +146,8 @@ impl WorldStream {
                     continue;
                 }
                 // Air needs no worker, so its removal never waits for an older build in flight.
-                if !requires_geometry(
-                    &self.resident,
-                    &self.known_air,
-                    self.authority.terrain(),
-                    self.classifier,
-                    key,
-                ) {
-                    self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
-                        .ready
-                        .push(candidate);
+                if !self.mesh_requires_geometry(key) {
+                    self.air_removals.insert(key, pending.revision);
                     continue;
                 }
                 if self.mesh_jobs.in_flight.contains_key(&key) || seen.contains(&key) {
@@ -316,6 +308,7 @@ impl WorldStream {
         drop(dispatch);
         // Collected after dispatch, so air the ready lane yielded is removed in the same call.
         let mut removal_candidates = Vec::new();
+        let mut air_removals_due = Vec::new();
         let removal_authority = self
             .publication_allowance
             .as_ref()
@@ -324,6 +317,28 @@ impl WorldStream {
             })
             .min(removal_budget)
             .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()));
+        // Air sections are keyed by section, so repeated changes keep one record and one permit.
+        while air_removals_due.len() < removal_authority
+            && let Some((key, revision)) = self.air_removals.pop_first()
+        {
+            let Some(pending) = self.mesh_jobs.pending.get(&key).copied() else {
+                continue;
+            };
+            // A newer revision is routed at ingress.
+            if pending.revision != revision || !self.revisions.is_current(key, revision) {
+                continue;
+            }
+            let candidate = PendingSchedulerCandidate::new(key, revision, view, pending.urgent);
+            if self.mesh_requires_geometry(key) {
+                // Geometry again: the section returns to the worker queue it may have left.
+                self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+                    .ready
+                    .push(candidate);
+                continue;
+            }
+            air_removals_due.push((candidate, pending));
+        }
+        removal_candidates.append(&mut air_removals_due);
         if removal_authority != 0 {
             for index in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
                 if index != 0 && self.poll_budget_exhausted() {
