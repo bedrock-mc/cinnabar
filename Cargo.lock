@@ -2042,6 +2042,7 @@ dependencies = [
  "client-world",
  "criterion",
  "crossbeam-channel",
+ "far-terrain",
  "hashbrown 0.16.1",
  "libc",
  "meshing",
