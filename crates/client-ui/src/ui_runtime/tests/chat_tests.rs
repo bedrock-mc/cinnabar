@@ -1,4 +1,8 @@
+use super::fixtures::warp_tree;
 use super::*;
+use crate::ui_runtime::interaction::dispatch_chat_ui_action;
+use protocol::chat_text_packet;
+use ui::{PointerPhase, UiPoint};
 
 #[test]
 fn tab_cycles_whitespace_suggestions_as_complete_replacements() {
