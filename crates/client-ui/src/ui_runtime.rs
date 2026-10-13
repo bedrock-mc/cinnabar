@@ -208,6 +208,7 @@ pub struct UiRuntime {
     /// Version-pinned local item facts survive replacement of server session state.
     food_catalog: Option<Arc<assets::RuntimeEquipmentCatalog>>,
     stack_facts: protocol::ItemStackFactsCache,
+    anvil_cache: anvil::cache::PreviewCache,
     /// Invalidates names when components or any translation table changes.
     item_name_generation: u64,
     server_ui: Option<Arc<presentation::ServerUiPack>>,
@@ -305,6 +306,7 @@ impl UiRuntime {
             session_items: None,
             food_catalog: None,
             stack_facts: Default::default(),
+            anvil_cache: Default::default(),
             item_name_generation: 0,
             server_ui: None,
             session_glyphs: None,
@@ -626,6 +628,7 @@ impl UiRuntime {
         self.client_packets.clear();
         self.book_packets.clear();
         self.screen = screen_state::ScreenState::default();
+        self.anvil_cache = Default::default();
         self.experiences.reset();
         self.server_lang = None;
         self.session_icons = None;

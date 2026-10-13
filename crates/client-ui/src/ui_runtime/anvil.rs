@@ -6,6 +6,8 @@ use sha2::{Digest, Sha256};
 
 use super::UiRuntime;
 
+pub(super) mod cache;
+
 /// The anvil's predicted result stack and what taking it costs.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AnvilPreview {
@@ -119,10 +121,8 @@ impl UiRuntime {
         state.anvil_name = name;
     }
 
-    /// The result the open anvil makes from its inputs and name box, or `None` when it makes
-    /// nothing.
-    #[must_use]
-    pub fn anvil_preview(
+    /// Rebuilds the prediction after an input, name or calculation rule changes.
+    fn compute_anvil_preview(
         &self,
         player_runtime: &player_state::PlayerState,
     ) -> Option<AnvilPreview> {
@@ -183,7 +183,7 @@ impl UiRuntime {
             .cloned()
             .or_else(|| {
                 self.anvil_preview(player_runtime)
-                    .map(|preview| preview.stack)
+                    .map(|preview| preview.stack.clone())
             })
     }
 

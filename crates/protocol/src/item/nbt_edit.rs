@@ -53,10 +53,11 @@ pub fn item_anvil_data(extra_data: &[u8]) -> Option<ItemAnvilData> {
                 }
                 saw_enchantments = true;
                 let mut list = entry.payload.as_slice();
-                if read_u8(&mut list)? != TAG_COMPOUND {
+                let element_type = read_u8(&mut list)?;
+                let count = usize::try_from(read_i32_le(&mut list)?).ok()?;
+                if count > 0 && element_type != TAG_COMPOUND {
                     return None;
                 }
-                let count = usize::try_from(read_i32_le(&mut list)?).ok()?;
                 for _ in 0..count {
                     let (fields, rest) = read_entries(list)?;
                     list = rest;
@@ -315,6 +316,30 @@ mod tests {
         extra.extend_from_slice(&[0; 8]);
         extra.extend_from_slice(&42i64.to_le_bytes());
         extra
+    }
+
+    #[test]
+    fn empty_enchantment_lists_accept_end_element_type() {
+        for element_type in [0, TAG_COMPOUND] {
+            let mut extra = vec![0xff, 0xff, 1, TAG_COMPOUND, 0, 0, TAG_LIST];
+            write_string(&mut extra, b"ench").unwrap();
+            extra.push(element_type);
+            extra.extend_from_slice(&0i32.to_le_bytes());
+            extra.push(0);
+            extra.extend_from_slice(&[0; 8]);
+            assert_eq!(item_anvil_data(&extra), Some(ItemAnvilData::default()));
+            let renamed = edit_item_extra(
+                &extra,
+                &ItemNbtEdit {
+                    custom_name: Some(Some("Blade".into())),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let data = item_anvil_data(&renamed).unwrap();
+            assert_eq!(data.custom_name.as_deref(), Some("Blade"));
+            assert!(data.enchantments.is_empty());
+        }
     }
 
     #[test]
