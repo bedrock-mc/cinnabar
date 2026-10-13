@@ -310,6 +310,12 @@ impl InstallLayout {
         self.user_data_root.join("resource-packs/v1/objects")
     }
 
+    /// Verified chunk blobs reused across launches; safe to delete while the client is closed.
+    #[must_use]
+    pub fn client_blob_cache_file(&self) -> PathBuf {
+        self.user_data_root.join("cache/client-blobs-v1.redb")
+    }
+
     /// Join-time server-pack archives and compilations reused across launches; safe to delete.
     #[must_use]
     pub fn compiled_pack_cache_dir(&self) -> PathBuf {

@@ -883,7 +883,7 @@ impl Drop for BlobCacheResolver {
     }
 }
 
-trait ReferencedBlobHashes {
+pub(super) trait ReferencedBlobHashes {
     fn referenced_blob_hashes(&self) -> Vec<u64>;
 }
 

@@ -1,10 +1,19 @@
 use bevy::prelude::Resource;
+use std::path::PathBuf;
+
+mod disk;
+pub use disk::CLIENT_BLOB_DISK_CAP_BYTES;
 
 /// The verified blob cache shared by every network session in this process.
 #[derive(Debug, Clone, Default, Resource)]
 pub struct ClientBlobCacheOwner(protocol::ClientBlobCache);
 
 impl ClientBlobCacheOwner {
+    /// Starts background disk storage and warming without delaying client startup.
+    pub fn persistent(path: PathBuf) -> Self {
+        Self(disk::start(path, protocol::BlobCacheLimits::default()))
+    }
+
     /// Returns a shared handle to the process-lifetime verified blob cache.
     pub fn cache(&self) -> protocol::ClientBlobCache {
         self.0.clone()

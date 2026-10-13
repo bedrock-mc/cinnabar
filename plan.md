@@ -4044,7 +4044,9 @@ Current implementation state:
    capability (default off, byte-identical wire when unset) that flips the outbound upstream
    `ClientCacheStatus` enabled byte through an observe-then-flip dialer hook, and both production
    app spawn paths enable it exactly when the Rust session owns its process-lifetime verified
-   blob cache; live cached-chunk streaming evidence on authorized targets remains open. A separate opt-in
+   blob cache. Verified chunk blobs now persist across launches in a bounded, background redb
+   store; disk reads recheck content hashes before hit reporting, and unavailable entries follow
+   normal misses. Live cached-chunk streaming evidence on authorized targets remains open. A separate opt-in
    read-only Status v1 control endpoint and strict Rust bridge reader expose secret-safe lifecycle
    and latest pack-admission state. Live Lifeboat negotiation and handoff are now evidenced, but
   pack-content semantic validation and parsing, archive extraction, application,
