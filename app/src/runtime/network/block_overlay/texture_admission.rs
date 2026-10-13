@@ -116,9 +116,7 @@ impl TextureSlots {
 pub(super) struct TextureCheckpoint {
     materials: usize,
     sources: usize,
-    bytes: usize,
     tiles: Vec<u32>,
-    upload_bytes: usize,
     animations: usize,
     frames: usize,
     serial: u64,
@@ -138,9 +136,7 @@ impl Builder<'_> {
         TextureCheckpoint {
             materials: self.overlay.materials.len(),
             sources: self.sources.len(),
-            bytes: self.source_bytes,
             tiles: self.tiles.clone(),
-            upload_bytes: self.upload_bytes,
             animations: self.overlay.animations.len(),
             frames: self.overlay.animation_frames.len(),
             serial: self.slots.serial,
@@ -155,9 +151,14 @@ impl Builder<'_> {
         self.materials
             .retain(|_, id| (*id as usize) < checkpoint.materials);
         self.sources.truncate(checkpoint.sources);
-        self.source_bytes = checkpoint.bytes;
-        self.tiles = checkpoint.tiles;
-        self.upload_bytes = checkpoint.upload_bytes;
+        // Resolution reductions remain valid for published layers after a rollback.
+        self.tiles = checkpoint
+            .tiles
+            .into_iter()
+            .enumerate()
+            .map(|(shard, tile)| tile.min(self.tiles.get(shard).copied().unwrap_or(tile)))
+            .collect();
+        self.recount_texture_bytes();
         self.overlay.animations.truncate(checkpoint.animations);
         self.overlay.animation_frames.truncate(checkpoint.frames);
         self.slots

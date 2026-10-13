@@ -2576,7 +2576,9 @@ fonts currently use provisional alpha rasterization. No visual gate is closed.
 Runtime terrain, item and particle images share checked source-area, device-size
 and retained-page budgets. Tall strips are decoded before cutting square frames;
 admitted HD terrain and inventory, held and dropped item art retain source detail.
-Terrain routes that exceed full-resolution storage keep their existing fallback.
+Terrain storage uses the device texture limits and pack memory tier. Byte pressure
+reduces texture resolution while retaining materials and animation timelines.
+Incomplete: exact mip-drop ordering and memory-pressure parity remain unverified.
 Incomplete: native frame and process-memory acceptance for HD packs, exact GUI
 sampling at high UI scales, and pack coverage beyond the supported device and
 storage bounds. This does not close a rendered parity gate.

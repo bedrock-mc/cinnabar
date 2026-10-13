@@ -12,7 +12,7 @@ pub(super) use identity::{TextureIdentity, TexturePath, TextureStorageKey};
 mod decoding;
 mod diagnostics;
 mod frames;
-mod terrain;
+pub(super) mod terrain;
 pub(super) use carrier::{carrier_image, carrier_image_path};
 use diagnostics::{FailureReason, TextureDiagnostics};
 #[cfg(test)]
@@ -37,6 +37,7 @@ pub(super) struct TextureCatalog<'a> {
     flipbooks: HashMap<String, Vec<FlipbookSource>>,
     destinations: HashMap<String, Vec<u32>>,
     diagnostics: TextureDiagnostics,
+    pub(super) texture_policy: assets::texture::policy::TexturePolicy,
     #[cfg(test)]
     pub(super) decode_attempts: std::cell::Cell<usize>,
 }
@@ -106,6 +107,7 @@ impl<'a> TextureCatalog<'a> {
             flipbooks,
             destinations,
             diagnostics,
+            texture_policy: assets::texture::policy::device_policy(),
             #[cfg(test)]
             decode_attempts: std::cell::Cell::new(0),
         }
