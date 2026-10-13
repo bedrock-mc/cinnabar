@@ -69,6 +69,39 @@ fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
 }
 
 #[test]
+fn local_cape_flap_survives_frames_that_advance_multiple_actor_ticks() {
+    for ticks in [1, 2, 3, 5] {
+        let assets = actor_animation::test_support::counting_random_assets_for("minecraft:player");
+        let mut store = ActorStore::new_with_entity_assets(1, 0, assets);
+        store.exclude_remote_state_for(1);
+        let mut feed = local_feed(0.0, 0.0);
+        store.sync_local_player(1, -100, &feed);
+        store.advance_interpolation_frame(1);
+        feed.position[0] += ticks as f32 * 0.1;
+        feed.velocity = [0.1, 0.0, 0.0];
+        store.sync_local_player(1, -100, &feed);
+        store.advance_interpolation_frame(ticks);
+        let rig = store.actor_rig(1).unwrap();
+        assert!(rig.pose_evaluated);
+        let flap = rig
+            .particle_queries(store.get(1).unwrap(), 1.0, 0)
+            .query("cape_flap_amount");
+        assert!((flap - 0.4).abs() < 1e-6, "{ticks} ticks");
+        feed.velocity = [0.0; 3];
+        store.sync_local_player(1, -100, &feed);
+        store.advance_interpolation_frame(ticks);
+        assert_eq!(
+            store
+                .actor_rig(1)
+                .unwrap()
+                .particle_queries(store.get(1).unwrap(), 1.0, 0)
+                .query("cape_flap_amount"),
+            0.0
+        );
+    }
+}
+
+#[test]
 fn local_feed_overrides_only_the_predicted_sneak_and_sprint_flags() {
     let mut store = ActorStore::new(1, 0);
     store.exclude_remote_state_for(1);

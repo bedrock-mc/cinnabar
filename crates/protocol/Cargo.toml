@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish = false
-# `tests/it` compiles into the library's unit tests, which may reach crate-private packet internals.
+# Wire tests share one explicit integration target.
 autotests = false
 
 [package.metadata.cinnabar]
@@ -18,6 +18,10 @@ reads = [
 [features]
 # Fixture builders and semantic observations for other crates' tests.
 test-support = []
+
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
 
 [dependencies]
 simulation-clock = { path = "../simulation-clock" }

@@ -517,7 +517,13 @@ impl WorldStream {
                     match (key, slot) {
                         (Some(key), None) if self.light_source_is_known(key) => return false,
                         (None, Some(_)) => return false,
-                        (Some(key), Some(slot)) if !self.mesh_light_slot_is_current(key, slot) => {
+                        (Some(key), Some(slot))
+                            if !self.mesh_light_slot_is_current(
+                                key,
+                                slot,
+                                [-i32::from(dx), -i32::from(dy), -i32::from(dz)],
+                            ) =>
+                        {
                             return false;
                         }
                         _ => {}
@@ -527,18 +533,22 @@ impl WorldStream {
         }
         true
     }
+    /// Whether `slot` still gives the mesh centred `toward_center` from it the light it would
+    /// sample now; a relight that leaves the sampled shell unchanged keeps the mesh current.
     pub(in crate::stream) fn mesh_light_slot_is_current(
         &self,
         key: SubChunkKey,
         slot: &MeshLightSlot,
+        toward_center: [i32; 3],
     ) -> bool {
         slot.key == key
             && matches!(
                 self.light_source_state(key),
                 LightSourceState::Current { ownership, light }
                     if ownership.block_generation == slot.block_generation
-                        && ownership.light_revision == slot.light_revision
-                        && Arc::ptr_eq(light, &slot.light)
+                        && ((ownership.light_revision == slot.light_revision
+                            && Arc::ptr_eq(light, &slot.light))
+                            || !sampled_light_changed(&slot.light, light, toward_center))
             )
     }
     pub(in crate::stream) fn requeue_current_mesh_completion(

@@ -89,11 +89,23 @@ impl PlayerInventoryLedger {
         slot: u8,
         amount: Option<u16>,
     ) -> Result<i32, InventoryGestureError> {
+        let legacy_request_id =
+            protocol::next_legacy_request_id().ok_or(InventoryGestureError::InvalidRequest)?;
         let request = self.drop_from(
             DropSource::Target(InventoryTarget::Player(slot)),
             amount,
             false,
         )?;
+        if let Some(pending) = self
+            .queue
+            .iter_mut()
+            .find(|pending| pending.request_id == request)
+        {
+            pending.world_drop = Some(super::queue::WorldDrop {
+                legacy_request_id,
+                consumed_after: 0,
+            });
+        }
         self.pending_world_drops = self
             .pending_world_drops
             .saturating_add(1)

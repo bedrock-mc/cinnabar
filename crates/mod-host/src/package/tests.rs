@@ -111,3 +111,32 @@ fn the_digest_follows_every_file() {
     .unwrap();
     assert_ne!(first.digest, changed.digest);
 }
+
+#[test]
+fn package_source_bytes_share_one_admission_budget() {
+    let image = vec![0; MAX_TEXTURE_BYTES];
+    let files = [
+        ("mod.wasm", b"\0asm".as_slice()),
+        ("textures/a.png", image.as_slice()),
+        ("textures/b.png", image.as_slice()),
+        ("textures/c.png", image.as_slice()),
+        ("textures/d.png", image.as_slice()),
+    ];
+    assert!(image.len() * 4 >= MAX_PACKAGE_BYTES);
+    let dir = write_package(&files, |_| {});
+    let error = format!("{:#}", Package::read(dir.path()).err().unwrap());
+    assert!(error.contains("package byte limit"), "{error}");
+}
+
+#[test]
+#[cfg(unix)]
+fn package_files_cannot_be_replaced_with_links() {
+    let outside = tempfile::tempdir().unwrap();
+    let target = outside.path().join("mod.wasm");
+    std::fs::write(&target, b"\0asm").unwrap();
+    let dir = write_package(&[("mod.wasm", b"\0asm")], |dir| {
+        std::fs::remove_file(dir.join("mod.wasm")).unwrap();
+        std::os::unix::fs::symlink(&target, dir.join("mod.wasm")).unwrap();
+    });
+    assert!(Package::read(dir.path()).is_err());
+}

@@ -189,7 +189,10 @@ pub use block_entity::{BedModel, bed_color};
 pub use block_entity::{BellAttachment, BellModel, BookPose, EnchantingBook, swing_degrees};
 pub use block_entity::{BlockEntityArtworkPreparer, PreparedBlockEntityArtwork};
 pub use block_entity::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radians};
-pub use block_entity::{CrackQuad, CrackShape, crack_shape_from_template, crack_texture_name};
+pub use block_entity::{
+    CrackQuad, CrackShape, CrackShapeCache, crack_shape_for_block, crack_shape_from_template,
+    crack_texture_name,
+};
 pub use block_entity::{DecoratedPotModel, sherd_pattern};
 pub use block_entity::{
     ITEM_FRAME_PANEL_FRONT_PIXELS, ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel,

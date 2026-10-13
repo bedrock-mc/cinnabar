@@ -92,12 +92,12 @@ fn session_change_drops_runtime_id_keyed_caches() {
     let mut runtime = BlockEntityRuntime::new();
     runtime.bind_session(Some((1, 0)));
     runtime.blocks.insert(7, None);
-    crack_shape(
-        &mut runtime.shapes,
+    runtime.shapes.shape(
         &Arc::new(assets::RuntimeAssets::diagnostic()),
         assets::NetworkIdMode::Sequential,
         Some(7),
         [0; 3],
+        None,
     );
     runtime.bell_rings.insert([0, 0, 0], (1, 0.0));
     runtime.bind_session(Some((1, 0)));

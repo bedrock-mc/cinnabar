@@ -130,21 +130,27 @@ impl PlayerInventoryLedger {
                 }
             }
             let Some(index) = self.queue.iter().position(|pending| {
-                pending.request_id == response.request_id && pending.accepted.is_none()
+                if pending.locally_committed() {
+                    pending
+                        .world_drop
+                        .is_some_and(|drop| drop.legacy_request_id == response.request_id)
+                } else {
+                    pending.request_id == response.request_id
+                }
             }) else {
                 if response.status == StackResponseStatus::Rejected {
                     self.settle_abandoned_rejection(response.request_id);
                 }
                 continue;
             };
-            if response.status == StackResponseStatus::Accepted
-                && self.request_is_current(&self.queue[index])
+            let request = self.queue.remove(index).expect("index observed");
+            if response.status == StackResponseStatus::Accepted {
+                self.settle(&request, &response.containers);
+            } else if response.status == StackResponseStatus::Rejected
+                && self.request_is_current(&request)
             {
-                self.queue[index].accepted = Some(Arc::clone(&response.containers));
-            } else {
-                self.queue.remove(index);
+                self.reject_request(&request);
             }
-            self.settle_accepted_heads();
         }
         self.refold();
         // Settlement may have released the last request of a closing window.

@@ -112,6 +112,48 @@ fn furnace_cells_are_addressed_by_role() {
     assert_eq!(source.slot, 1);
 }
 
+#[test]
+fn named_window_refreshes_keep_taken_slots_empty_after_rejection() {
+    for admission in 0..3 {
+        let mut ledger = ledger_with(&[]);
+        open(&mut ledger, 3, WINDOW_TYPE_FURNACE);
+        let original = vec![stack(20, 2), stack(21, 3), stack(22, 4)];
+        ledger.apply(&content(ContainerIdentity::window(3), original.clone()));
+        let request = ledger.begin_storage_take_count(1, 3).unwrap();
+        assert!(ledger.mark_transport_enqueued(20));
+        let mut refreshed = original.clone();
+        refreshed[1] = NetworkItemStack::empty();
+        match admission {
+            0 => ledger.apply(&content(ContainerIdentity::window(3), refreshed)),
+            1 => ledger.apply_window_content(ContainerIdentity::window(3), 0, &refreshed),
+            _ => {
+                let (StackRequestContainer::OpenWindow { name, .. }, _) =
+                    protocol::open_cell_request(WindowKind::Furnace, 1, None, None).unwrap()
+                else {
+                    panic!("named furnace cell");
+                };
+                ledger.apply_window_content(named(3, name), name, &[NetworkItemStack::empty()]);
+            }
+        }
+        ledger.apply(&InventoryEvent::Response(
+            protocol::ItemStackResponseEvent {
+                responses: Arc::from([protocol::StackResponse {
+                    request_id: request,
+                    status: protocol::StackResponseStatus::Rejected,
+                    containers: Arc::from([]),
+                }]),
+            },
+        ));
+        assert!(ledger.storage_stack(1).is_none());
+        assert!(ledger.cursor_stack().is_none());
+        assert_eq!(ledger.storage_stack(0), Some(&original[0]));
+        assert_eq!(ledger.storage_stack(2), Some(&original[2]));
+        assert_eq!(ledger.pending_request_count(), 0);
+        assert!(!ledger.resync_required());
+        assert!(ledger.begin_storage_click(0).is_ok());
+    }
+}
+
 /// A hopper takes the level-entity name with a five-cell payload.
 #[test]
 fn hopper_admits_five_generic_cells() {

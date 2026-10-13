@@ -50,8 +50,6 @@ pub use interaction::FastTransferAction;
 #[cfg(any(test, feature = "test-support"))]
 pub use interaction::dispatch_inventory_click;
 pub use interaction::{ChatFlushError, flush_chat_sends, flush_inventory_send};
-#[cfg(test)]
-use interaction::{dispatch_chat_ui_action, paste_chat_shortcut};
 
 use std::{collections::VecDeque, sync::Arc};
 
@@ -60,8 +58,6 @@ use protocol::{
     UiEvent,
 };
 use semantic_input::InputContext;
-#[cfg(test)]
-use ui::BoundedStat;
 use ui::{
     BossBarStore, ChatAutocompleteRequest, ChatAutocompleteState, ChatClipboard, ChatEditor,
     ChatEditorError, ChatHistory, ChatPasteError, ChatRateLimit, ChatSendQueue, ChatStore,

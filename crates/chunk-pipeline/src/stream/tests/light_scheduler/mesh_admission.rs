@@ -696,3 +696,100 @@ fn capacity_retry_keeps_a_woken_mesh_after_the_camera_moves() {
     assert_eq!(stream.dispatch_mesh_jobs(moved.position, 1), 1);
     finish_mesh(&mut stream, ready);
 }
+
+/// Commits `light` as `key`'s next light revision without touching its blocks, as a relight does.
+fn relight_in_place(stream: &mut WorldStream, key: SubChunkKey, light: SubChunkLight) {
+    let ownership = stream.lighting.ownership[&key];
+    let light_revision = ownership.light_revision + 1;
+    let light = light.with_generation(light_revision);
+    if stream.authority.terrain().sub_chunk(key).is_some() {
+        stream.lighting.store.insert_resident(key, light);
+    } else {
+        stream.lighting.store.insert_known_air(key, light);
+    }
+    stream.lighting.ownership.insert(
+        key,
+        LightOwnership {
+            light_revision,
+            ..ownership
+        },
+    );
+    stream
+        .lighting
+        .direct_sky
+        .get_mut(&key)
+        .expect("installed direct sky")
+        .light_revision = light_revision;
+}
+
+/// Meshes `center` with lit face neighbour `face`, then relights one cell of `face` before the
+/// completion is accepted.
+fn relight_face_cell_during_mesh(cell: [u8; 3]) -> WorldStream {
+    let mut stream = stream();
+    let center = SubChunkKey::new(0, 0, -4, 0);
+    let face = SubChunkKey::new(0, 1, -4, 0);
+    let decoded = DecodedLevelChunk::decode(
+        center.y,
+        1,
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../world/fixtures/uniform_non_air.bin"
+        )),
+        &RAW_IDS,
+    );
+    stream
+        .authority
+        .commit_level_chunk(center.chunk(), decoded)
+        .unwrap();
+    install_current_light(&mut stream, center, 0, 0, false);
+    install_current_light(&mut stream, face, 4, 5, true);
+    stream.mark_dirty_exact(center, Instant::now());
+    assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 1);
+    let completion = stream
+        .mesh_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("mesh worker completion");
+
+    let mut relit = stream.lighting.store.light(face).unwrap().as_ref().clone();
+    let [x, y, z] = cell;
+    relit.set(LightChannel::Block, x, y, z, 12).unwrap();
+    relight_in_place(&mut stream, face, relit);
+    stream.accept_mesh_completion(completion);
+    stream
+}
+
+/// A neighbour relight confined to cells the mesh never samples publishes the running mesh
+/// instead of meshing the section again.
+#[test]
+fn relight_outside_the_sampled_shell_keeps_the_running_mesh() {
+    // The centre samples only the x = 0 plane of its +x neighbour.
+    let mut stream = relight_face_cell_during_mesh([1, 7, 7]);
+    let center = SubChunkKey::new(0, 0, -4, 0);
+
+    assert_eq!(stream.stats().stale_mesh_jobs, 0);
+    assert_eq!(stream.take_mesh_changes().len(), 1);
+    assert!(!stream.mesh_jobs.pending.contains_key(&center));
+}
+
+/// A relight of a cell the mesh samples still sends the section back to be meshed.
+#[test]
+fn relight_inside_the_sampled_shell_requeues_the_running_mesh() {
+    let mut stream = relight_face_cell_during_mesh([0, 7, 7]);
+    let center = SubChunkKey::new(0, 0, -4, 0);
+
+    assert_eq!(stream.stats().stale_mesh_jobs, 1);
+    assert!(stream.take_mesh_changes().is_empty());
+    assert!(stream.mesh_jobs.pending.contains_key(&center));
+}
+
+/// The shell is the facing plane, edge or corner, or the whole section for the centre itself.
+#[test]
+fn sampled_light_shell_covers_only_cells_beside_the_centre() {
+    let cells = |toward| sampled_light_shell(toward).collect::<BTreeSet<_>>();
+    assert_eq!(cells([0, 0, 0]).len(), 4096);
+    let face = cells([1, 0, 0]);
+    assert_eq!(face.len(), 256);
+    assert!(face.iter().all(|&[x, _, _]| x == 15));
+    assert_eq!(cells([0, -1, 1]), (0..16).map(|x| [x, 0, 15]).collect());
+    assert_eq!(cells([-1, 1, -1]), BTreeSet::from([[0, 15, 0]]));
+}

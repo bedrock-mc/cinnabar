@@ -1,6 +1,6 @@
 //! Bounded reads of the registration file and the extension sources it names.
 
-use std::{fs::File, io::Read, path::Path};
+use std::path::Path;
 
 use client_extensions::modding::font;
 use sha2::{Digest, Sha256};
@@ -15,15 +15,11 @@ pub(super) struct Observation {
 
 pub(super) fn observe(path: &Path) -> Observation {
     let bytes = (|| {
-        let file = match File::open(path) {
-            Ok(file) => file,
+        let bytes = match mod_host::local_files::read(path, MAX_BYTES) {
+            Ok(bytes) => bytes,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error.to_string()),
         };
-        let mut bytes = Vec::new();
-        file.take((MAX_BYTES + 1) as u64)
-            .read_to_end(&mut bytes)
-            .map_err(|error| error.to_string())?;
         Ok(Some(bytes))
     })();
     match bytes {
@@ -102,17 +98,10 @@ pub(super) fn source_snapshot(registration: Registration) -> Result<SourceSnapsh
 }
 
 fn read_bounded_source(path: &Path, max: usize) -> Result<Vec<u8>, String> {
-    let mut bytes = Vec::new();
-    File::open(path)
-        .and_then(|file| file.take((max + 1) as u64).read_to_end(&mut bytes))
-        .map_err(|error| {
-            format!(
-                "extension source {} could not be read: {error}",
-                path.display()
-            )
-        })?;
-    if bytes.len() > max {
-        return Err("extension source exceeds byte limit".into());
-    }
-    Ok(bytes)
+    mod_host::local_files::read(path, max).map_err(|error| {
+        format!(
+            "extension source {} could not be read: {error}",
+            path.display()
+        )
+    })
 }

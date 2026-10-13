@@ -44,8 +44,8 @@ impl PlayerInventoryLedger {
             self.note_unrouted_container();
             return true;
         }
-        for slot in 0..slots.len() {
-            self.retire_legacy_write(Cell::Storage(slot as u8));
+        for slot in 0..self.confirmed.storage_len().max(slots.len()) {
+            self.prepare_authoritative_cell(Cell::Storage(slot as u8));
         }
         let storage = self.storage.as_mut().expect("named window observed");
         storage.identity.get_or_insert(identity);
@@ -121,7 +121,7 @@ impl PlayerInventoryLedger {
         }
         let start = if whole { 0 } else { usize::from(first) };
         for slot in start..start + slots.len() {
-            self.retire_legacy_write(Cell::Storage(slot as u8));
+            self.prepare_authoritative_cell(Cell::Storage(slot as u8));
         }
         let storage = self.storage.as_mut().expect("storage observed above");
         storage.identity.get_or_insert(identity);

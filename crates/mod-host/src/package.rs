@@ -2,7 +2,7 @@
 //! textures. Every file is read bounded and checked against the manifest's SHA-256 before
 //! anything compiles.
 
-use crate::MAX_COMPONENT_BYTES;
+use crate::{MAX_COMPONENT_BYTES, local_files::Directory};
 use anyhow::{Context, Result, ensure};
 use experience_sdk::mod_manifest::{COMPONENT, ModManifest};
 use server_experience::{
@@ -11,8 +11,6 @@ use server_experience::{
 };
 use sha2::{Digest, Sha256};
 use std::{
-    fs::File,
-    io::Read,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -20,6 +18,8 @@ use std::{
 /// The manifest file at a package's root.
 pub const MANIFEST: &str = "mod.toml";
 const MAX_MANIFEST_BYTES: usize = 64 * 1024;
+/// Total source bytes retained while admitting one local package.
+pub const MAX_PACKAGE_BYTES: usize = 16 * 1024 * 1024;
 
 /// A verified package, ready to instantiate.
 pub struct Package {
@@ -34,7 +34,8 @@ pub struct Package {
 impl Package {
     /// Reads and verifies the package at `dir`.
     pub fn read(dir: &Path) -> Result<Self> {
-        let text = read_bounded(&dir.join(MANIFEST), MAX_MANIFEST_BYTES)?;
+        let root = Directory::open(dir).context("open mod package directory")?;
+        let text = root.read(Path::new(MANIFEST), MAX_MANIFEST_BYTES)?;
         let text = String::from_utf8(text).context("mod.toml is not UTF-8")?;
         let manifest =
             ModManifest::parse(&text).map_err(|error| anyhow::anyhow!("{MANIFEST}: {error}"))?;
@@ -45,8 +46,12 @@ impl Package {
         ensure!(manifest.textures.len() <= MAX_TEXTURES, "too many textures");
         let mut digest = Sha256::new();
         digest.update(text.as_bytes());
+        let mut remaining = MAX_PACKAGE_BYTES - text.len();
         let mut read = |path: &str, limit: usize| -> Result<Vec<u8>> {
-            let bytes = read_bounded(&package_path(dir, path), limit)?;
+            let bytes = root
+                .read(Path::new(path), limit.min(remaining))
+                .with_context(|| format!("read {path} within package byte limit"))?;
+            remaining -= bytes.len();
             let hash = Sha256::digest(&bytes);
             ensure!(
                 manifest.hash(path) == Some(hex(&hash).as_str()),
@@ -82,6 +87,7 @@ impl Package {
 
 /// A manifest path under the package directory; the manifest already refused `..` and
 /// absolute paths.
+#[cfg(test)]
 fn package_path(dir: &Path, path: &str) -> PathBuf {
     path.split('/')
         .fold(dir.to_owned(), |out, part| out.join(part))
@@ -93,21 +99,6 @@ pub(crate) fn settings_anchor(dir: &Path) -> PathBuf {
     let mut name = dir.file_name().unwrap_or_default().to_owned();
     name.push(".package");
     dir.with_file_name(name)
-}
-
-/// Reads at most `limit` bytes, refusing a larger file even if it grows while read.
-pub(crate) fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    File::open(path)
-        .with_context(|| format!("open {}", path.display()))?
-        .take((limit + 1) as u64)
-        .read_to_end(&mut bytes)?;
-    ensure!(
-        bytes.len() <= limit,
-        "{} exceeds its byte limit",
-        path.display()
-    );
-    Ok(bytes)
 }
 
 fn hex(bytes: &[u8]) -> String {

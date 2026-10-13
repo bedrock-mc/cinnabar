@@ -11,6 +11,7 @@ use world::MeshNeighbourhood;
 
 use super::opaque::face_offset;
 mod bubble_column;
+mod door;
 mod fire;
 use crate::{
     BlockClassifier, Face, SIDE,
@@ -36,6 +37,12 @@ pub(crate) fn select_model_templates<'a>(
     entry: ResolvedPaletteEntry,
 ) -> ([u32; MAX_SELECTED_MODEL_TEMPLATES], u8) {
     let flags = model_template_flags(context.visuals, entry);
+    if flags & assets::MODEL_TEMPLATE_FLAG_DOOR != 0 {
+        return door::select_template(context, facts, neighbour_facts, coordinate, entry).map_or(
+            ([NO_MODEL_TEMPLATE; MAX_SELECTED_MODEL_TEMPLATES], 0),
+            |template| ([template, NO_MODEL_TEMPLATE], 1),
+        );
+    }
     if flags & assets::MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN != 0 {
         return (
             [

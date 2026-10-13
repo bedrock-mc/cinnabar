@@ -800,6 +800,19 @@ acceptance gate.
   still contributes to the phase, and death alone does not trigger a flail.
   Fourteen focused hurt tests pass. macOS/Metal captures at 1920×1080, DPI 1, GUI scale 2
   verify single and repeated hits, walking while hurt, and recovery to idle.
+- Cape rotation is bounded at the shoulder in both animation modes: Java tilt is capped at
+  90° and sideways swing at ±90°; Bedrock bounds the cape's actual direction after bind
+  retargeting and preserves hanging authored rotations. These are deliberate presentation
+  limits. Regression coverage includes vertical and fast horizontal
+  flight, frame interpolation, local/remote actors and stopping. Remote teleport and interpolation
+  resets now discard both Java chase endpoints; unflagged steps beyond ten blocks re-anchor
+  without old lag. Remote Bedrock flap uses completed tick displacement instead of retained
+  packet speed and ignores those large steps. Local flap retains per-tick velocity through
+  catch-up frames. Regressions cover remote knockback, repeated hits, teleports, interpolation
+  resets, local catch-up frames, hanging yaw/roll and upward directions near horizontal.
+  Compilation, test execution and rendered-frame validation remain incomplete; the exact
+  Bedrock flap calculation also remains incomplete. This change
+  closes no parity or performance gate.
 - Worn elytra retains authored wing poses and glint in both modes, suppresses the separate cape,
   and uses the cape texture when present. Native controller blend composition stays intact.
 - Golden tests assert composed stacks and projected arm, item and cape points against Java's
@@ -4624,7 +4637,8 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       acceptance, strict Clippy/formatting, and independent re-review are green.
     - [x] Door and trapdoor templates: all 672 door states and 336 trapdoor
       states compile through compact six-quad alpha-cutout cuboids with exact
-      typed open/orientation/hinge/half selection, 3/16-block thickness,
+      typed open/orientation/hinge/half selection, native door thickness and
+      3/16-block trapdoor thickness,
       lower/upper door materials, conservative partial-model culling, and
       deterministic template reuse. Trapdoor templates also retain facing/top-half
       artwork orientation and the top three sprite rows on thin edges, including
@@ -4639,6 +4653,14 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       strict Clippy/formatting, full 16,913-state ratchet, and independent review
       green). Deterministic gallery/native GPU evidence remains in the shared
       residual-family live gate.
+    - [ ] Paired door rendering acceptance: world meshing resolves lower
+      direction/open and upper hinge within the same door class, including
+      vertical subchunk neighbors; missing pairs emit no door geometry.
+      Highlights and mining cracks use the same paired model surfaces; crack
+      caches retain the resolved pose so neighbor updates change their geometry.
+      Focused regressions cover different stored selectors. Source-bound
+      before/after frames, native-server toggle/picking input, directional
+      server artwork and final independent review remain incomplete.
     - [ ] Barrel and adjacent trapdoor render parity: barrel facing/open artwork,
       grain direction, material ownership and carried-item rendering have regression
       and rendered coverage. The reported texture leakage was not reproduced;
@@ -5326,6 +5348,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
           bobs. Flat covers and pages draw as two-faced sheets, and entity-lit
           back faces are culled. Its entity lighting from the table's glow is
           provisional, and the lectern stand placement needs native measurement.
+          Standing and wall banner cloth share the crossbar's authoring pivot,
+          with matching mounting scale and wave direction. Full banner parity
+          remains incomplete: animation lookup quantization, pattern composition
+          and native rendered/input acceptance remain open.
     - [ ] Merge both the Axolotl protocol-fix branch and Cinnabar feature branch
       into their respective `main` branches through reviewed PRs using normal
       history-preserving merge commits (never squash or rebase the feature

@@ -14,6 +14,53 @@ use crate::limits::{
 use crate::manifest::{ASSETS_DIR, DATA_SCHEMA, Manifest, SERVER_WASM};
 use crate::protocol::{ItemDef, PlacementState, StateDef, StateValues};
 
+#[test]
+fn returned_guest_lists_share_the_protocol_copy_ceiling() {
+    let length = 32768;
+    let count = crate::limits::MAX_FRAME_BYTES / length;
+    let mut stores = String::new();
+    for index in 0..count {
+        let descriptor = 1024 + index * 8;
+        stores.push_str(&format!(
+            "i32.const {descriptor} i32.const 4096 i32.store \
+             i32.const {} i32.const {length} i32.store ",
+            descriptor + 4
+        ));
+    }
+    assert!(1024 + count * 8 <= 4096);
+    let source = format!(
+        r#"(component
+        (core module $m
+            (memory (export "memory") 1)
+            (func (export "values") (result i32)
+                {stores}
+                i32.const 512 i32.const 1024 i32.store
+                i32.const 516 i32.const {count} i32.store
+                i32.const 512))
+        (core instance $i (instantiate $m))
+        (alias core export $i "memory" (core memory $memory))
+        (func (export "values") (result (list string))
+            (canon lift (core func $i "values") (memory $memory))))"#
+    );
+    let (engine, _ticker) = engine().unwrap();
+    let component = Component::new(&engine, source).unwrap();
+    let mut store = HostState::store(
+        &engine,
+        "copies",
+        crate::limits::REGISTER_FUEL,
+        crate::limits::REGISTER_DEADLINE,
+    )
+    .unwrap();
+    let instance = Linker::new(&engine)
+        .instantiate(&mut store, &component)
+        .unwrap();
+    let values = instance
+        .get_typed_func::<(), (Vec<String>,)>(&mut store, "values")
+        .unwrap();
+    let error = values.call(&mut store, ()).unwrap_err();
+    assert!(format!("{error:#}").contains("hostcalls"), "{error:#}");
+}
+
 /// The ticker keeps the epoch on wall time, so a store with fuel to spare still stops at its
 /// deadline, and not long before or after it.
 #[test]

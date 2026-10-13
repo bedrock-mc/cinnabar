@@ -37,14 +37,44 @@ pub fn sample_actor_world_state(stream: &mut WorldStream, collisions: &dyn Colli
         .actor_bed_sample_points()
         .into_iter()
         .filter_map(|(runtime_id, block)| {
-            let runtime = world.primary_runtime_id(block).ok()?;
-            let state = collisions.block_canonical_state(mode, runtime)?;
-            Some((runtime_id, bed_rotation_degrees(state)?))
+            Some((
+                runtime_id,
+                sampled_bed_rotation(&world, collisions, mode, block)?,
+            ))
         })
         .collect();
     stream.set_actor_fluids(&fluids);
     stream.set_actor_breathing_liquids(&breathing);
     stream.set_actor_bed_rotations(&beds);
+}
+
+/// Reads a sleeper's bed direction from the current terrain, independently of actor ticks.
+/// Missing terrain or a missing direction uses the unloaded-bed rotation of zero degrees.
+pub(crate) fn sleeping_bed_rotation(
+    stream: &WorldStream,
+    collisions: &dyn CollisionLookup,
+    bed: [i32; 3],
+) -> f32 {
+    let mode = stream.network_id_mode();
+    let world = sim::PaletteWorld::new(
+        stream.collision_store(),
+        collisions.registry(mode),
+        stream.current_dimension(),
+        Default::default(),
+    );
+    sampled_bed_rotation(&world, collisions, mode, bed).unwrap_or(0.0)
+}
+
+/// Resolves the shared bed-direction state for camera and actor sampling.
+fn sampled_bed_rotation(
+    world: &sim::PaletteWorld<'_>,
+    collisions: &dyn CollisionLookup,
+    mode: assets::NetworkIdMode,
+    bed: [i32; 3],
+) -> Option<f32> {
+    let runtime = world.primary_runtime_id(bed).ok()?;
+    let state = collisions.block_canonical_state(mode, runtime)?;
+    bed_rotation_degrees(state)
 }
 
 /// The body-box point tested for submersion: the eye at nine tenths of the height, as vanilla

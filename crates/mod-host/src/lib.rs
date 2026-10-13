@@ -6,7 +6,11 @@ pub mod helper;
 #[cfg(feature = "execution")]
 pub use grants::ModGrants;
 #[cfg(feature = "execution")]
+mod execution;
+#[cfg(feature = "execution")]
 mod load;
+#[cfg(feature = "execution")]
+pub mod local_files;
 #[cfg(feature = "execution")]
 pub mod module_observations;
 #[cfg(feature = "execution")]
@@ -87,6 +91,7 @@ enum Source {
 #[cfg(feature = "execution")]
 pub struct ModHost {
     engine: Engine,
+    _ticker: execution::EpochTicker,
     instance: Instance,
     source: Source,
     attempted: [u8; 32],

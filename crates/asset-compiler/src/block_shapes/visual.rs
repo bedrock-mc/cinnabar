@@ -76,7 +76,7 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<ShapeBox> {
         _ if name.starts_with("light_block_") => UNIT,
         _ if name.ends_with("_trapdoor") || name == "trapdoor" => {
             let state = State::read(record)?;
-            let thickness = 0.1825_f32;
+            let thickness = assets::door::THICKNESS;
             if state.bit("open_bit")? {
                 let (min, max) = match state.direction()? {
                     0 => ([0.0; 3], [thickness, 1.0, 1.0]),

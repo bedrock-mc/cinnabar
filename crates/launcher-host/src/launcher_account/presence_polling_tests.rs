@@ -25,6 +25,8 @@ fn presence_reporting_keeps_account_events_running() {
                 }
                 Err(error) => panic!("presence fixture: {error}"),
             };
+            // This framed fixture needs blocking reads on the accepted socket.
+            stream.set_nonblocking(false).unwrap();
             stream
                 .set_read_timeout(Some(Duration::from_secs(2)))
                 .unwrap();

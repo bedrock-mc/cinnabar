@@ -1,7 +1,7 @@
 //! Publishes the current gameplay pick to the native outline/highlight overlay passes.
 use bevy::{ecs::system::SystemParam, prelude::*};
 use gameplay::melee::{Crosshair, classify, pick_actor};
-use render_model::{BlockSelectionTarget, CrackShape, crack_shape_from_template};
+use render_model::{BlockSelectionTarget, CrackShape, crack_shape_for_block};
 use sim::PaletteWorld;
 use simulation_clock::identity::SessionGeneration;
 
@@ -122,13 +122,14 @@ fn target(
     let outline = world.block_outline(hit.block_pos, hit.runtime_id).ok()??;
     let point = |point: sim::Vec3| [point.x as f32, point.y as f32, point.z as f32];
     let assets = stream.runtime_assets();
-    let visual = assets.resolve(stream.network_id_mode(), hit.runtime_id);
-    let shape = visual
-        .model_template()
-        .and_then(|template| {
-            crack_shape_from_template(assets, template, visual.variant(), hit.block_pos)
-        })
-        .unwrap_or(CrackShape::Cube);
+    let shape = crack_shape_for_block(
+        assets,
+        stream.network_id_mode(),
+        hit.runtime_id,
+        hit.block_pos,
+        |position| world.primary_runtime_id(position).ok(),
+    )
+    .unwrap_or(CrackShape::Cube);
     Some(BlockSelectionTarget {
         block: hit.block_pos,
         bounds: [point(outline.min), point(outline.max)],

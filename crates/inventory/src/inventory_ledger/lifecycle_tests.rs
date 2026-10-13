@@ -50,8 +50,10 @@ fn inventory_request_batch_retries_atomically() {
     let mut runtime = InventorySession::new(1);
     *runtime.ledger_mut() = ledger_with_slot_zero();
     let ledger = runtime.ledger_mut();
-    assert_eq!(ledger.begin_world_drop(0, Some(1)).unwrap(), -3);
-    assert_eq!(ledger.begin_world_drop(0, Some(1)).unwrap(), -5);
+    acknowledge_personal_open(ledger, 2);
+    let screen_drop = DropSource::Target(InventoryTarget::Player(0));
+    assert_eq!(ledger.begin_drop(screen_drop, Some(1)).unwrap(), -3);
+    assert_eq!(ledger.begin_drop(screen_drop, Some(1)).unwrap(), -5);
     let mut attempts = Vec::new();
     assert_eq!(
         runtime.flush_inventory_send(10, |packet| {
@@ -1033,7 +1035,11 @@ fn close_ack_clears_unrestated_cursor_and_session_reset_drops_all_personal_work(
 fn quiet_timeout_polls_preserve_shared_ledger_until_a_request_is_due() {
     let mut runtime = InventorySession::new(1);
     *runtime.ledger_mut() = ledger_with_slot_zero();
-    runtime.ledger_mut().begin_world_drop(0, Some(1)).unwrap();
+    acknowledge_personal_open(runtime.ledger_mut(), 2);
+    runtime
+        .ledger_mut()
+        .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+        .unwrap();
     assert!(runtime.ledger_mut().mark_transport_enqueued(10));
     let captured = runtime.ledger_snapshot();
     assert!(!runtime.poll_inventory_timeout(11));

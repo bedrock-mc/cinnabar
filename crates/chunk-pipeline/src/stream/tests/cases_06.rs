@@ -907,6 +907,7 @@ fn inline_zero_storage_is_a_graph_node_until_column_eviction() {
             payload: payload.to_vec(),
         },
         decoded,
+        light_neutral: Vec::new(),
         duration: std::time::Duration::ZERO,
     });
 
@@ -1020,6 +1021,7 @@ fn surface_spawn_waits_for_level_chunk_commit_and_treats_omitted_top_as_air() {
             payload: payload.to_vec(),
         },
         decoded,
+        light_neutral: Vec::new(),
         duration: std::time::Duration::ZERO,
     });
 

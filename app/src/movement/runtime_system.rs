@@ -41,9 +41,10 @@ pub(crate) fn advance_local_physics(
     settings: Option<Res<RuntimeSettings>>,
     player: Option<Res<PlayerRuntime>>,
     item_use: Option<Res<client_interaction::item_use::ItemUseRuntime>>,
-    mut locals: Local<LocomotionLocals>,
+    mut locals: Local<(LocomotionLocals, Option<[i32; 3]>)>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
 ) {
+    let (locals, presented_bed) = &mut *locals;
     if acceptance.deadline_reached(Instant::now()) {
         movement_ticker.begin_terminal_drain();
     }
@@ -113,7 +114,7 @@ pub(crate) fn advance_local_physics(
     locals.observe_dismount(&frame, movement_ticker.session_generation());
     if !movement_ticker.can_advance_physics_frame() {
         // Retain presses and publish the pose while transport pauses simulation.
-        publish_physics_view(&physics, &mut view, sleeping_bed(stream));
+        publish_physics_view(&physics, &mut view, sleeping_bed(stream), presented_bed);
         return;
     }
     let world = sim::PaletteWorld::for_movement(
@@ -137,7 +138,7 @@ pub(crate) fn advance_local_physics(
             network.send_inventory_packets(vec![packet])
         });
     }
-    publish_physics_view(&physics, &mut view, sleeping_bed(stream));
+    publish_physics_view(&physics, &mut view, sleeping_bed(stream), presented_bed);
 }
 
 /// The bed the local player sleeps in, once the server says so.
@@ -151,7 +152,12 @@ fn publish_physics_view(
     physics: &LocalPhysicsController,
     view: &mut LocalViewPose,
     bed: Option<[i32; 3]>,
+    presented_bed: &mut Option<[i32; 3]>,
 ) {
+    if *presented_bed != bed {
+        view.reanchor_camera();
+        *presented_bed = bed;
+    }
     if let Some(bed) = bed {
         let (eye, feet) = client_presentation::local_player::sleeping_subject_position(bed);
         view.set_subject_position(eye, feet);
@@ -162,5 +168,77 @@ fn publish_physics_view(
         physics.render_feet_position(),
     ) {
         view.set_subject_position(Vec3::from_array(eye), Vec3::from_array(feet));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::prelude::{App, Camera3d, Update};
+    use client_presentation::camera::{CameraSettingsAuthority, FlyCamera, ServerCameraView};
+    use render_scene::CameraMotionBlur;
+
+    #[test]
+    fn sleep_and_wake_clear_motion_blur_once_without_moving_physics() {
+        let mut physics = LocalPhysicsController::default();
+        physics.reanchor_network_position([2.5, 2.0, 5.5], 100, false);
+        let position = physics.network_position();
+        let mut app = App::new();
+        app.init_resource::<LocalViewPose>()
+            .init_resource::<CameraSettingsAuthority>()
+            .init_resource::<ServerCameraView>()
+            .add_systems(
+                Update,
+                client_presentation::camera::motion_blur::apply_camera_motion_blur,
+            );
+        let camera = app
+            .world_mut()
+            .spawn((FlyCamera::default(), Camera3d::default()))
+            .id();
+        let mut settings = ui::UserSettings::default();
+        settings.gameplay.default_perspective = semantic_input::PerspectiveMode::ThirdPersonBack;
+        settings.video.motion_blur = ui::MotionBlurQuality::High;
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .replace(1, &settings)
+            .unwrap();
+        let bed = [2, 0, 5];
+        let mut presented_bed = None;
+        let mut epoch = 0;
+        for (sleeping, transition) in [
+            (false, false),
+            (false, false),
+            (true, true),
+            (true, false),
+            (false, true),
+            (false, false),
+        ] {
+            publish_physics_view(
+                &physics,
+                &mut app.world_mut().resource_mut::<LocalViewPose>(),
+                sleeping.then_some(bed),
+                &mut presented_bed,
+            );
+            let view = *app.world().resource::<LocalViewPose>();
+            if transition {
+                epoch += 1;
+            }
+            assert_eq!(view.camera_reanchor_epoch(), epoch);
+            assert_eq!(view.rotation(), bevy::math::Quat::IDENTITY);
+            let expected = if sleeping {
+                client_presentation::local_player::sleeping_subject_position(bed).0
+            } else {
+                Vec3::from_array(physics.render_eye_position().unwrap())
+            };
+            assert_eq!(view.eye_translation(), expected);
+            app.update();
+            let blur = app.world().get::<CameraMotionBlur>(camera).unwrap();
+            if transition {
+                assert_eq!(blur.exposure_seconds, 0.0);
+            } else if epoch > 0 {
+                assert!(blur.exposure_seconds > 0.0);
+            }
+            assert_eq!(physics.network_position(), position);
+        }
     }
 }

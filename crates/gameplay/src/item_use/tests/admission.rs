@@ -15,7 +15,7 @@ fn send_use(
 
 /// A rejected throw of the last item leaves the slot for the ledger untouched.
 #[test]
-fn a_rejected_last_throw_reports_no_emptied_slot() {
+fn a_rejected_last_throw_reports_no_inventory_change() {
     let (full, _open) = AdmissionQueue::with_command_capacity(1);
     let (ready, _open) = AdmissionQueue::with_command_capacity(2);
     let mut runtime = ItemUseRuntime::default();
@@ -23,9 +23,11 @@ fn a_rejected_last_throw_reports_no_emptied_slot() {
     let last = item_frame(100, false, stack(4, SNOWBALL, 1), "minecraft:snowball");
     runtime.observe_press(true);
     send_use(&mut runtime, &mut swings, &last, &full);
-    assert_eq!(runtime.take_emptied_slot(), None);
+    assert!(runtime.take_inventory_change().is_none());
     send_use(&mut runtime, &mut swings, &last, &ready);
-    assert_eq!(runtime.take_emptied_slot(), Some((4, 1)));
+    let (slot, revision, change) = runtime.take_inventory_change().unwrap();
+    assert_eq!((slot, revision), (4, 1));
+    assert!(change.to.is_empty());
 }
 
 #[test]
@@ -49,7 +51,7 @@ fn a_throw_never_queues_its_swing_without_its_transaction() {
     assert_eq!(swings.take_started(), None);
     assert!(runtime.predicted.is_none());
     assert!(runtime.rearm_millis.is_none());
-    assert_eq!(runtime.last_legacy_request_id, 0);
+    assert!(runtime.inventory_change.is_none());
 
     let (ready, _open) = AdmissionQueue::with_command_capacity(2);
     let mut sent = Vec::new();
@@ -67,9 +69,16 @@ fn a_throw_never_queues_its_swing_without_its_transaction() {
     assert_eq!(ready.pending_command_count(), 2);
     assert_eq!(swings.take_started(), Some(6));
     assert_eq!(format!("{:?}", sent[0].kind()), "AnimatePacket");
+    let first_id = transaction(&sent[1]).legacy_request_id;
+    assert!(protocol::is_legacy_request_id(first_id));
     assert_eq!(
         summary(&transaction(&sent[1])),
-        (-4, 1, vec![16, 15, 16], vec![Some(41), Some(-4), Some(41)])
+        (
+            first_id,
+            1,
+            vec![16, 15, 16],
+            vec![Some(41), Some(first_id), Some(41)]
+        )
     );
     assert!(
         !runtime.has_work(false),
@@ -79,7 +88,10 @@ fn a_throw_never_queues_its_swing_without_its_transaction() {
     runtime.observe_press(true);
     send_use(&mut runtime, &mut swings, &throw(110, false), &full);
     assert_eq!(runtime.predicted.as_ref().unwrap().stack.count(), 15);
-    assert_eq!(runtime.last_legacy_request_id, -4);
+    assert_eq!(
+        runtime.predicted.as_ref().unwrap().stack.stack_network_id(),
+        first_id
+    );
     let (ready, _open) = AdmissionQueue::with_command_capacity(2);
     step_and_send(
         &mut runtime,
@@ -89,8 +101,8 @@ fn a_throw_never_queues_its_swing_without_its_transaction() {
         6,
         |packets| {
             let (id, _, sizes, ids) = summary(&transaction(packets.last().unwrap()));
-            assert_eq!(id, -6);
-            assert_eq!((sizes[0], ids[0]), (15, Some(-4)));
+            assert!(id < first_id && protocol::is_legacy_request_id(id));
+            assert_eq!((sizes[0], ids[0]), (15, Some(first_id)));
             ready.send_inventory_packets(packets)
         },
     );
@@ -502,7 +514,7 @@ fn a_fresh_throw_waits_for_an_unpublished_tick() {
     );
     assert!(runtime.has_work(false));
     assert!(runtime.predicted.is_none());
-    assert_eq!(runtime.last_legacy_request_id, 0);
+    assert!(runtime.inventory_change.is_none());
     step_and_send(&mut runtime, &mut swings, &throw(101), 7, 6, |packets| {
         assert_eq!(packets.len(), 2);
         sends += 1;
