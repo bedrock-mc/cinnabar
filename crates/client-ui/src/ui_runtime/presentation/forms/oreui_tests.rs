@@ -1,5 +1,6 @@
 //! OreUI screens driven through their presentation adapters.
 
+mod accessibility;
 mod accounts;
 mod artwork;
 mod dark_mode;

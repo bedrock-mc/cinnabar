@@ -439,8 +439,12 @@ impl UiPresentationRuntime {
         self.screens.oreui.transitions.end_frame();
     }
 
-    pub(super) fn configure_oreui_motion(&mut self) {
+    /// Refreshes screen preferences before painting, including while the menu is hidden.
+    pub(super) fn configure_oreui_settings(&mut self) {
         if let Some(view) = &self.menu_view {
+            self.screens
+                .oreui
+                .configure_accessibility(&view.settings_options);
             self.screens.oreui.dark_mode = view.settings_options.oreui_dark_mode();
             self.screens
                 .oreui

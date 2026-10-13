@@ -59,11 +59,8 @@ impl UiPresentationRuntime {
         }
         self.poll_server_ui_images();
         self.menu_seconds = now_millis as f64 / 1_000.0;
-        self.configure_oreui_motion();
+        self.configure_oreui_settings();
         if let Some(view) = &self.menu_view {
-            self.screens
-                .oreui
-                .configure_accessibility(&view.settings_options);
             self.menu_scrolls.configure_motion(
                 view.settings_options.value("screen_animations") != 0,
                 self.menu_seconds,

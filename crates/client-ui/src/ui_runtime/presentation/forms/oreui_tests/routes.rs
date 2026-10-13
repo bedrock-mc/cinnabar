@@ -757,7 +757,7 @@ fn screen_animation_setting_drives_oreui_motion_through_the_adapter() {
         // Friends starts no icon highlight, so only its entrance can keep motion active.
         view.screen = MenuScreen::Friends;
         presentation.set_menu_view(Some(view.clone()));
-        presentation.configure_oreui_motion();
+        presentation.configure_oreui_settings();
         presentation.menu_seconds = 1.0;
         append(&mut presentation, &view, [1280.0, 720.0]);
         // Midway through the route's entrance.
