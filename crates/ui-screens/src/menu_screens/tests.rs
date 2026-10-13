@@ -310,6 +310,40 @@ fn fullscreen_toggle_binds_and_changes_the_current_window_mode() {
 }
 
 #[test]
+fn gui_scale_slider_enabled_only_when_multiple_choices_are_available() {
+    let name = SettingId::GuiScale.name();
+    let slider = json_ui::ResolvedControl {
+        name: name.into(),
+        control_type: Some("slider".into()),
+        base: None,
+        unresolved_base: None,
+        properties: [(
+            "bindings".into(),
+            serde_json::json!([{
+                "binding_name": format!("#{name}_enabled"),
+                "binding_name_override": "#enabled"
+            }]),
+        )]
+        .into(),
+        children: Vec::new(),
+        factory: None,
+    };
+    for (window, enabled) in [([376, 250], false), ([1920, 1080], true)] {
+        let mut shown = view(MenuScreen::Settings);
+        shown.gui_scale_choices = ui::DesktopGuiScale::for_window(window).choices().collect();
+        if !enabled {
+            assert_eq!(shown.gui_scale_choices.len(), 1);
+        }
+        let data = screen_data(&shown, &|_| None, 0).unwrap().data;
+        let bound = json_ui::bind(&slider, &data, &json_ui::EmptyLibrary);
+        assert_eq!(
+            bound.properties.get("#enabled"),
+            Some(&Value::Bool(enabled))
+        );
+    }
+}
+
+#[test]
 fn sliders_split_into_their_settings_values() {
     let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
     view.gui_scale_choices = ui::DesktopGuiScale::for_window([1920, 1080])

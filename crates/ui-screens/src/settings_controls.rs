@@ -28,6 +28,9 @@ pub(super) fn bind_values(
     translate: &dyn Fn(&str) -> String,
 ) {
     for (index, option) in SETTINGS_OPTIONS.iter().enumerate() {
+        if matches!(option.kind, SettingKind::Host) {
+            continue;
+        }
         let value = options.get(index);
         data.set_global(format!("#{}_enabled", option.name), Scalar::Bool(true));
         match option.kind {
