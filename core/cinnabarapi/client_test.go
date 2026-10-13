@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -306,5 +307,38 @@ func TestSocketURLUsesTheConnectRoute(t *testing.T) {
 	}
 	if got := socketURL(bridgecontract.CinnabarAPIBaseURL); got[:6] != "wss://" {
 		t.Fatal(got)
+	}
+}
+
+// Frame rejections back off long; unauthorized and issuer outages keep the normal backoff.
+func TestOnlyFrameRejectionsBackOffLong(t *testing.T) {
+	for code, want := range map[websocket.StatusCode]bool{
+		websocket.StatusInvalidFramePayloadData: true,
+		websocket.StatusPolicyViolation:         true,
+		websocket.StatusMessageTooBig:           true,
+		4401:                                    false,
+		websocket.StatusInternalError:           false,
+	} {
+		if got := rejectedFrames(fmt.Errorf("read: %w", websocket.CloseError{Code: code})); got != want {
+			t.Fatalf("close %d: %v", code, got)
+		}
+	}
+	if rejectedFrames(errors.New("dial failed")) {
+		t.Fatal("a transport failure counted as a rejected frame")
+	}
+}
+
+func TestConfigValidityMatchesTheHelloSchema(t *testing.T) {
+	for config, want := range map[Config]bool{
+		{ClientVersion: "0.1.18", Channel: "beta"}:          true,
+		{ClientVersion: "1.2.3-rc.1", Channel: "nightly"}:   true,
+		{ClientVersion: "0.1.18+7", Channel: "beta"}:        false,
+		{ClientVersion: "0.1", Channel: "beta"}:             false,
+		{ClientVersion: "0.1.18", Channel: "canary"}:        false,
+		{ClientVersion: "1.2.3-" + strings.Repeat("a", 60)}: false,
+	} {
+		if got := config.Valid(); got != want {
+			t.Fatalf("%+v valid = %v", config, got)
+		}
 	}
 }

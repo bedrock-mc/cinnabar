@@ -227,6 +227,7 @@ func (c *Client) run() {
 	case <-c.wake:
 	}
 	failures := 0
+	rejectionLogged := false
 	for {
 		sessionCtx, cancel := context.WithCancel(c.ctx)
 		c.mu.Lock()
@@ -234,7 +235,7 @@ func (c *Client) run() {
 		c.reconnect = cancel
 		c.mu.Unlock()
 		started := time.Now()
-		welcomed, stage := c.session(sessionCtx, config)
+		welcomed, stage, err := c.session(sessionCtx, config)
 		superseded := sessionCtx.Err() != nil
 		cancel()
 		if c.ctx.Err() != nil {
@@ -247,10 +248,18 @@ func (c *Client) run() {
 			continue
 		}
 		failures++
-		if failures == 1 {
-			c.logger.Warn("Cinnabar API unavailable; retrying", "stage", stage)
+		delay := c.delay(failures)
+		if rejectedFrames(err) {
+			// The server refused a frame this client built; retrying soon would only repeat it.
+			delay = maxBackoff
+			if !rejectionLogged {
+				rejectionLogged = true
+				c.logger.Error("Cinnabar API rejected a client message", "close_code", int(websocket.CloseStatus(err)))
+			}
+		} else if failures == 1 {
+			c.logger.Warn("Cinnabar API unavailable; retrying", "stage", stage, "close_code", int(websocket.CloseStatus(err)))
 		}
-		timer := time.NewTimer(c.delay(failures))
+		timer := time.NewTimer(delay)
 		select {
 		case <-c.ctx.Done():
 			timer.Stop()
@@ -260,11 +269,11 @@ func (c *Client) run() {
 	}
 }
 
-// session runs one connection and names the stage that ended it.
-func (c *Client) session(ctx context.Context, config Config) (bool, string) {
+// session runs one connection and names the stage and error that ended it.
+func (c *Client) session(ctx context.Context, config Config) (bool, string, error) {
 	conn, stage, err := c.connect(ctx, config)
 	if err != nil {
-		return false, stage
+		return false, stage, err
 	}
 	defer conn.CloseNow()
 	s := &session{
@@ -284,7 +293,7 @@ func (c *Client) session(ctx context.Context, config Config) (bool, string) {
 		defer close(written)
 		c.write(ctx, cancel, s)
 	}()
-	c.read(ctx, s)
+	err = c.read(ctx, s)
 	cancel()
 	<-written
 	c.mu.Lock()
@@ -294,7 +303,7 @@ func (c *Client) session(ctx context.Context, config Config) (bool, string) {
 		reply <- lookupReply{err: ErrUnavailable}
 	}
 	c.mu.Unlock()
-	return true, "session"
+	return true, "session", err
 }
 
 // connect performs hello → challenge → proof → welcome with a fresh ephemeral key and token.
@@ -360,13 +369,13 @@ func (c *Client) handshake(ctx context.Context, conn *websocket.Conn, key *ecdsa
 }
 
 // read dispatches server messages until the connection fails or goes idle.
-func (c *Client) read(ctx context.Context, s *session) {
+func (c *Client) read(ctx context.Context, s *session) error {
 	for {
 		readCtx, cancel := context.WithTimeout(ctx, idleTimeout)
 		kind, data, err := s.conn.Read(readCtx)
 		cancel()
 		if err != nil {
-			return
+			return err
 		}
 		var msg inbound
 		// The keepalive answer "pong" is not JSON.
@@ -440,6 +449,16 @@ func (c *Client) answer(s *session, id *uint32, reply lookupReply) {
 	if pending != nil {
 		pending <- reply
 	}
+}
+
+// rejectedFrames reports a close for a malformed, schema-invalid or oversized client frame.
+// Unauthorized (4401) and issuer outages (1011) retry with the normal backoff instead.
+func rejectedFrames(err error) bool {
+	switch websocket.CloseStatus(err) {
+	case websocket.StatusInvalidFramePayloadData, websocket.StatusPolicyViolation, websocket.StatusMessageTooBig:
+		return true
+	}
+	return false
 }
 
 func writeJSON(ctx context.Context, conn *websocket.Conn, value any) error {

@@ -34,7 +34,13 @@ const codeRateLimited = "rate_limited"
 // keepalivePing is the text frame the server auto-answers with "pong".
 const keepalivePing = "ping"
 
-var xuidPattern = regexp.MustCompile(`^[0-9]{1,20}$`)
+var (
+	xuidPattern    = regexp.MustCompile(`^[0-9]{1,20}$`)
+	versionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
+)
+
+// maxVersionLen bounds client_version as the API does.
+const maxVersionLen = 64
 
 type helloMessage struct {
 	Type          string `json:"type"`
@@ -91,3 +97,13 @@ func sign(key *ecdsa.PrivateKey, nonce string) (string, error) {
 
 // ValidXUID reports whether xuid has the decimal form the API accepts.
 func ValidXUID(xuid string) bool { return xuidPattern.MatchString(xuid) }
+
+// Valid reports whether the API would accept this identity in a hello.
+func (c Config) Valid() bool {
+	switch c.Channel {
+	case "stable", "beta", "nightly":
+	default:
+		return false
+	}
+	return len(c.ClientVersion) <= maxVersionLen && versionPattern.MatchString(c.ClientVersion)
+}

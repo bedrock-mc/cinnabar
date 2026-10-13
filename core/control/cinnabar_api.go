@@ -19,7 +19,6 @@ const (
 	codeRateLimited      = -32024
 	// cinnabarLookupTimeout bounds one lookup beyond the client's own reply deadline.
 	cinnabarLookupTimeout = 15 * time.Second
-	maxCinnabarIdentity   = 64
 )
 
 // CinnabarAPI is the optional connection that announces releases and identifies Cinnabar players.
@@ -67,12 +66,15 @@ func (server *Server) serveCinnabarAPI(conn net.Conn, id uint64, raw json.RawMes
 		Channel       *string `json:"channel"`
 		Visible       *bool   `json:"visible"`
 	}
-	if !decodeStrict(raw, &params) || params.ClientVersion == nil || params.Channel == nil || params.Visible == nil ||
-		!boundedIdentity(*params.ClientVersion) || !boundedIdentity(*params.Channel) {
+	if !decodeStrict(raw, &params) || params.ClientVersion == nil || params.Channel == nil || params.Visible == nil {
+		return reply.invalid()
+	}
+	config := cinnabarapi.Config{ClientVersion: *params.ClientVersion, Channel: *params.Channel, Visible: *params.Visible}
+	if !config.Valid() {
 		return reply.invalid()
 	}
 	if api := server.cinnabarAPI(); api != nil {
-		api.Configure(cinnabarapi.Config{ClientVersion: *params.ClientVersion, Channel: *params.Channel, Visible: *params.Visible})
+		api.Configure(config)
 	}
 	return reply.ok(emptyResultV1{SchemaVersion: 1})
 }
@@ -115,8 +117,4 @@ func decodeStrict(raw json.RawMessage, value any) bool {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	return len(raw) != 0 && decoder.Decode(value) == nil && decoder.Decode(new(any)) == io.EOF
-}
-
-func boundedIdentity(value string) bool {
-	return value != "" && len(value) <= maxCinnabarIdentity
 }

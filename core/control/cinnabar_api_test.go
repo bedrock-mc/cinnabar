@@ -63,6 +63,8 @@ func TestCinnabarConfigurationReachesTheConnection(t *testing.T) {
 		`{"client_version":"","channel":"beta","visible":true}`,
 		`{"client_version":"0.1.18","channel":"beta","visible":true,"extra":1}`,
 		`{"client_version":"` + strings.Repeat("9", 65) + `","channel":"beta","visible":true}`,
+		`{"client_version":"0.1.18+42","channel":"beta","visible":true}`,
+		`{"client_version":"0.1.18","channel":"canary","visible":true}`,
 	} {
 		payload := exchange(t, dir, []byte(`{"jsonrpc":"2.0","id":2,"method":"cinnabar_api.v1","params":`+params+`}`))
 		if err := rpcError(t, payload); err == nil || err.Code != -32602 {
