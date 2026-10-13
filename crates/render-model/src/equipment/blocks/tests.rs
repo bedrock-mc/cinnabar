@@ -625,3 +625,78 @@ fn pinned_non_cube_items_hold_their_inventory_model_and_flat_items_stay_sprites(
         );
     }
 }
+
+#[test]
+fn held_non_cube_admission_uses_the_inventory_state_and_preserves_its_height() {
+    let (mut compiled, records) = crate::viewmodel::cube::tests::barrels();
+    let visual = records
+        .iter()
+        .find(|record| record.name.as_ref() == "minecraft:barrel")
+        .unwrap()
+        .sequential_id;
+    let template = compiled.visuals[visual as usize].model_template as usize;
+    compiled.visuals[visual as usize].flags = BlockFlags::empty();
+    compiled.model_templates[template].flags = 0;
+    let span = compiled.model_templates[template];
+    for quad in &mut compiled.model_quads
+        [span.quad_start as usize..(span.quad_start + span.quad_count) as usize]
+    {
+        for position in &mut quad.positions {
+            position[1] /= 2;
+        }
+    }
+    let world = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
+    let entities = barrel_entities(&world, &records);
+    let sprite = IconSprite {
+        width: 16,
+        height: 16,
+        rgba8: [40, 80, 120, 255].repeat(16 * 16).into(),
+    };
+    let entry = assets::IconEntry {
+        identifier: "minecraft:barrel".into(),
+        metadata: 0,
+        sprite: 0,
+    };
+    for has_model in [false, true] {
+        let bindings = has_model
+            .then_some(assets::IconBlockModel {
+                sprite: 0,
+                visual: assets::BlockVisualId(visual),
+            })
+            .into_iter()
+            .collect::<Vec<_>>();
+        let icons = assets::RuntimeIconCatalog::decode(
+            &assets::encode_icon_catalog_with_blocks(
+                world.provenance().source_manifest_sha256,
+                std::slice::from_ref(&sprite),
+                std::slice::from_ref(&entry),
+                &[],
+                &bindings,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let held = collect_held(&world, &entities, &icons);
+        assert_eq!(held.models.contains_key(&visual), has_model);
+        if let Some(vertices) = held.models.get(&visual) {
+            let (min, max) = vertices
+                .iter()
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), vertex| {
+                    (min.min(vertex.position[1]), max.max(vertex.position[1]))
+                });
+            assert_eq!([min, max], [-0.5, 0.0]);
+            assert!(vertices.iter().all(|vertex| {
+                vertex
+                    .uv
+                    .iter()
+                    .all(|component| (0.0..=1.0).contains(component))
+            }));
+            for triangle in vertices.as_chunks::<3>().0 {
+                let [a, b, c] = triangle.map(|vertex| glam::Vec3::from_array(vertex.position));
+                let normal = glam::Vec3::from_array(triangle[0].normal);
+                assert!((b - a).cross(c - a).dot(normal) > 0.0);
+            }
+        }
+        assert!(!collect(&world, &entities).models.contains_key(&visual));
+    }
+}

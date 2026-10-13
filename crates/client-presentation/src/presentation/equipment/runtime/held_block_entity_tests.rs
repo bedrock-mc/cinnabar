@@ -4,6 +4,101 @@ use super::*;
 use render_model::{HandItemAlphaMode, java_animation::JavaHand};
 
 #[test]
+fn startup_conduit_model_reaches_camera_hands_and_player_equipment() {
+    let (base, body, mut item) = block_fixture();
+    item.identifier = Arc::from("minecraft:conduit");
+    item.kind = HeldKind::Sprite;
+    let icons = RuntimeIconCatalog::decode(
+        &assets::encode_icon_catalog(
+            base.assets.source_manifest_sha256(),
+            &[IconSprite {
+                width: 16,
+                height: 16,
+                rgba8: [80, 160, 200, 255].repeat(16 * 16).into(),
+            }],
+            &[assets::IconEntry {
+                identifier: item.identifier.as_ref().into(),
+                metadata: 0,
+                sprite: 0,
+            }],
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let block_entities = assets::RuntimeBlockEntityAssets::decode(
+        &assets::encode_block_entity_catalog(
+            b"{}",
+            64,
+            64,
+            &[255; 64 * 64 * 4],
+            &[assets::BlockEntityPlacement {
+                name: assets::block_entity_geometry::CONDUIT_TEXTURE.0.into(),
+                x: 0,
+                y: 0,
+                width: assets::block_entity_geometry::CONDUIT_TEXTURE.1[0] as u32,
+                height: assets::block_entity_geometry::CONDUIT_TEXTURE.1[1] as u32,
+            }],
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let (mut runtime, _, _) = EquipmentRuntime::build(
+        Arc::clone(&base.assets),
+        None,
+        Arc::new(icons),
+        None,
+        Some(Arc::new(block_entities)),
+        ActorArtworkPages::default(),
+    );
+    runtime.register_skin_rig(body.input.rig, vec!["rightItem".into()]);
+    let main = runtime
+        .first_person_item(&body, &item, ItemAnimationState::default())
+        .unwrap();
+    let off = runtime.first_person_offhand(&body, &item).unwrap();
+    let java = runtime
+        .first_person_java_item(
+            &body,
+            &item,
+            JavaHand {
+                swing: 0.0,
+                equip: 1.0,
+                using: None,
+            },
+        )
+        .unwrap();
+    let third = third_person(&mut runtime, &body, &item);
+    let rig = main.presentation.submission.input.rig;
+    for camera in [&main, &off, &java] {
+        assert_eq!(camera.presentation.submission.input.rig, rig);
+        assert_eq!(camera.alpha_mode, HandItemAlphaMode::Cutout);
+    }
+    assert_eq!(third.submission.input.rig, rig);
+    let models = runtime.take_pending_geometries();
+    let model = models.iter().find(|model| model.id == rig).unwrap();
+    assert_eq!(model.vertices.len(), 36);
+    for axis in 0..3 {
+        let (min, max) =
+            model
+                .vertices
+                .iter()
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), vertex| {
+                    (
+                        min.min(vertex.position[axis]),
+                        max.max(vertex.position[axis]),
+                    )
+                });
+        let half = assets::block_entity_geometry::CONDUIT_SHELL.1[axis] / 32.0;
+        assert_eq!([min, max], [-half, half]);
+    }
+    assert!(model.vertices.iter().all(|vertex| {
+        vertex
+            .uv
+            .iter()
+            .all(|component| (0.0..=1.0).contains(component))
+    }));
+}
+
+#[test]
 fn held_block_entity_models_keep_cutout_alpha_and_block_grips() {
     let (mut runtime, body, mut item) = block_fixture();
     let animation = ItemAnimationState::default();
