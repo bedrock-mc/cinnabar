@@ -23,6 +23,7 @@ use {
     },
 };
 
+use launcher::menu::settings_options::SettingId;
 /// Builds a renderer-free world with gameplay overlays available.
 pub(super) fn fixture_world() -> World {
     let (_pack, _geometry, entities) = super::super::viewmodel_presentation::hand_fixture();
@@ -217,10 +218,10 @@ fn hide_hud_clears_published_hands_and_nametags_and_restores_the_hand_preference
         {
             let mut menu = world.resource_mut::<MenuRuntime>();
             if prior_hand != Some(hide_hand) {
-                menu.set_session_option("hide_hand", Some(i32::from(hide_hand)));
+                menu.set_session_option(SettingId::HideHand, Some(i32::from(hide_hand)));
                 prior_hand = Some(hide_hand);
             }
-            menu.set_session_option("hide_hud", Some(i32::from(hide_hud)));
+            menu.set_session_option(SettingId::HideHud, Some(i32::from(hide_hud)));
         }
         assert_published(&mut world, hands, names);
         assert_eq!(
@@ -228,7 +229,7 @@ fn hide_hud_clears_published_hands_and_nametags_and_restores_the_hand_preference
                 .resource::<MenuRuntime>()
                 .settings_snapshot()
                 .0
-                .value("hide_hand"),
+                .value(SettingId::HideHand),
             i32::from(hide_hand),
             "HUD visibility must preserve the independent hand preference"
         );

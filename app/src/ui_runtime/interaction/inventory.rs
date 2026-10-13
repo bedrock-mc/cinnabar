@@ -19,6 +19,7 @@ use {
     inventory::inventory_ledger::DropSource,
 };
 
+use launcher::menu::settings_options::BindingId;
 /// Applies presses routed to the open inventory screen, after any keys already queued for it.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn apply_screen_presses(
@@ -175,7 +176,7 @@ pub(super) fn apply_inventory_pointer(
         }) {
             continue;
         }
-        let drop = binding_keyboard_key(menu, "key.drop", key);
+        let drop = binding_keyboard_key(menu, BindingId::Drop, key);
         let _ = dispatch_inventory_key(player_runtime, runtime, hit, key, control, None, drop);
     }
     for control in mouse_hotbar {

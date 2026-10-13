@@ -1,6 +1,8 @@
 //! Projects runtime authority into `mod-ui`'s surfaces and paints them in the scene order the
 //! frame builder chooses.
 
+#[cfg(test)]
+use launcher::menu::settings_options::SettingId;
 use std::collections::BTreeSet;
 
 use mod_ui::{ModUi, experience_modal::ExperienceModal, mod_screens::ModScreensInput};
@@ -75,7 +77,13 @@ impl UiPresentationRuntime {
         !runtime.ui_focused(player)
             && self.menu_view.is_none()
             && self.loading_stage.is_none()
-            && self.screens.chat.settings.options().value("hide_hud") == 0
+            && self
+                .screens
+                .chat
+                .settings
+                .options()
+                .value(SettingId::HideHud)
+                == 0
             && !self.screens.mod_ui.mod_panel_open()
     }
 

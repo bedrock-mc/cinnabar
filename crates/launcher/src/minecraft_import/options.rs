@@ -1,5 +1,8 @@
 //! A schema-checked table maps supported player preferences to launcher settings.
 
+#[cfg(test)]
+use crate::menu::settings_options::BindingId;
+use crate::menu::settings_options::SettingId;
 use std::collections::BTreeMap;
 
 use super::summary::Category;
@@ -18,7 +21,7 @@ pub enum Encoding {
 #[derive(Clone, Copy, Debug)]
 pub struct Mapping {
     pub source: &'static str,
-    pub destination: &'static str,
+    pub destination: SettingId,
     pub encoding: Encoding,
     pub category: Category,
 }
@@ -27,181 +30,181 @@ pub struct Mapping {
 pub const MAPPINGS: &[Mapping] = &[
     Mapping {
         source: "gfx_field_of_view",
-        destination: "field_of_view",
+        destination: SettingId::FieldOfView,
         encoding: Encoding::Integer,
         category: Category::Video,
     },
     Mapping {
         source: "gfx_viewdistance",
-        destination: "render_distance",
+        destination: SettingId::RenderDistance,
         encoding: Encoding::Blocks,
         category: Category::Video,
     },
     Mapping {
         source: "gfx_gamma",
-        destination: "gamma",
+        destination: SettingId::Gamma,
         encoding: Encoding::Fraction,
         category: Category::Video,
     },
     Mapping {
         source: "gfx_vsync",
-        destination: "vsync",
+        destination: SettingId::Vsync,
         encoding: Encoding::Toggle,
         category: Category::Video,
     },
     Mapping {
         source: "gfx_hidehud",
-        destination: "hide_hud",
+        destination: SettingId::HideHud,
         encoding: Encoding::Toggle,
         category: Category::Video,
     },
     Mapping {
         source: "gfx_hidehand",
-        destination: "hide_hand",
+        destination: SettingId::HideHand,
         encoding: Encoding::Toggle,
         category: Category::Video,
     },
     Mapping {
         source: "gfx_hidepaperdoll",
-        destination: "hide_paperdoll",
+        destination: SettingId::HidePaperdoll,
         encoding: Encoding::Toggle,
         category: Category::Video,
     },
     Mapping {
         source: "gfx_viewbobbing",
-        destination: "view_bobbing",
+        destination: SettingId::ViewBobbing,
         encoding: Encoding::Toggle,
         category: Category::Video,
     },
     Mapping {
         source: "gfx_fancygraphics",
-        destination: "graphics_mode",
+        destination: SettingId::GraphicsMode,
         encoding: Encoding::Toggle,
         category: Category::Video,
     },
     Mapping {
         source: "gfx_fancyskies",
-        destination: "fancy_skies",
+        destination: SettingId::FancySkies,
         encoding: Encoding::Toggle,
         category: Category::Video,
     },
     Mapping {
         source: "gfx_renderclouds",
-        destination: "render_clouds",
+        destination: SettingId::RenderClouds,
         encoding: Encoding::Toggle,
         category: Category::Video,
     },
     Mapping {
         source: "gfx_transparentleaves",
-        destination: "transparent_leaves",
+        destination: SettingId::TransparentLeaves,
         encoding: Encoding::Toggle,
         category: Category::Video,
     },
     Mapping {
         source: "gfx_smoothlighting",
-        destination: "smooth_lighting",
+        destination: SettingId::SmoothLighting,
         encoding: Encoding::Toggle,
         category: Category::Video,
     },
     Mapping {
         source: "gfx_field_of_view_toggle",
-        destination: "field_of_view_toggle",
+        destination: SettingId::FieldOfViewToggle,
         encoding: Encoding::Toggle,
         category: Category::Video,
     },
     Mapping {
         source: "gfx_thirdperson",
-        destination: "third_person",
+        destination: SettingId::ThirdPerson,
         encoding: Encoding::Integer,
         category: Category::Video,
     },
     Mapping {
         source: "gfx_interface_opacity",
-        destination: "interface_opacity",
+        destination: SettingId::InterfaceOpacity,
         encoding: Encoding::Fraction,
         category: Category::Video,
     },
     Mapping {
         source: "ctrl_sensitivity",
-        destination: crate::menu::settings_options::MOUSE_SENSITIVITY_OPTION.name,
+        destination: SettingId::KeyboardMouseSensitivity,
         encoding: Encoding::Fraction,
         category: Category::Controls,
     },
     Mapping {
         source: "ctrl_invertmouse",
-        destination: "keyboard_mouse_invert_y_axis",
+        destination: SettingId::KeyboardMouseInvertYAxis,
         encoding: Encoding::Toggle,
         category: Category::Controls,
     },
     Mapping {
         source: "ctrl_autojump",
-        destination: "keyboard_mouse_autojump",
+        destination: SettingId::KeyboardMouseAutojump,
         encoding: Encoding::Toggle,
         category: Category::Controls,
     },
     Mapping {
         source: "audio_main",
-        destination: "main_volume",
+        destination: SettingId::MainVolume,
         encoding: Encoding::Fraction,
         category: Category::Audio,
     },
     Mapping {
         source: "audio_music",
-        destination: "music_volume",
+        destination: SettingId::MusicVolume,
         encoding: Encoding::Fraction,
         category: Category::Audio,
     },
     Mapping {
         source: "audio_sound",
-        destination: "sound_volume",
+        destination: SettingId::SoundVolume,
         encoding: Encoding::Fraction,
         category: Category::Audio,
     },
     Mapping {
         source: "audio_ambient",
-        destination: "ambient_volume",
+        destination: SettingId::AmbientVolume,
         encoding: Encoding::Fraction,
         category: Category::Audio,
     },
     Mapping {
         source: "audio_block",
-        destination: "block_volume",
+        destination: SettingId::BlockVolume,
         encoding: Encoding::Fraction,
         category: Category::Audio,
     },
     Mapping {
         source: "audio_hostile",
-        destination: "hostile_volume",
+        destination: SettingId::HostileVolume,
         encoding: Encoding::Fraction,
         category: Category::Audio,
     },
     Mapping {
         source: "audio_neutral",
-        destination: "neutral_volume",
+        destination: SettingId::NeutralVolume,
         encoding: Encoding::Fraction,
         category: Category::Audio,
     },
     Mapping {
         source: "audio_player",
-        destination: "player_volume",
+        destination: SettingId::PlayerVolume,
         encoding: Encoding::Fraction,
         category: Category::Audio,
     },
     Mapping {
         source: "audio_record",
-        destination: "record_volume",
+        destination: SettingId::RecordVolume,
         encoding: Encoding::Fraction,
         category: Category::Audio,
     },
     Mapping {
         source: "audio_weather",
-        destination: "weather_volume",
+        destination: SettingId::WeatherVolume,
         encoding: Encoding::Fraction,
         category: Category::Audio,
     },
     Mapping {
         source: "audio_texttospeech",
-        destination: "texttospeech_volume",
+        destination: SettingId::TexttospeechVolume,
         encoding: Encoding::Fraction,
         category: Category::Audio,
     },
@@ -283,7 +286,9 @@ pub fn parse(bytes: &[u8]) -> ParsedOptions {
         } else if let Some(mapping) = MAPPINGS.iter().find(|mapping| mapping.source == key)
             && let Some(value) = convert(mapping, raw)
         {
-            parsed.values.insert(mapping.destination.to_owned(), value);
+            parsed
+                .values
+                .insert(mapping.destination.name().to_owned(), value);
         } else {
             parsed.skipped += 1;
         }
@@ -293,9 +298,7 @@ pub fn parse(bytes: &[u8]) -> ParsedOptions {
 
 /// Rejects non-finite and out-of-range values before the settings setter can clamp them.
 fn convert(mapping: &Mapping, raw: &str) -> Option<i32> {
-    let option = SETTINGS_OPTIONS
-        .iter()
-        .find(|option| option.name == mapping.destination)?;
+    let option = mapping.destination.definition();
     let value = match mapping.encoding {
         Encoding::Toggle => match raw {
             "0" => 0,
@@ -342,11 +345,11 @@ mod tests {
         assert_eq!(parsed.skipped, 2);
         assert_eq!(parsed.apply(&mut settings), 0);
         assert_eq!(
-            settings.named_key_control("key.forward"),
+            settings.named_key_control(BindingId::Forward),
             Some(semantic_input::PhysicalControl::KeyboardUsage(0x16))
         );
         assert_eq!(
-            settings.named_key_control("key.back"),
+            settings.named_key_control(BindingId::Back),
             Some(semantic_input::PhysicalControl::KeyboardUsage(0x1a))
         );
         assert!(settings.stored_bindings_valid());
@@ -361,8 +364,8 @@ mod tests {
             assert!(destinations.insert(mapping.destination));
             let definition = SETTINGS_OPTIONS
                 .iter()
-                .find(|option| option.name == mapping.destination)
-                .unwrap_or_else(|| panic!("missing import destination {}", mapping.destination));
+                .find(|option| option.id == mapping.destination)
+                .unwrap_or_else(|| panic!("missing import destination {:?}", mapping.destination));
             if matches!(mapping.encoding, Encoding::Toggle) {
                 assert_eq!((definition.min, definition.max, definition.step), (0, 1, 1));
             }
@@ -380,13 +383,13 @@ mod tests {
         let parsed = parse(b"\xef\xbb\xbfgfx_field_of_view:80\r\naudio_music:0.25\ngfx_viewdistance:160\ngfx_gamma:NaN\ngfx_vsync:2\nunknown:private value\nbad\n\xff\ngfx_field_of_view:90\ngame_language:de_DE\ngfx_fullscreen:1\n");
         assert_eq!(parsed.skipped, 6);
         let mut settings = SettingsOptions::default();
-        let previous = settings.value("animations");
+        let previous = settings.value(SettingId::Animations);
         parsed.apply(&mut settings);
-        assert_eq!(settings.value("field_of_view"), 80);
-        assert_eq!(settings.value("music_volume"), 25);
-        assert_eq!(settings.value("render_distance"), 10);
+        assert_eq!(settings.value(SettingId::FieldOfView), 80);
+        assert_eq!(settings.value(SettingId::MusicVolume), 25);
+        assert_eq!(settings.value(SettingId::RenderDistance), 10);
         assert_eq!(settings.language(), Some("de_DE"));
-        assert_eq!(settings.value("animations"), previous);
+        assert_eq!(settings.value(SettingId::Animations), previous);
         assert_eq!(parsed.fullscreen, Some(true));
     }
 }

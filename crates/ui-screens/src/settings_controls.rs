@@ -1,6 +1,7 @@
 //! Bind vanilla option controls to the menu's persisted settings snapshot.
 
 use json_ui::{DataSource, HitKind, HitRegion, Scalar};
+use launcher::menu::settings_options::SettingId;
 
 use launcher::menu::settings_options::{
     SETTINGS_OPTIONS, SettingDefinition, SettingKind, SettingsOptions,
@@ -30,11 +31,12 @@ pub(super) fn bind_values(
         let value = options.get(index);
         data.set_global(format!("#{}_enabled", option.name), Scalar::Bool(true));
         match option.kind {
+            SettingKind::Host => continue,
             SettingKind::Toggle => {
                 data.set_global(format!("#{}", option.name), Scalar::Bool(value != 0));
             }
             SettingKind::Slider => {
-                let (position, steps) = if option.name == "msaa" {
+                let (position, steps) = if option.id == SettingId::Msaa {
                     let counts: Vec<_> = options.anti_aliasing_support().counts().collect();
                     let selected = counts
                         .iter()
@@ -49,7 +51,7 @@ pub(super) fn bind_values(
                 };
                 data.set_global(format!("#{}", option.name), Scalar::Num(position));
                 data.set_global(format!("#{}_steps", option.name), Scalar::Num(steps));
-                if option.name == "msaa" {
+                if option.id == SettingId::Msaa {
                     data.set_global("#msaa_enabled", Scalar::Bool(steps > 1.0));
                 }
                 let shown = display_value(option, value, translate);
@@ -121,7 +123,7 @@ fn bind_visibility(view: &MenuView, data: &mut DataSource, translate: &dyn Fn(&s
     ] {
         data.set_global(binding, Scalar::Text(translate(label)));
     }
-    let graphics_label = if view.settings_options.value("graphics_mode") == 0 {
+    let graphics_label = if view.settings_options.value(SettingId::GraphicsMode) == 0 {
         "options.graphicsModeOptions.simple"
     } else {
         "options.graphicsModeOptions.fancy"
@@ -138,10 +140,12 @@ fn display_value(
     value: i32,
     translate: &dyn Fn(&str) -> String,
 ) -> String {
-    match option.name {
-        "field_of_view" | "gui_scale" | "msaa" => value.to_string(),
-        "max_framerate" => launcher::menu::settings_options::frame_rate_label(value, translate),
-        "render_distance" => {
+    match option.id {
+        SettingId::FieldOfView | SettingId::GuiScale | SettingId::Msaa => value.to_string(),
+        SettingId::MaxFramerate => {
+            launcher::menu::settings_options::frame_rate_label(value, translate)
+        }
+        SettingId::RenderDistance => {
             translate("options.renderDistanceFormat").replace("%s", &value.to_string())
         }
         _ => format!("{value}%"),
@@ -195,7 +199,7 @@ pub(super) fn slider_actions(
         .iter()
         .enumerate()
         .find(|(_, option)| option.name == name && matches!(option.kind, SettingKind::Slider))?;
-    if option.name == "msaa" {
+    if option.id == SettingId::Msaa {
         return Some(
             options
                 .anti_aliasing_support()

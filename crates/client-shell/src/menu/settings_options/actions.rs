@@ -63,7 +63,7 @@ impl MenuRuntime {
                 let overrides = self.session_overrides.len();
                 self.session_overrides.retain(|preference| {
                     !launcher::menu::settings_options::video_presets::VideoPreset::controls(
-                        launcher::menu::settings_options::SETTINGS_OPTIONS[preference.index()].name,
+                        launcher::menu::settings_options::SETTINGS_OPTIONS[preference.index()].id,
                     )
                 });
                 let changed = Arc::make_mut(&mut self.settings_options).apply_video_preset(preset);

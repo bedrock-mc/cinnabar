@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use json_ui::RectOut;
+use launcher::menu::settings_options::SettingId;
 use launcher::menu::split_address;
 use {
     super::*,
@@ -365,7 +366,7 @@ fn antialiasing_slider_uses_device_sample_stops_and_numeric_labels() {
     options.set_anti_aliasing_support(ui::AntiAliasingSupport::from_counts([1, 4, 8]));
     let index = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "msaa")
+        .position(|option| option.id == SettingId::Msaa)
         .unwrap();
     options.set(index, 4);
     let mut slider = region(HitKind::Slider, None);

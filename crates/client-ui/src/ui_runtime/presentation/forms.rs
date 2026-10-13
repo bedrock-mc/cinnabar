@@ -57,6 +57,8 @@ mod publication_tests;
 pub mod regression_snapshots;
 
 #[cfg(test)]
+use launcher::menu::settings_options::SettingId;
+#[cfg(test)]
 mod accounts;
 #[cfg(test)]
 pub mod play_flow_snapshots;
@@ -445,7 +447,7 @@ impl UiPresentationRuntime {
             self.screens
                 .oreui
                 .transitions
-                .configure_motion(view.settings_options.value("screen_animations") != 0);
+                .configure_motion(view.settings_options.value(SettingId::ScreenAnimations) != 0);
         }
     }
 

@@ -698,7 +698,7 @@ impl MenuView {
         option: &super::settings_options::SettingDefinition,
         choice: usize,
     ) -> bool {
-        option.name != super::settings_options::UPDATE_CHANNEL_OPTION.name
+        option.id != super::settings_options::UPDATE_CHANNEL_OPTION.id
             || self.updates.channel_visible(choice)
     }
 

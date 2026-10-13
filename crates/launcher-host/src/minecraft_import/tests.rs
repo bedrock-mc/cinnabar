@@ -1,4 +1,5 @@
 use super::*;
+use launcher::menu::settings_options::SettingId;
 
 /// Builds an isolated profile whose options and packs are fully synthetic.
 fn service(root: &Path) -> Service {
@@ -142,7 +143,7 @@ fn combined_archive_limit_skips_activation_before_apply_and_keeps_other_data_imp
     let applied = apply(&mut service, state(), &mut library);
     assert!(applied.stack.is_some());
     let imported = applied.state.unwrap();
-    assert_eq!(imported.settings.value("field_of_view"), 80);
+    assert_eq!(imported.settings.value(SettingId::FieldOfView), 80);
     assert_eq!(imported.servers.len(), 1);
     assert_eq!(&imported.active[1..], original);
 }
@@ -402,7 +403,7 @@ fn preview_is_read_only_and_revert_restores_every_replaced_authority() {
     let applied = apply(&mut service, old.clone(), &mut library);
     let changed = applied.state.unwrap();
     assert!(applied.snapshot.can_revert);
-    assert_eq!(changed.settings.value("field_of_view"), 80);
+    assert_eq!(changed.settings.value(SettingId::FieldOfView), 80);
     assert_eq!(changed.servers.len(), 1);
     assert_eq!(
         std::fs::read(service.locations[0].path.join("minecraftpe/options.txt")).unwrap(),
@@ -661,7 +662,7 @@ fn selected_shared_version_replaces_a_profile_copy_without_reading_shared_settin
     assert_eq!(preview.selection.len(), 1);
     let mut settings = SettingsOptions::default();
     preview.options.apply(&mut settings);
-    assert_eq!(settings.value("field_of_view"), 80);
+    assert_eq!(settings.value(SettingId::FieldOfView), 80);
 }
 
 #[test]
@@ -721,7 +722,14 @@ fn import_requires_confirmation_and_cancel_retains_the_reviewed_preview() {
     assert!(stale_confirm.state.is_none());
     let imported = apply(&mut service, original.clone(), &mut library);
     assert_eq!(imported.snapshot.phase, Phase::Result);
-    assert_eq!(imported.state.unwrap().settings.value("field_of_view"), 80);
+    assert_eq!(
+        imported
+            .state
+            .unwrap()
+            .settings
+            .value(SettingId::FieldOfView),
+        80
+    );
     assert!(storage::has_backup(&service.config_root));
     let repeated = service.act(
         Request {

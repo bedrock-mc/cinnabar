@@ -4,6 +4,8 @@ use launcher::menu::settings_options::SettingsGroup;
 use launcher::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
 use {crate::menu::MenuRuntime, launcher::menu::MenuDialog};
 
+#[cfg(test)]
+use launcher::menu::settings_options::SettingId;
 impl MenuRuntime {
     /// Applies a section reset only after its matching confirmation remains open.
     pub(in crate::menu) fn confirm_settings_reset(&mut self, group: SettingsGroup) {
@@ -15,12 +17,20 @@ impl MenuRuntime {
             self.settings_dirty = true;
             self.settings_apply = true;
         }
-        if matches!(group, SettingsGroup::Video | SettingsGroup::Accessibility) {
+        if SettingId::GuiScale
+            .definition()
+            .reset_group
+            .contains(&group)
+        {
             let defaults = launcher_host::video_settings::SavedVideoSettings::default();
             self.gui_scale_preference = None;
             self.gui_scale_offset = defaults.gui_scale_offset;
             self.gui_scale_display_offset = defaults.gui_scale_offset;
-            if group == SettingsGroup::Video {
+            if SettingId::FullScreen
+                .definition()
+                .reset_group
+                .contains(&group)
+            {
                 self.activate_settings(launcher::menu::MenuAction::SettingsFullscreen(
                     defaults.fullscreen,
                 ));
@@ -59,18 +69,18 @@ mod tests {
             "field_of_view",
         );
         menu.activate(MenuAction::SettingsResetGroup(SettingsGroup::Video));
-        assert_eq!(menu.settings_options.value("field_of_view"), value);
+        assert_eq!(menu.settings_options.value(SettingId::FieldOfView), value);
         menu.activate(MenuAction::SettingsConfirmResetGroup(SettingsGroup::Audio));
-        assert_eq!(menu.settings_options.value("field_of_view"), value);
+        assert_eq!(menu.settings_options.value(SettingId::FieldOfView), value);
         menu.activate(MenuAction::DismissDialog);
         menu.activate(MenuAction::SettingsConfirmResetGroup(SettingsGroup::Video));
-        assert_eq!(menu.settings_options.value("field_of_view"), value);
+        assert_eq!(menu.settings_options.value(SettingId::FieldOfView), value);
         menu.activate(MenuAction::SettingsResetGroup(SettingsGroup::Video));
         menu.activate(MenuAction::SettingsConfirmResetGroup(SettingsGroup::Video));
         assert!(menu.dialog.is_none());
         assert_eq!(
-            menu.settings_options.value("field_of_view"),
-            SettingsOptions::default().value("field_of_view")
+            menu.settings_options.value(SettingId::FieldOfView),
+            SettingsOptions::default().value(SettingId::FieldOfView)
         );
         assert!(menu.settings_dirty && menu.settings_apply);
     }

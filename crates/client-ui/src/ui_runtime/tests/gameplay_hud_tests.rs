@@ -1,6 +1,7 @@
 //! Authoritative gameplay-HUD state coverage: effects, metadata, armor,
 //! mounts, hotbar/offhand mirroring, and the derived heart variants.
 
+use launcher::menu::settings_options::SettingId;
 use protocol::{
     ActorEffectAction, ActorEffectEvent, ActorHandedness, ActorMetadata, ActorMetadataValue,
     ContainerIdentity, EquipmentEvent, InventoryContentEvent, InventoryEvent, InventorySlotEvent,
@@ -1103,7 +1104,7 @@ fn toast_duration_setting_reaches_the_notification_queue() {
     let mut options = SettingsOptions::default();
     let index = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "toast_notification_duration")
+        .position(|option| option.id == SettingId::ToastNotificationDuration)
         .unwrap();
     options.set(index, SETTINGS_OPTIONS[index].max);
     let mut runtime = UiRuntime::new(1);

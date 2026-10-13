@@ -5,6 +5,7 @@ use client_runtime::network::NetworkHandle;
 use inventory::inventory_ledger::PlayerInventorySlot;
 use {super::*, client_presentation::camera::CameraSettingsAuthority};
 
+use launcher::menu::settings_options::SettingId;
 #[cfg(test)]
 mod camera_hand_tests;
 mod commit;
@@ -209,8 +210,8 @@ pub(crate) fn prepare_ui_runtime(
     presentation.observe_paper_doll(now_millis, doll_state);
     let settings = menu_runtime.settings_snapshot().0;
     let hud_doll = presentation.hud_frame_mut().paper_doll_visible
-        && settings.value("hide_hud") == 0
-        && settings.value("hide_paperdoll") == 0
+        && settings.value(SettingId::HideHud) == 0
+        && settings.value(SettingId::HidePaperdoll) == 0
         && !menu_runtime.is_visible()
         && !runtime.inventory_open();
     let emote_preview = runtime
@@ -240,8 +241,8 @@ pub(crate) fn prepare_ui_runtime(
         );
     }
     let overlays = client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
-        settings.value("hide_hud") != 0,
-        settings.value("hide_hand") != 0,
+        settings.value(SettingId::HideHud) != 0,
+        settings.value(SettingId::HideHand) != 0,
         player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Spectator),
     );
     let hide_hand = !overlays.hand;
@@ -352,7 +353,7 @@ pub(crate) fn prepare_ui_runtime(
     let show_names = menu_runtime
         .settings_snapshot()
         .0
-        .value("ingame_player_names")
+        .value(SettingId::IngamePlayerNames)
         != 0;
     let tag_style = presentation
         .mod_ui()
@@ -367,7 +368,7 @@ pub(crate) fn prepare_ui_runtime(
         .filter(|_| {
             overlays.nametags
                 || (names_with_hidden_hud
-                    && settings.value("hide_hud") != 0
+                    && settings.value(SettingId::HideHud) != 0
                     && !menu_runtime.is_visible())
         })
         .zip(
