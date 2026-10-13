@@ -5,6 +5,9 @@
 use std::collections::{HashMap, VecDeque};
 
 use super::*;
+use latency::{NETWORK_ROUND_TRIPS, ReplyDeadline};
+
+mod latency;
 
 const STONE: u32 = 1;
 const AIR: u32 = 12_530;
@@ -77,16 +80,18 @@ struct Harness {
     sequence: u64,
     frame: u64,
     wire: VecDeque<WorldEvent>,
-    replies: VecDeque<(u64, WorldEvent)>,
+    replies: VecDeque<(ReplyDeadline, WorldEvent)>,
     presented: HashMap<SubChunkKey, ChunkMesh>,
     log: Vec<Published>,
     camera: [f32; 3],
     columns_per_frame: usize,
     frames_per_column: u64,
     frame_sleep: Duration,
+    /// Elapsed request-to-reply time; absent keeps the original frame-based delay.
+    reply_rtt: Option<Duration>,
     /// Columns whose sub-chunk replies are held until removed from this set.
     withheld: BTreeSet<ChunkKey>,
-    held: Vec<(ChunkKey, WorldEvent)>,
+    held: Vec<(ChunkKey, ReplyDeadline, WorldEvent)>,
     poll_times: Vec<Duration>,
     frame_work_times: Vec<Duration>,
     mesh_waits: Vec<Duration>,
@@ -124,6 +129,7 @@ impl Harness {
             columns_per_frame,
             frames_per_column,
             frame_sleep: FRAME,
+            reply_rtt: None,
             withheld: BTreeSet::new(),
             held: Vec::new(),
             poll_times: Vec::new(),
@@ -227,21 +233,26 @@ impl Harness {
         }
     }
 
-    fn deliver(&mut self) {
+    /// Admits replies whose network delay has elapsed, then the next server columns.
+    fn deliver(&mut self, now: Instant) {
         let (released, held) = std::mem::take(&mut self.held)
             .into_iter()
-            .partition::<Vec<_>, _>(|(column, _)| !self.withheld.contains(column));
+            .partition::<Vec<_>, _>(|(column, _, _)| !self.withheld.contains(column));
         self.held = held;
-        for (_, event) in released {
-            self.replies.push_back((self.frame, event));
+        for (_, deadline, event) in released {
+            let deadline = match deadline {
+                ReplyDeadline::Frame(_) => ReplyDeadline::Frame(self.frame),
+                elapsed => elapsed,
+            };
+            self.replies.push_back((deadline, event));
         }
-        while self
-            .replies
-            .front()
-            .is_some_and(|(due, _)| *due <= self.frame)
-        {
-            let (_, event) = self.replies.pop_front().unwrap();
-            self.wire.push_front(event);
+        for _ in 0..self.replies.len() {
+            let (deadline, event) = self.replies.pop_front().unwrap();
+            if deadline.is_ready(self.frame, now) {
+                self.wire.push_front(event);
+            } else {
+                self.replies.push_back((deadline, event));
+            }
         }
         let mut columns = 0;
         while let Some(event) = self.wire.front() {
@@ -268,12 +279,13 @@ impl Harness {
         }
     }
 
-    fn answer_requests(&mut self) {
+    /// Acknowledges dispatch and schedules each response from the same caller-supplied time.
+    fn answer_requests(&mut self, now: Instant) {
         for request in self.stream.take_requests() {
             // Intentional fixture withholding tests readiness, not retry expiry. Give held
             // replies the bounded worker-completion horizon so slow CI cannot exhaust them
             // before the test releases them; ordinary requests keep the real response clock.
-            let sent_at = Instant::now()
+            let sent_at = now
                 + if self.withheld.contains(&request.chunk) {
                     COMPLETION_TIMEOUT
                 } else {
@@ -317,11 +329,11 @@ impl Harness {
                 dimension: 0,
                 entries,
             });
+            let deadline = ReplyDeadline::after_request(self.frame, now, self.reply_rtt);
             if self.withheld.contains(&request.chunk) {
-                self.held.push((request.chunk, reply));
+                self.held.push((request.chunk, deadline, reply));
             } else {
-                self.replies
-                    .push_back((self.frame + REPLY_LATENCY_FRAMES, reply));
+                self.replies.push_back((deadline, reply));
             }
         }
     }
@@ -456,7 +468,7 @@ impl Harness {
     fn step(&mut self) {
         let work_started = Instant::now();
         self.stream.begin_frame_work();
-        self.deliver();
+        self.deliver(Instant::now());
         self.stream.set_view_forward([0.0, 0.0, 1.0]);
         let poll_started = Instant::now();
         let _ = self.stream.poll(self.camera, MESH_JOBS_PER_FRAME);
@@ -481,7 +493,7 @@ impl Harness {
             .peak_light_jobs
             .max(self.stream.lighting.jobs.in_flight.len());
         let _ = self.stream.take_committed_controls();
-        self.answer_requests();
+        self.answer_requests(Instant::now());
         self.present();
         if std::env::var_os("CINNABAR_HARNESS_TRACE").is_some() && self.frame.is_multiple_of(20) {
             println!(
@@ -858,23 +870,30 @@ fn scheduler_serves_the_view_cone_before_nearer_sub_chunks_beside_it() {
     assert_eq!(candidates.pop().map(|candidate| candidate.key), Some(ahead));
 }
 
-/// Measures the destination's visible ring, including admission and mesh convergence.
+/// Measures visible-ring convergence with the original delay and explicit network round trips.
 #[test]
 #[ignore = "release teleport timing; run with --ignored --nocapture"]
 fn teleport_visible_ring_timing() {
-    let mut harness = Harness::new(8, 1);
-    harness.send_view(ChunkKey::new(0, 0, 0), false);
-    harness.run();
-    harness.send_view(ChunkKey::new(0, 125, 137), true);
-    let report = harness.run();
-    println!("teleport_visible_ring {report:?}");
-    assert!(report.in_view > 0);
-    assert!(report.millis_to_near.is_some());
-    assert!(report.millis_to_100.is_some());
-    assert_eq!(report.dark_meshes, 0);
-    assert_eq!(report.geometry_meshes, 0);
-    assert!(report.poll_p95_us <= report.poll_p99_us);
-    assert!(report.poll_p99_us <= report.poll_max_us);
+    for reply_rtt in std::iter::once(None).chain(NETWORK_ROUND_TRIPS.map(Some)) {
+        let mut harness = Harness::new(8, 1);
+        harness.reply_rtt = reply_rtt;
+        harness.send_view(ChunkKey::new(0, 0, 0), false);
+        harness.run();
+        harness.send_view(ChunkKey::new(0, 125, 137), true);
+        let report = harness.run();
+        let reply_delay = match reply_rtt {
+            Some(rtt) => format!("{} ms RTT", rtt.as_millis()),
+            None => format!("{REPLY_LATENCY_FRAMES} frames"),
+        };
+        println!("teleport_visible_ring reply_delay={reply_delay} {report:?}");
+        assert!(report.in_view > 0);
+        assert!(report.millis_to_near.is_some());
+        assert!(report.millis_to_100.is_some());
+        assert_eq!(report.dark_meshes, 0);
+        assert_eq!(report.geometry_meshes, 0);
+        assert!(report.poll_p95_us <= report.poll_p99_us);
+        assert!(report.poll_p99_us <= report.poll_max_us);
+    }
 }
 
 /// Measures logical removal of a full retained disk without network or GPU work.

@@ -36,7 +36,7 @@ fn intentionally_withheld_replies_survive_the_normal_retry_horizon() {
         Instant::now() + SUB_CHUNK_RESPONSE_TIMEOUT * u32::from(MAX_SUB_CHUNK_RETRIES + 1);
     for _ in 0..=MAX_SUB_CHUNK_RETRIES {
         harness.stream.expire_sub_chunk_deadlines(after_retries);
-        harness.answer_requests();
+        harness.answer_requests(Instant::now());
     }
     assert_eq!(harness.stream.stats().sub_chunk_timeouts, 0);
     assert_eq!(harness.stream.stats().sub_chunk_retry_exhaustions, 0);
