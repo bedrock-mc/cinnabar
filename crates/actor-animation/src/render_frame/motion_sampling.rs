@@ -83,7 +83,15 @@ impl MotionSampling {
                 }
             }
         }
-        let mut variables = BTreeSet::new();
+        let mut variables = assets
+            .molang_symbols()
+            .iter()
+            .enumerate()
+            .filter_map(|(symbol, _)| {
+                let symbol = symbol as u32;
+                super::camera::camera_symbol(assets, symbol, true).then_some(symbol)
+            })
+            .collect::<BTreeSet<_>>();
         let mut random = false;
         let (expressions, weighted_symbols) = loop {
             let before = (variables.len(), random);
