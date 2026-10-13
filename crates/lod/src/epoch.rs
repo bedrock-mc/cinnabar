@@ -190,6 +190,21 @@ impl RegionPos {
     }
 }
 
+/// Bytes of one recorded chunk in an encoded [`RegionSignature`].
+pub const ENCODED_CHUNK_BYTES: usize = CHUNK_COLUMNS * 2;
+/// Longest encoded [`RegionSignature`]: the chunk mask and every chunk.
+pub const MAX_ENCODED_SIGNATURE_BYTES: usize = 2 + REGION_CHUNKS * ENCODED_CHUNK_BYTES;
+const _: () = assert!(REGION_CHUNKS <= u16::BITS as usize);
+
+/// Why an encoded [`RegionSignature`] was rejected.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum SignatureError {
+    #[error("encoded signature has {0} bytes, less than its chunk mask")]
+    Truncated(usize),
+    #[error("encoded signature has {actual} bytes; its chunk mask needs {expected}")]
+    Length { expected: usize, actual: usize },
+}
+
 /// The recorded column signatures of one region's chunks: 2 bytes per column.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegionSignature {
@@ -228,6 +243,88 @@ impl RegionSignature {
         };
         self.chunks[slot] = Some(surface);
         true
+    }
+
+    /// Recorded chunks, as absolute chunk coordinates, in slot order.
+    pub fn recorded_chunks(&self) -> impl Iterator<Item = (i32, i32, &ChunkSurface)> + '_ {
+        self.chunks.iter().enumerate().filter_map(|(slot, chunk)| {
+            let (local_x, local_z) = (
+                slot as i32 % REGION_SIDE_CHUNKS,
+                slot as i32 / REGION_SIDE_CHUNKS,
+            );
+            chunk.as_ref().map(|chunk| {
+                (
+                    self.pos.x * REGION_SIDE_CHUNKS + local_x,
+                    self.pos.z * REGION_SIDE_CHUNKS + local_z,
+                    chunk,
+                )
+            })
+        })
+    }
+
+    /// True when no chunk is recorded.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.chunks.iter().all(Option::is_none)
+    }
+
+    /// Records every chunk `newer` has recorded over this region's own. Panics when the
+    /// signatures cover different regions.
+    pub fn merge_from(&mut self, newer: &Self) {
+        assert_eq!(self.pos, newer.pos, "signatures of different regions");
+        for (own, newer) in self.chunks.iter_mut().zip(newer.chunks.iter()) {
+            if newer.is_some() {
+                own.clone_from(newer);
+            }
+        }
+    }
+
+    /// Appends the persisted form, part of the store format: a little-endian `u16` mask
+    /// of recorded chunk slots, then each recorded chunk's column signatures as
+    /// little-endian `u16`s in [`ChunkSurface`] order, zero where a column has none.
+    pub fn encode_into(&self, out: &mut Vec<u8>) {
+        let mask = self
+            .chunks
+            .iter()
+            .enumerate()
+            .filter(|(_, chunk)| chunk.is_some())
+            .fold(0u16, |mask, (slot, _)| mask | 1 << slot);
+        out.extend_from_slice(&mask.to_le_bytes());
+        for chunk in self.chunks.iter().flatten() {
+            for column in &chunk.columns {
+                out.extend_from_slice(&column.map_or(0, ColumnSignature::bits).to_le_bytes());
+            }
+        }
+    }
+
+    /// Reads [`Self::encode_into`] output for the region at `pos`, rejecting any length
+    /// other than the one its chunk mask implies.
+    pub fn decode(pos: RegionPos, bytes: &[u8]) -> Result<Self, SignatureError> {
+        let Some((mask, columns)) = bytes.split_first_chunk::<2>() else {
+            return Err(SignatureError::Truncated(bytes.len()));
+        };
+        let mask = u16::from_le_bytes(*mask);
+        let expected = 2 + mask.count_ones() as usize * ENCODED_CHUNK_BYTES;
+        if bytes.len() != expected {
+            return Err(SignatureError::Length {
+                expected,
+                actual: bytes.len(),
+            });
+        }
+        let mut signature = Self::new(pos);
+        let mut encoded = columns.as_chunks::<ENCODED_CHUNK_BYTES>().0.iter();
+        for (slot, chunk) in signature.chunks.iter_mut().enumerate() {
+            if mask & 1 << slot == 0 {
+                continue;
+            }
+            let bytes = encoded.next().expect("the length check covers every chunk");
+            let mut surface = ChunkSurface::default();
+            for (column, bits) in surface.columns.iter_mut().zip(bytes.as_chunks::<2>().0) {
+                *column = ColumnSignature::from_bits(u16::from_le_bytes(*bits));
+            }
+            *chunk = Some(surface);
+        }
+        Ok(signature)
     }
 
     /// The signature of every block column, chunk slot major; `None` where unrecorded.

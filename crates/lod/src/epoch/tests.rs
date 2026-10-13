@@ -408,3 +408,57 @@ fn region_signatures_hold_only_their_own_chunks() {
     assert!(signature.record(-4, 7, flat_chunk(2, 1)));
     assert_eq!(signature.chunk(-4, 7), Some(&flat_chunk(2, 1)));
 }
+
+#[test]
+fn signatures_round_trip_through_their_persisted_form() {
+    let pos = RegionPos { x: -2, z: 5 };
+    let mut partial = world_region(3, pos);
+    // Leave one chunk unrecorded and one recorded without any surface.
+    partial.chunks[3] = None;
+    partial.chunks[9] = Some(ChunkSurface::default());
+    for signature in [RegionSignature::new(pos), world_region(3, pos), partial] {
+        let mut bytes = Vec::new();
+        signature.encode_into(&mut bytes);
+        assert!(bytes.len() <= MAX_ENCODED_SIGNATURE_BYTES);
+        assert_eq!(RegionSignature::decode(pos, &bytes), Ok(signature));
+    }
+}
+
+#[test]
+fn malformed_persisted_signatures_are_rejected() {
+    let pos = RegionPos { x: 0, z: 0 };
+    let mut bytes = Vec::new();
+    world_region(1, pos).encode_into(&mut bytes);
+    assert_eq!(
+        RegionSignature::decode(pos, &bytes[..1]),
+        Err(SignatureError::Truncated(1))
+    );
+    assert_eq!(
+        RegionSignature::decode(pos, &bytes[..bytes.len() - 1]),
+        Err(SignatureError::Length {
+            expected: MAX_ENCODED_SIGNATURE_BYTES,
+            actual: MAX_ENCODED_SIGNATURE_BYTES - 1
+        })
+    );
+    let mut extra = bytes.clone();
+    extra.push(0);
+    assert!(matches!(
+        RegionSignature::decode(pos, &extra),
+        Err(SignatureError::Length { .. })
+    ));
+}
+
+#[test]
+fn merging_keeps_older_chunks_the_newer_signature_lacks() {
+    let pos = RegionPos { x: 1, z: 1 };
+    let mut stored = world_region(1, pos);
+    let mut newer = RegionSignature::new(pos);
+    assert!(newer.record(4, 4, flat_chunk(9, 9)));
+    stored.merge_from(&newer);
+    assert_eq!(stored.chunk(4, 4), Some(&flat_chunk(9, 9)));
+    assert_eq!(stored.chunk(5, 4), world_region(1, pos).chunk(5, 4));
+    let recorded: Vec<_> = newer.recorded_chunks().map(|(x, z, _)| (x, z)).collect();
+    assert_eq!(recorded, [(4, 4)]);
+    assert!(!newer.is_empty());
+    assert!(RegionSignature::new(pos).is_empty());
+}

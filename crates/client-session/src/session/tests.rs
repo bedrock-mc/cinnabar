@@ -764,6 +764,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
         NetworkControlEvent::Bootstrap {
             session_generation: simulation_clock::identity::SessionGeneration::new(7),
             world: bootstrap,
+            world_identity: protocol::StartupWorldIdentity::default(),
             environment,
             custom_blocks: protocol::CustomBlocks::default(),
             inventory: InventoryEvent::Authority(InventoryAuthority::Server),

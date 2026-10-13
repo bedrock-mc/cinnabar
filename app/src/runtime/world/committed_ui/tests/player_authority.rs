@@ -521,6 +521,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
                     air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
                     block_network_ids_are_hashes: false,
                 },
+                world_identity: protocol::StartupWorldIdentity::default(),
                 environment: protocol::WorldEnvironmentBootstrap {
                     initial_time: 0,
                     day_cycle_lock_time: -1,

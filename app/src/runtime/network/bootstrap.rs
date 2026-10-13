@@ -83,6 +83,7 @@ pub(super) fn apply(
     let NetworkControlEvent::Bootstrap {
         session_generation,
         world: bootstrap,
+        world_identity,
         environment,
         custom_blocks,
         inventory,
@@ -134,6 +135,8 @@ pub(super) fn apply(
         runtime_id = bootstrap.local_player_runtime_id,
         position = ?bootstrap.player_position,
         world_spawn = ?bootstrap.world_spawn_position,
+        level_id = %world_identity.level_id,
+        seed = world_identity.seed,
         "received StartGame bootstrap"
     );
     let replacing_session = clock.session_generation() != 0;

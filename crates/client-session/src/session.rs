@@ -81,6 +81,8 @@ pub enum NetworkControlEvent<P = ()> {
     Bootstrap {
         session_generation: SessionGeneration,
         world: WorldBootstrap,
+        /// StartGame's level id and seed, which key the distant terrain store.
+        world_identity: protocol::StartupWorldIdentity,
         environment: WorldEnvironmentBootstrap,
         custom_blocks: CustomBlocks,
         inventory: InventoryEvent,

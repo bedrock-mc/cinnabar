@@ -120,6 +120,7 @@ pub fn spawn_network<P: Send + 'static>(
                     NetworkControlEvent::Bootstrap {
                         session_generation,
                         world: bootstrap,
+                        world_identity: game_data.world_identity,
                         environment: game_data.environment,
                         custom_blocks,
                         inventory,

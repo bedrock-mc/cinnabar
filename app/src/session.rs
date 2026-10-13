@@ -116,7 +116,13 @@ impl SessionController {
     }
 
     /// Stable selected destination, kept independent from invites and transient session ids.
-    #[cfg(feature = "local-mods")]
+    #[cfg_attr(
+        not(feature = "local-mods"),
+        expect(
+            dead_code,
+            reason = "part of the distant terrain store key, which no client code opens yet"
+        )
+    )]
     pub(crate) fn destination_identity(&self) -> Option<&str> {
         self.destination_identity.as_deref()
     }

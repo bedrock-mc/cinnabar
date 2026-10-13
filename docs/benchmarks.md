@@ -51,6 +51,17 @@ cargo bench --locked -p lod --features lod/benchmark-mimalloc --bench section_co
 cargo bench --locked -p lod --features lod/benchmark-mimalloc --bench section_costs -- --save-baseline lod
 ```
 
+`region_store` times the distant terrain disk cache on synthetic terrain-like section
+records in a temporary directory: inserting and committing a 256-record batch, a read
+through an open handle and through a freshly opened file, and compacting a file whose
+records were overwritten twice. Commits are not fsynced, so the page cache absorbs the
+writes; cold-cache and per-platform storage numbers need hardware captures.
+
+```sh
+cargo bench --locked -p lod-store --features lod-store/benchmark-mimalloc --bench region_store -- --test
+cargo bench --locked -p lod-store --features lod-store/benchmark-mimalloc --bench region_store -- --save-baseline lod-store
+```
+
 These are CPU baselines, not join-time or FPS evidence. They omit socket framing,
 real server terrain, GPU preparation/uploads/draws and the rest of the Bevy frame.
 Native performance acceptance still follows [live testing](docs/agents/live-testing.md).

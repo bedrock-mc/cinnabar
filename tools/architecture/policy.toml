@@ -112,6 +112,15 @@ allowed_dependencies = ["world"]
 forbidden_dependencies = ["asset-compiler", "chunk-pipeline", "client-world", "protocol", "render", "render-scene", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu"]
 
+# Distant terrain LOD store: region files, store directories and quotas; Bevy-free and clock-free, file IO only.
+[[crates]]
+name = "lod-store"
+path = "crates/lod-store"
+test_support_features = ["benchmark-mimalloc"]
+allowed_dependencies = ["lod", "test-time"]
+forbidden_dependencies = ["asset-compiler", "chunk-pipeline", "client-world", "protocol", "render", "render-scene", "bevy", "wgpu"]
+forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu"]
+
 [[crates]]
 name = "actor-animation"
 path = "crates/actor-animation"
@@ -1028,6 +1037,7 @@ clock_free_crates = [
     "crates/inventory",
     "crates/json-ui",
     "crates/lod",
+    "crates/lod-store",
     "crates/pack-json",
     "crates/meshing",
     "crates/player-state",

@@ -64,6 +64,7 @@ mod tests {
         assert_eq!(layout.prep_kit(), files.join("resources/prep-kit"));
         assert_eq!(layout.compiled_assets, files.join("data/assets/compiled"));
         assert_eq!(layout.user_config_root, files.join("config"));
+        assert!(layout.lod_cache_dir().starts_with(files.join("data")));
         assert!(layout.transient_runtime_root().starts_with(files));
     }
 }

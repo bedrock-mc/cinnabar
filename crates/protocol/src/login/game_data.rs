@@ -17,6 +17,7 @@ pub struct GameData {
     pub world: WorldBootstrap,
     pub environment: WorldEnvironmentBootstrap,
     pub settings: StartupSettings,
+    pub world_identity: StartupWorldIdentity,
     pub items: StartupItems,
     /// StartGame's custom block definitions; malformed ones are skipped.
     pub custom_blocks: CustomBlocks,
@@ -42,6 +43,17 @@ pub struct StartupSettings {
     pub world_default_game_mode: GameModeUpdate,
     /// Whether the player follows the level default rather than a personal mode.
     pub player_game_mode_uses_world_default: bool,
+}
+
+/// StartGame's names for the world, which key the distant terrain store. Neither is
+/// reliable alone: Gophertunnel-based servers leave the level id empty, and many servers
+/// send a zero seed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StartupWorldIdentity {
+    /// StartGame `LevelID`, possibly empty.
+    pub level_id: String,
+    /// StartGame `Seed`, possibly zero.
+    pub seed: u64,
 }
 
 /// The StartGame item registry and the facts its component data declares.
@@ -87,6 +99,10 @@ impl GameData {
                 player_game_mode_uses_world_default: PlayerGameMode::bootstrap_uses_world_default(
                     start_game,
                 ),
+            },
+            world_identity: StartupWorldIdentity {
+                level_id: start_game.level_id.to_string_lossy().into_owned(),
+                seed: start_game.settings.seed.0,
             },
             items: StartupItems::from_wire(item_registry),
             custom_blocks: CustomBlocks::from_start_game(start_game),
@@ -170,6 +186,20 @@ mod tests {
             server.settings.inventory_authority,
             InventoryAuthority::Server
         );
+    }
+
+    #[test]
+    fn world_identity_carries_the_level_id_and_seed() {
+        let mut start_game = StartGame::default();
+        assert_eq!(
+            GameData::from_wire(&start_game, &ItemRegistry::default()).world_identity,
+            StartupWorldIdentity::default()
+        );
+        start_game.level_id = "level-a".into();
+        start_game.settings.seed = wire::U64LE(42);
+        let identity = GameData::from_wire(&start_game, &ItemRegistry::default()).world_identity;
+        assert_eq!(identity.level_id, "level-a");
+        assert_eq!(identity.seed, 42);
     }
 
     #[test]

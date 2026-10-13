@@ -1,0 +1,36 @@
+[package]
+name = "lod-store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[package.metadata.cinnabar]
+platform-specific = ["windows"]
+
+[features]
+# Bench binaries allocate through mimalloc, as the client does.
+benchmark-mimalloc = []
+
+[dependencies]
+# Frame and index checksums.
+flate2.workspace = true
+# Region index lookups.
+foldhash.workspace = true
+lod = { path = "../lod" }
+# Store directory names.
+sha2.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+mimalloc.workspace = true
+tempfile = "3"
+test-time = { path = "../test-time" }
+
+[[bench]]
+name = "region_store"
+harness = false
+
+[lints]
+workspace = true

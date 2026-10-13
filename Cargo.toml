@@ -55,6 +55,7 @@ members = [
     "crates/launcher",
     "crates/launcher-host",
     "crates/lod",
+    "crates/lod-store",
     "crates/first-run",
     "crates/rich-presence",
     "crates/client-ui",

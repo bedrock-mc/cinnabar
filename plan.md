@@ -8631,12 +8631,88 @@ and the native comparison.
   `lod::epoch` gave no wrong region vote in 20,000 draws per pair; sessions merged both
   edited worlds and split the one pair with more than 100 overlapping regions.
   `crates/lod/benches/section_costs.rs` measures sampling, mips, packing and records.
-- Incomplete: the client adapter from session block ids to registry keys, signature and
-  access-table persistence, disk store (including dropping sections above a re-sent,
-  shorter column), ingestion hooks and the neighbour-plane scheduling they drive, LOD
-  meshing (including a material for exposed hidden voxels), rendering, fog and Video
-  settings. Surface biomes ignore vertical biome changes within a column. Epoch rules are
-  untested on proxied lobby recordings.
+- `crates/lod-store` (Bevy-free, clock-free: callers pass the minute) is the disk cache
+  under `InstallLayout::lod_cache_dir()`, `<user data>/lod/v1/` on every platform
+  including Android's private files. A store directory is the hex SHA-256 of a versioned,
+  length-prefixed key: the destination identity, StartGame's level id when non-empty and
+  its seed when non-zero; each dimension has its own directory of epochs. A region file
+  holds one level's 32×32 section columns at every Y as appended records, tombstones and
+  index frames, each with its length and CRC32, plus a 64-bit content-hash slot per
+  level-0 chunk. Two commit slots are written after the data, so a crash leaves the older
+  index valid; when no committed index reads back, a scan rebuilds it from valid frames.
+  Files with more than half dead bytes are compacted through a temporary sibling and a
+  rename, most dead bytes first, within 16 MiB of rewritten live data per flush so the
+  queued reads behind it wait little. Commits are not fsynced: a crash can lose recent
+  commits or leave a record unreadable, which reads report so the section is sampled
+  again; an unreadable level-0 record, whether found by a read, a scan or compaction,
+  also clears the content hashes of its chunks so they are not skipped as unchanged, and
+  a scan that loses an index frame of a level-0 file clears all its hashes. Coarser
+  levels always commit before level 0, whose chunk hashes vouch for their mips, so a
+  process crash never leaves a hash without its mips; a power loss can still reorder
+  unsynced commits, so ingestion must rebuild a missing or corrupt mip under a vouched
+  chunk from its children. Owners sync on idle and at close. The material registry is
+  saved and synced before any region frame reaches disk, whether by a flush, an evicted
+  handle's commit, a merge or a full write buffer, and an unreadable registry resets the
+  store, keeping only its lock files. Reads never create files or directories, so lookup
+  misses leave nothing on disk, and a write that fails is undone so its buffer never
+  grows. A store keeps at most 64 region files open across all its epochs.
+- The first client takes the store's `store.lock` with an exclusive `try_lock` and is its
+  only writer; another client on the same store opens it read-only, holds a shared
+  `readers.lock` so the store is not removed under it, and writes nothing. A read-only
+  client's own session epochs live only in its memory.
+  Sessions begin per dimension, and again after every dimension change. With no
+  established epoch the session writes a new one at once; otherwise it writes a candidate
+  whose regions vote against each stored epoch, then merges into the matching epoch
+  (records, hashes and signatures, newer over older) or becomes a new epoch. While
+  undecided, record reads fall through to the most recently used stored epoch it has not
+  split from, so a revisit shows stored terrain at once; chunk hashes never fall
+  through, so every chunk sent is sampled and votes. Undecided candidates are deleted
+  when the session ends or at the next open. A store keeps at
+  most 8 established epochs, evicting the least recently used one that no session uses
+  or votes against. Signatures of epochs in use stay in memory and are written when the
+  epoch goes idle, its cache evicts them or the store closes. Quotas mirror the server
+  pack cache: 1 GiB per store and 8 GiB in total; stores unopened for 90 days are
+  removed, as are stores of older layout versions, while newer layouts count toward the
+  global cap; over the global cap whole stores go, least recently opened first, never one
+  another client holds open; then the open store deletes region files the player cannot
+  see (other dimensions, epochs no session uses) by last access minute, then its session
+  epochs' regions farthest from the player first. Each store records its last open in a
+  small file of its own; an unreadable one counts as opened now and is stamped so it can
+  still expire. Clearing the cache removes every store not held open, in every layout
+  version, and reports the rest. One
+  write-back thread per store is its only writer: a bounded request queue that hands
+  requests back when full, last-write-wins coalescing per key, reads of records and chunk
+  hashes that see earlier writes and get exactly one result each through a bounded queue
+  (a failure when the thread stops), caller-timed flushes and idle syncs, quota
+  enforcement on its own caller-chosen cadence, and a close that flushes, syncs and
+  signals when the store's lock is free again; closing or dropping the handle never
+  blocks, even on a full queue. `crates/lod-store/benches/region_store.rs` measures batched
+  inserts, hot and cold reads and compaction. StartGame's level id and seed reach the
+  client with the bootstrap event, which only logs them so far.
+- Incomplete: the client adapter from session block ids to registry keys, the session
+  adapter that opens a store and drives its write-back thread, ingestion hooks (including
+  dropping sections above a re-sent, shorter column and the chunk content hashes) and the
+  neighbour-plane scheduling they drive, LOD meshing (including a material for exposed
+  hidden voxels), rendering, fog, Video settings for the caps and the clear-cache action.
+  No app resource keeps the bootstrap's level id and seed for the store key yet. The
+  region index carries the chunk content hashes but not the planned per-region node
+  index (child mask, cluster count, visibility history); adding it bumps the region
+  format version, and writers then replace older files as unusable, so the cache is
+  sampled again. Flushes are bounded by rewritten bytes only, not by time, since the
+  store reads no clock.
+  Surface biomes ignore vertical biome changes within a column. Epoch rules are untested
+  on proxied lobby recordings and proxied networks. Storage is unmeasured on cold caches
+  and on Windows, macOS and Android devices; Android storage and Windows replacement of
+  open files are untested.
+- Provisional store behaviour: sessions on flat or void maps never vote, so after the
+  first visit they show the stored terrain but their own new terrain is dropped each
+  session; a returning player who explores only land the stored epochs never recorded,
+  or spawns elsewhere, never reaches a decision (regions without a stored signature
+  abstain), so that session's terrain is deleted at disconnect, every session, until
+  more than 10 recorded regions are revisited; a different world shows the stored
+  world's terrain wherever it has not sampled its own until it splits, and must split
+  (more than 100 mismatching regions) before any of its terrain persists; a crash loses
+  the surface signatures recorded since the session's epoch was last idle.
 - Provisional approximations: across a face whose neighbour is unknown, the mip exposes
   non-hidden voxels and never hidden ones. After the parent-group fallback, exposed
   all-hidden groups also try the nearest exposed material in their own columns. The water

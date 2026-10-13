@@ -27,7 +27,7 @@ pub use client_data::{
     ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION, LoginSettings,
     PROTOCOL_VERSION, login_memory_tier,
 };
-pub use game_data::{GameData, StartupItems, StartupSettings};
+pub use game_data::{GameData, StartupItems, StartupSettings, StartupWorldIdentity};
 pub use latency_probe::network_stack_latency_reply;
 pub use outbound::PlayOutbound;
 pub use pack_handoff::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
