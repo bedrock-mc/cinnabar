@@ -1,7 +1,7 @@
 use super::*;
 
 /// An undamaged-or-`damage` diamond sword carrying `enchantments`.
-fn sword<'a>(damage: u32, enchantments: &'a [(i16, u8)]) -> AnvilItem<'a> {
+fn sword<'a>(damage: u32, enchantments: &'a [(i16, i16)]) -> AnvilItem<'a> {
     AnvilItem {
         identifier: "minecraft:diamond_sword",
         count: 1,
@@ -13,7 +13,7 @@ fn sword<'a>(damage: u32, enchantments: &'a [(i16, u8)]) -> AnvilItem<'a> {
 }
 
 /// An enchanted book carrying `enchantments`.
-fn book(enchantments: &[(i16, u8)]) -> AnvilItem<'_> {
+fn book(enchantments: &[(i16, i16)]) -> AnvilItem<'_> {
     AnvilItem {
         identifier: "minecraft:enchanted_book",
         count: 1,
@@ -150,6 +150,62 @@ fn survival_refuses_forty_levels_but_creative_does_not() {
     let rename = evaluate_anvil(&worked, None, "x", "", false).unwrap();
     assert_eq!(rename.cost, 39, "renaming alone stays affordable");
     assert!(!rename.too_expensive);
+}
+
+#[test]
+fn maximum_prior_work_is_saturated_before_the_rename_cap() {
+    let worked = AnvilItem {
+        repair_cost: i32::MAX,
+        custom_name: Some("Old"),
+        ..sword(0, &[])
+    };
+    let renamed = evaluate_anvil(&worked, None, "New", "Old", false).unwrap();
+    assert_eq!(renamed.cost, ANVIL_TOO_EXPENSIVE - 1);
+    assert_eq!(renamed.repair_cost, i32::MAX);
+    assert!(!renamed.too_expensive);
+
+    for right_penalty in [0, i32::MAX] {
+        let right = AnvilItem {
+            repair_cost: right_penalty,
+            ..book(&[(17, 1)])
+        };
+        let merged = evaluate_anvil(&worked, Some(&right), "Old", "Old", false).unwrap();
+        assert_eq!(merged.cost, i32::MAX);
+        assert_eq!(merged.repair_cost, i32::MAX);
+        assert!(merged.too_expensive);
+        let creative = evaluate_anvil(&worked, Some(&right), "Old", "Old", true).unwrap();
+        assert_eq!(creative.cost, i32::MAX);
+        assert!(!creative.too_expensive);
+    }
+}
+
+#[test]
+fn merging_keeps_existing_enchantment_levels_outside_the_tooltip_range() {
+    let outcome = evaluate(&sword(0, &[(9, 300), (100, -1)]), Some(&book(&[(17, 1)]))).unwrap();
+    assert_eq!(
+        outcome.enchantments,
+        Some(vec![(9, 300), (100, -1), (17, 1)])
+    );
+    assert_eq!(outcome.cost, 1);
+}
+
+#[test]
+fn combining_large_durability_values_does_not_wrap() {
+    let left = AnvilItem {
+        max_damage: Some(u32::MAX),
+        ..sword(1, &[])
+    };
+    let outcome = evaluate(&left, Some(&left)).unwrap();
+    assert_eq!(outcome.damage, Some(0));
+    assert_eq!(outcome.cost, 2);
+}
+
+#[test]
+fn large_existing_enchantment_lists_do_not_overflow_cost_sums() {
+    let levels = vec![(17, i16::MAX); 65_540];
+    let outcome = evaluate(&sword(0, &levels), Some(&book(&[(9, 1)]))).unwrap();
+    assert_eq!(outcome.cost, 1);
+    assert_eq!(outcome.enchantments.unwrap().len(), levels.len() + 1);
 }
 
 #[test]

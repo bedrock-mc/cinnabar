@@ -39,7 +39,7 @@ fn place(
             identity: SlotIdentity {
                 container: ContainerIdentity {
                     window_id: Some(124),
-                    slot_type: Some(0),
+                    slot_type: protocol::ui_slot_container_name(u8::try_from(slot).unwrap()),
                     dynamic_id: None,
                 },
                 slot,
@@ -47,6 +47,52 @@ fn place(
             stack,
             storage_item: None,
         }));
+}
+
+/// Rewrites the occupied anvil input's user data and updates its retained digest.
+fn edit_input(
+    runtime: &mut UiRuntime,
+    player: &mut player_state::PlayerState,
+    slot: u8,
+    edit: protocol::ItemNbtEdit,
+) {
+    let mut stack = runtime
+        .inventory_ledger(player)
+        .target_stack(InventoryTarget::Craft(slot))
+        .unwrap()
+        .clone();
+    stack.extra_data = protocol::edit_item_extra(&stack.extra_data, &edit).unwrap();
+    stack.nbt_digest = Sha256::digest(&stack.extra_data).into();
+    place(runtime, player, u16::from(slot), stack);
+}
+
+/// Replaces the second input with a book carrying the complete enchantment list.
+fn place_book(
+    runtime: &mut UiRuntime,
+    player: &mut player_state::PlayerState,
+    enchantments: Vec<(i16, i16)>,
+) {
+    let extra_data = protocol::edit_item_extra(
+        &[],
+        &protocol::ItemNbtEdit {
+            enchantments: Some(enchantments),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    place(
+        runtime,
+        player,
+        u16::from(ANVIL_MATERIAL_SLOT),
+        NetworkItemStack {
+            network_id: BOOK,
+            stack_network_id: 32,
+            count: 1,
+            nbt_digest: Sha256::digest(&extra_data).into(),
+            extra_data,
+            ..NetworkItemStack::empty()
+        },
+    );
 }
 
 /// An open anvil holding a sword with 1000 damage and ten diamonds.
@@ -114,6 +160,66 @@ fn repairs_preview_the_mended_result_and_its_cost() {
         !runtime.anvil_affordable(&player, &preview),
         "no levels yet"
     );
+}
+
+#[test]
+fn unrelated_components_keep_builtin_durability_for_materials_and_copies() {
+    for combine_copy in [false, true] {
+        let (mut runtime, mut player) = anvil();
+        let mut sword = entry("minecraft:diamond_sword", SWORD);
+        sword.components = Some(Arc::new(protocol::ItemComponents {
+            display_name: Some("Sword".into()),
+            ..Default::default()
+        }));
+        runtime
+            .inventory_ledger_mut(&mut player)
+            .apply_registry(&ItemRegistryEvent {
+                entries: Arc::from([sword, entry("minecraft:diamond", DIAMOND)]),
+            });
+        if combine_copy {
+            let mut copy = runtime
+                .inventory_ledger(&player)
+                .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
+                .unwrap()
+                .clone();
+            copy.stack_network_id = 31;
+            place(
+                &mut runtime,
+                &mut player,
+                u16::from(ANVIL_MATERIAL_SLOT),
+                copy,
+            );
+        }
+        runtime.sync_anvil_name(&player);
+        let preview = runtime
+            .anvil_preview(&player)
+            .expect("unrelated components do not remove durability");
+        assert_eq!(
+            protocol::item_stack_damage(&preview.stack),
+            Some(if combine_copy { 252 } else { 0 })
+        );
+        assert_eq!(preview.outcome.cost, if combine_copy { 2 } else { 3 });
+    }
+}
+
+#[test]
+fn unsupported_durability_declarations_do_not_enable_repair_predictions() {
+    for maximum in [None, Some(0)] {
+        let (mut runtime, mut player) = anvil();
+        let mut sword = entry("minecraft:diamond_sword", SWORD);
+        sword.components = Some(Arc::new(protocol::ItemComponents {
+            durability_declared: true,
+            max_durability: maximum,
+            ..Default::default()
+        }));
+        runtime
+            .inventory_ledger_mut(&mut player)
+            .apply_registry(&ItemRegistryEvent {
+                entries: Arc::from([sword, entry("minecraft:diamond", DIAMOND)]),
+            });
+        runtime.sync_anvil_name(&player);
+        assert!(runtime.anvil_preview(&player).is_none());
+    }
 }
 
 #[test]
@@ -191,4 +297,271 @@ fn taking_a_book_merge_without_renaming_sends_the_take() {
             ledger.pending_batch().err()
         );
     }
+}
+
+#[test]
+fn server_outputs_are_taken_even_when_prediction_differs_or_is_unavailable() {
+    use protocol::{
+        CraftResult, StackRequestAction as Action, StackRequestContainer as Container,
+        StackRequestSlot,
+    };
+    for predictable in [false, true] {
+        let (mut runtime, mut player) = anvil();
+        if !predictable {
+            edit_input(
+                &mut runtime,
+                &mut player,
+                ANVIL_TARGET_SLOT,
+                protocol::ItemNbtEdit {
+                    damage: Some(0),
+                    ..Default::default()
+                },
+            );
+        }
+        runtime.sync_anvil_name(&player);
+        assert_eq!(runtime.anvil_preview(&player).is_some(), predictable);
+        let extra_data = protocol::edit_item_extra(
+            &[],
+            &protocol::ItemNbtEdit {
+                custom_name: Some(Some("Server result".into())),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let output = NetworkItemStack {
+            network_id: DIAMOND,
+            count: 2,
+            stack_network_id: 70,
+            nbt_digest: Sha256::digest(&extra_data).into(),
+            extra_data,
+            ..NetworkItemStack::empty()
+        };
+        place(
+            &mut runtime,
+            &mut player,
+            u16::from(protocol::CREATED_OUTPUT_SLOT),
+            output.clone(),
+        );
+        runtime.screen_state_mut().hover =
+            Some(ui_screens::container_actions::InventoryCellHit::CraftOutput);
+        assert_eq!(runtime.anvil_output(&player), Some(output.clone()));
+        assert_eq!(
+            crate::ui_runtime::presentation::publish::hovered_stack(&player, &runtime),
+            Some((output.clone(), None))
+        );
+        let name = runtime.screen_state().anvil_name.trim().to_owned();
+        runtime.perform_pointer_action(
+            &mut player,
+            crate::ui_runtime::inventory_drag::PointerAction::Click(
+                ui_screens::container_actions::InventoryCellHit::CraftOutput,
+            ),
+        );
+        let ledger = runtime.inventory_ledger(&player);
+        let cursor = ledger
+            .cursor_stack()
+            .expect("a server result can be taken without a local cost");
+        assert_eq!(
+            (cursor.network_id, cursor.count),
+            (output.network_id, output.count)
+        );
+        assert_eq!(cursor.extra_data, output.extra_data);
+        let (actual, count) = ledger.pending_batch().unwrap().unwrap();
+        assert_eq!(count, 1);
+        let expected = protocol::item_stack_request_packet_filtered(
+            -3,
+            &[
+                Action::CraftRecipeOptional {
+                    recipe_network_id: 0,
+                    filtered_string_index: 0,
+                },
+                Action::CraftResultsDeprecated {
+                    results: Arc::from([CraftResult {
+                        identifier: Arc::from("minecraft:diamond"),
+                        aux: 0,
+                        count: output.count,
+                        block_runtime_id: 0,
+                        user_data: output.extra_data,
+                    }]),
+                    crafts: 1,
+                },
+                Action::Consume {
+                    amount: 1,
+                    source: StackRequestSlot {
+                        container: protocol::ui_slot_request_container(ANVIL_TARGET_SLOT).unwrap(),
+                        slot: ANVIL_TARGET_SLOT,
+                        stack_network_id: 30,
+                    },
+                },
+                Action::Consume {
+                    amount: 1,
+                    source: StackRequestSlot {
+                        container: protocol::ui_slot_request_container(ANVIL_MATERIAL_SLOT)
+                            .unwrap(),
+                        slot: ANVIL_MATERIAL_SLOT,
+                        stack_network_id: 31,
+                    },
+                },
+                Action::Take {
+                    amount: 2,
+                    source: StackRequestSlot {
+                        container: Container::CreatedOutput,
+                        slot: protocol::CREATED_OUTPUT_SLOT,
+                        stack_network_id: 70,
+                    },
+                    destination: StackRequestSlot {
+                        container: Container::Cursor,
+                        slot: 0,
+                        stack_network_id: 0,
+                    },
+                },
+            ],
+            &[name],
+        )
+        .unwrap();
+        assert_eq!(
+            actual, expected,
+            "the request submits the displayed server stack"
+        );
+        assert_eq!(
+            ledger
+                .target_stack(InventoryTarget::Craft(ANVIL_MATERIAL_SLOT))
+                .unwrap()
+                .count,
+            9
+        );
+    }
+}
+
+#[test]
+fn predicted_output_hover_includes_the_merged_enchantments_name_and_lore() {
+    let (mut runtime, mut player) = anvil();
+    let mut target = runtime
+        .inventory_ledger(&player)
+        .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
+        .unwrap()
+        .clone();
+    let mut extra = vec![0xff, 0xff, 1, 10, 0, 0, 10, 7, 0];
+    extra.extend_from_slice(b"display");
+    extra.extend_from_slice(&[9, 4, 0]);
+    extra.extend_from_slice(b"Lore");
+    extra.push(8);
+    extra.extend_from_slice(&1i32.to_le_bytes());
+    extra.extend_from_slice(&4u16.to_le_bytes());
+    extra.extend_from_slice(b"Lore");
+    extra.extend_from_slice(&[0, 0]);
+    extra.extend_from_slice(&[0; 8]);
+    target.extra_data = extra.into();
+    target.nbt_digest = Sha256::digest(&target.extra_data).into();
+    place(
+        &mut runtime,
+        &mut player,
+        u16::from(ANVIL_TARGET_SLOT),
+        target,
+    );
+    place_book(&mut runtime, &mut player, vec![(9, 1)]);
+    runtime.sync_anvil_name(&player);
+    runtime.screen_state_mut().anvil_name = "Blade".into();
+    runtime.screen_state_mut().hover =
+        Some(ui_screens::container_actions::InventoryCellHit::CraftOutput);
+    let shown = runtime.anvil_output(&player).unwrap();
+    let (hovered, name) =
+        crate::ui_runtime::presentation::publish::hovered_stack(&player, &runtime)
+            .expect("a predicted output has hover data");
+    assert_eq!(hovered, shown);
+    assert_eq!(name, None);
+    let display = protocol::item_display(&hovered.extra_data);
+    assert_eq!(display.name.as_deref(), Some("Blade"));
+    assert_eq!(display.enchantments, vec![(9, 1)]);
+    assert_eq!(display.lore, vec![Arc::<str>::from("Lore")]);
+}
+
+#[test]
+fn merging_preserves_every_existing_enchantment_and_full_levels() {
+    let (mut runtime, mut player) = anvil();
+    let mut enchantments = vec![(9, 300)];
+    enchantments.extend((100..140).map(|id| (id, 1)));
+    edit_input(
+        &mut runtime,
+        &mut player,
+        ANVIL_TARGET_SLOT,
+        protocol::ItemNbtEdit {
+            enchantments: Some(enchantments.clone()),
+            ..Default::default()
+        },
+    );
+    place_book(&mut runtime, &mut player, vec![(17, 1)]);
+    runtime.sync_anvil_name(&player);
+    let preview = runtime.anvil_preview(&player).unwrap();
+    enchantments.push((17, 1));
+    assert_eq!(
+        protocol::item_anvil_data(&preview.stack.extra_data)
+            .unwrap()
+            .enchantments,
+        enchantments
+    );
+    assert_eq!(preview.outcome.cost, 1);
+}
+
+#[test]
+fn unsupported_enchantment_fields_on_either_input_decline_prediction() {
+    for slot in [ANVIL_TARGET_SLOT, ANVIL_MATERIAL_SLOT] {
+        let (mut runtime, mut player) = anvil();
+        edit_input(
+            &mut runtime,
+            &mut player,
+            ANVIL_TARGET_SLOT,
+            protocol::ItemNbtEdit {
+                enchantments: Some(vec![(9, 1)]),
+                ..Default::default()
+            },
+        );
+        place_book(&mut runtime, &mut player, vec![(17, 1)]);
+        let mut input = runtime
+            .inventory_ledger(&player)
+            .target_stack(InventoryTarget::Craft(slot))
+            .unwrap()
+            .clone();
+        let mut extra = input.extra_data.to_vec();
+        let end = extra.len() - 10;
+        let mut field = vec![2, 6, 0];
+        field.extend_from_slice(b"custom");
+        field.extend_from_slice(&42i16.to_le_bytes());
+        extra.splice(end..end, field);
+        input.extra_data = extra.into();
+        input.nbt_digest = Sha256::digest(&input.extra_data).into();
+        assert_eq!(protocol::item_anvil_data(&input.extra_data), None);
+        place(&mut runtime, &mut player, u16::from(slot), input);
+        runtime.sync_anvil_name(&player);
+        runtime.screen_state_mut().anvil_name = "Blade".into();
+        assert!(
+            runtime.anvil_preview(&player).is_none(),
+            "unsupported input {slot} cannot be ignored"
+        );
+    }
+}
+
+#[test]
+fn full_custom_names_are_kept_when_repairing_without_a_rename() {
+    let (mut runtime, mut player) = anvil();
+    let name = "Blade".repeat(300);
+    edit_input(
+        &mut runtime,
+        &mut player,
+        ANVIL_TARGET_SLOT,
+        protocol::ItemNbtEdit {
+            custom_name: Some(Some(name.clone())),
+            ..Default::default()
+        },
+    );
+    runtime.sync_anvil_name(&player);
+    assert_eq!(runtime.screen_state().anvil_name, name);
+    let preview = runtime.anvil_preview(&player).unwrap();
+    assert_eq!(preview.outcome.custom_name, None);
+    assert_eq!(
+        protocol::item_anvil_data(&preview.stack.extra_data)
+            .unwrap()
+            .custom_name
+            .as_deref(),
+        Some(name.as_str())
+    );
 }

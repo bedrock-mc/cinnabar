@@ -1,7 +1,7 @@
-//! Enchantment facts by Bedrock id, as the 1.26.10 client registers them (`0x146478900`):
+//! Enchantment facts by Bedrock id:
 //! language key, rarity (frequency), item slots, level cap and exclusivity group.
 
-/// The item slot bits the native enchantment registry tests (`Enchant::Slot`).
+/// Item slot bits used for enchantment applicability.
 pub mod slot {
     pub const HEAD: u32 = 0x1;
     pub const TORSO: u32 = 0x2;
@@ -37,7 +37,7 @@ pub struct Enchantment {
     pub id: i16,
     /// The suffix of its `enchantment.<key>` language entry.
     pub lang_key: &'static str,
-    /// Native rarity: 30 common, 10 uncommon, 3 rare, 1 very rare.
+    /// Rarity frequency: 30 common, 10 uncommon, 3 rare, 1 very rare.
     pub frequency: u8,
     /// Item slots it applies to directly.
     pub primary_slots: u32,
@@ -49,7 +49,7 @@ pub struct Enchantment {
 }
 
 impl Enchantment {
-    /// The anvil cost per level, from its rarity; books cost half, at least 1 (`0x14621C410`).
+    /// The anvil cost per level, from its rarity; books cost half, at least 1.
     #[must_use]
     pub const fn anvil_multiplier(&self, from_book: bool) -> i32 {
         let item = match self.frequency {
@@ -221,7 +221,7 @@ pub fn item_slot(identifier: &str) -> u32 {
 }
 
 /// Whether enchantment `id` can go on an item in `item_slot` through an anvil: the slot meets
-/// its primary or secondary slots (`0x14621BEB0`).
+/// its primary or secondary slots.
 #[must_use]
 pub fn applies_to(id: i16, item_slot: u32) -> bool {
     enchantment(id).is_some_and(|enchantment| {

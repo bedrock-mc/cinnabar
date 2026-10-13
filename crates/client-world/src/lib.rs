@@ -32,7 +32,7 @@ pub use item::{
     ActorArmorPiece, ActorArmorSnapshot, ActorEquipmentSnapshot, CanonicalItemRegistryRecord,
     CanonicalItemStack, EffectiveItemUse, EquipmentNotice, EquipmentOutcome, MAX_EQUIPMENT_NOTICES,
     MAX_ITEM_REGISTRY_RECORDS, MAX_PENDING_ITEM_RESOLUTIONS, ResolvedUseCooldown,
-    UseCooldownCategory, resolve_item_use,
+    UseCooldownCategory, resolve_item_durability, resolve_item_use,
 };
 pub use server_position::{ResolvedServerPosition, SAFE_SERVER_HEIGHT};
 

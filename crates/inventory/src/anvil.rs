@@ -1,10 +1,9 @@
-//! The anvil result and its experience cost, as the 1.26.10 anvil works them out
-//! (`AnvilContainerManagerModel` result update, `0x140315400`).
+//! The anvil result and its experience cost for the supported item operations.
 //!
 //! With a second item the anvil first tries it as a repair material: each one restores a
 //! quarter of the target's durability and costs a level. Otherwise an enchanted book, or a
 //! second copy of a damageable target, is combined: copies add their remaining durability plus
-//! 12% for two levels, and enchantments merge (`0x14647E000`). A second item that changes
+//! 12% for two levels, and enchantments merge. A second item that changes
 //! nothing clears the result, whatever the name box holds. Renaming costs one more level.
 //! The total adds both items' prior-work penalties; a rename alone stays below 40 levels.
 
@@ -21,7 +20,7 @@ pub struct AnvilItem<'a> {
     pub damage: u32,
     /// Durability, for damageable items.
     pub max_damage: Option<u32>,
-    pub enchantments: &'a [(i16, u8)],
+    pub enchantments: &'a [(i16, i16)],
     pub repair_cost: i32,
     pub custom_name: Option<&'a str>,
 }
@@ -47,8 +46,8 @@ pub struct AnvilOutcome {
 
 /// Whether `material` repairs the damageable item `target`.
 ///
-/// Provisional: follows vanilla repair materials by item name rather than each item's native
-/// `isValidRepairItem`.
+/// Provisional: follows vanilla repair materials by item name rather than each item's
+/// registered repair materials.
 #[must_use]
 pub fn repairs_with(target: &str, material: &str) -> bool {
     let target = target.strip_prefix("minecraft:").unwrap_or(target);
@@ -79,7 +78,7 @@ fn is_enchanted_book(identifier: &str) -> bool {
     identifier.strip_prefix("minecraft:").unwrap_or(identifier) == "enchanted_book"
 }
 
-/// Merges `right`'s enchantments into `left`'s as `0x14647E000` does. Returns the merged list
+/// Merges `right`'s enchantments into `left`'s. Returns the merged list
 /// and the levels it costs, or `None` when nothing changes.
 fn merge_enchantments(
     left: &AnvilItem<'_>,
@@ -87,22 +86,18 @@ fn merge_enchantments(
     from_book: bool,
 ) -> Option<(Vec<(i16, i16)>, i32)> {
     let slot = item_slot(left.identifier);
-    let value = |enchantments: &[(i16, i16)]| -> i32 {
+    let value = |enchantments: &[(i16, i16)]| -> i64 {
         enchantments
             .iter()
             .filter_map(|&(id, level)| {
-                enchantment(id).map(|facts| facts.anvil_multiplier(from_book) * i32::from(level))
+                enchantment(id)
+                    .map(|facts| i64::from(facts.anvil_multiplier(from_book)) * i64::from(level))
             })
             .sum()
     };
-    let mut merged: Vec<(i16, i16)> = left
-        .enchantments
-        .iter()
-        .map(|(id, level)| (*id, i16::from(*level)))
-        .collect();
+    let mut merged = left.enchantments.to_vec();
     let before = value(&merged);
     for &(id, level) in right.enchantments {
-        let level = i16::from(level);
         let Some(facts) = enchantment(id) else {
             continue;
         };
@@ -128,11 +123,11 @@ fn merge_enchantments(
     }
     let gained = value(&merged) - before;
     (gained > 0).then(|| {
-        // Enchanting a stack of more than one item is always too expensive (`0x14647E000`).
+        // Enchanting a stack of more than one item is always too expensive.
         let cost = if left.count > 1 {
             ANVIL_TOO_EXPENSIVE
         } else {
-            gained
+            i32::try_from(gained).unwrap_or(i32::MAX)
         };
         (merged, cost)
     })
@@ -154,7 +149,7 @@ pub fn evaluate_anvil(
     }
     let right = right.filter(|right| right.count > 0);
     let mut outcome = AnvilOutcome::default();
-    let mut work = 0;
+    let mut work: i32 = 0;
     if let Some(right) = right {
         let max = left.max_damage.filter(|max| *max > 0);
         if let Some(max) = max.filter(|_| repairs_with(left.identifier, right.identifier)) {
@@ -174,10 +169,10 @@ pub fn evaluate_anvil(
                 return None;
             }
             if let (Some(max), false) = (max, book) {
-                let remaining = (max.saturating_sub(left.damage))
-                    + (max.saturating_sub(right.damage))
-                    + max * 12 / 100;
-                let damage = max.saturating_sub(remaining);
+                let remaining = u64::from(max.saturating_sub(left.damage))
+                    + u64::from(max.saturating_sub(right.damage))
+                    + u64::from(max) * 12 / 100;
+                let damage = u64::from(max).saturating_sub(remaining) as u32;
                 if damage < left.damage {
                     outcome.damage = Some(damage);
                     work = 2;
@@ -185,9 +180,9 @@ pub fn evaluate_anvil(
             }
             if let Some((merged, cost)) = merge_enchantments(left, right, book) {
                 outcome.enchantments = Some(merged);
-                work += cost;
+                work = work.saturating_add(cost);
             }
-            // The take consumes as many second items as the result holds (`0x140318B10`); a book
+            // The take consumes as many second items as the result holds; a book
             // is always used up, and it is a stack of one.
             outcome.material_used = left.count;
         }
@@ -205,14 +200,17 @@ pub fn evaluate_anvil(
     }
     .is_some();
     if renamed {
-        work += 1;
+        work = work.saturating_add(1);
     }
     if work <= 0 {
         return None;
     }
     let rename_only = renamed && work == 1;
-    let prior_work = left.repair_cost.max(0) + right.map_or(0, |right| right.repair_cost.max(0));
-    let mut total = prior_work + work;
+    let prior_work = left
+        .repair_cost
+        .max(0)
+        .saturating_add(right.map_or(0, |right| right.repair_cost.max(0)));
+    let mut total = prior_work.saturating_add(work);
     if rename_only && total >= ANVIL_TOO_EXPENSIVE {
         total = ANVIL_TOO_EXPENSIVE - 1;
     }

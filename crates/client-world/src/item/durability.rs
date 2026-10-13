@@ -1,8 +1,8 @@
 use assets::{RuntimeEntityAssets, item::durability::ItemDurability};
 use protocol::{ItemRegistryEntry, ItemRegistryVersion};
 
-/// Binds the effective maximum once per registry generation, preserving unsupported states.
-pub(super) fn resolve(
+/// Resolves component durability or the built-in or asset fallback, preserving unsupported states.
+pub fn resolve_item_durability(
     entry: &ItemRegistryEntry,
     assets: Option<&RuntimeEntityAssets>,
 ) -> ItemDurability {
@@ -83,11 +83,20 @@ mod tests {
     fn durability_support_distinguishes_known_absence_from_missing_payload_and_versions() {
         let mut entry = protocol::vanilla_item_registry()[0].clone();
         entry.component_based = true;
-        assert_eq!(resolve(&entry, None), ItemDurability::Unresolved);
+        assert_eq!(
+            resolve_item_durability(&entry, None),
+            ItemDurability::Unresolved
+        );
         entry.components = Some(Arc::new(protocol::ItemComponents::default()));
-        assert_eq!(resolve(&entry, None), ItemDurability::NotDamageable);
+        assert_eq!(
+            resolve_item_durability(&entry, None),
+            ItemDurability::NotDamageable
+        );
         entry.version = ItemRegistryVersion::Unknown(99);
         Arc::make_mut(entry.components.as_mut().unwrap()).max_durability = Some(50);
-        assert_eq!(resolve(&entry, None), ItemDurability::Unresolved);
+        assert_eq!(
+            resolve_item_durability(&entry, None),
+            ItemDurability::Unresolved
+        );
     }
 }

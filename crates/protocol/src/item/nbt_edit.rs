@@ -30,6 +30,78 @@ pub struct ItemNbtEdit {
     pub custom_name: Option<Option<String>>,
 }
 
+/// Item properties used for anvil edits, without tooltip limits or level conversion.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ItemAnvilData {
+    pub custom_name: Option<Arc<str>>,
+    pub enchantments: Vec<(i16, i16)>,
+}
+
+/// Reads complete anvil inputs. Unsupported enchantment fields or name encodings return
+/// `None` so prediction cannot discard data when rebuilding a changed enchantment list.
+#[must_use]
+pub fn item_anvil_data(extra_data: &[u8]) -> Option<ItemAnvilData> {
+    let (_, entries, _) = read_extra_entries(extra_data)?;
+    let mut data = ItemAnvilData::default();
+    let mut saw_enchantments = false;
+    let mut saw_display = false;
+    for entry in &entries {
+        match entry.name.as_slice() {
+            b"ench" => {
+                if saw_enchantments || entry.tag != TAG_LIST {
+                    return None;
+                }
+                saw_enchantments = true;
+                let mut list = entry.payload.as_slice();
+                if read_u8(&mut list)? != TAG_COMPOUND {
+                    return None;
+                }
+                let count = usize::try_from(read_i32_le(&mut list)?).ok()?;
+                for _ in 0..count {
+                    let (fields, rest) = read_entries(list)?;
+                    list = rest;
+                    let (mut id, mut level) = (None, None);
+                    for field in fields {
+                        if field.tag != TAG_SHORT {
+                            return None;
+                        }
+                        let target = match field.name.as_slice() {
+                            b"id" => &mut id,
+                            b"lvl" => &mut level,
+                            _ => return None,
+                        };
+                        if target.is_some() {
+                            return None;
+                        }
+                        *target = Some(i16::from_le_bytes(
+                            field.payload.as_slice().try_into().ok()?,
+                        ));
+                    }
+                    data.enchantments.push((id?, level?));
+                }
+            }
+            b"display" => {
+                if saw_display || entry.tag != TAG_COMPOUND {
+                    return None;
+                }
+                saw_display = true;
+                let (fields, _) = read_entries(&entry.payload)?;
+                for field in fields.into_iter().filter(|field| field.name == b"Name") {
+                    if data.custom_name.is_some() || field.tag != TAG_STRING {
+                        return None;
+                    }
+                    let mut text = field.payload.as_slice();
+                    let length = usize::from(read_u16_le(&mut text)?);
+                    data.custom_name =
+                        Some(Arc::from(std::str::from_utf8(text.get(..length)?).ok()?));
+                }
+            }
+            _ => {}
+        }
+    }
+    Some(data)
+}
+
 /// The root `RepairCost` of a stack's user data, `0` when absent or malformed.
 #[must_use]
 pub fn item_repair_cost(extra_data: &[u8]) -> i32 {
@@ -127,29 +199,7 @@ fn enchantment_list(enchantments: &[(i16, i16)]) -> Option<Vec<u8>> {
 /// trailing lists are kept byte for byte. `None` when the user data is malformed.
 #[must_use]
 pub fn edit_item_extra(extra_data: &[u8], edit: &ItemNbtEdit) -> Option<Arc<[u8]>> {
-    let extra = if extra_data.is_empty() {
-        &EMPTY_USER_DATA[..]
-    } else {
-        extra_data
-    };
-    let marker = i16::from_le_bytes(extra.get(..2)?.try_into().ok()?);
-    let (root_name, mut entries, trailer) = match marker {
-        -1 => {
-            if *extra.get(2)? != 1 {
-                return None;
-            }
-            let mut cursor = extra.get(3..)?;
-            if read_u8(&mut cursor)? != TAG_COMPOUND {
-                return None;
-            }
-            let name_len = usize::from(read_u16_le(&mut cursor)?);
-            let name = cursor.get(..name_len)?.to_vec();
-            let (entries, trailer) = read_entries(cursor.get(name_len..)?)?;
-            (name, entries, trailer)
-        }
-        0 => (Vec::new(), Vec::new(), extra.get(2..)?),
-        _ => return None,
-    };
+    let (root_name, mut entries, trailer) = read_extra_entries(extra_data)?;
     if let Some(damage) = edit.damage {
         set_entry(
             &mut entries,
@@ -194,7 +244,7 @@ pub fn edit_item_extra(extra_data: &[u8], edit: &ItemNbtEdit) -> Option<Arc<[u8]
         };
         set_entry(&mut entries, b"display", payload);
     }
-    let mut out = Vec::with_capacity(extra.len() + 64);
+    let mut out = Vec::with_capacity(extra_data.len() + 64);
     if entries.is_empty() {
         out.extend_from_slice(&0i16.to_le_bytes());
     } else {
@@ -207,6 +257,33 @@ pub fn edit_item_extra(extra_data: &[u8], edit: &ItemNbtEdit) -> Option<Arc<[u8]
     out.extend_from_slice(trailer);
     super::super::inventory::validate_item_nbt_size(out.len()).ok()?;
     Some(Arc::from(out))
+}
+
+/// Splits user data into its root name, compound entries and unchanged trailer.
+fn read_extra_entries(extra_data: &[u8]) -> Option<(Vec<u8>, Vec<Entry>, &[u8])> {
+    let extra = if extra_data.is_empty() {
+        &EMPTY_USER_DATA[..]
+    } else {
+        extra_data
+    };
+    let marker = i16::from_le_bytes(extra.get(..2)?.try_into().ok()?);
+    match marker {
+        -1 => {
+            if *extra.get(2)? != 1 {
+                return None;
+            }
+            let mut cursor = extra.get(3..)?;
+            if read_u8(&mut cursor)? != TAG_COMPOUND {
+                return None;
+            }
+            let name_len = usize::from(read_u16_le(&mut cursor)?);
+            let name = cursor.get(..name_len)?.to_vec();
+            let (entries, trailer) = read_entries(cursor.get(name_len..)?)?;
+            Some((name, entries, trailer))
+        }
+        0 => Some((Vec::new(), Vec::new(), extra.get(2..)?)),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -299,5 +376,67 @@ mod tests {
         assert!(edited.ends_with(&[0; 8]));
         assert_eq!(item_repair_cost(&[]), 0);
         assert_eq!(edit_item_extra(&[5, 0], &ItemNbtEdit::default()), None);
+    }
+
+    #[test]
+    fn anvil_data_retains_all_enchantments_and_full_short_levels() {
+        let enchantments: Vec<_> = (0..40).map(|id| (id, 300)).collect();
+        let extra = edit_item_extra(
+            &[],
+            &ItemNbtEdit {
+                enchantments: Some(enchantments.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(item_anvil_data(&extra).unwrap().enchantments, enchantments);
+        assert_eq!(item_anvil_data(&[]), Some(ItemAnvilData::default()));
+        assert_eq!(item_anvil_data(&[5, 0]), None);
+    }
+
+    #[test]
+    fn anvil_data_reads_names_beyond_the_tooltip_limit() {
+        let name = "Blade".repeat(300);
+        let extra = edit_item_extra(
+            &[],
+            &ItemNbtEdit {
+                custom_name: Some(Some(name.clone())),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            item_anvil_data(&extra).unwrap().custom_name.as_deref(),
+            Some(name.as_str())
+        );
+    }
+
+    #[test]
+    fn anvil_data_declines_enchantment_fields_the_editor_cannot_keep() {
+        let mut list = enchantment_list(&[(9, 1)]).unwrap();
+        let end = list.len() - 1;
+        let mut field = vec![TAG_SHORT];
+        write_string(&mut field, b"custom").unwrap();
+        field.extend_from_slice(&42i16.to_le_bytes());
+        list.splice(end..end, field);
+        let mut extra = vec![0xff, 0xff, 1, TAG_COMPOUND, 0, 0];
+        write_entries(
+            &mut extra,
+            &[Entry {
+                tag: TAG_LIST,
+                name: b"ench".to_vec(),
+                payload: list,
+            }],
+        )
+        .unwrap();
+        extra.extend_from_slice(&[0; 8]);
+        assert_eq!(item_anvil_data(&extra), None);
+        assert_eq!(item_display(&extra).enchantments, vec![(9, 1)]);
+        assert_eq!(
+            edit_item_extra(&extra, &ItemNbtEdit::default())
+                .unwrap()
+                .as_ref(),
+            extra.as_slice()
+        );
     }
 }

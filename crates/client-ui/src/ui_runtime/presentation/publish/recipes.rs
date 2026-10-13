@@ -118,10 +118,10 @@ pub(super) fn screen_outputs(
             .is_none();
         if kind == protocol::WindowKind::Anvil
             && no_server_output
-            && let Some(preview) = runtime.anvil_preview(player_runtime)
+            && let Some(stack) = runtime.anvil_output(player_runtime)
         {
-            let icon = items.icon(&preview.stack, None);
-            window_icons.recipe_output = Some((icon, preview.stack));
+            let icon = items.icon(&stack, None);
+            window_icons.recipe_output = Some((icon, stack));
         } else if no_server_output
             && let Some(output) = runtime.predicted_screen_output(player_runtime)
         {

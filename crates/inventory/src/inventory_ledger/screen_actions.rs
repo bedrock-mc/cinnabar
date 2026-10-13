@@ -24,9 +24,8 @@ pub const ANVIL_MATERIAL_SLOT: u8 = 2;
 /// The craft action a screen's result take is announced with.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ScreenCraft {
-    /// Anvil result; `rename` is the typed item name, if any. `output` is the client's
-    /// predicted result (the server states none before the take), and `material_used` the
-    /// items the take consumes from the second input.
+    /// Anvil result; `rename` is the typed item name, if any. `output` supplies a prediction
+    /// when no server result exists; `material_used` is its second-input consumption.
     Anvil {
         rename: Option<Arc<str>>,
         multi_recipe_id: u32,
@@ -324,9 +323,11 @@ impl PlayerInventoryLedger {
                 continue;
             };
             let amount = match craft {
-                ScreenCraft::Anvil { material_used, .. } if *slot == ANVIL_MATERIAL_SLOT => {
-                    *material_used
-                }
+                ScreenCraft::Anvil {
+                    output: Some(_),
+                    material_used,
+                    ..
+                } if *slot == ANVIL_MATERIAL_SLOT => *material_used,
                 _ => consume_amount(*slot, held.stack.count),
             }
             .min(held.stack.count);

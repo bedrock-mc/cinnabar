@@ -428,10 +428,12 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   caps, rarity multipliers and exclusivity. A second item that changes nothing clears the
   result; renaming adds a level, and a rename alone stays below 40 levels and keeps the
   prior-work penalty, which other takes double plus one.
-- The name box prefills from each new target. The result slot shows the prediction, the cost
+- The name box prefills from each new target. The result slot and its tooltip show the
+  server's output when supplied, otherwise the prediction. For predictions, the cost
   line turns green or red by the player's levels or shows "Too Expensive!", and the cross
-  marks a target that makes nothing. Taking sends the predicted result and consumes the
-  materials it uses.
+  marks a target that makes nothing. Taking a prediction sends that result and consumes the
+  materials it uses; server outputs keep their authoritative take path. Predictions retain
+  complete enchantment levels and lists and decline unsupported enchantment fields.
 - Provisional: repair materials and item enchantment slots follow vanilla item names rather
   than each item's native registration, and data-driven anvil recipes are not predicted.
 

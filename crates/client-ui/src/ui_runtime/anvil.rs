@@ -13,24 +13,18 @@ pub struct AnvilPreview {
     pub outcome: inventory::AnvilOutcome,
 }
 
-/// One occupied anvil input: its stack, its registry entry and its decoded display data.
+/// One occupied anvil input with data that can be edited without losing item properties.
 struct AnvilInput {
     stack: NetworkItemStack,
     entry: ItemRegistryEntry,
-    display: protocol::ItemDisplay,
+    data: protocol::ItemAnvilData,
 }
 
 impl AnvilInput {
     /// The durability the registry gives this item: its components' maximum, else the
     /// vanilla maximum for an item the server does not define by components.
     fn max_damage(&self) -> Option<u32> {
-        match &self.entry.components {
-            Some(components) => components.max_durability.filter(|maximum| *maximum > 0),
-            None if self.entry.component_based => None,
-            None => {
-                assets::item::durability::builtin_item_durability(&self.entry.identifier).maximum()
-            }
-        }
+        client_world::resolve_item_durability(&self.entry, None).maximum()
     }
 
     /// The calculator's view of this input.
@@ -40,9 +34,9 @@ impl AnvilInput {
             count: self.stack.count,
             damage: protocol::item_stack_damage(&self.stack).unwrap_or(0),
             max_damage: self.max_damage(),
-            enchantments: &self.display.enchantments,
+            enchantments: &self.data.enchantments,
             repair_cost: protocol::item_repair_cost(&self.stack.extra_data),
-            custom_name: self.display.name.as_deref(),
+            custom_name: self.data.custom_name.as_deref(),
         }
     }
 }
@@ -60,17 +54,13 @@ impl UiRuntime {
             .filter(|stack| stack.count > 0)?
             .clone();
         let entry = ledger.negotiated_item_entry(stack.network_id)?.clone();
-        let display = protocol::item_display(&stack.extra_data);
-        Some(AnvilInput {
-            stack,
-            entry,
-            display,
-        })
+        let data = protocol::item_anvil_data(&stack.extra_data)?;
+        Some(AnvilInput { stack, entry, data })
     }
 
     /// The name the target item shows: its custom name, else its localized name.
     fn anvil_target_name(&self, input: &AnvilInput) -> String {
-        input.display.name.as_deref().map_or_else(
+        input.data.custom_name.as_deref().map_or_else(
             || self.localized_item_name(&input.entry.identifier),
             str::to_owned,
         )
@@ -108,7 +98,15 @@ impl UiRuntime {
             return None;
         }
         let left = self.anvil_input(player_runtime, ANVIL_TARGET_SLOT)?;
-        let right = self.anvil_input(player_runtime, ANVIL_MATERIAL_SLOT);
+        let right = if self
+            .inventory_ledger(player_runtime)
+            .target_stack(InventoryTarget::Craft(ANVIL_MATERIAL_SLOT))
+            .is_some_and(|stack| stack.count > 0)
+        {
+            Some(self.anvil_input(player_runtime, ANVIL_MATERIAL_SLOT)?)
+        } else {
+            None
+        };
         let right_item = right.as_ref().map(AnvilInput::item);
         let creative =
             player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative);
@@ -135,6 +133,20 @@ impl UiRuntime {
         stack.nbt_digest = Sha256::digest(&extra_data).into();
         stack.extra_data = extra_data;
         Some(AnvilPreview { stack, outcome })
+    }
+
+    /// The anvil output shown to the player, preferring the server's result to prediction.
+    pub(super) fn anvil_output(
+        &self,
+        player_runtime: &player_state::PlayerState,
+    ) -> Option<NetworkItemStack> {
+        self.inventory_ledger(player_runtime)
+            .created_output_stack()
+            .cloned()
+            .or_else(|| {
+                self.anvil_preview(player_runtime)
+                    .map(|preview| preview.stack)
+            })
     }
 
     /// Whether the player can pay for `preview` now: it is not too expensive, and the player

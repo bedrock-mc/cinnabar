@@ -164,6 +164,11 @@ pub fn hovered_stack(
                 ledger.target_stack(inventory::inventory_ledger::InventoryTarget::Offhand),
                 None,
             ),
+            Hit::CraftOutput if ledger.window_kind() == Some(protocol::WindowKind::Anvil) => {
+                return runtime
+                    .anvil_output(player_runtime)
+                    .map(|stack| (stack, None));
+            }
             Hit::CraftOutput => (ledger.created_output_stack(), None),
             Hit::CreativeGrid(index) => {
                 let position = runtime.screen_state().creative_row * super::screens::GRID_COLUMNS
