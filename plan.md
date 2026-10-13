@@ -426,6 +426,7 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   visual extension; classic Bedrock has no motion blur. Gameplay and network state do not change.
 - Depth reprojection blurs camera rotation/translation before nametags, projected UI, hands and HUD.
   Exposure uses elapsed frame time; explicit reanchors suppress the discontinuity frame.
+  Spatial anti-aliasing follows exposure so filtered silhouette colour retains the actor's sharp edge.
 - Depth-writing actors retain their previous rendered root and interpolated bone pose for object
   exposure. Actor texels establish visible motion footprints in the background while
   retaining stationary actor edges and nearer occluders. The motion pass preserves camera depth ranges.

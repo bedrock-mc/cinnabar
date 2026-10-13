@@ -204,7 +204,7 @@ fn configure_passes(world: &mut World, enabled: bool) {
                     (
                         crate::gpu_timing::profiled(node::depth_smaa, None, "Smaa")
                             .in_set(DepthSmaaLabel)
-                            .before(crate::motion_blur::graph::MotionBlurLabel),
+                            .after(crate::motion_blur::graph::MotionBlurLabel),
                         crate::gpu_timing::profiled(
                             nametags::nametags_after_smaa,
                             None,

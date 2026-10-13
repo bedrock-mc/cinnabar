@@ -53,14 +53,15 @@ pub(super) fn configure_graph(world: &mut World, enabled: bool) {
                     (
                         crate::gpu_timing::profiled(motion_blur, None, "MotionBlurLabel")
                             .in_set(MotionBlurLabel)
-                            .after(crate::depth_smaa::DepthSmaaLabel),
+                            .before(crate::depth_smaa::DepthSmaaLabel),
                         crate::gpu_timing::profiled(
                             crate::chunk::transparent::gamma_pass::gamma_transparent::<true>,
                             None,
                             "SharpNametagsLabel",
                         )
                         .in_set(SharpNametagsLabel)
-                        .after(MotionBlurLabel),
+                        .after(MotionBlurLabel)
+                        .after(crate::depth_smaa::DepthSmaaLabel),
                     )
                         .after(crate::scene_target::ScenePass::Transparent)
                         .before(crate::ui_render::UiWorldLabel)
