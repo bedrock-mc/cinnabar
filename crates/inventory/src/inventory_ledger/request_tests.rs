@@ -7,9 +7,9 @@ use crate::inventory_ledger::{
 };
 use protocol::{
     ContainerIdentity, ContainerOpenEvent, InventoryAuthority, InventoryContentEvent,
-    InventoryEvent, InventorySlotEvent, ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion,
-    ItemStackResponseEvent, NetworkItemStack, SlotIdentity, StackResponse, StackResponseContainer,
-    StackResponseSlot, StackResponseStatus,
+    InventoryEvent, InventorySlotEvent, ItemRegistryEvent, ItemStackResponseEvent,
+    NetworkItemStack, SlotIdentity, StackResponse, StackResponseContainer, StackResponseSlot,
+    StackResponseStatus,
 };
 use sha2::{Digest, Sha256};
 
@@ -54,20 +54,14 @@ fn merge_stack(network_id: i32, count: u16, stack_network_id: i32) -> NetworkIte
     }
 }
 
+/// Declares a component apple with the default stack capacity.
 fn apple_registry() -> ItemRegistryEvent {
-    ItemRegistryEvent {
-        entries: Arc::from([ItemRegistryEntry {
-            identifier: Arc::from("minecraft:apple"),
-            network_id: 6,
-            component_based: true,
-            version: ItemRegistryVersion::DataDriven,
-            components: None,
-            component_digest: [6; 32],
-            negotiated_max_stack_size: Some(64),
-            canonical_empty_component_data: false,
-            item_tags: std::sync::Arc::from([]),
-        }]),
-    }
+    protocol::test_support::items::component_item_registry(
+        "minecraft:apple",
+        6,
+        protocol::ITEM_DEFAULT_MAX_STACK_SIZE,
+        0,
+    )
 }
 
 fn open_personal_inventory(ledger: &mut PlayerInventoryLedger) {

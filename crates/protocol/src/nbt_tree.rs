@@ -37,6 +37,18 @@ impl Nbt {
         }
     }
 
+    /// Whether more than one compound field declares `name`.
+    pub(crate) fn duplicate_field(&self, name: &str) -> bool {
+        match self {
+            Self::Compound(fields) => fields
+                .iter()
+                .filter(|(key, _)| key == name)
+                .nth(1)
+                .is_some(),
+            _ => false,
+        }
+    }
+
     pub(crate) fn list(&self, name: &str) -> &[Nbt] {
         match self.field(name) {
             Some(Self::List(items)) => items,

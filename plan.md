@@ -1167,6 +1167,18 @@ acceptance gate.
   maintainer's report of vanilla. Whether desktop vanilla shows the close button on every
   container screen is likewise unconfirmed by capture.
 
+## Item stack sizes
+
+- DataDriven entries use component stack sizes even for known item names. They use
+  `item_properties.max_stack_size`, or the item default when no capacity is declared. Legacy
+  and unversioned entries retain the known item's capacity; other names use the component
+  flag to choose between a component item and a plain item. Unknown item versions bind by
+  name in the same way. Unavailable component facts leave capacity unresolved unless the
+  payload is the canonical empty compound.
+- Provisional: a component item's top-level `minecraft:max_stack_size` component is read when
+  it has no `item_properties`, and plain or vanilla items carrying that component leave their
+  capacity unsettled. Parity verification of these layouts remains incomplete.
+
 ## Eating and drinking presentation
 
 - While a player uses an admitted food or drink, the client sets `variable.use_item_startup_progress` and
