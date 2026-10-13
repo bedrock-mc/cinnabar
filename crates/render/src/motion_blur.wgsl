@@ -9,7 +9,8 @@ struct Exposure {
 @group(0) @binding(3) var<uniform> exposure: Exposure;
 @group(0) @binding(4) var actor_velocity: texture_2d<f32>;
 
-// Both motion and depth read the same coverage sample on multisampled views.
+// Multisampled views resolve actor velocity across covered samples, including silhouette cutouts.
+// Mixed actor/world pixels retain the covered actor's motion instead of smearing its silhouette.
 fn object_motion(pixel: vec2<i32>) -> vec4<f32> {
     if exposure.strength.z <= 0.0 {
         return vec4<f32>(0.0);

@@ -94,7 +94,7 @@ impl Raster {
     fn draw_with_motion(
         &self,
         input: &[u8],
-        mut exposure: ExposureUniform,
+        exposure: ExposureUniform,
         samples: u32,
         z: f32,
         motion: Option<[f64; 4]>,

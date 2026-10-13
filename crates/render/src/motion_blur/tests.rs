@@ -134,11 +134,13 @@ fn camera_followed_actor_has_zero_translation_exposure_while_world_geometry_move
         actors.advance(
             &super::actor_history::tests::frame(actor_position, [0.0, 0.0, 1.0]),
             previous,
+            previous,
             false,
         );
         actors.advance(
             &super::actor_history::tests::frame(actor_position + translation, [0.0, 0.0, 1.0]),
             previous,
+            history(translation, 0.0, 0),
             true,
         );
         let uniform = previous.advance(
@@ -150,6 +152,12 @@ fn camera_followed_actor_has_zero_translation_exposure_while_world_geometry_move
         );
         // The actor and camera translate together, leaving the actor's pixel unchanged.
         let current_actor_clip = clip_from_view.project_point3(actor_local_point);
+        assert!(
+            actors.instances[0]
+                .current_clip_from_actor
+                .project_point3(actor_local_point - actor_position)
+                .abs_diff_eq(current_actor_clip, 0.00001)
+        );
         let actual_previous_actor_clip = super::actor_history::tests::previous_point(
             &actors,
             0,

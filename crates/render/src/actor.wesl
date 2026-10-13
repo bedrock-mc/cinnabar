@@ -37,6 +37,7 @@ struct BoneMatrix {
 @if(ACTOR_MOTION)
 struct MotionInstance {
     previous_clip_from_actor: mat4x4<f32>,
+    current_clip_from_actor: mat4x4<f32>,
     pose: vec4<u32>,
 }
 @if(ACTOR_MOTION)
@@ -62,7 +63,10 @@ struct VertexOutput {
     @location(11) @interpolate(flat) material: u32,
     @location(12) @interpolate(flat) dissolve_multiplier: f32,
     @location(13) @interpolate(flat) surface: u32,
+    @if(!ACTOR_MOTION)
     @location(14) back_native_lighting: vec3<f32>,
+    @if(ACTOR_MOTION)
+    @location(14) current_clip: vec4<f32>,
     @if(ACTOR_MOTION)
     @location(15) previous_clip: vec4<f32>,
 }
@@ -127,6 +131,7 @@ fn actor_vertex(
     out.overlay = unpack4x8unorm(overlay_rgba8);
     out.light = instance_words[instance_base + 24u];
     out.native_lighting = vec3(1.0);
+    @if(!ACTOR_MOTION)
     out.back_native_lighting = vec3(1.0);
     out.surface = 0u;
     out.multitexture_layers = vec2(instance_words[instance_base + 25u], instance_words[instance_base + 26u]);
@@ -144,6 +149,8 @@ fn actor_vertex(
         out.position = vec4(2.0, 2.0, 2.0, 1.0);
         @if(ACTOR_MOTION)
         out.previous_clip = out.position;
+        @if(ACTOR_MOTION)
+        out.current_clip = out.position;
         out.uv = vec4(0.0);
         out.back_uv = vec2(0.0);
         out.skin_info.y = 0u;
@@ -202,7 +209,8 @@ fn actor_vertex(
     @if(ACTOR_MOTION)
     {
         let motion = actor_motion[instance_index];
-        out.previous_clip = out.position;
+        out.current_clip = motion.current_clip_from_actor * vec4(posed, 1.0);
+        out.previous_clip = out.current_clip;
         if (motion.pose.y != 0u) {
             let previous_rendered = transform_point(rendered_previous_bones[motion.pose.x + bone_index], local);
             out.previous_clip = motion.previous_clip_from_actor * vec4(previous_rendered, 1.0);
@@ -215,7 +223,9 @@ fn actor_vertex(
         dot(instance_row(instance_base, 2u).xyz, posed_normal),
     ));
     out.native_lighting = actor_lighting(out.light, out.world_normal, out.overlay.a) * light_color_multiplier;
+    @if(!ACTOR_MOTION)
     out.back_native_lighting = out.native_lighting;
+    @if(!ACTOR_MOTION)
     if (out.surface != 0u) {
         out.back_native_lighting = actor_lighting(out.light, -out.world_normal, out.overlay.a) * light_color_multiplier;
     }
@@ -331,7 +341,10 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     // Actor/Entity overlays blend BEFORE the shaded lightmap product. Vertex
     // shading preserves its interpolation and the explicit zero/unlit override.
     let overlay = select(input.overlay, vec4(0.0), material == ACTOR_MATERIAL_DISSOLVE_COLOR);
+    @if(!ACTOR_MOTION)
     let native_lighting = select(input.native_lighting, input.back_native_lighting, !front && input.surface != 0u);
+    @if(ACTOR_MOTION)
+    let native_lighting = input.native_lighting;
     let lighting = select(native_lighting, mix(vec3(1.0), native_lighting, color.a), emissive);
     var lit_gamma = mix(color.rgb, overlay.rgb, overlay.a) * lighting;
     var legacy_foil = vec3(0.0);
@@ -378,7 +391,7 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
 fn actor_motion_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     // The same artwork and discard rules retain cutouts and multisample alpha coverage.
     let colour = actor_colour(input, front);
-    let current_clip = view.clip_from_world * vec4(input.world_position, 1.0);
+    let current_clip = input.current_clip;
     var velocity = vec2(0.0);
     if (input.previous_clip.w > 0.00001 && current_clip.w > 0.00001) {
         velocity = (current_clip.xy / current_clip.w - input.previous_clip.xy / input.previous_clip.w) * vec2(0.5, -0.5);

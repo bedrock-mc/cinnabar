@@ -159,6 +159,7 @@ pub(crate) fn prepare(
     gpu: Option<&ActorGpu>,
     pipeline: Option<&mut ActorPipeline>,
     previous_camera: CameraHistory,
+    current_camera: CameraHistory,
     continuous: bool,
     depth: &ViewDepthStencilTexture,
     hdr: bool,
@@ -195,7 +196,7 @@ pub(crate) fn prepare(
     let state = state.as_mut().unwrap();
     state.moved = state
         .history
-        .advance(&frame.rig, previous_camera, continuous);
+        .advance(&frame.rig, previous_camera, current_camera, continuous);
     let instances_changed = upload(
         device,
         queue,
