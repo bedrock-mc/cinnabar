@@ -84,6 +84,13 @@ impl Builder<'_> {
             }
         }
         if self.remaining_layers() == 0 {
+            // Missing pack pixels can still borrow a static base-page texture,
+            // which needs no overlay layer. Present sources remain refusals.
+            if source.is_none() && !carrier_policy && self.catalog.static_source_missing(route) {
+                self.slots
+                    .insert_frames(storage_key, Err(FrameFailure::Missing), false);
+                return None;
+            }
             if source.is_none() {
                 self.remaining_capacity(key);
             }

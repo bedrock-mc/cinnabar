@@ -269,6 +269,7 @@ impl UiRuntime {
                 .values()
                 .find(|entry| entry.identifier.as_ref() == identifier)?;
             stack.network_id = entry.network_id;
+            stack.count = 1;
             stack.metadata = 0;
             stack.block_runtime_id = 0;
         }
@@ -288,6 +289,7 @@ impl UiRuntime {
             .cloned()
             .or_else(|| {
                 self.anvil_preview(player_runtime)
+                    .filter(|preview| !preview.outcome.too_expensive)
                     .map(|preview| preview.stack.clone())
             })
     }

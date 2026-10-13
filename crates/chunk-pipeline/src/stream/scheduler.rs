@@ -110,7 +110,14 @@ impl<const L: usize> Default for SchedulerRefresh<L> {
 impl<const L: usize> SchedulerRefresh<L> {
     /// Offers `key` to the next dispatch when it lies in the camera's neighbourhood.
     pub(super) fn wake_near(&mut self, key: SubChunkKey) {
-        if self.view.is_some_and(|view| mesh_is_near(view, key)) && !self.woken.contains(&key) {
+        if self.view.is_some_and(|view| mesh_is_near(view, key)) {
+            self.requeue_woken(key);
+        }
+    }
+
+    /// Keeps an unexamined key for a later dispatch, even if the camera has moved.
+    pub(super) fn requeue_woken(&mut self, key: SubChunkKey) {
+        if !self.woken.contains(&key) {
             self.woken.push(key);
         }
     }

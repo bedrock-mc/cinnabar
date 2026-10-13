@@ -611,56 +611,228 @@ fn count_only_predictions_preserve_a_rename_on_the_remaining_target() {
 
 #[test]
 fn enchanting_a_plain_book_predicts_the_negotiated_enchanted_book_kind() {
+    for count in [1, 64] {
+        let (mut runtime, mut player) = anvil();
+        let plain_book = 13;
+        let mut entries: Vec<_> = runtime
+            .inventory_ledger(&player)
+            .negotiated_item_registry()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect();
+        entries.push(entry("minecraft:book", plain_book));
+        runtime
+            .inventory_ledger_mut(&mut player)
+            .apply_registry(&ItemRegistryEvent {
+                entries: entries.into(),
+            });
+        place(
+            &mut runtime,
+            &mut player,
+            u16::from(ANVIL_TARGET_SLOT),
+            NetworkItemStack {
+                network_id: plain_book,
+                stack_network_id: 34,
+                count,
+                ..NetworkItemStack::empty()
+            },
+        );
+        place_book(&mut runtime, &mut player, vec![(9, 1)]);
+        player
+            .facts
+            .publish_player_game_mode(protocol::PlayerGameMode::Creative);
+        runtime.sync_anvil_name(&player);
+        let preview = runtime.anvil_preview(&player).unwrap();
+        assert_eq!(preview.stack.network_id, BOOK);
+        assert_eq!(preview.stack.count, 1);
+        assert_eq!(
+            preview.outcome.result_identifier,
+            Some("minecraft:enchanted_book")
+        );
+        assert_eq!(
+            protocol::item_anvil_data(&preview.stack.extra_data)
+                .unwrap()
+                .enchantments,
+            [(9, 1)]
+        );
+        let input = |slot| {
+            let ledger = runtime.inventory_ledger(&player);
+            protocol::StackRequestSlot {
+                container: protocol::ui_slot_request_container(slot).unwrap(),
+                slot,
+                stack_network_id: ledger
+                    .target_stack(InventoryTarget::Craft(slot))
+                    .unwrap()
+                    .stack_network_id,
+            }
+        };
+        let target = input(ANVIL_TARGET_SLOT);
+        let material = input(ANVIL_MATERIAL_SLOT);
+        runtime.perform_pointer_action(
+            &mut player,
+            crate::ui_runtime::inventory_drag::PointerAction::Click(
+                ui_screens::container_actions::InventoryCellHit::CraftOutput,
+            ),
+        );
+        let ledger = runtime.inventory_ledger(&player);
+        assert_eq!(ledger.cursor_stack().unwrap().network_id, BOOK);
+        assert_eq!(ledger.cursor_stack().unwrap().count, 1);
+        assert_eq!(ledger.pending_request_count(), 1);
+        use protocol::{
+            CraftResult, StackRequestAction as Action, StackRequestContainer as Container,
+            StackRequestSlot,
+        };
+        let (packet, requests) = ledger.pending_batch().unwrap().unwrap();
+        assert_eq!(requests, 1);
+        let request_id = ledger.pending_request_id().unwrap();
+        let expected = protocol::item_stack_request_packet_filtered(
+            request_id,
+            &[
+                Action::CraftRecipeOptional {
+                    recipe_network_id: 0,
+                    filtered_string_index: -1,
+                },
+                Action::CraftResultsDeprecated {
+                    results: Arc::from([CraftResult {
+                        identifier: Arc::from("minecraft:enchanted_book"),
+                        aux: 0,
+                        count: 1,
+                        block_runtime_id: 0,
+                        user_data: Arc::clone(&preview.stack.extra_data),
+                    }]),
+                    crafts: 1,
+                },
+                Action::Consume {
+                    amount: u8::try_from(count).unwrap(),
+                    source: target,
+                },
+                Action::Consume {
+                    amount: 1,
+                    source: material,
+                },
+                Action::Take {
+                    amount: 1,
+                    source: StackRequestSlot {
+                        container: Container::CreatedOutput,
+                        slot: protocol::CREATED_OUTPUT_SLOT,
+                        stack_network_id: request_id,
+                    },
+                    destination: StackRequestSlot {
+                        container: Container::Cursor,
+                        slot: 0,
+                        stack_network_id: 0,
+                    },
+                },
+            ],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            packet, expected,
+            "the result declaration and take both carry a single book"
+        );
+    }
+}
+
+#[test]
+fn too_expensive_predictions_keep_costs_but_publish_no_result_or_hover() {
+    use crate::ui_runtime::presentation::{
+        UiPresentationRuntime,
+        publish::{capture_hud_frame, hovered_stack, item_icons::ItemIconFrames},
+    };
     let (mut runtime, mut player) = anvil();
-    let plain_book = 13;
-    let mut entries: Vec<_> = runtime
-        .inventory_ledger(&player)
-        .negotiated_item_registry()
-        .unwrap()
-        .values()
-        .cloned()
-        .collect();
-    entries.push(entry("minecraft:book", plain_book));
-    runtime
-        .inventory_ledger_mut(&mut player)
-        .apply_registry(&ItemRegistryEvent {
-            entries: entries.into(),
-        });
-    place(
-        &mut runtime,
-        &mut player,
-        u16::from(ANVIL_TARGET_SLOT),
-        NetworkItemStack {
-            network_id: plain_book,
-            stack_network_id: 34,
-            count: 1,
-            ..NetworkItemStack::empty()
-        },
-    );
-    place_book(&mut runtime, &mut player, vec![(9, 1)]);
+    runtime.inventory_open = true;
     player
         .facts
-        .publish_player_game_mode(protocol::PlayerGameMode::Creative);
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    runtime.hud.set_experience(0, 0.0);
     runtime.sync_anvil_name(&player);
-    let preview = runtime.anvil_preview(&player).unwrap();
-    assert_eq!(preview.stack.network_id, BOOK);
-    assert_eq!(
-        preview.outcome.result_identifier,
-        Some("minecraft:enchanted_book")
+    let low_cost = runtime.anvil_preview(&player).unwrap();
+    assert!(low_cost.outcome.cost < inventory::ANVIL_TOO_EXPENSIVE);
+    assert!(!runtime.anvil_affordable(&player, &low_cost));
+    assert!(
+        runtime.anvil_output(&player).is_some(),
+        "insufficient levels still show the result"
     );
-    assert_eq!(
-        protocol::item_anvil_data(&preview.stack.extra_data)
-            .unwrap()
-            .enchantments,
-        [(9, 1)]
+    edit_input(
+        &mut runtime,
+        &mut player,
+        ANVIL_TARGET_SLOT,
+        protocol::ItemNbtEdit {
+            repair_cost: Some(inventory::ANVIL_TOO_EXPENSIVE - 3),
+            ..Default::default()
+        },
     );
+    runtime.sync_anvil_name(&player);
+    runtime.screen_state_mut().hover =
+        Some(ui_screens::container_actions::InventoryCellHit::CraftOutput);
+    let expensive = runtime.anvil_preview(&player).unwrap();
+    assert_eq!(expensive.outcome.cost, inventory::ANVIL_TOO_EXPENSIVE);
+    assert!(expensive.outcome.too_expensive);
+    assert!(runtime.anvil_output(&player).is_none());
+    assert!(hovered_stack(&player, &runtime).is_none());
     runtime.perform_pointer_action(
         &mut player,
         crate::ui_runtime::inventory_drag::PointerAction::Click(
             ui_screens::container_actions::InventoryCellHit::CraftOutput,
         ),
     );
-    let ledger = runtime.inventory_ledger(&player);
-    assert_eq!(ledger.cursor_stack().unwrap().network_id, BOOK);
-    assert_eq!(ledger.pending_request_count(), 1);
+    assert_eq!(runtime.inventory_ledger(&player).pending_request_count(), 0);
+    let mut stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+        local_player_unique_id: 1,
+        local_player_runtime_id: 1,
+        dimension: 0,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    });
+    assert!(stream.seed_item_registry(ItemRegistryEvent {
+        entries: Arc::from([
+            entry("minecraft:diamond_sword", SWORD),
+            entry("minecraft:diamond", DIAMOND),
+            entry("minecraft:enchanted_book", BOOK),
+        ])
+    }));
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    capture_hud_frame(
+        &player,
+        &mut runtime,
+        &mut presentation,
+        Some(&stream),
+        semantic_input::PerspectiveMode::FirstPerson,
+        0,
+        ItemIconFrames::default(),
+    );
+    assert!(
+        presentation
+            .hud_frame()
+            .window_icons
+            .recipe_output
+            .is_none()
+    );
+
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Creative);
+    let creative = runtime.anvil_preview(&player).unwrap();
+    assert!(!creative.outcome.too_expensive);
+    assert!(runtime.anvil_output(&player).is_some());
+    assert!(hovered_stack(&player, &runtime).is_some());
+
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    let mut authoritative = expensive.stack.clone();
+    authoritative.stack_network_id = 100;
+    place(
+        &mut runtime,
+        &mut player,
+        u16::from(protocol::CREATED_OUTPUT_SLOT),
+        authoritative.clone(),
+    );
+    assert_eq!(runtime.anvil_output(&player), Some(authoritative.clone()));
+    assert!(hovered_stack(&player, &runtime).is_some());
 }
