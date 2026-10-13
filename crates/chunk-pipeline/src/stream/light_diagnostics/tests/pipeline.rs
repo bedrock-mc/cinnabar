@@ -33,6 +33,7 @@ fn column(stream: &mut WorldStream, mode: LevelChunkMode) {
                     &world::RawBlockIds { air: 0 },
                     &ids,
                 ),
+                light_neutral: Vec::new(),
                 duration: Duration::ZERO,
             }
         }
