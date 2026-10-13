@@ -34,11 +34,12 @@ pub use command_macros::{
 pub use control_bindings::{GAMEPAD_OFFSET, gamepad_icon};
 pub use definitions::{
     ANIMATION_CHOICES, ANIMATIONS_OPTION, AUTO_UPDATE_OPTION, DISCORD_PRESENCE_OPTION,
-    FAR_TERRAIN_OPTION, FRAME_RATE_UNLIMITED, INSTALL_ON_QUIT_OPTION, INVERT_CROSSHAIR_OPTION,
-    MAX_FIXED_FRAME_RATE, MIN_FIXED_FRAME_RATE, MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION,
-    MOUSE_SENSITIVITY_OPTION, NATIVE_SKYBOX_OFFSET_OPTION, SETTINGS_OPTIONS, SMAA_CHOICES,
-    SMAA_OPTION, SettingDefinition, SettingId, SettingKind, THIRD_PERSON_CROSSHAIR_OPTION,
-    UPDATE_CHANNEL_OPTION, VRR_CHOICES, VRR_OPTION,
+    FAR_TERRAIN_OPTION, FRAME_RATE_UNLIMITED, FULL_DETAIL_DISTANCE_OPTION, INSTALL_ON_QUIT_OPTION,
+    INVERT_CROSSHAIR_OPTION, MAX_FIXED_FRAME_RATE, MIN_FIXED_FRAME_RATE, MOTION_BLUR_CHOICES,
+    MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION, NATIVE_SKYBOX_OFFSET_OPTION, SETTINGS_OPTIONS,
+    SMAA_CHOICES, SMAA_OPTION, SettingDefinition, SettingId, SettingKind,
+    THIRD_PERSON_CROSSHAIR_OPTION, UPDATE_CHANNEL_OPTION, VRR_CHOICES, VRR_OPTION,
+    full_detail_label,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
 pub use keybindings::{
@@ -46,6 +47,9 @@ pub use keybindings::{
 };
 pub use persistence::{SETTINGS_FILE, SETTINGS_SCHEMA};
 pub use runtime::{frame_rate_label, frame_rate_limit};
+
+/// Persisted toggle shared by the new UI's sizing and settings controls.
+pub const EXTRA_LARGE_UI: &str = SettingId::GuiAccessibilityScaling.name();
 
 pub const SHOW_EXACT_SERVER_PING: &str = SettingId::ShowExactServerPing.name();
 pub const OREUI_DARK_MODE: &str = SettingId::OreuiDarkMode.name();
@@ -145,6 +149,11 @@ impl SettingsOptions {
 
     pub fn oreui_dark_mode(&self) -> bool {
         self.value(SettingId::OreuiDarkMode) != 0
+    }
+
+    /// Whether new menu screens use the additional accessibility scale step.
+    pub fn extra_large_ui(&self) -> bool {
+        self.value(SettingId::GuiAccessibilityScaling) != 0
     }
 
     /// Returns the saved value, or the registry default for an untouched option.

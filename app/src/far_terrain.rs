@@ -13,7 +13,7 @@ use far_terrain::{
     ColumnPos, EncodedSummary, FarTerrainCache, FarTerrainConfig, FarTiles, NearMask,
     RetiringSession, TileView,
 };
-use render_api::far_terrain::{DeviceTier, far_reach_chunks};
+use render_api::far_terrain::{DeviceTier, far_reach_chunks, full_detail_chunks};
 use render_scene::FarTerrainScene;
 
 use crate::{runtime::world::ClientWorld, session::SessionController};
@@ -27,6 +27,8 @@ pub(crate) struct FarTerrain {
     near: Arc<NearMask>,
     /// Centre column and drawn-set revision the mask was built for.
     near_view: Option<([i32; 2], u64)>,
+    /// When turning far terrain off began waiting for near terrain to cover its columns.
+    drain_since: Option<Instant>,
     published: Option<u64>,
     retiring: Vec<Retiring>,
 }
@@ -57,6 +59,7 @@ impl FarTerrain {
             drained: Vec::new(),
             near: Arc::new(NearMask::default()),
             near_view: None,
+            drain_since: None,
             published: None,
             retiring: Vec::new(),
         }
@@ -125,6 +128,9 @@ impl FarTerrain {
     }
 }
 
+/// Longest far terrain stays after being turned off while near terrain catches up.
+const FAR_DRAIN_LIMIT: Duration = Duration::from_secs(10);
+
 /// Finest tiles are kept built this far either side of the drawn columns' edge, so a column
 /// changing drawer already has its far tile.
 const EDGE_MARGIN_BLOCKS: f32 = 4.0 * 16.0;
@@ -159,11 +165,23 @@ pub(crate) fn feed_far_terrain(
     let destination = session
         .as_deref()
         .and_then(SessionController::destination_identity);
+    let now = Instant::now();
+    // Turned off, far terrain stays until near terrain has drawn every column it covered.
+    let draining = !video.far_terrain
+        && far.published.is_some()
+        && world
+            .stream
+            .as_ref()
+            .is_some_and(|stream| !stream.all_loaded_near_drawn())
+        && now.saturating_duration_since(*far.drain_since.get_or_insert(now)) < FAR_DRAIN_LIMIT;
+    if !draining {
+        far.drain_since = None;
+    }
     let target = world
         .stream
         .as_ref()
         .zip(destination)
-        .filter(|_| video.far_terrain)
+        .filter(|_| video.far_terrain || draining)
         .map(|(stream, destination)| {
             (
                 destination,
@@ -196,7 +214,6 @@ pub(crate) fn feed_far_terrain(
         active.0 = target
             .map(|(destination, level, dimension)| (destination.to_owned(), level, dimension));
     }
-    let now = Instant::now();
     far.drain_retiring(now);
     if world
         .stream
@@ -206,6 +223,20 @@ pub(crate) fn feed_far_terrain(
     {
         stream.drain_far_summaries(&mut far.drained);
     }
+    // Columns past the full-detail radius skip lighting and meshing; far terrain draws them.
+    let full_detail = world
+        .stream
+        .as_ref()
+        .filter(|_| video.far_terrain)
+        .and_then(|stream| full_detail_radius(stream, &video, tier));
+    if world
+        .stream
+        .as_ref()
+        .is_some_and(|stream| stream.full_detail_radius() != full_detail)
+        && let Some(stream) = world.stream.as_mut()
+    {
+        stream.set_full_detail_radius(full_detail);
+    }
     let Some(stream) = world.stream.as_ref().filter(|_| enabled) else {
         far.cache.poll(now);
         if far.published.take().is_some() {
@@ -213,21 +244,23 @@ pub(crate) fn feed_far_terrain(
         }
         return;
     };
-    for FarColumnSummary { column, summary } in far.drained.drain(..) {
-        far.cache.admit(
-            column.dimension,
-            ColumnPos::new(column.x, column.z),
-            summary,
-            now,
-        );
+    let dimension = stream.current_dimension();
+    for FarColumnSummary {
+        column,
+        summary,
+        resident,
+        ..
+    } in far.drained.drain(..)
+    {
+        let pos = ColumnPos::new(column.x, column.z);
+        // Loaded columns may have no other drawer, so their summaries outlive the budget.
+        if column.dimension == dimension {
+            far.cache.store().set_pinned(pos, resident);
+        }
+        far.cache.admit(column.dimension, pos, summary, now);
     }
     let centre = stream.far_terrain_centre();
-    // Far terrain fills from what the server sends out to the render distance.
-    let loaded = stream.server_view_radius().unwrap_or_else(|| {
-        stream
-            .retained_view_radius()
-            .unwrap_or(i32::from(video.render_distance_chunks))
-    });
+    let loaded = loaded_radius(stream, &video);
     let reach = far_reach_chunks(
         u32::from(video.render_distance_chunks),
         loaded.max(0) as u32,
@@ -248,6 +281,8 @@ pub(crate) fn feed_far_terrain(
     }
     let horizon_blocks = ((loaded + reach) * 16) as f32;
     far.cache
+        .set_memory_budget(summary_budget_bytes(loaded + reach));
+    far.cache
         .set_focus(ColumnPos::new(centre.x, centre.z), loaded + reach);
     far.cache.poll(now);
     let changed = far.cache.store().take_changed();
@@ -256,15 +291,27 @@ pub(crate) fn feed_far_terrain(
     // them, so a coarser tile is replaced before near terrain takes any of its columns. Tiles
     // wholly inside the drawn disc, short of a margin kept ready for columns leaving it, are
     // left out.
+    // Columns leaving full detail need their far tiles built, so the skipped disc stays
+    // inside the radius.
     let near_blocks = far.near.outer_blocks() + EDGE_MARGIN_BLOCKS;
+    let skip_blocks = full_detail.map_or(f32::INFINITY, |radius| (radius * 16) as f32);
     far.tiles.set_view(TileView {
         centre: [centre.x as f32 * 16.0 + 8.0, centre.z as f32 * 16.0 + 8.0],
         near_blocks,
-        skip_blocks: (far.near.inner_blocks() - EDGE_MARGIN_BLOCKS).max(0.0),
+        skip_blocks: (far.near.inner_blocks().min(skip_blocks) - EDGE_MARGIN_BLOCKS).max(0.0),
         far_blocks: (horizon_blocks - near_blocks).max(0.0),
     });
     far.tiles.release_near(&far.near);
     far.tiles.update(far.cache.store(), now);
+    // Columns leaving full detail keep their meshes until their far tiles are built.
+    let store = far.cache.store();
+    let covered: Vec<_> = stream
+        .far_handoffs()
+        .filter(|column| {
+            let pos = ColumnPos::new(column.x, column.z);
+            store.contains(pos) && far.tiles.ready(pos)
+        })
+        .collect();
     let revision = far.tiles.revision();
     if near_changed || far.published != Some(revision) {
         *scene = FarTerrainScene {
@@ -273,6 +320,51 @@ pub(crate) fn feed_far_terrain(
         };
         far.published = Some(revision);
     }
+    if !covered.is_empty()
+        && let Some(stream) = world.stream.as_mut()
+    {
+        for column in covered {
+            stream.finish_far_handoff(column);
+        }
+    }
+}
+
+// Entities are drawn only on full-detail terrain: their render distance stays inside the
+// smallest full-detail radius.
+const _: () = assert!(
+    render_api::far_terrain::MIN_FULL_DETAIL_CHUNKS as f32 * 16.0
+        > render_model::MAX_ACTOR_RENDER_DISTANCE_BLOCKS
+);
+
+/// The radius the server sends, before it says so the radius the client keeps.
+fn loaded_radius(stream: &WorldStream, video: &ui::VideoSettings) -> i32 {
+    stream.server_view_radius().unwrap_or_else(|| {
+        stream
+            .retained_view_radius()
+            .unwrap_or(i32::from(video.render_distance_chunks))
+    })
+}
+
+/// The full-detail radius when it is smaller than what the server sends.
+fn full_detail_radius(
+    stream: &WorldStream,
+    video: &ui::VideoSettings,
+    tier: DeviceTier,
+) -> Option<i32> {
+    let loaded = loaded_radius(stream, video);
+    full_detail_chunks(
+        video.full_detail_distance_chunks,
+        u32::from(video.render_distance_chunks),
+        tier,
+    )
+    .map(|radius| radius as i32)
+    .filter(|radius| *radius < loaded)
+}
+
+/// Compressed summaries for every column out to the horizon, at an average of 512 bytes.
+fn summary_budget_bytes(horizon_chunks: i32) -> usize {
+    let columns = std::f64::consts::PI * f64::from(horizon_chunks.max(0)).powi(2);
+    far_terrain::config::DEFAULT_MEMORY_BUDGET_BYTES.max((columns * 512.0) as usize)
 }
 
 /// Writes far-terrain summaries still in flight when the app exits.

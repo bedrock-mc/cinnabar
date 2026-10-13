@@ -66,6 +66,7 @@ impl WorldStream {
         let far_retiring = self.far_retiring_snapshots(&columns);
         self.actor_block_syncs.remove_columns(&columns);
         self.forget_near_drawn(&columns);
+        self.forget_full_detail_handoffs(&columns);
         for &column in &columns {
             self.light_diagnostics.remove_column(column);
             self.evict_block_crack_column(column);
@@ -131,7 +132,8 @@ impl WorldStream {
             if !removing_all {
                 self.lighting.remove_key(key);
             }
-            self.mark_dirty_exact(key, now);
+            // Removals publish whatever detail the column had, so no mesh outlives it.
+            self.mark_dirty_exact_ungated(key, now, false);
         }
         for key in light_dirty {
             self.mark_light_dirty_exact_with_priority(key, false);

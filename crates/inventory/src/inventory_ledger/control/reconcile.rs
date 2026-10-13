@@ -79,7 +79,11 @@ impl PlayerInventoryLedger {
     /// Restores the screen implied by confirmed state once its outstanding transition resolves.
     pub(in crate::inventory_ledger) fn reconcile_personal(&mut self) {
         let state = &self.controls.personal;
-        if state.sent.is_some() || state.reset_required || self.storage.is_some() {
+        if state.sent.is_some()
+            || state.reset_required
+            || self.storage.is_some()
+            || self.controls.personal_covered_by_storage_close()
+        {
             return;
         }
         match (state.desired_open, state.confirmed) {

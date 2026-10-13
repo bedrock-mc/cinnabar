@@ -35,6 +35,50 @@ impl DeviceTier {
     }
 }
 
+/// The "Full-detail distance" setting's Auto value; other values are chunks.
+pub const FULL_DETAIL_AUTO: u32 = 0;
+
+/// The full-detail distances the Advanced setting offers besides Auto, in chunks. The
+/// smallest stays beyond the 12-chunk actor render distance, so entities always stand on
+/// full-detail terrain.
+pub const MIN_FULL_DETAIL_CHUNKS: u32 = 16;
+pub const MAX_FULL_DETAIL_CHUNKS: u32 = 64;
+pub const FULL_DETAIL_STEP_CHUNKS: u32 = 16;
+
+impl DeviceTier {
+    /// Chunks meshed in full detail when the setting is Auto.
+    #[must_use]
+    pub const fn auto_full_detail_chunks(self) -> u32 {
+        match self {
+            Self::Low => 24,
+            Self::Mid => 32,
+            Self::High => 48,
+        }
+    }
+}
+
+/// The radius meshed in full detail, or `None` when everything within the render distance
+/// is: the setting (Auto picks by tier), capped at the render distance.
+#[must_use]
+pub const fn full_detail_chunks(
+    setting: u32,
+    render_distance: u32,
+    tier: DeviceTier,
+) -> Option<u32> {
+    let chosen = if setting == FULL_DETAIL_AUTO {
+        tier.auto_full_detail_chunks()
+    } else if setting < MIN_FULL_DETAIL_CHUNKS {
+        MIN_FULL_DETAIL_CHUNKS
+    } else {
+        setting
+    };
+    if chosen < render_distance {
+        Some(chosen)
+    } else {
+        None
+    }
+}
+
 /// How far past the server's loaded radius cached terrain is drawn: out to the render
 /// distance, which is how far the player sees, within the device tier's budget.
 #[must_use]

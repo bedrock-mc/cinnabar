@@ -326,6 +326,11 @@ impl FarTerrainCache {
         }
     }
 
+    /// Resizes the in-memory summary budget, as when the horizon grows or shrinks.
+    pub fn set_memory_budget(&mut self, bytes: usize) {
+        self.store.set_budget(bytes);
+    }
+
     /// Waits until the IO thread has finished every queued command.
     pub fn sync(&self) {
         if let Some(disk) = &self.disk {

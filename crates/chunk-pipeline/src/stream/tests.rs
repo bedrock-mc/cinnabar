@@ -998,6 +998,7 @@ mod cohort_progress;
 mod entity_occlusion;
 mod far_summaries;
 mod forced_remesh;
+mod full_detail;
 mod inbound_lanes;
 mod inline_cohort;
 mod inventory_commit_fence;

@@ -38,3 +38,34 @@ fn byte_budget_evicts_least_recently_used_first() {
         "evicted positions leave the change queue"
     );
 }
+
+/// Pinned summaries never count against the budget nor leave it; unpinned they become the
+/// most recently used.
+#[test]
+fn pinned_summaries_are_never_evicted() {
+    let summary = hilly();
+    let mut probe = SummaryStore::new(usize::MAX);
+    probe.admit(ColumnPos::new(0, 0), &summary);
+    let mut store = SummaryStore::new(probe.bytes());
+    for x in 0..4 {
+        store.set_pinned(ColumnPos::new(x, 0), true);
+        store.admit(ColumnPos::new(x, 0), &summary);
+    }
+    store.admit(ColumnPos::new(9, 0), &summary);
+    store.admit(ColumnPos::new(10, 0), &summary);
+    for x in 0..4 {
+        assert!(
+            store.contains(ColumnPos::new(x, 0)),
+            "pinned {x} was evicted"
+        );
+    }
+    assert!(!store.contains(ColumnPos::new(9, 0)));
+    assert!(store.contains(ColumnPos::new(10, 0)));
+
+    store.set_pinned(ColumnPos::new(0, 0), false);
+    assert!(
+        store.contains(ColumnPos::new(0, 0)),
+        "unpinned it is the newest"
+    );
+    assert!(!store.contains(ColumnPos::new(10, 0)));
+}

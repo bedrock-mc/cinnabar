@@ -1,6 +1,6 @@
 //! Compressed in-memory summaries with least-recently-used eviction under a byte budget.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::{ColumnSummary, EncodedSummary, SummaryDecodeError};
 
@@ -47,10 +47,15 @@ struct Entry {
 #[derive(Debug)]
 pub struct SummaryStore {
     entries: HashMap<ColumnPos, Entry>,
+    /// Unpinned entries only, least recently used first.
     recency: BTreeMap<u64, ColumnPos>,
     next_stamp: u64,
+    /// Bytes of unpinned entries, which alone count against the budget.
     bytes: usize,
     budget_bytes: usize,
+    /// Positions whose summaries are never evicted, stored or not.
+    pinned: HashSet<ColumnPos>,
+    pinned_bytes: usize,
     /// Bounded by the entries: an evicted position leaves the set.
     changed: BTreeSet<ColumnPos>,
 }
@@ -64,6 +69,8 @@ impl SummaryStore {
             next_stamp: 0,
             bytes: 0,
             budget_bytes,
+            pinned: HashSet::new(),
+            pinned_bytes: 0,
             changed: BTreeSet::new(),
         }
     }
@@ -106,7 +113,7 @@ impl SummaryStore {
         };
         let admission = match self.entries.insert(pos, entry) {
             Some(old) => {
-                self.retire(&old);
+                self.retire(pos, &old);
                 if old.summary.hash == hash {
                     Admission::Unchanged
                 } else {
@@ -115,8 +122,12 @@ impl SummaryStore {
             }
             None => Admission::Inserted,
         };
-        self.recency.insert(stamp, pos);
-        self.bytes += bytes;
+        if self.pinned.contains(&pos) {
+            self.pinned_bytes += bytes;
+        } else {
+            self.recency.insert(stamp, pos);
+            self.bytes += bytes;
+        }
         if admission != Admission::Unchanged {
             self.changed.insert(pos);
         }
@@ -157,10 +168,39 @@ impl SummaryStore {
         self.entries.is_empty()
     }
 
-    /// Approximate resident bytes, including per-entry overhead.
+    /// Approximate resident bytes, pinned included, with per-entry overhead.
     #[must_use]
     pub const fn bytes(&self) -> usize {
-        self.bytes
+        self.bytes + self.pinned_bytes
+    }
+
+    /// Pins or unpins `pos`, stored yet or not. A pinned summary is never evicted and does not
+    /// count against the budget, so the budget bounds only what is cached for later.
+    pub fn set_pinned(&mut self, pos: ColumnPos, pinned: bool) {
+        let changed = if pinned {
+            self.pinned.insert(pos)
+        } else {
+            self.pinned.remove(&pos)
+        };
+        if !changed {
+            return;
+        }
+        let stamp = self.stamp();
+        let Some(entry) = self.entries.get_mut(&pos) else {
+            return;
+        };
+        let bytes = entry_bytes(&entry.summary);
+        if pinned {
+            self.recency.remove(&entry.stamp);
+            self.bytes -= bytes;
+            self.pinned_bytes += bytes;
+        } else {
+            entry.stamp = stamp;
+            self.recency.insert(stamp, pos);
+            self.pinned_bytes -= bytes;
+            self.bytes += bytes;
+            self.evict_to_budget();
+        }
     }
 
     /// Resident positions whose content was inserted or replaced since the last call.
@@ -168,26 +208,40 @@ impl SummaryStore {
         std::mem::take(&mut self.changed).into_iter().collect()
     }
 
+    /// Changes the byte budget, evicting the least recently used at once if it shrank.
+    pub fn set_budget(&mut self, budget_bytes: usize) {
+        self.budget_bytes = budget_bytes;
+        self.evict_to_budget();
+    }
+
     /// Drops every summary, as when the namespace changes.
     pub fn clear(&mut self) {
         self.entries.clear();
         self.recency.clear();
         self.bytes = 0;
+        self.pinned.clear();
+        self.pinned_bytes = 0;
         self.changed.clear();
     }
 
     fn touch(&mut self, pos: ColumnPos) -> Option<()> {
         let stamp = self.stamp();
         let entry = self.entries.get_mut(&pos)?;
-        self.recency.remove(&entry.stamp);
+        if !self.pinned.contains(&pos) {
+            self.recency.remove(&entry.stamp);
+            self.recency.insert(stamp, pos);
+        }
         entry.stamp = stamp;
-        self.recency.insert(stamp, pos);
         Some(())
     }
 
-    fn retire(&mut self, old: &Entry) {
-        self.recency.remove(&old.stamp);
-        self.bytes -= entry_bytes(&old.summary);
+    fn retire(&mut self, pos: ColumnPos, old: &Entry) {
+        if self.pinned.contains(&pos) {
+            self.pinned_bytes -= entry_bytes(&old.summary);
+        } else {
+            self.recency.remove(&old.stamp);
+            self.bytes -= entry_bytes(&old.summary);
+        }
     }
 
     fn stamp(&mut self) -> u64 {

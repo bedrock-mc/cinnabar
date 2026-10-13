@@ -1,0 +1,324 @@
+//! Columns past the full-detail radius keep their blocks but skip lighting and meshing.
+
+use super::*;
+
+fn stream() -> WorldStream {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [8.0, 0.0, 8.0],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream.set_far_terrain_enabled(true);
+    stream
+}
+
+fn meshing(stream: &WorldStream, x: i32) -> bool {
+    stream
+        .mesh_jobs
+        .pending
+        .keys()
+        .any(|key| key.chunk() == ChunkKey::new(0, x, 0))
+}
+
+/// A far column is stored and summarised but not meshed until the radius reaches it, and a
+/// shrinking radius withdraws it again.
+#[test]
+fn far_columns_mesh_only_inside_the_full_detail_radius() {
+    let mut stream = stream();
+    stream.set_full_detail_radius(Some(1));
+    for (sequence, x) in [(1, 0), (2, 5)] {
+        stream
+            .submit(sequence, inline_block_entity_event(x, 7, Vec::new()))
+            .unwrap();
+    }
+    complete_pending_decode_jobs(&mut stream);
+    assert!(meshing(&stream, 0), "the near column meshes");
+    assert!(!meshing(&stream, 5), "the far column waits");
+    assert!(
+        stream
+            .authority
+            .terrain()
+            .chunk(ChunkKey::new(0, 5, 0))
+            .is_some(),
+        "its blocks are kept"
+    );
+
+    stream.set_full_detail_radius(Some(6));
+    assert!(meshing(&stream, 5), "a wider radius promotes it");
+
+    stream.mesh_jobs.pending.clear();
+    stream.set_full_detail_radius(Some(1));
+    assert!(meshing(&stream, 5), "a narrower one queues its removal");
+    assert!(!stream.wants_mesh(ChunkKey::new(0, 5, 0)));
+}
+
+/// Without a radius every column meshes, as before far terrain.
+#[test]
+fn no_radius_meshes_everything() {
+    let mut stream = stream();
+    stream
+        .submit(1, inline_block_entity_event(5, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    assert!(meshing(&stream, 5));
+    assert_eq!(stream.full_detail_radius(), None);
+}
+
+fn drawn(stream: &WorldStream, x: i32) -> bool {
+    stream
+        .near_drawn_columns()
+        .1
+        .any(|column| column == ChunkKey::new(0, x, 0))
+}
+
+/// Uploads every mesh waiting in `column`.
+fn upload(stream: &mut WorldStream, x: i32) {
+    let column = ChunkKey::new(0, x, 0);
+    let keys: Vec<SubChunkKey> = stream
+        .resident
+        .column(column)
+        .chain(stream.known_air.column(column))
+        .copied()
+        .collect();
+    let now = Instant::now();
+    for key in keys {
+        if let Some((revision, since)) = stream
+            .revisions
+            .dirty(key)
+            .map(|dirty| (dirty.revision, dirty.since))
+        {
+            stream.acknowledge_mesh_upload(key, revision, since, now);
+        }
+    }
+}
+
+/// Limiting detail after running without a limit hands meshes already past the radius to far
+/// terrain, withdrawing them only once its summary is delivered and far terrain draws it.
+#[test]
+fn a_new_limit_hands_columns_meshed_without_one_to_far_terrain() {
+    let mut stream = stream();
+    for (sequence, x) in [(1, 0), (2, 5)] {
+        stream
+            .submit(sequence, inline_block_entity_event(x, 7, Vec::new()))
+            .unwrap();
+    }
+    complete_pending_decode_jobs(&mut stream);
+    upload(&mut stream, 5);
+    assert!(drawn(&stream, 5));
+
+    stream.set_full_detail_radius(Some(1));
+    assert!(drawn(&stream, 5), "kept until far terrain covers it");
+    let five = ChunkKey::new(0, 5, 0);
+    test_time::eventually("the hand-over summary", || {
+        stream.dispatch_far_summaries();
+        stream.drain_far_summaries(&mut Vec::new());
+        stream.far_handoffs().any(|column| column == five)
+    });
+    stream.mesh_jobs.pending.clear();
+    stream.finish_far_handoff(five);
+    assert!(!drawn(&stream, 5), "far terrain takes the column back");
+    assert!(!stream.wants_mesh(five));
+    assert!(meshing(&stream, 5), "its meshes are withdrawn");
+    assert!(stream.wants_mesh(ChunkKey::new(0, 0, 0)));
+}
+
+/// A promoted column stays with far terrain until its new meshes upload.
+#[test]
+fn promotion_hands_over_only_after_upload() {
+    let mut stream = stream();
+    stream.set_full_detail_radius(Some(1));
+    stream
+        .submit(1, inline_block_entity_event(5, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    upload(&mut stream, 5);
+    assert!(!drawn(&stream, 5), "past the radius");
+
+    stream.set_full_detail_radius(Some(6));
+    assert!(!drawn(&stream, 5), "promoted but not yet meshed");
+    upload(&mut stream, 5);
+    assert!(drawn(&stream, 5));
+}
+
+/// A block change past full detail re-summarises the column for far terrain.
+#[test]
+fn changes_past_full_detail_refresh_the_summary() {
+    let mut stream = stream();
+    stream.set_full_detail_radius(Some(1));
+    stream
+        .submit(1, inline_block_entity_event(5, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    stream.dispatch_far_summaries();
+    assert!(stream.far_terrain.pending.is_empty());
+    let key = *stream
+        .resident
+        .column(ChunkKey::new(0, 5, 0))
+        .next()
+        .expect("a resident section");
+    stream.mark_changed_sources([key], Instant::now());
+    assert!(stream.far_terrain.pending.contains(&ChunkKey::new(0, 5, 0)));
+}
+
+/// Lifting the limit meshes columns that are still arriving, not only complete ones.
+#[test]
+fn lifting_the_limit_meshes_partial_columns() {
+    let mut stream = stream();
+    stream.set_full_detail_radius(Some(1));
+    let key = SubChunkKey::from_chunk(ChunkKey::new(0, 7, 0), 0);
+    stream.resident.insert(key);
+    assert!(!stream.loaded_columns.contains(&ChunkKey::new(0, 7, 0)));
+
+    stream.set_full_detail_radius(None);
+    assert!(meshing(&stream, 7));
+}
+
+/// Radius changes, far-terrain toggles, block changes, uploads, resends and evictions in a
+/// scrambled order never leave a column that had a drawer without one: near terrain draws it
+/// once its meshes are published, and far terrain from a delivered summary while shown.
+#[test]
+fn covered_columns_always_keep_a_drawer() {
+    const COLUMNS: i32 = 8;
+    let mut stream = stream();
+    let mut seed = 0x9e37_79b9_u64;
+    let mut next = move |bound: u64| {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        (seed >> 33) % bound
+    };
+    let mut sequence = 0;
+    let mut load = |stream: &mut WorldStream, x: i32| {
+        sequence += 1;
+        stream
+            .submit(sequence, inline_block_entity_event(x, 7, Vec::new()))
+            .unwrap();
+        complete_pending_decode_jobs(stream);
+    };
+    for x in 0..COLUMNS {
+        load(&mut stream, x);
+    }
+    let mut far_on = true;
+    let mut far_summaries: HashSet<ChunkKey> = HashSet::new();
+    let mut covered: HashSet<ChunkKey> = HashSet::new();
+    for step in 0..600 {
+        let x = next(COLUMNS as u64) as i32;
+        let column = ChunkKey::new(0, x, 0);
+        match next(8) {
+            0 => {
+                let radius = [Some(1), Some(3), Some(6), None][next(4) as usize];
+                stream.set_full_detail_radius(radius.filter(|_| far_on));
+            }
+            1 => {
+                // As the app does: turning off lifts the limit at once, but summaries and the
+                // far scene stay until near terrain draws every loaded column.
+                far_on = !far_on;
+                if far_on {
+                    stream.set_far_terrain_enabled(true);
+                } else {
+                    stream.set_full_detail_radius(None);
+                }
+            }
+            2 => {
+                if let Some(&key) = stream.resident.column(column).next() {
+                    stream.mark_changed_sources([key], Instant::now());
+                }
+            }
+            3 | 4 => upload(&mut stream, x),
+            5 => {
+                stream.dispatch_far_summaries();
+                let mut delivered = Vec::new();
+                stream.drain_far_summaries(&mut delivered);
+                far_summaries.extend(delivered.iter().map(|summary| summary.column));
+                let ready: Vec<ChunkKey> = stream
+                    .far_handoffs()
+                    .filter(|column| far_summaries.contains(column))
+                    .collect();
+                for column in ready {
+                    stream.finish_far_handoff(column);
+                }
+            }
+            6 => load(&mut stream, x),
+            _ => {
+                stream.evict_column(column);
+                far_summaries.remove(&column);
+                covered.remove(&column);
+            }
+        }
+        if !far_on && stream.far_terrain_enabled() && stream.all_loaded_near_drawn() {
+            stream.set_far_terrain_enabled(false);
+        }
+        let far_shown = stream.far_terrain_enabled();
+        if !far_shown {
+            far_summaries.clear();
+        }
+        for x in 0..COLUMNS {
+            let column = ChunkKey::new(0, x, 0);
+            if !stream.loaded_columns.contains(&column)
+                || stream.resident.column(column).next().is_none()
+            {
+                covered.remove(&column);
+                continue;
+            }
+            let near = drawn(&stream, x);
+            let far = far_shown && far_summaries.contains(&column);
+            if near || far {
+                covered.insert(column);
+            } else {
+                assert!(
+                    !covered.contains(&column),
+                    "{column:?} lost its drawer at step {step}"
+                );
+            }
+        }
+    }
+    assert!(!covered.is_empty());
+}
+
+/// A hand-over completes only on a summary issued after the column left full detail.
+#[test]
+fn hand_over_waits_for_a_summary_taken_after_demotion() {
+    let mut stream = stream();
+    stream
+        .submit(1, inline_block_entity_event(5, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    stream.dispatch_far_summaries();
+    upload(&mut stream, 5);
+    stream.set_full_detail_radius(Some(1));
+    let five = ChunkKey::new(0, 5, 0);
+    let mut delivered = Vec::new();
+    test_time::eventually("the earlier summary", || {
+        stream.drain_far_summaries(&mut delivered);
+        !delivered.is_empty()
+    });
+    assert_eq!(
+        stream.far_handoffs().count(),
+        0,
+        "taken before the demotion"
+    );
+    test_time::eventually("the hand-over summary", || {
+        stream.dispatch_far_summaries();
+        stream.drain_far_summaries(&mut Vec::new());
+        stream.far_handoffs().any(|column| column == five)
+    });
+}
+
+/// Evicting a column mid hand-over still withdraws its meshes.
+#[test]
+fn evicting_mid_hand_over_withdraws_meshes() {
+    let mut stream = stream();
+    stream
+        .submit(1, inline_block_entity_event(5, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    upload(&mut stream, 5);
+    stream.set_full_detail_radius(Some(1));
+    assert!(drawn(&stream, 5));
+    stream.mesh_jobs.pending.clear();
+    stream.evict_column(ChunkKey::new(0, 5, 0));
+    assert!(meshing(&stream, 5), "its removal is queued");
+    assert!(!drawn(&stream, 5));
+}

@@ -74,6 +74,19 @@ pub const NATIVE_SKYBOX_OFFSET_OPTION: SettingDefinition =
 /// Far terrain draws cached terrain past the render distance.
 pub const FAR_TERRAIN_OPTION: SettingDefinition = SettingId::FarTerrain.definition();
 
+/// Advanced: chunks meshed in full detail around the player; 0 is Auto, by device tier.
+pub const FULL_DETAIL_DISTANCE_OPTION: SettingDefinition =
+    SettingId::FullDetailDistance.definition();
+
+/// The full-detail distance's label: Auto, or its chunks through `format`.
+pub fn full_detail_label(value: i32, chunks: &dyn Fn(i32) -> String) -> String {
+    if value == render_api::far_terrain::FULL_DETAIL_AUTO as i32 {
+        "Auto".to_owned()
+    } else {
+        chunks(value)
+    }
+}
+
 pub const MOTION_BLUR_CHOICES: &[SettingChoice] = &[
     SettingChoice {
         name: "motion_blur_radio_off",
@@ -194,6 +207,21 @@ const fn slider(
     default: i32,
 ) -> SettingDefinition {
     option(id, label, SettingKind::Slider, min, max, default)
+}
+
+/// Defines a slider that moves in steps of `step`.
+const fn stepped_slider(
+    id: SettingId,
+    label: &'static str,
+    min: i32,
+    max: i32,
+    default: i32,
+    step: i32,
+) -> SettingDefinition {
+    SettingDefinition {
+        step,
+        ..slider(id, label, min, max, default)
+    }
 }
 
 /// Defines a dropdown in its displayed radio-choice order.
@@ -556,4 +584,6 @@ settings! {
         [(SettingPanel::AccessibilityUi, 5), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
     FarTerrain => "far_terrain", toggle("Far Terrain (LOD)", render_api::far_terrain::DEFAULT_ENABLED),
         [(SettingPanel::VideoGraphics, 11)], [SettingsGroup::Video], None, None;
+    FullDetailDistance => "full_detail_distance", stepped_slider("Full-Detail Distance", render_api::far_terrain::FULL_DETAIL_AUTO as i32, render_api::far_terrain::MAX_FULL_DETAIL_CHUNKS as i32, render_api::far_terrain::FULL_DETAIL_AUTO as i32, render_api::far_terrain::FULL_DETAIL_STEP_CHUNKS as i32),
+        [(SettingPanel::VideoAdvanced, 0)], [SettingsGroup::Video], None, None;
 }

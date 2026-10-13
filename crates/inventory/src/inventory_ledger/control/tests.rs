@@ -181,6 +181,13 @@ fn randomized_server_interleavings_converge_and_always_allow_reopening() {
     for seed in 1..=64 {
         let mut random = seed;
         let mut now = 0;
+        let word = random_word(&mut random);
+        reused_ids::covering_storage_close_interleaving(
+            word & 1 != 0,
+            word & 2 != 0,
+            word & 4 != 0,
+            word & 8 != 0,
+        );
         let mut ledger = ledger_with_slot_zero();
         let mut server = Server::default();
         for _ in 0..512 {
@@ -196,7 +203,9 @@ fn randomized_server_interleavings_converge_and_always_allow_reopening() {
                 5 | 6 => server.deliver(&mut ledger),
                 7 => {
                     now += INVENTORY_REQUEST_TIMEOUT_MILLIS;
+                    let desired = ledger.personal_inventory_desired_open();
                     ledger.poll_timeout(now);
+                    assert_eq!(ledger.personal_inventory_desired_open(), desired);
                 }
                 8 => server.server_close(),
                 9 => {

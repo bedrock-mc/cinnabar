@@ -573,6 +573,24 @@ fn dark_mode_defaults_off_persists_and_resets_with_video_settings() {
 }
 
 #[test]
+fn extra_large_ui_persists_and_resets() {
+    let mut settings = SettingsOptions::default();
+    assert!(!settings.extra_large_ui());
+    assert!(settings.set(index(EXTRA_LARGE_UI), 1));
+    let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert!(loaded.extra_large_ui());
+    loaded.reset_group(SettingsGroup::Audio);
+    assert!(loaded.extra_large_ui());
+    loaded.reset_group(SettingsGroup::Video);
+    assert!(!loaded.extra_large_ui());
+    assert!(
+        !SettingsOptions::decode(br#"{"values":{}}"#)
+            .unwrap()
+            .extra_large_ui()
+    );
+}
+
+#[test]
 fn animations_default_to_bedrock_and_persist_both_choices() {
     let mut settings = SettingsOptions::default();
     let index = index("animations");
@@ -779,6 +797,29 @@ fn native_skybox_offset_defaults_on_and_persists_both_states() {
         loaded.reset_group(super::SettingsGroup::Video);
         assert!(loaded.user_settings().video.native_skybox_offset);
     }
+}
+
+/// The full-detail distance defaults to Auto and snaps to whole steps.
+#[test]
+fn full_detail_distance_defaults_to_auto_and_snaps() {
+    let mut settings = super::SettingsOptions::decode(b"{}").unwrap();
+    assert_eq!(
+        settings.user_settings().video.full_detail_distance_chunks,
+        render_api::far_terrain::FULL_DETAIL_AUTO
+    );
+    let index = super::SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == super::FULL_DETAIL_DISTANCE_OPTION.name)
+        .unwrap();
+    settings.set(index, 37);
+    assert_eq!(
+        settings.user_settings().video.full_detail_distance_chunks,
+        32
+    );
+    assert_eq!(
+        super::full_detail_label(0, &|chunks| chunks.to_string()),
+        "Auto"
+    );
 }
 
 /// Far terrain takes the shared default, persists the opposite, and returns to the default

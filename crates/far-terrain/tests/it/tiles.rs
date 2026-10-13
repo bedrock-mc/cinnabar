@@ -294,6 +294,34 @@ fn replaced_coarse_tiles_stay_until_covered_or_near() {
     assert_eq!(levels(&tiles, 600, 300), [2]);
 }
 
+/// A column's tile is ready once built, and again only after a change to it is rebuilt.
+#[test]
+fn tiles_report_ready_columns() {
+    let mut store = SummaryStore::new(usize::MAX);
+    for x in -40..40 {
+        for z in -40..40 {
+            store.admit(ColumnPos::new(x, z), &flat(64));
+        }
+    }
+    let mut tiles = FarTiles::default();
+    tiles.set_view(view());
+    let column = ColumnPos::new(20, 0);
+    assert!(!tiles.ready(column));
+    let now = Instant::now();
+    test_time::eventually("the column's tile builds", || {
+        tiles.update(&mut store, now);
+        tiles.ready(column)
+    });
+    store.admit(column, &flat(90));
+    tiles.mark_changed(&store.take_changed());
+    assert!(!tiles.ready(column), "a change waits for its rebuild");
+    let later = now + far_terrain::config::TILE_REBUILD_INTERVAL;
+    test_time::eventually("the change rebuilds", || {
+        tiles.update(&mut store, later);
+        tiles.ready(column)
+    });
+}
+
 /// Columns left far behind by a teleport, not yet evicted, neither size nor enter the mask.
 #[test]
 fn near_mask_ignores_columns_past_its_limit() {

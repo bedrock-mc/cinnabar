@@ -27,6 +27,7 @@ impl WorldStream {
         if !self.far_terrain_enabled()
             || self.near_drawn.columns.contains(&column)
             || !self.loaded_columns.contains(&column)
+            || !self.wants_mesh(column)
         {
             return;
         }
@@ -44,6 +45,10 @@ impl WorldStream {
             self.near_drawn.columns.insert(column);
             self.near_drawn.revision += 1;
         }
+    }
+
+    pub(super) fn near_drawn_contains(&self, column: ChunkKey) -> bool {
+        self.near_drawn.columns.contains(&column)
     }
 
     /// Forgets every drawn column, as when far terrain turns off.

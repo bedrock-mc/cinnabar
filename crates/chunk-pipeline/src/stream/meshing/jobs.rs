@@ -37,7 +37,9 @@ impl WorldStream {
         let (resident, known_air) = (&self.resident, &self.known_air);
         let terrain = self.authority.terrain();
         let classifier = self.classifier;
-        let needs_geometry = |key| requires_geometry(resident, known_air, terrain, classifier, key);
+        let detail = &self.full_detail;
+        let needs_geometry =
+            |key| requires_geometry(detail, resident, known_air, terrain, classifier, key);
         let mut woken = Vec::new();
         let probe_near = self
             .mesh_jobs
@@ -351,6 +353,7 @@ impl WorldStream {
                     .deferred
                     .push(candidate);
             } else if requires_geometry(
+                &self.full_detail,
                 &self.resident,
                 &self.known_air,
                 self.authority.terrain(),
@@ -499,6 +502,7 @@ impl WorldStream {
     /// Whether `key` still needs a worker-built mesh rather than a removal.
     pub(in crate::stream) fn mesh_requires_geometry(&self, key: SubChunkKey) -> bool {
         requires_geometry(
+            &self.full_detail,
             &self.resident,
             &self.known_air,
             self.authority.terrain(),
@@ -847,15 +851,18 @@ impl WorldStream {
     }
 }
 
-/// Resident sections whose palettes are all air publish an empty mesh without a worker.
+/// Resident sections whose palettes are all air, and sections past full detail, publish an
+/// empty mesh without a worker.
 fn requires_geometry(
+    full_detail: &super::super::full_detail::FullDetail,
     resident: &ColumnSubChunkSet,
     known_air: &ColumnSubChunkSet,
     terrain: &ChunkStore,
     classifier: BlockClassifier,
     key: SubChunkKey,
 ) -> bool {
-    resident.contains(&key)
+    full_detail.wants_mesh(key.chunk())
+        && resident.contains(&key)
         && !known_air.contains(&key)
         && terrain
             .sub_chunk(key)

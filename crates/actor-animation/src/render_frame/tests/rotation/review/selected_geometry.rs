@@ -1,5 +1,7 @@
 use super::*;
 
+mod swing;
+
 /// Builds a swelling rig whose selected geometry alone reads the camera.
 fn swelling_geometry(active: bool) -> assets::CompiledEntityAssets {
     let mut compiled = compiled_fixture(180.0);
