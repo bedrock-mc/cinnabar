@@ -131,10 +131,10 @@ mod tests {
             rgba8: source.clone().into(),
         };
         let flags = assets::BlockFace::ALL.map(|face| {
-            Some(if face == assets::BlockFace::West {
-                assets::MATERIAL_FLAG_ALPHA_BLEND
-            } else {
-                assets::MATERIAL_FLAG_ALPHA_CUTOUT
+            Some(match face {
+                assets::BlockFace::West => assets::MATERIAL_FLAG_ALPHA_BLEND,
+                assets::BlockFace::East => 0,
+                _ => assets::MATERIAL_FLAG_ALPHA_CUTOUT,
             })
         });
         normalize_sheet_alpha(&mut sprite, flags);
