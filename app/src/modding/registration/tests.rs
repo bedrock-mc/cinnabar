@@ -622,7 +622,7 @@ fn reenable_before_disable_acknowledgment_retries_missing_hosts() {
         let Message::Retry { inactive, .. } = messages.try_recv().unwrap() else {
             panic!("missing guest falsely acknowledged as installed")
         };
-        assert_eq!(inactive, [a.component.clone()]);
+        assert_eq!(inactive, std::slice::from_ref(&a.component));
         assert!(messages.try_recv().is_err());
         let fresh = Box::new(build_candidate(source::source_snapshot(a).unwrap()).unwrap());
         apply(&mut world, entries, vec![change(fresh)]);
