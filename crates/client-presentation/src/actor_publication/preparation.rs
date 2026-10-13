@@ -299,7 +299,7 @@ pub fn advance_actor_frame(
         let _animation = profiler
             .as_deref()
             .map(|profiler| profiler.time(render_scene::RuntimeStage::ActorAnimation));
-        // Fluid and bed state is tick state; a frame without a tick would resample the same.
+        // Liquid contact is tick state; bed headings are resolved before camera publication.
         if step.ticks > 0 {
             sample_world(stream);
         }
@@ -323,16 +323,6 @@ pub fn advance_actor_frame(
                 feet
             })
         });
-    // A sleeper's body lies on its bed, where the native client puts it.
-    let sleeping_subject = client_world
-        .stream
-        .as_ref()
-        .and_then(|stream| stream.authority().local_sleeping_bed())
-        .map(|(bed, _)| crate::local_player::sleeping_subject_position(bed));
-    let (authoritative_subject_eye, authoritative_subject_feet) = match sleeping_subject {
-        Some((eye, feet)) => (Some(eye), Some(feet)),
-        None => (authoritative_subject_eye, authoritative_subject_feet),
-    };
     publish_local_actor_visibility(
         &avatar,
         settings.perspective(),
