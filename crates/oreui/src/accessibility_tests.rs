@@ -127,7 +127,13 @@ fn extra_large_progress_keeps_status_and_cancel_inside_small_windows() {
                     .unwrap();
                 assert!(status.viewport.width() > 0.0 && status.viewport.height() > 0.0);
                 assert!(status.viewport.max().y() <= cancel.min().y());
-                assert!(status.max > 0.0, "long status remains scrollable");
+                assert!(
+                    status.max > 0.0,
+                    "long status remains scrollable: {size:?}, DPI {dpi}, enabled {enabled}, GUI {}, viewport {:?}, max {}",
+                    metrics.gui_scale,
+                    status.viewport,
+                    status.max
+                );
             }
         }
     }
