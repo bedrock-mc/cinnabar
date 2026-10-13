@@ -519,7 +519,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "jsonui-editor"
 path = "tools/jsonui-editor"
-allowed_dependencies = ["assets", "json-ui", "ui", "ui-engine"]
+allowed_dependencies = ["assets", "json-ui", "render-api", "render-model", "ui", "ui-engine"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
@@ -527,6 +527,12 @@ name = "jsonui-mcp"
 path = "tools/jsonui-mcp"
 allowed_dependencies = ["json-ui", "jsonui-editor", "mcp-stdio"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[crates]]
+name = "ui-snapshot"
+path = "tools/ui-snapshot"
+allowed_dependencies = ["assets", "json-ui", "jsonui-editor", "launcher", "oreui", "ui", "ui-engine", "ui-screens"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
 name = "mcp-stdio"
@@ -1187,7 +1193,7 @@ exports = [
 [[crates]]
 name = "launcher-host"
 path = "crates/launcher-host"
-allowed_dependencies = ["bridge", "launcher", "protocol", "server-experience", "test-time", "update-manifest", "update-installer"]
+allowed_dependencies = ["bridge", "launcher", "protocol", "resource-pack", "server-experience", "test-time", "update-manifest", "update-installer"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 

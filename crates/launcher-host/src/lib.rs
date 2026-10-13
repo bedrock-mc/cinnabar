@@ -22,3 +22,4 @@ pub mod sign_in_browser;
 pub mod video_settings;
 
 pub mod memory;
+pub mod minecraft_import;

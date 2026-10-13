@@ -129,7 +129,7 @@ the prepared visual data to the GPU.
 | Workspace member | Package | Ownership and caller guidance | Related owners |
 | --- | --- | --- | --- |
 | `crates/launcher` | `launcher` | Engine-independent account, menu and world models plus product identity; use these models across services and screens. | `launcher-host` owns process and persistence services; `client-shell` integrates them. |
-| `crates/launcher-host` | `launcher-host` | Launcher processes, platform services, persistence and background work; use its service APIs without Bevy. | `launcher` owns models; the Go core owns authentication and upstream services; `client-shell` owns ECS adapters. |
+| `crates/launcher-host` | `launcher-host` | Launcher processes, platform services, persistence and background work; use its service APIs without Bevy. | `launcher` owns models; `resource-pack` validates user pack imports; the Go core owns authentication and upstream services; `client-shell` owns ECS adapters. |
 | `crates/first-run` | `first-run` | Consent, download and preparation of local asset carriers; use its setup runner before launching the game window. | `asset-compiler` builds carriers; `launcher-host` owns ordinary launcher services. |
 | `crates/rich-presence` | `rich-presence` | Optional Discord desktop activity and RPC worker; use its presence and join-request APIs. | `client-shell` projects menu/session state; `launcher` owns product identity. |
 | `crates/update-manifest` | `update-manifest` | Signed release manifest format, channels, verification and build comparison; use its manifest APIs for update decisions. | `release-manifest` signs releases; `launcher-host` downloads them; `update-installer` verifies staged payloads. |
@@ -173,6 +173,7 @@ the SDK for their own host contract; they do not import client runtime authority
 | `tools/bedrock-replay` | `bedrock-replay` | Offline replay of saved server packets through a local session endpoint; use its replay CLI. | `bridge` owns framing; `protocol` owns packets; `client-session` consumes the replay. |
 | `tools/jsonui-editor` | `jsonui-editor` | Shared JSON-UI editor API and browser frontend; use its editing, layout, rasterization and export APIs. | `ui-engine` owns screen resources; `json-ui` owns resolution; `jsonui-mcp` wraps the API. |
 | `tools/jsonui-mcp` | `jsonui-mcp` | Stdio MCP frontend for JSON-UI editing and rendering; use its editor tools. | `jsonui-editor` owns editing operations; `mcp-stdio` owns the wire protocol. |
+| `tools/ui-snapshot` | `ui-snapshot` | Named offline UI fixtures and PNG captures; use `--list` and `--state NAME --out PNG`. | `oreui` and `ui-screens` paint screens; `jsonui-editor` supplies the CPU target. |
 | `tools/cinnabar-mcp` | `cinnabar-mcp` | Stdio MCP frontend that launches and drives a developer client; use its input, state, capture and recording tools. | `developer-control` owns loopback commands; `mcp-stdio` owns the wire protocol. |
 | `tools/mcp-stdio` | `mcp-stdio` | Shared newline-delimited JSON-RPC MCP serving; implement its tool-server trait for a new stdio frontend. | `jsonui-mcp` and `cinnabar-mcp` own their tool definitions. |
 
