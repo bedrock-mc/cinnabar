@@ -563,7 +563,7 @@ fn failed(command: &CommandSpec, output: &Output) -> DevtoolError {
 #[path = "baseline/workspace_tests.rs"]
 mod workspace_tests;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod classification_tests;
 
 #[cfg(test)]
