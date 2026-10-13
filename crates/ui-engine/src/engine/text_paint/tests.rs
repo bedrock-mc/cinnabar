@@ -508,7 +508,7 @@ fn named_styled_font_effects_use_display_units_at_every_raster_resolution() {
                 let reference = &reference.vertices[32..];
                 let expected_bold = reference[4].position[0] - reference[0].position[0];
                 let expected_italic = reference[0].position[0] - reference[3].position[0];
-                for glyph in ink.chunks_exact(8) {
+                for glyph in ink.as_chunks::<8>().0 {
                     let bold = glyph[4].position[0] - glyph[0].position[0];
                     let italic = glyph[0].position[0] - glyph[3].position[0];
                     assert!(
