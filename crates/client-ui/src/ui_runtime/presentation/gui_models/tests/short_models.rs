@@ -74,7 +74,7 @@ fn world(manifest: [u8; 32], height: u16, alpha: u8) -> RuntimeAssets {
         })]
         .into(),
         biomes: CompiledBiomeAssets::diagnostic(),
-        provenance: provenance::BlobProvenance {
+        provenance: assets::BlobProvenance {
             source_manifest_sha256: manifest,
             block_registry_sha256: [1; 32],
             light_registry_sha256: [2; 32],
