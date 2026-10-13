@@ -38,7 +38,6 @@ impl SettingsGroup {
                     | "render_distance"
                     | "gamma"
                     | "third_person"
-                    | "full_screen"
                     | "hide_hand"
                     | "hide_paperdoll"
                     | "hide_hud"
@@ -53,7 +52,6 @@ impl SettingsGroup {
                     | "ingame_player_names"
                     | "view_bobbing"
                     | "animations"
-                    | "discord_presence"
                     | "camera_shake"
                     | "transparent_leaves"
                     | "bubble_particles"
@@ -62,7 +60,6 @@ impl SettingsGroup {
                     | "smooth_lighting"
                     | "field_of_view_toggle"
                     | "damage_bob"
-                    | "gui_scale"
                     | "gui_accessibility_scaling"
                     | "max_framerate"
                     | "vsync"
@@ -91,7 +88,6 @@ impl SettingsGroup {
                     | "glint_speed"
                     | "toast_notification_duration"
                     | "chat_message_duration"
-                    | "gui_scale"
                     | "gui_accessibility_scaling"
             ),
             // P:general_section.json:5174–5506; mixer bindings have one shared registry.
@@ -166,5 +162,28 @@ mod tests {
             assert_eq!(options.value(unrelated), retained);
             assert_eq!(options.key_control(0), key);
         }
+    }
+
+    #[test]
+    fn desktop_only_controls_do_not_belong_to_the_named_reset_groups() {
+        for name in ["full_screen", "gui_scale"] {
+            assert!(!SETTINGS_OPTIONS.iter().any(|option| option.name == name));
+            for group in [
+                SettingsGroup::Video,
+                SettingsGroup::Accessibility,
+                SettingsGroup::Audio,
+            ] {
+                assert!(!group.contains(name));
+            }
+        }
+    }
+
+    #[test]
+    fn video_reset_preserves_presence_without_a_video_control() {
+        let mut options = SettingsOptions::default();
+        let presence = change(&mut options, "discord_presence");
+        change(&mut options, "field_of_view");
+        assert!(options.reset_group(SettingsGroup::Video));
+        assert_eq!(options.value("discord_presence"), presence);
     }
 }

@@ -18,19 +18,31 @@ fn pots_and_lanterns_keep_cutout_materials_after_carrier_roundtrip() {
     .filter(|record| {
         matches!(
             record.name.as_ref(),
-            "minecraft:air"
-                | "minecraft:stone"
-                | "minecraft:dirt"
-                | "minecraft:flower_pot"
-                | "minecraft:lantern"
-                | "minecraft:soul_lantern"
-        )
+            "minecraft:air" | "minecraft:stone" | "minecraft:dirt" | "minecraft:flower_pot"
+        ) || (record.name.ends_with("lantern")
+            && canonical_state_u32(&record.canonical_state, "hanging").is_some())
     })
     .collect::<Vec<_>>();
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path();
     fs::create_dir_all(root.join("textures/blocks")).unwrap();
-    fs::write(root.join("blocks.json"), r#"{"stone":{"textures":"solid"},"dirt":{"textures":"solid"},"flower_pot":{"textures":"model"},"lantern":{"textures":"model"},"soul_lantern":{"textures":"model"}}"#).unwrap();
+    let blocks = records
+        .iter()
+        .map(|record| {
+            let name = record.name.strip_prefix("minecraft:").unwrap();
+            let texture = if matches!(name, "stone" | "dirt") {
+                "solid"
+            } else {
+                "model"
+            };
+            (name.to_owned(), serde_json::json!({"textures": texture}))
+        })
+        .collect::<serde_json::Map<_, _>>();
+    fs::write(
+        root.join("blocks.json"),
+        serde_json::to_vec(&blocks).unwrap(),
+    )
+    .unwrap();
     fs::write(root.join("textures/terrain_texture.json"), r#"{"texture_data":{"solid":{"textures":"textures/blocks/solid"},"model":{"textures":"textures/blocks/model"}}}"#).unwrap();
     fs::write(root.join("textures/flipbook_textures.json"), "[]").unwrap();
     RgbaImage::from_pixel(
@@ -66,11 +78,16 @@ fn pots_and_lanterns_keep_cutout_materials_after_carrier_roundtrip() {
     )
     .unwrap();
     let runtime = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
-    for name in [
-        "minecraft:flower_pot",
-        "minecraft:lantern",
-        "minecraft:soul_lantern",
-    ] {
+    let names = records
+        .iter()
+        .filter(|record| {
+            record.name.as_ref() == "minecraft:flower_pot"
+                || canonical_state_u32(&record.canonical_state, "hanging").is_some()
+        })
+        .map(|record| record.name.as_ref())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(names.contains("minecraft:copper_lantern"));
+    for name in names {
         let models = records
             .iter()
             .filter(|record| record.name.as_ref() == name)

@@ -138,14 +138,7 @@ pub(crate) fn login_client_data(
     let cape = skin.and_then(|skin| skin.cape.as_ref());
     let geometry = skin.and_then(|skin| skin.geometry.as_ref());
     let resource_patch = geometry.map_or_else(
-        || {
-            let model = if arm_size == "slim" {
-                "geometry.humanoid.customSlim"
-            } else {
-                "geometry.humanoid.custom"
-            };
-            STANDARD.encode(json!({"geometry": {"default": model}}).to_string())
-        },
+        || STANDARD.encode(crate::skin_change::classic_skin_resource_patch(&arm_size)),
         |geometry| STANDARD.encode(&geometry.resource_patch),
     );
     // Two halves keep each `json!` expansion within the default recursion limit.
@@ -215,6 +208,58 @@ fn input_mode_value(mode: PlayerInputMode) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn classic_skin_updates_match_login_model_selection() {
+        for arm_size in ["slim", "wide"] {
+            let skin = render_api::StandardSkin {
+                width: render_api::CLASSIC_SKIN_SIDE as u32,
+                height: render_api::CLASSIC_SKIN_SIDE as u32,
+                rgba8: vec![255; render_api::CLASSIC_SKIN_SIDE * render_api::CLASSIC_SKIN_SIDE * 4]
+                    .into(),
+                cape: None,
+                geometry: None,
+            };
+            let login_skin = ClientSkin {
+                width: skin.width,
+                height: skin.height,
+                rgba8: skin.rgba8.to_vec(),
+                arm_size: arm_size.into(),
+                cape: None,
+                geometry: None,
+            };
+            let claims = login_client_data(
+                "Fixture",
+                ClientRandomId::new(1).unwrap(),
+                Some(&login_skin),
+                &LoginSettings::default(),
+            );
+            let patch: Value = serde_json::from_slice(
+                &STANDARD
+                    .decode(claims["SkinResourcePatch"].as_str().unwrap())
+                    .unwrap(),
+            )
+            .unwrap();
+            let expected = if arm_size == "slim" {
+                "geometry.humanoid.customSlim"
+            } else {
+                "geometry.humanoid.custom"
+            };
+            assert_eq!(patch["geometry"]["default"], expected);
+            let packet = crate::player_skin_packet([1; 16], &skin, arm_size, "selected", "");
+            let packet = crate::decode_batch(crate::encode(&packet).unwrap())
+                .unwrap()
+                .pop()
+                .unwrap();
+            let bedrock_protocol_1_26_51::packets::Packet::PlayerSkin(packet) = *packet.data else {
+                panic!("skin packet")
+            };
+            let updated: Value =
+                serde_json::from_str(&packet.serialized_skin.resource_patch.to_string_lossy())
+                    .unwrap();
+            assert_eq!(updated, patch);
+        }
+    }
 
     /// A re-vendored codec fails here until the target manifest records its pin.
     #[test]
