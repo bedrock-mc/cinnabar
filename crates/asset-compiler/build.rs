@@ -13,8 +13,9 @@ use sha2::{Digest, Sha256};
 #[path = "build_support/lockfile.rs"]
 mod lockfile;
 
-/// Crate directories that never reach the binary.
-const SKIPPED_DIRS: &[&str] = &["tests", "benches", "target"];
+#[path = "build_support/sources.rs"]
+mod sources;
+use sources::{collect_files, embedded_files};
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
@@ -29,7 +30,7 @@ fn main() {
         .iter()
         .filter(|path| path.extension().is_some_and(|ext| ext == "rs"))
         .flat_map(|path| embedded_files(path))
-        .filter(|path| !crates.iter().any(|dir| path.starts_with(dir)))
+        .filter(|path| !files.contains(path))
         .collect();
     for path in &embedded {
         println!("cargo:rerun-if-changed={}", path.display());
@@ -77,44 +78,7 @@ fn collect_crates(dir: &Path, crates: &mut BTreeSet<PathBuf>) {
     }
 }
 
-fn collect_files(root: &Path, dir: &Path, files: &mut BTreeSet<PathBuf>) {
-    for entry in fs::read_dir(dir).unwrap().flatten() {
-        let path = entry.path();
-        let name = entry.file_name();
-        if path.is_dir() {
-            let top_level_skip = dir == root
-                && SKIPPED_DIRS
-                    .iter()
-                    .any(|skip| name == std::ffi::OsStr::new(skip));
-            if !top_level_skip {
-                collect_files(root, &path, files);
-            }
-        } else {
-            files.insert(path);
-        }
-    }
-}
-
-/// Files a source embeds through `include_bytes!`/`include_str!` string literals.
-fn embedded_files(source: &Path) -> Vec<PathBuf> {
-    let text = fs::read_to_string(source).unwrap_or_default();
-    let base = source.parent().unwrap();
-    let mut found = Vec::new();
-    for macro_name in ["include_bytes!(", "include_str!("] {
-        let mut rest = text.as_str();
-        while let Some(start) = rest.find(macro_name) {
-            rest = &rest[start + macro_name.len()..];
-            let trimmed = rest.trim_start();
-            if let Some(literal) = trimmed.strip_prefix('"').and_then(|s| s.split('"').next())
-                && let Ok(path) = base.join(literal).canonicalize()
-            {
-                found.push(path);
-            }
-        }
-    }
-    found
-}
-
+/// Reads one quoted manifest value after its key.
 fn quoted_after<'a>(line: &'a str, key: &str) -> Option<&'a str> {
     let at = line.find(&format!("{key} = \""))? + key.len() + 4;
     line[at..].split('"').next()

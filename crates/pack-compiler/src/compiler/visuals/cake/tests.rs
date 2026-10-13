@@ -29,7 +29,7 @@ fn cake_inner_material_keeps_the_second_west_face_variant() {
     )
     .unwrap();
     std::fs::write(root.path().join("textures/flipbook_textures.json"), "[]").unwrap();
-    let pack = crate::read_pack(root.path()).unwrap();
+    let pack = pack_compile_input::read_pack(root.path()).unwrap();
     for (descriptor, key) in cake_material_descriptors(&pack).unwrap() {
         let variants = pack.terrain.get_exact_pair_no_tint(&key).unwrap();
         assert_eq!(

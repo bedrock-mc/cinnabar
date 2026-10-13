@@ -102,7 +102,7 @@ impl Drop for Pack {
 fn entities() -> Arc<RuntimeEntityAssets> {
     let pack = Pack::new();
     let manifest = include_bytes!("../../../assets/vanilla-source.json");
-    let compiled = pack_compiler::compile_entity_assets(&pack.0, manifest).unwrap();
+    let compiled = pack_entity_compiler::compile_entity_assets(&pack.0, manifest).unwrap();
     Arc::new(RuntimeEntityAssets::decode(&encode_entity_blob(&compiled).unwrap()).unwrap())
 }
 
@@ -506,7 +506,7 @@ fn view_bobbing_toggle_stops_authored_hand_bob_but_preserves_attacks() {
         controllers,
     )
     .unwrap();
-    let compiled = pack_compiler::compile_entity_assets(
+    let compiled = pack_entity_compiler::compile_entity_assets(
         &pack.0,
         include_bytes!("../../../assets/vanilla-source.json"),
     )
@@ -641,7 +641,7 @@ fn vanilla_entities() -> Option<Arc<RuntimeEntityAssets>> {
         return None;
     }
     let manifest = include_bytes!("../../../assets/vanilla-source.json");
-    let compiled = pack_compiler::compile_entity_assets(&root, manifest).unwrap();
+    let compiled = pack_entity_compiler::compile_entity_assets(&root, manifest).unwrap();
     Some(Arc::new(
         RuntimeEntityAssets::decode(&encode_entity_blob(&compiled).unwrap()).unwrap(),
     ))

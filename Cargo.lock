@@ -429,7 +429,10 @@ dependencies = [
  "block-transform",
  "clap",
  "image",
+ "pack-compile-input",
  "pack-compiler",
+ "pack-entity-compiler",
+ "pack-font-compiler",
  "reqwest",
  "same-file",
  "serde",
@@ -2133,7 +2136,9 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "objc2-quartz-core 0.3.2",
  "oreui",
+ "pack-compile-input",
  "pack-compiler",
+ "pack-entity-compiler",
  "pack-json",
  "pack-runtime",
  "particles",
@@ -2383,6 +2388,7 @@ dependencies = [
  "launcher",
  "meshing",
  "pack-compiler",
+ "pack-entity-compiler",
  "player-state",
  "protocol",
  "render-api",
@@ -2527,6 +2533,7 @@ dependencies = [
  "mod-ui",
  "oreui",
  "pack-compiler",
+ "pack-entity-compiler",
  "pack-json",
  "player-state",
  "protocol",
@@ -5747,7 +5754,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "pack-compile-input"
+version = "0.1.17"
+dependencies = [
+ "assets",
+ "image",
+ "pack-json",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "pack-compiler"
+version = "0.1.17"
+dependencies = [
+ "assets",
+ "cap-fs-ext",
+ "cap-std",
+ "image",
+ "pack-compile-input",
+ "pack-json",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "pack-entity-compiler"
+version = "0.1.17"
+dependencies = [
+ "assets",
+ "image",
+ "pack-compile-input",
+ "pack-compiler",
+ "pack-json",
+ "serde",
+ "serde_json",
+ "sha2",
+ "simulation-clock",
+ "tempfile",
+]
+
+[[package]]
+name = "pack-font-compiler"
 version = "0.1.17"
 dependencies = [
  "assets",
@@ -5756,11 +5809,9 @@ dependencies = [
  "fontdue",
  "freetype-sys",
  "image",
- "pack-json",
  "serde",
  "serde_json",
  "sha2",
- "simulation-clock",
  "tempfile",
  "thiserror 2.0.18",
 ]
@@ -5781,7 +5832,8 @@ dependencies = [
  "block-transform",
  "image",
  "json-ui",
- "pack-compiler",
+ "pack-compile-input",
+ "pack-entity-compiler",
  "pack-json",
  "protocol",
  "rayon",
@@ -6459,6 +6511,7 @@ dependencies = [
  "image",
  "mod-api",
  "pack-compiler",
+ "pack-entity-compiler",
  "render-api",
  "serde_json",
  "sha2",
@@ -6488,7 +6541,6 @@ dependencies = [
  "meshing",
  "mod-api",
  "mod-render",
- "pack-compiler",
  "particles",
  "render-api",
  "render-model",

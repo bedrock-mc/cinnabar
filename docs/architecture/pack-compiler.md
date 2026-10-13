@@ -1,31 +1,30 @@
-# Reusable pack compilation: restructuring step 6
+# Reusable pack compilation
 
-`pack-compiler` owns the reusable resource-pack compiler that previously lived in
-the `asset-compiler` library. It reads bounded pack inputs and produces the same
-engine-independent `assets` catalogs, textures, geometry, animation programs,
-reports and carrier bytes. Its only internal production dependency is `assets`.
-It has no command-line parser, renderer, world owner or session lifecycle.
+Compilation lives in four ordinary workspace packages. Each caller imports APIs
+from the crate that owns them; there is no combined compiler facade.
 
-`asset-compiler` now contains only the `assetc` command-line program. Argument
-parsing, output-path validation, atomic output bundles and CLI reports stay there.
-It depends on `pack-compiler` and `assets`. The command name, arguments and output
-formats are unchanged. The app's session-time entity, actor and icon compilation
-calls `pack-compiler` directly. Renderer and mesher compilation fixtures use it as
-a development dependency. There is no compatibility library in `asset-compiler`.
+- `pack-compile-input`, under `crates/pack-compiler/input`, owns bounded pack
+  sources, JSON validation, source handles, texture decoding and selection.
+- `pack-compiler` retains terrain, materials and independent carrier compilers
+  such as atmosphere, audio, language and UI.
+- `pack-entity-compiler`, under `crates/pack-compiler/entity`, owns entity, actor,
+  equipment, icons, starter skins and block-entity artwork.
+- `pack-font-compiler`, under `crates/pack-compiler/font`, owns bitmap and outline
+  font compilation, including bundled FreeType rasterization.
 
-The extraction preserves compiler entry points, input bounds, deterministic
-ordering, source identities, malformed-file skips and all existing fallback
-rules. The tracked legacy fallback table moved with the compiler without changing
-its bytes; its provenance records and registry rekey tools point to its new path.
-`make assets` runs `assetc prepare`, whose per-carrier fingerprint includes a
-digest of every source the compiler links, so edits to either invalidate the
-generated carriers.
+Terrain and entity compilation both consume shared inputs and have no production
+edge to each other. Font compilation depends only on `assets` within the workspace.
+All four produce engine-independent `assets` data without Bevy or wgpu.
 
-Unit tests and independent library integration suites moved with the compiler.
-Suites that exercise `assetc` alongside library calls remain in `asset-compiler`
-and import `pack-compiler` directly. Synthetic fixtures remain independent of
-installed assets. Optional local font qualifications return early when their
-source or carrier is absent. Scratch output remains outside the installed pack.
+`asset-compiler` owns the `assetc` CLI and composes the needed compilers directly.
+`pack-runtime` uses input and entity compilation for session packs. Renderer,
+mesher and client fixtures keep compiler dependencies development-only.
+
+The split preserves input bounds, ordering, source identities, malformed-file
+skips, fallback rules and carrier formats. Tests move with their implementation;
+CLI suites stay with `assetc`. Its source fingerprint traverses each reached
+package separately, excludes package-root test directories and includes literal
+embedded inputs even when their directory is excluded from the source scan.
 
 ## References and parity scope
 

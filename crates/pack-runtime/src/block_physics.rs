@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use pack_compiler::{BlockMolang, BlockStateValue};
+use pack_entity_compiler::{BlockMolang, BlockStateValue};
 use protocol::{
     CustomBlock, CustomBlockPhysics, CustomBlocks, CustomPhysicalComponents, CustomStateValue,
 };

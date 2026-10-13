@@ -32,7 +32,7 @@ pub(super) fn catalog_for_visual(
     let entity = br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"fixture:cube","geometry":{"default":"geometry.fixture"},"render_controllers":["controller.render.fixture"]}}}"#;
     let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.fixture","texture_width":16,"texture_height":16},"bones":[{"name":"body","cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]}]}]}"#;
     let render = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.fixture":{"geometry":"Geometry.default"}}}"#;
-    let mut compiled = pack_compiler::compile_entity_pack(vec![
+    let mut compiled = pack_entity_compiler::compile_entity_pack(vec![
         (entity_path.into(), entity.to_vec()),
         ("models/entity/fixture.geo.json".into(), geometry.to_vec()),
         ("render_controllers/fixture.json".into(), render.to_vec()),

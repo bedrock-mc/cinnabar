@@ -111,7 +111,7 @@ pub fn collect_files(
     }
     let materials = material_definitions(view);
     let material_document = materials.as_deref().and_then(parse_pack_json);
-    let binding_inputs = pack_compiler::EquipmentBindingDependencies::load(
+    let binding_inputs = pack_entity_compiler::EquipmentBindingDependencies::load(
         vanilla_pack_dir,
         material_document.as_ref(),
     )
@@ -346,7 +346,7 @@ fn unshadowed_geometry(view: &LayeredPackView) -> Vec<(Box<str>, Vec<u8>)> {
             }
         }
     }
-    pack_compiler::select_entity_geometry(files)
+    pack_entity_compiler::select_entity_geometry(files)
 }
 
 /// List modern and legacy identifiers used to fill missing geometry references.
