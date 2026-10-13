@@ -146,4 +146,16 @@ impl MenuRuntime {
             self.message = Some("That control cannot be assigned to this action.".to_owned());
         }
     }
+
+    /// Ends capture, clearing only a selected keyboard row's assignments.
+    pub(in crate::menu) fn capture_escape(&mut self) {
+        let Some(index) = self.key_remap.take().map(usize::from) else {
+            return;
+        };
+        if macro_row(index).is_none() && Arc::make_mut(&mut self.settings_options).unbind_key(index)
+        {
+            self.settings_dirty = true;
+            self.settings_apply = true;
+        }
+    }
 }
