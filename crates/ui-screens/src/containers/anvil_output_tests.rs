@@ -14,12 +14,14 @@ fn player(window_type: i8) -> player_state::PlayerState {
     player
         .inventory
         .ledger_mut()
-        .apply(&protocol::InventoryEvent::Open(protocol::ContainerOpenEvent {
-            container: protocol::ContainerIdentity::window(5),
-            window_type,
-            position: [0, 64, 0],
-            runtime_entity_id: -1,
-        }));
+        .apply(&protocol::InventoryEvent::Open(
+            protocol::ContainerOpenEvent {
+                container: protocol::ContainerIdentity::window(5),
+                window_type,
+                position: [0, 64, 0],
+                runtime_entity_id: -1,
+            },
+        ));
     player
 }
 
