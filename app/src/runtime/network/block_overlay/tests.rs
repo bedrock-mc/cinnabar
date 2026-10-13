@@ -29,10 +29,12 @@ fn compile_block_overlay(
 mod budget;
 mod builtins;
 mod capacity;
+mod empty_geometry;
 mod flipbooks;
 mod hd_textures;
 mod legacy;
 mod lighting;
+mod partial_faces;
 mod random_offset;
 mod session;
 mod texture_budget;
@@ -243,9 +245,10 @@ fn compiled() -> super::CompiledBlockOverlay {
     compile_block_overlay(&view(), &blocks, false, None).expect("overlay")
 }
 
-// Full blocks become cubes on page 1; missing textures stay diagnostic and are counted.
+// Full blocks become cubes on page 1; missing textures paint their faces
+// diagnostic while the cube still renders, and are counted.
 #[test]
-fn full_block_is_a_page_one_cube_and_missing_texture_is_diagnostic() {
+fn full_block_is_a_page_one_cube_and_missing_textures_degrade_per_face() {
     let compiled = compiled();
     let overlay = &compiled.overlay;
     assert_eq!(
@@ -257,7 +260,15 @@ fn full_block_is_a_page_one_cube_and_missing_texture_is_diagnostic() {
     assert_eq!(lucky.kind, VisualKind::Cube);
     let material = overlay.materials[lucky.faces[BlockFace::Up as usize] as usize];
     assert_eq!((material.texture.page(), material.flags), (1, 0));
-    assert_eq!(overlay.visuals[5].kind, VisualKind::Diagnostic);
+    let missing = overlay.visuals[5];
+    assert_eq!(missing.kind, VisualKind::Cube);
+    assert!(
+        missing
+            .faces
+            .iter()
+            .all(|&face| face == assets::DIAGNOSTIC_MATERIAL),
+        "failed faces keep the diagnostic material instead of sinking the cube"
+    );
     assert_eq!(
         compiled.gaps,
         OverlayGaps {
@@ -444,7 +455,15 @@ fn incomplete_state_identity_preserves_neighboring_custom_blocks() {
     for id in [2, 3] {
         assert_eq!(
             assets.resolve(NetworkIdMode::Sequential, id).kind(),
-            VisualKind::Diagnostic
+            VisualKind::Cube,
+            "material-free states still render their cube"
+        );
+        assert!(
+            compiled.overlay.visuals[id as usize - 1]
+                .faces
+                .iter()
+                .all(|&face| face == assets::DIAGNOSTIC_MATERIAL),
+            "their faces keep the diagnostic material"
         );
     }
 }
@@ -485,6 +504,46 @@ fn permutation_conditions_evaluate_as_block_molang() {
     assert_eq!(
         gaps.unevaluated_permutations, 3,
         "the missing state when closed, and the random roll in both states"
+    );
+}
+
+// Neighbor-dependent connection queries cannot resolve at compile time:
+// every state keeps the base visual and each evaluation is counted.
+#[test]
+fn connection_permutations_fall_back_to_the_base_visual() {
+    let arm = |direction| CustomPermutation {
+        physical: Default::default(),
+        condition: format!("q.block_state('minecraft:connection_{direction}')").into(),
+        components: turn(1),
+    };
+    let fence = block(
+        "test:fence",
+        1,
+        CustomBlockVisuals {
+            base: CustomVisualComponents {
+                geometry: Some("minecraft:geometry.full_block".into()),
+                materials: materials("lucky"),
+                ..CustomVisualComponents::default()
+            },
+            permutations: ["north", "south", "east", "west"].map(arm).into(),
+            ..CustomBlockVisuals::default()
+        },
+    );
+    let blocks = CustomBlocks {
+        blocks: vec![fence].into(),
+        vanilla_blocks: Default::default(),
+        skipped: 0,
+    };
+    let compiled = compile_block_overlay(&view(), &blocks, false, None).expect("overlay");
+    assert_eq!(
+        compiled.gaps.unevaluated_permutations, 4,
+        "one unevaluated connection per permutation"
+    );
+    assert_eq!(compiled.overlay.visuals.len(), 1);
+    assert_eq!(
+        compiled.overlay.visuals[0].kind,
+        VisualKind::Cube,
+        "unconnected states keep the base post"
     );
 }
 

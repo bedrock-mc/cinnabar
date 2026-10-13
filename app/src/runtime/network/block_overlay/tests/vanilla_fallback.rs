@@ -133,15 +133,22 @@ fn vanilla_faces_reuse_the_base_page_without_missing_textures() {
     assert_eq!(admitted.kind(), VisualKind::Cube);
 }
 
-// Without base materials the same chair keeps the old diagnostic behavior.
+// Without base materials the same chair degrades per face instead of
+// sinking the whole cube.
 #[test]
-fn vanilla_faces_without_a_base_stay_diagnostic() {
+fn vanilla_faces_without_a_base_degrade_per_face() {
     let blocks = CustomBlocks {
         blocks: vec![chair("test:chair", "oak_planks")].into(),
         ..Default::default()
     };
     let compiled = super::compile_block_overlay(&view(), &blocks, false, None).expect("overlay");
-    assert_eq!(compiled.overlay.visuals[0].kind, VisualKind::Diagnostic);
+    assert_eq!(compiled.overlay.visuals[0].kind, VisualKind::Cube);
+    assert!(
+        compiled.overlay.visuals[0]
+            .faces
+            .iter()
+            .all(|&face| face == assets::DIAGNOSTIC_MATERIAL)
+    );
     assert_eq!(compiled.gaps.missing_textures, 1);
 }
 
@@ -172,16 +179,22 @@ fn server_rasters_win_over_the_base_page() {
     assert_eq!(replacement.texture.page(), 1);
 }
 
-// Keys the base carrier never compiled keep degrading instead of borrowing.
+// Keys the base carrier never compiled degrade per face instead of borrowing.
 #[test]
-fn unknown_keys_stay_diagnostic_with_a_base() {
+fn unknown_keys_degrade_per_face_with_a_base() {
     let keys = keys();
     let blocks = CustomBlocks {
         blocks: vec![chair("test:stranger", "absent")].into(),
         ..Default::default()
     };
     let compiled = compile(&blocks, Some(&keys));
-    assert_eq!(compiled.overlay.visuals[0].kind, VisualKind::Diagnostic);
+    assert_eq!(compiled.overlay.visuals[0].kind, VisualKind::Cube);
+    assert!(
+        compiled.overlay.visuals[0]
+            .faces
+            .iter()
+            .all(|&face| face == assets::DIAGNOSTIC_MATERIAL)
+    );
     assert_eq!(compiled.gaps.missing_textures, 1);
 }
 
@@ -273,11 +286,11 @@ fn custom_fallback_rejects_redirected_catalog_routes_without_pack_pixels() {
         blocks: vec![chair("test:chair", "oak_planks")].into(),
         ..Default::default()
     };
-    for (path, expected_kind, replaces_base) in [
-        ("textures/blocks/birch_planks", VisualKind::Diagnostic, true),
-        ("textures/blocks/absent", VisualKind::Diagnostic, false),
-        ("textures/blocks/oak_planks", VisualKind::Cube, false),
-        ("textures/blocks/lucky", VisualKind::Cube, true),
+    for (path, expected_missing, replaces_base) in [
+        ("textures/blocks/birch_planks", true, true),
+        ("textures/blocks/absent", true, false),
+        ("textures/blocks/oak_planks", false, false),
+        ("textures/blocks/lucky", false, true),
     ] {
         let terrain = json!({"texture_data":{"oak_planks":{"textures":path}}});
         let view = view_with_catalog(GEOMETRY.as_bytes(), &terrain.to_string());
@@ -290,11 +303,17 @@ fn custom_fallback_rejects_redirected_catalog_routes_without_pack_pixels() {
             Some(&base),
         )
         .unwrap();
-        assert_eq!(compiled.overlay.visuals[0].kind, expected_kind, "{path}");
-        assert_eq!(
-            compiled.gaps.missing_textures,
-            u32::from(expected_kind == VisualKind::Diagnostic)
+        // Declined fallbacks still render their cube; failed faces keep the
+        // diagnostic material instead of sinking the visual.
+        assert_eq!(compiled.overlay.visuals[0].kind, VisualKind::Cube, "{path}");
+        assert!(
+            compiled.overlay.visuals[0]
+                .faces
+                .iter()
+                .all(|&face| (face == assets::DIAGNOSTIC_MATERIAL) == expected_missing),
+            "{path}"
         );
+        assert_eq!(compiled.gaps.missing_textures, u32::from(expected_missing));
         assert_eq!(
             compiled
                 .overlay
@@ -306,7 +325,7 @@ fn custom_fallback_rejects_redirected_catalog_routes_without_pack_pixels() {
         let session = base.with_block_overlay(1, &compiled.overlay).unwrap();
         assert_eq!(
             session.resolve(NetworkIdMode::Sequential, 1).kind(),
-            expected_kind
+            VisualKind::Cube
         );
         assert_eq!(session.material(2), base.material(2));
         if replaces_base {
@@ -359,18 +378,19 @@ fn custom_fallback_preserves_catalog_tint_or_stays_diagnostic() {
         )
         .unwrap();
         let matched = copied_tint == Some(tint);
-        let expected_kind = if matched {
-            VisualKind::Cube
-        } else {
-            VisualKind::Diagnostic
-        };
-        assert_eq!(compiled.overlay.visuals[0].kind, expected_kind);
+        assert_eq!(compiled.overlay.visuals[0].kind, VisualKind::Cube);
+        assert!(
+            compiled.overlay.visuals[0]
+                .faces
+                .iter()
+                .all(|&face| (face == assets::DIAGNOSTIC_MATERIAL) == !matched)
+        );
         assert_eq!(compiled.gaps.missing_textures, u32::from(!matched));
         assert_eq!(compiled.overlay.textures.first().unwrap().layers, 1);
         assert!(compiled.overlay.material_overrides.is_empty());
         let session = base.with_block_overlay(1, &compiled.overlay).unwrap();
         let block = session.resolve(NetworkIdMode::Sequential, 1);
-        assert_eq!(block.kind(), expected_kind);
+        assert_eq!(block.kind(), VisualKind::Cube);
         if matched {
             assert_eq!(
                 session

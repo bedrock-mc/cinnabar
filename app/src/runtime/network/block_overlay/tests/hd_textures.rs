@@ -215,9 +215,14 @@ fn diagnostic_layer_is_budgeted_before_refusing_only_the_excess_texture() {
     let compiled = super::super::compile_block_overlay(&view, &blocks, false, None, 2048, None)
         .expect("an excess route must not discard the admitted overlay");
     assert_eq!(compiled.gaps.missing_textures, 1);
-    assert_eq!(
-        compiled.overlay.visuals.last().unwrap().kind,
-        VisualKind::Diagnostic
+    let refused = compiled.overlay.visuals.last().unwrap();
+    assert_eq!(refused.kind, VisualKind::Cube);
+    assert!(
+        refused
+            .faces
+            .iter()
+            .all(|&face| face == assets::DIAGNOSTIC_MATERIAL),
+        "the refused route degrades per face instead of sinking its cube"
     );
     assert!(
         compiled.overlay.visuals[..50]
