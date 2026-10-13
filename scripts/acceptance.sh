@@ -320,12 +320,16 @@ wait_for_core_ready() {
     wait_for_marker "$log" 'msg="listener ready; waiting for local Rust client"' "$timeout" "$pid"
 }
 
+# An already published marker is ready even when the timeout has elapsed.
 wait_for_marker() {
     local log=$1 marker=$2 timeout=$3 pid=$4
     local deadline=$(( $(date +%s) + timeout ))
-    while (( $(date +%s) < deadline )); do
+    while :; do
         if [[ -f $log ]] && grep -Fq "$marker" "$log"; then
             return 0
+        fi
+        if (( $(date +%s) >= deadline )); then
+            break
         fi
         if ! kill -0 "$pid" 2>/dev/null; then
             die "process $pid exited before marker '$marker' (log: $log)"
