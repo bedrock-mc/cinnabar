@@ -16,6 +16,7 @@ pub(crate) mod context;
 #[cfg(target_os = "android")]
 mod direct_driver;
 mod owner;
+mod recovery;
 pub(crate) mod termination;
 
 use owner::Owner;
@@ -54,44 +55,8 @@ pub struct Recovery {
     failed: Vec<Backend>,
     #[serde(default)]
     direct_driver: Option<String>,
-}
-
-impl Recovery {
-    /// Excludes an automatic attempt's entire backend, including its failed adapter.
-    pub fn recover(&mut self, pending: &Attempt) {
-        if pending.explicit {
-            return;
-        }
-        if !self.failed.contains(&pending.backend) {
-            self.failed.push(pending.backend);
-        }
-        if self
-            .working
-            .as_ref()
-            .is_some_and(|working| working.backend == pending.backend)
-        {
-            self.working = None;
-        }
-    }
-
-    /// The sentinel exclusions are applied after automatic vendor ordering.
-    pub fn failed_backends(&self) -> &[Backend] {
-        &self.failed
-    }
-
-    /// Allows a new driver or adapter set to begin a fresh recovery cycle.
-    pub fn reset(&mut self) {
-        self.failed.clear();
-        self.working = None;
-        self.direct_driver = None;
-    }
-
-    /// Remembers a completed choice while retaining exclusions for other crashed APIs.
-    fn succeeded(&mut self, mut attempt: Attempt) {
-        attempt.stage = Stage::Ready;
-        self.failed.retain(|backend| *backend != attempt.backend);
-        self.working = Some(attempt);
-    }
+    #[serde(default)]
+    failed_adapters: Vec<(Backend, Adapter)>,
 }
 
 /// Owns the two local files used to diagnose an interrupted renderer startup.

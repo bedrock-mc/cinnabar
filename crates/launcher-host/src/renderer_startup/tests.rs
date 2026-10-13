@@ -195,6 +195,7 @@ fn a_completed_guard_cannot_overwrite_the_next_startup() {
     assert!(first.begin(attempt(Backend::Gl, false)).is_err());
     assert!(first.reset_recovery().is_err());
     assert!(first.failed().is_err());
+    assert!(first.retry_exclusions(&[Backend::Vulkan]).is_err());
     first.presented().unwrap();
     first.cancel().unwrap();
     assert_eq!(StartupGuard::pending(dir.path()).unwrap(), Some(pending));

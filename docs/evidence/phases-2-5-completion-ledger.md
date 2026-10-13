@@ -388,7 +388,9 @@ executed locally. No existing completion entry is advanced.
 
 The shared backend policy, driver blocklist, crash sentinel and restart-only Video override
 are implemented. Startup creates the renderer directly and requires base-vertex terrain draws
-and vertex storage support. Android OS/vendor driver updates invalidate recovery. Native crash
+and vertex storage support. Adapter/driver changes invalidate identified failures; exhausted
+exclusions permit one retry pass. Named GPU searches precede unnamed fallback across eligible APIs.
+Android OS/vendor driver updates also invalidate recovery. Native crash
 reports retain the running process's renderer context independently of shared recovery files.
 Window closure and handled SIGINT/SIGTERM cancel unfinished startup and termination prevents
 later sentinel writes. Panics and native faults remain recoverable. Hardware crash reproduction,

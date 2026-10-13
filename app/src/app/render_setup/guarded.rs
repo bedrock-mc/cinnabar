@@ -2,7 +2,10 @@
 
 use std::path::Path;
 
-use super::device::{backends, identity, instance, log, request_device, select_adapter};
+use super::device::{
+    backends, identity, instance, log, request_device, requested_adapter_name, search_backends,
+    select_adapter,
+};
 use anyhow::{Result, bail};
 use bevy::{
     app::OnAppExitSystems,
@@ -42,14 +45,15 @@ pub(super) fn render_plugin(
     let environment =
         std::env::var_os("WGPU_BACKEND").map(|_| backends(settings.backends.unwrap_or_default()));
     let explicit = environment.is_some() || video.is_some();
-    let mut order = candidates(
+    let allowed = candidates(
         platform.backends(),
         &supported,
         environment.as_deref(),
         video,
-        guard.recovery.failed_backends(),
+        &[],
     );
-    let select = |backend, guard: &mut StartupGuard| {
+    let requested_name = requested_adapter_name(&settings);
+    let select = |backend, name: Option<&str>, guard: &mut StartupGuard| {
         guard.begin(Attempt {
             backend,
             adapter: None,
@@ -65,68 +69,102 @@ pub(super) fn render_plugin(
             .get_resource::<bevy::winit::DisplayHandleWrapper>()
             .map(|display| Box::new(display.0.clone()) as Box<dyn wgpu::wgt::WgpuHasDisplayHandle>);
         let instance = instance(backend, &settings, display);
-        let adapter = bevy::tasks::block_on(select_adapter(&instance, &settings))?;
-        Ok::<_, anyhow::Error>((instance, adapter))
+        let adapter = bevy::tasks::block_on(select_adapter(&instance, &settings, name))?;
+        if let Some(adapter) = &adapter {
+            guard.begin(Attempt {
+                backend,
+                adapter: Some(identity(adapter)),
+                stage: Stage::EnumeratingAdapters,
+                explicit,
+            })?;
+        }
+        Ok::<_, anyhow::Error>(adapter.map(|adapter| (instance, adapter)))
     };
-    // Read the Windows adapter through DX12 before loading a potentially broken Vulkan ICD.
-    // Reuse it if selected; other platforms already have a fixed API preference.
-    let mut windows_adapter = None;
-    if !explicit && platform == Platform::Windows && order.contains(&Backend::Dx12) {
-        match select(Backend::Dx12, &mut guard) {
-            Ok((instance, adapter)) => {
-                order = candidates(
-                    &default_order(platform, &identity(&adapter)),
-                    &supported,
-                    None,
-                    None,
-                    guard.recovery.failed_backends(),
-                );
-                if order.first() == Some(&Backend::Dx12) {
-                    windows_adapter = Some((instance, adapter));
-                } else {
-                    // Drop the unused API while its own sentinel still describes native cleanup.
-                    drop((adapter, instance));
+    let mut retried = false;
+    loop {
+        let mut order = candidates(
+            &allowed,
+            &allowed,
+            environment.as_deref(),
+            video,
+            &guard.recovery.enumeration_exclusions(),
+        );
+        // Discover Windows vendor policy through DX12, using only the requested GPU in the name pass.
+        let mut windows_adapter = None;
+        if !explicit && platform == Platform::Windows && order.contains(&Backend::Dx12) {
+            let mut selected = select(Backend::Dx12, requested_name.as_deref(), &mut guard);
+            let reusable = !matches!(selected, Ok(None));
+            if !reusable {
+                guard.failed()?;
+                // Learn fallback vendor policy, but do not accept this unnamed GPU yet.
+                selected = select(Backend::Dx12, None, &mut guard);
+            }
+            match selected {
+                Ok(Some((instance, adapter))) => {
+                    let defaults = default_order(platform, &identity(&adapter));
+                    order.sort_by_key(|backend| defaults.iter().position(|api| api == backend));
+                    if reusable && order.first() == Some(&Backend::Dx12) {
+                        windows_adapter = Some((instance, adapter));
+                    } else {
+                        // Retain this API's sentinel while native cleanup runs.
+                        drop((adapter, instance));
+                        guard.failed()?;
+                    }
+                }
+                Ok(None) => guard.failed()?,
+                Err(error) => {
+                    log(format_args!(
+                        "Renderer DX12 adapter selection failed: {error:#}"
+                    ));
                     guard.failed()?;
                 }
             }
-            Err(error) => {
-                log(format_args!(
-                    "Renderer DX12 adapter selection failed: {error:#}"
-                ));
-                guard.failed()?;
-                order.retain(|backend| *backend != Backend::Dx12);
-            }
         }
-    }
-    for backend in order {
-        let selected = if backend == Backend::Dx12 {
-            windows_adapter
-                .take()
-                .map(Ok)
-                .unwrap_or_else(|| select(backend, &mut guard))
-        } else {
-            select(backend, &mut guard)
-        };
-        let result = selected.and_then(|(instance, adapter)| {
-            bevy::tasks::block_on(create_renderer(
-                backend, instance, adapter, &settings, explicit, &mut guard,
-            ))
-        });
-        match result {
-            Ok(creation) => {
-                install_guard(app, guard);
-                return Ok(RenderPlugin {
-                    render_creation: creation,
-                    ..Default::default()
-                });
+        let creation = search_backends(&order, requested_name.as_deref(), |backend, name| {
+            let selected = if backend == Backend::Dx12 {
+                windows_adapter
+                    .take()
+                    .map(|selected| Ok(Some(selected)))
+                    .unwrap_or_else(|| select(backend, name, &mut guard))
+            } else {
+                select(backend, name, &mut guard)
+            };
+            let result = selected.and_then(|selected| {
+                let Some((instance, adapter)) = selected else {
+                    return Ok(None);
+                };
+                if !explicit && guard.adapter_excluded(backend, &identity(&adapter))? {
+                    return Ok(None);
+                }
+                bevy::tasks::block_on(create_renderer(
+                    backend, instance, adapter, &settings, explicit, &mut guard,
+                ))
+                .map(Some)
+            });
+            match result {
+                Ok(Some(creation)) => Ok(Some(creation)),
+                other => {
+                    if let Err(error) = other {
+                        log(format_args!(
+                            "Renderer {backend:?} initialization failed: {error:#}"
+                        ));
+                    }
+                    guard.failed()?;
+                    Ok(None)
+                }
             }
-            Err(error) => {
-                log(format_args!(
-                    "Renderer {backend:?} initialization failed: {error:#}"
-                ));
-                guard.failed()?;
-            }
+        })?;
+        if let Some(creation) = creation {
+            install_guard(app, guard);
+            return Ok(RenderPlugin {
+                render_creation: creation,
+                ..Default::default()
+            });
         }
+        if explicit || retried || !guard.retry_exclusions(&allowed)? {
+            break;
+        }
+        retried = true;
     }
     bail!(
         "No safe supported graphics API remains. See client.log and crashes; update GPU drivers or choose an explicit Graphics API to retry."
@@ -217,79 +255,4 @@ fn mark_presented(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use bevy::{
-        prelude::{Entity, With},
-        window::{PrimaryWindow, WindowCloseRequested, WindowPlugin},
-    };
-    use render_scene::startup_presentation::StartupPresentation;
-
-    /// Builds an unfinished first frame without loading a graphics driver.
-    fn pending_attempt(backend: Backend) -> Attempt {
-        Attempt {
-            backend,
-            adapter: None,
-            stage: Stage::FirstPresentation,
-            explicit: false,
-        }
-    }
-
-    #[test]
-    fn closing_the_window_before_presentation_does_not_poison_recovery() {
-        let dir = tempfile::tempdir().unwrap();
-        for _ in 0..2 {
-            let mut guard = StartupGuard::open(dir.path()).unwrap();
-            assert!(guard.interrupted.is_none());
-            assert!(guard.recovery.failed_backends().is_empty());
-            assert!(guard.recovery.working.is_none());
-            guard.begin(pending_attempt(Backend::Vulkan)).unwrap();
-            let mut app = App::new();
-            app.add_plugins(WindowPlugin::default())
-                .init_resource::<StartupPresentation>();
-            install_guard(&mut app, guard);
-            let mut windows = app
-                .world_mut()
-                .query_filtered::<Entity, With<PrimaryWindow>>();
-            let window = windows.single(app.world()).unwrap();
-            app.world_mut()
-                .write_message(WindowCloseRequested { window });
-            test_time::eventually("window closure requests application exit", || {
-                app.update();
-                app.should_exit().is_some()
-            });
-            assert_eq!(app.should_exit(), Some(AppExit::Success));
-            assert!(StartupGuard::pending(dir.path()).unwrap().is_none());
-        }
-        let next = StartupGuard::open(dir.path()).unwrap();
-        assert!(next.interrupted.is_none());
-        assert!(next.recovery.failed_backends().is_empty());
-        assert!(next.recovery.working.is_none());
-    }
-
-    #[test]
-    fn unfinished_startup_without_an_exit_message_remains_recoverable() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut guard = StartupGuard::open(dir.path()).unwrap();
-        let pending = pending_attempt(Backend::Vulkan);
-        guard.begin(pending.clone()).unwrap();
-        let mut app = App::new();
-        app.init_resource::<StartupPresentation>();
-        install_guard(&mut app, guard);
-        app.update();
-        assert_eq!(StartupGuard::pending(dir.path()).unwrap(), Some(pending));
-        drop(app);
-        let next = StartupGuard::open(dir.path()).unwrap();
-        assert_eq!(next.recovery.failed_backends(), [Backend::Vulkan]);
-    }
-
-    #[test]
-    fn backend_mask_uses_the_policy_order() {
-        assert_eq!(
-            backends(wgpu::Backends::VULKAN | wgpu::Backends::DX12),
-            [Backend::Vulkan, Backend::Dx12]
-        );
-        assert_eq!(backends(wgpu::Backends::DX12), [Backend::Dx12]);
-        assert!(backends(wgpu::Backends::empty()).is_empty());
-    }
-}
+mod tests;

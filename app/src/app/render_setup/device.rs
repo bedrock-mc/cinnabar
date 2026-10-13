@@ -127,40 +127,68 @@ pub(super) fn instance(
     wgpu::Instance::new(descriptor)
 }
 
-/// Uses the renderer's requested power preference and any explicit adapter-name override.
+/// Reads the adapter-name preference unless software fallback was explicitly requested.
+pub(super) fn requested_adapter_name(settings: &WgpuSettings) -> Option<String> {
+    std::env::var("WGPU_ADAPTER_NAME")
+        .ok()
+        .or_else(|| settings.adapter_name.clone())
+        .filter(|_| !force_fallback(settings))
+}
+
+/// Preserves the environment override for software-adapter selection.
+fn force_fallback(settings: &WgpuSettings) -> bool {
+    std::env::var("WGPU_FORCE_FALLBACK_ADAPTER").map_or(settings.force_fallback_adapter, |value| {
+        !(value.is_empty() || value == "0" || value == "false")
+    })
+}
+
+/// Searches all allowed APIs for a requested name before starting any unnamed fallback.
+pub(super) fn search_backends<T>(
+    order: &[Backend],
+    requested_name: Option<&str>,
+    mut select: impl FnMut(Backend, Option<&str>) -> Result<Option<T>>,
+) -> Result<Option<T>> {
+    for name in requested_name
+        .into_iter()
+        .map(Some)
+        .chain(std::iter::once(None))
+    {
+        for backend in order {
+            if let Some(selected) = select(*backend, name)? {
+                return Ok(Some(selected));
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// Selects only the named adapter during the name pass; the later fallback uses power preference.
 pub(super) async fn select_adapter(
     instance: &wgpu::Instance,
     settings: &WgpuSettings,
-) -> Result<wgpu::Adapter> {
-    let desired_name = std::env::var("WGPU_ADAPTER_NAME")
-        .ok()
-        .or_else(|| settings.adapter_name.clone());
-    let force_fallback = std::env::var("WGPU_FORCE_FALLBACK_ADAPTER")
-        .map_or(settings.force_fallback_adapter, |value| {
-            !(value.is_empty() || value == "0" || value == "false")
-        });
-    if let Some(name) = desired_name.filter(|_| !force_fallback) {
+    name: Option<&str>,
+) -> Result<Option<wgpu::Adapter>> {
+    if let Some(name) = name {
         let adapters = instance
             .enumerate_adapters(wgpu::Instance::enabled_backend_features())
             .await;
-        if let Some(adapter) = adapters.into_iter().find(|adapter| {
+        return Ok(adapters.into_iter().find(|adapter| {
             adapter
                 .get_info()
                 .name
                 .to_lowercase()
                 .contains(&name.to_lowercase())
-        }) {
-            return Ok(adapter);
-        }
+        }));
     }
     instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: settings.power_preference,
-            force_fallback_adapter: force_fallback,
+            force_fallback_adapter: force_fallback(settings),
             compatible_surface: None,
             apply_limit_buckets: false,
         })
         .await
+        .map(Some)
         .context("select high-performance renderer adapter")
 }
 
@@ -206,31 +234,4 @@ fn validate_capabilities(flags: wgpu::DownlevelFlags, storage_buffers: u32) -> R
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn adapters_must_support_terrain_base_vertex_and_storage() {
-        let storage = wgpu::DownlevelFlags::VERTEX_STORAGE;
-        let base_vertex = wgpu::DownlevelFlags::BASE_VERTEX;
-        let required = render::required_vertex_storage_buffers();
-        assert!(validate_capabilities(storage, required).is_err());
-        assert!(validate_capabilities(base_vertex, required).is_err());
-        assert!(validate_capabilities(storage | base_vertex, required - 1).is_err());
-        assert!(validate_capabilities(storage | base_vertex, required).is_ok());
-    }
-
-    #[test]
-    fn configured_storage_limits_cover_the_renderer_without_lowering_existing_limits() {
-        let required = render::required_vertex_storage_buffers();
-        for initial in [0, required, required + 1] {
-            let mut settings = WgpuSettings::default();
-            settings.limits.max_storage_buffers_per_shader_stage = initial;
-            configure_render_settings(&mut settings);
-            assert_eq!(
-                settings.limits.max_storage_buffers_per_shader_stage,
-                initial.max(required)
-            );
-        }
-    }
-}
+mod tests;

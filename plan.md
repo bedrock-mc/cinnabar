@@ -407,8 +407,10 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   exclusions. The Video control is hidden on macOS. A lone supported API remains retryable.
 - Startup creates the renderer directly. All backends must support terrain base-vertex draws
   and the required vertex-stage storage buffers. Returned initialization errors remain retryable;
-  successful fallback retains exclusions for crashed APIs. Android recovery is keyed to the OS,
-  vendor image and graphics-driver build so an update permits previously failed APIs again.
+  successful fallback retains exclusions for crashed APIs. Identified failures are keyed to the
+  adapter and driver; changed hardware or drivers permit another attempt. If exclusions exhaust
+  the allowed APIs, startup clears them for one retry pass. Named-adapter selection searches every
+  eligible API before unnamed fallback. Android OS/vendor build changes also reset recovery.
 - The driver blocklist has one data source and bounded numeric version rules. Native Windows
   exception capture and Unix fatal-signal capture retain local renderer context and normal OS
   crash handling.
