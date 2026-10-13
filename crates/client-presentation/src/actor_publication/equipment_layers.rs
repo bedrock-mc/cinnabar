@@ -1,29 +1,26 @@
 //! Equipment publication keeps authored worn poses beneath the selected player body.
 
 use super::*;
+use crate::presentation::actors::ActorPresentationBatch;
 use crate::presentation::equipment::remote_input;
-use crate::presentation::{actors::ActorPresentationBatch, equipment::ActorEquipmentInput};
 
 /// Adds held and worn layers before cape artwork can replace a worn wing texture.
 pub(super) fn attach(
     batch: &mut ActorPresentationBatch,
     equipment: &mut EquipmentRuntime,
     stream: &WorldStream,
-    local_runtime_id: u64,
-    input: &ActorEquipmentInput,
-    java_posed: &[java::Posed],
-    combat_visuals: render_api::CombatVisuals,
+    poses: &super::layers::LayerPoses<'_>,
     frame: (f32, f32, Option<&render_scene::UiGlintSettings>),
 ) {
     let (partial_tick, delta_seconds, glint_settings) = frame;
     crate::presentation::actors::attach_layers(batch, equipment, |equipment, body| {
         let runtime_id = body.input.identity.runtime_id;
-        let mut input = if runtime_id == local_runtime_id {
-            local_equipment(stream, runtime_id, input)
+        let mut input = if runtime_id == poses.local_runtime_id {
+            local_equipment(stream, runtime_id, poses.local_equipment)
         } else {
             remote_input(stream, runtime_id)
         };
-        if java::posed(java_posed, runtime_id).is_some() {
+        if java::posed(poses.java_posed, runtime_id).is_some() {
             let using = stream
                 .authority()
                 .actor(runtime_id)
@@ -37,7 +34,7 @@ pub(super) fn attach(
         let layers = equipment.layers_for_profile(
             body,
             &input,
-            combat_visuals,
+            poses.combat_visuals,
             animation.as_ref().map(|(owner, rig)| {
                 crate::presentation::equipment::EquipmentAnimation {
                     owner,
