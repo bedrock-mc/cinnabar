@@ -8,6 +8,7 @@ use std::{
 
 use serde::Deserialize;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -421,6 +422,19 @@ fn committed_data_identifiers_belong_to_their_pinned_vocabularies() {
     assert_eq!(exceptions.schema, 1);
     let errors = failures(&vocabulary, &references(&root), &exceptions.entries);
     assert!(errors.is_empty(), "{}", errors.join("\n"));
+}
+
+#[test]
+fn pack_vocabulary_has_the_pinned_projection_fingerprint() {
+    assert_eq!(
+        format!(
+            "{:x}",
+            Sha256::digest(include_bytes!(
+                "../../data/vanilla-pack-vocabulary-1.26.50.tsv"
+            ))
+        ),
+        "0ff03cd80e7098ffc11ee0a443a94c2162155c2026f9c37ced615d5111c14d30"
+    );
 }
 
 #[test]
