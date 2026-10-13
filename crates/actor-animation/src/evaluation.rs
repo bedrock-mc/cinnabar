@@ -553,6 +553,8 @@ impl VariableLayout {
 #[derive(Clone, Copy)]
 pub(super) struct Evaluator<'a> {
     pub(super) assets: &'a RuntimeEntityAssets,
+    /// Session-pack animations keep their authored attack channels in every pose pass.
+    pub(super) pack: bool,
     pub(super) layout: &'a VariableLayout,
     pub(super) program: Option<&'a assets::MolangProgram>,
     pub(super) actor: &'a dyn AnimatedActor,

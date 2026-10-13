@@ -412,6 +412,7 @@ pub(super) fn evaluate_state(
     let motion = state.motion;
     let evaluator = Evaluator {
         assets,
+        pack: state.pack,
         layout,
         program: None,
         actor,
