@@ -600,7 +600,11 @@ fn centered_outline_title_retains_cap_size_and_gui_pixel_inset() {
         for gui in [2, 3] {
             for dpi in [1.0, 1.5] {
                 let metrics =
-                    TextMetrics::for_viewport([1280, 720], DpiScale::new(dpi).unwrap(), Some(gui));
+                    TextMetrics::for_viewport([1920, 1080], DpiScale::new(dpi).unwrap(), Some(gui));
+                assert_eq!(
+                    metrics.gui_scale, gui as f32,
+                    "exercise the requested GUI scale"
+                );
                 let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
                 let json = serde_json::json!({
                     "namespace": "fixture",
