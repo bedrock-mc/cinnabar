@@ -77,9 +77,9 @@ mod prediction;
 mod publication;
 #[cfg(feature = "publication-test-support")]
 mod publication_test_support;
+mod request_admission;
 mod request_queue;
 mod requests;
-mod request_admission;
 mod residency;
 mod resource_reload;
 pub use resource_reload::ResourceMeshSnapshot;

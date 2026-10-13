@@ -973,7 +973,6 @@ mod actor_light;
 mod audio_events;
 #[path = "tests/camera_events.rs"]
 mod camera_events;
-mod request_admission;
 mod cases_01;
 mod cases_02;
 mod cases_03;
@@ -997,6 +996,7 @@ mod lenient_decode;
 mod local_abilities;
 mod prediction;
 mod render_distance;
+mod request_admission;
 mod service;
 mod streaming_harness;
 mod sub_chunk_recovery;
