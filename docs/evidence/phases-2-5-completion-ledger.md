@@ -392,9 +392,11 @@ ranked by power preference, device type and vendor backend order, with unclassif
 ahead of software. Device failures advance through all candidates;
 named GPU selection restricts every API. Exclusions are keyed only by backend and reset on a
 client version change or Graphics API selection, including choosing Auto again. Exhausted candidates permit one retry
-pass with exclusions cleared. Startup log boundaries synchronize only the file sink. Every device requires base-vertex terrain draws and vertex
-storage support. Native crash
-reports retain the running process's renderer context independently of shared recovery files.
+pass with exclusions cleared. Startup log boundaries synchronize only the file sink.
+Candidate filtering requires base-vertex terrain draws, vertex and fragment storage, alternate
+texture views, non-power-of-two mipmaps, sample-rate shading, unaligned buffer bindings and
+sufficient storage limits. Native crash reports retain the running process's renderer context
+independently of shared recovery files.
 Window closure and handled SIGINT/SIGTERM cancel unfinished startup and termination prevents
 later sentinel writes. Panics and native faults remain recoverable. Hardware crash reproduction,
 GL/GLES presentation and rendered Video acceptance remain incomplete as recorded in `plan.md`.

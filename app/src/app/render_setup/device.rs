@@ -141,15 +141,11 @@ pub(super) fn force_fallback(settings: &WgpuSettings) -> bool {
     })
 }
 
-/// Opens a device only when it supports the renderer's terrain and storage requirements.
+/// Opens a device for a candidate that already passed renderer capability checks.
 pub(super) async fn request_device(
     adapter: &wgpu::Adapter,
     settings: &WgpuSettings,
 ) -> Result<(wgpu::Device, wgpu::Queue)> {
-    validate_capabilities(
-        adapter.get_downlevel_capabilities().flags,
-        adapter.limits().max_storage_buffers_per_shader_stage,
-    )?;
     let (features, limits) = device_requirements(adapter, settings);
     adapter
         .request_device(&wgpu::DeviceDescriptor {
@@ -165,18 +161,42 @@ pub(super) async fn request_device(
         .context("create renderer device")
 }
 
-/// Rejects adapters that would accept startup but silently omit terrain draws.
-fn validate_capabilities(flags: wgpu::DownlevelFlags, storage_buffers: u32) -> Result<()> {
+/// Capabilities needed by terrain draws, texture views, material reads and MSAA shadows.
+const REQUIRED_DOWNLEVEL_FLAGS: wgpu::DownlevelFlags = wgpu::DownlevelFlags::BASE_VERTEX
+    .union(wgpu::DownlevelFlags::VERTEX_STORAGE)
+    .union(wgpu::DownlevelFlags::FRAGMENT_STORAGE)
+    .union(wgpu::DownlevelFlags::BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED)
+    .union(wgpu::DownlevelFlags::VIEW_FORMATS)
+    .union(wgpu::DownlevelFlags::NON_POWER_OF_TWO_MIPMAPPED_TEXTURES)
+    .union(wgpu::DownlevelFlags::MULTISAMPLED_SHADING);
+
+/// A candidate's capability snapshot, independent of native device creation.
+pub(super) struct AdapterCapabilities {
+    flags: wgpu::DownlevelFlags,
+    limits: wgpu::Limits,
+}
+
+impl From<&wgpu::Adapter> for AdapterCapabilities {
+    /// Reads the capabilities without opening a device.
+    fn from(adapter: &wgpu::Adapter) -> Self {
+        Self {
+            flags: adapter.get_downlevel_capabilities().flags,
+            limits: adapter.limits(),
+        }
+    }
+}
+
+/// Rejects candidates lacking the capabilities or limits used by the renderer.
+pub(super) fn meets_requirements(adapter: impl Into<AdapterCapabilities>) -> Result<()> {
+    let adapter = adapter.into();
+    let missing = REQUIRED_DOWNLEVEL_FLAGS - adapter.flags;
     anyhow::ensure!(
-        flags.contains(wgpu::DownlevelFlags::BASE_VERTEX),
-        "GPU lacks BASE_VERTEX required by the terrain renderer"
+        missing.is_empty(),
+        "GPU lacks renderer capabilities: {missing:?}"
     );
     anyhow::ensure!(
-        flags.contains(wgpu::DownlevelFlags::VERTEX_STORAGE),
-        "GPU lacks vertex-stage storage buffers required by the renderer"
-    );
-    anyhow::ensure!(
-        storage_buffers >= render::required_vertex_storage_buffers(),
+        adapter.limits.max_storage_buffers_per_shader_stage
+            >= render::required_vertex_storage_buffers(),
         "GPU has too few vertex-stage storage buffers for the renderer"
     );
     Ok(())

@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use super::device::{
-    backends, flags, force_fallback, identity, instance, log, request_device,
+    backends, flags, force_fallback, identity, instance, log, meets_requirements, request_device,
     requested_adapter_name,
 };
 use super::selection::{Candidate, eligible, probe_backend, rank, try_candidates, with_recovery};
@@ -83,6 +83,13 @@ pub(super) fn render_plugin(
                 let instance = instance(backend, &settings, display);
                 let mut found = Vec::new();
                 for adapter in bevy::tasks::block_on(instance.enumerate_adapters(flags(backend))) {
+                    if let Err(error) = meets_requirements(&adapter) {
+                        log(format_args!(
+                            "Renderer skipping incompatible adapter {:?}: {error:#}",
+                            adapter.get_info()
+                        ));
+                        continue;
+                    }
                     let candidate = Candidate {
                         backend,
                         identity: identity(&adapter),
