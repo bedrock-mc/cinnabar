@@ -104,7 +104,7 @@ fn covered_pixel(device: &RenderDevice, queue: &RenderQueue, range: Range<f32>) 
     let cache = &mut *world.resource_mut::<PipelineCache>();
     cache.set_shader(
         handle.id(),
-        Shader::from_wgsl(
+        crate::shader_safety::from_wgsl(
             r#"
 @vertex fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
     let uv = vec2(f32((index << 1u) & 2u), f32(index & 2u));
