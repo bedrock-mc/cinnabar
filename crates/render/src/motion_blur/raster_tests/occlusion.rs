@@ -6,6 +6,7 @@ pub(super) struct Coverage {
     pub sample_mask: u64,
     pub occluder: Option<UVec4>,
     pub occluder_mask: u64,
+    pub depth_slope: f32,
 }
 
 impl Raster {
@@ -126,6 +127,7 @@ fn swept_actor_exposure_preserves_nearer_occluders_and_background_colour() {
                 sample_mask: !0,
                 occluder: Some(occluder),
                 occluder_mask: !0,
+                depth_slope: 0.0,
             },
         );
         for y in 40..88 {
@@ -204,6 +206,7 @@ fn mixed_msaa_actor_sources_do_not_spread_stationary_occluder_colour() {
                     sample_mask: mask,
                     occluder: nearer.then_some(bounds),
                     occluder_mask: !mask,
+                    depth_slope: 0.0,
                 },
             )
         };
@@ -255,6 +258,7 @@ fn world_camera_blur_is_independent_of_distant_stationary_actor_availability() {
                     sample_mask: !0,
                     occluder: Some(terrain),
                     occluder_mask: !0,
+                    depth_slope: 0.0,
                 },
             )
         };

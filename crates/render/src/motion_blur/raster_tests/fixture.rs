@@ -112,6 +112,7 @@ impl Raster {
                 sample_mask,
                 occluder: None,
                 occluder_mask: !0,
+                depth_slope: 0.0,
             },
         )
     }
@@ -120,15 +121,63 @@ impl Raster {
     pub(super) fn draw_with_coverage(
         &self,
         input: &[u8],
-        mut exposure: ExposureUniform,
+        exposure: ExposureUniform,
         samples: u32,
         z: f32,
         motion: Option<ActorMotion>,
         coverage: Coverage,
     ) -> Vec<u8> {
+        self.draw_with_fragment(input, exposure, samples, z, motion, coverage, "fragment")
+    }
+
+    /// Reads coverage and depth from the same attachments used by the production fragment.
+    pub(super) fn probe_coverage(
+        &self,
+        input: &[u8],
+        exposure: ExposureUniform,
+        samples: u32,
+        z: f32,
+        motion: Option<ActorMotion>,
+        coverage: Coverage,
+    ) -> Vec<u8> {
+        self.draw_with_fragment(
+            input,
+            exposure,
+            samples,
+            z,
+            motion,
+            coverage,
+            "coverage_probe",
+        )
+    }
+
+    /// Selects exposure or attachment diagnostics without changing fixture geometry or bindings.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "fixture selects geometry, coverage and fragment"
+    )]
+    fn draw_with_fragment(
+        &self,
+        input: &[u8],
+        mut exposure: ExposureUniform,
+        samples: u32,
+        z: f32,
+        motion: Option<ActorMotion>,
+        coverage: Coverage,
+        fragment: &str,
+    ) -> Vec<u8> {
         exposure.strength.z = if motion.is_some() { 1.0 } else { 0.0 };
-        let source =
+        let mut source =
             super::super::shader_source(include_str!("../../motion_blur.wgsl"), samples > 1);
+        source.push_str(r#"
+@fragment fn coverage_probe(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    let pixel = vec2<i32>(position.xy);
+    let bindings = textureLoad(scene, pixel, 0).a
+        + textureSampleLevel(scene, scene_sampler, position.xy / vec2<f32>(textureDimensions(scene)), 0.0).a
+        + textureLoad(motion_tiles, vec2<i32>(0), 0).x + exposure.strength.x;
+    return vec4<f32>(scene_depth(pixel), actor_depth(pixel) * 10.0, object_motion(pixel).w, bindings);
+}
+"#);
         let shader = self
             .gpu
             .device
@@ -150,7 +199,7 @@ impl Raster {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
-                    entry_point: Some("fragment"),
+                    entry_point: Some(fragment),
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: COLOR,
@@ -279,6 +328,7 @@ impl Raster {
             motion,
             coverage.sample_mask,
             z,
+            coverage.depth_slope,
         );
         if let Some(bounds) = coverage.occluder {
             self.draw_occluder(
@@ -457,6 +507,7 @@ impl Raster {
         motion: Option<ActorMotion>,
         sample_mask: u64,
         z: f32,
+        depth_slope: f32,
     ) {
         let resources = motion.map(|motion| {
             let source = format!(
@@ -467,11 +518,12 @@ impl Raster {
 }}
 @group(0) @binding(0) var<uniform> velocity: vec4<f32>;
 struct Motion {{ @location(0) velocity: vec4<f32>, @builtin(frag_depth) depth: f32 }}
-@fragment fn motion_fragment() -> Motion {{
-    return Motion(velocity, {depth});
+@fragment fn motion_fragment(@builtin(position) position: vec4<f32>) -> Motion {{
+    return Motion(velocity, {depth} + (position.x - {centre}) * {depth_slope});
 }}
 "#,
-                depth = motion.depth.unwrap_or(z)
+                depth = motion.depth.unwrap_or(z),
+                centre = SIDE as f32 * 0.5,
             );
             let shader = self
                 .gpu
