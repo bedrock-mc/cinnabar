@@ -20,6 +20,8 @@ pub const FLOWER: u32 = 4;
 pub const LEAVES: u32 = 5;
 pub const SLAB: u32 = 6;
 pub const TORCH: u32 = 7;
+/// A floating 8×8 cube, whose top and bottom together are half a block.
+pub const NUB: u32 = 8;
 
 pub const SAND_RGB: [u8; 3] = [200, 180, 100];
 pub const LEAF_RGB: [u8; 3] = [60, 160, 60];
@@ -83,11 +85,16 @@ fn textures() -> TextureArray {
 }
 
 fn model_quad(positions: [[i16; 3]; 4]) -> assets::ModelQuad {
+    faced_quad(positions, 0)
+}
+
+/// `face` is 1..=6 for down/up/west/east/north/south.
+fn faced_quad(positions: [[i16; 3]; 4], face: u32) -> assets::ModelQuad {
     assets::ModelQuad {
         positions,
         uvs: [[0; 2]; 4],
         material: 2,
-        flags: 0,
+        flags: face,
     }
 }
 
@@ -126,7 +133,9 @@ pub fn runtime_assets() -> RuntimeAssets {
     slab.model_template = 1;
     let mut torch = slab;
     torch.model_template = 2;
-    visuals.extend([slab, torch]);
+    let mut nub = slab;
+    nub.model_template = 3;
+    visuals.extend([slab, torch, nub]);
     let mut materials = vec![
         Material::unvaried(),
         material(0, MATERIAL_FLAG_GRASS_TINT),
@@ -144,13 +153,13 @@ pub fn runtime_assets() -> RuntimeAssets {
             .collect(),
         visuals: visuals.into_boxed_slice(),
         materials: materials.into_boxed_slice(),
-        model_templates: Box::new([(0, 1), (1, 2), (3, 1)].map(|(quad_start, quad_count)| {
-            assets::ModelTemplate {
+        model_templates: Box::new([(0, 1), (1, 2), (3, 1), (4, 2)].map(
+            |(quad_start, quad_count)| assets::ModelTemplate {
                 quad_start,
                 quad_count,
                 flags: 0,
-            }
-        })),
+            },
+        )),
         model_quads: Box::new([
             // A cross plane, a half slab's top and bottom, and a torch's small cap.
             model_quad([[0, 0, 0], [256, 0, 256], [256, 256, 256], [0, 256, 0]]),
@@ -162,6 +171,19 @@ pub fn runtime_assets() -> RuntimeAssets {
                 [144, 160, 144],
                 [144, 160, 112],
             ]),
+            faced_quad(
+                [
+                    [64, 192, 64],
+                    [64, 192, 192],
+                    [192, 192, 192],
+                    [192, 192, 64],
+                ],
+                2,
+            ),
+            faced_quad(
+                [[64, 64, 64], [192, 64, 64], [192, 64, 192], [64, 64, 192]],
+                1,
+            ),
         ]),
         animations: Box::new([]),
         animation_frames: Box::new([]),
@@ -205,6 +227,7 @@ pub fn tints() -> ResolvedBiomeTints {
 pub fn context() -> SurfaceContext {
     let assets = Arc::new(runtime_assets());
     SurfaceContext {
+        air: AIR,
         colours: Arc::new(SurfaceColours::new(&assets)),
         assets,
         mode: NetworkIdMode::Sequential,

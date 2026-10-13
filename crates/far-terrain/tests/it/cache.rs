@@ -1,8 +1,8 @@
 use std::time::{Duration, Instant};
 
 use far_terrain::{
-    ColumnPos, ColumnSummary, FarTerrainCache, FarTerrainConfig, SurfaceCell,
-    config::{REGION_FLUSH_AFTER, WORLD_PROBE_COLUMNS},
+    ColumnPos, ColumnSummary, FarTerrainCache, FarTerrainConfig, SummaryStore, SurfaceCell,
+    config::{REGION_FLUSH_AFTER, WORLD_PROBE_COLUMNS, WORLD_PROBE_TIMEOUT},
 };
 
 const SERVER: &str = "remote:play.example.net:19132";
@@ -191,4 +191,140 @@ fn a_stale_resolution_is_ignored_after_reentering() {
     cache.sync();
     cache.poll(now);
     assert_eq!(cache.namespace(), None);
+}
+
+/// A cache whose memory holds about two flat columns, so a third admission evicts.
+fn two_column_cache(root: &std::path::Path) -> FarTerrainCache {
+    let mut probe = SummaryStore::new(usize::MAX);
+    probe.admit(ColumnPos::new(0, 0), &flat(64));
+    let config = FarTerrainConfig {
+        memory_budget_bytes: probe.bytes() * 5 / 2,
+        ..FarTerrainConfig::default()
+    };
+    FarTerrainCache::new(config, Some(root.to_owned()))
+}
+
+/// Writes `height` for `pos` to disk in an earlier visit.
+fn store_on_disk(root: &std::path::Path, pos: ColumnPos, height: i16, now: Instant) {
+    let mut earlier = cache(root);
+    join(&mut earlier, 64, now);
+    earlier.admit(0, pos, flat(height).encode(), now);
+    leave(&mut earlier);
+}
+
+/// Evicts `pos` from memory by admitting newer columns elsewhere.
+fn evict(cache: &mut FarTerrainCache, pos: ColumnPos, now: Instant) {
+    for x in 0..3 {
+        cache.admit(0, ColumnPos::new(-100 - x, 0), flat(50).encode(), now);
+    }
+    assert!(!cache.store().contains(pos));
+}
+
+/// A newer column evicted from memory before it is written is not replaced by an older read.
+#[test]
+fn waiting_writes_win_over_disk_reads() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let pos = ColumnPos::new(300, 0);
+    store_on_disk(root.path(), pos, 70, now);
+
+    let mut cache = two_column_cache(root.path());
+    join(&mut cache, 64, now);
+    cache.admit(0, pos, flat(90).encode(), now);
+    evict(&mut cache, pos, now);
+    assert_eq!(reload(&mut cache, pos, now), Some(flat(90)));
+}
+
+/// A read served before a newer column was handed to the disk is read again.
+#[test]
+fn a_read_served_before_a_write_is_read_again() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let pos = ColumnPos::new(300, 0);
+    store_on_disk(root.path(), pos, 70, now);
+
+    let mut cache = two_column_cache(root.path());
+    join(&mut cache, 64, now);
+    cache.admit(0, pos, flat(90).encode(), now);
+    evict(&mut cache, pos, now);
+    cache.set_focus(pos, 4);
+    cache.sync();
+    cache.flush_all();
+    cache.poll(now);
+    assert!(!cache.store().contains(pos), "the older read is not shown");
+    cache.sync();
+    cache.poll(now);
+    assert_eq!(
+        cache.store().summary(pos).map(Result::unwrap),
+        Some(flat(90))
+    );
+}
+
+/// A world with too few non-empty columns to probe still shows and persists them.
+#[test]
+fn a_sparse_world_resolves_after_the_probe_timeout() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let mut cache = cache(root.path());
+    cache.enter_world(SERVER, 42, 0);
+    let pos = ColumnPos::new(7, 7);
+    cache.admit(0, pos, flat(64).encode(), now);
+    assert!(
+        cache.store().contains(pos),
+        "shown before the namespace resolves"
+    );
+    cache.sync();
+    cache.poll(now);
+    assert_eq!(cache.namespace(), None);
+
+    let later = now + WORLD_PROBE_TIMEOUT;
+    cache.poll(later);
+    cache.sync();
+    cache.poll(later);
+    let namespace = cache.namespace().expect("resolved after the timeout");
+    leave(&mut cache);
+    let region_dir = root
+        .path()
+        .join(namespace.server.to_string())
+        .join(namespace.directory());
+    assert!(region_dir.exists(), "the sparse world was written");
+}
+
+/// A quick reconnect's columns are not overwritten by the previous session's late summaries.
+#[test]
+fn a_retiring_session_never_overwrites_a_later_visit() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let pos = ColumnPos::new(300, 0);
+    let mut cache = cache(root.path());
+    join(&mut cache, 64, now);
+    let old = cache.retire_session().unwrap();
+    leave(&mut cache);
+
+    join(&mut cache, 64, now);
+    cache.admit(0, pos, flat(90).encode(), now);
+    cache.persist(
+        old,
+        [
+            (pos, flat(70).encode()),
+            (ColumnPos::new(301, 0), flat(71).encode()),
+        ],
+        now,
+    );
+    assert_eq!(
+        cache.store().summary(pos).map(Result::unwrap),
+        Some(flat(90))
+    );
+    assert_eq!(
+        cache
+            .store()
+            .summary(ColumnPos::new(301, 0))
+            .map(Result::unwrap),
+        Some(flat(71)),
+        "columns the new visit has not written are shown"
+    );
+    leave(&mut cache);
+
+    join(&mut cache, 64, now);
+    assert_eq!(reload(&mut cache, pos, now), Some(flat(90)));
 }

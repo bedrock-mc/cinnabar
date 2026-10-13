@@ -1,16 +1,19 @@
 //! Moves column summaries from the world stream into the far-terrain cache, keeps the cache
 //! on the server, world and dimension being played, and publishes the tiles to draw.
 
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
-use bevy::prelude::{Local, Res, ResMut, Resource};
+use bevy::prelude::{AppExit, Local, MessageReader, Res, ResMut, Resource};
 use chunk_pipeline::{FarColumnSummary, FarSummaryInbox, WorldStream};
 use client_state::RuntimeSettings;
 use far_terrain::{
-    ColumnPos, EncodedSummary, FarTerrainCache, FarTerrainConfig, FarTiles, NamespaceKey, NearMask,
-    TileView,
-    config::{DeviceTier, far_reach_chunks},
+    ColumnPos, EncodedSummary, FarTerrainCache, FarTerrainConfig, FarTiles, NearMask,
+    RetiringSession, TileView,
 };
+use render_api::far_terrain::{DeviceTier, far_reach_chunks};
 use render_scene::FarTerrainScene;
 
 use crate::{runtime::world::ClientWorld, session::SessionController};
@@ -22,14 +25,18 @@ pub(crate) struct FarTerrain {
     tiles: FarTiles,
     drained: Vec<FarColumnSummary>,
     near: Arc<NearMask>,
-    near_view: Option<([i32; 2], i32)>,
+    /// Centre column and drawn-set revision the mask was built for.
+    near_view: Option<([i32; 2], u64)>,
     published: Option<u64>,
     retiring: Vec<Retiring>,
 }
 
+/// Longest an exit waits for retiring sessions' final summaries.
+const EXIT_SUMMARY_WAIT: Duration = Duration::from_secs(1);
+
 /// A retired session's final summaries, written to its namespace once all have arrived.
 struct Retiring {
-    namespace: NamespaceKey,
+    session: RetiringSession,
     inbox: FarSummaryInbox,
     columns: Vec<(ColumnPos, EncodedSummary)>,
 }
@@ -51,15 +58,14 @@ impl FarTerrain {
     /// Summarises the stream's resident columns before it is dropped, so this session's
     /// edits reach the cache even though no column retires through eviction.
     pub(crate) fn retire_stream(&mut self, stream: &mut WorldStream) {
-        let Some(namespace) = self
-            .cache
-            .namespace()
-            .filter(|_| stream.far_terrain_enabled())
-        else {
+        if !stream.far_terrain_enabled() {
+            return;
+        }
+        let Some(session) = self.cache.retire_session() else {
             return;
         };
         self.retiring.push(Retiring {
-            namespace,
+            session,
             inbox: stream.retire_far_terrain(),
             columns: Vec::new(),
         });
@@ -67,11 +73,19 @@ impl FarTerrain {
 
     /// Collects retiring summaries and persists each session's once its inbox is empty.
     fn drain_retiring(&mut self, now: Instant) {
+        self.drain_retiring_until(now, None);
+    }
+
+    /// Like [`Self::drain_retiring`], blocking until `deadline` for summaries in flight.
+    fn drain_retiring_until(&mut self, now: Instant, deadline: Option<Instant>) {
         let mut index = 0;
         while index < self.retiring.len() {
             let retiring = &mut self.retiring[index];
-            retiring.inbox.drain(&mut self.drained);
-            let dimension = retiring.namespace.dimension;
+            match deadline {
+                Some(deadline) => retiring.inbox.drain_waiting(&mut self.drained, deadline),
+                None => retiring.inbox.drain(&mut self.drained),
+            }
+            let dimension = retiring.session.dimension();
             retiring.columns.extend(
                 self.drained
                     .drain(..)
@@ -81,15 +95,32 @@ impl FarTerrain {
                         (ColumnPos::new(column.x, column.z), finished.summary)
                     }),
             );
-            if retiring.inbox.is_idle() {
-                let done = self.retiring.swap_remove(index);
-                self.cache.persist(done.namespace, done.columns, now);
-            } else {
+            let expired = deadline.is_some_and(|deadline| Instant::now() >= deadline);
+            if retiring.inbox.is_idle() || expired {
+                let done = self.retiring.remove(index);
+                self.cache.persist(done.session, done.columns, now);
+            } else if deadline.is_none() {
                 index += 1;
             }
         }
     }
+
+    /// Summarises the live session and writes every retiring session's summaries, waiting
+    /// at most [`EXIT_SUMMARY_WAIT`], since the app ends before another frame drains them.
+    fn finish(&mut self, stream: Option<&mut WorldStream>) {
+        if let Some(stream) = stream {
+            self.retire_stream(stream);
+        }
+        let now = Instant::now();
+        self.drain_retiring_until(now, Some(now + EXIT_SUMMARY_WAIT));
+        self.cache.flush_all();
+        self.cache.sync();
+    }
 }
+
+/// Far tiles kept built this far inside the drawn disc, so a column leaving near terrain is
+/// already covered.
+const SKIP_MARGIN_BLOCKS: f32 = 4.0 * 16.0;
 
 /// The world the cache was last pointed at, so unchanged frames skip the identity hash.
 #[derive(Default)]
@@ -195,25 +226,41 @@ pub(crate) fn feed_far_terrain(
         loaded.max(0) as u32,
         tier,
     ) as i32;
-    let near_chunks = loaded + ::world::CHUNK_VIEW_SLACK + 1;
-    let horizon_chunks = loaded + reach;
+    // Far terrain hides under exactly the columns near terrain has drawn.
+    let (drawn_revision, _) = stream.near_drawn_columns();
+    let near_view = ([centre.x, centre.z], drawn_revision);
+    let near_changed = far.near_view != Some(near_view);
+    if near_changed {
+        let drawn = stream
+            .near_drawn_columns()
+            .1
+            .filter(|column| column.dimension == centre.dimension)
+            .map(|column| ColumnPos::new(column.x, column.z));
+        far.near = Arc::new(NearMask::from_columns(near_view.0, drawn));
+        far.near_view = Some(near_view);
+    }
+    let horizon_blocks = ((loaded + reach) * 16) as f32;
     far.cache
-        .set_focus(ColumnPos::new(centre.x, centre.z), horizon_chunks);
+        .set_focus(ColumnPos::new(centre.x, centre.z), loaded + reach);
     far.cache.poll(now);
     let changed = far.cache.store().take_changed();
     far.tiles.mark_changed(&changed);
+    // Only finest tiles, which hide per column, reach anywhere near terrain may draw; tiles
+    // wholly inside the drawn disc, short of a margin kept ready for columns leaving it, are
+    // left out.
+    let retained = stream.retained_view_radius().unwrap_or(loaded).max(loaded);
+    let near_blocks = far
+        .near
+        .outer_blocks()
+        .max(((retained + ::world::CHUNK_VIEW_SLACK + 1) * 16) as f32);
     far.tiles.set_view(TileView {
         centre: [centre.x as f32 * 16.0 + 8.0, centre.z as f32 * 16.0 + 8.0],
-        near_blocks: (near_chunks * 16) as f32,
-        far_blocks: ((horizon_chunks - near_chunks).max(0) * 16) as f32,
+        near_blocks,
+        skip_blocks: (far.near.inner_blocks() - SKIP_MARGIN_BLOCKS).max(0.0),
+        far_blocks: (horizon_blocks - near_blocks).max(0.0),
     });
+    far.tiles.release_near(&far.near);
     far.tiles.update(far.cache.store(), now);
-    let near_view = ([centre.x, centre.z], loaded);
-    let near_changed = far.near_view != Some(near_view);
-    if near_changed {
-        far.near = Arc::new(NearMask::retained(near_view.0, loaded));
-        far.near_view = Some(near_view);
-    }
     let revision = far.tiles.revision();
     if near_changed || far.published != Some(revision) {
         *scene = FarTerrainScene {
@@ -221,5 +268,83 @@ pub(crate) fn feed_far_terrain(
             near: Arc::clone(&far.near),
         };
         far.published = Some(revision);
+    }
+}
+
+/// Writes far-terrain summaries still in flight when the app exits.
+pub(crate) fn finish_far_terrain_on_exit(
+    mut exits: MessageReader<AppExit>,
+    far: Option<ResMut<FarTerrain>>,
+    world: Option<ResMut<ClientWorld>>,
+) {
+    if exits.read().next().is_none() {
+        return;
+    }
+    let Some(mut far) = far else {
+        return;
+    };
+    let mut world = world;
+    let stream = world.as_mut().and_then(|world| world.stream.as_mut());
+    far.finish(stream);
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::prelude::{App, Last};
+    use far_terrain::{ColumnSummary, SurfaceCell, config::WORLD_PROBE_COLUMNS};
+
+    use super::*;
+
+    const SERVER: &str = "remote:play.example.net:19132";
+
+    fn flat(height: i16) -> EncodedSummary {
+        let mut summary = ColumnSummary::default();
+        summary.cells_mut().fill(SurfaceCell {
+            height,
+            rgb: [90, 140, 60],
+            water_depth: 0,
+        });
+        summary.encode()
+    }
+
+    fn join(cache: &mut FarTerrainCache, now: Instant) {
+        cache.enter_world(SERVER, 42, 0);
+        for x in 0..WORLD_PROBE_COLUMNS as i32 {
+            cache.admit(0, ColumnPos::new(x, 0), flat(64), now);
+        }
+        cache.sync();
+        cache.poll(now);
+        assert!(cache.namespace().is_some());
+    }
+
+    /// Summaries a retiring session collected reach disk when the app exits that frame.
+    #[test]
+    fn exit_writes_retiring_summaries() {
+        let root = tempfile::tempdir().unwrap();
+        let now = Instant::now();
+        let mut far = FarTerrain::new(Some(root.path().to_owned()));
+        join(&mut far.cache, now);
+        let session = far.cache.retire_session().unwrap();
+        far.retiring.push(Retiring {
+            session,
+            inbox: FarSummaryInbox::default(),
+            columns: vec![(ColumnPos::new(300, 0), flat(90))],
+        });
+        far.cache.leave_world();
+        let mut app = App::new();
+        app.add_message::<AppExit>();
+        app.insert_resource(far)
+            .add_systems(Last, finish_far_terrain_on_exit);
+        app.world_mut().write_message(AppExit::Success);
+        app.update();
+
+        let mut reader =
+            FarTerrainCache::new(FarTerrainConfig::default(), Some(root.path().into()));
+        join(&mut reader, now);
+        reader.set_focus(ColumnPos::new(300, 0), 4);
+        reader.sync();
+        reader.poll(now);
+        let stored = reader.store().encoded(ColumnPos::new(300, 0)).cloned();
+        assert_eq!(stored.map(|summary| summary.hash), Some(flat(90).hash));
     }
 }

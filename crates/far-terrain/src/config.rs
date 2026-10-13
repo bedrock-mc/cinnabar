@@ -27,6 +27,10 @@ pub const WORLD_PROBE_EPOCHS: usize = 3;
 /// Columns held while the world's cache namespace is being resolved.
 pub const MAX_UNRESOLVED_COLUMNS: usize = 4096;
 
+/// A world that has not shown enough non-empty columns to probe by now resolves with the
+/// probes it has, so sparse worlds are still persisted.
+pub const WORLD_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// Cells along one side of every far-terrain tile, at any level.
 pub const TILE_CELLS: usize = 64;
 
@@ -36,9 +40,6 @@ pub const LEVEL_COUNT: u8 = 5;
 /// A tile splits into four finer ones while it is closer to the near-terrain edge than this
 /// many of its own widths.
 pub const LEVEL_SPLIT_DISTANCE: f32 = 1.0;
-
-/// The setting default and the reach policy, kept where the settings crates may read them.
-pub use render_api::far_terrain::{DEFAULT_ENABLED, DeviceTier, far_reach_chunks};
 
 /// Blocks tile-edge skirts reach below a tile's lowest surface, hiding cracks between levels.
 pub const SKIRT_DEPTH_BLOCKS: i16 = 16;

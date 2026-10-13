@@ -110,3 +110,55 @@ fn disabled_far_terrain_summarises_nothing() {
     assert!(summaries.is_empty());
     assert!(stream.far_terrain.pending.is_empty());
 }
+
+/// A mass eviction is summarised a bounded number of columns per poll, not all at once.
+#[test]
+fn retiring_columns_are_admitted_a_bounded_batch_per_poll() {
+    let mut stream = stream(true);
+    stream.far_terrain.retiring.extend((0..100).map(|x| {
+        (
+            ChunkKey::new(0, x, 0),
+            far_terrain::ColumnSnapshot::new(Arc::default(), Vec::new()),
+        )
+    }));
+    stream.dispatch_far_summaries();
+    let left = stream.far_terrain.retiring.len();
+    assert!((84..100).contains(&left), "{left} retiring columns left");
+    let summaries = drain_until(&mut stream, 100);
+    assert_eq!(summaries.len(), 100);
+}
+
+/// Turning far terrain on summarises columns that loaded while it was off.
+#[test]
+fn enabling_far_terrain_summarises_resident_columns() {
+    let mut stream = stream(false);
+    stream
+        .submit(1, inline_block_entity_event(1, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    stream.set_far_terrain_enabled(true);
+    let summaries = drain_until(&mut stream, 1);
+    assert_eq!(summaries[0].column, ChunkKey::new(0, 1, 0));
+}
+
+/// A deadline-bounded drain blocks for issued work instead of returning empty.
+#[test]
+fn draining_with_a_deadline_waits_for_issued_summaries() {
+    let mut stream = stream(true);
+    stream
+        .submit(1, inline_block_entity_event(1, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    let _ = drain_until(&mut stream, 1);
+    let mut inbox = stream.retire_far_terrain();
+    let mut summaries = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    for _ in 0..64 {
+        if inbox.is_idle() {
+            break;
+        }
+        inbox.drain_waiting(&mut summaries, deadline);
+    }
+    assert!(inbox.is_idle());
+    assert_eq!(summaries.len(), 1);
+}

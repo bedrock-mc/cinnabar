@@ -11,8 +11,13 @@ use super::*;
 
 /// Columns summarised by one decode-lane job.
 const COLUMNS_PER_JOB: usize = 8;
-/// Summary jobs started per poll, so summaries never crowd out terrain decode.
+/// Summary jobs started per poll while no terrain waits to decode.
 const JOBS_PER_POLL: usize = 2;
+/// Summary jobs started per poll while terrain decode is queued, so arriving terrain stays
+/// ahead of summaries without starving them during long flights.
+const JOBS_PER_BUSY_POLL: usize = 1;
+/// Summary jobs on the workers at once.
+const MAX_JOBS_IN_FLIGHT: usize = 4;
 
 /// The encoded surface summary of one column, keyed with its dimension; workers encode it
 /// so the owner thread only compares hashes.
@@ -72,21 +77,37 @@ impl FarSummaryInbox {
 
     /// Appends the newest summary of each column finished since the last call.
     pub fn drain(&mut self, out: &mut Vec<FarColumnSummary>) {
-        for finished in self.rx.try_iter() {
-            let Some(issued) = self.issued.get_mut(&finished.column) else {
-                continue;
-            };
-            issued.in_flight -= 1;
-            let current = issued.latest == finished.generation;
-            if issued.in_flight == 0 {
-                self.issued.remove(&finished.column);
-            }
-            if current {
-                out.push(FarColumnSummary {
-                    column: finished.column,
-                    summary: finished.summary,
-                });
-            }
+        while let Ok(finished) = self.rx.try_recv() {
+            self.accept(finished, out);
+        }
+    }
+
+    /// Like [`Self::drain`], first blocking until `deadline` for one summary while work is
+    /// issued and none has finished.
+    pub fn drain_waiting(&mut self, out: &mut Vec<FarColumnSummary>, deadline: Instant) {
+        if self.rx.is_empty()
+            && !self.is_idle()
+            && let Ok(finished) = self.rx.recv_deadline(deadline)
+        {
+            self.accept(finished, out);
+        }
+        self.drain(out);
+    }
+
+    fn accept(&mut self, finished: Finished, out: &mut Vec<FarColumnSummary>) {
+        let Some(issued) = self.issued.get_mut(&finished.column) else {
+            return;
+        };
+        issued.in_flight -= 1;
+        let current = issued.latest == finished.generation;
+        if issued.in_flight == 0 {
+            self.issued.remove(&finished.column);
+        }
+        if current {
+            out.push(FarColumnSummary {
+                column: finished.column,
+                summary: finished.summary,
+            });
         }
     }
 
@@ -109,6 +130,9 @@ pub(super) struct FarTerrainFeed {
     colours: Option<(Arc<RuntimeAssets>, SharedColours)>,
     pub(super) pending: VecDeque<ChunkKey>,
     queued: HashSet<ChunkKey>,
+    /// Columns that left residency, with the blocks they held, awaiting a summary job.
+    pub(super) retiring: VecDeque<(ChunkKey, ColumnSnapshot)>,
+    jobs_in_flight: Arc<AtomicUsize>,
     inbox: FarSummaryInbox,
 }
 
@@ -119,6 +143,8 @@ impl Default for FarTerrainFeed {
             colours: None,
             pending: VecDeque::new(),
             queued: HashSet::new(),
+            retiring: VecDeque::new(),
+            jobs_in_flight: Arc::default(),
             inbox: FarSummaryInbox::default(),
         }
     }
@@ -127,11 +153,19 @@ impl Default for FarTerrainFeed {
 impl WorldStream {
     /// Starts or stops summarising columns for far terrain; off drops queued work.
     pub fn set_far_terrain_enabled(&mut self, enabled: bool) {
+        let was_enabled = self.far_terrain.enabled;
         let feed = &mut self.far_terrain;
         feed.enabled = enabled;
         if !enabled {
             feed.pending.clear();
             feed.queued.clear();
+            feed.retiring.clear();
+        } else if !was_enabled {
+            // Columns already resident were never summarised while off.
+            let columns: Vec<ChunkKey> = self.loaded_columns.iter().copied().collect();
+            for column in columns {
+                self.note_far_column_complete(column);
+            }
         }
     }
 
@@ -174,12 +208,14 @@ impl WorldStream {
     pub fn retire_far_terrain(&mut self) -> FarSummaryInbox {
         if self.far_terrain.enabled {
             let columns = self.loaded_columns.clone();
-            let snapshots = self.far_retiring_snapshots(&columns);
+            let mut snapshots: Vec<_> = self.far_terrain.retiring.drain(..).collect();
+            snapshots.extend(self.far_retiring_snapshots(&columns));
             self.spawn_far_summaries(snapshots);
         }
         self.far_terrain.enabled = false;
         self.far_terrain.pending.clear();
         self.far_terrain.queued.clear();
+        self.far_terrain.retiring.clear();
         std::mem::take(&mut self.far_terrain.inbox)
     }
 
@@ -191,10 +227,26 @@ impl WorldStream {
         }
     }
 
-    /// Starts a bounded number of summary jobs for queued complete columns.
+    /// Starts a bounded number of summary jobs, retiring columns first; terrain still waiting
+    /// to decode keeps priority on the shared lane.
     pub(super) fn dispatch_far_summaries(&mut self) {
-        for _ in 0..JOBS_PER_POLL {
+        let decoding = !self.pending_decode.is_empty() || self.in_flight_decode_jobs > 0;
+        let jobs = if decoding {
+            JOBS_PER_BUSY_POLL
+        } else {
+            JOBS_PER_POLL
+        };
+        for _ in 0..jobs {
+            if self.far_terrain.jobs_in_flight.load(Ordering::Acquire) >= MAX_JOBS_IN_FLIGHT {
+                return;
+            }
             let mut batch = Vec::with_capacity(COLUMNS_PER_JOB);
+            while batch.len() < COLUMNS_PER_JOB {
+                let Some(retiring) = self.far_terrain.retiring.pop_front() else {
+                    break;
+                };
+                batch.push(retiring);
+            }
             while batch.len() < COLUMNS_PER_JOB {
                 let Some(column) = self.far_terrain.pending.pop_front() else {
                     break;
@@ -245,6 +297,8 @@ impl WorldStream {
                 .map(|(column, _)| self.far_terrain.inbox.issue(*column))
                 .collect();
             let tx = self.far_terrain.inbox.tx.clone();
+            let in_flight = Arc::clone(&self.far_terrain.jobs_in_flight);
+            in_flight.fetch_add(1, Ordering::AcqRel);
             workers::WORKERS.spawn(workers::Lane::Decode, move || {
                 #[cfg(feature = "tracy")]
                 let _zone = tracing::info_span!("far_terrain.summarise").entered();
@@ -258,9 +312,10 @@ impl WorldStream {
                         summary,
                     };
                     if tx.send(finished).is_err() {
-                        return;
+                        break;
                     }
                 }
+                in_flight.fetch_sub(1, Ordering::AcqRel);
             });
         }
     }
@@ -281,6 +336,7 @@ impl WorldStream {
                 let ids = self.decode_ids(column.dimension);
                 PendingContext {
                     colours: Arc::clone(&colours),
+                    air: ids.air,
                     assets: ids.assets,
                     mode: ids.mode,
                     tints: ids.biome_tints,
@@ -294,6 +350,7 @@ impl WorldStream {
 /// Registries captured on the owner thread; colours resolve on the worker.
 struct PendingContext {
     colours: SharedColours,
+    air: u32,
     assets: Arc<RuntimeAssets>,
     mode: NetworkIdMode,
     tints: Arc<ResolvedBiomeTints>,
@@ -307,6 +364,7 @@ impl PendingContext {
                 .get_or_init(|| Arc::new(SurfaceColours::new(&self.assets))),
         );
         SurfaceContext {
+            air: self.air,
             assets: self.assets,
             mode: self.mode,
             colours,
