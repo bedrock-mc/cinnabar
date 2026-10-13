@@ -6,7 +6,7 @@ use super::ActorStore;
 pub(super) const KEY_SEAT_OFFSET: u32 = 56;
 const KEY_SEAT_LOCK_DEGREES: u32 = 58;
 const KEY_SEAT_ROTATION_DEGREES: u32 = 60;
-const KEY_BED_POSITION: u32 = 28;
+pub(super) const KEY_BED_POSITION: u32 = 28;
 
 pub(crate) const FLAG_BABY: u32 = 11;
 
@@ -207,18 +207,12 @@ impl ActorStore {
             .collect()
     }
 
-    /// Bed block under every sleeping actor: the streamed bed position, else the block it lies in.
+    /// The streamed bed block of every sleeping actor; sleepers without a bed position are skipped.
     pub(crate) fn bed_sample_points(&self) -> Vec<(u64, [i32; 3])> {
         self.actors
             .values()
             .filter(|actor| actor.is_sleeping())
-            .map(|actor| {
-                let block = match actor.metadata.get(&KEY_BED_POSITION) {
-                    Some(ActorMetadataValue::BlockPosition(block)) => *block,
-                    _ => actor.position.map(|axis| axis.floor() as i32),
-                };
-                (actor.runtime_id, block)
-            })
+            .filter_map(|actor| Some((actor.runtime_id, actor.bed_position()?)))
             .collect()
     }
 
@@ -605,5 +599,27 @@ mod compiled_seat_tests {
         };
         assert_eq!(compiled_seat(&admission, 1, 0), None);
         assert_eq!(compiled_seat(&EntitySeatAdmission::Unresolved, 1, 0), None);
+    }
+}
+
+impl super::ActorSnapshot {
+    /// The bed block the server streams for this actor.
+    #[must_use]
+    pub fn bed_position(&self) -> Option<[i32; 3]> {
+        match self.metadata.get(&KEY_BED_POSITION) {
+            Some(ActorMetadataValue::BlockPosition(block)) => Some(*block),
+            _ => None,
+        }
+    }
+
+    /// The bed this actor sleeps in and its sampled sleep rotation in degrees, while sleeping. A
+    /// bed not yet sampled (unloaded) reads 0 degrees, as the native rotation does for a
+    /// position holding no bed.
+    #[must_use]
+    pub fn sleeping_bed(&self) -> Option<([i32; 3], f32)> {
+        self.is_sleeping()
+            .then(|| self.bed_position())
+            .flatten()
+            .map(|bed| (bed, self.status.sleep_rotation.unwrap_or(0.0)))
     }
 }

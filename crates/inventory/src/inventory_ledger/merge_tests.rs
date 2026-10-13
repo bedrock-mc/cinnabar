@@ -13,6 +13,8 @@ use super::*;
 
 mod blocks;
 
+/// A registry entry: DataDriven when `component_based` and Legacy otherwise, with the
+/// `negotiated` stack size declared through `item_properties`.
 fn entry(
     network_id: i32,
     identifier: &str,
@@ -24,8 +26,18 @@ fn entry(
         identifier: Arc::from(identifier),
         network_id,
         component_based,
-        version: ItemRegistryVersion::DataDriven,
-        components: None,
+        version: if component_based {
+            ItemRegistryVersion::DataDriven
+        } else {
+            ItemRegistryVersion::Legacy
+        },
+        components: negotiated.map(|size| {
+            Arc::new(protocol::ItemComponents {
+                max_stack_size: Some(size),
+                item_properties_declared: true,
+                ..protocol::ItemComponents::default()
+            })
+        }),
         component_digest: [network_id as u8; 32],
         negotiated_max_stack_size: negotiated,
         canonical_empty_component_data: canonical_empty,
@@ -307,7 +319,63 @@ fn exact_capacity_one_sixteen_and_sixty_four_rules_are_used() {
 }
 
 #[test]
-fn unsupported_stack_shapes_never_guess_a_merge_rule() {
+fn unparsed_stack_size_data_cannot_enable_oversized_merges() {
+    let registry = protocol::test_support::items::component_item_registry("test:gem", 6, 1, 40);
+    let entry = &registry.entries[0];
+    assert!(entry.components.is_none());
+    assert!(!entry.canonical_empty_component_data);
+
+    let target = stack(6, 60, 1);
+    let cursor = stack(6, 33, 1);
+    let mut ledger = player_ledger(Some(registry), target.clone(), cursor.clone());
+    assert_eq!(
+        ledger.begin_click(0),
+        Err(InventoryGestureError::InvalidRequest)
+    );
+    assert_eq!(ledger.displayed_stack(0), Some(&target));
+    assert_eq!(ledger.cursor_stack(), Some(&cursor));
+    assert_eq!(ledger.pending_request_count(), 0);
+}
+
+/// A wire-admitted root with duplicate component compounds and a hidden size-one declaration.
+fn duplicate_component_registry() -> ItemRegistryEvent {
+    let mut bytes = vec![10, 0, 10];
+    bytes.push(u8::try_from("components".len()).unwrap());
+    bytes.extend_from_slice(b"components");
+    bytes.push(0);
+    bytes.push(10);
+    bytes.push(u8::try_from("components".len()).unwrap());
+    bytes.extend_from_slice(b"components");
+    bytes.push(10);
+    bytes.push(u8::try_from("item_properties".len()).unwrap());
+    bytes.extend_from_slice(b"item_properties");
+    bytes.push(3);
+    bytes.push(u8::try_from("max_stack_size".len()).unwrap());
+    bytes.extend_from_slice(b"max_stack_size");
+    bytes.extend_from_slice(&[2, 0, 0, 0]);
+    protocol::test_support::items::component_item_registry_payload("test:gem", 6, bytes)
+}
+
+#[test]
+fn duplicate_component_ancestors_cannot_enable_oversized_merges() {
+    let registry = duplicate_component_registry();
+    let entry = &registry.entries[0];
+    assert!(entry.components.as_ref().unwrap().stack_capacity_ambiguous);
+    assert!(entry.negotiated_max_stack_size.is_none());
+    let target = stack(6, 60, 1);
+    let cursor = stack(6, 33, 1);
+    let mut ledger = player_ledger(Some(registry), target.clone(), cursor.clone());
+    assert_eq!(
+        ledger.begin_click(0),
+        Err(InventoryGestureError::InvalidRequest)
+    );
+    assert_eq!(ledger.displayed_stack(0), Some(&target));
+    assert_eq!(ledger.cursor_stack(), Some(&cursor));
+    assert_eq!(ledger.pending_request_count(), 0);
+}
+
+#[test]
+fn unsupported_stack_shapes_never_guess_a_merge_rule_and_registry_shapes_bind_natively() {
     let cases = [
         (None, stack(6, 60, 60), stack(6, 33, 3)),
         (Some(apple_registry()), stack(7, 60, 60), stack(7, 33, 3)),
@@ -330,16 +398,11 @@ fn unsupported_stack_shapes_never_guess_a_merge_rule() {
         assert!(ledger.newest_request().is_none());
     }
 
-    let unsupported_component = registry(vec![entry(6, "minecraft:apple", None, true, true)]);
-    let mut ledger = player_ledger(
-        Some(unsupported_component),
-        stack(6, 60, 60),
-        stack(6, 33, 3),
-    );
-    assert_eq!(
-        ledger.begin_click(0),
-        Err(InventoryGestureError::InvalidRequest)
-    );
+    // An empty component item and an unknown item version keep the item default, as the
+    // native registry does.
+    let empty_component = registry(vec![entry(6, "minecraft:apple", None, true, true)]);
+    let mut ledger = player_ledger(Some(empty_component), stack(6, 60, 60), stack(6, 33, 3));
+    assert_eq!(ledger.begin_click(0), Ok(-3));
 
     let mut unknown_version_entry = entry(6, "minecraft:apple", Some(64), true, false);
     unknown_version_entry.version = ItemRegistryVersion::Unknown(99);
@@ -348,10 +411,7 @@ fn unsupported_stack_shapes_never_guess_a_merge_rule() {
         stack(6, 60, 60),
         stack(6, 33, 3),
     );
-    assert_eq!(
-        unknown_version.begin_click(0),
-        Err(InventoryGestureError::InvalidRequest)
-    );
+    assert_eq!(unknown_version.begin_click(0), Ok(-3));
 
     let mut meaningful_overlay =
         player_ledger(Some(apple_registry()), stack(6, 60, 60), stack(6, 33, 3));

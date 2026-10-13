@@ -7,7 +7,7 @@ use assets::{CompiledFontCatalog, GlyphMetrics};
 use super::{
     FIXED_POINT_DENOMINATOR, GlyphQuad, MAX_GLYPHS_PER_LAYOUT, MAX_WRAP_LINES,
     REPLACEMENT_CODEPOINT, TEXT_BOLD_OFFSET_64, TextError, TextLayout, TextLayoutKey,
-    TextLayoutRequest, TextLineAlign, TextStyle, WordChop, invisible,
+    TextLayoutRequest, TextLineAlign, TextStyle, WordChop, invisible, line_metrics::LineMetrics,
     parse::parse_bedrock_text_with_style, units::Units,
 };
 
@@ -37,20 +37,11 @@ pub(super) fn build_layout(
         });
     }
     let scale_1024 = i64::from(key.scale_1024);
-    let units = Units::select(
-        scale_1024,
-        request.wrap.device_scale_65536,
-        request.font.line_metrics().is_some(),
-    );
-    let line_height_64 = units.texels(i64::from(request.line_height_64))?;
-    let line_padding_64 = units.output_to_layout(i64::from(request.wrap.line_padding_64))?;
+    let metrics = LineMetrics::new(request)?;
     let mut lines = Lines {
         request,
         scale_1024,
-        units,
-        line_height_64,
-        pitch_64: (line_height_64 + line_padding_64).max(1),
-        baseline_64: units.texels(i64::from(request.baseline_64))?,
+        metrics,
         glyphs: Vec::with_capacity(glyph_count),
         marks: Vec::with_capacity(glyph_count),
         widths: Vec::new(),
@@ -165,10 +156,7 @@ struct LineCandidate {
 struct Lines<'a> {
     request: TextLayoutRequest<'a>,
     scale_1024: i64,
-    units: Units,
-    line_height_64: i64,
-    pitch_64: i64,
-    baseline_64: i64,
+    metrics: LineMetrics,
     glyphs: Vec<GlyphQuad>,
     marks: Vec<Mark>,
     /// Finished lines' widths, for alignment.
@@ -201,7 +189,7 @@ impl Lines<'_> {
             (Some(primary), Some(fallback)) => Units::Output {
                 scale_1024: self.scale_1024 * i64::from(primary.em_64) / i64::from(fallback.em_64),
             },
-            _ => self.units,
+            _ => self.metrics.units,
         };
         let bold_offset_64 = if style.bold {
             i64::from(TEXT_BOLD_OFFSET_64)
@@ -210,11 +198,12 @@ impl Lines<'_> {
         };
         let advance_64 = units.texels(i64::from(metrics.advance_64))?;
         let advance_64 = if advance_64 > 0 {
-            advance_64 + self.units.texels(bold_offset_64)?
+            advance_64 + self.metrics.units.texels(bold_offset_64)?
         } else {
             advance_64
         };
         let letter_spacing_64 = self
+            .metrics
             .units
             .output_to_layout(i64::from(self.request.wrap.letter_spacing_64))?;
         Ok(Glyph {
@@ -225,7 +214,7 @@ impl Lines<'_> {
             advance_64: advance_64
                 .checked_add(letter_spacing_64)
                 .ok_or(TextError::FixedPointOverflow)?,
-            bold_offset_64: self.units.texels(bold_offset_64)?,
+            bold_offset_64: self.metrics.units.texels(bold_offset_64)?,
             units,
             linear_sampling: source.linear_sampling(),
             rendering: source.rendering(),
@@ -243,15 +232,15 @@ impl Lines<'_> {
         };
         let x_64 = self
             .x_64
-            .checked_add(self.units.texels(i64::from(pair))?)
+            .checked_add(self.metrics.units.texels(i64::from(pair))?)
             .ok_or(TextError::FixedPointOverflow)?;
         let bounds_64 = glyph_bounds(
             glyph.metrics,
             glyph.draw_size_64,
             x_64,
             self.line,
-            self.pitch_64,
-            self.baseline_64,
+            self.metrics.pitch_64,
+            self.metrics.baseline_64,
             glyph.units,
         )?;
         let pen_end_64 = x_64
@@ -278,7 +267,8 @@ impl Lines<'_> {
     /// `candidate`'s line width in output 1/64 pixels, as the request's wrap width is given.
     fn output_width(&self, candidate: &LineCandidate) -> Result<u64, TextError> {
         let width = i64::try_from(candidate.width_64).map_err(|_| TextError::FixedPointOverflow)?;
-        u64::try_from(self.units.to_output(width)?).map_err(|_| TextError::FixedPointOverflow)
+        u64::try_from(self.metrics.units.to_output(width)?)
+            .map_err(|_| TextError::FixedPointOverflow)
     }
 
     /// Whether `candidate`'s line is wider than the request's wrap width.
@@ -434,7 +424,7 @@ impl Lines<'_> {
             TextLineAlign::Center => 1,
             TextLineAlign::Right => 2,
         };
-        let units = self.units;
+        let units = self.metrics.units;
         let mut maximum_width_64 = 0i64;
         let offsets = self
             .widths
@@ -463,9 +453,7 @@ impl Lines<'_> {
             ];
         }
         let count = i64::try_from(line_count).map_err(|_| TextError::FixedPointOverflow)?;
-        let nominal_height_64 = units.to_output(
-            count * self.line_height_64 + (count - 1) * (self.pitch_64 - self.line_height_64),
-        )?;
+        let nominal_height_64 = self.metrics.block_height_64(count)?;
         let height_64 = normalize_vertical_bounds(&mut self.glyphs, nominal_height_64)?;
         Ok(TextLayout {
             id,

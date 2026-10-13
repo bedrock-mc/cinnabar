@@ -4,8 +4,7 @@ use std::sync::Arc;
 
 use protocol::{
     CONTAINER_NAME_LEVEL_ENTITY, ContainerIdentity, ContainerOpenEvent, InventoryContentEvent,
-    InventoryEvent, ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, NetworkItemStack,
-    StackRequestAction, StackRequestContainer,
+    InventoryEvent, NetworkItemStack, StackRequestAction, StackRequestContainer,
 };
 
 use super::*;
@@ -35,24 +34,17 @@ fn open_ledger(slots: &[(usize, NetworkItemStack)]) -> PlayerInventoryLedger {
     ledger
 }
 
+/// Establishes server-backed player slots and a parsed apple capacity declaration.
 fn known_ledger(slots: &[(usize, NetworkItemStack)]) -> PlayerInventoryLedger {
     let mut ledger = PlayerInventoryLedger::default();
     ledger.begin_session(1);
     ledger.apply(&InventoryEvent::Authority(InventoryAuthority::Server));
-    ledger.apply_registry(&ItemRegistryEvent {
-        entries: vec![ItemRegistryEntry {
-            identifier: Arc::from("minecraft:apple"),
-            network_id: 6,
-            component_based: true,
-            version: ItemRegistryVersion::DataDriven,
-            components: None,
-            component_digest: [6; 32],
-            negotiated_max_stack_size: Some(64),
-            canonical_empty_component_data: false,
-            item_tags: std::sync::Arc::from([]),
-        }]
-        .into(),
-    });
+    ledger.apply_registry(&protocol::test_support::items::component_item_registry(
+        "minecraft:apple",
+        6,
+        protocol::ITEM_DEFAULT_MAX_STACK_SIZE,
+        0,
+    ));
     let mut content = vec![NetworkItemStack::default(); PLAYER_INVENTORY_SLOT_COUNT];
     for (slot, stack) in slots {
         content[*slot] = stack.clone();
