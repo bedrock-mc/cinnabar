@@ -14,6 +14,7 @@ pub mod lifecycle;
 pub mod local_worlds;
 pub mod native_dialog;
 pub mod remote_images;
+pub mod renderer_startup;
 pub mod server_trust;
 pub mod servers;
 pub mod session_cleanup;

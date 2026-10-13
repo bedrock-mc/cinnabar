@@ -1,4 +1,9 @@
-//! Local crash capture: a panic hook records a report on disk for debugging; nothing is uploaded.
+//! Local panic and native crash reports; nothing is uploaded.
+
+#[cfg(windows)]
+mod native;
+#[cfg(any(windows, test))]
+mod native_address;
 
 use std::{
     backtrace::Backtrace,
@@ -10,6 +15,7 @@ use std::{
 
 use serde::Serialize;
 
+use crate::renderer_startup::{Attempt, StartupGuard};
 use launcher::install_layout::InstallLayout;
 
 const LOG_TAIL_BYTES: u64 = 16 * 1024;
@@ -24,15 +30,19 @@ struct Report<'a> {
     release: &'a str,
     os: &'a str,
     arch: &'a str,
+    renderer: Option<Attempt>,
 }
 
 /// Records a report and flushes the caller's logs before the previous panic hook runs.
 pub fn install_panic_hook(layout: &InstallLayout, flush_logs: fn()) {
     let crash_dir = layout.crash_dir();
     let core_log = layout.log_dir().join("core.log");
+    let data_root = layout.user_data_root.clone();
+    #[cfg(windows)]
+    native::install(layout, flush_logs);
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        write_report(&crash_dir, &core_log, &info.to_string());
+        write_report(&crash_dir, &core_log, &data_root, &info.to_string());
         // Queued log lines precede the panic message.
         flush_logs();
         previous(info);
@@ -52,7 +62,7 @@ fn prune(crash_dir: &Path, keep: usize) {
     }
 }
 
-fn write_report(crash_dir: &Path, core_log: &Path, message: &str) {
+fn write_report(crash_dir: &Path, core_log: &Path, data_root: &Path, message: &str) {
     let report = Report {
         source: "client",
         message: message.to_owned(),
@@ -61,6 +71,7 @@ fn write_report(crash_dir: &Path, core_log: &Path, message: &str) {
         release: env!("CARGO_PKG_VERSION"),
         os: std::env::consts::OS,
         arch: std::env::consts::ARCH,
+        renderer: renderer_context(data_root),
     };
     let Ok(bytes) = serde_json::to_vec(&report) else {
         return;
@@ -69,6 +80,15 @@ fn write_report(crash_dir: &Path, core_log: &Path, message: &str) {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_millis());
     write_at(crash_dir, millis, &bytes);
+}
+
+/// Includes the interrupted operation, or the last working GPU after startup succeeds.
+fn renderer_context(data_root: &Path) -> Option<Attempt> {
+    StartupGuard::pending(data_root).ok().flatten().or_else(|| {
+        StartupGuard::saved(data_root)
+            .ok()
+            .and_then(|saved| saved.working)
+    })
 }
 
 /// Writes one report at its timestamp without losing a simultaneous report.
@@ -152,7 +172,7 @@ mod tests {
         let dir = scratch("report");
         let log = dir.join("core.log");
         fs::write(&log, "old\nrecent line").unwrap();
-        write_report(&dir.join("crashes"), &log, "boom");
+        write_report(&dir.join("crashes"), &log, &dir, "boom");
         let file = reports(&dir.join("crashes")).remove(0);
         let value: serde_json::Value = serde_json::from_slice(&fs::read(file).unwrap()).unwrap();
         for key in [
@@ -163,6 +183,7 @@ mod tests {
             "release",
             "os",
             "arch",
+            "renderer",
         ] {
             assert!(value.get(key).is_some(), "missing {key}");
         }

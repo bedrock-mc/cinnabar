@@ -610,6 +610,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let local_player_skin =
         client_shell::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
     let screenshots_dir = layout.screenshots_dir();
+    let renderer_data_root = layout.user_data_root.clone();
     let menu = MenuRuntime::new_with_layout(
         !connection_requested,
         args.gui_scale,
@@ -686,12 +687,13 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let primary_window = crate::developer_control::primary_window(primary_window);
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
+    let renderer = render_plugin(&mut app, &renderer_data_root)?;
     let plugins = DefaultPlugins
         .set(WindowPlugin {
             primary_window: Some(primary_window),
             ..default()
         })
-        .set(render_plugin())
+        .set(renderer)
         .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
         // The world camera installs only the opt-in depth-based spatial filter.
         .disable::<AntiAliasPlugin>()

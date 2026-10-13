@@ -1,12 +1,16 @@
 //! Renderer setup shared by direct and launcher sessions.
 
-use std::{ffi::OsStr, num::NonZeroU32};
+#[cfg(not(windows))]
+use std::ffi::OsStr;
+use std::num::NonZeroU32;
 
+#[cfg(any(windows, test))]
+mod guarded;
+
+#[cfg(not(windows))]
+use bevy::render::settings::{Backends, RenderCreation};
 use bevy::{
-    render::{
-        RenderPlugin,
-        settings::{Backends, RenderCreation, WgpuSettings},
-    },
+    render::{RenderPlugin, settings::WgpuSettings},
     window::{PresentMode, Window, WindowResizeConstraints},
 };
 
@@ -29,26 +33,27 @@ pub(super) fn primary_window(
     }
 }
 
-pub(super) fn render_plugin() -> RenderPlugin {
+/// Configures the renderer and installs Windows startup recovery before GPU initialization.
+pub(super) fn render_plugin(
+    app: &mut bevy::prelude::App,
+    data_root: &std::path::Path,
+) -> anyhow::Result<RenderPlugin> {
     let mut settings = WgpuSettings::default();
     configure_render_settings(&mut settings);
-    if let Some(backends) = preferred_render_backends(std::env::var_os("WGPU_BACKEND").as_deref()) {
-        settings.backends = Some(backends);
-    }
     #[cfg(windows)]
+    return guarded::render_plugin(app, data_root, settings);
+    #[cfg(not(windows))]
     {
-        static LOG_COMPILER: std::sync::Once = std::sync::Once::new();
-        // Renderer settings are selected before the log plugin is installed.
-        LOG_COMPILER.call_once(|| {
-            eprintln!(
-                "Configured DX12 shader compiler: {:?}",
-                settings.dx12_shader_compiler
-            );
-        });
-    }
-    RenderPlugin {
-        render_creation: RenderCreation::Automatic(Box::new(settings)),
-        ..Default::default()
+        let _ = (app, data_root);
+        if let Some(backends) =
+            preferred_render_backends(std::env::var_os("WGPU_BACKEND").as_deref())
+        {
+            settings.backends = Some(backends);
+        }
+        Ok(RenderPlugin {
+            render_creation: RenderCreation::Automatic(Box::new(settings)),
+            ..Default::default()
+        })
     }
 }
 
@@ -62,14 +67,11 @@ fn configure_render_settings(settings: &mut WgpuSettings) {
         .max(render::required_vertex_storage_buffers());
 }
 
-/// Preserves explicit backend choices; otherwise Windows admits Vulkan before DX12 and Android
-/// admits only Vulkan.
-/// Vulkan uses count-driven GPU culling, with DX12 available as a fallback.
+/// Preserves explicit backend choices and restricts Android to Vulkan.
+#[cfg(not(windows))]
 fn preferred_render_backends(explicit: Option<&OsStr>) -> Option<Backends> {
     if explicit.is_some() {
         None
-    } else if cfg!(target_os = "windows") {
-        Some(Backends::VULKAN | Backends::DX12)
     } else if cfg!(target_os = "android") {
         // Android's GLES backend lacks the vertex-stage storage buffers the renderer needs.
         Some(Backends::VULKAN)
@@ -97,17 +99,14 @@ mod tests {
         ));
     }
 
+    #[cfg(not(windows))]
     #[test]
-    fn windows_admits_vulkan_before_dx12_without_overriding_an_explicit_backend() {
+    fn explicit_backend_is_preserved_and_android_requires_vulkan() {
         use bevy::render::settings::Backends;
         use std::ffi::OsStr;
 
         assert_eq!(preferred_render_backends(Some(OsStr::new("dx12"))), None);
-        let expected = if cfg!(target_os = "windows") {
-            Some(Backends::VULKAN | Backends::DX12)
-        } else {
-            cfg!(target_os = "android").then_some(Backends::VULKAN)
-        };
+        let expected = cfg!(target_os = "android").then_some(Backends::VULKAN);
         assert_eq!(preferred_render_backends(None), expected);
     }
 
