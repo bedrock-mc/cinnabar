@@ -93,7 +93,7 @@ pub fn decode_region(bytes: &[u8]) -> Result<Vec<(u16, EncodedSummary)>, RegionD
     let (table, mut payload) = rest.split_at(count * ENTRY_BYTES);
     rest = table;
     let mut columns = Vec::with_capacity(count);
-    for entry in rest.chunks_exact(ENTRY_BYTES) {
+    for entry in rest.as_chunks::<ENTRY_BYTES>().0 {
         let index = u16::from_le_bytes([entry[0], entry[1]]);
         let len = u32::from_le_bytes(entry[2..6].try_into().expect("four bytes")) as usize;
         let hash = u64::from_le_bytes(entry[6..14].try_into().expect("eight bytes"));

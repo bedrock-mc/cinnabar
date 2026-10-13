@@ -142,7 +142,7 @@ impl WorldStream {
 
     /// The local player's column, which centres retention and far terrain.
     #[must_use]
-    pub fn player_column(&self) -> ChunkKey {
+    pub fn far_terrain_centre(&self) -> ChunkKey {
         self.player_chunk()
     }
 
