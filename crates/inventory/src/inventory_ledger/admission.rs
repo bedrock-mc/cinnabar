@@ -503,7 +503,9 @@ impl PlayerInventoryLedger {
         self.supersede_pending_personal_open();
         self.enchant_options = None;
         self.supersede_expired_personal_close(window_id);
-        self.remove_pending_close(window_id, open.window_type);
+        // Close packets carry only an ID, so none may target the newly accepted window.
+        self.pending_closes
+            .retain(|close| close.window_id != window_id);
         let generation = self.next_open_generation;
         self.next_open_generation = self.next_open_generation.wrapping_add(1).max(1);
         self.storage = Some(StorageWindow {
@@ -538,7 +540,14 @@ impl PlayerInventoryLedger {
             ..
         }) = self.personal_lifecycle().copied()
         else {
-            self.queue_close(window_id, open.window_type, PendingCloseOwner::Cleanup);
+            // The cleanup close cannot distinguish the late personal window from storage.
+            if self
+                .storage
+                .as_ref()
+                .is_none_or(|storage| storage.window_id != window_id)
+            {
+                self.queue_close(window_id, open.window_type, PendingCloseOwner::Cleanup);
+            }
             self.note_unrouted_container();
             return;
         };

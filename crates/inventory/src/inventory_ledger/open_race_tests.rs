@@ -1,9 +1,9 @@
 use super::*;
 
 /// Applies the delayed chest Open and its authoritative contents.
-fn open_chest(ledger: &mut PlayerInventoryLedger) {
+fn open_chest(ledger: &mut PlayerInventoryLedger, window_id: i32) {
     ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
-        container: ContainerIdentity::window(3),
+        container: ContainerIdentity::window(window_id),
         window_type: GENERIC_STORAGE_WINDOW_TYPE,
         position: [1, 64, 1],
         runtime_entity_id: -1,
@@ -12,7 +12,7 @@ fn open_chest(ledger: &mut PlayerInventoryLedger) {
     slots[0] = stack(23, 3);
     ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
         container: ContainerIdentity {
-            window_id: Some(3),
+            window_id: Some(window_id),
             slot_type: Some(GENERIC_STORAGE_SLOT_TYPE),
             dynamic_id: None,
         },
@@ -28,7 +28,7 @@ fn personal_open_during_pending_storage_open_can_reopen_after_storage_close() {
     // The chest interaction has left, but its Open reply has not arrived yet.
     assert!(ledger.request_personal_open(42));
     assert!(ledger.mark_transport_enqueued(10));
-    open_chest(&mut ledger);
+    open_chest(&mut ledger, 3);
     ledger.request_storage_close();
     assert!(ledger.mark_transport_enqueued(20));
     ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
@@ -61,7 +61,7 @@ fn storage_open_supersedes_only_an_unacknowledged_personal_open() {
             if cancelled {
                 ledger.request_personal_close();
             }
-            open_chest(&mut ledger);
+            open_chest(&mut ledger, 3);
             assert_eq!(
                 ledger.window_kind(),
                 protocol::WindowKind::from_window_type(GENERIC_STORAGE_WINDOW_TYPE)
@@ -89,11 +89,51 @@ fn storage_open_supersedes_only_an_unacknowledged_personal_open() {
 }
 
 #[test]
+fn late_personal_cleanup_cannot_close_storage_reusing_its_id() {
+    for cancelled in [false, true] {
+        for cleanup_queued_first in [false, true] {
+            let mut ledger = ledger_with_slot_zero();
+            assert!(ledger.request_personal_open(42));
+            assert!(ledger.mark_transport_enqueued(10));
+            if cancelled {
+                ledger.request_personal_close();
+            }
+            open_chest(&mut ledger, 3);
+
+            let personal_window_id = if cleanup_queued_first { 2 } else { 3 };
+            ledger.apply(&InventoryEvent::Open(personal_open(personal_window_id)));
+            if cleanup_queued_first {
+                assert_eq!(
+                    protocol::test_support::packets::container_close(
+                        &ledger.pending_control_packet().unwrap().unwrap()
+                    ),
+                    Some(protocol::test_support::packets::ContainerCloseObservation {
+                        container_id: u8::try_from(personal_window_id).unwrap(),
+                        server_initiated: false,
+                    })
+                );
+                open_chest(&mut ledger, personal_window_id);
+            }
+
+            assert!(ledger.pending_batch().unwrap().is_none());
+            assert!(!ledger.mark_transport_enqueued(20));
+            assert_eq!(
+                ledger.window_kind(),
+                protocol::WindowKind::from_window_type(GENERIC_STORAGE_WINDOW_TYPE)
+            );
+            assert_eq!(ledger.storage_stack(0), Some(&stack(23, 3)));
+            assert!(!ledger.personal_inventory_desired_open());
+            assert!(ledger.begin_storage_click(0).is_ok());
+        }
+    }
+}
+
+#[test]
 fn storage_open_does_not_displace_acknowledged_personal_inventory() {
     let mut ledger = ledger_with_slot_zero();
     acknowledge_personal_open(&mut ledger, 2);
 
-    open_chest(&mut ledger);
+    open_chest(&mut ledger, 3);
     assert_eq!(ledger.window_kind(), None);
     assert!(ledger.personal_inventory_desired_open());
     assert_eq!(
@@ -119,7 +159,7 @@ fn superseded_personal_open_rolls_back_unsent_moves_and_recovers_admitted_moves(
             assert!(ledger.mark_transport_enqueued(20));
         }
 
-        open_chest(&mut ledger);
+        open_chest(&mut ledger, 3);
         assert_eq!(ledger.pending_request_id(), None);
         assert_eq!(
             ledger.target_stack(InventoryTarget::Player(0)),
