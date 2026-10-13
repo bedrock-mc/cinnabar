@@ -33,12 +33,14 @@ impl Raster {
         let depth_samples = [1, 2, 4, 8]
             .into_iter()
             .filter(|samples| {
-                let supported = [COLOR, DEPTH].into_iter().all(|format| {
-                    adapter
-                        .get_texture_format_features(format)
-                        .flags
-                        .sample_count_supported(*samples)
-                });
+                let supported = [COLOR, DEPTH, crate::actor_render::motion::MOTION_FORMAT]
+                    .into_iter()
+                    .all(|format| {
+                        adapter
+                            .get_texture_format_features(format)
+                            .flags
+                            .sample_count_supported(*samples)
+                    });
                 if !supported {
                     eprintln!("skipping {name} at {samples}x MSAA: missing depth format support");
                 }
@@ -85,6 +87,19 @@ impl Raster {
     }
 
     fn draw(&self, input: &[u8], exposure: ExposureUniform, samples: u32, z: f32) -> Vec<u8> {
+        self.draw_with_motion(input, exposure, samples, z, None)
+    }
+
+    /// Supplies a filled actor velocity attachment to the production exposure fragment.
+    fn draw_with_motion(
+        &self,
+        input: &[u8],
+        mut exposure: ExposureUniform,
+        samples: u32,
+        z: f32,
+        motion: Option<[f64; 4]>,
+    ) -> Vec<u8> {
+        exposure.strength.z = if motion.is_some() { 1.0 } else { 0.0 };
         let source = super::shader_source(include_str!("../motion_blur.wgsl"), samples > 1);
         let shader = self
             .gpu
@@ -146,6 +161,12 @@ impl Raster {
             wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
         );
         let depth_view = depth.create_view(&Default::default());
+        let actor_velocity = self.texture(
+            crate::actor_render::motion::MOTION_FORMAT,
+            samples,
+            wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+        );
+        let actor_view = actor_velocity.create_view(&Default::default());
         let target = self.texture(
             COLOR,
             1,
@@ -193,9 +214,35 @@ impl Raster {
                         binding: 3,
                         resource: uniform.as_entire_binding(),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(&actor_view),
+                    },
                 ],
             });
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
+        let motion = motion.unwrap_or([0.0; 4]);
+        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("actor velocity raster fixture"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &actor_view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: motion[0],
+                        g: motion[1],
+                        b: motion[2],
+                        a: motion[3],
+                    }),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
         {
             let _clear = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("motion blur fixture depth clear"),
@@ -267,6 +314,45 @@ impl Raster {
             .get_mapped_range()
             .expect("readback buffer is mapped")
             .to_vec()
+    }
+}
+
+#[test]
+fn actor_velocity_keeps_camera_followed_pixels_sharp_without_erasing_object_motion() {
+    let Some(raster) = Raster::new("actor velocity exposure raster") else {
+        return;
+    };
+    let input = impulse();
+    let uniform = exposure(Mat4::from_translation(Vec3::new(0.5, 0.0, 0.0)));
+    let z = projection().project_point3(Vec3::new(0.0, 0.0, -4.0)).z;
+    for &samples in &raster.depth_samples {
+        let world = raster.draw(&input, uniform, samples, z);
+        assert!(extent(&world)[0] > extent(&input)[0]);
+        let followed =
+            raster.draw_with_motion(&input, uniform, samples, z, Some([0.0, 0.0, 1.0, 1.0]));
+        assert_eq!(
+            followed, input,
+            "following actor changed at {samples}x MSAA"
+        );
+        let mut stationary_camera = exposure(Mat4::IDENTITY);
+        stationary_camera.strength.x = uniform.strength.x;
+        let moving = raster.draw_with_motion(
+            &input,
+            stationary_camera,
+            samples,
+            z,
+            Some([0.125, 0.0, 1.0, 1.0]),
+        );
+        assert!(
+            extent(&moving)[0] > 6,
+            "actual object motion must remain visible"
+        );
+        assert_eq!(extent(&moving)[1], extent(&input)[1]);
+        if samples == 1 {
+            save("following-actor", &followed);
+            save("moving-actor", &moving);
+            save("world-translation", &world);
+        }
     }
 }
 

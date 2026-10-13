@@ -8,8 +8,9 @@ use render_scene::actor::{
 use std::mem::size_of;
 mod artwork;
 mod dissolve;
+pub(crate) mod motion;
 pub(crate) mod phase;
-mod pipeline;
+pub(crate) mod pipeline;
 mod skins;
 use artwork::{GpuArtwork, draw_spans};
 use phase::{DrawActorCommands, DrawTransparentActorCommands, queue_actors};
@@ -43,13 +44,14 @@ use bevy::{
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
             BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
-            BufferDescriptor, BufferId, BufferInitDescriptor, BufferSize, BufferUsages, Canonical,
-            ColorTargetState, ColorWrites, CommandEncoderDescriptor, CompareFunction,
-            DepthStencilState, Extent3d, FilterMode, FragmentState, PipelineCache, RenderPipeline,
-            RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
-            Specializer, SpecializerKey, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture,
-            TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
-            TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
+            BufferDescriptor, BufferId, BufferInitDescriptor, BufferSize, BufferUsages,
+            CachedRenderPipelineId, Canonical, ColorTargetState, ColorWrites,
+            CommandEncoderDescriptor, CompareFunction, DepthStencilState, Extent3d, FilterMode,
+            FragmentState, PipelineCache, RenderPassColorAttachment, RenderPassDescriptor,
+            RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
+            SamplerDescriptor, ShaderStages, Specializer, SpecializerKey, TexelCopyBufferLayout,
+            TexelCopyTextureInfo, Texture, TextureDataOrder, TextureDescriptor, TextureDimension,
+            TextureFormat, TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
             TextureViewDimension, Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
@@ -436,7 +438,7 @@ fn prepare_actor_resources(
     });
 }
 
-fn prepare_actor_bind_group(
+pub(crate) fn prepare_actor_bind_group(
     render_device: Res<RenderDevice>,
     pipeline_cache: Res<PipelineCache>,
     pipeline: Res<ActorPipeline>,

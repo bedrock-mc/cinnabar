@@ -1,7 +1,7 @@
 use super::{CameraMotionBlur, graph::*, history::*};
 use bevy::prelude::*;
 
-fn settings() -> CameraMotionBlur {
+pub(super) fn settings() -> CameraMotionBlur {
     CameraMotionBlur {
         exposure_seconds: 0.01,
         samples: 7,
@@ -129,6 +129,18 @@ fn camera_followed_actor_has_zero_translation_exposure_while_world_geometry_move
     for dt in [1.0 / 60.0, 1.0 / 240.0] {
         let translation = Vec3::new(12.0, 8.0, -6.0) * dt;
         let mut previous = history(Vec3::ZERO, 0.0, 0);
+        let mut actors = super::actor_history::ActorHistory::default();
+        let actor_position = Vec3::new(0.0, 0.0, -4.0);
+        actors.advance(
+            &super::actor_history::tests::frame(actor_position, [0.0, 0.0, 1.0]),
+            previous,
+            false,
+        );
+        actors.advance(
+            &super::actor_history::tests::frame(actor_position + translation, [0.0, 0.0, 1.0]),
+            previous,
+            true,
+        );
         let uniform = previous.advance(
             history(translation, 0.0, 0),
             CameraMotionBlur {
@@ -138,9 +150,11 @@ fn camera_followed_actor_has_zero_translation_exposure_while_world_geometry_move
         );
         // The actor and camera translate together, leaving the actor's pixel unchanged.
         let current_actor_clip = clip_from_view.project_point3(actor_local_point);
-        let actual_previous_actor_clip = uniform
-            .previous_clip_from_clip
-            .project_point3(current_actor_clip);
+        let actual_previous_actor_clip = super::actor_history::tests::previous_point(
+            &actors,
+            0,
+            actor_local_point - actor_position,
+        );
         // A stationary world point does move relative to the translated camera.
         let current_world_clip = clip_from_view.project_point3(actor_local_point - translation);
         let previous_world_clip = uniform

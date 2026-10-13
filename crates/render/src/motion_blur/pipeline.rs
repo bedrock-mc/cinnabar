@@ -10,9 +10,35 @@ pub(super) struct BlurPipeline {
     layouts: [BindGroupLayoutDescriptor; 2],
     pub sampler: Sampler,
     variants: HashMap<(TextureFormat, u32), CachedRenderPipelineId>,
+    neutral_motion: HashMap<u32, (Texture, TextureView)>,
 }
 
 impl BlurPipeline {
+    /// Actorless views bind a tiny texture and skip reading it in the exposure shader.
+    pub fn neutral_motion(&mut self, device: &RenderDevice, samples: u32) -> TextureView {
+        self.neutral_motion
+            .entry(samples)
+            .or_insert_with(|| {
+                let texture = device.create_texture(&TextureDescriptor {
+                    label: Some("empty actor velocity"),
+                    size: Extent3d {
+                        width: 1,
+                        height: 1,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: samples,
+                    dimension: TextureDimension::D2,
+                    format: crate::actor_render::motion::MOTION_FORMAT,
+                    usage: TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &[],
+                });
+                let view = texture.create_view(&Default::default());
+                (texture, view)
+            })
+            .1
+            .clone()
+    }
     pub fn layout(&self, samples: u32) -> &BindGroupLayoutDescriptor {
         &self.layouts[usize::from(samples > 1)]
     }
@@ -98,6 +124,16 @@ pub(super) fn init(mut commands: Commands, device: Res<RenderDevice>) {
                     },
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: false },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled,
+                    },
+                    count: None,
+                },
             ],
         )
     });
@@ -110,6 +146,7 @@ pub(super) fn init(mut commands: Commands, device: Res<RenderDevice>) {
             ..default()
         }),
         variants: HashMap::default(),
+        neutral_motion: HashMap::default(),
     });
 }
 

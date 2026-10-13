@@ -34,6 +34,16 @@ struct BoneMatrix {
 @group(0) @binding(13) var glint_sampler: sampler;
 @group(0) @binding(14) var item_glint: texture_2d<f32>;
 
+@if(ACTOR_MOTION)
+struct MotionInstance {
+    previous_clip_from_actor: mat4x4<f32>,
+    pose: vec4<u32>,
+}
+@if(ACTOR_MOTION)
+@group(2) @binding(0) var<storage, read> actor_motion: array<MotionInstance>;
+@if(ACTOR_MOTION)
+@group(2) @binding(1) var<storage, read> rendered_previous_bones: array<BoneMatrix>;
+
 struct VertexOutput {
     @builtin(position) @invariant position: vec4<f32>,
     // xy samples the artwork; zw carries the item sprite or face origin.
@@ -53,6 +63,8 @@ struct VertexOutput {
     @location(12) @interpolate(flat) dissolve_multiplier: f32,
     @location(13) @interpolate(flat) surface: u32,
     @location(14) back_native_lighting: vec3<f32>,
+    @if(ACTOR_MOTION)
+    @location(15) previous_clip: vec4<f32>,
 }
 
 fn word_f32(index: u32) -> f32 {
@@ -130,6 +142,8 @@ fn actor_vertex(
     out.uv_wrap = select(0u, 1u, any(uv_offset != vec2(0.0)) || any(uv_scale != vec2(1.0)));
     if (vertex_index >= span.vertex_count) {
         out.position = vec4(2.0, 2.0, 2.0, 1.0);
+        @if(ACTOR_MOTION)
+        out.previous_clip = out.position;
         out.uv = vec4(0.0);
         out.back_uv = vec2(0.0);
         out.skin_info.y = 0u;
@@ -185,6 +199,15 @@ fn actor_vertex(
         1.0,
     );
     out.position = view.clip_from_world * world;
+    @if(ACTOR_MOTION)
+    {
+        let motion = actor_motion[instance_index];
+        out.previous_clip = out.position;
+        if (motion.pose.y != 0u) {
+            let previous_rendered = transform_point(rendered_previous_bones[motion.pose.x + bone_index], local);
+            out.previous_clip = motion.previous_clip_from_actor * vec4(previous_rendered, 1.0);
+        }
+    }
     out.world_position = world.xyz;
     out.world_normal = normalize(vec3(
         dot(instance_row(instance_base, 0u).xyz, posed_normal),
@@ -230,8 +253,7 @@ repeat_uv: bool) -> CutoutSample {
     }
 }
 
-@fragment
-fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     let material = input.material & ACTOR_MATERIAL_KIND_MASK;
     let legacy = (input.material & ACTOR_MATERIAL_LEGACY112_FLAG) != 0u;
     let color_mask_material = material_class.y != 0u || (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
@@ -344,4 +366,22 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     return fogged_gamma;
     @if(!ACTOR_GAMMA_BLEND)
     return tint_to_linear(fogged_gamma);
+}
+
+@fragment
+fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    return actor_colour(input, front);
+}
+
+@if(ACTOR_MOTION)
+@fragment
+fn actor_motion_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    // The same artwork and discard rules retain cutouts and multisample alpha coverage.
+    let colour = actor_colour(input, front);
+    let current_clip = view.clip_from_world * vec4(input.world_position, 1.0);
+    var velocity = vec2(0.0);
+    if (input.previous_clip.w > 0.00001 && current_clip.w > 0.00001) {
+        velocity = (current_clip.xy / current_clip.w - input.previous_clip.xy / input.previous_clip.w) * vec2(0.5, -0.5);
+    }
+    return vec4(velocity, 1.0, colour.a);
 }

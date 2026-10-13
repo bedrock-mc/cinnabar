@@ -11,13 +11,19 @@ pub(crate) struct ActorPipeline {
         ActorPipelineContract,
         bevy::render::render_resource::CachedRenderPipelineId,
     >,
+    pub(super) motion_variants: Variants<RenderPipeline, super::motion::MotionSpecializer>,
+    pub(super) motion_ids: std::collections::HashMap<ActorPipelineContract, CachedRenderPipelineId>,
 }
 
 impl FromWorld for ActorPipeline {
     fn from_world(_world: &mut World) -> Self {
         let bind_group_layout = actor_bind_group_layout();
         let descriptor = actor_pipeline_descriptor(bind_group_layout.clone());
+        let mut motion_descriptor = descriptor.clone();
+        motion_descriptor.layout.push(super::motion::layout());
         Self {
+            motion_variants: Variants::new(super::motion::MotionSpecializer, motion_descriptor),
+            motion_ids: Default::default(),
             variants: Variants::new(ActorPipelineSpecializer, descriptor),
             bind_group_layout,
             draw_variants: Default::default(),
@@ -384,7 +390,7 @@ pub(super) struct ActorPipelineContract {
 
 impl ActorPipelineKey {
     /// Coalesces shader-only material flags while retaining distinct coverage and depth states.
-    fn contract(self) -> ActorPipelineContract {
+    pub(super) fn contract(self) -> ActorPipelineContract {
         let state = crate::actor::material::state(self.material).unwrap_or(
             assets::EntityRenderMaterialState {
                 alpha_test: false,

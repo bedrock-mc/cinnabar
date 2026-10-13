@@ -78,6 +78,7 @@ pub(super) fn configure_graph(world: &mut World, enabled: bool) {
 struct BlurPassesInstalled(bool);
 
 type MotionBlurQuery = (
+    Entity,
     &'static CameraMotionBlur,
     &'static BlurView,
     &'static ViewTarget,
@@ -91,7 +92,7 @@ pub(super) fn motion_blur(
     query: bevy::render::renderer::ViewQuery<MotionBlurQuery>,
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
-    let (_, state, target, scene, depth) = query.into_inner();
+    let (entity, _, state, target, scene, depth) = query.into_inner();
     let context = &mut context;
     if !state.active {
         return Ok(());
@@ -106,6 +107,18 @@ pub(super) fn motion_blur(
     ) else {
         return Ok(());
     };
+    if let Some(actors) = &state.actors
+        && !crate::actor_render::motion::draw(
+            world,
+            actors,
+            entity,
+            depth,
+            state.viewport(),
+            context,
+        )
+    {
+        return Ok(());
+    }
     // Resolve only world colour, then write exposure back before sharp projected UI and hands.
     if scene.texture.sample_count() == 1 {
         context.command_encoder().copy_texture_to_texture(

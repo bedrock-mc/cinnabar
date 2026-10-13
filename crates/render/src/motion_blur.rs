@@ -1,11 +1,12 @@
-//! Optional camera exposure, using scene depth without object motion vectors.
+//! Optional exposure with depth-derived world motion and rendered actor velocities.
 
 use render_scene::CameraMotionBlur;
 
+pub(crate) mod actor_history;
 #[cfg(test)]
 mod extraction_tests;
 pub(crate) mod graph;
-mod history;
+pub(crate) mod history;
 mod pipeline;
 mod prepare;
 #[cfg(test)]
@@ -49,7 +50,9 @@ impl Plugin for CameraMotionBlurPlugin {
                 Render,
                 (
                     graph::sync_graph.in_set(RenderSystems::Prepare),
-                    prepare::prepare_views.in_set(RenderSystems::PrepareBindGroups),
+                    prepare::prepare_views
+                        .in_set(RenderSystems::PrepareBindGroups)
+                        .after(crate::actor_render::prepare_actor_bind_group),
                 ),
             );
     }
@@ -57,7 +60,12 @@ impl Plugin for CameraMotionBlurPlugin {
 
 fn shader_source(source: &str, multisampled: bool) -> String {
     if multisampled {
-        source.replace("texture_depth_2d", "texture_depth_multisampled_2d")
+        source
+            .replace("texture_depth_2d", "texture_depth_multisampled_2d")
+            .replace(
+                "var actor_velocity: texture_2d<f32>",
+                "var actor_velocity: texture_multisampled_2d<f32>",
+            )
     } else {
         source.to_owned()
     }

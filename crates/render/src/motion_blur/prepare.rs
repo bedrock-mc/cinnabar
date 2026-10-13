@@ -3,6 +3,7 @@ use super::{
     history::{CameraHistory, ExposureUniform},
     pipeline::BlurPipeline,
 };
+use bevy::ecs::system::SystemParam;
 use bevy::{
     camera::MainPassResolutionOverride,
     prelude::*,
@@ -14,12 +15,21 @@ use bevy::{
 };
 use std::mem::size_of;
 
+/// Actor resources are absent in actorless scenes and lightweight renderer fixtures.
+#[derive(SystemParam)]
+pub(super) struct ActorResources<'w> {
+    frame: Option<Res<'w, render_scene::ActorRenderFrame>>,
+    gpu: Option<Res<'w, crate::actor_render::ActorGpu>>,
+    pipeline: Option<ResMut<'w, crate::actor_render::pipeline::ActorPipeline>>,
+}
+
 #[derive(Component)]
 pub(super) struct BlurView {
     history: CameraHistory,
     uniform: Buffer,
     last_uniform: Option<ExposureUniform>,
-    bindings: Vec<(TextureViewId, TextureViewId, BindGroup)>,
+    bindings: Vec<(TextureViewId, TextureViewId, TextureViewId, BindGroup)>,
+    pub actors: Option<crate::actor_render::motion::MotionView>,
     pub pipeline: CachedRenderPipelineId,
     pub active: bool,
 }
@@ -32,8 +42,8 @@ impl BlurView {
     pub fn binding(&self, source: TextureViewId, depth: TextureViewId) -> Option<&BindGroup> {
         self.bindings
             .iter()
-            .find(|(a, b, _)| (*a, *b) == (source, depth))
-            .map(|(_, _, binding)| binding)
+            .find(|(a, b, _, _)| (*a, *b) == (source, depth))
+            .map(|(_, _, _, binding)| binding)
     }
 }
 
@@ -48,6 +58,7 @@ type Views<'w, 's> = Query<
         &'static ViewTarget,
         &'static ViewDepthStencilTexture,
         &'static Msaa,
+        Option<&'static render_scene::EnhancedRendering>,
         Option<&'static mut BlurView>,
     ),
 >;
@@ -72,13 +83,15 @@ pub(super) fn prepare_views(
     queue: Res<RenderQueue>,
     cache: Res<PipelineCache>,
     mut pipeline: ResMut<BlurPipeline>,
+    mut actors: ActorResources,
     mut views: Views,
     removed: RemovedViews,
 ) {
     for entity in &removed {
         commands.entity(entity).remove::<BlurView>();
     }
-    for (entity, settings, view, resolution, target, depth, msaa, previous) in &mut views {
+    for (entity, settings, view, resolution, target, depth, msaa, enhanced, previous) in &mut views
+    {
         let pose = view.world_from_view.to_matrix();
         let clip = view.clip_from_world.map_or(view.clip_from_view, |clip| {
             (clip.as_dmat4() * pose.as_dmat4()).as_mat4()
@@ -90,6 +103,7 @@ pub(super) fn prepare_views(
         }
         let history = CameraHistory::new(clip, pose, viewport, settings.reset_epoch);
         let id = pipeline.specialize(&cache, target.main_texture_format(), msaa.samples());
+        let neutral_motion = pipeline.neutral_motion(&device, msaa.samples());
         let mut new_view;
         let state = if let Some(state) = previous {
             state.into_inner()
@@ -104,6 +118,7 @@ pub(super) fn prepare_views(
                 }),
                 last_uniform: None,
                 bindings: Vec::with_capacity(2),
+                actors: None,
                 pipeline: id,
                 active: false,
             };
@@ -118,6 +133,9 @@ pub(super) fn prepare_views(
                 &queue,
                 &pipeline,
                 &cache,
+                &mut actors,
+                enhanced.is_some(),
+                &neutral_motion,
             );
             commands.entity(entity).insert(new_view);
             continue;
@@ -134,6 +152,9 @@ pub(super) fn prepare_views(
             &queue,
             &pipeline,
             &cache,
+            &mut actors,
+            enhanced.is_some(),
+            &neutral_motion,
         );
     }
 }
@@ -153,12 +174,52 @@ fn update(
     queue: &RenderQueue,
     pipeline: &BlurPipeline,
     cache: &PipelineCache,
+    actors: &mut ActorResources,
+    enhanced: bool,
+    neutral_motion: &TextureView,
 ) {
-    let uniform = state.history.advance(history, settings);
+    crate::actor_render::motion::prepare(
+        &mut state.actors,
+        actors.frame.as_deref(),
+        actors.gpu.as_deref(),
+        actors.pipeline.as_deref_mut(),
+        state.history,
+        state.history.continuous(history, settings),
+        depth,
+        target.main_texture_format() == render_scene::SCENE_HDR_FORMAT,
+        enhanced,
+        device,
+        queue,
+        cache,
+    );
+    let actor_moved = state.actors.as_ref().is_some_and(|actors| actors.moved);
+    let mut uniform = if actor_moved {
+        state
+            .history
+            .advance_with_actor_motion(history, settings, true)
+    } else {
+        state.history.advance(history, settings)
+    };
+    let actor_ready = state.actors.as_ref().is_none_or(|actors| actors.ready);
+    if !actor_ready {
+        uniform.strength.x = 0.0;
+    }
+    uniform.strength.z = if state.actors.is_some() { 1.0 } else { 0.0 };
     state.active = uniform.strength.x > 0.0;
     if state.last_uniform != Some(uniform) {
         queue.write_buffer(&state.uniform, 0, bytemuck::bytes_of(&uniform));
         state.last_uniform = Some(uniform);
+    }
+    let motion = state
+        .actors
+        .as_ref()
+        .map_or(neutral_motion, |actors| &actors.view);
+    if state
+        .bindings
+        .first()
+        .is_some_and(|(_, _, old, _)| *old != motion.id())
+    {
+        state.bindings.clear();
     }
     for source in [target.main_texture_view(), target.main_texture_other_view()] {
         if state
@@ -167,7 +228,7 @@ fn update(
         {
             // Bind both scene colours before SMAA can switch them; resizing retires both bindings.
             if state.bindings.len() == 2
-                || state.bindings.first().is_some_and(|(_, old, _)| {
+                || state.bindings.first().is_some_and(|(_, old, _, _)| {
                     *old != crate::scene_sampling::view_depth(depth).id()
                 })
             {
@@ -195,11 +256,16 @@ fn update(
                         binding: 3,
                         resource: state.uniform.as_entire_binding(),
                     },
+                    BindGroupEntry {
+                        binding: 4,
+                        resource: BindingResource::TextureView(motion),
+                    },
                 ],
             );
             state.bindings.push((
                 source.id(),
                 crate::scene_sampling::view_depth(depth).id(),
+                motion.id(),
                 binding,
             ));
         }

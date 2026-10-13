@@ -7,6 +7,15 @@ struct Exposure {
 @group(0) @binding(1) var scene_sampler: sampler;
 @group(0) @binding(2) var depth: texture_depth_2d;
 @group(0) @binding(3) var<uniform> exposure: Exposure;
+@group(0) @binding(4) var actor_velocity: texture_2d<f32>;
+
+// Both motion and depth read the same coverage sample on multisampled views.
+fn object_motion(pixel: vec2<i32>) -> vec4<f32> {
+    if exposure.strength.z <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    return textureLoad(actor_velocity, pixel, 0);
+}
 
 @vertex
 fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
@@ -22,14 +31,18 @@ fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
         return base;
     }
     let uv = (position.xy - exposure.viewport.xy) / exposure.viewport.zw;
-    let z = textureLoad(depth, pixel, 0);
-    // Reverse-Z sky pixels reconstruct a direction at infinity, excluding camera translation.
-    let previous = exposure.previous_clip_from_clip * vec4<f32>(uv * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), z, 1.0);
-    if previous.w <= 0.00001 {
-        return base;
+    let actor = object_motion(pixel);
+    var velocity = actor.xy * exposure.viewport.zw * exposure.strength.x;
+    if actor.z < 0.5 {
+        let z = textureLoad(depth, pixel, 0);
+        // Reverse-Z sky pixels reconstruct a direction at infinity, excluding camera translation.
+        let previous = exposure.previous_clip_from_clip * vec4<f32>(uv * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), z, 1.0);
+        if previous.w <= 0.00001 {
+            return base;
+        }
+        let previous_uv = previous.xy / previous.w * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
+        velocity = (uv - previous_uv) * exposure.viewport.zw * exposure.strength.x;
     }
-    let previous_uv = previous.xy / previous.w * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
-    var velocity = (uv - previous_uv) * exposure.viewport.zw * exposure.strength.x;
     let speed = length(velocity);
     if speed < 0.5 {
         return base;
@@ -40,10 +53,20 @@ fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let upper = exposure.viewport.xy + exposure.viewport.zw - vec2<f32>(0.5);
     let count = u32(exposure.strength.y);
     var color = vec4<f32>(0.0);
+    var accepted = 0u;
     for (var i = 0u; i < count; i++) {
         let step = f32(i) / f32(count - 1u) - 0.5;
         let sample_position = clamp(position.xy + velocity * step, lower, upper);
+        // A stationary following actor must not leak into blurred world gathers or vice versa.
+        let sample_actor = object_motion(vec2<i32>(sample_position));
+        if (sample_actor.z >= 0.5) != (actor.z >= 0.5) {
+            continue;
+        }
         color += textureSampleLevel(scene, scene_sampler, sample_position / dimensions, 0.0);
+        accepted += 1u;
     }
-    return color / f32(count);
+    if accepted == 0u {
+        return base;
+    }
+    return color / f32(accepted);
 }
