@@ -751,12 +751,14 @@ pub fn screen_data(
 }
 
 #[cfg(test)]
+mod anvil_output_tests;
+#[cfg(test)]
 mod empty_cells_tests;
 
 /// The stack, icon, and durability a station cell shows.
 fn station_cell<'a>(
     player_runtime: &'a player_state::PlayerState,
-    frame: &ContainerFrame<'_>,
+    frame: &ContainerFrame<'a>,
     cell: Cell,
 ) -> (Option<&'a NetworkItemStack>, Option<IconRef>, Option<f32>) {
     let ledger = player_runtime.inventory.ledger();
@@ -779,11 +781,19 @@ fn station_cell<'a>(
         }
         Cell::Output => {
             let index = usize::from(protocol::CREATED_OUTPUT_SLOT);
-            (
-                ledger.created_output_stack(),
-                frame.ui_icons.get(index).copied().flatten(),
-                frame.ui_durability.get(index).copied().flatten(),
-            )
+            match (ledger.created_output_stack(), frame.recipe_output) {
+                // The anvil's result is the client's prediction until the server states one.
+                (None, Some((icon, stack)))
+                    if ledger.window_kind() == Some(protocol::WindowKind::Anvil) =>
+                {
+                    (Some(stack), *icon, None)
+                }
+                (stack, _) => (
+                    stack,
+                    frame.ui_icons.get(index).copied().flatten(),
+                    frame.ui_durability.get(index).copied().flatten(),
+                ),
+            }
         }
     }
 }
