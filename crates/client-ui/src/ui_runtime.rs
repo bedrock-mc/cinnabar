@@ -724,6 +724,7 @@ impl UiRuntime {
         &mut self,
         player_runtime: &mut player_state::PlayerState,
     ) -> UiAuthorityTransition {
+        self.screen.container_close_armed = false;
         self.chat_focused = false;
         if player_runtime
             .inventory
@@ -766,6 +767,7 @@ impl UiRuntime {
         &mut self,
         player_runtime: &mut player_state::PlayerState,
     ) -> UiAuthorityTransition {
+        self.screen.container_close_armed = false;
         player_runtime
             .inventory
             .ledger_mut()

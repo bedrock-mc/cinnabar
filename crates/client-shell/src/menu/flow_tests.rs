@@ -5,6 +5,31 @@ use {
 };
 
 #[test]
+fn quit_cancel_and_close_dismiss_without_exiting_and_preserve_cancel_navigation() {
+    for action in [MenuAction::DismissDialog, MenuAction::CloseExitDialog] {
+        let mut menu = MenuRuntime::new(true, 2, "Player".into());
+        menu.activate(MenuAction::OpenExitDialog);
+        menu.hovered = Some(action);
+        menu.focus_pointer(action);
+        let view = menu.view();
+        assert_eq!(view.hovered, Some(action));
+        assert_eq!(view.focused_action, Some(MenuAction::DismissDialog));
+        menu.move_focus(-1);
+        assert_eq!(menu.view().focused_action, Some(MenuAction::ConfirmExit));
+        menu.activate(action);
+        assert!(menu.dialog.is_none());
+        assert!(menu.is_visible());
+        assert!(!menu.intents.exit);
+
+        menu.activate(MenuAction::OpenExitDialog);
+        menu.move_focus(1);
+        menu.activate_focused();
+        assert!(menu.dialog.is_none());
+        assert!(!menu.intents.exit);
+    }
+}
+
+#[test]
 fn death_controls_wait_before_accepting_input() {
     let mut menu = MenuRuntime::new(false, 2, "Steve".into());
     menu.open_death();

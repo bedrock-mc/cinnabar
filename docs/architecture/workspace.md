@@ -46,6 +46,7 @@ coordinates work that crosses these owners.
 | Workspace member | Package | Ownership and caller guidance | Related owners |
 | --- | --- | --- | --- |
 | `app` | `cinnabar` | Client executable and Bevy composition; use it to launch the client and assemble its plugins. | `client-*` crates own subsystem adapters; domain crates own game rules. |
+| `packaging/android/client` | `cinnabar-android` | Android NativeActivity entry and setup-activity natives; build it with `packaging/android/build-apk.sh`. | `cinnabar` runs the client; `launcher` owns the Android install layout; `first-run` prepares carriers. |
 | `crates/client-state` | `client-state` | Shared ECS resource wrappers, frame sets and observations; use these contracts to connect plugins. | Domain crates own transitions; the other `client-*` crates own systems. |
 | `crates/client-runtime` | `client-runtime` | Transport resources, world servicing and session lifecycle adapters; use its runtime plugin and ingress/publication APIs. | `client-session` owns transport; `client-world` and `chunk-pipeline` own world work. |
 | `crates/client-session` | `client-session` | Session transport, join bootstrap and separate bounded control/world FIFOs; use its network handle and sequenced events. | `pack-runtime` prepares packs; presentation owners interpret the opaque prepared payload. |
@@ -81,11 +82,14 @@ coordinates work that crosses these owners.
 | `crates/bridge` | `bridge` | Framing and I/O for the local stream to the Go core; use its bounded bridge messages. | The Go core owns upstream transports; `protocol` interprets Bedrock packets. |
 | `crates/protocol` | `protocol` | Bedrock packet codecs, shared wire contracts and session adapters; use its packet and codec APIs. | `bridge` owns local framing; `client-session` owns client transport; the codec lives in its vendored tree. |
 | `crates/pack-json` | `pack-json` | Shared pack text decoding and JSONC parsing; use its decoder before reading authored pack documents. | Pack admission, compilers and UI readers share this format policy. |
-| `crates/resource-pack` | `resource-pack` | Bounded archive admission, decryption and pack-stack views; use its read-only admitted packs. | The Go core downloads packs; `pack-runtime` prepares them; `pack-compiler` compiles them. |
-| `crates/assets` | `assets` | Pack source readers and compiled carrier formats; use bounded loaders and typed asset data. | `pack-compiler` writes carriers; `pack-runtime` prepares active session stacks. |
-| `crates/pack-compiler` | `pack-compiler` | Reusable pack compilation; use its compiler APIs from tools and runtime loading. | `assets` owns formats; `asset-compiler` owns the CLI; `pack-runtime` owns admission and reloads. |
-| `crates/asset-compiler` | `asset-compiler` | The `assetc` executable for runtime carrier preparation; use its CLI from asset setup. | `pack-compiler` owns compilation; `first-run` coordinates initial preparation. |
-| `crates/pack-runtime` | `pack-runtime` | Runtime pack admission, compilation cache and reload dependencies; use its pack preparation and reload APIs. | `resource-pack` admits archives; `pack-compiler` compiles; client adapters install the results. |
+| `crates/resource-pack` | `resource-pack` | Bounded archive admission, decryption and pack-stack views; use its read-only admitted packs. | The Go core downloads packs; `pack-runtime` prepares them; the pack compiler owners compile them. |
+| `crates/assets` | `assets` | Pack source readers and compiled carrier formats; use bounded loaders and typed asset data. | the pack compiler owners write carriers; `pack-runtime` prepares active session stacks. |
+| `crates/pack-compiler` | `pack-compiler` | Terrain, materials and independent carriers such as atmosphere, audio and UI; import its compiler APIs directly. | `pack-compile-input` owns shared inputs; `assets` owns formats. |
+| `crates/pack-compiler/input` | `pack-compile-input` | Bounded pack sources, source validation, JSON and texture decoding; use its shared input APIs. | Terrain and entity compilers consume these inputs; `assets` owns formats. |
+| `crates/pack-compiler/entity` | `pack-entity-compiler` | Entity, actor, equipment, icons, starter skins and block-entity artwork; import its compilation APIs directly. | `pack-compile-input` owns shared inputs; `pack-runtime` prepares session packs. |
+| `crates/pack-compiler/font` | `pack-font-compiler` | Bitmap and outline font compilation, including native rasterization; use its font APIs from offline tools. | `assets` owns font carrier formats; `asset-compiler` owns the CLI. |
+| `crates/asset-compiler` | `asset-compiler` | The `assetc` executable for runtime carrier preparation; use its CLI from asset setup. | the pack compiler owners implement compilation; `first-run` coordinates initial preparation. |
+| `crates/pack-runtime` | `pack-runtime` | Runtime pack admission, compilation cache and reload dependencies; use its pack preparation and reload APIs. | `resource-pack` admits archives; `pack-entity-compiler` compiles entities; client adapters install the results. |
 
 ### UI layers
 

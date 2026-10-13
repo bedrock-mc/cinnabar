@@ -840,6 +840,24 @@ fn scheduler_serves_sub_chunks_in_view_before_nearer_ones_behind() {
     assert_eq!(candidates.pop().map(|candidate| candidate.key), Some(ahead));
 }
 
+/// A section on the view axis builds before a nearer one far off to the side.
+#[test]
+fn scheduler_serves_the_view_cone_before_nearer_sub_chunks_beside_it() {
+    let view = super::SchedulerView {
+        position: [8.0, 72.0, 8.0],
+        forward: Some([0.0, 0.0, 1.0]),
+        startup_center: None,
+    };
+    let ahead = SubChunkKey::new(0, 0, 4, 4);
+    let beside = SubChunkKey::new(0, 3, 4, 1);
+    let mut candidates = BinaryHeap::from([
+        PendingSchedulerCandidate::new(beside, 1, view, false),
+        PendingSchedulerCandidate::new(ahead, 1, view, false),
+    ]);
+
+    assert_eq!(candidates.pop().map(|candidate| candidate.key), Some(ahead));
+}
+
 /// Measures the destination's visible ring, including admission and mesh convergence.
 #[test]
 #[ignore = "release teleport timing; run with --ignored --nocapture"]

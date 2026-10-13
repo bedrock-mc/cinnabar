@@ -19,6 +19,22 @@ pub(crate) struct CameraPublicationContext<'w> {
     receipt: ResMut<'w, client_presentation::local_player_camera_receipt::CameraPublicationAttempt>,
 }
 
+/// Resolves one presentation pose before camera, actor and particle consumers read it.
+pub(crate) fn resolve_local_player_presentation(
+    mut world: ResMut<ClientWorld>,
+    collisions: Res<PhysicsCollisionRegistries>,
+    settings: Res<CameraSettingsAuthority>,
+    mut view: ResMut<LocalViewPose>,
+    physics: Res<LocalPhysicsController>,
+) {
+    view.resolve_presentation(
+        world.stream.as_mut(),
+        &*collisions,
+        settings.perspective(),
+        physics.render_feet_position(),
+    );
+}
+
 /// Borrows world and completed physics facts for presentation publication.
 pub(crate) fn resolve_camera_pose(
     client_world: Res<ClientWorld>,

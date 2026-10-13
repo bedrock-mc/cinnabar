@@ -65,7 +65,9 @@ fn mixed_equipment_artwork_reuses_compiler_pixels_and_decodes_only_missing_paths
     let (view, base) = fixture();
     let mut files = super::super::collect_files(&view, None, None);
     let sources = collect(&view, Some(&base), &mut files);
-    let mut compiled = pack_compiler::compile_actor_pack(files).unwrap().unwrap();
+    let mut compiled = pack_entity_compiler::compile_actor_pack(files)
+        .unwrap()
+        .unwrap();
     let compiler_pixels = Arc::clone(
         &compiled
             .equipment_textures

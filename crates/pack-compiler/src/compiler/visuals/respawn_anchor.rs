@@ -9,10 +9,10 @@ pub(in crate::compiler) fn compile_rule(
     record: &RegistryRecord,
     inputs: &RuleInputs<'_>,
 ) -> CompileRuleResult {
-    if !crate::respawn_anchor::is_record(record) {
+    if !pack_compile_input::respawn_anchor::is_record(record) {
         return CompileRuleResult::NoMatch;
     }
-    if crate::respawn_anchor::charge(record).is_none()
+    if pack_compile_input::respawn_anchor::charge(record).is_none()
         || record_has_deferred_material(inputs.pack, record)
     {
         return CompileRuleResult::Reject;

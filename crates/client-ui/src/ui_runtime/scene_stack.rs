@@ -37,6 +37,26 @@ pub enum Scene {
 }
 
 impl Scene {
+    /// Whether a touchscreen reaches this scene only through an emulated mouse pointer.
+    /// Gameplay and its overlays take touch controls; menus and chat read touches themselves.
+    pub const fn reads_only_pointer(self) -> bool {
+        match self {
+            Self::Bed
+            | Self::Container
+            | Self::Emote
+            | Self::SignEditor
+            | Self::ServerForm
+            | Self::ServerSettingsForm
+            | Self::Credits => true,
+            Self::Gameplay
+            | Self::Crosshair
+            | Self::Hud
+            | Self::Chat
+            | Self::Loading
+            | Self::Menu(_) => false,
+        }
+    }
+
     /// Whether both draw one vanilla screen (menu tabs share theirs).
     fn same_screen(self, other: Self) -> bool {
         use launcher::menu::menu_reference;
@@ -161,6 +181,17 @@ impl UiRuntime {
             .rev()
             .take_while(|scene| scene.key != Scene::Gameplay)
             .all(|scene| !scene.settings.absorbs_input)
+    }
+
+    /// Whether the top scene is one a touchscreen drives through the mouse pointer.
+    pub fn top_scene_reads_only_pointer(
+        &self,
+        player_runtime: &player_state::PlayerState,
+        menu: Option<&dyn MenuScene>,
+    ) -> bool {
+        self.scenes(player_runtime, SceneHost::of(menu, self))
+            .top()
+            .is_some_and(|scene| scene.key.reads_only_pointer())
     }
 
     /// Whether the top scene captures the mouse;

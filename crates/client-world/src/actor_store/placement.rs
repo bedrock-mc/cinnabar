@@ -66,6 +66,29 @@ struct Placement {
 }
 
 impl ActorStore {
+    /// Snaps local render endpoints and optionally reanchors animation on a presentation transition.
+    pub(crate) fn set_local_presentation_position(
+        &mut self,
+        runtime_id: u64,
+        position: [f32; 3],
+        reanchor: bool,
+    ) {
+        if !position.iter().all(|value| value.is_finite()) {
+            return;
+        }
+        let Some(actor) = self.actors.get_mut(&runtime_id) else {
+            return;
+        };
+        actor.position = position;
+        actor.previous_pose.position = position;
+        actor.received_pose.position = position;
+        actor.interpolation_ticks_remaining = 0;
+        actor.status.movement_interpolation = Default::default();
+        if reanchor {
+            self.animation.reanchor_position(runtime_id, position);
+        }
+    }
+
     /// Streamed seat of a rider, else the mount type's default for its rider index (riders of
     /// one mount are ordered by unique id).
     fn seat_for(

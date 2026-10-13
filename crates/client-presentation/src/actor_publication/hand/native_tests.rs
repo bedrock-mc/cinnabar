@@ -149,7 +149,9 @@ fn fixture_with_binding(
         }))
         .unwrap();
     }
-    let compiled = pack_compiler::compile_actor_pack(files).unwrap().unwrap();
+    let compiled = pack_entity_compiler::compile_actor_pack(files)
+        .unwrap()
+        .unwrap();
     let catalog = Arc::new(
         assets::RuntimeEquipmentCatalog::from_parts(
             compiled.identity,

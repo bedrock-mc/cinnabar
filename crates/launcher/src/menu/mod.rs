@@ -97,6 +97,8 @@ pub enum MenuAction {
     OpenExitDialog,
     ConfirmExit,
     DismissDialog,
+    /// The quit dialog's header close control, independent of its Cancel button.
+    CloseExitDialog,
     Reconnect,
     SelectServerTab(MenuServerTab),
     ServerList(server_list::ServerListAction),

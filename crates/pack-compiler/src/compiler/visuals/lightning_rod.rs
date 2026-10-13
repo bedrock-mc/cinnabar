@@ -8,12 +8,12 @@ use {super::super::*, assets::BlockFace};
 
 /// Identifies the terrain-owned family before generic fallback selection.
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
-    crate::lightning_rod::is_record(record)
+    pack_compile_input::lightning_rod::is_record(record)
 }
 
 /// Accepts the complete lightning-rod selector before geometry generation.
 fn facing(record: &RegistryRecord) -> Option<usize> {
-    crate::lightning_rod::state(record).map(|(direction, _)| direction)
+    pack_compile_input::lightning_rod::state(record).map(|(direction, _)| direction)
 }
 
 /// Compiles complete rod geometry using the face-zero sprite, including pack overrides.

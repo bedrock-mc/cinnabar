@@ -1,3 +1,19 @@
+## Experimental Android client
+
+`packaging/android/build-apk.sh` builds an arm64-v8a APK holding the client library, the Go
+core and `assetc` as native libraries and the prep kit as assets. A setup activity asks for
+consent and runs headless first-run preparation; the NativeActivity then runs the client with
+the install layout under the app's private files. Gameplay touch controls are a built-in JSON-UI
+screen whose painted rectangles capture fingers; inventory and server forms take one finger as
+the pointer. The Android workflow builds the APK for Android packaging changes, on a schedule
+and on demand.
+
+Incomplete: the touch layout, its sizes, the look gain and the stick behaviour are provisional,
+not matched to the native touch schemes, safe areas or settings. There is no keyboard or IME,
+Back routing, clipboard, browser links, local worlds, Microsoft sign-in background service,
+menu touch scrolling or touch-mode form scrolling. Device frames, audio, suspend and resume,
+and performance have no Android acceptance. No parity gate closes here.
+
 ## Runtime terrain bindings
 
 Optional terrain catalogs retain each material's source key, state variant, tint, and
@@ -1542,9 +1558,14 @@ frame-budget or identical-version pixel gates.
 - Sleepers turn by the bed's sleep rotation: the bed at the streamed bed
   position faces south 90, west 0, north 270 and east 180 degrees, and a sleeper without a
   bed position reads 0. The local sleeper presents lying on the bed top at the block centre,
-  with its eye at the sleeping offset, while its physics stays where it stood. Java animations
-  retain that sleeping eye height. The sleeping view rotation is captured with the camera pose
-  and its publication proof so named audio keeps an eligible first-person camera. Provisional:
+  with its eye at the sleeping offset, while its physics stays where it stood. One shared pose
+  samples loaded bed headings before Camera, including frames without actor ticks, and feeds
+  camera publication, actor camera queries, body placement and particle attachments. Sleep
+  transitions reanchor camera history once; stable sleeping frames retain motion-blur history.
+  Actor transitions also reanchor displacement and cape position history without restarting
+  animation; stable frames preserve that history.
+  Java animations retain the sleeping eye height, and named audio keeps an eligible first-person
+  camera. Gameplay look stays independent. Provisional:
   the first-person view looks level from the pillow toward the foot, and third person keeps
   its ordinary orbit around the body; the native sleeping camera is unmeasured.
 - Falling blocks retain variant metadata, full block geometry and packet-centred

@@ -33,7 +33,6 @@ sha2 = { workspace = true, features = ["asm"] }
 
 [dev-dependencies]
 test-alloc = { path = "../test-alloc" }
-pack-compiler = { path = "../pack-compiler" }
 tempfile = "3"
 test-time = { path = "../test-time" }
 

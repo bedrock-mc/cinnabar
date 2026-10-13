@@ -9,17 +9,22 @@ fn write(path: &Path, contents: &str) {
 
 /// Returns read findings for `alpha`, whose source may read the `beta` crate's files.
 fn findings(source: &str, alpha_metadata: &str) -> Vec<String> {
+    findings_at(source, alpha_metadata, "crates/alpha")
+}
+
+/// Builds the read fixture with an ordinary or nested reader package.
+fn findings_at(source: &str, alpha_metadata: &str, alpha_root: &str) -> Vec<String> {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
     write(
         &root.join("Cargo.toml"),
-        "[workspace]\nmembers=['crates/alpha','crates/beta']\n",
+        &format!("[workspace]\nmembers=['{alpha_root}','crates/beta']\n"),
     );
     write(
-        &root.join("crates/alpha/Cargo.toml"),
+        &root.join(alpha_root).join("Cargo.toml"),
         &format!("[package]\nname='alpha'\nversion='0.1.0'\n{alpha_metadata}\n"),
     );
-    write(&root.join("crates/alpha/src/lib.rs"), source);
+    write(&root.join(alpha_root).join("src/lib.rs"), source);
     write(
         &root.join("crates/beta/Cargo.toml"),
         "[package]\nname='beta'\nversion='0.1.0'\n",
@@ -29,8 +34,10 @@ fn findings(source: &str, alpha_metadata: &str) -> Vec<String> {
     write(&root.join("plan.md"), "# Plan\n");
     write(
         &root.join("policy.toml"),
-        "production_rust_max=1000\nmodule_root_max=300\npowershell_max=800\ntest_max=1200\n\
-         [[crates]]\nname='alpha'\npath='crates/alpha'\n[[crates]]\nname='beta'\npath='crates/beta'\n",
+        &format!(
+            "production_rust_max=1000\nmodule_root_max=300\npowershell_max=800\ntest_max=1200\n\
+             [[crates]]\nname='alpha'\npath='{alpha_root}'\n[[crates]]\nname='beta'\npath='crates/beta'\n"
+        ),
     );
     check_repository(root, &root.join("policy.toml"))
         .unwrap()
@@ -202,5 +209,39 @@ fn computed_joins_and_parent_steps_are_not_reads() {
         "fn local() -> std::path::PathBuf { std::path::Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(\"../../.local/cache\") }",
     ] {
         assert!(findings(source, "").is_empty(), "{source}");
+    }
+}
+
+#[test]
+fn nested_package_literals_keep_real_parent_reads_without_inventing_inputs() {
+    let reader = "crates/beta/alpha";
+    assert!(findings_at("const INVALID: &str = \"../secret\";", "", reader).is_empty());
+    let real = "const INPUT: &str = \"../data/table.tsv\";";
+    assert_eq!(
+        findings_at(real, "", reader),
+        [
+            "alpha: crates/beta/alpha/src/lib.rs reads `crates/beta/data/table.tsv` outside the crate; list it in `reads` under [package.metadata.cinnabar]"
+        ]
+    );
+    assert!(
+        findings_at(
+            real,
+            "[package.metadata.cinnabar]\nreads=['crates/beta/data/table.tsv']",
+            reader
+        )
+        .is_empty()
+    );
+
+    for source in [
+        "const INPUT: &str = include_str!(\"../../data/missing.tsv\");",
+        "fn input() -> std::path::PathBuf { std::path::Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(\"../data/missing.tsv\") }",
+    ] {
+        assert_eq!(
+            findings_at(source, "", reader),
+            [
+                "alpha: crates/beta/alpha/src/lib.rs reads `crates/beta/data/missing.tsv` outside the crate; list it in `reads` under [package.metadata.cinnabar]"
+            ],
+            "{source}"
+        );
     }
 }

@@ -285,7 +285,7 @@ fn block_bindings_are_specific_to_the_visual_and_carried_faces() {
                 .iter()
                 .all(|pixel| *pixel == carried)
         );
-        let icon = pack_compiler::overlay_cube_icon(&overlay.overlay, faces).unwrap();
+        let icon = pack_entity_compiler::overlay_cube_icon(&overlay.overlay, faces).unwrap();
         assert!(
             icon.rgba8
                 .as_chunks::<4>()

@@ -41,7 +41,9 @@ fn equipment_fixture() -> (EquipmentRuntime, render_model::ActorArtworkPages) {
             attachable.to_string().into_bytes(),
         ));
     }
-    let mut compiled = pack_compiler::compile_actor_pack(files).unwrap().unwrap();
+    let mut compiled = pack_entity_compiler::compile_actor_pack(files)
+        .unwrap()
+        .unwrap();
     compiled.entities.block_visual_count = 1;
     let catalog = Arc::new(
         assets::RuntimeEquipmentCatalog::from_parts(

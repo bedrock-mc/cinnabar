@@ -41,7 +41,8 @@ pub(in crate::compiler) fn eye_descriptor(
         return None;
     }
     // Vanilla overrides every eye face with carried texture (face 1, variant 0).
-    let key = crate::pack::resolve_carried_face_key(&pack.blocks, record, BlockFace::Up)?;
+    let key =
+        pack_compile_input::pack::resolve_carried_face_key(&pack.blocks, record, BlockFace::Up)?;
     let (path, state_variant) = pack.terrain.get_for_model_record(&key, record)?;
     Some((
         Descriptor {

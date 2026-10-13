@@ -171,6 +171,7 @@ impl UiPresentationRuntime {
                                 metrics,
                                 content,
                             )?;
+                            self.append_touch_controls(runtime, nodes, next, metrics, content)?;
                         }
                     }
                     Scene::Bed => {

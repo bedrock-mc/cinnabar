@@ -166,7 +166,13 @@ impl WorldStream {
                     }
                     let face = dx == 0 || dz == 0;
                     for &key in self.resident.column(ChunkKey::new(column.dimension, x, z)) {
-                        if face && removed_heights.contains(&key.y) {
+                        if face
+                            && removed_heights.contains(&key.y)
+                            && self.removal_can_change_light(
+                                SubChunkKey::from_chunk(*column, key.y),
+                                key,
+                            )
+                        {
                             light.insert(key);
                         }
                         let below = key.y.saturating_sub(1);

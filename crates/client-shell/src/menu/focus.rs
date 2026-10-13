@@ -17,6 +17,7 @@ impl MenuRuntime {
     pub(super) fn focus_pointer(&mut self, action: MenuAction) {
         let action = match action {
             MenuAction::CloseSignIn => MenuAction::CancelSignIn,
+            MenuAction::CloseExitDialog => MenuAction::DismissDialog,
             action => action,
         };
         if let Some(index) = self.focus_actions().iter().position(|candidate| {
