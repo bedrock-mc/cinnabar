@@ -2177,6 +2177,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "cinnabar-android"
+version = "0.1.17"
+dependencies = [
+ "anyhow",
+ "assets",
+ "bevy",
+ "cinnabar",
+ "first-run",
+ "jni 0.21.1",
+ "launcher",
+ "rodio",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cinnabar-cxb"
 version = "0.1.17"
 dependencies = [

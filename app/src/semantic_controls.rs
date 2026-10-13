@@ -249,18 +249,60 @@ fn touch_physical_eq(left: &TouchContact, right: &TouchContact) -> bool {
     left.position == right.position && left.delta == right.delta && left.hit_id == right.hit_id
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A contact's control and, for the stick and look surface, the delta it routes.
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum SemanticTouchTarget {
-    Control(u16),
+    Control(u16, Option<[f32; 2]>),
 }
 
+/// This frame's touch control per held contact, contacts that lifted this frame, and the
+/// controls a finger newly pressed this frame.
 #[derive(Resource, Debug, Default)]
-pub struct SemanticTouchTargets(HashMap<u64, SemanticTouchTarget>);
+pub struct SemanticTouchTargets(
+    HashMap<u64, SemanticTouchTarget>,
+    Vec<TouchContact>,
+    Vec<u16>,
+);
 
 impl SemanticTouchTargets {
     pub fn set(&mut self, contact_id: u64, hit_id: u16) {
         self.0
-            .insert(contact_id, SemanticTouchTarget::Control(hit_id));
+            .insert(contact_id, SemanticTouchTarget::Control(hit_id, None));
+    }
+
+    /// Targets a held contact with its sampled control and delta.
+    pub(crate) fn set_sample(&mut self, sample: &TouchContact) {
+        if let Some(hit_id) = sample.hit_id {
+            self.0.insert(
+                sample.contact_id,
+                SemanticTouchTarget::Control(hit_id, Some(sample.delta)),
+            );
+        }
+    }
+
+    pub(crate) fn delta(&self, contact_id: u64) -> Option<[f32; 2]> {
+        self.0
+            .get(&contact_id)
+            .and_then(|SemanticTouchTarget::Control(_, delta)| *delta)
+    }
+
+    /// Routes a contact that lifted this frame once, so a tap shorter than a frame still lands.
+    pub(crate) fn pulse(&mut self, sample: TouchContact) {
+        self.1.push(sample);
+    }
+
+    pub(crate) fn take_pulses(&mut self) -> Vec<TouchContact> {
+        std::mem::take(&mut self.1)
+    }
+
+    /// Records a control a finger pressed this frame, for UI handlers keyed on press edges.
+    pub(crate) fn press(&mut self, hit_id: u16) {
+        self.2.push(hit_id);
+    }
+
+    /// Whether a finger pressed this control this frame, including a tap that already lifted.
+    pub(crate) fn pressed(&self, hit_id: u16) -> bool {
+        self.2.contains(&hit_id)
     }
 
     pub fn clear(&mut self, contact_id: u64) {
@@ -279,11 +321,13 @@ impl SemanticTouchTargets {
     pub fn target(&self, contact_id: u64) -> Option<u16> {
         self.0
             .get(&contact_id)
-            .map(|SemanticTouchTarget::Control(hit_id)| *hit_id)
+            .map(|SemanticTouchTarget::Control(hit_id, _)| *hit_id)
     }
 
     pub fn release_all(&mut self) {
         self.0.clear();
+        self.1.clear();
+        self.2.clear();
     }
 }
 

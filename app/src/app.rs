@@ -510,6 +510,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             .context("JSON-UI engine is missing its carrier catalog")?,
     );
     ui_presentation.set_form_texture_fallbacks(&entity_runtime, layout.vanilla_pack_dir());
+    ui_presentation.enable_touch_controls(cfg!(target_os = "android"));
     // OreUI artwork is decoded once for every native screen.
     if let Some(images) = oreui::images::load_optional_oreui_images(
         loaded_assets

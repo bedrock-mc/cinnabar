@@ -62,13 +62,20 @@ fn configure_render_settings(settings: &mut WgpuSettings) {
         .max(render::required_vertex_storage_buffers());
 }
 
-/// Preserves explicit backend choices; otherwise Windows admits Vulkan before DX12.
+/// Preserves explicit backend choices; otherwise Windows admits Vulkan before DX12 and Android
+/// admits only Vulkan.
 /// Vulkan uses count-driven GPU culling, with DX12 available as a fallback.
 fn preferred_render_backends(explicit: Option<&OsStr>) -> Option<Backends> {
-    if explicit.is_some() || !cfg!(target_os = "windows") {
-        return None;
+    if explicit.is_some() {
+        None
+    } else if cfg!(target_os = "windows") {
+        Some(Backends::VULKAN | Backends::DX12)
+    } else if cfg!(target_os = "android") {
+        // Android's GLES backend lacks the vertex-stage storage buffers the renderer needs.
+        Some(Backends::VULKAN)
+    } else {
+        None
     }
-    Some(Backends::VULKAN | Backends::DX12)
 }
 
 #[cfg(test)]
@@ -96,7 +103,11 @@ mod tests {
         use std::ffi::OsStr;
 
         assert_eq!(preferred_render_backends(Some(OsStr::new("dx12"))), None);
-        let expected = cfg!(target_os = "windows").then_some(Backends::VULKAN | Backends::DX12);
+        let expected = if cfg!(target_os = "windows") {
+            Some(Backends::VULKAN | Backends::DX12)
+        } else {
+            cfg!(target_os = "android").then_some(Backends::VULKAN)
+        };
         assert_eq!(preferred_render_backends(None), expected);
     }
 

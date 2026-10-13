@@ -1,6 +1,9 @@
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+mod android;
+pub use android::configure_android;
+
 const APP_DIR: &str = crate::PRODUCT_NAME;
 
 /// The pinned vanilla resource pack below a resource root, which mirrors `.local/`.
@@ -44,6 +47,10 @@ pub enum LayoutError {
     InvalidLinuxLayout(PathBuf),
     #[error("macOS executable is not inside <name>.app/Contents/MacOS: `{0}`")]
     InvalidMacOsBundle(PathBuf),
+    #[error("the Android activity has not configured the install layout")]
+    AndroidUnconfigured,
+    #[error("the Android install layout cannot change within a process")]
+    AndroidReconfigured,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -149,6 +156,9 @@ impl InstallLayout {
     }
 
     pub fn discover() -> Result<Self, LayoutError> {
+        if cfg!(target_os = "android") {
+            return android::discover();
+        }
         let platform = current_platform();
         let home = std::env::var_os(home_variable(platform)).map(PathBuf::from);
         let layout = Self::resolve(
