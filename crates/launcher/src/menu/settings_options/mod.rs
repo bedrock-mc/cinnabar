@@ -44,6 +44,9 @@ pub use keybindings::{
 pub use persistence::{SETTINGS_FILE, SETTINGS_SCHEMA};
 pub use runtime::{frame_rate_label, frame_rate_limit};
 
+/// Persisted toggle shared by the new UI's sizing and settings controls.
+pub const EXTRA_LARGE_UI: &str = "gui_accessibility_scaling";
+
 pub const SHOW_EXACT_SERVER_PING: &str = "show_exact_server_ping";
 pub const OREUI_DARK_MODE: &str = "oreui_dark_mode";
 
@@ -110,6 +113,11 @@ impl SettingsOptions {
 
     pub fn oreui_dark_mode(&self) -> bool {
         self.value(OREUI_DARK_MODE) != 0
+    }
+
+    /// Whether new menu screens use the additional accessibility scale step.
+    pub fn extra_large_ui(&self) -> bool {
+        self.value(EXTRA_LARGE_UI) != 0
     }
 
     /// Returns the saved value, or the registry default for an untouched option.

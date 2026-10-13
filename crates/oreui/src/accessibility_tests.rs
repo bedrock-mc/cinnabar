@@ -2,7 +2,10 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use launcher::menu::{MenuAction, MenuScreen, MenuView, settings_options::SettingsOptions};
+use launcher::menu::{
+    MenuAction, MenuScreen, MenuView,
+    settings_options::{EXTRA_LARGE_UI, SettingsOptions},
+};
 use ui::{DpiScale, SafeArea, TextLayoutCache, UiNode, UiPoint, UiRect};
 use ui_engine::{
     engine::screen::{PaintFrame, Screen},
@@ -112,7 +115,7 @@ fn extra_large_ui_resizes_real_menu_text_controls_and_pointer_targets() {
             ] {
                 let mut view = crate::test_support::settings_view("video_forced_index");
                 view.screen = route;
-                let index = option_index("gui_accessibility_scaling");
+                let index = option_index(EXTRA_LARGE_UI);
                 let metrics =
                     TextMetrics::for_viewport(physical, DpiScale::new(dpi).unwrap(), Some(gui));
                 let size = physical.map(|value| value as f32 / dpi);

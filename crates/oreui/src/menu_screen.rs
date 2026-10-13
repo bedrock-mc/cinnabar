@@ -136,6 +136,7 @@ impl OreUiScreen {
         artwork: &HashMap<String, IconRef>,
         frame: &mut PaintFrame<'_>,
     ) -> Result<EditorPaint, PaintError> {
+        self.configure_accessibility(&view.settings_options);
         let originals = self
             .originals
             .clone()
@@ -145,7 +146,7 @@ impl OreUiScreen {
             &mut *frame.next,
             &mut *frame.layouts,
             frame.font,
-            frame.metrics,
+            self.accessibility_metrics(frame.metrics),
             frame.solid_page,
             originals.as_deref(),
         );
@@ -189,6 +190,7 @@ impl Screen for OreUiScreen {
             scrolls,
             geometry,
         } = input;
+        self.configure_accessibility(&view.settings_options);
         let progress = view.connecting || view.local.progress.is_some();
         let sign_in = view.sign_in_prompt_open();
         let screen = view.screen;
@@ -203,7 +205,7 @@ impl Screen for OreUiScreen {
             &mut *frame.next,
             &mut *frame.layouts,
             frame.font,
-            frame.metrics,
+            self.accessibility_metrics(frame.metrics),
             frame.solid_page,
             originals.as_deref(),
         );

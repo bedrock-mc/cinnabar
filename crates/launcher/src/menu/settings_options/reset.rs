@@ -63,7 +63,7 @@ impl SettingsGroup {
                     | "field_of_view_toggle"
                     | "damage_bob"
                     | "gui_scale"
-                    | "gui_accessibility_scaling"
+                    | super::EXTRA_LARGE_UI
                     | "max_framerate"
                     | "vsync"
                     | "msaa"
@@ -92,7 +92,7 @@ impl SettingsGroup {
                     | "toast_notification_duration"
                     | "chat_message_duration"
                     | "gui_scale"
-                    | "gui_accessibility_scaling"
+                    | super::EXTRA_LARGE_UI
             ),
             // P:general_section.json:5174–5506; mixer bindings have one shared registry.
             Self::Audio => super::VOLUME_SETTINGS.contains(&name),

@@ -159,6 +159,7 @@ impl OreUiScreen {
         scrolls: &mut MenuScrolls<MenuAction>,
         frame: &mut PaintFrame<'_>,
     ) -> Result<Vec<(MenuAction, UiRect)>, PaintError> {
+        self.configure_accessibility(&view.settings_options);
         let originals = self
             .originals
             .clone()
@@ -176,7 +177,7 @@ impl OreUiScreen {
                 &mut *frame.next,
                 &mut *frame.layouts,
                 frame.font,
-                frame.metrics,
+                self.accessibility_metrics(frame.metrics),
                 frame.solid_page,
                 originals.as_deref(),
             );

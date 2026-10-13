@@ -316,7 +316,7 @@ impl UiPresentationRuntime {
         let mut frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
-            metrics,
+            metrics: self.screens.oreui.accessibility_metrics(metrics),
             solid_page: self.solid_texture_page,
             safe_area: self.safe_area,
             content: size,

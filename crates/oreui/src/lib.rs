@@ -2,9 +2,10 @@
 //! with OreUI by default (`docs/oreui.md`). Installed icon and control artwork
 //! and the shipped OreUI fonts are read at runtime.
 
-mod accounts;
+mod accessibility;
 #[cfg(test)]
 mod accessibility_tests;
+mod accounts;
 mod add_server;
 mod artwork;
 pub mod bed_screen;
@@ -97,6 +98,7 @@ pub struct OreUiScreen {
     pub originals: Option<Arc<Originals>>,
     pub look: Look,
     pub dark_mode: bool,
+    extra_large_ui: bool,
     pub transitions: Transitions,
     /// The last menu paint's leftovers for its adapter.
     paint: Option<menu_screen::MenuPaint>,

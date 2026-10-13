@@ -467,6 +467,9 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   Home fits short windows without scrolling; Pause scales its controls when needed. Geometry
   regressions are written; CI and owner visual acceptance of the sizing change remain pending.
 - Persistent Dark Mode defaults off, updates immediately and strengthens backdrop dimming.
+  Extra large new UI applies an additional scale step to menu geometry, text and hit targets,
+  independently of the ordinary GUI preference. Incomplete: exact-target sizing parity and
+  rendered/input acceptance remain unverified.
   Optional Screen animations controls quick hover/press feedback, selection, glimmers, text edits,
   screen changes, modal exits, pack accordions, scrolling and interpolated loading progress. Selected
   segmented choices remain lowered; hit targets remain stable and input applies immediately.

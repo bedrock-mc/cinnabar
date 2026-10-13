@@ -611,7 +611,7 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     ),
     // P:ui/settings_sections/general_section.json:5133; default is not yet recovered.
     toggle(
-        "gui_accessibility_scaling",
+        super::EXTRA_LARGE_UI,
         "options.gui.accessibility.scaling",
         false,
     ),

@@ -7,7 +7,7 @@ use launcher::menu::{
     MenuAction, MenuField,
     settings_options::{
         ANIMATIONS_OPTION, CHAT_POSITION_OPTION, COMMAND_MACRO_COUNT, EXTRA_GAMEPAD, EXTRA_KEYS,
-        GAMEPAD_BINDINGS, GAMEPAD_OFFSET, INVERT_CROSSHAIR_OPTION, KEY_BINDINGS,
+        EXTRA_LARGE_UI, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, INVERT_CROSSHAIR_OPTION, KEY_BINDINGS,
         MOTION_BLUR_OPTION, SMAA_OPTION, SettingsGroup, SettingsOptions,
         THIRD_PERSON_CROSSHAIR_OPTION, VOLUME_SETTINGS, custom_key_label, key_name, macro_message,
         macro_row, macro_row_index, macro_title,
@@ -88,7 +88,7 @@ fn accessibility(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             "chat_message_duration",
             "toast_notification_duration",
             "gui_scale",
-            "gui_accessibility_scaling",
+            EXTRA_LARGE_UI,
         ],
     )?;
     reset(
@@ -171,7 +171,7 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         content,
         &[
             "gui_scale",
-            "gui_accessibility_scaling",
+            EXTRA_LARGE_UI,
             "screen_animations",
             "panorama_speed",
             "view_bobbing",
@@ -728,7 +728,7 @@ pub(super) fn option_label(name: &str, default: &'static str) -> &'static str {
         "ecomode_toggle" => "options.enableEcoMode.name",
         "copy_coordinate_ui" => "options.copyCoordinateUI.name",
         "content_log_gui_show_on_errors" => "options.content_log_gui_show_on_errors.name",
-        "gui_accessibility_scaling" => "options.guiAccessibilityScaling.name",
+        EXTRA_LARGE_UI => "options.guiAccessibilityScaling.name",
         "graphics_mode" => "menu.video.mode",
         "render_clouds" => "options.renderClouds",
         _ => default,
