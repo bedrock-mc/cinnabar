@@ -1,3 +1,4 @@
+use crate::contract::{AuthState, ConnectStage, ConnectTarget};
 use std::path::Path;
 
 use bytes::Bytes;
@@ -11,7 +12,6 @@ use crate::status::{RpcError, TransferPending, invalid};
 use crate::{BridgeError, FramedStream};
 
 const REQUEST_ID: u64 = 1;
-const SCHEMA_VERSION: u32 = 1;
 
 /// One Realm the account can join; `target` is its stable join id.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -354,38 +354,6 @@ pub struct Person {
     pub gamerpic: Artwork,
 }
 
-/// Where the next client connection goes.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(
-    tag = "kind",
-    content = "value",
-    rename_all = "lowercase",
-    deny_unknown_fields
-)]
-pub enum ConnectTarget {
-    /// A `host:port` server.
-    RakNet(String),
-    /// A Realm id from [`Realm::target`] (`realm_id/<id>` → `<id>`).
-    Realm(String),
-    /// A friend's XUID from [`Friend::xuid`].
-    Friend(String),
-    /// A featured experience's ID, from a `gathering/<id>` featured server address.
-    Gathering(String),
-}
-
-/// Sign-in state of the core.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum AuthState {
-    /// The core runs without a Microsoft account.
-    Offline,
-    SignedOut,
-    /// Show `verification_uri` and `user_code` to the player.
-    AwaitingCode,
-    SignedIn,
-    Failed,
-}
-
 /// Sign-in state plus the fields that belong to it; `reason` never carries secrets or paths.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct Account {
@@ -445,19 +413,6 @@ pub struct ConnectProgress {
     pub received_bytes: u64,
     #[serde(default)]
     pub total_bytes: u64,
-}
-
-/// Vanilla's join progress handlers the core's stages stand for.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum ConnectStage {
-    /// The Realm lookup.
-    Realm,
-    /// Resource pack acquisition.
-    Packs,
-    /// Transport connect and login; also any stage this client does not know.
-    #[serde(other)]
-    Connecting,
 }
 
 #[derive(Serialize)]
@@ -533,7 +488,7 @@ pub(crate) async fn call<R: DeserializeOwned, P: Serialize>(
     let stream = crate::endpoint::connect(socket_dir, EndpointKind::Control).await?;
     let mut framed = FramedStream::with_max(stream, CONTROL_MAX_FRAME_LEN);
     let request = serde_json::to_vec(&Request {
-        jsonrpc: "2.0",
+        jsonrpc: crate::contract::JSON_RPC_VERSION,
         id: REQUEST_ID,
         method,
         params,
@@ -545,14 +500,18 @@ pub(crate) async fn call<R: DeserializeOwned, P: Serialize>(
 
 pub(crate) fn parse_response<R: DeserializeOwned>(payload: &[u8]) -> Result<R, BridgeError> {
     let response: Envelope<R> = serde_json::from_slice(payload)?;
-    if response.jsonrpc != "2.0" {
+    if response.jsonrpc != crate::contract::JSON_RPC_VERSION {
         return invalid("jsonrpc must be exactly 2.0");
     }
     if response.id != REQUEST_ID {
         return invalid("response id does not match the request");
     }
     match (response.result, response.error) {
-        (Some(result), None) if result.schema_version == SCHEMA_VERSION => Ok(result.body),
+        (Some(result), None)
+            if result.schema_version == crate::contract::CONTROL_SCHEMA_VERSION =>
+        {
+            Ok(result.body)
+        }
         (Some(_), None) => invalid("unsupported launcher schema version"),
         (None, Some(error)) => Err(BridgeError::ControlRpc {
             code: error.code,
@@ -565,43 +524,48 @@ pub(crate) fn parse_response<R: DeserializeOwned>(payload: &[u8]) -> Result<R, B
 
 /// Lists the account's Realms.
 pub async fn list_realms(socket_dir: &Path) -> Result<Vec<Realm>, BridgeError> {
-    let body: RealmsBody = call::<_, ()>(socket_dir, "realms_list.v1", None).await?;
+    let body: RealmsBody =
+        call::<_, ()>(socket_dir, crate::contract::METHOD_REALMS_LIST, None).await?;
     Ok(body.realms)
 }
 
 /// Lists friends' joinable worlds.
 pub async fn list_friends(socket_dir: &Path) -> Result<Vec<Friend>, BridgeError> {
-    let body: FriendsBody = call::<_, ()>(socket_dir, "friends_list.v1", None).await?;
+    let body: FriendsBody =
+        call::<_, ()>(socket_dir, crate::contract::METHOD_FRIENDS_LIST, None).await?;
     Ok(body.friends)
 }
 
 /// Lists the account's Xbox friends, online first.
 pub async fn list_people(socket_dir: &Path) -> Result<Vec<Person>, BridgeError> {
-    let body: PeopleBody = call::<_, ()>(socket_dir, "friends_people.v1", None).await?;
+    let body: PeopleBody =
+        call::<_, ()>(socket_dir, crate::contract::METHOD_FRIENDS_PEOPLE, None).await?;
     Ok(body.friends)
 }
 
 /// Selects the upstream for the next session connection.
 pub async fn connect_target(socket_dir: &Path, target: &ConnectTarget) -> Result<(), BridgeError> {
-    call::<Empty, _>(socket_dir, "connect.v1", Some(target)).await?;
+    call::<Empty, _>(socket_dir, crate::contract::METHOD_CONNECT, Some(target)).await?;
     Ok(())
 }
 
 /// Reads the sign-in state.
 pub async fn account_status(socket_dir: &Path) -> Result<Account, BridgeError> {
-    let body: AccountBody = call::<_, ()>(socket_dir, "account_status.v1", None).await?;
+    let body: AccountBody =
+        call::<_, ()>(socket_dir, crate::contract::METHOD_ACCOUNT_STATUS, None).await?;
     Ok(body.account)
 }
 
 /// Deletes the cached Microsoft tokens and returns the resulting state.
 pub async fn sign_out(socket_dir: &Path) -> Result<Account, BridgeError> {
-    let body: AccountBody = call::<_, ()>(socket_dir, "sign_out.v1", None).await?;
+    let body: AccountBody =
+        call::<_, ()>(socket_dir, crate::contract::METHOD_SIGN_OUT, None).await?;
     Ok(body.account)
 }
 
 /// Reads the auth state and the newest disconnect and transfer.
 pub async fn poll_events(socket_dir: &Path) -> Result<Events, BridgeError> {
-    call::<Events, ()>(socket_dir, "events.v1", None).await
+    call::<Events, ()>(socket_dir, crate::contract::METHOD_EVENTS, None).await
 }
 
 /// Lists the featured servers.
@@ -632,7 +596,8 @@ async fn featured_servers(
     socket_dir: &Path,
     params: Option<FeaturedParams>,
 ) -> Result<Vec<FeaturedServer>, BridgeError> {
-    let body: FeaturedBody = call(socket_dir, "featured_servers.v1", params).await?;
+    let body: FeaturedBody =
+        call(socket_dir, crate::contract::METHOD_FEATURED_SERVERS, params).await?;
     Ok(body.servers)
 }
 
@@ -644,7 +609,7 @@ pub async fn ping_servers(
     let mut servers = Vec::with_capacity(addresses.len());
     for batch in addresses.chunks(MAX_PING_TARGETS) {
         let params = PingParams { addresses: batch };
-        let body: PingBody = call(socket_dir, "ping.v1", Some(params)).await?;
+        let body: PingBody = call(socket_dir, crate::contract::METHOD_PING, Some(params)).await?;
         servers.extend(body.servers);
     }
     Ok(servers)
@@ -652,7 +617,7 @@ pub async fn ping_servers(
 
 /// Reads the start screen's service data.
 pub async fn home(socket_dir: &Path) -> Result<Home, BridgeError> {
-    let body: HomeBody = call::<_, ()>(socket_dir, "home.v1", None).await?;
+    let body: HomeBody = call::<_, ()>(socket_dir, crate::contract::METHOD_HOME, None).await?;
     Ok(body.home)
 }
 
@@ -674,7 +639,12 @@ pub async fn answer_server_trust(
     trusted: bool,
 ) -> Result<bool, BridgeError> {
     let params = ServerTrustAnswer { id, trusted };
-    let body: ServerTrustBody = call(socket_dir, "server_trust_answer.v1", Some(params)).await?;
+    let body: ServerTrustBody = call(
+        socket_dir,
+        crate::contract::METHOD_SERVER_TRUST_ANSWER,
+        Some(params),
+    )
+    .await?;
     Ok(body.answered)
 }
 
@@ -683,13 +653,19 @@ pub async fn report_message_event(
     socket_dir: &Path,
     event: &MessageEvent,
 ) -> Result<(), BridgeError> {
-    call::<Empty, _>(socket_dir, "message_event.v1", Some(event)).await?;
+    call::<Empty, _>(
+        socket_dir,
+        crate::contract::METHOD_MESSAGE_EVENT,
+        Some(event),
+    )
+    .await?;
     Ok(())
 }
 
 /// Reads the signed-in profile.
 pub async fn profile(socket_dir: &Path) -> Result<Profile, BridgeError> {
-    let body: ProfileBody = call::<_, ()>(socket_dir, "profile.v1", None).await?;
+    let body: ProfileBody =
+        call::<_, ()>(socket_dir, crate::contract::METHOD_PROFILE, None).await?;
     Ok(body.profile)
 }
 
@@ -960,7 +936,7 @@ pub async fn realm_membership(
     }
     call(
         socket_dir,
-        "realm_membership.v1",
+        crate::contract::METHOD_REALM_MEMBERSHIP,
         Some(Params { code, accept }),
     )
     .await

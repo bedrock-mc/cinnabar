@@ -9,9 +9,8 @@ use uuid::Uuid;
 
 use crate::PlayerInputMode;
 
-/// The game version this client reports at login. The codec's source manifest is 1.26.51, but
-/// gophertunnel identifies protocol 2193 as 1.26.50 and the core accepts only that string.
-pub const GAME_VERSION: &str = "1.26.50";
+/// The game version reported at login, generated from the pinned Bedrock target.
+pub const GAME_VERSION: &str = bridge::contract::GAME_VERSION;
 
 /// The Bedrock network protocol this client speaks.
 pub const PROTOCOL_VERSION: i32 = bedrock_protocol_1_26_51::PROTOCOL_VERSION;

@@ -30,6 +30,12 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/resource"
 )
 
+func TestSharedGameVersionMatchesPinnedProtocol(t *testing.T) {
+	if bridgecontract.GameVersion != minecraft.DefaultProtocol.Ver() {
+		t.Fatalf("bridge version %q differs from pinned protocol %q", bridgecontract.GameVersion, minecraft.DefaultProtocol.Ver())
+	}
+}
+
 // sessionFixture reads a wire fixture the Rust protocol tests share.
 func sessionFixture(t *testing.T, name string) []byte {
 	t.Helper()
