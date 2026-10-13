@@ -47,6 +47,7 @@ pub(super) fn descriptor_for(
         || visuals::campfire::is_record(record)
         || visuals::grindstone::is_record(record)
         || visuals::tripwire_hook::is_record(record)
+        || visuals::lever::is_record(record)
         || visuals::end_portal_frame::is_record(record)
         || visuals::end_rod::is_record(record)
         || visuals::lightning_rod::is_record(record)
