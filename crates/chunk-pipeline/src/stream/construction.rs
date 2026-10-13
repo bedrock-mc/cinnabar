@@ -155,6 +155,7 @@ impl WorldStream {
             last_retention_center: None,
             last_retention_radius: None,
             local_player_chunk: None,
+            far_terrain: far_summaries::FarTerrainFeed::default(),
             stats: WorldStreamStats::default(),
         }
     }

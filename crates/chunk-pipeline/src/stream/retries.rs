@@ -60,6 +60,8 @@ impl WorldStream {
             if self.authority.mark_chunk_loaded(chunk).is_err() {
                 self.loaded_columns.remove(&chunk);
                 self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
+            } else {
+                self.note_far_column_complete(chunk);
             }
         }
     }
