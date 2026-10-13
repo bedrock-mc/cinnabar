@@ -49,6 +49,8 @@ mod overlay_tests;
 mod personal;
 mod queue;
 mod quick_move;
+#[cfg(test)]
+mod quick_move_role_tests;
 mod registry;
 #[cfg(test)]
 mod request_tests;
