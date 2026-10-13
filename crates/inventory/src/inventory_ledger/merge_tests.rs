@@ -319,7 +319,7 @@ fn exact_capacity_one_sixteen_and_sixty_four_rules_are_used() {
 }
 
 #[test]
-fn unsupported_stack_shapes_never_guess_a_merge_rule() {
+fn unsupported_stack_shapes_never_guess_a_merge_rule_and_registry_shapes_bind_natively() {
     let cases = [
         (None, stack(6, 60, 60), stack(6, 33, 3)),
         (Some(apple_registry()), stack(7, 60, 60), stack(7, 33, 3)),

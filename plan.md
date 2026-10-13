@@ -1168,7 +1168,8 @@ acceptance gate.
   items before the vanilla item classes, so they replace a vanilla item of the same name and
   stack to `item_properties.max_stack_size`, else the item default of 64. Legacy and
   unversioned entries keep the vanilla class of their name; other names become component items
-  when component based and plain 64 items otherwise.
+  when component based and plain 64 items otherwise. Entries of an unknown item version bind
+  the same way by name, as the native per-entry binder does (`0x146225850`).
 - Provisional: a component item's top-level `minecraft:max_stack_size` component is read when
   it has no `item_properties`, and plain or vanilla items carrying that component leave their
   capacity unsettled; neither read is traced natively.

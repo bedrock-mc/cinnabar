@@ -220,7 +220,8 @@ fn effective_merge_binding(entry: Option<&ItemRegistryEntry>) -> Option<(&str, O
 /// The native client registers every DataDriven entry as a component item before it
 /// registers its own vanilla item classes, so a component item replaces a vanilla item of the
 /// same name. Legacy and other entries keep the vanilla class of their name. Any other name
-/// becomes a component item when the entry is component based and a plain item otherwise.
+/// becomes a component item when the entry is component based and a plain item otherwise;
+/// entries of an unknown item version bind the same way, by name (`0x146225850`).
 /// Each class then reads the entry's `components`: a component item takes its stack size from
 /// `item_properties` (or the `minecraft:max_stack_size` component without them), and every
 /// class keeps its own when the data declares none.
@@ -244,8 +245,8 @@ pub(super) fn entry_capacity(entry: &ItemRegistryEntry) -> Option<u8> {
         };
     }
     if stack_component {
-        // Plain and vanilla items read the top-level component as a bare int, which add-on
-        // data does not send, so its effect is unsettled.
+        // Provisional: plain and vanilla items appear to read the top-level component as a bare
+        // int (`0x1461F9CD0`), which add-on data does not send, so its effect is unsettled.
         return None;
     }
     Some(vanilla.unwrap_or(protocol::ITEM_DEFAULT_MAX_STACK_SIZE))
