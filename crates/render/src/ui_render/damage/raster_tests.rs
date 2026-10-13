@@ -561,8 +561,10 @@ fn item_glint_tints_grayscale_purple_and_restores_pack_pixels_without_changing_a
         let pixels = raster.pixels(&output);
         assert!(
             pixels
-                .chunks_exact(4)
-                .zip(plain.chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(plain.as_chunks::<4>().0.iter())
                 .all(|(a, b)| a[3] == b[3])
         );
         assert_eq!(
