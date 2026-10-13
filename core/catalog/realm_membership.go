@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
 )
 
@@ -78,7 +79,7 @@ func realmMembership(ctx context.Context, client membershipClient, input string,
 func realmCard(realm realms.Realm) Realm {
 	entry := Realm{
 		Name: displayName(realm.Name, "", "Realm"), State: realm.State,
-		Target: fmt.Sprintf("realm_id/%d", realm.ID), Owner: strings.TrimSpace(realm.Owner),
+		Target: fmt.Sprintf("%s%d", bridgecontract.RealmTargetPrefix, realm.ID), Owner: strings.TrimSpace(realm.Owner),
 		MOTD: strings.TrimSpace(realm.MOTD), WorldType: realm.WorldType,
 		MaxPlayers: realm.MaxPlayers, DaysLeft: realm.DaysLeft, Expired: realm.Expired, Member: realm.Member,
 	}

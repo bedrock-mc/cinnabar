@@ -1658,6 +1658,11 @@ their generated inputs before selection and channel evaluation.
 CI execution and rendered acceptance remain pending; broader motion-query parity
 and interpolation mixed with active camera clips remain incomplete.
 
+Player head and body turns no longer start or restart the native walk cycle.
+Native and Java 1.7 player walking targets use horizontal position changes and
+keep their existing easing after movement stops. Rendered acceptance and native
+player-turn parity remain incomplete.
+
 2026-10-04 user-requested custom emotes — **Incomplete native/Lunar parity**:
 the native four-slot JSON-UI wheel and remappable emote control select an original,
 local-only Twerk dance with a faster user-requested loop. The owned clip preserves skin
@@ -8425,6 +8430,11 @@ still admits them through their collision box or server hitboxes, while aim assi
 them. Empty advertised bases retain an explicit provisional generic-mob disposition. Complete native constructor,
 mutable component, spectator pick/obstruction and class inventories are still open;
 the generic-mob disposition remains provisional and does not close a parity gate.
+
+Committed asset tables are checked against pinned block, item, actor and pack-name
+vocabularies. Retained compatibility exceptions name the exact field and fail when
+unused. Every pinned actor has an explicit interaction disposition; unsupported
+entries remain unresolved, and identifier coverage does not establish behavior parity.
 
 Compiled seat descriptors are incomplete. Every independently collected entity has a seat admission, including unresolved definitions. Authored base layouts, bounded rider counts, literal rotations and Molang rotation references are compiled before runtime; component-group names no longer select layouts. Actual group activation and rotation-expression evaluation remain unresolved, so those layouts retain streamed poses. Passenger ordering, mutable rideable components, session behavior overlays and complete native layout coverage remain open. Static count selection preserves the existing compatibility order and is provisional.
 
