@@ -72,6 +72,44 @@ fn rocket_launch_audio_honors_silent_at_first_tick_and_discards_ended_lifetimes(
     assert!(store.take_synchronized_audio().is_empty());
 }
 
+#[test]
+fn rocket_launch_audio_reads_first_tick_metadata_and_keeps_its_own_admission_credit() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, rocket(false));
+    assert_eq!(store.synchronized_audio_count(), 1);
+    store.apply(
+        1,
+        2,
+        protocol::ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+            dimension: 0,
+            runtime_id: 7,
+            metadata: std::sync::Arc::from([protocol::ActorMetadata {
+                key: protocol_ids::ActorDataKey::Flags.wire_value(),
+                value: protocol::ActorMetadataValue::Flags(
+                    1 << protocol_ids::ActorFlag::Silent.wire_value(),
+                ),
+            }]),
+            properties: std::sync::Arc::from([]),
+            tick: 0,
+        }),
+    );
+    store.advance_interpolation_ticks(1);
+    assert_eq!(store.synchronized_audio_count(), 0);
+    assert!(store.take_synchronized_audio().is_empty());
+    store.apply(1, 3, rocket(false));
+    for sequence in 4..16 {
+        store.queue_synchronized_audio(sound(sequence, 17, [1.0, 2.0, 3.0]));
+    }
+    assert_eq!(store.synchronized_audio_count(), MAX_SOUNDS_PER_ACTOR + 1);
+    store.advance_interpolation_ticks(1);
+    let events = store.take_synchronized_audio();
+    assert_eq!(events.len(), MAX_SOUNDS_PER_ACTOR + 1);
+    assert_eq!(
+        events.iter().filter(|event| event.client_generated).count(),
+        1
+    );
+}
+
 fn store() -> ActorStore {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, crate::actor_store::tests::spawn(7, 17));
@@ -83,6 +121,7 @@ fn sound(sequence: u64, actor_unique_id: i64, fire_at_position: [f32; 3]) -> Com
         sequence,
         dimension: 0,
         dimension_epoch: 0,
+        client_generated: false,
         actor_synchronization: None,
         event: protocol::AudioEvent::Level(protocol::LevelAudioEvent {
             sound_event: "death".into(),

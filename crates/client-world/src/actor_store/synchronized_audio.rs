@@ -9,6 +9,11 @@ use actor_animation::ActorLifetimeId;
 const MAX_SOUNDS_PER_ACTOR: usize = 9;
 const FIRE_POSITION_DISTANCE_SQUARED: f32 = 0.25;
 
+/// Wire actor identity that owns the first-tick rocket launch request.
+pub const FIREWORK_ROCKET_IDENTIFIER: &str = "minecraft:fireworks_rocket";
+/// Pack event shared by rocket lifecycle and explicit level-sound routing.
+pub const ROCKET_LAUNCH_EVENT: &str = "launch";
+
 #[derive(Debug)]
 struct PendingSound {
     lifetime: ActorLifetimeId,
@@ -41,6 +46,40 @@ impl SynchronizedAudio {
 }
 
 impl ActorStore {
+    /// Reserves the spawn's audio admission credit until the rocket's first actor tick.
+    pub(super) fn queue_rocket_launch_audio(&mut self, runtime_id: u64) {
+        let actor = &self.actors[&runtime_id];
+        if !matches!(&actor.kind, protocol::ActorKind::Entity { identifier }
+            if identifier.as_ref() == FIREWORK_ROCKET_IDENTIFIER)
+        {
+            return;
+        }
+        let lifetime = self.lifetime_for(actor);
+        self.synchronized_audio.pending.push_back(PendingSound {
+            lifetime,
+            countdown: -1,
+            event: CommittedAudioEvent {
+                sequence: actor.spawn_revision,
+                dimension: self.dimension,
+                // Publication assigns the live epoch; dimension reset discards this lifetime.
+                dimension_epoch: 0,
+                client_generated: true,
+                actor_synchronization: None,
+                event: protocol::AudioEvent::Level(protocol::LevelAudioEvent {
+                    sound_event: ROCKET_LAUNCH_EVENT.into(),
+                    position: actor.position,
+                    data: -1,
+                    // Launch resolves the individual pack event, without an entity route.
+                    actor_identifier: "".into(),
+                    is_baby: false,
+                    is_global: false,
+                    actor_unique_id: actor.unique_id,
+                    fire_at_position: Some(actor.position),
+                }),
+            },
+        });
+    }
+
     pub(crate) fn queue_synchronized_audio(&mut self, event: CommittedAudioEvent) {
         let protocol::AudioEvent::Level(level) = &event.event else {
             return;
@@ -64,10 +103,12 @@ impl ActorStore {
         let queue = &mut self.synchronized_audio.pending;
         if queue
             .iter()
-            .filter(|sound| sound.lifetime == lifetime)
+            .filter(|sound| sound.lifetime == lifetime && !sound.event.client_generated)
             .count()
             >= MAX_SOUNDS_PER_ACTOR
-            && let Some(index) = queue.iter().position(|sound| sound.lifetime == lifetime)
+            && let Some(index) = queue
+                .iter()
+                .position(|sound| sound.lifetime == lifetime && !sound.event.client_generated)
         {
             queue.remove(index);
         }
@@ -91,6 +132,25 @@ impl ActorStore {
                 queue.pending.remove(index);
                 continue;
             };
+            if pending.event.client_generated {
+                let mut event = queue.pending.remove(index).expect("queued launch").event;
+                if actor.flag(protocol_ids::ActorFlag::Silent.wire_value()) {
+                    continue;
+                }
+                // Motion has just completed its tick; launch uses the position at tick entry.
+                if let protocol::AudioEvent::Level(level) = &mut event.event {
+                    level.position = actor.previous_pose.position;
+                    level.fire_at_position = Some(actor.previous_pose.position);
+                }
+                event.actor_synchronization = Some(actor_animation::ActorLifetimeId {
+                    session_id: self.session_id,
+                    dimension: self.dimension,
+                    runtime_id: actor.runtime_id,
+                    spawn_revision: actor.spawn_revision,
+                });
+                queue.ready.push(event);
+                continue;
+            }
             let protocol::AudioEvent::Level(level) = &pending.event.event else {
                 unreachable!()
             };
