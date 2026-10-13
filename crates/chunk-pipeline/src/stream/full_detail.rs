@@ -1,5 +1,10 @@
 //! Full-detail radius: only columns near the player are lit, meshed and uploaded; the rest
 //! keep their block data and are drawn by far terrain from their summaries.
+//!
+//! A column with resident data is promoted when it comes within the radius and demoted once
+//! it is more than [`FULL_DETAIL_HYSTERESIS_CHUNKS`] past it. Promotion remeshes it and near
+//! terrain takes it over only when every mesh is uploaded; demotion hands it back to far
+//! terrain at once, re-summarised from its current blocks, before its meshes are withdrawn.
 
 use super::*;
 
@@ -14,9 +19,6 @@ pub(super) struct FullDetail {
     centre: Option<ChunkKey>,
     /// Columns within the radius, plus those not yet past the hysteresis band.
     columns: HashSet<ChunkKey>,
-    /// Full-detail columns whose every section mesh is uploaded, which far terrain hides under.
-    drawn: HashSet<ChunkKey>,
-    drawn_revision: u64,
 }
 
 impl FullDetail {
@@ -49,21 +51,24 @@ impl WorldStream {
         let was_limited = self.full_detail.radius.is_some();
         self.full_detail.radius = radius;
         self.full_detail.centre = None;
-        if radius.is_none() && was_limited {
-            // Everything is full detail again: relight and remesh what was left out.
+        if radius.is_none() {
+            // Everything is full detail again: relight and remesh what was left out, including
+            // columns still arriving.
             let demoted: Vec<ChunkKey> = self
-                .loaded_columns
-                .iter()
-                .copied()
+                .resident
+                .columns()
                 .filter(|column| !self.full_detail.columns.contains(column))
                 .collect();
             self.full_detail.columns.clear();
-            self.full_detail.drawn.clear();
-            self.full_detail.drawn_revision += 1;
             for column in demoted {
                 self.refresh_full_detail_column(column);
             }
             return;
+        }
+        if !was_limited {
+            // Every column was full detail; those past the new radius are demoted below.
+            let columns: Vec<ChunkKey> = self.resident.columns().collect();
+            self.full_detail.columns.extend(columns);
         }
         self.reevaluate_full_detail();
     }
@@ -72,15 +77,6 @@ impl WorldStream {
     #[must_use]
     pub const fn full_detail_radius(&self) -> Option<i32> {
         self.full_detail.radius
-    }
-
-    /// Columns drawn in full detail, and a revision that changes whenever the set does.
-    #[must_use]
-    pub fn drawn_full_detail_columns(&self) -> (u64, impl Iterator<Item = ChunkKey> + '_) {
-        (
-            self.full_detail.drawn_revision,
-            self.full_detail.drawn.iter().copied(),
-        )
     }
 
     /// True when `column` is meshed and uploaded; every column is without a radius.
@@ -169,18 +165,13 @@ impl WorldStream {
             .chain(self.known_air.column(column))
             .copied()
             .collect();
-        if keys.is_empty() {
-            self.note_full_detail_drawn(column);
-            return;
-        }
         self.mark_changed_sources(keys, Instant::now());
+        self.note_near_drawn(column);
     }
 
     /// Withdraws a column's meshes and summarises it, so far terrain draws its latest state.
     fn demote_full_detail_column(&mut self, column: ChunkKey) {
-        if self.full_detail.drawn.remove(&column) {
-            self.full_detail.drawn_revision += 1;
-        }
+        self.forget_near_drawn([&column]);
         let keys: Vec<SubChunkKey> = self
             .resident
             .column(column)
@@ -193,37 +184,6 @@ impl WorldStream {
         }
         if self.loaded_columns.contains(&column) {
             self.note_far_column_complete(column);
-        }
-    }
-
-    /// Marks a full-detail column drawn once it is loaded and none of its sections await a mesh.
-    pub(super) fn note_full_detail_drawn(&mut self, column: ChunkKey) {
-        if self.full_detail.radius.is_none()
-            || !self.full_detail.columns.contains(&column)
-            || self.full_detail.drawn.contains(&column)
-            || !self.loaded_columns.contains(&column)
-        {
-            return;
-        }
-        let pending = self
-            .resident
-            .column(column)
-            .chain(self.known_air.column(column))
-            .any(|key| self.revisions.dirty(*key).is_some());
-        if !pending {
-            self.full_detail.drawn.insert(column);
-            self.full_detail.drawn_revision += 1;
-        }
-    }
-
-    /// Drops retired columns from the drawn set.
-    pub(super) fn forget_full_detail_columns(&mut self, columns: &BTreeSet<ChunkKey>) {
-        let before = self.full_detail.drawn.len();
-        self.full_detail
-            .drawn
-            .retain(|column| !columns.contains(column));
-        if self.full_detail.drawn.len() != before {
-            self.full_detail.drawn_revision += 1;
         }
     }
 }

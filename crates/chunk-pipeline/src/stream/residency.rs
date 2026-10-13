@@ -65,6 +65,7 @@ impl WorldStream {
         }
         let far_retiring = self.far_retiring_snapshots(&columns);
         self.actor_block_syncs.remove_columns(&columns);
+        self.forget_near_drawn(&columns);
         for &column in &columns {
             self.light_diagnostics.remove_column(column);
             self.evict_block_crack_column(column);
@@ -141,10 +142,7 @@ impl WorldStream {
         if !retired.is_empty() || retired_indexes.is_some() {
             rayon::spawn(move || drop((retired, retired_indexes)));
         }
-        if !far_retiring.is_empty() {
-            self.spawn_far_summaries(far_retiring);
-        }
-        self.forget_full_detail_columns(&columns);
+        self.far_terrain.retiring.extend(far_retiring);
     }
 
     /// Resident keys outside the removed columns that sample a removed key: face neighbours

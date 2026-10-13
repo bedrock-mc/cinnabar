@@ -52,8 +52,12 @@ fn tile_costs(c: &mut Criterion) {
     c.bench_function("far_terrain/select_tiles", |b| {
         b.iter(|| select_tiles(black_box(view)))
     });
+    let disc: Vec<ColumnPos> = (-12..=12)
+        .flat_map(|x| (-12..=12).map(move |z| ColumnPos::new(x, z)))
+        .filter(|column| column.x * column.x + column.z * column.z <= 144)
+        .collect();
     c.bench_function("far_terrain/near_mask_radius_12", |b| {
-        b.iter(|| NearMask::retained(black_box([0, 0]), 12));
+        b.iter(|| NearMask::from_columns(black_box([0, 0]), disc.iter().copied()));
     });
 }
 

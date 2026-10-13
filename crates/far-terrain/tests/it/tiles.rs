@@ -59,17 +59,77 @@ fn selection_partitions_the_ring_and_coarsens_outward() {
     );
 }
 
+/// The mask holds exactly the given columns; its inner disc holds only near blocks and its
+/// outer disc every near block.
 #[test]
-fn near_mask_matches_chunk_grid_retention() {
-    let mask = NearMask::retained([5, -3], 8);
+fn near_mask_bounds_its_columns() {
+    let centre = [5, -3];
+    let near = |x: i32, z: i32| {
+        let (dx, dz) = (x - centre[0], z - centre[1]);
+        dx * dx + dz * dz <= 64 && (dx, dz) != (3, 1)
+    };
+    let columns = (-20..30)
+        .flat_map(|x| (-25..20).map(move |z| (x, z)))
+        .filter(|&(x, z)| near(x, z))
+        .map(|(x, z)| ColumnPos::new(x, z));
+    let mask = NearMask::from_columns(centre, columns);
+    let middle = [centre[0] as f32 * 16.0 + 8.0, centre[1] as f32 * 16.0 + 8.0];
     for x in -20..30 {
         for z in -25..20 {
-            assert_eq!(
-                mask.contains(ColumnPos::new(x, z)),
-                world::chunk_in_view(8, [x, z], [5, -3]),
-                "{x},{z}"
-            );
+            assert_eq!(mask.contains(ColumnPos::new(x, z)), near(x, z), "{x},{z}");
+            for (bx, bz) in [(0, 0), (15, 0), (0, 15), (15, 15)] {
+                let block = [(x * 16 + bx) as f32 + 0.5, (z * 16 + bz) as f32 + 0.5];
+                let distance = (block[0] - middle[0]).hypot(block[1] - middle[1]);
+                if distance < mask.inner_blocks() {
+                    assert!(near(x, z), "{x},{z} is inside the inner disc");
+                }
+                if near(x, z) {
+                    assert!(
+                        distance < mask.outer_blocks(),
+                        "{x},{z} is past the outer disc"
+                    );
+                }
+            }
         }
+    }
+    assert!(
+        mask.inner_blocks() > 16.0,
+        "only the hole limits the inner disc"
+    );
+    assert_eq!(NearMask::from_columns(centre, []).inner_blocks(), 0.0);
+}
+
+/// Inside the near edge but outside the skipped disc, only finest tiles are selected.
+#[test]
+fn tiles_between_the_skipped_disc_and_the_near_edge_are_finest() {
+    let view = TileView {
+        skip_blocks: 4.0 * 16.0,
+        ..view()
+    };
+    let tiles = select_tiles(view);
+    let between: Vec<_> = tiles
+        .iter()
+        .filter(|tile| contains(**tile, 8 + 8 * 16, 8))
+        .collect();
+    assert_eq!(
+        between.len(),
+        1,
+        "a column between the discs is covered once"
+    );
+    assert_eq!(between[0].level, 0);
+    for tile in &tiles {
+        let [ox, oz] = tile.origin().map(|v| v as f32);
+        let w = tile.width_blocks() as f32;
+        let dx = (ox - view.centre[0])
+            .abs()
+            .max((ox + w - view.centre[0]).abs());
+        let dz = (oz - view.centre[1])
+            .abs()
+            .max((oz + w - view.centre[1]).abs());
+        assert!(
+            dx.hypot(dz) >= view.skip_blocks,
+            "{tile:?} lies wholly inside the skipped disc"
+        );
     }
 }
 
@@ -183,4 +243,53 @@ fn coarse_water_cells_keep_the_sea_level() {
     let grid = TileGrid::build(key, &[(ColumnPos::new(0, 0), summary)]);
     assert_eq!(grid.cell(0, 0).height, 63);
     assert!(grid.cell(0, 0).water_depth > 0);
+}
+
+/// A coarser tile replaced by finer ones stays drawn until they are built, unless near terrain
+/// now draws one of its columns.
+#[test]
+fn replaced_coarse_tiles_stay_until_covered_or_near() {
+    let mut store = SummaryStore::new(usize::MAX);
+    for x in -80..80 {
+        for z in -80..80 {
+            store.admit(ColumnPos::new(x, z), &flat(64));
+        }
+    }
+    let levels = |tiles: &FarTiles, x: i32, z: i32| -> Vec<u8> {
+        tiles
+            .drawn()
+            .iter()
+            .filter(|mesh| contains(mesh.key, x, z))
+            .map(|mesh| mesh.key.level)
+            .collect()
+    };
+    let coarse = TileView {
+        centre: [8.0, 8.0],
+        near_blocks: 32.0,
+        skip_blocks: 32.0,
+        far_blocks: 1200.0,
+    };
+    let mut tiles = FarTiles::default();
+    tiles.set_view(coarse);
+    let now = Instant::now();
+    test_time::eventually("coarse tiles build", || {
+        tiles.update(&mut store, now);
+        levels(&tiles, 600, 8) == [2] && levels(&tiles, 600, 300) == [2]
+    });
+
+    tiles.set_view(TileView {
+        near_blocks: 640.0,
+        ..coarse
+    });
+    assert_eq!(
+        levels(&tiles, 600, 300),
+        [2],
+        "kept until finer tiles are built"
+    );
+    tiles.release_near(&NearMask::from_columns([0, 0], [ColumnPos::new(37, 0)]));
+    assert!(
+        levels(&tiles, 600, 8).iter().all(|level| *level == 0),
+        "dropped over a near column"
+    );
+    assert_eq!(levels(&tiles, 600, 300), [2]);
 }

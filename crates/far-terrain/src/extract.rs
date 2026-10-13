@@ -53,6 +53,8 @@ impl ColumnSnapshot {
 /// Session registries a summary resolves blocks, materials and biomes against.
 #[derive(Clone)]
 pub struct SurfaceContext {
+    /// The session's air runtime ID, which resolves as unknown in diagnostic assets.
+    pub air: u32,
     pub assets: Arc<RuntimeAssets>,
     pub mode: NetworkIdMode,
     pub colours: Arc<SurfaceColours>,
@@ -77,6 +79,9 @@ enum Scan {
 
 impl SurfaceContext {
     fn classify(&self, runtime_id: u32) -> Class {
+        if runtime_id == self.air {
+            return Class::Through;
+        }
         let block = self.assets.resolve(self.mode, runtime_id);
         if !block.is_known() {
             return Class::Solid(None);
@@ -165,11 +170,9 @@ pub fn summarise_column(context: &SurfaceContext, column: &ColumnSnapshot) -> Co
             let (x, z) = (index % COLUMN_SIDE, index / COLUMN_SIDE);
             for local_y in (0..16_u8).rev() {
                 let linear = (x << 8) | (z << 4) | usize::from(local_y);
+                // A plant or other see-through block on layer 0 can hold water or snow below it.
                 let class = match class_at(0, linear) {
-                    Class::Through => match class_at(1, linear) {
-                        water @ Class::Water(_) => water,
-                        _ => Class::Through,
-                    },
+                    Class::Through => class_at(1, linear),
                     class => class,
                 };
                 let top = (section_y * 16 + i32::from(local_y) + 1) as i16;

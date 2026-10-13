@@ -203,8 +203,12 @@ impl WorldStream {
         now: Instant,
         urgent: bool,
     ) -> u64 {
-        // Columns past full detail are drawn by far terrain; promotion remeshes them.
+        // Columns past full detail are drawn by far terrain, so a change there refreshes their
+        // summary instead; promotion remeshes them.
         if !self.wants_mesh(key.chunk()) {
+            if self.loaded_columns.contains(&key.chunk()) {
+                self.note_far_column_complete(key.chunk());
+            }
             return 0;
         }
         self.mark_dirty_exact_ungated(key, now, urgent)

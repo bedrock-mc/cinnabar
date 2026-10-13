@@ -928,7 +928,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         app.insert_resource(service);
     }
     app.insert_resource(crate::far_terrain::FarTerrain::new(Some(far_terrain_dir)))
-        .init_resource::<render_scene::FarTerrainScene>();
+        .init_resource::<render_scene::FarTerrainScene>()
+        .add_systems(
+            Last,
+            crate::far_terrain::finish_far_terrain_on_exit.after(arm_shutdown_watchdog),
+        );
     crate::modding::configure_from_environment(&mut app);
     #[cfg(feature = "developer-control")]
     crate::developer_control::configure(&mut app);

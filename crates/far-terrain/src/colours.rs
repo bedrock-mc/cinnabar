@@ -86,7 +86,10 @@ impl SurfaceColours {
 /// Full block faces in 1/256-block squared units.
 const BLOCK_AREA: f32 = 256.0 * 256.0;
 
-/// Sums the horizontal area of every raised flat face across a compound model's parts.
+/// Face field value of a quad facing down; see [`assets::MODEL_QUAD_FLAG_FACE_MASK`].
+const FACE_DOWN: u32 = 1;
+
+/// Sums the area of every raised flat face not facing down across a compound model's parts.
 fn covers_top(assets: &RuntimeAssets, first: u32) -> bool {
     let Some(parts) = assets::model_template_parts(assets.model_templates(), first) else {
         return false;
@@ -102,7 +105,9 @@ fn covers_top(assets: &RuntimeAssets, first: u32) -> bool {
         })
         .filter(|quad| {
             let y = quad.positions[0][1];
-            y > 0 && quad.positions.iter().all(|corner| corner[1] == y)
+            y > 0
+                && quad.flags & assets::MODEL_QUAD_FLAG_FACE_MASK != FACE_DOWN
+                && quad.positions.iter().all(|corner| corner[1] == y)
         })
         .map(|quad| {
             let p = quad.positions.map(|[x, _, z]| (f32::from(x), f32::from(z)));

@@ -1,7 +1,12 @@
 //! One client's far-terrain cache: the active namespace in memory, persisted per region.
+//!
+//! Each world visit is an entry: pending until its namespace resolves, then active. Columns
+//! show from memory at once; writes wait for the namespace. Disk reads never replace a column
+//! touched since the read was asked for, and a retiring session's late summaries never
+//! replace what a later visit wrote.
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     path::PathBuf,
     time::Instant,
 };
@@ -11,6 +16,7 @@ use crate::{
     SummaryStore, WorldKey,
     config::{
         MAX_UNRESOLVED_COLUMNS, REGION_FLUSH_AFTER, REGION_FLUSH_COLUMNS, WORLD_PROBE_COLUMNS,
+        WORLD_PROBE_TIMEOUT,
     },
     disk::{DiskBounds, DiskCache, DiskEvent},
     region::{REGION_SIDE, RegionPos, region_index},
@@ -23,6 +29,22 @@ struct DirtyRegion {
     columns: BTreeMap<ColumnPos, EncodedSummary>,
 }
 
+/// A session whose final summaries are still being extracted, from
+/// [`FarTerrainCache::retire_session`]; hand it back to [`FarTerrainCache::persist`].
+#[derive(Debug)]
+#[must_use]
+pub struct RetiringSession {
+    namespace: NamespaceKey,
+    entry: u64,
+}
+
+impl RetiringSession {
+    #[must_use]
+    pub const fn dimension(&self) -> i32 {
+        self.namespace.dimension
+    }
+}
+
 /// Summaries of the world the client is in, with reads and batched writes on an IO thread.
 ///
 /// A world's namespace is resolved from its first non-empty columns, so a server that reuses
@@ -32,16 +54,28 @@ pub struct FarTerrainCache {
     store: SummaryStore,
     world: Option<WorldKey>,
     namespace: Option<NamespaceKey>,
-    /// The namespace left by the last world change; late summaries for it go straight to disk.
-    retired: Option<NamespaceKey>,
+    /// The namespace left by the last world change and its entry; late summaries for it go
+    /// straight to disk.
+    retired: Option<(NamespaceKey, u64)>,
     unresolved: Vec<(ColumnPos, EncodedSummary)>,
     probes: Vec<(ColumnPos, ColumnSummary)>,
     resolving: bool,
+    /// When this entry's first column arrived, for [`WORLD_PROBE_TIMEOUT`].
+    pending_since: Option<Instant>,
     /// Changes waiting to be written, per namespace and region.
     dirty: BTreeMap<(NamespaceKey, RegionPos), DirtyRegion>,
     requested: HashSet<RegionPos>,
+    /// Region reads in flight, with the touch sequence when each was asked for.
+    loads: HashMap<(NamespaceKey, RegionPos), u64>,
+    /// Last admission or write hand-off of each active column, kept while a read asked for
+    /// earlier is in flight.
+    touched: HashMap<ColumnPos, u64>,
+    sequence: u64,
+    /// Entry of the newest write queued per column while a retiring session may persist.
+    written: HashMap<(NamespaceKey, ColumnPos), u64>,
+    retiring: usize,
     focus: Option<(ColumnPos, i32)>,
-    /// Bumped on every world change, so a resolution for an earlier visit is ignored.
+    /// Bumped on every world change, so work for an earlier visit is told apart.
     entry: u64,
 }
 
@@ -62,8 +96,14 @@ impl FarTerrainCache {
             unresolved: Vec::new(),
             probes: Vec::new(),
             resolving: false,
+            pending_since: None,
             dirty: BTreeMap::new(),
             requested: HashSet::new(),
+            loads: HashMap::new(),
+            touched: HashMap::new(),
+            sequence: 0,
+            written: HashMap::new(),
+            retiring: 0,
             focus: None,
             entry: 0,
         }
@@ -80,47 +120,58 @@ impl FarTerrainCache {
         if self.world == Some(world) {
             return;
         }
-        self.flush_all();
-        self.entry += 1;
-        self.retired = self.namespace.take();
+        self.end_entry();
         self.world = Some(world);
-        self.store.clear();
-        self.unresolved.clear();
-        self.probes.clear();
-        self.resolving = false;
-        self.requested.clear();
     }
 
     /// Leaves the current world, as on disconnect, after writing what is waiting.
     pub fn leave_world(&mut self) {
-        self.flush_all();
-        self.entry += 1;
-        self.retired = self.namespace.take();
+        self.end_entry();
         self.world = None;
+    }
+
+    fn end_entry(&mut self) {
+        self.flush_all();
+        self.retired = self
+            .namespace
+            .take()
+            .map(|namespace| (namespace, self.entry));
+        self.entry += 1;
         self.store.clear();
         self.unresolved.clear();
         self.probes.clear();
         self.resolving = false;
+        self.pending_since = None;
         self.requested.clear();
+        self.loads.clear();
+        self.touched.clear();
     }
 
-    /// Records a column's encoded summary; equal content changes nothing.
+    /// Records a column's encoded summary; equal content changes nothing. Columns show at
+    /// once and are written once the world's namespace is resolved.
     pub fn admit(&mut self, dimension: i32, pos: ColumnPos, summary: EncodedSummary, now: Instant) {
-        if let Some(retired) = self
+        if let Some((retired, entry)) = self
             .retired
-            .filter(|retired| retired.dimension == dimension)
+            .filter(|(retired, _)| retired.dimension == dimension)
             && self.world.is_none_or(|world| world.dimension != dimension)
         {
-            self.queue_write(retired, pos, summary, now);
+            self.queue_write(retired, entry, pos, summary, now);
             return;
         }
         if self.world.is_none_or(|world| world.dimension != dimension) {
             return;
         }
-        if self.namespace.is_some() {
-            self.admit_resolved(pos, summary, now);
+        self.touch(pos);
+        if let Some(namespace) = self.namespace {
+            let pending = self.disk.is_some().then(|| summary.clone());
+            if self.store.admit_encoded(pos, summary) != Admission::Unchanged
+                && let Some(pending) = pending
+            {
+                self.queue_write(namespace, self.entry, pos, pending, now);
+            }
             return;
         }
+        self.pending_since.get_or_insert(now);
         if !self.resolving
             && self.probes.len() < WORLD_PROBE_COLUMNS
             && let Ok(decoded) = ColumnSummary::decode(&summary.bytes)
@@ -128,16 +179,15 @@ impl FarTerrainCache {
         {
             self.probes.push((pos, decoded));
         }
-        if self.unresolved.len() < MAX_UNRESOLVED_COLUMNS {
-            self.unresolved.push((pos, summary));
+        let pending = (self.disk.is_some() && self.unresolved.len() < MAX_UNRESOLVED_COLUMNS)
+            .then(|| summary.clone());
+        if self.store.admit_encoded(pos, summary) != Admission::Unchanged
+            && let Some(pending) = pending
+        {
+            self.unresolved.push((pos, pending));
         }
         if !self.resolving && self.probes.len() == WORLD_PROBE_COLUMNS {
-            self.resolving = true;
-            let world = self.world.expect("checked above");
-            match &self.disk {
-                Some(disk) => disk.resolve(world, self.entry, std::mem::take(&mut self.probes)),
-                None => self.resolved(world, 0, now),
-            }
+            self.start_resolving(now);
         }
     }
 
@@ -150,7 +200,8 @@ impl FarTerrainCache {
         self.request_focus();
     }
 
-    /// Applies finished disk work and writes regions whose changes are due.
+    /// Applies finished disk work, resolves a sparse world after [`WORLD_PROBE_TIMEOUT`] and
+    /// writes regions whose changes are due.
     pub fn poll(&mut self, now: Instant) {
         let events: Vec<DiskEvent> = self
             .disk
@@ -169,18 +220,19 @@ impl FarTerrainCache {
                     }
                 }
                 DiskEvent::Loaded {
-                    namespace, columns, ..
-                } => {
-                    if self.namespace != Some(namespace) {
-                        continue;
-                    }
-                    for (pos, summary) in columns {
-                        if !self.store.contains(pos) {
-                            self.store.admit_encoded(pos, summary);
-                        }
-                    }
-                }
+                    namespace,
+                    region,
+                    columns,
+                } => self.loaded(namespace, region, columns),
             }
+        }
+        if self.namespace.is_none()
+            && !self.resolving
+            && self
+                .pending_since
+                .is_some_and(|since| now.saturating_duration_since(since) >= WORLD_PROBE_TIMEOUT)
+        {
+            self.start_resolving(now);
         }
         let due: Vec<(NamespaceKey, RegionPos)> = self
             .dirty
@@ -194,6 +246,13 @@ impl FarTerrainCache {
         for region in due {
             self.flush(region);
         }
+        if self.retiring == 0 {
+            self.written.clear();
+        }
+        match self.loads.values().min().copied() {
+            None => self.touched.clear(),
+            Some(oldest) => self.touched.retain(|_, touched| *touched > oldest),
+        }
     }
 
     /// Writes every waiting change now.
@@ -204,16 +263,41 @@ impl FarTerrainCache {
         }
     }
 
-    /// Queues summaries of a world already left for its own namespace, as a retiring session's
-    /// final columns arrive after the cache has moved on.
+    /// Starts a session's retirement while its final summaries are extracted; `None` before
+    /// its namespace is resolved.
+    pub fn retire_session(&mut self) -> Option<RetiringSession> {
+        let namespace = self.namespace?;
+        self.retiring += 1;
+        Some(RetiringSession {
+            namespace,
+            entry: self.entry,
+        })
+    }
+
+    /// Writes a retired session's final summaries to its namespace, skipping columns a later
+    /// visit has written since, and shows them when that namespace is active again.
     pub fn persist(
         &mut self,
-        namespace: NamespaceKey,
+        session: RetiringSession,
         columns: impl IntoIterator<Item = (ColumnPos, EncodedSummary)>,
         now: Instant,
     ) {
+        let RetiringSession { namespace, entry } = session;
+        self.retiring = self.retiring.saturating_sub(1);
+        let active = self.namespace == Some(namespace);
         for (pos, summary) in columns {
-            self.queue_write(namespace, pos, summary, now);
+            if self
+                .written
+                .get(&(namespace, pos))
+                .is_some_and(|&written| written > entry)
+            {
+                continue;
+            }
+            if active {
+                self.touch(pos);
+                self.store.admit_encoded(pos, summary.clone());
+            }
+            self.queue_write(namespace, entry, pos, summary, now);
         }
     }
 
@@ -235,41 +319,100 @@ impl FarTerrainCache {
         self.namespace
     }
 
-    /// Summaries of the active namespace.
+    /// Summaries of the current world, including those shown before its namespace resolves.
     pub fn store(&mut self) -> &mut SummaryStore {
         &mut self.store
+    }
+
+    fn touch(&mut self, pos: ColumnPos) {
+        self.sequence += 1;
+        self.touched.insert(pos, self.sequence);
+    }
+
+    fn start_resolving(&mut self, now: Instant) {
+        let Some(world) = self.world else {
+            return;
+        };
+        self.resolving = true;
+        match &self.disk {
+            Some(disk) => disk.resolve(world, self.entry, std::mem::take(&mut self.probes)),
+            None => self.resolved(world, 0, now),
+        }
     }
 
     fn resolved(&mut self, world: WorldKey, epoch: u32, now: Instant) {
         if self.world != Some(world) || self.namespace.is_some() {
             return;
         }
-        self.namespace = Some(world.namespace(epoch));
+        let namespace = world.namespace(epoch);
+        self.namespace = Some(namespace);
         for (pos, summary) in std::mem::take(&mut self.unresolved) {
-            self.admit_resolved(pos, summary, now);
+            self.queue_write(namespace, self.entry, pos, summary, now);
         }
         self.request_focus();
     }
 
-    fn admit_resolved(&mut self, pos: ColumnPos, summary: EncodedSummary, now: Instant) {
-        let pending = self.disk.is_some().then(|| summary.clone());
-        if self.store.admit_encoded(pos, summary) == Admission::Unchanged {
+    /// Installs a region read, except columns touched since it was asked for or already
+    /// shown; changes still waiting to be written win over what the file held.
+    fn loaded(
+        &mut self,
+        namespace: NamespaceKey,
+        region: RegionPos,
+        columns: Vec<(ColumnPos, EncodedSummary)>,
+    ) {
+        let asked = self.loads.remove(&(namespace, region));
+        if self.namespace != Some(namespace) {
             return;
         }
-        if let (Some(pending), Some(namespace)) = (pending, self.namespace) {
-            self.queue_write(namespace, pos, pending, now);
+        let asked = asked.unwrap_or(self.sequence);
+        let waiting = self
+            .dirty
+            .get(&(namespace, region))
+            .map(|dirty| &dirty.columns);
+        let touched = &self.touched;
+        let newer = |pos: ColumnPos| touched.get(&pos).is_some_and(|&touched| touched > asked);
+        let mut stale = false;
+        let from_disk = columns.into_iter().map(|(pos, summary)| {
+            match waiting.and_then(|waiting| waiting.get(&pos)) {
+                Some(waiting) => (pos, waiting.clone(), true),
+                None => (pos, summary, false),
+            }
+        });
+        let only_waiting = waiting
+            .into_iter()
+            .flatten()
+            .map(|(pos, summary)| (*pos, summary.clone(), true));
+        for (pos, summary, queued) in from_disk.chain(only_waiting) {
+            if self.store.contains(pos) {
+                continue;
+            }
+            if !queued && newer(pos) {
+                // Handed to the disk after this read was served: read the region again.
+                stale = true;
+                continue;
+            }
+            self.store.admit_encoded(pos, summary);
+        }
+        if stale && let Some(disk) = &self.disk {
+            self.loads.insert((namespace, region), self.sequence);
+            disk.load(namespace, region);
         }
     }
 
     fn queue_write(
         &mut self,
         namespace: NamespaceKey,
+        entry: u64,
         pos: ColumnPos,
         summary: EncodedSummary,
         now: Instant,
     ) {
         if self.disk.is_none() {
             return;
+        }
+        if self.retiring > 0 {
+            let written = self.written.entry((namespace, pos)).or_insert(entry);
+            *written = (*written).max(entry);
         }
         self.dirty
             .entry((namespace, RegionPos::of(pos)))
@@ -285,6 +428,13 @@ impl FarTerrainCache {
         let (Some(dirty), Some(disk)) = (self.dirty.remove(&key), &self.disk) else {
             return;
         };
+        // A read already in flight may be served before this write lands.
+        if self.namespace == Some(key.0) && !self.loads.is_empty() {
+            self.sequence += 1;
+            for pos in dirty.columns.keys() {
+                self.touched.insert(*pos, self.sequence);
+            }
+        }
         let columns: Vec<_> = dirty
             .columns
             .into_iter()
@@ -311,6 +461,7 @@ impl FarTerrainCache {
             for z in low.z..=high.z {
                 let region = RegionPos { x, z };
                 if self.requested.insert(region) {
+                    self.loads.insert((namespace, region), self.sequence);
                     disk.load(namespace, region);
                 }
             }
