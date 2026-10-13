@@ -636,7 +636,7 @@ fn append_dialog(
     let (title, description, confirm) = match dialog {
         MenuDialog::MinecraftImport => (
             view.minecraft_import.title(),
-            view.minecraft_import.body.as_str(),
+            view.minecraft_import.body(),
             view.minecraft_import
                 .actions()
                 .first()

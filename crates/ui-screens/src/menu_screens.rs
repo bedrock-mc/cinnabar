@@ -397,7 +397,7 @@ pub fn dialog_model(
                 .unwrap_or(launcher::minecraft_import::Action::Close);
             (
                 snapshot.title().into(),
-                snapshot.body.clone(),
+                snapshot.body().to_owned(),
                 snapshot.label(confirm).into(),
                 "Close".into(),
                 MenuAction::MinecraftImport(confirm),

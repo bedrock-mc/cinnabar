@@ -59,11 +59,20 @@ impl Snapshot {
     /// Supplies the modal title without exposing filesystem details.
     pub fn title(&self) -> &'static str {
         match self.phase {
-            Phase::Offered => "Import settings, servers and packs from Minecraft?",
+            Phase::Offered => "Import from Minecraft?",
             Phase::Profiles => "Choose a Minecraft profile",
             Phase::Preview => "Review Minecraft import",
             Phase::Revert => "Revert Minecraft import?",
             _ => "Import from Minecraft",
+        }
+    }
+
+    /// Explains the first offer's scope or returns the current operation's details.
+    pub fn body(&self) -> &str {
+        if self.phase == Phase::Offered {
+            "Preview and import your Minecraft settings, saved servers and resource packs."
+        } else {
+            &self.body
         }
     }
 

@@ -76,9 +76,9 @@ impl OreUiScreen {
             title: state.title(),
             items,
             body: if state.pack_status.is_empty() {
-                state.body.as_str().into()
+                state.body().into()
             } else {
-                format!("{}\n\n{}", state.body, state.pack_status).into()
+                format!("{}\n\n{}", state.body(), state.pack_status).into()
             },
             body_color: TEXT,
             buttons,

@@ -46,6 +46,43 @@ fn profiles() -> MenuView {
 }
 
 #[test]
+fn first_launch_title_fits_the_header_and_import_details_have_a_body() {
+    let mut view = MenuView::new(true, "Fixture".into());
+    Arc::make_mut(&mut view.minecraft_import).phase = Phase::Offered;
+    let mut screen = OreUiScreen::default();
+    let mut scrolls = MenuScrolls::default();
+    let (hits, nodes) = paint(&mut screen, &view, &mut scrolls);
+    let title = nodes
+        .iter()
+        .find(|node| matches!(node.visual(), UiVisual::Text { .. }))
+        .expect("the offer has a title");
+    let UiVisual::Text { layout, .. } = title.visual() else {
+        unreachable!();
+    };
+    assert_eq!(layout.line_count(), 1, "the title must fit on one line");
+    let header = crate::test_support::solids(&nodes)
+        .into_iter()
+        .find_map(|(bounds, color)| (color == crate::theme::NEUTRAL.fill).then_some(bounds))
+        .expect("the offer has a header");
+    assert!(title.bounds().min().y() >= header[1]);
+    assert!(title.bounds().max().y() <= header[3]);
+    assert!(!view.minecraft_import.body().is_empty());
+    let body = nodes
+        .iter()
+        .rev()
+        .find(|node| matches!(node.visual(), UiVisual::Text { .. }))
+        .expect("the offer explains what will be imported");
+    assert!(body.bounds().min().y() >= header[3]);
+    assert!(body.bounds().max().y() <= SIZE[1]);
+    for action in [Action::Begin, Action::NotNow] {
+        assert!(
+            hits.iter()
+                .any(|(found, _)| *found == MenuAction::MinecraftImport(action))
+        );
+    }
+}
+
+#[test]
 fn wheel_reaches_the_last_profile_and_survives_repainting() {
     let view = profiles();
     let mut screen = OreUiScreen::default();
