@@ -37,6 +37,11 @@ impl WorldAuthority {
     pub const fn world_spawn(&self) -> [i32; 3] {
         self.world_spawn
     }
+    /// The bed the local player sleeps in and its sleep rotation in degrees, while the server
+    /// says it sleeps. An unloaded bed reads 0 degrees, as the native rotation does.
+    pub fn local_sleeping_bed(&self) -> Option<([i32; 3], f32)> {
+        self.actor(self.local_player_runtime_id)?.sleeping_bed()
+    }
     /// Reads the committed form dimension epoch.
     pub const fn form_dimension_epoch(&self) -> u64 {
         self.form_dimension_epoch

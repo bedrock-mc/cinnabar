@@ -142,11 +142,7 @@ pub(crate) fn advance_local_physics(
 
 /// The bed the local player sleeps in, once the server says so.
 fn sleeping_bed(stream: &chunk_pipeline::WorldStream) -> Option<[i32; 3]> {
-    stream
-        .authority()
-        .actor(stream.local_player_runtime_id())?
-        .sleeping_bed()
-        .map(|(bed, _)| bed)
+    stream.authority().local_sleeping_bed().map(|(bed, _)| bed)
 }
 
 /// Publishes the retained interpolated pose even while transport pauses simulation. A sleeper

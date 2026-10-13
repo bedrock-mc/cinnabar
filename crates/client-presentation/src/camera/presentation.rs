@@ -455,14 +455,7 @@ pub fn apply_camera_presentation(
     let first_person =
         server.renders_first_person(settings.perspective() == PerspectiveMode::FirstPerson);
     let sleeping_rotation = (override_pose.is_none() && first_person)
-        .then(|| {
-            stream.and_then(|stream| {
-                stream
-                    .authority()
-                    .actor(stream.local_player_runtime_id())?
-                    .sleeping_bed()
-            })
-        })
+        .then(|| stream.and_then(|stream| stream.authority().local_sleeping_bed()))
         .flatten()
         .map(|(_, rotation)| crate::local_player::sleeping_view_rotation(rotation));
     let slept = apply_sleeping_view(&mut pose, sleeping_rotation);

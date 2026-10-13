@@ -317,12 +317,7 @@ pub fn advance_actor_frame(
     let sleeping_subject = client_world
         .stream
         .as_ref()
-        .and_then(|stream| {
-            stream
-                .authority()
-                .actor(stream.local_player_runtime_id())?
-                .sleeping_bed()
-        })
+        .and_then(|stream| stream.authority().local_sleeping_bed())
         .map(|(bed, _)| crate::local_player::sleeping_subject_position(bed));
     let (authoritative_subject_eye, authoritative_subject_feet) = match sleeping_subject {
         Some((eye, feet)) => (Some(eye), Some(feet)),

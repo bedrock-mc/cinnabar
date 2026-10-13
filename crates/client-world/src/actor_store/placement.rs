@@ -613,7 +613,9 @@ impl super::ActorSnapshot {
         }
     }
 
-    /// The bed this actor sleeps in and its sampled sleep rotation in degrees, while sleeping.
+    /// The bed this actor sleeps in and its sampled sleep rotation in degrees, while sleeping. A
+    /// bed not yet sampled (unloaded) reads 0 degrees, as the native rotation does for a
+    /// position holding no bed.
     #[must_use]
     pub fn sleeping_bed(&self) -> Option<([i32; 3], f32)> {
         self.is_sleeping()
