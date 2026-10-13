@@ -13,7 +13,7 @@ fn device_prompt_captures_standalone_routes_and_their_focus() {
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let metrics = TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), None);
-    for screen in [MenuScreen::Home, MenuScreen::Profile, MenuScreen::Store] {
+    for screen in [MenuScreen::Home, MenuScreen::Profile] {
         let mut view = account_manager_view();
         view.dialog = None;
         view.screen = screen;

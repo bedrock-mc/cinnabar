@@ -50,11 +50,10 @@ pub(super) fn category_icon(
     )? {
         return Ok(());
     }
-    let colors = [
+    let colors: [[u8; 4]; launcher::menu::inbox::CATEGORIES.len()] = [
         [184, 132, 66, 255],
         [129, 49, 210, 255],
         [241, 173, 84, 255],
-        [236, 195, 47, 255],
         [156, 83, 54, 255],
     ];
     let s = side;

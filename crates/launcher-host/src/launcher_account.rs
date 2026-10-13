@@ -426,7 +426,7 @@ fn settle<T, E: std::fmt::Display>(
 }
 
 /// Button-art surfaces the start screen shows, reported once per message instance.
-const SHOWN_SURFACES: [&str; 2] = ["PlayButton", "MarketplaceButton"];
+const SHOWN_SURFACES: [&str; 1] = ["PlayButton"];
 
 fn report_impressions(
     runtime: &tokio::runtime::Runtime,
@@ -477,8 +477,14 @@ pub fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
         });
     MenuHome {
         play_art: art("PlayButton"),
-        store_art: art("MarketplaceButton"),
-        inbox_unread: home.inbox.unread,
+        inbox_unread: home
+            .inbox
+            .categories
+            .iter()
+            .filter(|category| launcher::menu::inbox::category_index(&category.kind).is_some())
+            .fold(0_u32, |total, category| {
+                total.saturating_add(category.unread)
+            }),
         inbox_counts: home
             .inbox
             .categories
@@ -496,7 +502,10 @@ pub fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
         inbox: home
             .messages
             .iter()
-            .filter(|message| message.surface == "InboxMessage")
+            .filter(|message| {
+                message.surface == "InboxMessage"
+                    && launcher::menu::inbox::category_index(&message.category).is_some()
+            })
             .map(|message| InboxItem {
                 instance_id: message.instance_id.clone(),
                 report_id: message.report_id.clone(),

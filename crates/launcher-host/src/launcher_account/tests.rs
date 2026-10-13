@@ -97,7 +97,6 @@ fn tile_images_sort_into_button_layers() {
     assert_eq!(art.hover_foreground, "/art/hoverForeground.img");
     assert_eq!(art.hover_background, "/art/hover.img");
     assert_eq!(art.banner, "New");
-    assert!(menu.store_art.is_none());
     assert_eq!(menu.realm_invites, 2);
 }
 
@@ -224,4 +223,25 @@ fn account_responses_from_before_sign_out_are_discarded() {
     });
     let retained = snapshot.lock().unwrap();
     assert!(retained.realms.is_none() && retained.friends.is_none());
+}
+
+#[test]
+fn home_counts_and_messages_include_only_available_inbox_categories() {
+    let home: Home = serde_json::from_value(serde_json::json!({
+        "inbox": {"unread": 9, "categories": [
+            {"type": "News", "unread": 2},
+            {"type": "Feedback", "unread": 3},
+            {"type": "RemovedCategory", "unread": 4}
+        ]},
+        "messages": [
+            {"surface": "InboxMessage", "category": "Feedback", "instance_id": "kept"},
+            {"surface": "InboxMessage", "category": "RemovedCategory", "instance_id": "removed"}
+        ]
+    }))
+    .unwrap();
+    let menu = menu_home(&home, 0);
+    assert_eq!(menu.inbox_unread, 5);
+    assert_eq!(menu.inbox_counts.get(&3), Some(&3));
+    assert_eq!(menu.inbox.len(), 1);
+    assert_eq!(menu.inbox[0].instance_id, "kept");
 }

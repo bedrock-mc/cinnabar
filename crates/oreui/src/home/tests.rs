@@ -111,7 +111,6 @@ fn compact_and_short_home_keep_all_actions_reachable() {
             MenuAction::Navigate(MenuScreen::Settings),
             MenuAction::Navigate(MenuScreen::Social),
             MenuAction::Navigate(MenuScreen::DressingRoom),
-            MenuAction::Store(launcher::store::StoreAction::Open),
             MenuAction::OpenAccounts,
             MenuAction::Navigate(MenuScreen::Friends),
             MenuAction::Navigate(MenuScreen::Inbox),
@@ -145,59 +144,6 @@ fn compact_and_short_home_keep_all_actions_reachable() {
             }
         }
     }
-}
-
-#[test]
-fn commerce_routes_do_not_render_service_promotional_art() {
-    let mut view = view();
-    view.feeds.home.store_art = Some(launcher::menu::ButtonArt {
-        default_background: "promotion".into(),
-        banner: "BUY NOW".into(),
-        ..Default::default()
-    });
-    let art = HashMap::from([(
-        "promotion".to_owned(),
-        IconRef {
-            page: 17,
-            uv: [0, 0, 64, 64],
-            glint: false,
-        },
-    )]);
-    let font = ui_engine::test_support::fixture_font();
-    let metrics = ui_engine::text_metrics::TextMetrics::for_viewport(
-        [1280, 720],
-        ui::DpiScale::new(1.0).unwrap(),
-        Some(2),
-    );
-    let (mut nodes, mut next, mut layouts) =
-        (Vec::new(), 1, ui::TextLayoutCache::new(128, 1024 * 1024));
-    let hits = {
-        let mut canvas = Canvas::new(&mut nodes, &mut next, &mut layouts, &font, metrics, 0, None);
-        canvas.artwork = Some(&art);
-        draw(&mut canvas, &view, [1280.0, 720.0], None, &|_| None).unwrap();
-        canvas.hits
-    };
-    assert!(
-        hits.iter()
-            .any(|(action, _)| *action == MenuAction::Navigate(MenuScreen::Social))
-    );
-    assert!(
-        hits.iter()
-            .any(|(action, _)| *action == MenuAction::Store(launcher::store::StoreAction::Open))
-    );
-    assert!(!nodes.iter().any(|node| matches!(
-        node.visual(),
-        UiVisual::Sprite {
-            texture_page: 17,
-            ..
-        }
-    )));
-    assert!(
-        !nodes
-            .iter()
-            .any(|node| matches!(node.visual(), UiVisual::Text { layout, .. }
-        if layout.glyphs().iter().map(|g| g.codepoint).collect::<String>().contains("BUY")))
-    );
 }
 
 #[test]

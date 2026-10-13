@@ -265,6 +265,12 @@ camera-listener coverage. This ownership change adds no new parity evidence.
 
 ## P5.8-SETTINGS
 
+The global Subscriptions tab and marketplace UI/services are removed from the
+product. Settings retain the remaining category order and icon alignment;
+Realms, Dressing Room and server resource packs remain supported. Navigation
+and unused-packet regressions await CI. No rendered-frame witness was captured,
+and this visible removal closes no settings, UI parity or performance gate.
+
 | Field | Evidence |
 |---|---|
 | Owning plan/task | `launcher` settings models; `launcher-host` storage and persistence; `app` runtime adapters. Persisted **Bedrock Skybox Vertical Offset** Video option; broader settings completion remains open. |

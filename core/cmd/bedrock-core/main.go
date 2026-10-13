@@ -351,7 +351,6 @@ func runWithResourcePackCacheFactory(
 		controlServer.SetLogger(logger)
 		controlServer.SetServices(launcherControl{service})
 		sessionTarget = service.SessionTarget
-		controlServer.SetMarketplace(storeControl{service.Marketplace()})
 		if account != nil {
 			go service.PublishSignedIn(ctx)
 			service.Prefetch()

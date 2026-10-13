@@ -1,5 +1,5 @@
-//! The one bounded remote image cache: server form buttons stay in memory, while launcher and
-//! Marketplace artwork persist on disk. Every surface downloads through the same policy-checked
+//! The one bounded remote image cache: server form buttons stay in memory, while launcher
+//! artwork persists on disk. Every surface downloads through the same policy-checked
 //! client and bounded body reader.
 
 use std::{
@@ -64,20 +64,6 @@ pub const LAUNCHER_ART: Surface = Surface {
     timeout: Duration::from_secs(8),
     user_agent: Some("Cinnabar/1.0"),
     extension: Some(".img"),
-    https_only: true,
-    public_hosts: true,
-};
-
-/// Marketplace offer thumbnails and key art.
-pub const STORE_ART: Surface = Surface {
-    max_bytes: 4 << 20,
-    max_files: 512,
-    max_dir_bytes: 256 << 20,
-    max_url_bytes: 1024,
-    max_redirects: 3,
-    timeout: Duration::from_secs(20),
-    user_agent: Some("libhttpclient/1.0.0.0"),
-    extension: None,
     https_only: true,
     public_hosts: true,
 };

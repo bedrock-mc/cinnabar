@@ -6,7 +6,6 @@ pub mod block_cracks;
 pub mod diagnostic_markers;
 pub mod experience_session;
 pub mod sound_requests;
-pub mod store;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;

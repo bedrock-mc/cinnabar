@@ -22,6 +22,7 @@ mod packet_trace;
 mod raw_equipment;
 pub(crate) mod session_join;
 mod startup;
+mod unused_packets;
 use boundary::boundary_wakeup;
 pub use client_data::{
     ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION, LoginSettings,
@@ -46,6 +47,7 @@ pub struct PlaySession {
     terrain_before_spawn: bool,
     decode_errors: u64,
     world_skips: u64,
+    unused_packets: u64,
     transfer_skips: u64,
     blob_cache: Option<BlobCacheResolver>,
     packet_id_trace: PacketIdTraceState,
@@ -109,6 +111,7 @@ impl PlaySession {
             terrain_before_spawn,
             decode_errors: 0,
             world_skips: 0,
+            unused_packets: 0,
             transfer_skips: 0,
             blob_cache: cache.map(BlobCacheResolver::new),
             packet_id_trace: PacketIdTraceState::default(),
@@ -189,6 +192,10 @@ impl PlaySession {
                     continue;
                 }
             };
+            if unused_packets::is_unused(raw.id) {
+                self.discard_unused_packet(raw)?;
+                continue;
+            }
             let packet = raw.decode().map_err(|error| self.fail_session(error))?;
             if matches!(
                 &*packet.data,
@@ -260,6 +267,10 @@ impl PlaySession {
                 }
             };
             self.packet_id_trace.observe(raw.id);
+            if unused_packets::is_unused(raw.id) {
+                self.discard_unused_packet(raw)?;
+                continue;
+            }
             if raw.id == PacketId::LevelChunk {
                 let raw = raw.into_retention_bounded();
                 let packet = match self.decode_world_candidate(raw)? {
@@ -467,6 +478,10 @@ impl PlaySession {
                 Err(error) => return Err(self.fail_session(error)),
             };
             self.packet_id_trace.observe(raw.id);
+            if unused_packets::is_unused(raw.id) {
+                self.discard_unused_packet(raw)?;
+                continue;
+            }
             let packet_bytes = raw.inner_frame().len();
             let packet_name = raw.id;
             let raw = detach_cached_chunk(raw);

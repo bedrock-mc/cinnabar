@@ -837,8 +837,7 @@ pub(super) fn fallback(key: &str) -> &str {
         "menu.account.changeGamertag.buttonLabel"
         | "menu.account.manageAccount.buttonLabel"
         | "menu.account.privacyAndSafety.buttonLabel" => "Open",
-        "menu.account.realmMembershipInvites.buttonLabel"
-        | "options.viewSubscriptions.button.manage" => "Manage",
+        "menu.account.realmMembershipInvites.buttonLabel" => "Manage",
         "menu.account.signOutOfMicrosoft.buttonLabel" => "Sign Out",
         "menu.account.signIn.buttonLabel" => "Sign In",
         "menu.account.clearSignInData.buttonLabel" => "Clear data",
@@ -872,10 +871,6 @@ pub(super) fn fallback(key: &str) -> &str {
         "options.partyInviteReceivedFilter" => "Receive party invites from",
         "options.partyPrivacy" => "Default party privacy",
         "options.partyInviteSendPrivileges" => "Who can send party invites in your party",
-        "options.subscriptions" | "options.viewSubscriptions" => "Subscriptions",
-        "options.viewSubscriptions.mySubscriptions" => "My Subscriptions",
-        "options.viewSubscriptions.realmsServer" => "Realms Server",
-        "options.viewSubscriptions.signIn" => "Sign in",
         "options.globalResources" | "menu.globalpacks" | "options.resourcepacks" => {
             "Global Resources"
         }
