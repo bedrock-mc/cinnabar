@@ -13,6 +13,8 @@ impl MutationBurstFixture {
         packets: Vec<Vec<SyncedBlockUpdateEvent>>,
         section: SubChunk,
     ) -> Self {
+        let generation = stream.lighting.next_block_generation.wrapping_add(1).max(1);
+        stream.lighting.next_block_generation = generation;
         for packet in &packets {
             let event = packet.first().expect("benchmark packets contain updates");
             let (key, _) = split_block_update(event.update).unwrap();
@@ -21,17 +23,28 @@ impl MutationBurstFixture {
                 .commit_sub_chunk(key, section.clone())
                 .unwrap();
             stream.resident.insert(key);
-            stream.lighting.block_generations.insert(key, 1);
+            stream.lighting.block_generations.insert(key, generation);
             stream
                 .lighting
                 .store
-                .insert_resident(key, SubChunkLight::uniform(0, 0, 1).unwrap());
+                .insert_resident(key, SubChunkLight::uniform(0, 0, generation).unwrap());
             stream.lighting.ownership.insert(
                 key,
                 LightOwnership {
-                    block_generation: 1,
-                    light_revision: 1,
+                    block_generation: generation,
+                    light_revision: generation,
                 },
+            );
+            stream.lighting.direct_sky.insert(
+                key,
+                StoredDirectSky {
+                    light_revision: generation,
+                    mask: Arc::new(DirectSkyMask::Uniform(false)),
+                },
+            );
+            assert!(
+                stream.light_is_current(key),
+                "resident fixture light must be current"
             );
         }
         stream.polling = true;
@@ -96,7 +109,8 @@ impl MutationBurstFixture {
             }
             assert!(
                 started.elapsed() < Duration::from_secs(30),
-                "mutation burst must drain"
+                "mutation burst must drain: {:?}",
+                self.stream.stats()
             );
             std::thread::yield_now();
         }
