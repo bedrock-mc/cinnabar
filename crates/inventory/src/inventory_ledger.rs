@@ -13,6 +13,7 @@ mod admission;
 mod auto_craft;
 mod bundles;
 mod cells;
+mod control;
 mod crafting;
 mod crafting_close;
 #[cfg(test)]
@@ -140,7 +141,7 @@ struct StorageWindow {
     closing: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PendingClose {
     window_id: i32,
     window_type: i8,
@@ -150,7 +151,7 @@ struct PendingClose {
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum PendingCloseOwner {
     Cleanup,
-    Storage,
+    Storage(u64),
     Personal(u64),
 }
 
@@ -158,7 +159,7 @@ impl PendingCloseOwner {
     const fn priority(self) -> u8 {
         match self {
             Self::Cleanup => 0,
-            Self::Storage => 1,
+            Self::Storage(_) => 1,
             Self::Personal(_) => 2,
         }
     }
@@ -166,7 +167,7 @@ impl PendingCloseOwner {
     const fn personal_generation(self) -> Option<u64> {
         match self {
             Self::Personal(generation) => Some(generation),
-            Self::Cleanup | Self::Storage => None,
+            Self::Cleanup | Self::Storage(_) => None,
         }
     }
 }
@@ -226,7 +227,7 @@ pub struct PlayerInventoryLedger {
     session_generation: u64,
     next_open_generation: u64,
     personal: Option<PersonalWindow>,
-    /// Unanswered personal controls retained for correlation without owning inventory cells.
+    /// Timed-out personal screen state retained until its cleanup finishes.
     expired_personal: Option<PersonalWindow>,
     personal_lifecycle_failed: bool,
     /// An open press made while a close is unsent or unacknowledged; opens once it settles.
@@ -236,6 +237,8 @@ pub struct PlayerInventoryLedger {
     storage: Option<StorageWindow>,
     pub(crate) furnace_selection: Option<crate::furnace_recipes::Selection>,
     pending_closes: VecDeque<PendingClose>,
+    /// Transport order survives screen replacement and timeout until each late reply is drained.
+    sent_controls: control::SentControls,
     /// Admitted requests abandoned unanswered and the surfaces each put into
     /// recovery, oldest first: a late rejection lifts that recovery.
     abandoned: VecDeque<queue::AbandonedRequest>,
@@ -281,6 +284,7 @@ impl Default for PlayerInventoryLedger {
             storage: None,
             furnace_selection: None,
             pending_closes: VecDeque::new(),
+            sent_controls: control::SentControls::default(),
             abandoned: VecDeque::new(),
             player_resync_required: false,
             cursor_resync_required: false,
@@ -585,6 +589,9 @@ impl PlayerInventoryLedger {
 
     /// Returns the next window lifecycle packet before inventory mutations.
     fn pending_control_packet(&self) -> Result<Option<Packet>, InventoryGestureError> {
+        if !self.sent_controls.has_capacity() {
+            return Ok(None);
+        }
         if let Some(close) = self.pending_closes.front().copied()
             && self.close_ready()
         {
@@ -606,34 +613,7 @@ impl PlayerInventoryLedger {
     }
 
     pub fn mark_transport_enqueued(&mut self, now_millis: u64) -> bool {
-        if self.close_ready()
-            && let Some(close) = self.pending_closes.pop_front()
-        {
-            if let Some(generation) = close.owner.personal_generation()
-                && let Some(PersonalWindow::Closing {
-                    generation: current,
-                    admitted,
-                    deadline_millis,
-                    ..
-                }) = self.personal_lifecycle_mut()
-                && *current == generation
-            {
-                *admitted = true;
-                *deadline_millis =
-                    Some(now_millis.saturating_add(INVENTORY_REQUEST_TIMEOUT_MILLIS));
-            }
-            self.resume_held_open();
-            return true;
-        }
-        if let Some(PersonalWindow::Opening {
-            admitted,
-            deadline_millis,
-            ..
-        }) = self.personal.as_mut()
-            && !*admitted
-        {
-            *admitted = true;
-            *deadline_millis = Some(now_millis.saturating_add(INVENTORY_REQUEST_TIMEOUT_MILLIS));
+        if self.mark_control_enqueued(now_millis) {
             return true;
         }
         if self.authority == Some(InventoryAuthority::Client) {
@@ -695,6 +675,7 @@ impl PlayerInventoryLedger {
     /// Returns `true` only when the personal Open/Close lifecycle expired.
     pub fn poll_timeout(&mut self, now_millis: u64) -> bool {
         let personal_expired = self.poll_personal_timeout(now_millis);
+        self.sent_controls.expire(now_millis);
         self.expire_overdue_requests(now_millis);
         self.finish_settled_closes();
         personal_expired
@@ -703,12 +684,14 @@ impl PlayerInventoryLedger {
     /// Whether polling can change a deadline, request, or deferred close.
     pub(crate) fn timeout_work_due(&self, now_millis: u64) -> bool {
         self.personal_timeout_due(now_millis)
+            || self.sent_controls.timeout_due(now_millis)
             || self.request_timeout_work_due(now_millis)
             || self.settled_close_index().is_some()
     }
 
     pub fn transport_closed(&mut self) {
         self.pending_closes.clear();
+        self.sent_controls = control::SentControls::default();
         self.personal = None;
         self.expired_personal = None;
         self.held_open = None;
@@ -754,7 +737,11 @@ impl PlayerInventoryLedger {
         } else {
             false
         };
-        self.queue_close(window_id, window_type, PendingCloseOwner::Storage);
+        self.queue_close(
+            window_id,
+            window_type,
+            PendingCloseOwner::Storage(generation),
+        );
         if !returning {
             self.abandon_requests(|pending| {
                 pending.storage_generation == Some(generation)
@@ -785,7 +772,7 @@ impl PlayerInventoryLedger {
                 || !self
                     .pending_closes
                     .iter()
-                    .any(|close| close.owner == PendingCloseOwner::Storage))
+                    .any(|close| matches!(close.owner, PendingCloseOwner::Storage(_))))
         {
             self.discard_storage();
         }

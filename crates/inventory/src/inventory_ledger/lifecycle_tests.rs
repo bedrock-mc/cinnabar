@@ -531,6 +531,7 @@ fn cleanup_then_owned_storage_close_preserves_required_fifo_order() {
         position: [1, 64, 1],
         runtime_entity_id: -1,
     }));
+    let generation = ledger.storage_generation().unwrap();
     ledger.apply(&InventoryEvent::Open(personal_open(2)));
     ledger.request_storage_close();
 
@@ -546,7 +547,11 @@ fn cleanup_then_owned_storage_close_preserves_required_fifo_order() {
                 PERSONAL_INVENTORY_WINDOW_TYPE,
                 PendingCloseOwner::Cleanup
             ),
-            (1, GENERIC_STORAGE_WINDOW_TYPE, PendingCloseOwner::Storage),
+            (
+                1,
+                GENERIC_STORAGE_WINDOW_TYPE,
+                PendingCloseOwner::Storage(generation)
+            ),
         ]
     );
     ledger.note_transport_pressure(10);
@@ -668,7 +673,7 @@ fn superseded_storage_closes_evict_oldest_and_retain_latest_window() {
         ledger
             .pending_closes
             .iter()
-            .all(|close| close.owner == PendingCloseOwner::Storage)
+            .all(|close| matches!(close.owner, PendingCloseOwner::Storage(_)))
     );
 }
 

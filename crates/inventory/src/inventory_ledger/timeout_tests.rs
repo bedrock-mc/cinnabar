@@ -224,7 +224,7 @@ fn close_reply(window_id: i32, window_type: i8) -> InventoryEvent {
 }
 
 #[test]
-fn expired_personal_close_allows_storage_acknowledgements_to_preserve_pending_moves() {
+fn expired_personal_and_storage_closes_consume_one_reply_each_in_fifo_order() {
     for late_open_cleanup in [false, true] {
         for storage_window_id in [2, 3] {
             for personal_ack_first in [false, true] {
@@ -240,18 +240,24 @@ fn expired_personal_close_allows_storage_acknowledgements_to_preserve_pending_mo
                 ledger.request_storage_close();
                 assert!(ledger.mark_transport_enqueued(now + 2));
                 let personal_ack = close_reply(2, PERSONAL_INVENTORY_WINDOW_TYPE);
-                if personal_ack_first {
-                    ledger.apply(&personal_ack);
-                }
-                ledger.apply(&close_reply(storage_window_id, GENERIC_STORAGE_WINDOW_TYPE));
+                let storage_ack = close_reply(storage_window_id, GENERIC_STORAGE_WINDOW_TYPE);
+                let (first, second) = if personal_ack_first {
+                    (personal_ack, storage_ack)
+                } else {
+                    (storage_ack, personal_ack)
+                };
+                ledger.apply(&first);
+                assert!(
+                    ledger.window_kind().is_some(),
+                    "one reply cannot finish both closes"
+                );
+                assert_eq!(ledger.pending_request_id(), Some(request));
+                ledger.apply(&second);
                 assert_eq!(ledger.window_kind(), None);
                 assert_eq!(ledger.pending_request_id(), Some(request));
 
                 // Reuse the chest ID while its old move still awaits the server's answer.
                 open_storage(&mut ledger, storage_window_id, GENERIC_STORAGE_WINDOW_TYPE);
-                if !personal_ack_first {
-                    ledger.apply(&personal_ack);
-                }
                 accept_storage_pickup(&mut ledger, request);
                 assert_eq!(ledger.cursor_stack(), Some(&stack(23, 3)));
                 assert_eq!(ledger.storage_stack(0), Some(&stack(23, 3)));

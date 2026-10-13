@@ -7,7 +7,6 @@ pub(super) enum PersonalWindow {
         target_runtime_id: u64,
         admitted: bool,
         desired_open: bool,
-        deadline_millis: Option<u64>,
     },
     Open {
         generation: u64,
@@ -18,9 +17,8 @@ pub(super) enum PersonalWindow {
         generation: u64,
         window_id: i32,
         window_type: i8,
-        /// Transport admission survives the timeout so the late response still completes this close.
+        /// Only an unsent close may be cancelled when storage reuses its ID.
         admitted: bool,
-        deadline_millis: Option<u64>,
     },
 }
 
@@ -32,22 +30,10 @@ impl PersonalWindow {
             | Self::Closing { generation, .. } => *generation,
         }
     }
-
-    const fn deadline_millis(&self) -> Option<u64> {
-        match self {
-            Self::Opening {
-                deadline_millis, ..
-            }
-            | Self::Closing {
-                deadline_millis, ..
-            } => *deadline_millis,
-            Self::Open { .. } => None,
-        }
-    }
 }
 
 impl PlayerInventoryLedger {
-    /// Finds the active or expired personal lifecycle whose replies still need correlation.
+    /// Finds the active personal screen or a timed-out screen awaiting cleanup.
     pub(super) fn personal_lifecycle(&self) -> Option<&PersonalWindow> {
         self.personal.as_ref().or(self.expired_personal.as_ref())
     }
@@ -97,7 +83,7 @@ impl PlayerInventoryLedger {
         if self.personal_inventory_desired_open() {
             return true;
         }
-        // Replies carry no generation, so finish the previous lifecycle before retrying.
+        // Finish the current or timed-out personal cleanup before retrying.
         if !self.pending_closes.is_empty()
             || self.expired_personal.is_some()
             || matches!(
@@ -125,7 +111,6 @@ impl PlayerInventoryLedger {
             target_runtime_id,
             admitted: false,
             desired_open: true,
-            deadline_millis: None,
         });
         true
     }
@@ -185,7 +170,6 @@ impl PlayerInventoryLedger {
                     target_runtime_id,
                     admitted: true,
                     desired_open: false,
-                    deadline_millis: personal.deadline_millis(),
                 });
                 generation
             }
@@ -204,7 +188,6 @@ impl PlayerInventoryLedger {
                     window_id,
                     window_type,
                     admitted: false,
-                    deadline_millis: None,
                 });
                 generation
             }
@@ -230,9 +213,10 @@ impl PlayerInventoryLedger {
 
     /// Tests the personal window's existing admitted deadline without mutating it.
     pub(super) fn personal_timeout_due(&self, now_millis: u64) -> bool {
-        self.personal
-            .and_then(|personal| personal.deadline_millis())
-            .is_some_and(|deadline| now_millis >= deadline)
+        self.personal.is_some_and(|personal| {
+            self.sent_controls
+                .generation_timeout_due(personal.generation(), now_millis)
+        })
     }
 
     /// Expires the screen and its requests while retaining the unanswered lifecycle for cleanup.
@@ -245,19 +229,8 @@ impl PlayerInventoryLedger {
             .take()
             .expect("an expired personal window was observed");
         let generation = personal.generation();
-        match &mut personal {
-            PersonalWindow::Opening {
-                desired_open,
-                deadline_millis,
-                ..
-            } => {
-                *desired_open = false;
-                *deadline_millis = None;
-            }
-            PersonalWindow::Closing {
-                deadline_millis, ..
-            } => *deadline_millis = None,
-            PersonalWindow::Open { .. } => unreachable!("an open window has no deadline"),
+        if let PersonalWindow::Opening { desired_open, .. } = &mut personal {
+            *desired_open = false;
         }
         self.expired_personal = Some(personal);
         self.pending_closes
@@ -268,11 +241,12 @@ impl PlayerInventoryLedger {
         true
     }
 
-    /// Retires an unacknowledged personal open when a valid storage reply takes its place.
+    /// Releases an unacknowledged personal screen while retaining any sent reply correlation.
     pub(super) fn supersede_pending_personal_open(&mut self) {
         let Some(PersonalWindow::Opening { generation, .. }) = self.personal else {
             return;
         };
+        self.sent_controls.supersede(generation);
         self.personal = None;
         self.abandon_requests(|pending| pending.personal_generation == Some(generation));
     }
