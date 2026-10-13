@@ -27,7 +27,8 @@ remain open.
 Lever compiler fixtures cover separate base/handle geometry, eight mounts, both
 power states, 16/32-pixel sprite regions and neighboring controls. The mounting
 base retains the cobblestone-wall top material independently of the handle. These
-tests have not been compiled or run; rendered/native interaction acceptance remains incomplete.
+tests and the focused crate check pass, with a missing-part failure on the previous
+model. Rendered/native interaction acceptance remains incomplete.
 No completion or performance gate advances.
 
 Cape rotation limits now prevent upward flips in both player animation modes. Remote resets

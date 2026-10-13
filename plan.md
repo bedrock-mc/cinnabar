@@ -246,7 +246,8 @@ wall, floor and ceiling states, retaining independent pack materials. Original
 16/32-pixel fixtures cover all registered mounts, power motion, sprite regions,
 face winding, network-ID resolution, malformed selectors and neighboring barrel/
 trapdoor controls. The base uses the cobblestone-wall top source independently of
-the handle sprite. These regressions have not been compiled or executed.
+the handle sprite. Owning regressions and the focused crate check pass; the
+missing-part regression fails on the previous envelope model.
 Rendered/input acceptance, native-server placement and broader parity remain incomplete.
 
 ## Bubble column terrain geometry
