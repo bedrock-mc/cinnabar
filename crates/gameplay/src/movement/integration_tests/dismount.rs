@@ -268,3 +268,114 @@ fn dismount_requests_cancel_on_finalized_input_authority_release() {
         });
     }
 }
+
+/// A pending exit keeps the authoritative seat without turning the rider into a crouch.
+#[test]
+fn dismount_request_keeps_the_seated_pose_until_the_server_unlinks() {
+    let (mut physics, mut ticker) = walked_physics(0);
+    let mut locals = super::LocomotionState::default();
+    let mut effects = super::LocalMovementEffectTimeline::default();
+    let mut speed = super::LocalMovementSpeedAuthority::default();
+    let seat = [2.0, 3.0, 4.0];
+    for pressed in [true, false] {
+        let mut frame = speed_frame(Default::default());
+        frame.facts.ride = Some(super::RideKind::Other);
+        frame.facts.ride_seat = Some(seat);
+        frame.facts.mount_runtime_id = Some(20);
+        frame.sneak.pressed = pressed;
+        frame.sneak.held = true;
+        assert!(locals.advance(
+            frame,
+            &mut physics,
+            &mut ticker,
+            &mut effects,
+            &mut speed,
+            &VersionedFloor(1),
+        ));
+        locals.flush_dismount(physics.network_position().unwrap(), |_| Ok(()));
+        assert_eq!(physics.mode(), sim::MovementMode::Riding);
+        assert_eq!(physics.render_feet_position(), Some(seat));
+        assert_eq!(physics.latest_sneak_sprint(), Some((false, false)));
+        let sample = ticker.pending_samples().last().unwrap().clone();
+        assert!(sample.snapshot.flags.bits() & PlayerInputFlags::SNEAK_CURRENT_RAW.bits() != 0);
+        assert_eq!(sample.snapshot.flags.bits() & PlayerInputFlags::START_SNEAKING.bits(), 0);
+    }
+    let mut frame = speed_frame(Default::default());
+    frame.sneak.held = true;
+    assert!(locals.advance(
+        frame,
+        &mut physics,
+        &mut ticker,
+        &mut effects,
+        &mut speed,
+        &VersionedFloor(1),
+    ));
+    assert_eq!(physics.mode(), sim::MovementMode::Walking);
+    assert_eq!(physics.latest_sneak_sprint(), Some((true, false)));
+}
+
+/// Corrections retain physical input while replaying the seated actor's posture.
+#[test]
+fn mounted_sneak_and_jump_replay_without_crouching_or_moving_the_seat() {
+    for kind in [super::RideKind::Boat, super::RideKind::Other] {
+        for jumping in [false, true] {
+            let (mut physics, _) = walked_physics(1);
+            let anchor = super::PhysicsAnchor {
+                network_position: physics.network_position().unwrap(),
+                tick: physics.state().unwrap().tick,
+                on_ground: true,
+                velocity: Some([0.0; 3]),
+            };
+            let seat = [2.0, 3.0, 4.0];
+            let frame = physics.advance_with_context(
+                Duration::from_millis(100),
+                MovementInput {
+                    sneaking: true,
+                    jumping,
+                    ..Default::default()
+                },
+                PhysicsSampleContext {
+                    mode_intent: super::ModeIntent {
+                        ride: Some(kind),
+                        ride_seat: Some(seat),
+                        ..Default::default()
+                    },
+                    input: super::TickInput {
+                        sneak: semantic_input::ActionPhase {
+                            held: true,
+                            ..Default::default()
+                        },
+                        sneak_down: true,
+                        jump: semantic_input::ActionPhase {
+                            held: jumping,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                &VersionedFloor(1),
+            );
+            assert_eq!(frame.samples.len(), 2);
+            let eye = physics.render_eye_position();
+            for sample in &frame.samples {
+                assert_eq!(sample.processed.mode, sim::MovementMode::Riding);
+                assert!(!sample.processed.sneaking);
+                assert!(sample.input.sneak.held);
+            }
+            for _ in 0..2 {
+                let replay = physics
+                    .apply_correction(
+                        anchor,
+                        PhysicsCorrectionMode::ReplayIfRetained,
+                        None,
+                        &VersionedFloor(1),
+                    )
+                    .unwrap();
+                assert_eq!(replay.replayed_samples, frame.samples);
+                assert_eq!(physics.render_feet_position(), Some(seat));
+                assert_eq!(physics.render_eye_position(), eye);
+            }
+        }
+    }
+}

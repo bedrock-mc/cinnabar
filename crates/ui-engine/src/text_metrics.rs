@@ -24,7 +24,8 @@ pub struct TextMetrics {
 impl TextMetrics {
     /// Uses the same GUI-scale choice as sprite geometry. The font atlas
     /// is authored at two texels per GUI design pixel, so its logical scale is
-    /// half the sprite scale before the platform DPI is removed.
+    /// half the sprite scale before the platform DPI is removed. Display DPI
+    /// changes logical layout units, not the selected physical GUI scale.
     pub fn for_viewport(
         physical_size: [u32; 2],
         dpi_scale: DpiScale,
@@ -68,5 +69,63 @@ impl TextMetrics {
 
     pub const fn shadow(&self) -> TextShadow {
         self.shadow
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ui::DesktopGuiScale;
+
+    #[test]
+    fn desktop_default_scale_uses_physical_pixels_at_every_display_dpi() {
+        for (physical, expected) in [
+            ([1280, 720], 2),
+            ([1366, 768], 3),
+            ([1920, 1080], 4),
+            ([2560, 1440], 5),
+        ] {
+            for dpi in [1.0, 1.25, 1.5] {
+                let metrics =
+                    TextMetrics::for_viewport(physical, DpiScale::new(dpi).unwrap(), None);
+                assert_eq!(
+                    metrics.gui_scale, expected as f32,
+                    "{physical:?}, DPI {dpi}"
+                );
+                let logical_gui_pixel = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+                assert!(
+                    (logical_gui_pixel * dpi - expected as f32).abs() < 1e-5,
+                    "{physical:?}, DPI {dpi}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_desktop_modifier_reaches_layout_with_one_dpi_conversion() {
+        for physical in [[1280, 720], [1366, 768], [1920, 1080], [2560, 1440]] {
+            let desktop = DesktopGuiScale::for_window(physical);
+            let optimal = f32::from(desktop.scale_for_offset(0));
+            for choice in desktop.choices() {
+                let selected = desktop.scale_for_offset(choice.offset);
+                for dpi in [1.0, 1.25, 1.5] {
+                    let metrics = TextMetrics::for_viewport(
+                        physical,
+                        DpiScale::new(dpi).unwrap(),
+                        Some(selected),
+                    );
+                    assert_eq!(metrics.gui_scale, f32::from(selected));
+                    let physical_gui_pixel =
+                        metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32 * dpi;
+                    assert!((physical_gui_pixel - f32::from(selected)).abs() < 1e-5);
+                    assert_eq!(
+                        (physical_gui_pixel / optimal * 100.0).round() as u16,
+                        choice.percentage,
+                        "{physical:?}, DPI {dpi}, modifier {}",
+                        choice.offset
+                    );
+                }
+            }
+        }
     }
 }

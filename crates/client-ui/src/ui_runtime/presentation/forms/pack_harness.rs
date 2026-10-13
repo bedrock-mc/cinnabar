@@ -249,7 +249,7 @@ pub fn render(
     let mut nodes = Vec::new();
     let mut next = 1;
     presentation
-        .append_server_form(runtime, &mut nodes, &mut next, metrics, width, height)
+        .append_server_form(runtime, None, &mut nodes, &mut next, metrics, width, height)
         .unwrap();
     presentation.sync_server_ui_pages();
     nodes

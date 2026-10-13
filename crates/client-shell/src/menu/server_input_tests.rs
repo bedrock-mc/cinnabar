@@ -26,6 +26,112 @@ struct Frame(render_model::UiRenderInput);
 struct FrameTime(u64);
 
 #[test]
+fn keyboard_binding_pointer_escape_and_reload_publish_unassigned() {
+    let Some(mut h) = Harness::new(1.0) else {
+        eprintln!(
+            "skipping keyboard_binding_pointer_escape_and_reload_publish_unassigned: missing installed UI carrier; make assets"
+        );
+        return;
+    };
+    let section = launcher::menu::settings_sections::SETTINGS_SECTIONS
+        .iter()
+        .find(|(name, _)| *name == "keyboard_and_mouse_forced_index")
+        .unwrap()
+        .1;
+    let row = launcher::menu::settings_options::KEY_BINDINGS
+        .iter()
+        .position(|(action, _)| *action == semantic_input::Action::Attack)
+        .unwrap();
+    {
+        let mut menu = h.app.world_mut().resource_mut::<MenuRuntime>();
+        menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+        menu.activate(MenuAction::SettingsSection(section));
+    }
+    h.app.update();
+    assert!(
+        h.app
+            .world_mut()
+            .resource_mut::<UiPresentationResource>()
+            .scroll_menu(UiPoint::new(900.0, 600.0).unwrap(), -360.0, true,)
+    );
+    for _ in 0..8 {
+        h.app.update();
+    }
+    snapshot::write(
+        &h.app.world().resource::<Frame>().0,
+        "keyboard-binding-before",
+    );
+    h.click(MenuAction::SettingsKey(row as u16));
+    assert!(h.app.world().resource::<MenuRuntime>().is_remapping_key());
+    snapshot::write(
+        &h.app.world().resource::<Frame>().0,
+        "keyboard-binding-capturing",
+    );
+    h.app
+        .world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .release(MouseButton::Left);
+    h.key(KeyCode::Escape, None, ButtonState::Pressed);
+    h.key(KeyCode::Escape, None, ButtonState::Released);
+    let menu = h.app.world().resource::<MenuRuntime>();
+    assert_eq!(menu.screen(), MenuScreen::Settings);
+    assert!(!menu.is_remapping_key());
+    assert_eq!(menu.settings_options.key_control(row), None);
+    snapshot::write(
+        &h.app.world().resource::<Frame>().0,
+        "keyboard-binding-after",
+    );
+    menu.settings_options
+        .save(
+            &menu
+                .layout
+                .server_file()
+                .with_file_name(launcher::menu::settings_options::SETTINGS_FILE),
+        )
+        .unwrap();
+    let layout = menu.layout.clone();
+    let mut restarted = MenuRuntime::new_with_layout(
+        true,
+        Some(2),
+        "Test".into(),
+        layout,
+        crate::player_skin::LocalPlayerSkin::generated_default("Test"),
+    );
+    assert_eq!(restarted.settings_options.key_control(row), None);
+    restarted.activate(MenuAction::Navigate(MenuScreen::Settings));
+    restarted.activate(MenuAction::SettingsSection(section));
+    h.app.insert_resource(restarted);
+    h.app.update();
+    snapshot::write(
+        &h.app.world().resource::<Frame>().0,
+        "keyboard-binding-reloaded",
+    );
+    h.app
+        .world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .release(MouseButton::Left);
+    h.app.update();
+    h.click(MenuAction::SettingsResetKey(row as u16));
+    assert_eq!(
+        h.app
+            .world()
+            .resource::<MenuRuntime>()
+            .settings_options
+            .key_control(row),
+        launcher::menu::settings_options::SettingsOptions::default().key_control(row)
+    );
+    snapshot::write(
+        &h.app.world().resource::<Frame>().0,
+        "keyboard-binding-reset",
+    );
+    h.key(KeyCode::Escape, None, ButtonState::Pressed);
+    assert_ne!(
+        h.app.world().resource::<MenuRuntime>().screen(),
+        MenuScreen::Settings
+    );
+}
+
+#[test]
 fn idle_menu_does_not_repeat_cursor_os_notifications() {
     let Some(mut h) = Harness::new(1.0) else {
         return;
