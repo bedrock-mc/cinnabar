@@ -25,3 +25,4 @@ mod startup_audio_assets;
 mod startup_hud_assets;
 mod startup_icon_assets;
 mod startup_lang_assets;
+mod vocabulary;
