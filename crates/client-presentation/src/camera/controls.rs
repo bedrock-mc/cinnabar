@@ -204,7 +204,7 @@ pub fn update_look(
         return;
     }
 
-    let (yaw, pitch, roll) = view.camera_rotation().to_euler(EulerRot::YXZ);
+    let (yaw, pitch, roll) = view.look_rotation().to_euler(EulerRot::YXZ);
     let feel = settings.feel();
     let degrees = match mode {
         semantic_input::InputMode::KeyboardMouse => {

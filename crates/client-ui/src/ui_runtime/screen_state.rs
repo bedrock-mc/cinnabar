@@ -19,6 +19,8 @@ const MAX_ANVIL_NAME_CHARS: usize = 50;
 #[derive(Clone, Debug, Default)]
 pub struct ScreenState {
     pub pointer: InventoryPointer,
+    /// A primary press on the container's close control, awaiting its release.
+    pub container_close_armed: bool,
     pub hover: Option<InventoryCellHit>,
     /// Chosen beacon effects; `0` means none.
     pub beacon: (i32, i32),
@@ -108,6 +110,7 @@ impl ScreenState {
         if self.window != generation {
             self.window = generation;
             self.pointer.reset();
+            self.container_close_armed = false;
             self.beacon = (0, 0);
             self.search_focused = false;
             self.recipe_choice = None;

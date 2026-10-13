@@ -436,7 +436,7 @@ fn equipment_pack_fixture() -> (
             png([90, 20, 200, 255], 1, 1),
         ),
     ];
-    let compiled = pack_compiler::compile_actor_pack(files)
+    let compiled = pack_entity_compiler::compile_actor_pack(files)
         .unwrap()
         .expect("pack compiles");
     let catalog = assets::RuntimeEquipmentCatalog::from_parts(
@@ -738,7 +738,7 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
         ]
     };
     let compile = |files| {
-        pack_compiler::compile_actor_pack(files)
+        pack_entity_compiler::compile_actor_pack(files)
             .unwrap()
             .expect("pack compiles")
     };

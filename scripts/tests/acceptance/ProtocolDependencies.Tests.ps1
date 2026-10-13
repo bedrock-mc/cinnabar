@@ -188,6 +188,10 @@ function Copy-ProtocolDependencyProvenanceFixture {
         Copy-Item -LiteralPath (Join-Path $SourceRoot $workspaceDirectory) `
             -Destination $DestinationRoot -Recurse
     }
+    $androidRoot = Join-Path $DestinationRoot 'packaging/android'
+    New-Item -ItemType Directory -Path $androidRoot -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $SourceRoot 'packaging/android/client') `
+        -Destination $androidRoot -Recurse
 }
 
 function Assert-TestProtocolDependencyProvenance {

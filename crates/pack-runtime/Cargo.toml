@@ -12,7 +12,8 @@ test-support = []
 pack-json = { path = "../pack-json" }
 assets = { path = "../assets" }
 image.workspace = true
-pack-compiler = { path = "../pack-compiler" }
+pack-compile-input = { path = "../pack-compiler/input" }
+pack-entity-compiler = { path = "../pack-compiler/entity" }
 protocol = { path = "../protocol" }
 rayon.workspace = true
 resource-pack = { path = "../resource-pack" }

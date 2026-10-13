@@ -109,3 +109,71 @@ fn client_generated_flags_allow_own_tag_extraction_and_preserve_server_visibilit
         assert_eq!(own_tag(&stream).is_some(), expected);
     }
 }
+
+#[test]
+fn render_feet_replace_stale_actor_interpolation_for_geometry_and_score_range() {
+    let mut actor = actor();
+    actor.previous_pose.position = [0.0, 62.0, 0.0];
+    actor.received_pose.position = [2.0, 64.0, 0.0];
+    actor.position = actor.received_pose.position;
+    actor
+        .metadata
+        .insert(METADATA_SCORE, ActorMetadataValue::String("7 wins".into()));
+    let boards = ui::ScoreboardStore::default();
+    for feet in [
+        Vec3::new(30.0, 65.0, 10.0),
+        Vec3::new(29.0, 66.0, 8.0),
+        Vec3::new(-24.0, 62.0, -10.0),
+    ] {
+        let mut camera = view(feet);
+        camera.camera_position = feet + Vec3::new(0.0, 2.0, 4.0);
+        let tag =
+            extract_nametag_at_feet(&actor, camera, None, "Player".into(), &boards, feet).unwrap();
+        assert_eq!(tag.position, feet + Vec3::Y * tag_height(&actor));
+        assert_eq!(tag.lines[1].as_ref(), "7 wins");
+        let old_tag = extract_nametag(&actor, camera, None, "Player".into(), &boards, 0.5).unwrap();
+        assert_ne!(tag.position, old_tag.position);
+        assert_eq!(
+            old_tag.lines.len(),
+            1,
+            "remote score range uses interpolated actor feet"
+        );
+        assert_eq!(
+            tag.view_depth,
+            camera
+                .camera_forward
+                .dot(tag.position - camera.camera_position)
+        );
+    }
+}
+
+#[test]
+fn render_feet_preserve_actor_visibility_height_and_reject_nonfinite_positions() {
+    let mut actor = actor();
+    let feet = Vec3::new(8.0, 70.0, -3.0);
+    actor
+        .metadata
+        .insert(METADATA_HEIGHT, ActorMetadataValue::Float(3.0));
+    actor.metadata.insert(
+        0,
+        ActorMetadataValue::Flags((1 << ACTOR_FLAG_SHOW_NAME) | (1 << ACTOR_FLAG_SNEAKING)),
+    );
+    let boards = ui::ScoreboardStore::default();
+    let extract = |actor: &ActorSnapshot, position| {
+        extract_nametag_at_feet(actor, view(feet), None, "Player".into(), &boards, position)
+    };
+    let tag = extract(&actor, feet).unwrap();
+    assert_eq!(tag.position, feet + Vec3::Y * tag_height(&actor));
+    assert!(tag.depth_tested);
+    for invalid in [
+        Vec3::new(f32::NAN, 70.0, -3.0),
+        Vec3::new(8.0, f32::INFINITY, -3.0),
+        Vec3::new(8.0, 70.0, f32::NEG_INFINITY),
+    ] {
+        assert!(extract(&actor, invalid).is_none());
+    }
+    for flags in [0, (1 << ACTOR_FLAG_SHOW_NAME) | (1 << ACTOR_FLAG_INVISIBLE)] {
+        actor.metadata.insert(0, ActorMetadataValue::Flags(flags));
+        assert!(extract(&actor, feet).is_none());
+    }
+}

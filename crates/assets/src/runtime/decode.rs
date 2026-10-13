@@ -59,7 +59,7 @@ impl RuntimeAssets {
         let assets = Self {
             visuals: decode_visuals(sections[0])?,
             light_properties: decode_light_properties(sections[0]),
-            hashed: decode_hashes(sections[1]),
+            hashed: super::hashed_ids::HashedIds::new(decode_hashes(sections[1])),
             materials,
             model_templates: decode_templates(sections[3]),
             model_random_offsets: Box::new([]),

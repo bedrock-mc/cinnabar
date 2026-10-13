@@ -209,7 +209,7 @@ pub(crate) fn pump_audio(
         .map(|profiler| profiler.time(RuntimeStage::Audio));
     let listener = client_audio::audio::listener::camera_listener(
         view.eye_translation(),
-        view.rotation(),
+        view.camera_rotation(),
         camera.single().ok(),
         server_camera
             .as_deref()

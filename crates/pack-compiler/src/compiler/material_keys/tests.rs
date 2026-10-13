@@ -81,7 +81,7 @@ fn honey_fronts_and_cake_inner_faces_keep_their_compiled_atlas_indices() {
     )
     .unwrap();
     std::fs::write(root.path().join("textures/flipbook_textures.json"), "[]").unwrap();
-    let pack = crate::read_pack(root.path()).unwrap();
+    let pack = pack_compile_input::read_pack(root.path()).unwrap();
     let descriptors = super::super::visuals::bee_housing::bee_housing_material_descriptors(&pack)
         .unwrap()
         .into_iter()
@@ -140,7 +140,7 @@ fn snowy_grass_keeps_the_source_catalog_key_and_clamped_index() {
         )
         .unwrap();
         std::fs::write(root.path().join("textures/flipbook_textures.json"), "[]").unwrap();
-        let pack = crate::read_pack(root.path()).unwrap();
+        let pack = pack_compile_input::read_pack(root.path()).unwrap();
         let (descriptor, key) =
             super::super::visuals::snowy_grass::material_descriptor(&pack).unwrap();
         let expected_key = if native {
@@ -173,7 +173,7 @@ fn pack() -> PackSources {
     ] {
         std::fs::write(root.path().join(path), bytes).unwrap();
     }
-    crate::read_pack(root.path()).unwrap()
+    pack_compile_input::read_pack(root.path()).unwrap()
 }
 
 #[test]
@@ -252,7 +252,7 @@ fn weighted_uv_leaves_and_the_representative_selector_are_recorded() {
     ] {
         std::fs::write(root.path().join(path), bytes).unwrap();
     }
-    let pack = crate::read_pack(root.path()).unwrap();
+    let pack = pack_compile_input::read_pack(root.path()).unwrap();
     let descriptor = Descriptor {
         path: "textures/shared".into(),
         texture_key: "tile".into(),
@@ -331,7 +331,7 @@ fn matching_pixels_share_storage_without_collapsing_material_destinations() {
     ] {
         std::fs::write(root.path().join(path), bytes).unwrap();
     }
-    let pack = crate::read_pack(root.path()).unwrap();
+    let pack = pack_compile_input::read_pack(root.path()).unwrap();
     let image = DecodedImage {
         source_path: "textures/shared".into(),
         width: assets::TILE_SIZE,

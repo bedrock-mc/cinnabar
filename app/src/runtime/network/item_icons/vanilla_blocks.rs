@@ -69,7 +69,7 @@ fn append_routes(
             continue;
         }
         if icons.icons.len() < MAX_SESSION_ICONS
-            && let Some(sprite) = pack_compiler::overlay_cube_icon(&compiled.overlay, faces)
+            && let Some(sprite) = pack_entity_compiler::overlay_cube_icon(&compiled.overlay, faces)
         {
             icons.icons.push(session_icon(route, sprite));
         }

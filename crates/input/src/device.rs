@@ -146,6 +146,17 @@ impl Default for TouchControlLayout {
                 kind: TouchControlKind::LookAxis(TouchAxis::XPositive),
             },
         ]);
+        controls.extend(
+            [
+                crate::touch::LOOK_SURFACE,
+                crate::touch::JOYSTICK,
+                crate::touch::INVENTORY,
+            ]
+            .map(|hit_id| TouchControl {
+                hit_id,
+                kind: TouchControlKind::Button,
+            }),
+        );
         Self::new(controls).expect("built-in touch controls are valid")
     }
 }

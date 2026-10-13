@@ -507,7 +507,7 @@ mod tests {
             let front = &builder.solid[60..66];
             for (vertex, point) in front.iter().zip(&points[60..66]) {
                 let expected = [
-                    if (point.y - 14.0).abs() < 1.0e-4 {
+                    if (point.y - geometry::LECTERN_POST[1][1]).abs() < 1.0e-4 {
                         56.0
                     } else {
                         48.0

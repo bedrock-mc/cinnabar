@@ -10,7 +10,7 @@ use {super::*, assets::BlockFace};
 
 pub(super) fn install(
     records: &[RegistryRecord],
-    blocks: &crate::pack::BlockTextureMap,
+    blocks: &pack_compile_input::pack::BlockTextureMap,
     visuals: &mut [BlockVisual],
     materials: &mut Vec<Material>,
 ) -> Result<Vec<(u32, u32)>, AssetError> {
@@ -139,7 +139,7 @@ mod tests {
     use assets::{SEASONAL_LEAF_DEEP_OFFSET, SEASONAL_LEAF_EXPOSED_OFFSET};
     use {super::*, assets::BlockFace};
 
-    fn empty_blocks() -> crate::pack::BlockTextureMap {
+    fn empty_blocks() -> pack_compile_input::pack::BlockTextureMap {
         let directory = tempfile::tempdir().unwrap();
         std::fs::create_dir(directory.path().join("textures")).unwrap();
         for (path, json) in [
@@ -149,7 +149,9 @@ mod tests {
         ] {
             std::fs::write(directory.path().join(path), json).unwrap();
         }
-        crate::pack::read_pack(directory.path()).unwrap().blocks
+        pack_compile_input::pack::read_pack(directory.path())
+            .unwrap()
+            .blocks
     }
 
     fn leaf(name: &str, id: u32) -> RegistryRecord {

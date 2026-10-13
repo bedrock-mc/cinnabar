@@ -508,7 +508,7 @@ impl RuntimeAssets {
         let mut light_properties = self.light_properties.to_vec();
         light_properties.extend_from_slice(&overlay.light_properties);
         // A hash the base or an earlier overlay state already owns keeps its owner.
-        let mut hashed = self.hashed.to_vec();
+        let mut hashed = self.hashed.entries().to_vec();
         for (index, hash) in overlay.hashes.iter().copied().enumerate() {
             let Some(hash) = hash else {
                 continue;
@@ -528,7 +528,7 @@ impl RuntimeAssets {
         Ok(Self {
             visuals: visuals.into_boxed_slice(),
             light_properties: light_properties.into_boxed_slice(),
-            hashed: hashed.into_boxed_slice(),
+            hashed: super::hashed_ids::HashedIds::new(hashed.into_boxed_slice()),
             materials: materials.into_boxed_slice(),
             model_templates: model_templates.into_boxed_slice(),
             model_random_offsets: model_random_offsets.into_boxed_slice(),

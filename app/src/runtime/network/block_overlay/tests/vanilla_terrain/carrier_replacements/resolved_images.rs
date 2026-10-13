@@ -49,7 +49,7 @@ fn explicit_filename_carried_aliases_reuse_the_world_raster_at_the_layer_limit()
                 .iter()
                 .all(|pixel| *pixel == color)
         );
-        assert!(pack_compiler::overlay_cube_icon(&compiled.overlay, faces).is_some());
+        assert!(pack_entity_compiler::overlay_cube_icon(&compiled.overlay, faces).is_some());
         let runtime = base.with_block_overlay(2, &compiled.overlay).unwrap();
         assert_eq!(material_color(&runtime, 1), color);
     }

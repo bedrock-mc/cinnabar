@@ -45,7 +45,8 @@ impl BlockGeometryCatalog {
                 if !key.starts_with("geometry.") {
                     continue;
                 }
-                let Some((identifier, parent)) = crate::geometry_key::legacy_key(key) else {
+                let Some((identifier, parent)) = pack_compile_input::geometry_key::legacy_key(key)
+                else {
                     continue;
                 };
                 self.definitions.insert(

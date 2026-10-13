@@ -184,7 +184,10 @@ fn snowy_grass_descriptor_requires_exact_precolored_native_sprite() {
     ] {
         terrain["texture_data"]["mycelium_side"]["textures"] = invalid;
         fs::write(&path, terrain.to_string()).unwrap();
-        assert!(material_descriptor(&crate::read_pack(directory.path()).unwrap()).is_none());
+        assert!(
+            material_descriptor(&pack_compile_input::read_pack(directory.path()).unwrap())
+                .is_none()
+        );
     }
 }
 
@@ -192,7 +195,7 @@ fn snowy_grass_descriptor_requires_exact_precolored_native_sprite() {
 fn snowy_descriptors_keep_the_selected_catalog_key_and_variant() {
     for native_array in [false, true] {
         let directory = fixture(native_array);
-        let pack = crate::read_pack(directory.path()).unwrap();
+        let pack = pack_compile_input::read_pack(directory.path()).unwrap();
         let (descriptor, key) = material_descriptor(&pack).unwrap();
         assert_eq!(
             key.as_ref(),
