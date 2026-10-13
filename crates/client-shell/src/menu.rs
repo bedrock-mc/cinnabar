@@ -597,7 +597,7 @@ impl MenuRuntime {
                     self.set_visible(false);
                 }
             }
-            MenuAction::DismissDialog => self.dismiss_accounts(),
+            MenuAction::DismissDialog | MenuAction::CloseExitDialog => self.dismiss_accounts(),
             MenuAction::Reconnect => {
                 unreachable!("reconnect is handled before clearing the failure")
             }
