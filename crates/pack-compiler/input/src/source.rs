@@ -340,6 +340,13 @@ fn canonical_manifest_line_endings(source: &[u8]) -> Result<Cow<'_, [u8]>, Asset
     Ok(Cow::Owned(canonical))
 }
 
+/// Builds the shared source-validation error.
+fn invalid(detail: impl Into<Box<str>>) -> AssetError {
+    AssetError::InvalidCompiledAssets {
+        detail: detail.into(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -458,12 +465,5 @@ mod tests {
                 "mklink /J failed with {status}"
             )))
         }
-    }
-}
-
-/// Builds the shared source-validation error.
-fn invalid(detail: impl Into<Box<str>>) -> AssetError {
-    AssetError::InvalidCompiledAssets {
-        detail: detail.into(),
     }
 }
