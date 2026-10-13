@@ -43,6 +43,36 @@ fn cape_frame(
 }
 
 #[test]
+fn local_cape_flap_keeps_velocity_after_a_catch_up_tick_consumes_the_position() {
+    let (mut actor, mut store) = fixture();
+    let context = ActorTickContext {
+        is_local: true,
+        ..Default::default()
+    };
+    advance(&actor, &mut store, context.clone());
+    actor.position[2] += 0.3;
+    actor.velocity = [0.0, 0.0, 0.1];
+    for _ in 0..3 {
+        advance(&actor, &mut store, context.clone());
+        let rig = store.get(actor.runtime_id).unwrap();
+        let flap = rig
+            .particle_queries(&actor, 1.0, 0)
+            .query("cape_flap_amount");
+        assert!((flap - 0.4).abs() < 1e-6);
+    }
+    actor.velocity = [0.0; 3];
+    advance(&actor, &mut store, context);
+    assert_eq!(
+        store
+            .get(actor.runtime_id)
+            .unwrap()
+            .particle_queries(&actor, 1.0, 0)
+            .query("cape_flap_amount"),
+        0.0
+    );
+}
+
+#[test]
 fn local_and_remote_flying_capes_stay_bounded_and_settle_after_stopping() {
     use render_model::java_animation::{CAPE_MAX_SWING_DEGREES, java_cape_angles, java_cape_bone};
 

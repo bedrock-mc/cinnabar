@@ -25,10 +25,12 @@ with 16/32 pixel textures. Rendered/input acceptance and broader graphics parity
 remain open.
 
 Cape rotation limits now prevent upward flips in both player animation modes. Remote resets
-discard Java chase lag, and Bedrock flap uses completed tick displacement instead of retained
-packet speed. Flight, remote knockback, repeated-hit, teleport and interpolation-reset
-regressions have not been compiled or executed. Rendered-frame validation and the exact
-Bedrock flap calculation remain incomplete. This change closes no parity or performance gate.
+discard Java chase lag, and remote Bedrock flap uses completed tick displacement instead of
+retained packet speed. Local flap keeps per-tick velocity through catch-up frames. The Bedrock
+direction bound preserves hanging authored rotations, including yaw beyond a quarter turn.
+Flight, remote movement/reset, local catch-up and authored-rotation regressions have not been
+compiled or executed. Rendered-frame validation and the exact Bedrock flap calculation remain
+incomplete. This change closes no parity or performance gate.
 
 ## P2.5-NATIVE-BIOME
 

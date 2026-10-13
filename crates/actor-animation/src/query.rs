@@ -396,13 +396,19 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         Q::StandingScale => truth(actor_flag(actor, FLAG_STANDING)),
         Q::IsInWater => truth(in_water(actor, input)),
         Q::SleepRotation => actor.sleep_rotation().unwrap_or(0.0),
-        // Use completed tick displacement, not packet speed in blocks per second.
+        // Local velocity stays available across catch-up ticks; remote packet speed is
+        // in blocks per second, so remote capes use completed tick displacement instead.
         // The flap scale still needs independent measurement.
         Q::CapeFlapAmount => {
-            if super::java::cape_position_discontinuity(input.position_delta) {
+            let movement = if context.is_local {
+                input.velocity
+            } else {
+                input.position_delta
+            };
+            if super::java::cape_position_discontinuity(movement) {
                 0.0
             } else {
-                (input.position_delta[0].hypot(input.position_delta[2]) * 4.0).clamp(0.0, 1.0)
+                (movement[0].hypot(movement[2]) * 4.0).clamp(0.0, 1.0)
             }
         }
         Q::HasCape => truth(context.has_cape),

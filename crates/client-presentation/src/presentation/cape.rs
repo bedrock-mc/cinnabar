@@ -183,19 +183,11 @@ fn cape_pose(
                             local = rest_local.inverse() * local;
                         }
                     }
+                    let mut attached = frame.bind * local * frame.bind.inverse();
                     if name.eq_ignore_ascii_case("cape") {
-                        let (pitch, yaw, roll) = local.to_euler(EulerRot::XYZEx);
-                        let limit = CAPE_MAX_SWING_DEGREES.to_radians();
-                        if pitch.abs() > limit {
-                            local = Quat::from_euler(
-                                EulerRot::XYZEx,
-                                pitch.clamp(-limit, limit),
-                                yaw,
-                                roll,
-                            );
-                        }
+                        attached = bound_cape_rotation(attached);
                     }
-                    pose.rotation = (parent * frame.bind * local * frame.bind.inverse()).to_array();
+                    pose.rotation = (parent * attached).to_array();
                     pose
                 }
                 None => RenderBoneTransform {
@@ -206,6 +198,24 @@ fn cape_pose(
             }
         })
         .collect()
+}
+
+/// Limits cape tilt in the parent's frame without changing an already hanging rotation.
+fn bound_cape_rotation(rotation: Quat) -> Quat {
+    let down = rotation * Vec3::NEG_Y;
+    let (sine, cosine) = CAPE_MAX_SWING_DEGREES.to_radians().sin_cos();
+    if down.dot(Vec3::NEG_Y) >= cosine {
+        return rotation;
+    }
+    let horizontal = Vec3::new(down.x, 0.0, down.z)
+        .try_normalize()
+        .unwrap_or(Vec3::Z);
+    let bounded = horizontal * sine + Vec3::NEG_Y * cosine;
+    // This arc is at most a quarter turn and must retain even tiny corrections near horizontal.
+    let cross = down.cross(bounded);
+    let correction =
+        Quat::from_xyzw(cross.x, cross.y, cross.z, 1.0 + down.dot(bounded)).normalize();
+    correction * rotation
 }
 
 fn rest_pose(
@@ -645,6 +655,80 @@ mod tests {
                         "cape lower edge must swing behind the shoulder, not over the chest"
                     );
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn hanging_cape_keeps_authored_yaw_and_roll_across_a_quarter_turn() {
+        use bevy::math::{Quat, Vec3};
+        let cape = fixture_cape();
+        let bind = cape.pose_frames[1].bind;
+        let rest = rest_bones(&fixture_poses(0.0, 0.0));
+        for tilt in [0.0, 0.45] {
+            let parent = Quat::from_rotation_x(tilt);
+            for yaw in [
+                -179.0_f32, -135.0, -91.0, -90.0, -89.0, 0.0, 89.0, 90.0, 91.0, 135.0, 179.0,
+            ] {
+                let yaw = Quat::from_rotation_y(yaw.to_radians());
+                for local in [
+                    yaw,
+                    yaw * Quat::from_rotation_x(0.35) * Quat::from_rotation_z(0.2),
+                ] {
+                    let mut body = fixture_poses(tilt, 0.0);
+                    body[1].rotation = (parent * local).to_array();
+                    let expected = parent * bind * local * bind.inverse();
+                    assert!((parent.inverse() * expected * Vec3::NEG_Y).y < 0.0);
+                    let poses =
+                        super::cape_pose(&cape, &["body".into(), "cape".into()], &rest, &body);
+                    let actual = Quat::from_array(poses[1].rotation);
+                    for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+                        assert!(
+                            (actual * axis - expected * axis).length() < 1e-5,
+                            "a hanging cape must keep its complete authored rotation"
+                        );
+                    }
+                    assert!(
+                        (super::position(&poses[1]) - super::position(&body[1])).length() < 1e-6
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn upward_cape_directions_are_bounded_after_bind_rotation() {
+        use bevy::math::{Quat, Vec3};
+        let cape = fixture_cape();
+        let bind = cape.pose_frames[1].bind;
+        let rest = rest_bones(&fixture_poses(0.0, 0.0));
+        for tilt in [0.0, 0.45] {
+            let parent = Quat::from_rotation_x(tilt);
+            for local in [
+                Quat::from_rotation_x((super::CAPE_MAX_SWING_DEGREES + 0.01).to_radians()),
+                Quat::from_rotation_x(2.3),
+                Quat::from_rotation_y(1.8) * Quat::from_rotation_x(2.3),
+                Quat::from_rotation_z(2.3),
+                Quat::from_rotation_x(std::f32::consts::PI),
+            ] {
+                let original = bind * local * bind.inverse() * Vec3::NEG_Y;
+                assert!(original.y > 0.0);
+                let mut body = fixture_poses(tilt, 0.0);
+                body[1].rotation = (parent * local).to_array();
+                let poses = super::cape_pose(&cape, &["body".into(), "cape".into()], &rest, &body);
+                let down = parent.inverse() * Quat::from_array(poses[1].rotation) * Vec3::NEG_Y;
+                assert!(
+                    down.y <= 1e-6,
+                    "cape must stay below its shoulder: {down:?}"
+                );
+                let horizontal = Vec3::new(original.x, 0.0, original.z);
+                if horizontal.length_squared() > 1e-6 {
+                    assert!(
+                        down.dot(horizontal.normalize()) > 1.0 - 1e-5,
+                        "the bound must preserve the cape's horizontal direction"
+                    );
+                }
+                assert!((super::position(&poses[1]) - super::position(&body[1])).length() < 1e-6);
             }
         }
     }
