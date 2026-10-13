@@ -9,7 +9,6 @@ mod error;
 mod framed;
 mod packet_delay;
 mod status;
-mod store;
 mod worlds;
 mod xbox_presence;
 pub use xbox_presence::{XboxPresenceState, report_xbox_presence};
@@ -42,12 +41,6 @@ pub use status::{
     Lifecycle, NetworkConnection, PackAcquisition, PackAdmission, PackApplication,
     PackDownstreamOutcome, PackOffer, StatusV1, TransferPending, read_status,
     report_pack_application,
-};
-pub use store::{
-    ConfirmedPurchase, PendingPurchase, PurchaseOutcome, PurchaseStatus, StoreBalance,
-    StoreEntitlements, StoreOffer, StoreOfferDetail, StorePage, StorePrice, StoreRating, StoreRow,
-    StoreRowMore, StoreSearch, StoreSearchResults, store_balance, store_entitlements, store_home,
-    store_offer, store_purchase, store_row_more, store_search,
 };
 pub use worlds::{
     Backend, GameMode, LocalTarget, LocalWorld, LocalWorldInfo, Transport, WorldState,

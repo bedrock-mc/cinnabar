@@ -44,10 +44,6 @@ const MAX_ARTWORKS: usize = 64;
 /// Longest side kept for a list thumbnail (server logos, gamerpics, badges), so
 /// a whole featured list fits the art pages beside banners.
 pub const THUMBNAIL_SIDE: u32 = 128;
-/// Marketplace art sides: a card thumbnail, and the offer page's key art and screenshots. Both
-/// keep 16:9 art several to a 1024 art page next to the title, so a screen's images all pack.
-const STORE_CARD_SIDE: u32 = 192;
-const STORE_FEATURE_SIDE: u32 = 480;
 /// Prefix of a server-pack texture's full-resolution copy on the art pages, so
 /// a pack's `textures/ui/title` never collides with Cinnabar's logo.
 pub(super) const SERVER_ART_PREFIX: &str = "server-pack:";
@@ -503,9 +499,6 @@ pub fn view_paths(view: &launcher::menu::MenuView) -> Vec<(String, u32)> {
     if view.screen == launcher::menu::MenuScreen::Profile {
         return profile_art(view);
     }
-    if view.screen == launcher::menu::MenuScreen::Store {
-        return store_art(view);
-    }
     // The invite screen draws only its friends' gamerpics, online list first.
     if let Some(invite) = view.invite.as_deref() {
         use launcher::menu::invite::Section;
@@ -630,27 +623,7 @@ fn view_images(
         .collect()
 }
 
-/// Queues Profile card art first, followed by only the achievements Overview draws.
-/// The Marketplace draws only its offer art, so the start screen's art does not take its pages.
-fn store_art(view: &launcher::menu::MenuView) -> Vec<(String, u32)> {
-    let Some(store) = view.store.as_deref() else {
-        return Vec::new();
-    };
-    let mut paths = store.image_paths();
-    // Feature art packs first: where a large image lands on the shelves decides how much else fits.
-    paths.sort_by_key(|(_, art)| *art != launcher::store::StoreArt::Feature);
-    paths
-        .into_iter()
-        .map(|(path, art)| {
-            let side = match art {
-                launcher::store::StoreArt::Card => STORE_CARD_SIDE,
-                launcher::store::StoreArt::Feature => STORE_FEATURE_SIDE,
-            };
-            (path, side)
-        })
-        .collect()
-}
-
+/// Queues Profile card art before the achievements shown by Overview.
 fn profile_art(view: &launcher::menu::MenuView) -> Vec<(String, u32)> {
     let profile = &view.feeds.profile;
     let mut paths = vec![
@@ -679,7 +652,7 @@ fn profile_art(view: &launcher::menu::MenuView) -> Vec<(String, u32)> {
 /// The start screen's service art: messaging tile layers, the event badge and the persona head.
 fn home_art(home: &launcher::menu::MenuHome) -> Vec<String> {
     let mut paths = vec![home.persona_head.clone()];
-    for art in [&home.play_art, &home.store_art].into_iter().flatten() {
+    if let Some(art) = &home.play_art {
         paths.extend([
             art.banner_texture.clone(),
             art.default_background.clone(),
@@ -693,9 +666,6 @@ fn home_art(home: &launcher::menu::MenuHome) -> Vec<String> {
     }
     paths
 }
-
-#[cfg(test)]
-mod store_tests;
 
 #[cfg(test)]
 mod tests;

@@ -42,12 +42,10 @@ assets/oreui-icons/external_link_icon/external-link-0.5x.icon.png
 assets/oreui-icons/hardcore_icon/hardcore-heart-engraved.png
 assets/oreui-icons/inbox/Feedback.png
 assets/oreui-icons/inbox/Invites.png
-assets/oreui-icons/inbox/MarketplacePass.png
 assets/oreui-icons/inbox/News.png
 assets/oreui-icons/inbox/Realms.png
 assets/oreui-icons/inbox_empty/Inbox_NoFeedback.png
 assets/oreui-icons/inbox_empty/Inbox_NoInvites.png
-assets/oreui-icons/inbox_empty/Inbox_NoMarketplacePass.png
 assets/oreui-icons/inbox_empty/Inbox_NoNews.png
 assets/oreui-icons/inbox_empty/Inbox_NoRealmsNews.png
 assets/oreui-icons/loading_animation/animation-00.png
@@ -100,7 +98,6 @@ assets/oreui-icons/settings/painting.png
 assets/oreui-icons/settings/party.png
 assets/oreui-icons/settings/sound-block.png
 assets/oreui-icons/settings/storage.png
-assets/oreui-icons/settings/subscriptions.png
 assets/oreui-icons/settings/touch.png
 assets/oreui-icons/settings/work-bench.png
 assets/oreui-icons/settings_icon_highlight/icon-highlight-spritesheet.png

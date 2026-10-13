@@ -79,7 +79,6 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             drive_session.in_set(client_state::ShellFrameSet::Session),
             crate::render_distance::apply_render_distance
                 .after(client_state::ShellFrameSet::WindowSettings),
-            crate::store::drive_store.in_set(client_state::ShellFrameSet::Store),
             synchronize_semantic_input_authority.after(client_state::ShellFrameSet::Focus),
             drive_world_inventory_keys
                 .run_if(client_extensions::server_experiences::input::ordinary_input),

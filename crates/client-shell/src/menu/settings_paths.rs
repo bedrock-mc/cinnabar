@@ -3,17 +3,6 @@
 use super::{MenuRuntime, PathBuf};
 
 impl MenuRuntime {
-    /// Where the Marketplace settings file lives.
-    pub fn store_settings_path(&self) -> PathBuf {
-        self.config_path
-            .with_file_name(launcher::store::settings::SETTINGS_FILE)
-    }
-
-    /// Where downloaded Marketplace art is cached.
-    pub fn store_images_dir(&self) -> PathBuf {
-        self.layout.store_images_dir()
-    }
-
     /// Server trust lives beside the other per-user launcher settings.
     pub fn experience_settings_path(&self) -> PathBuf {
         self.config_path

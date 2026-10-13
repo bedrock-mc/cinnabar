@@ -522,13 +522,47 @@ fn chat_data(
     let mut rows: Vec<CollectionItem> = input
         .suggestions
         .iter()
-        .map(|suggestion| row(suggestion, true))
+        .map(|suggestion| {
+            let before = &editor.as_str()[..editor.cursor_byte()];
+            row(&suggestion_row_text(before, suggestion, translate), true)
+        })
         .collect();
     rows.extend(input.usage.map(|usage| row(usage, false)));
     // The history's `#chat_visible` gives way to the suggestion list.
     data.set_global("#chat_visible", Scalar::Bool(rows.is_empty()));
     data.set_collection("auto_complete", rows);
     data
+}
+
+/// Colors the typed match and adds a translated built-in suggestion description.
+fn suggestion_row_text(
+    before: &str,
+    suggestion: &str,
+    translate: &dyn Fn(&str) -> Option<Arc<str>>,
+) -> String {
+    use protocol::ChatAutocompleteCatalog;
+
+    let text = bounded_visible_text(ChatAutocompleteCatalog::suggestion_text(before, suggestion));
+    let matched = ChatAutocompleteCatalog::suggestion_match(before, suggestion)
+        .filter(|range| text.get(range.clone()).is_some());
+    let mut row = if let Some(range) = matched {
+        format!(
+            "§7{}§f{}§7{}",
+            &text[..range.start],
+            &text[range.clone()],
+            &text[range.end..]
+        )
+    } else {
+        format!("§7{text}")
+    };
+    if let Some(key) = ChatAutocompleteCatalog::suggestion_description(before, suggestion)
+        && let Some(description) = translate(&key)
+    {
+        row.push_str("§7 - §f");
+        row.push_str(bounded_visible_text(&description));
+    }
+    row.push_str("§r");
+    row
 }
 
 fn chat_hit(region: &HitRegion) -> Option<ChatHit> {

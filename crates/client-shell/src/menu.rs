@@ -177,12 +177,8 @@ pub struct MenuRuntime {
     presentation_accounts: bool,
     sign_out_requested: bool,
     accounts: accounts::Manager,
-    /// Marketplace actions waiting for the store driver.
-    store_actions: Vec<launcher::store::StoreAction>,
     pub global_resource_actions: Vec<launcher::global_resources::Action>,
     pub global_resources: std::sync::Arc<launcher::global_resources::Snapshot>,
-    /// The Marketplace's presented state while its screen is up.
-    store_snapshot: Option<std::sync::Arc<launcher::store::snapshot::StoreSnapshot>>,
     settings_options: std::sync::Arc<launcher::menu::settings_options::SettingsOptions>,
     storage: std::sync::Arc<launcher::menu::settings_storage::StorageView>,
     settings_dropdown: Option<u16>,
@@ -305,30 +301,6 @@ impl MenuRuntime {
             self.settings_slider_pointer = None;
             self.settings_slider_hovered = None;
             self.dialog = None;
-        }
-    }
-
-    /// Marketplace actions queued since the last call, for the store driver.
-    pub fn take_store_actions(&mut self) -> Vec<launcher::store::StoreAction> {
-        std::mem::take(&mut self.store_actions)
-    }
-
-    /// Publish (or clear) the Marketplace's presented state.
-    pub fn set_store_snapshot(
-        &mut self,
-        snapshot: Option<std::sync::Arc<launcher::store::snapshot::StoreSnapshot>>,
-    ) {
-        self.store_snapshot = snapshot;
-    }
-
-    pub fn in_store(&self) -> bool {
-        self.screen == MenuScreen::Store
-    }
-
-    /// Leave the Marketplace for the start screen.
-    pub fn leave_store(&mut self) {
-        if self.in_store() {
-            self.enter(MenuScreen::Home);
         }
     }
 
@@ -780,12 +752,6 @@ impl MenuRuntime {
             MenuAction::OpenLiveEvent => self.open_live_event(),
             MenuAction::GlobalResources(action) => self.global_resource_actions.push(action),
             MenuAction::DressingRoom(action) => self.activate_dressing_room(action),
-            MenuAction::Store(action) => {
-                if action == launcher::store::StoreAction::Open {
-                    self.enter(MenuScreen::Store);
-                }
-                self.store_actions.push(action);
-            }
             MenuAction::PlayLocalWorld(index) => {
                 if index < self.local_worlds.len() {
                     self.local_world_requested = Some(index);

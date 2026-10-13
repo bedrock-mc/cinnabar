@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"sync"
 	"sync/atomic"
 
@@ -476,6 +477,8 @@ type preparedConnections struct {
 	upstreamClientCache         bool
 	connectPrepared             func(context.Context, dialerDownstream) (*preparedConnection, error)
 	resolveTarget               func(context.Context) (*resolvedUpstreamTarget, error)
+	httpClient                  *http.Client          // nil keeps the native pack downloader
+	addressNetwork              minecraft.Network     // nil keeps native transfer probing
 	serverTrust                 minecraft.ServerTrust // decides transfer hops to addressed NetherNet servers
 	dialTarget                  func(context.Context, *resolvedUpstreamTarget, minecraft.Dialer) (upstreamSession, error)
 	captureResourcePackStack    func(upstreamSession, func(*resource.Pack) bool) (*selectedResourcePackStack, error)
@@ -520,7 +523,7 @@ func newPreparedConnections(upstreamAddress string, account *authcache.Account, 
 					return dialWithPreparedTransport(ctx, network, address, attempt.DialContextNetwork)
 				}
 			}
-			return dialMinecraftUpstream(ctx, networkForAddress(target, address, connections.serverTrust), address, dial)
+			return dialMinecraftUpstream(ctx, connections.hopNetwork(target, address), address, dial)
 		})
 	}
 	connections.captureResourcePackStack = captureSelectedResourcePackStack
@@ -661,6 +664,7 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 		clientCache = clientCache && session.sessionClientCache()
 	}
 	dialer := newUpstreamDialerForAdmission(downstream, tokenSource, cache, packAdmission, clientCache)
+	dialer.HTTPClient = connections.httpClient
 	if target.clientData != nil {
 		target.clientData(&dialer.ClientData)
 	}
