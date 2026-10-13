@@ -132,6 +132,12 @@ impl SummaryStore {
         std::mem::take(&mut self.changed).into_iter().collect()
     }
 
+    /// Changes the byte budget, evicting the least recently used at once if it shrank.
+    pub fn set_budget(&mut self, budget_bytes: usize) {
+        self.budget_bytes = budget_bytes;
+        self.evict_to_budget();
+    }
+
     /// Drops every summary, as when the namespace changes.
     pub fn clear(&mut self) {
         self.entries.clear();

@@ -773,6 +773,29 @@ fn native_skybox_offset_defaults_on_and_persists_both_states() {
     }
 }
 
+/// The full-detail distance defaults to Auto and snaps to whole steps.
+#[test]
+fn full_detail_distance_defaults_to_auto_and_snaps() {
+    let mut settings = super::SettingsOptions::decode(b"{}").unwrap();
+    assert_eq!(
+        settings.user_settings().video.full_detail_distance_chunks,
+        render_api::far_terrain::FULL_DETAIL_AUTO
+    );
+    let index = super::SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == super::FULL_DETAIL_DISTANCE_OPTION.name)
+        .unwrap();
+    settings.set(index, 37);
+    assert_eq!(
+        settings.user_settings().video.full_detail_distance_chunks,
+        32
+    );
+    assert_eq!(
+        super::full_detail_label(0, &|chunks| chunks.to_string()),
+        "Auto"
+    );
+}
+
 /// Far terrain defaults on, persists off, and comes back on with a Video reset.
 #[test]
 fn far_terrain_defaults_on_persists_and_resets() {

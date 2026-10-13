@@ -37,9 +37,13 @@ impl WorldStream {
         let (resident, known_air) = (&self.resident, &self.known_air);
         let terrain = self.authority.terrain();
         let classifier = self.classifier;
-        // Resident sections whose palettes are all air publish an empty mesh without a worker.
-        let requires_geometry = |key| {
-            resident.contains(&key)
+        let detail = &self.full_detail;
+        let full_detail = |key: SubChunkKey| detail.wants_mesh(key.chunk());
+        // Resident sections whose palettes are all air, and sections past full detail, publish
+        // an empty mesh without a worker.
+        let requires_geometry = |key: SubChunkKey| {
+            full_detail(key)
+                && resident.contains(&key)
                 && !known_air.contains(&key)
                 && terrain
                     .sub_chunk(key)

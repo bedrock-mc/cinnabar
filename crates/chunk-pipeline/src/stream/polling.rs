@@ -74,6 +74,7 @@ impl WorldStream {
         let mesh_changes_queued = self.stats.publication_stages.mesh_changes_queued;
         // Before any commit, as the request preceded every commit still to come.
         self.apply_due_chunk_retention();
+        self.reevaluate_full_detail();
         if camera_position.iter().all(|value| value.is_finite()) {
             self.last_camera_position = camera_position;
             self.requests.last_player_chunk = Some(ChunkKey::new(

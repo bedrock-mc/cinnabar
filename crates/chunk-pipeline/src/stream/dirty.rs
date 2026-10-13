@@ -203,6 +203,19 @@ impl WorldStream {
         now: Instant,
         urgent: bool,
     ) -> u64 {
+        // Columns past full detail are drawn by far terrain; promotion remeshes them.
+        if !self.wants_mesh(key.chunk()) {
+            return 0;
+        }
+        self.mark_dirty_exact_ungated(key, now, urgent)
+    }
+    /// Marks `key` for a mesh or removal whether or not its column is full detail.
+    pub(super) fn mark_dirty_exact_ungated(
+        &mut self,
+        key: SubChunkKey,
+        now: Instant,
+        urgent: bool,
+    ) -> u64 {
         let urgent = urgent
             || self
                 .mesh_jobs

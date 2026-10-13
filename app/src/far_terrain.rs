@@ -4,12 +4,14 @@
 use std::{sync::Arc, time::Instant};
 
 use bevy::prelude::{Local, Res, ResMut, Resource};
-use chunk_pipeline::{FarColumnSummary, FarSummaryInbox, WorldStream};
+use chunk_pipeline::{
+    FULL_DETAIL_HYSTERESIS_CHUNKS, FarColumnSummary, FarSummaryInbox, WorldStream,
+};
 use client_state::RuntimeSettings;
 use far_terrain::{
     ColumnPos, EncodedSummary, FarTerrainCache, FarTerrainConfig, FarTiles, NamespaceKey, NearMask,
     TileView,
-    config::{DeviceTier, far_reach_chunks},
+    config::{DeviceTier, far_reach_chunks, full_detail_chunks},
 };
 use render_scene::FarTerrainScene;
 
@@ -22,7 +24,7 @@ pub(crate) struct FarTerrain {
     tiles: FarTiles,
     drained: Vec<FarColumnSummary>,
     near: Arc<NearMask>,
-    near_view: Option<([i32; 2], i32)>,
+    near_view: Option<NearView>,
     published: Option<u64>,
     retiring: Vec<Retiring>,
 }
@@ -168,6 +170,20 @@ pub(crate) fn feed_far_terrain(
     {
         stream.drain_far_summaries(&mut far.drained);
     }
+    // Columns past the full-detail radius skip lighting and meshing; far terrain draws them.
+    let full_detail = world
+        .stream
+        .as_ref()
+        .filter(|_| enabled)
+        .and_then(|stream| full_detail_radius(stream, &video, tier));
+    if world
+        .stream
+        .as_ref()
+        .is_some_and(|stream| stream.full_detail_radius() != full_detail)
+        && let Some(stream) = world.stream.as_mut()
+    {
+        stream.set_full_detail_radius(full_detail);
+    }
     let Some(stream) = world.stream.as_ref().filter(|_| enabled) else {
         far.cache.poll(now);
         if far.published.take().is_some() {
@@ -184,19 +200,29 @@ pub(crate) fn feed_far_terrain(
         );
     }
     let centre = stream.far_terrain_centre();
-    // Far terrain fills from what the server sends out to the render distance.
-    let loaded = stream.server_view_radius().unwrap_or_else(|| {
-        stream
-            .retained_view_radius()
-            .unwrap_or(i32::from(video.render_distance_chunks))
-    });
+    let loaded = loaded_radius(stream, &video);
     let reach = far_reach_chunks(
         u32::from(video.render_distance_chunks),
         loaded.max(0) as u32,
         tier,
     ) as i32;
-    let near_chunks = loaded + ::world::CHUNK_VIEW_SLACK + 1;
     let horizon_chunks = loaded + reach;
+    // Near terrain owns the full-detail columns it has drawn, or everything the server sends.
+    let (near_chunks, near_view) = match full_detail {
+        Some(radius) => {
+            let (revision, _) = stream.drawn_full_detail_columns();
+            (
+                radius + FULL_DETAIL_HYSTERESIS_CHUNKS + 1,
+                NearView::FullDetail(revision, radius),
+            )
+        }
+        None => (
+            loaded + ::world::CHUNK_VIEW_SLACK + 1,
+            NearView::Loaded([centre.x, centre.z], loaded),
+        ),
+    };
+    far.cache
+        .set_memory_budget(summary_budget_bytes(horizon_chunks));
     far.cache
         .set_focus(ColumnPos::new(centre.x, centre.z), horizon_chunks);
     far.cache.poll(now);
@@ -208,10 +234,19 @@ pub(crate) fn feed_far_terrain(
         far_blocks: ((horizon_chunks - near_chunks).max(0) * 16) as f32,
     });
     far.tiles.update(far.cache.store(), now);
-    let near_view = ([centre.x, centre.z], loaded);
     let near_changed = far.near_view != Some(near_view);
     if near_changed {
-        far.near = Arc::new(NearMask::retained(near_view.0, loaded));
+        far.near = Arc::new(match near_view {
+            NearView::FullDetail(_, radius) => NearMask::from_columns(
+                [centre.x, centre.z],
+                radius + FULL_DETAIL_HYSTERESIS_CHUNKS + 1,
+                stream
+                    .drawn_full_detail_columns()
+                    .1
+                    .map(|column| ColumnPos::new(column.x, column.z)),
+            ),
+            NearView::Loaded(centre, loaded) => NearMask::retained(centre, loaded),
+        });
         far.near_view = Some(near_view);
     }
     let revision = far.tiles.revision();
@@ -222,4 +257,51 @@ pub(crate) fn feed_far_terrain(
         };
         far.published = Some(revision);
     }
+}
+
+// Entities are drawn only on full-detail terrain: their render distance stays inside the
+// smallest full-detail radius.
+const _: () = assert!(
+    render_api::far_terrain::MIN_FULL_DETAIL_CHUNKS as f32 * 16.0
+        > render_model::MAX_ACTOR_RENDER_DISTANCE_BLOCKS
+);
+
+/// What the near mask was built from, so it is rebuilt only when that changes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NearView {
+    /// The drawn full-detail columns at this revision, within this radius.
+    FullDetail(u64, i32),
+    /// Every column the server sends around this centre.
+    Loaded([i32; 2], i32),
+}
+
+/// The radius the server sends, before it says so the radius the client keeps.
+fn loaded_radius(stream: &WorldStream, video: &ui::VideoSettings) -> i32 {
+    stream.server_view_radius().unwrap_or_else(|| {
+        stream
+            .retained_view_radius()
+            .unwrap_or(i32::from(video.render_distance_chunks))
+    })
+}
+
+/// The full-detail radius when it is smaller than what the server sends.
+fn full_detail_radius(
+    stream: &WorldStream,
+    video: &ui::VideoSettings,
+    tier: DeviceTier,
+) -> Option<i32> {
+    let loaded = loaded_radius(stream, video);
+    full_detail_chunks(
+        video.full_detail_distance_chunks,
+        u32::from(video.render_distance_chunks),
+        tier,
+    )
+    .map(|radius| radius as i32)
+    .filter(|radius| *radius < loaded)
+}
+
+/// Compressed summaries for every column out to the horizon, at an average of 512 bytes.
+fn summary_budget_bytes(horizon_chunks: i32) -> usize {
+    let columns = std::f64::consts::PI * f64::from(horizon_chunks.max(0)).powi(2);
+    far_terrain::config::DEFAULT_MEMORY_BUDGET_BYTES.max((columns * 512.0) as usize)
 }

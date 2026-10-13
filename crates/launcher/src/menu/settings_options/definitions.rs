@@ -78,6 +78,27 @@ pub const FAR_TERRAIN_OPTION: SettingDefinition = toggle(
     render_api::far_terrain::DEFAULT_ENABLED,
 );
 
+/// Advanced: chunks meshed in full detail around the player; 0 is Auto, by device tier.
+pub const FULL_DETAIL_DISTANCE_OPTION: SettingDefinition = SettingDefinition {
+    step: render_api::far_terrain::FULL_DETAIL_STEP_CHUNKS as i32,
+    ..slider(
+        "full_detail_distance",
+        "Full-Detail Distance",
+        render_api::far_terrain::FULL_DETAIL_AUTO as i32,
+        render_api::far_terrain::MAX_FULL_DETAIL_CHUNKS as i32,
+        render_api::far_terrain::FULL_DETAIL_AUTO as i32,
+    )
+};
+
+/// The full-detail distance's label: Auto, or its chunks through `format`.
+pub fn full_detail_label(value: i32, chunks: &dyn Fn(i32) -> String) -> String {
+    if value == render_api::far_terrain::FULL_DETAIL_AUTO as i32 {
+        "Auto".to_owned()
+    } else {
+        chunks(value)
+    }
+}
+
 pub const MOTION_BLUR_CHOICES: &[SettingChoice] = &[
     SettingChoice {
         name: "motion_blur_radio_off",
@@ -659,4 +680,5 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     DISCORD_PRESENCE_OPTION,
     NATIVE_SKYBOX_OFFSET_OPTION,
     FAR_TERRAIN_OPTION,
+    FULL_DETAIL_DISTANCE_OPTION,
 ];

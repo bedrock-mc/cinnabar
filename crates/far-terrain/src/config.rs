@@ -38,7 +38,9 @@ pub const LEVEL_COUNT: u8 = 5;
 pub const LEVEL_SPLIT_DISTANCE: f32 = 1.0;
 
 /// The setting default and the reach policy, kept where the settings crates may read them.
-pub use render_api::far_terrain::{DEFAULT_ENABLED, DeviceTier, far_reach_chunks};
+pub use render_api::far_terrain::{
+    DEFAULT_ENABLED, DeviceTier, far_reach_chunks, full_detail_chunks,
+};
 
 /// Blocks tile-edge skirts reach below a tile's lowest surface, hiding cracks between levels.
 pub const SKIRT_DEPTH_BLOCKS: i16 = 16;

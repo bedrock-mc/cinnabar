@@ -144,6 +144,7 @@ impl WorldStream {
         if !far_retiring.is_empty() {
             self.spawn_far_summaries(far_retiring);
         }
+        self.forget_full_detail_columns(&columns);
     }
 
     /// Resident keys outside the removed columns that sample a removed key: face neighbours

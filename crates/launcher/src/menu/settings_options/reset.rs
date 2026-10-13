@@ -25,6 +25,7 @@ impl SettingsGroup {
                 super::VRR_OPTION,
                 super::NATIVE_SKYBOX_OFFSET_OPTION,
                 super::FAR_TERRAIN_OPTION,
+                super::FULL_DETAIL_DISTANCE_OPTION,
             ]
             .iter()
             .any(|option| option.name == name)

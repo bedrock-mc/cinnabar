@@ -149,6 +149,26 @@ impl NearMask {
         Self { origin, side, bits }
     }
 
+    /// Exactly `columns`, which must lie within `reach` columns of `centre`; others are dropped.
+    #[must_use]
+    pub fn from_columns(
+        centre: [i32; 2],
+        reach: i32,
+        columns: impl IntoIterator<Item = ColumnPos>,
+    ) -> Self {
+        let side = (2 * reach + 1) as u32;
+        let origin = [centre[0] - reach, centre[1] - reach];
+        let mut bits = vec![0_u32; (side * side).div_ceil(32) as usize].into_boxed_slice();
+        for column in columns {
+            let (dx, dz) = (column.x - origin[0], column.z - origin[1]);
+            if (0..side as i32).contains(&dx) && (0..side as i32).contains(&dz) {
+                let index = (dz as u32 * side + dx as u32) as usize;
+                bits[index / 32] |= 1 << (index % 32);
+            }
+        }
+        Self { origin, side, bits }
+    }
+
     #[must_use]
     pub fn contains(&self, column: ColumnPos) -> bool {
         let (dx, dz) = (column.x - self.origin[0], column.z - self.origin[1]);

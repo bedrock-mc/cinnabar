@@ -182,6 +182,8 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             "field_of_view_toggle",
         ],
     )?;
+    content.heading("options.cinnabar.advanced", "")?;
+    content.option(launcher::menu::settings_options::FULL_DETAIL_DISTANCE_OPTION.name)?;
     reset(content, SettingsGroup::Video, "options.video.resetSettings")
 }
 
@@ -739,6 +741,7 @@ pub(super) fn option_label(name: &str, default: &'static str) -> &'static str {
 pub(super) fn fallback(key: &str) -> &str {
     match key {
         "options.renderClouds" => "Render Clouds",
+        "options.cinnabar.advanced" => "Advanced",
         "options.framerateLimit.description" => {
             "Choose an FPS limit or Unlimited. VSync and Variable Refresh Rate may still limit the frame rate."
         }

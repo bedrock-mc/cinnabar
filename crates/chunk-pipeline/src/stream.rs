@@ -65,7 +65,9 @@ mod dimension_transfer;
 mod dirty;
 mod entity_occlusion;
 mod far_summaries;
+mod full_detail;
 pub use far_summaries::{FarColumnSummary, FarSummaryInbox};
+pub use full_detail::FULL_DETAIL_HYSTERESIS_CHUNKS;
 mod helpers;
 mod light_diagnostics;
 mod light_queries;
@@ -426,6 +428,7 @@ pub struct WorldStream {
     last_retention_radius: Option<i32>,
     local_player_chunk: Option<ChunkKey>,
     far_terrain: far_summaries::FarTerrainFeed,
+    full_detail: full_detail::FullDetail,
     stats: WorldStreamStats,
 }
 
