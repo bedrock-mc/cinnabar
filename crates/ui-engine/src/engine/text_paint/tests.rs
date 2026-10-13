@@ -65,7 +65,7 @@ fn line_geometry(layout: &ui::TextLayout) -> [i32; 2] {
 }
 
 #[test]
-fn minecraftten_alias_normalizes_native_glyph_height_and_line_pitch() {
+fn minecraftten_alias_normalizes_outline_line_height_across_rasters() {
     let face = assets::carriers::FONT_TEN.font_face.unwrap();
     let alias = face.json_ui_alias.unwrap();
     let default = fixture_font();
@@ -86,18 +86,6 @@ fn minecraftten_alias_normalizes_native_glyph_height_and_line_pitch() {
                 };
                 let dest = [0.0, 0.0, 800.0, 800.0];
                 let mut layouts = TextLayoutCache::new(4, 1 << 20);
-                let bitmap = layouts
-                    .layout(painted_label_request(
-                        metrics,
-                        "0\n0",
-                        dest,
-                        &font,
-                        factor,
-                        &TextOptions::default(),
-                        TextAlign::Left,
-                        px,
-                    ))
-                    .unwrap();
                 let native = layouts
                     .layout(painted_label_request(
                         metrics,
@@ -110,16 +98,19 @@ fn minecraftten_alias_normalizes_native_glyph_height_and_line_pitch() {
                         px,
                     ))
                     .unwrap();
-                let bitmap_geometry = line_geometry(&bitmap);
                 let native_geometry = line_geometry(&native);
-                if dpi == 1.0 && factor == 13.0 {
-                    assert_eq!(bitmap_geometry, native_geometry);
-                }
-                for (bitmap, native) in bitmap_geometry.into_iter().zip(native_geometry) {
-                    // Layout rounds scale to 1/1024 and glyph edges to 1/64 pixels.
+                let source = font.font_named(alias).line_metrics().unwrap();
+                let height = (source.ascent_64 + source.descent_64) as f32;
+                let expected = [
+                    source.em_64 as f32 / height * OUTLINE_LABEL_HEIGHT_GUI,
+                    OUTLINE_LABEL_HEIGHT_GUI,
+                ]
+                .map(|value| (value * factor * px * 64.0).round() as i32);
+                for (expected, actual) in expected.into_iter().zip(native_geometry) {
+                    // Scale and glyph edges have fixed-point rounding at each raster size.
                     assert!(
-                        (bitmap - native).abs() <= 3,
-                        "em {em}, DPI {dpi}, factor {factor}: {bitmap} != {native}"
+                        (expected - actual).abs() <= 5,
+                        "em {em}, DPI {dpi}, factor {factor}: {expected} != {actual}"
                     );
                 }
                 let shape = LabelShape {
@@ -281,6 +272,38 @@ fn paint_edit_label(
     name: &str,
     text: &str,
 ) -> (EngineFrame, Vec<UiNode>) {
+    let json = serde_json::json!({
+        "namespace": "fixture",
+        "screen": {
+            "type": "edit_box", "size": [300, 100], "text_control": "value", "max_length": 64,
+            "anchor_from": "top_left", "anchor_to": "top_left",
+            "controls": [{"value": {
+                "type": "label", "text": text, "localize": false,
+                "size": [300, 100], "anchor_from": "top_left", "anchor_to": "top_left",
+                "offset": [8.25, 8.25], "font_scale_factor": factor, "font_type": name, "shadow": true
+            }}]
+        }
+    })
+    .to_string();
+    paint_fixture(font, metrics, &json)
+}
+
+/// Resolves, lays out and paints an original text-only screen through the owning engine.
+fn paint_fixture(
+    font: &RuntimeFontCatalog,
+    metrics: TextMetrics,
+    json: &str,
+) -> (EngineFrame, Vec<UiNode>) {
+    paint_fixture_selection(font, metrics, json, None)
+}
+
+/// Paints a focused root edit box with the host's actual selection feedback.
+fn paint_fixture_selection(
+    font: &RuntimeFontCatalog,
+    metrics: TextMetrics,
+    json: &str,
+    selection: Option<[usize; 2]>,
+) -> (EngineFrame, Vec<UiNode>) {
     static REGISTRY: std::sync::OnceLock<ScreenRegistry> = std::sync::OnceLock::new();
     let registry = REGISTRY.get_or_init(|| ScreenRegistry::new(Context::desktop()));
     let bytes = encode_ui_catalog([1; 32], &[], &[], &[], &[]).unwrap();
@@ -293,19 +316,6 @@ fn paint_edit_label(
         Arc::new(NoImages),
         ImageWork::inline(),
     );
-    let json = serde_json::json!({
-        "namespace": "fixture",
-        "screen": {
-            "type": "edit_box", "size": [300, 100], "text_control": "value", "max_length": 64,
-            "anchor_from": "top_left", "anchor_to": "top_left",
-            "controls": [{"value": {
-                "type": "label", "text": text, "localize": false,
-                "size": [300, 100], "anchor_from": "top_left", "anchor_to": "top_left",
-                "offset": [8, 8], "font_scale_factor": factor, "font_type": name, "shadow": true
-            }}]
-        }
-    })
-    .to_string();
     let catalog = Catalog::from_files([
         ("ui/_global_variables.json", b"{}".as_slice()),
         (
@@ -319,6 +329,10 @@ fn paint_edit_label(
     let resolved = resolve(&catalog, "fixture.screen", &context)
         .control
         .expect("editable fixture resolves");
+    let view = json_ui::ViewState {
+        focused: selection.map(|_| format!("/{}", resolved.name)),
+        ..Default::default()
+    };
     let bound = bind_screen(
         &resolved,
         &catalog,
@@ -330,7 +344,11 @@ fn paint_edit_label(
     let mut next = 1;
     let frame = engine
         .draw(
-            ScreenArt::default(),
+            ScreenArt {
+                view: selection.map(|_| &view),
+                edit: selection.map(|range| super::super::host_edit::Feedback::new(Some(range))),
+                ..Default::default()
+            },
             &mut PaintFrame {
                 layouts: &mut TextLayoutCache::new(4, 1 << 20),
                 font,
@@ -345,7 +363,19 @@ fn paint_edit_label(
                 next: &mut next,
                 renderers: &mut [],
             },
-            |env, root| Some(render_bound(bound, root, env, &Default::default())),
+            |env, root| {
+                let render = render_bound(bound, root, env, &view);
+                if let Some(key) = view.focused.as_deref() {
+                    let edit = render
+                        .hits
+                        .iter()
+                        .find(|hit| hit.key == key)
+                        .and_then(|hit| hit.widget.edit.as_ref())
+                        .expect("focus resolves to the laid-out edit box");
+                    assert!(edit.text_target.is_some(), "the focused edit owns a label");
+                }
+                Some(render)
+            },
         )
         .unwrap()
         .expect("editable label draws");
@@ -380,6 +410,11 @@ fn named_edit_metadata_places_caret_at_the_painted_character_boundary() {
                             _ => None,
                         })
                         .expect("painted label");
+                    assert_eq!(
+                        edit.left,
+                        node.bounds().min().x(),
+                        "caret and painted text use the same fractional origin"
+                    );
                     let spot = TextSpot {
                         field: (),
                         bounds: node.bounds(),
@@ -532,5 +567,180 @@ fn named_styled_font_effects_use_display_units_at_every_raster_resolution() {
                 }
             }
         }
+    }
+}
+
+/// Original cap rectangles expose label sizing and baseline placement without external art.
+fn cap_font(em: u16) -> RuntimeFontCatalog {
+    let cap = (u32::from(em) * 7 / 10) as u16;
+    let pixels: Arc<[u8]> = vec![255; usize::from(em) * usize::from(cap)].into();
+    let page = FontTexturePage {
+        source_path: "font/original-cap.png".into(),
+        source_bytes: pixels.len() as u32,
+        source_sha256: [3; 32],
+        pixels_sha256: Sha256::digest(&pixels).into(),
+        width: u32::from(em),
+        height: u32::from(cap),
+        pixels: FontPixels::Coverage(pixels),
+    };
+    let source = assets::carriers::FONT_TEN
+        .font_face
+        .unwrap()
+        .line_metrics_at(u32::from(em));
+    let glyphs = ['0', '\u{fffd}'].map(|codepoint| GlyphMetrics {
+        codepoint,
+        page: 0,
+        uv: [0, 0, em, cap],
+        bearing: [0, -(cap as i16)],
+        advance_64: em as i16 * 64,
+    });
+    let bytes = encode_font_catalog([3; 32], &glyphs, &[page]).unwrap();
+    RuntimeFontCatalog::decode(&bytes, [3; 32])
+        .unwrap()
+        .with_rendering(FontRendering::NativeSdf)
+        .with_line_metrics(source)
+        .unwrap()
+}
+
+#[test]
+fn centered_outline_title_retains_cap_size_and_gui_pixel_inset() {
+    let face = assets::carriers::FONT_TEN.font_face.unwrap();
+    for em in [40, 80] {
+        let font = fixture_font()
+            .with_named_font(face.name, &cap_font(em))
+            .unwrap();
+        for gui in [2, 3] {
+            for dpi in [1.0, 1.5] {
+                let metrics =
+                    TextMetrics::for_viewport([1920, 1080], DpiScale::new(dpi).unwrap(), Some(gui));
+                assert_eq!(
+                    metrics.gui_scale, gui as f32,
+                    "exercise the requested GUI scale"
+                );
+                let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+                let json = serde_json::json!({
+                    "namespace": "fixture",
+                    "screen": { "type": "panel", "size": [200, 26],
+                        "anchor_from": "top_left", "anchor_to": "top_left",
+                        "controls": [{ "title": { "type": "label", "text": "0",
+                            "localize": false, "font_type": face.json_ui_alias.unwrap(),
+                            "anchor_from": "left_middle", "anchor_to": "left_middle",
+                            "max_size": ["100%", 20], "font_scale_factor": 1.3,
+                            "offset": [0, -2.5], "shadow": false } }]
+                    }
+                })
+                .to_string();
+                let (_, nodes) = paint_fixture(&font, metrics, &json);
+                let mut tree = UiTree::new(nodes).unwrap();
+                tree.layout(
+                    rect(0.0, 0.0, 1280.0 / dpi, 720.0 / dpi).unwrap(),
+                    UiScale::default(),
+                    SafeArea::ZERO,
+                )
+                .unwrap();
+                let draw = tree.build_draw_list().unwrap();
+                assert_eq!(draw.vertices.len(), 4, "one original cap quad");
+                let top = draw
+                    .vertices
+                    .iter()
+                    .map(|vertex| vertex.position[1])
+                    .fold(f32::INFINITY, f32::min);
+                let bottom = draw
+                    .vertices
+                    .iter()
+                    .map(|vertex| vertex.position[1])
+                    .fold(f32::NEG_INFINITY, f32::max);
+                let ink_height = (bottom - top) / px;
+                let center = (top + bottom) * 0.5 / px;
+                assert!(
+                    (ink_height - 8.8).abs() < 0.15,
+                    "em {em}, GUI {gui}, DPI {dpi}: cap height {ink_height}"
+                );
+                assert!(
+                    (center - 11.75).abs() < 0.15,
+                    "em {em}, GUI {gui}, DPI {dpi}: title center {center}"
+                );
+            }
+        }
+    }
+}
+
+/// A full line-box rectangle includes a named font's descender region.
+fn descender_font(em: u16) -> RuntimeFontCatalog {
+    let face = assets::carriers::FONT_SEVEN.font_face.unwrap();
+    let source = face.line_metrics_at(u32::from(em));
+    let height = ((source.ascent_64 + source.descent_64) / 64) as u16;
+    let pixels: Arc<[u8]> = vec![255; usize::from(em) * usize::from(height)].into();
+    let page = FontTexturePage {
+        source_path: "font/original-descender.png".into(),
+        source_bytes: pixels.len() as u32,
+        source_sha256: [4; 32],
+        pixels_sha256: Sha256::digest(&pixels).into(),
+        width: u32::from(em),
+        height: u32::from(height),
+        pixels: FontPixels::Coverage(pixels),
+    };
+    let glyphs = ['0', '\u{fffd}'].map(|codepoint| GlyphMetrics {
+        codepoint,
+        page: 0,
+        uv: [0, 0, em, height],
+        bearing: [0, -(source.ascent_64 as i16 / 64)],
+        advance_64: em as i16 * 64,
+    });
+    let bytes = encode_font_catalog([4; 32], &glyphs, &[page]).unwrap();
+    RuntimeFontCatalog::decode(&bytes, [4; 32])
+        .unwrap()
+        .with_rendering(FontRendering::NativeSdf)
+        .with_line_metrics(source)
+        .unwrap()
+}
+
+#[test]
+fn named_descender_selection_covers_the_painted_glyph() {
+    let face = assets::carriers::FONT_SEVEN.font_face.unwrap();
+    let font = fixture_font()
+        .with_named_font(face.name, &descender_font(40))
+        .unwrap();
+    let json = serde_json::json!({ "namespace": "fixture", "screen": {
+        "type": "edit_box", "size": [200, 100], "text_control": "value", "max_length": 64,
+        "anchor_from": "top_left", "anchor_to": "top_left", "controls": [{ "value": {
+            "type": "label", "text": "0", "localize": false, "size": [200, 100],
+            "anchor_from": "top_left", "anchor_to": "top_left", "font_type": face.name,
+            "offset": [8, 8], "shadow": false } }] } })
+    .to_string();
+    for dpi in [1.0, 1.5] {
+        let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(dpi).unwrap(), Some(2));
+        let (_, unfocused) = paint_fixture(&font, metrics, &json);
+        assert!(
+            unfocused
+                .iter()
+                .all(|node| !matches!(node.visual(), UiVisual::InvertedSprite { .. }))
+        );
+        let (_, nodes) = paint_fixture_selection(&font, metrics, &json, Some([0, 1]));
+        let (bounds, layout) = nodes
+            .iter()
+            .find_map(|node| match node.visual() {
+                UiVisual::Text { layout, .. } => Some((node.bounds(), layout)),
+                _ => None,
+            })
+            .unwrap();
+        let selection = nodes
+            .iter()
+            .find_map(|node| {
+                matches!(node.visual(), UiVisual::InvertedSprite { .. }).then_some(node.bounds())
+            })
+            .expect("focused edit feedback paints a selection");
+        let glyph = &layout.glyphs()[0];
+        let top = bounds.min().y() + glyph.bounds_64[1] as f32 / 64.0;
+        let bottom = bounds.min().y() + glyph.bounds_64[3] as f32 / 64.0;
+        assert!(
+            selection.min().y() <= top + 1.0 / 64.0,
+            "selected glyph top remains covered"
+        );
+        assert!(
+            selection.max().y() + 1.0 / 64.0 >= bottom,
+            "DPI {dpi}: descender bottom {bottom} exceeds selection {}",
+            selection.max().y()
+        );
     }
 }

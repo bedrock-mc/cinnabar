@@ -557,3 +557,26 @@ fn artwork_only_checks_installed_material_parents_and_skinning_variants() {
         );
     }
 }
+
+#[test]
+fn referenced_painting_texture_still_inherits_the_installed_raster() {
+    let base = tempfile::tempdir().unwrap();
+    let stem = assets::painting::PAINTING_ATLAS;
+    let path = format!("{stem}.png");
+    std::fs::create_dir_all(base.path().join("textures/painting")).unwrap();
+    std::fs::write(base.path().join(&path), b"installed raster").unwrap();
+    let entity = serde_json::json!({"minecraft:client_entity":{"description":{
+        "identifier":"fixture:picture", "textures":{"default":stem}
+    }}})
+    .to_string();
+    let view = resource_pack::LayeredPackView::new(crate::test_support::stack(&[(
+        "entity/fixture.json",
+        entity.as_bytes(),
+    )]));
+    let files = super::collect_files(&view, None, Some(base.path()));
+    assert!(
+        files
+            .iter()
+            .any(|(file, bytes)| file.as_ref() == path && bytes == b"installed raster")
+    );
+}

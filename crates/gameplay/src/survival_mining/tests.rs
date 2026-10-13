@@ -12,6 +12,8 @@ use super::{
 };
 use crate::movement::{MovementSource, MovementTicker, flush_player_auth_inputs};
 
+mod painting_attacks;
+
 fn target(position: [i32; 3], block: &str, tool: Option<&str>) -> DestroyTarget {
     DestroyTarget {
         position,

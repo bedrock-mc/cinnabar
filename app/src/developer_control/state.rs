@@ -181,6 +181,11 @@ fn actors(world: &World) -> Vec<Value> {
                 json!({
                     "unique_id": actor.unique_id,
                     "runtime_id": actor.runtime_id,
+                    "painting": actor.painting.as_ref().map(|painting| json!({
+                        "motive":painting.motive.as_ref(),
+                        "direction":format!("{:?}",painting.direction),
+                        "size_pixels":assets::painting::motive(&painting.motive).size,
+                    })),
                     "type": kind,
                     "name": name,
                     "position": actor.position,

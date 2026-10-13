@@ -719,7 +719,7 @@ pub(crate) fn drive_chat_keyboard_input(
                 key if binding_key(menu.as_deref(), "key.chat", key) => {
                     runtime.open_chat(&mut player_runtime);
                 }
-                key if binding_key(menu.as_deref(), "key.command", key) => {
+                _ if chat_modifiers::command_key(menu.as_deref(), input) => {
                     runtime.open_chat(&mut player_runtime);
                     let _ = runtime.insert_chat_text("/");
                 }
@@ -752,7 +752,7 @@ pub(crate) fn drive_chat_keyboard_input(
                     runtime.open_chat(&mut player_runtime);
                     consumed_gameplay = true;
                 }
-                key if binding_key(menu.as_deref(), "key.command", key) => {
+                _ if chat_modifiers::command_key(menu.as_deref(), input) => {
                     runtime.open_chat(&mut player_runtime);
                     let _ = runtime.insert_chat_text("/");
                     consumed_gameplay = true;
