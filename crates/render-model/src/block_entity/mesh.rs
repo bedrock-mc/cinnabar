@@ -128,6 +128,41 @@ impl MeshBuilder {
     ) {
         let faces =
             assets::block_entity_geometry::box_faces(spec.origin, spec.size, spec.uv, spec.inflate);
+        self.box_faces(layer, texture, model, faces, tint);
+    }
+
+    /// Emits a box with no depth, such as a book cover, as its front and back faces moved
+    /// `gap` pixels apart. Without culling the two faces would otherwise fight, and giving the
+    /// box real depth would add edge faces that sample texels outside its art.
+    pub fn sheet(
+        &mut self,
+        layer: Layer,
+        texture: &TextureRef,
+        model: Mat4,
+        spec: BoxSpec,
+        gap: f32,
+        tint: [f32; 4],
+    ) {
+        let [sx, sy, _] = spec.size;
+        let mut faces =
+            assets::block_entity_geometry::box_faces(spec.origin, [sx, sy, 0.0], spec.uv, 0.0);
+        for (face, shift) in faces.iter_mut().zip([-gap / 2.0, gap / 2.0]) {
+            for corner in &mut face.0 {
+                corner[2] += shift;
+            }
+        }
+        self.box_faces(layer, texture, model, faces, tint);
+    }
+
+    /// Emits the six faces of a box with their face shades.
+    fn box_faces(
+        &mut self,
+        layer: Layer,
+        texture: &TextureRef,
+        model: Mat4,
+        faces: [assets::block_entity_geometry::ModelFace; 6],
+        tint: [f32; 4],
+    ) {
         for ((corners, texels), shade) in faces
             .into_iter()
             .zip([SHADE_Z, SHADE_Z, SHADE_X, SHADE_X, SHADE_UP, SHADE_DOWN])
@@ -372,6 +407,28 @@ mod tests {
             (8.0 / 64.0..=16.0 / 64.0).contains(&vertex.uv[0])
                 && (8.0 / 64.0..=16.0 / 64.0).contains(&vertex.uv[1])
         }));
+    }
+
+    #[test]
+    fn a_sheet_draws_only_its_two_faces_inside_its_art() {
+        let mut builder = MeshBuilder::new([64, 64]);
+        builder.sheet(
+            Layer::Solid,
+            &texture(),
+            Mat4::IDENTITY,
+            BoxSpec::new([0.0, 0.0, 0.0], [6.0, 10.0, 0.0], [16.0, 0.0]),
+            0.01,
+            WHITE,
+        );
+        assert_eq!(builder.solid.len(), 12, "no edge faces");
+        assert!(builder.solid.iter().all(|vertex| {
+            let u = vertex.uv[0] * 64.0;
+            let v = vertex.uv[1] * 64.0;
+            ((16.0..=22.0).contains(&u) || (22.0..=28.0).contains(&u)) && (0.0..=10.0).contains(&v)
+        }));
+        let depths: Vec<f32> = builder.solid.iter().map(|vertex| vertex.position[2]).collect();
+        assert!(depths[..6].iter().all(|z| (*z + 0.005).abs() < 1.0e-6));
+        assert!(depths[6..].iter().all(|z| (*z - 0.005).abs() < 1.0e-6));
     }
 
     #[test]

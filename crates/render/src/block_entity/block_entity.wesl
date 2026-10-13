@@ -27,6 +27,8 @@ struct VertexOutput {
     @location(3) world_position: vec3<f32>,
     @location(4) @interpolate(flat) actor_light: u32,
     @location(5) @interpolate(flat) beam_tile: vec2<f32>,
+    // Negative where an entity-lit face points away from the camera.
+    @location(6) facing: f32,
 }
 
 fn vertex_f32(index: u32) -> f32 { return bitcast<f32>(vertex_words[index]); }
@@ -57,6 +59,7 @@ fn block_vertex(vertex_index: u32, overlay_bias: bool) -> VertexOutput {
     out.actor_light = select(actor_light, 0u, beam);
     out.beam_tile = select(vec2(0.0), normal.xy, beam);
     out.native_lighting = actor_lighting(out.actor_light, normal, 0.0);
+    out.facing = select(1.0, dot(view.world_position - position, normal), out.actor_light != 0u);
     return out;
 }
 
@@ -127,6 +130,10 @@ fn selection_line_fragment(input: SelectionLineOutput) -> @location(0) vec4<f32>
 
 @fragment
 fn block_entity_solid(input: VertexOutput) -> @location(0) vec4<f32> {
+    // Entity materials cull back faces, so a flat part shows only its front from each side.
+    if (input.facing < 0.0) {
+        discard;
+    }
     var texel = textureSample(atlas, atlas_sampler, input.uv);
     @if(ALPHA_TO_COVERAGE)
     let cutout = cutout_alpha_2d(atlas, input.uv, dpdx(input.uv), dpdy(input.uv), texel, BLOCK_ENTITY_ALPHA_THRESHOLD);

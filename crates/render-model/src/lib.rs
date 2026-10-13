@@ -186,7 +186,7 @@ pub use block_entity::{
 };
 pub use block_entity::{BannerLayer, BannerModel, BannerMount};
 pub use block_entity::{BedModel, bed_color};
-pub use block_entity::{BellAttachment, BellModel, swing_degrees};
+pub use block_entity::{BellAttachment, BellModel, BookPose, EnchantingBook, swing_degrees};
 pub use block_entity::{BlockEntityArtworkPreparer, PreparedBlockEntityArtwork};
 pub use block_entity::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radians};
 pub use block_entity::{CrackQuad, CrackShape, crack_shape_from_template, crack_texture_name};

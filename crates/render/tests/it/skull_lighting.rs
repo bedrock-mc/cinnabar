@@ -57,6 +57,27 @@ fn raster(
     rotation: f32,
     gallery: bool,
 ) -> Vec<u8> {
+    let center = Vec3::new(0.5, 0.25, 0.5);
+    let front = Mat4::from_rotation_y(render_model::floor_yaw_degrees(rotation).to_radians())
+        .transform_vector3(Vec3::NEG_Z);
+    let eye = if gallery {
+        center + Vec3::new(-1.2, 0.7, 2.0)
+    } else {
+        center + front * 2.0
+    };
+    raster_from(gpu, assets, light, inputs, rotation, eye, center)
+}
+
+/// Draws a floor player head turned `rotation` degrees, seen from `eye` toward `target`.
+fn raster_from(
+    gpu: &Gpu,
+    assets: &assets::RuntimeBlockEntityAssets,
+    light: BlockEntityLight,
+    inputs: LightmapInputs,
+    rotation: f32,
+    eye: Vec3,
+    target: Vec3,
+) -> Vec<u8> {
     let mut scene = BlockEntityScene::default();
     scene.install_assets(assets);
     let frame = scene.update(
@@ -73,19 +94,11 @@ fn raster(
             }),
         }],
     );
-    let center = Vec3::new(0.5, 0.25, 0.5);
-    let front = Mat4::from_rotation_y(render_model::floor_yaw_degrees(rotation).to_radians())
-        .transform_vector3(Vec3::NEG_Z);
-    let eye = if gallery {
-        center + Vec3::new(-1.2, 0.7, 2.0)
-    } else {
-        center + front * 2.0
-    };
     let clip = glam::camera::rh::proj::directx::perspective_infinite_reverse(
         35.0_f32.to_radians(),
         1.0,
         0.1,
-    ) * glam::camera::rh::view::look_at_mat4(eye, center, Vec3::Y);
+    ) * glam::camera::rh::view::look_at_mat4(eye, target, Vec3::Y);
     let view = gpu.buffer(&gpu_snapshot::view(clip, eye), wgpu::BufferUsages::UNIFORM);
     let vertices: &[f32] = bytemuck::cast_slice(&frame.solid);
     let vertices = gpu.buffer(vertices, wgpu::BufferUsages::STORAGE);
@@ -313,4 +326,30 @@ fn write_local_placed_skull_gallery() {
         println!("gallery column {column}: {name}; rows previous scalar / native mob-head");
     }
     gallery.save(output).unwrap();
+}
+
+#[test]
+fn entity_lit_faces_are_culled_from_behind() {
+    let Some(gpu) = Gpu::for_fixture("entity_lit_faces_are_culled_from_behind") else {
+        return;
+    };
+    let assets = assets([200, 120, 60, 255]);
+    let light = BlockEntityLight::Actor { block: 15, sky: 15 };
+    let inputs = LightmapInputs::default();
+    let center = Vec3::new(0.5, 0.25, 0.5);
+    let outside = raster_from(&gpu, &assets, light, inputs, 0.0, center + Vec3::Z * 2.0, center);
+    // From inside the head every face points away, as from behind a flat entity part.
+    let inside = raster_from(&gpu, &assets, light, inputs, 0.0, center, center + Vec3::Z);
+    let empty = raster_from(
+        &gpu,
+        &assets,
+        light,
+        inputs,
+        0.0,
+        center + Vec3::Z * 2.0,
+        center + Vec3::new(0.0, 0.0, 9.0),
+    );
+    let pixel = center_pixel();
+    assert_ne!(outside[pixel..pixel + 4], empty[pixel..pixel + 4], "the front draws");
+    assert_eq!(inside[pixel..pixel + 4], empty[pixel..pixel + 4], "back faces are culled");
 }

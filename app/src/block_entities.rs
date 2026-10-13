@@ -4,6 +4,7 @@
 //! The renderer carrier is optional; without it nothing is submitted and the world still
 //! renders from block states alone.
 
+mod books;
 mod containers;
 mod cracks;
 mod describe;

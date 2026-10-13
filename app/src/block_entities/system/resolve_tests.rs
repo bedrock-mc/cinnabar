@@ -58,6 +58,7 @@ impl Fixture {
             delta_seconds: delta,
             now_seconds: now,
             font: &self.font,
+            readers: &[],
         };
         resolve(
             template,

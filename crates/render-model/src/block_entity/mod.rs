@@ -39,6 +39,7 @@ pub use banner::{BannerLayer, BannerModel, BannerMount};
 pub use beam::BeaconModel;
 pub use bed::{BedModel, bed_color};
 pub use bell::{BellAttachment, BellModel, swing_degrees};
+pub use book::{BookPose, EnchantingBook};
 pub use chest::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radians};
 pub use conduit::ConduitModel;
 pub use crack::{CrackQuad, CrackShape, crack_shape_from_template, crack_texture_name};

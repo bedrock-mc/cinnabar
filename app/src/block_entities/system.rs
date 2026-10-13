@@ -21,6 +21,7 @@ use {
 };
 
 use super::{
+    books,
     containers::{ContainerKind, ContainerLids, cue_is_open},
     cracks::{CrackLayers, CrackShapeCache, crack_instances, crack_shape, with_second_parts},
     describe::{HeldItem, Template, describe},
@@ -133,6 +134,8 @@ pub(crate) struct BlockEntityRuntime {
     /// Session and dimension the runtime-id keyed caches were filled from.
     session: Option<(u64, i32)>,
     beam_source: Option<(Arc<assets::RuntimeAssets>, Option<protocol::DimensionRange>)>,
+    /// Enchanting-table books, ticked like the native block actor.
+    books: books::TableBooks,
 }
 
 impl BlockEntityRuntime {
@@ -151,6 +154,7 @@ impl BlockEntityRuntime {
             map_requests: HashMap::new(),
             session: None,
             beam_source: None,
+            books: books::TableBooks::default(),
         }
     }
 
@@ -189,6 +193,7 @@ impl BlockEntityRuntime {
         self.shapes.clear();
         self.bell_rings.clear();
         self.map_requests.clear();
+        self.books = books::TableBooks::default();
     }
 }
 
@@ -248,8 +253,12 @@ fn light_factor(block: u8, sky: u8, daylight: f32) -> f32 {
 
 fn model_light(kind: &BlockEntityKind, block: u8, sky: u8, daylight: f32) -> BlockEntityLight {
     // Vanilla lights a skull with the world light at its block position,
-    // through mob_head's ordinary entity material.
-    if matches!(kind, BlockEntityKind::Skull(_)) {
+    // through mob_head's ordinary entity material. The enchanting table's book is an entity
+    // model lit the same way, so the table's own glow lights it at night (provisional).
+    if matches!(
+        kind,
+        BlockEntityKind::Skull(_) | BlockEntityKind::EnchantTable { .. }
+    ) {
         BlockEntityLight::Actor { block, sky }
     } else {
         light_factor(block, sky, daylight).into()
@@ -435,6 +444,8 @@ pub(crate) fn update_block_entity_scene(
             })
         });
 
+    runtime.books.begin(clock.ticks);
+    let readers = book_readers(stream, eye);
     let mut submissions: Vec<BlockEntitySubmission> = Vec::new();
     runtime.frame = runtime.frame.wrapping_add(1);
     let frame_stamp = runtime.frame;
@@ -533,6 +544,7 @@ pub(crate) fn update_block_entity_scene(
                     delta_seconds: delta,
                     now_seconds,
                     font: &font.0,
+                    readers: &readers,
                 };
                 let kind = if matches!(template, Template::Beacon) {
                     beam_top.map(|top| {
@@ -593,6 +605,7 @@ pub(crate) fn update_block_entity_scene(
     }
     drop(prepare_zone);
     runtime.lids.finish();
+    runtime.books.finish();
     scans.retain(|_, scan| scan.seen_frame == frame_stamp);
     runtime.columns = scans;
     prune_bell_rings(&mut runtime.bell_rings, now_seconds, |position| {
@@ -643,6 +656,21 @@ struct FrameContext<'a> {
     delta_seconds: f32,
     now_seconds: f64,
     font: &'a RuntimeFontCatalog,
+    /// Eye-level positions of every player who could read an enchanting table's book.
+    readers: &'a [Vec3],
+}
+
+/// The local eye and every remote player's eye-level position, as Bedrock measures readers.
+fn book_readers(stream: &chunk_pipeline::WorldStream, eye: Vec3) -> Vec<Vec3> {
+    let remote = stream
+        .authority()
+        .render_players()
+        .into_iter()
+        .map(|(actor, _)| {
+            let [x, y, z] = actor.position;
+            Vec3::new(x, y + protocol::PLAYER_NETWORK_OFFSET, z)
+        });
+    std::iter::once(eye).chain(remote).collect()
 }
 
 /// Yaw that turns a front-toward--Z model to face `eye` from `position`.
@@ -780,7 +808,7 @@ fn resolve(
             (!hidden).then_some(BlockEntityKind::Shulker(model))
         }
         Template::EnchantTable => Some(BlockEntityKind::EnchantTable {
-            facing_yaw_degrees: yaw_toward(context.eye, position),
+            book: runtime.books.advance(position, context.readers),
         }),
         &Template::Conduit { active, hunting } => Some(BlockEntityKind::Conduit(ConduitModel {
             active,

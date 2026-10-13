@@ -40,7 +40,7 @@ pub enum BlockEntityKind {
     Bed(BedModel),
     Sign(SignModel),
     EnchantTable {
-        facing_yaw_degrees: f32,
+        book: super::book::BookPose,
     },
     Lectern {
         facing_yaw_degrees: f32,
@@ -492,8 +492,8 @@ fn emit_submission(
         BlockEntityKind::Banner(model) => super::banner::emit(builder, atlas, block, model, clock),
         BlockEntityKind::Bed(model) => super::bed::emit(builder, atlas, block, model, bed),
         BlockEntityKind::Sign(model) => super::sign::emit(builder, block, model),
-        BlockEntityKind::EnchantTable { facing_yaw_degrees } => {
-            super::book::emit_enchant_table(builder, atlas, block, *facing_yaw_degrees, clock);
+        BlockEntityKind::EnchantTable { book } => {
+            super::book::emit_enchant_table(builder, atlas, block, *book);
         }
         BlockEntityKind::Lectern {
             facing_yaw_degrees,
