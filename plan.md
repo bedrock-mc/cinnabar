@@ -467,6 +467,11 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 
 ## Shipped OreUI fonts
 
+- Pack labels requesting `MinecraftTen` select Cinnangles Ten while retaining the authored text.
+  Server-form item controls resolve ordinary numeric item keys through the negotiated registry
+  and existing icon sources. Capped collection factories retain a final Back button's response
+  index. Target-platform shop artwork, title, controls and server-response acceptance remain
+  incomplete; these changes close no shop-screen parity gate.
 - Body text uses Cinnangles Seven and headings use Cinnangles Ten, derived from the shipped
   Cinnangles Sans. Optional face bundles compile before startup and use the default font when
   missing or invalid. OreUI reads no installed game fonts and rasterizes nothing at startup.
@@ -6107,6 +6112,8 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   seat offsets follow the mount's actor origin and yaw for local and remote riders without
   multiplying the offset by entity scale. Boat jump and other vehicle sneak presses send a
   vehicle-targeted dismount request; the server's removal link releases the rider.
+  Mounted prediction retains the seated posture while an exit request is pending, including
+  during correction replay; the held sneak input resumes crouching after the server unlinks.
   Incomplete: authored seat fallbacks and special horse/camel/parrot placement, predictive
   dismount exit placement, client-predicted vehicles (`IsInClientPredictedVehicle`) and
   horse jump wire signalling remain open. Sweet berry bush slowdown is written in `tools/registrygen`

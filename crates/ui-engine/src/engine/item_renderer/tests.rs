@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 
 use {
-    super::{icon, index},
+    super::{icon, index, item_id_aux},
     ui::IconRef,
 };
 
@@ -85,4 +85,40 @@ fn numeric_indices_are_checked_before_casting() {
     assert_eq!(index(0.0, 2), Some(0));
     assert_eq!(index(1.0, 2), Some(1));
     assert_eq!(index(0.0, 0), None);
+}
+
+#[test]
+fn pack_item_keys_preserve_signed_ids_and_auxiliary_values() {
+    for id in [-123, 35, 12_000] {
+        for aux in [0, 3, 0x7fff] {
+            let packed = ((id << 16) | aux) as u32;
+            for value in [json!(packed), json!(packed as i32)] {
+                let data = [("#item_id_aux".into(), value)].into_iter().collect();
+                assert_eq!(item_id_aux(&data), Some((id, aux as u32)));
+            }
+        }
+    }
+}
+
+#[test]
+fn malformed_or_empty_pack_item_keys_never_select_an_icon() {
+    for value in [
+        Value::Null,
+        json!("42"),
+        json!(0.5),
+        json!(-2147483649i64),
+        json!(4294967296u64),
+        json!(-1),
+        json!(u32::MAX),
+    ] {
+        let data = [("#item_id_aux".into(), value)].into_iter().collect();
+        assert_eq!(item_id_aux(&data), None);
+    }
+    let data = [
+        ("#item_id_aux".into(), json!(35 << 16)),
+        ("#item_renderer_data".into(), Value::Null),
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(item_id_aux(&data), None);
 }

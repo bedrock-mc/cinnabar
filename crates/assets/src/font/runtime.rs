@@ -103,9 +103,21 @@ impl CompiledFontCatalog {
         &self.named
     }
 
-    /// Unknown aliases use the default font, as do callers without a font selection.
+    /// Selects installed faces by their family or supported pack name; unknown names use default.
     pub fn font_named(&self, name: &str) -> &Self {
-        self.named.get(name).unwrap_or(self)
+        self.named
+            .get(name)
+            .or_else(|| {
+                if name == "default" {
+                    return None;
+                }
+                crate::carriers::CARRIERS
+                    .iter()
+                    .filter_map(|carrier| carrier.font_face)
+                    .find(|face| face.json_ui_alias == Some(name))
+                    .and_then(|face| self.named.get(face.name))
+            })
+            .unwrap_or(self)
     }
 
     /// Selects the exact requested raster size without allocating during layout.
