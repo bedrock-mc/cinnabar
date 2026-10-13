@@ -1291,6 +1291,10 @@ acceptance gate.
 - Criterion exercises production palette/column decode, light solves, cube/biome
   meshing, bounded ingress-to-CPU-publication bursts, idle polls and metadata scans.
 - Fixtures validate decoded cells, lighting, exposed faces and drained stream state.
+- Biome lattices pack u16 tint indices and integer sample counts into four words per
+  point, retaining full-width indices when needed. Record reuse is bounded and scoped
+  to immutable biome, tint, pack and dimension sources. CPU and shader oracles compare
+  decoded weights and colours with the original nine-word representation.
   Benchmark fixtures run on the pinned toolchain without local carriers.
 - The largest fixture stores 871 sections in 218 target columns, with preloaded
   implicit-air neighbours. It is synthetic, not a replay of the reported FPS drop.
