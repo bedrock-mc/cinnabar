@@ -39,7 +39,6 @@ pub unsafe extern "system" fn JNI_OnLoad(vm: *mut jni::sys::JavaVM, _: *mut c_vo
             super::runtime().application_id.replace('.', "/")
         );
         let mut env = vm.get_env()?;
-        super::gpu_probe::register(&mut env)?;
         env.register_native_methods(
             class,
             &[

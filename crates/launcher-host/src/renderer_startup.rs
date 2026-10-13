@@ -4,18 +4,19 @@ use std::{
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use launcher::graphics_backend::{Adapter, Backend, ProbeCache};
+use launcher::graphics_backend::{Adapter, Backend};
 
 pub(crate) mod context;
 #[cfg(target_os = "android")]
 mod direct_driver;
 mod owner;
-pub mod probe;
+pub(crate) mod termination;
 
 use owner::Owner;
 
@@ -73,7 +74,7 @@ impl Recovery {
         }
     }
 
-    /// The sentinel exclusions are applied after automatic probe and vendor ordering.
+    /// The sentinel exclusions are applied after automatic vendor ordering.
     pub fn failed_backends(&self) -> &[Backend] {
         &self.failed
     }
@@ -85,18 +86,18 @@ impl Recovery {
         self.direct_driver = None;
     }
 
-    /// Remembers any completed choice and starts a new recovery cycle.
+    /// Remembers a completed choice while retaining exclusions for other crashed APIs.
     fn succeeded(&mut self, mut attempt: Attempt) {
         attempt.stage = Stage::Ready;
+        self.failed.retain(|backend| *backend != attempt.backend);
         self.working = Some(attempt);
-        self.failed.clear();
     }
 }
 
 /// Owns the two local files used to diagnose an interrupted renderer startup.
 pub struct StartupGuard {
     root: PathBuf,
-    lock: Option<fs::File>,
+    lock: Option<Arc<fs::File>>,
     owner: Owner,
     pub recovery: Recovery,
     pub interrupted: Option<Attempt>,
@@ -106,6 +107,7 @@ pub struct StartupGuard {
 impl StartupGuard {
     /// Leases recovery state before consuming a sentinel left by an exited startup.
     pub fn open(root: &Path) -> Result<Self> {
+        let mut active = termination::active()?;
         fs::create_dir_all(root)?;
         let lock = fs::File::options()
             .read(true)
@@ -128,6 +130,8 @@ impl StartupGuard {
             recovery.recover(attempt);
         }
         save(&root.join(CHOICE_FILE), &recovery)?;
+        let lock = Arc::new(lock);
+        active.register(root, &lock);
         Ok(Self {
             root: root.to_owned(),
             lock: Some(lock),
@@ -153,6 +157,7 @@ impl StartupGuard {
 
     /// Persists a fresh recovery cycle when the adapter set or driver versions changed.
     pub fn reset_recovery(&mut self) -> Result<()> {
+        let _active = termination::active()?;
         self.require_lease()?;
         self.recovery.reset();
         self.interrupted = None;
@@ -183,6 +188,7 @@ impl StartupGuard {
 
     /// Flushes the next operation to disk before the caller enters a native driver.
     pub fn begin(&mut self, attempt: Attempt) -> Result<()> {
+        let _active = termination::active()?;
         self.require_lease()?;
         save(
             &self.root.join(SENTINEL_FILE),
@@ -198,6 +204,7 @@ impl StartupGuard {
 
     /// Clears a returned initialization error without classifying it as a native crash.
     pub fn failed(&mut self) -> Result<()> {
+        let _active = termination::active()?;
         self.require_lease()?;
         if self.pending.is_some() {
             fs::remove_file(self.root.join(SENTINEL_FILE))
@@ -219,6 +226,7 @@ impl StartupGuard {
 
     /// Saves the successful choice before removing the first-frame sentinel.
     pub fn presented(&mut self) -> Result<()> {
+        let _active = termination::active()?;
         let Some(attempt) = self.pending.clone() else {
             return Ok(());
         };
@@ -246,17 +254,6 @@ const SENTINEL_FILE: &str = "renderer-startup.json";
 const LOCK_FILE: &str = "renderer-startup.lock";
 const CHOICE_FILE: &str = "renderer-choice.json";
 const MAX_FILE_BYTES: u64 = 64 * 1024;
-const PROBE_CACHE_FILE: &str = "graphics-probe-cache.json";
-
-/// Reads bounded driver verdicts without loading a graphics library.
-pub fn load_probe_cache(root: &Path) -> Result<ProbeCache> {
-    Ok(load(&root.join(PROBE_CACHE_FILE))?.unwrap_or_default())
-}
-
-/// Flushes driver verdicts before the parent enters a cached backend.
-pub fn save_probe_cache(root: &Path, cache: &ProbeCache) -> Result<()> {
-    save(&root.join(PROBE_CACHE_FILE), cache)
-}
 
 /// Reads a bounded local state file, treating an absent file as a fresh install.
 fn load<T: DeserializeOwned>(path: &Path) -> Result<Option<T>> {

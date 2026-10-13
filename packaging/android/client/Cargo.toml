@@ -20,7 +20,6 @@ bevy = { workspace = true, features = ["android-native-activity"] }
 cinnabar = { path = "../../../app", default-features = false }
 first-run = { path = "../../../crates/first-run" }
 jni = "=0.21.1"
-launcher-host = { path = "../../../crates/launcher-host" }
 launcher = { path = "../../../crates/launcher" }
 # Oboe, below cpal, links the C++ runtime the APK ships instead of a private copy.
 rodio = { version = "=0.20.1", default-features = false, features = ["cpal-shared-stdcxx"] }

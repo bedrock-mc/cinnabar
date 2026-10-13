@@ -1,20 +1,13 @@
-//! Stability policy shared by startup, probes and the persisted Video setting.
+//! Stability policy shared by startup and the persisted Video setting.
 
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
 pub mod blocklist;
 #[cfg(test)]
 mod tests;
 
-/// Intel's PCI vendor identifier, used only with an integrated device classification.
+/// Intel's PCI vendor identifier for Windows backend policy.
 pub const INTEL_PCI_VENDOR: u32 = 0x8086;
-/// Maximum wall time allowed for an isolated driver call, including presentation.
-pub const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
-/// Private executable dispatch flags, handled before setup or asset loading.
-pub const PROBE_FLAG: &str = "--gpu-probe";
-pub const INVENTORY_FLAG: &str = "--gpu-inventory";
-
 // Keep the enum, names and complete registry together so a new API cannot be omitted.
 macro_rules! backends {
     ($($variant:ident => ($name:literal, $label:literal)),+ $(,)?) => {
@@ -38,7 +31,7 @@ macro_rules! backends {
 backends!(Vulkan => ("vulkan", "Vulkan"), Dx12 => ("dx12", "DX12"), Gl => ("gl", "GL"), Metal => ("metal", "Metal"));
 
 impl Backend {
-    /// Parses a probe's single backend, rejecting lists and unsupported spellings.
+    /// Parses a single backend, rejecting lists and unsupported spellings.
     pub fn parse(value: &str) -> Option<Self> {
         Self::ALL
             .iter()
@@ -79,14 +72,6 @@ impl Platform {
             Self::Macos => &[Backend::Metal],
         }
     }
-
-    /// Inventory uses DX12 on Windows so a broken Vulkan ICD cannot hide the selected GPU.
-    pub const fn inventory_order(self) -> &'static [Backend] {
-        match self {
-            Self::Windows => &[Backend::Dx12, Backend::Vulkan],
-            _ => self.backends(),
-        }
-    }
 }
 
 /// Adapter identity and driver details recorded before device creation.
@@ -103,163 +88,22 @@ pub struct Adapter {
     pub integrated: bool,
 }
 
-/// Cache identity also retains the name because GL may report a zero device identifier.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
-pub struct AdapterKey {
-    pub name: String,
-    pub vendor: u32,
-    pub device: u32,
-    pub driver: String,
-    pub driver_info: String,
-    #[serde(default)]
-    pub driver_version: String,
-}
-
-impl Adapter {
-    /// Includes both wgpu driver strings because backends expose versions in either field.
-    pub fn key(&self) -> AdapterKey {
-        AdapterKey {
-            name: self.name.clone(),
-            vendor: self.vendor,
-            device: self.device,
-            driver: self.driver.clone(),
-            driver_info: self.driver_info.clone(),
-            driver_version: self.driver_version.clone(),
-        }
-    }
-}
-
-/// Inventory identifies the adapter returned by the same high-performance request as startup.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Inventory {
-    pub selected: Adapter,
-    pub adapters: Vec<Adapter>,
-}
-
-impl Inventory {
-    /// Normalizes enumeration order while retaining the selected adapter and every driver revision.
-    pub fn fingerprint(&self) -> Vec<AdapterKey> {
-        let mut keys: Vec<_> = self.adapters.iter().map(Adapter::key).collect();
-        keys.push(self.selected.key());
-        keys.sort();
-        keys.dedup();
-        keys.insert(0, self.selected.key());
-        keys
-    }
-}
-
 /// Chooses by the adapter that will render, never the first enumerated GPU.
 pub fn default_order(platform: Platform, selected: &Adapter) -> Vec<Backend> {
     let mut order = platform.backends().to_vec();
-    if platform == Platform::Windows && selected.vendor == INTEL_PCI_VENDOR && selected.integrated {
+    if platform == Platform::Windows && selected.vendor == INTEL_PCI_VENDOR {
         order.sort_by_key(|backend| *backend != Backend::Dx12);
     }
     order
 }
 
-/// Only a completed presentation or a native crash establishes a durable driver verdict.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Verdict {
-    Passed,
-    Failed,
-    TimedOut,
-    Inconclusive,
-}
-
-impl Verdict {
-    /// Only a completed presentation or native crash may classify a driver across launches.
-    pub fn is_durable(self) -> bool {
-        matches!(self, Self::Passed | Self::Failed)
-    }
-}
-
-/// Keeps a timeout separate from the completed process's crash or presentation result.
-pub fn probe_verdict(exit: Option<Verdict>, elapsed: Duration) -> Option<Verdict> {
-    match exit {
-        Some(verdict) => Some(verdict),
-        None if elapsed >= PROBE_TIMEOUT => Some(Verdict::TimedOut),
-        None => None,
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct ProbeEntry {
-    adapter: AdapterKey,
-    backend: Backend,
-    verdict: Verdict,
-}
-
-const PROBE_CACHE_VERSION: u32 = 2;
-
-/// Driver-specific probe results with bounded invalidation when the adapter set changes.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ProbeCache {
-    version: u32,
-    fingerprint: Vec<AdapterKey>,
-    entries: Vec<ProbeEntry>,
-}
-
-impl ProbeCache {
-    /// Whether a previous launch established an adapter inventory.
-    pub fn has_inventory(&self) -> bool {
-        !self.fingerprint.is_empty()
-    }
-
-    /// Invalidates all verdicts after an adapter or driver change, independent of enumeration order.
-    pub fn refresh(&mut self, fingerprint: Vec<AdapterKey>) -> bool {
-        if self.version == PROBE_CACHE_VERSION && self.fingerprint == fingerprint {
-            return false;
-        }
-        self.fingerprint = fingerprint;
-        self.version = PROBE_CACHE_VERSION;
-        self.entries.clear();
-        true
-    }
-
-    /// Returns an existing verdict so callers never probe an already tested driver.
-    pub fn get(&self, adapter: &AdapterKey, backend: Backend) -> Option<Verdict> {
-        if self.version != PROBE_CACHE_VERSION {
-            return None;
-        }
-        self.entries
-            .iter()
-            .find(|entry| {
-                entry.adapter == *adapter && entry.backend == backend && entry.verdict.is_durable()
-            })
-            .map(|entry| entry.verdict)
-    }
-
-    /// Replaces the verdict for one adapter and API without accumulating duplicate entries.
-    pub fn record(&mut self, adapter: AdapterKey, backend: Backend, verdict: Verdict) {
-        if !verdict.is_durable() {
-            return;
-        }
-        if self.version != PROBE_CACHE_VERSION {
-            self.entries.clear();
-            self.version = PROBE_CACHE_VERSION;
-        }
-        self.entries
-            .retain(|entry| entry.adapter != adapter || entry.backend != backend);
-        self.entries.push(ProbeEntry {
-            adapter,
-            backend,
-            verdict,
-        });
-    }
-}
-
-/// Pure precedence: environment, Video override, cached verdict, vendor default, sentinel fallback.
-/// Explicit choices bypass automatic safety filters. Automatic choices omit blocklisted and failed
-/// probes, prefer a passed probe in vendor order, then apply the sentinel as the final backstop.
+/// Applies environment and Video overrides before vendor defaults and crash exclusions.
+/// Explicit choices bypass automatic filters, but must still be supported by this platform.
 pub fn candidates(
     defaults: &[Backend],
     supported: &[Backend],
     environment: Option<&[Backend]>,
     video: Option<Backend>,
-    verdicts: &[(Backend, Verdict)],
-    blocked: &[Backend],
     sentinel_failed: &[Backend],
 ) -> Vec<Backend> {
     if let Some(explicit) = environment {
@@ -276,28 +120,12 @@ pub fn candidates(
             .into_iter()
             .collect();
     }
-    let mut order: Vec<_> = defaults
+    defaults
         .iter()
         .copied()
         .filter(|backend| {
             supported.contains(backend)
-                && !blocked.contains(backend)
-                && !matches!(
-                    verdicts
-                        .iter()
-                        .find(|(api, _)| api == backend)
-                        .map(|(_, verdict)| *verdict),
-                    Some(Verdict::Failed)
-                )
+                && (supported.len() == 1 || !sentinel_failed.contains(backend))
         })
-        .collect();
-    order.sort_by_key(|backend| {
-        verdicts
-            .iter()
-            .find(|(api, _)| api == backend)
-            .map(|(_, verdict)| *verdict)
-            != Some(Verdict::Passed)
-    });
-    order.retain(|backend| !sentinel_failed.contains(backend));
-    order
+        .collect()
 }

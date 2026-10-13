@@ -252,6 +252,7 @@ pub fn install_exit_hooks(flush_logs: fn()) {
         }
     }));
     let installed = ctrlc::try_set_handler(move || {
+        crate::renderer_startup::termination::cancel_on_termination();
         stop_all(EXIT_GRACE);
         flush_logs();
         std::process::exit(130);

@@ -3,12 +3,6 @@ use std::{fs, process::Command};
 
 #[allow(dead_code)]
 mod fixture_client {
-    pub mod gpu_probe {
-        /// This fixture must fail startup before reaching a graphics helper.
-        pub fn dispatch(_: &[String]) -> i32 {
-            unreachable!()
-        }
-    }
     pub mod args {
         pub const HELP: &str = "fixture";
         pub struct ClientArgs {

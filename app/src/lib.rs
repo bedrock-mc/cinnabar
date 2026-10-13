@@ -16,7 +16,6 @@ mod environment;
 mod first_run_tests;
 mod frame_pacing;
 mod global_resources;
-pub mod gpu_probe;
 mod hotbar;
 mod hud_tools;
 mod install_layout;

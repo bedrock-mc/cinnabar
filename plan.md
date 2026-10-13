@@ -400,29 +400,25 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 ## Graphics API startup recovery
 
 - A shared policy selects Windows Vulkan/DX12, Linux Vulkan/GL, Android Vulkan/GLES,
-  and macOS Metal. Windows Intel integrated GPUs prefer DX12; other multi-API defaults
-  prefer Vulkan. Adapter selection requests high performance on hybrid systems.
-- Precedence is `WGPU_BACKEND`, the restart-only Video override, a cached probe verdict or
-  saved direct-startup choice, the platform/vendor default, then the startup sentinel as a
-  final fallback filter.
-  Explicit overrides bypass automatic exclusions. The Video control is hidden on macOS.
-- Isolated desktop inventory and presentation helpers do not load assets or start a Bevy app.
-  Presentation probes have a five-second deadline. Only completed presentations and native
-  crashes persist driver verdicts; surface errors and timeouts remain retryable. Adapter or
-  driver changes invalidate the cache. A lone backend runs directly, and Android uses the
-  blocklist and sentinel fallback without synchronous lifecycle-blocking probes. GL/GLES
-  still must satisfy the renderer's device requirements. Android recovery is keyed to the OS,
+  and macOS Metal. Windows Intel GPUs prefer DX12; other multi-API defaults prefer Vulkan.
+  Windows identifies the high-performance adapter through DX12 before opening Vulkan.
+- Precedence is `WGPU_BACKEND`, the restart-only Video override, platform/vendor defaults
+  and the driver blocklist, then crash-sentinel exclusions. Explicit overrides bypass automatic
+  exclusions. The Video control is hidden on macOS. A lone supported API remains retryable.
+- Startup creates the renderer directly. All backends must support terrain base-vertex draws
+  and the required vertex-stage storage buffers. Returned initialization errors remain retryable;
+  successful fallback retains exclusions for crashed APIs. Android recovery is keyed to the OS,
   vendor image and graphics-driver build so an update permits previously failed APIs again.
-- The driver blocklist has one data source and bounded numeric version rules. Older Windows
-  Intel integrated Vulkan drivers prefer DX12. Native Windows exception capture and Unix
-  fatal-signal capture retain local renderer context and normal OS crash handling.
+- The driver blocklist has one data source and bounded numeric version rules. Native Windows
+  exception capture and Unix fatal-signal capture retain local renderer context and normal OS
+  crash handling.
 - Startup recovery files have an exclusive OS lease through the first completed frame;
-  sentinels include PID and process start time. Controlled exits before presentation cancel
-  the pending attempt without changing its working or failed status. Saved Unix handlers receive
-  the original signal information and machine context. Default hardware faults repeat their original
-  instruction after restoring the default action. Crash attribution uses this process's renderer
-  context even if another client changes the shared saved choice.
-- Target-device crash reproduction, Android service runtime acceptance, GL/GLES presentation
+  sentinels include PID and process start time. Window closure and handled SIGINT/SIGTERM
+  cancel unfinished startup without recording a GPU failure. Termination revokes later sentinel
+  writes, while panics and native faults retain crash evidence. Saved Unix handlers receive the
+  original signal information and machine context; default hardware faults repeat their original
+  instruction. Another client's saved choice cannot change this process's crash attribution.
+- Target-device crash reproduction, Android lifecycle acceptance, GL/GLES presentation
   and Video screenshots remain incomplete. This work closes no parity or performance gate.
 
 ## UI text and presentation failure recovery

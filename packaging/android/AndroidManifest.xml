@@ -22,7 +22,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <service android:name=".GpuProbeService" android:process=":gpu_probe" android:exported="false" android:stopWithTask="true" />
         <activity
             android:name=".CinnabarActivity"
             android:exported="false"

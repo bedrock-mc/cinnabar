@@ -23,8 +23,10 @@ fn crash_guard_accumulates_finite_failures_and_overrides_do_not_poison_auto() {
     assert!(recovery.failed_backends().is_empty());
     recovery.recover(&attempt(Backend::Vulkan, false));
     recovery.succeeded(attempt(Backend::Dx12, false));
+    assert_eq!(recovery.failed_backends(), [Backend::Vulkan]);
+    assert_eq!(recovery.working.as_ref().unwrap().backend, Backend::Dx12);
+    recovery.succeeded(attempt(Backend::Vulkan, true));
     assert!(recovery.failed_backends().is_empty());
-    assert_eq!(recovery.working.unwrap().backend, Backend::Dx12);
 }
 
 #[test]
@@ -42,7 +44,17 @@ fn successful_fallback_clears_the_sentinel_and_survives_relaunch() {
     let third = StartupGuard::open(dir.path()).unwrap();
     assert!(third.interrupted.is_none());
     assert_eq!(third.recovery.working.as_ref().unwrap().stage, Stage::Ready);
-    assert!(third.recovery.failed_backends().is_empty());
+    assert_eq!(third.recovery.failed_backends(), [Backend::Vulkan]);
+    assert_eq!(
+        launcher::graphics_backend::candidates(
+            launcher::graphics_backend::Platform::Windows.backends(),
+            launcher::graphics_backend::Platform::Windows.backends(),
+            None,
+            None,
+            third.recovery.failed_backends()
+        ),
+        [Backend::Dx12]
+    );
 }
 
 #[test]
@@ -108,8 +120,6 @@ fn direct_startup_retries_a_crashed_api_only_after_the_driver_build_changes() {
             supported,
             None,
             None,
-            &[],
-            &[],
             next.recovery.failed_backends()
         ),
         supported
@@ -171,29 +181,6 @@ fn sentinel_retains_adapter_and_the_operation_before_a_native_call() {
     pending.stage = Stage::FirstPresentation;
     guard.begin(pending.clone()).unwrap();
     assert_eq!(StartupGuard::pending(dir.path()).unwrap(), Some(pending));
-}
-
-#[test]
-fn probe_verdict_is_saved_under_the_data_root_and_survives_restart() {
-    use launcher::graphics_backend::Verdict;
-    let dir = tempfile::tempdir().unwrap();
-    let key = Adapter {
-        name: "test".into(),
-        vendor: 1,
-        device: 2,
-        driver: "1.2".into(),
-        driver_info: "version".into(),
-        driver_version: String::new(),
-        integrated: false,
-    }
-    .key();
-    let mut cache = load_probe_cache(dir.path()).unwrap();
-    cache.record(key.clone(), Backend::Gl, Verdict::Passed);
-    save_probe_cache(dir.path(), &cache).unwrap();
-    assert_eq!(
-        load_probe_cache(dir.path()).unwrap().get(&key, Backend::Gl),
-        Some(Verdict::Passed)
-    );
 }
 
 #[test]

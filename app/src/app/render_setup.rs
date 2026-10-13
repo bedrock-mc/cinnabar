@@ -2,6 +2,7 @@
 
 use std::num::NonZeroU32;
 
+mod device;
 mod guarded;
 
 use bevy::{
@@ -38,7 +39,7 @@ impl bevy::prelude::Plugin for RendererSetup {
     /// Keeps GL on the same display as Bevy's windows and installs first-frame recovery.
     fn build(&self, app: &mut bevy::prelude::App) {
         let mut settings = WgpuSettings::default();
-        crate::gpu_probe::device::configure_render_settings(&mut settings);
+        device::configure_render_settings(&mut settings);
         let renderer = guarded::render_plugin(app, &self.data_root, self.video_override, settings)
             .unwrap_or_else(|error| panic!("Renderer startup failed: {error:#}"));
         app.add_plugins(renderer);
@@ -57,7 +58,7 @@ mod tests {
             },
             ..Default::default()
         };
-        crate::gpu_probe::device::configure_render_settings(&mut settings);
+        device::configure_render_settings(&mut settings);
         assert!(matches!(
             settings.dx12_shader_compiler,
             wgpu::Dx12Compiler::Fxc

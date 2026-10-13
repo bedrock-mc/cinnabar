@@ -14,199 +14,70 @@ fn adapter(vendor: u32, integrated: bool) -> Adapter {
 }
 
 #[test]
-fn vendor_defaults_and_hybrid_selection_follow_the_render_adapter() {
-    let intel = adapter(INTEL_PCI_VENDOR, true);
-    assert_eq!(
-        default_order(Platform::Windows, &intel),
-        [Backend::Dx12, Backend::Vulkan]
-    );
-    for vendor in [0x10de, 0x1002, INTEL_PCI_VENDOR] {
-        let discrete = adapter(vendor, false);
+fn vendor_defaults_follow_the_render_adapter() {
+    for integrated in [false, true] {
+        let intel = adapter(INTEL_PCI_VENDOR, integrated);
         assert_eq!(
-            default_order(Platform::Windows, &discrete),
+            default_order(Platform::Windows, &intel),
+            [Backend::Dx12, Backend::Vulkan]
+        );
+        for platform in [Platform::Linux, Platform::Android] {
+            assert_eq!(
+                default_order(platform, &intel),
+                [Backend::Vulkan, Backend::Gl]
+            );
+        }
+        assert_eq!(default_order(Platform::Macos, &intel), [Backend::Metal]);
+    }
+    for vendor in [0x10de, 0x1002] {
+        assert_eq!(
+            default_order(Platform::Windows, &adapter(vendor, false)),
             [Backend::Vulkan, Backend::Dx12]
         );
-        let hybrid = Inventory {
-            adapters: vec![intel.clone(), discrete.clone()],
-            selected: discrete,
-        };
-        assert_eq!(
-            default_order(Platform::Windows, &hybrid.selected)[0],
-            Backend::Vulkan
-        );
     }
-    for platform in [Platform::Linux, Platform::Android] {
-        assert_eq!(
-            default_order(platform, &intel),
-            [Backend::Vulkan, Backend::Gl]
-        );
-    }
-    assert_eq!(default_order(Platform::Macos, &intel), [Backend::Metal]);
 }
 
 #[test]
-fn precedence_respects_overrides_verdicts_defaults_and_sentinel() {
-    let gpu = adapter(0x10de, false);
-    let key = gpu.key();
-    let defaults = default_order(Platform::Windows, &gpu);
-    let mut cache = ProbeCache::default();
-    let select = |cache: &ProbeCache, env: Option<&[Backend]>, video, failed: &[Backend]| {
-        candidates(
-            &defaults,
-            &defaults,
-            env,
-            video,
-            &defaults
-                .iter()
-                .filter_map(|backend| cache.get(&key, *backend).map(|verdict| (*backend, verdict)))
-                .collect::<Vec<_>>(),
-            &[],
-            failed,
-        )
-    };
-    assert_eq!(select(&cache, None, None, &[]), defaults);
-    cache.record(key.clone(), Backend::Dx12, Verdict::Passed);
+fn precedence_respects_overrides_defaults_and_sentinel() {
+    let defaults = Platform::Windows.backends();
+    assert_eq!(candidates(defaults, defaults, None, None, &[]), defaults);
     assert_eq!(
-        select(&cache, None, None, &[]),
-        [Backend::Dx12, Backend::Vulkan]
-    );
-    cache.record(key.clone(), Backend::Vulkan, Verdict::Failed);
-    assert_eq!(select(&cache, None, None, &[]), [Backend::Dx12]);
-    assert_eq!(
-        select(&cache, None, Some(Backend::Vulkan), &[Backend::Vulkan]),
-        [Backend::Vulkan]
-    );
-    assert_eq!(
-        select(
-            &cache,
-            Some(&[Backend::Dx12]),
-            Some(Backend::Vulkan),
-            &[Backend::Dx12]
-        ),
+        candidates(defaults, defaults, None, None, &[Backend::Vulkan]),
         [Backend::Dx12]
     );
-    assert!(select(&cache, None, None, &[Backend::Dx12]).is_empty());
-    assert!(select(&cache, None, Some(Backend::Gl), &[]).is_empty());
     assert_eq!(
         candidates(
-            &defaults,
-            &defaults,
-            Some(&[Backend::Vulkan]),
+            defaults,
+            defaults,
             None,
-            &[(Backend::Vulkan, Verdict::Failed)],
-            &[Backend::Vulkan],
+            Some(Backend::Vulkan),
             &[Backend::Vulkan]
         ),
         [Backend::Vulkan]
     );
     assert_eq!(
         candidates(
-            &defaults,
-            &defaults,
-            None,
-            None,
-            &[],
-            &[Backend::Vulkan],
-            &[]
+            defaults,
+            defaults,
+            Some(&[Backend::Dx12]),
+            Some(Backend::Vulkan),
+            &[Backend::Dx12]
         ),
         [Backend::Dx12]
     );
+    assert!(candidates(defaults, defaults, None, None, defaults).is_empty());
+    assert!(candidates(defaults, defaults, None, Some(Backend::Gl), &[]).is_empty());
+    assert!(candidates(defaults, defaults, Some(&[]), None, &[]).is_empty());
 }
 
 #[test]
-fn cache_invalidates_on_driver_or_adapter_change_but_not_enumeration_order() {
-    let gpu = adapter(INTEL_PCI_VENDOR, true);
-    let other = adapter(0x10de, false);
-    let mut inventory = Inventory {
-        selected: gpu.clone(),
-        adapters: vec![gpu.clone(), other],
-    };
-    let mut cache = ProbeCache::default();
-    assert!(cache.refresh(inventory.fingerprint()));
-    for verdict in [Verdict::Passed, Verdict::Failed] {
-        cache.record(gpu.key(), Backend::Dx12, verdict);
-        let mut loaded: ProbeCache =
-            serde_json::from_slice(&serde_json::to_vec(&cache).unwrap()).unwrap();
-        assert_eq!(loaded.get(&gpu.key(), Backend::Dx12), Some(verdict));
-        inventory.adapters.reverse();
-        assert!(!loaded.refresh(inventory.fingerprint()));
-        assert_eq!(loaded.get(&gpu.key(), Backend::Dx12), Some(verdict));
-    }
-    inventory.selected.driver_info = "1.2.4".into();
-    assert!(cache.refresh(inventory.fingerprint()));
-    assert_eq!(cache.get(&gpu.key(), Backend::Dx12), None);
-    cache.record(inventory.selected.key(), Backend::Dx12, Verdict::Passed);
-    inventory.adapters.pop();
-    assert!(cache.refresh(inventory.fingerprint()));
-    assert_eq!(cache.get(&inventory.selected.key(), Backend::Dx12), None);
-}
-
-#[test]
-fn selecting_another_gpu_resets_the_recovery_inventory() {
-    let integrated = adapter(INTEL_PCI_VENDOR, true);
-    let discrete = adapter(0x10de, false);
-    let mut inventory = Inventory {
-        selected: integrated.clone(),
-        adapters: vec![integrated.clone(), discrete.clone()],
-    };
-    let mut cache = ProbeCache::default();
-    cache.refresh(inventory.fingerprint());
-    cache.record(integrated.key(), Backend::Dx12, Verdict::Failed);
-    inventory.selected = discrete;
-    assert!(cache.refresh(inventory.fingerprint()));
-    assert_eq!(cache.get(&integrated.key(), Backend::Dx12), None);
-}
-
-#[test]
-fn deadlines_do_not_override_completed_probe_results() {
-    assert_eq!(
-        probe_verdict(None, PROBE_TIMEOUT - Duration::from_nanos(1)),
-        None
-    );
-    assert_eq!(probe_verdict(None, PROBE_TIMEOUT), Some(Verdict::TimedOut));
-    assert_eq!(
-        probe_verdict(Some(Verdict::Failed), Duration::ZERO),
-        Some(Verdict::Failed)
-    );
-    assert_eq!(
-        probe_verdict(Some(Verdict::Passed), PROBE_TIMEOUT),
-        Some(Verdict::Passed)
-    );
-}
-
-#[test]
-fn transient_surface_errors_and_timeouts_never_exclude_a_backend() {
-    let gpu = adapter(0x10de, false);
-    let mut cache = ProbeCache::default();
-    for verdict in [Verdict::TimedOut, Verdict::Inconclusive] {
-        cache.record(gpu.key(), Backend::Vulkan, verdict);
-        assert_eq!(cache.get(&gpu.key(), Backend::Vulkan), None);
+fn a_lone_supported_api_remains_retryable_without_a_fallback() {
+    for backend in Backend::ALL {
         assert_eq!(
-            candidates(
-                Platform::Windows.backends(),
-                Platform::Windows.backends(),
-                None,
-                None,
-                &[(Backend::Vulkan, verdict)],
-                &[],
-                &[]
-            ),
-            Platform::Windows.backends()
+            candidates(&[*backend], &[*backend], None, None, &[*backend]),
+            [*backend]
         );
     }
-}
-
-#[test]
-fn legacy_probe_cache_cannot_retain_an_ambiguous_failed_verdict() {
-    let gpu = adapter(0x10de, false);
-    let legacy = serde_json::json!({
-        "fingerprint": [gpu.key()],
-        "entries": [{"adapter": gpu.key(), "backend": Backend::Vulkan, "verdict": Verdict::Failed}],
-    });
-    let mut cache: ProbeCache = serde_json::from_value(legacy).unwrap();
-    assert_eq!(cache.get(&gpu.key(), Backend::Vulkan), None);
-    assert!(cache.refresh(vec![gpu.key()]));
-    assert_eq!(cache.get(&gpu.key(), Backend::Vulkan), None);
 }
 
 #[test]
