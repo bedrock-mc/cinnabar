@@ -81,5 +81,6 @@ mod chat_tests;
 mod container_address_tests;
 mod gameplay_hud_tests;
 mod inventory_overlay_tests;
+mod inventory_timeout_tests;
 mod localized_text_tests;
 mod retained_bounds_tests;

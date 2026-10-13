@@ -92,7 +92,7 @@ impl PlayerInventoryLedger {
         }
     }
 
-    /// Completes the admitted close and only the personal cleanup captured at admission.
+    /// Completes the admitted close and its captured personal generation with a matching ID.
     pub(in crate::inventory_ledger) fn complete_sent_close(
         &mut self,
         sent: SentControl,
@@ -102,7 +102,12 @@ impl PlayerInventoryLedger {
             unreachable!()
         };
         self.complete_control_close(window, acknowledged);
-        if let Some(personal) = sent.covered_personal {
+        if let Some(personal) = self
+            .controls
+            .personal
+            .confirmed
+            .filter(|personal| sent.covers_personal(*personal))
+        {
             self.complete_control_close(personal, acknowledged);
         }
     }

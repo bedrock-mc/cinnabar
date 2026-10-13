@@ -156,3 +156,107 @@ fn a_storage_close_waits_for_a_personal_close_with_the_same_id() {
     server.deliver(&mut ledger);
     assert!(ledger.controls.storage.confirmed.is_none());
 }
+
+#[test]
+fn a_covering_storage_close_requires_a_fresh_personal_open_before_gestures() {
+    for reply_before_close in [false, true] {
+        for reopen_before_reply in [false, true] {
+            for expire in [false, true] {
+                for reopen_before_close in [false, true] {
+                    covering_storage_close_interleaving(
+                        reply_before_close,
+                        reopen_before_reply,
+                        expire,
+                        reopen_before_close,
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Checks delayed identity, gesture admission, and retained intent for one same-ID ordering.
+pub(super) fn covering_storage_close_interleaving(
+    reply_before_close: bool,
+    reopen_before_reply: bool,
+    expire: bool,
+    reopen_before_close: bool,
+) {
+    let mut ledger = ledger_with_slot_zero();
+    let mut server = Server {
+        personal_window_id: 3,
+        ..Server::default()
+    };
+    assert!(ledger.request_personal_open(42));
+    server.send(&mut ledger, 0, false);
+    server.open_storage(&mut ledger, 3);
+    if reply_before_close {
+        server.deliver(&mut ledger);
+    }
+    ledger.request_storage_close();
+    if reopen_before_close {
+        assert!(ledger.request_personal_open(42));
+    }
+    server.send(&mut ledger, 10, expire);
+    assert!(!server.personal_open);
+    if reopen_before_reply {
+        assert!(ledger.request_personal_open(42));
+    }
+    if !reply_before_close {
+        server.deliver(&mut ledger);
+    }
+    if !reopen_before_reply {
+        assert!(ledger.request_personal_open(42));
+    }
+    assert!(ledger.pending_control().is_none());
+    assert_eq!(
+        ledger.begin_click(0),
+        Err(crate::inventory_ledger::InventoryGestureError::PersonalInventoryUnavailable)
+    );
+    assert_eq!(ledger.pending_request_id(), None);
+    assert_eq!(ledger.displayed_stack(0).map(|stack| stack.count), Some(32));
+    assert!(ledger.cursor_stack().is_none());
+
+    let now = 10 + INVENTORY_REQUEST_TIMEOUT_MILLIS;
+    if expire {
+        ledger.poll_timeout(now);
+    } else {
+        server.deliver(&mut ledger);
+    }
+    assert!(ledger.personal_inventory_desired_open());
+    assert!(ledger.controls.personal.confirmed.is_none());
+    assert!(matches!(
+        ledger.pending_control(),
+        Some(ControlRequest::Open { .. })
+    ));
+    assert_eq!(
+        ledger.begin_click(0),
+        Err(crate::inventory_ledger::InventoryGestureError::PersonalInventoryUnavailable)
+    );
+    server.send(&mut ledger, now, false);
+    server.deliver(&mut ledger);
+    assert!(server.personal_open);
+    assert!(ledger.begin_click(0).is_ok());
+    assert_eq!(server.closes, 1);
+    assert_eq!(server.duplicate_opens, 0);
+}
+
+#[test]
+fn a_storage_close_preserves_a_delayed_personal_reply_with_a_different_id() {
+    let mut ledger = ledger_with_slot_zero();
+    let mut server = Server::default();
+    assert!(ledger.request_personal_open(42));
+    server.send(&mut ledger, 0, false);
+    server.open_storage(&mut ledger, 3);
+    ledger.request_storage_close();
+    server.send(&mut ledger, 10, false);
+    assert!(ledger.request_personal_open(42));
+    server.deliver(&mut ledger);
+    let personal = ledger.controls.personal.confirmed.unwrap();
+    server.deliver(&mut ledger);
+    assert_eq!(ledger.controls.personal.confirmed, Some(personal));
+    assert!(ledger.pending_control().is_none());
+    assert!(ledger.begin_click(0).is_ok());
+    assert!(server.personal_open);
+    assert_eq!(server.duplicate_opens, 0);
+}

@@ -26,7 +26,8 @@ impl PlayerInventoryLedger {
 
     /// Admits personal gestures only while the latest intent still wants this screen open.
     pub(super) fn personal_generation_for_gesture(&self) -> Option<u64> {
-        if !self.controls.personal.desired_open {
+        if !self.controls.personal.desired_open || self.controls.personal_covered_by_storage_close()
+        {
             return None;
         }
         match self.personal {
