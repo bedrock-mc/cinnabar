@@ -424,11 +424,13 @@ fn player_body(runtime: &mut super::runtime::EquipmentRuntime) -> ActorRigSubmis
     }
 }
 
-/// An equipment runtime over a server pack's attachables, with no startup carriers.
-fn pack_runtime(
+/// Compiles original equipment sources into the entity and texture catalogs they share.
+fn pack_catalog(
     files: Vec<(Box<str>, Vec<u8>)>,
-) -> (super::runtime::EquipmentRuntime, ActorArtworkPages) {
-    use super::runtime::EquipmentRuntime;
+) -> (
+    Arc<assets::RuntimeEntityAssets>,
+    Arc<assets::RuntimeEquipmentCatalog>,
+) {
     let compiled = pack_compiler::compile_actor_pack(files)
         .unwrap()
         .expect("pack compiles");
@@ -441,6 +443,37 @@ fn pack_runtime(
         .unwrap(),
     );
     let entities = Arc::new(assets::RuntimeEntityAssets::from_compiled(compiled.entities).unwrap());
+    (entities, catalog)
+}
+
+/// An equipment runtime over synthetic startup attachables, ready for a later pack override.
+fn startup_runtime(
+    files: Vec<(Box<str>, Vec<u8>)>,
+) -> (super::runtime::EquipmentRuntime, ActorArtworkPages) {
+    let (entities, catalog) = pack_catalog(files);
+    let icons = Arc::new(
+        assets::RuntimeIconCatalog::decode(
+            &assets::encode_icon_catalog([0; 32], &[], &[]).unwrap(),
+        )
+        .unwrap(),
+    );
+    let (runtime, pages, _) = super::runtime::EquipmentRuntime::build(
+        entities,
+        Some(catalog),
+        icons,
+        None,
+        None,
+        ActorArtworkPages::default(),
+    );
+    (runtime, pages)
+}
+
+/// An equipment runtime over a server pack's attachables, with no startup carriers.
+fn pack_runtime(
+    files: Vec<(Box<str>, Vec<u8>)>,
+) -> (super::runtime::EquipmentRuntime, ActorArtworkPages) {
+    use super::runtime::EquipmentRuntime;
+    let (entities, catalog) = pack_catalog(files);
     let icons = Arc::new(
         assets::RuntimeIconCatalog::decode(
             &assets::encode_icon_catalog([0; 32], &[], &[]).unwrap(),

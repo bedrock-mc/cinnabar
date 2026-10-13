@@ -130,7 +130,7 @@ fn fire_supported_mesh_ignores_attached_neighbours_and_keeps_both_textures() {
         assert_eq!(reference.words()[1], base);
         assert_eq!(
             reference.words()[3],
-            (1 << assets::FIRE_SUPPORTED_QUAD_COUNT) - 1
+            (1 << assets::fire::FIRE_SUPPORTED_QUAD_COUNT) - 1
         );
         let template = fixture.assets.model_templates()[base as usize];
         let quads = &fixture.assets.model_quads()
@@ -160,7 +160,7 @@ fn fire_attachment_masks_use_flammability_without_solid_face_occlusion() {
         .resolve(NetworkIdMode::Sequential, fixture.fire)
         .model_template()
         .unwrap();
-    for mask in 0..assets::FIRE_ATTACHMENT_MASK_COUNT as u8 {
+    for mask in 0..assets::fire::FIRE_ATTACHMENT_MASK_COUNT as u8 {
         let mut placements = vec![([7, 8, 9], 1)];
         for (index, coordinate) in neighbours.into_iter().enumerate() {
             if mask & (1 << index) != 0 {
@@ -181,7 +181,7 @@ fn fire_attachment_masks_use_flammability_without_solid_face_occlusion() {
         } else {
             let reference = fire_reference(fixture, &mesh).unwrap();
             // (7,8,9) has even full sum, odd sum after native signed /2.
-            let expected = base + assets::fire_attachment_template_offset(mask, false, true);
+            let expected = base + assets::fire::fire_attachment_template_offset(mask, false, true);
             assert_eq!(reference.words()[1], expected);
             let count = (mask & 15).count_ones() * 2 + u32::from(mask & 16 != 0) * 2;
             assert_eq!(reference.words()[3], (1 << count) - 1);

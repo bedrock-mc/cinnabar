@@ -313,7 +313,30 @@ declared control identities and kinds before any prepared route can be selected.
 Optional `color2` fades the fill linearly from `color` along `gradient_direction`
 (`vertical`, the default, or `horizontal`). Optional `border_color` draws an inside
 border `border_width` GUI pixels wide (default 1). The fill stops at the border, so
-translucent fills never mix with it.
+translucent fills do not paint underneath it. Edge coverage spans one physical pixel at
+every display density, including subpixel borders and square inner corners.
+Coverage is centered on the authored outline; layout and hit bounds stay fixed.
+
+`cinnabar_vector_path` draws caller-authored geometry without registering product
+icons in the runtime. `view_box` is `[x, y, width, height]`; `paths` contains arrays
+of finite `[x, y]` points in that coordinate space. Without `stroke_width`, closed
+contours use even-odd filling, including holes; fills require `closed: true`.
+With a positive `stroke_width` in view-box units,
+paths form continuous strokes with rounded joins and caps; `closed` defaults to
+false for strokes and true for fills. For example:
+
+```json
+{"type":"custom","renderer":"cinnabar_vector_path","size":[16,16],
+ "view_box":[0,0,16,16],"paths":[[[3,3],[8,13],[13,3]]],
+ "stroke_width":1.5,"color":[1,1,1,1]}
+```
+
+The renderer accepts at most 64 contours and 2,048 points. It covers round caps
+and joins beyond the view box, keeping the edge band one physical pixel wide.
+The half-pixel mesh grid is bounded to 256 cells per axis, eight million
+sample/segment operations, and 32,768 expanded indices per path. Over-budget
+paths draw nothing; they are never silently reduced to a coarser grid. An
+eight-MiB cache retains hot geometry. Path data belongs to the caller's surface.
 
 Personal-panel surfaces support JSON-UI scroll views, including wheel input, track
 presses and scrollbar-box dragging. Wheel input stays within the view under the

@@ -9,6 +9,7 @@ fn inputs(vanilla: Option<assets::VanillaEntityRefs>) -> super::EntityInputs {
         stack: Vec::new(),
         vanilla: vanilla.map(std::sync::Arc::new),
         vanilla_pack_dir: None,
+        equipment: None,
     }
 }
 
@@ -30,10 +31,16 @@ fn entity_cache_keys_on_vanilla_refs() {
         Some(assets::VanillaEntityRefs::new()),
         Some(refs_with_animation()),
     ] {
-        cache.get_or_compile(inputs(vanilla), &view, None, &|| false, |_, _, _, _, _| {
-            compiles.set(compiles.get() + 1);
-            Some((None, None))
-        });
+        cache.get_or_compile(
+            inputs(vanilla),
+            &view,
+            None,
+            &|| false,
+            |_, _, _, _, _, _| {
+                compiles.set(compiles.get() + 1);
+                Some((None, None))
+            },
+        );
     }
     assert_eq!(compiles.get(), 3);
 }
@@ -45,7 +52,7 @@ fn entity_cache_recompiles_when_the_installed_vanilla_layer_changes() {
     for directory in ["first", "first", "second"] {
         let mut input = inputs(None);
         input.vanilla_pack_dir = Some(directory.into());
-        cache.get_or_compile(input, &view, None, &|| false, |_, _, _, _, _| {
+        cache.get_or_compile(input, &view, None, &|| false, |_, _, _, _, _, _| {
             compiles.set(compiles.get() + 1);
             Some((None, None))
         });
@@ -56,7 +63,7 @@ fn entity_cache_recompiles_when_the_installed_vanilla_layer_changes() {
 #[test]
 fn entity_cache_compiles_without_holding_its_lock() {
     let (view, cache) = (empty_view(), super::EntityCache::default());
-    cache.get_or_compile(inputs(None), &view, None, &|| false, |_, _, _, _, _| {
+    cache.get_or_compile(inputs(None), &view, None, &|| false, |_, _, _, _, _, _| {
         assert!(cache.last.try_lock().is_ok());
         Some((None, None))
     });
@@ -101,9 +108,16 @@ fn a_disk_hit_skips_compilation_and_a_corrupt_entry_recompiles() {
             &view,
             Some(&disk),
             &|| false,
-            |view, vanilla, vanilla_pack_dir, encode, cancelled| {
+            |view, vanilla, vanilla_pack_dir, equipment, encode, cancelled| {
                 compiles.set(compiles.get() + 1);
-                super::super::compile_encoded(view, vanilla, vanilla_pack_dir, encode, cancelled)
+                super::super::compile_encoded(
+                    view,
+                    vanilla,
+                    vanilla_pack_dir,
+                    equipment,
+                    encode,
+                    cancelled,
+                )
             },
         );
         let pack = pack.flatten().expect("the fixture defines an entity");
@@ -178,7 +192,7 @@ fn a_fresh_compile_returns_before_its_disk_entry_is_written() {
         &resource_pack::LayeredPackView::tracked(stack),
         Some(&disk),
         &|| false,
-        |_, _, _, _, _| panic!("the deferred write stored the compile"),
+        |_, _, _, _, _, _| panic!("the deferred write stored the compile"),
     );
     assert_eq!(
         relaunched
@@ -246,11 +260,110 @@ fn a_cancelled_compile_stops_between_steps_and_keeps_nothing() {
         &resource_pack::LayeredPackView::tracked(stack),
         Some(&disk),
         &|| false,
-        |view, vanilla, vanilla_pack_dir, encode, cancelled| {
+        |view, vanilla, vanilla_pack_dir, equipment, encode, cancelled| {
             compiles.set(compiles.get() + 1);
-            super::super::compile_encoded(view, vanilla, vanilla_pack_dir, encode, cancelled)
+            super::super::compile_encoded(
+                view,
+                vanilla,
+                vanilla_pack_dir,
+                equipment,
+                encode,
+                cancelled,
+            )
         },
     );
     assert!(compiled.flatten().is_some());
     assert_eq!(compiles.get(), 1);
+}
+
+/// Loads independent artwork tables built under the same source and entity pins.
+fn equipment_with_texture_path(path: &str) -> std::sync::Arc<assets::RuntimeEquipmentCatalog> {
+    let texture = assets::EquipmentTexture {
+        identifier: path.into(),
+        width: 1,
+        height: 1,
+        rgba8: std::sync::Arc::from([10, 20, 30, 255]),
+    };
+    let bytes =
+        assets::encode_equipment_catalog_with_textures([1; 32], [2; 32], &[], &[texture]).unwrap();
+    std::sync::Arc::new(assets::RuntimeEquipmentCatalog::decode(&bytes).unwrap())
+}
+
+#[test]
+fn changing_startup_artwork_paths_recompiles_the_same_stack() {
+    let (view, cache) = (empty_view(), super::EntityCache::default());
+    let compiles = std::cell::Cell::new(0);
+    let first = equipment_with_texture_path("textures/items/first");
+    let same_paths = equipment_with_texture_path("textures/items/first");
+    let second = equipment_with_texture_path("textures/items/second");
+    assert_eq!(
+        first.source_manifest_sha256(),
+        second.source_manifest_sha256()
+    );
+    for equipment in [None, None, Some(first), Some(same_paths), Some(second)] {
+        let mut input = inputs(None);
+        input.equipment = equipment;
+        cache.get_or_compile(input, &view, None, &|| false, |_, _, _, _, _, _| {
+            compiles.set(compiles.get() + 1);
+            Some((None, None))
+        });
+    }
+    assert_eq!(compiles.get(), 3);
+}
+
+#[test]
+fn different_loaded_texture_paths_under_one_pin_do_not_share_disk_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let disk = crate::compile_cache::CompileCache::new(dir.path().into(), 1 << 30);
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(1, 1, image::Rgba([37, 59, 83, 255]))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    let paths = ["textures/items/first", "textures/items/second"];
+    let stack = crate::test_support::stack(&[
+        (&format!("{}.png", paths[0]), png.get_ref()),
+        (&format!("{}.png", paths[1]), png.get_ref()),
+    ]);
+    let first = equipment_with_texture_path(paths[0]);
+    let second = equipment_with_texture_path(paths[1]);
+    assert_eq!(
+        first.source_manifest_sha256(),
+        second.source_manifest_sha256()
+    );
+    let compiles = std::cell::Cell::new(0);
+    for catalog in [first.clone(), first, second.clone(), second] {
+        let mut input = inputs(None);
+        input.stack = crate::stack_fingerprint(&stack);
+        input.equipment = Some(catalog.clone());
+        let pack = super::EntityCache::default()
+            .get_or_compile(
+                input,
+                &resource_pack::LayeredPackView::tracked(stack.clone()),
+                Some(&disk),
+                &|| false,
+                |view, vanilla, vanilla_pack_dir, equipment, encode, cancelled| {
+                    compiles.set(compiles.get() + 1);
+                    super::super::compile_encoded(
+                        view,
+                        vanilla,
+                        vanilla_pack_dir,
+                        equipment,
+                        encode,
+                        cancelled,
+                    )
+                },
+            )
+            .flatten()
+            .expect("each loaded path supplies an artwork layer");
+        let artwork = pack.equipment.as_ref().unwrap();
+        let expected = catalog.textures()[0].identifier.as_ref();
+        assert_eq!(artwork.textures().len(), 1);
+        assert_eq!(artwork.textures()[0].identifier.as_ref(), expected);
+        assert_eq!(&artwork.textures()[0].rgba8[..4], &[37, 59, 83, 255]);
+    }
+    assert_eq!(
+        compiles.get(),
+        2,
+        "each path compiles once, then reuses its disk entry"
+    );
 }

@@ -564,7 +564,7 @@ impl crate::pipeline_warmup::PrewarmPipelines for NametagPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use render_model::{NAMETAG_ACOS_CUBIC, NAMETAG_ACOS_LINEAR, NAMETAG_BLOCKS_PER_FONT_PIXEL};
+    use render_model::NAMETAG_BLOCKS_PER_FONT_PIXEL;
 
     // Storage layout and native geometry, with no invented glyph-to-plate separation.
     #[test]
@@ -572,7 +572,6 @@ mod tests {
         let source = include_str!("nametag.wesl");
         assert_eq!(std::mem::size_of::<NametagRecord>(), 80);
         assert!(source.contains("BLOCKS_PER_FONT_PIXEL: f32 = NAMETAG_SCALE_VALUE;"));
-        assert!(source.contains("native_acos(-z / horizontal)"));
         assert!(source.contains("record.line_lift"));
         assert!(!source.contains("TEXT_LIFT_BLOCKS"));
         assert!(
@@ -765,7 +764,7 @@ mod tests {
     }
 
     #[test]
-    fn native_billboard_keeps_world_scale_and_uses_unlifted_cubic_eye_angles() {
+    fn billboard_keeps_world_scale_and_uses_unlifted_exact_eye_angles() {
         use bevy::math::Vec3;
         let record = NametagRecord {
             anchor: [1.0, 2.5, -5.0],
@@ -798,15 +797,71 @@ mod tests {
         }
         .world_corners([1.0, 0.0, 1.0])
         .unwrap();
-        let acos = |value: f32| {
-            (NAMETAG_ACOS_CUBIC * value * value * value - NAMETAG_ACOS_LINEAR * value)
-                + std::f32::consts::FRAC_PI_2
-        };
-        let expected_yaw = -acos(-std::f32::consts::FRAC_1_SQRT_2);
+        let expected_yaw = -3.0 * std::f32::consts::FRAC_PI_4;
         assert!((diagonal[1][0] + expected_yaw.cos() * NAMETAG_BLOCKS_PER_FONT_PIXEL).abs() < 1e-7);
         assert!((diagonal[1][2] - expected_yaw.sin() * NAMETAG_BLOCKS_PER_FONT_PIXEL).abs() < 1e-7);
-        assert!((expected_yaw + 3.0 * std::f32::consts::FRAC_PI_4).abs() > 0.02);
         assert!(record.world_corners(record.anchor).is_none());
         assert!(record.world_corners([f32::MAX; 3]).is_none());
+    }
+
+    /// Mirrors the shader's trigonometric basis without the CPU's quaternion rotation.
+    fn shader_world_corners(
+        record: &NametagRecord,
+        eye: bevy::math::Vec3,
+    ) -> [bevy::math::Vec3; 4] {
+        use bevy::math::Vec3;
+        let anchor = Vec3::from_array(record.anchor);
+        let direction = eye - anchor;
+        let horizontal = (direction.x * direction.x + direction.z * direction.z).sqrt();
+        let yaw = if horizontal == 0.0 {
+            0.0
+        } else {
+            -direction.x.atan2(-direction.z)
+        };
+        let pitch = direction.y.atan2(horizontal);
+        let right = Vec3::new(-yaw.cos(), 0.0, yaw.sin());
+        let down = Vec3::new(
+            -yaw.sin() * pitch.sin(),
+            -pitch.cos(),
+            -yaw.cos() * pitch.sin(),
+        );
+        let [x0, y0, x1, y1] = record.rect;
+        [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map(|[x, y]| {
+            anchor
+                + Vec3::Y * record.line_lift
+                + (right * x + down * y) * NAMETAG_BLOCKS_PER_FONT_PIXEL
+        })
+    }
+
+    #[test]
+    fn cpu_billboard_matches_the_shader_basis_on_axes_and_in_every_octant() {
+        use bevy::math::Vec3;
+        let record = NametagRecord {
+            anchor: [1.0, 2.5, -5.0],
+            rect: [-21.0, -1.0, 21.0, 9.0],
+            line_lift: 0.25,
+            ..default()
+        };
+        for x in [-2.0, 0.0, 2.0] {
+            for y in [-3.0, 0.0, 3.0] {
+                for z in [-5.0, 0.0, 5.0] {
+                    let direction = Vec3::new(x, y, z);
+                    if direction == Vec3::ZERO {
+                        continue;
+                    }
+                    let eye = Vec3::from_array(record.anchor) + direction;
+                    let cpu = record
+                        .world_corners(eye.to_array())
+                        .unwrap()
+                        .map(Vec3::from_array);
+                    for (cpu, shader) in cpu.into_iter().zip(shader_world_corners(&record, eye)) {
+                        assert!(
+                            (cpu - shader).length() < 1e-6,
+                            "direction {direction:?}: CPU {cpu:?}, shader basis {shader:?}"
+                        );
+                    }
+                }
+            }
+        }
     }
 }

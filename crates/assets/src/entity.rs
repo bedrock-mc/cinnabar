@@ -352,7 +352,6 @@ fn validate_compiled(compiled: &CompiledEntityAssets) -> Result<Box<[Option<usiz
     if compiled.source_manifest_sha256 == [0; 32]
         || compiled.sources.is_empty()
         || compiled.sources.len() > MAX_ENTITY_ASSET_SOURCES
-        || compiled.symbols.is_empty()
         || compiled.symbols.len() > MAX_ENTITY_ASSET_SYMBOLS
     {
         return Err(invalid("invalid entity catalog provenance or counts"));

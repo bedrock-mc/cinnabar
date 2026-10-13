@@ -1,10 +1,14 @@
-//! Texture-only packs inherit the base attachables that reference their images.
+//! Mixed equipment changes bind installed attachables; texture-only changes keep startup bindings.
 
 use super::*;
 
+/// Collects authored bindings and the installed bindings needed by mixed equipment changes.
 pub(super) fn collect(
     view: &LayeredPackView,
     vanilla_pack_dir: Option<&Path>,
+    overrides: &BTreeSet<String>,
+    vanilla: Option<&VanillaEntityRefs>,
+    inputs: Option<&pack_compiler::EquipmentBindingDependencies>,
 ) -> Vec<(Box<str>, Vec<u8>)> {
     let mut files = view
         .list("attachables/")
@@ -12,7 +16,7 @@ pub(super) fn collect(
         .filter(|path| path.ends_with(".json"))
         .filter_map(|path| Some((Box::<str>::from(path), canonical_json(&view.read(path)?)?)))
         .collect::<Vec<_>>();
-    // Track the directory even when empty: adding a texture creates inherited bindings.
+    // Track the directory even when empty so adding a texture invalidates compilation.
     let texture_stems = view
         .list("textures/")
         .into_iter()
@@ -33,6 +37,9 @@ pub(super) fn collect(
         .filter_map(|(_, bytes)| parse_pack_json(bytes))
         .flat_map(|value| bound_items(&value))
         .collect::<BTreeSet<_>>();
+    let mut installed = Vec::new();
+    let mut changed_items = BTreeSet::new();
+    let mut textured_items = BTreeSet::new();
     let mut directories = vec![root.join("attachables")];
     while let Some(directory) = directories.pop() {
         let Ok(entries) = std::fs::read_dir(directory) else {
@@ -72,10 +79,8 @@ pub(super) fn collect(
             let Some(value) = parse_pack_json(&bytes) else {
                 continue;
             };
-            if bound_items(&value)
-                .iter()
-                .any(|item| authored_items.contains(item))
-            {
+            let items = bound_items(&value);
+            if items.iter().any(|item| authored_items.contains(item)) {
                 continue;
             }
             let mut referenced = BTreeSet::new();
@@ -83,10 +88,22 @@ pub(super) fn collect(
             if referenced
                 .iter()
                 .any(|stem| texture_stems.contains(stem.as_str()))
-                && let Ok(bytes) = serde_json::to_vec(&value)
             {
-                files.push((relative.into(), bytes));
+                textured_items.extend(items.iter().cloned());
             }
+            if !binding_inputs_unchanged(&value, &authored_items, overrides, vanilla, inputs) {
+                changed_items.extend(items.iter().cloned());
+            }
+            installed.push((relative, items, value));
+        }
+    }
+    // Each item's variants share the decision, preserving the compiler's player preference.
+    changed_items.retain(|item| textured_items.contains(item));
+    for (path, items, value) in installed {
+        if items.iter().any(|item| changed_items.contains(item))
+            && let Ok(bytes) = serde_json::to_vec(&value)
+        {
+            files.push((path.into(), bytes));
         }
     }
     // File-system enumeration order must not decide which variant wins compilation.
@@ -94,6 +111,7 @@ pub(super) fn collect(
     files
 }
 
+/// Identifies every item an attachable binds, including owner-specific variants.
 fn bound_items(value: &Value) -> Vec<String> {
     let description = &value["minecraft:attachable"]["description"];
     if let Some(items) = description["item"].as_object() {
@@ -104,4 +122,30 @@ fn bound_items(value: &Value) -> Vec<String> {
         .map(str::to_owned)
         .into_iter()
         .collect()
+}
+
+/// Checks whether a variant's binding dependencies remain unchanged by the stack.
+pub(super) fn binding_inputs_unchanged(
+    document: &Value,
+    authored_items: &BTreeSet<String>,
+    overrides: &BTreeSet<String>,
+    vanilla: Option<&VanillaEntityRefs>,
+    inputs: Option<&pack_compiler::EquipmentBindingDependencies>,
+) -> bool {
+    let Some(mut references) = inputs.and_then(|inputs| inputs.names(document).ok()) else {
+        // Unreadable inputs cannot prove the installed binding remains unchanged.
+        return false;
+    };
+    let mut pending = references.iter().cloned().collect::<Vec<_>>();
+    while let Some(geometry) = pending.pop() {
+        if let Some(parent) = vanilla.and_then(|refs| refs.geometry_parent.get(&geometry))
+            && references.insert(parent.clone())
+        {
+            pending.push(parent.clone());
+        }
+    }
+    bound_items(document)
+        .iter()
+        .all(|item| !authored_items.contains(item))
+        && references.is_disjoint(overrides)
 }

@@ -1,4 +1,7 @@
-use super::{local_carrier, pack_runtime, player_body};
+use super::{
+    elytra_tests::selected_pixel, local_carrier, pack_catalog, pack_runtime, player_body,
+    startup_runtime,
+};
 use crate::presentation::equipment::runtime::*;
 use actor_animation::{ActorLifetimeId, ActorRigSnapshot};
 use bevy::math::{Quat, Vec3};
@@ -152,6 +155,200 @@ fn held_pack() -> Vec<(Box<str>, Vec<u8>)> {
         ),
         ("textures/items/held.png".into(), bytes.into_inner()),
     ]
+}
+
+#[test]
+fn held_attachable_uses_selected_artwork_and_falls_back_per_draw() {
+    let (mut runtime, base_pages) = startup_runtime(held_pack());
+    let body = player_body(&mut runtime);
+    let owner = owner();
+    let names = [Box::from("rightItem")];
+    let rig = owner_rig(&owner, &names);
+    let input = held("test:held");
+    let mut files = held_pack();
+    let (_, bytes) = files
+        .iter_mut()
+        .find(|(path, _)| path.as_ref() == "attachables/held.json")
+        .unwrap();
+    let mut definition: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    definition["minecraft:attachable"]["description"]["textures"]["alternative"] =
+        serde_json::json!("textures/items/alternative");
+    *bytes = serde_json::to_vec(&definition).unwrap();
+    let (_, controller) = files
+        .iter_mut()
+        .find(|(path, _)| path.as_ref() == "render_controllers/held.json")
+        .unwrap();
+    let mut definition: serde_json::Value = serde_json::from_slice(controller).unwrap();
+    definition["render_controllers"]["controller.render.held"]["textures"] =
+        serde_json::json!(["Texture.alternative"]);
+    *controller = serde_json::to_vec(&definition).unwrap();
+    files.retain(|(path, _)| path.as_ref() != "textures/items/held.png");
+    let mut pixels = std::io::Cursor::new(Vec::new());
+    let color = [0, 255, 0, 255];
+    image::RgbaImage::from_pixel(16, 16, image::Rgba(color))
+        .write_to(&mut pixels, image::ImageFormat::Png)
+        .unwrap();
+    files.push(("textures/items/alternative.png".into(), pixels.into_inner()));
+    let (entities, catalog) = pack_catalog(files);
+    let binding = catalog.binding("test:held").unwrap();
+    assert!(catalog.texture(&binding.texture.identifier).is_none());
+    let (pages, locations) =
+        base_pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
+    runtime.set_pack_layer(Some((entities, Some(catalog), locations)));
+    let selected = runtime
+        .first_person_attachable(
+            &body,
+            input.main.as_ref().unwrap(),
+            &owner,
+            &rig,
+            actor_animation::AttachableAnimationInput {
+                first_person: true,
+                ..Default::default()
+            },
+            None,
+        )
+        .expect("the available alternative must draw");
+    assert_eq!(selected_pixel(&pages, &selected.presentation), color);
+
+    let mut files = held_pack();
+    let (_, animation) = files
+        .iter_mut()
+        .find(|(path, _)| path.as_ref() == "animations/held.json")
+        .unwrap();
+    let mut document: serde_json::Value = serde_json::from_slice(animation).unwrap();
+    document["animations"]["animation.held"]["bones"]["rightitem"]["position"] =
+        serde_json::json!([100, 3, 4]);
+    *animation = serde_json::to_vec(&document).unwrap();
+    let mut pixels = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(16, 16, image::Rgba(color))
+        .write_to(&mut pixels, image::ImageFormat::Png)
+        .unwrap();
+    files.push((
+        format!("{}.png", assets::ACTOR_GLINT_TEXTURE_IDENTIFIER).into(),
+        pixels.into_inner(),
+    ));
+    let raster = files.last().unwrap().1.clone();
+    let (_, primary) = files
+        .iter_mut()
+        .find(|(path, _)| path.as_ref() == "textures/items/held.png")
+        .unwrap();
+    *primary = raster;
+    let (entities, catalog) = pack_catalog(files);
+    let (pages, mut locations) =
+        pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
+    let primary = catalog
+        .textures()
+        .iter()
+        .position(|texture| texture.identifier.as_ref() == "textures/items/held")
+        .unwrap();
+    runtime.set_pack_layer(Some((
+        Arc::clone(&entities),
+        Some(Arc::clone(&catalog)),
+        locations.clone(),
+    )));
+    let available = runtime
+        .first_person_attachable(
+            &body,
+            input.main.as_ref().unwrap(),
+            &owner,
+            &rig,
+            actor_animation::AttachableAnimationInput {
+                first_person: true,
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(selected_pixel(&pages, &available.presentation), color);
+    locations[primary] = None;
+    runtime.set_pack_layer(Some((entities, Some(catalog), locations)));
+    let selected = runtime
+        .first_person_attachable(
+            &body,
+            input.main.as_ref().unwrap(),
+            &owner,
+            &rig,
+            actor_animation::AttachableAnimationInput {
+                first_person: true,
+                ..Default::default()
+            },
+            None,
+        )
+        .expect("unavailable group artwork must use startup artwork");
+    assert_eq!(
+        selected_pixel(&pages, &selected.presentation),
+        [255, 0, 0, 255]
+    );
+    assert_eq!(
+        selected.presentation.submission.input.current_bones,
+        available.presentation.submission.input.current_bones,
+        "missing artwork must not replace the pack's evaluated pose"
+    );
+}
+
+#[test]
+fn an_inactive_pack_controller_does_not_draw_the_startup_model() {
+    let (mut runtime, base_pages) = startup_runtime(held_pack());
+    let body = player_body(&mut runtime);
+    let owner = owner();
+    let names = [Box::from("rightItem")];
+    let rig = owner_rig(&owner, &names);
+    let input = held("test:held");
+    for omit_default in [false, true] {
+        let mut files = held_pack();
+        let (_, bytes) = files
+            .iter_mut()
+            .find(|(path, _)| path.as_ref() == "attachables/held.json")
+            .unwrap();
+        let mut document: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+        let description = &mut document["minecraft:attachable"]["description"];
+        description["render_controllers"] = serde_json::json!([{"controller.render.held": "0"}]);
+        description["textures"]["alternative"] = serde_json::json!("textures/items/alternative");
+        *bytes = serde_json::to_vec(&document).unwrap();
+        let (_, bytes) = files
+            .iter_mut()
+            .find(|(path, _)| path.as_ref() == "render_controllers/held.json")
+            .unwrap();
+        let mut document: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+        document["render_controllers"]["controller.render.held"]["textures"] =
+            serde_json::json!(["Texture.alternative"]);
+        *bytes = serde_json::to_vec(&document).unwrap();
+        let raster = files
+            .iter()
+            .find(|(path, _)| path.as_ref() == "textures/items/held.png")
+            .unwrap()
+            .1
+            .clone();
+        files.push(("textures/items/alternative.png".into(), raster));
+        if omit_default {
+            files.retain(|(path, _)| path.as_ref() != "textures/items/held.png");
+        }
+        let (entities, catalog) = pack_catalog(files);
+        assert!(catalog.texture("textures/items/alternative").is_some());
+        assert_eq!(
+            catalog.texture("textures/items/held").is_none(),
+            omit_default
+        );
+        let (_, locations) =
+            base_pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
+        runtime.set_pack_layer(Some((entities, Some(catalog), locations)));
+        assert!(
+            runtime
+                .first_person_attachable(
+                    &body,
+                    input.main.as_ref().unwrap(),
+                    &owner,
+                    &rig,
+                    actor_animation::AttachableAnimationInput {
+                        first_person: true,
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .is_none(),
+            "inactive controllers must remain hidden with omit_default={omit_default}"
+        );
+    }
 }
 
 /// Uses a controller-owned constant pose, as ordinary third-person held models do.
@@ -976,3 +1173,6 @@ fn animated_held_attachables_skip_the_hurt_overlay_in_both_views() {
     }
     assert_eq!(body.overlay_rgba8, 0x6600_00ff);
 }
+
+#[path = "held_artwork_tests.rs"]
+mod artwork;
