@@ -1,3 +1,4 @@
+use launcher::menu::settings_options::SettingId;
 use {
     super::*,
     launcher::menu::{MenuAction, MenuScreen},
@@ -241,12 +242,12 @@ fn persisted_screen_animation_setting_controls_all_oreui_timelines() {
     let mut view = MenuView::new(true, "Player".into());
     let index = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "screen_animations")
+        .position(|option| option.id == SettingId::ScreenAnimations)
         .unwrap();
     std::sync::Arc::make_mut(&mut view.settings_options).set(index, 0);
     // As the menu adapter configures OreUI motion from the persisted setting.
     let mut transitions = Transitions::default();
-    transitions.configure_motion(view.settings_options.value("screen_animations") != 0);
+    transitions.configure_motion(view.settings_options.value(SettingId::ScreenAnimations) != 0);
     assert!(!transitions.motion.enabled());
     assert_eq!(transitions.motion.entrance(Surface::Loading, 1.0), 1.0);
     assert_eq!(transitions.slider(4, 0.7, false, 1.0), 0.7);

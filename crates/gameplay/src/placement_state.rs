@@ -1,12 +1,6 @@
 //! Click-dependent block states, resolved without world or rendering dependencies.
+use crate::placement_connections::CONNECTION_STATES;
 use serde_json::{Map, Value};
-
-const CONNECTION_STATES: &[&str] = &[
-    "minecraft:connection_north",
-    "minecraft:connection_south",
-    "minecraft:connection_east",
-    "minecraft:connection_west",
-];
 
 /// The click inputs used by the supported placement rules.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -123,13 +117,13 @@ pub fn resolve_placement_state(
         let facing = if input.face < 2 { 0 } else { input.face ^ 1 };
         set_value(&mut states, "facing_direction", Value::from(facing))?;
         set_bit(&mut states, "toggle_bit", false)?;
-    } else if (identifier.ends_with("_fence")
-        || identifier.ends_with("_pane")
-        || identifier == "minecraft:iron_bars")
-        && only_keys(&states, CONNECTION_STATES)
+    } else if states.len() == CONNECTION_STATES.len()
+        && CONNECTION_STATES
+            .iter()
+            .all(|(key, _)| states.contains_key(*key))
     {
         // The world-aware resolver fills connection bits before checking collision.
-        for &key in CONNECTION_STATES {
+        for &(key, _) in CONNECTION_STATES {
             bit(&states, key)?;
             set_bit(&mut states, key, false)?;
         }
@@ -423,24 +417,38 @@ mod tests {
 
     #[test]
     fn connection_states_start_clear_for_neighbor_derived_geometry() {
-        let canonical = json!({
-            "minecraft:connection_north":{"type":"byte","value":1},
-            "minecraft:connection_south":{"type":"byte","value":1},
-            "minecraft:connection_east":{"type":"byte","value":1},
-            "minecraft:connection_west":{"type":"byte","value":1},
-        })
-        .to_string();
-        for identifier in [
-            "minecraft:oak_fence",
-            "minecraft:glass_pane",
-            "minecraft:iron_bars",
-        ] {
+        let records = assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap();
+        let mut names = std::collections::HashSet::new();
+        let mut connected_held_state = false;
+        for record in records.iter().filter(|record| {
+            matches!(
+                record.model_family,
+                assets::ModelFamily::Fence | assets::ModelFamily::Pane
+            )
+        }) {
+            names.insert(record.name.as_ref());
+            let canonical: Map<String, Value> =
+                serde_json::from_str(&record.canonical_state).unwrap();
+            connected_held_state |= CONNECTION_STATES
+                .iter()
+                .any(|(key, _)| value(&canonical, key) == Some(&json!(1)));
             let states =
-                resolve_placement_state(identifier, &canonical, input(1, 0.5, 0.0)).unwrap();
-            for &key in CONNECTION_STATES {
+                resolve_placement_state(&record.name, &record.canonical_state, input(1, 0.5, 0.0))
+                    .expect(&record.name);
+            for &(key, _) in CONNECTION_STATES {
                 assert_eq!(value(&states, key), Some(&json!(0)));
             }
         }
+        assert!(connected_held_state);
+        assert!(names.contains("minecraft:oak_fence"));
+        assert!(names.contains("minecraft:glass_pane"));
+        assert!(names.contains("minecraft:iron_bars"));
+        assert!(names.contains("minecraft:copper_bars"));
+        assert!(names.contains("minecraft:waxed_oxidized_copper_bars"));
     }
 
     #[test]

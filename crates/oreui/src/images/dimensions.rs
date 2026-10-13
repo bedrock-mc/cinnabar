@@ -14,7 +14,7 @@ pub struct DimensionArt {
 pub const DIMENSIONS: [DimensionArt; 3] = [
     DimensionArt {
         background: "@dimension/background/overworld",
-        block: "minecraft:grass",
+        block: "minecraft:grass_block",
         file: "overworld.png",
     },
     DimensionArt {
@@ -86,6 +86,25 @@ fn append(images: &mut OreUiImages, directory: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn destination_cards_resolve_registered_block_items() {
+        let blocks = assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap();
+        let items = protocol::vanilla_item_registry();
+        for dimension in 0..DIMENSIONS.len() as i32 {
+            let art = destination(dimension).unwrap();
+            assert!(blocks.iter().any(|block| block.name.as_ref() == art.block));
+            assert!(
+                items
+                    .iter()
+                    .any(|item| item.identifier.as_ref() == art.block)
+            );
+        }
+    }
 
     #[test]
     fn backgrounds_retain_original_pixels_and_skip_only_the_missing_or_bad_destination() {

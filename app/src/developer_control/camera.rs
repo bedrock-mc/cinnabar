@@ -21,7 +21,8 @@ pub(super) struct ScriptedCamera {
 }
 
 /// The vanilla video option the cinematic camera borrows to hide the hand.
-const HIDE_HAND: &str = "hide_hand";
+const HIDE_HAND: launcher::menu::settings_options::SettingId =
+    launcher::menu::settings_options::SettingId::HideHand;
 
 impl ScriptedCamera {
     pub(super) fn finished(&self) -> bool {

@@ -2,6 +2,7 @@
 
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use client_state::PlayerRuntime;
+use launcher::menu::settings_options::BindingId;
 use std::sync::Arc;
 
 use bevy::{
@@ -420,7 +421,7 @@ fn inventory_binding_press_followed_by_a_key_is_not_a_click() {
         assert_eq!(
             menu.settings_snapshot()
                 .0
-                .named_key_control("key.inventory"),
+                .named_key_control(BindingId::Inventory),
             Some(semantic_input::PhysicalControl::MouseButton(
                 client_shell::physical_input::mouse_button_code(MouseButton::Right).unwrap()
             )),

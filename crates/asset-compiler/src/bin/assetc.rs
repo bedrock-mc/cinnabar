@@ -63,6 +63,8 @@ mod registry_version;
 mod ui_command;
 #[path = "assetc/vanilla_pack_command.rs"]
 mod vanilla_pack_command;
+#[path = "assetc/vocabulary_command.rs"]
+mod vocabulary_command;
 
 use audio_bank_command::compile_audio_bank_command;
 use audio_command::compile_audio_assets_command;
@@ -186,6 +188,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
     command_outputs::validate_command_outputs(&command)?;
     match command {
+        Command::Vocabulary {
+            archive,
+            source_manifest,
+            out,
+            actors_out,
+        } => {
+            vocabulary_command::compile(&archive, &source_manifest, &out, &actors_out)?;
+        }
         Command::BlockPhysics {
             registry,
             seed,

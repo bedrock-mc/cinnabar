@@ -94,7 +94,7 @@ fn apply(bone: RenderBoneTransform, point: Vec3) -> Vec3 {
 
 #[test]
 fn offhand_flat_sprite_matches_native_uv_labelled_pixel_corners() {
-    for [width, height] in [[16, 16], [32, 16], [8, 16], [32, 32]] {
+    for [width, height] in [[8, 8], [16, 16], [32, 16], [8, 16], [32, 32], [64, 64]] {
         let long = f32::from(width.max(height));
         let bone = offhand_sprite_pose(false, [width, height]).unwrap();
         assert!((bone.translation_scale[3] - 1.0).abs() < 1e-6);
@@ -104,7 +104,7 @@ fn offhand_flat_sprite_matches_native_uv_labelled_pixel_corners() {
             * Mat4::from_rotation_y(-20.0_f32.to_radians())
             * Mat4::from_translation(Vec3::new(-0.3125, 0.25, -0.03125));
         // Read actual front/back vertices and UV-labelled texel corners from the
-        // production mesh. Native front depth is 0; its back is 1 texel.
+        // production mesh. Native back depth scales with the longer raster side.
         let pixels = vec![255; usize::from(width) * usize::from(height) * 4];
         let mesh = render_model::held_sprite_vertices(
             usize::from(width),
@@ -114,7 +114,11 @@ fn offhand_flat_sprite_matches_native_uv_labelled_pixel_corners() {
         )
         .unwrap();
         for vertex in mesh.iter().filter(|vertex| vertex.normal[2] != 0.0) {
-            let depth = if vertex.normal[2] < 0.0 { 1.0 } else { 0.0 };
+            let depth = if vertex.normal[2] < 0.0 {
+                long / 16.0
+            } else {
+                0.0
+            };
             let native_pixel = Vec3::new(
                 vertex.uv[0] * f32::from(width),
                 depth,
@@ -138,7 +142,7 @@ fn offhand_hand_equipped_retains_native_pixel_size_and_rotation_order() {
         * Mat4::from_rotation_z(80.0_f32.to_radians());
     for column in [0.0, 11.0, 32.0] {
         for row in [0.0, 7.0, 16.0] {
-            for depth in [0.0, 1.0] {
+            for depth in [0.0, 32.0 / 16.0] {
                 let held = Vec3::new(-column, 16.0 - row, -depth) / 32.0;
                 let native_pixel =
                     Vec3::new(column, depth, row) / f32::from(NATIVE_ICON_TEXELS_PER_UNIT);

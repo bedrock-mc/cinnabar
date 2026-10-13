@@ -1,5 +1,6 @@
 //! OreUI routes through the menu adapter: their actions, focus, artwork and sounds.
 
+use launcher::menu::settings_options::SettingId;
 use std::sync::Arc;
 
 use super::super::super::UiPresentationRuntime;
@@ -745,7 +746,7 @@ fn pause_quit_uses_installed_translation_through_the_screen_route() {
 fn screen_animation_setting_drives_oreui_motion_through_the_adapter() {
     let index = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "screen_animations")
+        .position(|option| option.id == SettingId::ScreenAnimations)
         .unwrap();
     for (setting, animates) in [(0, false), (1, true)] {
         let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();

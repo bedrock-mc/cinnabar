@@ -28,6 +28,7 @@ mod inbox;
 mod loading;
 pub mod loading_screen;
 pub mod menu_screen;
+mod minecraft_import;
 mod modal;
 mod motion;
 mod paint;

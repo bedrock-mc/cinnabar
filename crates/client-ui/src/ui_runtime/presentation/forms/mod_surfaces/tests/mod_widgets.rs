@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use launcher::menu::settings_options::SettingId;
 use mod_ui::test_support::{card_control, card_dimensions};
 use ui::{
     DpiScale,
@@ -686,7 +687,7 @@ fn cards_cannot_bypass_inventory_chat_loading_server_or_player_hud_visibility() 
                 let mut options = launcher::menu::settings_options::SettingsOptions::default();
                 let index = launcher::menu::settings_options::SETTINGS_OPTIONS
                     .iter()
-                    .position(|option| option.name == "hide_hud")
+                    .position(|option| option.id == SettingId::HideHud)
                     .unwrap();
                 options.set(index, 1);
                 p.set_chat_settings_snapshot((Arc::new(options), None));

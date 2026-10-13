@@ -101,6 +101,7 @@ use client_world::ingestion::{
 use column_set::ColumnSubChunkSet;
 use helpers::*;
 use lighting::types::*;
+use meshing::biome_records::pack_biome_record;
 use meshing::types::*;
 use request_queue::RequestQueue;
 
@@ -295,18 +296,32 @@ impl SchedulerView {
         }
     }
 
-    /// Changes when the camera crosses a sub-chunk or turns into another eighth of the compass.
-    fn cell(self) -> [i32; 4] {
-        let [x, y, z] = self
-            .position
-            .map(|value| floor_to_i32(value).div_euclid(16));
-        let sector = self.forward.map_or(-1, |forward| {
-            ((forward[2].atan2(forward[0]) / std::f32::consts::TAU * 8.0).floor() as i32)
-                .rem_euclid(8)
-        });
-        [x, y, z, sector]
+    /// The sub-chunk holding the camera.
+    fn cell(self) -> [i32; 3] {
+        self.position
+            .map(|value| floor_to_i32(value).div_euclid(16))
+    }
+
+    /// Whether ranks queued under `previous` are stale: the camera changed sub-chunk or startup
+    /// footing, or its view direction turned, in any axis, by more than a sixth of the 60° cone.
+    fn reranks_from(self, previous: Self) -> bool {
+        self.cell() != previous.cell()
+            || self.startup_center != previous.startup_center
+            || match (self.forward, previous.forward) {
+                (None, None) => false,
+                (Some(current), Some(previous)) => {
+                    current[0].mul_add(
+                        previous[0],
+                        current[1].mul_add(previous[1], current[2] * previous[2]),
+                    ) < RERANK_TURN_COSINE
+                }
+                _ => true,
+            }
     }
 }
+
+/// Cosine of the 10° turn after which queued view ranks are refreshed.
+const RERANK_TURN_COSINE: f32 = 0.984_807_8;
 
 use model::{
     CorrelatedSubChunkAttempts, MeshChangeQueue, MeshCompletion, NormalizationErrorReason,
@@ -344,6 +359,7 @@ pub struct WorldStream {
     predictions: prediction::DeferredPredictions,
     decode_tx: Sender<DecodeCompletion>,
     decode_rx: Receiver<DecodeCompletion>,
+    biome_records: Option<Arc<meshing::biome_records::BiomeRecordCache>>,
     mesh_tx: Sender<MeshCompletion>,
     mesh_rx: Receiver<MeshCompletion>,
     lighting: lighting::Lighting,
@@ -351,7 +367,7 @@ pub struct WorldStream {
     revisions: RevisionTracker,
     applied_mesh_generations: HashMap<SubChunkKey, u64>,
     actor_block_syncs: actor_block_sync::ActorBlockSyncs,
-    mesh_dependency_masks: HashMap<SubChunkKey, (u64, MeshDependencyMask)>,
+    mesh_dependency_masks: HashMap<SubChunkKey, dirty::RegisteredMeshDependencies>,
     mesh_jobs: scheduler::KeyedJobs<PendingMesh, u64, 2>,
     /// Unit view direction the schedulers favour; `None` orders by distance alone.
     view_forward: Option<[f32; 3]>,

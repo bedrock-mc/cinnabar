@@ -338,6 +338,11 @@ fn compile_pack_inner(
         {
             descriptor_keys.insert(descriptor, key);
         }
+        if visuals::lever::is_record(record)
+            && let Some((descriptor, key)) = visuals::lever::base_descriptor(&pack, record)
+        {
+            descriptor_keys.insert(descriptor, key);
+        }
         if fallback.contains(record) {
             for face in BlockFace::ALL {
                 if let Some((descriptor, key)) = descriptor_for(fallback, &pack, record, face) {

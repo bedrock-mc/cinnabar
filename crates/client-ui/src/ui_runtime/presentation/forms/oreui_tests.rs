@@ -8,6 +8,7 @@ mod dressing_room;
 mod focus;
 mod fonts;
 mod inbox;
+mod minecraft_import;
 mod play_tabs;
 mod progress;
 mod progress_destination;

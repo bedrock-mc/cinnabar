@@ -82,7 +82,7 @@ pub(super) fn draw(
     size: [f32; 2],
     modal: &Modal<'_>,
 ) -> Result<Option<FocusedItem>, PaintError> {
-    draw_inner(canvas, view, size, modal, false)
+    draw_inner(canvas, view, size, modal, false, size[1])
 }
 
 /// Pickers dismiss when the player presses outside the panel.
@@ -92,16 +92,28 @@ pub(super) fn draw_picker(
     size: [f32; 2],
     modal: &Modal<'_>,
 ) -> Result<Option<FocusedItem>, PaintError> {
-    draw_inner(canvas, view, size, modal, true)
+    draw_inner(canvas, view, size, modal, true, size[1])
 }
 
-/// Fits fixed modal chrome and a visible content row before laying out the scroll viewport.
+/// Caps this panel's height while preserving the standard fixed header and button tray.
+pub(super) fn draw_bounded(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    size: [f32; 2],
+    modal: &Modal<'_>,
+    max_height: f32,
+) -> Result<Option<FocusedItem>, PaintError> {
+    draw_inner(canvas, view, size, modal, false, max_height)
+}
+
+/// Fits fixed modal chrome and a visible content row within the caller's height cap.
 fn draw_inner(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
     modal: &Modal<'_>,
     dismiss_overlay: bool,
+    max_height: f32,
 ) -> Result<Option<FocusedItem>, PaintError> {
     let tray = modal.tray_height();
     let content = if !modal.items.is_empty() {
@@ -113,9 +125,9 @@ fn draw_inner(
     };
     let header_edge = if modal.items.is_empty() { EDGE } else { 0.0 };
     let minimum = MARGIN * 2.0 + EDGE * 2.0 + HEADER + header_edge + tray + content;
-    let scale = (size[1] / canvas.r(minimum)).min(1.0);
+    let scale = (max_height.min(size[1]) / canvas.r(minimum)).min(1.0);
     canvas.with_scale(scale, |canvas| {
-        draw_fitted(canvas, view, size, modal, dismiss_overlay)
+        draw_fitted(canvas, view, size, modal, dismiss_overlay, max_height)
     })
 }
 
@@ -126,6 +138,7 @@ fn draw_fitted(
     size: [f32; 2],
     modal: &Modal<'_>,
     dismiss_overlay: bool,
+    max_height: f32,
 ) -> Result<Option<FocusedItem>, PaintError> {
     canvas.hits.clear();
     canvas.overlay(size, OVERLAY_MODAL)?;
@@ -151,7 +164,8 @@ fn draw_fitted(
     } else {
         0.0
     };
-    let room = size[1] - canvas.r(MARGIN) * 2.0 - edge * 2.0 - header - tray + overlap;
+    let height_limit = max_height.min(size[1] - canvas.r(MARGIN) * 2.0);
+    let room = height_limit - edge * 2.0 - header - tray + overlap;
     let room = room.max(0.0);
     let item = canvas.r(ITEM);
     // An overflowing menu shows whole items less half of one, so a cut row signals scrolling.

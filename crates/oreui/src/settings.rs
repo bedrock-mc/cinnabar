@@ -20,10 +20,10 @@ use super::paint::{Bounds, Canvas};
 use super::theme::{self, BODY, CAPTION, EDGE, NEUTRAL, TEXT, TEXT_DIMMER};
 use super::widgets;
 use crate::images::CHEVRON_LEFT_IMAGE;
-use launcher::menu::settings_sections::SETTINGS_SECTIONS;
+use launcher::menu::settings_sections::SettingSection;
 use launcher::menu::{
     MenuAction, MenuView,
-    settings_options::{SETTINGS_OPTIONS, SettingKind},
+    settings_options::{SETTINGS_OPTIONS, SettingId, SettingKind},
     view::SettingsFocusAxis,
 };
 use ui::IconRef;
@@ -31,10 +31,10 @@ use ui_engine::engine::screen::PaintError;
 use ui_engine::engine::screen::Translate;
 
 pub(super) fn section_index(name: &str) -> u8 {
-    SETTINGS_SECTIONS
-        .iter()
-        .find_map(|(key, index)| (*key == name).then_some(*index))
+    SettingSection::from_name(name)
         .expect("registered settings section")
+        .definition()
+        .index
 }
 
 pub(super) fn draw(
@@ -75,13 +75,13 @@ pub(super) fn draw(
         body[1],
         bottom,
     ];
-    let section = SETTINGS_SECTIONS
-        .iter()
-        .find_map(|(key, index)| (*index == view.settings_section).then_some(*key))
-        .unwrap_or("accessibility_forced_index");
-    let key = format!("oreui_settings/{section}");
-    let tab = focus::tab(section_index(section));
-    let entrance = canvas.begin_entrance(super::motion::Surface::Settings(section_index(section)));
+    let section =
+        SettingSection::from_index(view.settings_section).unwrap_or(SettingSection::Accessibility);
+    let selector = section.definition().name;
+    let key = format!("oreui_settings/{selector}");
+    let tab = focus::tab(section.definition().index);
+    let entrance =
+        canvas.begin_entrance(super::motion::Surface::Settings(section.definition().index));
     let tab_focus = canvas.begin_focus_region(tab, [body[0], top, body[1], bottom], None, false)?;
     // A resize can shrink the scroll range. Redraw once with the new clamped offset.
     for attempt in 0..2 {
@@ -368,48 +368,45 @@ impl Content<'_, '_> {
         Ok(())
     }
 
-    pub(super) fn option(&mut self, name: &str) -> Result<(), PaintError> {
-        if name == "full_screen" {
+    pub(super) fn option(&mut self, id: SettingId) -> Result<(), PaintError> {
+        if id == SettingId::FullScreen {
             let action = MenuAction::SettingsFullscreen(!self.view.fullscreen);
             let title = self.word("options.fullscreen");
             let description = self.word("options.fullscreen.description");
             return self.boolean(&title, &description, self.view.fullscreen, action, true);
         }
-        if name == "gui_scale" {
+        if id == SettingId::GuiScale {
             return gui_scale::draw(self);
         }
-        let Some((index, option)) = SETTINGS_OPTIONS
-            .iter()
-            .enumerate()
-            .find(|(_, option)| option.name == name)
-        else {
-            return Ok(());
-        };
+        let index = id.index();
+        let option = id.definition();
         let value = self.view.settings_options.get(index);
-        let label_key = sections::option_label(name, option.label);
+        let label_key = option.oreui_label.unwrap_or(option.label);
         let title = self.word(label_key);
         let base_key = label_key.strip_suffix(".name").unwrap_or(label_key);
-        let description_key = match name {
-            "keyboard_mouse_invert_y_axis" => "options.invertYAxis.Mouse.description".to_owned(),
-            "controller_invert_y_axis" => "options.invertYAxis.description".to_owned(),
+        let description_key = match id {
+            SettingId::KeyboardMouseInvertYAxis => {
+                "options.invertYAxis.Mouse.description".to_owned()
+            }
+            SettingId::ControllerInvertYAxis => "options.invertYAxis.description".to_owned(),
             _ => format!("{base_key}.description"),
         };
         let description =
             (self.translate)(&description_key).map_or_else(String::new, |text| text.to_string());
-        let description = if name == launcher::menu::settings_options::VRR_OPTION.name {
+        let description = if id == SettingId::Vrr {
             "Automatic uses display detection. Choose On if variable refresh is enabled in your display and system settings, or Off to disable the VRR frame cap.".to_owned()
-        } else if name == launcher::menu::settings_options::AUTO_UPDATE_OPTION.name {
+        } else if id == SettingId::AutoUpdateEnabled {
             "Check the selected channel and download verified updates in the background.".to_owned()
-        } else if name == launcher::menu::settings_options::INSTALL_ON_QUIT_OPTION.name {
+        } else if id == SettingId::InstallUpdatesOnQuit {
             "Install a downloaded update and restart when you quit. Later defers it for this session.".to_owned()
-        } else if name == launcher::menu::settings_options::UPDATE_CHANNEL_OPTION.name {
+        } else if id == SettingId::UpdateChannel {
             "A slower channel waits until its version passes your installed build. Stable appears after its first signed release.".to_owned()
-        } else if name == "screen_animations" {
+        } else if id == SettingId::ScreenAnimations {
             "Smooth highlights, button presses and screen transitions. Turn off for an instant interface.".to_owned()
-        } else if (name == "render_clouds"
-            || name == "max_framerate"
-            || name == launcher::menu::settings_options::SHOW_EXACT_SERVER_PING
-            || name == launcher::menu::settings_options::OREUI_DARK_MODE)
+        } else if (id == SettingId::RenderClouds
+            || id == SettingId::MaxFramerate
+            || id == SettingId::ShowExactServerPing
+            || id == SettingId::OreuiDarkMode)
             && description.is_empty()
         {
             sections::fallback(&description_key).to_owned()
@@ -417,9 +414,12 @@ impl Content<'_, '_> {
             description
         };
         match option.kind {
+            SettingKind::Host => {
+                unreachable!("host controls are dispatched before option rendering")
+            }
             SettingKind::Toggle => {
-                let (on, enabled) = match name {
-                    "vsync" => (
+                let (on, enabled) = match id {
+                    SettingId::Vsync => (
                         self.view.vsync_override.unwrap_or(value != 0),
                         self.view.vsync_override.is_none(),
                     ),
@@ -435,17 +435,17 @@ impl Content<'_, '_> {
             }
             SettingKind::Slider => {
                 let [left, right] = self.inset();
-                let shown = match name {
-                    "field_of_view" => format!("{value}°"),
-                    "render_distance" => self
+                let shown = match id {
+                    SettingId::FieldOfView => format!("{value}°"),
+                    SettingId::RenderDistance => self
                         .word("options.renderDistanceFormat")
                         .replace("%s", &value.to_string()),
-                    "max_framerate" => {
+                    SettingId::MaxFramerate => {
                         launcher::menu::settings_options::frame_rate_label(value, &|key: &str| {
                             self.word(key)
                         })
                     }
-                    "msaa" => value.to_string(),
+                    SettingId::Msaa => value.to_string(),
                     _ => format!("{value}%"),
                 };
                 let amount = self.canvas.measure(&shown, BODY)?;
@@ -460,7 +460,7 @@ impl Content<'_, '_> {
                     TEXT,
                     false,
                 )?;
-                let actions: Vec<_> = if name == "msaa" {
+                let actions: Vec<_> = if id == SettingId::Msaa {
                     self.view
                         .settings_options
                         .anti_aliasing_support()
@@ -488,13 +488,13 @@ impl Content<'_, '_> {
                     ],
                     &actions,
                     selected,
-                    name == "render_distance",
+                    id == SettingId::RenderDistance,
                 )?;
             }
             SettingKind::Dropdown(choices) => {
                 let [left, right] = self.inset();
                 let visible: Vec<_> = (0..choices.len())
-                    .filter(|choice| self.view.setting_choice_visible(option, *choice))
+                    .filter(|choice| self.view.setting_choice_visible(&option, *choice))
                     .collect();
                 let labels: Vec<_> = visible
                     .iter()

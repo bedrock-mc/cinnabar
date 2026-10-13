@@ -10,6 +10,7 @@ use ui::DpiScale;
 
 use super::*;
 use client_ui::ui_runtime::UiRuntime;
+use launcher::menu::settings_options::SettingId;
 use {
     client_ui::test_support::engine_presentation,
     launcher::menu::{MenuAction, MenuScreen, settings_options::SETTINGS_OPTIONS},
@@ -33,7 +34,7 @@ impl Rail {
 fn gamma() -> u16 {
     SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "gamma")
+        .position(|option| option.id == SettingId::Gamma)
         .unwrap() as u16
 }
 
@@ -519,7 +520,7 @@ fn native_picker_space_commits_the_focused_choice() {
     };
     let index = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "third_person")
+        .position(|option| option.id == SettingId::ThirdPerson)
         .unwrap() as u16;
     {
         let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
@@ -552,7 +553,7 @@ fn native_picker_space_commits_the_focused_choice() {
 fn native_release_action_preserves_live_toggle_and_fullscreen_callbacks() {
     let index = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "keyboard_mouse_autojump")
+        .position(|option| option.id == SettingId::KeyboardMouseAutojump)
         .unwrap() as u16;
     let mut menu = MenuRuntime::new(true, 2, "Player".into());
     menu.activate(MenuAction::Navigate(MenuScreen::Settings));

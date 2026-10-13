@@ -138,7 +138,7 @@ fn physics_reads_predicted_equipment_and_hunger_in_the_same_frame() {
         local_player_unique_id: 1,
         player_position: [0.0, 70.0, 0.0],
         world_spawn_position: [0, 70, 0],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let before = read(Some(&player), &GameplayWorldView(&stream), false);
@@ -188,7 +188,7 @@ fn movement_food_gates_use_the_sprint_floor_and_flight_permission() {
         local_player_unique_id: 1,
         player_position: [0.0, 70.0, 0.0],
         world_spawn_position: [0, 70, 0],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let missing_food = read(Some(&player), &GameplayWorldView(&stream), false);

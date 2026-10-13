@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::ui_runtime::render_adapter;
+use launcher::menu::settings_options::SettingId;
 use ui::RetainedDraw;
 
 impl UiPresentationRuntime {
@@ -62,7 +63,7 @@ impl UiPresentationRuntime {
         self.configure_oreui_settings();
         if let Some(view) = &self.menu_view {
             self.menu_scrolls.configure_motion(
-                view.settings_options.value("screen_animations") != 0,
+                view.settings_options.value(SettingId::ScreenAnimations) != 0,
                 self.menu_seconds,
             );
         }
