@@ -319,6 +319,25 @@ fn exact_capacity_one_sixteen_and_sixty_four_rules_are_used() {
 }
 
 #[test]
+fn unparsed_stack_size_data_cannot_enable_oversized_merges() {
+    let registry = protocol::test_support::items::component_item_registry("test:gem", 6, 1, 40);
+    let entry = &registry.entries[0];
+    assert!(entry.components.is_none());
+    assert!(!entry.canonical_empty_component_data);
+
+    let target = stack(6, 60, 1);
+    let cursor = stack(6, 33, 1);
+    let mut ledger = player_ledger(Some(registry), target.clone(), cursor.clone());
+    assert_eq!(
+        ledger.begin_click(0),
+        Err(InventoryGestureError::InvalidRequest)
+    );
+    assert_eq!(ledger.displayed_stack(0), Some(&target));
+    assert_eq!(ledger.cursor_stack(), Some(&cursor));
+    assert_eq!(ledger.pending_request_count(), 0);
+}
+
+#[test]
 fn unsupported_stack_shapes_never_guess_a_merge_rule_and_registry_shapes_bind_natively() {
     let cases = [
         (None, stack(6, 60, 60), stack(6, 33, 3)),

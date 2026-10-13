@@ -214,20 +214,17 @@ fn effective_merge_binding(entry: Option<&ItemRegistryEntry>) -> Option<(&str, O
     Some((entry.identifier.as_ref(), entry_capacity(entry)))
 }
 
-/// The stack size the native item registry gives `entry`, or `None` when its data does not
-/// settle it.
+/// Returns the entry's stack capacity, or `None` when its declarations are unresolved.
 ///
-/// The native client registers every DataDriven entry as a component item before it
-/// registers its own vanilla item classes, so a component item replaces a vanilla item of the
-/// same name. Legacy and other entries keep the vanilla class of their name. Any other name
-/// becomes a component item when the entry is component based and a plain item otherwise;
-/// entries of an unknown item version bind the same way, by name (`0x146225850`).
-/// Each class then reads the entry's `components`: a component item takes its stack size from
-/// `item_properties` (or the `minecraft:max_stack_size` component without them), and every
-/// class keeps its own when the data declares none.
+/// DataDriven entries use component capacities even for known names. Other entries keep
+/// the known item's capacity, or use the component flag for an unknown name.
 pub(super) fn entry_capacity(entry: &ItemRegistryEntry) -> Option<u8> {
-    let vanilla = protocol::vanilla_item_capacity(&entry.identifier, 0);
     let components = entry.components.as_deref();
+    if components.is_none() && !entry.canonical_empty_component_data {
+        // Unavailable parsed facts do not prove that a capacity declaration was absent.
+        return None;
+    }
+    let vanilla = protocol::vanilla_item_capacity(&entry.identifier, 0);
     let item_properties = components.is_some_and(|components| components.item_properties_declared);
     let stack_component =
         components.is_some_and(|components| components.max_stack_size_component_declared);
@@ -245,8 +242,7 @@ pub(super) fn entry_capacity(entry: &ItemRegistryEntry) -> Option<u8> {
         };
     }
     if stack_component {
-        // Provisional: plain and vanilla items appear to read the top-level component as a bare
-        // int (`0x1461F9CD0`), which add-on data does not send, so its effect is unsettled.
+        // The top-level stack component's effect on plain and vanilla items is unresolved.
         return None;
     }
     Some(vanilla.unwrap_or(protocol::ITEM_DEFAULT_MAX_STACK_SIZE))
@@ -295,6 +291,27 @@ mod tests {
         ItemRegistryEntry { version, ..entry }
     }
 
+    #[test]
+    fn unparsed_component_data_keeps_capacity_unresolved() {
+        for version in [
+            ItemRegistryVersion::DataDriven,
+            ItemRegistryVersion::Legacy,
+            ItemRegistryVersion::None,
+            ItemRegistryVersion::Unknown(99),
+        ] {
+            for identifier in ["minecraft:egg", "test:gem"] {
+                for component_based in [false, true] {
+                    let unresolved = ItemRegistryEntry {
+                        components: None,
+                        canonical_empty_component_data: false,
+                        ..versioned(entry(identifier, component_based, Some(1)), version)
+                    };
+                    assert_eq!(entry_capacity(&unresolved), None);
+                }
+            }
+        }
+    }
+
     // DataDriven entries register as component items ahead of the vanilla classes, so their
     // stack size comes from item_properties or the item default, never the vanilla class.
     #[test]
@@ -305,6 +322,15 @@ mod tests {
             Some(16)
         );
         assert_eq!(entry_capacity(&entry("zeqa:gem", true, None)), Some(64));
+        let parsed_without_declarations = ItemRegistryEntry {
+            components: Some(Arc::new(ItemComponents::default())),
+            canonical_empty_component_data: false,
+            ..entry("zeqa:gem", true, None)
+        };
+        assert_eq!(
+            entry_capacity(&parsed_without_declarations),
+            Some(protocol::ITEM_DEFAULT_MAX_STACK_SIZE)
+        );
         assert_eq!(
             entry_capacity(&entry("minecraft:egg", true, None)),
             Some(64),
@@ -386,7 +412,6 @@ mod tests {
     #[test]
     fn server_block_items_stack_to_the_item_default() {
         let block_item = |declared| ItemRegistryEntry {
-            components: None,
             version: ItemRegistryVersion::None,
             ..entry("benergistics:controller", false, declared)
         };

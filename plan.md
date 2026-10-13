@@ -1164,15 +1164,15 @@ acceptance gate.
 
 ## Item stack sizes
 
-- Merge capacity follows the native item registry. DataDriven entries register as component
-  items before the vanilla item classes, so they replace a vanilla item of the same name and
-  stack to `item_properties.max_stack_size`, else the item default of 64. Legacy and
-  unversioned entries keep the vanilla class of their name; other names become component items
-  when component based and plain 64 items otherwise. Entries of an unknown item version bind
-  the same way by name, as the native per-entry binder does (`0x146225850`).
+- DataDriven entries use component stack sizes even for known item names. They use
+  `item_properties.max_stack_size`, or the item default when no capacity is declared. Legacy
+  and unversioned entries retain the known item's capacity; other names use the component
+  flag to choose between a component item and a plain item. Unknown item versions bind by
+  name in the same way. Unavailable component facts leave capacity unresolved unless the
+  payload is the canonical empty compound.
 - Provisional: a component item's top-level `minecraft:max_stack_size` component is read when
   it has no `item_properties`, and plain or vanilla items carrying that component leave their
-  capacity unsettled; neither read is traced natively.
+  capacity unsettled. Parity verification of these layouts remains incomplete.
 
 ## Eating and drinking presentation
 
