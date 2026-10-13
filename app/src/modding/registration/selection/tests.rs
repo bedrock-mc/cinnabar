@@ -122,7 +122,7 @@ fn registration_rejects_duplicate_identity_and_excess_entries() {
 fn permission_revocation_survives_malformed_or_missing_component_metadata() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path();
-    let component = root.join("mod.wasm");
+    let component = resolved_component(&root.join("mod.wasm"));
     let requested = ModGrants {
         commands: vec!["ability".into()],
         ..Default::default()
