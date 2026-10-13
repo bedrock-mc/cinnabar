@@ -879,21 +879,18 @@ fn scheduler_serves_the_view_cone_before_nearer_sub_chunks_beside_it() {
     assert_eq!(candidates.pop().map(|candidate| candidate.key), Some(ahead));
 }
 
-/// Measures visible-ring convergence with the original delay and explicit network round trips.
+/// Measures visible-ring convergence at each configured network round trip.
 #[test]
 #[ignore = "release teleport timing; run with --ignored --nocapture"]
 fn teleport_visible_ring_timing() {
-    for reply_rtt in std::iter::once(None).chain(NETWORK_ROUND_TRIPS.map(Some)) {
+    for rtt in NETWORK_ROUND_TRIPS {
         let mut harness = Harness::new(8, 1);
-        harness.reply_rtt = reply_rtt;
+        harness.reply_rtt = Some(rtt);
         harness.send_view(ChunkKey::new(0, 0, 0), false);
         harness.run();
         harness.send_view(ChunkKey::new(0, 125, 137), true);
         let report = harness.run();
-        let reply_delay = match reply_rtt {
-            Some(rtt) => format!("{} ms RTT", rtt.as_millis()),
-            None => format!("{REPLY_LATENCY_FRAMES} frames"),
-        };
+        let reply_delay = format!("{} ms RTT", rtt.as_millis());
         println!("teleport_visible_ring reply_delay={reply_delay} {report:?}");
         assert!(report.in_view > 0);
         assert!(report.millis_to_near.is_some());

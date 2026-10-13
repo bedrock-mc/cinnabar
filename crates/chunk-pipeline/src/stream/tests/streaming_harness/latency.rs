@@ -1,7 +1,10 @@
 use super::*;
 
-pub(super) const NETWORK_ROUND_TRIPS: [Duration; 2] =
-    [Duration::from_millis(50), Duration::from_millis(120)];
+pub(super) const NETWORK_ROUND_TRIPS: [Duration; 3] = [
+    Duration::from_millis(24),
+    Duration::from_millis(50),
+    Duration::from_millis(120),
+];
 
 /// A reply uses either the original frame delay or an explicit elapsed network delay.
 pub(super) enum ReplyDeadline {
