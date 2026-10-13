@@ -45,6 +45,21 @@ fn profiles() -> MenuView {
     view
 }
 
+/// Resolves text's vertical bounds through its scroll and animation parents.
+fn window_vertical_bounds(nodes: &[UiNode], node: &UiNode) -> [f32; 2] {
+    let mut offset = 0.0;
+    let mut parent = node.parent();
+    while let Some(id) = parent {
+        let ancestor = nodes.iter().find(|node| node.id() == id).unwrap();
+        offset += ancestor.bounds().min().y();
+        parent = ancestor.parent();
+    }
+    [
+        node.bounds().min().y() + offset,
+        node.bounds().max().y() + offset,
+    ]
+}
+
 #[test]
 fn first_launch_title_fits_the_header_and_import_details_have_a_body() {
     let mut view = MenuView::new(true, "Fixture".into());
@@ -64,16 +79,18 @@ fn first_launch_title_fits_the_header_and_import_details_have_a_body() {
         .into_iter()
         .find_map(|(bounds, color)| (color == crate::theme::NEUTRAL.fill).then_some(bounds))
         .expect("the offer has a header");
-    assert!(title.bounds().min().y() >= header[1]);
-    assert!(title.bounds().max().y() <= header[3]);
+    let title_bounds = window_vertical_bounds(&nodes, title);
+    assert!(title_bounds[0] >= header[1]);
+    assert!(title_bounds[1] <= header[3]);
     assert!(!view.minecraft_import.body().is_empty());
     let body = nodes
         .iter()
         .rev()
         .find(|node| matches!(node.visual(), UiVisual::Text { .. }))
         .expect("the offer explains what will be imported");
-    assert!(body.bounds().min().y() >= header[3]);
-    assert!(body.bounds().max().y() <= SIZE[1]);
+    let body_bounds = window_vertical_bounds(&nodes, body);
+    assert!(body_bounds[0] >= header[3]);
+    assert!(body_bounds[1] <= SIZE[1]);
     for action in [Action::Begin, Action::NotNow] {
         assert!(
             hits.iter()
