@@ -137,7 +137,7 @@ impl Builder<'_> {
     }
 
     /// Recounts retained pixels and page mips after resizing or discarding unpublished layers.
-    pub(super) fn recount_texture_bytes(&mut self) {
+    pub(in super::super) fn recount_texture_bytes(&mut self) {
         self.source_bytes = self
             .sources
             .iter()
