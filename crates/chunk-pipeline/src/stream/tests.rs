@@ -987,6 +987,7 @@ mod cases_11;
 mod cases_12;
 mod cohort_progress;
 mod entity_occlusion;
+mod far_summaries;
 mod forced_remesh;
 mod inbound_lanes;
 mod inline_cohort;

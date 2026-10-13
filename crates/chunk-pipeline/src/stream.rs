@@ -64,6 +64,8 @@ mod diagnostics;
 mod dimension_transfer;
 mod dirty;
 mod entity_occlusion;
+mod far_summaries;
+pub use far_summaries::FarColumnSummary;
 mod helpers;
 mod light_diagnostics;
 mod light_queries;
@@ -409,6 +411,7 @@ pub struct WorldStream {
     last_retention_center: Option<ChunkKey>,
     last_retention_radius: Option<i32>,
     local_player_chunk: Option<ChunkKey>,
+    far_terrain: far_summaries::FarTerrainFeed,
     stats: WorldStreamStats,
 }
 

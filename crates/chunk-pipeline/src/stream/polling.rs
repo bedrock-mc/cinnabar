@@ -98,6 +98,7 @@ impl WorldStream {
         self.request_due_sub_chunk_recoveries(Instant::now());
         self.pump_deferred_retries();
         self.dispatch_decode_jobs();
+        self.dispatch_far_summaries();
 
         let now = Instant::now();
         let remaining = frame_deadline.saturating_duration_since(now);

@@ -104,6 +104,13 @@ allowed_dependencies = ["assets", "block-transform", "world"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
+name = "far-terrain"
+path = "crates/far-terrain"
+allowed_dependencies = ["assets", "world"]
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-world", "chunk-pipeline", "meshing", "render", "bevy", "bevy_*", "wgpu*"]
+
+[[crates]]
 name = "actor-animation"
 path = "crates/actor-animation"
 allowed_dependencies = ["simulation-clock", "assets", "protocol", "render-api", "render-model", "world"]
@@ -158,7 +165,7 @@ test_support_features = ["test-support"]
 name = "chunk-pipeline"
 path = "crates/chunk-pipeline"
 test_support_features = ["publication-test-support", "benchmark-support", "runtime-profile", "benchmark-mimalloc"]
-allowed_dependencies = ["simulation-clock", "actor-animation", "client-world", "meshing", "assets", "world", "render-api", "test-time"]
+allowed_dependencies = ["simulation-clock", "actor-animation", "client-world", "far-terrain", "meshing", "assets", "world", "render-api", "test-time"]
 # Protocol is permitted only in fixtures; production consumes client-world's admitted contracts.
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "protocol", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]

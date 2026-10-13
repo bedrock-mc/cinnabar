@@ -3518,6 +3518,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
 
 [[package]]
+name = "far-terrain"
+version = "0.1.18"
+dependencies = [
+ "assets",
+ "criterion",
+ "flate2",
+ "thiserror 2.0.18",
+ "world",
+ "xxhash-rust",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
