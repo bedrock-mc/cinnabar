@@ -105,7 +105,6 @@ pub struct ActorFramePublication<'w, 's> {
     hand_scene: ResMut<'w, HandRigScene>,
     hand_motion: Option<Res<'w, crate::camera::FirstPersonHandMotion>>,
     equipment: Option<ResMut<'w, EquipmentRuntime>>,
-    block_entities: Option<Res<'w, render_scene::BlockEntitySceneResource>>,
     glint_settings: Option<Res<'w, render_scene::UiGlintSettings>>,
     dropped_items: DroppedItemPublisher<'w, 's>,
     profiler: Option<Res<'w, render_scene::RuntimeStageProfiler>>,

@@ -9,6 +9,9 @@ mod held_block_entity_tests;
 #[path = "held_model_residency_tests.rs"]
 mod held_model_residency_tests;
 
+#[path = "held_block_entity_reload_tests.rs"]
+mod held_block_entity_reload_tests;
+
 use actor_animation::ItemAnimationState;
 use bevy::math::Quat;
 use render_api::PoseGeneration;

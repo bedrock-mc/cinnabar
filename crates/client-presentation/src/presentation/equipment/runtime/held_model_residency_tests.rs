@@ -1,9 +1,7 @@
 //! Partial model artwork must keep the held item's available icon.
 
 use super::*;
-use render_model::{
-    BlockEntityAtlas, block_entity::PreparedHeldBlockModels, java_animation::JavaHand,
-};
+use render_model::java_animation::JavaHand;
 
 /// Builds a valid synthetic pot atlas with independently optional base and side textures.
 fn pot_assets(base: bool, side: bool) -> RuntimeBlockEntityAssets {
@@ -126,15 +124,19 @@ fn partial_artwork_reload_keeps_the_icon_and_complete_artwork_restores_the_model
     let complete = view_rigs(&mut runtime, &body, &item);
     assert_ne!(complete[0], icon[0]);
     for (base, side) in [(false, false), (true, false), (false, true)] {
-        let atlas = BlockEntityAtlas::from_assets(&pot_assets(base, side));
-        let prepared = PreparedHeldBlockModels::new(&atlas);
-        let _updated_pages = runtime.bind_held_artwork(Some(&prepared), &pages).unwrap();
+        let artwork = render_model::BlockEntityScene::default()
+            .artwork_preparer()
+            .prepare(&pot_assets(base, side))
+            .unwrap();
+        let (_updated_pages, prepared) =
+            EquipmentRuntime::prepare_block_entity_artwork(&pages, &artwork);
+        runtime.set_block_entity_artwork(Some(&prepared));
         assert_eq!(
             view_rigs(&mut runtime, &body, &item),
             icon,
             "base {base}, side {side}: reload must not select partial geometry"
         );
-        assert!(runtime.bind_held_artwork(None, &pages).is_none());
+        runtime.set_block_entity_artwork(None);
         assert_eq!(view_rigs(&mut runtime, &body, &item), complete);
     }
 }

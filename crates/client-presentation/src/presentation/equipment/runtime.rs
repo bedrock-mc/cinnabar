@@ -117,8 +117,9 @@ pub struct EquipmentRuntime {
     pending: Vec<ActorRigGeometry>,
     /// Worn head geometry and texture location per skull kind.
     skulls: BTreeMap<u8, (EntityRigId, ActorArtworkLocation)>,
-    /// Held geometry and texture location per block-entity item model (chests, shulkers).
-    held_block_entities: held_block_entities::HeldModels,
+    /// Held model rigs, artwork locations and texture-local glint spans.
+    held_block_entities: crate::prepared_actor_artwork::PreparedHeldBlockEntities,
+    startup_held_block_entities: crate::prepared_actor_artwork::PreparedHeldBlockEntities,
     item_use: Arc<BTreeMap<Box<str>, u32>>,
     use_overlays: Arc<BTreeMap<Box<str>, assets::equipment::CompiledItemUseOverlay>>,
     /// The startup catalog's use durations, before session items join them.
@@ -259,8 +260,8 @@ impl EquipmentRuntime {
                 }
             }
         }
-        let held_block_entities =
-            held_block_entities::build(skull_atlas.as_ref(), skull_location, &mut pending);
+        let held_block_entities = held_block_entities::build(skull_atlas.as_ref(), skull_location);
+        pending.extend(held_block_entities.geometries.iter().cloned());
         let mut geometries = catalog
             .iter()
             .flat_map(|catalog| catalog.bindings())
@@ -345,6 +346,7 @@ impl EquipmentRuntime {
             catalog,
             pending,
             skulls,
+            startup_held_block_entities: held_block_entities.clone(),
             held_block_entities,
             pack: None,
             logged_misses: Default::default(),

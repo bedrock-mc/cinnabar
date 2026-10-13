@@ -367,6 +367,48 @@ mod tests {
     }
 
     #[test]
+    fn decorated_pot_requires_base_and_side_artwork() {
+        use assets::block_entity_geometry as geometry;
+
+        for names in [
+            vec![geometry::POT_BASE_TEXTURE.0],
+            vec![geometry::POT_SIDE_TEXTURE.0],
+            vec![geometry::POT_BASE_TEXTURE.0, geometry::POT_SIDE_TEXTURE.0],
+        ] {
+            let mut placements = names
+                .iter()
+                .enumerate()
+                .map(|(index, name)| assets::BlockEntityPlacement {
+                    name: (*name).into(),
+                    x: 0,
+                    y: index as u32 * 64,
+                    width: 64,
+                    height: 64,
+                })
+                .collect::<Vec<_>>();
+            placements.sort_by(|left, right| left.name.cmp(&right.name));
+            let height = 64 * placements.len() as u32;
+            let bytes = assets::encode_block_entity_catalog(
+                b"{}",
+                64,
+                height,
+                &vec![255; (64 * height * 4) as usize],
+                &placements,
+            )
+            .unwrap();
+            let atlas = BlockEntityAtlas::from_assets(
+                &assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap(),
+            );
+            assert_eq!(
+                held_block_entity_model(EntityRigId(1), &atlas, HeldBlockEntity::DecoratedPot)
+                    .is_some(),
+                names.len() == 2,
+                "partial pot artwork must retain the sprite fallback: {names:?}"
+            );
+        }
+    }
+
+    #[test]
     fn held_models_have_finite_unit_face_normals() {
         use assets::block_entity_geometry as geometry;
         use glam::Vec3;

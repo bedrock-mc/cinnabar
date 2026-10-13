@@ -118,10 +118,9 @@ fn startup_conduit_model_reaches_camera_hands_and_player_equipment() {
     let mut scene = render_model::BlockEntityScene::default();
     let prepared = scene.artwork_preparer().prepare(&replacement).unwrap();
     scene.install_prepared_assets(&prepared);
-    assert!(runtime.held_artwork_changed(scene.held_models()));
-    let updated_pages = runtime
-        .bind_held_artwork(scene.held_models(), &startup_pages)
-        .unwrap();
+    let (updated_pages, held) =
+        EquipmentRuntime::prepare_block_entity_artwork(&startup_pages, &prepared);
+    runtime.set_block_entity_artwork(Some(&held));
     let queued = runtime.take_pending_geometries();
     let updated = queued.iter().find(|model| model.id == rig).unwrap();
     assert_ne!(
@@ -158,14 +157,12 @@ fn startup_conduit_model_reaches_camera_hands_and_player_equipment() {
             .rig,
         rig
     );
-    assert!(!runtime.held_artwork_changed(scene.held_models()));
-    runtime.bind_held_artwork(scene.held_models(), &startup_pages);
+    runtime.set_block_entity_artwork(Some(&held));
     assert!(
         runtime.take_pending_geometries().is_empty(),
         "unchanged artwork reuses prepared meshes"
     );
-    assert!(runtime.held_artwork_changed(None));
-    assert!(runtime.bind_held_artwork(None, &startup_pages).is_none());
+    runtime.set_block_entity_artwork(None);
     let restored = runtime.take_pending_geometries();
     assert_eq!(
         restored
