@@ -240,3 +240,39 @@ fn review_malformed_siblings_do_not_hide_a_usable_skin_geometry() {
         assert!(parse_skin_geometry(PATCH, &source).unwrap().is_some());
     }
 }
+
+#[test]
+fn authored_head_bob_flag_survives_both_schemas_and_inheritance() {
+    for flag in [false, true] {
+        let mut geometry = serde_json::json!({
+            "description":{"identifier":"geometry.npc"}, "bones":[{"name":"body"}]
+        });
+        geometry[GEOMETRY_NO_HEAD_BOB_FIELD] = flag.into();
+        let modern =
+            serde_json::json!({"format_version":"1.12.0", "minecraft:geometry":[geometry]});
+        assert_eq!(
+            parse_skin_geometry(PATCH, &modern.to_string())
+                .unwrap()
+                .unwrap()
+                .animation_no_head_bob,
+            flag
+        );
+    }
+    for child_flag in [None, Some(false), Some(true)] {
+        let mut parent = serde_json::json!({"bones":[{"name":"body"}]});
+        parent[GEOMETRY_NO_HEAD_BOB_FIELD] = true.into();
+        let mut child = serde_json::json!({"bones":[]});
+        if let Some(flag) = child_flag {
+            child[GEOMETRY_NO_HEAD_BOB_FIELD] = flag.into();
+        }
+        let legacy = serde_json::json!({"format_version":"1.8.0",
+            "geometry.parent":parent, "geometry.npc:geometry.parent":child});
+        assert_eq!(
+            parse_skin_geometry(PATCH, &legacy.to_string())
+                .unwrap()
+                .unwrap()
+                .animation_no_head_bob,
+            child_flag.unwrap_or(true)
+        );
+    }
+}

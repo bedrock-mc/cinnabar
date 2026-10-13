@@ -76,3 +76,24 @@ fn native_color_mask_textures_have_independent_opaque_material_pages() {
         "neutral textures do not inherit the native material"
     );
 }
+
+#[test]
+fn actor_and_item_glint_keep_independent_pixels_and_artwork_identity() {
+    let raster = |red| EquipmentRaster {
+        width: 1,
+        height: 1,
+        rgba8: Arc::from([red, 20, 40, 255]),
+    };
+    let pages = ActorArtworkPages::default()
+        .with_actor_glint(raster(10))
+        .with_item_glint(raster(90));
+    assert_eq!(pages.actor_glint.as_ref().unwrap().rgba8[0], 10);
+    assert_eq!(pages.item_glint.as_ref().unwrap().rgba8[0], 90);
+    let updated = pages.clone().with_item_glint(raster(80));
+    assert_ne!(updated.identity(), pages.identity());
+    assert_eq!(
+        updated.actor_glint.as_ref().unwrap().rgba8,
+        pages.actor_glint.as_ref().unwrap().rgba8
+    );
+    assert_eq!(updated.item_glint.as_ref().unwrap().rgba8[0], 80);
+}

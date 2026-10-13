@@ -80,7 +80,7 @@ fn spyglass_binding() -> Value {
             },
             "textures": {
                 "default": "textures/entity/spyglass",
-                "enchanted": "textures/misc/enchanted_item_glint"
+                "enchanted": assets::entity::ITEM_GLINT_TEXTURE_IDENTIFIER
             },
             "geometry": {"default": "geometry.spyglass"},
             "animations": {
@@ -105,7 +105,7 @@ fn spear_binding(identifier: &str, material: &str) -> Value {
             "materials": {"default": "entity_alphatest", "enchanted": "entity_alphatest_glint"},
             "textures": {
                 "default": format!("textures/entity/spear/{material}_spear"),
-                "enchanted": "textures/misc/enchanted_item_glint"
+                "enchanted": assets::entity::ITEM_GLINT_TEXTURE_IDENTIFIER
             },
             "geometry": {"default": "geometry.spear"},
             "animations": {

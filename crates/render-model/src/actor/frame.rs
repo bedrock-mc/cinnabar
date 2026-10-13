@@ -101,6 +101,8 @@ pub struct ActorRigSubmission {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ActorMaterial {
+    /// Alpha weights leather dye independently of the page's other materials.
+    pub color_mask: bool,
     /// Animated glint factors. Item glint overlays preserve the base material's coverage.
     pub glint: super::ActorGlint,
     pub kind: assets::EntityRenderMaterial,
@@ -114,6 +116,7 @@ pub struct ActorMaterial {
 impl Default for ActorMaterial {
     fn default() -> Self {
         Self {
+            color_mask: false,
             glint: Default::default(),
             kind: Default::default(),
             state: None,
@@ -845,5 +848,15 @@ impl ActorMaterial {
     /// Shader kind and independently admitted raster states in the shared instance word.
     pub fn gpu_word(self) -> u32 {
         self.kind.word(self.state)
+            | if self.color_mask {
+                super::glint::ACTOR_COLOR_MASK_MATERIAL_FLAG
+            } else {
+                0
+            }
+            | if self.glint.profile == render_api::CombatVisuals::Legacy112 {
+                super::glint::LEGACY_COMBAT_MATERIAL_FLAG
+            } else {
+                0
+            }
     }
 }

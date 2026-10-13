@@ -12,6 +12,7 @@ pub(super) fn attach(
     local_runtime_id: u64,
     input: &ActorEquipmentInput,
     java_posed: &[java::Posed],
+    combat_visuals: render_api::CombatVisuals,
     frame: (f32, f32, Option<&render_scene::UiGlintSettings>),
 ) {
     let (partial_tick, delta_seconds, glint_settings) = frame;
@@ -33,9 +34,10 @@ pub(super) fn attach(
             .authority()
             .actor(runtime_id)
             .zip(stream.authority().actor_rig(runtime_id));
-        let layers = equipment.layers_for(
+        let layers = equipment.layers_for_profile(
             body,
             &input,
+            combat_visuals,
             animation.as_ref().map(|(owner, rig)| {
                 crate::presentation::equipment::EquipmentAnimation {
                     owner,

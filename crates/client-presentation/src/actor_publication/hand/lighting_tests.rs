@@ -27,3 +27,33 @@ fn java_fixed_lights_follow_world_look_and_bob_but_not_arm_sway() {
             .abs_diff_eq(Vec3::Z, 1e-6)
     );
 }
+
+#[test]
+fn legacy_sample_replaces_separate_bob_and_hurt_before_hand_sway() {
+    let effect = render_model::legacy_combat::legacy_hurt_matrix(5, 90.0, None, 0.5, 1.0)
+        * render_model::legacy_combat::LegacyCameraEndpoints {
+            walked: [0.6, 0.72],
+            bob: [0.04, 0.064],
+            fall_degrees: [0.0, 1.2],
+        }
+        .bob_matrix(0.5);
+    let motion = crate::camera::FirstPersonHandMotion {
+        legacy_effect: Some(effect),
+        hurt: Mat4::from_rotation_z(0.9),
+        bob: crate::camera::ViewEffect {
+            translation: Vec3::X,
+            roll_radians: 0.7,
+            pitch_radians: 0.2,
+        },
+        sway_pitch_radians: 0.04,
+        sway_yaw_radians: -0.06,
+        ..Default::default()
+    };
+    let expected = effect
+        * Mat4::from_rotation_x(motion.sway_pitch_radians)
+        * Mat4::from_rotation_y(motion.sway_yaw_radians);
+    assert_eq!(hand_motion_matrix(&motion), expected);
+    assert!(
+        !hand_motion_matrix(&motion).abs_diff_eq(effect * motion.hurt * motion.bob.matrix(), 1e-3)
+    );
+}

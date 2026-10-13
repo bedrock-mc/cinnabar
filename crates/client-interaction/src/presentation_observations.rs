@@ -7,6 +7,24 @@ impl PhysicsObservation for crate::movement::LocalPhysicsController {
     fn state(&self) -> Option<&sim::PlayerState> {
         std::ops::Deref::deref(self).state()
     }
+    /// Forwards every resolved tick, including frames containing several physics updates.
+    fn visit_camera_ticks(
+        &self,
+        after: Option<u64>,
+        visit: &mut dyn FnMut(client_presentation::observations::CameraMovementTick),
+    ) {
+        self.visit_completed_ticks(after, &mut |sample, _, _| {
+            visit(client_presentation::observations::CameraMovementTick {
+                tick: sample.tick,
+                position: sample.position,
+                movement: sample.movement,
+                velocity: sample.velocity,
+                on_ground: sample.grounded_after_tick,
+                riding: sample.mode == sim::MovementMode::Riding,
+                walks: sample.walks,
+            });
+        });
+    }
     /// Borrows tick-owned sneak and sprint flags.
     fn latest_sneak_sprint(&self) -> Option<(bool, bool)> {
         self.latest_sneak_sprint()

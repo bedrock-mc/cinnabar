@@ -185,6 +185,7 @@ fn resolve(
                 };
                 Some(ResolvedLayer {
                     material: render_model::ActorMaterial {
+                        color_mask: false,
                         glint: Default::default(),
                         kind: layer.material,
                         state: layer.material_state,

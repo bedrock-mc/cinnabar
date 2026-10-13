@@ -132,6 +132,7 @@ pub fn prepare_actor_render_frame(
         partial_tick: step.partial_tick,
         first_person: state.first_person,
         java_mode: state.java_mode,
+        combat_visuals: state.combat_visuals,
         sampling_camera: state.captured_sampling_camera,
     };
     views::refresh_interpolation(
@@ -151,8 +152,7 @@ pub fn prepare_actor_render_frame(
         .map(|profiler| profiler.time(RuntimeStage::ActorPreparation));
     let cull_view = params.presentation.cull_view();
     let mut new_geometries = Vec::new();
-    // The hand reads the canonical body before local placement. Layers share the body sample's
-    // controller budget; all new geometry is registered together before either rig is published.
+    // The hand and body share controller sampling before local placement.
     let mut bodies = bodies::sample(
         stream,
         &input,
@@ -194,9 +194,7 @@ pub fn prepare_actor_render_frame(
         params.equipment.as_deref_mut(),
         &mut new_geometries,
     );
-    let camera_position = cull_view
-        .as_ref()
-        .map(|view| view.camera_position.to_array());
+    let camera_position = cull_view.map(|view| view.camera_position.to_array());
     let mut batch = select_actor_presentations_for_view(
         bodies.local_runtime_id,
         local_visible,
@@ -218,6 +216,7 @@ pub fn prepare_actor_render_frame(
             local_runtime_id: bodies.local_runtime_id,
             local_equipment: &input.local_equipment,
             java_posed: &bodies.java_posed,
+            combat_visuals: state.combat_visuals,
             local_emote_pose: bodies.local_emote_pose.as_ref(),
             native_body_sampled: bodies.native_body_sampled,
             native_pose: &state.java_hand.native_pose,
@@ -281,6 +280,7 @@ pub fn prepare_actor_render_frame(
         (
             artwork.item_glint().cloned(),
             render_model::ActorGlint {
+                profile: render_api::CombatVisuals::Modern,
                 time_seconds: params.time.elapsed_secs(),
                 strength: params
                     .glint_settings

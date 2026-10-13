@@ -8,6 +8,9 @@ use super::{
     RuntimeEntityAssets, invalid, validate_scalars,
 };
 
+/// JSON field that suppresses movement view bob for authored geometry.
+pub const GEOMETRY_NO_HEAD_BOB_FIELD: &str = "animationNoHeadBob";
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityGeometry {
@@ -17,6 +20,9 @@ pub struct EntityGeometry {
     pub texture_width: u16,
     pub texture_height: u16,
     pub bones: Box<[EntityGeometryBone]>,
+    /// Authored skin geometry can suppress movement view bob without suppressing hurt.
+    #[serde(default, skip_serializing_if = "bob_enabled")]
+    pub animation_no_head_bob: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub visible_bounds: Option<EntityGeometryBounds>,
 }
@@ -110,4 +116,9 @@ pub(super) fn validate_uv(uv: &EntityGeometryUv) -> Result<(), AssetError> {
             Ok(())
         }
     }
+}
+
+/// Omits the default enabled-bob policy from older-compatible geometry payloads.
+fn bob_enabled(no_head_bob: &bool) -> bool {
+    !*no_head_bob
 }

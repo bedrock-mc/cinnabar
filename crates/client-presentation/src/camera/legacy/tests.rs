@@ -1,0 +1,413 @@
+//! Scheduled camera contracts with original actors and resolved movement observations.
+use super::*;
+use crate::actor_publication::ActorFramePartialTick;
+use crate::camera::{CameraSettingsAuthority, FirstPersonHandMotion, FlyCamera, ServerCameraView};
+use crate::camera::{
+    bob::{HandSwayState, WalkBobState},
+    hurt::CameraHurtState,
+    java::JavaCameraState,
+};
+use crate::local_player::LocalViewPose;
+use crate::observations::{CameraMovementTick, PhysicsObservation, WorldObservation};
+use crate::presentation::combat::tests::{event, player_stream};
+use bevy::prelude::*;
+use protocol::ActorStatusKind;
+
+#[derive(Resource)]
+struct TestWorld(chunk_pipeline::WorldStream);
+#[derive(Resource)]
+struct TestPhysics {
+    state: sim::PlayerState,
+    ticks: Vec<CameraMovementTick>,
+    alpha: f32,
+}
+impl PhysicsObservation for TestPhysics {
+    /// Returns the deterministic completed state.
+    fn state(&self) -> Option<&sim::PlayerState> {
+        Some(&self.state)
+    }
+    /// Visits each recorded tick without inventing intermediate motion.
+    fn visit_camera_ticks(&self, after: Option<u64>, visit: &mut dyn FnMut(CameraMovementTick)) {
+        for tick in &self.ticks {
+            if after.is_none_or(|after| tick.tick > after) {
+                visit(*tick);
+            }
+        }
+    }
+    /// The fixture never sneaks or sprints.
+    fn latest_sneak_sprint(&self) -> Option<(bool, bool)> {
+        Some((false, false))
+    }
+    /// The fixture uses ordinary walking.
+    fn mode(&self) -> sim::MovementMode {
+        sim::MovementMode::Walking
+    }
+    /// No glide state is present.
+    fn fall_fly_ticks(&self) -> u32 {
+        0
+    }
+    /// No collision provenance is needed for camera sampling.
+    fn last_world_identity(&self) -> Option<&sim::WorldCollisionIdentity> {
+        None
+    }
+    /// Translation is simulation-owned in this fixture.
+    fn is_active(&self) -> bool {
+        true
+    }
+    /// Uses the fixture's physics fraction independently of the actor clock.
+    fn tick_alpha(&self) -> f32 {
+        self.alpha
+    }
+}
+
+/// Runs the real presentation adapter with deterministic borrowed observations.
+#[allow(clippy::too_many_arguments)]
+fn sample(
+    time: Res<Time>,
+    settings: Res<CameraSettingsAuthority>,
+    view: Res<LocalViewPose>,
+    world: Res<TestWorld>,
+    physics: Res<TestPhysics>,
+    bob: ResMut<WalkBobState>,
+    sway: ResMut<HandSwayState>,
+    hurt: ResMut<CameraHurtState>,
+    java: ResMut<JavaCameraState>,
+    legacy: ResMut<LegacyCameraMotion>,
+    hand: ResMut<FirstPersonHandMotion>,
+) {
+    crate::camera::presentation::advance_presentation_state(
+        time,
+        settings,
+        view,
+        Some(WorldObservation {
+            stream: Some(&world.0),
+        }),
+        Some(&*physics),
+        None,
+        bob,
+        sway,
+        hurt,
+        java,
+        legacy,
+        hand,
+    );
+}
+
+/// Shares the late effect with the hand while retaining each owner's clock fraction.
+#[allow(clippy::too_many_arguments)]
+fn apply(
+    settings: Res<CameraSettingsAuthority>,
+    hand: ResMut<FirstPersonHandMotion>,
+    legacy: Res<LegacyCameraMotion>,
+    server: Res<ServerCameraView>,
+    world: Res<TestWorld>,
+    physics: Res<TestPhysics>,
+    actor_fraction: Res<ActorFramePartialTick>,
+    cameras: Query<&mut Transform, With<FlyCamera>>,
+) {
+    crate::camera::actor_effects::apply_actor_damage_camera_rotation(
+        settings,
+        hand,
+        Some(legacy),
+        server,
+        Some(WorldObservation {
+            stream: Some(&world.0),
+        }),
+        actor_fraction.0,
+        physics.tick_alpha(),
+        cameras,
+    );
+}
+
+/// Creates the camera resources without assets, input devices or a visible window.
+fn camera_app() -> App {
+    let mut app = App::new();
+    app.init_resource::<Time>()
+        .init_resource::<CameraSettingsAuthority>()
+        .init_resource::<LocalViewPose>()
+        .init_resource::<WalkBobState>()
+        .init_resource::<HandSwayState>()
+        .init_resource::<CameraHurtState>()
+        .init_resource::<JavaCameraState>()
+        .init_resource::<LegacyCameraMotion>()
+        .init_resource::<FirstPersonHandMotion>()
+        .init_resource::<ServerCameraView>()
+        .insert_resource(ActorFramePartialTick(0.5))
+        .insert_resource(TestWorld(player_stream()))
+        .insert_resource(TestPhysics {
+            state: sim::PlayerState::new(sim::Vec3::ZERO),
+            ticks: Vec::new(),
+            alpha: 0.5,
+        });
+    app
+}
+
+/// Adds one completed physics tick, with collision-resolved motion.
+fn tick(app: &mut App, index: u64) {
+    let mut physics = app.world_mut().resource_mut::<TestPhysics>();
+    physics.state.tick = index;
+    physics.state.on_ground = true;
+    physics.ticks.push(CameraMovementTick {
+        tick: index,
+        position: [index as f32 * 0.2, 64.0, 0.0],
+        movement: [0.2, 0.0, 0.0],
+        velocity: [0.2, -0.0784, 0.0],
+        on_ground: true,
+        riding: false,
+        walks: true,
+    });
+}
+
+#[test]
+fn camera_adapter_consumes_every_tick_independently_of_frame_cadence() {
+    let mut batched = camera_app();
+    let mut frames = camera_app();
+    for index in 0..4 {
+        tick(&mut batched, index);
+        tick(&mut frames, index);
+        frames.world_mut().run_system_cached(sample).unwrap();
+    }
+    batched.world_mut().run_system_cached(sample).unwrap();
+    assert_eq!(
+        batched.world().resource::<LegacyCameraMotion>().state,
+        frames.world().resource::<LegacyCameraMotion>().state
+    );
+}
+
+#[test]
+fn native_frame_bob_receives_the_real_dead_gate() {
+    let mut app = camera_app();
+    event(
+        &mut app.world_mut().resource_mut::<TestWorld>().0,
+        2,
+        ActorStatusKind::Death,
+    );
+    tick(&mut app, 1);
+    let mut bob = WalkBobState::default();
+    bob.advance(Vec3::ZERO, true, true, 0.05);
+    bob.advance(Vec3::new(0.2, 0.0, 0.0), true, true, 0.05);
+    let previous = bob.bob();
+    app.insert_resource(bob)
+        .insert_resource(LocalViewPose::new(Vec3::new(0.4, 0.0, 0.0), Quat::IDENTITY));
+    app.world_mut()
+        .resource_mut::<Time>()
+        .advance_by(std::time::Duration::from_secs_f32(0.05));
+    app.world_mut().run_system_cached(sample).unwrap();
+    assert!(app.world().resource::<WalkBobState>().bob() < previous);
+}
+
+#[test]
+fn java_poses_keep_one_legacy_effect_for_world_and_hand_without_changing_aim() {
+    for java in [false, true] {
+        let mut app = camera_app();
+        let mut user = ui::UserSettings::default();
+        user.video.java_animations = java;
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .replace(1, &user)
+            .unwrap();
+        for index in 0..4 {
+            tick(&mut app, index);
+        }
+        app.world_mut().run_system_cached(sample).unwrap();
+        event(
+            &mut app.world_mut().resource_mut::<TestWorld>().0,
+            2,
+            ActorStatusKind::Hurt,
+        );
+        app.world_mut()
+            .resource_mut::<TestWorld>()
+            .0
+            .advance_actor_interpolation_frame(5);
+        let base = Transform::from_xyz(3.0, 6.0, -8.0).with_rotation(Quat::from_euler(
+            EulerRot::YXZ,
+            0.7,
+            -0.4,
+            0.0,
+        ));
+        let camera = app.world_mut().spawn((FlyCamera::default(), base)).id();
+        let aim = *app.world().resource::<LocalViewPose>();
+        let physics = app.world().resource::<TestPhysics>().state.clone();
+        app.world_mut().run_system_cached(apply).unwrap();
+        let hand = app.world().resource::<FirstPersonHandMotion>();
+        let shared = hand.legacy_effect.unwrap();
+        let rendered = app
+            .world()
+            .get::<Transform>(camera)
+            .unwrap()
+            .to_matrix()
+            .inverse();
+        assert!(rendered.abs_diff_eq(shared * base.to_matrix().inverse(), 3e-5));
+        assert_eq!(hand.bob, crate::camera::ViewEffect::NONE);
+        assert_eq!(hand.hurt, Mat4::IDENTITY);
+        assert_eq!(*app.world().resource::<LocalViewPose>(), aim);
+        assert_eq!(app.world().resource::<TestPhysics>().state, physics);
+        let endpoints = app.world().resource::<LegacyCameraMotion>().state.endpoints;
+        let expected = render_model::legacy_combat::legacy_hurt_matrix(5, 0.0, None, 0.5, 1.0)
+            * endpoints.bob_matrix(0.5);
+        assert!(shared.abs_diff_eq(expected, 3e-6));
+        user.video.view_bobbing = false;
+        user.video.damage_bob = 0.0;
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .replace(2, &user)
+            .unwrap();
+        *app.world_mut().get_mut::<Transform>(camera).unwrap() = base;
+        app.world_mut().run_system_cached(apply).unwrap();
+        assert_eq!(
+            app.world()
+                .resource::<FirstPersonHandMotion>()
+                .legacy_effect,
+            Some(Mat4::IDENTITY)
+        );
+    }
+}
+
+#[test]
+fn third_person_and_free_server_camera_preserve_their_base_pose() {
+    let mut app = camera_app();
+    tick(&mut app, 0);
+    tick(&mut app, 1);
+    app.world_mut().run_system_cached(sample).unwrap();
+    let mut user = ui::UserSettings::default();
+    user.gameplay.default_perspective = semantic_input::PerspectiveMode::ThirdPersonBack;
+    app.world_mut()
+        .resource_mut::<CameraSettingsAuthority>()
+        .replace(1, &user)
+        .unwrap();
+    let base = Transform::from_xyz(2.0, 5.0, 8.0);
+    let camera = app.world_mut().spawn((FlyCamera::default(), base)).id();
+    app.world_mut().run_system_cached(apply).unwrap();
+    assert_eq!(*app.world().get::<Transform>(camera).unwrap(), base);
+    assert_eq!(
+        app.world()
+            .resource::<FirstPersonHandMotion>()
+            .legacy_effect,
+        None
+    );
+    user.gameplay.default_perspective = semantic_input::PerspectiveMode::FirstPerson;
+    app.world_mut()
+        .resource_mut::<CameraSettingsAuthority>()
+        .replace(2, &user)
+        .unwrap();
+    let context = crate::camera::ViewContext {
+        base,
+        subject: base,
+        base_fov: 60.0,
+        actors: &|_| None,
+    };
+    let mut server = ServerCameraView::default();
+    server.apply(
+        1,
+        &protocol::CameraEvent::Presets(
+            vec![protocol::CameraPreset {
+                name: "minecraft:free".into(),
+                ..Default::default()
+            }]
+            .into(),
+        ),
+        &context,
+    );
+    server.apply(
+        2,
+        &protocol::CameraEvent::Instruction(Box::new(protocol::CameraInstructionEvent {
+            set: Some(protocol::CameraSetInstruction {
+                preset_id: 0,
+                ease: None,
+                position: None,
+                rotation_degrees: None,
+                facing_position: None,
+                view_offset: None,
+                entity_offset: None,
+                default_preset: None,
+                remove_ignore_starting_values: false,
+            }),
+            ..Default::default()
+        })),
+        &context,
+    );
+    assert!(!server.renders_first_person(true));
+    app.insert_resource(server);
+    app.world_mut().run_system_cached(apply).unwrap();
+    assert_eq!(*app.world().get::<Transform>(camera).unwrap(), base);
+    assert_eq!(
+        app.world()
+            .resource::<FirstPersonHandMotion>()
+            .legacy_effect,
+        None
+    );
+}
+
+#[test]
+fn teleport_reanchor_skips_old_ticks_even_when_the_physics_clock_does_not_advance() {
+    let mut app = camera_app();
+    for index in 0..4 {
+        tick(&mut app, index);
+    }
+    app.world_mut().run_system_cached(sample).unwrap();
+    assert!(
+        app.world()
+            .resource::<LegacyCameraMotion>()
+            .state
+            .endpoints
+            .bob[1]
+            > 0.0
+    );
+    app.world_mut()
+        .resource_mut::<LocalViewPose>()
+        .reanchor_camera();
+    app.world_mut().run_system_cached(sample).unwrap();
+    let motion = app.world().resource::<LegacyCameraMotion>();
+    assert_eq!(motion.state.last_tick(), Some(3));
+    assert_eq!(
+        motion.state.endpoints,
+        render_model::legacy_combat::LegacyCameraEndpoints::default()
+    );
+}
+
+#[test]
+fn reanchored_bob_does_not_rewind_when_the_actor_fraction_wraps() {
+    let mut app = camera_app();
+    for index in 0..4 {
+        tick(&mut app, index);
+    }
+    app.world_mut().run_system_cached(sample).unwrap();
+    app.world_mut()
+        .resource_mut::<LocalViewPose>()
+        .reanchor_camera();
+    app.world_mut().resource_mut::<TestPhysics>().alpha = 0.0;
+    app.world_mut().run_system_cached(sample).unwrap();
+    tick(&mut app, 4);
+    app.world_mut().run_system_cached(sample).unwrap();
+    app.world_mut().resource_mut::<TestPhysics>().alpha = 0.75;
+    let endpoints = app.world().resource::<LegacyCameraMotion>().state.endpoints;
+    let expected = endpoints.bob_matrix(0.75);
+    assert_ne!(expected, Mat4::IDENTITY);
+    assert!(!expected.abs_diff_eq(endpoints.bob_matrix(0.0), 1e-5));
+    let base = Transform::from_xyz(3.0, 5.0, 7.0).with_rotation(Quat::from_rotation_y(0.7));
+    let camera = app.world_mut().spawn((FlyCamera::default(), base)).id();
+    // Physics has no new completed tick while the independent actor fraction wraps.
+    for actor_fraction in [0.75, 0.0, 0.25] {
+        app.world_mut().resource_mut::<ActorFramePartialTick>().0 = actor_fraction;
+        *app.world_mut().get_mut::<Transform>(camera).unwrap() = base;
+        app.world_mut().run_system_cached(apply).unwrap();
+        assert_eq!(
+            app.world()
+                .resource::<FirstPersonHandMotion>()
+                .legacy_effect,
+            Some(expected)
+        );
+        let view = app
+            .world()
+            .get::<Transform>(camera)
+            .unwrap()
+            .to_matrix()
+            .inverse();
+        assert!(view.abs_diff_eq(expected * base.to_matrix().inverse(), 3e-5));
+    }
+    assert_eq!(app.world().resource::<TestPhysics>().state.tick, 4);
+    assert_eq!(
+        app.world().resource::<LegacyCameraMotion>().state.endpoints,
+        endpoints
+    );
+}
