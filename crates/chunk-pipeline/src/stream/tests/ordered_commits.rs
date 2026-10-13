@@ -84,7 +84,7 @@ fn out_of_order_decode_completions_commit_in_sequence() {
         local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 0, -4, 0);
@@ -130,7 +130,7 @@ fn control_effects_are_exposed_only_after_older_heavy_sequence_commits_in_fifo_o
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let movement = MovePlayerEvent {
@@ -219,7 +219,7 @@ fn movement_correction_commits_in_fifo_without_move_player_capture_metadata() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let correction = PlayerMovementCorrectionEvent {
@@ -290,7 +290,7 @@ fn speed_attribute_burst_behind_a_pending_decode_commits_one_control_per_update(
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let attribute = |name: &str, current: f32| ActorAttribute {

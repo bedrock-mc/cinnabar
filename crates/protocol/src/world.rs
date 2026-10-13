@@ -78,11 +78,7 @@ use self::game_rules::{
 pub(crate) use self::level_chunk::normalize_level_chunk_payload;
 pub use self::requests::request_sub_chunk_column;
 
-/// Sequential palette state ID generated for `minecraft:air` in 1.26.30.
-pub const SEQUENTIAL_AIR_NETWORK_ID: u32 = 12_530;
-
-/// Canonical block-state network hash for `minecraft:air`.
-pub const HASHED_AIR_NETWORK_ID: u32 = 0xdbf4_4120;
+use crate::ids::{LevelEvent, SEQUENTIAL_AIR_NETWORK_ID};
 
 /// Client safety limit for block storage layers in update packets.
 pub const MAX_BLOCK_LAYERS: usize = 16;
@@ -100,26 +96,6 @@ pub const MAX_BIOME_DEFINITIONS: usize = 4_096;
 
 /// Maximum UTF-8 bytes accepted for one live biome identifier.
 pub const MAX_BIOME_NAME_BYTES: usize = 256;
-
-// LevelEvent ids. `LevelEvent.event_id` is a bare varint32, so the ids this crate reacts to are
-// pinned here from gophertunnel
-// `minecraft/protocol/packet/level_event.go` @ be6713da4dc051a4197f897d04835e89e9c54321.
-/// `LevelEventSleepingPlayers`, sent as a LevelEventGeneric.
-const LEVEL_EVENT_SLEEPING_PLAYERS: i32 = 9801;
-/// `LevelEventStartRaining`.
-pub(crate) const LEVEL_EVENT_START_RAINING: i32 = 3001;
-/// `LevelEventStartThunderstorm`.
-pub(crate) const LEVEL_EVENT_START_THUNDERSTORM: i32 = 3002;
-/// `LevelEventStopRaining`.
-pub(crate) const LEVEL_EVENT_STOP_RAINING: i32 = 3003;
-/// `LevelEventStopThunderstorm`.
-pub(crate) const LEVEL_EVENT_STOP_THUNDERSTORM: i32 = 3004;
-/// `LevelEventStartBlockCracking`.
-pub(crate) const LEVEL_EVENT_START_BLOCK_CRACKING: i32 = 3600;
-/// `LevelEventStopBlockCracking`.
-pub(crate) const LEVEL_EVENT_STOP_BLOCK_CRACKING: i32 = 3601;
-/// `LevelEventUpdateBlockCracking`.
-pub(crate) const LEVEL_EVENT_UPDATE_BLOCK_CRACKING: i32 = 3602;
 
 /// StartGame data reduced to the fields required by the renderer and world streamer.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -598,7 +574,7 @@ world_packets! {
         })
     },
     LevelEventGeneric(packet) => {
-        if packet.event_id.0 != LEVEL_EVENT_SLEEPING_PLAYERS {
+        if packet.event_id.0 != LevelEvent::SleepingPlayers.wire_value() {
             return Ok(None);
         }
         // The event data is loose tags; wrap them in a root compound as vanilla decodes it.
@@ -632,10 +608,12 @@ fn normalize_level_event(
 ) -> Result<Option<WorldEvent>, WorldPacketError> {
     let event_id = packet.event_id.0;
     if matches!(
-        event_id,
-        LEVEL_EVENT_START_BLOCK_CRACKING
-            | LEVEL_EVENT_STOP_BLOCK_CRACKING
-            | LEVEL_EVENT_UPDATE_BLOCK_CRACKING
+        LevelEvent::from_wire(event_id),
+        Some(
+            LevelEvent::StartBlockCracking
+                | LevelEvent::StopBlockCracking
+                | LevelEvent::UpdateBlockCracking
+        )
     ) {
         return Ok(Some(WorldEvent::BlockCrack(normalize_block_crack(packet)?)));
     }
@@ -645,11 +623,11 @@ fn normalize_level_event(
     if let Some(event) = crate::particle::normalize_level_event(&packet) {
         return Ok(Some(WorldEvent::Particle(event)));
     }
-    let (channel, level) = match event_id {
-        LEVEL_EVENT_START_RAINING => (WeatherChannel::Rain, 1.0),
-        LEVEL_EVENT_STOP_RAINING => (WeatherChannel::Rain, 0.0),
-        LEVEL_EVENT_START_THUNDERSTORM => (WeatherChannel::Lightning, 1.0),
-        LEVEL_EVENT_STOP_THUNDERSTORM => (WeatherChannel::Lightning, 0.0),
+    let (channel, level) = match LevelEvent::from_wire(event_id) {
+        Some(LevelEvent::StartRaining) => (WeatherChannel::Rain, 1.0),
+        Some(LevelEvent::StopRaining) => (WeatherChannel::Rain, 0.0),
+        Some(LevelEvent::StartThunderstorm) => (WeatherChannel::Lightning, 1.0),
+        Some(LevelEvent::StopThunderstorm) => (WeatherChannel::Lightning, 0.0),
         _ => return Ok(None),
     };
     Ok(Some(WorldEvent::Weather(WeatherUpdateEvent {

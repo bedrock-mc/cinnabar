@@ -37,7 +37,7 @@ fn transport_ack_after_disjoint_teleport_cannot_restore_purged_origin_work() {
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
         world_spawn_position: [0, 70, 0],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream
@@ -91,7 +91,7 @@ fn provisional_publisher_epoch_overflow_clears_retained_destination_membership()
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
         world_spawn_position: [0, 70, 0],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream.publisher.epoch = u64::MAX;
@@ -141,7 +141,7 @@ fn provisional_publisher_update_retains_destination_data_interest() {
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
         world_spawn_position: [0, 70, 0],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream.chunk_radius = Some(2);
@@ -206,7 +206,7 @@ fn raw_128_epoch_requires_all_177_announced_columns() {
             local_player_runtime_id: 1,
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
-            air_network_id: 12_530,
+            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
             block_network_ids_are_hashes: false,
         })
     };
@@ -273,7 +273,7 @@ fn later_outer_announcement_expands_the_same_epoch_and_invalidates_old_identity(
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream
@@ -346,7 +346,7 @@ fn publisher_identity_and_dimension_changes_reset_required_membership_epoch() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let publish = |stream: &mut WorldStream, sequence, center, radius_blocks| {
@@ -404,7 +404,7 @@ fn publisher_identity_and_dimension_changes_reset_required_membership_epoch() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     assert_ne!(
@@ -422,7 +422,7 @@ fn required_epoch_reports_stable_only_after_stream_work_drains() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream.publisher.cohort = Some(target);
@@ -449,7 +449,7 @@ fn announcements_follow_confirmed_grid_slack_but_not_unbounded_distance() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream
@@ -501,7 +501,7 @@ fn publisher_epoch_overflow_fails_closed_without_reusing_an_identity() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let old = super::ViewCohort::from_publisher(0, [0, 64, 0], 128);

@@ -79,7 +79,8 @@ forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 [[crates]]
 name = "assets"
 path = "crates/assets"
-allowed_dependencies = ["env-compat", "block-transform"]
+# Query contracts consume protocol-owned IDs; carrier consumers reach them through assets.
+allowed_dependencies = ["env-compat", "block-transform", "protocol"]
 forbidden_dependencies = ["asset-compiler", "bevy", "clap", "image", "wgpu", "diagnostics", "pack-runtime", "render", "render-model"]
 forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu"]
 test_support_features = ["test-support"]
@@ -123,28 +124,28 @@ name = "pack-compiler"
 path = "crates/pack-compiler"
 allowed_dependencies = ["pack-compile-input", "pack-json", "assets"]
 forbidden_dependencies = ["pack-entity-compiler", "pack-font-compiler", "asset-compiler", "clap", "bevy", "wgpu"]
-forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
 name = "pack-compile-input"
 path = "crates/pack-compiler/input"
 allowed_dependencies = ["pack-json", "assets"]
 forbidden_dependencies = ["pack-compiler", "pack-entity-compiler", "pack-font-compiler", "asset-compiler", "clap", "bevy", "wgpu"]
-forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
 name = "pack-entity-compiler"
 path = "crates/pack-compiler/entity"
 allowed_dependencies = ["pack-compile-input", "pack-json", "simulation-clock", "assets"]
 forbidden_dependencies = ["pack-compiler", "pack-font-compiler", "asset-compiler", "clap", "bevy", "wgpu"]
-forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
 name = "pack-font-compiler"
 path = "crates/pack-compiler/font"
 allowed_dependencies = ["assets", "freetype-sys"]
 forbidden_dependencies = ["pack-compiler", "pack-compile-input", "pack-entity-compiler", "asset-compiler", "clap", "bevy", "wgpu"]
-forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
 name = "pack-runtime"
@@ -323,7 +324,7 @@ path = "crates/render-model"
 test_support_features = ["test-support"]
 allowed_dependencies = ["simulation-clock", "block-transform", "mod-api", "assets", "render-api", "world"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
-forbidden_transitive_dependencies = ["app", "cinnabar", "render", "protocol", "client-world", "chunk-pipeline", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "render", "client-world", "chunk-pipeline", "bevy", "bevy_*", "wgpu*"]
 
 # CPU particle simulation; render only uploads and draws its output.
 [[crates]]
@@ -331,14 +332,14 @@ name = "particles"
 path = "crates/particles"
 allowed_dependencies = ["pack-json", "assets", "render-model"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
-forbidden_transitive_dependencies = ["app", "cinnabar", "render", "protocol", "client-world", "chunk-pipeline", "bevy", "bevy_*", "wgpu*"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "render", "client-world", "chunk-pipeline", "bevy", "bevy_*", "wgpu*"]
 
 # Render submission resources never depend on GPU pass implementations or game authority.
 [[crates]]
 name = "render-scene"
 path = "crates/render-scene"
 allowed_dependencies = ["env-compat", "simulation-clock", "assets", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "world", "tracy-client", "test-time"]
-forbidden_transitive_dependencies = ["render", "app", "cinnabar", "client-world", "chunk-pipeline", "client-presentation", "protocol"]
+forbidden_transitive_dependencies = ["render", "app", "cinnabar", "client-world", "chunk-pipeline", "client-presentation"]
 test_support_features = ["publication-test-support"]
 
 [[crates]]
@@ -348,7 +349,7 @@ test_support_features = ["publication-test-support"]
 allowed_dependencies = ["env-compat", "render-scene", "assets", "block-transform", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "tracy-client", "world", "test-time"]
 forbidden_dependencies = ["asset-compiler"]
 # Also reject game-state edges hidden behind another local crate or test dependency.
-forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol"]
+forbidden_transitive_dependencies = ["client-world", "chunk-pipeline"]
 
 [[crates]]
 name = "app"

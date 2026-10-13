@@ -8,7 +8,7 @@ fn biome_definition_snapshot_commits_in_fifo_and_survives_dimension_changes() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let definitions: Arc<[BiomeDefinitionEvent]> = Arc::from(vec![BiomeDefinitionEvent {
@@ -61,7 +61,7 @@ fn stale_biome_definition_event_cannot_replace_the_committed_snapshot() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let committed: Arc<[BiomeDefinitionEvent]> = Arc::from(vec![BiomeDefinitionEvent {
@@ -119,7 +119,7 @@ fn live_biome_resolution_commits_in_fifo_with_exact_raw_id_lookup() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let definitions: Arc<[BiomeDefinitionEvent]> = Arc::from([BiomeDefinitionEvent {
@@ -166,7 +166,7 @@ fn palette_native_biome_packing_uses_exact_lookup_and_safe_fallbacks() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream
@@ -222,7 +222,7 @@ fn definition_replacement_supersedes_queued_and_in_flight_old_tints() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let definition = |name: &'static str, temperature| BiomeDefinitionEvent {

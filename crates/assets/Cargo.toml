@@ -24,6 +24,7 @@ reads = [
 test-support = []
 
 [dependencies]
+protocol = { path = "../protocol" }
 env-compat = { path = "../env-compat" }
 block-transform = { path = "../block-transform" }
 bitflags = "2"

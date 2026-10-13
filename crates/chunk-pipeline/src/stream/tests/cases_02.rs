@@ -103,7 +103,7 @@ fn live_block_entity_updates_decode_off_thread_and_commit_in_fifo() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream.submit(1, inline_air_event(0)).unwrap();
@@ -202,7 +202,7 @@ fn inline_and_sub_chunk_ingestion_commit_sparse_block_entity_tails() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     };
     let inline_position = [1, -63, 2];
@@ -314,7 +314,7 @@ fn clock_daylight_and_weather_commit_in_fifo_order_without_dirtying_world_meshes
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let pending_mesh_count = stream.mesh_jobs.pending.len();
@@ -405,7 +405,7 @@ fn clock_and_weather_commit_in_order_past_an_earlier_chunk_decode() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream.submit(1, inline_air_event(0)).unwrap();
@@ -453,7 +453,7 @@ fn inline_level_chunk_decodes_full_dimension_biomes_independent_of_block_count()
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     define_custom_biomes(&mut stream, [7]);
@@ -498,7 +498,7 @@ fn request_level_chunk_decodes_biomes_before_enqueuing_sub_chunk_requests() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
 
@@ -540,7 +540,7 @@ fn request_mode_biome_arrival_dirties_vertical_diagonal_blend_dependents() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let neighbour = SubChunkKey::new(0, 1, -5, 1);
@@ -589,7 +589,7 @@ fn inline_biome_replacement_dirties_diagonal_cross_chunk_blend_dependents() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let source = SubChunkKey::new(0, 0, -4, 0);
@@ -663,7 +663,7 @@ fn evicting_a_diagonal_biome_only_column_dirties_the_remaining_blend_boundary() 
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let center = SubChunkKey::new(0, 0, -4, 0);
@@ -708,7 +708,7 @@ fn limited_requests_track_omitted_upper_air_and_replace_the_column_atomically() 
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     define_custom_biomes(&mut stream, [1, 2, 3]);
@@ -788,7 +788,7 @@ fn truncated_request_level_chunk_biomes_repeat_the_last_storage() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     define_custom_biomes(&mut stream, [5, 9]);
@@ -837,7 +837,7 @@ fn request_level_chunk_joins_required_cohort_only_after_decode_and_admission() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream
@@ -879,7 +879,7 @@ fn bootstrap_non_finite_horizontal_position_uses_the_shared_finite_scope_anchor(
         local_player_runtime_id: 1,
         player_position: [f32::NAN, 80.0, f32::INFINITY],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     };
     let expected = super::server_position::resolve_server_position(
@@ -907,7 +907,7 @@ fn change_dimension_non_finite_horizontal_position_keeps_camera_and_scope_togeth
         local_player_runtime_id: 1,
         player_position: [7.25, 70.0, -8.75],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let change = ChangeDimensionEvent {
@@ -947,7 +947,7 @@ fn newer_inline_chunk_is_validated_after_fifo_blocked_publisher_update_commits()
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
 
@@ -979,7 +979,7 @@ fn equal_loaded_count_with_missing_target_and_source_replacement_is_not_exact() 
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let target = super::ViewCohort::from_publisher(0, [160, 64, 160], 16);

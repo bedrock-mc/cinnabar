@@ -12,6 +12,8 @@ platform-specific = ["windows"]
 reads = [
     "assets/bedrock-target.json",
     "assets/block-data-sources.json",
+    "crates/assets/data/registry-schema.json",
+    "crates/assets/data/block-registry-v2193.bin",
     "tools/localserver/experience/testdata/protocol/limits.json",
 ]
 
@@ -49,6 +51,10 @@ bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
 test-alloc = { path = "../test-alloc" }
 tempfile = "3"
 test-time = { path = "../test-time" }
+
+[build-dependencies]
+serde_json = "1"
+sha2.workspace = true
 
 [lints]
 workspace = true

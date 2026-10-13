@@ -8,7 +8,7 @@ fn forced_remesh_returns_exact_resident_generation_manifest() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let keys = [
@@ -19,7 +19,11 @@ fn forced_remesh_returns_exact_resident_generation_manifest() {
     for key in keys {
         stream
             .authority
-            .update_block(key, BlockUpdate::new(0, 0, 0, 0, 99), 12_530)
+            .update_block(
+                key,
+                BlockUpdate::new(0, 0, 0, 0, 99),
+                protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            )
             .unwrap();
         stream.resident.insert(key);
     }
@@ -79,7 +83,7 @@ fn forced_remesh_of_frozen_published_manifest_skips_unpublished_and_air_keys() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let published = [SubChunkKey::new(0, 0, -4, 0), SubChunkKey::new(0, 1, -4, 0)];
@@ -88,7 +92,11 @@ fn forced_remesh_of_frozen_published_manifest_skips_unpublished_and_air_keys() {
     for key in published.into_iter().chain([unpublished]) {
         stream
             .authority
-            .update_block(key, BlockUpdate::new(0, 0, 0, 0, 99), 12_530)
+            .update_block(
+                key,
+                BlockUpdate::new(0, 0, 0, 0, 99),
+                protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            )
             .unwrap();
         stream.resident.insert(key);
     }
@@ -145,13 +153,17 @@ fn published_manifest_remesh_rejects_stale_duplicate_or_nonresident_allocations(
             local_player_runtime_id: 1,
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
-            air_network_id: 12_530,
+            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
             block_network_ids_are_hashes: false,
         });
         let key = SubChunkKey::new(0, 0, -4, 0);
         stream
             .authority
-            .update_block(key, BlockUpdate::new(0, 0, 0, 0, 99), 12_530)
+            .update_block(
+                key,
+                BlockUpdate::new(0, 0, 0, 0, 99),
+                protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            )
             .unwrap();
         stream.resident.insert(key);
         stream.applied_mesh_generations.insert(key, 7);
@@ -204,7 +216,7 @@ fn eviction_or_superseding_revision_cannot_complete_forced_manifest() {
             local_player_runtime_id: 1,
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
-            air_network_id: 12_530,
+            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
             block_network_ids_are_hashes: false,
         });
         let key = SubChunkKey::new(0, 0, -4, 0);
@@ -248,7 +260,7 @@ fn resource_remesh_in_parallel_matches_a_serial_rebuild() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let keys: Vec<_> = (-1..=1)
@@ -259,7 +271,11 @@ fn resource_remesh_in_parallel_matches_a_serial_rebuild() {
             let at = (index as u8 + offset * 3) % 16;
             stream
                 .authority
-                .update_block(*key, BlockUpdate::new(at, offset, 15 - at, 0, 99), 12_530)
+                .update_block(
+                    *key,
+                    BlockUpdate::new(at, offset, 15 - at, 0, 99),
+                    protocol::SEQUENTIAL_AIR_NETWORK_ID,
+                )
                 .unwrap();
         }
         stream.resident.insert(*key);

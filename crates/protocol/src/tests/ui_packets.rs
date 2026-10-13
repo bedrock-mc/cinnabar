@@ -61,8 +61,10 @@ fn boss_remove_ignores_unused_invalid_presentation_fields() {
 /// gophertunnel's `LevelEventStartBlockCracking` / `LevelEventStopBlockCracking`
 /// / `LevelEventUpdateBlockCracking` (`minecraft/protocol/packet/level_event.go`).
 /// 1.26.40 carries LevelEvent as a raw `event_id` rather than a named enum.
-const LEVEL_EVENT_START_BLOCK_CRACKING: i32 = 3600;
-const LEVEL_EVENT_UPDATE_BLOCK_CRACKING: i32 = 3602;
+const LEVEL_EVENT_START_BLOCK_CRACKING: i32 =
+    protocol::ids::LevelEvent::StartBlockCracking.wire_value();
+const LEVEL_EVENT_UPDATE_BLOCK_CRACKING: i32 =
+    protocol::ids::LevelEvent::UpdateBlockCracking.wire_value();
 
 fn put_var_u64(out: &mut BytesMut, mut value: u64) {
     while value >= 0x80 {

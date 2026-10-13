@@ -21,6 +21,8 @@
 //! resolves to `None`, which callers treat as odd but well-formed data: a typed
 //! counted skip, never a mutation and never a disconnect.
 
+use crate::ids::{ContainerName, WindowID};
+
 use super::ContainerIdentity;
 use super::container_policy::{CONTAINER_NAME_CREATED_OUTPUT, CONTAINER_NAME_HOTBAR};
 use super::windows::{
@@ -28,37 +30,38 @@ use super::windows::{
 };
 
 /// `ContainerEnumName::Armorcontainer`, the player armor surface.
-pub const CONTAINER_NAME_ARMOR: u8 = 6;
+pub const CONTAINER_NAME_ARMOR: u8 = ContainerName::Armor.wire_value();
 /// `ContainerEnumName::Levelentitycontainer`, the generic screen-specific
 /// storage surface keyed by its dynamic container id.
-pub const CONTAINER_NAME_LEVEL_ENTITY: u8 = 7;
+pub const CONTAINER_NAME_LEVEL_ENTITY: u8 = ContainerName::LevelEntity.wire_value();
 /// `ContainerEnumName::Combinedhotbarandinventorycontainer`, the combined
 /// player inventory surface every gesture request names.
-pub const CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY: u8 = 12;
+pub const CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY: u8 =
+    ContainerName::CombinedHotBarAndInventory.wire_value();
 /// The distinct personal crafting input surface; wire cells 28..31.
-pub const CONTAINER_NAME_CRAFT_INPUT: u8 = 13;
+pub const CONTAINER_NAME_CRAFT_INPUT: u8 = ContainerName::CraftingInput.wire_value();
 /// `ContainerEnumName::Inventorycontainer`, the player-inventory name that
 /// rides the legacy player window (the pinned fixture corpus encodes this shape).
-pub const CONTAINER_NAME_INVENTORY: u8 = 29;
+pub const CONTAINER_NAME_INVENTORY: u8 = ContainerName::Inventory.wire_value();
 /// `ContainerEnumName::Offhandcontainer`.
-pub const CONTAINER_NAME_OFFHAND: u8 = 34;
+pub const CONTAINER_NAME_OFFHAND: u8 = ContainerName::Offhand.wire_value();
 /// `ContainerEnumName::Cursorcontainer`.
-pub const CONTAINER_NAME_CURSOR: u8 = 59;
+pub const CONTAINER_NAME_CURSOR: u8 = ContainerName::Cursor.wire_value();
 
 /// `ContainerEnumName::Dynamiccontainer`, a bundle's contents keyed by dynamic id.
-pub const CONTAINER_NAME_DYNAMIC: u8 = 63;
+pub const CONTAINER_NAME_DYNAMIC: u8 = ContainerName::Dynamic.wire_value();
 
 /// The combined player-inventory window id (`CONTAINER_ID_INVENTORY`).
-pub const PLAYER_INVENTORY_WINDOW_ID: i32 = 0;
+pub const PLAYER_INVENTORY_WINDOW_ID: i32 = WindowID::Inventory.wire_value();
 /// The legacy offhand window id (`CONTAINER_ID_OFFHAND`), which servers send
 /// without a full container name.
-pub const OFFHAND_WINDOW_ID: i32 = 119;
+pub const OFFHAND_WINDOW_ID: i32 = WindowID::OffHand.wire_value();
 /// The legacy armor window id, addressed like the offhand window.
-pub const ARMOR_WINDOW_ID: i32 = 120;
+pub const ARMOR_WINDOW_ID: i32 = WindowID::Armour.wire_value();
 /// The player's fixed UI inventory, including the cursor and crafting cells.
-pub const UI_INVENTORY_WINDOW_ID: i32 = 124;
+pub const UI_INVENTORY_WINDOW_ID: i32 = WindowID::UI.wire_value();
 /// The dynamic storage window whose full container name identifies its instance.
-pub const DYNAMIC_STORAGE_WINDOW_ID: i32 = 125;
+pub const DYNAMIC_STORAGE_WINDOW_ID: i32 = WindowID::Registry.wire_value();
 
 /// One canonical inventory cell in the explicit cross-surface address space.
 ///

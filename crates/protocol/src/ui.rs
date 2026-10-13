@@ -790,16 +790,6 @@ pub(crate) fn normalize_soft_enum(packet: UpdateSoftEnum) -> Result<UiEvent, UiP
     }))
 }
 
-/// Block-cracking LevelEvent ids.
-///
-/// 1.26.40 carries LevelEvent as a raw `event_id` instead of a named enum, so
-/// the three ids this module cares about are pinned here against gophertunnel's
-/// `LevelEventStartBlockCracking` / `LevelEventStopBlockCracking` /
-/// `LevelEventUpdateBlockCracking` (`minecraft/protocol/packet/level_event.go`).
-pub(crate) const LEVEL_EVENT_START_BLOCK_CRACKING: i32 = 3600;
-pub(crate) const LEVEL_EVENT_STOP_BLOCK_CRACKING: i32 = 3601;
-pub(crate) const LEVEL_EVENT_UPDATE_BLOCK_CRACKING: i32 = 3602;
-
 /// Normalizes block cracking without inventing a stage or actor ID.
 ///
 /// The wire `data` field is the server-authored progress rate (`65535 / break_ticks`).
@@ -812,11 +802,14 @@ pub(crate) fn normalize_block_crack(packet: LevelEvent) -> Result<BlockCrackEven
         floored_block_coordinate(packet.position.z, "z")?,
     ];
     let event_id = packet.event_id.0;
-    let action = match event_id {
-        LEVEL_EVENT_STOP_BLOCK_CRACKING => BlockCrackAction::Stop,
-        LEVEL_EVENT_START_BLOCK_CRACKING | LEVEL_EVENT_UPDATE_BLOCK_CRACKING => {
+    let action = match crate::ids::LevelEvent::from_wire(event_id) {
+        Some(crate::ids::LevelEvent::StopBlockCracking) => BlockCrackAction::Stop,
+        Some(
+            crate::ids::LevelEvent::StartBlockCracking
+            | crate::ids::LevelEvent::UpdateBlockCracking,
+        ) => {
             let progress_per_tick = packet.data.0;
-            if event_id == LEVEL_EVENT_START_BLOCK_CRACKING {
+            if event_id == crate::ids::LevelEvent::StartBlockCracking.wire_value() {
                 BlockCrackAction::Start { progress_per_tick }
             } else {
                 BlockCrackAction::UpdateSpeed { progress_per_tick }

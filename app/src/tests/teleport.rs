@@ -204,7 +204,7 @@ fn out_of_order_move_waits_for_fifo_source_commit_before_arming() {
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
         world_spawn_position: [0, 70, 0],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
 

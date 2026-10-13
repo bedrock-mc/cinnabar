@@ -320,7 +320,7 @@ fn client_world_publication_contract_crosses_the_app_boundary() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream
@@ -414,7 +414,7 @@ fn compiled_and_live_biome_tables_preserve_raw_id_water_colour_parity() {
             local_player_runtime_id: 1,
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
-            air_network_id: 12_530,
+            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
             block_network_ids_are_hashes: false,
         },
         runtime_assets,
@@ -485,7 +485,7 @@ fn equal_numeric_revisions_from_different_streams_replace_the_active_table() {
                 local_player_runtime_id: 1,
                 player_position: [0.0; 3],
                 world_spawn_position: [0; 3],
-                air_network_id: 12_530,
+                air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
                 block_network_ids_are_hashes: false,
             },
             runtime_assets,

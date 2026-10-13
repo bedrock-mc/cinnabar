@@ -26,7 +26,7 @@ fn stream_after_publisher_shrink() -> WorldStream {
         local_player_runtime_id: 1,
         player_position: PLAYER_POSITION,
         world_spawn_position: [-511, 43, -511],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream
@@ -451,7 +451,7 @@ fn confirmed_radius_shrink_prunes_outer_requirement_but_keeps_inner_pending() {
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
         world_spawn_position: [0, 70, 0],
-        air_network_id: 12_530,
+        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream.submit(1, WorldEvent::ChunkRadiusUpdated(8)).unwrap();

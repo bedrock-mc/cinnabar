@@ -1,5 +1,15 @@
 # Retail protocol data
 
+`protocol-ids.json` supplies generated wire ID enums. The fixture generator's
+`-ids-out` option updates it, and its tests compare all entries and fixed window
+capacities with the module selected by `tools/fixturegen/go.mod`.
+`actor-data-extensions.json` adds the third flag-word contract; the decoder tests
+check its interpretation. Enchantment IDs come directly from the vendored codec.
+
+The build derives fallback air IDs from the active block registry named in
+`assets/bedrock-target.json`. It checks the registry hash and reads its layout
+from `crates/assets/data/registry-schema.json`.
+
 These compact tables are positive allowlists for Bedrock 1.26.50 (protocol 2193),
 measured on public Bedrock Dedicated Server 1.26.52.3 (Linux archive SHA-256
 `f6348d84fa714d04ca194f207e89453ca6bba0a1359396475271a52a150471c6`).

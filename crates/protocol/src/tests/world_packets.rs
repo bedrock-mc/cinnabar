@@ -33,15 +33,16 @@ use protocol::{
 
 /// `LevelEventStartRaining`, from gophertunnel `packet/level_event.go`
 /// @ be6713da4dc051a4197f897d04835e89e9c54321.
-const LEVEL_EVENT_START_RAINING: i32 = 3001;
+const LEVEL_EVENT_START_RAINING: i32 = protocol::ids::LevelEvent::StartRaining.wire_value();
 /// `LevelEventStartThunderstorm`.
-const LEVEL_EVENT_START_THUNDERSTORM: i32 = 3002;
+const LEVEL_EVENT_START_THUNDERSTORM: i32 =
+    protocol::ids::LevelEvent::StartThunderstorm.wire_value();
 /// `LevelEventStopRaining`.
-const LEVEL_EVENT_STOP_RAINING: i32 = 3003;
+const LEVEL_EVENT_STOP_RAINING: i32 = protocol::ids::LevelEvent::StopRaining.wire_value();
 /// `LevelEventStopThunderstorm`.
-const LEVEL_EVENT_STOP_THUNDERSTORM: i32 = 3004;
+const LEVEL_EVENT_STOP_THUNDERSTORM: i32 = protocol::ids::LevelEvent::StopThunderstorm.wire_value();
 /// `LevelEventSoundClick`, an event this crate deliberately ignores.
-const LEVEL_EVENT_SOUND_CLICK: i32 = 1000;
+const LEVEL_EVENT_SOUND_CLICK: i32 = protocol::ids::LevelEvent::SoundClick.wire_value();
 
 /// One biome-map entry: the string-table index and its definition. gophertunnel
 /// protocol/biome.go writes the index as a signed Int16 over the same two bytes.
@@ -231,9 +232,7 @@ fn rejects_invalid_or_unbounded_live_biome_definitions() {
 #[test]
 fn chooses_air_value_from_start_game_hash_mode() {
     assert_eq!(air_network_id(false), SEQUENTIAL_AIR_NETWORK_ID);
-    assert_eq!(SEQUENTIAL_AIR_NETWORK_ID, 12_530);
     assert_eq!(air_network_id(true), HASHED_AIR_NETWORK_ID);
-    assert_eq!(HASHED_AIR_NETWORK_ID, 0xdbf4_4120);
 }
 
 #[test]
