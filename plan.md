@@ -437,7 +437,8 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - Predictions apply retained server damage and name corrections to both inputs and the
   resulting item data. Unchanged prefilled names retain whitespace. Server outputs suppress
   local cost and invalid-result indicators. Damage-only corrections preserve edits in progress;
-  explicit name corrections refresh the prefilled name.
+  a changed authoritative name refreshes the prefill, while acknowledgements that echo its
+  effective name preserve edits regardless of whether the name comes from NBT or a response.
 - Provisional: repair materials and item enchantment slots follow vanilla item names rather
   than each item's native registration, and data-driven anvil recipes are not predicted.
   Current-version visual and behavior parity remains incomplete; no anvil parity gate closes.

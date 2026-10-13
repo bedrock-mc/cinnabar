@@ -19,18 +19,19 @@ pub struct AnvilPreview {
 #[derive(Clone, Debug)]
 pub struct AnvilNameState {
     target: AnvilTargetIdentity,
+    /// Invalidates name resolution when the response source changes, without changing identity.
+    stated_name: Option<std::sync::Arc<str>>,
     names_generation: u64,
     prefilled: String,
 }
 
-/// Cheap target facts that change when a different item or stated name is placed.
+/// Cheap target facts that change when a different item is placed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct AnvilTargetIdentity {
     network_id: i32,
     metadata: u32,
     nbt_digest: [u8; 32],
     identifier: Option<std::sync::Arc<str>>,
-    stated_name: Option<std::sync::Arc<str>>,
 }
 
 /// One occupied anvil input with data that can be edited without losing item properties.
@@ -159,9 +160,6 @@ impl UiRuntime {
                 identifier: ledger
                     .negotiated_item_entry(stack.network_id)
                     .map(|entry| entry.identifier.clone()),
-                stated_name: ledger
-                    .presented_target_overlay(target)
-                    .and_then(|overlay| overlay.custom_name.clone()),
             });
         let Some(identity) = identity else {
             let state = self.screen_state_mut();
@@ -169,20 +167,28 @@ impl UiRuntime {
             state.anvil_name.clear();
             return;
         };
+        let stated_name = ledger
+            .presented_target_overlay(target)
+            .and_then(|overlay| overlay.custom_name.clone());
         let names_generation = self.item_name_generation();
         let state = self.screen_state();
         let previous = state.anvil_target.as_ref();
-        let same_target = previous.is_some_and(|previous| previous.target == identity);
-        if same_target
+        let same_item = previous.is_some_and(|previous| previous.target == identity);
+        let same_source = previous.is_some_and(|previous| previous.stated_name == stated_name);
+        if same_item
+            && same_source
             && previous.is_some_and(|previous| previous.names_generation == names_generation)
         {
             return;
         }
         let untouched = previous.is_some_and(|previous| state.anvil_name == previous.prefilled);
         let name = self.anvil_target_name(player_runtime).unwrap_or_default();
+        let same_target = same_item
+            && (same_source || previous.is_some_and(|previous| previous.prefilled == name));
         let state = self.screen_state_mut();
         state.anvil_target = Some(AnvilNameState {
             target: identity,
+            stated_name,
             names_generation,
             prefilled: name.clone(),
         });
