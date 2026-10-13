@@ -34,8 +34,8 @@ pub struct ScreenState {
     pub loom_row: usize,
     pub anvil_name: String,
     pub anvil_focused: bool,
-    /// The target's item, data digest and authoritative name when the field was last synced.
-    pub anvil_target: Option<(i32, [u8; 32], String)>,
+    /// The target facts and effective name when the field was last synced.
+    pub anvil_target: Option<super::anvil::AnvilTargetIdentity>,
     /// The beacon's pyramid level, from its block entity.
     pub beacon_level: Option<u8>,
     pub crafter: CrafterView,

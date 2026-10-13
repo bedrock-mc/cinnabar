@@ -231,3 +231,14 @@ fn repair_materials_match_their_tier() {
         "minecraft:iron_ingot"
     ));
 }
+
+#[test]
+fn large_lists_preserve_unknown_entries_and_merge_repeated_known_enchantments() {
+    let unknown = vec![(100, 1); 40_000];
+    let repeated = vec![(17, 1); 40_000];
+    let outcome = evaluate(&sword(0, &unknown), Some(&book(&repeated))).unwrap();
+    let merged = outcome.enchantments.unwrap();
+    assert_eq!(&merged[..unknown.len()], unknown.as_slice());
+    assert_eq!(&merged[unknown.len()..], &[(17, 2)]);
+    assert_eq!(outcome.cost, 2);
+}

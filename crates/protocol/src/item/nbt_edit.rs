@@ -121,7 +121,7 @@ pub fn item_anvil_data(extra_data: &[u8]) -> Option<ItemAnvilData> {
 pub fn item_repair_cost(extra_data: &[u8]) -> i32 {
     decode_extra_nbt(extra_data)
         .and_then(|nbt| {
-            let mut cursor = &nbt[..];
+            let mut cursor = nbt;
             let mut payload = root_tag(&mut cursor, TAG_INT, b"RepairCost")?;
             read_i32_le(&mut payload)
         })

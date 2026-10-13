@@ -104,7 +104,7 @@ pub(super) fn enchantment_name(runtime: &UiRuntime, id: i16, level: u8) -> Strin
 }
 
 /// The localized default name, preferring a component name over a potion's type.
-fn default_name(runtime: &UiRuntime, identifier: &str, metadata: u32) -> String {
+pub(crate) fn default_name(runtime: &UiRuntime, identifier: &str, metadata: u32) -> String {
     if runtime
         .item_components(identifier)
         .is_some_and(|components| components.display_name.is_some())

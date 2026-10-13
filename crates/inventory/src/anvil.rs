@@ -7,6 +7,8 @@
 //! nothing clears the result, whatever the name box holds. Renaming costs one more level.
 //! The total adds both items' prior-work penalties; a rename alone stays below 40 levels.
 
+use std::collections::HashMap;
+
 use crate::enchantments::{applies_to, compatible, enchantment, item_slot};
 
 /// Total cost at which survival players are refused ("Too Expensive!").
@@ -96,6 +98,16 @@ fn merge_enchantments(
             .sum()
     };
     let mut merged = left.enchantments.to_vec();
+    let mut positions = HashMap::with_capacity(merged.len());
+    let mut known = Vec::new();
+    for (index, &(id, _)) in merged.iter().enumerate() {
+        if let std::collections::hash_map::Entry::Vacant(entry) = positions.entry(id) {
+            entry.insert(index);
+            if enchantment(id).is_some() {
+                known.push(id);
+            }
+        }
+    }
     let before = value(&merged);
     for &(id, level) in right.enchantments {
         let Some(facts) = enchantment(id) else {
@@ -104,7 +116,7 @@ fn merge_enchantments(
         if !applies_to(id, slot) {
             continue;
         }
-        match merged.iter().position(|(other, _)| *other == id) {
+        match positions.get(&id).copied() {
             Some(index) => {
                 let current = &mut merged[index].1;
                 if *current < facts.max_level {
@@ -115,7 +127,9 @@ fn merge_enchantments(
                     };
                 }
             }
-            None if merged.iter().all(|&(other, _)| compatible(id, other)) => {
+            None if known.iter().all(|&other| compatible(id, other)) => {
+                positions.insert(id, merged.len());
+                known.push(id);
                 merged.push((id, level));
             }
             None => {}
