@@ -56,6 +56,30 @@ fn inline_payload_of(sections: usize, block: u32) -> Bytes {
     Bytes::from(payload)
 }
 
+/// A two-entry packed palette in unchanged sections, optionally replacing only the top section.
+fn inline_packed_payload(sections: usize, changed_top: bool) -> Bytes {
+    let range = vanilla_dimension_range(0).unwrap();
+    let bits = 2_u32;
+    let indices_per_word = u32::BITS / bits;
+    let word =
+        (0..indices_per_word).fold(0_u32, |word, index| word | ((index % 2) << (index * bits)));
+    let mut payload = Vec::new();
+    for offset in 0..sections {
+        let y = range.base_sub_chunk_y + offset as i32;
+        if changed_top && offset + 1 == sections {
+            payload.extend([9, 1, y as i8 as u8, 1, (SOLID_SWAPPED << 1) as u8]);
+        } else {
+            payload.extend([9, 1, y as i8 as u8, ((bits << 1) | 1) as u8]);
+            for _ in 0..world::BLOCKS_PER_SUB_CHUNK.div_ceil(indices_per_word as usize) {
+                payload.extend(word.to_le_bytes());
+            }
+            payload.extend([2 << 1, (SOLID << 1) as u8, (SOLID_SWAPPED << 1) as u8]);
+        }
+    }
+    payload.extend(inline_payload(0));
+    Bytes::from(payload)
+}
+
 fn terrain_assets() -> RuntimeAssets {
     let base = RuntimeAssets::diagnostic();
     let mut texture = base.texture_array().clone();
@@ -392,43 +416,89 @@ fn resend_benches(c: &mut Criterion) {
     let swapped = Arc::new(std::array::from_fn(|index| {
         inline_payload_of(index + 1, SOLID_SWAPPED)
     }));
-    let loaded_fixture = || {
-        let mut stream = new_stream(&assets);
-        let background_columns = preload_air_boundary(&mut stream, sections);
-        let mut fixture = BurstFixture {
-            stream,
-            payloads: Arc::clone(&loaded),
-            sections,
-            background_columns,
-            drained_columns: 0,
-        };
-        drain_burst(&mut fixture, false);
-        fixture.payloads = Arc::clone(&swapped);
-        fixture.drained_columns = COLUMNS;
-        fixture
-    };
-    let mut witness = loaded_fixture();
-    let before = witness.stream.stats();
-    drain_burst(&mut witness, false);
-    let after = witness.stream.stats();
-    eprintln!(
-        "RESEND_PREFLIGHT columns={COLUMNS} sections={sections} light_jobs={} meshes={}",
-        after.accepted_light_jobs - before.accepted_light_jobs,
-        after.publication_stages.mesh_jobs_completed
-            - before.publication_stages.mesh_jobs_completed,
-    );
+    let mostly_identical = Arc::new(std::array::from_fn(|index| {
+        let sections = index + 1;
+        let mut payload = inline_payload(sections).to_vec();
+        payload[(sections - 1) * 5 + 4] = (SOLID_SWAPPED << 1) as u8;
+        Bytes::from(payload)
+    }));
+    let packed_loaded = Arc::new(std::array::from_fn(|index| {
+        inline_packed_payload(index + 1, false)
+    }));
+    let packed_changed = Arc::new(std::array::from_fn(|index| {
+        inline_packed_payload(index + 1, true)
+    }));
     let mut group = c.benchmark_group("pipeline/inline_resend_cpu_drain");
     group.sample_size(10);
     group.throughput(Throughput::Elements(sections as u64));
-    group.bench_function(BenchmarkId::new("light_neutral_columns", COLUMNS), |b| {
-        b.iter_batched_ref(
-            loaded_fixture,
-            |fixture| {
-                black_box(drain_burst(fixture, false));
-            },
-            BatchSize::PerIteration,
+    for (name, initial, replacement) in [
+        ("light_neutral_columns", Arc::clone(&loaded), swapped),
+        (
+            "mostly_identical_columns",
+            Arc::clone(&loaded),
+            mostly_identical,
+        ),
+        (
+            "identical_columns",
+            Arc::clone(&loaded),
+            Arc::clone(&loaded),
+        ),
+        (
+            "packed_mostly_identical_columns",
+            Arc::clone(&packed_loaded),
+            packed_changed,
+        ),
+        (
+            "packed_identical_columns",
+            Arc::clone(&packed_loaded),
+            packed_loaded,
+        ),
+    ] {
+        let loaded_fixture = || {
+            let mut stream = new_stream(&assets);
+            let background_columns = preload_air_boundary(&mut stream, sections);
+            let mut fixture = BurstFixture {
+                stream,
+                payloads: Arc::clone(&initial),
+                sections,
+                background_columns,
+                drained_columns: 0,
+            };
+            drain_burst(&mut fixture, false);
+            fixture.payloads = Arc::clone(&replacement);
+            fixture.drained_columns = COLUMNS;
+            fixture
+        };
+        let mut witness = loaded_fixture();
+        let before = witness.stream.stats();
+        let started = Instant::now();
+        drain_burst(&mut witness, false);
+        let drain_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let after = witness.stream.stats();
+        eprintln!(
+            "RESEND_PREFLIGHT case={name} columns={COLUMNS} sections={sections} decoded={} reused={} worker_cpu_ms={:.3} drain_ms={drain_ms:.3} light_jobs={} meshes={}",
+            after.publication_stages.inline_sections_decoded
+                - before.publication_stages.inline_sections_decoded,
+            after.publication_stages.inline_sections_reused
+                - before.publication_stages.inline_sections_reused,
+            (after.publication_stages.inline_decode_worker_time
+                - before.publication_stages.inline_decode_worker_time)
+                .as_secs_f64()
+                * 1000.0,
+            after.accepted_light_jobs - before.accepted_light_jobs,
+            after.publication_stages.mesh_jobs_completed
+                - before.publication_stages.mesh_jobs_completed,
         );
-    });
+        group.bench_function(BenchmarkId::new(name, COLUMNS), |b| {
+            b.iter_batched_ref(
+                loaded_fixture,
+                |fixture| {
+                    black_box(drain_burst(fixture, false));
+                },
+                BatchSize::PerIteration,
+            );
+        });
+    }
     group.finish();
 }
 

@@ -79,3 +79,31 @@ fn light_neutral_summary_of_a_replaced_section_relights() {
 
     assert!(!stream.light_is_current(key));
 }
+
+/// Byte-identical resends reuse the worker snapshot without decoding or dirtying terrain.
+#[test]
+fn identical_resend_reuses_blocks_without_new_decode_work() {
+    let (mut stream, key) = settled_column(7);
+    let resident = stream.authority.terrain().sub_chunk(key).unwrap();
+    let before = stream.stats();
+    stream
+        .submit(2, inline_block_entity_event(1, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    let after = stream.stats();
+    assert_eq!(
+        after.publication_stages.inline_sections_decoded,
+        before.publication_stages.inline_sections_decoded
+    );
+    assert_eq!(
+        after.publication_stages.inline_sections_reused
+            - before.publication_stages.inline_sections_reused,
+        1
+    );
+    assert!(Arc::ptr_eq(
+        &resident,
+        &stream.authority.terrain().sub_chunk(key).unwrap()
+    ));
+    assert!(!stream.mesh_jobs.pending.contains_key(&key));
+    assert!(!stream.lighting.jobs.pending.contains_key(&key));
+}

@@ -18,7 +18,9 @@ mod collision_snapshot;
 mod helpers;
 mod level_chunk;
 use self::helpers::*;
-pub use self::level_chunk::{DecodedLevelChunk, DimensionSlots, decode_column_tail};
+pub use self::level_chunk::{
+    DecodedLevelChunk, DimensionSlots, InlineDecodeWork, decode_column_tail,
+};
 
 /// Monotonic identity for the collision-relevant contents of one loaded column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -768,12 +770,19 @@ impl ChunkStore {
             block_entities,
             block_bytes_consumed,
             bytes_consumed,
+            work: _,
         } = decoded;
         for (&y, replacement) in &mut sub_chunks {
-            if let Some(previous) = old
-                .and_then(|chunk| chunk.sub_chunks.get(&y))
-                .filter(|previous| previous.as_ref() == replacement.as_ref())
+            if let Some(previous) =
+                old.and_then(|chunk| chunk.sub_chunks.get(&y))
+                    .filter(|previous| {
+                        Arc::ptr_eq(previous, replacement)
+                            || previous.as_ref() == replacement.as_ref()
+                    })
             {
+                if !Arc::ptr_eq(previous, replacement) {
+                    previous.retain_inline_identity_from(replacement);
+                }
                 *replacement = Arc::clone(previous);
             }
         }

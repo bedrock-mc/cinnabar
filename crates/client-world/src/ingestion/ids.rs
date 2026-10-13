@@ -35,6 +35,37 @@ impl std::fmt::Debug for DecodeIds {
 }
 
 impl BlockIds for DecodeIds {
+    /// Retains every immutable registry input used by runtime and persistent palettes.
+    fn inline_cache_context(&self) -> Option<Arc<dyn std::any::Any + Send + Sync>> {
+        Some(Arc::new(self.clone()))
+    }
+
+    /// Compares all resolution inputs; the exhaustive pattern makes added registry fields explicit.
+    fn inline_cache_context_matches(&self, context: &(dyn std::any::Any + Send + Sync)) -> bool {
+        let Some(previous) = context.downcast_ref::<Self>() else {
+            return false;
+        };
+        let Self {
+            assets,
+            custom_blocks,
+            custom_identities,
+            remap,
+            session_id,
+            mode,
+            air,
+            diagnostics: _,
+            biome_tints: _,
+            default_biome: _,
+        } = self;
+        Arc::ptr_eq(assets, &previous.assets)
+            && Arc::ptr_eq(remap, &previous.remap)
+            && Arc::ptr_eq(custom_identities, &previous.custom_identities)
+            && *custom_blocks == previous.custom_blocks
+            && *session_id == previous.session_id
+            && *mode == previous.mode
+            && *air == previous.air
+    }
+
     /// Returns the active registry's air value.
     fn air(&self) -> u32 {
         self.air
@@ -184,6 +215,40 @@ mod tests {
             invalid_states.insert("powered_bit", value);
             entry.insert("states", NbtValue::Compound(invalid_states));
             assert_eq!(persistent_hash(&entry), None);
+        }
+    }
+
+    /// Every immutable registry replacement invalidates prior inline payload hashes.
+    #[test]
+    fn inline_cache_context_tracks_all_block_resolution_inputs() {
+        let assets = Arc::new(RuntimeAssets::diagnostic());
+        let ids = DecodeIds {
+            biome_tints: Arc::new(assets.biome_assets().resolve_live(&[]).unwrap()),
+            assets,
+            custom_blocks: 0..0,
+            custom_identities: Arc::default(),
+            remap: Arc::default(),
+            diagnostics: Arc::default(),
+            session_id: 0,
+            mode: NetworkIdMode::Sequential,
+            air: 0,
+            default_biome: 0,
+        };
+        let context = ids.inline_cache_context().unwrap();
+        assert!(ids.clone().inline_cache_context_matches(context.as_ref()));
+        let changes: [fn(&mut DecodeIds); 7] = [
+            |ids| ids.air = 1,
+            |ids| ids.mode = NetworkIdMode::Hashed,
+            |ids| ids.session_id = 1,
+            |ids| ids.custom_blocks = 1..2,
+            |ids| ids.custom_identities = Arc::default(),
+            |ids| ids.remap = Arc::default(),
+            |ids| ids.assets = Arc::new(RuntimeAssets::diagnostic()),
+        ];
+        for change in changes {
+            let mut changed = ids.clone();
+            change(&mut changed);
+            assert!(!changed.inline_cache_context_matches(context.as_ref()));
         }
     }
 

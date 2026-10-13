@@ -1,0 +1,263 @@
+use super::*;
+use crate::{BlockUpdate, ChunkStore, RawBiomeIds, RawBlockIds, SubChunkKey};
+use std::cell::Cell;
+
+struct CountingIds {
+    calls: Cell<usize>,
+    air: u32,
+}
+
+impl BlockIds for CountingIds {
+    /// Counts palette resolution, which cached sections must skip completely.
+    fn resolve(&self, id: u32) -> u32 {
+        self.calls.set(self.calls.get() + 1);
+        id
+    }
+    /// Supplies the fallback used by this immutable decoder.
+    fn air(&self) -> u32 {
+        self.air
+    }
+    /// Uses the canonical raw-id context so it cannot retain the mutable counter.
+    fn inline_cache_context(&self) -> Option<Arc<dyn std::any::Any + Send + Sync>> {
+        RawBlockIds { air: self.air }.inline_cache_context()
+    }
+    /// Delegates cache identity to the same raw-id policy as resolution.
+    fn inline_cache_context_matches(&self, context: &(dyn std::any::Any + Send + Sync)) -> bool {
+        RawBlockIds { air: self.air }.inline_cache_context_matches(context)
+    }
+}
+
+/// Two complete uniform sections followed by the full column tail.
+fn payload(second: u8, biome: u8) -> Vec<u8> {
+    vec![
+        9,
+        1,
+        0,
+        1,
+        2,
+        9,
+        1,
+        1,
+        1,
+        second << 1,
+        1,
+        biome << 1,
+        0xff,
+        0,
+    ]
+}
+
+/// Decodes the test column with optional resident blocks and independent biome resolution.
+fn decode(
+    bytes: &[u8],
+    ids: &dyn BlockIds,
+    previous: Option<&BTreeMap<i32, Arc<SubChunk>>>,
+) -> DecodedLevelChunk {
+    DecodedLevelChunk::decode_inline_reusing(
+        ChunkKey::new(0, 0, 0),
+        DimensionSlots {
+            base_sub_chunk_y: 0,
+            count: 2,
+        },
+        2,
+        bytes,
+        ids,
+        &RawBiomeIds { default_biome: 0 },
+        previous,
+    )
+}
+
+/// Identical resends perform no palette resolution and preserve the exact resident Arcs.
+#[test]
+fn identical_sections_skip_decode_and_structural_comparison() {
+    let ids = CountingIds {
+        calls: Cell::new(0),
+        air: 0,
+    };
+    let first = decode(&payload(2, 0), &ids, None);
+    assert_eq!(first.decode_work().decoded_sections, 2);
+    assert_eq!(ids.calls.replace(0), 2);
+    let resent = decode(&payload(2, 0), &ids, Some(&first.sub_chunks));
+    assert_eq!(
+        resent.decode_work(),
+        InlineDecodeWork {
+            decoded_sections: 0,
+            reused_sections: 2
+        }
+    );
+    assert_eq!(ids.calls.get(), 0);
+    for (y, section) in resent.sub_chunks() {
+        assert!(Arc::ptr_eq(&section, &first.sub_chunks[&y]));
+    }
+}
+
+/// A one-section edit decodes only that section, while an independent tail change still commits.
+#[test]
+fn changed_sections_and_biome_tail_still_decode() {
+    let ids = CountingIds {
+        calls: Cell::new(0),
+        air: 0,
+    };
+    let first = decode(&payload(2, 0), &ids, None);
+    ids.calls.set(0);
+    let resent = decode(&payload(3, 1), &ids, Some(&first.sub_chunks));
+    assert_eq!(
+        resent.decode_work(),
+        InlineDecodeWork {
+            decoded_sections: 1,
+            reused_sections: 1
+        }
+    );
+    assert_eq!(ids.calls.get(), 1);
+    assert!(Arc::ptr_eq(&first.sub_chunks[&0], &resent.sub_chunks[&0]));
+    assert_eq!(resent.sub_chunks[&1].runtime_id(0, 0, 0, 0), Some(3));
+    let key = ChunkKey::new(0, 0, 0);
+    let mut store = ChunkStore::new();
+    store.commit_level_chunk(key, first).unwrap();
+    store.commit_level_chunk(key, resent).unwrap();
+    assert_eq!(
+        store.biome_id(SubChunkKey::from_chunk(key, 0), 0, 0, 0),
+        Some(1)
+    );
+}
+
+/// A local mutation clears its old wire identity so a server resend can restore the original value.
+#[test]
+fn mutations_and_changed_registry_contexts_invalidate_reuse() {
+    let ids = CountingIds {
+        calls: Cell::new(0),
+        air: 0,
+    };
+    let mut first = decode(&payload(2, 0), &ids, None);
+    let original = first.sub_chunks.clone();
+    Arc::make_mut(first.sub_chunks.get_mut(&0).unwrap()).apply_block_updates(
+        &[BlockUpdate {
+            x: 0,
+            y: 0,
+            z: 0,
+            layer: 0,
+            runtime_id: 7,
+        }],
+        0,
+    );
+    assert_eq!(
+        decode(&payload(2, 0), &ids, Some(&original))
+            .decode_work()
+            .decoded_sections,
+        0
+    );
+    let resent = decode(&payload(2, 0), &ids, Some(&first.sub_chunks));
+    assert_eq!(resent.decode_work().decoded_sections, 1);
+    assert_eq!(resent.sub_chunks[&0].runtime_id(0, 0, 0, 0), Some(1));
+    let different = RawBlockIds { air: 99 };
+    assert_eq!(
+        decode(&payload(2, 0), &different, Some(&resent.sub_chunks))
+            .decode_work()
+            .decoded_sections,
+        2
+    );
+}
+
+/// Sections loaded by request-mode replies acquire an inline identity without changing their Arcs.
+#[test]
+fn structural_reuse_retains_new_wire_hashes_for_later_resends() {
+    let ids = RawBlockIds { air: 0 };
+    let key = ChunkKey::new(0, 0, 0);
+    let mut store = ChunkStore::new();
+    for y in 0..2 {
+        store
+            .commit_sub_chunk(
+                SubChunkKey::from_chunk(key, y),
+                SubChunk::decode(&[9, 1, y as u8, 1, ((y + 1) << 1) as u8], &ids),
+            )
+            .unwrap();
+    }
+    let original = store.chunk(key).unwrap().shared_sub_chunks();
+    let first = decode(&payload(2, 0), &ids, Some(&original));
+    assert_eq!(first.decode_work().decoded_sections, 2);
+    store.commit_level_chunk(key, first).unwrap();
+    let resident = store.chunk(key).unwrap().shared_sub_chunks();
+    assert!(Arc::ptr_eq(&original[&0], &resident[&0]));
+    assert_eq!(
+        decode(&payload(2, 0), &ids, Some(&resident))
+            .decode_work()
+            .decoded_sections,
+        0
+    );
+
+    // A wider varint has the same block value but a different wire identity and boundary.
+    let mut wider = payload(2, 0);
+    wider.splice(4..5, [0x82, 0]);
+    let changed_encoding = decode(&wider, &ids, Some(&resident));
+    assert_eq!(changed_encoding.decode_work().decoded_sections, 1);
+    assert!(
+        store
+            .commit_level_chunk(key, changed_encoding)
+            .unwrap()
+            .changed
+            .is_empty()
+    );
+    let updated = store.chunk(key).unwrap().shared_sub_chunks();
+    assert!(Arc::ptr_eq(&original[&0], &updated[&0]));
+    assert_eq!(
+        decode(&wider, &ids, Some(&updated))
+            .decode_work()
+            .decoded_sections,
+        0
+    );
+}
+
+/// A cached section moved to another Y slot must still obey the ordinary misplaced-Y rule.
+#[test]
+fn reused_payloads_cannot_bypass_slot_y_validation() {
+    let ids = RawBlockIds { air: 0 };
+    let first = decode(&payload(2, 0), &ids, None);
+    let mut moved = first.sub_chunks.clone();
+    moved.insert(1, Arc::clone(&first.sub_chunks[&0]));
+    let mut bytes = payload(2, 0);
+    bytes[7] = 0;
+    bytes[9] = 2;
+    let ordinary = decode(&bytes, &ids, None);
+    let cached = decode(&bytes, &ids, Some(&moved));
+    assert_eq!(cached, ordinary);
+    assert_eq!(cached.decode_work().reused_sections, 1);
+    assert!(!cached.sub_chunks.contains_key(&1));
+}
+
+/// A truncated palette varint must not turn into a hash hit after its missing byte arrives.
+#[test]
+fn appended_bytes_complete_truncated_sections_instead_of_reusing_them() {
+    let ids = RawBlockIds { air: 0 };
+    let first = decode(&[9, 1, 0, 1, 0x80], &ids, None);
+    let resent = decode(&[9, 1, 0, 1, 0x80, 2], &ids, Some(&first.sub_chunks));
+    assert_eq!(resent.decode_work().reused_sections, 0);
+    assert_eq!(resent.sub_chunks[&0].runtime_id(0, 0, 0, 0), Some(128));
+}
+
+/// Cached reads retain the ordinary decoder's lenient cursor and section results across versions.
+#[test]
+fn cached_decode_matches_ordinary_reads_for_malformed_and_extended_payloads() {
+    let ids = RawBlockIds { air: 0 };
+    for version in 0..=12 {
+        for header in [0, 1, 2, 3, 12, 32, 0xff] {
+            for length in 0..12 {
+                let mut bytes = vec![version, 2, 0, header];
+                bytes.extend(std::iter::repeat_n(0x80, length));
+                let first = decode(&bytes, &ids, None);
+                bytes.extend([0, 9, 1, 1, 1, 4, 1, 0, 0xff, 0]);
+                let ordinary = decode(&bytes, &ids, None);
+                let cached = decode(&bytes, &ids, Some(&first.sub_chunks));
+                assert_eq!(
+                    cached.sub_chunks, ordinary.sub_chunks,
+                    "version={version} header={header} length={length}"
+                );
+                assert_eq!(
+                    cached.block_bytes_consumed(),
+                    ordinary.block_bytes_consumed()
+                );
+                assert_eq!(cached.biomes, ordinary.biomes);
+                assert_eq!(cached.block_entities, ordinary.block_entities);
+            }
+        }
+    }
+}

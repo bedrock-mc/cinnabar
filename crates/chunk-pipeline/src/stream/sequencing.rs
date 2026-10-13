@@ -81,6 +81,11 @@ impl WorldStream {
                 duration,
             } => {
                 self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
+                let work = decoded.decode_work();
+                self.stats.publication_stages.inline_sections_decoded +=
+                    work.decoded_sections as u64;
+                self.stats.publication_stages.inline_sections_reused += work.reused_sections as u64;
+                self.stats.publication_stages.inline_decode_worker_time += duration;
                 let key = ChunkKey::new(event.dimension, event.x, event.z);
                 if !self.column_is_data_interesting(key) {
                     self.record_normalization_error(NormalizationErrorReason::InactiveInlineChunk);

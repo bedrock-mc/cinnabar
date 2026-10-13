@@ -1,3 +1,5 @@
+mod payload;
+
 use crate::{
     BlockUpdate, PalettedStorage,
     palette::{BLOCKS_PER_SUB_CHUNK, PACKED_BITS, word_count},
@@ -17,6 +19,17 @@ const LEGACY_PAYLOAD_BYTES: usize = BLOCKS_PER_SUB_CHUNK + BLOCKS_PER_SUB_CHUNK 
 
 /// Resolves raw network block ids the way the vanilla palette does.
 pub trait BlockIds {
+    /// Retains the immutable registry inputs that allow identical inline payloads to be reused.
+    /// Decoders without a stable identity keep the default and always decode.
+    fn inline_cache_context(&self) -> Option<std::sync::Arc<dyn std::any::Any + Send + Sync>> {
+        None
+    }
+
+    /// Whether this decoder has the same resolution rules as the retained registry context.
+    fn inline_cache_context_matches(&self, _context: &(dyn std::any::Any + Send + Sync)) -> bool {
+        false
+    }
+
     /// Network id of air in the session's id mode.
     fn air(&self) -> u32;
 
@@ -36,6 +49,18 @@ pub struct RawBlockIds {
 }
 
 impl BlockIds for RawBlockIds {
+    /// Raw ids resolve identically whenever their air fallback is unchanged.
+    fn inline_cache_context(&self) -> Option<std::sync::Arc<dyn std::any::Any + Send + Sync>> {
+        Some(std::sync::Arc::new(*self))
+    }
+
+    /// Compares the complete raw-id decoder policy.
+    fn inline_cache_context_matches(&self, context: &(dyn std::any::Any + Send + Sync)) -> bool {
+        context
+            .downcast_ref::<Self>()
+            .is_some_and(|previous| previous.air == self.air)
+    }
+
     fn air(&self) -> u32 {
         self.air
     }
@@ -46,12 +71,27 @@ impl BlockIds for RawBlockIds {
 }
 
 /// A decoded 16×16×16 Bedrock sub-chunk.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct SubChunk {
     version: u8,
     y_index: Option<i8>,
     storages: Box<[PalettedStorage]>,
+    inline_payload: payload::InlinePayloadCache,
 }
+
+impl PartialEq for SubChunk {
+    /// Wire cache metadata does not change the decoded block value.
+    fn eq(&self, other: &Self) -> bool {
+        let Self {
+            version,
+            y_index,
+            storages,
+            inline_payload: _,
+        } = self;
+        *version == other.version && *y_index == other.y_index && *storages == other.storages
+    }
+}
+impl Eq for SubChunk {}
 
 impl SubChunk {
     /// Decodes one network sub-chunk, ignoring any bytes vanilla would leave unread.
@@ -77,6 +117,7 @@ impl SubChunk {
                 version,
                 y_index: None,
                 storages: Box::new([]),
+                inline_payload: payload::InlinePayloadCache::default(),
             };
         }
         let storage_count = if version > 7 {
@@ -98,6 +139,7 @@ impl SubChunk {
             version,
             y_index,
             storages,
+            inline_payload: payload::InlinePayloadCache::default(),
         }
     }
 
@@ -143,10 +185,12 @@ impl SubChunk {
             version: if y_index.is_some() { 9 } else { 8 },
             y_index,
             storages: Box::new([]),
+            inline_payload: payload::InlinePayloadCache::default(),
         }
     }
 
     pub(crate) fn apply_block_updates(&mut self, updates: &[BlockUpdate], air_runtime_id: u32) {
+        self.inline_payload.clear();
         let mut storages = std::mem::take(&mut self.storages).into_vec();
         let mut updates_by_layer: [Vec<(usize, u32)>; MAX_STORAGE_COUNT] =
             std::array::from_fn(|_| Vec::new());
@@ -188,10 +232,17 @@ fn read_block_storage(reader: &mut Reader<'_>, ids: &dyn BlockIds) -> PalettedSt
             let input = reader.remaining();
             let consumed = crate::block_entity::lenient_nbt_len(input);
             reader.read_exact(consumed);
-            crate::BlockEntityNbt::decode_prefix(&input[..consumed])
+            match crate::BlockEntityNbt::decode_prefix(&input[..consumed])
                 .ok()
                 .and_then(|(nbt, _)| nbt.parse())
-                .map_or_else(|| ids.air(), |entry| ids.resolve_persistent(&entry))
+            {
+                Some(entry) => ids.resolve_persistent(&entry),
+                None => {
+                    // A truncated NBT boundary may move when a later payload appends bytes.
+                    reader.failed_read = true;
+                    ids.air()
+                }
+            }
         } else {
             ids.resolve(reader.read_var_i32() as u32)
         }
@@ -238,11 +289,16 @@ pub(crate) fn read_packed_storage(
 pub(crate) struct Reader<'a> {
     bytes: &'a [u8],
     position: usize,
+    failed_read: bool,
 }
 
 impl<'a> Reader<'a> {
     pub(crate) fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, position: 0 }
+        Self {
+            bytes,
+            position: 0,
+            failed_read: false,
+        }
     }
 
     pub(crate) fn position(&self) -> usize {
@@ -263,6 +319,7 @@ impl<'a> Reader<'a> {
 
     pub(crate) fn read_u8(&mut self) -> u8 {
         let Some(&byte) = self.bytes.get(self.position) else {
+            self.failed_read = true;
             return 0;
         };
         self.position += 1;
@@ -272,6 +329,7 @@ impl<'a> Reader<'a> {
     /// Returns `None` and parks at the end when fewer than `count` bytes remain.
     pub(crate) fn read_exact(&mut self, count: usize) -> Option<&'a [u8]> {
         let Some(bytes) = self.remaining().get(..count) else {
+            self.failed_read = true;
             self.skip_to_end();
             return None;
         };
@@ -284,6 +342,7 @@ impl<'a> Reader<'a> {
         let mut encoded = 0_u32;
         for index in 0..5 {
             if self.is_at_end() {
+                self.failed_read = true;
                 return 0;
             }
             let byte = self.read_u8();
