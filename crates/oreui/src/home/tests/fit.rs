@@ -1,4 +1,4 @@
-//! Geometry regressions for short home windows without installed assets.
+//! Geometry regressions for home windows and GUI scales without installed assets.
 
 use super::*;
 use crate::theme::GUI_PIXELS_PER_REM;
@@ -14,7 +14,7 @@ fn title(width: u16, height: u16) -> IconRef {
     }
 }
 
-/// Checks the full action extent and unclipped hit areas at one viewport and text scale.
+/// Checks the header, full action extent and unclipped hit areas at one viewport and text scale.
 fn assert_fits(
     size: [f32; 2],
     dpi: f32,
@@ -60,17 +60,32 @@ fn assert_fits(
     }
     let mut targets = Vec::new();
     let mut preview = None;
-    let (scrolls, hits, _) = paint(HashMap::from([("oreui_home/actions".into(), 200.0)]), |c| {
-        c.metrics = metrics;
-        c.rem = rem;
-        c.title_artwork = artwork;
-        c.capture_focus = true;
-        preview = draw(c, &view, size, None, &|_| None).unwrap();
-        targets = c.focus_hits.clone();
-        assert_eq!(c.rem, rem, "fit scaling must not affect the next group");
-        assert_eq!(c.metrics.scale, metrics.scale);
-    });
+    let (scrolls, hits, nodes) =
+        paint(HashMap::from([("oreui_home/actions".into(), 200.0)]), |c| {
+            c.metrics = metrics;
+            c.rem = rem;
+            c.title_artwork = artwork;
+            c.capture_focus = true;
+            preview = draw(c, &view, size, None, &|_| None).unwrap();
+            targets = c.focus_hits.clone();
+            assert_eq!(c.rem, rem, "fit scaling must not affect the next group");
+            assert_eq!(c.metrics.scale, metrics.scale);
+        });
     assert!(scrolls.is_empty(), "home needs no scroll range at {size:?}");
+    let header = nodes
+        .iter()
+        .find(|node| matches!(node.visual(), UiVisual::Text { layout, .. }
+            if layout.glyphs().iter().map(|glyph| glyph.codepoint).collect::<String>().replace(' ', "") == "LET'SPLAY"))
+        .expect("home keeps its action header");
+    let viewport = nodes
+        .iter()
+        .find(|node| Some(node.id()) == header.parent())
+        .expect("action header has a clipping viewport")
+        .bounds();
+    assert!(
+        header.bounds().min().y() >= 0.0 && header.bounds().max().y() <= viewport.height() + 0.001,
+        "action header is clipped at {size:?}, DPI {dpi}, preference {preference:?}"
+    );
     assert_eq!(
         hits.len(),
         10 + usize::from(event) + usize::from(update_ready) * 2
@@ -146,8 +161,40 @@ fn fit_survives_compact_breakpoints_and_display_scales() {
         [1920.0, 1080.0],
     ] {
         for dpi in [0.5, 1.0, 2.0, 4.0, 8.0] {
-            for preference in [None, Some(1), Some(2)] {
+            let physical = size.map(|value| (value * dpi).round() as u32);
+            let desktop = ui::DesktopGuiScale::for_window(physical);
+            let preferences = [None, Some(1), Some(2)].into_iter().chain(
+                desktop
+                    .choices()
+                    .map(|choice| Some(desktop.scale_for_offset(choice.offset))),
+            );
+            for preference in preferences {
                 assert_fits(size, dpi, preference, Some(title(300, 100)), true, false);
+            }
+        }
+    }
+}
+
+#[test]
+fn every_native_gui_scale_choice_fits_common_window_sizes() {
+    for size in [
+        [1280.0_f32, 720.0],
+        [1366.0, 768.0],
+        [1600.0, 900.0],
+        [1920.0, 1080.0],
+    ] {
+        for dpi in [1.0, 1.25, 1.5] {
+            let physical = size.map(|value| (value * dpi).round() as u32);
+            let desktop = ui::DesktopGuiScale::for_window(physical);
+            for choice in desktop.choices() {
+                let preference = Some(desktop.scale_for_offset(choice.offset));
+                for artwork in [None, Some(title(400, 80)), Some(title(300, 100))] {
+                    for event in [false, true] {
+                        for update_ready in [false, true] {
+                            assert_fits(size, dpi, preference, artwork, event, update_ready);
+                        }
+                    }
+                }
             }
         }
     }

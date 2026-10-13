@@ -3,9 +3,11 @@ package experience
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"image"
 	"image/color"
@@ -43,18 +45,37 @@ const (
 	counterPNG   = "assets/counter.png"
 )
 
-// TestMain builds experience-runtime and the probe guest with cargo, assembles the probe
-// artifact and builds the fake helper. It fails when cargo is missing.
+// helperPipeWaitDelay bounds pipe cleanup after a helper build exits or is canceled.
+const helperPipeWaitDelay = 5 * time.Second
+
+// TestMain prepares helper artifacts, reserving test time when a timeout is enabled.
 func TestMain(m *testing.M) {
+	flag.Parse()
+	budget := flag.Lookup("test.timeout").Value.(flag.Getter).Get().(time.Duration)
+	started := time.Now()
+	ctx, cancel := helperBuildContext(context.Background(), budget-budget/4)
 	scratch, err := os.MkdirTemp("", "experience-test-")
 	if err != nil {
+		cancel()
 		fmt.Fprintln(os.Stderr, "experience tests:", err)
 		os.Exit(1)
 	}
-	if err := buildHelpers(scratch); err != nil {
+	err = buildHelpers(ctx, scratch)
+	if err == nil {
+		err = ctx.Err()
+	}
+	cancel()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "experience tests:", err)
 		os.RemoveAll(scratch)
 		os.Exit(1)
+	}
+	if budget != 0 {
+		if err := flag.Set("test.timeout", (budget - time.Since(started)).String()); err != nil {
+			fmt.Fprintln(os.Stderr, "experience tests:", err)
+			os.RemoveAll(scratch)
+			os.Exit(1)
+		}
 	}
 	code := m.Run()
 	os.RemoveAll(scratch)
@@ -63,7 +84,7 @@ func TestMain(m *testing.M) {
 
 // buildHelpers sets every variable that TestMain sets. Everything it writes goes below scratch,
 // except what cargo keeps in its target directories.
-func buildHelpers(scratch string) error {
+func buildHelpers(ctx context.Context, scratch string) error {
 	if _, err := exec.LookPath("cargo"); err != nil {
 		return fmt.Errorf("cargo is required to build experience-runtime and the probe guest: %w", err)
 	}
@@ -73,18 +94,15 @@ func buildHelpers(scratch string) error {
 		return err
 	}
 	repoRoot = root
-	runtimeBinary, err = cargoArtifact(root, "experience-runtime",
-		"build", "-p", "experience-runtime", "--locked")
+	runtimeArtifact, err := cargoArtifact(ctx, root, "experience-runtime", "build", "-p", "experience-runtime", "--locked")
 	if err != nil {
 		return err
 	}
-	// Like the runtime's own tests, the guest gets a target directory of its own.
-	probeWasm, err = cargoArtifact(root, "experience_probe",
-		"build", "--locked", "--target", "wasm32-unknown-unknown", "-p", "experience-probe",
-		"--target-dir", filepath.Join(root, "target", "experience-guests"))
+	guestArtifact, err := cargoArtifact(ctx, root, "experience_probe", helperGuestBuildArgs(root)...)
 	if err != nil {
 		return err
 	}
+	runtimeBinary, probeWasm = runtimeArtifact, guestArtifact
 	probeDir = filepath.Join(scratch, "probe")
 	if err := assembleProbe(root, probeWasm, probeDir); err != nil {
 		return fmt.Errorf("assembling the probe artifact: %w", err)
@@ -93,22 +111,25 @@ func buildHelpers(scratch string) error {
 	if runtime.GOOS == "windows" {
 		fakeHelperBinary += ".exe"
 	}
-	build := exec.Command("go", "build", "-o", fakeHelperBinary, "./testdata/fakehelper")
+	build := helperBuildCommand(ctx, "go", "build", "-o", fakeHelperBinary, "./testdata/fakehelper")
 	if out, err := build.CombinedOutput(); err != nil {
 		return fmt.Errorf("building the fake helper: %v\n%s", err, out)
 	}
 	return nil
 }
 
-// cargoArtifact runs cargo with args in root and returns the file it built for the target
-// named target: the executable, or else the .wasm.
-func cargoArtifact(root, target string, args ...string) (string, error) {
-	cmd := exec.Command("cargo", append(args, "--message-format=json-render-diagnostics")...)
+// cargoArtifact runs cargo within ctx and returns the executable or .wasm it built for target.
+func cargoArtifact(ctx context.Context, root, target string, args ...string) (string, error) {
+	fmt.Fprintf(os.Stderr, "experience tests: preparing %s\n", target)
+	cmd := helperBuildCommand(ctx, "cargo", append(args, "--message-format=json-render-diagnostics")...)
 	cmd.Dir = root
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("cargo %s: %w (%v)\n%s", strings.Join(args, " "), ctx.Err(), err, stderr.Bytes())
+		}
 		return "", fmt.Errorf("cargo %s: %v\n%s", strings.Join(args, " "), err, stderr.Bytes())
 	}
 	file := ""
