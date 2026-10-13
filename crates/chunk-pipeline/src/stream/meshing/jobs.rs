@@ -37,19 +37,12 @@ impl WorldStream {
         let (resident, known_air) = (&self.resident, &self.known_air);
         let terrain = self.authority.terrain();
         let classifier = self.classifier;
-        // Resident sections whose palettes are all air publish an empty mesh without a worker.
-        let requires_geometry = |key| {
-            resident.contains(&key)
-                && !known_air.contains(&key)
-                && terrain
-                    .sub_chunk(key)
-                    .is_none_or(|source| !classifier.is_sub_chunk_air(&source))
-        };
+        let needs_geometry = |key| requires_geometry(resident, known_air, terrain, classifier, key);
         let mut woken = Vec::new();
         let probe_near = self
             .mesh_jobs
             .ingress(view, self.poll_deadline, |key, _, pending| {
-                let lane = if requires_geometry(key) {
+                let lane = if needs_geometry(key) {
                     RESIDENT_MESH_LANE
                 } else {
                     MESH_REMOVAL_LANE
@@ -67,7 +60,7 @@ impl WorldStream {
         let worker_budget = budget.min((mesh_worker_cap + urgent_reserve).saturating_sub(occupied));
         let probe = |key| {
             let pending = self.mesh_jobs.pending.get(&key).copied()?;
-            (requires_geometry(key)
+            (needs_geometry(key)
                 && !self.mesh_jobs.in_flight.contains_key(&key)
                 && self.revisions.is_current(key, pending.revision))
             .then_some((
@@ -100,52 +93,10 @@ impl WorldStream {
                 .len()
                 .min(MAX_PENDING_SCHEDULER_SCANS_PER_POLL),
         );
-        let mut removal_candidates = Vec::new();
-        for index in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
-            if index != 0 && worker_budget == 0 && self.poll_budget_exhausted() {
-                break;
-            }
-            let Some(mut candidate) = self.mesh_jobs.lanes[RESIDENT_MESH_LANE].ready.pop() else {
-                break;
-            };
-            let key = candidate.key;
-            candidate.refresh_rank(view);
-            let Some(pending) = self.mesh_jobs.pending.get(&key).copied() else {
-                continue;
-            };
-            if pending.revision != candidate.revision {
-                continue;
-            }
-            if !self.revisions.is_current(key, pending.revision) {
-                self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
-                    .deferred
-                    .push(candidate);
-            } else if !requires_geometry(key) {
-                self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
-                    .ready
-                    .push(candidate);
-            } else if self.mesh_jobs.in_flight.contains_key(&key) {
-                self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
-                    .deferred
-                    .push(candidate);
-            } else if let Some((_, _, queued)) = resident_candidates
-                .iter_mut()
-                .find(|(entry, _, _)| entry.key == key)
-            {
-                *queued = true;
-            } else {
-                resident_candidates.push((candidate, pending, true));
-            }
-        }
         for (candidate, _, _) in truncated {
-            // The ready lane may have supplied the same key after its probe was truncated.
-            if !resident_candidates
-                .iter()
-                .any(|(selected, _, _)| selected.key == candidate.key)
-            {
-                self.mesh_jobs.refresh.requeue_woken(candidate.key);
-            }
+            self.mesh_jobs.refresh.requeue_woken(candidate.key);
         }
+        let mut removal_candidates = Vec::new();
         let removal_authority = self
             .publication_allowance
             .as_ref()
@@ -187,7 +138,7 @@ impl WorldStream {
                 self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
                     .deferred
                     .push(candidate);
-            } else if requires_geometry(key) {
+            } else if needs_geometry(key) {
                 self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
                     .ready
                     .push(candidate);
@@ -207,22 +158,80 @@ impl WorldStream {
         let now = Instant::now();
         self.prioritize_transfer_mesh_candidates(&mut resident_candidates);
         resident_candidates.sort_unstable_by_key(|candidate| std::cmp::Reverse(candidate.0));
-        for (candidate, pending, queued) in resident_candidates {
-            let key = candidate.key;
-            if self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES
-                || dispatched >= worker_budget
-                || (dispatched >= regular_budget && !candidate.urgent)
-                || (examined && self.poll_budget_exhausted())
-            {
-                if queued {
+        let mut probed = resident_candidates.into_iter().peekable();
+        let mut ready_pops = 0;
+        let mut seen = HashSet::new();
+        loop {
+            // The ready lane yields in rank order beside the probed candidates, one pop at a
+            // time, so work this call cannot dispatch stays queued rather than cycling through.
+            let ready_first = ready_pops < MAX_PENDING_SCHEDULER_SCANS_PER_POLL
+                && self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+                    .ready
+                    .peek()
+                    .is_some_and(|ready| probed.peek().is_none_or(|(next, _, _)| ready > next));
+            let (candidate, pending, queued) = if ready_first {
+                ready_pops += 1;
+                let mut candidate = self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+                    .ready
+                    .pop()
+                    .expect("a peeked ready candidate");
+                let key = candidate.key;
+                candidate.refresh_rank(view);
+                let Some(pending) = self.mesh_jobs.pending.get(&key).copied() else {
+                    continue;
+                };
+                if pending.revision != candidate.revision {
+                    continue;
+                }
+                if !self.revisions.is_current(key, pending.revision)
+                    || self.mesh_jobs.in_flight.contains_key(&key)
+                    || seen.contains(&key)
+                {
                     self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+                        .deferred
+                        .push(candidate);
+                    continue;
+                }
+                if !requires_geometry(
+                    &self.resident,
+                    &self.known_air,
+                    self.authority.terrain(),
+                    self.classifier,
+                    key,
+                ) {
+                    self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
                         .ready
                         .push(candidate);
-                } else {
-                    // Unexamined probed and woken candidates sit in no ready queue.
-                    self.mesh_jobs.refresh.requeue_woken(key);
+                    continue;
+                }
+                (candidate, pending, true)
+            } else if let Some(next) = probed.next() {
+                next
+            } else {
+                break;
+            };
+            let key = candidate.key;
+            if !seen.insert(key) {
+                if queued {
+                    self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+                        .deferred
+                        .push(candidate);
                 }
                 continue;
+            }
+            let exhausted = self.mesh_changes.len() >= MAX_PENDING_MESH_CHANGES
+                || dispatched >= worker_budget
+                || (examined && self.poll_budget_exhausted());
+            if exhausted || (dispatched >= regular_budget && !candidate.urgent) {
+                self.requeue_mesh_candidate(candidate, queued);
+                // Only a transfer candidate can rank above urgent work still to come.
+                if !exhausted && candidate.transfer {
+                    continue;
+                }
+                for (candidate, _, queued) in probed {
+                    self.requeue_mesh_candidate(candidate, queued);
+                }
+                break;
             }
             if !self.revisions.is_current(key, pending.revision)
                 || self.mesh_jobs.in_flight.contains_key(&key)
@@ -408,6 +417,17 @@ impl WorldStream {
             self.queue_mesh_change(change);
         }
         dispatched
+    }
+    /// Returns an undispatched candidate to the ready lane it came from, or to the woken set when
+    /// it was probed or woken outside any queue.
+    fn requeue_mesh_candidate(&mut self, candidate: PendingSchedulerCandidate, queued: bool) {
+        if queued {
+            self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+                .ready
+                .push(candidate);
+        } else {
+            self.mesh_jobs.refresh.requeue_woken(candidate.key);
+        }
     }
     /// Faces, AO and smooth light sample all 26 neighbours; meshing before one the server still
     /// owes arrives bakes a hole or dark corner, so the mesh waits for it.
@@ -737,4 +757,19 @@ impl WorldStream {
         self.queue_mesh_change(change);
         None
     }
+}
+
+/// Resident sections whose palettes are all air publish an empty mesh without a worker.
+fn requires_geometry(
+    resident: &ColumnSubChunkSet,
+    known_air: &ColumnSubChunkSet,
+    terrain: &ChunkStore,
+    classifier: BlockClassifier,
+    key: SubChunkKey,
+) -> bool {
+    resident.contains(&key)
+        && !known_air.contains(&key)
+        && terrain
+            .sub_chunk(key)
+            .is_none_or(|source| !classifier.is_sub_chunk_air(&source))
 }
