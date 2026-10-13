@@ -22,8 +22,7 @@ pub use actor_store::{
     HURT_OVERLAY_ALPHA, LightningBoltView, LocalItemUse, LocalPlayerFeed, MAX_DROPPED_ITEM_COPIES,
     MAX_STATUS_NOTICES, MovementFlagUpdate, PICKUP_DURATION_TICKS, PlayerProfile, PropertyDefault,
     RideSeat, RopeKind, RopeView, SCALE_METADATA_KEY, SLEEPING_PLAYER_NETWORK_OFFSET,
-    SPELL_COLOR_METADATA_KEY,
-    dropped_item_copy_count, tnt_presentation,
+    SPELL_COLOR_METADATA_KEY, dropped_item_copy_count, tnt_presentation,
 };
 pub use block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, BlockEntityVisualRoute,

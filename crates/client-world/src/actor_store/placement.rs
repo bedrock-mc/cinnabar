@@ -622,4 +622,3 @@ impl super::ActorSnapshot {
             .map(|bed| (bed, self.status.sleep_rotation.unwrap_or(0.0)))
     }
 }
-

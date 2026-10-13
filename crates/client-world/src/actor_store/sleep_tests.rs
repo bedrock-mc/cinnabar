@@ -36,7 +36,10 @@ fn sleepers_lie_only_in_their_streamed_bed() {
     let mut store = sleeper(vec![sleeping(), bed([4, 64, -3])]);
     assert_eq!(store.bed_sample_points(), [(8, [4, 64, -3])]);
     store.set_bed_rotations(&[(8, 270.0)]);
-    assert_eq!(store.get(8).unwrap().sleeping_bed(), Some(([4, 64, -3], 270.0)));
+    assert_eq!(
+        store.get(8).unwrap().sleeping_bed(),
+        Some(([4, 64, -3], 270.0))
+    );
 
     let unplaced = sleeper(vec![sleeping()]);
     assert!(

@@ -658,7 +658,10 @@ pub fn sleeping_subject_position(bed: [i32; 3]) -> (Vec3, Vec3) {
         bed[1] as f32 + BED_TOP_HEIGHT,
         bed[2] as f32 + 0.5,
     );
-    (feet + Vec3::Y * client_world::SLEEPING_PLAYER_NETWORK_OFFSET, feet)
+    (
+        feet + Vec3::Y * client_world::SLEEPING_PLAYER_NETWORK_OFFSET,
+        feet,
+    )
 }
 
 /// The view a player sleeping with `sleep_rotation` degrees looks along: from the pillow
@@ -668,7 +671,12 @@ pub fn sleeping_subject_position(bed: [i32; 3]) -> (Vec3, Vec3) {
 #[must_use]
 pub fn sleeping_view_rotation(sleep_rotation: f32) -> Quat {
     let yaw = 270.0 - sleep_rotation;
-    Quat::from_euler(bevy::math::EulerRot::YXZ, (180.0 - yaw).to_radians(), 0.0, 0.0)
+    Quat::from_euler(
+        bevy::math::EulerRot::YXZ,
+        (180.0 - yaw).to_radians(),
+        0.0,
+        0.0,
+    )
 }
 
 /// Publishes presentation from the supplied committed world and completed physics observations.
@@ -804,7 +812,9 @@ mod sleeping_tests {
         let forward = sleeping_view_rotation(90.0) * Vec3::NEG_Z;
         assert!(forward.abs_diff_eq(Vec3::NEG_Z, 1e-5), "{forward}");
         let forward = sleeping_view_rotation(0.0) * Vec3::NEG_Z;
-        assert!(forward.abs_diff_eq(Vec3::X, 1e-5), "west-facing bed looks east: {forward}");
+        assert!(
+            forward.abs_diff_eq(Vec3::X, 1e-5),
+            "west-facing bed looks east: {forward}"
+        );
     }
 }
-

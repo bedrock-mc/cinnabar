@@ -450,9 +450,11 @@ pub fn apply_camera_presentation(
 
     let override_pose = server.pose_override(&context);
     let mut pose = override_pose.unwrap_or(base);
-    // A sleeper looks along its bed rather than where it last aimed.
-    let sleeping_rotation = override_pose
-        .is_none()
+    // A first-person sleeper looks along its bed rather than where it last aimed; third person
+    // keeps its ordinary orbit around the body.
+    let first_person =
+        server.renders_first_person(settings.perspective() == PerspectiveMode::FirstPerson);
+    let sleeping_rotation = (override_pose.is_none() && first_person)
         .then(|| {
             stream.and_then(|stream| {
                 stream
