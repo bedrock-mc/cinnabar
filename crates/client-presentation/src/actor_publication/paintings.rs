@@ -1,6 +1,6 @@
 //! Static hanging pictures share actor pages while retaining their dedicated ingress state.
 use super::*;
-use crate::presentation::actors::{ActorPresentationBatch, actor_within_render_distance};
+use crate::presentation::actors::{ActorPresentationBatch, actor_is_render_candidate};
 use assets::painting::{PAINTING_HALF_DEPTH, PAINTING_MOTIVES, motive};
 use render_api::PoseGeneration;
 use render_model::{ActorArtworkLocation, ActorArtworkPages, EntityRigId, RenderBoneTransform};
@@ -65,7 +65,7 @@ impl PaintingRoutes {
             let Some(painting) = &actor.painting else {
                 continue;
             };
-            if actor.is_invisible() || !actor_within_render_distance(actor, partial_tick, view) {
+            if actor.is_invisible() || !actor_is_render_candidate(actor, partial_tick, view) {
                 continue;
             }
             let motive = motive(&painting.motive);
