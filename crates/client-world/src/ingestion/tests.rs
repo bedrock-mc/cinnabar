@@ -152,7 +152,8 @@ fn async_block_batch_fences_later_events_until_matching_completion() {
                 PreparedWorldEvent::BlockUpdates {
                     result: Ok(PreparedBlockMutations {
                         mutations: Vec::new(),
-                        relight: Default::default()
+                        relight: Default::default(),
+                        crack_intermediates: Vec::new(),
                     }),
                     duration: Duration::ZERO,
                 }

@@ -204,6 +204,7 @@ fn local_authority_waits_for_block_mutations_but_not_chunk_decode() {
                 result: Ok(PreparedBlockMutations {
                     mutations: Vec::new(),
                     relight: Default::default(),
+                    crack_intermediates: Vec::new(),
                 }),
                 duration: Duration::ZERO,
             }
@@ -382,6 +383,7 @@ fn randomized_interleavings_match_strict_wire_order() {
                             result: Ok(PreparedBlockMutations {
                                 mutations: Vec::new(),
                                 relight: Default::default(),
+                                crack_intermediates: Vec::new(),
                             }),
                             duration: Duration::ZERO,
                         },

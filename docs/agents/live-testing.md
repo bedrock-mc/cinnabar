@@ -7,7 +7,9 @@ visual or performance acceptance gate.
 
 Use the [client MCP](client-mcp.md) with `headless: true` and the
 `developer-control` feature for automated input, screenshots, and recordings.
-Use the offline UI snapshot harness for isolated UI states. Do not inject OS input
+Use `cargo run -p ui-snapshot -- --list`, then `--state NAME --out /tmp/ui.png` for isolated UI states.
+Fixtures live in `tools/ui-snapshot/src/fixtures.rs`; PNGs have viewport/backend JSON sidecars and use `.local/assets/compiled` (or `--carriers DIR`).
+Missing carriers report a named skip; no game or window runs. Do not inject OS input
 or open a visible window for automated captures. Use a local server by default;
 remote joins require the owner's authorization because they use the configured
 account.
