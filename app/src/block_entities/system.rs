@@ -666,10 +666,7 @@ fn book_readers(stream: &chunk_pipeline::WorldStream, eye: Vec3) -> Vec<Vec3> {
         .authority()
         .remote_actors()
         .filter(|actor| matches!(&actor.kind, protocol::ActorKind::Player { .. }))
-        .map(|actor| {
-            let [x, y, z] = actor.position;
-            Vec3::new(x, y + protocol::PLAYER_NETWORK_OFFSET, z)
-        });
+        .map(|actor| Vec3::from_array(actor.native_position()));
     std::iter::once(eye).chain(remote).collect()
 }
 

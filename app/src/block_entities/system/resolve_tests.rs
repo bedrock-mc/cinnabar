@@ -283,7 +283,7 @@ fn player_appearance_readiness_does_not_gate_enchanting_book_readers() {
                     uuid: [2; 16],
                     username: "reader".into(),
                 },
-                position: remote_eye,
+                position: [2.0, 64.0, 0.0],
                 velocity: [0.0; 3],
                 pitch: 0.0,
                 yaw: 0.0,
@@ -305,6 +305,33 @@ fn player_appearance_readiness_does_not_gate_enchanting_book_readers() {
     let local_eye = Vec3::new(100.0, 64.0, 0.0);
     let readers = book_readers(&stream, local_eye);
     assert_eq!(readers, [local_eye, Vec3::from_array(remote_eye)]);
+    stream
+        .submit(
+            3,
+            WorldEvent::Actor(protocol::ActorEvent::Metadata(
+                protocol::ActorMetadataUpdateEvent {
+                    dimension: 0,
+                    runtime_id: 2,
+                    metadata: Arc::from([protocol::ActorMetadata {
+                        key: 92,
+                        value: protocol::ActorMetadataValue::FlagsExtended(1 << 12),
+                    }]),
+                    properties: Arc::from([]),
+                    tick: 0,
+                },
+            )),
+        )
+        .unwrap();
+    let actor = stream.authority().actor(2).unwrap();
+    assert!(actor.is_sleeping(), "fixture decodes the sleeping flag");
+    let sleeping_eye = Vec3::from_array(actor.native_position());
+    assert_ne!(sleeping_eye, Vec3::from_array(remote_eye));
+    let readers = book_readers(&stream, local_eye);
+    assert_eq!(
+        readers,
+        [local_eye, sleeping_eye],
+        "readers preserve the actor's state-specific origin"
+    );
     let mut book = render_model::EnchantingBook::new([2, 64, 0]);
     book.tick(book.nearest_reader(readers));
     assert!(
