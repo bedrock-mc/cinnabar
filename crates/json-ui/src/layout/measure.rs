@@ -74,7 +74,7 @@ pub(super) struct Children {
     pub(super) maximum: [f64; 2],
 }
 
-type PlaceMemo = Memo<(usize, u64, u64), Placements>;
+type PlaceMemo = Memo<(usize, u64, u64, u64), Placements>;
 
 /// Stable target addresses and visibility masks, shared with the emit pass.
 pub(super) type Targets = std::sync::Arc<[(usize, u8)]>;
@@ -94,11 +94,12 @@ struct Placements {
 
 impl Placements {
     /// Index grids whose rows advance monotonically; arbitrary placement stays unindexed.
-    fn new(children: Vec<(usize, Rect)>, grid: bool) -> Self {
+    fn new(children: Vec<(usize, Rect)>, grid: bool, bounds: impl Fn(usize, Rect) -> Rect) -> Self {
         let mut rows: Vec<Row> = Vec::new();
         if grid {
             let mut bottom = f64::NEG_INFINITY;
-            for (index, (_, rect)) in children.iter().enumerate() {
+            for (index, (child, rect)) in children.iter().enumerate() {
+                let rect = bounds(*child, *rect);
                 if !rect.y.is_finite()
                     || !rect.h.is_finite()
                     || rows.last().is_some_and(|row| rect.y < row.top)
@@ -547,6 +548,7 @@ pub(super) fn placed_children<'a>(
         std::ptr::from_ref(parent).addr(),
         rect.w.to_bits(),
         rect.h.to_bits(),
+        env.text.physical_pixel_size().to_bits(),
     );
     let shift = |(index, at): &(usize, Rect)| {
         let moved = Rect::new(at.x + rect.x, at.y + rect.y, at.w, at.h);
@@ -565,7 +567,9 @@ pub(super) fn placed_children<'a>(
             .into_iter()
             .map(|(child, at)| (child_index(parent, child), at))
             .collect();
-    let relative = Placements::new(relative, grid::is_grid(parent));
+    let relative = Placements::new(relative, grid::is_grid(parent), |index, rect| {
+        super::subtree_bounds(&parent.children[index], rect, env)
+    });
     let placed = relative.visible(clip, rect).iter().map(shift).collect();
     PLACED.with(|memo| memo.borrow_mut().insert(key, relative));
     placed
@@ -599,9 +603,11 @@ mod placement_tests {
                 )
             })
             .collect();
-        let reverse = Placements::new(children.iter().copied().rev().collect(), true);
+        let reverse = Placements::new(children.iter().copied().rev().collect(), true, |_, rect| {
+            rect
+        });
         assert!(reverse.rows.is_empty());
-        let placements = Placements::new(children, true);
+        let placements = Placements::new(children, true, |_, rect| rect);
         let origin = Rect::new(2.0, -37.0, 30.0, 200.0);
         for y in [0.0, 10.0, 32.0, 100.0, 250.0] {
             let clip = Rect::new(0.0, y, 40.0, 24.0);

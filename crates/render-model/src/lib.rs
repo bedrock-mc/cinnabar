@@ -59,8 +59,7 @@ pub use frame_pacing::{
 };
 pub use item_geometry::{extruded_sprite_vertices, held_sprite_vertices, textured_cube_vertices};
 pub use nametag::{
-    MAX_NAMETAG_RECORDS, NAMETAG_ACOS_CUBIC, NAMETAG_ACOS_LINEAR, NAMETAG_ATLAS_SIDE,
-    NAMETAG_BLOCKS_PER_FONT_PIXEL, NAMETAG_HORIZONTAL_ZERO, NAMETAG_LINE_PITCH_PX,
+    MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NAMETAG_BLOCKS_PER_FONT_PIXEL, NAMETAG_LINE_PITCH_PX,
     NAMETAG_TEXT_REVERSE_Z_BIAS, NametagAtlasRect, NametagRecord, NametagScene,
     nametag_line_backgrounds, nametag_line_left,
 };

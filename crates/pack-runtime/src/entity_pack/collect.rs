@@ -98,20 +98,41 @@ pub fn collect_files(
 ) -> Vec<(Box<str>, Vec<u8>)> {
     let mut files = Vec::new();
     let entities = unique_entities(view);
-    let attachables = attachables::collect(view, vanilla_pack_dir);
+    let mut geometry = unshadowed_geometry(view);
+    let pack_geometry = geometry
+        .iter()
+        .flat_map(|(_, bytes)| geometry_identifiers(bytes))
+        .collect::<BTreeSet<_>>();
+    let definitions = DEFINITION_FAMILIES
+        .map(|(prefix, key, merged)| (key, merged, merged_definitions(view, prefix, key)));
+    let mut overrides = pack_geometry.clone();
+    for (_, _, definitions) in &definitions {
+        overrides.extend(definitions.keys().cloned());
+    }
+    let materials = material_definitions(view);
+    let material_document = materials.as_deref().and_then(parse_pack_json);
+    let binding_inputs = pack_compiler::EquipmentBindingDependencies::load(
+        vanilla_pack_dir,
+        material_document.as_ref(),
+    )
+    .ok();
+    if let Some(inputs) = &binding_inputs {
+        overrides.extend(inputs.authored_materials().iter().cloned());
+    }
+    let attachables = attachables::collect(
+        view,
+        vanilla_pack_dir,
+        &overrides,
+        vanilla,
+        binding_inputs.as_ref(),
+    );
     let mut references = References::default();
     for (_, bytes) in entities.iter().chain(&attachables) {
         if let Ok(actor) = pack_json::parse_jsonc::<Value>(bytes) {
             references.read(&actor);
         }
     }
-    let mut geometry = unshadowed_geometry(view);
-    let pack_geometry = geometry
-        .iter()
-        .flat_map(|(_, bytes)| geometry_identifiers(bytes))
-        .collect::<BTreeSet<_>>();
-    for (prefix, key, merged) in DEFINITION_FAMILIES {
-        let mut definitions = merged_definitions(view, prefix, key);
+    for (key, merged, mut definitions) in definitions {
         if let Some(vanilla) = vanilla {
             let (source, wanted) = match key {
                 "animations" => (&vanilla.animations, &references.animations),
@@ -163,7 +184,7 @@ pub fn collect_files(
         }
     }
     files.extend(entities);
-    if let Some(materials) = material_definitions(view) {
+    if let Some(materials) = materials {
         files.push(("materials/_pack.material".into(), materials));
     }
     files.extend(attachables);

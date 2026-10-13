@@ -33,6 +33,7 @@ pub mod screen_cache;
 mod sprites;
 pub mod text_paint;
 mod vector_icons;
+mod vector_paths;
 use crate::atlas::ServerAtlas;
 use crate::frame::EngineFrame;
 use crate::sources::{ImageWork, RemoteSource};
@@ -82,8 +83,7 @@ pub struct FormCache {
 
 struct LaidForm {
     view: ViewState,
-    root: [f64; 2],
-    px: f32,
+    layout: json_ui::LayoutCacheKey,
     text: [usize; 3],
     font: assets::FontCatalogIdentity,
     texture_metadata: u64,
@@ -338,9 +338,11 @@ impl FormEngine {
         };
         let drawn = render_with(art, frame, screen_art, move |env, root| {
             let cache = cache.as_mut()?;
+            let layout = json_ui::LayoutCacheKey::new(root, px, env);
             let fresh = cache.laid.as_ref().is_some_and(|laid| {
                 laid.view.same_layout(view)
-                    && (laid.root, laid.px, laid.text) == (root, px, text)
+                    && laid.layout == layout
+                    && laid.text == text
                     && laid.font == font
                     && laid.texture_metadata == texture_metadata
             });
@@ -351,8 +353,7 @@ impl FormEngine {
                 let render = render_bound_gated(bound, root, env, view, measures);
                 cache.laid = Some(LaidForm {
                     view: view.clone(),
-                    root,
-                    px,
+                    layout,
                     text,
                     font,
                     texture_metadata,
@@ -439,6 +440,7 @@ impl FormEngine {
     ) -> Result<Option<EngineFrame>, PaintError> {
         art.view = Some(view);
         let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
+        let dpi_scale = frame.metrics.dpi_scale.get();
         let text = frame.language;
         let texture_metadata = self.textures.metadata_revision();
         render_with(self.art(), frame, art, |env, root| {
@@ -450,6 +452,7 @@ impl FormEngine {
                 view,
                 root,
                 px,
+                dpi_scale,
                 text,
                 texture_metadata,
             };
@@ -632,6 +635,9 @@ impl Canvas<'_> {
         let drawn = match node.renderer {
             "cinnabar_vector_icon" => self
                 .vector_icon(data, dest, &alpha)
+                .map(|visual| (visual, dest)),
+            json_ui::vector_path::RENDERER => self
+                .vector_path(data, dest, &alpha)
                 .map(|visual| (visual, dest)),
             "cinnabar_rounded_rectangle" => self
                 .rounded_rectangle(data, dest, &alpha)

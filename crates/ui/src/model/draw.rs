@@ -593,7 +593,7 @@ fn emit_colored_quad(
             clip_w,
             uv,
             color,
-            style_flags,
+            style_flags: u16::from(style_flags),
             alpha_test: clip
                 .projection
                 .is_some_and(|projection| projection.alpha_test),

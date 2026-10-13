@@ -275,7 +275,10 @@ fn node(
             .is_some_and(|name| {
                 matches!(
                     name,
-                    "cinnabar_rounded_rectangle" | "cinnabar_vector_icon" | "gradient_renderer"
+                    "cinnabar_rounded_rectangle"
+                        | "cinnabar_vector_icon"
+                        | "cinnabar_vector_path"
+                        | "gradient_renderer"
                 )
             })
     {

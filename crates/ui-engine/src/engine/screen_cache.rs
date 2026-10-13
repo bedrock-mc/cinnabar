@@ -5,7 +5,9 @@
 
 use std::sync::{Arc, Mutex};
 
-use json_ui::{Catalog, Context, DataSource, FormRender, ResolvedControl, ViewState};
+use json_ui::{
+    Catalog, Context, DataSource, FormRender, LayoutCacheKey, ResolvedControl, ViewState,
+};
 
 use super::screen::ScreenRegistry;
 
@@ -24,6 +26,8 @@ pub struct ScreenKey<'a> {
     pub view: &'a ViewState,
     pub root: [f64; 2],
     pub px: f32,
+    /// Physical pixels per logical pixel, affecting coverage, snapping and text wrapping.
+    pub dpi_scale: f32,
     /// The language tables text measures with.
     pub text: [usize; 3],
     pub texture_metadata: u64,
@@ -35,8 +39,7 @@ struct Entry {
     context: Context,
     data: DataSource,
     view: ViewState,
-    root: [f64; 2],
-    px: f32,
+    layout: LayoutCacheKey,
     text: [usize; 3],
     texture_metadata: u64,
     render: Arc<FormRender>,
@@ -46,8 +49,7 @@ impl Entry {
     fn matches(&self, key: &ScreenKey<'_>) -> bool {
         self.reference == key.reference
             && Arc::ptr_eq(&self.catalog, key.catalog)
-            && self.root == key.root
-            && self.px == key.px
+            && self.layout == LayoutCacheKey::from_dpi(key.root, key.px, key.dpi_scale)
             && self.text == key.text
             && self.texture_metadata == key.texture_metadata
             && self.view.same_layout(key.view)
@@ -124,8 +126,7 @@ impl ScreenCache {
             context: key.context.clone(),
             data: key.data.clone(),
             view: key.view.layout_part(),
-            root: key.root,
-            px: key.px,
+            layout: LayoutCacheKey::from_dpi(key.root, key.px, key.dpi_scale),
             text: key.text,
             texture_metadata: key.texture_metadata,
             render: Arc::clone(&rendered),
@@ -277,6 +278,7 @@ mod tests {
             view: &view,
             root,
             px: 2.0,
+            dpi_scale: 1.0,
             text: [0; 3],
             texture_metadata: 0,
         };
@@ -297,6 +299,45 @@ mod tests {
             })
             .unwrap();
         assert!(Arc::ptr_eq(&once, &again));
+    }
+
+    /// Changing only DPI rebuilds the logical layout; identical DPI still reuses its render.
+    #[test]
+    fn unchanged_logical_layout_rerenders_at_a_different_dpi() {
+        let cache = ScreenCache::default();
+        let catalog = Arc::new(Catalog::default());
+        let (context, data, view) = (Context::desktop(), DataSource::new(), ViewState::default());
+        let key = |dpi_scale| ScreenKey {
+            reference: "start.start_screen",
+            catalog: &catalog,
+            context: &context,
+            data: &data,
+            view: &view,
+            root: [400.0, 300.0],
+            px: 2.0,
+            dpi_scale,
+            text: [0; 3],
+            texture_metadata: 0,
+        };
+        let renders = std::cell::Cell::new(0);
+        let mut previous = None;
+        for (index, dpi) in [1.0, 1.5, 2.0, 3.0].into_iter().enumerate() {
+            let current = cache
+                .get_or_render(key(dpi), || {
+                    renders.set(renders.get() + 1);
+                    render()
+                })
+                .unwrap();
+            assert_eq!(renders.get(), index + 1);
+            if let Some(previous) = previous {
+                assert!(!Arc::ptr_eq(&previous, &current));
+            }
+            let again = cache
+                .get_or_render(key(dpi), || panic!("rendered identical DPI twice"))
+                .unwrap();
+            assert!(Arc::ptr_eq(&current, &again));
+            previous = Some(current);
+        }
     }
 
     // A `cache_screen` tree survives the ordinary trees resolved after it.

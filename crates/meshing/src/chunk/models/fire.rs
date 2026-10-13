@@ -40,5 +40,5 @@ pub(super) fn select_template<'a>(
         .fold(0_i32, i32::wrapping_add)
         & 1
         != 0;
-    entry.model_template + assets::fire_attachment_template_offset(mask, alternate, flip_u)
+    entry.model_template + assets::fire::fire_attachment_template_offset(mask, alternate, flip_u)
 }

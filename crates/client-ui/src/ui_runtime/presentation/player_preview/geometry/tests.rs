@@ -328,7 +328,7 @@ fn equipment_batches_keep_source_pages_tint_and_shared_model_depth() {
     assert!(
         model.vertices()[held_range.start as usize..held_range.end as usize]
             .iter()
-            .all(|vertex| vertex.style_flags == UI_STYLE_GLINT)
+            .all(|vertex| vertex.style_flags == u16::from(UI_STYLE_GLINT))
     );
     assert!(
         model

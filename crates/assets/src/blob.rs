@@ -710,18 +710,19 @@ fn compiled_connected_bases(
             bases.push((index, flag));
             index += crate::BUBBLE_COLUMN_TEMPLATE_COUNT as usize;
         } else if flag == MODEL_TEMPLATE_FLAG_FIRE {
-            let Some(group) = templates.get(index..index + crate::FIRE_TEMPLATE_COUNT as usize)
+            let Some(group) =
+                templates.get(index..index + crate::fire::FIRE_TEMPLATE_COUNT as usize)
             else {
                 return Err(invalid("fire template group is truncated"));
             };
             if group.iter().enumerate().any(|(offset, template)| {
                 template.flags != flag
-                    || template.quad_count != crate::fire_template_quad_count(offset as u32)
+                    || template.quad_count != crate::fire::fire_template_quad_count(offset as u32)
             }) {
                 return Err(invalid("fire template group is noncanonical"));
             }
             bases.push((index, flag));
-            index += crate::FIRE_TEMPLATE_COUNT as usize;
+            index += crate::fire::FIRE_TEMPLATE_COUNT as usize;
         } else {
             index += 1;
         }

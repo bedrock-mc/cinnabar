@@ -253,7 +253,15 @@ pub(crate) fn emit_own(
         }
         // A primitive wholly outside its clip (a scrolled-away cell) draws nothing;
         // a hover tooltip draws beside the pointer instead of in its rect.
-        let clipped = dest.intersect(node.clip);
+        let paint = match &draw {
+            Draw::Custom { renderer, data } if renderer == crate::vector_path::RENDERER => {
+                crate::vector_path::bounds(data).map_or(dest, |bounds| {
+                    bounds.at(env.text.paint_rect(dest), env.text.physical_pixel_size())
+                })
+            }
+            _ => dest,
+        };
+        let clipped = paint.intersect(node.clip);
         let floats =
             matches!(&draw, Draw::Custom { renderer, .. } if renderer == "hover_text_renderer");
         let moves_geometry = node
@@ -398,7 +406,8 @@ const STRUCTURAL: [&str; 11] = [
     "type",
 ];
 
-fn custom_draw(control: &ResolvedControl) -> Option<Draw> {
+/// Merges a custom control's authored properties and property bag for its renderer.
+pub(crate) fn custom_draw(control: &ResolvedControl) -> Option<Draw> {
     let renderer = control.properties.get("renderer")?.as_str()?.to_owned();
     let mut data: BTreeMap<String, Value> = control
         .properties

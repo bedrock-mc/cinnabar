@@ -143,20 +143,29 @@ impl UiPresentationRuntime {
         });
         let resolved: [_; 4] = std::array::from_fn(|slot| {
             let catalog = if from_pack[slot] { &pack } else { &base };
-            worn_armor(catalog.as_deref(), armor[slot])
+            worn_armor(
+                catalog.as_deref(),
+                pack.as_deref(),
+                base.as_deref(),
+                armor[slot],
+            )
         });
         self.wear_pack_armor(std::array::from_fn(|slot| {
-            let (_, texture) = resolved[slot].as_ref().filter(|_| from_pack[slot])?;
+            let (_, texture) = resolved[slot].as_ref()?;
+            pack.as_deref()?.texture(texture)?;
             Some(*texture)
         }));
         let armor = std::array::from_fn(|slot| {
-            // Pack art the GUI atlas could not hold falls back to the item's base art.
-            if from_pack[slot]
-                && self.gui_models.enabled
-                && resolved[slot].is_some()
+            // A supplied image that could not fit the GUI atlas retains base artwork.
+            if self.gui_models.enabled
+                && resolved[slot].as_ref().is_some_and(|(_, texture)| {
+                    pack.as_deref()
+                        .is_some_and(|pack| pack.texture(texture).is_some())
+                })
                 && self.gui_models.pack_equipment.region(slot).is_none()
             {
-                return worn_armor(base.as_deref(), armor[slot]).map(|(preview, _)| preview);
+                return worn_armor(base.as_deref(), None, base.as_deref(), armor[slot])
+                    .map(|(preview, _)| preview);
             }
             resolved[slot].as_ref().map(|(preview, _)| preview.clone())
         });
@@ -201,12 +210,17 @@ impl UiPresentationRuntime {
 /// material is a color mask, and that texture's identifier.
 fn worn_armor<'a>(
     catalog: Option<&'a RuntimeEquipmentCatalog>,
+    artwork: Option<&'a RuntimeEquipmentCatalog>,
+    base: Option<&'a RuntimeEquipmentCatalog>,
     worn: Option<(&str, Option<u32>)>,
 ) -> Option<(PreviewTexture, &'a str)> {
     let (identifier, dye) = worn?;
     let catalog = catalog?;
     let binding = catalog.binding(identifier)?;
-    let texture = catalog.texture(&binding.texture.identifier)?;
+    let texture = artwork
+        .and_then(|artwork| artwork.texture(&binding.texture.identifier))
+        .or_else(|| catalog.texture(&binding.texture.identifier))
+        .or_else(|| base?.texture(&binding.texture.identifier))?;
     let tint = binding
         .color_mask_rgb(dye)
         .map(|rgb| [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8]);

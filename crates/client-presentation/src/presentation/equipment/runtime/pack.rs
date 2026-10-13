@@ -96,13 +96,11 @@ impl EquipmentRuntime {
     /// Installs the session's pack layer, or removes it. `locations` parallel the catalog's
     /// textures (the pages `pack_rasters` produced).
     pub fn set_pack_layer(&mut self, layer: Option<PackEquipmentLayer>) {
-        self.java_rasters.retain(|(from_pack, _, _), _| !from_pack);
-        self.attachable_meshes.retain(|(from_pack, _, _), rig| {
-            if *from_pack {
-                self.free_meshes.push(*rig);
-            }
-            !from_pack
-        });
+        // Startup texture meshes also depend on the replaced artwork layer.
+        self.java_rasters.clear();
+        self.free_meshes
+            .extend(self.attachable_meshes.values().copied());
+        self.attachable_meshes.clear();
         // Pack equipment ids name the replaced pack's geometry indices.
         self.pending.retain(|geometry| {
             !self.free_meshes.contains(&geometry.id)
@@ -128,7 +126,7 @@ impl EquipmentRuntime {
         });
     }
 
-    /// The catalog binding an item resolves through, the pack's first, and whether it is the pack's.
+    /// Prefers pack declarations; drawing resolves controller artwork before falling back.
     pub(super) fn binding_source(
         &self,
         identifier: &str,
@@ -142,6 +140,45 @@ impl EquipmentRuntime {
         catalog
             .binding(identifier)
             .map(|_| (Arc::clone(catalog), false))
+    }
+
+    /// Resolves selected pixels by path without changing the binding or controller result.
+    /// Authored models with missing artwork may use their startup item's default raster.
+    pub(super) fn draw_artwork(
+        &self,
+        identifier: &str,
+        texture: &str,
+        (catalog, from_pack): (Arc<RuntimeEquipmentCatalog>, bool),
+    ) -> Option<(Arc<RuntimeEquipmentCatalog>, usize, ActorArtworkLocation)> {
+        if let Some(pack) = &self.pack
+            && let Some(artwork) = &pack.catalog
+            && let Some(location) = pack.texture_locations.get(texture)
+            && let Some(index) = artwork
+                .textures()
+                .iter()
+                .position(|image| image.identifier.as_ref() == texture)
+        {
+            return Some((Arc::clone(artwork), index, *location));
+        }
+        let base = self.catalog.as_ref().unwrap_or(&catalog);
+        if let Some(index) = base
+            .textures()
+            .iter()
+            .position(|image| image.identifier.as_ref() == texture)
+            && let Some(location) = self.texture_locations.get(texture)
+        {
+            return Some((Arc::clone(base), index, *location));
+        }
+        if !from_pack {
+            return None;
+        }
+        let catalog = self.catalog.as_ref()?;
+        let binding = catalog.binding(identifier)?;
+        self.draw_artwork(
+            identifier,
+            &binding.texture.identifier,
+            (Arc::clone(catalog), false),
+        )
     }
 
     pub(super) fn texture_location(

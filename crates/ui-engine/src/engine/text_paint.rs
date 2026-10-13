@@ -145,6 +145,22 @@ impl Measure<'_, '_> {
 }
 
 impl TextMeasure for Measure<'_, '_> {
+    /// Converts the renderer's physical coverage pixel into the layout's virtual units.
+    fn physical_pixel_size(&self) -> f64 {
+        1.0 / f64::from(self.px * self.metrics.dpi_scale.get())
+    }
+
+    /// Uses the same destination snapping as the canvas, then returns virtual coordinates.
+    fn paint_rect(&self, rect: json_ui::Rect) -> json_ui::Rect {
+        let [x0, y0, x1, y1] = super::pixel_snap::snapped(
+            [rect.x, rect.y, rect.w, rect.h],
+            self.metrics.gui_scale,
+            self.px,
+        )
+        .map(|edge| f64::from(edge / self.px));
+        json_ui::Rect::new(x0, y0, x1 - x0, y1 - y0)
+    }
+
     fn extent(&self, text: &str) -> [f64; 2] {
         self.wrapped(text, UNWRAPPED_LOGICAL / f64::from(self.px))
     }

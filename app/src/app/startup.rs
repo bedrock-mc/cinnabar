@@ -166,6 +166,9 @@ fn load_core(
         });
         (actor, join(equipment))
     });
+    if let Some(catalog) = &equipment {
+        pack_runtime::entity_pack::set_base_equipment_catalog(Arc::clone(catalog));
+    }
     Ok(CoreCarriers {
         assets,
         actor,

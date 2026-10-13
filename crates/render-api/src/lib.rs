@@ -1,7 +1,7 @@
 //! Engine-independent contracts shared by world publication and rendering.
 //!
-//! This crate owns publication authority, pacing bounds and shared skin layout
-//! rules. It has no dependencies and must not acquire game state or GPU types.
+//! This crate owns publication authority, pacing bounds, UI paint and shared skin
+//! layout rules. It has no dependencies and must not acquire game state or GPU types.
 
 mod actor_lighting;
 mod frame_rate_limit;
@@ -11,7 +11,10 @@ pub mod primitive_shapes;
 mod publication;
 pub use pose_generation::PoseGeneration;
 mod skin;
+mod ui_coverage_paint;
 mod vrr;
+
+pub use ui_coverage_paint::{UI_STYLE_COVERAGE_PAINT, UiCoveragePaint};
 
 pub use actor_lighting::{
     ACTOR_LIGHT_DIRECTIONAL, ACTOR_LIGHT_WORLD, ACTOR_SHADE_COEFFICIENTS, fancy_actor_shade,

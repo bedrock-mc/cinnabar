@@ -577,3 +577,7 @@ fn same_optional<T>(left: &Option<Arc<T>>, right: &Option<Arc<T>>) -> bool {
 #[cfg(test)]
 #[path = "pack_reload_failures.rs"]
 mod failures;
+
+#[cfg(test)]
+#[path = "pack_reload_armor.rs"]
+mod armor_tests;
