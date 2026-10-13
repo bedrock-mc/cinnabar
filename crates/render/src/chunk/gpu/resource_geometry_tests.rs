@@ -584,6 +584,7 @@ fn far_model_order_in_its_class_commits_without_a_sort_job() {
                 geometry_stream_capacity: 8,
                 biome_range: 0..0,
                 biome_capacity: 0,
+                biome_record: None,
                 gpu,
             },
         );
@@ -683,6 +684,7 @@ fn model_groups_app(
                     geometry_stream_capacity: 32,
                     biome_range: 0..0,
                     biome_capacity: 0,
+                    biome_record: None,
                     gpu,
                 },
             );
