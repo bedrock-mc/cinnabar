@@ -1024,6 +1024,7 @@ fn glinting_held_items_draw_the_item_glint_across_their_sprite_in_every_view() {
         assert_eq!(material.kind, plain.kind);
         assert_eq!(material.state, plain.state);
         assert_eq!(material.glint.texture, render_model::GlintTexture::Item);
+        assert_eq!(material.glint.profile, render_api::CombatVisuals::Modern);
         assert!(
             material
                 .glint
