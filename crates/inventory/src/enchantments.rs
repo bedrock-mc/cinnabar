@@ -215,7 +215,7 @@ pub fn item_slot(identifier: &str) -> u32 {
         _ if suffix("_axe") => AXE,
         _ if suffix("_shovel") => SHOVEL,
         _ if suffix("_hoe") => HOE,
-        _ if suffix("_head") => COSMETIC_HEAD,
+        _ if suffix("_head") || suffix("_skull") => COSMETIC_HEAD,
         _ => 0,
     }
 }
@@ -245,6 +245,32 @@ mod tests {
                 .all(|enchantment| !enchantment.lang_key.is_empty()),
             "every enchantment names its language entry"
         );
+    }
+
+    #[test]
+    fn registered_skulls_support_cosmetic_head_curses() {
+        let registry = protocol::vanilla_item_registry();
+        let mut skulls = 0;
+        for entry in registry
+            .iter()
+            .filter(|entry| entry.identifier.ends_with("_skull"))
+        {
+            skulls += 1;
+            let slot = item_slot(&entry.identifier);
+            assert_eq!(slot, slot::COSMETIC_HEAD, "{}", entry.identifier);
+            for curse in ENCHANTMENTS
+                .iter()
+                .filter(|facts| matches!(facts.lang_key, "curse.binding" | "curse.vanishing"))
+            {
+                assert!(
+                    applies_to(curse.id, slot),
+                    "{} {}",
+                    entry.identifier,
+                    curse.lang_key
+                );
+            }
+        }
+        assert!(skulls > 0, "the pinned registry contains skull items");
     }
 
     #[test]

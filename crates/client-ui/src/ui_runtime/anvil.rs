@@ -33,6 +33,15 @@ struct AnvilTargetIdentity {
     stated_name: Option<std::sync::Arc<str>>,
 }
 
+impl AnvilTargetIdentity {
+    /// The item kind remains the same when a server update only changes mutable NBT.
+    fn same_item(&self, other: &Self) -> bool {
+        self.network_id == other.network_id
+            && self.metadata == other.metadata
+            && self.identifier == other.identifier
+    }
+}
+
 /// One occupied anvil input with data that can be edited without losing item properties.
 struct AnvilInput {
     stack: NetworkItemStack,
@@ -172,21 +181,24 @@ impl UiRuntime {
         let names_generation = self.item_name_generation();
         let state = self.screen_state();
         let previous = state.anvil_target.as_ref();
-        let same_target = previous.is_some_and(|previous| previous.target == identity);
-        if same_target
+        let same_facts = previous.is_some_and(|previous| previous.target == identity);
+        let same_target = previous.is_some_and(|previous| previous.target.same_item(&identity));
+        if same_facts
             && previous.is_some_and(|previous| previous.names_generation == names_generation)
         {
             return;
         }
         let untouched = previous.is_some_and(|previous| state.anvil_name == previous.prefilled);
         let name = self.anvil_target_name(player_runtime).unwrap_or_default();
+        let changed_target_name =
+            !same_facts && previous.is_some_and(|previous| previous.prefilled != name);
         let state = self.screen_state_mut();
         state.anvil_target = Some(AnvilNameState {
             target: identity,
             names_generation,
             prefilled: name.clone(),
         });
-        if !same_target || untouched {
+        if !same_target || untouched || changed_target_name {
             state.anvil_name = name;
         }
     }
