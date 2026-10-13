@@ -167,11 +167,14 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             }
         }
     }
-    for &entity in selected.iter().take(
-        budget
-            .max_per_frame
-            .max(PublicationServiceConfig::DEFAULT.maximum_frame_items),
-    ) {
+    for &entity in &selected {
+        if upload_reservation.items
+            >= budget
+                .max_per_frame
+                .max(PublicationServiceConfig::DEFAULT.maximum_frame_items)
+        {
+            break;
+        }
         let Ok((_, instance)) = all_instances.get(entity) else {
             continue;
         };
@@ -321,6 +324,11 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
                 Ok(None) => break true,
                 Ok(Some((stream, growth))) => {
                     if arena.migration.is_none() {
+                        // Earlier uploads reserved one write. Issue them before a migration
+                        // can make the write path mirror them into an uncharged destination.
+                        if !writes.is_empty() {
+                            writes.issue(&arena, uploads);
+                        }
                         let growth = super::capacity::backlog_growth(
                             &arena,
                             stream,

@@ -8,7 +8,8 @@ use render_scene::{
 #[path = "publication_removal_tests.rs"]
 mod removal_pressure;
 
-fn noop_gpu_publication_app(
+/// Creates isolated upload and publication resources on a noop device without running a frame.
+pub(super) fn noop_gpu_publication_app(
     acknowledgements: ChunkUploadAcknowledgements,
     gpu_removals: ChunkGpuRemovalQueue,
 ) -> App {
@@ -1147,6 +1148,7 @@ fn growth_after_a_committed_upload_migrates_and_publishes_next_frame() {
     let quads = instances[0].cube_quads.len();
     let capacity = (32 * 1024 * 1024 / PACKED_QUAD_BYTES) as usize;
     let device = gpu_app.world().resource::<RenderDevice>().clone();
+    gpu_app.insert_resource(crate::upload_staging::TerrainUploadStaging::new(&device));
     {
         let mut arena = gpu_app.world_mut().resource_mut::<ChunkGpuArena>();
         arena.quad_buffer = create_storage_buffer(&device, "quads", capacity as u64 * 8);
@@ -1166,6 +1168,18 @@ fn growth_after_a_committed_upload_migrates_and_publishes_next_frame() {
         .run_system_once(prepare_gpu_chunks)
         .unwrap();
     assert_eq!(acknowledgements.drain().len(), 1);
+    let staged = gpu_app
+        .world()
+        .resource::<crate::upload_staging::TerrainUploadStaging>()
+        .stats();
+    assert_eq!(
+        staged.staged_bytes + staged.fallback_bytes,
+        gpu_app
+            .world()
+            .resource::<ChunkGpuUploadStats>()
+            .incremental_bytes,
+        "writes queued before growth must not acquire an uncharged mirror"
+    );
     let arena = gpu_app.world().resource::<ChunkGpuArena>();
     let migration = arena
         .migration

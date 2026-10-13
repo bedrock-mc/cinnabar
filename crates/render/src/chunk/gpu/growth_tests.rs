@@ -173,3 +173,37 @@ fn ongoing_migration_does_not_block_uploads_in_existing_capacity() {
         1
     );
 }
+
+/// Invalid nearby entries cannot prevent a valid distant entry from using the upload allowance.
+#[test]
+fn rejected_candidates_do_not_starve_a_valid_upload_beyond_the_item_ceiling() {
+    let mut app = super::gpu_publication::noop_gpu_publication_app(
+        ChunkUploadAcknowledgements::default(),
+        ChunkGpuRemovalQueue::default(),
+    );
+    app.insert_resource(ChunkUploadBudget::new(
+        1,
+        PublicationServiceConfig::DEFAULT.maximum_frame_bytes,
+    ));
+    let template = instance();
+    for index in 0..PublicationServiceConfig::DEFAULT.maximum_frame_items + 1 {
+        let mut rejected = template.clone();
+        rejected.key = SubChunkKey::new(0, index as i32, 0, 0);
+        rejected.cube_lighting = Arc::from([]);
+        app.world_mut().spawn(rejected);
+    }
+    let mut valid = template;
+    valid.key = SubChunkKey::new(0, 10_000, 0, 0);
+    let entity = app.world_mut().spawn(valid).id();
+    app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
+    assert!(
+        app.world()
+            .resource::<ChunkGpuArena>()
+            .allocations
+            .contains_key(&entity)
+    );
+    assert_eq!(
+        app.world().resource::<ChunkGpuUploadStats>().chunk_updates,
+        1
+    );
+}
