@@ -6,6 +6,7 @@ mod controls;
 mod gui_scale;
 mod layout;
 mod picker;
+mod presets;
 mod resources;
 mod sections;
 mod services;
@@ -556,7 +557,7 @@ impl Content<'_, '_> {
                             MenuAction::SettingsOption(index as u16, visible[choice] as i32),
                         )?;
                     }
-                    for (choice, &option_choice) in visible.iter().enumerate() {
+                    for (choice, &option_choice) in visible.iter().enumerate().take(labels.len()) {
                         widgets::choice_focus(
                             self.canvas,
                             self.view,

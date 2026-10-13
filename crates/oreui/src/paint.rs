@@ -153,6 +153,22 @@ impl<'a> Canvas<'a> {
         value * self.rem
     }
 
+    /// Scales geometry and text together for one group, restoring both after drawing.
+    pub(super) fn with_scale<T>(
+        &mut self,
+        scale: f32,
+        draw: impl FnOnce(&mut Self) -> Result<T, PaintError>,
+    ) -> Result<T, PaintError> {
+        let text_scale =
+            UiScale::new_display(self.metrics.scale.get() * scale).map_err(PaintError::Geometry)?;
+        let previous = (self.rem, self.metrics.scale);
+        self.rem *= scale;
+        self.metrics.scale = text_scale;
+        let result = draw(self);
+        (self.rem, self.metrics.scale) = previous;
+        result
+    }
+
     pub(super) fn role(&self, role: Role) -> Role {
         self.appearance.role(role)
     }

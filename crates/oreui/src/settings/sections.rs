@@ -100,6 +100,7 @@ fn accessibility(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
 
 fn video(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.video.tab.title", "menu.video.tab.description")?;
+    super::presets::draw(content)?;
     content.heading(
         "menu.video.group.general",
         "menu.video.group.general.description",

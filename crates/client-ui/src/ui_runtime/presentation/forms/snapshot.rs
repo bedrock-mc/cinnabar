@@ -391,7 +391,7 @@ mod tests {
             fill(
                 &mut image,
                 [vertex(0., 0.), vertex(2., 0.), vertex(0., 2.)],
-                |_, _, _, _, _| Some(premultiply(source)),
+                |_, _, _, _, _, _| Some(premultiply(source)),
                 true,
             );
             assert_eq!(image.get_pixel(0, 0).0, expected);
@@ -414,7 +414,7 @@ mod tests {
                 fill(
                     &mut image,
                     triangle.map(|index| quad[index]),
-                    |_, color, _, _, _| Some(premultiply(color)),
+                    |_, color, _, _, _, _| Some(premultiply(color)),
                     false,
                 );
             }

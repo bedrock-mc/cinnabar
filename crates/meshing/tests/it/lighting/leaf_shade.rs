@@ -95,18 +95,21 @@ fn leaf_shade_is_independent_of_diagonal_occlusion_in_direct_and_cached_bakes() 
     }
 }
 
+/// Native shade brightness darkens behind leaves but not behind non-solid light emitters such
+/// as torches; emission alone never shades a neighbouring face.
 #[test]
-fn native_outward_leaf_and_emitter_shades_each_count_one_sample() {
+fn native_outward_leaf_shade_counts_one_sample_and_emitters_none() {
     let assets = runtime_assets();
     for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
-        for shaded in [LEAF, EMITTING] {
+        for (shaded, samples) in [(LEAF, 1), (EMITTING, 0)] {
             let classifier = BlockClassifier::new(shade_network_id(mode, AIR));
             let center = shade_test_chunk(mode, &[([8, 9, 8], shaded)]);
+            let neighbourhood = MeshNeighbourhood::new(&center);
             let direct = bake_quad_lighting(
                 &classifier,
                 &assets,
                 mode,
-                &MeshNeighbourhood::new(&center),
+                &neighbourhood,
                 [8, 8, 8],
                 Face::PositiveY,
                 SHADE_TEST_FACE,
@@ -115,7 +118,8 @@ fn native_outward_leaf_and_emitter_shades_each_count_one_sample() {
                 direct
                     .samples()
                     .into_iter()
-                    .all(|sample| (sample >> 8) & 7 == 1)
+                    .all(|sample| (sample >> 8) & 7 == samples),
+                "{mode:?} {shaded}"
             );
         }
     }
