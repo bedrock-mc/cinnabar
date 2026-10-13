@@ -482,11 +482,15 @@ fn startup_loads_companion_and_reload_keeps_current_in_memory_preferences() {
     assert_eq!(host.label(), Some("Reloaded"));
 }
 
-/// Adds an empty lifecycle export to a policy fixture so its event lane can be deferred.
-fn load_with_view_closed(source: String, grants: ModGrants) -> (tempfile::TempDir, ModHost) {
+/// Adds a lifecycle callback to a policy fixture so its event lane can be deferred.
+fn load_with_view_closed(
+    source: String,
+    grants: ModGrants,
+    event: &str,
+) -> (tempfile::TempDir, ModHost) {
     let mut source = source.replace(
         "(func (export \"init\"))",
-        "(func (export \"init\")) (func (export \"view-closed\"))",
+        &format!("(func (export \"init\")) (func (export \"view-closed\") {event})"),
     );
     let end = source.rfind(')').unwrap();
     source.insert_str(

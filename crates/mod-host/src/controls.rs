@@ -20,7 +20,7 @@ impl ModHost {
     /// Prepares a bounded local UI catalog once, outside component callbacks.
     pub fn set_panel_bundle(&mut self, json: &str) -> Result<()> {
         ensure!(
-            self.grants.controls && self.instance.active,
+            self.grants.controls && self.instance.is_active(),
             "controls capability denied"
         );
         let bundle = PanelBundle::parse(json).map_err(anyhow::Error::msg)?;

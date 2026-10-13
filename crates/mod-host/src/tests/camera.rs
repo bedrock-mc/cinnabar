@@ -245,6 +245,7 @@ fn deferred_lifecycle_and_frame_callbacks_cannot_republish_camera_policies() {
             camera: true,
             ..Default::default()
         },
+        "",
     );
     view_frame(&mut host, true, false, true).unwrap();
     assert!(host.preserves_teleport_rotation());
@@ -263,4 +264,37 @@ fn deferred_lifecycle_and_frame_callbacks_cannot_republish_camera_policies() {
     assert!(!host.preserves_teleport_rotation());
     assert!(!host.has_camera_output());
     assert_eq!(host.camera_view_scale(), None);
+}
+
+#[test]
+fn lifecycle_callbacks_cannot_publish_camera_policy_through_the_next_frame() {
+    for deferred in [false, true] {
+        let event = format!(
+            "{} {} i32.const 7 global.set $count",
+            call(true, false),
+            view_call("0.25", "0.25", false)
+        );
+        let (_dir, mut host) = super::load_with_view_closed(
+            source("global.get $count i32.const 8 i32.ne if unreachable end"),
+            ModGrants {
+                camera: true,
+                ..Default::default()
+            },
+            &event,
+        );
+        if deferred {
+            let budget = super::defer_view_closed(&mut host);
+            budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+        } else {
+            assert_eq!(
+                host.dispatch(vec![ModEvent::ViewClosed]).unwrap(),
+                CallbackOutcome::Executed
+            );
+        }
+        view_frame(&mut host, true, false, true).unwrap();
+        assert!(host.is_active());
+        assert!(!host.preserves_teleport_rotation());
+        assert_eq!(host.camera_view_scale(), None);
+        assert!(!host.has_camera_output());
+    }
 }

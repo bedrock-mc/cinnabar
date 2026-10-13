@@ -156,6 +156,7 @@ fn deferred_lifecycle_clears_item_use_policy_without_quarantining_the_guest() {
             item_use: true,
             ..Default::default()
         },
+        "",
     );
     host.frame_with_gameplay(false, Some(snapshot())).unwrap();
     assert_eq!(host.item_use_delay_fix(), Some((1, 0)));
@@ -166,4 +167,31 @@ fn deferred_lifecycle_clears_item_use_policy_without_quarantining_the_guest() {
     budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
     host.frame_with_gameplay(false, Some(snapshot())).unwrap();
     assert_eq!(host.item_use_delay_fix(), Some((1, 0)));
+}
+
+#[test]
+fn lifecycle_callbacks_cannot_publish_item_use_policy_through_the_next_frame() {
+    for deferred in [false, true] {
+        let event = format!("{} i32.const 7 global.set $count", call(true, false));
+        let (_dir, mut host) = super::load_with_view_closed(
+            source("global.get $count i32.const 8 i32.ne if unreachable end"),
+            ModGrants {
+                item_use: true,
+                ..Default::default()
+            },
+            &event,
+        );
+        if deferred {
+            let budget = super::defer_view_closed(&mut host);
+            budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+        } else {
+            assert_eq!(
+                host.dispatch(vec![ModEvent::ViewClosed]).unwrap(),
+                CallbackOutcome::Executed
+            );
+        }
+        host.frame_with_gameplay(false, Some(snapshot())).unwrap();
+        assert!(host.is_active());
+        assert_eq!(host.item_use_delay_fix(), None);
+    }
 }

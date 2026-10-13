@@ -473,6 +473,8 @@ impl Instance {
         movement: Option<GameplayMovementSnapshot>,
         controls: crate::ControlFrame,
     ) -> Result<()> {
+        // Deferred events may stage frame-only output; only this callback may publish it.
+        self.begin_frame();
         if !self.is_active() {
             self.store.data_mut().player_state.revoke();
             return Ok(());
