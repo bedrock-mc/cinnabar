@@ -1,5 +1,6 @@
 //! Shows the roster while its key is held and nothing else owns the screen.
 
+use launcher::menu::settings_options::SettingId;
 use ui::UiNode;
 
 use super::super::{UiPresentationError, UiPresentationRuntime};
@@ -23,7 +24,13 @@ impl UiPresentationRuntime {
             || runtime.ui_focused(player)
             || self.menu_view.is_some()
             || self.loading_stage.is_some()
-            || self.screens.chat.settings.options().value("hide_hud") != 0
+            || self
+                .screens
+                .chat
+                .settings
+                .options()
+                .value(SettingId::HideHud)
+                != 0
         {
             return Ok(());
         }

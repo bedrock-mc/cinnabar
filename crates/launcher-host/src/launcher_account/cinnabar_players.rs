@@ -9,8 +9,10 @@ use std::{
 };
 
 use bridge::{
-    BridgeError, CINNABAR_LOOKUP_RATE_LIMITED,
-    contract::{CINNABAR_API_LOOKUPS_PER_MINUTE, CINNABAR_API_MAX_LOOKUP_XUIDS},
+    BridgeError,
+    contract::{
+        CINNABAR_API_LOOKUPS_PER_MINUTE, CINNABAR_API_MAX_LOOKUP_XUIDS, RPC_CINNABAR_RATE_LIMITED,
+    },
 };
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, unbounded};
 
@@ -165,7 +167,7 @@ fn run(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Receiv
             match answer {
                 Ok(Ok(cinnabar)) => lookups.resolve(Instant::now(), &batch, &cinnabar),
                 Ok(Err(BridgeError::ControlRpc { code, .. }))
-                    if code == CINNABAR_LOOKUP_RATE_LIMITED =>
+                    if code == RPC_CINNABAR_RATE_LIMITED =>
                 {
                     lookups.fail(Instant::now(), RATE_LIMITED_RETRY);
                 }

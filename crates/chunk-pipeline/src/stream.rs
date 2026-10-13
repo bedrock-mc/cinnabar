@@ -367,7 +367,7 @@ pub struct WorldStream {
     revisions: RevisionTracker,
     applied_mesh_generations: HashMap<SubChunkKey, u64>,
     actor_block_syncs: actor_block_sync::ActorBlockSyncs,
-    mesh_dependency_masks: HashMap<SubChunkKey, (u64, MeshDependencyMask)>,
+    mesh_dependency_masks: HashMap<SubChunkKey, dirty::RegisteredMeshDependencies>,
     mesh_jobs: scheduler::KeyedJobs<PendingMesh, u64, 2>,
     /// Unit view direction the schedulers favour; `None` orders by distance alone.
     view_forward: Option<[f32; 3]>,

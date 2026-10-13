@@ -40,7 +40,7 @@ impl MenuRuntime {
                 let options = self.settings_snapshot().0;
                 account.set_cinnabar_api(
                     options.update_preferences().channel,
-                    options.value(CINNABAR_VISIBILITY_OPTION.name) != 0,
+                    options.value(CINNABAR_VISIBILITY_OPTION.id) != 0,
                 );
                 account.set_xbox_presence(xbox_presence::state(
                     in_session,

@@ -8,16 +8,6 @@ use launcher::menu::{
     },
 };
 
-/// Control method names the implementation calls.
-#[allow(dead_code, reason = "named for the core-relay control clients")]
-pub mod method {
-    pub const REALMS_LIST: &str = "realms_list.v1";
-    pub const FRIENDS_LIST: &str = "friends_list.v1";
-    pub const CONNECT: &str = "connect.v1";
-    pub const ACCOUNT_STATUS: &str = "account_status.v1";
-    pub const SIGN_OUT: &str = "sign_out.v1";
-}
-
 /// An account-surface event pushed by the core.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AccountEvent {

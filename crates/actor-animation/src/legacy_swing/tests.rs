@@ -241,6 +241,38 @@ fn modern_and_special_postures_keep_the_authored_attack() {
 }
 
 #[test]
+fn registered_maps_keep_the_authored_attack_in_either_hand() {
+    let items = protocol::vanilla_item_registry();
+    let maps = items
+        .iter()
+        .filter(|item| {
+            matches!(
+                item.identifier.as_ref(),
+                "minecraft:empty_map" | "minecraft:filled_map"
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(maps.len(), 2);
+    for item in maps {
+        for off_hand in [false, true] {
+            let mut context = ActorTickContext {
+                combat_visuals: CombatVisuals::Legacy112,
+                ..Default::default()
+            };
+            if off_hand {
+                context.off_hand = Some(item.identifier.clone());
+            } else {
+                context.main_hand = Some(item.identifier.clone());
+            }
+            assert_eq!(
+                sample(context, &player(), 0.5, None)[2].rotation,
+                pose::quat_from_euler([-40.0, 0.0, 0.0])
+            );
+        }
+    }
+}
+
+#[test]
 fn blending_two_attack_states_keeps_one_complete_swing() {
     for combat_visuals in [CombatVisuals::Legacy112, CombatVisuals::Modern] {
         let context = ActorTickContext {

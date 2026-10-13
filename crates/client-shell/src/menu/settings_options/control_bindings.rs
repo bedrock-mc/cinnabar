@@ -1,5 +1,5 @@
 //! Bevy device adapters for the launcher's persisted physical bindings.
-use launcher::menu::settings_options::{EXTRA_GAMEPAD, GAMEPAD_BINDINGS, GAMEPAD_OFFSET};
+use launcher::menu::settings_options::BindingId;
 use semantic_input::PhysicalControl;
 
 /// Resolves every inventory hotbar shortcut in action registration order.
@@ -11,9 +11,7 @@ pub fn hotbar_control_slots(
         .iter()
         .enumerate()
         .filter_map(move |(slot, action)| {
-            let (_, name) = launcher::menu::settings_options::KEY_BINDINGS
-                .iter()
-                .find(|(candidate, _)| candidate == action)?;
+            let name = BindingId::from_action(*action)?;
             (named_control(menu, name) == Some(control)).then_some(slot as u8)
         })
 }
@@ -21,7 +19,7 @@ pub fn hotbar_control_slots(
 /// Resolves a gameplay UI control from the menu's persisted settings or startup defaults.
 pub fn named_control(
     menu: Option<&crate::menu::MenuRuntime>,
-    name: &str,
+    name: BindingId,
 ) -> Option<PhysicalControl> {
     menu.map_or_else(
         || launcher::menu::settings_options::SettingsOptions::default().named_key_control(name),
@@ -32,7 +30,7 @@ pub fn named_control(
 /// Matches a keyboard event without changing the physical key used for text entry.
 pub fn binding_key(
     menu: Option<&crate::menu::MenuRuntime>,
-    name: &str,
+    name: BindingId,
     key: bevy::prelude::KeyCode,
 ) -> bool {
     binding_keyboard_key(menu, name, crate::physical_input::keyboard_key(key))
@@ -41,7 +39,7 @@ pub fn binding_key(
 /// Matches a semantic key against the control named `name` and its secondary binding.
 pub fn binding_keyboard_key(
     menu: Option<&crate::menu::MenuRuntime>,
-    name: &str,
+    name: BindingId,
     key: semantic_input::KeyboardKey,
 ) -> bool {
     key.usage().is_some_and(|code| {
@@ -60,7 +58,7 @@ pub fn binding_keyboard_key(
 /// Tests one configured keyboard or mouse action in the production device frame.
 pub fn binding_pressed(
     menu: Option<&crate::menu::MenuRuntime>,
-    name: &str,
+    name: BindingId,
     keys: &bevy::prelude::ButtonInput<bevy::prelude::KeyCode>,
     mouse: &bevy::prelude::ButtonInput<bevy::prelude::MouseButton>,
 ) -> bool {
@@ -81,7 +79,7 @@ pub fn binding_pressed(
 /// Matches mouse-only UI actions before keyboard events are processed.
 pub fn binding_mouse(
     menu: Option<&crate::menu::MenuRuntime>,
-    name: &str,
+    name: BindingId,
     mouse: &bevy::prelude::ButtonInput<bevy::prelude::MouseButton>,
 ) -> bool {
     mouse
@@ -106,7 +104,7 @@ pub fn binding_macro_command(
 /// Whether the control named `name` is bound to `button`.
 pub fn binding_mouse_button(
     menu: Option<&crate::menu::MenuRuntime>,
-    name: &str,
+    name: BindingId,
     button: bevy::prelude::MouseButton,
 ) -> bool {
     matches!(named_control(menu, name), Some(PhysicalControl::MouseButton(code))
@@ -116,13 +114,12 @@ pub fn binding_mouse_button(
 /// Reads a gamepad UI action from the same persisted layout as the settings grid.
 pub fn binding_gamepad(
     menu: Option<&crate::menu::MenuRuntime>,
-    name: &str,
+    name: BindingId,
     pads: &bevy::prelude::Query<&bevy::input::gamepad::Gamepad>,
 ) -> bool {
-    let Some(index) = EXTRA_GAMEPAD.iter().position(|(label, _)| *label == name) else {
+    let Some(row) = name.row(true) else {
         return false;
     };
-    let row = GAMEPAD_OFFSET + GAMEPAD_BINDINGS.len() + index;
     let control = menu.map_or_else(
         || launcher::menu::settings_options::SettingsOptions::default().key_control(row),
         |menu| menu.settings_options.key_control(row),

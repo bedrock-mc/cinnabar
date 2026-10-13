@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	methodCinnabarAPI    = "cinnabar_api.v1"
-	methodCinnabarLookup = "cinnabar_lookup.v1"
-	codeRateLimited      = -32024
+	methodCinnabarAPI    = bridgecontract.MethodCinnabarAPI
+	methodCinnabarLookup = bridgecontract.MethodCinnabarLookup
+	codeRateLimited      = bridgecontract.RPCCinnabarRateLimited
 	// cinnabarLookupTimeout bounds one lookup beyond the client's own reply deadline.
 	cinnabarLookupTimeout = 15 * time.Second
 )

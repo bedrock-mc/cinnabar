@@ -7,6 +7,7 @@ pub mod armour;
 pub mod fuel;
 pub mod glint;
 pub mod grip;
+pub mod names;
 pub mod retail;
 use armour::ItemArmour;
 pub mod durability;

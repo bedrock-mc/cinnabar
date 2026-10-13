@@ -139,6 +139,7 @@ fn rig<'a>(
         off_hand_animation: [actor_animation::ItemAnimationState::default(); 2],
         animation_variables: Default::default(),
         java: Default::default(),
+        main_hand_equipped: None,
         java_equipped: None,
     }
 }

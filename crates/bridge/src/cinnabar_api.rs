@@ -3,9 +3,6 @@ use crate::{BridgeError, account::call};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-/// JSON-RPC code the core returns when the API refused a lookup over its rate limit.
-pub const RATE_LIMITED: i64 = -32024;
-
 /// The hello identity and live visibility the core sends to the API.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CinnabarApiConfig {
@@ -39,7 +36,12 @@ pub async fn configure_cinnabar_api(
     socket_dir: &Path,
     config: &CinnabarApiConfig,
 ) -> Result<(), BridgeError> {
-    call::<Accepted, _>(socket_dir, "cinnabar_api.v1", Some(config)).await?;
+    call::<Accepted, _>(
+        socket_dir,
+        crate::contract::METHOD_CINNABAR_API,
+        Some(config),
+    )
+    .await?;
     Ok(())
 }
 
@@ -50,7 +52,7 @@ pub async fn lookup_cinnabar_players(
 ) -> Result<Vec<String>, BridgeError> {
     let body: LookupBody = call(
         socket_dir,
-        "cinnabar_lookup.v1",
+        crate::contract::METHOD_CINNABAR_LOOKUP,
         Some(LookupParams { xuids }),
     )
     .await?;

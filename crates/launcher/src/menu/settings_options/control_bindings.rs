@@ -1,49 +1,17 @@
 //! Device-specific bindings share the physical control codes used by gameplay.
 
-use semantic_input::{Action, AxisDirection, PhysicalControl};
+#[cfg(test)]
+use super::BindingId;
+use super::SettingId;
+use super::bindings::EXTRA_KEYS;
+#[cfg(test)]
+use super::bindings::{EXTRA_GAMEPAD, GAMEPAD_BINDINGS};
+use semantic_input::{AxisDirection, PhysicalControl};
 
 /// Persisted empty assignment; an absent entry instead selects the default binding.
 pub const UNBOUND_CONTROL: u16 = 0;
 
 pub const GAMEPAD_OFFSET: usize = 0x8000;
-pub const EXTRA_KEYS: &[(&str, PhysicalControl)] = &[
-    ("key.inventory", PhysicalControl::KeyboardUsage(0x08)),
-    ("key.chat", PhysicalControl::KeyboardUsage(0x17)),
-    ("key.command", PhysicalControl::KeyboardUsage(0x38)),
-    ("key.drop", PhysicalControl::KeyboardUsage(0x14)),
-    ("key.pickItem", PhysicalControl::MouseButton(3)),
-    ("key.screenshot", PhysicalControl::KeyboardUsage(0x3b)),
-    ("key.fullscreen", PhysicalControl::KeyboardUsage(0x44)),
-    // Vanilla's key.emote defaults to B.
-    ("key.emote", PhysicalControl::KeyboardUsage(0x05)),
-    (
-        super::DEBUG_OVERLAY_KEY,
-        PhysicalControl::KeyboardUsage(0x3c),
-    ),
-];
-pub const SECONDARY_KEYS: &[(&str, PhysicalControl)] =
-    &[("key.chat", PhysicalControl::KeyboardUsage(0x28))];
-pub const EXTRA_GAMEPAD: &[(&str, Option<PhysicalControl>)] = &[
-    ("key.inventory", Some(PhysicalControl::GamepadButton(2))),
-    ("key.chat", Some(PhysicalControl::GamepadButton(14))),
-    ("key.drop", Some(PhysicalControl::GamepadButton(12))),
-    ("key.pickItem", None),
-    // Vanilla 26.30 maps this action to gamepad button 7, which its remapping
-    // layout shows as D-pad left.
-    // Append supplemental rows to preserve existing persisted row indices.
-    ("key.emote", Some(PhysicalControl::GamepadButton(13))),
-];
-pub const GAMEPAD_BINDINGS: &[(Action, &str)] = &[
-    (Action::Attack, "key.attack"),
-    (Action::Use, "key.use"),
-    (Action::Jump, "key.jump"),
-    (Action::Sneak, "key.sneak"),
-    (Action::Sprint, "key.sprint"),
-    (Action::CyclePerspective, "key.togglePerspective"),
-    (Action::HotbarPrevious, "key.cycleItemLeft"),
-    (Action::HotbarNext, "key.cycleItemRight"),
-];
-
 /// Keeps keyboard and gamepad bindings in disjoint persisted code ranges.
 pub fn encode_control(control: PhysicalControl) -> Option<u16> {
     match control {
@@ -141,8 +109,8 @@ impl super::SettingsOptions {
             return control;
         };
         let button = match button {
-            0 | 1 if self.value("swap_gamepad_ab_buttons") != 0 => 1 - button,
-            2 | 3 if self.value("swap_gamepad_xy_buttons") != 0 => 5 - button,
+            0 | 1 if self.value(SettingId::SwapGamepadAbButtons) != 0 => 1 - button,
+            2 | 3 if self.value(SettingId::SwapGamepadXyButtons) != 0 => 5 - button,
             _ => button,
         };
         PhysicalControl::GamepadButton(button)
@@ -169,7 +137,7 @@ mod emote_tests {
             Some(PhysicalControl::KeyboardUsage(70))
         );
         assert_eq!(
-            loaded.named_key_control("key.emote"),
+            loaded.named_key_control(BindingId::Emote),
             Some(PhysicalControl::KeyboardUsage(0x05))
         );
     }
@@ -198,7 +166,7 @@ mod emote_tests {
             Some(PhysicalControl::GamepadButton(9))
         );
         assert_eq!(
-            loaded.named_key_control("key.emote"),
+            loaded.named_key_control(BindingId::Emote),
             Some(PhysicalControl::KeyboardUsage(0x05))
         );
         assert!(loaded.reset_key(index));

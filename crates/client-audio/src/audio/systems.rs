@@ -4,6 +4,7 @@ use crate::{
     audio_ingress::SequencedAudioEvent, named_audio::AudioDevice,
     observations::CollisionLookup as PhysicsCollisionRegistries,
 };
+use assets::audio_category::AudioCategory;
 
 use std::collections::HashSet;
 
@@ -19,7 +20,7 @@ use super::{
     engine::{AudioEngine, LoopSpec, SoundRequest},
     local::{LocalCue, LocalMotion, MotionSample},
     route,
-    settings::{AudioCategory, AudioSettings},
+    settings::AudioSettings,
 };
 
 const PLAYER: &str = "minecraft:player";

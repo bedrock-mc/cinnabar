@@ -2,7 +2,7 @@ use super::*;
 use assets::{CompiledBiomeAssets, NetworkIdMode, RuntimeAssets};
 
 #[test]
-fn lantern_body_samples_its_authored_sprite_after_carrier_roundtrip() {
+fn every_pinned_lantern_samples_its_sprite_after_carrier_roundtrip() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let target: serde_json::Value =
         serde_json::from_slice(include_bytes!("../../../../../assets/bedrock-target.json"))
@@ -22,24 +22,33 @@ fn lantern_body_samples_its_authored_sprite_after_carrier_roundtrip() {
         .into_vec()
         .into_iter()
         .filter(|record| {
-            matches!(
-                record.name.as_ref(),
-                "minecraft:air"
-                    | "minecraft:stone"
-                    | "minecraft:lantern"
-                    | "minecraft:soul_lantern"
-            )
+            matches!(record.name.as_ref(), "minecraft:air" | "minecraft:stone")
+                || (record.name.ends_with("lantern")
+                    && canonical_state_u32(&record.canonical_state, "hanging").is_some())
         })
         .collect::<Vec<_>>();
+    assert!(
+        records
+            .iter()
+            .any(|record| record.name.as_ref() == "minecraft:copper_lantern")
+    );
     let span = records
         .iter()
         .map(|record| record.sequential_id as usize + 1)
         .max()
         .unwrap();
     let directory = tempfile::tempdir().unwrap();
+    let blocks = records
+        .iter()
+        .map(|record| {
+            let name = record.name.strip_prefix("minecraft:").unwrap();
+            let texture = if name == "stone" { "stone" } else { "lantern" };
+            (name.to_owned(), serde_json::json!({"textures": texture}))
+        })
+        .collect::<serde_json::Map<_, _>>();
     write(
         directory.path().join("blocks.json"),
-        r#"{"stone":{"textures":"stone"},"lantern":{"textures":"lantern"},"soul_lantern":{"textures":"lantern"}}"#,
+        &serde_json::to_string(&blocks).unwrap(),
     );
     write(
         directory.path().join("textures/terrain_texture.json"),
@@ -79,10 +88,8 @@ fn lantern_body_samples_its_authored_sprite_after_carrier_roundtrip() {
     .unwrap();
     let runtime = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
     for record in records.iter().filter(|record| {
-        matches!(
-            record.name.as_ref(),
-            "minecraft:lantern" | "minecraft:soul_lantern"
-        )
+        record.name.ends_with("lantern")
+            && canonical_state_u32(&record.canonical_state, "hanging").is_some()
     }) {
         let visual = runtime.resolve(NetworkIdMode::Sequential, record.sequential_id);
         assert_eq!(visual.kind(), VisualKind::Model);
