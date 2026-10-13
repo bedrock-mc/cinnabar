@@ -7,7 +7,7 @@ use std::{collections::HashSet, sync::Arc};
 pub struct CinnabarRoster {
     entries: Vec<(Arc<str>, Arc<str>)>,
     revision: u64,
-    cinnabar: Arc<HashSet<String>>,
+    reported: Arc<HashSet<String>>,
     badged: HashSet<Arc<str>>,
 }
 
@@ -35,9 +35,9 @@ impl CinnabarRoster {
     }
 
     /// Applies the XUIDs the API reported as Cinnabar players.
-    pub fn set_cinnabar(&mut self, cinnabar: Arc<HashSet<String>>) {
-        if !Arc::ptr_eq(&self.cinnabar, &cinnabar) {
-            self.cinnabar = cinnabar;
+    pub fn set_cinnabar(&mut self, reported: Arc<HashSet<String>>) {
+        if !Arc::ptr_eq(&self.reported, &reported) {
+            self.reported = reported;
             self.rebadge();
         }
     }
@@ -51,7 +51,7 @@ impl CinnabarRoster {
         self.badged = self
             .entries
             .iter()
-            .filter(|(_, xuid)| !xuid.is_empty() && self.cinnabar.contains(&**xuid))
+            .filter(|(_, xuid)| !xuid.is_empty() && self.reported.contains(&**xuid))
             .map(|(name, _)| Arc::clone(name))
             .collect();
     }
