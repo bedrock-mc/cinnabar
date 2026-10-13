@@ -53,5 +53,17 @@ pub(crate) fn alt_held(held: &ButtonInput<KeyCode>) -> bool {
     held.pressed(KeyCode::AltLeft) || held.pressed(KeyCode::AltRight)
 }
 
+/// Matches the command binding, also accepting a typed slash on other layouts
+/// while the default command control is selected.
+pub(crate) fn command_key(
+    menu: Option<&client_shell::menu::MenuRuntime>,
+    input: &KeyboardInput,
+) -> bool {
+    use client_shell::menu::settings_options::control_bindings::named_control;
+    binding_key(menu, "key.command", input.key_code)
+        || (input.text.as_deref() == Some("/")
+            && named_control(menu, "key.command") == named_control(None, "key.command"))
+}
+
 #[cfg(test)]
 mod tests;
