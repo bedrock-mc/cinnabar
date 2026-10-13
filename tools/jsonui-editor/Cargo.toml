@@ -20,6 +20,8 @@ crate-type = ["cdylib", "rlib"]
 assets = { path = "../../crates/assets" }
 image.workspace = true
 json-ui = { path = "../../crates/json-ui" }
+render-api = { path = "../../crates/render-api" }
+render-model = { path = "../../crates/render-model" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ui = { path = "../../crates/ui" }

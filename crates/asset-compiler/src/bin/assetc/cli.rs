@@ -16,6 +16,17 @@ pub(super) struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub(super) enum Command {
+    /// Generate pack and actor vocabularies from the pinned sample archive.
+    Vocabulary {
+        #[arg(long)]
+        archive: PathBuf,
+        #[arg(long)]
+        source_manifest: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        actors_out: PathBuf,
+    },
     /// Compile final movement, selection and interaction facts for every block state.
     BlockPhysics {
         #[arg(long)]

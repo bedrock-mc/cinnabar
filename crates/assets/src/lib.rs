@@ -1,6 +1,7 @@
 mod actor;
 mod atmosphere;
 mod audio;
+pub mod audio_category;
 mod audio_pcm;
 pub mod bamboo;
 pub mod banner;

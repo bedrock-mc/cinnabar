@@ -123,15 +123,16 @@ fn source_for_use(
     with_artwork: bool,
     use_ticks: u32,
 ) -> (HandSource, Vec<render_model::ActorRigGeometry>) {
-    source_for_use_and_swing(identifier, with_artwork, use_ticks, None)
+    source_for_use_and_swing(identifier, with_artwork, use_ticks, None, None)
 }
 
-/// Samples independent Bedrock and Java clocks through the Java publication path.
+/// Samples independent swing clocks and optional local use timing through Java publication.
 fn source_for_use_and_swing(
     identifier: Option<&str>,
     with_artwork: bool,
     use_ticks: u32,
     swing: Option<actor_animation::LocalSwingProgress>,
+    timing: Option<actor_animation::AttachableAnimationInput<'static>>,
 ) -> (HandSource, Vec<render_model::ActorRigGeometry>) {
     let mut stream = super::tests::head_stream();
     let mut feed = super::tests::uploaded_skin_feed(false);
@@ -204,7 +205,7 @@ fn source_for_use_and_swing(
             consume_ticks: None,
             item_animation: Some(actor_animation::AttachableAnimationInput {
                 first_person: true,
-                ..Default::default()
+                ..timing.unwrap_or_default()
             }),
             alpha: 0.5,
             artwork: &artwork,
@@ -269,6 +270,36 @@ fn every_java_bow_pull_frame_publishes_one_textured_raster_without_an_arm() {
                 "no bow face samples an unresolved or transparent texel"
             );
         }
+    }
+}
+
+#[test]
+fn published_java_bow_uses_local_draw_time_for_placement_and_artwork() {
+    let mut previous = None;
+    for alpha in [0.25, 0.75] {
+        let timing = actor_animation::AttachableAnimationInput {
+            is_local_player: true,
+            frame_alpha: alpha,
+            use_elapsed_ticks: Some(1),
+            ..Default::default()
+        };
+        let (source, meshes) = source_for_use_and_swing(Some(BOW), true, 19, None, Some(timing));
+        let (item, atlas) = source.items[0].as_ref().unwrap();
+        let mesh = meshes
+            .iter()
+            .find(|mesh| mesh.id == item.presentation.submission.input.rig)
+            .unwrap();
+        let [u, v] = mesh.vertices[0]
+            .uv
+            .map(|coordinate| (coordinate * 16.0) as usize);
+        let layer = item.presentation.location.layer() as usize;
+        let texel = ((layer * 16 + v) * 16 + u) * 4;
+        assert_eq!(atlas.rgba8[texel + 2], 70, "the first local bow pull frame");
+        let camera = item.java_camera.unwrap();
+        if let Some(previous) = previous {
+            assert!(!camera.abs_diff_eq(previous, 1e-6));
+        }
+        previous = Some(camera);
     }
 }
 
@@ -344,7 +375,7 @@ fn java_bare_arm_takes_precedence_over_the_legacy_attack_clock() {
         java: [0.1, 0.2],
         frame_alpha: Some(0.75),
     };
-    let source = source_for_use_and_swing(None, true, 0, Some(swing)).0;
+    let source = source_for_use_and_swing(None, true, 0, Some(swing), None).0;
     let expected = render_model::java_animation::first_person_arm(0.175, 1.0);
     assert!(source.body_camera.unwrap().abs_diff_eq(expected, 1e-5));
     let legacy = render_model::legacy_combat::legacy_first_person_arm(0.4375, 1.0);

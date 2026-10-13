@@ -103,6 +103,7 @@ use client_world::ingestion::{
 use column_set::ColumnSubChunkSet;
 use helpers::*;
 use lighting::types::*;
+use meshing::biome_records::pack_biome_record;
 use meshing::types::*;
 use request_queue::RequestQueue;
 
@@ -360,6 +361,7 @@ pub struct WorldStream {
     predictions: prediction::DeferredPredictions,
     decode_tx: Sender<DecodeCompletion>,
     decode_rx: Receiver<DecodeCompletion>,
+    biome_records: Option<Arc<meshing::biome_records::BiomeRecordCache>>,
     mesh_tx: Sender<MeshCompletion>,
     mesh_rx: Receiver<MeshCompletion>,
     lighting: lighting::Lighting,
@@ -367,7 +369,7 @@ pub struct WorldStream {
     revisions: RevisionTracker,
     applied_mesh_generations: HashMap<SubChunkKey, u64>,
     actor_block_syncs: actor_block_sync::ActorBlockSyncs,
-    mesh_dependency_masks: HashMap<SubChunkKey, (u64, MeshDependencyMask)>,
+    mesh_dependency_masks: HashMap<SubChunkKey, dirty::RegisteredMeshDependencies>,
     mesh_jobs: scheduler::KeyedJobs<PendingMesh, u64, 2>,
     /// Unit view direction the schedulers favour; `None` orders by distance alone.
     view_forward: Option<[f32; 3]>,

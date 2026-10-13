@@ -255,7 +255,7 @@ mod tests {
             local_player_unique_id: 1,
             player_position: [0.0, 70.0, 0.0],
             world_spawn_position: [0, 70, 0],
-            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
             block_network_ids_are_hashes: false,
         })
     }

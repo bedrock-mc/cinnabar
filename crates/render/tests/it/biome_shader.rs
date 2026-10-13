@@ -22,7 +22,7 @@ fn shared_shader_uses_lattice_kernel_and_uniform_fast_path() {
     let source = shader("biome_tint.wesl");
 
     assert!(source.contains("BIOME_DISTANCE_EPSILON"));
-    assert!(source.contains("lattice_point_index(position) * BIOME_POINT_WORDS"));
+    assert!(source.contains("lattice_point_index(position) * point_words"));
     assert!(source.contains("if (uniform_tint != 0xffffffffu)"));
     assert!(source.contains("offset.y"));
 }

@@ -111,6 +111,170 @@ fn block_crack_ordered_mutations_preserve_only_the_exact_target() {
     assert_eq!(stream.block_crack_snapshot().status.retired_targets, 1);
 }
 
+/// Builds one packet's ordered writes at a crack target without actor notifications.
+fn synced_packet(
+    position: [i32; 3],
+    layer: usize,
+    ids: &[u32],
+    repetitions: usize,
+) -> Vec<client_world::ingestion::SyncedBlockUpdateEvent> {
+    use client_world::ingestion::{ActorBlockSyncMessage, SyncedBlockUpdateEvent};
+    (0..repetitions)
+        .flat_map(|_| ids.iter().copied())
+        .map(|network_id| SyncedBlockUpdateEvent {
+            update: BlockUpdateEvent {
+                dimension: 0,
+                position,
+                layer,
+                network_id,
+            },
+            flags: 0,
+            sync: ActorBlockSyncMessage {
+                actor_unique_id: -1,
+                message: 0,
+            },
+        })
+        .collect()
+}
+
+/// Admits both packets before committing, then completes the inline or worker preparation.
+fn drain_synced_burst(
+    stream: &mut WorldStream,
+    first_sequence: u64,
+    packets: [Vec<client_world::ingestion::SyncedBlockUpdateEvent>; 2],
+    worker: bool,
+) {
+    stream.polling = true;
+    stream.poll_heavy_guarantee = false;
+    stream.poll_deadline = Some(Instant::now());
+    for (index, packet) in packets.into_iter().enumerate() {
+        stream
+            .submit(
+                first_sequence + index as u64,
+                WorldEvent::SyncedBlockUpdates(packet),
+            )
+            .unwrap();
+    }
+    assert_eq!(stream.order.heavy_count(), 2);
+    stream.poll_deadline = None;
+    stream.apply_ready();
+    assert_eq!(stream.pending_decode.len(), usize::from(worker));
+    complete_pending_decode_jobs(stream);
+    assert_eq!(stream.committed_sequence(), first_sequence + 1);
+    assert_eq!(stream.order.heavy_count(), 0);
+}
+
+#[test]
+fn synced_return_to_original_retires_crack_and_allows_fresh_start() {
+    for repetitions in [1, INLINE_BLOCK_MUTATION_UPDATES + 1] {
+        let mut stream = fixture();
+        let position = [0, -64, 0];
+        let other = [1, -64, 0];
+        for (sequence, target) in [(2, position), (3, other)] {
+            crack(
+                &mut stream,
+                sequence,
+                target,
+                BlockCrackAction::Start {
+                    progress_per_tick: 65535,
+                },
+            );
+        }
+        stream.advance_block_cracks(0.025);
+        let key = SubChunkKey::new(0, 0, -4, 0);
+        let initial = stream.authority.terrain().sub_chunk(key);
+        drain_synced_burst(
+            &mut stream,
+            4,
+            [
+                synced_packet(position, 0, &[1], repetitions),
+                synced_packet(position, 0, &[0], repetitions),
+            ],
+            repetitions > 1,
+        );
+        assert_eq!(stream.authority.terrain().sub_chunk(key), initial);
+        let snapshot = stream.block_crack_snapshot();
+        assert_eq!(snapshot.status.retired_targets, 1);
+        assert_eq!(snapshot.status.active, 1);
+        assert_eq!(snapshot.entries[0].position, other);
+        assert_eq!(snapshot.entries[0].progress, 0.5);
+        crack(&mut stream, 6, position, start());
+        let snapshot = stream.block_crack_snapshot();
+        let fresh = snapshot
+            .entries
+            .iter()
+            .find(|entry| entry.position == position)
+            .unwrap();
+        assert_eq!(fresh.start_sequence, 6);
+        assert_eq!(fresh.server_value, 7);
+        assert_eq!(fresh.progress, 0.0);
+    }
+}
+
+#[test]
+fn synced_return_within_one_packet_preserves_crack_progress() {
+    for repetitions in [1, INLINE_BLOCK_MUTATION_UPDATES + 1] {
+        let mut stream = fixture();
+        let position = [0, -64, 0];
+        crack(
+            &mut stream,
+            2,
+            position,
+            BlockCrackAction::Start {
+                progress_per_tick: 65535,
+            },
+        );
+        stream.advance_block_cracks(0.025);
+        let initial = stream.block_crack_snapshot();
+        drain_synced_burst(
+            &mut stream,
+            3,
+            [
+                synced_packet(position, 0, &[1, 0], repetitions),
+                synced_packet(position, 0, &[0], repetitions),
+            ],
+            repetitions > 1,
+        );
+        assert_eq!(stream.block_crack_snapshot(), initial);
+    }
+}
+
+#[test]
+fn synced_secondary_layer_removal_and_restore_retires_other_targets() {
+    let mut stream = fixture();
+    let key = SubChunkKey::new(0, 0, -4, 0);
+    let mutation = ChunkStore::prepare_sub_chunk_blocks(
+        key,
+        stream.authority.terrain().sub_chunk(key).as_deref(),
+        &[BlockUpdate::new(0, 0, 0, 1, 1)],
+        stream.classifier.air_network_id(),
+    )
+    .unwrap();
+    stream
+        .authority
+        .commit_prepared_block_updates(vec![mutation])
+        .unwrap();
+    for (sequence, position) in [(2, [0, -64, 0]), (3, [1, -64, 0])] {
+        crack(&mut stream, sequence, position, start());
+    }
+    let initial = stream.authority.terrain().sub_chunk(key);
+    let repetitions = INLINE_BLOCK_MUTATION_UPDATES + 1;
+    drain_synced_burst(
+        &mut stream,
+        4,
+        [
+            synced_packet([0, -64, 0], 1, &[2], repetitions),
+            synced_packet([0, -64, 0], 1, &[1], repetitions),
+        ],
+        true,
+    );
+    assert_eq!(stream.authority.terrain().sub_chunk(key), initial);
+    let snapshot = stream.block_crack_snapshot();
+    assert!(snapshot.entries.is_empty());
+    assert_eq!(snapshot.status.active, 0);
+    assert_eq!(snapshot.status.retired_targets, 2);
+}
+
 #[test]
 fn block_crack_capacity_retirement_then_new_start_has_one_admission_authority() {
     let mut stream = fixture();

@@ -79,6 +79,7 @@ impl WorldStream {
         let geometry_changed = !self.authority.runtime_assets().has_same_geometry(&assets);
         let biomes_changed =
             self.authority.runtime_assets().biome_assets() != assets.biome_assets();
+        self.biome_records = None;
         self.authority.replace_runtime_assets(assets);
         if biomes_changed {
             self.apply_immediate(

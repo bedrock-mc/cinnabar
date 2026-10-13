@@ -453,6 +453,7 @@ dependencies = [
  "flate2",
  "glam",
  "lewton",
+ "protocol-ids",
  "rayon",
  "rustix 1.1.4",
  "serde",
@@ -2048,6 +2049,7 @@ dependencies = [
  "meshing",
  "mimalloc",
  "protocol",
+ "protocol-ids",
  "rayon",
  "render-api",
  "serde_json",
@@ -2147,6 +2149,7 @@ dependencies = [
  "player-state",
  "profiling",
  "protocol",
+ "protocol-ids",
  "raw-window-handle",
  "rayon",
  "render",
@@ -2306,6 +2309,7 @@ dependencies = [
  "particles",
  "player-state",
  "protocol",
+ "protocol-ids",
  "resource-pack",
  "rodio",
  "serde_json",
@@ -2364,6 +2368,7 @@ dependencies = [
  "inventory 0.1.19",
  "player-state",
  "protocol",
+ "protocol-ids",
  "semantic-input",
  "sha2",
  "sim",
@@ -2393,6 +2398,7 @@ dependencies = [
  "pack-entity-compiler",
  "player-state",
  "protocol",
+ "protocol-ids",
  "render-api",
  "render-model",
  "render-scene",
@@ -2431,6 +2437,7 @@ dependencies = [
  "meshing",
  "pack-runtime",
  "protocol",
+ "protocol-ids",
  "render",
  "render-api",
  "render-scene",
@@ -2446,6 +2453,7 @@ dependencies = [
  "bytes",
  "crossbeam-channel",
  "protocol",
+ "protocol-ids",
  "serde_json",
  "server-experience",
  "simulation-clock",
@@ -2539,6 +2547,7 @@ dependencies = [
  "pack-json",
  "player-state",
  "protocol",
+ "protocol-ids",
  "rayon",
  "render-api",
  "render-model",
@@ -2573,6 +2582,7 @@ dependencies = [
  "bytes",
  "hashbrown 0.16.1",
  "protocol",
+ "protocol-ids",
  "render-api",
  "render-model",
  "sha2",
@@ -3797,6 +3807,7 @@ dependencies = [
  "inventory 0.1.19",
  "player-state",
  "protocol",
+ "protocol-ids",
  "render-api",
  "semantic-input",
  "serde",
@@ -4354,6 +4365,7 @@ dependencies = [
  "assets",
  "bytes",
  "protocol",
+ "protocol-ids",
  "serde",
  "serde_json",
  "sha2",
@@ -4545,6 +4557,8 @@ dependencies = [
  "assets",
  "image",
  "json-ui",
+ "render-api",
+ "render-model",
  "serde",
  "serde_json",
  "ui",
@@ -4616,6 +4630,7 @@ dependencies = [
  "libc",
  "protocol",
  "reqwest",
+ "resource-pack",
  "rustix 1.1.4",
  "serde",
  "serde_json",
@@ -6152,6 +6167,7 @@ dependencies = [
  "cap-fs-ext",
  "cap-std",
  "futures",
+ "protocol-ids",
  "render-api",
  "serde",
  "serde_json",
@@ -6167,6 +6183,10 @@ dependencies = [
  "xxhash-rust",
  "zeroize",
 ]
+
+[[package]]
+name = "protocol-ids"
+version = "0.1.19"
 
 [[package]]
 name = "pulley-interpreter"
@@ -7838,6 +7858,23 @@ dependencies = [
  "ui",
  "ui-engine",
  "url",
+]
+
+[[package]]
+name = "ui-snapshot"
+version = "0.1.19"
+dependencies = [
+ "assets",
+ "image",
+ "json-ui",
+ "jsonui-editor",
+ "launcher",
+ "oreui",
+ "serde_json",
+ "tempfile",
+ "ui",
+ "ui-engine",
+ "ui-screens",
 ]
 
 [[package]]

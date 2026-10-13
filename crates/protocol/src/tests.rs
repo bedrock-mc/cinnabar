@@ -34,6 +34,7 @@ mod player_auth_input_block_use;
 mod player_auth_input_mining;
 mod player_list;
 mod player_skin;
+mod protocol_ids;
 mod raw_text;
 mod sleep_status;
 mod ui_packets;

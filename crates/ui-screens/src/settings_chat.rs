@@ -1,5 +1,6 @@
 //! The chat settings modal is created by the vanilla chat screen's popup factory.
 
+use launcher::menu::settings_options::SettingId;
 use std::sync::Arc;
 
 use json_ui::{CollectionItem, DataSource, HitRegion, HudModel, Scalar};
@@ -50,7 +51,7 @@ pub(crate) fn bind(
     data.set_global("#close_button_visible", Scalar::Bool(true));
     super::settings_controls::bind_values(&settings.options, settings.dropdown, data, translate);
     let options = &settings.options;
-    let smooth = options.chat_smooth_available() && options.value("chat_typeface") != 0;
+    let smooth = options.chat_smooth_available() && options.value(SettingId::ChatTypeface) != 0;
     data.set_global(
         "#chat_typeface_visible",
         Scalar::Bool(options.chat_smooth_available()),
@@ -62,7 +63,7 @@ pub(crate) fn bind(
     data.set_global("#chat_font_size_enabled", Scalar::Bool(smooth));
     let size_label = if smooth {
         translate("chat.settings.fontSize")
-            .replace("%s", &options.value("chat_font_size").to_string())
+            .replace("%s", &options.value(SettingId::ChatFontSize).to_string())
     } else {
         translate("chat.settings.fontSize.disabled").replace("%s", &translate("typeface.notoSans"))
     };
@@ -72,7 +73,7 @@ pub(crate) fn bind(
         Scalar::Text(format!(
             "{}: {}",
             translate("chat.settings.lineSpacing"),
-            f64::from(options.value("chat_line_spacing")) / 10.0
+            f64::from(options.value(SettingId::ChatLineSpacing)) / 10.0
         )),
     );
     for option in launcher::menu::settings_options::SETTINGS_OPTIONS {
@@ -85,24 +86,14 @@ pub(crate) fn bind(
         if let launcher::menu::settings_options::SettingKind::Dropdown(choices) = option.kind {
             data.set_global(
                 format!("#{}_dropdown_label", option.name),
-                Scalar::Text(translate(
-                    choices[options.value(option.name) as usize].label,
-                )),
+                Scalar::Text(translate(choices[options.value(option.id) as usize].label)),
             );
         }
     }
-    let palette = [
-        ui::BedrockColor::White,
-        ui::BedrockColor::Green,
-        ui::BedrockColor::Aqua,
-        ui::BedrockColor::Red,
-        ui::BedrockColor::LightPurple,
-        ui::BedrockColor::Yellow,
-        ui::BedrockColor::Gold,
-    ];
+    let palette = launcher::menu::settings_options::chat::CHAT_PALETTE;
     let choices = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
-        .find(|option| option.name == "chat_color")
+        .find(|option| option.id == SettingId::ChatColor)
         .expect("chat colors are registered");
     let launcher::menu::settings_options::SettingKind::Dropdown(labels) = choices.kind else {
         unreachable!()
@@ -110,7 +101,7 @@ pub(crate) fn bind(
     let colors: Vec<_> = palette
         .iter()
         .map(|color| {
-            let [r, g, b] = color.rgb().unwrap_or([255; 3]);
+            let [r, g, b] = color.color.rgb().unwrap_or([255; 3]);
             format!("#{r:02x}{g:02x}{b:02x}")
         })
         .collect();
@@ -126,7 +117,10 @@ pub(crate) fn bind(
             })
             .collect(),
     );
-    for (prefix, name) in [("chat", "chat_color"), ("mentions", "mentions_color")] {
+    for (prefix, name) in [
+        ("chat", SettingId::ChatColor),
+        ("mentions", SettingId::MentionsColor),
+    ] {
         data.set_global(
             format!("#{prefix}_toggle_color"),
             Scalar::Text(colors[options.value(name) as usize].clone()),
@@ -160,11 +154,12 @@ pub(crate) fn action(settings: &ChatSettings, region: &HitRegion) -> Option<Menu
 
 /// Applies implemented chat visibility, background and notification-duration options.
 pub fn apply_hud(settings: &SettingsOptions, model: &mut HudModel) {
-    if settings.value("hide_chat") != 0 {
+    if settings.value(SettingId::HideChat) != 0 {
         model.chat_visible = false;
         model.chat.clear();
     }
-    model.chat_background_opacity = f64::from(settings.value("chat_background_opacity")) / 100.0;
+    model.chat_background_opacity =
+        f64::from(settings.value(SettingId::ChatBackgroundOpacity)) / 100.0;
     model.chat_lifetime = settings.chat_lifetime();
 }
 

@@ -54,6 +54,8 @@ pub enum PreparedWorldEvent {
 pub struct PreparedBlockMutations {
     pub mutations: Vec<PreparedSubChunkMutation>,
     pub relight: BTreeSet<SubChunkKey>,
+    /// Earlier packet replacements used only to retire changed crack targets after commit.
+    pub crack_intermediates: Vec<PreparedSubChunkMutation>,
 }
 
 #[derive(Debug)]

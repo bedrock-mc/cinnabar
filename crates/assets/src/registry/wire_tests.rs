@@ -1,5 +1,21 @@
 use super::*;
 
+#[test]
+fn protocol_air_fallbacks_select_the_pinned_air_state() {
+    let records = read_registry_for_protocol(
+        crate::pinned_block_registry_bytes(),
+        crate::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let air = records
+        .iter()
+        .find(|record| record.name.as_ref() == "minecraft:air")
+        .unwrap();
+    assert_eq!(protocol_ids::SEQUENTIAL_AIR_NETWORK_ID, air.sequential_id);
+    assert_eq!(protocol_ids::HASHED_AIR_NETWORK_ID, air.network_hash);
+    assert!(air.flags.contains(BlockFlags::AIR));
+}
+
 /// Decode the synthetic carrier checked against the Go encoder.
 fn fixture() -> Vec<u8> {
     let hex = include_str!("../../tests/fixtures/registry-wire.hex")

@@ -4,9 +4,10 @@
 
 use super::{
     engine::Listener,
-    settings::{AudioCategory, AudioSettings},
+    settings::AudioSettings,
     voice::{attenuation, pan_for},
 };
+use assets::audio_category::AudioCategory;
 use crossbeam_queue::ArrayQueue;
 use rodio::Source;
 use server_experience::media::{MAX_PCM_FRAMES, SAMPLE_RATE, clock::Correction, frames::PcmBlock};
