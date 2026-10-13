@@ -110,7 +110,7 @@ fn equip_samples_and_retained_source_keys_follow_every_frame_fraction() {
         let at = |alpha| {
             [
                 hand_progress(rig.hand, None, alpha).equip,
-                java::first_person_hand(&rig, None, None, None, alpha).equip,
+                java::first_person_hand(&rig, None, None, None, alpha, None).equip,
             ]
         };
         let start = at(0.0);
