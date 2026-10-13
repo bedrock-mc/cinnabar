@@ -77,21 +77,37 @@ impl FarSummaryInbox {
 
     /// Appends the newest summary of each column finished since the last call.
     pub fn drain(&mut self, out: &mut Vec<FarColumnSummary>) {
-        for finished in self.rx.try_iter() {
-            let Some(issued) = self.issued.get_mut(&finished.column) else {
-                continue;
-            };
-            issued.in_flight -= 1;
-            let current = issued.latest == finished.generation;
-            if issued.in_flight == 0 {
-                self.issued.remove(&finished.column);
-            }
-            if current {
-                out.push(FarColumnSummary {
-                    column: finished.column,
-                    summary: finished.summary,
-                });
-            }
+        while let Ok(finished) = self.rx.try_recv() {
+            self.accept(finished, out);
+        }
+    }
+
+    /// Like [`Self::drain`], first blocking until `deadline` for one summary while work is
+    /// issued and none has finished.
+    pub fn drain_waiting(&mut self, out: &mut Vec<FarColumnSummary>, deadline: Instant) {
+        if self.rx.is_empty()
+            && !self.is_idle()
+            && let Ok(finished) = self.rx.recv_deadline(deadline)
+        {
+            self.accept(finished, out);
+        }
+        self.drain(out);
+    }
+
+    fn accept(&mut self, finished: Finished, out: &mut Vec<FarColumnSummary>) {
+        let Some(issued) = self.issued.get_mut(&finished.column) else {
+            return;
+        };
+        issued.in_flight -= 1;
+        let current = issued.latest == finished.generation;
+        if issued.in_flight == 0 {
+            self.issued.remove(&finished.column);
+        }
+        if current {
+            out.push(FarColumnSummary {
+                column: finished.column,
+                summary: finished.summary,
+            });
         }
     }
 

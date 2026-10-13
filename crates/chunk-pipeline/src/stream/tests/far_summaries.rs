@@ -140,3 +140,25 @@ fn enabling_far_terrain_summarises_resident_columns() {
     let summaries = drain_until(&mut stream, 1);
     assert_eq!(summaries[0].column, ChunkKey::new(0, 1, 0));
 }
+
+/// A deadline-bounded drain blocks for issued work instead of returning empty.
+#[test]
+fn draining_with_a_deadline_waits_for_issued_summaries() {
+    let mut stream = stream(true);
+    stream
+        .submit(1, inline_block_entity_event(1, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    let _ = drain_until(&mut stream, 1);
+    let mut inbox = stream.retire_far_terrain();
+    let mut summaries = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    for _ in 0..64 {
+        if inbox.is_idle() {
+            break;
+        }
+        inbox.drain_waiting(&mut summaries, deadline);
+    }
+    assert!(inbox.is_idle());
+    assert_eq!(summaries.len(), 1);
+}
