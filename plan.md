@@ -1189,6 +1189,18 @@ acceptance gate.
   maintainer's report of vanilla. Whether desktop vanilla shows the close button on every
   container screen is likewise unconfirmed by capture.
 
+## Item stack sizes
+
+- DataDriven entries use component stack sizes even for known item names. They use
+  `item_properties.max_stack_size`, or the item default when no capacity is declared. Legacy
+  and unversioned entries retain the known item's capacity; other names use the component
+  flag to choose between a component item and a plain item. Unknown item versions bind by
+  name in the same way. Unavailable component facts leave capacity unresolved unless the
+  payload is the canonical empty compound.
+- Provisional: a component item's top-level `minecraft:max_stack_size` component is read when
+  it has no `item_properties`, and plain or vanilla items carrying that component leave their
+  capacity unsettled. Parity verification of these layouts remains incomplete.
+
 ## Eating and drinking presentation
 
 - While a player uses an admitted food or drink, the client sets `variable.use_item_startup_progress` and
@@ -1499,6 +1511,14 @@ frame-budget or identical-version pixel gates.
 - Beds compile the pinned authored model and render once from the head block with
   both halves' light. Six bed tests passed. Fresh Metal red/white galleries and the
   actual BDS platform show a mattress, pillow, blanket and wooden legs.
+- Sleepers turn by the bed's sleep rotation: the bed at the streamed bed
+  position faces south 90, west 0, north 270 and east 180 degrees, and a sleeper without a
+  bed position reads 0. The local sleeper presents lying on the bed top at the block centre,
+  with its eye at the sleeping offset, while its physics stays where it stood. Java animations
+  retain that sleeping eye height. The sleeping view rotation is captured with the camera pose
+  and its publication proof so named audio keeps an eligible first-person camera. Provisional:
+  the first-person view looks level from the pillow toward the foot, and third person keeps
+  its ordinary orbit around the body; the native sleeping camera is unmeasured.
 - Falling blocks retain variant metadata, full block geometry and packet-centred
   placement, including stepped dragon eggs. Spawn and movement no longer disagree
   by half a block. Egg, sand and gravel Metal galleries use the production mesh.

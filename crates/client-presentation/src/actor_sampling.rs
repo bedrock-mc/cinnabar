@@ -57,14 +57,14 @@ fn breathing_point(probe: &client_world::ActorFluidProbe) -> [f32; 3] {
     ]
 }
 
-/// Quarter turns of the bed's `direction` state as degrees; the origin needs native measurement.
+/// Sleep rotation for a bed's `direction` state: south 90, west 0, north 270 and east 180 degrees.
 fn bed_rotation_degrees(canonical_state: &str) -> Option<f32> {
     let serde_json::Value::Object(map) = serde_json::from_str(canonical_state).ok()? else {
         return None;
     };
     let value = map.get("direction")?;
     let direction = value.get("value").unwrap_or(value).as_i64()?;
-    Some(direction.rem_euclid(4) as f32 * 90.0)
+    Some([90.0, 0.0, 270.0, 180.0][direction.rem_euclid(4) as usize])
 }
 
 #[cfg(test)]
@@ -72,12 +72,14 @@ mod tests {
     use super::bed_rotation_degrees;
 
     #[test]
-    fn bed_direction_reads_typed_and_plain_states() {
+    fn bed_direction_maps_to_the_native_sleep_rotation() {
         assert_eq!(
             bed_rotation_degrees(r#"{"direction":{"type":"int","value":3}}"#),
-            Some(270.0)
+            Some(180.0)
         );
-        assert_eq!(bed_rotation_degrees(r#"{"direction":1}"#), Some(90.0));
+        assert_eq!(bed_rotation_degrees(r#"{"direction":0}"#), Some(90.0));
+        assert_eq!(bed_rotation_degrees(r#"{"direction":1}"#), Some(0.0));
+        assert_eq!(bed_rotation_degrees(r#"{"direction":2}"#), Some(270.0));
         assert_eq!(bed_rotation_degrees(r#"{"head_piece_bit":true}"#), None);
     }
 }

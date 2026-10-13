@@ -34,8 +34,9 @@ pub struct EditText {
     pub key: String,
     /// The label's left edge, window-logical px.
     pub left: f32,
-    /// The label's font scale and named font.
+    /// The painted scale relative to the frame's base text scale, including face normalization.
     pub scale: f32,
+    /// The label's named font, or the default when absent.
     pub font: Option<String>,
 }
 
