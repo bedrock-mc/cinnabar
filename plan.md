@@ -1,3 +1,16 @@
+## Far terrain (LOD)
+
+`far-terrain` summarises each column the server sent: the height of every cell's highest
+visible block, its average texture colour tinted by biome, and any water depth, with water
+blended over its floor. World workers summarise a column when all of its sections have arrived,
+including a resend, and again as it retires, so local edits are kept. Summaries hash their
+content, so an identical resend leaves the cache unchanged. The in-memory cache keeps them
+compressed under a byte budget and drops the least recently used first. All bounds live in
+`far_terrain::config`.
+
+Incomplete: summaries are not yet persisted, namespaced per server and world, or drawn. No
+parity gate closes here.
+
 ## Experimental Android client
 
 `packaging/android/build-apk.sh` builds an arm64-v8a APK holding the client library, the Go
@@ -6985,7 +6998,7 @@ multiplicatively and are the required approach, not suggestions:
    minimum target adapter, otherwise at most two equal-format array pages in the same shared
    bind group. More pages, frame dropping, or silent animation degradation are forbidden.
 
-Explicitly deferred past v1: distant-chunk LODs (not needed at a 16-chunk radius), GPU
+Explicitly deferred past v1: GPU
 occlusion queries (cave culling suffices), and mesh shaders.
 
 Resource budget (tracked from Phase 2 onward; reference machine class = Ryzen 5 3600 / mid

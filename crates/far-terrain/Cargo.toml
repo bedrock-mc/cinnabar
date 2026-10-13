@@ -1,0 +1,23 @@
+[package]
+name = "far-terrain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+assets = { path = "../assets" }
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+thiserror.workspace = true
+world = { path = "../world" }
+xxhash-rust = { version = "0.8.15", features = ["xxh64"] }
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "summary_costs"
+harness = false
+
+[lints]
+workspace = true

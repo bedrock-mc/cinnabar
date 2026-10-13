@@ -5,6 +5,7 @@ members = [
     "crates/acceptance",
     "crates/actor-animation",
     "crates/diagnostics",
+    "crates/far-terrain",
     "crates/asset-compiler",
     "crates/assets",
     "crates/bridge",

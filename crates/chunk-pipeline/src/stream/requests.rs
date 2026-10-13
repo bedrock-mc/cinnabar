@@ -296,6 +296,8 @@ impl WorldStream {
             if self.authority.mark_chunk_loaded(key).is_err() {
                 self.loaded_columns.remove(&key);
                 self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
+            } else {
+                self.note_far_column_complete(key);
             }
             return;
         }
@@ -334,6 +336,8 @@ impl WorldStream {
                         self.record_normalization_error(
                             NormalizationErrorReason::BlockMutationFailure,
                         );
+                    } else {
+                        self.note_far_column_complete(key);
                     }
                 } else {
                     self.requests.requested.insert(key, expected);
