@@ -19,7 +19,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -49,16 +48,12 @@ const (
 // helperPipeWaitDelay bounds pipe cleanup after a helper build exits or is canceled.
 const helperPipeWaitDelay = 5 * time.Second
 
-// TestMain builds experience-runtime and the probe guest with cargo, assembles the probe
-// artifact and builds the fake helper within the package timeout, leaving time for tests.
+// TestMain prepares helper artifacts, reserving test time when a timeout is enabled.
 func TestMain(m *testing.M) {
 	flag.Parse()
 	budget := flag.Lookup("test.timeout").Value.(flag.Getter).Get().(time.Duration)
-	if budget == 0 {
-		budget = 10 * time.Minute
-	}
 	started := time.Now()
-	ctx, cancel := helperBuildContext(context.Background(), budget*3/4)
+	ctx, cancel := helperBuildContext(context.Background(), budget-budget/4)
 	scratch, err := os.MkdirTemp("", "experience-test-")
 	if err != nil {
 		cancel()
@@ -75,10 +70,12 @@ func TestMain(m *testing.M) {
 		os.RemoveAll(scratch)
 		os.Exit(1)
 	}
-	if err := flag.Set("test.timeout", (budget - time.Since(started)).String()); err != nil {
-		fmt.Fprintln(os.Stderr, "experience tests:", err)
-		os.RemoveAll(scratch)
-		os.Exit(1)
+	if budget != 0 {
+		if err := flag.Set("test.timeout", (budget - time.Since(started)).String()); err != nil {
+			fmt.Fprintln(os.Stderr, "experience tests:", err)
+			os.RemoveAll(scratch)
+			os.Exit(1)
+		}
 	}
 	code := m.Run()
 	os.RemoveAll(scratch)
@@ -88,8 +85,6 @@ func TestMain(m *testing.M) {
 // buildHelpers sets every variable that TestMain sets. Everything it writes goes below scratch,
 // except what cargo keeps in its target directories.
 func buildHelpers(ctx context.Context, scratch string) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	if _, err := exec.LookPath("cargo"); err != nil {
 		return fmt.Errorf("cargo is required to build experience-runtime and the probe guest: %w", err)
 	}
@@ -99,43 +94,15 @@ func buildHelpers(ctx context.Context, scratch string) error {
 		return err
 	}
 	repoRoot = root
-	// Reserve one job for the guest; a one-job budget runs the builds in sequence.
-	type artifact struct {
-		path string
-		err  error
-	}
-	jobs, err := helperBuildJobs(runtime.NumCPU(), os.Getenv("CARGO_BUILD_JOBS"))
+	runtimeArtifact, err := cargoArtifact(ctx, root, "experience-runtime", "build", "-p", "experience-runtime", "--locked")
 	if err != nil {
 		return err
 	}
-	jobs = min(jobs, runtime.GOMAXPROCS(0))
-	slots := make(chan struct{}, min(jobs, 2))
-	faults := make(chan error, 1)
-	// buildArtifact reports the first build failure before canceling its sibling.
-	buildArtifact := func(target string, args ...string) artifact {
-		slots <- struct{}{}
-		defer func() { <-slots }()
-		path, err := cargoArtifact(ctx, root, target, args...)
-		if err != nil {
-			select {
-			case faults <- err:
-			default:
-			}
-			cancel()
-		}
-		return artifact{path, err}
+	guestArtifact, err := cargoArtifact(ctx, root, "experience_probe", helperGuestBuildArgs(root)...)
+	if err != nil {
+		return err
 	}
-	host := make(chan artifact, 1)
-	go func() {
-		host <- buildArtifact("experience-runtime", "build", "-p", "experience-runtime", "--locked",
-			"--jobs", strconv.Itoa(max(jobs-1, 1)))
-	}()
-	guest := buildArtifact("experience_probe", helperGuestBuildArgs(root)...)
-	runtimeArtifact := <-host
-	if runtimeArtifact.err != nil || guest.err != nil {
-		return <-faults
-	}
-	runtimeBinary, probeWasm = runtimeArtifact.path, guest.path
+	runtimeBinary, probeWasm = runtimeArtifact, guestArtifact
 	probeDir = filepath.Join(scratch, "probe")
 	if err := assembleProbe(root, probeWasm, probeDir); err != nil {
 		return fmt.Errorf("assembling the probe artifact: %w", err)
