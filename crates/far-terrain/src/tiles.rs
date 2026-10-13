@@ -122,19 +122,27 @@ pub fn select_tiles(view: TileView) -> Vec<TileKey> {
 }
 
 /// Share of the columns in the `ring` chunks just beyond `near` chunks of `centre` that have a
-/// summary; how much far terrain there is to see past the near edge.
+/// summary and are not drawn by near terrain: how much far terrain there is to see.
 #[must_use]
-pub fn ring_coverage(store: &crate::SummaryStore, centre: ColumnPos, near: i32, ring: i32) -> f32 {
+pub fn ring_coverage(
+    store: &crate::SummaryStore,
+    near_columns: &NearMask,
+    centre: ColumnPos,
+    near: i32,
+    ring: i32,
+) -> f32 {
     let outer = near + ring;
     let (mut total, mut present) = (0_u32, 0_u32);
     for dz in -outer..=outer {
         for dx in -outer..=outer {
             let distance = dx * dx + dz * dz;
-            if distance <= near * near || distance > outer * outer {
+            let column = ColumnPos::new(centre.x + dx, centre.z + dz);
+            if distance <= near * near || distance > outer * outer || near_columns.contains(column)
+            {
                 continue;
             }
             total += 1;
-            present += u32::from(store.contains(ColumnPos::new(centre.x + dx, centre.z + dz)));
+            present += u32::from(store.contains(column));
         }
     }
     if total == 0 {

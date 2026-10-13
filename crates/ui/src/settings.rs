@@ -228,8 +228,8 @@ impl Default for VideoSettings {
             damage_bob: 1.0,
             java_animations: false,
             native_skybox_offset: assets::DEFAULT_NATIVE_SKYBOX_OFFSET,
-            far_terrain: far_terrain::config::DEFAULT_ENABLED,
-            far_terrain_distance_chunks: far_terrain::config::DEFAULT_DISTANCE_CHUNKS,
+            far_terrain: render_api::far_terrain::DEFAULT_ENABLED,
+            far_terrain_distance_chunks: render_api::far_terrain::DEFAULT_DISTANCE_CHUNKS,
         }
     }
 }

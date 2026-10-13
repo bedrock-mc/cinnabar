@@ -37,16 +37,11 @@ pub const LEVEL_COUNT: u8 = 5;
 /// many of its own widths.
 pub const LEVEL_SPLIT_DISTANCE: f32 = 1.0;
 
-/// Far terrain is on unless the player turns it off.
-pub const DEFAULT_ENABLED: bool = true;
-
-/// Default far-terrain reach beyond the near-terrain edge, in chunks.
-pub const DEFAULT_DISTANCE_CHUNKS: u32 = 64;
-
-/// The far-terrain reach the Video setting offers, in chunks.
-pub const MIN_DISTANCE_CHUNKS: u32 = 16;
-pub const MAX_DISTANCE_CHUNKS: u32 = 128;
-pub const DISTANCE_STEP_CHUNKS: u32 = 16;
+/// Video setting defaults and bounds, kept where the settings crates may read them.
+pub use render_api::far_terrain::{
+    DEFAULT_DISTANCE_CHUNKS, DEFAULT_ENABLED, DISTANCE_STEP_CHUNKS, MAX_DISTANCE_CHUNKS,
+    MIN_DISTANCE_CHUNKS,
+};
 
 /// Blocks tile-edge skirts reach below a tile's lowest surface, hiding cracks between levels.
 pub const SKIRT_DEPTH_BLOCKS: i16 = 16;

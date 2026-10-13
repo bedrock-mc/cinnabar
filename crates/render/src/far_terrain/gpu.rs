@@ -12,7 +12,7 @@ use bevy::{
             BindingResource, BindingType, Buffer, BufferBindingType, BufferDescriptor, BufferId,
             BufferUsages, CachedRenderPipelineId, ColorTargetState, ColorWrites, CompareFunction,
             DepthStencilState, Extent3d, Face, FragmentState, MultisampleState, Origin3d,
-            PipelineCache, PrimitiveState, RenderPipelineDescriptor, ShaderStages,
+            PipelineCache, PrimitiveState, RenderPipelineDescriptor, ShaderStages, ShaderType,
             TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureAspect, TextureDescriptor,
             TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
             TextureViewDescriptor, TextureViewDimension, TextureViewId, VertexState,
@@ -169,7 +169,10 @@ impl FarTerrainGpu {
             if self.resident.contains_key(&mesh.key) {
                 continue;
             }
-            let slot = self.allocate_slot(device, queue);
+            // Tiles come finest first, so a full array leaves out the farthest coarse ones.
+            let Some(slot) = self.allocate_slot(device, queue) else {
+                break;
+            };
             let quads = self.allocate_quads(device, queue, mesh.quads.len() as u32);
             self.upload(queue, mesh, slot, &quads);
             self.resident.insert(
@@ -183,7 +186,7 @@ impl FarTerrainGpu {
         }
         self.draws = tiles
             .iter()
-            .filter(|mesh| !mesh.quads.is_empty())
+            .filter(|mesh| !mesh.quads.is_empty() && self.resident.contains_key(&mesh.key))
             .map(|mesh| {
                 let resident = &self.resident[&mesh.key];
                 FarDraw {
@@ -232,13 +235,18 @@ impl FarTerrainGpu {
         );
     }
 
-    /// A free texture layer and record slot, doubling both and re-uploading residents when full.
-    fn allocate_slot(&mut self, device: &RenderDevice, queue: &RenderQueue) -> u32 {
+    /// A free texture layer and record slot, doubling both up to the device's array-layer
+    /// limit and re-uploading residents; `None` once that limit is full.
+    fn allocate_slot(&mut self, device: &RenderDevice, queue: &RenderQueue) -> Option<u32> {
         if let Some(slot) = self.free_slots.pop() {
-            return slot;
+            return Some(slot);
         }
         let old = self.slots;
-        self.slots *= 2;
+        let limit = device.limits().max_texture_array_layers;
+        if old >= limit {
+            return None;
+        }
+        self.slots = (old * 2).min(limit);
         (self.colours, self.colours_view) = colour_texture(device, self.slots);
         self.records = storage_buffer(
             device,
@@ -247,7 +255,7 @@ impl FarTerrainGpu {
         );
         self.free_slots.extend((old + 1..self.slots).rev());
         self.reupload_residents(queue);
-        old
+        Some(old)
     }
 
     /// A quad range, doubling the buffer and re-uploading residents when it outgrows it.

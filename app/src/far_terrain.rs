@@ -238,6 +238,7 @@ pub(crate) fn feed_far_terrain(
         far.coverage_stale = false;
         far.coverage = ring_coverage(
             far.cache.store(),
+            &far.near,
             ColumnPos::new(centre.x, centre.z),
             near_chunks,
             COVERAGE_RING_CHUNKS,

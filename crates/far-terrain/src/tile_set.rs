@@ -142,6 +142,10 @@ impl FarTiles {
             self.start_build(key, store, now);
         }
         self.due = due;
+        // Builds of empty tiles finish here, and may be the last a retired tile waited for.
+        if self.revision != before {
+            self.retire_covered();
+        }
         self.revision != before
     }
 

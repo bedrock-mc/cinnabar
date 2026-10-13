@@ -75,18 +75,18 @@ pub const NATIVE_SKYBOX_OFFSET_OPTION: SettingDefinition = toggle(
 pub const FAR_TERRAIN_OPTION: SettingDefinition = toggle(
     "far_terrain",
     "Far Terrain (LOD)",
-    far_terrain::config::DEFAULT_ENABLED,
+    render_api::far_terrain::DEFAULT_ENABLED,
 );
 
 /// How far far terrain reaches past the render distance, in chunks.
 pub const FAR_TERRAIN_DISTANCE_OPTION: SettingDefinition = SettingDefinition {
-    step: far_terrain::config::DISTANCE_STEP_CHUNKS as i32,
+    step: render_api::far_terrain::DISTANCE_STEP_CHUNKS as i32,
     ..slider(
         "far_terrain_distance",
         "Far Terrain Distance",
-        far_terrain::config::MIN_DISTANCE_CHUNKS as i32,
-        far_terrain::config::MAX_DISTANCE_CHUNKS as i32,
-        far_terrain::config::DEFAULT_DISTANCE_CHUNKS as i32,
+        render_api::far_terrain::MIN_DISTANCE_CHUNKS as i32,
+        render_api::far_terrain::MAX_DISTANCE_CHUNKS as i32,
+        render_api::far_terrain::DEFAULT_DISTANCE_CHUNKS as i32,
     )
 };
 

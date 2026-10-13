@@ -781,7 +781,7 @@ fn far_terrain_defaults_on_and_persists_its_reach() {
     assert!(video.far_terrain);
     assert_eq!(
         video.far_terrain_distance_chunks,
-        far_terrain::config::DEFAULT_DISTANCE_CHUNKS
+        render_api::far_terrain::DEFAULT_DISTANCE_CHUNKS
     );
     let index = |name| {
         super::SETTINGS_OPTIONS
@@ -797,7 +797,7 @@ fn far_terrain_defaults_on_and_persists_its_reach() {
     let video = loaded.user_settings().video;
     assert!(!video.far_terrain);
     assert_eq!(
-        video.far_terrain_distance_chunks % far_terrain::config::DISTANCE_STEP_CHUNKS,
+        video.far_terrain_distance_chunks % render_api::far_terrain::DISTANCE_STEP_CHUNKS,
         0
     );
     loaded.reset_group(super::SettingsGroup::Video);
