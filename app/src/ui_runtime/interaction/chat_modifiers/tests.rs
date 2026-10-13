@@ -5,6 +5,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+mod command_chat;
 mod focus;
 
 struct Harness {
