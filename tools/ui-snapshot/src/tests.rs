@@ -39,3 +39,113 @@ fn absent_and_broken_carriers_have_different_outcomes() {
         Err(carriers::Error::Invalid(_))
     ));
 }
+
+#[test]
+fn oreui_artwork_requires_an_authenticated_pinned_carrier() {
+    use assets::oreui_icons::{
+        OREUI_ICONS_SOURCE_MANIFEST, OreUiIcon, OreUiIconFrame, encode_oreui_icons,
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(assets::carriers::OREUI_ICONS.output);
+    assert!(matches!(
+        carriers::validate_oreui(dir.path()),
+        Err(carriers::Error::Missing(_))
+    ));
+    let icon = OreUiIcon {
+        key: "fixture".into(),
+        width: 1,
+        height: 1,
+        frames: vec![OreUiIconFrame {
+            millis: 0,
+            rgba8: vec![255; 4].into(),
+        }],
+    };
+    let manifest = assets::canonical_source_manifest_sha256(OREUI_ICONS_SOURCE_MANIFEST);
+    let valid = encode_oreui_icons(manifest, std::slice::from_ref(&icon)).unwrap();
+    std::fs::write(&path, &valid).unwrap();
+    carriers::validate_oreui(dir.path()).unwrap();
+
+    let mut damaged = valid;
+    *damaged.last_mut().unwrap() ^= 1;
+    let unpinned = encode_oreui_icons([0; 32], &[icon]).unwrap();
+    for bytes in [b"invalid".to_vec(), damaged, unpinned] {
+        std::fs::write(&path, bytes).unwrap();
+        let Err(carriers::Error::Invalid(message)) = carriers::validate_oreui(dir.path()) else {
+            panic!("broken artwork must fail before the optional loader can supply fallback art");
+        };
+        assert!(message.contains(assets::carriers::OREUI_ICONS.output));
+        assert!(message.contains("make assets"));
+    }
+}
+
+#[test]
+fn snapshot_settings_painter_samples_the_attached_original_artwork() {
+    use oreui::menu_screen::{MenuGeometry, MenuInput};
+    use ui_engine::engine::screen::{PaintFrame, Screen};
+
+    let font = ui_engine::test_support::fixture_font();
+    let solid_page = font.pages().len() as u16;
+    let first = solid_page + 1;
+    let mut screen = render::oreui_screen(first, oreui::test_support::settings_icon_images());
+    let view = fixtures::settings("video_forced_index");
+    let size = [1280.0, 720.0];
+    let artwork = Default::default();
+    let mut nodes = Vec::new();
+    let mut layouts = ui::TextLayoutCache::new(4096, 32 * 1024 * 1024);
+    let mut scrolls = ui_engine::menu_scroll::MenuScrolls::default();
+    for now in [0.0, render::CAPTURE_SECONDS] {
+        nodes.clear();
+        let mut next = 1;
+        let mut frame = PaintFrame {
+            layouts: &mut layouts,
+            font: &font,
+            metrics: ui_engine::text_metrics::TextMetrics::for_viewport(
+                size.map(|value| value as u32),
+                ui::DpiScale::new(1.0).unwrap(),
+                Some(2),
+            ),
+            solid_page,
+            safe_area: ui::SafeArea::ZERO,
+            content: size,
+            translate: &|_| None,
+            language: [0; 3],
+            now,
+            nodes: &mut nodes,
+            next: &mut next,
+            renderers: &mut [],
+        };
+        screen
+            .paint(
+                MenuInput {
+                    view: &view,
+                    size,
+                    portrait: None,
+                    translate: frame.translate,
+                    artwork: &artwork,
+                    title_artwork: None,
+                    scrolls: &mut scrolls,
+                    geometry: MenuGeometry::default(),
+                },
+                &mut frame,
+            )
+            .unwrap();
+        screen
+            .take_paint()
+            .unwrap()
+            .apply_entrance(frame.nodes, size)
+            .unwrap();
+    }
+    let mut tree = ui::UiTree::new(nodes).unwrap();
+    tree.layout(
+        ui_engine::engine::rect(0.0, 0.0, size[0], size[1]).unwrap(),
+        ui::UiScale::default(),
+        ui::SafeArea::ZERO,
+    )
+    .unwrap();
+    let list = tree.build_draw_list().unwrap();
+    assert!(
+        list.batches.iter().any(|batch| batch.texture_page == first),
+        "settings icons must sample their registered artwork page"
+    );
+}

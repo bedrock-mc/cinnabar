@@ -18,7 +18,9 @@ ui-engine = { path = "../../crates/ui-engine" }
 ui-screens = { path = "../../crates/ui-screens" }
 
 [dev-dependencies]
+oreui = { path = "../../crates/oreui", features = ["test-support"] }
 tempfile = "3"
+ui-engine = { path = "../../crates/ui-engine", features = ["test-support"] }
 
 [lints]
 workspace = true

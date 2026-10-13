@@ -51,6 +51,20 @@ pub fn read(path: &Path, limit: usize) -> Result<Vec<u8>, Error> {
     Ok(bytes)
 }
 
+/// Rejects missing, damaged or unpinned artwork before the optional runtime loader runs.
+pub fn validate_oreui(dir: &Path) -> Result<(), Error> {
+    use assets::oreui_icons::{
+        MAX_OREUI_ICONS_BYTES, OREUI_ICONS_SOURCE_MANIFEST, decode_oreui_icons,
+    };
+
+    let path = dir.join(carriers::OREUI_ICONS.output);
+    let bytes = read(&path, MAX_OREUI_ICONS_BYTES)?;
+    let manifest = assets::canonical_source_manifest_sha256(OREUI_ICONS_SOURCE_MANIFEST);
+    decode_oreui_icons(&bytes, manifest)
+        .map_err(|error| Error::Invalid(format!("{}: {error}; make assets", path.display())))?;
+    Ok(())
+}
+
 /// Validates the same pinned manifests and installs OreUI's shipped font faces.
 pub fn load(dir: &Path, menu: bool) -> Result<Carriers, Error> {
     let profile = carriers::FONT.font_face.unwrap();

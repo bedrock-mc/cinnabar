@@ -74,10 +74,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     };
     match fixture {
         Fixture::Menu(view) => {
-            carriers::read(
-                &dir.join(assets::carriers::OREUI_ICONS.output),
-                assets::MAX_UI_CARRIER_BYTES,
-            )?;
+            carriers::validate_oreui(dir)?;
             let images = oreui::images::load_optional_oreui_images(dir)
                 .ok_or_else(|| Error::Invalid("OreUI artwork is unusable; make assets".into()))?;
             let first = carriers.pages.len() as u16;
@@ -100,7 +97,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                 height: page.dimensions[1],
                 rgba: Arc::clone(&page.pixels),
             }));
-            let mut screen = oreui::OreUiScreen::default();
+            let mut screen = oreui_screen(first, images);
             let mut scrolls = ui_engine::menu_scroll::MenuScrolls::default();
             // Mount at zero, then sample settled motion without reading a clock or sleeping.
             for now in [0.0, CAPTURE_SECONDS] {
@@ -224,4 +221,12 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
         )
         .map_err(|error| error.to_string())?;
     Ok(png)
+}
+
+/// Attaches the atlas to the sprite and nine-slice painters with the client's artwork look.
+pub(crate) fn oreui_screen(first: u16, images: oreui::images::OreUiImages) -> oreui::OreUiScreen {
+    let mut screen = oreui::OreUiScreen::default();
+    screen.look = oreui::Look::Originals;
+    screen.originals = Some(Arc::new(oreui::Originals::new(first, images)));
+    screen
 }

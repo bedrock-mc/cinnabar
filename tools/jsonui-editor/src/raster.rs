@@ -1,5 +1,5 @@
 //! A small CPU rasterizer for the client's [`UiDrawList`]: textured, tinted
-//! triangles with nearest sampling, clipped per batch, alpha or invert blended.
+//! triangles with sprite filtering and font coverage, clipped per batch, alpha or invert blended.
 //! Axis-aligned quads (nearly everything) take a direct span fill.
 
 use std::sync::Arc;
@@ -24,6 +24,7 @@ impl Page {
         }
     }
 
+    /// Samples the nearest texel, clamping at page edges.
     fn sample(&self, u: f32, v: f32) -> [u8; 4] {
         let x = (u.floor() as i64).clamp(0, i64::from(self.width) - 1) as usize;
         let y = (v.floor() as i64).clamp(0, i64::from(self.height) - 1) as usize;
@@ -34,6 +35,27 @@ impl Page {
             self.rgba[at + 2],
             self.rgba[at + 3],
         ]
+    }
+
+    /// Filters around texel centres without rounding intermediate coverage values.
+    fn sample_linear(&self, u: f32, v: f32) -> [f32; 4] {
+        let x = (u - 0.5).floor();
+        let y = (v - 0.5).floor();
+        let fx = u - 0.5 - x;
+        let fy = v - 0.5 - y;
+        let samples = [
+            self.sample(x, y),
+            self.sample(x + 1.0, y),
+            self.sample(x, y + 1.0),
+            self.sample(x + 1.0, y + 1.0),
+        ];
+        std::array::from_fn(|channel| {
+            let top =
+                f32::from(samples[0][channel]) * (1.0 - fx) + f32::from(samples[1][channel]) * fx;
+            let bottom =
+                f32::from(samples[2][channel]) * (1.0 - fx) + f32::from(samples[3][channel]) * fx;
+            (top * (1.0 - fy) + bottom * fy) / 255.0
+        })
     }
 }
 
@@ -125,13 +147,20 @@ impl Canvas {
         let [left, right] = span(x0.min(x1), x0.max(x1), clip[0], clip[2]);
         let [top, bottom] = span(y0.min(y1), y0.max(y1), clip[1], clip[3]);
         let color = v[0].color;
+        let scale = (((u1 - u0) * (v1 - v0)) / (w * h)).abs().sqrt();
         for y in top..bottom {
             let fy = (y as f32 + 0.5 - y0) / h;
             let tv = v0 + (v1 - v0) * fy;
             let row = y as usize * self.width as usize;
             for x in left..right {
                 let fx = (x as f32 + 0.5 - x0) / w;
-                let texel = texture.sample(u0 + (u1 - u0) * fx, tv);
+                let texel = shaded_sample(
+                    texture,
+                    [u0 + (u1 - u0) * fx, tv],
+                    color,
+                    v[0].style_flags,
+                    scale,
+                );
                 blend_into(&mut self.pixels[row + x as usize], texel, color, blend);
             }
         }
@@ -203,7 +232,8 @@ impl Canvas {
                     });
                     (straight(mixed), [255; 4])
                 } else {
-                    (texture.sample(u, t), color)
+                    let scale = texels_per_pixel(&v);
+                    (shaded_sample(texture, [u, t], color, flags, scale), color)
                 };
                 let at = y as usize * self.width as usize + x as usize;
                 blend_into(&mut self.pixels[at], texel, tint, blend);
@@ -238,6 +268,51 @@ fn flat_texture(v: &[&UiVertex; 4]) -> bool {
     v[0].style_flags & render_api::UI_STYLE_COVERAGE_PAINT == 0
         && u32::from(v[0].style_flags) & render_model::UI_STYLE_RADIAL_GRADIENT == 0
         && v.iter().all(|vertex| vertex.color == v[0].color)
+        && v[0].uv[1] == v[1].uv[1]
+        && v[1].uv[0] == v[2].uv[0]
+        && v[2].uv[1] == v[3].uv[1]
+        && v[3].uv[0] == v[0].uv[0]
+}
+
+/// Matches the shader's UV derivative determinant for an affine triangle.
+fn texels_per_pixel(v: &[&UiVertex; 3]) -> f32 {
+    let position = v.map(|vertex| vertex.position);
+    let uv = v.map(|vertex| vertex.uv);
+    (edge(uv[0], uv[1], uv[2]) / edge(position[0], position[1], position[2]))
+        .abs()
+        .sqrt()
+}
+
+/// Applies the UI shader's sampler selection, SDF smoothing and native text gamma.
+fn shaded_sample(texture: &Page, uv: [f32; 2], color: [u8; 4], flags: u16, scale: f32) -> [u8; 4] {
+    let native = flags & u16::from(assets::FONT_STYLE_COVERAGE_GAMMA) != 0;
+    let sdf = flags & u16::from(assets::FONT_STYLE_SDF) != 0;
+    let linear = sdf || (!native && flags & u16::from(ui::UI_STYLE_BILINEAR) != 0);
+    let mut sample = if linear {
+        texture.sample_linear(uv[0], uv[1])
+    } else {
+        texture
+            .sample(uv[0], uv[1])
+            .map(|channel| f32::from(channel) / 255.0)
+    };
+    if sdf {
+        sample = [
+            1.0,
+            1.0,
+            1.0,
+            render_model::font_shading::sdf_coverage(sample[3], scale),
+        ];
+    }
+    if native {
+        let rgb = [0, 1, 2].map(|channel| f32::from(color[channel]) / 255.0);
+        sample = [
+            1.0,
+            1.0,
+            1.0,
+            render_model::font_shading::coverage_gamma(sample[3], rgb),
+        ];
+    }
+    sample.map(|channel| (channel * 255.0).round() as u8)
 }
 
 /// Converts a premultiplied coverage mixture to the rasterizer's straight-alpha input.
@@ -408,5 +483,117 @@ mod tests {
                 .chunks_exact(4)
                 .any(|pixel| pixel[3] != 0)
         );
+    }
+
+    /// Draws the first pixel of a production quad or its first triangle with the given texture.
+    fn first_pixel(list: &UiDrawList, texture: &Page) -> [u8; 4] {
+        let mut canvas = Canvas::new(4, 4);
+        canvas.draw(list, |_| Some(texture));
+        canvas.into_rgba()[..4].try_into().unwrap()
+    }
+
+    /// Keeps only one triangle so the general path shades the same covered pixel as the quad.
+    fn triangle(mut list: UiDrawList) -> UiDrawList {
+        list.indices.truncate(3);
+        list.batches[0].index_range = 0..3;
+        list
+    }
+
+    #[test]
+    fn bilinear_sampling_uses_texel_centres_and_clamps_page_edges() {
+        let texture = Page {
+            width: 2,
+            height: 2,
+            rgba: [[0, 0, 0, 255], [255; 4], [255; 4], [0, 0, 0, 255]]
+                .into_iter()
+                .flatten()
+                .collect(),
+        };
+        let mut list = quad();
+        for uv in [[0.5, 0.5], [1.0, 1.0], [-1.0, -1.0], [3.0, 3.0]] {
+            for vertex in &mut list.vertices {
+                vertex.uv = uv;
+                vertex.style_flags = u16::from(ui::UI_STYLE_BILINEAR);
+            }
+            let expected = if uv == [1.0, 1.0] {
+                [128, 128, 128, 255]
+            } else {
+                [0, 0, 0, 255]
+            };
+            assert_eq!(first_pixel(&list, &texture), expected);
+            assert_eq!(first_pixel(&triangle(list.clone()), &texture), expected);
+        }
+    }
+
+    #[test]
+    fn native_coverage_keeps_nearest_sampling_and_uses_text_colour_gamma() {
+        let texture = Page {
+            width: 2,
+            height: 1,
+            rgba: [0, 0, 0, 128, 0, 0, 0, 0].into(),
+        };
+        let mut list = quad();
+        for (color, alpha) in [([255; 4], 187u8), ([0, 0, 0, 255], 94)] {
+            for vertex in &mut list.vertices {
+                vertex.uv = [0.9, 0.5];
+                vertex.color = color;
+                vertex.style_flags =
+                    u16::from(assets::FONT_STYLE_COVERAGE_GAMMA | ui::UI_STYLE_BILINEAR);
+            }
+            for draw in [&list, &triangle(list.clone())] {
+                let pixel = first_pixel(draw, &texture);
+                assert!(pixel[3].abs_diff(alpha) <= 1, "{pixel:?}");
+                assert_eq!(&pixel[..3], &color[..3]);
+            }
+        }
+    }
+
+    #[test]
+    fn sdf_samples_are_filtered_before_coverage_and_gamma_conversion() {
+        let texture = Page {
+            width: 2,
+            height: 1,
+            rgba: [0, 0, 0, 0, 0, 0, 0, 255].into(),
+        };
+        let mut list = quad();
+        for vertex in &mut list.vertices {
+            vertex.uv = [1.0, 0.5];
+            // SDF selects linear sampling even without the sprite bilinear flag.
+            vertex.style_flags =
+                u16::from(assets::FONT_STYLE_SDF | assets::FONT_STYLE_COVERAGE_GAMMA);
+        }
+        for draw in [&list, &triangle(list.clone())] {
+            let pixel = first_pixel(draw, &texture);
+            assert_eq!(&pixel[..3], &[255; 3]);
+            assert!(pixel[3].abs_diff(187) <= 1, "{pixel:?}");
+        }
+    }
+
+    #[test]
+    fn sdf_smoothing_tracks_the_uv_derivative_area_on_both_paths() {
+        let texture = Page {
+            width: 1,
+            height: 1,
+            rgba: [0, 0, 0, 132].into(),
+        };
+        for scale in [0.5, 1.0, 2.0, 4.0] {
+            let mut list = quad();
+            for vertex in &mut list.vertices {
+                vertex.uv = vertex.position.map(|coordinate| coordinate * scale);
+                vertex.style_flags =
+                    u16::from(assets::FONT_STYLE_SDF | assets::FONT_STYLE_COVERAGE_GAMMA);
+            }
+            let coverage = render_model::font_shading::sdf_coverage(132.0 / 255.0, scale);
+            let coverage = render_model::font_shading::coverage_gamma(coverage, [1.0; 3]);
+            let expected = (coverage * 255.0).round() as u8;
+            let rect_pixel = first_pixel(&list, &texture);
+            assert_eq!(rect_pixel, [255, 255, 255, expected]);
+            // Shearing the UVs preserves their determinant but rules out the rectangle path.
+            for vertex in &mut list.vertices {
+                vertex.uv[0] += vertex.uv[1];
+            }
+            assert_eq!(first_pixel(&list, &texture), rect_pixel);
+            assert_eq!(first_pixel(&triangle(list), &texture), rect_pixel);
+        }
     }
 }
