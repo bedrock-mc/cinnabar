@@ -445,7 +445,7 @@ fn restoring_grants_rebuilds_an_instance_revoked_during_pending_admission() {
     let Message::Retry { inactive, .. } = messages.try_recv().unwrap() else {
         panic!("inactive guest falsely acknowledged as running")
     };
-    assert_eq!(inactive, [original.component.clone()]);
+    assert_eq!(inactive, std::slice::from_ref(&original.component));
     assert!(messages.try_recv().is_err());
     let fresh =
         Box::new(build_candidate(source::source_snapshot(original.clone()).unwrap()).unwrap());
