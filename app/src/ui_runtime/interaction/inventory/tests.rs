@@ -339,3 +339,45 @@ fn ordered_close_press_survives_keyboard_dispatch_until_frame_release() {
     app.update();
     assert!(!app.world().resource::<UiRuntimeResource>().inventory_open());
 }
+
+/// Plays one touch through the pointer emulation, delivering each edge at its own position.
+fn batched_tap(
+    player: &mut client_state::PlayerRuntime,
+    runtime: &mut UiRuntime,
+    presentation: &UiPresentationRuntime,
+    (down, up): (Vec2, Vec2),
+) {
+    use crate::ui_runtime::touch_pointer::{PointerEdge, TouchPointer};
+    use bevy::input::touch::TouchPhase;
+
+    let mut pointer = TouchPointer::default();
+    pointer.queue(true, 1, TouchPhase::Started, down);
+    pointer.queue(true, 1, TouchPhase::Ended, up);
+    while let (Some(Some(at)), Some(edge)) = pointer.next_frame() {
+        let pressed = edge == PointerEdge::Press;
+        pointer_edge(
+            player,
+            runtime,
+            &window(at),
+            presentation,
+            pressed,
+            !pressed,
+        );
+    }
+}
+
+/// A touch that lands off the close button and lifts over it in one batch never presses it,
+/// because each emulated edge is hit-tested where it happened.
+#[test]
+fn a_batched_touch_lifted_over_close_does_not_close() {
+    let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+    let mut runtime = client_ui::test_support::inventory_session(&mut player);
+    runtime.toggle_inventory(&mut player);
+    let presentation = presentation(&player, &runtime);
+    let close = control_point(&presentation, InventoryCellHit::Widget(Widget::Close));
+    let off_close = Vec2::new(1.0, 1.0);
+    batched_tap(&mut player, &mut runtime, &presentation, (off_close, close));
+    assert!(runtime.inventory_open());
+    batched_tap(&mut player, &mut runtime, &presentation, (close, close));
+    assert!(!runtime.inventory_open(), "a tap on close still closes");
+}

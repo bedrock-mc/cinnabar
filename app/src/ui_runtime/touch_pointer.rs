@@ -1,8 +1,10 @@
-//! One finger drives the mouse pointer while a screen with no touch path of its own owns input:
-//! the inventory, a server form, the sign editor or the bed screen.
+//! One finger drives the mouse pointer while the top screen is one a touchscreen can only reach
+//! through the pointer (`Scene::reads_only_pointer`).
 //!
 //! Those screens already read the cursor and left button, so a touchscreen needs no screen
-//! changes. Menus read touches themselves and gameplay maps them to touch controls.
+//! changes. Menus and chat read touches themselves and gameplay maps them to touch controls.
+
+use std::collections::VecDeque;
 
 use bevy::{
     input::{
@@ -10,21 +12,16 @@ use bevy::{
         mouse::{MouseButton, MouseButtonInput},
         touch::{TouchInput, TouchPhase},
     },
+    math::Vec2,
     prelude::{DetectChangesMut, Entity, Local, MessageReader, MessageWriter, Query, Res, With},
     window::{PrimaryWindow, Window},
 };
 use client_shell::{menu::MenuRuntime, ui_resources::UiRuntimeResource};
-use client_ui::ui_runtime::UiRuntime;
+use client_ui::ui_runtime::{UiRuntime, presentation::forms::scene_policy::MenuScene};
 
-/// Which finger owns the emulated pointer, if any.
-#[derive(Debug, Default)]
-pub(crate) struct TouchPointer {
-    owner: Option<u64>,
-}
-
-/// What one touch event does to the emulated pointer.
+/// What one delivered step does to the emulated pointer's button.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PointerEdge {
+pub(crate) enum PointerEdge {
     Press,
     /// A completed tap: the button lifts where the finger did.
     Release,
@@ -33,87 +30,121 @@ enum PointerEdge {
     Cancel,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PointerEvent {
+    Move(Vec2),
+    Edge(PointerEdge, Option<Vec2>),
+}
+
+/// The finger that owns the emulated pointer and its undelivered events.
+#[derive(Debug, Default)]
+pub(crate) struct TouchPointer {
+    owner: Option<u64>,
+    /// A delivered press still waits for its release.
+    held: bool,
+    queue: VecDeque<PointerEvent>,
+}
+
 impl TouchPointer {
-    /// Only a finger that lands while a pointer screen owns input presses.
-    fn step(&mut self, pointer_screen: bool, id: u64, phase: TouchPhase) -> Option<PointerEdge> {
-        match phase {
+    /// Queues one touch event; only a finger that lands while a pointer screen owns input presses.
+    pub(crate) fn queue(
+        &mut self,
+        pointer_screen: bool,
+        id: u64,
+        phase: TouchPhase,
+        position: Vec2,
+    ) {
+        let event = match phase {
             TouchPhase::Started if pointer_screen && self.owner.is_none() => {
                 self.owner = Some(id);
-                Some(PointerEdge::Press)
+                PointerEvent::Edge(PointerEdge::Press, Some(position))
             }
+            TouchPhase::Moved if self.owner == Some(id) => PointerEvent::Move(position),
             TouchPhase::Ended if self.owner == Some(id) => {
                 self.owner = None;
-                Some(PointerEdge::Release)
+                PointerEvent::Edge(PointerEdge::Release, Some(position))
             }
             TouchPhase::Canceled if self.owner == Some(id) => {
                 self.owner = None;
-                Some(PointerEdge::Cancel)
+                PointerEvent::Edge(PointerEdge::Cancel, None)
             }
-            _ => None,
+            _ => return,
+        };
+        self.queue.push_back(event);
+    }
+
+    /// This frame's cursor change (`Some(None)` withdraws it) and at most one button edge, so
+    /// screens hit-test each edge where it happened even when a gesture arrives in one batch.
+    pub(crate) fn next_frame(&mut self) -> (Option<Option<Vec2>>, Option<PointerEdge>) {
+        let mut cursor = None;
+        while let Some(event) = self.queue.pop_front() {
+            match event {
+                PointerEvent::Move(position) => cursor = Some(Some(position)),
+                PointerEvent::Edge(edge, at) => {
+                    self.held = edge == PointerEdge::Press;
+                    return (Some(at), Some(edge));
+                }
+            }
         }
+        (cursor, None)
     }
 
-    /// Whether this finger holds the emulated pointer.
-    fn owns(&self, id: u64) -> bool {
-        self.owner == Some(id)
-    }
-
-    /// Cancels a held pointer once its screen no longer owns input.
+    /// Drops undelivered events once the screen stops owning input, cancelling a held press.
     fn lose_screen(&mut self) -> Option<PointerEdge> {
-        self.owner.take().map(|_| PointerEdge::Cancel)
+        self.owner = None;
+        self.queue.clear();
+        std::mem::take(&mut self.held).then_some(PointerEdge::Cancel)
     }
 }
 
-/// Whether the screen owning input reads only the mouse pointer; a server settings form stays
-/// above a visible menu, which otherwise takes touches itself.
-fn takes_touch_pointer(ui: &UiRuntime, menu_visible: bool) -> bool {
-    let bed = ui.local_sleeping() && !ui.chat_focused();
-    (ui.inventory_open() || ui.server_forms().owns_input() || ui.sign_editor().is_open() || bed)
-        && (!menu_visible || ui.server_forms().settings_form_active())
+/// Whether the top screen is one a touchscreen reaches only through the pointer.
+fn takes_touch_pointer(
+    ui: &UiRuntime,
+    player: &player_state::PlayerState,
+    menu: Option<&MenuRuntime>,
+) -> bool {
+    ui.top_scene_reads_only_pointer(player, menu.map(|menu| menu as &dyn MenuScene))
 }
 
-/// Runs before Bevy's input systems, so the emitted button edges reach `ButtonInput` this frame.
+/// Runs before Bevy's input systems, so the emitted button edge reaches `ButtonInput` this frame.
 pub(crate) fn emulate_ui_pointer(
     mut touch_input: MessageReader<TouchInput>,
     mut buttons: MessageWriter<MouseButtonInput>,
     mut windows: Query<(Entity, &mut Window), With<PrimaryWindow>>,
     ui: Option<Res<UiRuntimeResource>>,
+    player: Option<Res<client_state::PlayerRuntime>>,
     menu: Option<Res<MenuRuntime>>,
     mut pointer: Local<TouchPointer>,
 ) {
     let Ok((entity, mut window)) = windows.single_mut() else {
         return;
     };
-    let pointer_screen =
-        ui.is_some_and(|ui| takes_touch_pointer(&ui, menu.is_some_and(|menu| menu.is_visible())));
-    // Bypassed so the window backend is not asked to warp a cursor touchscreens lack.
-    let mut apply = |window: &mut Window, edge: PointerEdge| {
-        let state = match edge {
-            PointerEdge::Press => ButtonState::Pressed,
-            PointerEdge::Release => ButtonState::Released,
-            PointerEdge::Cancel => {
-                window.set_cursor_position(None);
-                ButtonState::Released
-            }
-        };
+    let pointer_screen = ui
+        .zip(player)
+        .is_some_and(|(ui, player)| takes_touch_pointer(&ui, &player, menu.as_deref()));
+    for input in touch_input.read() {
+        pointer.queue(pointer_screen, input.id, input.phase, input.position);
+    }
+    let (cursor, edge) = if pointer_screen {
+        pointer.next_frame()
+    } else {
+        let edge = pointer.lose_screen();
+        (edge.map(|_| None), edge)
+    };
+    if let Some(cursor) = cursor {
+        // Bypassed so the window backend is not asked to warp a cursor touchscreens lack.
+        window.bypass_change_detection().set_cursor_position(cursor);
+    }
+    if let Some(edge) = edge {
         buttons.write(MouseButtonInput {
             button: MouseButton::Left,
-            state,
+            state: if edge == PointerEdge::Press {
+                ButtonState::Pressed
+            } else {
+                ButtonState::Released
+            },
             window: entity,
         });
-    };
-    for input in touch_input.read() {
-        let edge = pointer.step(pointer_screen, input.id, input.phase);
-        let window = window.bypass_change_detection();
-        if pointer.owns(input.id) || matches!(edge, Some(PointerEdge::Release)) {
-            window.set_cursor_position(Some(input.position));
-        }
-        if let Some(edge) = edge {
-            apply(window, edge);
-        }
-    }
-    if !pointer_screen && let Some(edge) = pointer.lose_screen() {
-        apply(window.bypass_change_detection(), edge);
     }
 }
 
@@ -122,9 +153,9 @@ mod tests {
     use super::*;
     use bevy::{
         ecs::message::MessageCursor,
-        prelude::{App, Messages, Update, Vec2},
+        prelude::{App, Messages, Update},
     };
-    use client_ui::ui_runtime::{SequencedUiEvent, UiRuntime};
+    use client_ui::ui_runtime::SequencedUiEvent;
 
     /// Creates a retained form whose ownership the pointer adapter must follow.
     fn form_runtime(settings: bool) -> UiRuntime {
@@ -173,6 +204,9 @@ mod tests {
             app.add_message::<TouchInput>()
                 .add_message::<MouseButtonInput>()
                 .insert_resource(UiRuntimeResource(form_runtime(settings)))
+                .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+                    1,
+                )))
                 .insert_resource(menu)
                 .add_systems(Update, emulate_ui_pointer);
             let entity = app
@@ -189,6 +223,8 @@ mod tests {
                     id: 1,
                 });
             }
+            // One button edge per frame: the press, then the release.
+            app.update();
             app.update();
             let mut cursor = MessageCursor::<MouseButtonInput>::default();
             let edges = cursor
@@ -220,33 +256,54 @@ mod tests {
     #[test]
     fn only_the_first_finger_on_a_pointer_screen_presses() {
         let mut pointer = TouchPointer::default();
-        assert_eq!(pointer.step(false, 1, TouchPhase::Started), None);
-        assert_eq!(pointer.step(true, 1, TouchPhase::Ended), None);
+        let at = Vec2::new(10.0, 20.0);
+        pointer.queue(false, 1, TouchPhase::Started, at);
+        pointer.queue(true, 1, TouchPhase::Ended, at);
+        assert_eq!(pointer.next_frame(), (None, None));
+        pointer.queue(true, 2, TouchPhase::Started, at);
+        pointer.queue(true, 3, TouchPhase::Started, at);
+        pointer.queue(true, 3, TouchPhase::Ended, at);
         assert_eq!(
-            pointer.step(true, 2, TouchPhase::Started),
-            Some(PointerEdge::Press)
+            pointer.next_frame(),
+            (Some(Some(at)), Some(PointerEdge::Press))
         );
-        assert_eq!(pointer.step(true, 3, TouchPhase::Started), None);
-        assert_eq!(pointer.step(true, 3, TouchPhase::Ended), None);
+        assert_eq!(pointer.next_frame(), (None, None));
+    }
+
+    /// A batched press and lift are delivered on separate frames, each at its own position.
+    #[test]
+    fn each_edge_keeps_the_position_it_happened_at() {
+        let mut pointer = TouchPointer::default();
+        let (down, moved, up) = (Vec2::ZERO, Vec2::new(5.0, 5.0), Vec2::new(9.0, 9.0));
+        pointer.queue(true, 1, TouchPhase::Started, down);
+        pointer.queue(true, 1, TouchPhase::Moved, moved);
+        pointer.queue(true, 1, TouchPhase::Ended, up);
         assert_eq!(
-            pointer.step(true, 2, TouchPhase::Ended),
-            Some(PointerEdge::Release)
+            pointer.next_frame(),
+            (Some(Some(down)), Some(PointerEdge::Press))
         );
+        assert_eq!(
+            pointer.next_frame(),
+            (Some(Some(up)), Some(PointerEdge::Release))
+        );
+        assert_eq!(pointer.next_frame(), (None, None));
     }
 
     /// The bed screen's Leave Bed and Open Chat read only the pointer, so touch drives it.
     #[test]
     fn the_bed_screen_takes_the_touch_pointer() {
+        let player = player_state::PlayerState::new(1);
         let mut ui = UiRuntime::new(1);
-        assert!(!takes_touch_pointer(&ui, false));
+        assert!(!takes_touch_pointer(&ui, &player, None));
         ui.set_local_sleeping(true);
-        assert!(takes_touch_pointer(&ui, false));
-        assert!(!takes_touch_pointer(&ui, true));
+        assert!(takes_touch_pointer(&ui, &player, None));
+        assert!(!takes_touch_pointer(&ui, &player, Some(&visible_menu())));
     }
 
     /// The sign editor's exit reads only the pointer; without a keyboard touch is the way out.
     #[test]
     fn the_sign_editor_takes_the_touch_pointer() {
+        let player = player_state::PlayerState::new(1);
         let mut ui = UiRuntime::new(1);
         ui.sign_editor_mut()
             .open(client_ui::ui_runtime::sign_editor::SignEdit::new(
@@ -254,22 +311,42 @@ mod tests {
                 true,
                 world::NbtCompound::default(),
             ));
-        assert!(takes_touch_pointer(&ui, false));
-        assert!(!takes_touch_pointer(&ui, true));
+        assert!(takes_touch_pointer(&ui, &player, None));
+        assert!(!takes_touch_pointer(&ui, &player, Some(&visible_menu())));
+    }
+
+    /// The End credits reveal and activate Skip through the pointer alone.
+    #[test]
+    fn the_credits_take_the_touch_pointer() {
+        let player = player_state::PlayerState::new(1);
+        let mut ui = UiRuntime::new(1);
+        assert!(ui.credits_mut().open(5, 1, 0));
+        assert!(takes_touch_pointer(&ui, &player, None));
     }
 
     /// A cancelled gesture, or one whose screen closes, must not complete as a tap.
     #[test]
     fn cancelled_gestures_cancel_instead_of_releasing() {
         let mut pointer = TouchPointer::default();
-        pointer.step(true, 1, TouchPhase::Started);
+        let at = Vec2::ONE;
+        pointer.queue(true, 1, TouchPhase::Started, at);
+        pointer.queue(true, 1, TouchPhase::Canceled, at);
+        assert_eq!(pointer.next_frame().1, Some(PointerEdge::Press));
         assert_eq!(
-            pointer.step(true, 1, TouchPhase::Canceled),
-            Some(PointerEdge::Cancel)
+            pointer.next_frame(),
+            (Some(None), Some(PointerEdge::Cancel))
         );
-        pointer.step(true, 2, TouchPhase::Started);
+        pointer.queue(true, 2, TouchPhase::Started, at);
+        pointer.next_frame();
         assert_eq!(pointer.lose_screen(), Some(PointerEdge::Cancel));
-        assert_eq!(pointer.step(true, 2, TouchPhase::Ended), None);
+        pointer.queue(true, 2, TouchPhase::Ended, at);
+        assert_eq!(pointer.next_frame(), (None, None));
         assert_eq!(pointer.lose_screen(), None);
+    }
+
+    fn visible_menu() -> MenuRuntime {
+        let mut menu = MenuRuntime::new(true, 2, "Test".into());
+        menu.set_visible(true);
+        menu
     }
 }
