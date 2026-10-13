@@ -117,8 +117,7 @@ impl MeshBuilder {
         tint: [f32; 4],
     ) {
         let [sx, sy, _] = spec.size;
-        let mut faces =
-            assets::block_entity_geometry::box_faces(spec.origin, [sx, sy, 0.0], spec.uv, 0.0);
+        let mut faces = BoxSpec::new(spec.origin, [sx, sy, 0.0], spec.uv).faces();
         for (face, shift) in faces.iter_mut().zip([-gap / 2.0, gap / 2.0]) {
             for corner in &mut face.0 {
                 corner[2] += shift;
