@@ -138,12 +138,14 @@ fn entry(value: &Value) -> Entry {
 
 fn event_set(value: &Value) -> Option<EventSet> {
     let map = value.as_object()?;
-    let mut set = EventSet::default();
-    set.base = map
-        .get("base")
-        .and_then(Value::as_str)
-        .filter(|name| !name.is_empty())
-        .map(Into::into);
+    let mut set = EventSet {
+        base: map
+            .get("base")
+            .and_then(Value::as_str)
+            .filter(|name| !name.is_empty())
+            .map(Into::into),
+        ..Default::default()
+    };
     if let Some(range) = map.get("volume").and_then(FloatRange::from_json) {
         set.volume = range;
     }
