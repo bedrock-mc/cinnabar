@@ -164,6 +164,15 @@ impl JavaMotionState {
         }
     }
 
+    /// Carries the cape's chasing point through a placement snap, preserving its relative lag.
+    pub(super) fn reanchor_position(&mut self, previous: [f32; 3], position: [f32; 3]) {
+        if let Some(chase) = &mut self.chase {
+            for axis in 0..3 {
+                chase[axis] += f64::from(position[axis]) - f64::from(previous[axis]);
+            }
+        }
+    }
+
     /// A hurt event immediately resets limb motion, including consecutive hits.
     pub(super) fn hurt(&mut self) {
         self.motion.limb_amount[1] = HURT_LIMB_AMOUNT;
