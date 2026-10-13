@@ -6,6 +6,8 @@ use sha2::{Digest, Sha256};
 
 use super::UiRuntime;
 
+pub(super) mod cache;
+
 /// The anvil's predicted result stack and what taking it costs.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AnvilPreview {
@@ -151,26 +153,12 @@ impl UiRuntime {
             return;
         }
         let state = self.screen_state_mut();
-        let keep_typed_name = state
-            .anvil_target
-            .as_ref()
-            .zip(identity.as_ref())
-            .is_some_and(|(old, next)| {
-                old.network_id == next.network_id
-                    && old.metadata == next.metadata
-                    && old.nbt_digest == next.nbt_digest
-                    && state.anvil_name != old.name
-            });
         state.anvil_target = identity;
-        if !keep_typed_name {
-            state.anvil_name = name;
-        }
+        state.anvil_name = name;
     }
 
-    /// The result the open anvil makes from its inputs and name box, or `None` when it makes
-    /// nothing.
-    #[must_use]
-    pub fn anvil_preview(
+    /// Rebuilds the prediction after an input, name or calculation rule changes.
+    fn compute_anvil_preview(
         &self,
         player_runtime: &player_state::PlayerState,
     ) -> Option<AnvilPreview> {
@@ -232,7 +220,7 @@ impl UiRuntime {
             .cloned()
             .or_else(|| {
                 self.anvil_preview(player_runtime)
-                    .map(|preview| preview.stack)
+                    .map(|preview| preview.stack.clone())
             })
     }
 

@@ -336,25 +336,17 @@ fn unchanged_response_names_and_damage_survive_a_predicted_rename() {
 }
 
 #[test]
-fn response_name_corrections_do_not_overwrite_a_name_the_player_is_editing() {
-    for corrected_name in ["", "Corrected"] {
-        let (mut runtime, mut player) = anvil();
-        runtime.sync_anvil_name(&player);
-        runtime.screen_state_mut().anvil_name = "Typed".into();
-        correct_input(
-            &mut runtime,
-            &mut player,
-            ANVIL_TARGET_SLOT,
-            800,
-            corrected_name,
-        );
-        runtime.sync_anvil_name(&player);
-        assert_eq!(runtime.screen_state().anvil_name, "Typed");
-        assert_eq!(
-            runtime.anvil_preview(&player).unwrap().outcome.custom_name,
-            Some(Some("Typed".into()))
-        );
-    }
+fn damage_corrections_do_not_overwrite_a_name_the_player_is_editing() {
+    let (mut runtime, mut player) = anvil();
+    runtime.sync_anvil_name(&player);
+    runtime.screen_state_mut().anvil_name = "Typed".into();
+    correct_input(&mut runtime, &mut player, ANVIL_TARGET_SLOT, 800, "");
+    runtime.sync_anvil_name(&player);
+    assert_eq!(runtime.screen_state().anvil_name, "Typed");
+    assert_eq!(
+        runtime.anvil_preview(&player).unwrap().outcome.custom_name,
+        Some(Some("Typed".into()))
+    );
 }
 
 #[test]
@@ -1032,4 +1024,62 @@ fn potion_name_prefill_tracks_the_metadata_and_the_displayed_name() {
             "the displayed name is not a rename"
         );
     }
+}
+
+#[test]
+fn unchanged_preview_is_shared_until_inputs_names_or_rules_change() {
+    let (mut runtime, mut player) = anvil();
+    runtime.sync_anvil_name(&player);
+    let first = runtime.anvil_preview(&player).unwrap();
+    for _ in 0..128 {
+        let repeated = runtime.anvil_preview(&player).unwrap();
+        assert!(Arc::ptr_eq(&first, &repeated));
+        let shown = runtime.anvil_output(&player).unwrap();
+        assert!(Arc::ptr_eq(&first.stack.extra_data, &shown.extra_data));
+    }
+    runtime.screen_state_mut().anvil_name = "Blade".into();
+    let renamed = runtime.anvil_preview(&player).unwrap();
+    assert!(!Arc::ptr_eq(&first, &renamed));
+    assert_eq!(renamed.outcome.cost, first.outcome.cost + 1);
+    correct_target(&mut runtime, &mut player, 100, "Server blade");
+    runtime.sync_anvil_name(&player);
+    let corrected = runtime.anvil_preview(&player).unwrap();
+    assert!(!Arc::ptr_eq(&renamed, &corrected));
+    assert_eq!(corrected.outcome.cost, 1);
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Creative);
+    let creative = runtime.anvil_preview(&player).unwrap();
+    assert!(!Arc::ptr_eq(&corrected, &creative));
+    runtime.set_server_lang(None);
+    let localized = runtime.anvil_preview(&player).unwrap();
+    assert!(!Arc::ptr_eq(&creative, &localized));
+    let mut sword_entry = entry("minecraft:diamond_sword", SWORD);
+    sword_entry.components = Some(Arc::new(protocol::ItemComponents {
+        max_durability: Some(200),
+        durability_declared: true,
+        ..Default::default()
+    }));
+    runtime
+        .inventory_ledger_mut(&mut player)
+        .apply_registry(&ItemRegistryEvent {
+            entries: Arc::from([
+                sword_entry,
+                entry("minecraft:diamond", DIAMOND),
+                entry("minecraft:enchanted_book", BOOK),
+            ]),
+        });
+    let changed_registry = runtime.anvil_preview(&player).unwrap();
+    assert!(!Arc::ptr_eq(&localized, &changed_registry));
+    assert_eq!(changed_registry.outcome.material_used, 2);
+    place(
+        &mut runtime,
+        &mut player,
+        u16::from(ANVIL_TARGET_SLOT),
+        NetworkItemStack::empty(),
+    );
+    assert!(
+        runtime.anvil_preview(&player).is_none(),
+        "a removed target clears the cached result"
+    );
 }

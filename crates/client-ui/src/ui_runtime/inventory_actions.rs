@@ -549,7 +549,11 @@ impl UiRuntime {
                         .custom_name
                         .clone()
                         .map(|name| std::sync::Arc::from(name.unwrap_or_default()));
-                    (rename, Some(preview.stack), preview.outcome.material_used)
+                    (
+                        rename,
+                        Some(preview.stack.clone()),
+                        preview.outcome.material_used,
+                    )
                 };
                 self.inventory_ledger_mut(player_runtime)
                     .begin_screen_output(&ScreenCraft::Anvil {
