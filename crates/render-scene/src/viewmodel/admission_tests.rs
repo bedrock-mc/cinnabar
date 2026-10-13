@@ -370,6 +370,7 @@ fn profile() -> assets::EntityGeometry {
     .collect::<Vec<_>>()
     .into();
     EntityGeometry {
+        animation_no_head_bob: false,
         visible_bounds: None,
         identifier: "geometry.humanoid.custom".into(),
         inherits: None,

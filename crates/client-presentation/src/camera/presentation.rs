@@ -41,6 +41,8 @@ pub struct ScreenEffectFacts {
 /// First-person hand motion for the equipment lane, all in view space.
 #[derive(Resource, Debug, Clone, Copy, PartialEq)]
 pub struct FirstPersonHandMotion {
+    /// One sampled legacy Hurt × Bob matrix shared with the whole camera.
+    pub legacy_effect: Option<Mat4>,
     pub bob: ViewEffect,
     pub hurt: Mat4,
     pub sway_pitch_radians: f32,
@@ -52,6 +54,7 @@ pub struct FirstPersonHandMotion {
 impl Default for FirstPersonHandMotion {
     fn default() -> Self {
         Self {
+            legacy_effect: None,
             bob: ViewEffect::NONE,
             hurt: Mat4::IDENTITY,
             sway_pitch_radians: 0.0,
@@ -113,13 +116,13 @@ pub fn advance_presentation_state(
     mut sway: ResMut<HandSwayState>,
     mut hurt: ResMut<CameraHurtState>,
     mut java: ResMut<JavaCameraState>,
+    mut legacy: ResMut<super::legacy::LegacyCameraMotion>,
     mut hand: ResMut<FirstPersonHandMotion>,
 ) {
     let dt = time.delta_secs();
     let on_ground = physics
         .and_then(|physics| physics.state())
         .is_some_and(|state| state.on_ground);
-    bob.advance(view.eye_translation(), on_ground, true, dt);
     hurt.advance(dt);
     let (yaw, pitch, _) = view.rotation().to_euler(EulerRot::YXZ);
     sway.advance(pitch, yaw, dt);
@@ -142,6 +145,51 @@ pub fn advance_presentation_state(
                         .is_none_or(|health| health.current > 0.0)
             },
         );
+    bob.advance(view.eye_translation(), on_ground, alive, dt);
+    hand.legacy_effect = None;
+    let subject = client_world
+        .as_ref()
+        .and_then(|world| world.stream)
+        .map(|stream| {
+            (
+                stream.authority().actor_session_id(),
+                stream.local_player_runtime_id(),
+            )
+        });
+    let reanchored = legacy.observe_subject(
+        subject,
+        physics
+            .and_then(|physics| physics.state())
+            .map(|state| state.tick),
+        view.camera_reanchor_epoch(),
+    );
+    if let Some(physics) = physics {
+        if reanchored && let Some(state) = physics.state() {
+            legacy.state.reset_at(
+                state.tick,
+                [
+                    state.position.x as f32,
+                    state.position.y as f32 + protocol::PLAYER_NETWORK_OFFSET,
+                    state.position.z as f32,
+                ],
+            );
+        }
+        let after = legacy.state.last_tick();
+        physics.visit_camera_ticks(after, &mut |tick| {
+            legacy
+                .state
+                .advance(render_model::legacy_combat::LegacyCameraTick {
+                    tick: tick.tick,
+                    position: tick.position,
+                    movement: tick.movement,
+                    velocity: tick.velocity,
+                    on_ground: tick.on_ground,
+                    alive,
+                    riding: tick.riding,
+                    walks: tick.walks,
+                });
+        });
+    }
     if let Some(physics) = physics
         && let Some(state) = physics.state()
     {
@@ -192,6 +240,21 @@ pub fn advance_presentation_state(
                 settings.feel().damage_bob,
             ));
         (hand.sway_pitch_radians, hand.sway_yaw_radians) = java.sway(alpha, look);
+        if render_api::DEFAULT_COMBAT_VISUALS == render_api::CombatVisuals::Modern {
+            return;
+        }
+    }
+    if render_api::DEFAULT_COMBAT_VISUALS == render_api::CombatVisuals::Legacy112 {
+        // Java keeps poses, sneak eye height and sway; legacy combat owns bob and hurt.
+        hand.bob = ViewEffect::NONE;
+        hand.hurt = Mat4::IDENTITY;
+        if !settings.feel().java_animations {
+            (hand.sway_pitch_radians, hand.sway_yaw_radians) = if settings.feel().view_bobbing {
+                sway.sway_radians()
+            } else {
+                (0.0, 0.0)
+            };
+        }
         return;
     }
     hand.bob = if settings.feel().view_bobbing {

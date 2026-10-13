@@ -11,6 +11,9 @@ pub struct PhysicsMotionSample {
     pub velocity: [f32; 3],
     pub grounded_after_tick: bool,
     pub sneaking: bool,
+    pub mode: sim::MovementMode,
+    /// Distance advances only on a resolved vertical collision outside suppressed travel.
+    pub walks: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -39,6 +42,8 @@ impl CompletedMotionTick {
                 ],
                 grounded_after_tick: state.on_ground,
                 sneaking: false,
+                mode: sim::MovementMode::Walking,
+                walks: false,
             },
             environment: sim::MovementEnvironment::default(),
             entry_velocity: [0.0; 3],
@@ -55,6 +60,14 @@ impl CompletedMotionTick {
                 velocity: sample.velocity,
                 grounded_after_tick: sample.grounded_after_tick,
                 sneaking: sample.processed.sneaking,
+                mode: sample.processed.mode,
+                walks: sample.vertical_collision
+                    && !sample.processed.sneaking
+                    && !frame.input.immobile
+                    && !matches!(
+                        sample.processed.mode,
+                        sim::MovementMode::Flying | sim::MovementMode::Riding
+                    ),
             },
             environment: frame.environment,
             entry_velocity: frame.entry_velocity,

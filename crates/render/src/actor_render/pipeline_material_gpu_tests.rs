@@ -594,3 +594,53 @@ fn ordinary_dissolve_color_finishes_before_depth_writing_transparency() {
             .is_srgb()
     );
 }
+
+#[test]
+fn legacy_leather_preserves_alpha_and_uses_mask_alpha_only_for_dye() {
+    use bevy::render::render_resource::ColorWrites;
+    for profile in [
+        ::render_api::CombatVisuals::Modern,
+        ::render_api::CombatVisuals::Legacy112,
+    ] {
+        for mask in [false, true] {
+            let material = render_model::ActorMaterial {
+                color_mask: mask,
+                glint: render_model::ActorGlint {
+                    profile,
+                    ..Default::default()
+                },
+                state: Some(EntityRenderMaterialState {
+                    alpha_test: true,
+                    cull: false,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+            ActorPipelineSpecializer
+                .specialize(
+                    ActorPipelineKey {
+                        msaa: Msaa::Sample4,
+                        hdr: false,
+                        enhanced: false,
+                        material: material.gpu_word(),
+                    },
+                    &mut descriptor,
+                )
+                .unwrap();
+            let legacy_mask = mask && profile == ::render_api::CombatVisuals::Legacy112;
+            assert_eq!(
+                descriptor.fragment.unwrap().targets[0]
+                    .as_ref()
+                    .unwrap()
+                    .write_mask,
+                if legacy_mask {
+                    ColorWrites::COLOR
+                } else {
+                    ColorWrites::ALL
+                }
+            );
+            assert_eq!(descriptor.multisample.alpha_to_coverage_enabled, !mask);
+        }
+    }
+}

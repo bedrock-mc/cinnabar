@@ -140,6 +140,7 @@ pub struct ActorArtworkPages {
     pub identity: [u8; 32],
     pub entity_identity: [u8; 32],
     pub actor_glint: Option<EquipmentRaster>,
+    pub item_glint: Option<EquipmentRaster>,
     pub pages: Arc<[ActorTexturePage]>,
     routes: Arc<BTreeMap<EntityRigId, ActorArtworkLocation>>,
     /// Location of every catalog texture by entity-catalog source index.
@@ -157,6 +158,18 @@ impl ActorArtworkPages {
     /// Installs the shared actor glint image once, independently of skin and armor pages.
     #[must_use]
     pub fn with_actor_glint(mut self, raster: EquipmentRaster) -> Self {
+        self = self.with_glint_raster(raster, false);
+        self
+    }
+
+    /// Installs item glint beside the actor raster so both profiles can draw together.
+    #[must_use]
+    pub fn with_item_glint(self, raster: EquipmentRaster) -> Self {
+        self.with_glint_raster(raster, true)
+    }
+
+    /// Hashes a validated raster under its sampler role before replacing that role.
+    fn with_glint_raster(mut self, raster: EquipmentRaster, item: bool) -> Self {
         if raster.width == 0
             || raster.height == 0
             || raster.rgba8.len() != usize::from(raster.width) * usize::from(raster.height) * 4
@@ -165,11 +178,16 @@ impl ActorArtworkPages {
         }
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
+        hasher.update([u8::from(item)]);
         hasher.update(raster.width.to_le_bytes());
         hasher.update(raster.height.to_le_bytes());
         hasher.update(&raster.rgba8);
         self.identity = hasher.finalize().into();
-        self.actor_glint = Some(raster);
+        if item {
+            self.item_glint = Some(raster);
+        } else {
+            self.actor_glint = Some(raster);
+        }
         self
     }
 
@@ -256,6 +274,7 @@ impl ActorArtworkPages {
             identity: catalog.identity(),
             entity_identity: catalog.entity_identity(),
             actor_glint: None,
+            item_glint: None,
             pages: pages.into(),
             routes: Arc::new(routes),
             equipment: Arc::new(BTreeSet::new()),

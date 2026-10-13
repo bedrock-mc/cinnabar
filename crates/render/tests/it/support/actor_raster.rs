@@ -284,6 +284,10 @@ pub(super) fn raster_material_with_overlay(
         resource: wgpu::BindingResource::TextureView(&glint_view),
     });
     bindings.push(wgpu::BindGroupEntry {
+        binding: 14,
+        resource: wgpu::BindingResource::TextureView(&glint_view),
+    });
+    bindings.push(wgpu::BindGroupEntry {
         binding: 13,
         resource: wgpu::BindingResource::Sampler(&sampler),
     });

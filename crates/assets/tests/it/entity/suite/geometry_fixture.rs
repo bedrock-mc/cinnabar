@@ -31,6 +31,7 @@ pub(super) fn geometry_fixture() -> CompiledEntityAssets {
     ]
     .into_boxed_slice();
     compiled.geometries = vec![EntityGeometry {
+        animation_no_head_bob: false,
         visible_bounds: None,
         identifier: "geometry.allay".into(),
         inherits: None,

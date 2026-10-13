@@ -72,6 +72,7 @@ pub fn compiled_fixture() -> CompiledEntityAssets {
         sources,
         symbols,
         geometries: vec![EntityGeometry {
+            animation_no_head_bob: false,
             visible_bounds: None,
             identifier: "geometry.item".into(),
             inherits: None,

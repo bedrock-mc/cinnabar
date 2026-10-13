@@ -14,7 +14,7 @@ use {
     render_model::{
         ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorRenderIdentity,
         ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, actor_bounds_are_visible,
-        actor_rig_submission_is_visible, pack_overlay_rgba8,
+        actor_rig_submission_is_visible,
     },
     render_scene::{ActorRenderFrame, ActorRenderScene},
 };
@@ -28,9 +28,6 @@ mod tick_cache;
 pub use tick_cache::PoseConversions;
 use tick_cache::TickKey;
 pub(crate) use tick_cache::{convert_bones, convert_bones_with};
-
-/// Damage tint blended over a hurt or dying actor.
-const HURT_OVERLAY_RGBA: [f32; 4] = [1.0, 0.0, 0.0, client_world::HURT_OVERLAY_ALPHA];
 
 #[derive(Clone, Debug)]
 pub struct ActorRigPresentation {
@@ -348,11 +345,8 @@ fn place(
         return None;
     }
     submission.world_from_actor = world_from_actor;
-    submission.overlay_rgba8 = if actor.hurt_overlay_active() {
-        pack_overlay_rgba8(HURT_OVERLAY_RGBA)
-    } else {
-        0
-    };
+    submission.overlay_rgba8 =
+        crate::presentation::combat::overlay(actor, render_api::DEFAULT_COMBAT_VISUALS);
     presentation.world_yaw_degrees = yaw;
     presentation.head_over_body =
         wrap_degrees(lerp_degrees(actor.previous_pose.head_yaw, actor.head_yaw, alpha) - yaw);

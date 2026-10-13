@@ -1,5 +1,6 @@
 pub mod actors;
 pub mod cape;
+pub(crate) mod combat;
 pub mod entity_layers;
 pub mod equipment;
 pub mod skin_layers;

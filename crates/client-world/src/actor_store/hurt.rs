@@ -3,7 +3,7 @@ use protocol::{ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
 use super::{ActorApplyResult, ActorSnapshot, ActorStore};
 
 /// Completed actor ticks the hurt tint and damage animations stay active.
-pub const HURT_DURATION_TICKS: u8 = 10;
+pub const HURT_DURATION_TICKS: u8 = render_api::BEDROCK_112.hurt_ticks;
 /// Alpha of the red damage overlay while hurt or dying; needs independent measurement.
 pub const HURT_OVERLAY_ALPHA: f32 = 0.4;
 /// Ticks a dying actor takes to tip fully over; needs independent measurement.

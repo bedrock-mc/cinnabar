@@ -267,6 +267,7 @@ mod tests {
 
     fn geometry(bones: Vec<EntityGeometryBone>) -> EntityGeometry {
         EntityGeometry {
+            animation_no_head_bob: false,
             visible_bounds: None,
             identifier: "geometry.test".into(),
             inherits: None,

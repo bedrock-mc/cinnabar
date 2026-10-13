@@ -222,7 +222,7 @@ fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_ho
             light: input.light,
             overlay_rgba8: input.overlay_rgba8,
             multitexture_layers: [u32::MAX; 2],
-            material: input.material.kind as u32,
+            material: input.material.gpu_word(),
             dissolve_multiplier: input.material.dissolve_multiplier,
             light_color_multiplier: input.material.light_color_multiplier,
         });

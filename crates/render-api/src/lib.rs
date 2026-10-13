@@ -5,6 +5,7 @@
 
 mod actor_lighting;
 mod frame_rate_limit;
+mod legacy_combat;
 mod pose_generation;
 pub mod primitive_shapes;
 mod publication;
@@ -16,6 +17,7 @@ pub use actor_lighting::{
     ACTOR_LIGHT_DIRECTIONAL, ACTOR_LIGHT_WORLD, ACTOR_SHADE_COEFFICIENTS, fancy_actor_shade,
 };
 pub use frame_rate_limit::FrameRateLimit;
+pub use legacy_combat::{BEDROCK_112, Bedrock112Rules, CombatVisuals, DEFAULT_COMBAT_VISUALS};
 pub use publication::{
     PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
 };
