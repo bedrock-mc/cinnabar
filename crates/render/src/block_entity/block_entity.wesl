@@ -131,10 +131,6 @@ fn selection_line_fragment(input: SelectionLineOutput) -> @location(0) vec4<f32>
 
 @fragment
 fn block_entity_solid(input: VertexOutput) -> @location(0) vec4<f32> {
-    // Entity materials cull back faces, so a flat part shows only its front from each side.
-    if (input.facing < 0.0) {
-        discard;
-    }
     var texel = textureSample(atlas, atlas_sampler, input.uv);
     @if(ALPHA_TO_COVERAGE)
     let cutout = cutout_alpha_2d(atlas, input.uv, dpdx(input.uv), dpdy(input.uv), texel, BLOCK_ENTITY_ALPHA_THRESHOLD);
@@ -148,6 +144,10 @@ fn block_entity_solid(input: VertexOutput) -> @location(0) vec4<f32> {
     }
     @if(!ALPHA_TO_COVERAGE)
     let coverage = 1.0;
+    // Keep derivative-dependent sampling uniform before rejecting a geometric back face.
+    if (input.facing < 0.0) {
+        discard;
+    }
     if (input.actor_light != 0u) {
         // Native mob_head:entity_alphatest uses Fancy world-normal shading and
         // the shared lightmap, composed in gamma before the output transfer.
