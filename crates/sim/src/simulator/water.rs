@@ -13,7 +13,7 @@ use super::{
 const LIQUID_LEVEL_DIVISOR: f32 = 9.0;
 const HEAD_SURFACE_OFFSET: f32 = -1.0 / LIQUID_LEVEL_DIVISOR;
 
-/// Native head-water sensing at pose-adjusted attach location 7. Unlike the
+/// Head-water sensing at the pose-adjusted eye anchor. Unlike the
 /// swimming steering guard, this requires the primary water material and tests
 /// the liquid level against the eye, preserving the sampled world identity.
 pub fn sample_water_head(
@@ -92,7 +92,7 @@ pub(super) fn jump_suppressed(
         || (mode == MovementMode::Swimming && head_in_water == Some(false))
 }
 
-/// Bounding-box input update samples the primary material cell at attach 7.
+/// Bounding-box input update samples the primary material cell at the eye anchor.
 /// Its liquid flag is independent of the block's rendered fluid height.
 pub(super) fn sample_attach(
     world: &impl CollisionWorld,

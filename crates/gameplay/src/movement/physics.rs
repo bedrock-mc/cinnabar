@@ -641,7 +641,7 @@ impl LocalPhysicsController {
                 state.velocity = overlay.velocity;
             }
             let before = state.position;
-            // Native attach 7 uses the prior tick's pose-adjusted eye anchor.
+            // The liquid probe uses the prior tick's pose-adjusted eye anchor.
             // Retain the height with this input so correction replay samples
             // the same material cell instead of the rendered interpolation.
             input.liquid_attach_height = Some(f64::from(self.eye_offset.height(1.0)));

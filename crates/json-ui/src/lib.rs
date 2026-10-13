@@ -1,4 +1,4 @@
-//! Clean-room parser, resolver, and layout engine for vanilla Bedrock JSON-UI.
+//! Parser, resolver, and layout engine for Bedrock JSON-UI.
 //!
 //! The pipeline reads the on-disk `ui/*.json` (tolerant JSON5), applies `@base`
 //! inheritance, substitutes `$var`/global references, evaluates `ignored` and

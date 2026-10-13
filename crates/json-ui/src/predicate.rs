@@ -1,6 +1,6 @@
 //! The UI expression language shared by `ignored`, `variables[]` `requires` and
-//! data bindings, following the client's `UIEval`/`UiExpression`: tokens split
-//! at spaces, parentheses, `$` and operator characters; literals typed as int,
+//! data bindings. Tokens split at spaces, parentheses, `$` and operator
+//! characters; literals typed as int,
 //! float, bool or string; prefix `+`/`-`/`not` bound tightest; then `*` `/`,
 //! `+` `-`, `=` `<` `>`, and `and` `or`, all left-associative. Values carry the
 //! client's JSON types (int32, float32, string, bool, other) and each operator

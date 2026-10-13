@@ -4,7 +4,8 @@ use super::*;
 use crate::presentation::actors::ActorPresentationBatch;
 use crate::presentation::equipment::remote_input;
 
-/// Adds held and worn layers before cape artwork can replace a worn wing texture.
+/// Adds held and worn layers using the local actor identity and inventory facts.
+/// Cape artwork is applied afterward and may replace a worn wing texture.
 pub(super) fn attach(
     batch: &mut ActorPresentationBatch,
     equipment: &mut EquipmentRuntime,

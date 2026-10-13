@@ -4980,6 +4980,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       render Fancy. Wall-torch pivot, ladder/rail offsets, and rail curve
       sprite orientation need native measurement; the coverage baseline must
       be regenerated. Residual names: `docs/phase-2-family-inventory.md`.
+      Torch lighting follows the native torch tessellation: one light value
+      from the torch's own cell for every plane, no ambient occlusion, and no
+      face dimming.
     - [ ] Coral fans compile spreading floor sprites and four wall mounting
       directions with replacement-pack artwork. Native-server placement and
       rendered parity acceptance remain incomplete.
@@ -5962,7 +5965,7 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   unregistered flow materials and specialized directional/waterlogged flow faces,
   specialized jump paths, bubble columns, custom movement components and
   complete waterlogged/surface behavior remain open. Controlled live results are recorded
-  separately; source-derived regressions alone close no acceptance gate. Wire edges for
+  separately; numeric regressions alone close no acceptance gate. Wire edges for
   swim/glide/crawl/fly and `PersistSneak` still need complete native input comparisons.
   Glide travel, firework glide boosts (replayed from their stamped tick), glide start/stop and
   the seven-tick flight double-tap follow the identified vanilla systems; the held-jump glide
@@ -6181,8 +6184,8 @@ work and are not closed by asset availability. Base Latin Mojangles, 185 sound
 binaries, and block-render model JSON remain absent from the official sample
 archive.
 
-**Approved Java-style gameplay HUD contract (2026-07-19):** the clean-room
-visual reference is Minecraft Java Edition 26.2 with default resources on
+**Approved Java-style gameplay HUD contract (2026-07-19):** the visual
+reference is Minecraft Java Edition 26.2 with default resources on
 Windows 11. Acceptance covers survival, creative, and spectator; normal,
 damaged, absorption, poisoned, withered, and frozen hearts; normal/depleted
 hunger; air; XP/level; armor present/absent; mount health/jump; main/offhand;

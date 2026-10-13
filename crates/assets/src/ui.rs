@@ -1,6 +1,6 @@
 //! Compiled JSON-UI asset carrier: the packed `textures/ui` atlas, each
 //! texture's page placement, the nine-slice texture sidecars, and the raw
-//! `ui/*.json` catalog the clean-room resolver consumes at runtime.
+//! `ui/*.json` catalog the UI resolver consumes at runtime.
 //!
 //! The raw ui-json bytes are kept verbatim (not pre-resolved) because a joined
 //! server pack overrides ui json at runtime, so resolution happens then, not

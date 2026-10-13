@@ -104,6 +104,8 @@ pub const MODEL_TEMPLATE_FLAG_BAMBOO: u32 = 1 << 14;
 pub const MODEL_TEMPLATE_FLAG_POTTED_PLANT: u32 = 1 << 15;
 /// Bubble-column shells select positional sprites and an exposed surface template.
 pub const MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN: u32 = 1 << 16;
+/// Native torch planes take one light value from their own cell, with no neighbour AO.
+pub const MODEL_TEMPLATE_FLAG_TORCH: u32 = 1 << 17;
 /// Number of positional sprite variants in each bubble-column surface group.
 pub const BUBBLE_COLUMN_POSITION_VARIANTS: u32 = 4;
 /// Submerged and exposed bubble-column templates, in that order.
@@ -162,6 +164,7 @@ pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
             | MODEL_TEMPLATE_FLAG_BAMBOO
             | MODEL_TEMPLATE_FLAG_POTTED_PLANT
             | MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN
+            | MODEL_TEMPLATE_FLAG_TORCH
     ) || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_X
         || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
 }

@@ -26,7 +26,7 @@ current position, using `0.00005`; Cinnabar does not yet retain that complete
 sprint-trigger state.
 
 Entry additionally requires either a vertical look target below `0.15`, or both
-the attach-seven material and the material one cell above the floored AABB
+the material at the eye anchor and the material one cell above the floored AABB
 center to be non-air. Thus a strong upward look has an extra surface gate.
 
 An existing swim continues while movement magnitude is at least `sqrt(0.5)`,
@@ -36,8 +36,8 @@ not require the actor's sprint flag or positive forward input. Missing hunger or
 hunger at most six requests a stop when flight permission is absent. The
 application uses the existing shared hunger threshold.
 
-While these continuation gates pass, non-air material at attach seven retains
-the swim. For air at attach seven, vanilla retains the swim when
+While these continuation gates pass, non-air material at the eye anchor retains
+the swim. For air at the eye anchor, vanilla retains the swim when
 `acos(horizontal_look_length_squared) * degrees_per_radian <= 45`, or the
 vertical look target is nonpositive. The squared horizontal length is passed
 to `acos`; interpreting this as a direct 45-degree pitch threshold changes the
@@ -62,8 +62,8 @@ ordinary sprint-stop conditions.
 
 ## Head sensing and standing fit
 
-Head sensing samples attach location seven at interpolation zero, requiring the
-primary water material. Its strict eye comparison uses
+Head sensing samples the pose-adjusted eye anchor at interpolation zero and
+requires the primary water material. Its strict eye comparison uses
 `block_y + 1 - (level / 9 + offset)`, where `level = depth + 1` below depth
 eight and one otherwise, and the offset is negative one-ninth. Source-water
 head sensing therefore reaches the top of the cell, even though its rendered
