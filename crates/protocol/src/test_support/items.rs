@@ -29,6 +29,16 @@ pub fn component_item_registry(
     for _ in 0..unrelated_depth + 2 {
         writer.write_u8(0).unwrap();
     }
+    component_item_registry_payload(identifier, network_id, bytes)
+}
+
+/// Projects a DataDriven component payload through wire admission and startup normalization.
+/// Panics if the payload is not wire-admissible NBT.
+pub fn component_item_registry_payload(
+    identifier: &str,
+    network_id: i16,
+    bytes: Vec<u8>,
+) -> crate::ItemRegistryEvent {
     let registry = ItemRegistry {
         item_data: vec![ItemData {
             item_name: identifier.into(),

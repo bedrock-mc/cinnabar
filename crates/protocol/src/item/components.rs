@@ -52,6 +52,8 @@ pub struct ItemComponents {
     /// Retains declaration presence when its maximum is absent or invalid.
     pub durability_declared: bool,
     pub max_stack_size: Option<u8>,
+    /// Duplicate capacity fields or ancestors make the stack capacity unresolved.
+    pub stack_capacity_ambiguous: bool,
     /// The components carry an `item_properties` entry, whose stack size a component item takes.
     pub item_properties_declared: bool,
     /// The components carry a top-level `minecraft:max_stack_size` entry.
@@ -183,6 +185,12 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
         .field("components")
         .filter(|components| matches!(components, Nbt::Compound(_)))?;
     let properties = components.field("item_properties");
+    let stack_component = components.field("minecraft:max_stack_size");
+    let stack_capacity_ambiguous = root.duplicate_field("components")
+        || components.duplicate_field("item_properties")
+        || components.duplicate_field("minecraft:max_stack_size")
+        || properties.is_some_and(|properties| properties.duplicate_field("max_stack_size"))
+        || stack_component.is_some_and(|component| component.duplicate_field("value"));
     let property = |name: &str| properties.and_then(|properties| properties.field(name));
     let component = |name: &str| components.field(name);
     let use_modifiers = component("minecraft:use_modifiers")
@@ -265,6 +273,7 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
         max_stack_size: count(property("max_stack_size").or(component("minecraft:max_stack_size")))
             .filter(|size| (1..=255).contains(size))
             .map(|size| size as u8),
+        stack_capacity_ambiguous,
         item_properties_declared: properties.is_some(),
         max_stack_size_component_declared: component("minecraft:max_stack_size").is_some(),
         use_animation: text(
@@ -657,6 +666,42 @@ mod tests {
         assert_eq!(components.use_duration_ticks, Some(32));
         assert_eq!(components.wearable_slot.as_deref(), Some("slot.armor.head"));
         assert_eq!(components.block_placer.as_deref(), Some("zeqa:crate"));
+    }
+
+    #[test]
+    fn duplicate_capacity_declarations_remain_ambiguous_without_losing_other_facts() {
+        let icon = string("minecraft:icon", "test:gem");
+        for fields in [
+            vec![
+                compound("item_properties", &[]),
+                compound("item_properties", &[int("max_stack_size", 1)]),
+                icon.clone(),
+            ],
+            vec![
+                compound(
+                    "item_properties",
+                    &[int("max_stack_size", 64), int("max_stack_size", 1)],
+                ),
+                icon.clone(),
+            ],
+            vec![
+                compound("minecraft:max_stack_size", &[int("value", 64)]),
+                compound("minecraft:max_stack_size", &[int("value", 1)]),
+                icon.clone(),
+            ],
+            vec![
+                compound(
+                    "minecraft:max_stack_size",
+                    &[int("value", 64), int("value", 1)],
+                ),
+                icon,
+            ],
+        ] {
+            let nbt = compound("", &[compound("components", &fields)]);
+            let facts = parse_components(&nbt).unwrap();
+            assert!(facts.stack_capacity_ambiguous);
+            assert_eq!(facts.icon.as_deref(), Some("test:gem"));
+        }
     }
 
     // Current add-on layout: top-level value components, use_modifiers in seconds.

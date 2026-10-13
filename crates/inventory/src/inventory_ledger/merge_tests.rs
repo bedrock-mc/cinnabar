@@ -337,6 +337,43 @@ fn unparsed_stack_size_data_cannot_enable_oversized_merges() {
     assert_eq!(ledger.pending_request_count(), 0);
 }
 
+/// A wire-admitted root with duplicate component compounds and a hidden size-one declaration.
+fn duplicate_component_registry() -> ItemRegistryEvent {
+    let mut bytes = vec![10, 0, 10];
+    bytes.push(u8::try_from("components".len()).unwrap());
+    bytes.extend_from_slice(b"components");
+    bytes.push(0);
+    bytes.push(10);
+    bytes.push(u8::try_from("components".len()).unwrap());
+    bytes.extend_from_slice(b"components");
+    bytes.push(10);
+    bytes.push(u8::try_from("item_properties".len()).unwrap());
+    bytes.extend_from_slice(b"item_properties");
+    bytes.push(3);
+    bytes.push(u8::try_from("max_stack_size".len()).unwrap());
+    bytes.extend_from_slice(b"max_stack_size");
+    bytes.extend_from_slice(&[2, 0, 0, 0]);
+    protocol::test_support::items::component_item_registry_payload("test:gem", 6, bytes)
+}
+
+#[test]
+fn duplicate_component_ancestors_cannot_enable_oversized_merges() {
+    let registry = duplicate_component_registry();
+    let entry = &registry.entries[0];
+    assert!(entry.components.as_ref().unwrap().stack_capacity_ambiguous);
+    assert!(entry.negotiated_max_stack_size.is_none());
+    let target = stack(6, 60, 1);
+    let cursor = stack(6, 33, 1);
+    let mut ledger = player_ledger(Some(registry), target.clone(), cursor.clone());
+    assert_eq!(
+        ledger.begin_click(0),
+        Err(InventoryGestureError::InvalidRequest)
+    );
+    assert_eq!(ledger.displayed_stack(0), Some(&target));
+    assert_eq!(ledger.cursor_stack(), Some(&cursor));
+    assert_eq!(ledger.pending_request_count(), 0);
+}
+
 #[test]
 fn unsupported_stack_shapes_never_guess_a_merge_rule_and_registry_shapes_bind_natively() {
     let cases = [

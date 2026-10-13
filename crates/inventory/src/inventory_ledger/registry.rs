@@ -220,8 +220,10 @@ fn effective_merge_binding(entry: Option<&ItemRegistryEntry>) -> Option<(&str, O
 /// the known item's capacity, or use the component flag for an unknown name.
 pub(super) fn entry_capacity(entry: &ItemRegistryEntry) -> Option<u8> {
     let components = entry.components.as_deref();
-    if components.is_none() && !entry.canonical_empty_component_data {
-        // Unavailable parsed facts do not prove that a capacity declaration was absent.
+    if components.is_some_and(|components| components.stack_capacity_ambiguous)
+        || (components.is_none() && !entry.canonical_empty_component_data)
+    {
+        // Ambiguous or unavailable facts do not prove that capacity declarations were absent.
         return None;
     }
     let vanilla = protocol::vanilla_item_capacity(&entry.identifier, 0);
