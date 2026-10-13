@@ -12,6 +12,14 @@ pub const MAX_BLOCK_ENTITY_VERTICES: usize = 393_216;
 pub const BLOCK_ENTITY_VERTEX_WORDS: usize =
     std::mem::size_of::<BlockEntityVertex>() / std::mem::size_of::<u32>();
 
+/// Marks vertices whose lighting normal is also their geometric outward face normal.
+pub const BLOCK_ENTITY_CULL_BACK_FACES: u32 = 1 << 29;
+const _: () = assert!(
+    BLOCK_ENTITY_CULL_BACK_FACES
+        & (render_api::ACTOR_LIGHT_WORLD | render_api::ACTOR_LIGHT_DIRECTIONAL | u8::MAX as u32)
+        == 0
+);
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct BlockEntityVertex {
@@ -22,7 +30,7 @@ pub struct BlockEntityVertex {
     pub color: [f32; 4],
     /// Outward world normal for entity lighting or view-facing separation in scalar overlay passes.
     pub normal: [f32; 3],
-    /// Packed actor light; zero retains the scalar-lit block-entity path.
+    /// Packed actor light and geometric-face flags; zero retains the scalar-lit path.
     pub actor_light: u32,
 }
 
@@ -248,7 +256,11 @@ impl MeshBuilder {
                 colors[corner][3],
             ],
             normal,
-            actor_light: self.actor_light,
+            actor_light: if self.actor_light == 0 {
+                0
+            } else {
+                self.actor_light | BLOCK_ENTITY_CULL_BACK_FACES
+            },
         };
         let [first, second, third, fourth] = [vertex(0), vertex(1), vertex(2), vertex(3)];
         target.extend_from_slice(&[second, third, first, first, third, fourth]);

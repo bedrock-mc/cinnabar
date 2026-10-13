@@ -93,6 +93,7 @@ pub(crate) fn source(source: &str) -> String {
         .replace("TERRAIN_QUAD_SHIFT_MASK", &format!("{}u", assets::TERRAIN_QUAD_SHIFT_MASK))
         .replace("GPU_TEXTURE_WIDTH_SHIFT", &format!("{TEXTURE_WIDTH_SHIFT}u"))
         .replace("GPU_TEXTURE_HEIGHT_SHIFT", &format!("{TEXTURE_HEIGHT_SHIFT}u"))
+        .replace("BLOCK_ENTITY_CULL_BACK_FACES", &format!("{}u", render_model::block_entity::mesh::BLOCK_ENTITY_CULL_BACK_FACES))
         .replace("BLOCK_OVERLAY_FACE_OFFSET", &format!("{:?}", render_api::BLOCK_OVERLAY_FACE_OFFSET))
         .replace("ACTOR_COLOR_MASK_MATERIAL_FLAG", &format!("{}u", render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG))
         .replace("ACTOR_MATERIAL_LEGACY112_FLAG", &format!("{}u", render_model::LEGACY_COMBAT_MATERIAL_FLAG))

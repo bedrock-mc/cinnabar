@@ -56,10 +56,11 @@ fn block_vertex(vertex_index: u32, overlay_bias: bool) -> VertexOutput {
     );
     out.world_position = position + lift;
     let beam = actor_light == 0xffffffffu;
-    out.actor_light = select(actor_light, 0u, beam);
+    out.actor_light = select(actor_light & ~BLOCK_ENTITY_CULL_BACK_FACES, 0u, beam);
     out.beam_tile = select(vec2(0.0), normal.xy, beam);
     out.native_lighting = actor_lighting(out.actor_light, normal, 0.0);
-    out.facing = select(1.0, dot(view.world_position - position, normal), out.actor_light != 0u);
+    let geometric = !beam && (actor_light & BLOCK_ENTITY_CULL_BACK_FACES) != 0u;
+    out.facing = select(1.0, dot(view.world_position - position, normal), geometric);
     return out;
 }
 

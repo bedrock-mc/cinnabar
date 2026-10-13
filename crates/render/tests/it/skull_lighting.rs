@@ -78,6 +78,31 @@ fn raster_from(
     eye: Vec3,
     target: Vec3,
 ) -> Vec<u8> {
+    raster_model_from(
+        gpu,
+        assets,
+        light,
+        inputs,
+        BlockEntityKind::Skull(SkullModel {
+            kind: SkullKind::Player,
+            mount: SkullMount::Floor {
+                rotation_degrees: rotation,
+            },
+        }),
+        (eye, target),
+    )
+}
+
+/// Draws a production block model with its retained normals and lighting from `view`.
+fn raster_model_from(
+    gpu: &Gpu,
+    assets: &assets::RuntimeBlockEntityAssets,
+    light: BlockEntityLight,
+    inputs: LightmapInputs,
+    kind: BlockEntityKind,
+    view: (Vec3, Vec3),
+) -> Vec<u8> {
+    let (eye, target) = view;
     let mut scene = BlockEntityScene::default();
     scene.install_assets(assets);
     let frame = scene.update(
@@ -86,12 +111,7 @@ fn raster_from(
         &[BlockEntitySubmission {
             block: [0; 3],
             light,
-            kind: BlockEntityKind::Skull(SkullModel {
-                kind: SkullKind::Player,
-                mount: SkullMount::Floor {
-                    rotation_degrees: rotation,
-                },
-            }),
+            kind,
         }],
     );
     let clip = glam::camera::rh::proj::directx::perspective_infinite_reverse(
@@ -367,5 +387,46 @@ fn entity_lit_faces_are_culled_from_behind() {
         inside[pixel..pixel + 4],
         empty[pixel..pixel + 4],
         "back faces are culled"
+    );
+}
+
+#[test]
+fn crystal_beam_lighting_normals_do_not_cull_the_beam_from_below() {
+    let Some(gpu) =
+        Gpu::for_fixture("crystal_beam_lighting_normals_do_not_cull_the_beam_from_below")
+    else {
+        return;
+    };
+    let encoded = assets::encode_block_entity_catalog(
+        b"{}",
+        16,
+        16,
+        &[200, 120, 60, 255].repeat(16 * 16),
+        &[assets::BlockEntityPlacement {
+            name: assets::CRYSTAL_BEAM_TEXTURE.into(),
+            x: 0,
+            y: 0,
+            width: 16,
+            height: 16,
+        }],
+    )
+    .unwrap();
+    let assets = assets::RuntimeBlockEntityAssets::decode(&encoded).unwrap();
+    let light = BlockEntityLight::Actor { block: 15, sky: 15 };
+    let inputs = LightmapInputs::default();
+    let center = Vec3::new(0.0, 2.0, 0.0);
+    let view = (center + Vec3::new(0.0, -1.0, 2.0), center);
+    let beam = |x| {
+        BlockEntityKind::CrystalBeam(render_model::CrystalBeamModel {
+            target: [x, 2.0, 0.0],
+            crystal: [x, 2.0, 4.0],
+            age_ticks: 50.0,
+        })
+    };
+    let visible = raster_model_from(&gpu, &assets, light, inputs, beam(0.0), view);
+    let empty = raster_model_from(&gpu, &assets, light, inputs, beam(100.0), view);
+    assert_ne!(
+        visible, empty,
+        "the beam remains visible below its lighting normals"
     );
 }
