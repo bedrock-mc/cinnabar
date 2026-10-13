@@ -7,8 +7,8 @@ use std::{borrow::Cow, cell::RefCell, sync::Arc};
 use assets::RuntimeFontCatalog;
 use json_ui::{LabelShape, TextAlign, TextMeasure, TextOptions};
 use ui::{
-    FONT_DESIGN_PIXEL_TEXELS, FONT_INK_TEXELS, TextLayoutCache, TextLayoutRequest, TextLineAlign,
-    TextShadow, TextWrap, UiNode, UiScale, UiVisual, WordChop,
+    FONT_DESIGN_PIXEL_TEXELS, TextLayoutCache, TextLayoutRequest, TextLineAlign, TextShadow,
+    TextWrap, UiNode, UiScale, UiVisual, WordChop,
 };
 
 use super::{Canvas, rect, screen::PaintError, tooltip::TEXT_PITCH};
@@ -16,6 +16,9 @@ use crate::text_metrics::TextMetrics;
 
 /// Largest wrap width handed to the text layout (logical px), for "no wrap".
 pub const UNWRAPPED_LOGICAL: f64 = 65_536.0;
+
+/// Normal outline labels occupy twelve GUI pixels of ascent and descent.
+const OUTLINE_LABEL_HEIGHT_GUI: f32 = 12.0;
 
 /// Resolved face geometry shared by label measurement, painting and edit metadata.
 #[derive(Clone, Copy)]
@@ -38,15 +41,12 @@ pub(super) fn label_metrics<'a>(
     if std::ptr::eq(default, selected) {
         metrics.line_height_64 = TEXT_PITCH * FONT_DESIGN_PIXEL_TEXELS * 64;
     } else if let Some(source) = selected.line_metrics() {
-        let size = metrics.scale.get() * FONT_INK_TEXELS as f32;
-        if let Ok(scale) = UiScale::new_display(size * 64.0 / source.em_64 as f32) {
+        let height = source.ascent_64 + source.descent_64;
+        let size = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32 * OUTLINE_LABEL_HEIGHT_GUI;
+        if let Ok(scale) = UiScale::new_display(size * 64.0 / height as f32) {
             metrics.scale = scale;
-            let line = source.em_64 as f32 * (TEXT_PITCH * FONT_DESIGN_PIXEL_TEXELS) as f32
-                / FONT_INK_TEXELS as f32;
-            let leading = (line - source.ascent_64 as f32 - source.descent_64 as f32) * 0.5;
-            metrics.line_height_64 = line.round() as u32;
-            metrics.baseline_64 =
-                (source.ascent_64 as f32 + leading).clamp(0.0, line).round() as u32;
+            metrics.line_height_64 = height;
+            metrics.baseline_64 = source.ascent_64;
         }
     }
     let shadow_factor = frame_scale.get() / metrics.scale.get();
@@ -65,21 +65,15 @@ pub(super) fn label_metrics<'a>(
     }
 }
 
-/// Native bitmap UI text starts one GUI pixel below the authored label top. The inset is
-/// independent of font size; painting and glyph interaction use this same origin.
+/// UI labels start one GUI pixel below the authored top, independently of
+/// font size. Painting and glyph interaction share this origin.
 pub fn label_origin(
     dest: [f32; 4],
-    font: &RuntimeFontCatalog,
-    options: &TextOptions,
+    _font: &RuntimeFontCatalog,
+    _options: &TextOptions,
     px: f32,
 ) -> [f32; 2] {
-    let selected = font.font_named(options.font_type.as_deref().unwrap_or("default"));
-    let inset = if std::ptr::eq(font, selected) {
-        px
-    } else {
-        0.0
-    };
-    [dest[0], dest[1] + inset]
+    [dest[0], dest[1] + px]
 }
 
 #[derive(Clone)]

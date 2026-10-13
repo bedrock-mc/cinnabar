@@ -8573,3 +8573,12 @@ natively too. Until that comparison exists, the counted fallback to the
 base visual is the intended semantic, locked by the connection permutation
 regression. Incomplete: mask compilation, neighbor rule, meshing selection,
 and the native comparison.
+
+## Outline label sizing and alignment
+
+Named outline labels normalize their ascent and descent independently of the bitmap
+font's ink grid. Measurement, painting, line capacity and edit metadata share the
+resolved geometry, while text starts one GUI pixel below the authored top. Original
+cap fixtures cover centered titles across raster sizes, GUI scales and DPI.
+Incomplete: matched rendered title size and vertical alignment still require
+verification in the reported server form; these CPU fixtures do not close that gate.
