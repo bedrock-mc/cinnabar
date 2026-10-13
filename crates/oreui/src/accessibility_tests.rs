@@ -87,69 +87,72 @@ fn paint_with_scrolls(
 
 #[test]
 fn extra_large_add_server_keeps_fields_and_actions_reachable_in_small_windows() {
-    for size in [ui::MIN_WINDOW_LOGICAL_SIZE, [400.0, 250.0], [752.0, 500.0]] {
-        for dpi in [1.0, 2.0] {
-            let mut view = MenuView::new(true, "Fixture".into());
-            view.screen = MenuScreen::AddServer;
-            view.name = "Fixture".into();
-            view.address = "fixture.invalid".into();
-            Arc::make_mut(&mut view.settings_options).set(option_index(EXTRA_LARGE_UI), 1);
-            let metrics = TextMetrics::for_viewport(
-                size.map(|value| (value * dpi) as u32),
-                DpiScale::new(dpi).unwrap(),
-                Some(2),
-            );
-            let mut screen = OreUiScreen::default();
-            let mut scrolls = MenuScrolls::default();
-            let mut reached = [false; 3];
-            for _ in 0..32 {
-                let frame = paint_with_scrolls(&mut screen, &view, metrics, size, &mut scrolls);
-                for action in [
-                    MenuAction::AddBack,
-                    MenuAction::AddSave,
-                    MenuAction::AddSaveConnect,
-                ] {
-                    let bounds = frame
-                        .hits
+    for enabled in [0, 1] {
+        for size in [[400.0, 250.0], ui::MIN_WINDOW_LOGICAL_SIZE, [752.0, 500.0]] {
+            for dpi in [1.0, 2.0] {
+                let mut view = MenuView::new(true, "Fixture".into());
+                view.screen = MenuScreen::AddServer;
+                view.name = "Fixture".into();
+                view.address = "fixture.invalid".into();
+                Arc::make_mut(&mut view.settings_options)
+                    .set(option_index(EXTRA_LARGE_UI), enabled);
+                let metrics = TextMetrics::for_viewport(
+                    size.map(|value| (value * dpi) as u32),
+                    DpiScale::new(dpi).unwrap(),
+                    Some(2),
+                );
+                let mut screen = OreUiScreen::default();
+                let mut scrolls = MenuScrolls::default();
+                let mut reached = [false; 3];
+                for _ in 0..32 {
+                    let frame = paint_with_scrolls(&mut screen, &view, metrics, size, &mut scrolls);
+                    for action in [
+                        MenuAction::AddBack,
+                        MenuAction::AddSave,
+                        MenuAction::AddSaveConnect,
+                    ] {
+                        let bounds = frame
+                            .hits
+                            .iter()
+                            .find_map(|(at, bounds)| (*at == action).then_some(*bounds))
+                            .expect("the close and save actions stay visible");
+                        assert!(bounds.min().x() >= 0.0 && bounds.min().y() >= 0.0);
+                        assert!(bounds.max().x() <= size[0] && bounds.max().y() <= size[1]);
+                    }
+                    let areas = screen.take_paint().unwrap().scrolls;
+                    let fields = areas
                         .iter()
-                        .find_map(|(at, bounds)| (*at == action).then_some(*bounds))
-                        .expect("the close and save actions stay visible");
-                    assert!(bounds.min().x() >= 0.0 && bounds.min().y() >= 0.0);
-                    assert!(bounds.max().x() <= size[0] && bounds.max().y() <= size[1]);
+                        .find(|area| area.key == "add_server_fields")
+                        .expect("server fields have a scroll viewport");
+                    assert!(fields.viewport.width() > 0.0 && fields.viewport.height() > 0.0);
+                    for (index, action) in [
+                        MenuAction::AddName,
+                        MenuAction::AddAddress,
+                        MenuAction::AddPort,
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    {
+                        reached[index] |= frame.hits.iter().any(|(at, bounds)| {
+                            *at == action && bounds.width() > 0.0 && bounds.height() > 0.0
+                        });
+                    }
+                    if reached.into_iter().all(|value| value) {
+                        break;
+                    }
+                    let point = crate::test_support::centre(fields.viewport);
+                    let delta = -fields.viewport.height() * 0.5;
+                    scrolls.set_areas(areas);
+                    assert!(
+                        scrolls.wheel(point, delta, true),
+                        "each field must be reachable: {size:?}, DPI {dpi}, enabled {enabled}"
+                    );
                 }
-                let areas = screen.take_paint().unwrap().scrolls;
-                let fields = areas
-                    .iter()
-                    .find(|area| area.key == "add_server_fields")
-                    .expect("server fields have a scroll viewport");
-                assert!(fields.viewport.width() > 0.0 && fields.viewport.height() > 0.0);
-                for (index, action) in [
-                    MenuAction::AddName,
-                    MenuAction::AddAddress,
-                    MenuAction::AddPort,
-                ]
-                .into_iter()
-                .enumerate()
-                {
-                    reached[index] |= frame.hits.iter().any(|(at, bounds)| {
-                        *at == action && bounds.width() > 0.0 && bounds.height() > 0.0
-                    });
-                }
-                if reached.into_iter().all(|value| value) {
-                    break;
-                }
-                let point = crate::test_support::centre(fields.viewport);
-                let delta = -fields.viewport.height() * 0.5;
-                scrolls.set_areas(areas);
                 assert!(
-                    scrolls.wheel(point, delta, true),
-                    "each field must be reachable: {size:?}, DPI {dpi}"
+                    reached.into_iter().all(|value| value),
+                    "each field must be reachable: {size:?}, DPI {dpi}, enabled {enabled}"
                 );
             }
-            assert!(
-                reached.into_iter().all(|value| value),
-                "each field must be reachable: {size:?}, DPI {dpi}"
-            );
         }
     }
 }
