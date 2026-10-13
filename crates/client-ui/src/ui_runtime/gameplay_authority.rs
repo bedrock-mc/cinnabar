@@ -189,6 +189,7 @@ impl UiRuntime {
         self.drain_inventory_prefix(player_runtime, None);
         player_runtime.inventory.finish_drain();
         self.sample_crafting_observation(player_runtime);
+        self.sync_anvil_name(player_runtime);
     }
 
     /// Updates inventory presentation only through the transport prefix before an item event.

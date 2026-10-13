@@ -496,3 +496,72 @@ fn acknowledging_a_placement_preserves_an_entered_rename() {
             .target_acknowledges_stack_id(target, request_id)
     );
 }
+
+#[test]
+fn drained_authority_updates_anvil_names_before_a_same_frame_take() {
+    let (mut runtime, mut player) = anvil();
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Creative);
+    runtime.sync_anvil_name(&player);
+    let old_name = runtime.screen_state().anvil_name.clone();
+    let mut corrected = runtime
+        .inventory_ledger(&player)
+        .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
+        .unwrap()
+        .clone();
+    corrected.extra_data = protocol::edit_item_extra(
+        &corrected.extra_data,
+        &protocol::ItemNbtEdit {
+            custom_name: Some(Some("Server blade".into())),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    corrected.nbt_digest = Sha256::digest(&corrected.extra_data).into();
+    runtime
+        .enqueue_inventory_event(
+            &mut player,
+            1,
+            1,
+            InventoryEvent::Slot(InventorySlotEvent {
+                identity: SlotIdentity {
+                    container: ContainerIdentity {
+                        window_id: Some(124),
+                        slot_type: protocol::ui_slot_container_name(ANVIL_TARGET_SLOT),
+                        dynamic_id: None,
+                    },
+                    slot: u16::from(ANVIL_TARGET_SLOT),
+                },
+                stack: corrected,
+                storage_item: None,
+            }),
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.screen_state().anvil_name,
+        old_name,
+        "ingress waits for the authority drain"
+    );
+    runtime.drain_pending_inventory(&mut player);
+    assert_eq!(runtime.screen_state().anvil_name, "Server blade");
+    let preview = runtime.anvil_preview(&player).unwrap();
+    assert_eq!(preview.outcome.custom_name, None);
+    assert_eq!(
+        preview.outcome.cost, 3,
+        "only the three repair materials cost levels"
+    );
+    runtime.perform_pointer_action(
+        &mut player,
+        crate::ui_runtime::inventory_drag::PointerAction::Click(
+            ui_screens::container_actions::InventoryCellHit::CraftOutput,
+        ),
+    );
+    let ledger = runtime.inventory_ledger(&player);
+    assert_eq!(ledger.pending_request_count(), 1);
+    assert_eq!(
+        protocol::item_custom_name(&ledger.cursor_stack().unwrap().extra_data).as_deref(),
+        Some("Server blade"),
+        "the actual take must retain the corrected name"
+    );
+}
