@@ -26,6 +26,8 @@ pub(super) struct HandRigGlint {
     pub(super) _texture: Texture,
     pub(super) view: TextureView,
     pub(super) pixels: Option<Arc<[u8]>>,
+    /// Original raster dimensions, before device fitting.
+    pub(super) source_size: [u32; 2],
 }
 
 pub(super) struct HandRigSkin {
@@ -460,16 +462,13 @@ pub(super) fn upload_glint(
     queue: &RenderQueue,
     frame: &HandRigFrame,
 ) {
-    let raster = frame.item_glint.as_ref().filter(|raster| {
-        u32::from(raster.width) <= device.limits().max_texture_dimension_2d
-            && u32::from(raster.height) <= device.limits().max_texture_dimension_2d
-    });
+    let raster = frame.item_glint.as_ref();
     let size = raster.map_or([1, 1], |raster| {
         [u32::from(raster.width), u32::from(raster.height)]
     });
     let pixels = raster.map(|raster| Arc::clone(&raster.rgba8));
     if let Some(current) = &gpu.glint
-        && [current._texture.width(), current._texture.height()] == size
+        && current.source_size == size
         && match (&current.pixels, &pixels) {
             (Some(current), Some(pixels)) => Arc::ptr_eq(current, pixels),
             (None, None) => true,
@@ -478,7 +477,8 @@ pub(super) fn upload_glint(
     {
         return;
     }
-    let (width, height, data): (u32, u32, &[u8]) = match raster {
+    let fitted = raster.map(|raster| raster.fit_within(device.limits().max_texture_dimension_2d));
+    let (width, height, data): (u32, u32, &[u8]) = match fitted.as_deref() {
         Some(raster) => (
             u32::from(raster.width),
             u32::from(raster.height),
@@ -510,6 +510,7 @@ pub(super) fn upload_glint(
         _texture: texture,
         view,
         pixels,
+        source_size: size,
     });
     gpu.bind_group = None;
 }
