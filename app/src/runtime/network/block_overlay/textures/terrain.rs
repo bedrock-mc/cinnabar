@@ -2,6 +2,35 @@
 
 use super::{DecodedTexture, resample_square};
 
+/// Returns reduced dimensions while retaining the minimum size of each terrain axis.
+pub(in super::super) fn reduced_dimensions(dimensions: [u32; 2], side: u32) -> [u32; 2] {
+    let longest = dimensions[0].max(dimensions[1]);
+    if longest <= side {
+        return dimensions;
+    }
+    dimensions.map(|axis| (axis * side / longest).max(assets::TILE_SIZE))
+}
+
+/// Shrinks retained terrain pixels to a planned tile without changing their layer identity.
+pub(in super::super) fn reduce_texture(texture: &mut DecodedTexture, side: u32) {
+    let [width, height] = reduced_dimensions([texture.width, texture.height], side);
+    if [width, height] == [texture.width, texture.height] {
+        return;
+    }
+    let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            let source_x = x * texture.width / width;
+            let source_y = y * texture.height / height;
+            let offset = ((source_y * texture.width + source_x) * 4) as usize;
+            pixels.extend_from_slice(&texture.rgba8[offset..offset + 4]);
+        }
+    }
+    texture.width = width;
+    texture.height = height;
+    texture.rgba8 = pixels.into_boxed_slice();
+}
+
 /// Cuts strips that cannot remain terrain rectangles, then admits minimum atlas dimensions.
 pub(in super::super) fn admit_static_rectangle(texture: &mut DecodedTexture) {
     if texture.height > texture.width

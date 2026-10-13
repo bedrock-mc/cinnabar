@@ -71,26 +71,22 @@ impl TextureCatalog<'_> {
         let path = source.map_or(choice.path.as_str(), |source| source.texture_path.as_ref());
         #[cfg(test)]
         self.decode_attempts.set(self.decode_attempts.get() + 1);
-        let mut image = resolve_pack_texture_with_policy(
-            self.view,
-            path,
-            assets::texture::policy::device_policy(),
-            true,
-        )
-        .map(|resolved| TextureImage {
-            texture: resolved.texture,
-            image_path: resolved.image_path,
-            baked_tint: None,
-            pack: true,
-        })
-        .or_else(|| {
-            if source.is_some() {
-                return None;
-            }
-            texture_image_paths(path)
-                .into_iter()
-                .find_map(|path| carrier(&path, choice.tint))
-        });
+        let mut image =
+            resolve_pack_texture_with_policy(self.view, path, self.texture_policy, true)
+                .map(|resolved| TextureImage {
+                    texture: resolved.texture,
+                    image_path: resolved.image_path,
+                    baked_tint: None,
+                    pack: true,
+                })
+                .or_else(|| {
+                    if source.is_some() {
+                        return None;
+                    }
+                    texture_image_paths(path)
+                        .into_iter()
+                        .find_map(|path| carrier(&path, choice.tint))
+                });
         if let Some(image) = image.as_mut()
             && image.baked_tint.is_none()
             && let Some(tint) = choice.tint

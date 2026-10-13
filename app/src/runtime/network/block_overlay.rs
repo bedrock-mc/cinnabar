@@ -37,7 +37,7 @@ use self::{
     geometry_inputs::geometry_catalog,
     textures::{TextureCatalog, admit_static_rectangle, source_mip_chain},
 };
-use assets::texture::policy::{TexturePolicy, device_policy};
+use assets::texture::policy::{TexturePolicy, terrain_texture_policy};
 use pack_runtime::pack_textures::DecodedTexture;
 
 const FULL_BLOCK: &str = "minecraft:geometry.full_block";
@@ -112,8 +112,11 @@ pub(super) fn compile_block_overlay(
         .filter(|identifier| !identifier.starts_with("minecraft:"))
         .collect::<HashSet<_>>();
     let max_layers = (max_texture_array_layers as usize).min(MAX_OVERLAY_LAYERS);
+    let texture_policy = terrain_texture_policy();
+    let mut catalog = TextureCatalog::new(view, vanilla_keys);
+    catalog.texture_policy = texture_policy;
     let mut builder = Builder {
-        catalog: TextureCatalog::new(view, vanilla_keys),
+        catalog,
         base_assets,
         vanilla_carried: Vec::new(),
         terrain_materials: HashMap::new(),
@@ -128,8 +131,8 @@ pub(super) fn compile_block_overlay(
         sources: Vec::new(),
         source_bytes: 0,
         tiles: Vec::new(),
-        upload_bytes: device_policy().terrain_bytes(MIN_TILE, 1)?,
-        texture_policy: device_policy(),
+        upload_bytes: texture_policy.terrain_bytes(MIN_TILE, 1)?,
+        texture_policy,
         max_layers,
         slots: TextureSlots::default(),
         materials: HashMap::new(),
@@ -631,7 +634,7 @@ impl Builder<'_> {
             .map(|(_, shard)| *shard)
             .max()
             .map_or(0, |last| last + 1);
-        if shards > MAX_OVERLAY_SHARDS || self.sources.len() > MAX_OVERLAY_LAYERS {
+        if shards > MAX_OVERLAY_SHARDS {
             return None;
         }
         let mut tiles = Vec::with_capacity(shards);
@@ -659,7 +662,7 @@ impl Builder<'_> {
                 return None;
             }
             total = total.checked_add(self.texture_policy.terrain_bytes(tile, layers)?)?;
-            if total > assets::texture::policy::MAX_SUBSCRIBER_BYTES {
+            if total > self.texture_policy.storage_bytes() {
                 return None;
             }
             tiles.push(tile);

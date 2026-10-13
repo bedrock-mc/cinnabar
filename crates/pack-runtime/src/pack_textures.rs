@@ -1,6 +1,6 @@
 //! Bounded source image and texture catalog preparation for pack subscribers.
 
-use assets::texture::policy::{MAX_DECODE_BYTES, TexturePolicy};
+use assets::texture::policy::TexturePolicy;
 use image::{ImageFormat, ImageReader, Limits};
 use pack_json::normalize_jsonc;
 use resource_pack::LayeredPackView;
@@ -267,7 +267,7 @@ fn decode_image_with_policy(
     };
     limits.max_image_width = Some(max_dimension);
     limits.max_image_height = Some(max_dimension);
-    limits.max_alloc = Some(MAX_DECODE_BYTES);
+    limits.max_alloc = Some(policy.decode_bytes());
     let mut header = ImageReader::with_format(Cursor::new(bytes), format);
     header.limits(limits.clone());
     let (width, height) = header.into_dimensions().ok()?;

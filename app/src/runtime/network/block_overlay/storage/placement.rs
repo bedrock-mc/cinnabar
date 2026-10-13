@@ -1,7 +1,6 @@
 //! Plans complete frame runs using layer room and the shared upload budget.
 
-use super::super::{Builder, MAX_OVERLAY_LAYERS, MAX_OVERLAY_SHARDS, MIN_TILE};
-use assets::texture::policy::MAX_SUBSCRIBER_BYTES;
+use super::super::{Builder, MAX_OVERLAY_SHARDS, MIN_TILE};
 use std::cmp::Reverse;
 
 /// One contiguous portion of a run and the cost of adding it to its shard.
@@ -26,16 +25,34 @@ impl Builder<'_> {
     pub(super) fn remaining_layers(&self) -> usize {
         self.max_layers
             .saturating_mul(MAX_OVERLAY_SHARDS)
-            .min(MAX_OVERLAY_LAYERS)
             .saturating_sub(self.sources.len())
     }
 
     /// Keeps a complete run together when possible, then splits only for real layer or byte limits.
+    #[cfg(test)]
     pub(super) fn place_frames(&self, own: u32, frames: usize) -> Vec<FramePlacement> {
+        self.place_frames_with_tiles(own, frames, &self.tiles)
+    }
+
+    /// Plans against reduced page sizes without changing any retained source or reference.
+    pub(super) fn place_frames_with_tiles(
+        &self,
+        own: u32,
+        frames: usize,
+        page_tiles: &[u32],
+    ) -> Vec<FramePlacement> {
         let mut counts: [usize; MAX_OVERLAY_SHARDS] =
             std::array::from_fn(|shard| self.shard_len(shard));
-        let mut tiles = self.tiles.clone();
-        let mut upload_bytes = self.upload_bytes;
+        let mut tiles = page_tiles.to_vec();
+        let mut upload_bytes = counts
+            .iter()
+            .enumerate()
+            .map(|(shard, &layers)| {
+                self.texture_policy
+                    .terrain_bytes(tiles.get(shard).copied().unwrap_or(MIN_TILE), layers)
+                    .unwrap_or(usize::MAX)
+            })
+            .fold(0usize, usize::saturating_add);
         let mut layer_room = self.remaining_layers();
         let mut remaining = frames;
         let mut placements = Vec::new();
@@ -62,7 +79,8 @@ impl Builder<'_> {
                 };
                 let recost = new_cost.saturating_sub(old_cost);
                 let capacity = (self.max_layers - layers).min(layer_room).min(
-                    MAX_SUBSCRIBER_BYTES
+                    self.texture_policy
+                        .storage_bytes()
                         .saturating_sub(upload_bytes)
                         .saturating_sub(recost)
                         / layer_bytes,
