@@ -382,6 +382,12 @@ pub struct WorldStream {
     admitted_mesh_jobs: Arc<AtomicUsize>,
     mesh_memory: meshing::memory::MeshMemoryBudget,
     mesh_cancellations: HashMap<SubChunkKey, Arc<AtomicBool>>,
+    /// Queued sections found to be air, by their pending revision; drained under removal credit.
+    air_removals: BTreeMap<SubChunkKey, u64>,
+    /// Last air entry examined, so bounded passes over `air_removals` rotate through it.
+    air_removal_cursor: Option<SubChunkKey>,
+    /// Sections the air pass returned to the worker queue, by revision, until a dispatch pops them.
+    air_requeued: HashMap<SubChunkKey, u64>,
     urgent_mesh_in_flight: HashSet<SubChunkKey>,
     staged_mesh_completions: VecDeque<MeshCompletion>,
     staged_mesh_bytes: u64,

@@ -331,6 +331,12 @@ impl WorldStream {
                 pending.urgent = true;
                 self.mesh_jobs.scan.push_front((key, pending.revision));
             }
+            let revision = pending.revision;
+            // A coalesced change that leaves only air queues its removal now, so no state of the
+            // geometry lane can hold the old mesh on screen.
+            if !self.mesh_requires_geometry(key) {
+                self.air_removals.insert(key, revision);
+            }
             return;
         }
         self.mark_dirty_exact_with_priority(key, now, urgent);
