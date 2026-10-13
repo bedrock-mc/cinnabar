@@ -22,6 +22,13 @@ pub use region::{
     REGION_SIDE, RegionDecodeError, RegionPos, decode_region, encode_region, region_index,
 };
 
+pub use cache::{FarTerrainCache, RetiringSession};
+pub use disk::{DiskBounds, DiskCache, DiskEvent};
+pub use identity::{NamespaceKey, ServerKey, WorldKey, surface_similarity};
+pub use region::{
+    REGION_SIDE, RegionDecodeError, RegionPos, decode_region, encode_region, region_index,
+};
+
 pub use colours::SurfaceColours;
 pub use config::FarTerrainConfig;
 pub use extract::{ColumnSnapshot, SurfaceContext, summarise_column};
