@@ -24,6 +24,10 @@ opened cap texture ownership and malformed selectors across registered poses
 with 16/32 pixel textures. Rendered/input acceptance and broader graphics parity
 remain open.
 
+Cape rotation limits now prevent upward flips in both player animation modes. The
+new flight regressions have not been compiled or executed, and rendered-frame validation
+remains incomplete. This presentation correction closes no parity or performance gate.
+
 ## P2.5-NATIVE-BIOME
 
 | Field | Evidence |

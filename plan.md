@@ -783,6 +783,12 @@ acceptance gate.
   still contributes to the phase, and death alone does not trigger a flail.
   Fourteen focused hurt tests pass. macOS/Metal captures at 1920×1080, DPI 1, GUI scale 2
   verify single and repeated hits, walking while hurt, and recovery to idle.
+- Cape rotation is bounded at the shoulder in both animation modes: Java tilt is capped at
+  90° and sideways swing at ±90°; Bedrock local cape pitch is capped at ±90°. These are
+  deliberate presentation limits. Regression coverage includes vertical and fast horizontal
+  flight, frame interpolation, local/remote actors and stopping. Compilation, test execution
+  and rendered-frame validation for this change remain incomplete; the exact Bedrock flap
+  calculation also remains incomplete. This change closes no parity or performance gate.
 - Worn elytra retains authored wing poses and glint in both modes, suppresses the separate cape,
   and uses the cape texture when present. Native controller blend composition stays intact.
 - Golden tests assert composed stacks and projected arm, item and cape points against Java's

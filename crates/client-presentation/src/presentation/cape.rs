@@ -12,7 +12,7 @@ use render_model::{ACTOR_LAYER_BODY, ActorRigRoute, ActorRigSubmission};
 use render_model::{
     ActorRigGeometry, EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform, STANDARD_SKIN_BYTES,
     STANDARD_SKIN_SIDE, entity_geometry, equipment_rig_id, find_geometry_index,
-    java_animation::{JavaCapeInput, java_cape_bone},
+    java_animation::{CAPE_MAX_SWING_DEGREES, JavaCapeInput, java_cape_bone},
     resolve_geometry_bones,
 };
 
@@ -181,6 +181,18 @@ fn cape_pose(
                             let rest_local =
                                 rest_parent.inverse() * Quat::from_array(rest.rotation);
                             local = rest_local.inverse() * local;
+                        }
+                    }
+                    if name.eq_ignore_ascii_case("cape") {
+                        let (pitch, yaw, roll) = local.to_euler(EulerRot::XYZEx);
+                        let limit = CAPE_MAX_SWING_DEGREES.to_radians();
+                        if pitch.abs() > limit {
+                            local = Quat::from_euler(
+                                EulerRot::XYZEx,
+                                pitch.clamp(-limit, limit),
+                                yaw,
+                                roll,
+                            );
                         }
                     }
                     pose.rotation = (parent * frame.bind * local * frame.bind.inverse()).to_array();
@@ -618,6 +630,8 @@ mod tests {
                 }
                 let rotation = Quat::from_array(poses[1].rotation);
                 let parent = Quat::from_rotation_x(tilt);
+                let down = parent.inverse() * rotation * Vec3::NEG_Y;
+                assert!(down.y <= 1e-6, "cape must stay below its shoulder");
                 let pivot = Vec3::from_array(cape.geometry.bone_pivots[1]);
                 for vertex in cape
                     .geometry
