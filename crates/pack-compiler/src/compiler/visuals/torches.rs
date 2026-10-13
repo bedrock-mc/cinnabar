@@ -36,7 +36,7 @@ pub(in crate::compiler) fn compile_rule(
         } else {
             let template = push_model_template(
                 torch_quads(material, mount),
-                0,
+                assets::MODEL_TEMPLATE_FLAG_TORCH,
                 storage.templates,
                 storage.quads,
             )?;

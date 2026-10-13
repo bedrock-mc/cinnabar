@@ -42,7 +42,7 @@ pub struct MovementInput {
     /// Look pitch, degrees positive downward. Read only by swimming and gliding.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub pitch_degrees: f64,
-    /// Tick-captured height of native attach location 7 above the feet. The
+    /// Tick-captured height of the pose-adjusted eye anchor above the feet. The
     /// caller retains its pose-offset transition in prediction input; absence
     /// leaves the swimming surface guard unspecified for legacy traces.
     #[serde(default, skip_serializing_if = "Option::is_none")]

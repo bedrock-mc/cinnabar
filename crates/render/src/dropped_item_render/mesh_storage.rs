@@ -62,6 +62,7 @@ mod tests {
             normal: [0., 1., 0.],
             layer: 0,
             color: render_model::OPAQUE_WHITE,
+            glint_scale: [0.0; 2],
         }
     }
 

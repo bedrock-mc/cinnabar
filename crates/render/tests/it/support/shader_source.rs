@@ -134,6 +134,11 @@ pub fn standalone(source: &str, definitions: &[&str]) -> String {
     compile(source, definitions, false)
 }
 
+/// Composes a production constructor's output without injecting constants into its root again.
+pub fn standalone_prepared(source: &str, definitions: &[&str]) -> String {
+    compile_prepared(source, definitions, false)
+}
+
 /// Uses Bevy's WESL composition and pruning options before validating the resulting WGSL.
 pub fn composed(source: &str, definitions: &[&str]) -> String {
     let source = if source.contains("import bevy_core_pipeline::fullscreen_vertex_shader") {
@@ -163,6 +168,12 @@ fn features(definitions: &[&str]) -> wesl::Features {
 
 /// Resolves generated constants and all production imports through the WESL compiler.
 fn compile(source: &str, definitions: &[&str], prune: bool) -> String {
+    let source = material_shader::source(&meshing::cloud_viewport::shader_source(source));
+    compile_prepared(&source, definitions, prune)
+}
+
+/// Resolves imports while preserving the already prepared root module verbatim.
+fn compile_prepared(source: &str, definitions: &[&str], prune: bool) -> String {
     let mut resolver = wesl::resolver::VirtualResolver::new();
     for (path, source) in [
         ("bevy_render::view", VIEW.to_owned()),
@@ -224,10 +235,7 @@ fn compile(source: &str, definitions: &[&str], prune: bool) -> String {
         resolver.add_module(path.parse().expect("module path"), source.into());
     }
     let root: wesl::syntax::ModulePath = "fixture::shader".parse().expect("root module path");
-    resolver.add_module(
-        root.clone(),
-        material_shader::source(&meshing::cloud_viewport::shader_source(source)).into(),
-    );
+    resolver.add_module(root.clone(), source.to_owned().into());
     let options = wesl::CompileOptions {
         visibility: false,
         features: features(definitions),

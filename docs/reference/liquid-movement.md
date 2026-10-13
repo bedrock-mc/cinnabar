@@ -95,18 +95,16 @@ negative pitch is distinct from negating the positive-pitch lookup at
 non-cardinal angles.
 
 For ordinary swimming, an upward sine target is allowed only while the primary
-material cell at attach location 7 carries the liquid flag. Otherwise steering
-sets vertical velocity to zero, including an already downward velocity. Diving
+material cell at the pose-adjusted eye anchor carries the liquid flag. Otherwise
+steering sets vertical velocity to zero, including an already downward velocity. Diving
 and level-look steering do not require that flag. This guard is implemented when
 the caller supplies the tick-captured `liquid_attach_height`.
 
-Attach point and material semantics:
+Eye anchor and material semantics:
 
-- A player's third absolute attach offset is zero, and bounding-box size updates
-  copy it into the actor's offsets.
-- Attach location 7 reads exactly that offset. For an ordinary unmounted player
-  the point is the player anchor minus the vanilla eye offset. The caller selects
-  interpolation zero, retaining the previous pose offset rather than the
+- The eye anchor combines the player position with the retained pose offset.
+  For an ordinary unmounted player it is the player anchor minus the eye offset.
+  The caller selects interpolation zero, retaining the previous pose offset rather than the
   camera's render-frame interpolation.
 - The bounding-box input update floors this point and records whether its
   material is a liquid. That flag is set for water and lava and clear for air

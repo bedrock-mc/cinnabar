@@ -1,5 +1,23 @@
 use bevy::render::render_resource::ShaderStages;
 
+#[test]
+fn production_item_shader_resolves_shared_foil_constants() {
+    let shader = super::item_shader(include_str!("../dropped_item.wesl"), "dropped_item.wesl");
+    let bevy::shader::Source::Wesl(source) = shader.source else {
+        unreachable!()
+    };
+    for definitions in [&[][..], &["ALPHA_TO_COVERAGE"][..]] {
+        let source = crate::shader_source::standalone_prepared(&source, definitions);
+        let module = naga::front::wgsl::parse_str(&source).expect("production item shader parses");
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .expect("production item shader validates");
+    }
+}
+
 // The item fragment stage reads the view for distance fog; a vertex-only binding fails validation.
 #[test]
 fn fragment_view_reads_are_visible_to_the_fragment_stage() {

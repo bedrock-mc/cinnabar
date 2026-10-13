@@ -42,6 +42,8 @@ mod potted_plants;
 mod sea_pickle;
 #[path = "tests/shelf_cake.rs"]
 mod shelf_cake;
+#[path = "tests/torch.rs"]
+mod torch;
 #[path = "tests/trapdoor.rs"]
 mod trapdoor;
 #[path = "tests/tripwire_hook.rs"]

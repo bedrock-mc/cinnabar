@@ -216,6 +216,8 @@ impl PreparedModels {
                     [range.vertices.start as usize..range.vertices.end as usize]
                 {
                     vertex.uv = vertex.uv.map(|coordinate| coordinate * scale);
+                    // Preserve texture-local foil coordinates as the atlas extent grows.
+                    vertex.glint_scale = vertex.glint_scale.map(|extent| extent / scale);
                 }
             }
             copy_model_layers(&mut atlas, model, side);

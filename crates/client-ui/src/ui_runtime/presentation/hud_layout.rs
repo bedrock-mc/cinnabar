@@ -1,6 +1,6 @@
 //! Java-reference gameplay HUD layout.
 //!
-//! Geometry, ordering, and visibility follow the approved clean-room Java
+//! Geometry, ordering, and visibility follow the approved Java
 //! Edition 26.2 default-resource presentation, expressed in GUI pixels and
 //! scaled by the Java GUI-scale rule. Every value is observable behavior
 //! (positions, sizes, timings) recorded from a legally obtained client;

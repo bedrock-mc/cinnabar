@@ -40,7 +40,7 @@ Values marked *(measure)* may now be taken directly from the client references (
 - `task/resource-packs` — server pack download/decrypt/apply (review fixes).
 - `task/enhanced-shaders` — opt-in Enhanced render mode (non-parity, off by default).
 
-## JSON-UI engine (clean-room, Bedrock target; Java HUD stays an override)
+## JSON-UI engine (Bedrock target; Java HUD stays an override)
 Owner decision: a faithful 1:1 Bedrock JSON-UI interpreter drives forms, container
 screens and menus from the vanilla `ui/*.json` + textures; the Java-styled gameplay HUD
 (`hud_screen` family) stays on the existing path and is absent from the engine's screen

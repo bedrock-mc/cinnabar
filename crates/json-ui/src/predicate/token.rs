@@ -28,7 +28,7 @@ pub(super) enum Token {
     Group(Vec<Token>),
 }
 
-/// A typed value as an `ExprToken` carries it.
+/// A typed expression value.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Operand {
     Bool(bool),
@@ -126,7 +126,7 @@ impl Operand {
     }
 }
 
-/// Characters that end a bare token (`0x7000af1100000000` in the client).
+/// Characters that end a bare token.
 fn delimiter(byte: u8) -> bool {
     matches!(
         byte,

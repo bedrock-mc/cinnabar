@@ -22,6 +22,7 @@ fn minified_item_raster(gpu: &Gpu, samples: u32, tint_alpha: f32) -> Vec<u8> {
     out.color = vec4(1.0, 1.0, 1.0, select({tint_alpha}, 1.0, background));
     out.overlay = vec4(0.0);
     out.world_position = vec3(0.0);
+    out.glint_scale = vec2(0.0);
     return out;
 }}
 "#
@@ -62,6 +63,24 @@ fn minified_item_raster(gpu: &Gpu, samples: u32, tint_alpha: f32) -> Vec<u8> {
     );
     let light = gpu.buffer(&[1.0; 256 * 4], wgpu::BufferUsages::UNIFORM);
     let atmosphere = gpu.buffer(&[0.0; 32], wgpu::BufferUsages::UNIFORM);
+    let environment = gpu.buffer(&[1.0_f32, 0.0, 0.0, 1.0], wgpu::BufferUsages::UNIFORM);
+    let glint = gpu
+        .device
+        .create_texture(&wgpu::TextureDescriptor {
+            label: Some("unused dropped-item glint"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        })
+        .create_view(&Default::default());
     let bindings = [
         wgpu::BindGroupEntry {
             binding: 0,
@@ -73,6 +92,18 @@ fn minified_item_raster(gpu: &Gpu, samples: u32, tint_alpha: f32) -> Vec<u8> {
         },
         wgpu::BindGroupEntry {
             binding: 2,
+            resource: wgpu::BindingResource::Sampler(&sampler),
+        },
+        wgpu::BindGroupEntry {
+            binding: 3,
+            resource: environment.as_entire_binding(),
+        },
+        wgpu::BindGroupEntry {
+            binding: 4,
+            resource: wgpu::BindingResource::TextureView(&glint),
+        },
+        wgpu::BindGroupEntry {
+            binding: 5,
             resource: wgpu::BindingResource::Sampler(&sampler),
         },
         wgpu::BindGroupEntry {

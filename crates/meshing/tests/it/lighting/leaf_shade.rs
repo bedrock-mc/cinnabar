@@ -42,14 +42,27 @@ fn emitting_surface_keeps_its_directional_shading_in_direct_and_cached_bakes() {
         let center = shade_test_chunk(mode, &[([8, 8, 8], EMITTING)]);
         let neighbourhood = MeshNeighbourhood::new(&center);
         let direct = bake_quad_lighting(
-            &classifier, &assets, mode, &neighbourhood,
-            [8, 8, 8], Face::PositiveY, SHADE_TEST_FACE,
+            &classifier,
+            &assets,
+            mode,
+            &neighbourhood,
+            [8, 8, 8],
+            Face::PositiveY,
+            SHADE_TEST_FACE,
         );
-        assert!(direct.samples().iter().all(|sample| sample & (1 << 11) != 0));
-        let mesh = meshing::mesh_sub_chunk_in_neighbourhood(
-            &classifier, &assets, mode, &neighbourhood,
+        assert!(
+            direct
+                .samples()
+                .iter()
+                .all(|sample| sample & (1 << 11) != 0)
         );
-        let index = mesh.cube_quads().iter().position(|quad| quad.face() == Face::PositiveY).unwrap();
+        let mesh =
+            meshing::mesh_sub_chunk_in_neighbourhood(&classifier, &assets, mode, &neighbourhood);
+        let index = mesh
+            .cube_quads()
+            .iter()
+            .position(|quad| quad.face() == Face::PositiveY)
+            .unwrap();
         assert_eq!(mesh.cube_lighting()[index], direct);
     }
 }

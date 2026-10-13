@@ -109,6 +109,7 @@ fn instance() -> render_model::DroppedItemInstance {
         block_level: 15,
         sky_level: 15,
         overlay_rgba8: 0,
+        glint: false,
     }
 }
 

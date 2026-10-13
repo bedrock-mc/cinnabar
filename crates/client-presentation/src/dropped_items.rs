@@ -348,6 +348,10 @@ impl DroppedItemPublisher<'_, '_> {
         collisions: Option<&dyn crate::observations::CollisionLookup>,
         camera: Option<([f32; 3], f32)>,
         partial_tick: f32,
+        glint: (
+            Option<render_model::EquipmentRaster>,
+            render_model::ActorGlint,
+        ),
     ) {
         let (Some(scene), Some(icons)) = (self.scene.as_mut(), icons) else {
             return;
@@ -476,6 +480,7 @@ impl DroppedItemPublisher<'_, '_> {
                     block_level: u32::from(block_level),
                     sky_level: u32::from(sky_level),
                     overlay_rgba8: 0,
+                    glint: view.item.enchanted || view.item.glint.enabled().unwrap_or(false),
                 });
             }
         }
@@ -507,6 +512,7 @@ impl DroppedItemPublisher<'_, '_> {
                     block_level: u32::from(block_level),
                     sky_level: u32::from(sky_level),
                     overlay_rgba8: 0,
+                    glint: false,
                 });
             }
         }
@@ -552,6 +558,7 @@ impl DroppedItemPublisher<'_, '_> {
                     } else {
                         0
                     },
+                    glint: false,
                 };
                 if matches!(view.kind, BlockEntityKind::Falling { .. }) {
                     terrain_instances.push(TerrainItemInstance {
@@ -604,6 +611,7 @@ impl DroppedItemPublisher<'_, '_> {
             &lines,
             DAYLIGHT,
         );
+        scene.set_glint(glint.0, glint.1.scroll());
         scene.publish_terrain_instances(stream.authority().actor_session_id(), &terrain_instances);
     }
 }

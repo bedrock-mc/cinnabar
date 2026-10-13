@@ -63,6 +63,7 @@ use {
 };
 
 const ITEM_SHADER_HANDLE: Handle<Shader> = uuid_handle!("6b7c1b0e-2f3d-4a61-9d1e-7a8f2c4e5b13");
+mod glint;
 pub(crate) mod terrain_items;
 use terrain_items::{TerrainItemMeshGenerations, TerrainItemSessionSet};
 
@@ -95,12 +96,7 @@ fn install(app: &mut App) {
         return;
     }
     app.add_plugins(ExtractResourcePlugin::<DroppedItemScene>::default());
-    load_internal_asset!(
-        app,
-        ITEM_SHADER_HANDLE,
-        "dropped_item.wesl",
-        crate::shader_safety::from_wesl
-    );
+    load_internal_asset!(app, ITEM_SHADER_HANDLE, "dropped_item.wesl", item_shader);
     crate::pipeline_warmup::register::<ItemPipeline>(app);
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
@@ -125,15 +121,22 @@ fn install(app: &mut App) {
         );
 }
 
-/// Per-copy vertex-rate data: three affine rows, then model index, light levels and overlay.
+/// Resolves shared material constants before loading the dropped-item shader.
+pub(crate) fn item_shader(source: &str, path: impl Into<String>) -> bevy::shader::Shader {
+    crate::shader_safety::from_wesl(crate::material_shader::source(source), path)
+}
+
+/// Per-copy vertex-rate data: three affine rows, then model index, light levels and overlay,
+/// then the item glint UV scale (zero without glint).
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct GpuItemInstance {
     rows: [[f32; 4]; 3],
     meta: [u32; 4],
+    glint: [f32; 4],
 }
 
-const _: () = assert!(size_of::<GpuItemInstance>() == 64);
+const _: () = assert!(size_of::<GpuItemInstance>() == 80);
 
 #[derive(Resource)]
 struct ItemGpu {
@@ -144,6 +147,9 @@ struct ItemGpu {
     dynamic_buffer: Buffer,
     /// Vertex range of each model's mesh; empty for rejected models.
     ranges: Vec<ItemMeshRange>,
+    glint_sampler: Sampler,
+    /// The uploaded item glint and the pixels it holds (`None` for the transparent fallback).
+    glint: Option<glint::UploadedGlint>,
     _atlas: Option<Texture>,
     atlas_view: Option<TextureView>,
     models_revision: u64,
@@ -224,6 +230,8 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
             mapped_at_creation: false,
         }),
         ranges: Vec::new(),
+        glint_sampler: glint::sampler(&device),
+        glint: None,
         _atlas: None,
         atlas_view: None,
         models_revision: u64::MAX,
@@ -312,6 +320,7 @@ fn prepare_items(
     if gpu.models_revision != scene.models_revision || gpu.atlas_view.is_none() {
         rebuild_models(&scene, &device, &queue, &mut gpu);
     }
+    glint::upload(&scene, &device, &queue, &mut gpu);
     if scene.instances.is_empty()
         && scene.dynamic.is_empty()
         && !scene
@@ -356,15 +365,7 @@ fn prepare_items(
                 .bounds
                 .and_then(|bounds| bounds.transformed(instance.world_from_item)),
         });
-        instances.push(GpuItemInstance {
-            rows: instance.world_from_item,
-            meta: [
-                instance.model,
-                instance.block_level,
-                instance.sky_level,
-                instance.overlay_rgba8,
-            ],
-        });
+        instances.push(glint::pack_instance(instance));
     }
     gpu.identity_instance = instances.len() as u32;
     instances.push(GpuItemInstance {
@@ -374,6 +375,7 @@ fn prepare_items(
             [0.0, 0.0, 1.0, 0.0],
         ],
         meta: [0, 15, 15, 0],
+        glint: [0.0; 4],
     });
     queue.write_buffer(
         &gpu.instance_buffer,
@@ -400,7 +402,12 @@ fn prepare_items(
     queue.write_buffer(
         &gpu.environment,
         0,
-        bytemuck::cast_slice::<f32, u8>(&[scene.daylight, 0.0, 0.0, 0.0]),
+        bytemuck::cast_slice::<f32, u8>(&[
+            scene.daylight,
+            scene.glint_scroll[0],
+            scene.glint_scroll[1],
+            scene.glint_scroll[2],
+        ]),
     );
     #[cfg(test)]
     {
@@ -468,6 +475,22 @@ fn item_bind_group_layout() -> BindGroupLayoutDescriptor {
                 },
                 count: None,
             },
+            BindGroupLayoutEntry {
+                binding: 4,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 5,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                count: None,
+            },
         ],
     )
 }
@@ -509,6 +532,11 @@ fn item_pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPipeline
                             offset: 36,
                             shader_location: 8,
                         },
+                        VertexAttribute {
+                            format: VertexFormat::Float32x2,
+                            offset: std::mem::offset_of!(ItemMeshVertex, glint_scale) as u64,
+                            shader_location: 10,
+                        },
                     ],
                 },
                 VertexBufferLayout {
@@ -534,6 +562,11 @@ fn item_pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPipeline
                             format: VertexFormat::Uint32x4,
                             offset: 48,
                             shader_location: 6,
+                        },
+                        VertexAttribute {
+                            format: VertexFormat::Float32x4,
+                            offset: 64,
+                            shader_location: 9,
                         },
                     ],
                 },
@@ -608,7 +641,7 @@ fn prepare_bind_group(
         gpu.bind_group = None;
         return;
     };
-    let Some(atlas_view) = gpu.atlas_view.as_ref() else {
+    let (Some(atlas_view), Some(glint)) = (gpu.atlas_view.as_ref(), gpu.glint.as_ref()) else {
         gpu.bind_group = None;
         return;
     };
@@ -638,6 +671,14 @@ fn prepare_bind_group(
             BindGroupEntry {
                 binding: 3,
                 resource: gpu.environment.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 4,
+                resource: BindingResource::TextureView(&glint.view),
+            },
+            BindGroupEntry {
+                binding: 5,
+                resource: BindingResource::Sampler(&gpu.glint_sampler),
             },
         ],
     );
