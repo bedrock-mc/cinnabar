@@ -101,8 +101,11 @@ fn minecraftten_alias_normalizes_outline_line_height_across_rasters() {
                 let native_geometry = line_geometry(&native);
                 let source = font.font_named(alias).line_metrics().unwrap();
                 let height = (source.ascent_64 + source.descent_64) as f32;
-                let expected = [source.em_64 as f32 / height * 12.0, 12.0]
-                    .map(|value| (value * factor * px * 64.0).round() as i32);
+                let expected = [
+                    source.em_64 as f32 / height * OUTLINE_LABEL_HEIGHT_GUI,
+                    OUTLINE_LABEL_HEIGHT_GUI,
+                ]
+                .map(|value| (value * factor * px * 64.0).round() as i32);
                 for (expected, actual) in expected.into_iter().zip(native_geometry) {
                     // Scale and glyph edges have fixed-point rounding at each raster size.
                     assert!(
@@ -397,7 +400,7 @@ fn named_edit_metadata_places_caret_at_the_painted_character_boundary() {
                         .expect("painted label");
                     assert_eq!(
                         edit.left,
-                        node.bounds().left(),
+                        node.bounds().min().x(),
                         "caret and painted text use the same fractional origin"
                     );
                     let spot = TextSpot {
@@ -706,16 +709,16 @@ fn named_descender_selection_covers_the_painted_glyph() {
             })
             .expect("focused edit feedback paints a selection");
         let glyph = &layout.glyphs()[0];
-        let top = bounds.top() + glyph.bounds_64[1] as f32 / 64.0;
-        let bottom = bounds.top() + glyph.bounds_64[3] as f32 / 64.0;
+        let top = bounds.min().y() + glyph.bounds_64[1] as f32 / 64.0;
+        let bottom = bounds.min().y() + glyph.bounds_64[3] as f32 / 64.0;
         assert!(
-            selection.top() <= top + 1.0 / 64.0,
+            selection.min().y() <= top + 1.0 / 64.0,
             "selected glyph top remains covered"
         );
         assert!(
-            selection.bottom() + 1.0 / 64.0 >= bottom,
+            selection.max().y() + 1.0 / 64.0 >= bottom,
             "DPI {dpi}: descender bottom {bottom} exceeds selection {}",
-            selection.bottom()
+            selection.max().y()
         );
     }
 }
