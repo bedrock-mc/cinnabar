@@ -1,6 +1,6 @@
 use super::*;
 use database::{ACCESS, BLOBS, Store};
-use redb::{ReadableDatabase, ReadableTable};
+use redb::ReadableDatabase;
 use std::path::Path;
 
 /// Runs the production worker with test-owned limits and exposes its bounded mailbox.
