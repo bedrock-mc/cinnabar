@@ -9,7 +9,8 @@ use assets::{
 use bevy::prelude::Resource;
 use render_model::{
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, BlockEntityAtlas, EquipmentRaster, SkullKind, skull_geometry,
+    ActorRigSubmission, BlockEntityAtlas, EquipmentRaster, SkullKind,
+    block_entity::HeldBlockEntity, skull_geometry,
 };
 use render_model::{
     ActorRigGeometry, EntityRigId, RenderBoneTransform, equipment_rig_id, find_geometry_index,
@@ -68,6 +69,8 @@ fn body_bones(names: Vec<Box<str>>) -> BodyBones {
 
 /// Equipment geometry index space reserved for worn skulls (above any entity geometry index).
 const SKULL_RIG_INDEX_BASE: u32 = 0x00ff_0000;
+/// Equipment geometry index space reserved for held block-entity item models.
+const HELD_BLOCK_ENTITY_RIG_INDEX_BASE: u32 = 0x00ff_0100;
 const SKULL_KINDS: [SkullKind; 5] = [
     SkullKind::Skeleton,
     SkullKind::WitherSkeleton,
@@ -115,6 +118,8 @@ pub struct EquipmentRuntime {
     pending: Vec<ActorRigGeometry>,
     /// Worn head geometry and texture location per skull kind.
     skulls: BTreeMap<u8, (EntityRigId, ActorArtworkLocation)>,
+    /// Held geometry and texture location per block-entity item model (chests, shulkers).
+    held_block_entities: BTreeMap<HeldBlockEntity, (EntityRigId, ActorArtworkLocation)>,
     item_use: Arc<BTreeMap<Box<str>, u32>>,
     use_overlays: Arc<BTreeMap<Box<str>, assets::equipment::CompiledItemUseOverlay>>,
     /// The startup catalog's use durations, before session items join them.
@@ -167,7 +172,19 @@ impl EquipmentRuntime {
                 by_visual: BTreeMap::new(),
                 models: BTreeMap::new(),
             },
-            |world| render_model::equipment::blocks::collect(world, &assets),
+            |world| {
+                // Non-cube items hold as the state their inventory model is drawn from.
+                let display = |key: &assets::ItemVisualKey| {
+                    let sprite =
+                        u32::try_from(icons.lookup_index(&key.identifier, key.metadata)?).ok()?;
+                    icons
+                        .block_models()
+                        .iter()
+                        .find(|model| model.sprite == sprite)
+                        .map(|model| model.visual.0)
+                };
+                render_model::equipment::blocks::collect_held(world, &assets, &display)
+            },
         );
         if let Some(world) = world.as_deref() {
             blocks.prefer_carried_faces(world, &icons);
@@ -255,6 +272,18 @@ impl EquipmentRuntime {
                 }
             }
         }
+        let mut held_block_entities = BTreeMap::new();
+        if let (Some(atlas), Some(location)) = (&skull_atlas, skull_location) {
+            for (index, kind) in HeldBlockEntity::all().into_iter().enumerate() {
+                let id = equipment_rig_id(HELD_BLOCK_ENTITY_RIG_INDEX_BASE + index as u32);
+                if let Some(geometry) =
+                    render_model::block_entity::held_block_entity_geometry(id, atlas, kind)
+                {
+                    pending.push(geometry);
+                    held_block_entities.insert(kind, (id, location));
+                }
+            }
+        }
         let mut geometries = catalog
             .iter()
             .flat_map(|catalog| catalog.bindings())
@@ -339,6 +368,7 @@ impl EquipmentRuntime {
             catalog,
             pending,
             skulls,
+            held_block_entities,
             pack: None,
             logged_misses: Default::default(),
             poses: PoseMemo::default(),

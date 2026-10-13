@@ -366,6 +366,61 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
     assert_eq!(held[0].1, 1);
 }
 
+// Local-only: chests and shulker boxes held in hand draw their placed models, not sprites.
+#[test]
+fn real_carriers_hold_block_entity_items_as_their_models() {
+    use super::runtime::{ActorEquipmentInput, EquipmentRuntime, HeldKind, WornItem};
+    let (Some(entities), Some(icons), Some(block_entities)) = (
+        local_carrier("vanilla-v1.mcbeent"),
+        local_carrier("vanilla-v1.mcbeico"),
+        local_carrier("vanilla-v1.mcbeben"),
+    ) else {
+        return;
+    };
+    let (mut runtime, _, _) = EquipmentRuntime::build(
+        Arc::new(assets::RuntimeEntityAssets::decode(&entities).unwrap()),
+        None,
+        Arc::new(assets::RuntimeIconCatalog::decode(&icons).unwrap()),
+        None,
+        Some(Arc::new(
+            assets::RuntimeBlockEntityAssets::decode(&block_entities).unwrap(),
+        )),
+        ActorArtworkPages::default(),
+    );
+    let models = runtime.take_pending_geometries();
+    let body = player_body(&mut runtime);
+    for identifier in [
+        "minecraft:chest",
+        "minecraft:ender_chest",
+        "minecraft:red_shulker_box",
+    ] {
+        let input = ActorEquipmentInput {
+            main: Some(WornItem {
+                use_facts: client_world::EffectiveItemUse::default(),
+                grip: assets::item::grip::builtin_item_grip(identifier),
+                identifier: Arc::from(identifier),
+                metadata: 0,
+                damage: None,
+                kind: HeldKind::Sprite,
+                dye_rgb: None,
+                enchanted: false,
+            }),
+            ..ActorEquipmentInput::default()
+        };
+        let layers = runtime.layers_for(&body, &input, None);
+        assert_eq!(layers.len(), 1, "{identifier}");
+        let rig = layers[0].submission.input.rig;
+        let model = models
+            .iter()
+            .find(|geometry| geometry.id == rig)
+            .unwrap_or_else(|| panic!("{identifier} holds a prebuilt block-entity model"));
+        assert!(
+            model.vertices.len() > 36,
+            "{identifier} is more than one box"
+        );
+    }
+}
+
 fn png(side: u32) -> Vec<u8> {
     let image = image::RgbaImage::from_pixel(side, side, image::Rgba([200, 40, 40, 255]));
     let mut bytes = std::io::Cursor::new(Vec::new());

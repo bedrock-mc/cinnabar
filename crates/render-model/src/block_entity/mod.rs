@@ -20,6 +20,7 @@ pub mod draw_ranges;
 mod frame;
 
 mod heads;
+mod held;
 mod items;
 pub mod mesh;
 mod portal;
@@ -48,6 +49,7 @@ pub use frame::{
     item_frame_item_transform,
 };
 
+pub use held::{ChestVariantKey, HeldBlockEntity, held_block_entity_geometry};
 pub use items::{StaticItemPlacement, StaticItemPlacements, matrix_rows};
 pub use mesh::{
     BLOCK_ENTITY_VERTEX_WORDS, BlockEntityVertex, Facing, MAX_BLOCK_ENTITY_VERTICES,

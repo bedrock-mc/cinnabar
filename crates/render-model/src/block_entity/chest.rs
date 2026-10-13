@@ -28,6 +28,23 @@ pub enum ChestVariant {
 }
 
 impl ChestVariant {
+    /// The variant a chest block draws as, waxed copper as its unwaxed age; `None` for other
+    /// blocks, including the ender chest, which its own block entity selects.
+    #[must_use]
+    pub fn from_block_name(block_name: &str) -> Option<Self> {
+        let name = block_name.strip_prefix("minecraft:")?;
+        let name = name.strip_prefix("waxed_").unwrap_or(name);
+        Some(match name {
+            "chest" => Self::Normal,
+            "trapped_chest" => Self::Trapped,
+            "copper_chest" => Self::Copper(CopperAge::Unaffected),
+            "exposed_copper_chest" => Self::Copper(CopperAge::Exposed),
+            "weathered_copper_chest" => Self::Copper(CopperAge::Weathered),
+            "oxidized_copper_chest" => Self::Copper(CopperAge::Oxidized),
+            _ => return None,
+        })
+    }
+
     fn texture(self, double: bool) -> String {
         let stem = match self {
             Self::Normal => "normal",

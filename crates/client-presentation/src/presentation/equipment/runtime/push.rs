@@ -128,6 +128,13 @@ impl EquipmentRuntime {
                     !matches!(item.kind, HeldKind::Block(_))
                         || matches!(key, MeshKey::SessionBlock(_))
                 });
+        if session.is_none()
+            && let Some(&(rig, location)) = HeldBlockEntity::from_item(&item.identifier)
+                .and_then(|kind| self.held_block_entities.get(&kind))
+        {
+            // Block-entity items hold as their placed model over the whole static raster.
+            return Some((rig, location, true, [1.0, 1.0]));
+        }
         let (index, key, placement, location) = if let Some(held) = session {
             held
         } else {
