@@ -215,3 +215,14 @@ fn actor_projection_subtracts_distant_camera_origins_without_cancellation() {
         assert!(previous_point(&history, 0, Vec3::new(0.25, 1.0, 0.0)).abs_diff_eq(local, 0.00001));
     }
 }
+
+#[test]
+fn warm_actor_history_reuses_scratch_storage() {
+    let frame = frame(Vec3::ZERO, [0.0, 2.0, 0.25]);
+    let mut history = ActorHistory::default();
+    history.advance(&frame, camera(), false);
+    history.advance(&frame, camera(), true);
+    let allocations = test_alloc::thread_allocations();
+    assert!(!history.advance(&frame, camera(), true));
+    assert_eq!(test_alloc::thread_allocations(), allocations);
+}
