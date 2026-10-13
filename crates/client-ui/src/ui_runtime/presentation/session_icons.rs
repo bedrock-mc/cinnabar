@@ -5,6 +5,7 @@ use std::{
     sync::Arc,
 };
 
+use assets::texture::policy::{TexturePolicy, device_policy};
 use render_model::UiTexturePage;
 use ui::UiMesh;
 
@@ -17,8 +18,6 @@ use {
     ui::IconRef,
 };
 
-/// Largest icon side kept as-is; larger sources are reduced to fit.
-pub const MAX_SESSION_ICON_SIDE: u32 = 64;
 const MIN_PAGE_SIDE: u32 = render_model::UI_DYNAMIC_PAGE_SIDE;
 type IconRefs = HashMap<Arc<str>, BTreeMap<u32, IconRef>>;
 const GUTTER: u32 = 1;
@@ -65,8 +64,7 @@ struct Packing {
     done: crossbeam_channel::Receiver<Option<PackedIcons>>,
 }
 
-/// Icons whose padded area fits one minimal page pack inline; larger sets pack on a worker,
-/// since one pass cannot stop at a frame budget.
+/// Inline packing bounds both copied texels and the allocated page to one minimal page.
 const MAX_INLINE_PACK_TEXELS: u64 = MIN_PAGE_SIDE as u64 * MIN_PAGE_SIDE as u64;
 
 impl UiPresentationRuntime {
@@ -184,13 +182,13 @@ pub(super) fn observe(runtime: &mut UiPresentationRuntime, icons: Option<&Arc<Se
         install(runtime, None, None);
         return;
     };
-    if packed_texels(icons) <= MAX_INLINE_PACK_TEXELS {
-        install(runtime, Some(icons), pack(icons, 0));
-        return;
-    }
     let packing = match runtime.session_icons.packing.take() {
         Some(packing) if Arc::ptr_eq(&packing.source, icons) => packing,
         _ => {
+            if inline_pack_fits(icons) {
+                install(runtime, Some(icons), pack(icons, 0));
+                return;
+            }
             let (sender, done) = crossbeam_channel::bounded(1);
             let source = Arc::clone(icons);
             rayon::spawn(move || {
@@ -243,13 +241,25 @@ fn install(
 
 /// Texels the set's valid icons and sheets cover with their gutters.
 fn packed_texels(icons: &SessionIcons) -> u64 {
+    let policy = device_policy();
     icons
         .icons
         .iter()
         .chain(&icons.block_sheets)
-        .filter(|icon| icon.width <= MAX_SESSION_ICON_SIDE && icon.height <= MAX_SESSION_ICON_SIDE)
+        .filter(|icon| valid_icon(icon, policy))
         .map(|icon| u64::from(icon.width + GUTTER * 2) * u64::from(icon.height + GUTTER * 2))
         .sum()
+}
+
+/// Bounds page allocation and hashing using the same shelf plan as the eventual pack.
+fn inline_pack_fits(icons: &SessionIcons) -> bool {
+    if packed_texels(icons) > MAX_INLINE_PACK_TEXELS {
+        return false;
+    }
+    let policy = device_policy();
+    let ordered = ordered_icons(icons, policy);
+    page_side(ordered.iter().map(|(icon, _)| *icon), policy)
+        .is_none_or(|side| u64::from(side) * u64::from(side) <= MAX_INLINE_PACK_TEXELS)
 }
 
 /// The session page's pixels and where each icon and block sheet landed on it.
@@ -298,11 +308,8 @@ fn block_cubes(icons: &SessionIcons, packed: &PackedIcons) -> BTreeMap<IconKey, 
     models
 }
 
-/// Shelf-packs icons and block sheets with a replicated gutter; those that do not fit, and
-/// sheets not shaped as `assets::BLOCK_ITEM_SHEET_SIZE`, are left out.
-fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
-    #[cfg(test)]
-    PACKS.with(|packs| packs.set(packs.get() + 1));
+/// Selects valid first occurrences and sorts them tallest first for every packing plan.
+fn ordered_icons(icons: &SessionIcons, policy: TexturePolicy) -> Vec<(&SessionIcon, bool)> {
     let sheet_size = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
     // Tallest first keeps shelves dense; ties keep input order.
     // Invalid entries and later duplicates are dropped before sorting so they cannot size the page.
@@ -318,17 +325,21 @@ fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
                 .filter(|sheet| [sheet.width, sheet.height] == sheet_size)
                 .map(|sheet| (sheet, true)),
         )
-        .filter(|(icon, _)| {
-            icon.width > 0
-                && icon.height > 0
-                && icon.width <= MAX_SESSION_ICON_SIDE
-                && icon.height <= MAX_SESSION_ICON_SIDE
-                && icon.rgba8.len() == (icon.width * icon.height * 4) as usize
-        })
+        .filter(|(icon, _)| valid_icon(icon, policy))
         .filter(|(icon, sheet)| seen.insert((Arc::clone(&icon.identifier), icon.metadata, *sheet)))
         .collect::<Vec<_>>();
     ordered.sort_by_key(|(icon, _)| std::cmp::Reverse(icon.height));
-    let side = page_side(ordered.iter().map(|(icon, _)| *icon));
+    ordered
+}
+
+/// Shelf-packs icons and block sheets with a replicated gutter; those that do not fit, and
+/// sheets not shaped as `assets::BLOCK_ITEM_SHEET_SIZE`, are left out.
+fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
+    #[cfg(test)]
+    PACKS.with(|packs| packs.set(packs.get() + 1));
+    let policy = device_policy();
+    let ordered = ordered_icons(icons, policy);
+    let side = page_side(ordered.iter().map(|(icon, _)| *icon), policy)?;
     let mut rgba8 = vec![0u8; (side * side * 4) as usize];
     let mut refs: IconRefs = HashMap::new();
     let mut sheets = HashMap::new();
@@ -341,13 +352,7 @@ fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
             refs.get(&icon.identifier)
                 .is_some_and(|variants| variants.contains_key(&icon.metadata))
         };
-        if placed
-            || icon.width == 0
-            || icon.height == 0
-            || icon.width > MAX_SESSION_ICON_SIDE
-            || icon.height > MAX_SESSION_ICON_SIDE
-            || icon.rgba8.len() != (icon.width * icon.height * 4) as usize
-        {
+        if placed {
             continue;
         }
         if cursor[0] + padded[0] > side {
@@ -392,14 +397,19 @@ fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
 }
 
 /// Grows the reserved page to the smallest bounded shelf layout containing the icons.
-fn page_side<'a>(icons: impl Iterator<Item = &'a SessionIcon> + Clone) -> u32 {
+fn page_side<'a>(
+    icons: impl Iterator<Item = &'a SessionIcon> + Clone,
+    policy: TexturePolicy,
+) -> Option<u32> {
+    let max_side = policy.max_side().min(render_model::MAX_UI_TEXTURE_SIDE);
+    if max_side < MIN_PAGE_SIDE {
+        return None;
+    }
+    let max_side = 1 << max_side.ilog2();
     let mut side = MIN_PAGE_SIDE;
     loop {
         let (mut x, mut y, mut row) = (0, 0, 0);
         for icon in icons.clone() {
-            if icon.width > MAX_SESSION_ICON_SIDE || icon.height > MAX_SESSION_ICON_SIDE {
-                continue;
-            }
             let (width, height) = (icon.width + GUTTER * 2, icon.height + GUTTER * 2);
             if x + width > side {
                 x = 0;
@@ -409,11 +419,23 @@ fn page_side<'a>(icons: impl Iterator<Item = &'a SessionIcon> + Clone) -> u32 {
             x += width;
             row = row.max(height);
         }
-        if y + row <= side || side == render_model::MAX_UI_TEXTURE_SIDE {
-            return side;
+        let widths_fit = icons.clone().all(|icon| icon.width + GUTTER * 2 <= side);
+        if (widths_fit && y + row <= side) || side == max_side {
+            policy.page_bytes(side, side)?;
+            return Some(side);
         }
-        side = (side * 2).min(render_model::MAX_UI_TEXTURE_SIDE);
+        side = (side * 2).min(max_side);
     }
+}
+
+/// Validates source pixels and the padded physical extent before gutter arithmetic.
+fn valid_icon(icon: &SessionIcon, policy: TexturePolicy) -> bool {
+    policy.source_bytes(icon.width, icon.height, false) == Some(icon.rgba8.len())
+        && icon
+            .width
+            .checked_add(GUTTER * 2)
+            .zip(icon.height.checked_add(GUTTER * 2))
+            .is_some_and(|(width, height)| policy.page_bytes(width, height).is_some())
 }
 
 #[cfg(test)]

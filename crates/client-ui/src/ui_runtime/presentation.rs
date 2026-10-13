@@ -49,7 +49,7 @@ pub mod session_icons;
 pub use forms::{PreparedJsonUi, ServerUiPack};
 
 pub use session_glyphs::SessionGlyphSheets;
-pub use session_icons::{MAX_SESSION_ICON_SIDE, SessionIcon, SessionIcons};
+pub use session_icons::{SessionIcon, SessionIcons};
 pub mod startup;
 pub mod texture_atlas;
 

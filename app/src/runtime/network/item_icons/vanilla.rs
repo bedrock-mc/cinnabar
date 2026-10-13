@@ -64,7 +64,11 @@ pub(crate) fn set_vanilla_item_paths(entities: &RuntimeEntityAssets) {
 }
 
 /// Appends only files actually supplied by a pack; absent overrides keep their base icons.
-pub(super) fn append(view: &LayeredPackView, icons: &mut Vec<SessionIcon>) {
+pub(super) fn append(
+    view: &LayeredPackView,
+    icons: &mut Vec<SessionIcon>,
+    retained_bytes: &mut usize,
+) {
     let Some(paths) = PATHS.get() else {
         return;
     };
@@ -93,11 +97,19 @@ pub(super) fn append(view: &LayeredPackView, icons: &mut Vec<SessionIcon>) {
         let override_path = aliases
             .iter()
             .find_map(|key| catalog.get(key)?.get(*variant as usize));
-        if let Some(texture) = pack_runtime::pack_textures::decode_pack_texture(
+        if let Some(texture) = pack_runtime::pack_textures::decode_pack_texture_with_policy(
             view,
             override_path.map_or(stem, String::as_str),
+            assets::texture::policy::device_policy(),
+            true,
         ) {
             let mut replacement = icon(identifier.clone(), first_frame(texture));
+            if replacement.rgba8.len()
+                > assets::texture::policy::MAX_SUBSCRIBER_BYTES.saturating_sub(*retained_bytes)
+            {
+                continue;
+            }
+            *retained_bytes += replacement.rgba8.len();
             replacement.metadata = *metadata;
             icons.push(replacement);
             present.insert((identifier.clone(), *metadata));

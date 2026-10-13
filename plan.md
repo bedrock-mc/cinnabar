@@ -2394,6 +2394,13 @@ Incomplete: native frame/GPU/process-memory acceptance, full remote gates,
 TTFMSDF/precomputed MSDF rendering, contextual item icon routes, verified retail
 missing-icon fallback, and native font alias/metric comparison. Outline MSDF
 fonts currently use provisional alpha rasterization. No visual gate is closed.
+Runtime terrain, item and particle images share checked source-area, device-size
+and retained-page budgets. Tall strips are decoded before cutting square frames;
+admitted HD terrain and inventory, held and dropped item art retain source detail.
+Terrain routes that exceed full-resolution storage keep their existing fallback.
+Incomplete: native frame and process-memory acceptance for HD packs, exact GUI
+sampling at high UI scales, and pack coverage beyond the supported device and
+storage bounds. This does not close a rendered parity gate.
 Pack readers share BOM, UTF-8 and Latin-1 text decoding and JSONC normalization;
 UI documents retain their existing parser recovery. Incomplete: native display
 comparison for legacy pack labels and arbitrary malformed UTF-8, and a full

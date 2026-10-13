@@ -43,6 +43,7 @@ pub(crate) struct ModelCache {
     pub(super) revision: u64,
     pub(super) models: Vec<DroppedItemModel>,
     layers: usize,
+    pixel_bytes: usize,
     pub(super) shared: Arc<[DroppedItemModel]>,
     index: HashMap<ModelKey, usize>,
     /// Bounded layer estimates and permanent block failures still demanded.
@@ -52,6 +53,8 @@ pub(crate) struct ModelCache {
     reclaimable: Vec<usize>,
     /// Free layers plus layers belonging to consumers absent from this frame.
     available: usize,
+    /// Free source bytes plus bytes belonging to consumers absent from this frame.
+    available_pixels: usize,
     demand_ready: bool,
     frame: u64,
     dirty: bool,
@@ -69,6 +72,7 @@ struct Resident {
 struct RejectedModel {
     /// None marks a block that cannot be built from the current assets.
     layers: Option<usize>,
+    pixel_bytes: Option<usize>,
     requested: u64,
 }
 
@@ -79,6 +83,22 @@ fn layer_cost(model: &DroppedItemModel) -> usize {
         DroppedItemModel::Cube(cube) => cube.faces.len(),
         DroppedItemModel::Block(block) => block.materials.len(),
         DroppedItemModel::Sprite(_) | DroppedItemModel::NativeSprite(_) => 1,
+    }
+}
+
+/// Counts retained source pixels independently of physical GPU layer expansion.
+fn pixel_cost(model: &DroppedItemModel) -> usize {
+    match model {
+        DroppedItemModel::Vacant => 0,
+        DroppedItemModel::Cube(cube) => cube.faces.iter().map(|face| face.len()).sum(),
+        DroppedItemModel::Block(block) => block
+            .materials
+            .iter()
+            .map(|(sprite, _)| sprite.rgba8.len())
+            .sum(),
+        DroppedItemModel::Sprite(sprite) | DroppedItemModel::NativeSprite(sprite) => {
+            sprite.rgba8.len()
+        }
     }
 }
 
@@ -109,6 +129,7 @@ impl ModelCache {
             .expect("model demand frame overflow");
         self.reclaimable.clear();
         self.available = MAX_ITEM_LAYERS - 1 - self.layers;
+        self.available_pixels = assets::texture::policy::MAX_SUBSCRIBER_BYTES - self.pixel_bytes;
         self.demand_ready = false;
     }
 
@@ -119,6 +140,7 @@ impl ModelCache {
             if entry.requested != self.frame {
                 if self.demand_ready {
                     self.available -= entry.layers;
+                    self.available_pixels -= pixel_cost(&self.models[slot]);
                 }
                 entry.requested = self.frame;
             }
@@ -138,6 +160,7 @@ impl ModelCache {
         });
         self.reclaimable.clear();
         self.available = MAX_ITEM_LAYERS - 1 - self.layers;
+        self.available_pixels = assets::texture::policy::MAX_SUBSCRIBER_BYTES - self.pixel_bytes;
         for (slot, entry) in self.residents.iter().enumerate().rev() {
             #[cfg(test)]
             {
@@ -146,18 +169,25 @@ impl ModelCache {
             if let Some(entry) = entry.as_ref().filter(|entry| entry.requested != self.frame) {
                 self.reclaimable.push(slot);
                 self.available += entry.layers;
+                self.available_pixels += pixel_cost(&self.models[slot]);
             }
         }
         self.demand_ready = true;
     }
 
-    /// Remembers a demanded rejection; absent layers mean a permanent block failure.
-    fn remember_rejection(&mut self, key: ModelKey, layers: Option<usize>) {
+    /// Remembers admission costs; absent layers mean a permanent block failure.
+    fn remember_rejection(
+        &mut self,
+        key: ModelKey,
+        layers: Option<usize>,
+        pixel_bytes: Option<usize>,
+    ) {
         if self.rejected.len() < MAX_ITEM_LAYERS - 1 || self.rejected.contains_key(&key) {
             self.rejected.insert(
                 key,
                 RejectedModel {
                     layers,
+                    pixel_bytes,
                     requested: self.frame,
                 },
             );
@@ -180,13 +210,21 @@ impl ModelCache {
             return None;
         }
         let estimate = match self.rejected.get(&key) {
-            Some(entry) => entry.layers,
+            Some(entry) => {
+                if entry
+                    .pixel_bytes
+                    .is_some_and(|bytes| bytes > self.available_pixels)
+                {
+                    return None;
+                }
+                entry.layers
+            }
             None => {
                 let estimate = cost();
                 if estimate.is_none()
                     && matches!(key, ModelKey::Block { .. } | ModelKey::PottedBlock { .. })
                 {
-                    self.remember_rejection(key.clone(), None);
+                    self.remember_rejection(key.clone(), None, None);
                 }
                 estimate
             }
@@ -196,12 +234,13 @@ impl ModelCache {
             return None;
         }
         if cost > self.available {
-            self.remember_rejection(key, Some(cost));
+            let pixel_bytes = self.rejected.get(&key).and_then(|entry| entry.pixel_bytes);
+            self.remember_rejection(key, Some(cost), pixel_bytes);
             return None;
         }
         let Some(model) = build() else {
             if matches!(key, ModelKey::Block { .. } | ModelKey::PottedBlock { .. }) {
-                self.remember_rejection(key, None);
+                self.remember_rejection(key, None, None);
             }
             return None;
         };
@@ -210,8 +249,16 @@ impl ModelCache {
             cost,
             "model layer estimate must match its geometry"
         );
+        let pixel_bytes = pixel_cost(&model);
+        if pixel_bytes > self.available_pixels {
+            self.remember_rejection(key, Some(cost), Some(pixel_bytes));
+            return None;
+        }
         self.rejected.remove(&key);
-        while self.layers + cost >= MAX_ITEM_LAYERS {
+        while self.layers + cost >= MAX_ITEM_LAYERS
+            || pixel_bytes
+                > assets::texture::policy::MAX_SUBSCRIBER_BYTES.saturating_sub(self.pixel_bytes)
+        {
             let slot = self
                 .reclaimable
                 .pop()
@@ -228,6 +275,7 @@ impl ModelCache {
             }
             let entry = self.residents[slot].take().expect("reclaimable resident");
             self.layers -= entry.layers;
+            self.pixel_bytes -= pixel_cost(&self.models[slot]);
             self.index.remove(&entry.key);
             self.models[slot] = DroppedItemModel::Vacant;
             self.free_slots.push(slot);
@@ -245,15 +293,42 @@ impl ModelCache {
             layers: cost,
         });
         self.layers += cost;
+        self.pixel_bytes += pixel_bytes;
         self.available -= cost;
+        self.available_pixels -= pixel_bytes;
         self.dirty = true;
         Some(slot as u32)
     }
 
-    /// Shares the resident table once after all admissions.
+    /// Whether this slot has a consumer in the current frame, including hidden candidates.
+    fn demanded(&self, slot: usize) -> bool {
+        self.residents[slot]
+            .as_ref()
+            .is_some_and(|entry| entry.requested == self.frame)
+    }
+
+    /// Publishes current demand at stable slots while keeping inactive CPU models cached.
     pub(super) fn finish_frame(&mut self) {
-        if self.dirty {
-            self.shared = Arc::from(self.models.as_slice());
+        let demand_changed = self.models.iter().enumerate().any(|(slot, _)| {
+            self.demanded(slot)
+                != self
+                    .shared
+                    .get(slot)
+                    .is_some_and(|model| !matches!(model, DroppedItemModel::Vacant))
+        });
+        if self.dirty || demand_changed {
+            self.shared = self
+                .models
+                .iter()
+                .enumerate()
+                .map(|(slot, model)| {
+                    if self.demanded(slot) {
+                        model.clone()
+                    } else {
+                        DroppedItemModel::Vacant
+                    }
+                })
+                .collect();
             self.revision = self.revision.wrapping_add(1);
             self.dirty = false;
         }
