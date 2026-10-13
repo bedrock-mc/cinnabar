@@ -19,6 +19,147 @@ fn saved_state(settings: &SettingsOptions) -> UserState {
     serde_json::from_slice(&serde_json::to_vec(&state).unwrap()).unwrap()
 }
 
+/// Delivers one queued import action to a fixture service and publishes its outcome.
+fn perform(
+    menu: &mut MenuRuntime,
+    service: &mut launcher_host::minecraft_import::Service,
+    library: &mut resource_pack::GlobalPackLibrary,
+    action: Action,
+) -> UserState {
+    menu.activate(MenuAction::MinecraftImport(action));
+    let mut requests = menu.take_minecraft_import_requests();
+    assert_eq!(requests.len(), 1);
+    let request = requests.remove(0);
+    let requested_state = request.state.clone();
+    let outcome = service.act(request, library);
+    menu.publish_minecraft_import(outcome.snapshot, outcome.state);
+    requested_state
+}
+
+#[test]
+fn import_and_revert_save_preferences_while_session_overrides_stay_active() {
+    let mut menu = MenuRuntime::new(true, 2, "Import fixture".into());
+    let path = menu
+        .config_path
+        .with_file_name(launcher::menu::settings_options::SETTINGS_FILE);
+    let data = menu.layout.user_data_root.join("synthetic-minecraft");
+    std::fs::create_dir_all(data.join("minecraftpe")).unwrap();
+    std::fs::write(
+        data.join("minecraftpe/options.txt"),
+        b"gfx_field_of_view:80",
+    )
+    .unwrap();
+    let mut service = launcher_host::minecraft_import::Service::new_with_data_root(
+        menu.layout.user_config_root.clone(),
+        data,
+    );
+    let mut library =
+        resource_pack::GlobalPackLibrary::open(menu.layout.user_data_root.join("packs"), [0; 3])
+            .unwrap();
+    let original = menu.settings_options.value("field_of_view");
+    menu.set_session_option("hide_hand", Some(1));
+    perform(&mut menu, &mut service, &mut library, Action::Begin);
+    assert_eq!(menu.view().minecraft_import.phase, Phase::Preview);
+    let requested = perform(&mut menu, &mut service, &mut library, Action::Apply);
+    assert_eq!(requested.settings.value("hide_hand"), 0);
+    assert_eq!(menu.settings_options.value("hide_hand"), 1);
+    assert_eq!(menu.settings_options.value("field_of_view"), 80);
+    menu.sync_user_settings(None);
+    let saved = SettingsOptions::load(&path);
+    assert_eq!(saved.value("hide_hand"), 0);
+    assert_eq!(saved.value("field_of_view"), 80);
+    let stored: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert!(stored["values"].get("hide_hand").is_none());
+    perform(&mut menu, &mut service, &mut library, Action::Revert);
+    perform(&mut menu, &mut service, &mut library, Action::ConfirmRevert);
+    assert_eq!(menu.settings_options.value("hide_hand"), 1);
+    assert_eq!(menu.settings_options.value("field_of_view"), original);
+    menu.sync_user_settings(None);
+    let saved = SettingsOptions::load(&path);
+    assert_eq!(saved.value("hide_hand"), 0);
+    assert_eq!(saved.value("field_of_view"), original);
+    menu.set_session_option("hide_hand", None);
+    assert_eq!(menu.settings_options.value("hide_hand"), 0);
+}
+
+#[test]
+fn published_preferences_replace_the_stored_choice_beneath_an_override() {
+    let mut menu = MenuRuntime::new(true, 2, "Import fixture".into());
+    menu.set_session_option("hide_hand", Some(0));
+    let imported = SettingsOptions::decode(br#"{"values":{"hide_hand":1}}"#).unwrap();
+    menu.publish_minecraft_import(
+        launcher::minecraft_import::Snapshot {
+            phase: Phase::Result,
+            ..Default::default()
+        },
+        Some(saved_state(&imported)),
+    );
+    assert_eq!(menu.settings_options.value("hide_hand"), 0);
+    menu.sync_user_settings(None);
+    let saved = SettingsOptions::load(
+        &menu
+            .config_path
+            .with_file_name(launcher::menu::settings_options::SETTINGS_FILE),
+    );
+    assert_eq!(saved.value("hide_hand"), 1);
+    menu.set_session_option("hide_hand", None);
+    assert_eq!(menu.settings_options.value("hide_hand"), 1);
+}
+
+#[test]
+fn import_requests_preserve_unset_distance_and_uncapped_msaa_preferences() {
+    let mut menu = MenuRuntime::new(true, 2, "Import fixture".into());
+    menu.settings_options = Arc::new(SettingsOptions::decode(br#"{"values":{"msaa":8}}"#).unwrap());
+    let device = ui::RenderDistanceDevice {
+        physical_memory_bytes: 8 << 30,
+        dedicated_graphics_memory_bytes: 4 << 30,
+        use_full_graphics_memory: false,
+    };
+    menu.sync_render_distance_device(device);
+    menu.sync_anti_aliasing_support(ui::AntiAliasingSupport::from_counts([1, 4]));
+    menu.set_session_option("render_distance", Some(50));
+    menu.set_session_option("msaa", Some(1));
+    menu.activate(MenuAction::MinecraftImport(Action::Begin));
+    let mut requests = menu.take_minecraft_import_requests();
+    assert_eq!(requests.len(), 1);
+    let state = requests.remove(0).state;
+    let stored = serde_json::to_value(&state.settings).unwrap();
+    assert!(stored["values"].get("render_distance").is_none());
+    assert_eq!(stored["values"]["msaa"], 8);
+    menu.publish_minecraft_import(
+        launcher::minecraft_import::Snapshot {
+            phase: Phase::Result,
+            ..Default::default()
+        },
+        Some(state),
+    );
+    assert_eq!(menu.settings_options.value("render_distance"), 50);
+    assert_eq!(menu.settings_options.value("msaa"), 1);
+    menu.sync_user_settings(None);
+    let stored: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            menu.config_path
+                .with_file_name(launcher::menu::settings_options::SETTINGS_FILE),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(stored["values"].get("render_distance").is_none());
+    assert_eq!(stored["values"]["msaa"], 8);
+    let device = ui::RenderDistanceDevice {
+        physical_memory_bytes: 16 << 30,
+        ..device
+    };
+    menu.sync_render_distance_device(device);
+    menu.set_session_option("render_distance", None);
+    assert_eq!(
+        menu.settings_options.value("render_distance"),
+        i32::from(device.defaults().recommended)
+    );
+    menu.set_session_option("msaa", None);
+    assert_eq!(menu.settings_options.value("msaa"), 4);
+}
+
 #[test]
 fn unavailable_worker_errors_allow_close_escape_and_generic_dismissal() {
     for dismissal in 0..3 {

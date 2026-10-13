@@ -101,7 +101,7 @@ fn run(
             let _ = outgoing.send(Event::Snapshot(snapshot.clone()));
             continue;
         }
-        let changes_lists = matches!(
+        let mut changes_lists = matches!(
             &command,
             Command::MinecraftImport(_)
                 | Command::Import(_)
@@ -138,13 +138,18 @@ fn run(
         };
         let result = match command {
             Command::MinecraftImport(request) => {
-                let outcome = minecraft_import.act(request, &mut library);
+                let (outcome, changed) = import_minecraft_data(
+                    &mut minecraft_import,
+                    request,
+                    &mut library,
+                    &mut snapshot,
+                    refresh_icons,
+                );
+                changes_lists = changed;
                 if let Some(stack) = outcome.stack {
                     import_commit_pending = true;
                     let _ = outgoing.send(Event::Apply(stack, library.active().to_vec()));
                 }
-                clear_indexed(&mut snapshot);
-                super::icons::refresh(&library, &mut snapshot, &icon_root);
                 let _ = outgoing.send(Event::MinecraftImport(outcome.snapshot, outcome.state));
                 snapshot.message.clear();
                 Ok(())
@@ -189,6 +194,25 @@ fn run(
         refresh(&library, &mut snapshot);
         let _ = outgoing.send(Event::Snapshot(snapshot.clone()));
     }
+}
+
+/// Returns the import result and whether the pack library changed, refreshing artwork only then.
+fn import_minecraft_data(
+    service: &mut launcher_host::minecraft_import::Service,
+    request: launcher_host::minecraft_import::Request,
+    library: &mut GlobalPackLibrary,
+    snapshot: &mut Snapshot,
+    refresh_icons: impl FnOnce(&GlobalPackLibrary, &mut Snapshot),
+) -> (launcher_host::minecraft_import::Outcome, bool) {
+    let catalog = library.available().to_vec();
+    let selection = library.active().to_vec();
+    let outcome = service.act(request, library);
+    let changed = library.available() != catalog || library.active() != selection;
+    if changed {
+        clear_indexed(snapshot);
+        refresh_icons(library, snapshot);
+    }
+    (outcome, changed)
 }
 
 /// Imports each selection and keeps every batch result visible, then refreshes icons once.

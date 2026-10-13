@@ -14,17 +14,7 @@ fn service(root: &Path) -> Service {
         b"1:Fixture:example.test:19132:0\nbad",
     )
     .unwrap();
-    Service {
-        config_root: root.join("cinnabar"),
-        locations: vec![locations::Location {
-            path: data,
-            label: "Fixture".into(),
-            profiles: false,
-        }],
-        sources: Vec::new(),
-        preview: None,
-        snapshot: Snapshot::default(),
-    }
+    Service::new_with_data_root(root.join("cinnabar"), data)
 }
 
 /// Supplies current preferences without account data or installed assets.

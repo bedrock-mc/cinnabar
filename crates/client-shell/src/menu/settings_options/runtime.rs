@@ -7,7 +7,9 @@ use std::{
 
 use bevy::prelude::ResMut;
 
-use launcher::menu::settings_options::{SETTINGS_OPTIONS, persistence::SETTINGS_FILE};
+use launcher::menu::settings_options::{
+    SETTINGS_OPTIONS, SettingsOptions, persistence::SETTINGS_FILE,
+};
 use {crate::menu::MenuRuntime, client_state::RuntimeSettings};
 
 /// Limits disk retries after a failed write without discarding pending preferences.
@@ -60,7 +62,7 @@ impl MenuRuntime {
     pub(in crate::menu) fn set_option(&mut self, index: u16, value: i32) {
         // A real edit replaces any session override and is saved.
         self.session_overrides
-            .retain(|(overridden, _)| *overridden != usize::from(index));
+            .retain(|preference| preference.index() != usize::from(index));
         if Arc::make_mut(&mut self.settings_options).set(usize::from(index), value) {
             self.settings_dirty = true;
             self.settings_apply = true;
@@ -87,15 +89,7 @@ impl MenuRuntime {
                 .is_none_or(|due| Instant::now() >= due)
         {
             let path = self.config_path.with_file_name(SETTINGS_FILE);
-            let saved = if self.session_overrides.is_empty() {
-                Arc::clone(&self.settings_options)
-            } else {
-                let mut persisted = (*self.settings_options).clone();
-                for &(index, value) in &self.session_overrides {
-                    persisted.set(index, value);
-                }
-                Arc::new(persisted)
-            };
+            let saved = self.persistent_settings();
             match saved.save(&path) {
                 Ok(()) => {
                     self.settings_dirty = false;
@@ -107,6 +101,18 @@ impl MenuRuntime {
                 }
             }
         }
+    }
+
+    /// Returns preferences for saves and backups without including session-only overrides.
+    pub(in crate::menu) fn persistent_settings(&self) -> Arc<SettingsOptions> {
+        if self.session_overrides.is_empty() {
+            return Arc::clone(&self.settings_options);
+        }
+        let mut settings = (*self.settings_options).clone();
+        for &preference in &self.session_overrides {
+            settings.restore_option_preference(preference);
+        }
+        Arc::new(settings)
     }
 
     /// Bridges legacy named menu actions into the persisted option registry.
@@ -130,19 +136,23 @@ impl MenuRuntime {
         let slot = self
             .session_overrides
             .iter()
-            .position(|(overridden, _)| *overridden == index);
-        let value = match (value, slot) {
-            (Some(value), Some(_)) => value,
-            (Some(value), None) => {
-                let persisted = self.settings_options.get(index);
-                self.session_overrides.push((index, persisted));
-                value
+            .position(|preference| preference.index() == index);
+        if let Some(value) = value {
+            if slot.is_none() {
+                let preference = self
+                    .settings_options
+                    .option_preference(index)
+                    .expect("registered session option");
+                self.session_overrides.push(preference);
             }
-            (None, Some(slot)) => self.session_overrides.swap_remove(slot).1,
-            (None, None) => return,
-        };
-        if Arc::make_mut(&mut self.settings_options).set(index, value) {
-            self.settings_apply = true;
+            if Arc::make_mut(&mut self.settings_options).set(index, value) {
+                self.settings_apply = true;
+            }
+        } else if let Some(slot) = slot {
+            let preference = self.session_overrides.swap_remove(slot);
+            if Arc::make_mut(&mut self.settings_options).restore_option_preference(preference) {
+                self.settings_apply = true;
+            }
         }
     }
 

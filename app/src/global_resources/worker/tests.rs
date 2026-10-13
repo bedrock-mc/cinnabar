@@ -62,6 +62,188 @@ fn import_fixture(
         .remove(0)
 }
 
+/// Sends a fixture request through the worker's import and artwork path.
+fn import_request(
+    service: &mut launcher_host::minecraft_import::Service,
+    library: &mut GlobalPackLibrary,
+    snapshot: &mut Snapshot,
+    action: launcher::minecraft_import::Action,
+    refresh_icons: impl FnOnce(&GlobalPackLibrary, &mut Snapshot),
+) -> launcher_host::minecraft_import::Outcome {
+    import_minecraft_data(
+        service,
+        launcher_host::minecraft_import::Request {
+            action,
+            state: launcher_host::minecraft_import::UserState {
+                settings: Default::default(),
+                servers: Vec::new(),
+                video: Default::default(),
+                active: library.active().to_vec(),
+            },
+        },
+        library,
+        snapshot,
+        refresh_icons,
+    )
+    .0
+}
+
+/// Supplies one user pack and its active reference without relying on installed Minecraft data.
+fn minecraft_source(root: &std::path::Path, id: u16) -> PathBuf {
+    let data = root.join("minecraft");
+    let packs = data.join("resource_packs");
+    std::fs::create_dir_all(&packs).unwrap();
+    write_fixture(&packs, id);
+    std::fs::create_dir_all(data.join("minecraftpe")).unwrap();
+    let selection =
+        format!(r#"[{{"pack_id":"00000000-0000-0000-0000-{id:012x}","version":[1,0,0]}}]"#);
+    std::fs::write(
+        data.join("minecraftpe/global_resource_packs.json"),
+        selection,
+    )
+    .unwrap();
+    data
+}
+
+#[test]
+fn unchanged_minecraft_import_requests_reuse_icons_and_selected_cards() {
+    use launcher::minecraft_import::Action as ImportAction;
+    let fixture = tempfile::tempdir().unwrap();
+    let mut library =
+        GlobalPackLibrary::open(fixture.path().join("installed"), engine_version()).unwrap();
+    let pack = import_fixture(&mut library, fixture.path(), 1);
+    library.activate(pack.id).unwrap();
+    library.apply().unwrap();
+    let mut service = launcher_host::minecraft_import::Service::new_with_data_root(
+        fixture.path().join("config"),
+        fixture.path().join("missing-data"),
+    );
+    let mut snapshot = Snapshot {
+        selected: Some((true, 0)),
+        ..Default::default()
+    };
+    snapshot
+        .icons
+        .insert((pack.id.to_string(), pack.revision), "cached-icon".into());
+    let icons = snapshot.icons.clone();
+    for action in [
+        ImportAction::NotNow,
+        ImportAction::Close,
+        ImportAction::Revert,
+    ] {
+        import_request(&mut service, &mut library, &mut snapshot, action, |_, _| {
+            panic!("unchanged import request refreshed artwork")
+        });
+        assert_eq!(snapshot.icons, icons);
+        assert_eq!(snapshot.selected, Some((true, 0)));
+    }
+}
+
+#[test]
+fn preview_reuses_icons_but_apply_and_revert_refresh_changed_pack_state() {
+    use launcher::minecraft_import::{Action as ImportAction, Phase};
+    let fixture = tempfile::tempdir().unwrap();
+    let data = minecraft_source(fixture.path(), 1);
+    let mut service = launcher_host::minecraft_import::Service::new_with_data_root(
+        fixture.path().join("config"),
+        data,
+    );
+    let mut library =
+        GlobalPackLibrary::open(fixture.path().join("installed"), engine_version()).unwrap();
+    let mut snapshot = Snapshot::default();
+    let preview = import_request(
+        &mut service,
+        &mut library,
+        &mut snapshot,
+        ImportAction::Begin,
+        |_, _| panic!("preview refreshed artwork"),
+    );
+    assert_eq!(preview.snapshot.phase, Phase::Preview);
+    let mut refreshes = 0;
+    let applied = import_request(
+        &mut service,
+        &mut library,
+        &mut snapshot,
+        ImportAction::Apply,
+        |library, _| {
+            refreshes += 1;
+            assert_eq!(library.available().len(), 1);
+            assert_eq!(library.active().len(), 1);
+        },
+    );
+    assert!(applied.state.is_some());
+    assert_eq!(refreshes, 1);
+    let confirmation = import_request(
+        &mut service,
+        &mut library,
+        &mut snapshot,
+        ImportAction::Revert,
+        |_, _| panic!("revert confirmation refreshed artwork"),
+    );
+    assert_eq!(confirmation.snapshot.phase, Phase::Revert);
+    let restored = import_request(
+        &mut service,
+        &mut library,
+        &mut snapshot,
+        ImportAction::ConfirmRevert,
+        |library, _| {
+            refreshes += 1;
+            assert_eq!(library.available().len(), 1);
+            assert!(library.active().is_empty());
+        },
+    );
+    assert!(restored.state.is_some());
+    assert_eq!(refreshes, 2);
+}
+
+#[test]
+fn artwork_refreshes_after_an_import_changes_the_catalog_then_fails() {
+    use launcher::minecraft_import::{Action as ImportAction, Phase};
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path().join("installed");
+    let mut library = GlobalPackLibrary::open(&root, engine_version()).unwrap();
+    let original = import_fixture(&mut library, fixture.path(), 1);
+    library.activate(original.id).unwrap();
+    library.apply().unwrap();
+    let data = minecraft_source(fixture.path(), 2);
+    let mut service = launcher_host::minecraft_import::Service::new_with_data_root(
+        fixture.path().join("config"),
+        data,
+    );
+    let mut snapshot = Snapshot::default();
+    let preview = import_request(
+        &mut service,
+        &mut library,
+        &mut snapshot,
+        ImportAction::Begin,
+        |_, _| panic!("preview refreshed artwork"),
+    );
+    assert_eq!(preview.snapshot.phase, Phase::Preview);
+    for file in std::fs::read_dir(&root).unwrap() {
+        let path = file.unwrap().path();
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "mcpack")
+        {
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+    let mut refreshed = false;
+    let outcome = import_request(
+        &mut service,
+        &mut library,
+        &mut snapshot,
+        ImportAction::Apply,
+        |library, _| {
+            refreshed = true;
+            assert_eq!(library.available().len(), 2);
+        },
+    );
+    assert!(outcome.state.is_none());
+    assert_eq!(outcome.snapshot.phase, Phase::Result);
+    assert!(refreshed);
+}
+
 #[test]
 fn batch_import_refreshes_icons_once_after_all_files_and_keeps_all_results() {
     let fixture = tempfile::tempdir().unwrap();

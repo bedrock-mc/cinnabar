@@ -82,6 +82,22 @@ impl Service {
         }
     }
 
+    /// Uses one synthetic data root so integration fixtures never inspect the host installation.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn new_with_data_root(config_root: PathBuf, data_root: PathBuf) -> Self {
+        Self {
+            config_root,
+            locations: vec![locations::Location {
+                path: data_root,
+                label: "Fixture".into(),
+                profiles: false,
+            }],
+            sources: Vec::new(),
+            preview: None,
+            snapshot: Snapshot::default(),
+        }
+    }
+
     /// Executes one explicit request in order, returning a visible error on failure.
     pub fn act(&mut self, request: Request, library: &mut GlobalPackLibrary) -> Outcome {
         let previous = library.active().to_vec();
@@ -89,7 +105,9 @@ impl Service {
         let (state, stack) = match result {
             Ok(result) => result,
             Err(error) => {
-                let _ = library.stage_selection(&previous);
+                if library.active() != previous {
+                    let _ = library.stage_selection(&previous);
+                }
                 tracing::warn!("Minecraft import failed: {error:#}");
                 self.snapshot.phase = Phase::Result;
                 self.snapshot.body = format!("Import could not finish: {error:#}.");
