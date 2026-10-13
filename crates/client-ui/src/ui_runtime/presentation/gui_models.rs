@@ -23,6 +23,8 @@ mod pack_equipment;
 mod sources;
 use sources::modulated;
 pub(super) use sources::{SheetCoverage, ordinary_cube_sheet, sheet_coverage, sheet_faces};
+#[cfg(test)]
+mod cube_budget;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 #[cfg(test)]
@@ -151,7 +153,7 @@ impl UiPresentationRuntime {
         }
         let mut meshes = BTreeMap::new();
         let mut held_sources = BTreeMap::new();
-        let mut see_through = BTreeSet::new();
+        let mut see_through_sources = Vec::new();
         for (visual, sprite) in &sources {
             // Every source is a cube's six faces: world cube sheets, or carried sheets the icon
             // compiler composes only for carried cubes and chests. Cut-out ones (glass, leaves)
@@ -165,45 +167,17 @@ impl UiPresentationRuntime {
             if !admitted {
                 continue;
             }
-            let icon = atlas.insert([sprite.width, sprite.height], &sprite.rgba8)?;
-            if coverage == SheetCoverage::Opaque {
-                held_sources.insert(*visual, icon);
-            } else {
-                see_through.insert(*visual);
+            if coverage != SheetCoverage::Opaque {
+                see_through_sources.push((*visual, sprite));
+                continue;
             }
+            let icon = atlas.insert([sprite.width, sprite.height], &sprite.rgba8)?;
+            held_sources.insert(*visual, icon);
             if let Some(mesh) = item_gui::cube(sheet_faces(icon)) {
                 meshes.insert(*visual, mesh);
             }
         }
         let mut models = BTreeMap::new();
-        // See-through meshes keep their thumbnail in faded controls, which draw one layer.
-        let mut optional_models = BTreeSet::new();
-        for entry in icons.entries() {
-            let Some(definition) = entities.item_visuals().iter().find(|visual| {
-                visual.key.identifier == entry.identifier && visual.key.metadata == entry.metadata
-            }) else {
-                continue;
-            };
-            let ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route else {
-                continue;
-            };
-            let Some(mesh) = meshes.get(&block_visual.0) else {
-                continue;
-            };
-            let Some(icon) = self
-                .icon_refs
-                .as_deref()
-                .and_then(|refs| refs.get(entry.sprite as usize))
-            else {
-                continue;
-            };
-            models
-                .entry(icon_key(*icon))
-                .or_insert_with(|| Arc::clone(mesh));
-            if see_through.contains(&block_visual.0) {
-                optional_models.insert(icon_key(*icon));
-            }
-        }
         if let Some(equipment) = self.equipment_catalog.as_deref() {
             for texture in equipment.textures() {
                 atlas.insert([texture.width, texture.height], &texture.rgba8)?;
@@ -233,6 +207,45 @@ impl UiPresentationRuntime {
             &held_sources,
         )?;
         let required_pages = atlas.page_count();
+        let mut see_through = BTreeSet::new();
+        let mut optional_models = BTreeSet::new();
+        for (visual, sprite) in see_through_sources {
+            // These controls can retain their thumbnails when required sources use the budget.
+            if let Some(mesh) = atlas.try_insert(
+                [([sprite.width, sprite.height], sprite.rgba8.as_ref())],
+                |icons| item_gui::cube(sheet_faces(*icons.first()?)),
+            ) {
+                meshes.insert(visual, mesh);
+                see_through.insert(visual);
+            }
+        }
+        for entry in icons.entries() {
+            let Some(definition) = entities.item_visuals().iter().find(|visual| {
+                visual.key.identifier == entry.identifier && visual.key.metadata == entry.metadata
+            }) else {
+                continue;
+            };
+            let ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route else {
+                continue;
+            };
+            let Some(mesh) = meshes.get(&block_visual.0) else {
+                continue;
+            };
+            let Some(icon) = self
+                .icon_refs
+                .as_deref()
+                .and_then(|refs| refs.get(entry.sprite as usize))
+            else {
+                continue;
+            };
+            models
+                .entry(icon_key(*icon))
+                .or_insert_with(|| Arc::clone(mesh));
+            // See-through meshes keep their thumbnail in faded controls, which draw one layer.
+            if see_through.contains(&block_visual.0) {
+                optional_models.insert(icon_key(*icon));
+            }
+        }
         if let Some(refs) = self.icon_refs.as_deref() {
             for thumbnail in icons.block_models() {
                 if let Some(icon) = refs.get(thumbnail.sprite as usize)
