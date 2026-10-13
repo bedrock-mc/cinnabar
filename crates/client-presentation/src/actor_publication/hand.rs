@@ -421,7 +421,7 @@ pub(super) fn source(
     vanilla_hand_source(inputs, equipment, hand, &mut cache.native_pose, java_mode)
 }
 
-type AnimationFrameKey = (u32, Option<u32>, u32, bool);
+type AnimationFrameKey = (u32, Option<u32>, u32, bool, u32);
 
 /// Local hand source inputs whose changes require reselection after interaction admission.
 #[derive(PartialEq)]
@@ -472,6 +472,7 @@ pub(super) fn source_key(
                     input.use_elapsed_ticks,
                     input.max_use_ticks,
                     input.hand_charged,
+                    input.frame_alpha.to_bits(),
                 )
             }),
         ),

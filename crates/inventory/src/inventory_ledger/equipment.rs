@@ -1,8 +1,8 @@
 //! Equipment admission from retained item declarations and stock defaults.
 
-use protocol::{ItemRegistryEntry, ItemRegistryVersion};
+use protocol::{ItemRegistryEntry, ItemRegistryVersion, NetworkItemStack};
 
-use super::{TOTEM_IDENTIFIER, item_roles};
+use super::{Cell, PlayerInventoryLedger, item_roles};
 
 /// Effective equipment roles; unresolved declarations do not grant admission.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -42,15 +42,24 @@ pub(super) fn equipment_admission(entry: Option<&ItemRegistryEntry>) -> Equipmen
         components.filter(|components| components.allow_off_hand_declared)
     {
         components.allow_off_hand
-    } else if !entry.component_based
-        && matches!(
-            entry.identifier.as_ref(),
-            TOTEM_IDENTIFIER | "minecraft:shield"
-        )
-    {
+    } else if !entry.component_based && item_roles::stock_offhand(&entry.identifier) {
         Some(true)
     } else {
         None
     };
     EquipmentAdmission { armor, offhand }
+}
+
+impl PlayerInventoryLedger {
+    /// How many items of `stack` may rest in `cell`: `Some(0)` when an armor
+    /// or offhand cell refuses the item, `Some(1)` for an armor cell that
+    /// admits it, and `None` when only the stack's own capacity applies.
+    pub(super) fn equipment_capacity(&self, cell: Cell, stack: &NetworkItemStack) -> Option<u16> {
+        let admission = || equipment_admission(self.negotiated_item_entry(stack.network_id));
+        match cell {
+            Cell::Armor(slot) => Some(u16::from(admission().armor == Some(slot))),
+            Cell::Offhand => (admission().offhand != Some(true)).then_some(0),
+            _ => None,
+        }
+    }
 }

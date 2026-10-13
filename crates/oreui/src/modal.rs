@@ -71,7 +71,7 @@ pub(super) fn draw(
     size: [f32; 2],
     modal: &Modal<'_>,
 ) -> Result<Option<FocusedItem>, PaintError> {
-    draw_inner(canvas, view, size, modal, false)
+    draw_inner(canvas, view, size, modal, false, size[1])
 }
 
 /// Pickers dismiss when the player presses outside the panel.
@@ -81,15 +81,28 @@ pub(super) fn draw_picker(
     size: [f32; 2],
     modal: &Modal<'_>,
 ) -> Result<Option<FocusedItem>, PaintError> {
-    draw_inner(canvas, view, size, modal, true)
+    draw_inner(canvas, view, size, modal, true, size[1])
 }
 
+/// Caps this panel's height while preserving the standard fixed header and button tray.
+pub(super) fn draw_bounded(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    size: [f32; 2],
+    modal: &Modal<'_>,
+    max_height: f32,
+) -> Result<Option<FocusedItem>, PaintError> {
+    draw_inner(canvas, view, size, modal, false, max_height)
+}
+
+/// Shares modal geometry while allowing one caller to reserve more space around its panel.
 fn draw_inner(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
     modal: &Modal<'_>,
     dismiss_overlay: bool,
+    max_height: f32,
 ) -> Result<Option<FocusedItem>, PaintError> {
     canvas.hits.clear();
     canvas.overlay(size, OVERLAY_MODAL)?;
@@ -120,7 +133,8 @@ fn draw_inner(
     } else {
         0.0
     };
-    let room = size[1] - canvas.r(MARGIN) * 2.0 - edge * 2.0 - header - tray + overlap;
+    let height_limit = max_height.min(size[1] - canvas.r(MARGIN) * 2.0);
+    let room = height_limit - edge * 2.0 - header - tray + overlap;
     let room = room.max(0.0);
     let item = canvas.r(ITEM);
     // An overflowing menu shows whole items less half of one, so a cut row signals scrolling.

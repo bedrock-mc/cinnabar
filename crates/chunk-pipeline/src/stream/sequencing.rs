@@ -81,6 +81,11 @@ impl WorldStream {
                 duration,
             } => {
                 self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
+                let work = decoded.decode_work();
+                self.stats.publication_stages.inline_sections_decoded +=
+                    work.decoded_sections as u64;
+                self.stats.publication_stages.inline_sections_reused += work.reused_sections as u64;
+                self.stats.publication_stages.inline_decode_worker_time += duration;
                 let key = ChunkKey::new(event.dimension, event.x, event.z);
                 if !self.column_is_data_interesting(key) {
                     self.record_normalization_error(NormalizationErrorReason::InactiveInlineChunk);
@@ -162,19 +167,12 @@ impl WorldStream {
                 let mut changed_sources = applied.changed.into_iter().collect::<BTreeSet<_>>();
                 changed_sources.extend(new_keys.difference(&old_keys).copied());
                 changed_sources.extend(old_keys.difference(&new_keys).copied());
-                if light_neutral.is_empty() {
-                    self.mark_changed_sources_with_mesh_dirty(
-                        changed_sources,
-                        preexpanded_dirty,
-                        now,
-                    );
-                } else {
-                    let (unlit, relit) = changed_sources
-                        .into_iter()
-                        .partition::<BTreeSet<_>, _>(|key| light_neutral.contains(key));
-                    self.mark_changed_sources_with_mesh_dirty(relit, preexpanded_dirty, now);
-                    self.mark_light_neutral_sources(unlit, now);
-                }
+                self.mark_inline_changed_sources(
+                    changed_sources,
+                    preexpanded_dirty,
+                    &light_neutral,
+                    now,
+                );
                 self.stats.last_chunk_commit_at = Some(now);
             }
             PreparedWorldEvent::RequestLevelChunk {
@@ -372,6 +370,7 @@ impl WorldStream {
                                 NormalizationErrorReason::BlockMutationFailure,
                             );
                         } else {
+                            self.reconcile_intermediate_block_cracks(&prepared.crack_intermediates);
                             self.queue_actor_block_syncs(events);
                         }
                     }
@@ -518,6 +517,7 @@ impl WorldStream {
                 self.clear_block_events();
                 self.evict_all_resident();
                 self.block_entity_visuals.clear();
+                self.biome_records = None;
                 self.authority.reset_dimension(sequence, change.dimension);
                 let resolved = self.authority.resolve_position(change.position);
                 self.local_player_chunk = None;

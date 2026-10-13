@@ -83,7 +83,7 @@ impl PlayerInventoryLedger {
         }
         self.item_registry = Some(std::sync::Arc::new(next));
         self.refresh_fuel_facts();
-        self.retire_rerouted_furnace_moves();
+        self.retire_rerouted_quick_moves();
         self.refold();
     }
 

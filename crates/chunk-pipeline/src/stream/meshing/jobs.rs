@@ -249,7 +249,7 @@ impl WorldStream {
             let classifier = self.classifier;
             let network_id_mode = self.authority.network_id_mode();
             let runtime_assets = Arc::clone(self.authority.runtime_assets());
-            let resolved_biome_tints = Arc::clone(self.authority.resolved_biome_tints());
+            let biome_records = self.biome_record_cache(key.dimension);
             let tint_identity = self.biome_tint_identity();
             let dispatched_at = Instant::now();
             dispatch.spawn(pending.urgent, move || {
@@ -263,7 +263,7 @@ impl WorldStream {
                 let source = Arc::clone(&snapshot.center);
                 let biome_sources = snapshot.biomes.clone();
                 let light_halo = snapshot.light_halo.clone();
-                let biome = pack_biome_record(&biome_sources, &resolved_biome_tints);
+                let biome = biome_records.record(&biome_sources);
                 let mesh = if cancelled.load(Ordering::Acquire) {
                     ChunkMesh::default()
                 } else {
@@ -292,6 +292,8 @@ impl WorldStream {
                     duration: started.elapsed(),
                     urgent: pending.urgent,
                 };
+                #[cfg(feature = "benchmark-support")]
+                super::super::benchmark_support::biomes::observe_mesh(completion.duration);
                 #[cfg(feature = "tracy")]
                 drop(_zone);
                 #[cfg(feature = "tracy")]

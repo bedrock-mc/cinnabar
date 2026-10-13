@@ -63,9 +63,14 @@ fn assert_exact_round_trip(packet: &protocol::Packet, fixture: &[u8]) {
 }
 
 #[test]
-fn protocol_constants_are_pinned_to_1_26_50() {
-    assert_eq!(GAME_VERSION, "1.26.50");
-    assert_eq!(PROTOCOL_VERSION, 2193);
+fn protocol_constants_match_the_pinned_target() {
+    let target: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../assets/bedrock-target.json")).unwrap();
+    assert_eq!(GAME_VERSION, target["game_version"].as_str().unwrap());
+    assert_eq!(
+        i64::from(PROTOCOL_VERSION),
+        target["wire_protocol"].as_i64().unwrap()
+    );
 }
 
 #[test]

@@ -18,7 +18,7 @@ impl PlayerInventoryLedger {
         }
         self.fuel_catalog = Some(catalog);
         self.refresh_fuel_facts();
-        self.retire_rerouted_furnace_moves();
+        self.retire_rerouted_quick_moves();
         self.refold();
     }
 
