@@ -18,3 +18,6 @@ pub(crate) fn apply(descriptor: &mut RenderPipelineDescriptor, cutout: bool) {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod actor_uv_boundary_tests;

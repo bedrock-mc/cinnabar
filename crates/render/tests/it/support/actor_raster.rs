@@ -42,6 +42,11 @@ pub(crate) fn cube(size: [u32; 3], top: bool, bottom: bool) -> Vec<ActorRigVerte
 }
 
 pub(crate) fn source(gamma: bool) -> String {
+    source_with_definitions(gamma, &[])
+}
+
+/// Compiles the production actor entry points with the selected fixture variants.
+fn source_with_definitions(gamma: bool, definitions: &[&str]) -> String {
     let actor = include_str!("../../../src/actor.wesl")
         .replace(
             "ACTOR_GPU_INSTANCE_WORDS",
@@ -51,7 +56,11 @@ pub(crate) fn source(gamma: bool) -> String {
             "ACTOR_RIG_VERTEX_WORDS",
             &render_model::ACTOR_RIG_VERTEX_WORDS.to_string(),
         );
-    shader_source::standalone(&actor, if gamma { &["ACTOR_GAMMA_BLEND"] } else { &[] })
+    let mut definitions = definitions.to_vec();
+    if gamma {
+        definitions.push("ACTOR_GAMMA_BLEND");
+    }
+    shader_source::standalone(&actor, &definitions)
         .replace("@group(1) @binding(0)", "@group(0) @binding(20)")
         .replace("@group(1) @binding(1)", "@group(0) @binding(21)")
 }
@@ -141,6 +150,41 @@ pub(crate) fn raster_material_with_overlay(
     light: u32,
     overlay_rgba8: u32,
     tint_rgba8: u32,
+) -> Vec<u8> {
+    raster_material_with_state(
+        gpu,
+        vertices,
+        material,
+        below,
+        texels,
+        srgb,
+        gamma,
+        light,
+        overlay_rgba8,
+        tint_rgba8,
+        &[],
+        gpu_snapshot::RasterState::default(),
+    )
+}
+
+/// Renders the production actor vertex and fragment entry points under explicit raster state.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "each knob is an independent shader input under test"
+)]
+pub(crate) fn raster_material_with_state(
+    gpu: &Gpu,
+    vertices: &[ActorRigVertex],
+    material: render_model::ActorMaterial,
+    below: bool,
+    texels: [[u8; 4]; 2],
+    srgb: bool,
+    gamma: bool,
+    light: u32,
+    overlay_rgba8: u32,
+    tint_rgba8: u32,
+    definitions: &[&str],
+    state: gpu_snapshot::RasterState,
 ) -> Vec<u8> {
     let clip = Mat4::from_cols(
         Vec4::new(2.0, 0.0, 0.0, 0.0),
@@ -300,8 +344,18 @@ pub(crate) fn raster_material_with_overlay(
         write_depth: material.state.is_none_or(|state| state.depth_write),
     }];
     if srgb {
-        gpu.render_srgb(&source(gamma), "actor_vertex", &draws)
+        gpu.render_srgb_with_state(
+            &source_with_definitions(gamma, definitions),
+            "actor_vertex",
+            &draws,
+            state,
+        )
     } else {
-        gpu.render(&source(gamma), "actor_vertex", &draws)
+        gpu.render_with_state(
+            &source_with_definitions(gamma, definitions),
+            "actor_vertex",
+            &draws,
+            state,
+        )
     }
 }
