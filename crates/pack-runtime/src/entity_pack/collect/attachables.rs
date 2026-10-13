@@ -8,7 +8,7 @@ pub(super) fn collect(
     vanilla_pack_dir: Option<&Path>,
     overrides: &BTreeSet<String>,
     vanilla: Option<&VanillaEntityRefs>,
-    inputs: Option<&pack_compiler::EquipmentBindingDependencies>,
+    inputs: Option<&pack_entity_compiler::EquipmentBindingDependencies>,
 ) -> Vec<(Box<str>, Vec<u8>)> {
     let mut files = view
         .list("attachables/")
@@ -130,7 +130,7 @@ pub(super) fn binding_inputs_unchanged(
     authored_items: &BTreeSet<String>,
     overrides: &BTreeSet<String>,
     vanilla: Option<&VanillaEntityRefs>,
-    inputs: Option<&pack_compiler::EquipmentBindingDependencies>,
+    inputs: Option<&pack_entity_compiler::EquipmentBindingDependencies>,
 ) -> bool {
     let Some(mut references) = inputs.and_then(|inputs| inputs.names(document).ok()) else {
         // Unreadable inputs cannot prove the installed binding remains unchanged.

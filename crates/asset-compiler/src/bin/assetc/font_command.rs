@@ -1,5 +1,5 @@
 use super::*;
-use pack_compiler::{
+use pack_font_compiler::{
     CompiledFontCarrier, GlyphAdvances, OutlineFontConfig, compile_native_outline_rasters,
     compile_outline_font, compile_outline_font_with_fallback,
 };
@@ -136,7 +136,7 @@ pub(super) fn compile_pinned(
         return compile_grid(font, &bytes, face, manifest_hash);
     }
     let rasters = compile_native_outline_rasters(font, &bytes, manifest_hash)?;
-    let mut report = pack_compiler::FontCompileReport {
+    let mut report = pack_font_compiler::FontCompileReport {
         schema: assets::FONT_FACE_BUNDLE_SCHEMA,
         glyphs: 0,
         pages: 0,

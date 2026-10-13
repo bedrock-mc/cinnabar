@@ -73,7 +73,7 @@ pub(super) fn retain(
         .iter()
         .map(|record| {
             let (binding_name, source_faces, source_rotations) =
-                crate::pack::runtime_binding_identity(&pack.blocks, record);
+                pack_compile_input::pack::runtime_binding_identity(&pack.blocks, record);
             BlockTextureSource {
                 visual: record.sequential_id,
                 name: record.name.clone(),
@@ -87,10 +87,14 @@ pub(super) fn retain(
                     materials,
                 ),
                 carried_fallback_keys: BlockFace::ALL.map(|face| {
-                    crate::pack::resolve_carried_fallback_key(&pack.blocks, record, face)
+                    pack_compile_input::pack::resolve_carried_fallback_key(
+                        &pack.blocks,
+                        record,
+                        face,
+                    )
                 }),
                 carried_keys: BlockFace::ALL.map(|face| {
-                    crate::pack::resolve_carried_face_key(&pack.blocks, record, face)
+                    pack_compile_input::pack::resolve_carried_face_key(&pack.blocks, record, face)
                         .map(Into::into)
                 }),
             }
@@ -126,7 +130,7 @@ fn cube_binding_eligible(
         && visual.variant == 0
         && visual.flags.contains(BlockFlags::CUBE_GEOMETRY)
         && !visual.flags.contains(BlockFlags::LEAF_MODEL)
-        && crate::pack::has_runtime_cube_face_mapping(record)
+        && pack_compile_input::pack::has_runtime_cube_face_mapping(record)
         && visual.faces.iter().all(|&id| {
             id != assets::DIAGNOSTIC_MATERIAL
                 && materials
@@ -134,9 +138,15 @@ fn cube_binding_eligible(
                     .is_some_and(|material| material.flags & assets::MATERIAL_FLAG_TINT_MASK == 0)
         })
         && BlockFace::ALL.into_iter().all(|face| {
-            crate::pack::resolve_carried_face_key(&pack.blocks, record, face)
+            pack_compile_input::pack::resolve_carried_face_key(&pack.blocks, record, face)
                 .map(Into::<Box<str>>::into)
-                .or_else(|| crate::pack::resolve_carried_fallback_key(&pack.blocks, record, face))
+                .or_else(|| {
+                    pack_compile_input::pack::resolve_carried_fallback_key(
+                        &pack.blocks,
+                        record,
+                        face,
+                    )
+                })
                 .is_some_and(|key| !pack.terrain.requires_tint(&key))
         })
 }

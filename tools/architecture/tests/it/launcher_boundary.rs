@@ -52,9 +52,24 @@ fn fixture() -> tempfile::TempDir {
 /// Replace one crate manifest with the requested dependency declarations.
 fn set_dependencies(root: &Path, name: &str, dependencies: &str) {
     write(
-        &root.join("crates").join(name).join("Cargo.toml"),
+        &root.join(crate_path(root, name)).join("Cargo.toml"),
         &format!("[package]\nname='{name}'\nversion='0.1.0'\n{dependencies}\n"),
     );
+}
+
+/// Reads a fixture package's directory from the real ownership policy.
+fn crate_path(root: &Path, name: &str) -> String {
+    let policy: toml::Value =
+        toml::from_str(&fs::read_to_string(root.join("policy.toml")).unwrap()).unwrap();
+    policy["crates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|rule| rule["name"].as_str() == Some(name))
+        .unwrap()["path"]
+        .as_str()
+        .unwrap()
+        .to_owned()
 }
 
 /// Return all diagnostics from the fixture's copy of the real policy.
@@ -403,31 +418,44 @@ fn stream_facade_alias_cannot_enable_publication_fixtures_in_production() {
 
 #[test]
 fn reusable_compilation_stays_out_of_ui_production_and_launcher_dependencies() {
-    for kind in ["dependencies", "build-dependencies"] {
-        let temp = fixture();
-        set_dependencies(
-            temp.path(),
-            "client-ui",
-            &format!("[{kind}]\ncompiler={{package='pack-compiler',path='../pack-compiler'}}"),
-        );
-        assert!(
-            diagnostics(temp.path())
-                .iter()
-                .any(|line| line == "client-ui: forbidden dependency `pack-compiler`")
-        );
-    }
-    for kind in ["dependencies", "build-dependencies", "dev-dependencies"] {
-        let temp = fixture();
-        set_dependencies(
-            temp.path(),
-            "launcher",
-            &format!("[{kind}]\ncompiler={{package='pack-compiler',path='../pack-compiler'}}"),
-        );
-        assert!(
-            diagnostics(temp.path())
-                .iter()
-                .any(|line| line
-                    == "launcher: forbidden dependency path `launcher -> pack-compiler`")
-        );
+    for compiler in [
+        "pack-compiler",
+        "pack-compile-input",
+        "pack-entity-compiler",
+        "pack-font-compiler",
+    ] {
+        for kind in ["dependencies", "build-dependencies"] {
+            let temp = fixture();
+            set_dependencies(
+                temp.path(),
+                "client-ui",
+                &format!(
+                    "[{kind}]\ncompiler={{package='{compiler}',path='../{}'}}",
+                    crate_path(temp.path(), compiler)
+                        .strip_prefix("crates/")
+                        .unwrap()
+                ),
+            );
+            assert!(
+                diagnostics(temp.path())
+                    .iter()
+                    .any(|line| line == &format!("client-ui: forbidden dependency `{compiler}`"))
+            );
+        }
+        for kind in ["dependencies", "build-dependencies", "dev-dependencies"] {
+            let temp = fixture();
+            set_dependencies(
+                temp.path(),
+                "launcher",
+                &format!(
+                    "[{kind}]\ncompiler={{package='{compiler}',path='../{}'}}",
+                    crate_path(temp.path(), compiler)
+                        .strip_prefix("crates/")
+                        .unwrap()
+                ),
+            );
+            assert!(diagnostics(temp.path()).iter().any(|line| line
+                == &format!("launcher: forbidden dependency path `launcher -> {compiler}`")));
+        }
     }
 }

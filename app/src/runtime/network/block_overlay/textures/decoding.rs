@@ -91,7 +91,7 @@ impl TextureCatalog<'_> {
             && image.baked_tint.is_none()
             && let Some(tint) = choice.tint
         {
-            pack_compiler::apply_atlas_tint(&mut image.texture.rgba8, tint);
+            pack_compile_input::apply_atlas_tint(&mut image.texture.rgba8, tint);
         }
         if image.is_none() {
             let reason = diagnostics::failure_reason(self.view, path);

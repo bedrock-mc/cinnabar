@@ -5,7 +5,7 @@ use {
         MODEL_QUAD_FLAG_TWO_SIDED, ModelFamily, ModelStateField, RegistryRecord, VisualKind,
         read_registry,
     },
-    pack_compiler::{read_pack, resolve_texture_key},
+    pack_compile_input::{read_pack, resolve_texture_key},
     std::{collections::HashSet, fmt::Write as FmtWrite, path::Path},
 };
 

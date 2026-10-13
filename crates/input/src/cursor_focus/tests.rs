@@ -77,3 +77,18 @@ fn programmatic_screen_return_cannot_authorize_delayed_capture() {
     focus.begin_frame(true);
     assert!(!focus.allow_capture(false, false));
 }
+
+/// Grab-free capture ends with focus and needs fresh authorization before it counts again.
+#[test]
+fn focus_loss_ends_grab_free_capture() {
+    let mut focus = CursorFocus::default();
+    focus.set_grab_free_capture(true);
+    assert!(focus.grab_free_capture());
+    focus.begin_frame(false);
+    assert!(!focus.grab_free_capture());
+    focus.begin_frame(true);
+    focus.set_grab_free_capture(true);
+    assert!(!focus.grab_free_capture(), "waits for an explicit return");
+    assert!(focus.allow_capture(false, true));
+    assert!(focus.grab_free_capture());
+}

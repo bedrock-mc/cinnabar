@@ -300,10 +300,10 @@ pub(super) fn hand_fixture() -> (
         .save(pack.0.join("textures/entity/test.png"))
         .unwrap();
     let manifest = include_bytes!("../../../assets/vanilla-source.json");
-    let compiled = pack_compiler::compile_entity_assets(&pack.0, manifest).unwrap();
+    let compiled = pack_entity_compiler::compile_entity_assets(&pack.0, manifest).unwrap();
     let bytes = encode_entity_blob(&compiled).unwrap();
     let entities = std::sync::Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
-    let actor = pack_compiler::compile_actor_assets(&pack.0, manifest).unwrap();
+    let actor = pack_entity_compiler::compile_actor_assets(&pack.0, manifest).unwrap();
     let catalog = RuntimeActorCatalog::decode(&actor.bytes, &entities).unwrap();
     let artwork = render_model::ActorArtworkPages::new(&catalog);
     let geometry = render_model::ViewmodelGeometry::from_runtime(&entities, &artwork).unwrap();

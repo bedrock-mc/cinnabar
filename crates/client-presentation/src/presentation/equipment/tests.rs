@@ -486,7 +486,7 @@ fn pack_catalog(
     Arc<assets::RuntimeEntityAssets>,
     Arc<assets::RuntimeEquipmentCatalog>,
 ) {
-    let compiled = pack_compiler::compile_actor_pack(files)
+    let compiled = pack_entity_compiler::compile_actor_pack(files)
         .unwrap()
         .expect("pack compiles");
     let catalog = Arc::new(
