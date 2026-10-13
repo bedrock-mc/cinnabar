@@ -65,11 +65,6 @@ fn reference(view: &MenuView) -> Option<&'static str> {
 }
 
 #[test]
-fn the_pause_store_button_names_the_server_store() {
-    assert_eq!(server_store_text(&|_| None), "Server Store");
-}
-
-#[test]
 fn dressing_room_buttons_open_the_skin_library_and_preserve_profile_routes() {
     for screen in [MenuScreen::Home, MenuScreen::Pause] {
         let shown = view(screen);
@@ -253,29 +248,6 @@ fn the_pause_friends_drawer_invites_only_while_hosting() {
     assert_eq!(
         press(&home),
         Some(MenuAction::Navigate(MenuScreen::Friends))
-    );
-}
-
-#[test]
-fn the_start_screen_marketplace_button_opens_the_store_and_its_presses_route_to_it() {
-    let home = view(MenuScreen::Home);
-    assert_eq!(
-        action_for(&home, &region(HitKind::Button, Some("button.menu_store"))),
-        Some(MenuAction::Store(launcher::store::StoreAction::Open))
-    );
-    let mut store = view(MenuScreen::Store);
-    assert!(
-        reference(&store).is_none(),
-        "no engine screen until the store publishes"
-    );
-    store.store = Some(std::sync::Arc::new(launcher::store::StoreSnapshot::empty()));
-    assert_eq!(
-        reference(&store),
-        Some("store_layout.store_data_driven_screen")
-    );
-    assert_eq!(
-        action_for(&store, &region(HitKind::Button, Some("button.menu_exit"))),
-        Some(MenuAction::Store(launcher::store::StoreAction::Back))
     );
 }
 

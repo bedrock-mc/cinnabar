@@ -32,6 +32,11 @@ fn compose() -> ScreenRegistry {
     ui_screens::hud::register(&mut registry);
     let catalog = registry.catalog_mut();
     catalog.layer_builtin(ui_screens::menu_renderers::install_brand_overlays);
+    catalog.layer_builtin(ui_screens::menu_policy::apply);
+    catalog.after_layers(|catalog, _| {
+        ui_screens::menu_policy::apply(catalog);
+        Vec::new()
+    });
     catalog.layer_builtin(ui_screens::loading_screen::install_brand_layout);
     catalog.layer_builtin(ui_screens::disconnect_retry::install);
     catalog.layer_builtin(ui_screens::enhanced_setting::install);

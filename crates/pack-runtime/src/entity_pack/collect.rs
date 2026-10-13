@@ -90,7 +90,8 @@ impl References {
 /// Every entity source of the stack as `(pack-relative path, bytes)`. Named definitions are
 /// merged into one file per family with the highest layer winning each identifier (a vanilla
 /// client keeps the last definition it loads); definitions the actors reference but the
-/// stack lacks come from `vanilla`. Reads named rasters and the shared enchantment rasters.
+/// stack lacks come from `vanilla`. Reads named rasters, painting overrides, and shared
+/// enchantment rasters. Missing painting overrides remain tracked reload dependencies.
 pub fn collect_files(
     view: &LayeredPackView,
     vanilla: Option<&VanillaEntityRefs>,
@@ -191,8 +192,20 @@ pub fn collect_files(
     files.extend(geometry);
     let mut textures = referenced_textures(&files);
     textures.extend(assets::entity::GLINT_TEXTURE_IDENTIFIERS.map(str::to_owned));
+    let paintings = assets::painting::PAINTING_MOTIVES
+        .iter()
+        .map(|motive| motive.texture())
+        .chain(std::iter::once(assets::painting::PAINTING_ATLAS.to_owned()))
+        .filter(|stem| !textures.contains(stem))
+        .collect::<BTreeSet<_>>();
+    textures.extend(paintings.iter().cloned());
     for stem in textures {
-        if let Some(texture) = texture_file(view, vanilla_pack_dir, &stem) {
+        let fallback = if paintings.contains(&stem) {
+            None
+        } else {
+            vanilla_pack_dir
+        };
+        if let Some(texture) = texture_file(view, fallback, &stem) {
             files.push(texture);
         }
     }

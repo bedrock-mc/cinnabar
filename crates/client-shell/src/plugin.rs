@@ -37,7 +37,7 @@ impl Plugin for ClientShellPlugin {
                 menu::screen_focus::publish_screen_focus
                     .in_set(ClientFrameSet::UiAuthority)
                     .in_set(ShellFrameSet::Focus)
-                    .after(ShellFrameSet::Store),
+                    .after(ShellFrameSet::Session),
             )
             .add_systems(
                 Update,

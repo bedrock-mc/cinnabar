@@ -18,7 +18,6 @@ Pack paths are relative to the install-fetched resource pack pinned by
 | Inventory geometry | `ui/inventory_screen.json:987,1047,1114,1170` and `ui/ui_common.json:3794,5180` define inventory placement. |
 | Pause dimming | `ui/pause_screen.json:1181` defines full-screen background alpha 0.1 and an additional left panel. |
 | Home player and Profile | `ui/start_screen.json` uses `#is_paper_doll_visible` and `#profile_button_a_visible`. |
-| Marketplace ribbons | Preserve `messageText.bannerText`, artwork and RGB color data for `ui/start_screen.json:1626,2031`. |
 
 The supplied `inbox-vanilla.png` establishes the five categories and list layout.
 The installed PlayCover OreUI `index-168bae443ec79c00823c.js` corroborates the
@@ -90,10 +89,10 @@ its stronger left panel is intentional. No extra darkening was introduced.
 
 The core preserves item-list artwork, `messageText.bannerText` and RGB color
 fields previously lost in the service decoder. The normal runtime artwork cache
-and JSON-UI bindings supply the Marketplace layers and ribbon. No campaign is
+and JSON-UI bindings supply the Play-button layers and ribbon. No campaign is
 fabricated when the service has supplied no artwork.
 
-Inbox lists the native categories, uses received dates for Recent/History, and
+Inbox lists News, Realms, Invites and Feedback, uses received dates for Recent/History, and
 shows title, source, date, unread marker and a separate Delete button. Opening a
 message displays a scrollable detail view and reports its read action. Deletion
 requires confirmation. Optimistic read/delete identities survive stale refreshes.

@@ -33,6 +33,8 @@ mod item_registry;
 mod level_chunk_wire_failure;
 #[path = "login_state/modal_forms.rs"]
 mod modal_forms;
+#[path = "login_state/unused_store_packets.rs"]
+mod unused_store_packets;
 use disconnect_reason::{
     PlayEpilogue, boundary_epilogue, camera_instruction_epilogue_packets, skipped_epilogue_wire,
     truncated_epilogue_wire,
