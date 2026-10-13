@@ -28,7 +28,7 @@ the selected tiles; a still camera uploads and rebuilds nothing. Cells are lit a
 terrain faces and fogged with the terrain fog, which is unchanged. The render distance is how
 far the player sees: far terrain fills the gap between what the server sends and the render
 distance, within a budget set by the device tier (`render_api::far_terrain`). Video › Far
-Terrain (LOD) turns it on or off (default on).
+Terrain (LOD) turns it on or off (default off).
 
 Incomplete: the far-terrain look (cell colours, height aggregation and water blending) is held
 for owner review. Enhanced rendering lights far terrain with the vanilla path,

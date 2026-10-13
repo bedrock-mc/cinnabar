@@ -20,8 +20,7 @@ mod post;
 #[cfg(feature = "enhanced")]
 mod shadows;
 #[cfg(feature = "enhanced")]
-mod snapshot;
-pub(crate) use snapshot::EnhancedSnapshotLabel;
+pub(crate) mod snapshot;
 #[cfg(all(test, feature = "enhanced"))]
 mod validation;
 
