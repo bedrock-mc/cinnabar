@@ -1558,9 +1558,14 @@ frame-budget or identical-version pixel gates.
 - Sleepers turn by the bed's sleep rotation: the bed at the streamed bed
   position faces south 90, west 0, north 270 and east 180 degrees, and a sleeper without a
   bed position reads 0. The local sleeper presents lying on the bed top at the block centre,
-  with its eye at the sleeping offset, while its physics stays where it stood. Java animations
-  retain that sleeping eye height. The sleeping view rotation is captured with the camera pose
-  and its publication proof so named audio keeps an eligible first-person camera. Provisional:
+  with its eye at the sleeping offset, while its physics stays where it stood. One shared pose
+  samples loaded bed headings before Camera, including frames without actor ticks, and feeds
+  camera publication, actor camera queries, body placement and particle attachments. Sleep
+  transitions reanchor camera history once; stable sleeping frames retain motion-blur history.
+  Actor transitions also reanchor displacement and cape position history without restarting
+  animation; stable frames preserve that history.
+  Java animations retain the sleeping eye height, and named audio keeps an eligible first-person
+  camera. Gameplay look stays independent. Provisional:
   the first-person view looks level from the pillow toward the foot, and third person keeps
   its ordinary orbit around the body; the native sleeping camera is unmeasured.
 - Falling blocks retain variant metadata, full block geometry and packet-centred

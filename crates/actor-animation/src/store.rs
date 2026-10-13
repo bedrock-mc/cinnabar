@@ -168,6 +168,24 @@ impl ActorAnimationStore {
         }
     }
 
+    /// Reanchors displacement and cape history without restarting animation clocks or controllers.
+    pub fn reanchor_position(&mut self, runtime_id: u64, position: [f32; 3]) {
+        if !position.iter().all(|value| value.is_finite()) {
+            return;
+        }
+        let Some(state) = self
+            .runtime_to_lifetime
+            .get(&runtime_id)
+            .and_then(|id| self.rigs.get_mut(id))
+        else {
+            return;
+        };
+        if let Some(input) = state.history.back_mut() {
+            state.java.reanchor_position(input.position, position);
+            input.position = position;
+        }
+    }
+
     /// Drops Java's equip progress to zero at the actor's next tick.
     pub fn reset_java_equip(&mut self, runtime_id: u64) {
         let Some(lifetime) = self.runtime_to_lifetime.get(&runtime_id) else {

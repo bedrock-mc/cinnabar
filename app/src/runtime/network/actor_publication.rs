@@ -134,10 +134,14 @@ pub(crate) fn advance_actor_frame(
             gameplay::melee::java_swing_duration(mining_effects),
         ),
     );
+    let (predicted_eye, predicted_feet) = view.actor_positions(
+        physics.render_eye_position(),
+        physics.render_feet_position(),
+    );
     let input = ActorFrameInput {
         local_feed,
-        predicted_eye: physics.render_eye_position(),
-        predicted_feet: physics.render_feet_position(),
+        predicted_eye,
+        predicted_feet,
         local_equipment,
         swing_progress: None,
         // Resolving the screen policy is UI work, attributed as such inside actor publication.

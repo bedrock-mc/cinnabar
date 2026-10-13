@@ -364,7 +364,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         interaction.invalidate();
         return;
     };
-    stream.set_view_forward((view.rotation() * Vec3::NEG_Z).to_array());
+    stream.set_view_forward((view.camera_rotation() * Vec3::NEG_Z).to_array());
     // Adds to the between-frames service's work already recorded for this frame.
     frame_poll.report.accumulate(stream.poll(
         view.eye_translation().to_array(),
