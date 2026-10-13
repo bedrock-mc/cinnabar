@@ -395,14 +395,14 @@ mod tests {
 
     #[test]
     fn backward_page_turns_follow_the_same_cycle_as_forward_turns() {
-        for step in 0..100 {
-            let progress = step as f32 / 100.0;
+        for step in 0..128 {
+            let progress = step as f32 / 128.0;
             let forward = page_turns(progress);
-            let backward = page_turns(progress - 4.0);
-            for (actual, expected) in backward.into_iter().zip(forward) {
-                assert!(
-                    (actual - expected).abs() < 1.0e-5,
-                    "page progress {progress}: backward {actual}, forward {expected}"
+            for cycle in [-16.0, -4.0, -1.0, 0.0, 1.0, 4.0] {
+                assert_eq!(
+                    page_turns(progress + cycle),
+                    forward,
+                    "page progress {progress} in cycle {cycle}"
                 );
             }
         }

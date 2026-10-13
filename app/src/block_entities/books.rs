@@ -48,7 +48,7 @@ impl TableBooks {
         book.pose(self.partial)
     }
 
-    /// Forgets books no draw advanced this frame.
+    /// Forgets books not advanced this frame; hidden books that advanced remain resident.
     pub(super) fn finish(&mut self) {
         let seen = &self.seen;
         self.books.retain(|position, _| seen.contains(position));

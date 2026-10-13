@@ -1,6 +1,7 @@
 use protocol::{BlockEventEvent, WorldBootstrap, WorldEvent};
 use render_model::{BellAttachment, ChestModel, ChestPair, ChestVariant, Facing, ItemFrameModel};
 
+use super::super::describe::PlantBlock;
 use super::*;
 
 /// A stream, registries, font and textured scene for resolving templates outside the system.
@@ -10,9 +11,12 @@ struct Fixture {
     font: Arc<RuntimeFontCatalog>,
     runtime: BlockEntityRuntime,
     scene: BlockEntityScene,
+    readers: Vec<Vec3>,
+    held: Vec<StaticItemPlacement>,
 }
 
 impl Fixture {
+    /// Creates a stream and scene with embedded fixtures and no book readers.
     fn new() -> Self {
         let breg = assets::pinned_block_registry_bytes();
         let records = assets::read_registry_for_protocol(breg, 2193).unwrap();
@@ -40,6 +44,8 @@ impl Fixture {
             font: ui_engine::test_support::fixture_font(),
             runtime: BlockEntityRuntime::new(),
             scene: block_entity_scene(Some(&RuntimeBlockEntityAssets::decode(&atlas).unwrap())),
+            readers: Vec::new(),
+            held: Vec::new(),
         }
     }
 
@@ -58,7 +64,7 @@ impl Fixture {
             delta_seconds: delta,
             now_seconds: now,
             font: &self.font,
-            readers: &[],
+            readers: &self.readers,
         };
         resolve(
             template,
@@ -66,7 +72,7 @@ impl Fixture {
             &context,
             &mut self.runtime,
             &mut self.scene,
-            &mut Vec::new(),
+            &mut self.held,
             hidden,
         )
     }
@@ -203,23 +209,79 @@ fn signs_hidden_from_their_first_frame_reveal_with_resident_text() {
 
 #[test]
 fn hidden_enchanting_books_resume_without_restarting_their_animation() {
-    let mut visible = Fixture::new();
-    let mut occluded = Fixture::new();
     let template = Template::EnchantTable;
     let position = [0, 64, 0];
-    for tick in 0..=10 {
-        visible.runtime.books.begin(f64::from(tick));
-        occluded.runtime.books.begin(f64::from(tick));
-        let frame = (f64::from(tick), 0.0);
-        let expected = visible.resolve(&template, position, frame, false);
-        let hidden = tick > 0 && tick < 10;
-        let actual = occluded.resolve(&template, position, frame, hidden);
-        if hidden {
-            assert_eq!(actual, None, "hidden books submit no geometry");
-        } else {
-            assert_eq!(actual, expected, "revealing preserves completed book ticks");
+    // The local eye is far away; a stationary remote reader keeps the book open.
+    let reader = Vec3::new(0.5, 65.62, 2.0);
+    for hidden_from_start in [false, true] {
+        let mut visible = Fixture::new();
+        let mut occluded = Fixture::new();
+        visible.readers.push(reader);
+        occluded.readers.push(reader);
+        for tick in 0..=40 {
+            let ticks = f64::from(tick) + 0.5;
+            visible.runtime.books.begin(ticks);
+            occluded.runtime.books.begin(ticks);
+            let frame = (ticks / TICKS_PER_SECOND, 0.0);
+            let expected = visible.resolve(&template, position, frame, false);
+            let hidden = tick < 40 && (hidden_from_start || tick > 10);
+            let actual = occluded.resolve(&template, position, frame, hidden);
+            if hidden {
+                assert_eq!(actual, None, "hidden books submit no geometry");
+            } else {
+                assert_eq!(actual, expected, "revealing preserves the entire book pose");
+            }
+            if tick == 40 {
+                let Some(BlockEntityKind::EnchantTable { book }) = actual else {
+                    panic!("a revealed book draws");
+                };
+                assert_eq!(
+                    book.open, 1.0,
+                    "the nearby reader kept the hidden book open"
+                );
+                assert_eq!(
+                    book.time, 40.5,
+                    "hidden ticks and partial ticks are retained"
+                );
+                assert!(
+                    Vec3::new(book.rot.cos(), 0.0, book.rot.sin()).abs_diff_eq(Vec3::Z, 1.0e-5),
+                    "the book still faces the remote reader"
+                );
+            }
+            visible.runtime.books.finish();
+            occluded.runtime.books.finish();
         }
-        visible.runtime.books.finish();
-        occluded.runtime.books.finish();
+    }
+}
+
+#[test]
+fn hidden_stateless_models_and_held_items_submit_no_geometry() {
+    let mut fixture = Fixture::new();
+    let item = HeldItem {
+        identifier: Arc::from("minecraft:apple"),
+        metadata: 0,
+    };
+    for template in [
+        Template::Static(BlockEntityKind::EndPortal),
+        Template::Conduit {
+            active: true,
+            hunting: false,
+        },
+        Template::FlowerPot {
+            plant: PlantBlock {
+                identifier: Arc::from("minecraft:dandelion"),
+                states: serde_json::Map::new(),
+            },
+        },
+        Template::Campfire {
+            yaw_degrees: 0.0,
+            items: [Some(item), None, None, None],
+        },
+    ] {
+        assert_eq!(
+            fixture.resolve(&template, [0, 64, 0], (0.0, 0.0), true),
+            None
+        );
+        assert!(fixture.held.is_empty(), "hidden items submit no placements");
     }
 }

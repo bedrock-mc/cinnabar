@@ -520,7 +520,7 @@ pub(crate) fn update_block_entity_scene(
                 if center.distance_squared(eye) > SCAN_RADIUS_BLOCKS * SCAN_RADIUS_BLOCKS {
                     continue;
                 }
-                // Hidden entities skip geometry but keep lids, rings, map requests and canvases.
+                // Hidden entities keep animations, map requests and canvases without geometry.
                 let mut hidden = !work.admit(culling.as_ref(), template, [x, y, z]);
                 if !hidden
                     && let Some((low, high)) = culling::bounds(template, [x, y, z])
@@ -765,18 +765,6 @@ fn resolve(
     held: &mut Vec<StaticItemPlacement>,
     hidden: bool,
 ) -> Option<BlockEntityKind> {
-    let stateful = matches!(
-        template,
-        Template::Chest(_)
-            | Template::Shulker(_)
-            | Template::Bell { .. }
-            | Template::ItemFrame { .. }
-            | Template::Sign { .. }
-            | Template::EnchantTable
-    );
-    if hidden && !stateful {
-        return None;
-    }
     let stream = context.stream;
     let open_at = |at: [i32; 3]| {
         stream
@@ -784,7 +772,7 @@ fn resolve(
             .is_some_and(|cue| cue_is_open(cue.event_type, cue.event_value))
     };
     match template {
-        Template::Static(kind) => Some(kind.clone()),
+        Template::Static(kind) => (!hidden).then(|| kind.clone()),
         Template::Beacon => None,
         &Template::Chest(mut model) => {
             let open = open_at(position)
@@ -812,11 +800,13 @@ fn resolve(
             let book = runtime.books.advance(position, context.readers);
             (!hidden).then_some(BlockEntityKind::EnchantTable { book })
         }
-        &Template::Conduit { active, hunting } => Some(BlockEntityKind::Conduit(ConduitModel {
-            active,
-            hunting,
-            viewer_yaw_degrees: yaw_toward(context.eye, position),
-        })),
+        &Template::Conduit { active, hunting } => (!hidden).then(|| {
+            BlockEntityKind::Conduit(ConduitModel {
+                active,
+                hunting,
+                viewer_yaw_degrees: yaw_toward(context.eye, position),
+            })
+        }),
         &Template::Bell {
             attachment,
             direction,
@@ -869,6 +859,9 @@ fn resolve(
             Some(BlockEntityKind::ItemFrame(model))
         }
         Template::FlowerPot { plant } => {
+            if hidden {
+                return None;
+            }
             let id = context.collisions.block_state_runtime_id(
                 assets::NetworkIdMode::Sequential,
                 &plant.identifier,
@@ -888,6 +881,9 @@ fn resolve(
             None
         }
         Template::Campfire { yaw_degrees, items } => {
+            if hidden {
+                return None;
+            }
             let base = render_model::block_matrix(position, [0.5, 0.0, 0.5], *yaw_degrees);
             for (item, [x, z]) in items.iter().zip(CAMPFIRE_SLOTS) {
                 let Some(item) = item else {
