@@ -5,6 +5,7 @@ use protocol::{ActorKind, ActorMetadataValue};
 
 use super::{ActorPose, ActorSnapshot};
 
+mod cape_tests;
 mod creeper_tests;
 mod dragon_tests;
 mod hurt_tests;

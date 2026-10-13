@@ -906,7 +906,7 @@ fn has_cape_reads_the_tick_context() {
 }
 
 #[test]
-fn elytra_reads_slot_five_on_the_chest_and_cape_flap_follows_ground_speed() {
+fn elytra_reads_slot_five_on_the_chest_and_cape_flap_follows_tick_displacement() {
     let actor = actor_with_metadata(HashMap::new());
     let mut context = ActorTickContext::default();
     context.armor[1] = Some(WornArmor {
@@ -914,7 +914,8 @@ fn elytra_reads_slot_five_on_the_chest_and_cape_flap_follows_ground_speed() {
         dye_rgb: None,
     });
     let input = ActorTickInput {
-        velocity: [0.0, 0.0, 0.1],
+        position_delta: [0.0, 0.0, 0.1],
+        velocity: [0.0, 0.0, 2.0],
         ..ActorTickInput::default()
     };
     let slot = read_with(
@@ -928,6 +929,19 @@ fn elytra_reads_slot_five_on_the_chest_and_cape_flap_follows_ground_speed() {
     assert_eq!(slot.number(), 5.0);
     let flap = read_with(&actor, &input, &context, 0, "query.cape_flap_amount", &[]);
     assert!((flap.number() - 0.4).abs() < 1.0e-6);
+}
+
+#[test]
+fn cape_flap_rejects_position_discontinuities_and_non_finite_steps() {
+    let actor = actor_with_metadata(HashMap::new());
+    for step in [30.0, -30.0, f32::NAN, f32::INFINITY] {
+        for axis in 0..3 {
+            let mut input = ActorTickInput::default();
+            input.position_delta[axis] = step;
+            input.velocity = [10.0; 3];
+            assert_eq!(read(&actor, &input, 0, "query.cape_flap_amount"), 0.0);
+        }
+    }
 }
 
 // The first-person item offset reads rest pivots; rig pivots mirror authored X.

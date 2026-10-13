@@ -164,6 +164,7 @@ impl ActorAnimationStore {
         if let Some(state) = self.rigs.get_mut(lifetime) {
             state.reset_pending = true;
             state.rest_reset_pending = true;
+            state.java.reset_cape();
         }
     }
 

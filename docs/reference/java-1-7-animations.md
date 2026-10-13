@@ -69,6 +69,10 @@ Trig uses Java's 65536-entry sine table (angle × 10430.378, truncated, masked).
 - Recognized living mounts supply the displayed player's body heading. Head lag clamps to ±85°; above 50° the body moves another fifth toward the head, reducing extreme relative head output to ±68°. Mount yaw takes the short interpolation path. The cape retains the player's ordinary body yaw. Nonliving vehicles and unclassified mount identities keep the ordinary player body basis.
 - Active local creative flight freezes the cape's walking phase while its trailing motion and limbs continue. The phase resumes after landing; permission to fly alone does not freeze it.
 - Both animation modes keep the cape below its shoulder attachment. Java mode bounds the final tilt and sideways swing; Bedrock mode bounds the cape's local pitch before retargeting, while retaining its authored attachment, yaw, roll and parent pose.
+- Remote teleports and interpolation resets discard both Java cape chase endpoints. A remote
+  step beyond the chase's ten-block snap threshold re-anchors without retaining the old lag.
+  Bedrock flap uses completed tick displacement rather than packet speed and ignores these
+  large steps. Its exact flap calculation remains incomplete.
 - No hurt particles: Java 1.7 has none tied to the animation.
 
 ## Reference validation

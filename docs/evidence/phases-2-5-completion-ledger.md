@@ -24,9 +24,11 @@ opened cap texture ownership and malformed selectors across registered poses
 with 16/32 pixel textures. Rendered/input acceptance and broader graphics parity
 remain open.
 
-Cape rotation limits now prevent upward flips in both player animation modes. The
-new flight regressions have not been compiled or executed, and rendered-frame validation
-remains incomplete. This presentation correction closes no parity or performance gate.
+Cape rotation limits now prevent upward flips in both player animation modes. Remote resets
+discard Java chase lag, and Bedrock flap uses completed tick displacement instead of retained
+packet speed. Flight, remote knockback, repeated-hit, teleport and interpolation-reset
+regressions have not been compiled or executed. Rendered-frame validation and the exact
+Bedrock flap calculation remain incomplete. This change closes no parity or performance gate.
 
 ## P2.5-NATIVE-BIOME
 

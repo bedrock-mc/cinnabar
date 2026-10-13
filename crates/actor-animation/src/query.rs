@@ -396,8 +396,15 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         Q::StandingScale => truth(actor_flag(actor, FLAG_STANDING)),
         Q::IsInWater => truth(in_water(actor, input)),
         Q::SleepRotation => actor.sleep_rotation().unwrap_or(0.0),
-        // Grows with ground speed; the scale needs independent measurement.
-        Q::CapeFlapAmount => (input.velocity[0].hypot(input.velocity[2]) * 4.0).clamp(0.0, 1.0),
+        // Use completed tick displacement, not packet speed in blocks per second.
+        // The flap scale still needs independent measurement.
+        Q::CapeFlapAmount => {
+            if super::java::cape_position_discontinuity(input.position_delta) {
+                0.0
+            } else {
+                (input.position_delta[0].hypot(input.position_delta[2]) * 4.0).clamp(0.0, 1.0)
+            }
+        }
         Q::HasCape => truth(context.has_cape),
         Q::ItemIsCharged => truth(context.hand_charged),
         Q::IsInLava => truth(actor.fluid().is_some_and(|(_, lava)| lava)),

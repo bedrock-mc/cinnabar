@@ -786,9 +786,13 @@ acceptance gate.
 - Cape rotation is bounded at the shoulder in both animation modes: Java tilt is capped at
   90° and sideways swing at ±90°; Bedrock local cape pitch is capped at ±90°. These are
   deliberate presentation limits. Regression coverage includes vertical and fast horizontal
-  flight, frame interpolation, local/remote actors and stopping. Compilation, test execution
-  and rendered-frame validation for this change remain incomplete; the exact Bedrock flap
-  calculation also remains incomplete. This change closes no parity or performance gate.
+  flight, frame interpolation, local/remote actors and stopping. Remote teleport and interpolation
+  resets now discard both Java chase endpoints; unflagged steps beyond ten blocks re-anchor
+  without old lag. Bedrock flap uses completed tick displacement instead of retained packet
+  speed and ignores those large steps. Added remote knockback, repeated-hit, teleport and
+  interpolation-reset regressions. Compilation, test execution and rendered-frame validation
+  remain incomplete; the exact Bedrock flap calculation also remains incomplete. This change
+  closes no parity or performance gate.
 - Worn elytra retains authored wing poses and glint in both modes, suppresses the separate cape,
   and uses the cape texture when present. Native controller blend composition stays intact.
 - Golden tests assert composed stacks and projected arm, item and cape points against Java's
