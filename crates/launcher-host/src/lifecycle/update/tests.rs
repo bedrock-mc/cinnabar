@@ -42,7 +42,7 @@ fn running_clients_check_each_interval_from_completion_without_skipped_ticks_def
 }
 
 #[test]
-fn a_passive_client_takes_over_on_its_next_daily_tick_after_the_updater_exits() {
+fn a_passive_client_takes_over_on_its_next_due_tick_after_the_updater_exits() {
     let root = tempfile::tempdir().unwrap();
     let mut first = State::new();
     let mut second = State::new();
@@ -76,11 +76,29 @@ fn update_http_client_refuses_plaintext_before_connecting() {
 }
 
 #[test]
-fn checks_remain_daily_when_the_clock_moves_back() {
+fn checks_remain_periodic_when_the_clock_moves_back() {
     assert!(due(None, 10));
-    assert!(!due(Some(1_000), 1_000 + 3_600));
-    assert!(due(Some(1_000), 1_000 + 24 * 3_600));
+    assert!(!due(Some(1_000), 1_000 + CHECK_INTERVAL.as_secs() - 1));
+    assert!(due(Some(1_000), 1_000 + CHECK_INTERVAL.as_secs()));
     assert!(due(Some(5_000), 100));
+}
+
+/// Release notices request a fresh check only for the selected channel and a release not older than this build.
+#[test]
+fn release_notices_check_only_the_selected_channel_at_or_above_this_version() {
+    let mut state = State::new();
+    assert_eq!(state.preferences.channel, Channel::Beta);
+    assert!(!state.release_published("nightly", "9.0.0", "1.2.3"));
+    assert!(!state.release_published("beta", "1.2.2", "1.2.3"));
+    assert!(!state.release_published("beta", "not a version", "1.2.3"));
+    assert!(!state.check_now);
+    assert!(state.release_published("beta", "1.2.3", "1.2.3"));
+    assert!(std::mem::take(&mut state.check_now));
+    assert!(state.release_published("beta", "1.3.0", "1.2.3"));
+    assert!(state.check_now);
+    let mut disabled = State::new();
+    disabled.preferences.checks = false;
+    assert!(!disabled.release_published("beta", "1.3.0", "1.2.3"));
 }
 
 /// A verified notice model lets consent tests avoid any network or platform installer.
@@ -502,7 +520,7 @@ fn every_manual_switch_outcome_ends_progress_or_preserves_only_a_newer_actions_p
 }
 
 #[test]
-fn reselecting_a_channel_restores_its_cached_release_before_the_daily_deadline() {
+fn reselecting_a_channel_restores_its_cached_release_before_the_next_deadline() {
     let root = tempfile::tempdir().unwrap();
     let payload = b"cached Beta payload";
     let (beta, keys) = manual_stage(root.path(), "2.0.0", payload, Channel::Beta);
@@ -728,7 +746,7 @@ fn a_retained_offer_stays_valid_when_the_shared_cache_changes() {
 }
 
 #[test]
-fn a_skipped_daily_check_restores_the_older_channel_switch_offer() {
+fn a_skipped_periodic_check_restores_the_older_channel_switch_offer() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("manifest-stable.json");
     let check = update_manifest::select::Check {

@@ -21,7 +21,8 @@ use time::OffsetDateTime;
 use update_installer::startup;
 use update_manifest::channel::Channel;
 
-const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+/// Fallback poll between launch checks and release notices.
+const CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 const CHECK_POLL_INTERVAL: Duration = Duration::from_secs(60);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -80,6 +81,8 @@ struct State {
     message: Option<String>,
     generation: u64,
     running: bool,
+    /// A launch or release notice wants a fresh check regardless of the completion stamp.
+    check_now: bool,
     startup: StartupPhase,
 }
 
@@ -92,7 +95,7 @@ enum StartupPhase {
 }
 
 impl State {
-    /// Polls the persisted completion stamp; skipped polls never move the daily deadline.
+    /// Polls the persisted completion stamp; skipped polls never move the next deadline.
     fn tick(&mut self, root: &std::path::Path, now: u64) -> bool {
         if self.running
             || self.requested
@@ -191,6 +194,7 @@ impl State {
             message: None,
             generation: 0,
             running: false,
+            check_now: false,
             startup: StartupPhase::Preparing,
         }
     }
@@ -214,6 +218,19 @@ impl State {
         }
         self.requested = true;
         self.generation += 1;
+        true
+    }
+
+    /// Requests a fresh check when `version` on the selected channel is not older than `current`;
+    /// a rolling channel republishes one version with newer builds that only the manifest orders.
+    fn release_published(&mut self, channel: &str, version: &str, current: &str) -> bool {
+        if !self.preferences.checks || channel != self.preferences.channel.name() {
+            return false;
+        }
+        if update_manifest::select::newer(current, version).unwrap_or(true) {
+            return false;
+        }
+        self.check_now = true;
         true
     }
 
@@ -399,6 +416,7 @@ pub fn acknowledge_startup() {
         }
         if let Ok(mut state) = STATE.lock() {
             state.startup = StartupPhase::Complete;
+            state.check_now = true;
         }
         worker::start(false);
     });
@@ -463,12 +481,22 @@ fn startup_marker(layout: &InstallLayout) -> Option<PathBuf> {
     .then_some(marker)
 }
 
-/// A corrected clock cannot suppress the next daily check.
+/// Starts a fresh signed-manifest check for a release the Cinnabar API announced.
+pub fn release_published(channel: &str, version: &str) {
+    let wanted = STATE.lock().is_ok_and(|mut state| {
+        state.release_published(channel, version, env!("CARGO_PKG_VERSION"))
+    });
+    if wanted {
+        worker::start(false);
+    }
+}
+
+/// A corrected clock cannot suppress the next periodic check.
 fn due(last: Option<u64>, now: u64) -> bool {
     last.is_none_or(|last| now < last || now - last >= CHECK_INTERVAL.as_secs())
 }
 
-/// Retries the lifetime updater role and starts a check only on this process's daily tick.
+/// Retries the lifetime updater role and starts a check only when this process's poll is due.
 fn tick(now: OffsetDateTime) {
     let Some(layout) = LAYOUT.get() else {
         return;

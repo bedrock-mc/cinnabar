@@ -55,6 +55,8 @@ update / Later actions, and a separate default-off install-on-quit preference. S
 carry monotonic build numbers, and digest-named partial downloads resume with HTTP ranges.
 An offline Rust helper waits for the old process, applies the verified native package, and
 restores failed macOS/Linux starts. Read-only installs offer the manual download action.
+Each launch checks once startup completes; the fallback poll runs every six hours, and a Cinnabar
+API release notice for the selected channel checks immediately.
 
 Incomplete: CI must compile and run the written regression tests on all platforms. The package
 workflow publishes each channel's signed manifest. The `CINNABAR_UPDATE_SIGNING_KEY` secret in
@@ -375,6 +377,16 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   permission gates remain incomplete. The current heartbeat
   fallback is provisional. Signed-in friends-visible validation is incomplete, and no
   Xbox presence parity gate closes. Discord presence is unchanged.
+
+## Cinnabar API
+
+- The account core keeps an optional WebSocket to the Cinnabar API (`core/cinnabarapi`) with a fresh
+  key-bound multiplayer token per connection. Release notices start an immediate signed-manifest
+  check; the tab roster badges visible Cinnabar players from batched, paced, session-cached lookups.
+  Settings → General → Network has the default-on visibility toggle.
+- Go tests cover the handshake, lookups, releases, visibility and reconnects against a fake server,
+  plus conformance with the pinned API schema.
+- Incomplete: no live run against the deployed API yet, and name tags carry no badge.
 
 ## Small-surface render safety
 
