@@ -366,9 +366,7 @@ pub fn advance_actor_frame(
                     equipment.as_deref_mut(),
                     &mut geometries,
                 );
-                if java_mode {
-                    java_hand.remember(&rig, input.local_equipment.main.as_ref());
-                }
+                java_hand.remember(&rig, input.local_equipment.main.as_ref());
                 Some(presentation)
             })
         })

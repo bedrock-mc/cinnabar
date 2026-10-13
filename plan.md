@@ -426,8 +426,16 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   visual extension; classic Bedrock has no motion blur. Gameplay and network state do not change.
 - Depth reprojection blurs camera rotation/translation before nametags, projected UI, hands and HUD.
   Exposure uses elapsed frame time; explicit reanchors suppress the discontinuity frame.
-- Per-object blur remains incomplete and needs motion vectors from every world renderer.
-  Hardware GPU cost and frame-budget acceptance remain unmeasured; no performance gate closes.
+  Spatial anti-aliasing follows exposure so filtered silhouette colour retains the actor's sharp edge.
+- Depth-writing actors retain their previous rendered root and interpolated bone pose for object
+  exposure. Actor texels establish visible motion footprints in the background while
+  retaining stationary actor edges and nearer occluders. The motion pass preserves camera depth ranges.
+  Mixed MSAA texels with nearer non-actor samples retain their resolved colour at the source;
+  separating the actor's colour for exposure remains incomplete.
+- Per-object blur remains incomplete for blended actors and other world renderers. Hidden background
+  reconstruction, competing object velocities in a search neighbourhood, and matched flight acceptance
+  remain open. Enabled views retain a reduced actor velocity target. Hardware GPU cost and frame-budget
+  acceptance remain unmeasured; no performance gate closes.
 
 ## Item frames
 
@@ -806,6 +814,10 @@ acceptance gate.
   profile takes precedence for view bob, hurt/death motion and glint. Third person: Java's
   biped pose, body yaw, limb swing with the hurt flail, held-item grips, the cape's chasing
   swing and the sneak drops; armour flashes red, held items do not.
+- Local eating and bow draw pair gameplay use ticks with the physics frame fraction;
+  bow artwork reads the same counter. Regression coverage checks frames between ticks,
+  differing actor fractions, stopping use and retained items. Compilation, test execution
+  and rendered motion validation for this correction remain incomplete.
 - Every hurt event immediately resets the limb boost, including consecutive hits; movement
   still contributes to the phase, and death alone does not trigger a flail.
   Fourteen focused hurt tests pass. macOS/Metal captures at 1920×1080, DPI 1, GUI scale 2

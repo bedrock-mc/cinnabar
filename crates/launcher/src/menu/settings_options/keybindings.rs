@@ -1,59 +1,27 @@
 //! Desktop key remapping uses the same physical controls as the gameplay router.
 
 use super::{
-    SettingsOptions,
+    BindingId, SettingsOptions,
+    bindings::{EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, KEY_BINDINGS, LATE_DEFAULTS},
     control_bindings::{
-        EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, SECONDARY_KEYS,
-        UNBOUND_CONTROL, decode_control, encode_control, is_gamepad,
+        GAMEPAD_OFFSET, UNBOUND_CONTROL, decode_control, encode_control, is_gamepad,
     },
 };
 use semantic_input::{Action, ControlSettings, InputContext, PhysicalControl};
 
-pub const KEY_BINDINGS: &[(Action, &str)] = &[
-    (Action::Attack, "key.attack"),
-    (Action::Use, "key.use"),
-    (Action::MoveForward, "key.forward"),
-    (Action::MoveBackward, "key.back"),
-    (Action::MoveLeft, "key.left"),
-    (Action::MoveRight, "key.right"),
-    (Action::Jump, "key.jump"),
-    (Action::Sneak, "key.sneak"),
-    (Action::Sprint, "key.sprint"),
-    (Action::CyclePerspective, "key.togglePerspective"),
-    (Action::Hotbar1, "key.hotbar.1"),
-    (Action::Hotbar2, "key.hotbar.2"),
-    (Action::Hotbar3, "key.hotbar.3"),
-    (Action::Hotbar4, "key.hotbar.4"),
-    (Action::Hotbar5, "key.hotbar.5"),
-    (Action::Hotbar6, "key.hotbar.6"),
-    (Action::Hotbar7, "key.hotbar.7"),
-    (Action::Hotbar8, "key.hotbar.8"),
-    (Action::Hotbar9, "key.hotbar.9"),
-    (Action::Freelook, "key.freelook"),
-    (Action::InteractWithToast, OPEN_NOTIFICATION_KEY),
-    (Action::PlayerList, PLAYER_LIST_KEY),
-];
-
-pub const DEBUG_OVERLAY_KEY: &str = "key.debugOverlay";
-pub const PLAYER_LIST_KEY: &str = "key.playerList";
+pub const DEBUG_OVERLAY_KEY: &str = BindingId::DebugOverlay.name();
+pub const PLAYER_LIST_KEY: &str = BindingId::PlayerList.name();
 
 /// Vanilla's "Open Notification" binding name.
-pub const OPEN_NOTIFICATION_KEY: &str = "key.interactwithtoast";
+pub const OPEN_NOTIFICATION_KEY: &str = BindingId::InteractWithToast.name();
 
 /// Labels for client controls that have no installed language-pack entry.
 pub fn custom_key_label(name: &str) -> Option<&'static str> {
-    match name {
-        "key.freelook" => Some("Freelook"),
-        DEBUG_OVERLAY_KEY => Some("Debug Overlay"),
-        PLAYER_LIST_KEY => Some("Player List"),
-        _ => None,
-    }
+    BindingId::from_name(name)?.definition().label
 }
 
-/// Actions added after layouts were saved; their default yields to a stored key already using it.
-const LATE_DEFAULTS: [Action; 2] = [Action::Freelook, Action::InteractWithToast];
-
 impl SettingsOptions {
+    /// Captures active yielding defaults before a remap can change their conflicts.
     fn active_late_defaults(&self) -> [(Action, Option<PhysicalControl>); LATE_DEFAULTS.len()] {
         LATE_DEFAULTS.map(|action| {
             let index = KEY_BINDINGS
@@ -86,6 +54,7 @@ impl SettingsOptions {
         inserted
     }
 
+    /// Lets an untouched late default yield to a conflicting saved keyboard control.
     fn default_yields(&self, action: Action) -> bool {
         let Some((_, name)) = KEY_BINDINGS
             .iter()
@@ -173,27 +142,21 @@ impl SettingsOptions {
             .map(|control| self.swap_gamepad_control(control))
     }
 
-    /// Reads an existing UI action through the same remapping table as the settings grid.
-    pub fn named_key_control(&self, name: &str) -> Option<PhysicalControl> {
-        let index = KEY_BINDINGS
-            .iter()
-            .position(|(_, label)| *label == name)
-            .or_else(|| {
-                EXTRA_KEYS
-                    .iter()
-                    .position(|(label, _)| *label == name)
-                    .map(|index| KEY_BINDINGS.len() + index)
-            })?;
-        self.key_control(index)
+    /// Reads a registered UI action through the settings grid's remapping table.
+    ///
+    /// ```compile_fail
+    /// let options = launcher::menu::settings_options::SettingsOptions::default();
+    /// options.named_key_control("key.inventory");
+    /// ```
+    pub fn named_key_control(&self, id: BindingId) -> Option<PhysicalControl> {
+        self.key_control(id.row(false)?)
     }
 
-    /// Keeps vanilla secondary defaults until a remap replaces the complete key list.
-    pub fn secondary_key_control(&self, name: &str) -> Option<PhysicalControl> {
-        // Vanilla keyboard remapping replaces the list with one captured key.
-        SECONDARY_KEYS
-            .iter()
-            .find(|(label, _)| *label == name && !self.keys.contains_key(name))
-            .map(|(_, control)| *control)
+    /// Keeps secondary defaults until an explicit remap replaces the key list.
+    pub fn secondary_key_control(&self, id: BindingId) -> Option<PhysicalControl> {
+        (!self.keys.contains_key(id.name()))
+            .then_some(id.definition().secondary)
+            .flatten()
     }
 
     /// Restores one device's full layout without disturbing bindings on the other device.

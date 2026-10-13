@@ -9,7 +9,7 @@ fn named_clock_rows_keep_packet_fifo_and_survive_dimension_changes() {
         local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let initialize = WorldClockUpdateEvent::Initialize(WorldClockDefinition {

@@ -1,6 +1,7 @@
 //! The Creator coordinate controls in the native chat header.
 
 use json_ui::{DataSource, HitRegion, Scalar};
+use launcher::menu::settings_options::SettingId;
 
 use crate::chat_screen::{ChatHit, ChatScreen};
 
@@ -56,7 +57,7 @@ impl ChatCoordinates {
 impl ChatScreen {
     /// Returns copyable text only while the Creator control is enabled.
     pub fn coordinate_text(&self) -> Option<String> {
-        (self.settings.options.value("copy_coordinate_ui") != 0)
+        (self.settings.options.value(SettingId::CopyCoordinateUi) != 0)
             .then(|| self.coordinates.text())
             .flatten()
     }
@@ -70,7 +71,7 @@ pub(crate) fn bind(
     translate: &dyn Fn(&str) -> String,
 ) {
     let coordinates = &chat.coordinates;
-    let visible = chat.settings.options.value("copy_coordinate_ui") != 0;
+    let visible = chat.settings.options.value(SettingId::CopyCoordinateUi) != 0;
     let text = coordinates.text();
     for (name, value) in [
         ("#chat_coordinate_dropdown_visible", visible),

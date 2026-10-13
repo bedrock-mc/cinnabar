@@ -6,6 +6,7 @@ use bevy::{
     prelude::{Local, Query, Res, ResMut, Time, Transform, With},
     time::Real,
 };
+use launcher::menu::settings_options::SettingId;
 use meshing::CameraMedium;
 use render_scene::{AtmosphereFrame, SkyKind};
 use ui::BossBarView;
@@ -228,24 +229,23 @@ pub(crate) fn update_atmosphere_frame(
     if let Some(mut clouds) = clouds {
         clouds.0 = options
             .as_ref()
-            .is_none_or(|options| options.value("render_clouds") != 0);
+            .is_none_or(|options| options.value(SettingId::RenderClouds) != 0);
     }
     if let Some(mut skybox) = skybox {
         skybox.visible = options
             .as_ref()
-            .is_none_or(|options| options.value("fancy_skies") != 0)
+            .is_none_or(|options| options.value(SettingId::FancySkies) != 0)
             && !vision.sky_hidden;
         skybox.native_vertical_offset = options.as_ref().map_or_else(
             || settings.user_settings_update().1.video.native_skybox_offset,
             |options| {
-                options.value(launcher::menu::settings_options::NATIVE_SKYBOX_OFFSET_OPTION.name)
-                    != 0
+                options.value(launcher::menu::settings_options::NATIVE_SKYBOX_OFFSET_OPTION.id) != 0
             },
         );
     }
-    let darkness_scale = options
-        .as_ref()
-        .map_or(1.0, |options| options.value("darkness") as f32 / 100.0);
+    let darkness_scale = options.as_ref().map_or(1.0, |options| {
+        options.value(SettingId::Darkness) as f32 / 100.0
+    });
     let (mut frame, mut route, mut lighting, mut weather_ticks, mut view_inputs) = outputs;
     let elapsed = time.elapsed_secs_f64();
     display.set_precipitation_count(context.precipitation_sample_count);
