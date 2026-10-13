@@ -191,12 +191,14 @@ pub(crate) fn drive_inventory_ui_actions(
     // Presses are this frame's only; modifiers stay held across frames.
     let (presses, shift, control) = runtime.inventory_keys_mut().take_frame();
     if runtime.credits().owns_input() || runtime.server_forms().owns_input() {
+        runtime.screen_state_mut().container_close_armed = false;
         return;
     }
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
         || !runtime.inventory_open()
         || !input_available
     {
+        runtime.screen_state_mut().container_close_armed = false;
         runtime.set_inventory_pointer_gui(None);
         runtime.screen_state_mut().hover = None;
         runtime.screen_state_mut().pointer.reset();
@@ -307,13 +309,15 @@ pub(crate) fn drive_world_inventory_keys(
     mut runtime: ResMut<UiRuntimeResource>,
     emote_input: Option<Res<super::emotes::EmoteInputConsumed>>,
     swing: DropSwing,
+    touch: Option<Res<crate::semantic_controls::SemanticTouchTargets>>,
 ) {
     if emote_input.is_some_and(|consumed| consumed.0) {
         return;
     }
     let drop = binding_pressed(menu.as_deref(), "key.drop", &keys, &mouse)
         || binding_gamepad(menu.as_deref(), "key.drop", &gamepads);
-    let use_book = binding_pressed(menu.as_deref(), "key.use", &keys, &mouse);
+    let use_book = binding_pressed(menu.as_deref(), "key.use", &keys, &mouse)
+        || touch.is_some_and(|touch| touch.pressed(semantic_input::touch::USE));
     if !window.focused
         || client_shell::screen_policy::absorbs_input(
             &player_runtime,

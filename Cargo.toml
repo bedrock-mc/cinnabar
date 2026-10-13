@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "app",
+    "packaging/android/client",
     "crates/acceptance",
     "crates/actor-animation",
     "crates/diagnostics",

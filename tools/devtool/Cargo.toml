@@ -8,6 +8,9 @@ publish = false
 [package.metadata.cinnabar]
 platform-specific = ["macos", "windows"]
 reads = [
+    "packaging/android/AndroidManifest.xml",
+    "packaging/android/render-template.sh",
+    "packaging/android/runtime.json",
     "tools/cargo-free",
     "tools/compiler_workspace_wrapper.py",
 ]

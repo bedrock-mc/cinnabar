@@ -336,6 +336,12 @@ forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
 [[crates]]
+name = "cinnabar-android"
+path = "packaging/android/client"
+allowed_dependencies = ["app", "assets", "first-run", "launcher"]
+forbidden_dependencies = ["asset-compiler"]
+
+[[crates]]
 name = "sim"
 path = "crates/sim"
 allowed_dependencies = ["simulation-clock", "assets", "block-transform", "world"]
