@@ -680,12 +680,10 @@ impl WorldStream {
             if !early {
                 self.requests.purge_columns(&BTreeSet::from([key]));
             }
+        } else if early {
+            self.evict_column_data(BTreeSet::from([key]));
         } else {
-            if early {
-                self.evict_column_data(BTreeSet::from([key]));
-            } else {
-                self.evict_column(key);
-            }
+            self.evict_column(key);
         }
         self.diagnose_request_column(&event);
         let biome_dirty = self.authority.commit_biome_column(key, biomes);
