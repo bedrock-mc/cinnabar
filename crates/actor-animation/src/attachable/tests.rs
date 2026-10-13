@@ -40,6 +40,7 @@ pub(super) fn owner_rig() -> ActorRigSnapshot<'static> {
         off_hand_animation: [ItemAnimationState::default(); 2],
         animation_variables: ActorAnimationVariables::default(),
         java: Default::default(),
+        main_hand_equipped: None,
         java_equipped: None,
     }
 }

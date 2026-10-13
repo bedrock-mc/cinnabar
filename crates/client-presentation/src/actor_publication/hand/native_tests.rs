@@ -4,7 +4,7 @@ use bevy::math::Quat;
 use render_model::ActorArtworkPages;
 
 /// Supplies an original attack-driven player arm and an identity-pose held attachable.
-fn fixture(
+pub(super) fn fixture(
     main: Option<&str>,
 ) -> (
     WorldStream,
@@ -261,7 +261,7 @@ fn fixture_with_binding(
 }
 
 /// Uses the production selector with independent actor and physics fractions.
-fn hand_source_for_mode(
+pub(super) fn hand_source_for_mode(
     stream: &WorldStream,
     equipment: &mut EquipmentRuntime,
     artwork: &ActorArtworkPages,
