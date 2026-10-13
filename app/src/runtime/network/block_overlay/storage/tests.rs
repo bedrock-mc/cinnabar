@@ -368,6 +368,46 @@ fn custom_fallback_answers_decode_misses_but_keeps_admission_refusals() {
     }
 }
 
+#[test]
+fn full_arrays_distinguish_absent_pack_sources_from_present_inputs_without_decoding() {
+    let materials = [assets::Material::unvaried(); 2];
+    let keys = assets::material_keys::MaterialKeys::from_entries([(1, "tile")])
+        .with_aliases([("tile", "textures/rejected")]);
+    for (files, expected_page) in [
+        (Vec::new(), Some(0)),
+        (
+            vec![("textures/rejected.png", b"invalid PNG".as_slice())],
+            None,
+        ),
+        (
+            vec![("textures/rejected.tga", b"invalid TGA".as_slice())],
+            None,
+        ),
+        (
+            vec![("textures/rejected.texture_set.json", b"{}".as_slice())],
+            None,
+        ),
+    ] {
+        let view = view(&files);
+        let mut builder = builder(&view, &keys);
+        builder.fallback = Some(assets::VanillaFallback::new(&keys, &materials));
+        builder.max_layers = 3;
+        assert_eq!(builder.remaining_layers(), 0);
+        for _ in 0..2 {
+            assert_eq!(
+                builder.texture_slot("tile").map(|slot| slot.page),
+                expected_page
+            );
+        }
+        assert_eq!(builder.sources.len(), 3 * super::super::MAX_OVERLAY_SHARDS);
+        assert_eq!(builder.catalog.decode_attempts.get(), 0);
+        assert_eq!(
+            builder.gaps.saturated_textures,
+            u32::from(expected_page.is_none())
+        );
+    }
+}
+
 /// Builds retained pages with matching tile, source, and upload accounting.
 fn occupied_builder<'a>(
     view: &'a LayeredPackView,

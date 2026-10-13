@@ -7733,9 +7733,10 @@ does not close the broader native body-motion or live visual parity gate. See
 ## Server pack compatibility
 
 Resource-pack admission accepts corrected chunk-transfer sizes within its archive
-and selected-stack byte limits. Required packs retain their acquired archive and
-actual size through the session handoff. Incomplete: unrestricted pack-size parity
-and exact native admission comparisons remain open.
+and selected-stack byte limits. Repeated offer identities consume the count and
+byte budgets once, retaining the first entry's size estimate. Required packs retain
+their acquired archive and actual size through the session handoff. Incomplete:
+unrestricted pack-size parity and exact native admission comparisons remain open.
 
 Galaxite's full-block geometry, composite Battle Pass models, translucent podium
 glows, state-filtered path borders, correctly lit benches, custom hotbar/held items

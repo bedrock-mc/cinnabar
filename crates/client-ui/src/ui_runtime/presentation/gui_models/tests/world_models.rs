@@ -3,7 +3,7 @@
 use super::*;
 
 const ITEM: &str = "fixture:world_cube";
-const VISUAL: assets::BlockVisualId = assets::BlockVisualId(1);
+const VISUAL: assets::BlockVisualId = assets::BlockVisualId(2);
 
 /// Replaces the complete fixture's full-cube texture with original high-resolution art and rotated UVs.
 fn world(entities: &RuntimeEntityAssets) -> RuntimeAssets {
@@ -107,7 +107,7 @@ fn presentation(
 
 #[test]
 fn cutout_world_model_slots_preserve_original_texels_and_rotated_uvs() {
-    let (base, entities) = cubes::catalog_for(ITEM, 255, 255);
+    let (base, entities) = cubes::catalog_for_visual(ITEM, 255, 255, VISUAL);
     let world = world(&entities);
     let block = world.resolve(assets::NetworkIdMode::Sequential, VISUAL.0);
     let material = block.face(assets::BlockFace::West).material_id();
