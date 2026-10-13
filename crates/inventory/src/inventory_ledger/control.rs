@@ -53,7 +53,8 @@ impl ControlRequest {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct SentControl {
     pub request: ControlRequest,
-    sequence: u64,
+    /// The exact personal window whose cleanup this storage close also covers.
+    pub covered_personal: Option<ControlWindow>,
     deadline_millis: u64,
 }
 
@@ -71,7 +72,6 @@ pub(super) struct WindowControls {
     pub personal: WindowControl,
     pub storage: WindowControl,
     pub personal_target: u64,
-    sequence: u64,
 }
 
 impl WindowControls {
@@ -94,30 +94,46 @@ impl WindowControls {
     /// Records transport admission only when this kind has no outstanding request.
     pub fn sent(&mut self, request: ControlRequest, now_millis: u64) {
         assert!(self.state(request.kind()).sent.is_none());
-        self.sequence = self.sequence.wrapping_add(1);
+        let covered_personal = match request {
+            ControlRequest::Close(window) => {
+                assert!(!self.close_outstanding(window.window_id));
+                self.personal.confirmed.filter(|personal| {
+                    window.kind() == ControlKind::Storage
+                        && personal.window_id == window.window_id
+                        && (!self.personal.desired_open || self.personal.reset_required)
+                })
+            }
+            ControlRequest::Open { .. } => None,
+        };
         self.state_mut(request.kind()).sent = Some(SentControl {
             request,
-            sequence: self.sequence,
+            covered_personal,
             deadline_millis: now_millis.saturating_add(INVENTORY_REQUEST_TIMEOUT_MILLIS),
         });
     }
 
-    /// Matches the wire ID, using send order only when both kinds share that ID.
-    pub fn answer_close(&mut self, window_id: Option<i32>) -> Option<ControlWindow> {
+    /// Prevents two kinds from sending closes for the same wire ID concurrently.
+    pub fn close_outstanding(&self, window_id: i32) -> bool {
+        [&self.personal, &self.storage].into_iter().any(|state| {
+            state.sent.is_some_and(|sent| {
+                matches!(sent.request, ControlRequest::Close(window) if window.window_id == window_id)
+            })
+        })
+    }
+
+    /// Resolves the admitted generation, accepting an untyped acknowledgement only for its sole ID slot.
+    pub fn answer_close(&mut self, close: protocol::ContainerCloseEvent) -> Option<SentControl> {
         let kind = [ControlKind::Personal, ControlKind::Storage]
             .into_iter()
-            .filter_map(|kind| {
-                let sent = self.state(kind).sent?;
-                matches!(sent.request, ControlRequest::Close(window) if Some(window.window_id) == window_id)
-                    .then_some((kind, sent.sequence))
-            })
-            .min_by_key(|(_, sequence)| *sequence)?
-            .0;
-        let sent = self.state_mut(kind).sent.take()?;
-        let ControlRequest::Close(window) = sent.request else {
-            unreachable!()
-        };
-        Some(window)
+            .find(|kind| {
+                self.state(*kind).sent.is_some_and(|sent| {
+                    matches!(sent.request, ControlRequest::Close(window)
+                        if close.container.window_id == Some(window.window_id)
+                            && (close.window_type == window.window_type
+                                || close.window_type == protocol::NO_CONTAINER_WINDOW_TYPE))
+                })
+            })?;
+        self.state_mut(kind).sent.take()
     }
 
     /// Reports whether an outstanding control can resolve through its deadline.
@@ -130,13 +146,13 @@ impl WindowControls {
     }
 
     /// Releases this kind's slot exactly once when its reply deadline expires.
-    pub fn expire(&mut self, kind: ControlKind, now_millis: u64) -> Option<ControlRequest> {
+    pub fn expire(&mut self, kind: ControlKind, now_millis: u64) -> Option<SentControl> {
         let state = self.state_mut(kind);
         if state
             .sent
             .is_some_and(|sent| now_millis >= sent.deadline_millis)
         {
-            state.sent.take().map(|sent| sent.request)
+            state.sent.take()
         } else {
             None
         }

@@ -2,7 +2,7 @@
 
 use protocol::{ContainerCloseEvent, ContainerOpenEvent};
 
-use super::{ControlKind, ControlRequest, ControlWindow};
+use super::{ControlKind, ControlRequest, ControlWindow, SentControl};
 use crate::inventory_ledger::PlayerInventoryLedger;
 
 impl PlayerInventoryLedger {
@@ -47,8 +47,8 @@ impl PlayerInventoryLedger {
     /// Keeps authoritative server commands separate from outstanding client acknowledgements.
     pub(in crate::inventory_ledger) fn apply_close(&mut self, close: ContainerCloseEvent) {
         if !close.server_initiated {
-            if let Some(window) = self.controls.answer_close(close.container.window_id) {
-                self.complete_control_close(window, true);
+            if let Some(sent) = self.controls.answer_close(close) {
+                self.complete_sent_close(sent, true);
             }
             return;
         }
@@ -71,7 +71,14 @@ impl PlayerInventoryLedger {
                 state.confirmed = None;
             }
             match kind {
-                ControlKind::Personal => self.finish_personal_close(false),
+                ControlKind::Personal => {
+                    if self
+                        .personal
+                        .is_some_and(|personal| personal.generation() == window.generation)
+                    {
+                        self.finish_personal_close(false);
+                    }
+                }
                 ControlKind::Storage => {
                     if self
                         .storage
@@ -82,6 +89,21 @@ impl PlayerInventoryLedger {
                     }
                 }
             }
+        }
+    }
+
+    /// Completes the admitted close and only the personal cleanup captured at admission.
+    pub(in crate::inventory_ledger) fn complete_sent_close(
+        &mut self,
+        sent: SentControl,
+        acknowledged: bool,
+    ) {
+        let ControlRequest::Close(window) = sent.request else {
+            unreachable!()
+        };
+        self.complete_control_close(window, acknowledged);
+        if let Some(personal) = sent.covered_personal {
+            self.complete_control_close(personal, acknowledged);
         }
     }
 
@@ -111,16 +133,6 @@ impl PlayerInventoryLedger {
                     storage.generation == window.generation && storage.closing
                 }) {
                     self.acknowledge_storage_close(!acknowledged);
-                }
-                // The wire close has also removed a personal window that shared this ID.
-                if self
-                    .controls
-                    .personal
-                    .confirmed
-                    .is_some_and(|personal| personal.window_id == window.window_id)
-                {
-                    self.controls.personal.confirmed = None;
-                    self.controls.personal.reset_required = false;
                 }
             }
         }

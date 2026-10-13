@@ -15,12 +15,14 @@ impl PlayerInventoryLedger {
             if let Some(window) = state.confirmed
                 && (!state.desired_open || state.reset_required)
                 && self.close_ready()
+                && !self.controls.close_outstanding(window.window_id)
             {
                 // A personal ID may be reused by an active storage window; close storage first.
                 if kind == ControlKind::Personal
                     && self
+                        .controls
                         .storage
-                        .as_ref()
+                        .confirmed
                         .is_some_and(|storage| storage.window_id == window.window_id)
                 {
                     continue;
@@ -129,11 +131,11 @@ impl PlayerInventoryLedger {
     pub(in crate::inventory_ledger) fn poll_control_timeout(&mut self, now_millis: u64) -> bool {
         let mut personal_expired = false;
         for kind in [ControlKind::Personal, ControlKind::Storage] {
-            let Some(request) = self.controls.expire(kind, now_millis) else {
+            let Some(sent) = self.controls.expire(kind, now_millis) else {
                 continue;
             };
             personal_expired |= kind == ControlKind::Personal && self.personal.is_some();
-            match request {
+            match sent.request {
                 ControlRequest::Open { generation, .. } => {
                     self.controls.personal.confirmed = Some(ControlWindow {
                         generation,
@@ -154,7 +156,7 @@ impl PlayerInventoryLedger {
                         self.clear_window_inputs(false);
                     }
                 }
-                ControlRequest::Close(window) => self.complete_control_close(window, false),
+                ControlRequest::Close(_) => self.complete_sent_close(sent, false),
             }
         }
         self.reconcile_personal();

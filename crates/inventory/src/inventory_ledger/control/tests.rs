@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+mod reused_ids;
+
 use protocol::{ContainerCloseEvent, ContainerIdentity, ContainerOpenEvent, InventoryEvent};
 
 use super::*;
@@ -16,13 +18,40 @@ fn random_word(state: &mut u64) -> u64 {
     *state
 }
 
+/// Creates a server storage menu, including a replacement that reuses a just-closed ID.
+fn storage_open(window_id: i32) -> InventoryEvent {
+    InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(window_id),
+        window_type: GENERIC_STORAGE_WINDOW_TYPE,
+        position: [0, 64, 0],
+        runtime_entity_id: -1,
+    })
+}
+
 /// A server that suppresses duplicate personal opens instead of replying to each request.
-#[derive(Default)]
 struct Server {
     personal_open: bool,
+    personal_window_id: i32,
+    replace_next_storage_close: bool,
+    closes: usize,
     storage: Option<i32>,
     replies: VecDeque<InventoryEvent>,
     duplicate_opens: usize,
+}
+
+impl Default for Server {
+    /// Starts with closed windows and the protocol's personal inventory ID.
+    fn default() -> Self {
+        Self {
+            personal_open: false,
+            personal_window_id: protocol::PLAYER_INVENTORY_WINDOW_ID,
+            replace_next_storage_close: false,
+            closes: 0,
+            storage: None,
+            replies: VecDeque::new(),
+            duplicate_opens: 0,
+        }
+    }
 }
 
 impl Server {
@@ -33,6 +62,9 @@ impl Server {
             ledger.mark_transport_enqueued(now);
             return;
         };
+        if let ControlRequest::Close(window) = request {
+            assert!(!ledger.controls.close_outstanding(window.window_id));
+        }
         let kind = request.kind();
         assert!(
             ledger.controls.state(kind).sent.is_none(),
@@ -54,6 +86,7 @@ impl Server {
                 .pending_control()
                 .is_none_or(|next| next.kind() != kind)
         );
+        let mut replacement = None;
         let reply = match request {
             ControlRequest::Open { .. } => {
                 if self.personal_open {
@@ -61,13 +94,21 @@ impl Server {
                     return;
                 }
                 self.personal_open = true;
-                InventoryEvent::Open(personal_open(protocol::PLAYER_INVENTORY_WINDOW_ID))
+                InventoryEvent::Open(personal_open(self.personal_window_id))
             }
             ControlRequest::Close(window) => {
-                if window.kind() == ControlKind::Personal {
+                self.closes += 1;
+                // The wire close addresses an ID, so a redundant close can hit its replacement.
+                if window.window_id == self.personal_window_id {
                     self.personal_open = false;
-                } else if self.storage == Some(window.window_id) {
+                }
+                if self.storage == Some(window.window_id) {
                     self.storage = None;
+                    if self.replace_next_storage_close {
+                        self.replace_next_storage_close = false;
+                        self.storage = Some(window.window_id);
+                        replacement = Some(storage_open(window.window_id));
+                    }
                 }
                 InventoryEvent::Close(ContainerCloseEvent {
                     container: ContainerIdentity::window(window.window_id),
@@ -78,6 +119,9 @@ impl Server {
         };
         if !lose_reply {
             self.replies.push_back(reply);
+        }
+        if let Some(replacement) = replacement {
+            self.replies.push_back(replacement);
         }
     }
 
@@ -91,12 +135,7 @@ impl Server {
     /// Opens storage independently of an outstanding personal request.
     fn open_storage(&mut self, ledger: &mut PlayerInventoryLedger, window_id: i32) {
         self.storage = Some(window_id);
-        ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
-            container: ContainerIdentity::window(window_id),
-            window_type: GENERIC_STORAGE_WINDOW_TYPE,
-            position: [0, 64, 0],
-            runtime_entity_id: -1,
-        }));
+        ledger.apply(&storage_open(window_id));
     }
 
     /// Queues an authoritative close without consuming any separately outstanding reply.
@@ -105,7 +144,7 @@ impl Server {
             self.personal_open = false;
             self.replies
                 .push_back(InventoryEvent::Close(ContainerCloseEvent {
-                    container: ContainerIdentity::window(protocol::PLAYER_INVENTORY_WINDOW_ID),
+                    container: ContainerIdentity::window(self.personal_window_id),
                     window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
                     server_initiated: true,
                 }));
@@ -146,7 +185,7 @@ fn randomized_server_interleavings_converge_and_always_allow_reopening() {
         let mut server = Server::default();
         for _ in 0..512 {
             let word = random_word(&mut random);
-            match word % 10 {
+            match word % 11 {
                 0 => {
                     ledger.request_personal_open(42);
                 }
@@ -170,6 +209,7 @@ fn randomized_server_interleavings_converge_and_always_allow_reopening() {
                         let _ = ledger.begin_world_drop(0, Some(1));
                     }
                 }
+                10 => server.replace_next_storage_close = true,
                 _ => unreachable!(),
             }
         }
@@ -177,6 +217,7 @@ fn randomized_server_interleavings_converge_and_always_allow_reopening() {
         while !server.replies.is_empty() {
             server.deliver(&mut ledger);
         }
+        server.replace_next_storage_close = false;
         let desired_personal = ledger.controls.personal.desired_open;
         let desired_storage = ledger.controls.storage.desired_open;
         server.settle(&mut ledger, &mut now);

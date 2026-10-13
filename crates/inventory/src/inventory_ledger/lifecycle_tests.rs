@@ -139,7 +139,12 @@ fn correction(container: u8, slot: u8, count: u8, stack_network_id: i32) -> Stac
     }
 }
 
-fn accept_cursor_move(ledger: &mut PlayerInventoryLedger, request_id: i32, returning: bool) {
+/// Applies an accepted take or return for the known player stack.
+pub(super) fn accept_cursor_move(
+    ledger: &mut PlayerInventoryLedger,
+    request_id: i32,
+    returning: bool,
+) {
     let (player, cursor) = if returning { (32, 0) } else { (0, 32) };
     ledger.apply(&InventoryEvent::Response(ItemStackResponseEvent {
         responses: Arc::from([StackResponse {
@@ -318,7 +323,7 @@ fn personal_ack_retains_dynamic_window_identity_for_exact_close() {
 }
 
 #[test]
-fn client_ack_completes_only_an_admitted_close_with_the_same_window_id() {
+fn client_ack_completes_only_an_admitted_close_with_a_matching_window() {
     let close = |window_id, window_type, server_initiated| {
         InventoryEvent::Close(ContainerCloseEvent {
             container: ContainerIdentity::window(window_id),
@@ -354,6 +359,11 @@ fn client_ack_completes_only_an_admitted_close_with_the_same_window_id() {
         "another window's reply does not release this slot"
     );
     ledger.apply(&close(2, GENERIC_STORAGE_WINDOW_TYPE, false));
+    assert!(
+        ledger.personal.is_some(),
+        "a different kind cannot release the slot"
+    );
+    ledger.apply(&close(2, NO_CONTAINER_WINDOW_TYPE, false));
     assert!(ledger.personal.is_none());
     assert!(ledger.request_personal_open(42));
     assert!(ledger.mark_transport_enqueued(30));
