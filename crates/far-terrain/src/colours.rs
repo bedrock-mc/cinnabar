@@ -3,9 +3,12 @@
 use std::collections::HashMap;
 
 use assets::{
-    LinearBiomeTints, MATERIAL_FLAG_BIRCH_FOLIAGE, MATERIAL_FLAG_DRY_FOLIAGE,
-    MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT,
-    MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_WATER_TINT, RuntimeAssets,
+    BIOME_TINT_FLAG_SEASONAL_FOLIAGE, LinearBiomeTints, MATERIAL_FLAG_BIRCH_FOLIAGE,
+    MATERIAL_FLAG_DRY_FOLIAGE, MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_EXPOSED_FOLIAGE,
+    MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT,
+    MATERIAL_FLAG_SEASONAL_FOLIAGE, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_WATER_TINT,
+    RuntimeAssets,
+    seasonal_foliage::{SEASONAL_FOLIAGE_COUNT, seasonal_foliage_palette_index},
 };
 
 /// Per-material average sRGB colour and tint flags, and which models read as a surface from
@@ -13,8 +16,14 @@ use assets::{
 #[derive(Clone, Debug, PartialEq)]
 pub struct SurfaceColours {
     materials: Box<[MaterialColour]>,
-    /// Indexed by model template: its upward faces cover at least half a block.
-    model_tops: Box<[bool]>,
+    /// Indexed by model template.
+    model_tops: Box<[ModelTop]>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct ModelTop {
+    covers: bool,
+    material: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -44,7 +53,7 @@ impl SurfaceColours {
             .collect();
         let templates = assets.model_templates();
         let model_tops = (0..templates.len() as u32)
-            .map(|first| covers_top(assets, first))
+            .map(|first| model_top(assets, first))
             .collect();
         Self {
             materials,
@@ -58,8 +67,13 @@ impl SurfaceColours {
     pub fn model_covers_top(&self, template: u32) -> bool {
         self.model_tops
             .get(template as usize)
-            .copied()
-            .unwrap_or(false)
+            .is_some_and(|top| top.covers)
+    }
+
+    /// The material covering most of the model's top, which can differ from its sides.
+    #[must_use]
+    pub fn model_top_material(&self, template: u32) -> Option<u32> {
+        self.model_tops.get(template as usize)?.material
     }
 
     /// Average sRGB of `material` tinted by `tints`, in 0..=1; unknown materials are grey.
@@ -89,45 +103,67 @@ const BLOCK_AREA: f32 = 256.0 * 256.0;
 /// Face field value of a quad facing down; see [`assets::MODEL_QUAD_FLAG_FACE_MASK`].
 const FACE_DOWN: u32 = 1;
 
-/// Sums the area of every raised flat face not facing down across a compound model's parts.
-fn covers_top(assets: &RuntimeAssets, first: u32) -> bool {
+/// How a model reads from above: whether its raised flat faces not facing down cover at least
+/// half a block, and the material covering the most of them.
+fn model_top(assets: &RuntimeAssets, first: u32) -> ModelTop {
     let Some(parts) = assets::model_template_parts(assets.model_templates(), first) else {
-        return false;
+        return ModelTop::default();
     };
     let quads = assets.model_quads();
-    let area: f32 = parts
-        .iter()
-        .flat_map(|part| {
-            let start = part.quad_start as usize;
-            quads
-                .get(start..start + part.quad_count as usize)
-                .unwrap_or(&[])
-        })
-        .filter(|quad| {
-            let y = quad.positions[0][1];
-            y > 0
-                && quad.flags & assets::MODEL_QUAD_FLAG_FACE_MASK != FACE_DOWN
-                && quad.positions.iter().all(|corner| corner[1] == y)
-        })
-        .map(|quad| {
-            let p = quad.positions.map(|[x, _, z]| (f32::from(x), f32::from(z)));
-            let twice: f32 = (0..4)
-                .map(|i| {
-                    let (a, b) = (p[i], p[(i + 1) % 4]);
-                    a.0 * b.1 - b.0 * a.1
-                })
-                .sum();
-            twice.abs() / 2.0
-        })
-        .sum();
-    area >= BLOCK_AREA / 2.0
+    let mut areas: Vec<(u32, f32)> = Vec::new();
+    for quad in parts.iter().flat_map(|part| {
+        let start = part.quad_start as usize;
+        quads
+            .get(start..start + part.quad_count as usize)
+            .unwrap_or(&[])
+    }) {
+        let y = quad.positions[0][1];
+        if y <= 0
+            || quad.flags & assets::MODEL_QUAD_FLAG_FACE_MASK == FACE_DOWN
+            || quad.positions.iter().any(|corner| corner[1] != y)
+        {
+            continue;
+        }
+        let p = quad.positions.map(|[x, _, z]| (f32::from(x), f32::from(z)));
+        let twice: f32 = (0..4)
+            .map(|i| {
+                let (a, b) = (p[i], p[(i + 1) % 4]);
+                a.0 * b.1 - b.0 * a.1
+            })
+            .sum();
+        match areas
+            .iter_mut()
+            .find(|(material, _)| *material == quad.material)
+        {
+            Some((_, area)) => *area += twice.abs() / 2.0,
+            None => areas.push((quad.material, twice.abs() / 2.0)),
+        }
+    }
+    let area: f32 = areas.iter().map(|(_, area)| area).sum();
+    ModelTop {
+        covers: area >= BLOCK_AREA / 2.0,
+        material: areas
+            .iter()
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(material, _)| *material)
+            .filter(|material| *material != assets::DIAGNOSTIC_MATERIAL),
+    }
 }
 
-/// The biome colour the terrain shader multiplies into a material with these flags.
+/// The biome colour the terrain shader multiplies into a material with these flags, seasonal
+/// foliage included.
 fn tint_for(flags: u32, tints: &LinearBiomeTints) -> Option<[f32; 4]> {
     match flags & MATERIAL_FLAG_TINT_MASK {
         MATERIAL_FLAG_GRASS_TINT => Some(tints.grass),
         MATERIAL_FLAG_WATER_TINT => Some(tints.water),
+        MATERIAL_FLAG_FOLIAGE_TINT
+            if flags & MATERIAL_FLAG_SEASONAL_FOLIAGE != 0
+                && tints.flags & BIOME_TINT_FLAG_SEASONAL_FOLIAGE != 0 =>
+        {
+            let index =
+                seasonal_foliage_palette_index(flags, flags & MATERIAL_FLAG_EXPOSED_FOLIAGE != 0);
+            Some(tints.seasonal_foliage[index.min(SEASONAL_FOLIAGE_COUNT - 1)])
+        }
         MATERIAL_FLAG_FOLIAGE_TINT => Some(match flags & MATERIAL_FLAG_FOLIAGE_CLASS_MASK {
             MATERIAL_FLAG_BIRCH_FOLIAGE => tints.birch,
             MATERIAL_FLAG_EVERGREEN_FOLIAGE => tints.evergreen,

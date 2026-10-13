@@ -299,9 +299,7 @@ impl WorldStream {
                         generation,
                         summary,
                     };
-                    if tx.send(finished).is_err() {
-                        break;
-                    }
+                    workers::send_result(&tx, finished);
                 }
                 in_flight.fetch_sub(1, Ordering::AcqRel);
             });
