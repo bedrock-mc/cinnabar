@@ -206,7 +206,7 @@ pub(crate) fn feed_far_terrain(
             now,
         );
     }
-    let centre = stream.player_column();
+    let centre = stream.far_terrain_centre();
     let radius = stream
         .retained_view_radius()
         .unwrap_or_else(|| (stream.render_distance_blocks() / 16.0).ceil() as i32);

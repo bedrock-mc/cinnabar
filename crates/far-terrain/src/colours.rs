@@ -158,7 +158,7 @@ fn layer_average(assets: &RuntimeAssets, page: u32, layer: u32) -> [f32; 3] {
     };
     let mut sum = [0_u64; 3];
     let mut weight = 0_u64;
-    for texel in texels.chunks_exact(4) {
+    for texel in texels.as_chunks::<4>().0 {
         let alpha = u64::from(texel[3]);
         for channel in 0..3 {
             sum[channel] += u64::from(texel[channel]) * alpha;
