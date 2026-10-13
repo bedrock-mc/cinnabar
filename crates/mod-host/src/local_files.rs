@@ -121,7 +121,7 @@ impl Directory {
     }
 }
 
-/// Opens a Windows entry itself and keeps it fixed while inspecting its metadata.
+/// Opens a Windows entry itself; directories stay fixed while leaf files allow replacement.
 #[cfg(windows)]
 fn open_windows(path: &Path, directory: bool) -> io::Result<File> {
     use std::os::windows::{
@@ -130,11 +130,13 @@ fn open_windows(path: &Path, directory: bool) -> io::Result<File> {
     };
     use windows_sys::Win32::Storage::FileSystem::{
         FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-        FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TYPE_DISK, GetFileType,
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TYPE_DISK, GetFileType,
     };
     let file = std::fs::OpenOptions::new()
         .read(true)
-        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .share_mode(
+            FILE_SHARE_READ | FILE_SHARE_WRITE | if directory { 0 } else { FILE_SHARE_DELETE },
+        )
         .custom_flags(
             FILE_FLAG_OPEN_REPARSE_POINT
                 | if directory {

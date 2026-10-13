@@ -86,6 +86,41 @@ fn directory_snapshot_survives_a_path_replacement() {
 }
 
 #[test]
+#[cfg(windows)]
+fn leaf_reads_allow_atomic_replacement() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("source");
+    let replacement = root.path().join("replacement");
+    std::fs::write(&path, b"old").unwrap();
+    std::fs::write(&replacement, b"new").unwrap();
+    let directory = Directory::open(root.path()).unwrap();
+    let mut original = open_windows(&path, false).unwrap();
+
+    std::fs::rename(&replacement, &path).unwrap();
+    let mut bytes = Vec::new();
+    original.read_to_end(&mut bytes).unwrap();
+    assert_eq!(bytes, b"old");
+    assert_eq!(directory.read(Path::new("source"), 3).unwrap(), b"new");
+}
+
+#[test]
+#[cfg(windows)]
+fn directory_handles_prevent_path_replacement() {
+    let root = tempfile::tempdir().unwrap();
+    let parent = root.path().join("parent");
+    let replacement = root.path().join("renamed");
+    std::fs::create_dir(&parent).unwrap();
+    std::fs::write(parent.join("source"), b"old").unwrap();
+    let directory = Directory::open(&parent).unwrap();
+
+    assert!(std::fs::rename(&parent, &replacement).is_err());
+    assert_eq!(directory.read(Path::new("source"), 3).unwrap(), b"old");
+    drop(directory);
+    std::fs::rename(&parent, &replacement).unwrap();
+    assert_eq!(std::fs::read(replacement.join("source")).unwrap(), b"old");
+}
+
+#[test]
 #[cfg(unix)]
 fn special_sources_are_refused_without_a_writer() {
     let root = tempfile::tempdir().unwrap();
