@@ -578,25 +578,39 @@ fn bilinear_world_gathers_do_not_leak_stationary_actor_colour() {
             [0, 128, 0, 255]
         }
     });
-    let uniform = exposure(Mat4::from_translation(Vec3::new(0.27, 0.0, 0.0)));
     let z = projection().project_point3(Vec3::new(0.0, 0.0, -4.0)).z;
     for &samples in &raster.depth_samples {
-        let output = raster.draw_with_motion(
-            &input,
-            uniform,
-            samples,
-            z,
-            Some(ActorMotion {
-                velocity: [0.0, 0.0, 1.0, 1.0],
-                bounds,
-            }),
-        );
-        for x in bounds.x - 3..bounds.x {
-            let offset = ((SIDE / 2 * SIDE + x) * 4) as usize;
-            assert_eq!(
-                output[offset], 0,
-                "actor colour leaked into world at x={x}/{samples}x MSAA"
+        for translation in [
+            Vec3::new(0.27, 0.0, 0.0),
+            Vec3::new(0.0, 0.27, 0.0),
+            Vec3::new(0.27, 0.19, 0.0),
+        ] {
+            let output = raster.draw_with_motion(
+                &input,
+                exposure(Mat4::from_translation(translation)),
+                samples,
+                z,
+                Some(ActorMotion {
+                    velocity: [0.0, 0.0, 1.0, 1.0],
+                    bounds,
+                }),
             );
+            for y in bounds.y - 3..bounds.y + bounds.w + 3 {
+                for x in bounds.x - 3..bounds.x + bounds.z + 3 {
+                    if x >= bounds.x
+                        && x < bounds.x + bounds.z
+                        && y >= bounds.y
+                        && y < bounds.y + bounds.w
+                    {
+                        continue;
+                    }
+                    let offset = ((y * SIDE + x) * 4) as usize;
+                    assert_eq!(
+                        output[offset], 0,
+                        "actor colour leaked into world at ({x},{y})/{samples}x MSAA/{translation:?}"
+                    );
+                }
+            }
         }
     }
 }

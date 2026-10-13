@@ -20,6 +20,26 @@ fn object_motion(pixel: vec2<i32>) -> vec4<f32> {
     return textureLoad(actor_velocity, pixel, 0);
 }
 
+// A linear scene tap can include up to four texels, each with its own actor coverage.
+fn stationary_actor(pixel: vec2<i32>) -> bool {
+    let actor = object_motion(pixel);
+    return actor.z >= 0.5 && length(actor.xy * exposure.viewport.zw * exposure.strength.x) < MIN_BLUR_SPEED;
+}
+
+fn stationary_actor_in_footprint(position: vec2<f32>) -> bool {
+    if exposure.strength.z <= 0.0 {
+        return false;
+    }
+    let texel = position - vec2<f32>(0.5);
+    let corner = vec2<i32>(floor(texel));
+    let weight = fract(texel);
+    // Zero-weight neighbours neither contribute colour nor need an in-bounds motion lookup.
+    return stationary_actor(corner)
+        || (weight.x > 0.0 && stationary_actor(corner + vec2<i32>(1, 0)))
+        || (weight.y > 0.0 && stationary_actor(corner + vec2<i32>(0, 1)))
+        || (weight.x > 0.0 && weight.y > 0.0 && stationary_actor(corner + vec2<i32>(1, 1)));
+}
+
 @vertex
 fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
     let uv = vec2<f32>(f32((index << 1u) & 2u), f32(index & 2u));
@@ -61,8 +81,7 @@ fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
         let step = f32(i) / f32(count - 1u) - 0.5;
         let sample_position = clamp(position.xy + velocity * step, lower, upper);
         // Protect screen-stationary actors while allowing moving silhouettes to blur.
-        let sample_actor = object_motion(vec2<i32>(sample_position));
-        if sample_actor.z >= 0.5 && length(sample_actor.xy * exposure.viewport.zw * exposure.strength.x) < MIN_BLUR_SPEED {
+        if stationary_actor_in_footprint(sample_position) {
             continue;
         }
         color += textureSampleLevel(scene, scene_sampler, sample_position / dimensions, 0.0);
