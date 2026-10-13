@@ -23,7 +23,7 @@ pub(super) fn shield(
 /// The native item renderer's design-pixel frame, independent of texture and display resolution.
 use assets::gui_item::GUI_ITEM_SIDE;
 
-/// Ordinary opaque cubes. `faces` retains the carried texture in `BlockFace::ALL` order.
+/// Cubes with three visible faces. `faces` retains the carried texture in `BlockFace::ALL` order.
 /// Other block shapes (slabs, stairs, fences) draw through [`block_model`].
 pub(super) fn cube(faces: [IconRef; 6]) -> Option<Arc<UiMesh>> {
     let mut vertices = Vec::with_capacity(CUBE_FACES.len() * 4);
@@ -52,6 +52,23 @@ pub(super) fn cube(faces: [IconRef; 6]) -> Option<Arc<UiMesh>> {
     UiMesh::new(vertices.into(), indices.into(), batches.into())
         .ok()
         .map(Arc::new)
+}
+
+/// Draws all six alpha-tested faces so rear texels remain visible through front-face holes.
+/// The caller normalizes non-blended texels and retains thumbnails for fractional blending.
+pub(super) fn cutout_cube(faces: [IconRef; 6]) -> Option<Arc<UiMesh>> {
+    let quads = assets::BlockFace::ALL.map(|face| {
+        let (corners, uvs) = assets::gui_item::cube_face(face);
+        (
+            assets::gui_item::GuiBlockQuad {
+                corners,
+                uvs,
+                material: 0,
+            },
+            faces[face as usize],
+        )
+    });
+    block_model(&quads)
 }
 
 fn cube_project(point: [f32; 3]) -> [f32; 2] {

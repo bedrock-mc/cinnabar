@@ -169,3 +169,103 @@ fn accepted_mining_behind_an_expired_head_still_corrects_the_slot() {
         Some(88)
     );
 }
+
+#[test]
+fn corrected_stack_identity_survives_responses_and_moves_but_not_replacement() {
+    use super::{CellGesture, InventoryTarget};
+    let mut ledger = ledger_with_slot_zero();
+    let source = InventoryTarget::Player(0);
+    for (damage, stack_id) in [(4, 77), (5, 88)] {
+        let request = ledger.begin_mining_request(0, damage).unwrap();
+        ledger.apply(&mining_response(
+            request,
+            StackResponseStatus::Accepted,
+            damage,
+            stack_id,
+        ));
+        assert!(ledger.target_retains_stack_id(source, 9));
+        assert_eq!(
+            ledger.displayed_stack(0).unwrap().stack_network_id,
+            stack_id
+        );
+    }
+    acknowledge_personal_open(&mut ledger, 2);
+    ledger.begin_click(0).unwrap();
+    assert_eq!(ledger.cursor_stack().unwrap().count, 1);
+    let destination = InventoryTarget::Player(5);
+    ledger
+        .begin_target_gesture(destination, CellGesture::Click)
+        .unwrap();
+    assert!(ledger.target_retains_stack_id(destination, 9));
+    assert!(!ledger.target_retains_stack_id(source, 9));
+
+    // A replacement of the same kind retains its own identity.
+    let mut replacement = ledger_with_slot_zero().displayed_stack(0).unwrap().clone();
+    replacement.stack_network_id = 99;
+    ledger.apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: protocol::ContainerIdentity::window(0),
+            slot: 6,
+        },
+        stack: replacement,
+        storage_item: None,
+    }));
+    let other = InventoryTarget::Player(6);
+    ledger.begin_hotbar_swap(destination, 6).unwrap();
+    assert!(!ledger.target_retains_stack_id(destination, 9));
+    assert!(ledger.target_retains_stack_id(destination, 99));
+    assert!(ledger.target_retains_stack_id(other, 9));
+}
+
+#[test]
+fn a_fresh_slot_write_discards_the_old_corrected_identity() {
+    use super::InventoryTarget;
+    let mut ledger = ledger_with_slot_zero();
+    let target = InventoryTarget::Player(0);
+    let request = ledger.begin_mining_request(0, 4).unwrap();
+    ledger.apply(&mining_response(
+        request,
+        StackResponseStatus::Accepted,
+        4,
+        77,
+    ));
+    assert!(ledger.target_retains_stack_id(target, 9));
+    let stack = ledger.displayed_stack(0).unwrap().clone();
+    ledger.apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: protocol::ContainerIdentity::window(0),
+            slot: 0,
+        },
+        stack,
+        storage_item: None,
+    }));
+    assert!(!ledger.target_retains_stack_id(target, 9));
+    assert!(ledger.target_retains_stack_id(target, 77));
+}
+
+#[test]
+fn splitting_a_stack_retains_the_source_identity_only_on_the_remainder() {
+    use super::InventoryTarget;
+    let mut ledger = ledger_with_slot_zero();
+    acknowledge_personal_open(&mut ledger, 2);
+    let corrected_request = ledger.begin_world_drop(0, Some(1)).unwrap();
+    ledger.apply(&InventoryEvent::Response(ItemStackResponseEvent {
+        responses: Arc::from([StackResponse {
+            request_id: corrected_request,
+            status: StackResponseStatus::Accepted,
+            containers: Arc::from([correction(
+                CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
+                0,
+                31,
+                77,
+            )]),
+        }]),
+    }));
+    ledger.begin_take_count(0, 1).unwrap();
+    ledger.begin_click(5).unwrap();
+    assert!(ledger.target_retains_stack_id(InventoryTarget::Player(0), 9));
+    assert!(!ledger.target_retains_stack_id(InventoryTarget::Player(5), 9));
+    assert!(!ledger.target_retains_stack_id(InventoryTarget::Player(5), corrected_request));
+    assert_eq!(ledger.displayed_stack(0).unwrap().count, 30);
+    assert_eq!(ledger.displayed_stack(5).unwrap().count, 1);
+}

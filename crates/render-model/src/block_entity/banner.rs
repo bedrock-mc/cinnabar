@@ -1,8 +1,7 @@
 //! Banners: pole, crossbar and a cloth drawn once per layer (base color, then each pattern).
 //!
-//! Box sizes and UV origins follow the banner texture unwrap (20x40x1 cloth, 2x42x2 pole,
-//! 20x2x2 bar). The 2/3 model scale, mounting heights and sway parameters need native
-//! measurement.
+//! Shared authoring boxes and the cloth pivot keep every artwork layer attached to the
+//! crossbar. Mounting and animation use the same reflected model frame.
 
 use assets::block_entity_geometry::{self as geometry, BoxSpec};
 use glam::{Mat4, Vec3};
@@ -13,11 +12,11 @@ use super::{
     scene::SceneClock,
 };
 
-const MODEL_SCALE: f32 = 2.0 / 3.0;
+const MODEL_SCALE: f32 = 0.64;
 /// Coplanar layers are separated by this much inflation so they never fight.
 const LAYER_INFLATE_STEP: f32 = 0.01;
 const SWAY_PERIOD_TICKS: f64 = 100.0;
-const SWAY_MEAN_DEGREES: f32 = -2.2;
+const SWAY_MEAN_DEGREES: f32 = 2.25;
 const SWAY_AMPLITUDE_DEGREES: f32 = 1.8;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -55,14 +54,13 @@ pub(super) fn emit(
 ) {
     let (base, has_pole) = match model.mount {
         BannerMount::Standing { rotation_degrees } => (
-            model_matrix(block, [0.5, 0.0, 0.5], 180.0 - rotation_degrees)
+            model_matrix(block, [0.5, 0.48, 0.5], 180.0 - rotation_degrees)
                 * Mat4::from_scale(Vec3::splat(MODEL_SCALE)),
             true,
         ),
-        // Crossbar top flush with the block top, back against the wall.
         BannerMount::Wall(facing) => (
-            model_matrix(block, [0.5, 0.0, 0.5], facing.yaw_degrees())
-                * Mat4::from_translation(Vec3::new(0.0, 16.0 - 44.0 * MODEL_SCALE, 7.33))
+            model_matrix(block, [0.5, -0.16, 0.5], facing.yaw_degrees())
+                * Mat4::from_translation(Vec3::new(0.0, -5.0, 7.0))
                 * Mat4::from_scale(Vec3::splat(MODEL_SCALE)),
             false,
         ),
@@ -77,7 +75,7 @@ pub(super) fn emit(
             Layer::Solid,
             &base_texture,
             base,
-            world_box(geometry::BANNER_POLE, 12.0),
+            world_box(geometry::BANNER_POLE),
             white,
         );
     }
@@ -85,17 +83,14 @@ pub(super) fn emit(
         Layer::Solid,
         &base_texture,
         base,
-        world_box(geometry::BANNER_BAR, 12.0),
+        world_box(geometry::BANNER_BAR),
         white,
     );
     let sway = sway_degrees(block, clock);
-    let hinge = Vec3::new(0.0, 42.0, -1.0);
-    let cloth = base
-        * Mat4::from_translation(hinge)
-        * Mat4::from_rotation_x(sway.to_radians())
-        * Mat4::from_translation(-hinge);
+    let hinge = Vec3::from(geometry::BANNER_CLOTH_PIVOT) * Vec3::new(1.0, -1.0, 1.0);
+    let cloth = base * Mat4::from_translation(hinge) * Mat4::from_rotation_x(sway.to_radians());
     let tint = |color: [f32; 3]| [color[0], color[1], color[2], 1.0];
-    let cloth_box = |inflate: f32| world_box(geometry::BANNER_CLOTH, hinge.y).inflated(inflate);
+    let cloth_box = |inflate: f32| world_box(geometry::BANNER_CLOTH).inflated(inflate);
     builder.cuboid(
         Layer::Solid,
         &base_texture,
@@ -121,18 +116,21 @@ pub(super) fn emit(
 }
 
 /// Converts downward model-part Y coordinates into upward world model pixels.
-fn world_box(([x, y, z], size, uv): geometry::ModelBox, anchor: f32) -> BoxSpec {
-    BoxSpec::new([x, anchor - y - size[1], z], size, uv)
+fn world_box(([x, y, z], size, uv): geometry::ModelBox) -> BoxSpec {
+    BoxSpec::new([x, -y - size[1], z], size, uv)
 }
 
-/// Cloth tilt about the crossbar, varying with position so neighbors do not sway in step.
+/// Cloth tilt in the upward-Y frame, varying with position so neighbors sway independently.
 fn sway_degrees(block: [i32; 3], clock: SceneClock) -> f32 {
     let seed = (block[0].wrapping_mul(7))
         .wrapping_add(block[1].wrapping_mul(9))
         .wrapping_add(block[2].wrapping_mul(13));
     let phase = ((clock.ticks + f64::from(seed)) / SWAY_PERIOD_TICKS).fract() as f32;
-    SWAY_MEAN_DEGREES + SWAY_AMPLITUDE_DEGREES * (std::f32::consts::TAU * phase).cos()
+    SWAY_MEAN_DEGREES - SWAY_AMPLITUDE_DEGREES * (std::f32::consts::TAU * phase).cos()
 }
+
+#[cfg(test)]
+mod placement_tests;
 
 #[cfg(test)]
 mod tests {

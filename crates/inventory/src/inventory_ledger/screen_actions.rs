@@ -16,14 +16,21 @@ use super::{InventoryGestureError, PlayerInventoryLedger};
 
 const ENCHANT_INPUT_SLOT: u8 = 14;
 const BEACON_PAYMENT_SLOT: u8 = 27;
+/// The anvil's first input, the item it works on.
+pub const ANVIL_TARGET_SLOT: u8 = 1;
+/// The anvil's second input: a repair material, enchanted book or second copy.
+pub const ANVIL_MATERIAL_SLOT: u8 = 2;
 
 /// The craft action a screen's result take is announced with.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ScreenCraft {
-    /// Anvil result; `rename` is the typed item name, if any.
+    /// Anvil result; `rename` is the typed item name, if any. `output` supplies a prediction
+    /// when no server result exists; `material_used` is its second-input consumption.
     Anvil {
         rename: Option<Arc<str>>,
         multi_recipe_id: u32,
+        output: Option<protocol::NetworkItemStack>,
+        material_used: u16,
     },
     Grindstone {
         recipe_network_id: i32,
@@ -61,7 +68,7 @@ impl ScreenCraft {
 /// The UI input slots one screen consumes when its result is taken.
 const fn input_slots(kind: WindowKind) -> &'static [u8] {
     match kind {
-        WindowKind::Anvil => &[1, 2],
+        WindowKind::Anvil => &[ANVIL_TARGET_SLOT, ANVIL_MATERIAL_SLOT],
         WindowKind::Grindstone => &[16, 17],
         WindowKind::Loom => &[9, 10, 11],
         WindowKind::Stonecutter => &[3],
@@ -171,7 +178,12 @@ impl PlayerInventoryLedger {
         let request_id = self.peek_request_id()?;
         let predicted_distinct = matches!(
             craft,
-            ScreenCraft::Predicted { .. } | ScreenCraft::Loom { .. }
+            ScreenCraft::Predicted { .. }
+                | ScreenCraft::Loom { .. }
+                | ScreenCraft::Anvil {
+                    output: Some(_),
+                    ..
+                }
         );
         let (preview, predicted_set) = match craft {
             ScreenCraft::Predicted { output, .. } => {
@@ -194,8 +206,25 @@ impl PlayerInventoryLedger {
                     extra_data: user_data,
                 };
                 let held = Held {
+                    source_stack_id: Some(stack.stack_network_id),
                     stack,
                     overlay: None,
+                    acknowledged_request_id: None,
+                };
+                (held.clone(), Some(held))
+            }
+            ScreenCraft::Anvil {
+                output: Some(output),
+                ..
+            } => {
+                let mut stack = output.clone();
+                stack.stack_network_id = request_id;
+                stack.nbt_digest = Sha256::digest(&stack.extra_data).into();
+                let held = Held {
+                    source_stack_id: Some(stack.stack_network_id),
+                    stack,
+                    overlay: None,
+                    acknowledged_request_id: None,
                 };
                 (held.clone(), Some(held))
             }
@@ -216,8 +245,10 @@ impl PlayerInventoryLedger {
                 stack.extra_data = Arc::from([]);
                 stack.nbt_digest = Sha256::digest([]).into();
                 let held = Held {
+                    source_stack_id: Some(stack.stack_network_id),
                     stack,
                     overlay: None,
+                    acknowledged_request_id: None,
                 };
                 (held.clone(), Some(held))
             }
@@ -247,6 +278,7 @@ impl PlayerInventoryLedger {
             ScreenCraft::Anvil {
                 rename,
                 multi_recipe_id,
+                ..
             } => (
                 StackRequestAction::CraftRecipeOptional {
                     recipe_network_id: *multi_recipe_id,
@@ -296,7 +328,15 @@ impl PlayerInventoryLedger {
             let Some(held) = self.view().get(cell) else {
                 continue;
             };
-            let amount = consume_amount(*slot, held.stack.count).min(held.stack.count);
+            let amount = match craft {
+                ScreenCraft::Anvil {
+                    output: Some(_),
+                    material_used,
+                    ..
+                } if *slot == ANVIL_MATERIAL_SLOT => *material_used,
+                _ => consume_amount(*slot, held.stack.count),
+            }
+            .min(held.stack.count);
             if amount == 0 {
                 continue;
             }

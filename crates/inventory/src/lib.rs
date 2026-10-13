@@ -1,6 +1,8 @@
 //! Engine-independent inventory authority, prediction, crafting and commands.
+mod anvil;
 mod crafting;
 mod crafting_authority;
+pub mod enchantments;
 mod furnace_recipes;
 mod ingress;
 pub mod inventory_ledger;
@@ -12,6 +14,7 @@ mod selection;
 mod session;
 mod transport;
 
+pub use anvil::{ANVIL_TOO_EXPENSIVE, AnvilItem, AnvilOutcome, evaluate_anvil, repairs_with};
 pub use crafting::{
     CraftGridItem, CraftGridMatch, ingredient_accepts, match_crafting_grid,
     recipe_ingredient_accepts, screen_ingredient_accepts,

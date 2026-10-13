@@ -1,9 +1,61 @@
 use super::*;
 
+/// Rejecting a screen drop clears its empty prediction without restoring an older cursor owner.
+#[test]
+fn rejecting_an_empty_cursor_drop_does_not_restore_the_predecessor() {
+    let original = stack(6, 10, 4);
+    let mut ledger = open_ledger(&[(0, original.clone())]);
+    let take = ledger.begin_click(0).unwrap();
+    let drop = ledger.begin_drop(DropSource::Cursor, None).unwrap();
+    send_all(&mut ledger);
+
+    respond(&mut ledger, drop, StackResponseStatus::Rejected, vec![]);
+    assert_eq!(ledger.pending_request_id(), Some(take));
+    assert_eq!(ledger.pending_request_count(), 1);
+    assert!(ledger.cursor_stack().is_none());
+    assert!(ledger.confirmed_stack(Cell::Cursor).is_none());
+
+    respond(&mut ledger, take, StackResponseStatus::Rejected, vec![]);
+    assert_eq!(ledger.displayed_stack(0), Some(&original));
+    assert!(ledger.cursor_stack().is_none());
+    assert!(!ledger.resync_required());
+}
+
+/// An inactive empty screen prediction cannot claim unowned backing for a late correction.
+#[test]
+fn historic_empty_cursor_correction_does_not_restore_a_missing_sparse_owner() {
+    let mut ledger = open_ledger(&[(0, stack(6, 10, 4)), (1, stack(7, 11, 3))]);
+    let take = ledger.begin_click(0).unwrap();
+    let place = ledger.begin_click(5).unwrap();
+    let later_take = ledger.begin_click(1).unwrap();
+    send_all(&mut ledger);
+
+    respond(
+        &mut ledger,
+        later_take,
+        StackResponseStatus::Rejected,
+        vec![],
+    );
+    assert!(ledger.cursor_stack().is_none());
+    respond(
+        &mut ledger,
+        place,
+        StackResponseStatus::Accepted,
+        vec![correction(CONTAINER_NAME_CURSOR, 0, 4, 91)],
+    );
+    assert_eq!(ledger.pending_request_id(), Some(take));
+    assert!(ledger.cursor_stack().is_none());
+    assert!(ledger.confirmed_stack(Cell::Cursor).is_none());
+    assert_eq!(ledger.skipped_unknown_containers(), 1);
+    assert!(!ledger.resync_required());
+}
+
 #[test]
 fn normal_transaction_updates_backing_without_erasing_active_absolute_prediction() {
     let mut ledger = open_ledger(&[(0, stack(6, 77, 64))]);
-    let request = ledger.begin_world_drop(0, Some(1)).unwrap();
+    let request = ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+        .unwrap();
     let InventoryEvent::Slot(update) = slot_push(0, stack(6, 81, 64)) else {
         panic!()
     };
@@ -18,7 +70,9 @@ fn normal_transaction_updates_backing_without_erasing_active_absolute_prediction
     send_all(&mut ledger);
     respond(&mut ledger, request, StackResponseStatus::Rejected, vec![]);
     assert_eq!(ledger.displayed_stack(0).unwrap(), &stack(6, 81, 64));
-    let next = ledger.begin_world_drop(0, Some(1)).unwrap();
+    let next = ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+        .unwrap();
     let StackRequestAction::Drop { source, .. } = ledger.queue.back().unwrap().actions[0] else {
         panic!()
     };
@@ -32,7 +86,9 @@ fn normal_transaction_updates_backing_without_erasing_active_absolute_prediction
 #[test]
 fn authoritative_drop_count_is_not_decremented_a_second_time() {
     let mut ledger = open_ledger(&[(0, stack(6, 10, 64))]);
-    let request = ledger.begin_world_drop(0, Some(1)).unwrap();
+    let request = ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+        .unwrap();
     send_all(&mut ledger);
     assert_eq!(count(ledger.displayed_stack(0)), Some(63));
     assert_eq!(ledger.displayed_stack(0).unwrap().stack_network_id, request);
@@ -86,8 +142,12 @@ fn split_halves_and_empty_cells_chain_by_request_and_slot() {
 #[test]
 fn historic_response_updates_backing_without_erasing_newer_prediction() {
     let mut ledger = open_ledger(&[(0, stack(6, 10, 4))]);
-    let first = ledger.begin_world_drop(0, Some(1)).unwrap();
-    let second = ledger.begin_world_drop(0, Some(1)).unwrap();
+    let first = ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+        .unwrap();
+    let second = ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+        .unwrap();
     send_all(&mut ledger);
     respond(
         &mut ledger,
@@ -115,8 +175,12 @@ fn historic_response_updates_backing_without_erasing_newer_prediction() {
 #[test]
 fn rejecting_latest_owner_does_not_resurrect_or_reconcile_a_missing_sparse_cell() {
     let mut ledger = open_ledger(&[(0, stack(6, 10, 4))]);
-    let first = ledger.begin_world_drop(0, Some(1)).unwrap();
-    let second = ledger.begin_world_drop(0, Some(1)).unwrap();
+    let first = ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+        .unwrap();
+    let second = ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+        .unwrap();
     send_all(&mut ledger);
     respond(
         &mut ledger,
@@ -216,7 +280,9 @@ fn offhand_empty_push_before_take_response_does_not_lock_cursor_or_future_gestur
 #[test]
 fn response_requested_slot_selects_historic_item_not_actual_destination() {
     let mut ledger = open_ledger(&[(20, stack(6, 10, 4)), (0, stack(7, 11, 1))]);
-    let request = ledger.begin_world_drop(20, Some(1)).unwrap();
+    let request = ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(20)), Some(1))
+        .unwrap();
     send_all(&mut ledger);
     let mut response = correction(CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, 0, 2, 12);
     Arc::make_mut(&mut response.slots)[0].hotbar_slot = 20;
@@ -236,7 +302,9 @@ fn response_requested_slot_selects_historic_item_not_actual_destination() {
 #[test]
 fn accepted_response_uses_snapshot_even_after_backing_item_replacement() {
     let mut ledger = open_ledger(&[(0, stack(6, 10, 4))]);
-    let request = ledger.begin_world_drop(0, Some(1)).unwrap();
+    let request = ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+        .unwrap();
     send_all(&mut ledger);
     ledger.apply(&slot_push(0, stack(7, 77, 9)));
     respond(
@@ -256,7 +324,9 @@ fn accepted_response_uses_snapshot_even_after_backing_item_replacement() {
 #[test]
 fn malformed_count_id_pair_is_a_counted_skip_not_an_invented_stack() {
     let mut ledger = open_ledger(&[(0, stack(6, 10, 4))]);
-    let request = ledger.begin_world_drop(0, Some(1)).unwrap();
+    let request = ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(0)), Some(1))
+        .unwrap();
     send_all(&mut ledger);
     respond(
         &mut ledger,

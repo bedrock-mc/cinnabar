@@ -697,12 +697,15 @@ pub fn resolve_camera_pose(
     // Capture the sleeping turn in the camera pose and its publication proof.
     let rotation = (perspective == PerspectiveMode::FirstPerson)
         .then(|| {
-            client_world
-                .stream
-                .and_then(|stream| stream.authority().local_sleeping_bed())
+            client_world.stream.and_then(|stream| {
+                let (bed, _) = stream.authority().local_sleeping_bed()?;
+                Some(crate::actor_sampling::sleeping_bed_rotation(
+                    stream, collisions, bed,
+                ))
+            })
         })
         .flatten()
-        .map(|(_, rotation)| sleeping_view_rotation(rotation))
+        .map(sleeping_view_rotation)
         .or(settings.death_rotation())
         .unwrap_or_else(|| view.camera_rotation());
     let transform = if let Some(stream) = client_world.stream.as_ref() {

@@ -143,6 +143,17 @@ impl BlockEntityAtlas {
         })
     }
 
+    /// Finds the static texture containing a point in atlas pixels.
+    pub(super) fn static_texture_at(&self, [x, y]: [f32; 2]) -> Option<AtlasRect> {
+        self.placements
+            .values()
+            .find(|rect| {
+                (rect.x..rect.x + rect.width).contains(&x)
+                    && (rect.y..rect.y + rect.height).contains(&y)
+            })
+            .copied()
+    }
+
     /// The rect of dynamic map cell `slot`.
     #[must_use]
     pub fn map_cell(&self, slot: usize) -> Option<AtlasRect> {

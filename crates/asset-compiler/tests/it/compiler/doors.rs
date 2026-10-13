@@ -135,7 +135,7 @@ fn decoded_door_facing(encoded_orientation: u32) -> DoorFacing {
 }
 
 fn expected_door_bounds(orientation: u32, open: u32, hinge: u32) -> ([i16; 3], [i16; 3]) {
-    const T: i16 = 48;
+    const T: i16 = (assets::door::THICKNESS * 256.0 + 0.5) as i16;
     const H: i16 = 256 - T;
     let facing = decoded_door_facing(orientation);
     let effective = match (open, hinge) {
@@ -177,7 +177,10 @@ fn assert_cutout_cuboid(compiled: &CompiledAssets, visual_id: usize) {
     ));
     let template = compiled.model_templates[visual.model_template as usize];
     assert_eq!(template.quad_count, 6);
-    assert_eq!(template.flags, 0);
+    assert!(matches!(
+        template.flags,
+        0 | assets::MODEL_TEMPLATE_FLAG_DOOR
+    ));
     let quads = compiled_model_quads(compiled, visual_id);
     for quad in quads {
         assert!(
@@ -222,8 +225,8 @@ fn compiler_routes_every_generated_door_and_trapdoor_selector_to_exact_cutout_cu
     );
     assert_eq!(
         compiled_doors.model_templates.len(),
-        8,
-        "four spatial bounds times lower/upper materials"
+        assets::door::TEMPLATE_COUNT as usize,
+        "complete checked door poses retain both texture halves"
     );
     let door_collision_bounds = doors
         .iter()
@@ -250,10 +253,8 @@ fn compiler_routes_every_generated_door_and_trapdoor_selector_to_exact_cutout_cu
         ]),
         "trapdoor collision-only seeds must cover both halves and all four open boundaries"
     );
-    // The pinned collision slabs are 0.1825 blocks thick (47/256 after
-    // rounding) and contain no state transition. They therefore audit the
-    // source limitation only; render geometry remains the exact typed 3/16
-    // contract below and never reads CollisionSeed.
+    // Collision-only door seeds contain no state transition. Visual selectors
+    // are compiled independently of these uniform seed bounds.
 
     for (id, record) in doors.iter().enumerate() {
         let orientation = record
@@ -289,9 +290,9 @@ fn compiler_routes_every_generated_door_and_trapdoor_selector_to_exact_cutout_cu
                 })
                 .unwrap();
             assert_eq!(
-                compiled_doors.visuals[id].model_template,
-                compiled_doors.visuals[peer].model_template,
-                "closed door hinge must deduplicate"
+                model_bounds(compiled_model_quads(&compiled_doors, id)),
+                model_bounds(compiled_model_quads(&compiled_doors, peer)),
+                "closed door hinge preserves the same plane"
             );
         }
     }
@@ -445,6 +446,17 @@ fn compiler_door_and_trapdoor_selectors_fail_closed_for_every_out_of_range_field
             ModelFamily::Trapdoor,
             &fields,
         ));
+    }
+    for record in records
+        .iter_mut()
+        .filter(|record| record.model_family == ModelFamily::Door)
+    {
+        record.canonical_state = serde_json::json!({
+            "direction": {"type":"int", "value":record.model_state.get(ModelStateField::Orientation).unwrap()},
+            "open_bit": {"type":"byte", "value":record.model_state.get(ModelStateField::Open).unwrap()},
+            "door_hinge_bit": {"type":"byte", "value":record.model_state.get(ModelStateField::Hinge).unwrap()},
+            "upper_block_bit": {"type":"byte", "value":u32::from(record.model_state.get(ModelStateField::Flags).unwrap() & MODEL_FLAG_UPPER != 0)},
+        }).to_string().into_boxed_str();
     }
     for record in records
         .iter_mut()

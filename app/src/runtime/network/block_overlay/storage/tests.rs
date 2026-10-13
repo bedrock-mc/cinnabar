@@ -1,6 +1,8 @@
-use super::super::{MIN_TILE, textures::TextureCatalog};
+use super::super::{MAX_OVERLAY_SHARDS, MIN_TILE, textures::TextureCatalog};
 use super::*;
 use resource_pack::LayeredPackView;
+
+mod capacity;
 
 /// Admits a resource pack containing only the original synthetic files supplied by a test.
 fn view(files: &[(&str, &[u8])]) -> LayeredPackView {
@@ -30,7 +32,7 @@ fn view(files: &[(&str, &[u8])]) -> LayeredPackView {
     ))
 }
 
-/// Occupies every shard so growing any one to 2048px exceeds the upload budget.
+/// Occupies every shard with small layers for decode, rollback and resizing fixtures.
 fn builder<'a>(
     view: &'a LayeredPackView,
     keys: &assets::material_keys::MaterialKeys,
@@ -69,10 +71,9 @@ fn png(width: u32, height: u32) -> Vec<u8> {
 }
 
 #[test]
-fn static_decode_and_budget_failures_are_shared_across_selectors_and_aliases() {
-    let large = png(2048, 2048);
+fn static_decode_failures_are_shared_across_selectors_and_aliases() {
     let small = png(16, 16);
-    for rejected in [large.as_slice(), b"invalid PNG".as_slice(), b"".as_slice()] {
+    for rejected in [b"invalid PNG".as_slice(), b"".as_slice()] {
         let view = view(&[
             ("textures/rejected.png", rejected),
             ("textures/small.png", &small),
@@ -106,10 +107,10 @@ fn static_decode_and_budget_failures_are_shared_across_selectors_and_aliases() {
 
 #[test]
 fn failed_static_storage_does_not_hide_an_independent_animation() {
-    let large = png(2048, 2048);
+    let invalid = b"invalid PNG".as_slice();
     let small = png(16, 32);
     let view = view(&[
-        ("textures/rejected.png", &large),
+        ("textures/rejected.png", invalid),
         ("textures/frame.png", &small),
         (
             "textures/flipbook_textures.json",
@@ -155,11 +156,9 @@ fn failed_grid_admission_does_not_poison_another_grid_of_the_same_image() {
 
 #[test]
 fn animation_source_failures_decode_once_across_wildcard_variants() {
-    let large = png(2048, 2048);
     let malformed_strip = png(48, 32);
     let fallback = png(16, 16);
     for rejected in [
-        large.as_slice(),
         malformed_strip.as_slice(),
         b"invalid PNG".as_slice(),
         b"".as_slice(),
@@ -342,14 +341,12 @@ fn custom_fallback_answers_decode_misses_but_keeps_admission_refusals() {
     let materials = [assets::Material::unvaried(); 2];
     let keys = assets::material_keys::MaterialKeys::from_entries([(1, "tile")])
         .with_aliases([("tile", "textures/rejected")]);
-    let large = png(2048, 2048);
     for (bytes, max_layers, expected_page) in [
         (
             b"invalid PNG".as_slice(),
             assets::MAX_TEXTURE_LAYERS,
             Some(0),
         ),
-        (large.as_slice(), assets::MAX_TEXTURE_LAYERS, None),
         (b"invalid PNG".as_slice(), 3, None),
     ] {
         let view = view(&[("textures/rejected.png", bytes)]);
@@ -368,6 +365,46 @@ fn custom_fallback_answers_decode_misses_but_keeps_admission_refusals() {
             usize::from(max_layers > 3)
         );
         assert!(builder.texture_slot_for("tile", (0, 0)).is_none());
+    }
+}
+
+#[test]
+fn full_arrays_distinguish_absent_pack_sources_from_present_inputs_without_decoding() {
+    let materials = [assets::Material::unvaried(); 2];
+    let keys = assets::material_keys::MaterialKeys::from_entries([(1, "tile")])
+        .with_aliases([("tile", "textures/rejected")]);
+    for (files, expected_page) in [
+        (Vec::new(), Some(0)),
+        (
+            vec![("textures/rejected.png", b"invalid PNG".as_slice())],
+            None,
+        ),
+        (
+            vec![("textures/rejected.tga", b"invalid TGA".as_slice())],
+            None,
+        ),
+        (
+            vec![("textures/rejected.texture_set.json", b"{}".as_slice())],
+            None,
+        ),
+    ] {
+        let view = view(&files);
+        let mut builder = builder(&view, &keys);
+        builder.fallback = Some(assets::VanillaFallback::new(&keys, &materials));
+        builder.max_layers = 3;
+        assert_eq!(builder.remaining_layers(), 0);
+        for _ in 0..2 {
+            assert_eq!(
+                builder.texture_slot("tile").map(|slot| slot.page),
+                expected_page
+            );
+        }
+        assert_eq!(builder.sources.len(), 3 * super::super::MAX_OVERLAY_SHARDS);
+        assert_eq!(builder.catalog.decode_attempts.get(), 0);
+        assert_eq!(
+            builder.gaps.saturated_textures,
+            u32::from(expected_page.is_none())
+        );
     }
 }
 
@@ -429,6 +466,7 @@ fn animation_source() -> FlipbookSource {
 /// Checks timeline texels, page bounds, and exact upload accounting after placement.
 fn assert_animation(builder: Builder<'_>, slot: TextureSlot, expected: usize) {
     let upload_bytes = builder.upload_bytes;
+    let byte_budget = builder.texture_policy.storage_bytes();
     let compiled = builder.finish().unwrap();
     let animation = &compiled.overlay.animations[slot.animation as usize];
     assert_eq!(animation.frame_count as usize, expected);
@@ -455,7 +493,7 @@ fn assert_animation(builder: Builder<'_>, slot: TextureSlot, expected: usize) {
             .map(|mip| mip.rgba8.len())
             .sum::<usize>()
     );
-    assert!(upload_bytes <= MAX_SUBSCRIBER_BYTES);
+    assert!(upload_bytes <= byte_budget);
 }
 
 #[test]
@@ -545,23 +583,50 @@ fn texture_growth_uses_the_cheapest_fitting_shard_instead_of_the_smallest_tile()
 }
 
 #[test]
-fn finish_rejects_sources_that_exceed_per_shard_or_total_layer_capacity() {
+fn finish_rejects_sources_that_exceed_the_device_layer_limit() {
     let view = view(&[]);
-    assert!(
-        occupied_builder(&view, 2, &[MIN_TILE], &[3])
-            .finish()
-            .is_none()
+    for max_layers in [2, 256, 2048, assets::MAX_TEXTURE_LAYERS] {
+        assert!(
+            occupied_builder(&view, max_layers, &[MIN_TILE], &[max_layers + 1])
+                .finish()
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn finish_accepts_pages_above_the_former_aggregate_layer_limit() {
+    let view = view(&[]);
+    let per_page = assets::MAX_TEXTURE_LAYERS / MAX_OVERLAY_SHARDS + 1;
+    let mut builder = occupied_builder(
+        &view,
+        per_page,
+        &[MIN_TILE; MAX_OVERLAY_SHARDS],
+        &[per_page; MAX_OVERLAY_SHARDS],
     );
-    let per_shard = super::super::MAX_OVERLAY_LAYERS / super::super::MAX_OVERLAY_SHARDS + 1;
-    assert!(
-        occupied_builder(
-            &view,
-            per_shard,
-            &[MIN_TILE; super::super::MAX_OVERLAY_SHARDS],
-            &[per_shard; super::super::MAX_OVERLAY_SHARDS]
-        )
-        .finish()
-        .is_none()
+    builder.texture_policy = assets::texture::policy::TexturePolicy::for_terrain(MIN_TILE, 0);
+    let upload_bytes = builder.upload_bytes;
+    assert!(upload_bytes <= builder.texture_policy.storage_bytes());
+    let compiled = builder.finish().expect("every device page fits");
+    assert_eq!(compiled.overlay.max_page_layers, per_page as u32);
+    assert_eq!(
+        compiled
+            .overlay
+            .textures
+            .iter()
+            .map(|page| page.layers as usize)
+            .collect::<Vec<_>>(),
+        vec![per_page; MAX_OVERLAY_SHARDS]
+    );
+    assert_eq!(
+        compiled
+            .overlay
+            .textures
+            .iter()
+            .flat_map(|page| &page.mips)
+            .map(|mip| mip.rgba8.len())
+            .sum::<usize>(),
+        upload_bytes
     );
 }
 

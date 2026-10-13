@@ -26,6 +26,7 @@ mod display;
 mod facts;
 mod icons;
 pub use facts::{ItemStackFacts, ItemStackFactsCache};
+mod nbt_edit;
 mod registry_capacity;
 
 pub use attack::{ItemAttackCooldown, ItemAttackTiming, KineticWeaponTiming};
@@ -36,6 +37,10 @@ pub use display::{
     item_has_enchantment_list,
 };
 pub(crate) use icons::item_icon_keys;
+pub use nbt_edit::{
+    ItemAnvilData, ItemNbtEdit, edit_item_extra, item_anvil_data, item_custom_name,
+    item_repair_cost,
+};
 
 /// The single item shape 1.26.40 puts on the wire.
 ///

@@ -594,3 +594,25 @@ fn batched_dispatch_allocations_are_bounded_by_jobs_and_queue_growth() {
         completed.recv_timeout(Duration::from_secs(5)).unwrap();
     }
 }
+
+/// A snapshot knows a block exactly where sampling it answers anything but unknown.
+#[test]
+fn snapshot_knows_exactly_the_blocks_it_can_sample() {
+    let (stream, key) = fixture();
+    let blocks = stream.light_block_snapshot(key);
+    let offsets = [-17, -1, 0, 8, 15, 16, 31, 32];
+    for dx in offsets {
+        for dy in offsets {
+            for dz in offsets {
+                let position =
+                    world::BlockPos::new(key.x * SIDE + dx, key.y * SIDE + dy, key.z * SIDE + dz);
+                assert_eq!(
+                    world::LightBlockAccess::is_known(&blocks, position),
+                    world::LightBlockAccess::sample(&blocks, position)
+                        != world::LightBlockSample::Unknown,
+                    "{position:?}"
+                );
+            }
+        }
+    }
+}

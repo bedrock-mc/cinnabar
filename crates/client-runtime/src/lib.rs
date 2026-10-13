@@ -13,8 +13,7 @@ pub mod session;
 pub mod shutdown;
 pub mod world_service;
 
-use bevy::prelude::{App, IntoScheduleConfigs, Last, Plugin, Update};
-use client_state::RuntimeFrameSet;
+use bevy::prelude::{App, Last, Plugin};
 use std::marker::PhantomData;
 
 /// Registers runtime schedules while keeping the prepared session payload caller-owned.
@@ -31,12 +30,7 @@ impl<P: Send + Sync + 'static> Plugin for ClientRuntimePlugin<P> {
     fn build(&self, app: &mut App) {
         network::configure_network_frame_flush::<P>(app);
         world_service::configure_world_service(app, network::NetworkFrameFlush);
-        app.add_systems(
-            Update,
-            publication::begin_publication_frame
-                .in_set(RuntimeFrameSet::PublicationBudget)
-                .before(render_scene::ChunkRenderApplySet),
-        )
-        .add_systems(Last, shutdown::arm_shutdown_watchdog);
+        publication::configure_publication_frame(app);
+        app.add_systems(Last, shutdown::arm_shutdown_watchdog);
     }
 }

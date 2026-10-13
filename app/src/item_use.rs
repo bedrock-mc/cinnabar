@@ -195,11 +195,11 @@ pub(crate) fn produce_item_use(
         aim_rotation,
         &context.network,
     );
-    if let Some((slot, revision)) = runtime.take_emptied_slot() {
+    if let Some((slot, revision, change)) = runtime.take_inventory_change() {
         player_runtime
             .inventory
             .ledger_mut()
-            .settle_use_emptied_slot(slot, revision);
+            .settle_use_slot_change(slot, revision, &change);
     }
 }
 

@@ -1,7 +1,8 @@
 //! Runs admitted payload work without owning a scheduling pool.
 
 use super::{
-    DecodeCompletion, DecodeJob, PreparedWorldEvent, prepare_block_mutations, prepare_sub_chunks,
+    DecodeCompletion, DecodeJob, PreparedWorldEvent, light_neutral_sections,
+    prepare_block_mutations, prepare_sub_chunks,
 };
 use std::time::Instant;
 use world::{
@@ -22,16 +23,21 @@ impl DecodeJob {
                 slots,
                 count,
                 ids,
+                previous,
             } => {
                 let chunk = ChunkKey::new(event.dimension, event.x, event.z);
                 let decoded =
                     DecodedLevelChunk::decode_inline(chunk, slots, count, &payload, &ids, &ids);
+                let light_neutral = previous.map_or_else(Vec::new, |previous| {
+                    light_neutral_sections(&previous, &decoded, &ids)
+                });
                 DecodeCompletion {
                     sequence,
                     queue_wait,
                     event: PreparedWorldEvent::InlineLevelChunk {
                         event,
                         decoded,
+                        light_neutral,
                         duration: started.elapsed(),
                     },
                 }

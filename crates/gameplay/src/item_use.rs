@@ -80,8 +80,8 @@ pub struct ItemUseRuntime {
     /// Cooldown category and the tick it ends.
     cooldowns: Vec<(client_world::UseCooldownCategory, u64)>,
     predicted: Option<PredictedStack>,
-    /// A throw's emptied slot and the authoritative revision it consumed, until the ledger takes it.
-    emptied_slot: Option<(u8, u64)>,
+    /// The admitted throw change and its source revision, until the inventory ledger takes it.
+    inventory_change: Option<(u8, u64, PredictedSlotChange)>,
     /// The use button has stayed down since a press no block interaction consumed.
     repeat_armed: bool,
     /// A rejected click retries only while its verified selection remains current.
@@ -93,8 +93,6 @@ pub struct ItemUseRuntime {
     )>,
     /// A rejected release still precedes the next use, even if Use is pressed again.
     release_pending: bool,
-    /// Vanilla's process-wide legacy item-stack request id counter.
-    last_legacy_request_id: i32,
     crossbows: crossbow::CrossbowPredictions,
 }
 
@@ -192,14 +190,14 @@ impl ItemUseRuntime {
         self.rearm_millis = None;
         self.cooldowns.clear();
         self.predicted = None;
-        self.emptied_slot = None;
+        self.inventory_change = None;
         self.release_pending = false;
         self.crossbows.clear();
     }
 
-    /// The slot and authoritative revision an admitted throw of the last item emptied, once.
-    pub fn take_emptied_slot(&mut self) -> Option<(u8, u64)> {
-        self.emptied_slot.take()
+    /// Takes an admitted throw's inventory change once, including nonempty remainders.
+    pub fn take_inventory_change(&mut self) -> Option<(u8, u64, PredictedSlotChange)> {
+        self.inventory_change.take()
     }
 
     /// Whether this frame has anything to resolve against an unsent tick.
@@ -332,17 +330,18 @@ impl ItemUseRuntime {
         let Some(selection) = self.displayed_selection(frame) else {
             return;
         };
+        // Vanilla opens a legacy request scope on every air use.
+        let Some(legacy_request_id) = protocol::next_legacy_request_id() else {
+            return;
+        };
         self.slot_change_pending = false;
         self.last_air_use_tick = Some(frame.tick);
         self.rearm_millis = Some(frame.now_millis.saturating_add(USE_REARM_MILLIS));
-        // Vanilla opens a legacy request scope on every air use.
-        let legacy_request_id = self.next_legacy_request_id();
         let cooldown = air_use.and_then(AirUse::cooldown);
         let on_cooldown = cooldown.is_some_and(|cooldown| self.on_cooldown(cooldown.category));
         let mut change = None;
         let mut active_use = None;
         let mut predicted_stack = None;
-        let mut emptied_slot = None;
         let mut swung = false;
         match air_use {
             Some(AirUse::Hold {
@@ -362,11 +361,6 @@ impl ItemUseRuntime {
                 swung = true;
                 if !frame.creative {
                     let to = selection.item.less_one(legacy_request_id);
-                    if to.is_empty() {
-                        emptied_slot = frame
-                            .inventory_revision
-                            .map(|revision| (selection.slot, revision));
-                    }
                     predicted_stack = frame.selection.as_ref().map(|server| PredictedStack {
                         slot: selection.slot,
                         server: server.item.clone(),
@@ -381,6 +375,11 @@ impl ItemUseRuntime {
             }
             _ => {}
         }
+        let inventory_change = change.as_ref().and_then(|change| {
+            frame
+                .inventory_revision
+                .map(|revision| (selection.slot, revision, change.clone()))
+        });
         if let Ok(packet) = protocol::click_air_packet(held_request(&selection, frame), change) {
             outcome.packets.push(packet);
             outcome.used = true;
@@ -396,8 +395,8 @@ impl ItemUseRuntime {
             if predicted_stack.is_some() {
                 self.predicted = predicted_stack;
             }
-            if emptied_slot.is_some() {
-                self.emptied_slot = emptied_slot;
+            if inventory_change.is_some() {
+                self.inventory_change = inventory_change;
             }
             if matches!(air_use, Some(AirUse::Instant { .. })) {
                 self.crossbows
@@ -441,17 +440,6 @@ impl ItemUseRuntime {
 
     fn on_cooldown(&self, category: client_world::UseCooldownCategory) -> bool {
         self.cooldowns.iter().any(|(active, _)| *active == category)
-    }
-
-    /// Vanilla legacy request ids: even ids from -4 downward, restarting past the range.
-    pub fn next_legacy_request_id(&mut self) -> i32 {
-        let current = if self.last_legacy_request_id < -2 {
-            self.last_legacy_request_id
-        } else {
-            -2
-        };
-        self.last_legacy_request_id = current.checked_sub(2).unwrap_or(-4);
-        self.last_legacy_request_id
     }
 }
 

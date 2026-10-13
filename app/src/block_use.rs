@@ -264,7 +264,9 @@ pub(crate) fn produce_block_use(
         return;
     };
     item_use.synchronize(context.ui.session_id());
-    let legacy_request_id = item_use.next_legacy_request_id();
+    let Some(legacy_request_id) = protocol::next_legacy_request_id() else {
+        return;
+    };
     let change = (local_use == LocalUse::Place && game_mode != Some(PlayerGameMode::Creative))
         .then(|| {
             runtime
@@ -318,12 +320,10 @@ pub(crate) fn produce_block_use(
         return;
     }
     if let Some(change) = change {
-        if change.to.is_empty() {
-            player_runtime
-                .inventory
-                .ledger_mut()
-                .settle_use_emptied_slot(server_selection.slot, inventory_revision);
-        }
+        player_runtime
+            .inventory
+            .ledger_mut()
+            .settle_use_slot_change(server_selection.slot, inventory_revision, &change);
         runtime
             .inventory
             .commit(server_selection, inventory_revision, change);

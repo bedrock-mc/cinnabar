@@ -4,7 +4,7 @@ use crate::Subpack;
 use serde_json::Value;
 
 /// Converts physical memory bytes to vanilla's tier with strict upper boundaries.
-pub(crate) fn device_memory_tier(bytes: u64) -> u32 {
+pub fn device_memory_tier(bytes: u64) -> u32 {
     [2, 4, 6, 8, 12]
         .into_iter()
         .filter(|gib| bytes > gib * (1 << 30))

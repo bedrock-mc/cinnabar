@@ -22,6 +22,7 @@ use actor_animation::ActorLifetimeId;
 
 mod armour;
 mod durability;
+pub use durability::resolve_item_durability;
 mod glint;
 mod grip;
 
@@ -683,7 +684,7 @@ fn registry_record(
         component_digest: entry.component_digest,
         components: entry.components.clone(),
         armour: armour::resolve(entry, assets),
-        durability: durability::resolve(entry, assets),
+        durability: resolve_item_durability(entry, assets),
     }
 }
 

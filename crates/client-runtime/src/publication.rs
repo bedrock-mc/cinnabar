@@ -1,11 +1,12 @@
 use std::time::Duration;
 
 use bevy::{
-    prelude::{Res, ResMut, Resource, Time},
+    prelude::{App, IntoScheduleConfigs, Res, ResMut, Resource, Time, Update},
     time::Real,
 };
+use client_state::RuntimeFrameSet;
 use render_api::{PublicationAllowance, PublicationServiceConfig};
-use render_scene::ChunkUploadBudget;
+use render_scene::{ChunkRenderApplySet, ChunkRenderQueue, ChunkUploadBudget};
 
 const NANOS_PER_SECOND: u128 = 1_000_000_000;
 const RECOVERY_STREAK_FRAMES: u32 = 120;
@@ -191,6 +192,12 @@ impl PublicationController {
         self.diagnostics.last_work = work;
     }
 
+    /// Replaces the backlog sample with what this frame's render application left queued.
+    fn record_applied_backlog(&mut self, items: usize, bytes: u64) {
+        self.diagnostics.last_work.upload_queue_items = items;
+        self.diagnostics.last_work.upload_queue_bytes = bytes;
+    }
+
     #[must_use]
     /// Returns the current frame's upload and zero-byte operation caps.
     pub const fn budget(&self) -> ChunkUploadBudget {
@@ -313,6 +320,29 @@ impl PublicationController {
             self.diagnostics.additive_increases =
                 self.diagnostics.additive_increases.saturating_add(1);
         }
+    }
+}
+
+/// Refills the allowance before world publication and samples the backlog after render application.
+pub fn configure_publication_frame(app: &mut App) {
+    app.add_systems(
+        Update,
+        (
+            begin_publication_frame
+                .in_set(RuntimeFrameSet::PublicationBudget)
+                .before(ChunkRenderApplySet),
+            sample_applied_backlog.after(ChunkRenderApplySet),
+        ),
+    );
+}
+
+/// A batch handed off this frame is applied in the same frame, so only the residue is pressure.
+fn sample_applied_backlog(
+    mut controller: ResMut<PublicationController>,
+    queue: Option<Res<ChunkRenderQueue>>,
+) {
+    if let Some(queue) = queue {
+        controller.record_applied_backlog(queue.retained_len(), queue.pending_bytes());
     }
 }
 

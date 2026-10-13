@@ -72,8 +72,8 @@ func reportConnectStage(ctx context.Context, stage ConnectStage) {
 	}
 }
 
-// resourcePackAcquisitionBudget admits offered packs for download in offer
-// order within the count and byte bounds; later packs are ignored, not fatal.
+// resourcePackAcquisitionBudget admits the first offer for each pack identity
+// within the count and byte bounds; later entries are ignored, not fatal.
 // Transfer sizes replace offer estimates within the archive and selection byte bounds;
 // transfers past the memory ceiling cancel the upstream dial.
 // It turns gophertunnel's acquisition events into vanilla's progress figures.
@@ -128,8 +128,14 @@ func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePac
 		return
 	}
 	budget.accepted = make([]bool, len(info.TexturePacks))
+	seen := make(map[string]bool, len(info.TexturePacks))
 	var total uint64
 	for index, pack := range info.TexturePacks {
+		id := resourcePackIdentity(pack.UUID.String(), pack.Version)
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
 		if int(budget.packs) == maxSelectedResourcePacks || pack.Size > maxResourcePackArchiveBytes ||
 			pack.Size > maxSelectedResourcePackTotalBytes-total {
 			continue
@@ -137,7 +143,7 @@ func (budget *resourcePackAcquisitionBudget) admitOffer(info *packet.ResourcePac
 		total += pack.Size
 		budget.packs++
 		budget.accepted[index] = true
-		budget.offered[resourcePackIdentity(pack.UUID.String(), pack.Version)] = pack.Size
+		budget.offered[id] = pack.Size
 	}
 	budget.reserved = total
 }

@@ -1,8 +1,15 @@
 //! Form authority, overlap policy and definite-unsent backpressure witnesses.
-use super::*;
+use client_ui::ui_runtime::{
+    FormRespondError, FormTransportError, LocalFormAction, MAX_RETAINED_SERVER_FORMS,
+    SequencedUiEvent, ServerFormIdentity, UiRuntime, flush_form_response,
+};
+use protocol::UiEvent;
+
+use super::fixtures::envelope;
 use protocol::{FormKind, FormRequestEvent, ServerFormModel, TextMenuForm, UnsupportedForm};
 use std::sync::Arc;
 
+/// Builds a two-button form with ordered session metadata.
 pub(super) fn retained(form_id: u32, sequence: u64) -> SequencedUiEvent {
     envelope(
         1,
@@ -26,12 +33,15 @@ pub(super) fn retained(form_id: u32, sequence: u64) -> SequencedUiEvent {
         }),
     )
 }
+/// Reads the identity of the displayed form.
 fn identity(runtime: &UiRuntime) -> ServerFormIdentity {
     runtime.server_forms().active().unwrap().identity
 }
+/// Returns the encoded packet bytes.
 fn bytes(packet: protocol::Packet) -> Vec<u8> {
     protocol::encode(&packet).unwrap().to_vec()
 }
+/// Flushes every form response accepted by the fixture transport.
 fn drain(runtime: &mut UiRuntime) -> Vec<Vec<u8>> {
     let mut packets = Vec::new();
     while flush_form_response(runtime, |packet| {

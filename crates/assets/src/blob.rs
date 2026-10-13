@@ -448,16 +448,29 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
                     | MODEL_TEMPLATE_FLAG_FENCE_WOOD
                     | MODEL_TEMPLATE_FLAG_FENCE_NETHER
                     | MODEL_TEMPLATE_FLAG_FIRE
-                    | MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN);
+                    | MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN
+                    | crate::MODEL_TEMPLATE_FLAG_DOOR);
             if connected_flag != 0 {
+                let group_base = if connected_flag == crate::MODEL_TEMPLATE_FLAG_DOOR {
+                    let pose = crate::door::DoorPose::from_variant(visual.variant)
+                        .ok_or_else(|| invalid("door visual has invalid selectors"))?;
+                    visual
+                        .model_template
+                        .checked_sub(pose.offset())
+                        .ok_or_else(|| invalid("door visual precedes its pose group"))?
+                } else {
+                    visual.model_template
+                };
                 let Some(base_index) = connected_bases.iter().position(|&(base, flag)| {
-                    base == visual.model_template as usize && flag == connected_flag
+                    base == group_base as usize && flag == connected_flag
                 }) else {
                     return Err(invalid(
                         "connected visual does not reference a topology-group base",
                     ));
                 };
-                if visual.kind != VisualKind::Model || visual.variant != 0 {
+                if visual.kind != VisualKind::Model
+                    || (connected_flag != crate::MODEL_TEMPLATE_FLAG_DOOR && visual.variant != 0)
+                {
                     return Err(invalid("connected visual has invalid kind or transform"));
                 }
                 referenced_connected_bases[base_index] = true;
@@ -674,7 +687,20 @@ pub(crate) fn compiled_connected_bases(
     let mut index = 0;
     while index < templates.len() {
         let flag = templates[index].flags;
-        if flag == MODEL_TEMPLATE_FLAG_PANE {
+        if flag == crate::MODEL_TEMPLATE_FLAG_DOOR {
+            let Some(group) = templates.get(index..index + crate::door::TEMPLATE_COUNT as usize)
+            else {
+                return Err(invalid("door template group is truncated"));
+            };
+            if group
+                .iter()
+                .any(|template| template.flags != flag || template.quad_count != 6)
+            {
+                return Err(invalid("door template group is noncanonical"));
+            }
+            bases.push((index, flag));
+            index += crate::door::TEMPLATE_COUNT as usize;
+        } else if flag == MODEL_TEMPLATE_FLAG_PANE {
             let Some(group) = templates.get(index..index + 16) else {
                 return Err(invalid("pane template group is truncated"));
             };

@@ -420,6 +420,29 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - Exact texture rotation/crop parity remains incomplete; the models retain provisional support
   until a matching native directional gallery verifies texel orientation. No parity gate closes.
 
+## Anvil screen
+
+- The anvil predicts its result and cost: repair materials restore a
+  quarter of the durability each for a level each, a second damaged copy adds its remaining
+  durability plus 12% for two levels, and enchantments merge by the native registry's slots,
+  caps, rarity multipliers and exclusivity. A second item that changes nothing clears the
+  result; renaming adds a level, and a rename alone stays below 40 levels and keeps the
+  prior-work penalty, which other takes double plus one.
+- The name box prefills from each new target. The result slot and its tooltip show the
+  server's output when supplied, otherwise the prediction. For predictions, the cost
+  line turns green or red by the player's levels or shows "Too Expensive!", and the cross
+  marks a target that makes nothing. Taking a prediction sends that result and consumes the
+  materials it uses; server outputs keep their authoritative take path. Predictions retain
+  complete enchantment levels and lists and decline unsupported enchantment fields.
+- Predictions apply retained server damage and name corrections to both inputs and the
+  resulting item data. Unchanged prefilled names retain whitespace. Server outputs suppress
+  local cost and invalid-result indicators. Damage-only corrections preserve edits in progress;
+  a changed authoritative name refreshes the prefill, while acknowledgements that echo its
+  effective name preserve edits regardless of whether the name comes from NBT or a response.
+- Provisional: repair materials and item enchantment slots follow vanilla item names rather
+  than each item's native registration, and data-driven anvil recipes are not predicted.
+  Current-version visual and behavior parity remains incomplete; no anvil parity gate closes.
+
 ## OreUI menus, appearance and motion
 
 - Home, Pause, Play, Inbox, world creation, Accounts and confirmation dialogs use shared OreUI
@@ -734,6 +757,10 @@ authored poses. Java 1.7 takes precedence for body, arm and item poses.
 First-person hand sway deliberately uses Java tick smoothing in both combat
 profiles, independently of the Java animation option.
 Movement bob uses the physics fraction; hurt and death use the actor fraction.
+Remote movement keeps pitch in the signed half-turn range before strike poses read it.
+Frame interpolation takes the shortest pitch arc across the signed boundary in Java mode.
+Regression coverage samples repeated remote swings in Bedrock and Java modes with equivalent
+signed and wrapped pitch values; compilation and execution remain pending CI.
 Page-level body dye masks retain zero-alpha RGB and depth independently of armour cutout.
 
 Implementation and deterministic swing, sway, camera, overlay, equipment and shader fixtures
@@ -756,6 +783,19 @@ acceptance gate.
   still contributes to the phase, and death alone does not trigger a flail.
   Fourteen focused hurt tests pass. macOS/Metal captures at 1920×1080, DPI 1, GUI scale 2
   verify single and repeated hits, walking while hurt, and recovery to idle.
+- Cape rotation is bounded at the shoulder in both animation modes: Java tilt is capped at
+  90° and sideways swing at ±90°; Bedrock bounds the cape's actual direction after bind
+  retargeting and preserves hanging authored rotations. These are deliberate presentation
+  limits. Regression coverage includes vertical and fast horizontal
+  flight, frame interpolation, local/remote actors and stopping. Remote teleport and interpolation
+  resets now discard both Java chase endpoints; unflagged steps beyond ten blocks re-anchor
+  without old lag. Remote Bedrock flap uses completed tick displacement instead of retained
+  packet speed and ignores those large steps. Local flap retains per-tick velocity through
+  catch-up frames. Regressions cover remote knockback, repeated hits, teleports, interpolation
+  resets, local catch-up frames, hanging yaw/roll and upward directions near horizontal.
+  Compilation, test execution and rendered-frame validation remain incomplete; the exact
+  Bedrock flap calculation also remains incomplete. This change
+  closes no parity or performance gate.
 - Worn elytra retains authored wing poses and glint in both modes, suppresses the separate cape,
   and uses the cape texture when present. Native controller blend composition stays intact.
 - Golden tests assert composed stacks and projected arm, item and cape points against Java's
@@ -1361,7 +1401,16 @@ acceptance gate.
   custom cubes keep both sides until their alpha mode reaches the mesh build.
 - Regressions reproduce the previous gameplay-flag, alpha and missing-sheet failures.
 - Rebuilt macOS/Metal frames show cube geometry; the user confirmed the live fix.
-- Non-cube, animated and high-resolution carried geometry parity remains open.
+- Non-cube block items the inventory draws in 3D (slabs, stairs, fences, walls, anvils) hold
+  as the same template geometry, from the state their inventory model shows; items the
+  inventory draws flat (torches, plants, panes) keep their sprite.
+- Chests (normal, trapped, ender and copper), shulker boxes, decorated pots and conduits hold
+  as their placed block-entity models, closed and centred. Provisional: their held facing and
+  the native item renderer's pose for them are unmeasured. Banners still hold as sprites;
+  beds are sprites in vanilla too.
+- Held block-entity artwork follows the prepared resource-pack generation and restores startup
+  bindings after disconnect. Missing pot base or side artwork retains the sprite fallback.
+- Animated and high-resolution carried geometry parity remains open.
 - Vanilla rules: [held block items](docs/reference/held-block-items.md).
 
 ## Scaled name tags
@@ -2435,9 +2484,15 @@ first live offhand Shield exposed a missing expression-bound ModelPart origin;
 the correction now passes both hand poses and real-carrier tests.
 2026-10-07 non-cube block items (slabs, stairs, walls, fences) also draw as GUI geometry at
 display resolution instead of a 32x32 thumbnail (icon carrier v3 names each thumbnail's world
-state). Incomplete: their GUI tessellation is still the provisional cube projection, blended
-materials (stained panes) keep the thumbnail, and the bamboo fence and fence gate items show
-misplaced quads, as their thumbnails already did.
+state). Cut-out cubes (glass, leaves) draw all six alpha-tested faces, including rear faces
+visible through holes. Non-blended face alpha uses the thumbnail threshold; fractional blended
+faces (stained glass) retain their composed thumbnail. Chests (a cube of their inventory tiles)
+and blend-flagged art that is only opaque or cut out (anvils) draw as GUI geometry too. Overlapping
+meshes keep their thumbnail when faded. Optional sources follow required atlas pages and fall
+back to thumbnails when the atlas is full. Incomplete: layered translucent cube GUI geometry is
+not implemented, non-cube GUI tessellation still uses the provisional cube projection, truly
+translucent non-cube materials (stained panes) keep the thumbnail, and the bamboo fence and fence
+gate items show misplaced quads, as their thumbnails already did.
 Integration retains upstream's gamma-space UI layer, font/animation paths and
 independently inherited image/sidecar overrides. Stateful inventory/HUD providers
 explicitly clear empty icon bindings so compact icon tables cannot leave duplicate
@@ -2521,7 +2576,9 @@ fonts currently use provisional alpha rasterization. No visual gate is closed.
 Runtime terrain, item and particle images share checked source-area, device-size
 and retained-page budgets. Tall strips are decoded before cutting square frames;
 admitted HD terrain and inventory, held and dropped item art retain source detail.
-Terrain routes that exceed full-resolution storage keep their existing fallback.
+Terrain storage uses the device texture limits and pack memory tier. Byte pressure
+reduces texture resolution while retaining materials and animation timelines.
+Incomplete: exact mip-drop ordering and memory-pressure parity remain unverified.
 Incomplete: native frame and process-memory acceptance for HD packs, exact GUI
 sampling at high UI scales, and pack coverage beyond the supported device and
 storage bounds. This does not close a rendered parity gate.
@@ -4563,7 +4620,8 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       acceptance, strict Clippy/formatting, and independent re-review are green.
     - [x] Door and trapdoor templates: all 672 door states and 336 trapdoor
       states compile through compact six-quad alpha-cutout cuboids with exact
-      typed open/orientation/hinge/half selection, 3/16-block thickness,
+      typed open/orientation/hinge/half selection, native door thickness and
+      3/16-block trapdoor thickness,
       lower/upper door materials, conservative partial-model culling, and
       deterministic template reuse. Trapdoor templates also retain facing/top-half
       artwork orientation and the top three sprite rows on thin edges, including
@@ -4578,6 +4636,14 @@ Scope: block registry + block-state → model/texture mapping (generated export 
       strict Clippy/formatting, full 16,913-state ratchet, and independent review
       green). Deterministic gallery/native GPU evidence remains in the shared
       residual-family live gate.
+    - [ ] Paired door rendering acceptance: world meshing resolves lower
+      direction/open and upper hinge within the same door class, including
+      vertical subchunk neighbors; missing pairs emit no door geometry.
+      Highlights and mining cracks use the same paired model surfaces; crack
+      caches retain the resolved pose so neighbor updates change their geometry.
+      Focused regressions cover different stored selectors. Source-bound
+      before/after frames, native-server toggle/picking input, directional
+      server artwork and final independent review remain incomplete.
     - [ ] Barrel and adjacent trapdoor render parity: barrel facing/open artwork,
       grain direction, material ownership and carried-item rendering have regression
       and rendered coverage. The reported texture leakage was not reproduced;
@@ -5265,6 +5331,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
           bobs. Flat covers and pages draw as two-faced sheets, and entity-lit
           back faces are culled. Its entity lighting from the table's glow is
           provisional, and the lectern stand placement needs native measurement.
+          Standing and wall banner cloth share the crossbar's authoring pivot,
+          with matching mounting scale and wave direction. Full banner parity
+          remains incomplete: animation lookup quantization, pattern composition
+          and native rendered/input acceptance remain open.
     - [ ] Merge both the Axolotl protocol-fix branch and Cinnabar feature branch
       into their respective `main` branches through reviewed PRs using normal
       history-preserving merge commits (never squash or rebase the feature
@@ -7689,9 +7759,10 @@ does not close the broader native body-motion or live visual parity gate. See
 ## Server pack compatibility
 
 Resource-pack admission accepts corrected chunk-transfer sizes within its archive
-and selected-stack byte limits. Required packs retain their acquired archive and
-actual size through the session handoff. Incomplete: unrestricted pack-size parity
-and exact native admission comparisons remain open.
+and selected-stack byte limits. Repeated offer identities consume the count and
+byte budgets once, retaining the first entry's size estimate. Required packs retain
+their acquired archive and actual size through the session handoff. Incomplete:
+unrestricted pack-size parity and exact native admission comparisons remain open.
 
 Galaxite's full-block geometry, composite Battle Pass models, translucent podium
 glows, state-filtered path borders, correctly lit benches, custom hotbar/held items

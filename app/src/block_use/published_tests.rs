@@ -26,6 +26,9 @@ mod item_use_tests;
 #[path = "published_tests/ledge.rs"]
 mod ledge_tests;
 
+#[path = "published_tests/drop_inventory.rs"]
+mod drop_inventory_tests;
+
 /// Supplies loaded synthetic terrain, a current interaction ray and one real Use press.
 fn fixture() -> (World, client_session::CapturedPackets) {
     let bytes = assets::pinned_block_registry_bytes();

@@ -1,6 +1,5 @@
 //! Shared texture layers and destination-specific animation bindings.
 
-use assets::texture::policy::MAX_SUBSCRIBER_BYTES;
 use assets::{Animation, NO_ANIMATION, TextureRef, texture::flipbook::FlipbookSource};
 use pack_runtime::pack_textures::DecodedTexture;
 
@@ -27,6 +26,7 @@ enum AdmissionFailure {
 }
 
 mod placement;
+mod resolution;
 
 #[cfg(test)]
 mod tests;
@@ -84,6 +84,13 @@ impl Builder<'_> {
             }
         }
         if self.remaining_layers() == 0 {
+            // Missing pack pixels can still borrow a static base-page texture,
+            // which needs no overlay layer. Present sources remain refusals.
+            if source.is_none() && !carrier_policy && self.catalog.static_source_missing(route) {
+                self.slots
+                    .insert_frames(storage_key, Err(FrameFailure::Missing), false);
+                return None;
+            }
             if source.is_none() {
                 self.remaining_capacity(key);
             }
@@ -143,24 +150,11 @@ impl Builder<'_> {
                 [texture.width, texture.height]
             }
         };
-        let own = width
-            .max(height)
-            .checked_next_power_of_two()
-            .ok_or(AdmissionFailure::Source)?
-            .max(super::MIN_TILE);
-        let Some(layer_bytes) = self.texture_policy.terrain_bytes(own, 1) else {
-            self.catalog.report_budget(key);
-            return Err(AdmissionFailure::Source);
-        };
-        let frame_bytes = self
-            .texture_policy
+        self.texture_policy
             .source_bytes(width, height, false)
             .ok_or(AdmissionFailure::Source)?;
-        // Extract against global bounds before deciding which shards hold the unique frames.
-        let available = self
-            .remaining_layers()
-            .min(MAX_SUBSCRIBER_BYTES.saturating_sub(self.upload_bytes) / layer_bytes)
-            .min(MAX_SUBSCRIBER_BYTES.saturating_sub(self.source_bytes) / frame_bytes);
+        // Byte pressure reduces resolution; only layer exhaustion can shorten a timeline.
+        let available = self.remaining_layers();
         if available == 0 {
             self.catalog.report_budget(key);
             return Err(AdmissionFailure::Source);
@@ -180,32 +174,12 @@ impl Builder<'_> {
         if frames.frames.is_empty() {
             return Err(AdmissionFailure::Source);
         }
-        let placements = self.place_frames(own, frames.frames.len());
-        let admitted = placements
-            .iter()
-            .map(|placement| placement.count)
-            .sum::<usize>();
-        if admitted == 0 {
-            self.catalog.report_budget(key);
-            return Err(AdmissionFailure::Source);
-        }
-        frames.frames.truncate(admitted);
-        let timeline_len = frames
-            .timeline
-            .iter()
-            .position(|&index| index as usize >= admitted)
-            .unwrap_or(frames.timeline.len());
-        frames.timeline.truncate(timeline_len);
         if frames.frames.iter().any(|frame| {
             [frame.width, frame.height].into_iter().any(|axis| {
                 axis.checked_shr(u32::from(grid))
                     .is_none_or(|size| size == 0)
             })
         }) {
-            return Err(AdmissionFailure::Source);
-        }
-        let added_bytes: usize = frames.frames.iter().map(|frame| frame.rgba8.len()).sum();
-        if frames.frames.is_empty() || self.source_bytes + added_bytes > MAX_SUBSCRIBER_BYTES {
             return Err(AdmissionFailure::Source);
         }
         let frame_count = frames.timeline.len() as u32;
@@ -223,6 +197,13 @@ impl Builder<'_> {
         if source.is_some_and(|source| frame_count.checked_mul(source.ticks_per_frame).is_none()) {
             return Err(AdmissionFailure::Timing);
         }
+        let Some((placements, tiles)) = self.fit_frames(&mut frames.frames, grid) else {
+            self.catalog.report_budget(key);
+            return Err(AdmissionFailure::Source);
+        };
+        self.resize_pages(&tiles);
+        let admitted = frames.frames.len();
+        let added_bytes: usize = frames.frames.iter().map(|frame| frame.rgba8.len()).sum();
         self.source_bytes += added_bytes;
         let mut references = Vec::with_capacity(admitted);
         let mut physical_frames = frames.frames.into_iter();

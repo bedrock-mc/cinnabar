@@ -530,12 +530,37 @@ impl UiRuntime {
                     .screen_catalog(player_runtime)
                     .and_then(|catalog| catalog.repair_multi_recipe_id())
                     .unwrap_or(0);
-                let name = self.screen_state().anvil_name.trim();
-                let rename = (!name.is_empty()).then(|| std::sync::Arc::from(name));
+                let (rename, output, material_used) = if self
+                    .inventory_ledger(player_runtime)
+                    .created_output_stack()
+                    .is_some()
+                {
+                    (self.anvil_rename(player_runtime), None, 0)
+                } else {
+                    let preview = self
+                        .anvil_preview(player_runtime)
+                        .ok_or(InventoryGestureError::EmptyGesture)?;
+                    if !self.anvil_affordable(player_runtime, &preview) {
+                        return Err(InventoryGestureError::InvalidRequest);
+                    }
+                    // Clearing a custom name sends empty text, so the server clears it too.
+                    let rename = preview
+                        .outcome
+                        .custom_name
+                        .clone()
+                        .map(|name| std::sync::Arc::from(name.unwrap_or_default()));
+                    (
+                        rename,
+                        Some(preview.stack.clone()),
+                        preview.outcome.material_used,
+                    )
+                };
                 self.inventory_ledger_mut(player_runtime)
                     .begin_screen_output(&ScreenCraft::Anvil {
                         rename,
                         multi_recipe_id,
+                        output,
+                        material_used,
                     })
             }
             Some(WindowKind::Grindstone) => self

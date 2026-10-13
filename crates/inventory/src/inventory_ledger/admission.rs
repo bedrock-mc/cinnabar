@@ -572,7 +572,7 @@ impl PlayerInventoryLedger {
             return;
         }
         for slot in 0..self.confirmed.storage_len().max(slots.len()) {
-            self.retire_legacy_write(Cell::Storage(slot as u8));
+            self.prepare_authoritative_cell(Cell::Storage(slot as u8));
         }
         let storage = self.storage.as_mut().expect("storage remains active");
         storage.identity = Some(identity);

@@ -1,6 +1,8 @@
 //! Break-progress overlay: the destroy-stage texture over the block's own model faces.
 
 use std::sync::Arc;
+mod cache;
+pub use cache::CrackShapeCache;
 
 use assets::{MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, RuntimeAssets};
 use glam::Vec3;
@@ -80,6 +82,42 @@ fn tile_fraction(value: u16) -> f32 {
         0.0 => 1.0,
         fraction => fraction,
     }
+}
+
+/// Uses the same paired door pose as terrain for highlights and other model overlays.
+pub fn crack_shape_for_block(
+    assets: &RuntimeAssets,
+    mode: assets::NetworkIdMode,
+    runtime_id: u32,
+    block: [i32; 3],
+    primary_at: impl FnMut([i32; 3]) -> Option<u32>,
+) -> Option<CrackShape> {
+    let visual = assets.resolve(mode, runtime_id);
+    let template = assets.model_template_at(mode, runtime_id, block, primary_at);
+    resolved_shape(
+        assets,
+        template,
+        visual.model_template(),
+        visual.variant(),
+        block,
+    )
+}
+
+/// Keeps unpaired door highlights empty while ordinary non-model blocks use cube fallback.
+fn resolved_shape(
+    assets: &RuntimeAssets,
+    template: Option<u32>,
+    original: Option<u32>,
+    variant: u32,
+    block: [i32; 3],
+) -> Option<CrackShape> {
+    if let Some(template) = template {
+        return crack_shape_from_template(assets, template, variant, block);
+    }
+    original
+        .and_then(|index| assets.model_templates().get(index as usize))
+        .filter(|template| template.flags == assets::MODEL_TEMPLATE_FLAG_DOOR)
+        .map(|_| CrackShape::Quads(Arc::from([])))
 }
 
 /// The shape of a model-template block, following compound template chains; `None` when

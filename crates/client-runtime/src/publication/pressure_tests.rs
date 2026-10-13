@@ -1,8 +1,52 @@
 use std::time::Duration;
 
+use bevy::{
+    prelude::{App, IntoScheduleConfigs, ResMut, Time, Update},
+    time::Real,
+};
 use render_api::PublicationServiceConfig;
+use render_scene::{ChunkRenderApplySet, ChunkRenderQueue, ChunkUploadBudget};
 
-use {crate::publication::PublicationController, crate::publication::PublicationFrameWork};
+use crate::publication::{
+    PublicationController, PublicationFrameWork, begin_publication_frame,
+    configure_publication_frame,
+};
+
+/// A full handoff the renderer applies in the same frame must not read as a stuck backlog.
+#[test]
+fn a_batch_applied_in_its_own_frame_does_not_collapse_the_caps() {
+    let config = PublicationServiceConfig::DEFAULT;
+    let mut app = App::new();
+    app.init_resource::<Time<Real>>()
+        .init_resource::<ChunkUploadBudget>()
+        .init_resource::<ChunkRenderQueue>()
+        .init_resource::<PublicationController>();
+    configure_publication_frame(&mut app);
+    // World publication samples the queue before the renderer applies this frame's handoff.
+    app.add_systems(
+        Update,
+        (move |mut controller: ResMut<PublicationController>| {
+            controller.finish_frame(PublicationFrameWork {
+                upload_queue_items: config.maximum_frame_items,
+                upload_queue_bytes: config.maximum_frame_bytes,
+                ..PublicationFrameWork::default()
+            });
+        })
+        .after(begin_publication_frame)
+        .before(ChunkRenderApplySet),
+    );
+    // The renderer applies the whole handoff, leaving the queue empty.
+    app.add_systems(Update, (|| {}).in_set(ChunkRenderApplySet));
+    for _ in 0..3 {
+        app.update();
+    }
+    let controller = app.world().resource::<PublicationController>();
+    assert_eq!(controller.diagnostics().multiplicative_decreases, 0);
+    assert_eq!(
+        controller.budget().max_zero_byte_operations_per_frame,
+        config.maximum_zero_byte_operations_per_frame
+    );
+}
 
 #[test]
 fn draining_backlog_stops_collapsing_caps_before_the_one_operation_trap() {

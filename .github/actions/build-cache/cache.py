@@ -99,9 +99,18 @@ def verify_inputs(root):
         if name not in before or name not in after or not same_content(before[name], after[name])
     )
     if changed:
+        # A directory drops out of the snapshot when an untracked entry appears inside it.
+        added = sorted(
+            child.relative_to(root).as_posix()
+            for name in changed
+            if before.get(name, {}).get("kind") == "directory" and (root / name).is_dir()
+            for child in (root / name).iterdir()
+            if child.relative_to(root).as_posix() not in before
+        )
         raise RuntimeError(
             "Tracked sources changed during the build; refusing to cache outputs: "
             + ", ".join(changed[:20])
+            + (f"; new entries: {', '.join(added[:20])}" if added else "")
         )
 
 

@@ -8,6 +8,8 @@ import subprocess
 from pathlib import Path
 import sys
 
+# Importing the sibling module must not leave __pycache__ in the tracked tools directory.
+sys.dont_write_bytecode = True
 from compiler_workspace_wrapper import cargo_configs, effective_workspace_wrapper, workspace_wrapper
 
 

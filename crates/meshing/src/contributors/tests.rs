@@ -117,3 +117,34 @@ fn decoded_voxels_answer_as_packed_lookups() {
         }
     }
 }
+
+// Masks classify each decoded answer once; every voxel must still see its own `at` answer.
+#[test]
+fn voxel_classes_match_each_voxels_answer() {
+    let section = mixed_section();
+    let visuals = assets::RuntimeAssets::diagnostic();
+    let facts = || {
+        PaletteFacts::new(
+            BlockClassifier::new(0),
+            &visuals,
+            NetworkIdMode::Sequential,
+            &section,
+        )
+    };
+    let packed = facts();
+    let mut decoded = facts();
+    decoded.decode_voxels();
+    assert!(decoded.decoded.is_some());
+    for source in [&packed, &decoded] {
+        let mut visits = vec![0_u8; SIDE * SIDE * SIDE];
+        source.for_each_voxel_class(
+            |entry| (entry.network_value, entry.sequential_id),
+            |x, y, z, class| {
+                let answer = packed.at(x, y, z);
+                assert_eq!(class, (answer.network_value, answer.sequential_id));
+                visits[(x << 8) | (z << 4) | y] += 1;
+            },
+        );
+        assert!(visits.iter().all(|&count| count == 1));
+    }
+}

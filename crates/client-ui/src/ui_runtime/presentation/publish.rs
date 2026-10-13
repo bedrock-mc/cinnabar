@@ -19,6 +19,7 @@ pub fn capture_hud_frame(
     now_millis: u64,
     icon_frames: ItemIconFrames,
 ) -> (Option<IconRef>, Option<IconRef>) {
+    runtime.sync_anvil_name(player_runtime);
     // Inventory capture precedes lectern opening and screen selection. Selected-item
     // and sleep observations run after item capture, immediately before publication.
     let armor = observations::armor(
@@ -163,6 +164,11 @@ pub fn hovered_stack(
                 ledger.target_stack(inventory::inventory_ledger::InventoryTarget::Offhand),
                 None,
             ),
+            Hit::CraftOutput if ledger.window_kind() == Some(protocol::WindowKind::Anvil) => {
+                return runtime
+                    .anvil_output(player_runtime)
+                    .map(|stack| (stack, None));
+            }
             Hit::CraftOutput => (ledger.created_output_stack(), None),
             Hit::CreativeGrid(index) => {
                 let position = runtime.screen_state().creative_row * super::screens::GRID_COLUMNS

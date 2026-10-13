@@ -10,7 +10,7 @@ use protocol::WindowKind;
 use crate::container_actions::{BEACON_LEVEL_FOR, LOOM_PATTERNS, STONECUTTER_CELLS, Widget};
 use crate::container_source::{ContainerFrame, ContainerSource};
 use assets::entity::mount::{MountBody, MountSlots};
-use inventory::inventory_ledger::InventoryTarget;
+use inventory::inventory_ledger::{ANVIL_TARGET_SLOT, InventoryTarget};
 use ui::IconRef;
 
 /// Beacon power buttons by collection: `(name, effect id, secondary)`.
@@ -150,6 +150,7 @@ pub(crate) fn station_controls(
         WindowKind::Anvil => {
             let name = source.screen().anvil_name.to_owned();
             data.set_global("#text_box_item_name", Scalar::Text(name));
+            anvil_cost(source, data);
         }
         WindowKind::Stonecutter => data.set_collection("stones", stones(source, frame)),
         WindowKind::Beacon => beacon_buttons(data, source),
@@ -174,7 +175,7 @@ pub fn id_aux_icons(
             .collect(),
         Some(WindowKind::Crafter) => frame
             .recipe_output
-            .and_then(|(icon, _)| *icon)
+            .and_then(|output| output.icon)
             .map(|icon| vec![(CRAFTER_OUTPUT_KEY, icon)])
             .unwrap_or_default(),
         Some(WindowKind::Stonecutter) => frame
@@ -185,6 +186,39 @@ pub fn id_aux_icons(
             .collect(),
         _ => Vec::new(),
     }
+}
+
+/// Shows predicted costs and invalid-result indicators only when no server output exists.
+fn anvil_cost(source: &dyn ContainerSource, data: &mut DataSource) {
+    let ledger = source.player().inventory.ledger();
+    let server_output = ledger.created_output_stack().is_some();
+    let cost = source.screen().anvil_cost.filter(|_| !server_output);
+    let text = cost.map_or_else(String::new, |cost| {
+        if cost.too_expensive {
+            source
+                .translation("container.repair.expensive")
+                .map_or_else(|| "Too Expensive!".to_owned(), |text| text.to_string())
+        } else {
+            let levels = cost.levels.to_string();
+            source
+                .translation("container.repair.cost")
+                .map_or_else(|| levels.clone(), |text| text.replace("%1$d", &levels))
+        }
+    });
+    let affordable = cost.is_some_and(|cost| cost.affordable);
+    let target = ledger
+        .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
+        .is_some();
+    data.set_global("#cost_text", Scalar::Text(text));
+    data.set_global("#cost_text_green", Scalar::Bool(affordable));
+    data.set_global(
+        "#cost_text_red",
+        Scalar::Bool(cost.is_some() && !affordable),
+    );
+    data.set_global(
+        "#cross_out_icon",
+        Scalar::Bool(!server_output && target && cost.is_none_or(|cost| cost.too_expensive)),
+    );
 }
 
 /// The crafter screen's disabled-slot buttons, powered arrow and previewed result.
@@ -207,7 +241,7 @@ fn crafter_controls(
     };
     data.set_global("#redstone_arrow_texture", Scalar::Text(arrow.to_owned()));
     let output = frame.recipe_output;
-    let shown = output.filter(|(icon, _)| icon.is_some());
+    let shown = output.filter(|output| output.icon.is_some());
     data.set_global(
         "#crafter_output_item",
         Scalar::Num(if shown.is_some() {
@@ -216,7 +250,7 @@ fn crafter_controls(
             0.0
         }),
     );
-    let count = output.map_or(0, |(_, stack)| stack.count);
+    let count = output.map_or(0, |output| output.stack.count);
     data.set_global(
         "#output_stack_count",
         Scalar::Text(match count {
@@ -226,7 +260,11 @@ fn crafter_controls(
         }),
     );
     let name = output
-        .and_then(|(_, stack)| frame.item_names.get(&(stack.network_id, stack.metadata)))
+        .and_then(|output| {
+            frame
+                .item_names
+                .get(&(output.stack.network_id, output.stack.metadata))
+        })
         .map_or_else(String::new, |name| name.to_string());
     data.set_global("#crafting_preview_info", Scalar::Text(name));
 }
@@ -597,6 +635,9 @@ pub(crate) fn decorate(
 }
 
 #[cfg(test)]
+mod anvil_tests;
+
+#[cfg(test)]
 mod banner_tests {
     use std::{
         collections::{BTreeMap, BTreeSet},
@@ -610,9 +651,9 @@ mod banner_tests {
     static SCROLL: BTreeMap<String, f64> = BTreeMap::new();
 
     /// Answers only what the loom bindings read.
-    struct LoomSource {
-        player: player_state::PlayerState,
-        screen: ScreenView<'static>,
+    pub(super) struct LoomSource {
+        pub(super) player: player_state::PlayerState,
+        pub(super) screen: ScreenView<'static>,
     }
 
     impl ContainerSource for LoomSource {
@@ -658,7 +699,7 @@ mod banner_tests {
     }
 
     /// Supplies authoritative loom input slots and negotiated item identities.
-    fn loom_fixture() -> LoomSource {
+    pub(super) fn loom_fixture() -> LoomSource {
         let mut player = player_state::PlayerState::new(1);
         player
             .inventory
@@ -699,6 +740,7 @@ mod banner_tests {
             screen: ScreenView {
                 mount_equipment: Default::default(),
                 anvil_name: "",
+                anvil_cost: None,
                 recipe_choice: None,
                 beacon: (0, 0),
                 beacon_level: None,

@@ -828,6 +828,33 @@ fn verified_network_stack_requires_retained_bytes_and_both_digests_to_match() {
     );
 }
 
+#[test]
+fn verified_network_stack_accepts_legacy_names_without_accepting_pending_names() {
+    let digest: [u8; 32] = Sha256::digest([]).into();
+    let stack = |stack_network_id| NetworkItemStack {
+        network_id: 5,
+        stack_network_id,
+        count: 2,
+        nbt_digest: digest,
+        ..NetworkItemStack::empty()
+    };
+    for id in [-2, -4, i32::MIN] {
+        let verified = VerifiedNetworkItemStack::try_new(stack(id), digest).unwrap();
+        assert_eq!(verified.stack_network_id(), id);
+        assert_eq!(verified.count(), 2);
+        assert_eq!(
+            VerifiedNetworkItemStack::try_new(stack(id), [1; 32]).unwrap_err(),
+            InventoryPacketError::DigestMismatch
+        );
+    }
+    for id in [0, -3, -5, i32::MIN + 1] {
+        assert_eq!(
+            VerifiedNetworkItemStack::try_new(stack(id), digest).unwrap_err(),
+            InventoryPacketError::InvalidStackNetworkId(id)
+        );
+    }
+}
+
 // Regression: an InventorySlot whose items carry a zero-length user-data blob (air / empty
 // items) must decode rather than fail. gophertunnel's writer emits a zero-length ByteSlice
 // for an absent stack (`Writer.itemUserData`, `minecraft/protocol/writer.go`, the `!present`

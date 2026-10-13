@@ -8,8 +8,8 @@ use protocol::{
     WINDOW_TYPE_HORSE,
 };
 
-use crate::ui_runtime::UiRuntime;
-use crate::ui_runtime::inventory_drag::PointerAction;
+use client_ui::ui_runtime::UiRuntime;
+use client_ui::ui_runtime::inventory_drag::PointerAction;
 use ui_screens::container_actions::InventoryCellHit;
 
 /// Opens a mount window with one known player stack and empty storage cells.

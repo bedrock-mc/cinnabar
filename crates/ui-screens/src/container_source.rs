@@ -13,6 +13,14 @@ use ui::IconRef;
 
 use crate::{furnace_book::Entries, recipe_book::BookEntry};
 
+/// The predicted station result and its resolved item decorations.
+#[derive(Clone, Debug)]
+pub struct StationOutput {
+    pub stack: NetworkItemStack,
+    pub icon: Option<IconRef>,
+    pub durability: Option<f32>,
+}
+
 /// The client's authority as the container screens read it; the client's adapter answers from
 /// its runtime, so screens never hold it.
 pub trait ContainerSource {
@@ -45,6 +53,8 @@ pub struct ScreenView<'a> {
     /// Admitted equipment facts of the open mount.
     pub mount_equipment: MountEquipment,
     pub anvil_name: &'a str,
+    /// The predicted anvil cost, when no server output takes precedence.
+    pub anvil_cost: Option<AnvilCost>,
     /// The stonecutter recipe the player picked.
     pub recipe_choice: Option<u32>,
     /// Chosen beacon effects; `0` means none.
@@ -70,6 +80,17 @@ pub struct ScreenView<'a> {
     pub text_focused: bool,
     /// The book, sign-off or lectern reader being shown.
     pub book: Option<BookView<'a>>,
+}
+
+/// What taking the open anvil's predicted result costs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AnvilCost {
+    /// Experience levels.
+    pub levels: i32,
+    /// Survival players cannot take it at any level count.
+    pub too_expensive: bool,
+    /// The player can take it now.
+    pub affordable: bool,
 }
 
 /// A book reader or editor's state, borrowed from the client's book state.
@@ -111,7 +132,7 @@ pub struct ContainerFrame<'a> {
     /// Output icons of the stonecutter's recipe cells.
     pub recipe_icons: &'a [Option<IconRef>],
     /// The result a recipe screen would produce now.
-    pub recipe_output: Option<&'a (Option<IconRef>, NetworkItemStack)>,
+    pub recipe_output: Option<&'a StationOutput>,
     /// Icons of the recipe book's entries, in list order.
     pub book_entries: &'a [Option<IconRef>],
     pub furnace_entries: &'a Arc<[Option<IconRef>]>,

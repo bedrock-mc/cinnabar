@@ -78,16 +78,26 @@ impl PackApplication {
 
     /// Prepares against the exact base snapshot that this application will publish over.
     pub(super) fn prepare_actor_artwork(&mut self, base: Option<&render_model::ActorArtworkPages>) {
-        self.prepared_actor_artwork = base.zip(self.entities.as_ref()).map(|(base, pack)| {
-            if let Some(previous) = &self.prepared_actor_artwork
-                && previous.pages_for(base, pack).is_some()
-            {
-                return previous.clone();
-            }
-            Arc::new(
-                client_presentation::prepared_actor_artwork::PreparedActorArtwork::new(base, pack),
+        let Some(base) =
+            base.filter(|_| self.entities.is_some() || self.block_entity_art.is_some())
+        else {
+            self.prepared_actor_artwork = None;
+            return;
+        };
+        if let Some(previous) = &self.prepared_actor_artwork
+            && previous.matches_sources(
+                base,
+                self.entities.as_ref(),
+                self.block_entity_art.as_ref(),
             )
-        });
+        {
+            return;
+        }
+        self.prepared_actor_artwork = Some(Arc::new(
+            client_presentation::prepared_actor_artwork::PreparedActorArtwork::new_with_block_entity_artwork(
+                base, self.entities.as_ref(), self.block_entity_art.as_ref(),
+            ),
+        ));
     }
 }
 
@@ -522,10 +532,15 @@ pub(crate) fn await_overlay_texture_device() {
 pub(crate) fn initialize_overlay_texture_limit(
     device: Option<bevy::prelude::Res<bevy::render::renderer::RenderDevice>>,
 ) {
-    assets::texture::policy::set_device_policy(device.as_ref().map_or_else(
+    let max_dimension_2d = device.as_ref().map_or_else(
         || wgpu::Limits::default().max_texture_dimension_2d,
         |device| device.limits().max_texture_dimension_2d,
-    ));
+    );
+    assets::texture::policy::set_device_policy(max_dimension_2d);
+    assets::texture::policy::set_terrain_device_policy(
+        max_dimension_2d,
+        resource_pack::subpacks::device_memory_tier(launcher_host::memory::physical_bytes()),
+    );
     let limit = device.map_or_else(
         || wgpu::Limits::default().max_texture_array_layers,
         |device| device.limits().max_texture_array_layers,

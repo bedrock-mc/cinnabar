@@ -500,7 +500,6 @@ impl PlayerInventoryLedger {
             deadline_millis: None,
             timed_out: false,
             awaiting_refresh: Vec::new(),
-            accepted: None,
             session_generation: self.session_generation,
             storage_generation: self.storage.as_ref().map(|storage| storage.generation),
             personal_generation: submission.personal_generation,
@@ -511,6 +510,7 @@ impl PlayerInventoryLedger {
             furnace_route: None,
             predicted: Vec::new(),
             mining: None,
+            world_drop: None,
         });
         Ok(request_id)
     }

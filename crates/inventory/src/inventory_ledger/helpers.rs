@@ -35,27 +35,7 @@ impl PlayerInventoryLedger {
         request_id: i32,
     ) {
         for action in actions {
-            let (first, second) = match action {
-                StackRequestAction::Take {
-                    source,
-                    destination,
-                    ..
-                }
-                | StackRequestAction::Place {
-                    source,
-                    destination,
-                    ..
-                }
-                | StackRequestAction::Swap {
-                    source,
-                    destination,
-                } => (Some(source), Some(destination)),
-                StackRequestAction::Drop { source, .. }
-                | StackRequestAction::Destroy { source, .. }
-                | StackRequestAction::Consume { source, .. } => (Some(source), None),
-                _ => (None, None),
-            };
-            for slot in first.into_iter().chain(second) {
+            for slot in action_slots_mut(action) {
                 if slot.stack_network_id == request_id {
                     continue;
                 }
@@ -63,10 +43,11 @@ impl PlayerInventoryLedger {
                     continue;
                 };
                 if let Some(owner) = self.queue.iter().rev().find(|pending| {
-                    pending
-                        .predicted
-                        .iter()
-                        .any(|prediction| prediction.cell == cell && prediction.active)
+                    !pending.locally_committed()
+                        && pending
+                            .predicted
+                            .iter()
+                            .any(|prediction| prediction.cell == cell && prediction.active)
                 }) {
                     slot.stack_network_id = owner.request_id;
                 }
@@ -95,6 +76,33 @@ impl PlayerInventoryLedger {
             }
         })
     }
+}
+
+/// The source and destination slots `action` names.
+pub(super) fn action_slots_mut(
+    action: &mut StackRequestAction,
+) -> impl Iterator<Item = &mut StackRequestSlot> {
+    let (first, second) = match action {
+        StackRequestAction::Take {
+            source,
+            destination,
+            ..
+        }
+        | StackRequestAction::Place {
+            source,
+            destination,
+            ..
+        }
+        | StackRequestAction::Swap {
+            source,
+            destination,
+        } => (Some(source), Some(destination)),
+        StackRequestAction::Drop { source, .. }
+        | StackRequestAction::Destroy { source, .. }
+        | StackRequestAction::Consume { source, .. } => (Some(source), None),
+        _ => (None, None),
+    };
+    first.into_iter().chain(second)
 }
 
 pub(super) const fn valid_raw_window_id(window_id: i32) -> bool {

@@ -1,5 +1,6 @@
 //! Client presentation state and commands, with player authority borrowed from its owner.
 
+pub mod anvil;
 pub mod bed;
 pub mod book_screen;
 mod boss;
@@ -49,8 +50,6 @@ pub use interaction::FastTransferAction;
 #[cfg(any(test, feature = "test-support"))]
 pub use interaction::dispatch_inventory_click;
 pub use interaction::{ChatFlushError, flush_chat_sends, flush_inventory_send};
-#[cfg(test)]
-use interaction::{dispatch_chat_ui_action, paste_chat_shortcut};
 
 use std::{collections::VecDeque, sync::Arc};
 
@@ -59,8 +58,6 @@ use protocol::{
     UiEvent,
 };
 use semantic_input::InputContext;
-#[cfg(test)]
-use ui::BoundedStat;
 use ui::{
     BossBarStore, ChatAutocompleteRequest, ChatAutocompleteState, ChatClipboard, ChatEditor,
     ChatEditorError, ChatHistory, ChatPasteError, ChatRateLimit, ChatSendQueue, ChatStore,
@@ -207,6 +204,7 @@ pub struct UiRuntime {
     /// Version-pinned local item facts survive replacement of server session state.
     food_catalog: Option<Arc<assets::RuntimeEquipmentCatalog>>,
     stack_facts: protocol::ItemStackFactsCache,
+    anvil_cache: anvil::cache::PreviewCache,
     /// Invalidates names when components or any translation table changes.
     item_name_generation: u64,
     server_ui: Option<Arc<presentation::ServerUiPack>>,
@@ -304,6 +302,7 @@ impl UiRuntime {
             session_items: None,
             food_catalog: None,
             stack_facts: Default::default(),
+            anvil_cache: Default::default(),
             item_name_generation: 0,
             server_ui: None,
             session_glyphs: None,
@@ -625,6 +624,7 @@ impl UiRuntime {
         self.client_packets.clear();
         self.book_packets.clear();
         self.screen = screen_state::ScreenState::default();
+        self.anvil_cache = Default::default();
         self.experiences.reset();
         self.server_lang = None;
         self.session_icons = None;

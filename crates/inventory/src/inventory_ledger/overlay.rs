@@ -1,5 +1,4 @@
-//! Atomic operations used only to create a request's absolute sparse snapshot.
-//! Backing slot updates and responses never rerun these operations.
+//! Atomic operations used to create snapshots and rebuild requests before transport.
 
 use super::cells::{Cell, Cells, Held};
 
@@ -38,6 +37,41 @@ pub(super) enum DeltaGroup {
 }
 
 impl DeltaGroup {
+    /// Names the current source cells when rebuilding an unsent request.
+    pub(super) fn rebind(&mut self, cells: &Cells) {
+        let name = |cell| {
+            cells
+                .get(cell)
+                .map_or(0, |held| held.stack.stack_network_id)
+        };
+        match self {
+            Self::Transfer {
+                source,
+                destination,
+                source_id,
+                destination_id,
+                ..
+            } => {
+                *source_id = name(*source);
+                *destination_id = cells
+                    .get(*destination)
+                    .map(|held| held.stack.stack_network_id);
+            }
+            Self::Swap {
+                source,
+                destination,
+                source_id,
+                destination_id,
+            } => {
+                *source_id = name(*source);
+                *destination_id = name(*destination);
+            }
+            Self::Shrink {
+                source, source_id, ..
+            } => *source_id = name(*source),
+            Self::Set { .. } => {}
+        }
+    }
     pub(super) fn touched(&self) -> impl Iterator<Item = Cell> {
         let (first, second) = match self {
             Self::Transfer {
@@ -54,6 +88,20 @@ impl DeltaGroup {
             Self::Set { cell, .. } => (*cell, None),
         };
         std::iter::once(first).chain(second)
+    }
+
+    /// Whether a touched cell keeps its original item while this operation changes its count.
+    pub(super) fn retains_item_at(&self, cell: Cell) -> bool {
+        match self {
+            Self::Transfer {
+                source,
+                destination,
+                destination_id,
+                ..
+            } => *source == cell || (*destination == cell && destination_id.is_some()),
+            Self::Shrink { source, .. } => *source == cell,
+            Self::Swap { .. } | Self::Set { .. } => false,
+        }
     }
 
     /// Applies this group to `cells`, reporting whether it held.
@@ -146,6 +194,11 @@ fn transfer(
         // restates either one.
         (None, None) => {
             let mut moved = from.clone();
+            if partial {
+                // The split-off stack gets a new identity when its prediction is stamped.
+                moved.source_stack_id = None;
+                moved.acknowledged_request_id = None;
+            }
             moved.stack.count = amount;
             moved
         }

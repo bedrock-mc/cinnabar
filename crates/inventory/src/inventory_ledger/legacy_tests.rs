@@ -382,5 +382,10 @@ fn legacy_later_slot_correction_preserves_the_surviving_cursor_owner() {
     let actions = normal(flush(&mut ledger).remove(0));
     assert_eq!(actions[1].to_item.count, 5);
     assert_eq!(ledger.cursor_stack().unwrap().count, 5);
+    ledger.begin_place_count(3, 1).unwrap();
+    let actions = normal(flush(&mut ledger).remove(0));
+    assert_eq!(actions[0].from_item.count, 5);
+    assert_eq!(ledger.cursor_stack().unwrap().count, 4);
+    assert_eq!(ledger.displayed_stack(3).unwrap().count, 1);
     assert!(!ledger.resync_required());
 }

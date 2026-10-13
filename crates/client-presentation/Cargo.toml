@@ -44,6 +44,7 @@ sha2.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+test-time = { path = "../test-time" }
 test-alloc = { path = "../test-alloc" }
 tempfile = "3"
 render-scene = { path = "../render-scene", features = ["publication-test-support"] }

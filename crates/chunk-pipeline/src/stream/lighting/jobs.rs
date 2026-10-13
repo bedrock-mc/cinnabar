@@ -84,15 +84,17 @@ impl WorldStream {
 
         let view = self.scheduler_view(camera_position);
         let wakeups = &self.lighting.priority_wakeups;
+        let mut local_ingress = false;
         let probe_near =
             self.lighting
                 .jobs
                 .ingress(view, self.poll_deadline, |key, revision, pending| {
+                    local_ingress |= scheduler::light_column_is_near(view, key);
                     (0, pending.urgent || wakeups.get(&key) == Some(&revision))
                 });
 
         let mut near = self.transfer_light_candidates();
-        if probe_near {
+        if probe_near || local_ingress {
             near.extend(
                 scheduler::near_light_columns(view, self.authority.current_dimension())
                     .filter_map(|key| self.near_light_column_candidate(key, view)),
@@ -634,6 +636,12 @@ impl WorldStream {
         urgent: bool,
         monotonic_faces: [bool; 6],
     ) {
+        // Unchanged light invalidates no mesh, yet still completes the halo deferred meshes wait on.
+        for dependent in key.mesh_neighbourhood_dependents() {
+            if self.mesh_jobs.pending.contains_key(&dependent) {
+                self.mesh_jobs.refresh.wake_near(dependent);
+            }
+        }
         let mut requeue = self.lighting.waiters.remove(&key).unwrap_or_default();
         let completed_uniform_direct_sky = self
             .lighting

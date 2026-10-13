@@ -525,9 +525,16 @@ fn a_snowball_throw_reports_its_predicted_decrement() {
     assert_eq!(kinds(&first), ["use"]);
     assert!(first.swung && !first.started);
     let sent = transaction(&first.packets[0]);
+    let first_id = sent.legacy_request_id;
+    assert!(protocol::is_legacy_request_id(first_id));
     assert_eq!(
         summary(&sent),
-        (-4, 1, vec![16, 15, 16], vec![Some(41), Some(-4), Some(41)])
+        (
+            first_id,
+            1,
+            vec![16, 15, 16],
+            vec![Some(41), Some(first_id), Some(41)]
+        )
     );
     assert_eq!(
         sent.legacy_set_slots,
@@ -538,9 +545,16 @@ fn a_snowball_throw_reports_its_predicted_decrement() {
     }));
 
     let second = runtime.step(&throw(105, true));
+    let second_id = transaction(&second.packets[0]).legacy_request_id;
+    assert!(second_id < first_id && protocol::is_legacy_request_id(second_id));
     assert_eq!(
         summary(&transaction(&second.packets[0])),
-        (-6, 1, vec![15, 14, 15], vec![Some(-4), Some(-6), Some(-4)])
+        (
+            second_id,
+            1,
+            vec![15, 14, 15],
+            vec![Some(first_id), Some(second_id), Some(first_id)]
+        )
     );
 
     // The server restating the slot replaces the prediction.
@@ -550,9 +564,9 @@ fn a_snowball_throw_reports_its_predicted_decrement() {
     assert_eq!((sizes[0], ids[0]), (14, Some(41)));
 }
 
-/// Only a throw of the last item, predicted or authoritative, reports its slot and revision, once.
+/// Every admitted throw reports its slot, source revision and full decrement once.
 #[test]
-fn throwing_the_last_item_reports_its_emptied_slot() {
+fn throwing_items_reports_each_admitted_inventory_change() {
     let snowballs = |tick, count| UseFrame {
         inventory_revision: Some(7),
         ..item_frame(tick, false, stack(3, SNOWBALL, count), "minecraft:snowball")
@@ -560,12 +574,19 @@ fn throwing_the_last_item_reports_its_emptied_slot() {
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_press(true);
     assert!(runtime.step(&snowballs(100, 2)).swung);
-    assert_eq!(runtime.take_emptied_slot(), None);
+    let (slot, revision, change) = runtime.take_inventory_change().unwrap();
+    assert_eq!(
+        (slot, revision, change.from.count(), change.to.count()),
+        (3, 7, 2, 1)
+    );
+    assert!(runtime.take_inventory_change().is_none());
     // The server has not restated the slot, so this throws the predicted last snowball.
     runtime.observe_press(true);
     assert!(runtime.step(&snowballs(110, 2)).swung);
-    assert_eq!(runtime.take_emptied_slot(), Some((3, 7)));
-    assert_eq!(runtime.take_emptied_slot(), None);
+    let (slot, revision, change) = runtime.take_inventory_change().unwrap();
+    assert_eq!((slot, revision), (3, 7));
+    assert!(change.to.is_empty());
+    assert!(runtime.take_inventory_change().is_none());
 
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_press(true);
@@ -573,7 +594,7 @@ fn throwing_the_last_item_reports_its_emptied_slot() {
         creative: true,
         ..snowballs(100, 1)
     });
-    assert_eq!(runtime.take_emptied_slot(), None);
+    assert!(runtime.take_inventory_change().is_none());
 }
 
 /// Creative throws swing but change no stack, so they carry no action or legacy request.
@@ -644,14 +665,58 @@ fn food_without_appetite_does_not_start() {
     assert!(!outcome.started && !runtime.is_using());
 }
 
-/// Legacy request ids restart at -4 once the counter leaves the negative range.
 #[test]
-fn legacy_request_ids_step_down_by_two_and_wrap() {
+fn a_throw_response_cannot_settle_either_of_two_world_drops() {
+    let mut ledger = inventory::PlayerInventoryLedger::default();
+    ledger.apply(&protocol::InventoryEvent::Authority(
+        protocol::InventoryAuthority::Server,
+    ));
+    let source = NetworkItemStack {
+        network_id: SNOWBALL,
+        stack_network_id: 41,
+        count: 5,
+        ..NetworkItemStack::empty()
+    };
+    ledger.apply(&protocol::InventoryEvent::Slot(
+        protocol::InventorySlotEvent {
+            identity: protocol::SlotIdentity {
+                container: protocol::ContainerIdentity::window(0),
+                slot: 4,
+            },
+            stack: source,
+            storage_item: None,
+        },
+    ));
+    let mut drop_ids = Vec::new();
+    for _ in 0..2 {
+        ledger.begin_world_drop(4, Some(1)).unwrap();
+        let (packet, _) = ledger.pending_batch().unwrap().unwrap();
+        drop_ids.push(transaction(&packet).legacy_request_id);
+        assert!(ledger.mark_transport_enqueued(0));
+    }
     let mut runtime = ItemUseRuntime::default();
-    assert_eq!(runtime.next_legacy_request_id(), -4);
-    assert_eq!(runtime.next_legacy_request_id(), -6);
-    runtime.last_legacy_request_id = i32::MIN;
-    assert_eq!(runtime.next_legacy_request_id(), -4);
+    runtime.observe_press(true);
+    let outcome = runtime.step(&item_frame(
+        100,
+        false,
+        stack(4, SNOWBALL, 3),
+        "minecraft:snowball",
+    ));
+    let throw_id = transaction(&outcome.packets[0]).legacy_request_id;
+    assert!(protocol::is_legacy_request_id(throw_id));
+    assert!(drop_ids.iter().all(|id| *id != throw_id));
+    assert_ne!(drop_ids[0], drop_ids[1]);
+    let before = ledger.displayed_stack(4).cloned();
+    ledger.apply(&protocol::InventoryEvent::Response(
+        protocol::ItemStackResponseEvent {
+            responses: Arc::from([protocol::StackResponse {
+                request_id: throw_id,
+                status: protocol::StackResponseStatus::Rejected,
+                containers: Arc::from([]),
+            }]),
+        },
+    ));
+    assert_eq!(ledger.displayed_stack(4), before.as_ref());
 }
 
 /// An ender pearl press sends its click-air transaction and starts no held use.

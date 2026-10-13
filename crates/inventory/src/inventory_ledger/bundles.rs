@@ -154,8 +154,10 @@ impl PlayerInventoryLedger {
             groups: vec![DeltaGroup::Set {
                 cell: Cell::Cursor,
                 held: Held {
+                    source_stack_id: Some(stack.stack_network_id),
                     stack,
                     overlay: None,
+                    acknowledged_request_id: None,
                 },
             }],
             personal_generation,

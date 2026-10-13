@@ -2,7 +2,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, bail};
 use bridge::{Lifecycle, PackAcquisition, PackApplication, PackDownstreamOutcome, PackOffer};
@@ -29,11 +29,7 @@ async fn go_status_endpoint_returns_the_strict_initialized_snapshot() -> Result<
     build_core(&core_dir, &executable)?;
     let child = ChildGuard::spawn(&executable, &socket_dir)?;
     let endpoint = bridge::control_endpoint_path(&socket_dir);
-    let mut child = wait_for_publication(child, endpoint.clone()).await?;
-
-    let status = tokio::time::timeout(IO_TIMEOUT, bridge::read_status(&socket_dir))
-        .await
-        .context("timed out reading Status v1")??;
+    let (mut child, status) = wait_for_initialization(child, socket_dir).await?;
     assert_eq!(status.schema_version, 1);
     assert_eq!(status.lifecycle, Lifecycle::Running);
     assert_eq!(status.pack_admission.attempt_id, 0);
@@ -66,11 +62,7 @@ async fn live_go_status_compatibility_outcome_decodes_as_schema_v1() -> Result<(
     build_control_test(&core_dir, &executable)?;
     let child = ChildGuard::spawn_status_helper(&executable, &socket_dir)?;
     let endpoint = bridge::control_endpoint_path(&socket_dir);
-    let mut child = wait_for_publication(child, endpoint.clone()).await?;
-
-    let status = tokio::time::timeout(IO_TIMEOUT, bridge::read_status(&socket_dir))
-        .await
-        .context("timed out reading compatibility Status v1")??;
+    let (mut child, status) = wait_for_initialization(child, socket_dir).await?;
     assert_eq!(status.schema_version, 1);
     assert_eq!(status.lifecycle, Lifecycle::Running);
     assert_eq!(status.pack_admission.attempt_id, 17);
@@ -131,36 +123,69 @@ fn build_control_test(core_dir: &Path, executable: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Waits for endpoint publication on a blocking worker, preserving early process-exit errors.
-async fn wait_for_publication(mut child: ChildGuard, endpoint: PathBuf) -> Result<ChildGuard> {
+/// Waits for a strictly decoded Running snapshot, not just the early control endpoint.
+/// Starting remains pending; process exits, shutdown and invalid responses fail immediately.
+async fn wait_for_initialization(
+    mut child: ChildGuard,
+    socket_dir: PathBuf,
+) -> Result<(ChildGuard, bridge::StatusV1)> {
+    let runtime = tokio::runtime::Handle::current();
     tokio::task::spawn_blocking(move || {
+        let deadline = Instant::now() + START_TIMEOUT;
+        let endpoint = bridge::control_endpoint_path(&socket_dir);
         let mut outcome = None;
         test_time::wait_until(START_TIMEOUT, || {
-            outcome = match child.child.try_wait().context("poll bedrock-core process") {
-                Err(error) => Some(Err(error)),
-                Ok(Some(status)) => {
-                    let logs = child.collect_logs();
-                    Some(Err(anyhow::anyhow!(
-                        "bedrock-core exited before publishing endpoint ({status})\n{logs}"
-                    )))
+            let poll = (|| -> Result<Option<bridge::StatusV1>> {
+                if let Some(status) = child
+                    .child
+                    .try_wait()
+                    .context("poll bedrock-core process")?
+                {
+                    bail!("bedrock-core exited before initialization ({status})");
                 }
-                Ok(None) if endpoint.exists() => Some(Ok(())),
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if !endpoint.exists() || remaining.is_zero() {
+                    return Ok(None);
+                }
+                let status = runtime.block_on(async {
+                    tokio::time::timeout(
+                        remaining.min(IO_TIMEOUT),
+                        bridge::read_status(&socket_dir),
+                    )
+                    .await
+                    .context("timed out reading initialization Status v1")?
+                    .context("read initialization Status v1")
+                })?;
+                match status.lifecycle {
+                    Lifecycle::Starting => Ok(None),
+                    Lifecycle::Running => Ok(Some(status)),
+                    Lifecycle::Stopping => bail!("bedrock-core stopped before initialization"),
+                }
+            })();
+            outcome = match poll {
                 Ok(None) => None,
+                Ok(Some(status)) => Some(Ok(status)),
+                Err(error) => Some(Err(error)),
             };
             outcome.is_some()
         });
         match outcome {
-            Some(result) => result?,
-            None => {
+            Some(Ok(status)) => Ok((child, status)),
+            error => {
                 child.terminate();
                 let logs = child.collect_logs();
-                bail!("timed out waiting for {}\n{logs}", endpoint.display());
+                match error {
+                    Some(Err(error)) => Err(error.context(logs)),
+                    _ => bail!(
+                        "timed out waiting for initialized {}\n{logs}",
+                        endpoint.display()
+                    ),
+                }
             }
         }
-        Ok(child)
     })
     .await
-    .context("join endpoint publication worker")?
+    .context("join initialization worker")?
 }
 
 /// Waits for endpoint cleanup on a blocking worker without stalling the async runtime.

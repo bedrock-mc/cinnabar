@@ -45,6 +45,7 @@ impl WorldStream {
                     .sub_chunk(key)
                     .is_none_or(|source| !classifier.is_sub_chunk_air(&source))
         };
+        let mut woken = Vec::new();
         let probe_near = self
             .mesh_jobs
             .ingress(view, self.poll_deadline, |key, _, pending| {
@@ -53,32 +54,52 @@ impl WorldStream {
                 } else {
                     MESH_REMOVAL_LANE
                 };
+                if lane == RESIDENT_MESH_LANE && scheduler::mesh_is_near(view, key) {
+                    woken.push(key);
+                }
                 (lane, pending.urgent)
             });
+        woken.append(&mut self.mesh_jobs.refresh.take_woken());
 
         let occupied = self.admitted_mesh_jobs.load(Ordering::Acquire);
         let mesh_worker_cap = super::admission::mesh_worker_cap();
         let regular_budget = budget.min(mesh_worker_cap.saturating_sub(occupied));
         let worker_budget = budget.min((mesh_worker_cap + urgent_reserve).saturating_sub(occupied));
+        let probe = |key| {
+            let pending = self.mesh_jobs.pending.get(&key).copied()?;
+            (requires_geometry(key)
+                && !self.mesh_jobs.in_flight.contains_key(&key)
+                && self.revisions.is_current(key, pending.revision))
+            .then_some((
+                PendingSchedulerCandidate::new(key, pending.revision, view, pending.urgent),
+                pending,
+                false,
+            ))
+        };
         let mut resident_candidates = if probe_near {
             scheduler::near_camera_keys(view, self.authority.current_dimension())
-                .filter_map(|key| {
-                    let pending = self.mesh_jobs.pending.get(&key).copied()?;
-                    (requires_geometry(key)
-                        && !self.mesh_jobs.in_flight.contains_key(&key)
-                        && self.revisions.is_current(key, pending.revision))
-                    .then_some((
-                        PendingSchedulerCandidate::new(key, pending.revision, view, pending.urgent),
-                        pending,
-                        false,
-                    ))
-                })
+                .filter_map(&probe)
                 .collect::<Vec<_>>()
         } else {
             Vec::new()
         };
+        // Fresh and woken nearby keys compete beside the lanes without leaving them, so lane
+        // rotation is unchanged and a blocked neighbour keeps its deferral.
+        for key in woken {
+            if !resident_candidates
+                .iter()
+                .any(|(candidate, _, _)| candidate.key == key)
+                && let Some(candidate) = probe(key)
+            {
+                resident_candidates.push(candidate);
+            }
+        }
         resident_candidates.sort_unstable_by_key(|candidate| std::cmp::Reverse(candidate.0));
-        resident_candidates.truncate(MAX_PENDING_SCHEDULER_SCANS_PER_POLL);
+        let truncated = resident_candidates.split_off(
+            resident_candidates
+                .len()
+                .min(MAX_PENDING_SCHEDULER_SCANS_PER_POLL),
+        );
         let mut removal_candidates = Vec::new();
         for index in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
             if index != 0 && worker_budget == 0 && self.poll_budget_exhausted() {
@@ -114,6 +135,15 @@ impl WorldStream {
                 *queued = true;
             } else {
                 resident_candidates.push((candidate, pending, true));
+            }
+        }
+        for (candidate, _, _) in truncated {
+            // The ready lane may have supplied the same key after its probe was truncated.
+            if !resident_candidates
+                .iter()
+                .any(|(selected, _, _)| selected.key == candidate.key)
+            {
+                self.mesh_jobs.refresh.requeue_woken(candidate.key);
             }
         }
         let removal_authority = self
@@ -188,6 +218,9 @@ impl WorldStream {
                     self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
                         .ready
                         .push(candidate);
+                } else {
+                    // Unexamined probed and woken candidates sit in no ready queue.
+                    self.mesh_jobs.refresh.requeue_woken(key);
                 }
                 continue;
             }
@@ -484,7 +517,13 @@ impl WorldStream {
                     match (key, slot) {
                         (Some(key), None) if self.light_source_is_known(key) => return false,
                         (None, Some(_)) => return false,
-                        (Some(key), Some(slot)) if !self.mesh_light_slot_is_current(key, slot) => {
+                        (Some(key), Some(slot))
+                            if !self.mesh_light_slot_is_current(
+                                key,
+                                slot,
+                                [-i32::from(dx), -i32::from(dy), -i32::from(dz)],
+                            ) =>
+                        {
                             return false;
                         }
                         _ => {}
@@ -494,18 +533,22 @@ impl WorldStream {
         }
         true
     }
+    /// Whether `slot` still gives the mesh centred `toward_center` from it the light it would
+    /// sample now; a relight that leaves the sampled shell unchanged keeps the mesh current.
     pub(in crate::stream) fn mesh_light_slot_is_current(
         &self,
         key: SubChunkKey,
         slot: &MeshLightSlot,
+        toward_center: [i32; 3],
     ) -> bool {
         slot.key == key
             && matches!(
                 self.light_source_state(key),
                 LightSourceState::Current { ownership, light }
                     if ownership.block_generation == slot.block_generation
-                        && ownership.light_revision == slot.light_revision
-                        && Arc::ptr_eq(light, &slot.light)
+                        && ((ownership.light_revision == slot.light_revision
+                            && Arc::ptr_eq(light, &slot.light))
+                            || !sampled_light_changed(&slot.light, light, toward_center))
             )
     }
     pub(in crate::stream) fn requeue_current_mesh_completion(

@@ -42,17 +42,22 @@ fn present(
 }
 
 #[derive(Resource, Default)]
-struct TestCollisions(sim::CollisionRegistry);
+struct TestCollisions {
+    registry: sim::CollisionRegistry,
+    bed_state: Option<String>,
+}
 
 impl CollisionLookup for TestCollisions {
     /// Borrows the synthetic registry shared with the completed physics observation.
     fn registry(&self, _: assets::NetworkIdMode) -> &sim::CollisionRegistry {
-        &self.0
+        &self.registry
     }
 
-    /// The fixture has no block state queries.
-    fn block_canonical_state(&self, _: assets::NetworkIdMode, _: u32) -> Option<&str> {
-        None
+    /// Supplies the original synthetic bed state only for its resident runtime id.
+    fn block_canonical_state(&self, _: assets::NetworkIdMode, runtime: u32) -> Option<&str> {
+        (runtime == 1)
+            .then_some(self.bed_state.as_deref())
+            .flatten()
     }
 
     /// The fixture has no block identifier queries.
@@ -140,7 +145,7 @@ fn audio_camera(
 
 #[test]
 fn sleeping_rotation_is_published_before_camera_effects_and_keeps_audio_eligible() {
-    let bed = [2, 70, -5];
+    let bed = [2, 0, 5];
     let (sleeping_eye, feet) = crate::local_player::sleeping_subject_position(bed);
     let awake_feet = Vec3::new(feet.x, 0.0, feet.z);
     let awake_eye = awake_feet + Vec3::Y * protocol::STANDING_PLAYER_EYE_HEIGHT;
@@ -160,25 +165,30 @@ fn sleeping_rotation_is_published_before_camera_effects_and_keeps_audio_eligible
                     .resource_mut::<CameraSettingsAuthority>()
                     .replace(1, &user)
                     .unwrap();
-                let collisions = TestCollisions::default();
-                app.world_mut().resource_mut::<TestPhysics>().world_identity =
-                    Some(sim::WorldCollisionIdentity::new(collisions.0.identity(), []).unwrap());
+                let direction = [90.0, 0.0, 270.0, 180.0]
+                    .iter()
+                    .position(|rotation| *rotation == bed_rotation)
+                    .unwrap();
+                let collisions = TestCollisions {
+                    bed_state: Some(format!(r#"{{"direction":{direction}}}"#)),
+                    ..Default::default()
+                };
+                app.world_mut().resource_mut::<TestPhysics>().world_identity = Some(
+                    sim::WorldCollisionIdentity::new(collisions.registry.identity(), []).unwrap(),
+                );
                 app.insert_resource(collisions)
                     .init_resource::<CameraPose>()
                     .init_resource::<CameraPublicationAttempt>()
                     .init_resource::<LocalPlayerFrameCarrier>();
+                load_bed(&mut app, bed);
                 tick(&mut app, 1);
                 let physics = app.world().resource::<TestPhysics>().state.clone();
                 let camera = app
                     .world_mut()
                     .spawn((FlyCamera::default(), Transform::IDENTITY))
                     .id();
-                for (sequence, sleeping) in [(2, false), (3, true), (4, true), (5, false)] {
+                for (sequence, sleeping) in [(4, false), (5, true), (6, true), (7, false)] {
                     sleep_state(&mut app, sequence, sleeping, Some(bed));
-                    app.world_mut()
-                        .resource_mut::<TestWorld>()
-                        .0
-                        .set_actor_bed_rotations(&[(2, bed_rotation)]);
                     let eye = if sleeping { sleeping_eye } else { awake_eye };
                     let subject_feet = if sleeping { feet } else { awake_feet };
                     {
@@ -316,4 +326,45 @@ fn sleeping_camera_keeps_its_published_eye_height_and_restores_java_adjustment_o
             }
         }
     }
+}
+
+/// Commits a resident synthetic bed through the real terrain event and worker lanes.
+fn load_bed(app: &mut App, bed: [i32; 3]) {
+    let stream = &mut app.world_mut().resource_mut::<TestWorld>().0;
+    let mut payload = vec![1, 2];
+    payload.extend(std::iter::repeat_n(
+        0xff,
+        protocol::vanilla_dimension_range(0)
+            .unwrap()
+            .sub_chunk_count
+            - 1,
+    ));
+    payload.push(0);
+    stream
+        .submit(
+            2,
+            WorldEvent::LevelChunk(protocol::LevelChunkEvent {
+                dimension: 0,
+                x: 0,
+                z: 0,
+                mode: protocol::LevelChunkMode::LimitedRequests { highest: 0 },
+                payload,
+            }),
+        )
+        .unwrap();
+    stream
+        .submit(
+            3,
+            WorldEvent::BlockUpdates(vec![protocol::BlockUpdateEvent {
+                dimension: 0,
+                position: bed,
+                layer: 0,
+                network_id: 1,
+            }]),
+        )
+        .unwrap();
+    test_time::eventually("resident bed direction", || {
+        stream.poll([2.5, 2.0, 5.5], 0);
+        stream.committed_sequence() >= 3
+    });
 }

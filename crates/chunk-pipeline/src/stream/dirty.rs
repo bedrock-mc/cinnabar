@@ -52,6 +52,25 @@ impl WorldStream {
     ) {
         self.mark_changed_sources_with_mesh_dirty(sources, std::iter::empty(), now);
     }
+    /// Remeshes `sources` and every neighbour reading them without relighting: their blocks
+    /// changed, but no cell's light inputs did.
+    pub(super) fn mark_light_neutral_sources(
+        &mut self,
+        sources: impl IntoIterator<Item = SubChunkKey>,
+        now: Instant,
+    ) {
+        self.mark_changed_sources_with_mesh_dirty_priority(
+            sources,
+            std::iter::empty(),
+            now,
+            ChangeScope {
+                urgent: false,
+                relight: false,
+                reach: NeighbourReach::ALL,
+                cells: None,
+            },
+        );
+    }
     pub(super) fn mark_changed_sources_with_mesh_dirty(
         &mut self,
         sources: impl IntoIterator<Item = SubChunkKey>,
@@ -242,6 +261,8 @@ impl WorldStream {
     /// Pending work takes its snapshot at dispatch, so repeated invalidations need one record.
     fn invalidate_mesh_with_priority(&mut self, key: SubChunkKey, now: Instant, urgent: bool) {
         if let Some(pending) = self.mesh_jobs.pending.get_mut(&key) {
+            // No new scan record follows, so a deferred nearby record is offered directly.
+            self.mesh_jobs.refresh.wake_near(key);
             if urgent && !pending.urgent {
                 pending.urgent = true;
                 self.mesh_jobs.scan.push_front((key, pending.revision));

@@ -110,6 +110,13 @@ const BOB_CAP: f32 = 0.1;
 const BOB_FOLLOW: f32 = 0.4;
 const WALK_PER_BLOCK: f64 = 0.6;
 
+/// Recognizes position discontinuities that must not drive remote cape motion.
+pub(super) fn cape_position_discontinuity(delta: [f32; 3]) -> bool {
+    delta
+        .into_iter()
+        .any(|step| !step.is_finite() || f64::from(step).abs() > CAPE_SNAP_BLOCKS)
+}
+
 /// Java's displayed rider heading for a living mount, from frame-interpolated look and body.
 pub fn java_mounted_body_yaw(mount_body_yaw: f32, head_yaw: f32) -> f32 {
     let lag = wrap_degrees(head_yaw - mount_body_yaw).clamp(-MOUNT_HEAD_LIMIT, MOUNT_HEAD_LIMIT);
@@ -232,24 +239,29 @@ impl JavaMotionState {
     fn advance_cape(&mut self, tick: &JavaTick<'_>) {
         let motion = &mut self.motion;
         let position = tick.position.map(f64::from);
-        let previous_position: [f64; 3] =
-            std::array::from_fn(|axis| position[axis] - f64::from(tick.delta[axis]));
-        let mut chase = self.chase.unwrap_or(position);
-        let mut previous = chase;
-        for axis in 0..3 {
-            let lag = position[axis] - chase[axis];
-            if lag.abs() > CAPE_SNAP_BLOCKS {
-                previous[axis] = position[axis];
-                chase[axis] = position[axis];
+        if self.chase.is_none() || (!tick.local && cape_position_discontinuity(tick.delta)) {
+            self.chase = Some(position);
+            motion.cape = [[0.0; 3]; 2];
+        } else {
+            let previous_position: [f64; 3] =
+                std::array::from_fn(|axis| position[axis] - f64::from(tick.delta[axis]));
+            let mut chase = self.chase.expect("seeded cape chase");
+            let mut previous = chase;
+            for axis in 0..3 {
+                let lag = position[axis] - chase[axis];
+                if lag.abs() > CAPE_SNAP_BLOCKS {
+                    previous[axis] = position[axis];
+                    chase[axis] = position[axis];
+                }
+                // Java adds the pre-snap lag even after snapping.
+                chase[axis] += lag * CAPE_FOLLOW;
             }
-            // Java adds the pre-snap lag even after snapping.
-            chase[axis] += lag * CAPE_FOLLOW;
+            self.chase = Some(chase);
+            motion.cape = [
+                std::array::from_fn(|axis| (previous[axis] - previous_position[axis]) as f32),
+                std::array::from_fn(|axis| (chase[axis] - position[axis]) as f32),
+            ];
         }
-        self.chase = Some(chase);
-        motion.cape = [
-            std::array::from_fn(|axis| (previous[axis] - previous_position[axis]) as f32),
-            std::array::from_fn(|axis| (chase[axis] - position[axis]) as f32),
-        ];
         let [vx, _, vz] = tick.velocity;
         let speed = (f64::from(vx).powi(2) + f64::from(vz).powi(2)).sqrt() as f32;
         let target = if tick.on_ground && tick.alive && speed.is_finite() {
@@ -274,6 +286,12 @@ impl JavaMotionState {
             motion.walked[1]
         };
         motion.walked = [motion.walked[1], walked];
+    }
+
+    /// Discards cape lag at a reset so neither frame endpoint trails the old position.
+    pub(super) fn reset_cape(&mut self) {
+        self.chase = None;
+        self.motion.cape = [[0.0; 3]; 2];
     }
 
     pub(super) fn reset_equip(&mut self) {

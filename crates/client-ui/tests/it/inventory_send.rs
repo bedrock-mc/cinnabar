@@ -5,12 +5,13 @@ use protocol::{
     InventoryEvent, NetworkItemStack,
 };
 
-use crate::ui_runtime::{UiRuntime, flush_inventory_send};
+use client_ui::ui_runtime::{UiRuntime, flush_inventory_send};
 use inventory::inventory_ledger::{
     INVENTORY_REQUEST_TIMEOUT_MILLIS, InventoryPendingState, PERSONAL_INVENTORY_WINDOW_TYPE,
     PlayerInventoryLedger,
 };
 
+/// Builds a stack with a known item, count, and stack identity.
 fn stack(network_id: i32, count: u16, stack_network_id: i32) -> NetworkItemStack {
     NetworkItemStack {
         network_id,
@@ -23,6 +24,7 @@ fn stack(network_id: i32, count: u16, stack_network_id: i32) -> NetworkItemStack
     }
 }
 
+/// Opens personal inventory after its request crosses the transport.
 fn open_personal_inventory(ledger: &mut PlayerInventoryLedger) {
     assert!(ledger.request_personal_open(42));
     assert!(ledger.mark_transport_enqueued(0));
@@ -75,7 +77,7 @@ fn drop_key_admits_creative_grid_and_recipe_book_items() {
             }]),
             skipped: 0,
         }));
-        crate::ui_runtime::interaction::dispatch_inventory_key(
+        client_ui::ui_runtime::interaction::dispatch_inventory_key(
             &mut player,
             &mut runtime,
             Some(hit),
@@ -156,7 +158,7 @@ fn creative_group_drop_matches_the_icons_retained_user_data() {
     expected_ledger
         .begin_creative_take(45, CreativeDestination::Drop { whole_stack: false })
         .unwrap();
-    crate::ui_runtime::interaction::dispatch_inventory_key(
+    client_ui::ui_runtime::interaction::dispatch_inventory_key(
         &mut player,
         &mut runtime,
         Some(InventoryCellHit::RecipeBook(0)),

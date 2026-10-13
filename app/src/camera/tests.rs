@@ -927,7 +927,7 @@ fn settings_authority_rejects_stale_and_invalid_fov_updates_atomically() {
     assert_eq!(authority.generation(), 7);
     assert_eq!(authority.horizontal_fov_degrees(), 82.0);
 
-    settings.video.horizontal_fov_degrees = 29.99;
+    settings.video.horizontal_fov_degrees = ui::MIN_FOV_DEGREES as f32 - 0.01;
     assert_eq!(
         authority.replace(8, &settings),
         Err(CameraSettingsError::FovOutOfRange)
@@ -935,7 +935,7 @@ fn settings_authority_rejects_stale_and_invalid_fov_updates_atomically() {
     assert_eq!(authority.generation(), 7);
     assert_eq!(authority.horizontal_fov_degrees(), 82.0);
 
-    settings.video.horizontal_fov_degrees = 120.01;
+    settings.video.horizontal_fov_degrees = ui::MAX_FOV_DEGREES as f32 + 0.01;
     assert_eq!(
         authority.replace(8, &settings),
         Err(CameraSettingsError::FovOutOfRange)

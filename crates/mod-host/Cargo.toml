@@ -26,6 +26,7 @@ execution = [
     "dep:ui",
     "dep:wasmtime",
     "dep:wit-component",
+    "dep:rustix",
 ]
 # Links the native AV1/Opus decoders into the memory-limited media helper.
 media = ["server-experience/developer-media"]
@@ -53,7 +54,10 @@ wasmtime = { workspace = true, optional = true }
 wit-component = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = ["Win32_System_Threading", "Win32_Storage_FileSystem"] }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "=1.1.4", features = ["fs"], optional = true }
 
 [dev-dependencies]
 test-time = { path = "../test-time" }

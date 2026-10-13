@@ -44,6 +44,62 @@ impl PlayerInventoryLedger {
         self.view().get(target.cell())?.overlay.as_ref()
     }
 
+    /// Whether the target retains this item through moves, predictions or accepted corrections.
+    /// Fresh slot and content writes reset its source identity; replacements carry their own.
+    #[must_use]
+    pub fn target_retains_stack_id(
+        &self,
+        target: super::InventoryTarget,
+        previous_stack_id: i32,
+    ) -> bool {
+        let cell = target.cell();
+        let Some(held) = self.view().get(cell) else {
+            return false;
+        };
+        let mut current_id = held.stack.stack_network_id;
+        if held.source_stack_id == Some(previous_stack_id)
+            || current_id == previous_stack_id
+            || held.acknowledged_request_id == Some(previous_stack_id)
+        {
+            return true;
+        }
+        for request in self.queue.iter().rev() {
+            if request.request_id != current_id {
+                continue;
+            }
+            let Some(prediction) = request
+                .predicted
+                .iter()
+                .find(|prediction| prediction.cell == cell)
+            else {
+                return false;
+            };
+            let Some(before) = &prediction.before else {
+                return false;
+            };
+            let mut touched = false;
+            for group in &request.groups {
+                if group.touched().any(|candidate| candidate == cell) {
+                    touched = true;
+                    if !group.retains_item_at(cell) {
+                        return false;
+                    }
+                }
+            }
+            if !touched {
+                return false;
+            }
+            current_id = before.stack.stack_network_id;
+            if before.source_stack_id == Some(previous_stack_id)
+                || current_id == previous_stack_id
+                || before.acknowledged_request_id == Some(previous_stack_id)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
     /// The authoritative response overlay retained for the cursor cell.
     #[must_use]
     pub fn cursor_overlay(&self) -> Option<&StackResponseOverlay> {
@@ -74,21 +130,27 @@ impl PlayerInventoryLedger {
                 }
             }
             let Some(index) = self.queue.iter().position(|pending| {
-                pending.request_id == response.request_id && pending.accepted.is_none()
+                if pending.locally_committed() {
+                    pending
+                        .world_drop
+                        .is_some_and(|drop| drop.legacy_request_id == response.request_id)
+                } else {
+                    pending.request_id == response.request_id
+                }
             }) else {
                 if response.status == StackResponseStatus::Rejected {
                     self.settle_abandoned_rejection(response.request_id);
                 }
                 continue;
             };
-            if response.status == StackResponseStatus::Accepted
-                && self.request_is_current(&self.queue[index])
+            let request = self.queue.remove(index).expect("index observed");
+            if response.status == StackResponseStatus::Accepted {
+                self.settle(&request, &response.containers);
+            } else if response.status == StackResponseStatus::Rejected
+                && self.request_is_current(&request)
             {
-                self.queue[index].accepted = Some(Arc::clone(&response.containers));
-            } else {
-                self.queue.remove(index);
+                self.reject_request(&request);
             }
-            self.settle_accepted_heads();
         }
         self.refold();
         // Settlement may have released the last request of a closing window.

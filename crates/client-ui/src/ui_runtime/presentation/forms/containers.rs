@@ -12,7 +12,7 @@ use ui_screens::container_actions::InventoryCellHit;
 use ui_screens::container_data::id_aux_icons;
 use ui_screens::container_kinds::{mount_kind, storage_kind, window_kind};
 use ui_screens::container_source::{
-    BookView, ContainerFrame, ContainerSource, NameSources, ScreenView,
+    AnvilCost, BookView, ContainerFrame, ContainerSource, NameSources, ScreenView,
 };
 use ui_screens::containers::{ContainerInput, ScreenLayout};
 use ui_screens::furnace_book::Entries;
@@ -39,6 +39,19 @@ impl<'a> ContainerAuthority<'a> {
         let screen = ScreenView {
             mount_equipment: state.mount_equipment,
             anvil_name: &state.anvil_name,
+            anvil_cost: if runtime
+                .inventory_ledger(player)
+                .created_output_stack()
+                .is_some()
+            {
+                None
+            } else {
+                runtime.anvil_preview(player).map(|preview| AnvilCost {
+                    levels: preview.outcome.cost,
+                    too_expensive: preview.outcome.too_expensive,
+                    affordable: runtime.anvil_affordable(player, &preview),
+                })
+            },
             recipe_choice: state.recipe_choice,
             beacon: state.beacon,
             beacon_level: state.beacon_level,

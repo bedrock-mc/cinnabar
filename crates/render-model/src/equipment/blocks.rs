@@ -1,4 +1,5 @@
-//! Full block cubes held in hand and drawn in slots, with six independently authored faces.
+//! Block items held in hand and drawn in slots: full cubes with six independently authored
+//! faces, and other shapes as their template geometry.
 
 use std::collections::BTreeMap;
 
@@ -44,6 +45,38 @@ impl BlockSheets {
 
 /// Shares face sheets across cube items independently of their terrain occlusion and alpha.
 pub fn collect(world: &RuntimeAssets, entities: &RuntimeEntityAssets) -> BlockSheets {
+    collect_shapes(world, entities, None)
+}
+
+/// Like [`collect`], adding the template geometry non-cube items hold as: the state the icon
+/// carrier draws each item's inventory model from (a wall's post with arms). Items without a
+/// model are drawn flat in the inventory and keep their sprite in hand.
+pub fn collect_held(
+    world: &RuntimeAssets,
+    entities: &RuntimeEntityAssets,
+    icons: &assets::RuntimeIconCatalog,
+) -> BlockSheets {
+    let states: BTreeMap<u32, u32> = icons
+        .block_models()
+        .iter()
+        .map(|model| (model.sprite, model.visual.0))
+        .collect();
+    let display = |key: &assets::ItemVisualKey| {
+        let sprite = u32::try_from(icons.lookup_index(&key.identifier, key.metadata)?).ok()?;
+        states.get(&sprite).copied()
+    };
+    collect_shapes(world, entities, Some(&display))
+}
+
+/// Resolves an item's inventory display state while borrowing its startup catalog.
+type DisplayState<'a> = dyn Fn(&assets::ItemVisualKey) -> Option<u32> + 'a;
+
+/// Collects cube sheets, and template models when `display` is given.
+fn collect_shapes(
+    world: &RuntimeAssets,
+    entities: &RuntimeEntityAssets,
+    display: Option<&DisplayState<'_>>,
+) -> BlockSheets {
     let mut sheets = Vec::new();
     let mut by_materials = BTreeMap::<[u32; 6], usize>::new();
     let mut by_visual = BTreeMap::new();
@@ -67,11 +100,18 @@ pub fn collect(world: &RuntimeAssets, entities: &RuntimeEntityAssets) -> BlockSh
             .then(|| frame_model(world, visual))
             .flatten()
             .or_else(|| cube_model(world, visual));
-        let Some(materials) = model
-            .as_ref()
-            .map(|(materials, _)| *materials)
-            .or_else(|| cube_materials(world, visual))
-        else {
+        let cube = model
+            .is_none()
+            .then(|| cube_materials(world, visual))
+            .flatten();
+        let model = model.or_else(|| {
+            // Items the inventory draws flat (torches, plants, panes) stay sprites in hand.
+            let display = display.filter(|_| cube.is_none())?;
+            let shown = display(&definition.key)
+                .filter(|shown| (*shown as usize) < world.visual_count())?;
+            template_model(world, shown)
+        });
+        let Some(materials) = model.as_ref().map(|(materials, _)| *materials).or(cube) else {
             continue;
         };
         let index = match by_materials.get(&materials) {
@@ -176,6 +216,76 @@ fn sheet_model(quads: &[assets::ModelQuad]) -> Option<([u32; 6], Vec<crate::Acto
         }
     }
     Some((materials, vertices))
+}
+
+/// The geometry a non-cube block item (slab, stairs, fence, anvil) holds as: its template's
+/// quads, as the inventory model draws them, with up to six distinct face materials composed
+/// into one sheet, in centred block coordinates. `None` keeps the sprite: a refused state, more
+/// than six materials, or a UV wrapping past its tile, which one sheet tile cannot hold.
+fn template_model(
+    world: &RuntimeAssets,
+    visual: u32,
+) -> Option<([u32; 6], Vec<crate::ActorRigVertex>)> {
+    let block = world.resolve(NetworkIdMode::Sequential, visual);
+    if !block.is_known()
+        || block.kind() != VisualKind::Model
+        || !matches!(
+            block.support(),
+            VisualSupport::Exact | VisualSupport::VanillaFallback
+        )
+        || block.animation().is_some()
+    {
+        return None;
+    }
+    let faces = BlockFace::ALL.map(|face| block.face(face).material_id());
+    let quads = assets::gui_item::block_item_quads(
+        block.kind(),
+        faces,
+        block.model_template(),
+        world.model_templates(),
+        world.model_quads(),
+    )
+    .ok()?;
+    let mut materials: Vec<u32> = Vec::with_capacity(BlockFace::ALL.len());
+    for quad in &quads {
+        let outside = quad
+            .uvs
+            .iter()
+            .flatten()
+            .any(|component| !(0.0..=1.0).contains(component));
+        if quad.material == DIAGNOSTIC_MATERIAL || outside {
+            return None;
+        }
+        if !materials.contains(&quad.material) {
+            materials.push(quad.material);
+        }
+    }
+    if materials.is_empty() || materials.len() > BlockFace::ALL.len() {
+        return None;
+    }
+    let slots: [u32; 6] = std::array::from_fn(|slot| *materials.get(slot).unwrap_or(&materials[0]));
+    let rects = face_rects([0.0, 0.0, 1.0, 1.0]);
+    let mut vertices = Vec::with_capacity(quads.len() * 6);
+    for quad in &quads {
+        let rect = rects[materials.iter().position(|id| *id == quad.material)?];
+        let [a, b, c, _] = quad.corners.map(glam::Vec3::from);
+        let normal = (b - a).cross(c - a).normalize_or_zero().to_array();
+        for corner in [0, 1, 2, 0, 2, 3] {
+            let uv = std::array::from_fn(|axis| {
+                rect[axis] + quad.uvs[corner][axis] * (rect[axis + 2] - rect[axis])
+            });
+            vertices.push(crate::ActorRigVertex {
+                position: quad.corners[corner].map(|coordinate| coordinate - 0.5),
+                normal,
+                uv,
+                back_uv: uv,
+                bone_index: 0,
+                surface: crate::ActorRigSurface::SINGLE_FACE,
+                glint_origin: [rect[0], rect[1]],
+            });
+        }
+    }
+    Some((slots, vertices))
 }
 
 /// Selects exact cube geometry, including the carrier's transparent cube templates.
