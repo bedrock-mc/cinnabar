@@ -112,6 +112,7 @@ impl Raster {
                 sample_mask,
                 occluder: None,
                 occluder_mask: !0,
+                occluder_depth: super::occlusion::NEAR_DEPTH,
                 depth_slope: 0.0,
             },
         )
@@ -337,6 +338,7 @@ impl Raster {
                 samples,
                 bounds,
                 coverage.occluder_mask,
+                coverage.occluder_depth,
             );
         }
         self.draw_tiles(&mut encoder, &shader, &uniform, &actor_view, &tiles);

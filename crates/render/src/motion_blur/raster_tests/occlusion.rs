@@ -2,15 +2,18 @@
 
 use super::*;
 
+pub(super) const NEAR_DEPTH: f32 = 0.5;
+
 pub(super) struct Coverage {
     pub sample_mask: u64,
     pub occluder: Option<UVec4>,
     pub occluder_mask: u64,
+    pub occluder_depth: f32,
     pub depth_slope: f32,
 }
 
 impl Raster {
-    /// Writes a nearby fixture surface into the same original depth used by both effect passes.
+    /// Writes a masked fixture surface at the requested original scene depth.
     pub(super) fn draw_occluder(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -18,6 +21,7 @@ impl Raster {
         samples: u32,
         bounds: UVec4,
         mask: u64,
+        z: f32,
     ) {
         let shader = self
             .gpu
@@ -28,7 +32,7 @@ impl Raster {
                     format!(
                         r#"{}
 struct Occluder {{ @builtin(frag_depth) depth: f32, @builtin(sample_mask) coverage: u32 }}
-@fragment fn occluder() -> Occluder {{ return Occluder(0.5, {}u); }}
+@fragment fn occluder() -> Occluder {{ return Occluder({z}, {}u); }}
 "#,
                         super::super::shader_source(include_str!("../../motion_blur.wgsl"), false),
                         mask as u32,
@@ -129,6 +133,7 @@ fn swept_actor_exposure_preserves_nearer_occluders_and_background_colour() {
                 sample_mask: !0,
                 occluder: Some(occluder),
                 occluder_mask: !0,
+                occluder_depth: NEAR_DEPTH,
                 depth_slope: 0.0,
             },
         );
@@ -193,7 +198,7 @@ fn mixed_msaa_actor_sources_do_not_spread_stationary_occluder_colour() {
                 }
             })
         };
-        let draw = |nearer| {
+        let draw = |nearer, occluder_depth| {
             raster.draw_with_coverage(
                 &input(nearer),
                 uniform,
@@ -206,19 +211,22 @@ fn mixed_msaa_actor_sources_do_not_spread_stationary_occluder_colour() {
                 }),
                 Coverage {
                     sample_mask: mask,
-                    occluder: nearer.then_some(bounds),
+                    occluder: Some(bounds),
                     occluder_mask: !mask,
+                    occluder_depth,
                     depth_slope: 0.0,
                 },
             )
         };
-        let clear = draw(false);
         let exterior = ((SIDE / 2 * SIDE + bounds.x - 3) * 4) as usize;
-        assert!(
-            clear[exterior] > 1,
-            "unoccluded partial actor must expose the background"
-        );
-        let mixed = draw(true);
+        for background_depth in [0.0, z] {
+            let clear = draw(false, background_depth);
+            assert!(
+                clear[exterior] > 1,
+                "partial actor with background depth{background_depth} must expose the background"
+            );
+        }
+        let mixed = draw(true, NEAR_DEPTH);
         let mixed_input = input(true);
         for y in bounds.y..bounds.y + bounds.w {
             for x in bounds.x..bounds.x + bounds.z {
@@ -240,6 +248,102 @@ fn mixed_msaa_actor_sources_do_not_spread_stationary_occluder_colour() {
                 0,
                 "resolved nearer non-actor colour spread to x={x}/{samples}x MSAA"
             );
+        }
+    }
+}
+
+#[test]
+fn actor_exposure_respects_full_and_partial_destination_depth_coverage() {
+    let Some(raster) = Raster::new("actor source and destination depth coverage raster") else {
+        return;
+    };
+    let actor = UVec4::new(60, 48, 8, 32);
+    let receiver = UVec4::new(actor.x - 6, actor.y, 3, actor.w);
+    let contains = |bounds: UVec4, x, y| {
+        x >= bounds.x && x < bounds.x + bounds.z && y >= bounds.y && y < bounds.y + bounds.w
+    };
+    let z = projection().project_point3(Vec3::new(0.0, 0.0, -4.0)).z;
+    let mut uniform = exposure(Mat4::IDENTITY);
+    uniform.strength.x = 1.0;
+    uniform.strength.y = 17.0;
+    for &samples in &raster.depth_samples {
+        let last_sample = 1 << (samples - 1);
+        for partial_source in [false, true] {
+            if partial_source && samples == 1 {
+                continue;
+            }
+            let source_fraction = if partial_source {
+                1.0 / samples as f32
+            } else {
+                1.0
+            };
+            for partial_destination in [false, true] {
+                if partial_destination && samples == 1 {
+                    continue;
+                }
+                let destination_fraction = if partial_destination {
+                    1.0 / samples as f32
+                } else {
+                    1.0
+                };
+                for receiver_depth in [0.0, z, z + 0.000001, NEAR_DEPTH] {
+                    let nearer = receiver_depth > z;
+                    let input = image(|x, y| {
+                        if contains(actor, x, y) {
+                            [
+                                (255.0 * source_fraction).round() as u8,
+                                (128.0 * (1.0 - source_fraction)).round() as u8,
+                                0,
+                                255,
+                            ]
+                        } else if nearer && contains(receiver, x, y) {
+                            [
+                                0,
+                                (128.0 * (1.0 - destination_fraction)).round() as u8,
+                                (255.0 * destination_fraction).round() as u8,
+                                255,
+                            ]
+                        } else {
+                            [0, 128, 0, 255]
+                        }
+                    });
+                    let output = raster.draw_with_coverage(
+                        &input,
+                        uniform,
+                        samples,
+                        0.0,
+                        Some(ActorMotion {
+                            velocity: [0.125, 0.0, 1.0, 1.0],
+                            bounds: actor,
+                            depth: Some(z),
+                        }),
+                        Coverage {
+                            sample_mask: if partial_source { last_sample } else { !0 },
+                            occluder: Some(receiver),
+                            occluder_mask: if partial_destination { last_sample } else { !0 },
+                            occluder_depth: receiver_depth,
+                            depth_slope: 0.0,
+                        },
+                    );
+                    for y in receiver.y..receiver.y + receiver.w {
+                        for x in receiver.x..receiver.x + receiver.z {
+                            let offset = ((y * SIDE + x) * 4) as usize;
+                            if nearer {
+                                assert_eq!(
+                                    &output[offset..offset + 4],
+                                    &input[offset..offset + 4],
+                                    "nearer receiver changed: depth{receiver_depth}, sourcepartial={partial_source}, destinationpartial={partial_destination}, ({x},{y})/{samples}x MSAA"
+                                );
+                            } else {
+                                assert!(
+                                    output[offset] > 1,
+                                    "equal or farther receiver lost actor exposure: depth{receiver_depth}, sourcepartial={partial_source}, destinationpartial={partial_destination}, ({x},{y})/{samples}x MSAA"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -271,6 +375,7 @@ fn world_camera_blur_is_independent_of_distant_stationary_actor_availability() {
                     sample_mask: !0,
                     occluder: Some(terrain),
                     occluder_mask: !0,
+                    occluder_depth: NEAR_DEPTH,
                     depth_slope: 0.0,
                 },
             )

@@ -237,8 +237,8 @@ fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
             velocity = (uv - previous_uv) * exposure.viewport.zw * exposure.strength.x;
         }
     }
-    // A followed actor stays sharp even when another moving silhouette is nearby.
-    if actor.z >= 0.5 && length(velocity) < MIN_BLUR_SPEED {
+    // Followed actors and nearer non-actor MSAA samples retain their resolved colour.
+    if actor.z >= 0.5 && (length(velocity) < MIN_BLUR_SPEED || z > actor_depth(pixel)) {
         return base;
     }
     let background = surface_gather(position.xy, velocity, base);

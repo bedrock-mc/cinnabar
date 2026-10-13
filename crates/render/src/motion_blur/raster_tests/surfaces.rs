@@ -25,13 +25,14 @@ fn mixed_source_fixture_retains_separate_actor_and_nearer_depth_samples() {
                 sample_mask: mask,
                 occluder: Some(bounds),
                 occluder_mask: !mask,
+                occluder_depth: super::occlusion::NEAR_DEPTH,
                 depth_slope: 0.0,
             },
         );
         let offset = ((SIDE / 2 * SIDE + bounds.x + 2) * 4) as usize;
         let actual = &output[offset..offset + 3];
         let expected = [
-            128,
+            (super::occlusion::NEAR_DEPTH * 255.0).round() as u8,
             (z * 10.0 * 255.0).round() as u8,
             (255.0 / samples as f32).round() as u8,
         ];
@@ -82,6 +83,7 @@ fn unobstructed_textured_actor_exposure_is_independent_of_surface_depth_slope() 
                     sample_mask: !0,
                     occluder: None,
                     occluder_mask: !0,
+                    occluder_depth: super::occlusion::NEAR_DEPTH,
                     depth_slope: slope,
                 },
             )
