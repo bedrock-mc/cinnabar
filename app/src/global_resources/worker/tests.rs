@@ -88,6 +88,26 @@ fn import_request(
     .0
 }
 
+/// Opens import confirmation without refreshing pack artwork or applying preferences.
+fn confirm_import(
+    service: &mut launcher_host::minecraft_import::Service,
+    library: &mut GlobalPackLibrary,
+    snapshot: &mut Snapshot,
+) {
+    let outcome = import_request(
+        service,
+        library,
+        snapshot,
+        launcher::minecraft_import::Action::Apply,
+        |_, _| panic!("import confirmation refreshed artwork"),
+    );
+    assert_eq!(
+        outcome.snapshot.phase,
+        launcher::minecraft_import::Phase::ConfirmImport
+    );
+    assert!(outcome.state.is_none() && outcome.stack.is_none());
+}
+
 /// Supplies one user pack and its active reference without relying on installed Minecraft data.
 fn minecraft_source(root: &std::path::Path, id: u16) -> PathBuf {
     let data = root.join("minecraft");
@@ -160,11 +180,12 @@ fn preview_reuses_icons_but_apply_and_revert_refresh_changed_pack_state() {
     );
     assert_eq!(preview.snapshot.phase, Phase::Preview);
     let mut refreshes = 0;
+    confirm_import(&mut service, &mut library, &mut snapshot);
     let applied = import_request(
         &mut service,
         &mut library,
         &mut snapshot,
-        ImportAction::Apply,
+        ImportAction::ConfirmApply,
         |library, _| {
             refreshes += 1;
             assert_eq!(library.available().len(), 1);
@@ -229,11 +250,12 @@ fn artwork_refreshes_after_an_import_changes_the_catalog_then_fails() {
         }
     }
     let mut refreshed = false;
+    confirm_import(&mut service, &mut library, &mut snapshot);
     let outcome = import_request(
         &mut service,
         &mut library,
         &mut snapshot,
-        ImportAction::Apply,
+        ImportAction::ConfirmApply,
         |library, _| {
             refreshed = true;
             assert_eq!(library.available().len(), 2);
@@ -827,11 +849,12 @@ fn minecraft_import_completion_tracks_submitted_revisions_after_replacement_and_
             ImportAction::Begin,
             |_, _| {},
         );
+        confirm_import(&mut service, &mut library, &mut snapshot);
         let mut outcome = import_request(
             &mut service,
             &mut library,
             &mut snapshot,
-            ImportAction::Apply,
+            ImportAction::ConfirmApply,
             |_, _| {},
         );
         if revert {
