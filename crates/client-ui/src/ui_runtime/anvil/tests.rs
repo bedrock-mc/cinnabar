@@ -66,6 +66,70 @@ fn edit_input(
     place(runtime, player, u16::from(slot), stack);
 }
 
+/// Corrects a worn inventory item, then moves it into the anvil without restating its NBT.
+fn correct_input(
+    runtime: &mut UiRuntime,
+    player: &mut player_state::PlayerState,
+    slot: u8,
+    damage: i32,
+    name: &str,
+) {
+    use inventory::inventory_ledger::CellGesture;
+    let stack = runtime
+        .inventory_ledger(player)
+        .target_stack(InventoryTarget::Craft(slot))
+        .unwrap()
+        .clone();
+    place(runtime, player, u16::from(slot), NetworkItemStack::empty());
+    let ledger = runtime.inventory_ledger_mut(player);
+    ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+        identity: SlotIdentity {
+            container: ContainerIdentity::window(0),
+            slot: 0,
+        },
+        stack,
+        storage_item: None,
+    }));
+    let request_id = ledger.begin_mining_request(0, damage).unwrap();
+    ledger.apply(&InventoryEvent::Response(
+        protocol::ItemStackResponseEvent {
+            responses: Arc::from([protocol::StackResponse {
+                request_id,
+                status: protocol::StackResponseStatus::Accepted,
+                containers: Arc::from([protocol::StackResponseContainer {
+                    container: ContainerIdentity {
+                        window_id: None,
+                        slot_type: Some(protocol::CONTAINER_NAME_HOTBAR),
+                        dynamic_id: None,
+                    },
+                    slots: Arc::from([protocol::StackResponseSlot {
+                        slot: 0,
+                        hotbar_slot: 0,
+                        count: 1,
+                        item_stack_id: 75,
+                        custom_name: Arc::from(name),
+                        filtered_custom_name: Arc::from(""),
+                        durability_correction: damage,
+                    }]),
+                }]),
+            }]),
+        },
+    ));
+    ledger
+        .begin_target_gesture(InventoryTarget::Player(0), CellGesture::Click)
+        .unwrap();
+    ledger
+        .begin_target_gesture(InventoryTarget::Craft(slot), CellGesture::Click)
+        .unwrap();
+    assert_eq!(
+        ledger
+            .presented_target_overlay(InventoryTarget::Craft(slot))
+            .unwrap()
+            .durability_correction,
+        Some(damage)
+    );
+}
+
 /// Replaces the second input with a book carrying the complete enchantment list.
 fn place_book(
     runtime: &mut UiRuntime,
@@ -163,6 +227,179 @@ fn repairs_preview_the_mended_result_and_its_cost() {
 }
 
 #[test]
+fn repair_predictions_use_retained_server_damage_instead_of_raw_nbt() {
+    for corrected_damage in [0, 1000] {
+        let (mut runtime, mut player) = anvil();
+        let raw_damage = if corrected_damage == 0 { 1000 } else { 0 };
+        edit_input(
+            &mut runtime,
+            &mut player,
+            ANVIL_TARGET_SLOT,
+            protocol::ItemNbtEdit {
+                damage: Some(raw_damage),
+                ..Default::default()
+            },
+        );
+        correct_input(
+            &mut runtime,
+            &mut player,
+            ANVIL_TARGET_SLOT,
+            corrected_damage,
+            "",
+        );
+        let raw = runtime
+            .inventory_ledger(&player)
+            .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
+            .unwrap();
+        assert_eq!(protocol::item_stack_damage(raw), Some(raw_damage as u32));
+        runtime.sync_anvil_name(&player);
+        let preview = runtime.anvil_preview(&player);
+        if corrected_damage == 0 {
+            assert!(
+                preview.is_none(),
+                "a corrected pristine item needs no repair"
+            );
+        } else {
+            let preview = preview.expect("a worn item with pristine NBT can be repaired");
+            assert_eq!(preview.outcome.material_used, 3);
+            assert_eq!(preview.outcome.cost, 3);
+            assert_eq!(protocol::item_stack_damage(&preview.stack), Some(0));
+        }
+    }
+}
+
+#[test]
+fn combining_copies_uses_the_second_inputs_corrected_damage() {
+    let (mut runtime, mut player) = anvil();
+    let mut copy = runtime
+        .inventory_ledger(&player)
+        .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
+        .unwrap()
+        .clone();
+    copy.stack_network_id = 31;
+    copy.extra_data = protocol::edit_item_extra(
+        &copy.extra_data,
+        &protocol::ItemNbtEdit {
+            damage: Some(0),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    copy.nbt_digest = Sha256::digest(&copy.extra_data).into();
+    place(
+        &mut runtime,
+        &mut player,
+        u16::from(ANVIL_MATERIAL_SLOT),
+        copy,
+    );
+    correct_input(&mut runtime, &mut player, ANVIL_MATERIAL_SLOT, 1000, "");
+    runtime.sync_anvil_name(&player);
+    let preview = runtime.anvil_preview(&player).unwrap();
+    assert_eq!(protocol::item_stack_damage(&preview.stack), Some(252));
+    assert_eq!(preview.outcome.cost, 2);
+}
+
+#[test]
+fn unchanged_response_names_and_damage_survive_a_predicted_rename() {
+    let (mut runtime, mut player) = anvil();
+    correct_input(
+        &mut runtime,
+        &mut player,
+        ANVIL_TARGET_SLOT,
+        800,
+        " Server Blade ",
+    );
+    runtime.sync_anvil_name(&player);
+    assert_eq!(runtime.screen_state().anvil_name, " Server Blade ");
+    let repaired = runtime.anvil_preview(&player).unwrap();
+    assert_eq!(repaired.outcome.custom_name, None);
+    assert_eq!(repaired.outcome.cost, 3);
+    assert_eq!(
+        protocol::item_custom_name(&repaired.stack.extra_data).as_deref(),
+        Some(" Server Blade ")
+    );
+    place(
+        &mut runtime,
+        &mut player,
+        u16::from(ANVIL_MATERIAL_SLOT),
+        NetworkItemStack::empty(),
+    );
+    runtime.screen_state_mut().anvil_name = "New".into();
+    let renamed = runtime.anvil_preview(&player).unwrap();
+    assert_eq!(renamed.outcome.damage, None);
+    assert_eq!(renamed.outcome.cost, 1);
+    assert_eq!(protocol::item_stack_damage(&renamed.stack), Some(800));
+    assert_eq!(
+        protocol::item_custom_name(&renamed.stack.extra_data).as_deref(),
+        Some("New")
+    );
+}
+
+#[test]
+fn response_name_corrections_do_not_overwrite_a_name_the_player_is_editing() {
+    for corrected_name in ["", "Corrected"] {
+        let (mut runtime, mut player) = anvil();
+        runtime.sync_anvil_name(&player);
+        runtime.screen_state_mut().anvil_name = "Typed".into();
+        correct_input(
+            &mut runtime,
+            &mut player,
+            ANVIL_TARGET_SLOT,
+            800,
+            corrected_name,
+        );
+        runtime.sync_anvil_name(&player);
+        assert_eq!(runtime.screen_state().anvil_name, "Typed");
+        assert_eq!(
+            runtime.anvil_preview(&player).unwrap().outcome.custom_name,
+            Some(Some("Typed".into()))
+        );
+    }
+}
+
+#[test]
+fn unchanged_prefilled_names_keep_whitespace_and_do_not_charge_for_a_rename() {
+    for name in [" Blade ", "   "] {
+        let (mut runtime, mut player) = anvil();
+        edit_input(
+            &mut runtime,
+            &mut player,
+            ANVIL_TARGET_SLOT,
+            protocol::ItemNbtEdit {
+                custom_name: Some(Some(name.into())),
+                ..Default::default()
+            },
+        );
+        runtime.sync_anvil_name(&player);
+        let preview = runtime.anvil_preview(&player).unwrap();
+        assert_eq!(preview.outcome.custom_name, None);
+        assert_eq!(preview.outcome.cost, 3);
+        assert_eq!(
+            protocol::item_custom_name(&preview.stack.extra_data).as_deref(),
+            Some(name)
+        );
+        assert_eq!(runtime.anvil_rename(&player), None);
+        place(
+            &mut runtime,
+            &mut player,
+            u16::from(ANVIL_MATERIAL_SLOT),
+            NetworkItemStack::empty(),
+        );
+        assert!(
+            runtime.anvil_preview(&player).is_none(),
+            "inserting an unchanged name does nothing"
+        );
+        runtime.screen_state_mut().anvil_name = " New ".into();
+        let renamed = runtime.anvil_preview(&player).unwrap();
+        assert_eq!(renamed.outcome.custom_name, Some(Some("New".into())));
+        assert_eq!(renamed.outcome.cost, 1);
+        assert_eq!(runtime.anvil_rename(&player).as_deref(), Some("New"));
+        runtime.screen_state_mut().anvil_name.clear();
+        assert_eq!(runtime.anvil_rename(&player).as_deref(), Some(""));
+    }
+}
+
+#[test]
 fn unrelated_components_keep_builtin_durability_for_materials_and_copies() {
     for combine_copy in [false, true] {
         let (mut runtime, mut player) = anvil();
@@ -244,6 +481,12 @@ fn the_name_box_prefills_from_the_target_and_renames_cost_a_level() {
         .facts
         .publish_player_game_mode(protocol::PlayerGameMode::Creative);
     assert!(runtime.anvil_affordable(&player, &preview));
+    runtime.screen_state_mut().anvil_name.clear();
+    assert_eq!(
+        runtime.anvil_rename(&player),
+        None,
+        "empty text does not clear a default name"
+    );
 }
 
 /// The sword and a Sharpness I book: taking the merge without renaming sends the take.
@@ -305,8 +548,18 @@ fn server_outputs_are_taken_even_when_prediction_differs_or_is_unavailable() {
         CraftResult, StackRequestAction as Action, StackRequestContainer as Container,
         StackRequestSlot,
     };
-    for predictable in [false, true] {
+    for (predictable, repair_cost) in [(false, 0), (true, 0), (true, 63)] {
         let (mut runtime, mut player) = anvil();
+        edit_input(
+            &mut runtime,
+            &mut player,
+            ANVIL_TARGET_SLOT,
+            protocol::ItemNbtEdit {
+                custom_name: Some(Some(" Blade ".into())),
+                repair_cost: Some(repair_cost),
+                ..Default::default()
+            },
+        );
         if !predictable {
             edit_input(
                 &mut runtime,
@@ -320,6 +573,12 @@ fn server_outputs_are_taken_even_when_prediction_differs_or_is_unavailable() {
         }
         runtime.sync_anvil_name(&player);
         assert_eq!(runtime.anvil_preview(&player).is_some(), predictable);
+        assert_eq!(
+            runtime
+                .anvil_preview(&player)
+                .is_some_and(|preview| preview.outcome.too_expensive),
+            repair_cost >= inventory::ANVIL_TOO_EXPENSIVE
+        );
         let extra_data = protocol::edit_item_extra(
             &[],
             &protocol::ItemNbtEdit {
@@ -349,7 +608,14 @@ fn server_outputs_are_taken_even_when_prediction_differs_or_is_unavailable() {
             crate::ui_runtime::presentation::publish::hovered_stack(&player, &runtime),
             Some((output.clone(), None))
         );
-        let name = runtime.screen_state().anvil_name.trim().to_owned();
+        let source = crate::ui_runtime::presentation::forms::containers::ContainerAuthority::new(
+            &player, &runtime,
+        );
+        assert!(
+            ui_screens::container_source::ContainerSource::screen(&source)
+                .anvil_cost
+                .is_none()
+        );
         runtime.perform_pointer_action(
             &mut player,
             crate::ui_runtime::inventory_drag::PointerAction::Click(
@@ -372,7 +638,7 @@ fn server_outputs_are_taken_even_when_prediction_differs_or_is_unavailable() {
             &[
                 Action::CraftRecipeOptional {
                     recipe_network_id: 0,
-                    filtered_string_index: 0,
+                    filtered_string_index: -1,
                 },
                 Action::CraftResultsDeprecated {
                     results: Arc::from([CraftResult {
@@ -415,7 +681,7 @@ fn server_outputs_are_taken_even_when_prediction_differs_or_is_unavailable() {
                     },
                 },
             ],
-            &[name],
+            &[],
         )
         .unwrap();
         assert_eq!(
@@ -512,6 +778,7 @@ fn unsupported_enchantment_fields_on_either_input_decline_prediction() {
             ANVIL_TARGET_SLOT,
             protocol::ItemNbtEdit {
                 enchantments: Some(vec![(9, 1)]),
+                custom_name: Some(Some(" Blade ".into())),
                 ..Default::default()
             },
         );
@@ -522,7 +789,13 @@ fn unsupported_enchantment_fields_on_either_input_decline_prediction() {
             .unwrap()
             .clone();
         let mut extra = input.extra_data.to_vec();
-        let end = extra.len() - 10;
+        let tail = [2, 3, 0, b'l', b'v', b'l', 1, 0, 0];
+        let end = extra
+            .windows(tail.len())
+            .position(|bytes| bytes == tail)
+            .expect("the fixture has an enchantment level followed by its compound end")
+            + tail.len()
+            - 1;
         let mut field = vec![2, 6, 0];
         field.extend_from_slice(b"custom");
         field.extend_from_slice(&42i16.to_le_bytes());
@@ -532,6 +805,12 @@ fn unsupported_enchantment_fields_on_either_input_decline_prediction() {
         assert_eq!(protocol::item_anvil_data(&input.extra_data), None);
         place(&mut runtime, &mut player, u16::from(slot), input);
         runtime.sync_anvil_name(&player);
+        assert_eq!(
+            runtime.screen_state().anvil_name,
+            " Blade ",
+            "unsupported enchantments do not block name resolution"
+        );
+        assert_eq!(runtime.anvil_rename(&player), None);
         runtime.screen_state_mut().anvil_name = "Blade".into();
         assert!(
             runtime.anvil_preview(&player).is_none(),

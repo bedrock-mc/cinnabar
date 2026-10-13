@@ -45,7 +45,7 @@ pub struct ScreenView<'a> {
     /// Admitted equipment facts of the open mount.
     pub mount_equipment: MountEquipment,
     pub anvil_name: &'a str,
-    /// The open anvil's cost line, when its inputs make a result.
+    /// The predicted anvil cost, when no server output takes precedence.
     pub anvil_cost: Option<AnvilCost>,
     /// The stonecutter recipe the player picked.
     pub recipe_choice: Option<u32>,

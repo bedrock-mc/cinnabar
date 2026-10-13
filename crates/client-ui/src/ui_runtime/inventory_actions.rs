@@ -535,12 +535,7 @@ impl UiRuntime {
                     .created_output_stack()
                     .is_some()
                 {
-                    let name = self.screen_state().anvil_name.trim();
-                    (
-                        (!name.is_empty()).then(|| std::sync::Arc::from(name)),
-                        None,
-                        0,
-                    )
+                    (self.anvil_rename(player_runtime), None, 0)
                 } else {
                     let preview = self
                         .anvil_preview(player_runtime)

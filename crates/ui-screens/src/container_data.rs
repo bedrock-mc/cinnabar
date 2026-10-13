@@ -188,10 +188,11 @@ pub fn id_aux_icons(
     }
 }
 
-/// The anvil's cost line, green when affordable and red otherwise, and the cross over the
-/// arrow when a placed target makes nothing or costs too much.
+/// Shows predicted costs and invalid-result indicators only when no server output exists.
 fn anvil_cost(source: &dyn ContainerSource, data: &mut DataSource) {
-    let cost = source.screen().anvil_cost;
+    let ledger = source.player().inventory.ledger();
+    let server_output = ledger.created_output_stack().is_some();
+    let cost = source.screen().anvil_cost.filter(|_| !server_output);
     let text = cost.map_or_else(String::new, |cost| {
         if cost.too_expensive {
             source
@@ -205,10 +206,7 @@ fn anvil_cost(source: &dyn ContainerSource, data: &mut DataSource) {
         }
     });
     let affordable = cost.is_some_and(|cost| cost.affordable);
-    let target = source
-        .player()
-        .inventory
-        .ledger()
+    let target = ledger
         .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
         .is_some();
     data.set_global("#cost_text", Scalar::Text(text));
@@ -219,7 +217,7 @@ fn anvil_cost(source: &dyn ContainerSource, data: &mut DataSource) {
     );
     data.set_global(
         "#cross_out_icon",
-        Scalar::Bool(target && cost.is_none_or(|cost| cost.too_expensive)),
+        Scalar::Bool(!server_output && target && cost.is_none_or(|cost| cost.too_expensive)),
     );
 }
 
@@ -834,6 +832,95 @@ mod banner_tests {
             anvil_bindings(Some(expensive)),
             expected("Too Expensive!", false, true)
         );
+    }
+
+    #[test]
+    fn server_outputs_suppress_local_cost_and_invalid_result_indicators() {
+        use crate::container_source::AnvilCost;
+        for cost in [
+            None,
+            Some(AnvilCost {
+                levels: 41,
+                too_expensive: true,
+                affordable: false,
+            }),
+            Some(AnvilCost {
+                levels: 5,
+                too_expensive: false,
+                affordable: false,
+            }),
+        ] {
+            let mut source = loom_fixture();
+            source.screen.anvil_cost = cost;
+            let ledger = source.player.inventory.ledger_mut();
+            ledger.apply(&protocol::InventoryEvent::Open(
+                protocol::ContainerOpenEvent {
+                    container: protocol::ContainerIdentity::window(5),
+                    window_type: protocol::WINDOW_TYPE_ANVIL,
+                    position: [0, 64, 0],
+                    runtime_entity_id: -1,
+                },
+            ));
+            let mut slots = vec![protocol::NetworkItemStack::empty(); protocol::UI_SLOT_COUNT];
+            slots[usize::from(ANVIL_TARGET_SLOT)] = protocol::NetworkItemStack {
+                network_id: 1,
+                count: 1,
+                ..protocol::NetworkItemStack::empty()
+            };
+            slots[usize::from(protocol::CREATED_OUTPUT_SLOT)] = protocol::NetworkItemStack {
+                network_id: 2,
+                count: 1,
+                ..protocol::NetworkItemStack::empty()
+            };
+            ledger.apply(&protocol::InventoryEvent::Content(
+                protocol::InventoryContentEvent {
+                    container: protocol::ContainerIdentity {
+                        window_id: Some(protocol::UI_INVENTORY_WINDOW_ID),
+                        slot_type: Some(0),
+                        dynamic_id: None,
+                    },
+                    slots: slots.into(),
+                    storage_item: protocol::NetworkItemStack::empty(),
+                },
+            ));
+            assert!(ledger.created_output_stack().is_some());
+            let mut data = DataSource::new();
+            anvil_cost(&source, &mut data);
+            assert_eq!(data, expected("", false, false));
+            source
+                .player
+                .inventory
+                .ledger_mut()
+                .apply(&protocol::InventoryEvent::Slot(
+                    protocol::InventorySlotEvent {
+                        identity: protocol::SlotIdentity {
+                            container: protocol::ContainerIdentity {
+                                window_id: None,
+                                slot_type: Some(protocol::CONTAINER_NAME_CREATED_OUTPUT),
+                                dynamic_id: None,
+                            },
+                            slot: u16::from(protocol::CREATED_OUTPUT_SLOT),
+                        },
+                        stack: protocol::NetworkItemStack::empty(),
+                        storage_item: None,
+                    },
+                ));
+            let mut predicted = DataSource::new();
+            anvil_cost(&source, &mut predicted);
+            let mut expected = match cost {
+                None => expected("", false, false),
+                Some(cost) if cost.too_expensive => expected("Too Expensive!", false, true),
+                Some(_) => expected("5", false, true),
+            };
+            expected.set_global(
+                "#cross_out_icon",
+                Scalar::Bool(cost.is_none_or(|cost| cost.too_expensive)),
+            );
+            assert_eq!(
+                predicted, expected,
+                "local indicators return when the server output is removed"
+            );
+        }
     }
 
     #[test]

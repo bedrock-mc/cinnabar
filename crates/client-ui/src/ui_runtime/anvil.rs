@@ -49,21 +49,87 @@ impl UiRuntime {
         slot: u8,
     ) -> Option<AnvilInput> {
         let ledger = self.inventory_ledger(player_runtime);
-        let stack = ledger
+        let mut stack = ledger
             .target_stack(InventoryTarget::Craft(slot))
             .filter(|stack| stack.count > 0)?
             .clone();
         let entry = ledger.negotiated_item_entry(stack.network_id)?.clone();
+        if let Some(overlay) = ledger.presented_target_overlay(InventoryTarget::Craft(slot)) {
+            let edit = protocol::ItemNbtEdit {
+                damage: overlay.durability_correction.filter(|damage| *damage >= 0),
+                custom_name: overlay
+                    .custom_name
+                    .as_ref()
+                    .map(|name| Some(name.to_string())),
+                ..Default::default()
+            };
+            if edit.damage.is_some() || edit.custom_name.is_some() {
+                stack.extra_data = protocol::edit_item_extra(&stack.extra_data, &edit)?;
+                stack.nbt_digest = Sha256::digest(&stack.extra_data).into();
+            }
+        }
         let data = protocol::item_anvil_data(&stack.extra_data)?;
         Some(AnvilInput { stack, entry, data })
     }
 
+    /// The target's custom name, preferring a retained server correction to its NBT.
+    fn anvil_target_custom_name(
+        &self,
+        player_runtime: &player_state::PlayerState,
+    ) -> Option<std::sync::Arc<str>> {
+        let ledger = self.inventory_ledger(player_runtime);
+        let target = InventoryTarget::Craft(ANVIL_TARGET_SLOT);
+        let stack = ledger
+            .target_stack(target)
+            .filter(|stack| stack.count > 0)?;
+        ledger
+            .presented_target_overlay(target)
+            .and_then(|overlay| overlay.custom_name.clone())
+            .or_else(|| protocol::item_custom_name(&stack.extra_data))
+    }
+
     /// The name the target item shows: its custom name, else its localized name.
-    fn anvil_target_name(&self, input: &AnvilInput) -> String {
-        input.data.custom_name.as_deref().map_or_else(
-            || self.localized_item_name(&input.entry.identifier),
-            str::to_owned,
-        )
+    fn anvil_target_name(&self, player_runtime: &player_state::PlayerState) -> Option<String> {
+        self.anvil_target_custom_name(player_runtime)
+            .map(|name| name.to_string())
+            .or_else(|| {
+                let ledger = self.inventory_ledger(player_runtime);
+                let stack = ledger
+                    .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
+                    .filter(|stack| stack.count > 0)?;
+                Some(self.localized_item_name(
+                    &ledger.negotiated_item_entry(stack.network_id)?.identifier,
+                ))
+            })
+    }
+
+    /// Keeps an unchanged prefilled name exact, trimming only text the player changed.
+    fn anvil_name_text<'a>(&'a self, current_name: &str) -> &'a str {
+        let name = self.screen_state().anvil_name.as_str();
+        if name == current_name {
+            name
+        } else {
+            name.trim()
+        }
+    }
+
+    /// The changed name sent with an authoritative take; empty text clears a custom name.
+    pub(super) fn anvil_rename(
+        &self,
+        player_runtime: &player_state::PlayerState,
+    ) -> Option<std::sync::Arc<str>> {
+        let current = self.anvil_target_name(player_runtime);
+        let name = current.as_deref().map_or_else(
+            || self.screen_state().anvil_name.trim(),
+            |current| self.anvil_name_text(current),
+        );
+        if current.as_deref() == Some(name)
+            || (name.is_empty() && self.anvil_target_custom_name(player_runtime).is_none())
+        {
+            None
+        } else {
+            Some(std::sync::Arc::from(name))
+        }
     }
 
     /// Prefills the name box with the target's name whenever a different target is placed,
@@ -72,19 +138,27 @@ impl UiRuntime {
         if self.inventory_ledger(player_runtime).window_kind() != Some(WindowKind::Anvil) {
             return;
         }
-        let target = self.anvil_input(player_runtime, ANVIL_TARGET_SLOT);
-        let identity = target
-            .as_ref()
-            .map(|input| (input.stack.network_id, input.stack.nbt_digest));
+        let name = self.anvil_target_name(player_runtime).unwrap_or_default();
+        let identity = self
+            .inventory_ledger(player_runtime)
+            .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
+            .filter(|stack| stack.count > 0)
+            .map(|stack| (stack.network_id, stack.nbt_digest, name.clone()));
         if self.screen_state().anvil_target == identity {
             return;
         }
-        let name = target
-            .map(|input| self.anvil_target_name(&input))
-            .unwrap_or_default();
         let state = self.screen_state_mut();
+        let keep_typed_name = state
+            .anvil_target
+            .as_ref()
+            .zip(identity.as_ref())
+            .is_some_and(|((old_id, old_digest, old_name), (id, digest, _))| {
+                old_id == id && old_digest == digest && state.anvil_name != *old_name
+            });
         state.anvil_target = identity;
-        state.anvil_name = name;
+        if !keep_typed_name {
+            state.anvil_name = name;
+        }
     }
 
     /// The result the open anvil makes from its inputs and name box, or `None` when it makes
@@ -110,11 +184,12 @@ impl UiRuntime {
         let right_item = right.as_ref().map(AnvilInput::item);
         let creative =
             player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative);
+        let current_name = self.anvil_target_name(player_runtime)?;
         let outcome = inventory::evaluate_anvil(
             &left.item(),
             right_item.as_ref(),
-            self.screen_state().anvil_name.trim(),
-            &self.anvil_target_name(&left),
+            self.anvil_name_text(&current_name),
+            &current_name,
             creative,
         )?;
         let extra_data = protocol::edit_item_extra(
