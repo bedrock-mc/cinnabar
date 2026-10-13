@@ -192,6 +192,7 @@ impl BlockEntityAtlasImage {
 pub struct BlockEntityScene {
     atlas: Option<Arc<BlockEntityAtlas>>,
     image: Option<Arc<BlockEntityAtlasImage>>,
+    prepared: Option<PreparedBlockEntityArtwork>,
     text: Option<DynamicCells>,
     frame: BlockEntityFrame,
     heads: HeadModels,
@@ -213,10 +214,14 @@ impl BlockEntityScene {
 
     /// Shares the installed static artwork as the startup fallback for pack workers.
     pub fn prepared_artwork(&self) -> Option<PreparedBlockEntityArtwork> {
-        self.atlas
-            .as_deref()
-            .cloned()
-            .map(|atlas| PreparedBlockEntityArtwork { atlas })
+        self.prepared.clone()
+    }
+
+    /// Borrows the static held models prepared with the accepted artwork, without frame copies.
+    pub fn held_models(&self) -> Option<&super::held::PreparedHeldBlockModels> {
+        self.prepared
+            .as_ref()
+            .map(PreparedBlockEntityArtwork::held_models)
     }
 
     /// Prepares and installs startup artwork; runtime workers use [`Self::install_prepared_assets`].
@@ -243,6 +248,7 @@ impl BlockEntityScene {
 
     /// Publishes shared static pixels and invalidates meshes while retaining dynamic canvases.
     pub fn reload_prepared_assets(&mut self, artwork: &PreparedBlockEntityArtwork) {
+        self.prepared = Some(artwork.clone());
         let mut atlas = artwork.atlas.clone();
         let text = self
             .text

@@ -6,6 +6,9 @@
 
 use std::sync::Arc;
 
+mod artwork;
+pub use artwork::PreparedHeldBlockModels;
+
 use super::{
     atlas::{AtlasRect, BlockEntityAtlas},
     chest::{self, ChestModel, ChestPair, ChestVariant},
@@ -18,6 +21,7 @@ use super::{
 use crate::{ActorRigGeometry, ActorRigSurface, ActorRigVertex, EntityRigId};
 
 /// A held block-entity rig and the shared span that normalizes its texture-local glint UVs.
+#[derive(Clone, Debug)]
 pub struct HeldBlockEntityModel {
     pub geometry: ActorRigGeometry,
     pub glint_span: [f32; 2],
@@ -167,13 +171,16 @@ pub fn held_block_entity_model(
 ) -> Option<HeldBlockEntityModel> {
     let [atlas_width, atlas_height] = atlas.size();
     let static_height = atlas.static_height();
+    if kind == HeldBlockEntity::DecoratedPot {
+        for (name, size) in [
+            assets::block_entity_geometry::POT_BASE_TEXTURE,
+            assets::block_entity_geometry::POT_SIDE_TEXTURE,
+        ] {
+            atlas.texture(name, size)?;
+        }
+    }
     if static_height == 0 {
         return None;
-    }
-    if kind == HeldBlockEntity::DecoratedPot {
-        use assets::block_entity_geometry as geometry;
-        atlas.texture(geometry::POT_BASE_TEXTURE.0, geometry::POT_BASE_TEXTURE.1)?;
-        atlas.texture(geometry::POT_SIDE_TEXTURE.0, geometry::POT_SIDE_TEXTURE.1)?;
     }
     let mut builder = MeshBuilder::new(atlas.size());
     // The actor rig needs face normals; its submission supplies the actual light.
@@ -481,6 +488,51 @@ mod tests {
                         Vec3::from_array(vertex.normal).abs_diff_eq(Vec3::NEG_Y, 1.0e-5)
                     }));
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn decorated_pots_require_both_base_and_side_textures() {
+        use assets::block_entity_geometry::{POT_BASE_TEXTURE, POT_SIDE_TEXTURE};
+        for names in [
+            vec![POT_BASE_TEXTURE],
+            vec![POT_SIDE_TEXTURE],
+            vec![POT_BASE_TEXTURE, POT_SIDE_TEXTURE],
+        ] {
+            let complete = names.len() == 2;
+            let mut placements: Vec<_> = names
+                .into_iter()
+                .enumerate()
+                .map(|(index, (name, size))| assets::BlockEntityPlacement {
+                    name: name.into(),
+                    x: 0,
+                    y: index as u32 * 64,
+                    width: size[0] as u32,
+                    height: size[1] as u32,
+                })
+                .collect();
+            placements.sort_by(|left, right| left.name.cmp(&right.name));
+            let encoded = assets::encode_block_entity_catalog(
+                b"{}",
+                64,
+                128,
+                &vec![255; 64 * 128 * 4],
+                &placements,
+            )
+            .unwrap();
+            let atlas = BlockEntityAtlas::from_assets(
+                &assets::RuntimeBlockEntityAssets::decode(&encoded).unwrap(),
+            );
+            let model =
+                held_block_entity_model(EntityRigId(1), &atlas, HeldBlockEntity::DecoratedPot);
+            assert_eq!(
+                model.is_some(),
+                complete,
+                "partial pot art must retain the item fallback"
+            );
+            if let Some(model) = model {
+                assert!(model.geometry.vertices.len() > 36);
             }
         }
     }

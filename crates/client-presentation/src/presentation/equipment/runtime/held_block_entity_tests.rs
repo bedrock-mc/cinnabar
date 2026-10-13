@@ -42,7 +42,7 @@ fn startup_conduit_model_reaches_camera_hands_and_player_equipment() {
         .unwrap(),
     )
     .unwrap();
-    let (mut runtime, _, _) = EquipmentRuntime::build(
+    let (mut runtime, startup_pages, _) = EquipmentRuntime::build(
         Arc::clone(&base.assets),
         None,
         Arc::new(icons),
@@ -96,6 +96,93 @@ fn startup_conduit_model_reaches_camera_hands_and_player_equipment() {
             .iter()
             .all(|component| (0.0..=1.0).contains(component))
     }));
+    let startup_uvs: Vec<_> = model.vertices.iter().map(|vertex| vertex.uv).collect();
+    let original_location = main.presentation.location;
+    let replacement = assets::RuntimeBlockEntityAssets::decode(
+        &assets::encode_block_entity_catalog(
+            b"{}",
+            64,
+            128,
+            &[21; 64 * 128 * 4],
+            &[assets::BlockEntityPlacement {
+                name: assets::block_entity_geometry::CONDUIT_TEXTURE.0.into(),
+                x: 0,
+                y: 64,
+                width: assets::block_entity_geometry::CONDUIT_TEXTURE.1[0] as u32,
+                height: assets::block_entity_geometry::CONDUIT_TEXTURE.1[1] as u32,
+            }],
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut scene = render_model::BlockEntityScene::default();
+    let prepared = scene.artwork_preparer().prepare(&replacement).unwrap();
+    scene.install_prepared_assets(&prepared);
+    let (updated_pages, held) =
+        EquipmentRuntime::prepare_block_entity_artwork(&startup_pages, &prepared);
+    runtime.set_block_entity_artwork(Some(&held));
+    let queued = runtime.take_pending_geometries();
+    let updated = queued.iter().find(|model| model.id == rig).unwrap();
+    assert_ne!(
+        updated
+            .vertices
+            .iter()
+            .map(|vertex| vertex.uv)
+            .collect::<Vec<_>>(),
+        startup_uvs
+    );
+    for camera in [
+        runtime
+            .first_person_item(&body, &item, ItemAnimationState::default())
+            .unwrap(),
+        runtime.first_person_offhand(&body, &item).unwrap(),
+    ] {
+        assert_eq!(camera.presentation.submission.input.rig, rig);
+        let location = camera.presentation.location;
+        assert_ne!(location, original_location);
+        let page = &updated_pages.pages()[usize::from(location.page()) - 1];
+        let (width, height) = page.dimensions();
+        let bytes = usize::from(width) * usize::from(height) * 4;
+        let start = location.layer() as usize * bytes;
+        assert!(
+            page.pixels()[start..start + bytes]
+                .iter()
+                .all(|byte| *byte == 21)
+        );
+    }
+    assert_eq!(
+        third_person(&mut runtime, &body, &item)
+            .submission
+            .input
+            .rig,
+        rig
+    );
+    runtime.set_block_entity_artwork(Some(&held));
+    assert!(
+        runtime.take_pending_geometries().is_empty(),
+        "unchanged artwork reuses prepared meshes"
+    );
+    runtime.set_block_entity_artwork(None);
+    let restored = runtime.take_pending_geometries();
+    assert_eq!(
+        restored
+            .iter()
+            .find(|model| model.id == rig)
+            .unwrap()
+            .vertices
+            .iter()
+            .map(|vertex| vertex.uv)
+            .collect::<Vec<_>>(),
+        startup_uvs
+    );
+    assert_eq!(
+        runtime
+            .first_person_offhand(&body, &item)
+            .unwrap()
+            .presentation
+            .location,
+        original_location
+    );
 }
 
 #[test]
@@ -185,7 +272,7 @@ fn held_block_entity_models_keep_cutout_alpha_and_block_grips() {
     {
         item.identifier = Arc::from(identifier);
         let kind = HeldBlockEntity::from_item(identifier).unwrap();
-        let rig = equipment_rig_id(held_block_entities::RIG_INDEX_BASE + index as u32);
+        let rig = equipment_rig_id(index as u32);
         runtime
             .held_block_entities
             .models
@@ -229,7 +316,7 @@ fn held_block_entity_alpha_uses_only_admitted_models_after_session_materials() {
     let fallback = runtime.first_person_item(&body, &item, animation).unwrap();
     assert_eq!(fallback.alpha_mode, HandItemAlphaMode::Opaque);
     let kind = HeldBlockEntity::from_item(&item.identifier).unwrap();
-    let rig = equipment_rig_id(held_block_entities::RIG_INDEX_BASE);
+    let rig = equipment_rig_id(0);
     runtime
         .held_block_entities
         .models

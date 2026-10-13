@@ -49,7 +49,10 @@ pub use frame::{
     item_frame_item_transform,
 };
 
-pub use held::{ChestVariantKey, HeldBlockEntity, HeldBlockEntityModel, held_block_entity_model};
+pub use held::{
+    ChestVariantKey, HeldBlockEntity, HeldBlockEntityModel, PreparedHeldBlockModels,
+    held_block_entity_model,
+};
 pub use items::{StaticItemPlacement, StaticItemPlacements, matrix_rows};
 pub use mesh::{
     BLOCK_ENTITY_VERTEX_WORDS, BlockEntityVertex, Facing, MAX_BLOCK_ENTITY_VERTICES,

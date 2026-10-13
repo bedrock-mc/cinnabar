@@ -1,48 +1,55 @@
-//! Startup admission of cached held block-entity geometry and artwork.
+//! Binds worker-prepared held models to actor pages and restores startup after disconnect.
 
 use super::*;
 use crate::prepared_actor_artwork::PreparedHeldBlockEntities;
+use render_model::block_entity::PreparedHeldBlockModels;
 
-/// Equipment geometry index space reserved for held block-entity item models.
-pub(super) const RIG_INDEX_BASE: u32 = 0x00ff_0100;
-
-/// Builds available models, their static artwork bindings and texture-local glint spans.
+/// Builds startup geometry and bindings from the immutable static atlas.
 pub(super) fn build(
     atlas: Option<&BlockEntityAtlas>,
     location: Option<ActorArtworkLocation>,
 ) -> PreparedHeldBlockEntities {
-    let mut prepared = PreparedHeldBlockEntities::default();
-    let Some((atlas, location)) = atlas.zip(location) else {
-        return prepared;
+    let source = atlas.map(PreparedHeldBlockModels::new);
+    bindings(source.as_ref(), location)
+}
+
+/// Couples cached geometry to an admitted raster location from the same generation.
+fn bindings(
+    source: Option<&PreparedHeldBlockModels>,
+    location: Option<ActorArtworkLocation>,
+) -> PreparedHeldBlockEntities {
+    let mut prepared = PreparedHeldBlockEntities {
+        identity: source.map(PreparedHeldBlockModels::identity),
+        ..Default::default()
     };
-    prepared.identity = Some(atlas.identity());
-    for (index, kind) in HeldBlockEntity::all().into_iter().enumerate() {
-        let id = equipment_rig_id(RIG_INDEX_BASE + index as u32);
-        if let Some(model) = render_model::block_entity::held_block_entity_model(id, atlas, kind) {
-            prepared.geometries.push(model.geometry);
+    if let Some((source, location)) = source.zip(location) {
+        for (kind, model) in source.models() {
+            prepared.geometries.push(model.geometry.clone());
             prepared
                 .models
-                .insert(kind, (id, location, model.glint_span));
+                .insert(*kind, (model.geometry.id, location, model.glint_span));
         }
     }
     prepared
 }
 
 impl EquipmentRuntime {
-    /// Prepares held geometry and shared static pixels on the accepted pack's worker.
+    /// Packs held static pixels on the worker and shares its already prepared geometry.
     pub(crate) fn prepare_block_entity_artwork(
         pages: &ActorArtworkPages,
         artwork: &render_model::PreparedBlockEntityArtwork,
     ) -> (ActorArtworkPages, PreparedHeldBlockEntities) {
-        let atlas = artwork.atlas();
-        let raster = EquipmentRaster {
-            width: atlas.size()[0] as u16,
-            height: atlas.static_height() as u16,
-            rgba8: Arc::clone(atlas.static_rgba8()),
-        };
-        let (pages, locations) = pages.clone().with_equipment_rasters(&[raster]);
-        let prepared = build(Some(atlas), locations[0]);
-        (pages, prepared)
+        let source = artwork.held_models();
+        let (pages, location) = source.raster().map_or_else(
+            || (pages.clone(), None),
+            |raster| {
+                let (pages, locations) = pages
+                    .clone()
+                    .with_equipment_rasters(std::slice::from_ref(raster));
+                (pages, locations[0])
+            },
+        );
+        (pages, bindings(Some(source), location))
     }
 
     /// Admits one prepared atlas generation, restoring startup bindings after disconnect.
