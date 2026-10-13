@@ -86,11 +86,7 @@ fn oreui_font_edges_use_native_coverage_gamma_sampling_and_sdf_scale() {
             resource: wgpu::BindingResource::Sampler(&linear),
         },
     ];
-    for (color, exponent) in [
-        ([1.0, 1.0, 1.0], 0.45f32),
-        ([0.0, 0.0, 0.0], 1.45),
-        ([1.0, 0.0, 0.0], 1.2374),
-    ] {
+    for color in [[1.0, 1.0, 1.0], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0]] {
         let source = format!(
             "{}\n{}",
             ui_shader::source(include_str!("../../src/ui.wgsl")),
@@ -108,7 +104,7 @@ fn oreui_font_edges_use_native_coverage_gamma_sampling_and_sdf_scale() {
             }],
         );
         let actual = &pixels[(128 * 256 + 128) * 4..][..4];
-        let coverage = (128.0f32 / 255.0).powf(exponent);
+        let coverage = render_model::font_shading::coverage_gamma(128.0 / 255.0, color);
         let expected = [
             color[0] * coverage,
             color[1] * coverage,
@@ -156,10 +152,8 @@ fn oreui_font_edges_use_native_coverage_gamma_sampling_and_sdf_scale() {
             }],
         );
         let actual = &pixels[(128 * 256 + 128) * 4..][..4];
-        let threshold = (128.0 / 255.0) * texels_per_pixel;
-        let distance = (132.0 / 255.0) * 7.96875 - 3.984375;
-        let t = ((distance + threshold) / (2.0 * threshold)).clamp(0.0, 1.0);
-        let coverage = (t * t * (3.0 - 2.0 * t)).powf(0.45);
+        let coverage = render_model::font_shading::sdf_coverage(132.0 / 255.0, texels_per_pixel);
+        let coverage = render_model::font_shading::coverage_gamma(coverage, [1.0; 3]);
         let expected = (coverage * 255.0).round() as u8;
         assert!(
             actual

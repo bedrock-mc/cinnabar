@@ -12,6 +12,8 @@ use ui::{ChatClipboard, PointerPhase, UiAction, UiPoint};
 use super::fixtures::{envelope, warp_tree};
 use super::support::text;
 
+mod mentions;
+
 #[test]
 fn accepted_chat_send_clears_editor_and_session_replacement_attributes_drops() {
     let mut player_runtime = player_state::PlayerState::new(11);

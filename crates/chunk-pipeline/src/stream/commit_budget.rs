@@ -109,8 +109,9 @@ impl WorldStream {
                     self.apply_prepared_with_sequence(event, Some(sequence));
                     self.finish_ordered_commit(sequence);
                 }
-                CommitStep::SyncedBlockUpdates { sequence, events } => {
-                    let (batches, events) = self.snapshot_synced_block_mutation_batches(events);
+                CommitStep::SyncedBlockUpdates { sequence, packets } => {
+                    let (batches, events, crack_batches) =
+                        self.snapshot_synced_block_mutation_batches(packets);
                     if batches.is_empty() {
                         self.finish_ordered_commit(sequence);
                     } else if inline_block_batches(&batches) {
@@ -119,6 +120,7 @@ impl WorldStream {
                             sequence,
                             batches,
                             events,
+                            crack_batches,
                             ids,
                         });
                     } else {
@@ -129,6 +131,7 @@ impl WorldStream {
                             sequence,
                             batches,
                             events,
+                            crack_batches,
                             ids,
                         });
                         self.order.defer_block_updates(sequence);
