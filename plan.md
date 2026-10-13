@@ -239,6 +239,15 @@ server. Acceptance uses externally compiled carriers with production terrain
 consumers; runtime server-pack compilation and reported server-version placement
 remain unverified. No broader parity gate closes.
 
+## Lever terrain geometry
+
+Levers compile separate mounting bases and power-selected pitched handles for
+wall, floor and ceiling states, retaining independent pack materials. Original
+16/32-pixel fixtures cover all registered mounts, power motion, sprite regions,
+face winding, network-ID resolution and malformed selectors. These regressions
+have not been compiled or executed. Exact base-source binding, rendered/input
+acceptance, native-server placement and broader parity remain incomplete.
+
 ## Bubble column terrain geometry
 
 Bubble columns compile separate outer and inner side shells with directional

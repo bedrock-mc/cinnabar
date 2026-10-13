@@ -24,6 +24,11 @@ opened cap texture ownership and malformed selectors across registered poses
 with 16/32 pixel textures. Rendered/input acceptance and broader graphics parity
 remain open.
 
+Lever compiler fixtures cover separate base/handle geometry, eight mounts, both
+power states and 16/32-pixel artwork. These tests have not been compiled or run;
+base-source binding and rendered/native interaction acceptance remain incomplete.
+No completion or performance gate advances.
+
 Cape rotation limits now prevent upward flips in both player animation modes. Remote resets
 discard Java chase lag, and remote Bedrock flap uses completed tick displacement instead of
 retained packet speed. Local flap keeps per-tick velocity through catch-up frames. The Bedrock
