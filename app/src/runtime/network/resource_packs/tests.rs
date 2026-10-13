@@ -150,7 +150,8 @@ fn ui_glint_uses_the_winning_raster_and_restores_the_lower_pack_on_removal() {
     let path = format!("{}.png", assets::entity::ITEM_GLINT_TEXTURE_IDENTIFIER);
     let low = encode(3, 2, [200, 0, 0, 255]);
     let high = encode(640, 617, [0, 200, 0, 255]);
-    let lower = archive(1, &[(&path, &low)]);
+    // Each one-shot handoff owns a fresh archive of the same lower-priority pixels.
+    let lower = || archive(1, &[(&path, &low)]);
     let upper = archive(2, &[(&path, &high)]);
     let read = |archives| {
         let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
@@ -158,12 +159,12 @@ fn ui_glint_uses_the_winning_raster_and_restores_the_lower_pack_on_removal() {
         ));
         super::collect_server_ui(&view).and_then(|pack| pack.item_glint.clone())
     };
-    let base = read(vec![lower.clone()]).unwrap();
-    let winner = read(vec![lower.clone(), upper]).unwrap();
+    let base = read(vec![lower()]).unwrap();
+    let winner = read(vec![lower(), upper]).unwrap();
     assert_eq!(winner.dimensions(), [640, 617]);
     assert_eq!(&winner.pixels()[..4], &[0, 200, 0, 255]);
     assert_ne!(winner.identity(), base.identity());
-    let restored = read(vec![lower]).unwrap();
+    let restored = read(vec![lower()]).unwrap();
     assert_eq!(restored, base);
     assert!(read(Vec::new()).is_none());
     let malformed = read(vec![archive(3, &[(&path, b"invalid image")])]);
