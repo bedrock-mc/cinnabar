@@ -78,7 +78,8 @@ pub struct ActorRigVertex {
     pub back_uv: [f32; 2],
     pub bone_index: u32,
     pub surface: ActorRigSurface,
-    /// Atlas origin of an item sprite or block face; zero for standalone actor textures.
+    /// Offset subtracted before glint scaling: the atlas origin for sprites and block faces,
+    /// or a per-vertex offset for models sharing differently sized textures. Zero for actors.
     pub glint_origin: [f32; 2],
 }
 

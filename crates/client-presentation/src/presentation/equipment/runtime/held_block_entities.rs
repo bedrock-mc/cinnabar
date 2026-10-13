@@ -8,7 +8,7 @@ pub(super) struct HeldModels {
     startup: Option<PreparedHeldBlockModels>,
     startup_location: Option<ActorArtworkLocation>,
     current: Option<[u8; 32]>,
-    pub(super) models: BTreeMap<HeldBlockEntity, (EntityRigId, ActorArtworkLocation)>,
+    pub(super) models: BTreeMap<HeldBlockEntity, (EntityRigId, ActorArtworkLocation, [f32; 2])>,
 }
 
 /// Queues startup models and retains them for restoring after a session.
@@ -26,9 +26,9 @@ pub(super) fn build(
             source
                 .models()
                 .iter()
-                .map(|(kind, geometry)| {
-                    pending.push(geometry.clone());
-                    (*kind, (geometry.id, location))
+                .map(|(kind, model)| {
+                    pending.push(model.geometry.clone());
+                    (*kind, (model.geometry.id, location, model.glint_span))
                 })
                 .collect()
         });
@@ -73,7 +73,7 @@ impl EquipmentRuntime {
                 source
                     .into_iter()
                     .flat_map(|source| source.models())
-                    .map(|(_, geometry)| geometry.clone()),
+                    .map(|(_, model)| model.geometry.clone()),
             );
             held.current = identity;
         }
@@ -83,7 +83,7 @@ impl EquipmentRuntime {
                 source
                     .models()
                     .iter()
-                    .map(|(kind, geometry)| (*kind, (geometry.id, location)))
+                    .map(|(kind, model)| (*kind, (model.geometry.id, location, model.glint_span)))
                     .collect()
             });
         extended

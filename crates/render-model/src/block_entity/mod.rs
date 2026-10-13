@@ -50,7 +50,8 @@ pub use frame::{
 };
 
 pub use held::{
-    ChestVariantKey, HeldBlockEntity, PreparedHeldBlockModels, held_block_entity_geometry,
+    ChestVariantKey, HeldBlockEntity, HeldBlockEntityModel, PreparedHeldBlockModels,
+    held_block_entity_model,
 };
 pub use items::{StaticItemPlacement, StaticItemPlacements, matrix_rows};
 pub use mesh::{

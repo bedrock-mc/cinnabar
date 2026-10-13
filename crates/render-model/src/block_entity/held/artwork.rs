@@ -8,7 +8,7 @@ use crate::EquipmentRaster;
 pub struct PreparedHeldBlockModels {
     identity: [u8; 32],
     raster: Option<EquipmentRaster>,
-    models: Arc<[(HeldBlockEntity, ActorRigGeometry)]>,
+    models: Arc<[(HeldBlockEntity, HeldBlockEntityModel)]>,
 }
 
 impl PreparedHeldBlockModels {
@@ -30,7 +30,7 @@ impl PreparedHeldBlockModels {
                 .filter_map(|(index, kind)| {
                     // This range is disjoint from catalog and skull equipment geometry.
                     let id = crate::equipment_rig_id(0x00ff_0100 + index as u32);
-                    held_block_entity_geometry(id, atlas, kind).map(|geometry| (kind, geometry))
+                    held_block_entity_model(id, atlas, kind).map(|geometry| (kind, geometry))
                 })
                 .collect::<Vec<_>>()
         } else {
@@ -54,7 +54,7 @@ impl PreparedHeldBlockModels {
     }
 
     /// Shares models with stable IDs, so an artwork reload replaces existing rig geometry.
-    pub fn models(&self) -> &[(HeldBlockEntity, ActorRigGeometry)] {
+    pub fn models(&self) -> &[(HeldBlockEntity, HeldBlockEntityModel)] {
         &self.models
     }
 }
