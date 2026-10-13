@@ -8,10 +8,13 @@ use assets::{
     MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_WATER_TINT, RuntimeAssets,
 };
 
-/// Per-material average sRGB colour and tint flags for one runtime asset set.
+/// Per-material average sRGB colour and tint flags, and which models read as a surface from
+/// above, for one runtime asset set.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SurfaceColours {
     materials: Box<[MaterialColour]>,
+    /// Indexed by model template: its upward faces cover at least half a block.
+    model_tops: Box<[bool]>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -39,7 +42,24 @@ impl SurfaceColours {
                 }
             })
             .collect();
-        Self { materials }
+        let templates = assets.model_templates();
+        let model_tops = (0..templates.len() as u32)
+            .map(|first| covers_top(assets, first))
+            .collect();
+        Self {
+            materials,
+            model_tops,
+        }
+    }
+
+    /// True when the model's raised horizontal faces cover at least half a block from above,
+    /// as slabs, stairs and snow layers do and torches, fences and flower pots do not.
+    #[must_use]
+    pub fn model_covers_top(&self, template: u32) -> bool {
+        self.model_tops
+            .get(template as usize)
+            .copied()
+            .unwrap_or(false)
     }
 
     /// Average sRGB of `material` tinted by `tints`, in 0..=1; unknown materials are grey.
@@ -61,6 +81,41 @@ impl SurfaceColours {
             colour.flags & MATERIAL_FLAG_TINT_MASK == MATERIAL_FLAG_WATER_TINT
         })
     }
+}
+
+/// Full block faces in 1/256-block squared units.
+const BLOCK_AREA: f32 = 256.0 * 256.0;
+
+/// Sums the horizontal area of every raised flat face across a compound model's parts.
+fn covers_top(assets: &RuntimeAssets, first: u32) -> bool {
+    let Some(parts) = assets::model_template_parts(assets.model_templates(), first) else {
+        return false;
+    };
+    let quads = assets.model_quads();
+    let area: f32 = parts
+        .iter()
+        .flat_map(|part| {
+            let start = part.quad_start as usize;
+            quads
+                .get(start..start + part.quad_count as usize)
+                .unwrap_or(&[])
+        })
+        .filter(|quad| {
+            let y = quad.positions[0][1];
+            y > 0 && quad.positions.iter().all(|corner| corner[1] == y)
+        })
+        .map(|quad| {
+            let p = quad.positions.map(|[x, _, z]| (f32::from(x), f32::from(z)));
+            let twice: f32 = (0..4)
+                .map(|i| {
+                    let (a, b) = (p[i], p[(i + 1) % 4]);
+                    a.0 * b.1 - b.0 * a.1
+                })
+                .sum();
+            twice.abs() / 2.0
+        })
+        .sum();
+    area >= BLOCK_AREA / 2.0
 }
 
 /// The biome colour the terrain shader multiplies into a material with these flags.
