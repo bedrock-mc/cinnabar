@@ -330,7 +330,7 @@ fn paint_fixture_selection(
         .control
         .expect("editable fixture resolves");
     let view = json_ui::ViewState {
-        focused: selection.map(|_| resolved.name.clone()),
+        focused: selection.map(|_| format!("/{}", resolved.name)),
         ..Default::default()
     };
     let bound = bind_screen(
@@ -363,7 +363,19 @@ fn paint_fixture_selection(
                 next: &mut next,
                 renderers: &mut [],
             },
-            |env, root| Some(render_bound(bound, root, env, &view)),
+            |env, root| {
+                let render = render_bound(bound, root, env, &view);
+                if let Some(key) = view.focused.as_deref() {
+                    let edit = render
+                        .hits
+                        .iter()
+                        .find(|hit| hit.key == key)
+                        .and_then(|hit| hit.widget.edit.as_ref())
+                        .expect("focus resolves to the laid-out edit box");
+                    assert!(edit.text_target.is_some(), "the focused edit owns a label");
+                }
+                Some(render)
+            },
         )
         .unwrap()
         .expect("editable label draws");
@@ -698,6 +710,12 @@ fn named_descender_selection_covers_the_painted_glyph() {
     .to_string();
     for dpi in [1.0, 1.5] {
         let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(dpi).unwrap(), Some(2));
+        let (_, unfocused) = paint_fixture(&font, metrics, &json);
+        assert!(
+            unfocused
+                .iter()
+                .all(|node| !matches!(node.visual(), UiVisual::InvertedSprite { .. }))
+        );
         let (_, nodes) = paint_fixture_selection(&font, metrics, &json, Some([0, 1]));
         let (bounds, layout) = nodes
             .iter()
