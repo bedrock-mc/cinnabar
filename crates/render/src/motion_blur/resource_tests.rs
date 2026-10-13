@@ -229,7 +229,7 @@ fn motion_blur_warmup_queues_the_same_formats_and_samples_used_for_drawing() {
                         &mut warmed,
                     )
                     .unwrap();
-                assert_eq!(warmed.len(), 1);
+                assert_eq!(warmed.len(), 3);
                 let format = if hdr {
                     render_scene::SCENE_HDR_FORMAT
                 } else {

@@ -415,7 +415,12 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   visual extension; classic Bedrock has no motion blur. Gameplay and network state do not change.
 - Depth reprojection blurs camera rotation/translation before nametags, projected UI, hands and HUD.
   Exposure uses elapsed frame time; explicit reanchors suppress the discontinuity frame.
-- Per-object blur remains incomplete and needs motion vectors from every world renderer.
+- Depth-writing actors retain their previous rendered root and interpolated bone pose for object
+  exposure. A depth-tested pixel sweep carries their velocities into visible background while
+  retaining stationary actor edges and nearer occluders. The motion pass preserves camera depth ranges.
+- Per-object blur remains incomplete for blended actors and other world renderers. Hidden background
+  reconstruction and matched flight acceptance remain open. Enabled actor views add compacted pixel
+  storage and single-sample velocity/depth targets; their hardware frame cost remains unmeasured.
   Hardware GPU cost and frame-budget acceptance remain unmeasured; no performance gate closes.
 
 ## Item frames

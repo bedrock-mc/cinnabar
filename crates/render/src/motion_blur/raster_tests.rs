@@ -5,13 +5,22 @@ use super::{
     history::{CameraHistory, ExposureUniform},
 };
 use crate::gpu_snapshot::Gpu;
+use bevy::ecs::system::RunSystemOnce;
 use bevy::math::{Mat4, UVec4, Vec3, Vec4};
+use bevy::{
+    prelude::{Shader, World},
+    render::{render_resource::PipelineCache, renderer::RenderDevice},
+};
 use wgpu::util::DeviceExt;
 
 const SIDE: u32 = 128;
 const COLOR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const FILTER_SAMPLE_COUNTS: [u32; 3] = [3, 17, 32];
+
+#[path = "raster_tests/occlusion.rs"]
+mod occlusion;
+use occlusion::Coverage;
 
 struct Raster {
     gpu: Gpu,
@@ -112,13 +121,78 @@ impl Raster {
     fn draw_with_motion_mask(
         &self,
         input: &[u8],
-        mut exposure: ExposureUniform,
+        exposure: ExposureUniform,
         samples: u32,
         z: f32,
         motion: Option<ActorMotion>,
         sample_mask: u64,
     ) -> Vec<u8> {
+        self.draw_with_coverage(
+            input,
+            exposure,
+            samples,
+            z,
+            motion,
+            Coverage {
+                sample_mask,
+                occluder: None,
+            },
+        )
+    }
+
+    /// Runs production motion spreading against a fixture's original depth and optional occluder.
+    fn draw_with_coverage(
+        &self,
+        input: &[u8],
+        mut exposure: ExposureUniform,
+        samples: u32,
+        z: f32,
+        motion: Option<ActorMotion>,
+        coverage: Coverage,
+    ) -> Vec<u8> {
         exposure.strength.z = if motion.is_some() { 1.0 } else { 0.0 };
+        let device = RenderDevice::from(self.gpu.device.clone());
+        let mut world = World::new();
+        world.insert_resource(device.clone());
+        let mut cache = PipelineCache::new(device.clone(), true);
+        let mut spread_pipelines = super::spread::Pipelines::new(&device);
+        let handle = if samples > 1 {
+            super::SPREAD_MULTI
+        } else {
+            super::SPREAD_SINGLE
+        };
+        cache.set_shader(
+            handle.id(),
+            Shader::from_wgsl(
+                super::spread::source(samples > 1, false),
+                "actor-spread-raster.wgsl",
+            ),
+        );
+        bevy::tasks::AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+        for id in spread_pipelines.prewarm(&cache, samples > 1) {
+            cache.block_on_render_pipeline(id);
+            assert!(
+                cache.get_render_pipeline(id).is_some(),
+                "spread pipeline did not compile: {:?}",
+                cache.get_render_pipeline_state(id)
+            );
+        }
+        world.insert_resource(cache);
+        world.run_system_once(super::pipeline::init).unwrap();
+        let cache = world.resource::<PipelineCache>();
+        let layout = cache.get_bind_group_layout(
+            world
+                .resource::<super::pipeline::BlurPipeline>()
+                .layout(samples),
+        );
+        let exposure_layout =
+            self.gpu
+                .device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: None,
+                    bind_group_layouts: &[Some(&layout)],
+                    immediate_size: 0,
+                });
         let source = super::shader_source(include_str!("../motion_blur.wgsl"), samples > 1);
         let shader = self
             .gpu
@@ -132,7 +206,7 @@ impl Raster {
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("camera motion blur raster"),
-                layout: None,
+                layout: Some(&exposure_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some("vertex"),
@@ -210,6 +284,15 @@ impl Raster {
                 contents: bytemuck::bytes_of(&exposure),
                 usage: wgpu::BufferUsages::UNIFORM,
             });
+        let spread = super::spread::View::new(
+            &device,
+            &spread_pipelines,
+            cache,
+            &actor_view,
+            &depth_view,
+            &uniform.clone().into(),
+        )
+        .expect("fixture fits compacted pixel storage");
         let group = self
             .gpu
             .device
@@ -237,10 +320,20 @@ impl Raster {
                         binding: 4,
                         resource: wgpu::BindingResource::TextureView(&actor_view),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::TextureView(&spread.view),
+                    },
                 ],
             });
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
-        self.draw_motion(&mut encoder, &actor_view, samples, motion, sample_mask);
+        self.draw_motion(
+            &mut encoder,
+            &actor_view,
+            samples,
+            motion,
+            coverage.sample_mask,
+        );
         {
             let _clear = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("motion blur fixture depth clear"),
@@ -258,6 +351,26 @@ impl Raster {
                 multiview_mask: None,
             });
         }
+        if let Some(bounds) = coverage.occluder {
+            self.draw_occluder(&mut encoder, &depth_view, samples, bounds);
+        }
+        self.gpu.queue.submit([encoder.finish()]);
+        let (ready, commands) =
+            crate::render_test_support::record(&mut world, &device, |world, context| {
+                spread.draw(
+                    &spread_pipelines,
+                    world.resource::<PipelineCache>(),
+                    UVec4::new(0, 0, SIDE, SIDE),
+                    context,
+                    world,
+                )
+            });
+        assert!(
+            ready,
+            "production actor spread declined prepared raster fixture"
+        );
+        self.gpu.queue.submit(commands);
+        let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("motion blur production fragment"),

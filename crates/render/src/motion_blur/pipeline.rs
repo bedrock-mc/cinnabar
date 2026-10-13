@@ -7,6 +7,7 @@ use std::{collections::HashMap, mem::size_of};
 
 #[derive(Resource)]
 pub(super) struct BlurPipeline {
+    pub spread: super::spread::Pipelines,
     layouts: [BindGroupLayoutDescriptor; 2],
     pub sampler: Sampler,
     variants: HashMap<(TextureFormat, u32), CachedRenderPipelineId>,
@@ -134,10 +135,21 @@ pub(super) fn init(mut commands: Commands, device: Res<RenderDevice>) {
                     },
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: false },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         )
     });
     commands.insert_resource(BlurPipeline {
+        spread: super::spread::Pipelines::new(&device),
         layouts,
         sampler: device.create_sampler(&SamplerDescriptor {
             label: Some("camera exposure linear clamp"),
@@ -163,6 +175,7 @@ impl crate::pipeline_warmup::PrewarmPipelines for BlurPipeline {
             render_scene::SCENE_COLOR_FORMAT
         };
         ids.push(self.specialize(cache, format, view.msaa.samples()));
+        ids.extend(self.spread.prewarm(cache, view.msaa.samples() > 1));
         Ok(())
     }
 }

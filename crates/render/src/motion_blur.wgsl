@@ -8,8 +8,31 @@ struct Exposure {
 @group(0) @binding(2) var depth: texture_depth_2d;
 @group(0) @binding(3) var<uniform> exposure: Exposure;
 @group(0) @binding(4) var actor_velocity: texture_2d<f32>;
+@group(0) @binding(5) var swept_velocity: texture_2d<f32>;
 
 const MIN_BLUR_SPEED: f32 = 0.5;
+const MAX_BLUR_SPEED: f32 = 96.0;
+
+fn scene_depth(pixel: vec2<i32>) -> f32 {
+    return textureLoad(depth, pixel, 0);
+}
+
+fn nearer_surface_in_footprint(position: vec2<f32>, z: f32) -> bool {
+    let texel = position - vec2(0.5);
+    let corner = vec2<i32>(floor(texel));
+    let weight = fract(texel);
+    return scene_depth(corner) > z
+        || (weight.x > 0.0 && scene_depth(corner + vec2(1, 0)) > z)
+        || (weight.y > 0.0 && scene_depth(corner + vec2(0, 1)) > z)
+        || (weight.x > 0.0 && weight.y > 0.0 && scene_depth(corner + vec2(1, 1)) > z);
+}
+
+fn swept_motion(pixel: vec2<i32>) -> vec4<f32> {
+    if exposure.strength.z <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    return textureLoad(swept_velocity, pixel, 0);
+}
 
 // Multisampled views resolve actor motion across covered samples, including silhouette cutouts.
 // Mixed actor/world pixels retain the covered actor's motion instead of smearing its silhouette.
@@ -54,7 +77,8 @@ fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
         return base;
     }
     let uv = (position.xy - exposure.viewport.xy) / exposure.viewport.zw;
-    let actor = object_motion(pixel);
+    let surface_actor = object_motion(pixel);
+    let actor = select(swept_motion(pixel), surface_actor, surface_actor.z >= 0.5);
     var velocity = actor.xy * exposure.viewport.zw * exposure.strength.x;
     if actor.z < 0.5 {
         let z = textureLoad(depth, pixel, 0);
@@ -70,7 +94,7 @@ fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     if speed < MIN_BLUR_SPEED {
         return base;
     }
-    velocity *= min(1.0, 96.0 / speed);
+    velocity *= min(1.0, MAX_BLUR_SPEED / speed);
     let dimensions = vec2<f32>(textureDimensions(scene));
     let lower = exposure.viewport.xy + vec2<f32>(0.5);
     let upper = exposure.viewport.xy + exposure.viewport.zw - vec2<f32>(0.5);
@@ -84,7 +108,13 @@ fn fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
         if stationary_actor_in_footprint(sample_position) {
             continue;
         }
-        color += textureSampleLevel(scene, scene_sampler, sample_position / dimensions, 0.0);
+        // A moving actor cannot gather a nearer occluder's colour into its trail.
+        let actor_depth = select(actor.w, scene_depth(pixel), surface_actor.z >= 0.5);
+        if actor.z >= 0.5 && nearer_surface_in_footprint(sample_position, actor_depth) {
+            color += base;
+        } else {
+            color += textureSampleLevel(scene, scene_sampler, sample_position / dimensions, 0.0);
+        }
         accepted += 1u;
     }
     if accepted == 0u {

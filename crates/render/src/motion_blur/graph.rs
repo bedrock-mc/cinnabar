@@ -119,6 +119,17 @@ pub(super) fn motion_blur(
     {
         return Ok(());
     }
+    if let Some(spread) = &state.spread
+        && !spread.draw(
+            &world.resource::<super::pipeline::BlurPipeline>().spread,
+            cache,
+            state.viewport(),
+            context,
+            world,
+        )
+    {
+        return Ok(());
+    }
     // Resolve only world colour, then write exposure back before sharp projected UI and hands.
     if scene.texture.sample_count() == 1 {
         context.command_encoder().copy_texture_to_texture(

@@ -277,6 +277,10 @@ pub(crate) fn draw(
         return false;
     };
     let cache = world.resource::<PipelineCache>();
+    let depth_range = world
+        .get::<bevy::render::camera::ExtractedCamera>(view)
+        .and_then(|camera| camera.viewport.as_ref())
+        .map_or(0.0..1.0, |viewport| viewport.depth.clone());
     let attachments = [Some(RenderPassColorAttachment {
         view: &state.view,
         depth_slice: None,
@@ -307,8 +311,8 @@ pub(crate) fn draw(
         rect.y as f32,
         rect.width as f32,
         rect.height as f32,
-        0.0,
-        1.0,
+        depth_range.start,
+        depth_range.end,
     );
     pass.set_bind_group(1, &lightmap.bind_group, &[]);
     pass.set_bind_group(2, binding, &[]);
