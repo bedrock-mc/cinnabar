@@ -56,7 +56,6 @@ mod publication_tests;
 #[cfg(test)]
 pub mod regression_snapshots;
 
-#[cfg(test)]
 use launcher::menu::settings_options::SettingId;
 #[cfg(test)]
 mod accounts;

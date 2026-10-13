@@ -4,7 +4,6 @@ use launcher::menu::settings_options::SettingsGroup;
 use launcher::menu::settings_options::{SETTINGS_OPTIONS, SettingsOptions};
 use {crate::menu::MenuRuntime, launcher::menu::MenuDialog};
 
-#[cfg(test)]
 use launcher::menu::settings_options::SettingId;
 impl MenuRuntime {
     /// Applies a section reset only after its matching confirmation remains open.

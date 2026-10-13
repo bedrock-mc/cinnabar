@@ -1,7 +1,6 @@
 //! Projects runtime authority into `mod-ui`'s surfaces and paints them in the scene order the
 //! frame builder chooses.
 
-#[cfg(test)]
 use launcher::menu::settings_options::SettingId;
 use std::collections::BTreeSet;
 
