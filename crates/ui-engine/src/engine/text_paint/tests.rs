@@ -633,7 +633,7 @@ fn centered_outline_title_retains_cap_size_and_gui_pixel_inset() {
                     "em {em}, GUI {gui}, DPI {dpi}: cap height {ink_height}"
                 );
                 assert!(
-                    (center - 11.75).abs() < 0.15,
+                    center >= 11.75 - 1.0 / metrics.gui_scale - 0.03 && center <= 11.75 + 0.03,
                     "em {em}, GUI {gui}, DPI {dpi}: title center {center}"
                 );
             }
