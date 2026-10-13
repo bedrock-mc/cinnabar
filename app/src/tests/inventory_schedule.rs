@@ -16,7 +16,7 @@ use bevy::{
 };
 use protocol::{
     ContainerIdentity, ContainerOpenEvent, InventoryAuthority, InventoryContentEvent,
-    InventoryEvent, ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, NetworkItemStack,
+    InventoryEvent, ItemRegistryEvent, NetworkItemStack,
 };
 use semantic_input::Action;
 
@@ -875,19 +875,12 @@ fn same_frame_registry_and_inventory_authority_precede_occupied_merge_input() {
     };
     window.set_cursor_position(Some(pointer));
     let ingress = SameFrameMergeIngress {
-        registry: Some(ItemRegistryEvent {
-            entries: Arc::from([ItemRegistryEntry {
-                identifier: Arc::from("minecraft:apple"),
-                network_id: 6,
-                component_based: true,
-                version: ItemRegistryVersion::DataDriven,
-                components: None,
-                component_digest: [6; 32],
-                negotiated_max_stack_size: Some(64),
-                canonical_empty_component_data: false,
-                item_tags: std::sync::Arc::from([]),
-            }]),
-        }),
+        registry: Some(protocol::test_support::component_item_registry(
+            "minecraft:apple",
+            6,
+            protocol::ITEM_DEFAULT_MAX_STACK_SIZE,
+            0,
+        )),
         inventory: vec![content(stack(6, 60, 60)), cursor_content(stack(6, 33, 33))],
     };
 

@@ -2,8 +2,8 @@ use client_state::PlayerRuntime;
 use protocol::identity::FifoSequence;
 use protocol::{
     CONTAINER_NAME_CURSOR, ContainerIdentity, ContainerOpenEvent, EquipmentEvent,
-    InventoryAuthority, InventoryContentEvent, InventoryEvent, ItemActorEvent, ItemRegistryEntry,
-    ItemRegistryEvent, ItemRegistryVersion, NetworkItemStack, WorldBootstrap, WorldEvent,
+    InventoryAuthority, InventoryContentEvent, InventoryEvent, ItemActorEvent, NetworkItemStack,
+    WorldBootstrap, WorldEvent,
 };
 use simulation_clock::identity::SessionGeneration;
 
@@ -41,19 +41,12 @@ fn bootstrap_registry_precedes_authority_and_enables_first_occupied_merge() {
     let mut player_runtime = PlayerRuntime(player_state::PlayerState::new(7));
 
     let mut runtime = UiRuntime::new(7);
-    let registry = ItemRegistryEvent {
-        entries: std::sync::Arc::from([ItemRegistryEntry {
-            identifier: "minecraft:apple".into(),
-            network_id: 878,
-            component_based: true,
-            version: ItemRegistryVersion::DataDriven,
-            components: None,
-            component_digest: [8; 32],
-            negotiated_max_stack_size: Some(64),
-            canonical_empty_component_data: false,
-            item_tags: std::sync::Arc::from([]),
-        }]),
-    };
+    let registry = protocol::test_support::component_item_registry(
+        "minecraft:apple",
+        878,
+        protocol::ITEM_DEFAULT_MAX_STACK_SIZE,
+        0,
+    );
     assert!(publish_bootstrap_inventory(
         &mut player_runtime,
         &mut runtime,
@@ -338,19 +331,12 @@ fn item_registry_and_inventory_authority_share_one_bounded_fifo() {
             InventoryEvent::Authority(InventoryAuthority::Server),
         )
         .unwrap();
-    let registry = ItemRegistryEvent {
-        entries: std::sync::Arc::from([ItemRegistryEntry {
-            identifier: "minecraft:apple".into(),
-            network_id: 6,
-            component_based: true,
-            version: ItemRegistryVersion::DataDriven,
-            components: None,
-            component_digest: [6; 32],
-            negotiated_max_stack_size: Some(64),
-            canonical_empty_component_data: false,
-            item_tags: std::sync::Arc::from([]),
-        }]),
-    };
+    let registry = protocol::test_support::component_item_registry(
+        "minecraft:apple",
+        6,
+        protocol::ITEM_DEFAULT_MAX_STACK_SIZE,
+        0,
+    );
     let sequenced = SequencedWorldEvent {
         session_generation: SessionGeneration::new(7),
         sequence: FifoSequence::new(2),

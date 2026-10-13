@@ -8,9 +8,9 @@ use sha2::Digest;
 use protocol::{
     CONTAINER_NAME_CURSOR, ContainerDataEvent, ContainerIdentity, ContainerOpenEvent,
     EnchantOption, EnchantOptionsEvent, InventoryContentEvent, InventoryEvent, InventorySlotEvent,
-    ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, NetworkItemStack, SlotIdentity,
-    StackRequestAction, StackRequestContainer, WINDOW_TYPE_ANVIL, WINDOW_TYPE_BEACON,
-    WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE, WINDOW_TYPE_HOPPER, WindowKind,
+    NetworkItemStack, SlotIdentity, StackRequestAction, StackRequestContainer, WINDOW_TYPE_ANVIL,
+    WINDOW_TYPE_BEACON, WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE, WINDOW_TYPE_HOPPER,
+    WindowKind,
 };
 
 use super::*;
@@ -33,20 +33,12 @@ fn ledger_with(slots: &[(usize, NetworkItemStack)]) -> PlayerInventoryLedger {
     let mut ledger = PlayerInventoryLedger::default();
     ledger.begin_session(1);
     ledger.apply(&InventoryEvent::Authority(InventoryAuthority::Server));
-    ledger.apply_registry(&ItemRegistryEvent {
-        entries: vec![ItemRegistryEntry {
-            identifier: Arc::from("minecraft:apple"),
-            network_id: 6,
-            component_based: true,
-            version: ItemRegistryVersion::DataDriven,
-            components: None,
-            component_digest: [6; 32],
-            negotiated_max_stack_size: Some(64),
-            canonical_empty_component_data: false,
-            item_tags: Arc::from([]),
-        }]
-        .into(),
-    });
+    ledger.apply_registry(&protocol::test_support::component_item_registry(
+        "minecraft:apple",
+        6,
+        protocol::ITEM_DEFAULT_MAX_STACK_SIZE,
+        0,
+    ));
     let mut content = vec![NetworkItemStack::default(); PLAYER_INVENTORY_SLOT_COUNT];
     for (slot, held) in slots {
         content[*slot] = held.clone();

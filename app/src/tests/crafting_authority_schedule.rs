@@ -915,19 +915,12 @@ fn ordinary_transfer_bytes_and_conservation_are_identical_after_craft_only_overf
             PERSONAL_INVENTORY_WINDOW_TYPE, PLAYER_INVENTORY_SLOT_COUNT,
         };
         let mut app = app();
-        let registry = ItemRegistryEvent {
-            entries: std::sync::Arc::from([protocol::ItemRegistryEntry {
-                identifier: "minecraft:apple".into(),
-                network_id: 878,
-                component_based: true,
-                version: protocol::ItemRegistryVersion::DataDriven,
-                components: None,
-                component_digest: [8; 32],
-                negotiated_max_stack_size: Some(64),
-                canonical_empty_component_data: false,
-                item_tags: std::sync::Arc::from([]),
-            }]),
-        };
+        let registry = protocol::test_support::component_item_registry(
+            "minecraft:apple",
+            878,
+            protocol::ITEM_DEFAULT_MAX_STACK_SIZE,
+            0,
+        );
         assert!(crate::tests::with_ui_player(&mut app, |runtime, player| {
             publish_bootstrap_inventory(
                 player,
