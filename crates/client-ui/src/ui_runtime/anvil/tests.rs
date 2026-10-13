@@ -7,6 +7,8 @@ use protocol::{
 
 use super::*;
 
+mod name_acknowledgements;
+
 const SWORD: i32 = 10;
 const DIAMOND: i32 = 11;
 const BOOK: i32 = 12;

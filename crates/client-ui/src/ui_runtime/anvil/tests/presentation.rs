@@ -1,7 +1,7 @@
 use super::*;
 
 /// Accepts a take and place so a server correction travels back into the target cell.
-fn correct_target(
+pub(super) fn correct_target(
     runtime: &mut UiRuntime,
     player: &mut player_state::PlayerState,
     damage: i32,
