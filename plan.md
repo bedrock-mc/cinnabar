@@ -35,8 +35,9 @@ the rest of what the server sends keeps its block data and is drawn by far terra
 summary. The radius is Auto by device tier (24, 32 or 48 chunks) or set under Video › Advanced
 (16–64), capped at the render distance, so large render distances cost far tiles rather than
 meshes. A column is promoted (relit and remeshed) inside the radius and demoted two chunks past
-it; far terrain hides only under full-detail columns whose meshes are all uploaded, so neither
-direction opens a hole. Entities keep their 12-chunk render distance, inside the smallest
+it. A promoted column passes to near terrain only once its meshes are uploaded, a demoted one
+returns to far terrain before its meshes are withdrawn, and a block change past the radius
+re-summarises its column, so neither direction opens a hole or shows stale terrain. Entities keep their 12-chunk render distance, inside the smallest
 radius.
 
 Incomplete: the far-terrain look (cell colours, height aggregation and water blending) is held
