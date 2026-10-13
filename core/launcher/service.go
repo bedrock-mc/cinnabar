@@ -20,6 +20,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/authflow"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
+	"github.com/hashimthearab/rust-mcbe/core/cinnabarapi"
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"github.com/hashimthearab/rust-mcbe/core/xboxpresence"
@@ -64,6 +65,7 @@ type Service struct {
 	cfg       Config
 	logger    *slog.Logger
 	presence  *xboxpresence.Worker
+	cinnabar  *cinnabarapi.Client
 	signedOut atomic.Bool
 	messaging *catalog.MessagingSession
 
@@ -336,6 +338,9 @@ func (s *Service) SignOut() error {
 	s.mu.Unlock()
 	if s.presence != nil {
 		s.presence.Close()
+	}
+	if s.cinnabar != nil {
+		s.cinnabar.Close()
 	}
 	_ = s.cfg.Account.Close()
 	s.disk.Lock()

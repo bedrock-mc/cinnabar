@@ -61,4 +61,10 @@ const (
 	RelayEventConnect = "connect"
 	// RelayEventError: Report a bounded public refusal code.
 	RelayEventError = "error"
+	// CinnabarAPIBaseURL: Cinnabar API origin; the package workflow reads it from this manifest.
+	CinnabarAPIBaseURL = "https://cinnabar-api.invalid"
+	// CinnabarAPIMaxLookupXUIDs: Most XUIDs in one Cinnabar player lookup.
+	CinnabarAPIMaxLookupXUIDs = 128
+	// CinnabarAPILookupsPerMinute: Cinnabar player lookups the API admits per rolling minute.
+	CinnabarAPILookupsPerMinute = 20
 )

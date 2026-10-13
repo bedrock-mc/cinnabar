@@ -55,6 +55,7 @@ type Server struct {
 	worlds           Worlds   // nil disables the local world methods; guarded by mu
 	services         Services // nil disables the launcher methods; guarded by mu
 	presence         func(xboxpresence.State)
+	cinnabar         CinnabarAPI // nil answers lookups as unavailable; guarded by mu
 	packetDelay      PacketDelay // nil disables packet_delay.v1; guarded by mu
 	done             chan struct{}
 	once             sync.Once
@@ -206,6 +207,12 @@ func (server *Server) serveOne(conn net.Conn) error {
 	id := *call.ID
 	if call.Method == methodPresence {
 		return server.servePresence(conn, id, call.Params)
+	}
+	if call.Method == methodCinnabarAPI {
+		return server.serveCinnabarAPI(conn, id, call.Params)
+	}
+	if call.Method == methodCinnabarLookup {
+		return server.serveCinnabarLookup(conn, id, call.Params)
 	}
 	if call.Method == methodPacketDelay {
 		return server.servePacketDelay(conn, id, call.Params)

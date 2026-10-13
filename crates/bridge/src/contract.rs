@@ -86,3 +86,9 @@ pub const RELAY_EVENT_CONNECT: &str = "connect";
 
 /// Report a bounded public refusal code.
 pub const RELAY_EVENT_ERROR: &str = "error";
+
+/// Most XUIDs in one Cinnabar player lookup.
+pub const CINNABAR_API_MAX_LOOKUP_XUIDS: usize = 128;
+
+/// Cinnabar player lookups the API admits per rolling minute.
+pub const CINNABAR_API_LOOKUPS_PER_MINUTE: u32 = 20;

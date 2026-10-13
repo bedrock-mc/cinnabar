@@ -29,7 +29,10 @@
     {"rust_name": "RELAY_EVENT_PING", "go_name": "RelayEventPing", "value": "ping", "rust_type": "str", "doc": "Refresh the resume capability and request pong."},
     {"rust_name": "RELAY_EVENT_ACCOUNT", "go_name": "RelayEventAccount", "value": "account", "rust_type": "str", "doc": "Report the latest auth.v1 state."},
     {"rust_name": "RELAY_EVENT_CONNECT", "go_name": "RelayEventConnect", "value": "connect", "rust_type": "str", "doc": "Report the latest join progress."},
-    {"rust_name": "RELAY_EVENT_ERROR", "go_name": "RelayEventError", "value": "error", "rust_type": "str", "doc": "Report a bounded public refusal code."}
+    {"rust_name": "RELAY_EVENT_ERROR", "go_name": "RelayEventError", "value": "error", "rust_type": "str", "doc": "Report a bounded public refusal code."},
+    {"rust_name": "", "go_name": "CinnabarAPIBaseURL", "value": "https://cinnabar-api.invalid", "rust_type": "str", "doc": "Cinnabar API origin; the package workflow reads it from this manifest."},
+    {"rust_name": "CINNABAR_API_MAX_LOOKUP_XUIDS", "go_name": "CinnabarAPIMaxLookupXUIDs", "value": 128, "rust_type": "usize", "doc": "Most XUIDs in one Cinnabar player lookup."},
+    {"rust_name": "CINNABAR_API_LOOKUPS_PER_MINUTE", "go_name": "CinnabarAPILookupsPerMinute", "value": 20, "rust_type": "u32", "doc": "Cinnabar player lookups the API admits per rolling minute."}
   ],
   "relay": {
     "framing": "Every Hello and control message is nonzero u32 big-endian JSON length followed by that many UTF-8 bytes. Stream/message chunks are arbitrary. Play bytes after Hello use the existing bridge framing unchanged.",

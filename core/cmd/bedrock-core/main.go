@@ -17,6 +17,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/authflow"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
+	"github.com/hashimthearab/rust-mcbe/core/cinnabarapi"
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/internal/lifeline"
 	"github.com/hashimthearab/rust-mcbe/core/internal/locale"
@@ -91,6 +92,7 @@ type options struct {
 	resourcePackCacheQuota    uint64
 	resourcePackCacheQuotaSet bool
 	controlStatus             bool
+	cinnabarAPI               bool
 	xboxPresence              bool
 	upstreamClientCache       bool
 	serverTrustFile           string
@@ -111,6 +113,7 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.Uint64Var(&opts.resourcePackCacheQuota, "resource-pack-cache-quota-bytes", packcache.DefaultQuota, "maximum resource-pack cache bytes (requires -resource-pack-cache-dir)")
 	flags.BoolVar(&opts.controlStatus, "control-status", false, "enable the local read-only Status v1 control endpoint")
 	flags.BoolVar(&opts.xboxPresence, "xbox-presence", false, "own Xbox title presence for the account (requires -control-status)")
+	flags.BoolVar(&opts.cinnabarAPI, "cinnabar-api", false, "connect the account to the Cinnabar API once the control client configures it (requires -control-status)")
 	flags.StringVar(&opts.serverTrustFile, "server-trust-file", "", "ask the control client before joining an unknown http NetherNet server, remembering trusted ones in this file (requires -control-status)")
 	flags.BoolVar(&opts.upstreamClientCache, "upstream-client-cache", false, "advertise client-cache capability upstream; enable only when the connecting client owns a verified blob cache")
 	if err := flags.Parse(args); err != nil {
@@ -118,6 +121,9 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	}
 	if opts.xboxPresence && !opts.controlStatus {
 		return options{}, errors.New("xbox-presence requires -control-status")
+	}
+	if opts.cinnabarAPI && !opts.controlStatus {
+		return options{}, errors.New("cinnabar-api requires -control-status")
 	}
 	if opts.serverTrustFile != "" && !opts.controlStatus {
 		return options{}, errors.New("server-trust-file requires -control-status")
@@ -347,6 +353,13 @@ func runWithResourcePackCacheFactory(
 			presence := service.StartPresence(ctx)
 			defer presence.Close()
 			controlServer.SetPresence(presence.Set)
+		}
+		if opts.cinnabarAPI {
+			api := service.StartCinnabarAPI(ctx, func(release cinnabarapi.Release) {
+				statusStore.ObserveCinnabarRelease(control.CinnabarReleaseV1(release))
+			})
+			defer api.Close()
+			controlServer.SetCinnabarAPI(api)
 		}
 		controlServer.SetLogger(logger)
 		controlServer.SetServices(launcherControl{service})

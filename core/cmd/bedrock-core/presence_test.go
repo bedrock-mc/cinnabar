@@ -54,6 +54,16 @@ func TestPresenceOwnershipIsExplicit(t *testing.T) {
 	}
 }
 
+func TestOnlyAccountCoresConnectToTheCinnabarAPI(t *testing.T) {
+	owner, err := parseFlags([]string{"-control-status", "-cinnabar-api"}, io.Discard)
+	if err != nil || !owner.cinnabarAPI {
+		t.Fatalf("account did not own the Cinnabar API connection: %v", err)
+	}
+	if _, err := parseFlags([]string{"-cinnabar-api"}, io.Discard); err == nil {
+		t.Fatal("Cinnabar API accepted without account control")
+	}
+}
+
 func TestPresenceLifetimeStillCancelsInitialAuthentication(t *testing.T) {
 	ctx, stop := context.WithCancel(context.Background())
 	defer stop()
