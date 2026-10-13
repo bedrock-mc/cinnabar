@@ -226,3 +226,24 @@ fn warm_actor_history_reuses_scratch_storage() {
     assert!(!history.advance(&frame, camera(), true));
     assert_eq!(test_alloc::thread_allocations(), allocations);
 }
+
+#[test]
+fn followed_actor_current_and_previous_motion_projections_agree_at_distant_coordinates() {
+    let projection = glam::camera::rh::proj::directx::perspective_infinite_reverse(1.2, 2.0, 0.1);
+    let origin = Vec3::splat(1_000_000.0);
+    let world_from_view = Mat4::from_translation(origin);
+    let view = CameraHistory::new(projection, world_from_view, UVec4::new(0, 0, 640, 320), 0);
+    let frame = frame(origin + Vec3::new(0.0, 0.0, -4.0), [0.0, 0.0, 1.0]);
+    let local = Vec3::new(0.25, 1.0, 0.0);
+    let mut history = ActorHistory::default();
+    history.advance(&frame, view, false);
+    history.advance(&frame, view, true);
+    let previous = previous_point(&history, 0, local);
+    // This is the current absolute-world projection supplied to the velocity fragment.
+    let current = (projection * world_from_view.inverse())
+        .project_point3(origin + Vec3::new(0.0, 0.0, -4.0) + local);
+    assert!(
+        current.abs_diff_eq(previous, 0.00001),
+        "{current:?} != {previous:?}"
+    );
+}

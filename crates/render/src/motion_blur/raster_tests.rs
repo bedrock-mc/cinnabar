@@ -99,6 +99,19 @@ impl Raster {
         z: f32,
         motion: Option<[f64; 4]>,
     ) -> Vec<u8> {
+        self.draw_with_coverage(input, exposure, samples, z, motion, false)
+    }
+
+    /// Partial coverage leaves sample zero as world while other samples contain the following actor.
+    fn draw_with_coverage(
+        &self,
+        input: &[u8],
+        mut exposure: ExposureUniform,
+        samples: u32,
+        z: f32,
+        motion: Option<[f64; 4]>,
+        partial: bool,
+    ) -> Vec<u8> {
         exposure.strength.z = if motion.is_some() { 1.0 } else { 0.0 };
         let source = super::shader_source(include_str!("../motion_blur.wgsl"), samples > 1);
         let shader = self
@@ -243,6 +256,65 @@ impl Raster {
             occlusion_query_set: None,
             multiview_mask: None,
         });
+        if partial {
+            let source = "@fragment fn partial_motion(@builtin(sample_index) sample: u32) -> @location(0) vec4<f32> { if sample == 0u { return vec4<f32>(0.0); } return vec4<f32>(0.0, 0.0, 1.0, 1.0); }";
+            let mask_shader = self
+                .gpu
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("partial actor coverage fixture"),
+                    source: wgpu::ShaderSource::Wgsl(source.into()),
+                });
+            let mask_pipeline =
+                self.gpu
+                    .device
+                    .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                        label: Some("partial actor coverage fixture"),
+                        layout: None,
+                        vertex: wgpu::VertexState {
+                            module: &shader,
+                            entry_point: Some("vertex"),
+                            compilation_options: Default::default(),
+                            buffers: &[],
+                        },
+                        fragment: Some(wgpu::FragmentState {
+                            module: &mask_shader,
+                            entry_point: Some("partial_motion"),
+                            compilation_options: Default::default(),
+                            targets: &[Some(wgpu::ColorTargetState {
+                                format: crate::actor_render::motion::MOTION_FORMAT,
+                                blend: None,
+                                write_mask: wgpu::ColorWrites::ALL,
+                            })],
+                        }),
+                        depth_stencil: None,
+                        primitive: Default::default(),
+                        multisample: wgpu::MultisampleState {
+                            count: samples,
+                            ..Default::default()
+                        },
+                        multiview_mask: None,
+                        cache: None,
+                    });
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("partial actor coverage fixture"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &actor_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&mask_pipeline);
+            pass.draw(0..3, 0..1);
+        }
         {
             let _clear = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("motion blur fixture depth clear"),
@@ -314,6 +386,30 @@ impl Raster {
             .get_mapped_range()
             .expect("readback buffer is mapped")
             .to_vec()
+    }
+}
+
+#[test]
+fn actor_coverage_outside_msaa_sample_zero_does_not_receive_world_translation_blur() {
+    let Some(raster) = Raster::new("partial following actor coverage raster") else {
+        return;
+    };
+    let input = impulse();
+    let uniform = exposure(Mat4::from_translation(Vec3::new(0.5, 0.0, 0.0)));
+    let z = projection().project_point3(Vec3::new(0.0, 0.0, -4.0)).z;
+    for &samples in raster.depth_samples.iter().filter(|&&samples| samples > 1) {
+        let output = raster.draw_with_coverage(
+            &input,
+            uniform,
+            samples,
+            z,
+            Some([0.0, 0.0, 1.0, 1.0]),
+            true,
+        );
+        assert_eq!(
+            output, input,
+            "covered actor in nonzero samples blurred at {samples}x MSAA"
+        );
     }
 }
 
