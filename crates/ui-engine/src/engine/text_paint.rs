@@ -364,12 +364,7 @@ impl Canvas<'_> {
                     texture_page: self.solid_page,
                     uv: [0, 0, 1, 1],
                 },
-                [
-                    dest[0] + edges[0],
-                    dest[1],
-                    dest[0] + edges[1],
-                    dest[1] + height,
-                ],
+                [dest[0] + edges[0], top, dest[0] + edges[1], top + height],
             )?;
         }
         Ok(())
