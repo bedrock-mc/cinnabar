@@ -371,7 +371,9 @@ impl PlayerInventoryLedger {
             WindowKind::Grindstone => ui(&[16, 17]),
             WindowKind::Stonecutter => ui(&[3]),
             WindowKind::Cartography => ui(&[item_roles::cartography_slot(id)]),
-            WindowKind::Smithing => ui(&[item_roles::smithing_slot(id)]),
+            WindowKind::Smithing => {
+                item_roles::smithing_slot(id).map_or_else(Vec::new, |slot| ui(&[slot]))
+            }
             WindowKind::Beacon | WindowKind::Workbench | WindowKind::Lectern => Vec::new(),
         }
     }
