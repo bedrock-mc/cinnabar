@@ -26,7 +26,7 @@ impl Raster {
                         r#"{}
 @fragment fn occluder() -> @builtin(frag_depth) f32 {{ return 0.5; }}
 "#,
-                        include_str!("../../motion_blur.wgsl")
+                        super::super::shader_source(include_str!("../../motion_blur.wgsl"), false)
                     )
                     .into(),
                 ),
@@ -117,6 +117,7 @@ fn swept_actor_exposure_preserves_nearer_occluders_and_background_colour() {
             Some(ActorMotion {
                 velocity: [0.125, 0.0, 1.0, 1.0],
                 bounds: actor,
+                depth: None,
             }),
             Coverage {
                 sample_mask: !0,

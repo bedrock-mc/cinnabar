@@ -30,8 +30,9 @@ pub(super) struct BlurView {
     last_uniform: Option<ExposureUniform>,
     bindings: Vec<(TextureViewId, TextureViewId, TextureViewId, BindGroup)>,
     pub actors: Option<crate::actor_render::motion::MotionView>,
-    pub spread: Option<super::spread::View>,
     pub pipeline: CachedRenderPipelineId,
+    pub footprint_pipeline: CachedRenderPipelineId,
+    pub footprint: Option<super::footprint::Footprint>,
     pub active: bool,
 }
 
@@ -78,6 +79,10 @@ type RemovedViews<'w, 's> = Query<
     ),
 >;
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "render resources and view queries are system parameters"
+)]
 pub(super) fn prepare_views(
     mut commands: Commands,
     device: Res<RenderDevice>,
@@ -104,8 +109,8 @@ pub(super) fn prepare_views(
         }
         let history = CameraHistory::new(clip, pose, viewport, settings.reset_epoch);
         let id = pipeline.specialize(&cache, target.main_texture_format(), msaa.samples());
+        let footprint_pipeline = pipeline.footprint(&cache, msaa.samples());
         let neutral_motion = pipeline.neutral_motion(&device, msaa.samples());
-        let neutral_swept = pipeline.neutral_motion(&device, 1);
         let mut new_view;
         let state = if let Some(state) = previous {
             state.into_inner()
@@ -121,8 +126,9 @@ pub(super) fn prepare_views(
                 last_uniform: None,
                 bindings: Vec::with_capacity(2),
                 actors: None,
-                spread: None,
                 pipeline: id,
+                footprint_pipeline,
+                footprint: None,
                 active: false,
             };
             update(
@@ -139,12 +145,12 @@ pub(super) fn prepare_views(
                 &actors,
                 enhanced.is_some(),
                 &neutral_motion,
-                &neutral_swept,
             );
             commands.entity(entity).insert(new_view);
             continue;
         };
         state.pipeline = id;
+        state.footprint_pipeline = footprint_pipeline;
         update(
             state,
             history,
@@ -159,7 +165,6 @@ pub(super) fn prepare_views(
             &actors,
             enhanced.is_some(),
             &neutral_motion,
-            &neutral_swept,
         );
     }
 }
@@ -182,7 +187,6 @@ fn update(
     actors: &ActorResources,
     enhanced: bool,
     neutral_motion: &TextureView,
-    neutral_swept: &TextureView,
 ) {
     crate::actor_render::motion::prepare(
         &mut state.actors,
@@ -207,34 +211,7 @@ fn update(
     } else {
         state.history.advance(history, settings)
     };
-    if let Some(actors) = &state.actors {
-        let depth_view = crate::scene_sampling::view_depth(depth);
-        if state
-            .spread
-            .as_ref()
-            .is_none_or(|spread| !spread.matches(&actors.view, depth_view))
-        {
-            state.spread = super::spread::View::new(
-                device,
-                &pipeline.spread,
-                cache,
-                &actors.view,
-                depth_view,
-                &state.uniform,
-            );
-            state.bindings.clear();
-        }
-    } else if state.spread.take().is_some() {
-        state.bindings.clear();
-    }
-    let actor_ready = state
-        .actors
-        .as_ref()
-        .is_none_or(|actors| actors.ready && state.spread.is_some())
-        && state
-            .spread
-            .as_ref()
-            .is_none_or(|spread| spread.ready(&pipeline.spread, cache));
+    let actor_ready = state.actors.as_ref().is_none_or(|actors| actors.ready);
     if !actor_ready {
         uniform.strength.x = 0.0;
     }
@@ -248,11 +225,17 @@ fn update(
         .actors
         .as_ref()
         .map_or(neutral_motion, |actors| &actors.view);
-    // Swept motion is always single-sample, even when the original scene is multisampled.
-    let swept = state
-        .spread
-        .as_ref()
-        .map_or(neutral_swept, |spread| &spread.view);
+    if super::footprint::Footprint::prepare(
+        &mut state.footprint,
+        device,
+        &cache.get_bind_group_layout(pipeline.footprint_layout(samples)),
+        &state.uniform,
+        motion,
+        target.main_texture().size(),
+    ) {
+        state.bindings.clear();
+    }
+    let footprint = &state.footprint.as_ref().unwrap().view;
     if state
         .bindings
         .first()
@@ -301,7 +284,7 @@ fn update(
                     },
                     BindGroupEntry {
                         binding: 5,
-                        resource: BindingResource::TextureView(swept),
+                        resource: BindingResource::TextureView(footprint),
                     },
                 ],
             );

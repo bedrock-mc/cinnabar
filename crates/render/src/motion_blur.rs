@@ -5,6 +5,7 @@ use render_scene::CameraMotionBlur;
 pub(crate) mod actor_history;
 #[cfg(test)]
 mod extraction_tests;
+mod footprint;
 pub(crate) mod graph;
 pub(crate) mod history;
 mod pipeline;
@@ -13,7 +14,6 @@ mod prepare;
 mod raster_tests;
 #[cfg(test)]
 mod resource_tests;
-mod spread;
 #[cfg(test)]
 mod tests;
 
@@ -28,8 +28,6 @@ use bevy::{
 
 const SHADER: Handle<Shader> = uuid_handle!("084d4ee2-222c-4990-9c05-e303b8e8081a");
 const MSAA_SHADER: Handle<Shader> = uuid_handle!("935fcd71-f7d0-43b9-9b70-374366e0b3c3");
-const SPREAD_SINGLE: Handle<Shader> = uuid_handle!("d236b2ef-5874-49f2-9158-57f8d58a6759");
-const SPREAD_MULTI: Handle<Shader> = uuid_handle!("4816862b-18c7-48c7-90d6-15e7ac274687");
 
 /// Installs the effect's pipelines; graph nodes and per-view allocations exist only while enabled.
 pub struct CameraMotionBlurPlugin;
@@ -44,12 +42,6 @@ impl Plugin for CameraMotionBlurPlugin {
         });
         load_internal_asset!(app, MSAA_SHADER, "motion_blur.wgsl", |source, path| {
             crate::shader_safety::from_wgsl(shader_source(source, true), path)
-        });
-        load_internal_asset!(app, SPREAD_SINGLE, "motion_blur/spread.wgsl", |_, path| {
-            crate::shader_safety::from_wgsl(spread::source(false, false), path)
-        });
-        load_internal_asset!(app, SPREAD_MULTI, "motion_blur/spread.wgsl", |_, path| {
-            crate::shader_safety::from_wgsl(spread::source(true, false), path)
         });
         crate::pipeline_warmup::register::<pipeline::BlurPipeline>(app);
         app.sub_app_mut(RenderApp)
@@ -68,8 +60,19 @@ impl Plugin for CameraMotionBlurPlugin {
 }
 
 fn shader_source(source: &str, multisampled: bool) -> String {
+    let source = source.replace("MOTION_TILE_SIZE", &footprint::TILE_SIZE.to_string());
     if multisampled {
         source
+            .replace("texture_depth_2d", "texture_depth_multisampled_2d")
+            .replace(
+                "let covered_depth = textureLoad(depth, pixel, 0);",
+                r#"var covered_depth = 0.0;
+    for (var sample = 0u; sample < textureNumSamples(depth); sample++) {
+        if textureLoad(actor_velocity, pixel, i32(sample)).z >= 0.5 {
+            covered_depth = max(covered_depth, textureLoad(depth, pixel, i32(sample)));
+        }
+    }"#,
+            )
             .replace(
                 "return textureLoad(depth, pixel, 0);",
                 r#"var nearest = 0.0;
@@ -78,7 +81,6 @@ fn shader_source(source: &str, multisampled: bool) -> String {
     }
     return nearest;"#,
             )
-            .replace("texture_depth_2d", "texture_depth_multisampled_2d")
             .replace(
                 "var actor_velocity: texture_2d<f32>",
                 "var actor_velocity: texture_multisampled_2d<f32>",
@@ -101,7 +103,7 @@ fn shader_source(source: &str, multisampled: bool) -> String {
     return vec4<f32>(velocity / f32(covered), 1.0, f32(covered) / f32(samples));"#,
             )
     } else {
-        source.to_owned()
+        source
     }
 }
 
@@ -121,6 +123,9 @@ pub(crate) fn applies(world: &World, entity: Entity) -> bool {
     };
     state.active
         && cache.get_render_pipeline(state.pipeline).is_some()
+        && cache
+            .get_render_pipeline(state.footprint_pipeline)
+            .is_some()
         && state
             .binding(
                 target.main_texture_view().id(),

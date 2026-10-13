@@ -130,8 +130,10 @@ fn velocity_pixel(
 
 #[test]
 fn actor_shader_preserves_zero_following_velocity_and_real_sub_block_motion() {
-    let mut limits = wgpu::Limits::default();
-    limits.max_storage_buffers_per_shader_stage = crate::required_vertex_storage_buffers();
+    let limits = wgpu::Limits {
+        max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers(),
+        ..Default::default()
+    };
     let Some(gpu) = Gpu::for_fixture_with_limits(
         "actor velocity precision raster",
         wgpu::Features::empty(),

@@ -127,10 +127,29 @@ fn motion_blur_off_allocates_no_view_resources_and_releases_enabled_resources() 
         .binding(target, depth)
         .unwrap()
         .id();
+    let tiles = world
+        .get::<BlurView>(entity)
+        .unwrap()
+        .footprint
+        .as_ref()
+        .unwrap()
+        .view
+        .id();
     prepare.run((), world).unwrap();
     let allocated = test_alloc::thread_allocations();
     prepare.run((), world).unwrap();
     assert_eq!(test_alloc::thread_allocations(), allocated);
+    assert_eq!(
+        world
+            .get::<BlurView>(entity)
+            .unwrap()
+            .footprint
+            .as_ref()
+            .unwrap()
+            .view
+            .id(),
+        tiles
+    );
     assert_eq!(
         world
             .get::<BlurView>(entity)
@@ -196,8 +215,10 @@ fn motion_blur_repeated_specialization_reuses_pipelines_without_allocating() {
         ] {
             for samples in [1, 2, 4, 8] {
                 let original = pipeline.specialize(&cache, format, samples);
+                let footprint = pipeline.footprint(&cache, samples);
                 let allocated = test_alloc::thread_allocations();
                 let repeated = pipeline.specialize(&cache, format, samples);
+                assert_eq!(pipeline.footprint(&cache, samples), footprint);
                 assert_eq!(test_alloc::thread_allocations(), allocated);
                 assert_eq!(repeated, original);
             }
@@ -213,7 +234,7 @@ fn motion_blur_warmup_queues_the_same_formats_and_samples_used_for_drawing() {
     world.run_system_once(super::pipeline::init).unwrap();
     world.resource_scope(|world, mut cache: Mut<PipelineCache>| {
         let mut pipeline = world.resource_mut::<BlurPipeline>();
-        let mut warmed = Vec::with_capacity(1);
+        let mut warmed = Vec::with_capacity(2);
         for hdr in [false, true] {
             for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
                 warmed.clear();
@@ -229,7 +250,21 @@ fn motion_blur_warmup_queues_the_same_formats_and_samples_used_for_drawing() {
                         &mut warmed,
                     )
                     .unwrap();
-                assert_eq!(warmed.len(), 3);
+                assert_eq!(warmed.len(), 2);
+                assert_eq!(warmed[1], pipeline.footprint(&cache, msaa.samples()));
+                let tile = crate::queue_review_support::queued_descriptor(&mut cache, warmed[1]);
+                assert_eq!(tile.multisample.count, 1);
+                assert_eq!(
+                    tile.fragment.as_ref().unwrap().entry_point.as_deref(),
+                    Some("tile_fragment")
+                );
+                assert_eq!(
+                    tile.fragment.as_ref().unwrap().targets[0]
+                        .as_ref()
+                        .unwrap()
+                        .format,
+                    super::footprint::FORMAT
+                );
                 let format = if hdr {
                     render_scene::SCENE_HDR_FORMAT
                 } else {
@@ -253,4 +288,19 @@ fn motion_blur_warmup_queues_the_same_formats_and_samples_used_for_drawing() {
             }
         }
     });
+}
+
+#[test]
+fn exposure_and_tile_shader_variants_validate_without_a_native_adapter() {
+    for multisampled in [false, true] {
+        let source = super::shader_source(include_str!("../motion_blur.wgsl"), multisampled);
+        let module = naga::front::wgsl::parse_str(&source)
+            .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source)));
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .unwrap();
+    }
 }
