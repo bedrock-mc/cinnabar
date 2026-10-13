@@ -26,6 +26,7 @@ use std::{
 };
 use world::SubChunkKey;
 pub mod api;
+pub mod capacity;
 pub use api::{
     AcknowledgementSlot, AcknowledgementState, ChunkGpuRemovalQueue, ChunkUploadAcknowledgement,
     ChunkUploadAcknowledgements, ChunkUploadBudget, ChunkUploadPriority, ChunkUploadToken,

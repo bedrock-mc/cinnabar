@@ -176,6 +176,8 @@ mod gpu;
 mod gpu_arena;
 #[path = "gpu/biome_range_tests.rs"]
 mod gpu_biome_ranges;
+#[path = "gpu/growth_tests.rs"]
+mod gpu_growth;
 #[path = "gpu/model_tests.rs"]
 mod gpu_models;
 #[path = "gpu/publication_tests.rs"]

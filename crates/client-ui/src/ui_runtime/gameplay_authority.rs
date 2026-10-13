@@ -575,9 +575,7 @@ impl UiRuntime {
         }
     }
 
-    /// The localized display name for a vanilla item identifier: the pinned
-    /// `item.<path>.name` / `tile.<path>.name` translation when present,
-    /// otherwise the mechanical title-cased identifier.
+    /// Resolves pinned description identities, then falls back to the identifier's title case.
     pub fn localized_item_name(&self, identifier: &str) -> String {
         // A display_name component is a language key, shown literally when untranslated.
         if let Some(name) = self
@@ -589,6 +587,22 @@ impl UiRuntime {
                 .map_or_else(|| name.to_owned(), |text| text.as_ref().to_owned());
         }
         if self.server_lang.is_some() || self.active_lang.is_some() || self.lang_catalog.is_some() {
+            if let Some(ids) = assets::item::names::serialization_ids(identifier) {
+                for id in ids.into_iter().filter(|id| !id.is_empty()) {
+                    let key = if id.starts_with("item.record_") {
+                        "item.record.name".to_owned()
+                    } else if id == "item.emptymap" {
+                        "item.emptyMap.name".to_owned()
+                    } else if id.ends_with(".name") {
+                        id.to_owned()
+                    } else {
+                        format!("{id}.name")
+                    };
+                    if let Some(value) = self.translation(&key) {
+                        return value.as_ref().to_owned();
+                    }
+                }
+            }
             let path = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
             for key in [format!("item.{path}.name"), format!("tile.{path}.name")] {
                 if let Some(value) = self.translation(&key) {

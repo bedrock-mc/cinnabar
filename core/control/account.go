@@ -7,20 +7,22 @@ import (
 	"errors"
 	"net"
 	"time"
+
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 )
 
 const (
-	methodRealmsList     = "realms_list.v1"
-	methodFriendsList    = "friends_list.v1"
-	methodConnect        = "connect.v1"
-	methodAccountStatus  = "account_status.v1"
-	methodSignOut        = "sign_out.v1"
-	methodEvents         = "events.v1"
-	methodServerTrust    = "server_trust_answer.v1"
-	codeSignedOut        = -32020
-	codeServiceFailed    = -32021
-	codeInvalidTarget    = -32022
-	codeServicesDisabled = -32023
+	methodRealmsList     = bridgecontract.MethodRealmsList
+	methodFriendsList    = bridgecontract.MethodFriendsList
+	methodConnect        = bridgecontract.MethodConnect
+	methodAccountStatus  = bridgecontract.MethodAccountStatus
+	methodSignOut        = bridgecontract.MethodSignOut
+	methodEvents         = bridgecontract.MethodEvents
+	methodServerTrust    = bridgecontract.MethodServerTrustAnswer
+	codeSignedOut        = bridgecontract.RPCSignedOut
+	codeServiceFailed    = bridgecontract.RPCServiceFailed
+	codeInvalidTarget    = bridgecontract.RPCInvalidTarget
+	codeServicesDisabled = bridgecontract.RPCServicesDisabled
 
 	// serviceCallTimeout bounds one catalog or sign-out call.
 	serviceCallTimeout = 45 * time.Second
@@ -29,19 +31,19 @@ const (
 
 // Sign-in states reported in AuthV1.State.
 const (
-	AuthOffline      = "offline" // the core runs without a Microsoft account
-	AuthSignedOut    = "signed_out"
-	AuthAwaitingCode = "awaiting_code"
-	AuthSignedIn     = "signed_in"
-	AuthFailed       = "failed"
+	AuthOffline      = bridgecontract.AuthOffline // the core runs without a Microsoft account
+	AuthSignedOut    = bridgecontract.AuthSignedOut
+	AuthAwaitingCode = bridgecontract.AuthAwaitingCode
+	AuthSignedIn     = bridgecontract.AuthSignedIn
+	AuthFailed       = bridgecontract.AuthFailed
 )
 
 // Connect target kinds accepted by connect.v1.
 const (
-	TargetRakNet    = "raknet"
-	TargetRealm     = "realm"
-	TargetFriend    = "friend"
-	TargetGathering = "gathering" // an experience ID, joined when the connect is selected
+	TargetRakNet    = bridgecontract.TargetRakNet
+	TargetRealm     = bridgecontract.TargetRealm
+	TargetFriend    = bridgecontract.TargetFriend
+	TargetGathering = bridgecontract.TargetGathering // an experience ID, joined when the connect is selected
 )
 
 var (
@@ -183,7 +185,7 @@ func (store *Store) ObserveDisconnect(reason int32, message string) {
 func (store *Store) Events() EventsV1 {
 	store.mu.RLock()
 	defer store.mu.RUnlock()
-	events := EventsV1{SchemaVersion: 1, Auth: store.auth}
+	events := EventsV1{SchemaVersion: bridgecontract.ControlSchemaVersion, Auth: store.auth}
 	if store.disconnect != nil {
 		pending := *store.disconnect
 		events.Disconnect = &pending
@@ -241,7 +243,7 @@ func (server *Server) serveServerTrust(reply responseWriter, raw json.RawMessage
 	answer := server.store.trustAnswer
 	server.store.mu.RUnlock()
 	answered := answer != nil && answer(*params.ID, *params.Trusted)
-	return reply.ok(serverTrustResultV1{SchemaVersion: 1, Answered: answered})
+	return reply.ok(serverTrustResultV1{SchemaVersion: bridgecontract.ControlSchemaVersion, Answered: answered})
 }
 
 func (server *Server) serveService(conn net.Conn, id uint64, method string, raw json.RawMessage) error {
@@ -258,7 +260,7 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 		if method == methodEvents {
 			return reply.ok(server.store.Events())
 		}
-		return reply.ok(accountResultV1{SchemaVersion: 1, Account: server.store.Auth()})
+		return reply.ok(accountResultV1{SchemaVersion: bridgecontract.ControlSchemaVersion, Account: server.store.Auth()})
 	}
 	services := server.launcherServices()
 	if services == nil {
@@ -300,7 +302,7 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 		if realms == nil {
 			realms = []Realm{}
 		}
-		return reply.ok(realmsResultV1{SchemaVersion: 1, Realms: realms})
+		return reply.ok(realmsResultV1{SchemaVersion: bridgecontract.ControlSchemaVersion, Realms: realms})
 	case methodFriendsList:
 		if len(raw) != 0 {
 			return reply.invalid()
@@ -312,7 +314,7 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 		if friends == nil {
 			friends = []Friend{}
 		}
-		return reply.ok(friendsResultV1{SchemaVersion: 1, Friends: friends})
+		return reply.ok(friendsResultV1{SchemaVersion: bridgecontract.ControlSchemaVersion, Friends: friends})
 	case methodFriendsPeople:
 		people, supported := services.(PeopleServices)
 		if len(raw) != 0 {
@@ -345,7 +347,7 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 		if err := services.Connect(ctx, *params.Kind, *params.Value); err != nil {
 			return failService(err)
 		}
-		return reply.ok(emptyResultV1{SchemaVersion: 1})
+		return reply.ok(emptyResultV1{SchemaVersion: bridgecontract.ControlSchemaVersion})
 	case methodSignOut:
 		if len(raw) != 0 {
 			return reply.invalid()
@@ -353,7 +355,7 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 		if err := services.SignOut(); err != nil {
 			return failService(err)
 		}
-		return reply.ok(accountResultV1{SchemaVersion: 1, Account: server.store.Auth()})
+		return reply.ok(accountResultV1{SchemaVersion: bridgecontract.ControlSchemaVersion, Account: server.store.Auth()})
 	}
 	if isScreenMethod(method) {
 		screens, supported := services.(ScreenServices)
@@ -369,5 +371,5 @@ func (server *Server) serveService(conn net.Conn, id uint64, method string, raw 
 		}
 		return reply.ok(result)
 	}
-	return reply.fail(-32601, "Method not found")
+	return reply.fail(bridgecontract.RPCMethodNotFound, "Method not found")
 }

@@ -9,6 +9,7 @@ use ui::UiAction;
 use super::*;
 
 #[path = "../../tests/support/ui_events.rs"]
+#[allow(dead_code, reason = "shared with the integration target, which uses more fixtures")]
 mod fixtures;
 use fixtures::{envelope, raw_text_event};
 

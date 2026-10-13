@@ -52,13 +52,10 @@ pub(super) fn descriptor_for(
         || visuals::end_rod::is_record(record)
         || visuals::lightning_rod::is_record(record)
         || visuals::bamboo::is_record(record)
+        || visuals::lantern::is_record(record)
         || matches!(
             record.name.as_ref(),
-            "minecraft:flower_pot"
-                | "minecraft:lantern"
-                | "minecraft:soul_lantern"
-                | "minecraft:azalea"
-                | "minecraft:flowering_azalea"
+            "minecraft:flower_pot" | "minecraft:azalea" | "minecraft:flowering_azalea"
         )
     {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
