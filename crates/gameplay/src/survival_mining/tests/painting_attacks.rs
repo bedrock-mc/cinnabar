@@ -144,5 +144,16 @@ fn a_held_attack_can_mine_after_the_actor_moves_away() {
         |_| {},
         |cell| predicted.push(cell),
     );
+    assert!(predicted.is_empty(), "held mining waits for its next tick");
+    let next = ticker.completed_tick() + 1;
+    ticker.enqueue_completed_physics(completed(next)).unwrap();
+    mining.step_ticks(
+        &mut ticker,
+        DestroyInput::Held(Some(&support)),
+        Server,
+        |_| {},
+        |_, _| None,
+        |cell| predicted.push(cell),
+    );
     assert_eq!(predicted, [support.position]);
 }
