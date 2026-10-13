@@ -1,8 +1,8 @@
-use far_terrain::{SurfaceCell, summarise_column};
+use far_terrain::{SurfaceCell, SurfaceContext, summarise_column};
 
 use crate::fixture::{
-    AIR, FLOWER, FOLIAGE_TINT, GRASS, GRASS_TINT, LEAF_RGB, LEAVES, SAND, SAND_RGB, SLAB, TORCH,
-    WATER, column, context, section,
+    AIR, FLOWER, FOLIAGE_TINT, GRASS, GRASS_TINT, LEAF_RGB, LEAVES, NUB, SAND, SAND_RGB, SLAB,
+    TORCH, WATER, column, context, section,
 };
 
 fn srgb(linear: f32) -> f32 {
@@ -100,4 +100,44 @@ fn models_count_as_surface_only_when_their_tops_cover_the_block() {
     let summary = summarise_column(&context(), &column([(0, floor)]));
     assert_eq!(summary.cell(0, 0).height, 2, "the slab is the surface");
     assert_eq!(summary.cell(1, 0).height, 1, "the torch is looked through");
+}
+
+/// Downward faces are not seen from above, so a small floating cube is looked through.
+#[test]
+fn downward_model_faces_do_not_count_as_cover() {
+    let floor = section(|x, y, _| match (x, y) {
+        (_, 0) => [GRASS, AIR],
+        (0, 1) => [NUB, AIR],
+        _ => [AIR, AIR],
+    });
+    let summary = summarise_column(&context(), &column([(0, floor)]));
+    assert_eq!(summary.cell(0, 0).height, 1);
+}
+
+/// Snow or another solid block on layer 1 under a plant is the surface.
+#[test]
+fn solid_second_layer_under_a_plant_is_the_surface() {
+    let ground = section(|_, y, _| match y {
+        0 => [GRASS, AIR],
+        1 => [FLOWER, SAND],
+        _ => [AIR, AIR],
+    });
+    let cell = summarise_column(&context(), &column([(0, ground)])).cell(3, 3);
+    assert_eq!((cell.height, cell.rgb), (2, SAND_RGB));
+}
+
+/// Session air must be seen through even when the asset set does not know its ID.
+#[test]
+fn session_air_unknown_to_the_assets_is_seen_through() {
+    const SESSION_AIR: u32 = 999;
+    let ground = section(|_, y, _| match y {
+        0 => [SAND, SESSION_AIR],
+        _ => [SESSION_AIR, SESSION_AIR],
+    });
+    let context = SurfaceContext {
+        air: SESSION_AIR,
+        ..context()
+    };
+    let cell = summarise_column(&context, &column([(0, ground)])).cell(5, 5);
+    assert_eq!((cell.height, cell.rgb), (1, SAND_RGB));
 }
