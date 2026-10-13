@@ -6,6 +6,7 @@ use crate::UiLimits;
 
 use super::UiBlendMode;
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UiMeshVertex {
     /// Normalized node XY multiplied by W; the node's bounds supply the viewport mapping.
@@ -17,11 +18,11 @@ pub struct UiMeshVertex {
     pub uv: [f32; 2],
     /// Producer-authored sRGB tint, independent of the model's native lighting.
     pub color: [u8; 4],
-    /// Producer-authored, interpolated linear lighting multiplier; ordinary UI uses one.
+    /// Interpolated linear lighting; coverage paint uses this field for the border area.
     pub model_light: f32,
-    /// Native entity overlay RGB and its mix amount, before model lighting.
+    /// Entity overlay RGB and mix amount, or the coverage paint's packed constant colors.
     pub overlay_color: [f32; 4],
-    pub style_flags: u8,
+    pub style_flags: u16,
     pub alpha_test: bool,
 }
 
@@ -76,7 +77,17 @@ impl UiMesh {
         };
         if opacity < 1.0 {
             for vertex in Arc::make_mut(&mut self.vertices) {
-                vertex.color[3] = (f32::from(vertex.color[3]) * opacity).round() as u8;
+                if vertex.style_flags & render_api::UI_STYLE_COVERAGE_PAINT != 0 {
+                    (vertex.color, vertex.overlay_color) =
+                        render_api::UiCoveragePaint::from_vertex_colors(
+                            vertex.color,
+                            vertex.overlay_color,
+                        )
+                        .with_opacity(opacity)
+                        .vertex_colors();
+                } else {
+                    vertex.color[3] = (f32::from(vertex.color[3]) * opacity).round() as u8;
+                }
             }
         }
         self

@@ -52,7 +52,7 @@ fn cube_preserves_authored_face_uv_edges_and_glint() {
     assert!(
         mesh.vertices()[..4]
             .iter()
-            .all(|vertex| vertex.style_flags == ui::UI_STYLE_GLINT)
+            .all(|vertex| vertex.style_flags == u16::from(ui::UI_STYLE_GLINT))
     );
     assert!(
         mesh.vertices()[4..]

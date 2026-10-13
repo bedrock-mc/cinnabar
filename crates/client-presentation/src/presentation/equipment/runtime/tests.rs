@@ -1,5 +1,8 @@
 //! Isolated camera-item routing tests; no optional installed carriers or native art.
 
+#[path = "missing_artwork_tests.rs"]
+mod missing_artwork_tests;
+
 use actor_animation::ItemAnimationState;
 use bevy::math::Quat;
 use render_api::PoseGeneration;
@@ -534,7 +537,7 @@ fn review_render_pack_replacement_reclaims_mesh_slots_without_reusing_vanilla_id
     let retired = item_mesh_rig_id(MAX_ITEM_MESHES as u32 - 1);
     let placement = runtime.placements[0].unwrap();
     for _ in 0..8 {
-        runtime.attachable_meshes.insert((true, 0, 0), retired);
+        runtime.attachable_meshes.insert((true, 0, (1, 0)), retired);
         runtime.set_pack_layer(None);
         assert_eq!(
             runtime.build_mesh(MeshKey::Block(7), 0, placement),

@@ -74,7 +74,11 @@ fn vertex(
         color,
         model_light: 1.0,
         overlay_color: [0.0; 4],
-        style_flags: if glint { ui::UI_STYLE_GLINT } else { 0 },
+        style_flags: if glint {
+            u16::from(ui::UI_STYLE_GLINT)
+        } else {
+            0
+        },
         alpha_test,
     }
 }

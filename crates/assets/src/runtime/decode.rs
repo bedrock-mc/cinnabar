@@ -691,18 +691,18 @@ fn runtime_connected_bases(bytes: &[u8]) -> Result<Vec<(usize, u32)>, AssetError
             bases.push((index, flag));
             index += crate::BUBBLE_COLUMN_TEMPLATE_COUNT as usize;
         } else if flag == MODEL_TEMPLATE_FLAG_FIRE {
-            let Some(group) = records.get(index..index + crate::FIRE_TEMPLATE_COUNT as usize)
+            let Some(group) = records.get(index..index + crate::fire::FIRE_TEMPLATE_COUNT as usize)
             else {
                 return Err(invalid("fire template group is truncated"));
             };
             if group.iter().enumerate().any(|(offset, record)| {
                 u32_at(record, 8) != flag
-                    || u32_at(record, 4) != crate::fire_template_quad_count(offset as u32)
+                    || u32_at(record, 4) != crate::fire::fire_template_quad_count(offset as u32)
             }) {
                 return Err(invalid("fire template group is noncanonical"));
             }
             bases.push((index, flag));
-            index += crate::FIRE_TEMPLATE_COUNT as usize;
+            index += crate::fire::FIRE_TEMPLATE_COUNT as usize;
         } else {
             index += 1;
         }

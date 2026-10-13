@@ -24,6 +24,10 @@ use bevy::{
 pub struct PrimitiveShapesRenderPlugin;
 
 const SHADER: Handle<Shader> = uuid_handle!("361a6dc1-b0e8-41ee-a5ac-94b3e8d6cc48");
+// Debug text retains its existing cubic facing independently of actor nametags.
+const TEXT_ACOS_LINEAR: f32 = 0.87266463;
+const TEXT_ACOS_CUBIC: f32 = -0.698_131_7;
+const TEXT_HORIZONTAL_ZERO: f32 = 0.0001;
 
 impl Plugin for PrimitiveShapesRenderPlugin {
     /// Keeps the domain store in the main world and uploads changes in the render world.
@@ -47,7 +51,7 @@ impl Plugin for PrimitiveShapesRenderPlugin {
     }
 }
 
-/// Injects the existing nametag constants into the shared debug-text shader.
+/// Injects the shared font-pixel scale and debug-text constants into its shader.
 fn shader(raw: &str, path: impl Into<String>) -> Shader {
     let source = raw
         .replace(
@@ -70,18 +74,9 @@ fn shader(raw: &str, path: impl Into<String>) -> Shader {
             "TEXT_SCALE_VALUE",
             &render_model::NAMETAG_BLOCKS_PER_FONT_PIXEL.to_string(),
         )
-        .replace(
-            "ACOS_LINEAR_VALUE",
-            &render_model::NAMETAG_ACOS_LINEAR.to_string(),
-        )
-        .replace(
-            "ACOS_CUBIC_VALUE",
-            &render_model::NAMETAG_ACOS_CUBIC.to_string(),
-        )
-        .replace(
-            "HORIZONTAL_ZERO_VALUE",
-            &render_model::NAMETAG_HORIZONTAL_ZERO.to_string(),
-        );
+        .replace("ACOS_LINEAR_VALUE", &TEXT_ACOS_LINEAR.to_string())
+        .replace("ACOS_CUBIC_VALUE", &TEXT_ACOS_CUBIC.to_string())
+        .replace("HORIZONTAL_ZERO_VALUE", &TEXT_HORIZONTAL_ZERO.to_string());
     crate::shader_safety::from_wesl(source, path)
 }
 

@@ -34,7 +34,7 @@ pub(super) fn modulated(mesh: &Arc<UiMesh>, color: [u8; 4], glint: bool) -> Opti
             *channel = (u16::from(*channel) * u16::from(factor) / 255) as u8;
         }
         if glint {
-            vertex.style_flags |= ui::UI_STYLE_GLINT;
+            vertex.style_flags |= u16::from(ui::UI_STYLE_GLINT);
         }
     }
     UiMesh::new(
