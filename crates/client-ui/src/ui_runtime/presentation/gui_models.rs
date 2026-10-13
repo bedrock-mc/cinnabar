@@ -177,6 +177,18 @@ impl UiPresentationRuntime {
                 icons.sprites()[sheet.sprite as usize].clone(),
             );
         }
+        for (visual, sprite) in &mut sources {
+            let block = world.resolve(assets::NetworkIdMode::Sequential, *visual);
+            if block.is_known() {
+                let flags = assets::BlockFace::ALL.map(|face| {
+                    world
+                        .materials()
+                        .get(block.face(face).material_id() as usize)
+                        .map(|material| material.flags)
+                });
+                sources::normalize_sheet_alpha(sprite, flags);
+            }
+        }
         let mut meshes = BTreeMap::new();
         let mut held_sources = BTreeMap::new();
         for (visual, sprite) in &sources {
