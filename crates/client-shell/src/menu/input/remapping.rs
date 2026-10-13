@@ -14,7 +14,7 @@ use bevy::{
 use launcher::menu::settings_options::{GAMEPAD_OFFSET, macro_row};
 use semantic_input::{AxisDirection, PhysicalControl};
 
-/// Captures only the selected device family and allows Escape to cancel either family.
+/// Captures the selected device; Escape clears a keyboard row or cancels other captures.
 pub(super) fn capture(
     menu: &mut MenuRuntime,
     messages: &mut MessageReader<KeyboardInput>,
@@ -31,7 +31,7 @@ pub(super) fn capture(
             continue;
         }
         if input.key_code == KeyCode::Escape {
-            menu.key_remap = None;
+            menu.capture_escape();
             break;
         }
         if !gamepad && let Some(code) = keyboard_usage(input.key_code) {
@@ -185,6 +185,125 @@ mod tests {
                     .collect::<Vec<_>>()
             };
             assert_eq!(unchanged(&controls), unchanged(&original));
+        }
+    }
+
+    #[test]
+    fn escape_unbinds_selected_keyboard_action_and_persists_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        let jump = KEY_BINDINGS
+            .iter()
+            .position(|(action, _)| *action == Action::Jump)
+            .unwrap();
+        let sneak = KEY_BINDINGS
+            .iter()
+            .position(|(action, _)| *action == Action::Sneak)
+            .unwrap();
+        let mut app = App::new();
+        app.insert_resource(MenuRuntime::new(false, 2, "Bindings".into()))
+            .add_message::<KeyboardInput>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .add_systems(Update, capture_input);
+        let original = app
+            .world()
+            .resource::<MenuRuntime>()
+            .settings_options
+            .controls()
+            .unwrap();
+        {
+            let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+            menu.activate(launcher::menu::MenuAction::Navigate(
+                launcher::menu::MenuScreen::Settings,
+            ));
+            menu.activate_settings(launcher::menu::MenuAction::SettingsKey(jump as u16));
+            menu.activate_settings(launcher::menu::MenuAction::SettingsKey(sneak as u16));
+        }
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::Escape,
+            logical_key: Key::Escape,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window: Entity::PLACEHOLDER,
+        });
+        app.update();
+        let menu = app.world().resource::<MenuRuntime>();
+        assert_eq!(menu.key_remap, None);
+        assert_eq!(menu.screen(), launcher::menu::MenuScreen::Settings);
+        assert!(menu.settings_dirty && menu.settings_apply);
+        assert_eq!(menu.settings_options.key_control(sneak), None);
+        menu.settings_options.save(&path).unwrap();
+        let loaded = SettingsOptions::load(&path);
+        assert_eq!(loaded.key_control(sneak), None);
+        assert_eq!(
+            loaded.controls().unwrap().bindings(),
+            original
+                .bindings()
+                .iter()
+                .copied()
+                .filter(|binding| {
+                    binding.action != Action::Sneak
+                        || !matches!(
+                            binding.chord.control,
+                            PhysicalControl::KeyboardUsage(_) | PhysicalControl::MouseButton(_)
+                        )
+                })
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn escape_outside_capture_keeps_bindings_and_leaves_settings() {
+        let mut menu = MenuRuntime::new(false, 2, "Bindings".into());
+        menu.activate(launcher::menu::MenuAction::Navigate(
+            launcher::menu::MenuScreen::Settings,
+        ));
+        let original = menu.settings_options.clone();
+        assert!(!menu.is_remapping_key());
+        menu.go_back_from_input();
+        assert_ne!(menu.screen(), launcher::menu::MenuScreen::Settings);
+        assert_eq!(menu.settings_options, original);
+    }
+
+    #[test]
+    fn escape_cancels_gamepad_and_macro_capture_without_unbinding() {
+        for row in [
+            GAMEPAD_OFFSET,
+            launcher::menu::settings_options::macro_row_index(0),
+        ] {
+            let mut app = App::new();
+            app.insert_resource(MenuRuntime::new(false, 2, "Bindings".into()))
+                .add_message::<KeyboardInput>()
+                .init_resource::<ButtonInput<KeyCode>>()
+                .init_resource::<ButtonInput<MouseButton>>()
+                .add_systems(Update, capture_input);
+            let original = app
+                .world()
+                .resource::<MenuRuntime>()
+                .settings_options
+                .clone();
+            let original_flags = {
+                let menu = app.world().resource::<MenuRuntime>();
+                (menu.settings_dirty, menu.settings_apply)
+            };
+            app.world_mut()
+                .resource_mut::<MenuRuntime>()
+                .activate_settings(launcher::menu::MenuAction::SettingsKey(row as u16));
+            app.world_mut().write_message(KeyboardInput {
+                key_code: KeyCode::Escape,
+                logical_key: Key::Escape,
+                state: ButtonState::Pressed,
+                text: None,
+                repeat: false,
+                window: Entity::PLACEHOLDER,
+            });
+            app.update();
+            let menu = app.world().resource::<MenuRuntime>();
+            assert_eq!(menu.key_remap, None);
+            assert_eq!(menu.settings_options, original);
+            assert_eq!((menu.settings_dirty, menu.settings_apply), original_flags);
         }
     }
 }

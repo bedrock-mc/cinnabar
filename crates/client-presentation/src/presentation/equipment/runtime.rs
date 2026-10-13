@@ -24,6 +24,7 @@ mod combat;
 mod diagnostics;
 mod dials;
 mod elytra;
+mod held_block_entities;
 mod java;
 mod modern;
 mod pack;
@@ -69,8 +70,6 @@ fn body_bones(names: Vec<Box<str>>) -> BodyBones {
 
 /// Equipment geometry index space reserved for worn skulls (above any entity geometry index).
 const SKULL_RIG_INDEX_BASE: u32 = 0x00ff_0000;
-/// Equipment geometry index space reserved for held block-entity item models.
-const HELD_BLOCK_ENTITY_RIG_INDEX_BASE: u32 = 0x00ff_0100;
 const SKULL_KINDS: [SkullKind; 5] = [
     SkullKind::Skeleton,
     SkullKind::WitherSkeleton,
@@ -260,18 +259,8 @@ impl EquipmentRuntime {
                 }
             }
         }
-        let mut held_block_entities = BTreeMap::new();
-        if let (Some(atlas), Some(location)) = (&skull_atlas, skull_location) {
-            for (index, kind) in HeldBlockEntity::all().into_iter().enumerate() {
-                let id = equipment_rig_id(HELD_BLOCK_ENTITY_RIG_INDEX_BASE + index as u32);
-                if let Some(model) =
-                    render_model::block_entity::held_block_entity_model(id, atlas, kind)
-                {
-                    pending.push(model.geometry);
-                    held_block_entities.insert(kind, (id, location, model.glint_span));
-                }
-            }
-        }
+        let held_block_entities =
+            held_block_entities::build(skull_atlas.as_ref(), skull_location, &mut pending);
         let mut geometries = catalog
             .iter()
             .flat_map(|catalog| catalog.bindings())
