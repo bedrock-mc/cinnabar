@@ -111,6 +111,7 @@ impl Raster {
             Coverage {
                 sample_mask,
                 occluder: None,
+                occluder_mask: !0,
             },
         )
     }
@@ -280,7 +281,13 @@ impl Raster {
             z,
         );
         if let Some(bounds) = coverage.occluder {
-            self.draw_occluder(&mut encoder, &depth_view, samples, bounds);
+            self.draw_occluder(
+                &mut encoder,
+                &depth_view,
+                samples,
+                bounds,
+                coverage.occluder_mask,
+            );
         }
         self.draw_tiles(&mut encoder, &shader, &uniform, &actor_view, &tiles);
         {

@@ -5,6 +5,7 @@ use super::*;
 pub(super) struct Coverage {
     pub sample_mask: u64,
     pub occluder: Option<UVec4>,
+    pub occluder_mask: u64,
 }
 
 impl Raster {
@@ -15,6 +16,7 @@ impl Raster {
         depth: &wgpu::TextureView,
         samples: u32,
         bounds: UVec4,
+        mask: u64,
     ) {
         let shader = self
             .gpu
@@ -59,6 +61,7 @@ impl Raster {
                 }),
                 multisample: wgpu::MultisampleState {
                     count: samples,
+                    mask,
                     ..Default::default()
                 },
                 multiview_mask: None,
@@ -122,6 +125,7 @@ fn swept_actor_exposure_preserves_nearer_occluders_and_background_colour() {
             Coverage {
                 sample_mask: !0,
                 occluder: Some(occluder),
+                occluder_mask: !0,
             },
         );
         for y in 40..88 {
@@ -150,6 +154,123 @@ fn swept_actor_exposure_preserves_nearer_occluders_and_background_colour() {
         assert!(
             output[offset + 1] > 0,
             "actor exposure must retain background colour"
+        );
+    }
+}
+
+#[test]
+fn mixed_msaa_actor_sources_do_not_spread_stationary_occluder_colour() {
+    let Some(raster) = Raster::new("mixed actor and nearer occluder source raster") else {
+        return;
+    };
+    let bounds = UVec4::new(60, 48, 8, 32);
+    let mut uniform = exposure(Mat4::IDENTITY);
+    uniform.strength.x = 1.0;
+    uniform.strength.y = 17.0;
+    let z = projection().project_point3(Vec3::new(0.0, 0.0, -4.0)).z;
+    for &samples in raster.depth_samples.iter().filter(|&&samples| samples > 1) {
+        let mask = 1 << (samples - 1);
+        let red = (255.0 / samples as f32).round() as u8;
+        let background_green = (128.0 * (1.0 - 1.0 / samples as f32)).round() as u8;
+        let input = |nearer| {
+            image(|x, y| {
+                if x >= bounds.x
+                    && x < bounds.x + bounds.z
+                    && y >= bounds.y
+                    && y < bounds.y + bounds.w
+                {
+                    if nearer {
+                        [red, 0, 255 - red, 255]
+                    } else {
+                        [red, background_green, 0, 255]
+                    }
+                } else {
+                    [0, 128, 0, 255]
+                }
+            })
+        };
+        let draw = |nearer| {
+            raster.draw_with_coverage(
+                &input(nearer),
+                uniform,
+                samples,
+                0.0,
+                Some(ActorMotion {
+                    velocity: [0.125, 0.0, 1.0, 1.0],
+                    bounds,
+                    depth: Some(z),
+                }),
+                Coverage {
+                    sample_mask: mask,
+                    occluder: nearer.then_some(bounds),
+                    occluder_mask: !mask,
+                },
+            )
+        };
+        let clear = draw(false);
+        let exterior = ((SIDE / 2 * SIDE + bounds.x - 3) * 4) as usize;
+        assert!(
+            clear[exterior] > 1,
+            "unoccluded partial actor must expose the background"
+        );
+        let mixed = draw(true);
+        for x in bounds.x - 8..bounds.x + bounds.z + 8 {
+            if x >= bounds.x && x < bounds.x + bounds.z {
+                continue;
+            }
+            let offset = ((SIDE / 2 * SIDE + x) * 4) as usize;
+            assert_eq!(
+                mixed[offset + 2],
+                0,
+                "resolved nearer non-actor colour spread to x={x}/{samples}x MSAA"
+            );
+        }
+    }
+}
+
+#[test]
+fn world_camera_blur_is_independent_of_distant_stationary_actor_availability() {
+    let Some(raster) = Raster::new("world exposure actor availability raster") else {
+        return;
+    };
+    let terrain = UVec4::new(80, 0, SIDE - 80, SIDE);
+    let input = image(|x, _| {
+        if x >= terrain.x {
+            [0, 0, 255, 255]
+        } else {
+            [0, 128, 0, 255]
+        }
+    });
+    let uniform = exposure(Mat4::from_translation(Vec3::new(0.5, 0.0, 0.0)));
+    let z = projection().project_point3(Vec3::new(0.0, 0.0, -4.0)).z;
+    for &samples in &raster.depth_samples {
+        let draw = |actor| {
+            raster.draw_with_coverage(
+                &input,
+                uniform,
+                samples,
+                z,
+                actor,
+                Coverage {
+                    sample_mask: !0,
+                    occluder: Some(terrain),
+                    occluder_mask: !0,
+                },
+            )
+        };
+        let world = draw(None);
+        assert_ne!(
+            world, input,
+            "world camera movement must retain terrain exposure"
+        );
+        let actor = draw(Some(ActorMotion {
+            velocity: [0.0, 0.0, 1.0, 1.0],
+            bounds: UVec4::new(8, 8, 2, 2),
+            depth: None,
+        }));
+        assert_eq!(
+            actor, world,
+            "an unrelated stationary actor changed world blur at {samples}x MSAA"
         );
     }
 }
