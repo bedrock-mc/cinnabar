@@ -327,7 +327,6 @@ const UNRESOLVED_SURVIVAL_SUFFIXES: &[&str] = &[
     "_candle",
     "_candle_cake",
     "_door",
-    "_bed",
     "_bush",
     "_skull",
     "_head",
