@@ -239,6 +239,12 @@ mod tests {
             assert_eq!(usize::try_from(enchantment.id).unwrap(), index);
         }
         assert!(enchantment(42).is_none() && enchantment(-1).is_none());
+        assert!(
+            ENCHANTMENTS
+                .iter()
+                .all(|enchantment| !enchantment.lang_key.is_empty()),
+            "every enchantment names its language entry"
+        );
     }
 
     #[test]

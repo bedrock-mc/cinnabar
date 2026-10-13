@@ -128,6 +128,7 @@ fn merge_enchantments(
     }
     let gained = value(&merged) - before;
     (gained > 0).then(|| {
+        // Enchanting a stack of more than one item is always too expensive (`0x14647E000`).
         let cost = if left.count > 1 {
             ANVIL_TOO_EXPENSIVE
         } else {
@@ -186,6 +187,8 @@ pub fn evaluate_anvil(
                 outcome.enchantments = Some(merged);
                 work += cost;
             }
+            // The take consumes as many second items as the result holds (`0x140318B10`); a book
+            // is always used up, and it is a stack of one.
             outcome.material_used = left.count;
         }
         // A second item that changes nothing clears the result, even with a new name.

@@ -67,12 +67,14 @@ fn read_entries(mut cursor: &[u8]) -> Option<(Vec<Entry>, &[u8])> {
     }
 }
 
+/// Writes a little-endian length-prefixed string; `None` when it is too long for its prefix.
 fn write_string(out: &mut Vec<u8>, text: &[u8]) -> Option<()> {
     out.extend_from_slice(&u16::try_from(text.len()).ok()?.to_le_bytes());
     out.extend_from_slice(text);
     Some(())
 }
 
+/// Writes a compound body: each entry's tag, name and payload, then the end tag.
 fn write_entries(out: &mut Vec<u8>, entries: &[Entry]) -> Option<()> {
     for entry in entries {
         out.push(entry.tag);
@@ -106,6 +108,7 @@ fn set_entry(entries: &mut Vec<Entry>, name: &[u8], value: Option<(u8, Vec<u8>)>
     }
 }
 
+/// The payload of an `ench` list: one compound of `id` and `lvl` shorts per enchantment.
 fn enchantment_list(enchantments: &[(i16, i16)]) -> Option<Vec<u8>> {
     let mut payload = vec![TAG_COMPOUND];
     payload.extend_from_slice(&i32::try_from(enchantments.len()).ok()?.to_le_bytes());

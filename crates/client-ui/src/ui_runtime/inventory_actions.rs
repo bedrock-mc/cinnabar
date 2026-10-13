@@ -536,6 +536,7 @@ impl UiRuntime {
                 if !self.anvil_affordable(player_runtime, &preview) {
                     return Err(InventoryGestureError::InvalidRequest);
                 }
+                // Clearing a custom name sends empty text, so the server clears it too.
                 let rename = preview
                     .outcome
                     .custom_name
