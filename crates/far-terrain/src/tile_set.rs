@@ -6,7 +6,7 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 
 use crate::{
     ColumnPos, ColumnSummary, EncodedSummary, SummaryStore, TileGrid, TileKey, TileMesh, TileView,
-    config::{LEVEL_COUNT, MAX_TILE_BUILDS, TILE_REBUILD_INTERVAL},
+    config::{LEVEL_COUNT, MAX_TILE_BUILDS, TILE_BUILD_COLUMNS_PER_UPDATE, TILE_REBUILD_INTERVAL},
     mesh_tile, select_tiles,
 };
 
@@ -124,7 +124,14 @@ impl FarTiles {
                 .map(|(key, _)| *key)
                 .take(MAX_TILE_BUILDS.saturating_sub(self.in_flight)),
         );
+        let mut budget = TILE_BUILD_COLUMNS_PER_UPDATE;
         for key in due.drain(..) {
+            // The first build always starts, so a tile wider than the budget still builds.
+            let columns = key.columns().count();
+            if columns > budget && budget < TILE_BUILD_COLUMNS_PER_UPDATE {
+                break;
+            }
+            budget = budget.saturating_sub(columns);
             self.start_build(key, store, now);
         }
         self.due = due;
@@ -160,7 +167,7 @@ impl FarTiles {
     fn start_build(&mut self, key: TileKey, store: &mut SummaryStore, now: Instant) {
         let columns: Vec<(ColumnPos, EncodedSummary)> = key
             .columns()
-            .filter_map(|pos| Some((pos, store.touch_encoded(pos)?.clone())))
+            .filter_map(|pos| Some((pos, store.encoded(pos)?.clone())))
             .collect();
         let tile = self.selected.get_mut(&key).expect("due tiles are selected");
         tile.dirty = false;

@@ -57,6 +57,9 @@ pub const TILE_REBUILD_INTERVAL: std::time::Duration = std::time::Duration::from
 /// Tile meshes built concurrently on worker threads.
 pub const MAX_TILE_BUILDS: usize = 4;
 
+/// Columns gathered for new tile builds per update, bounding the owner thread's share.
+pub const TILE_BUILD_COLUMNS_PER_UPDATE: usize = 1024;
+
 /// Chunks beyond the near edge sampled to decide how far fog may open up.
 pub const COVERAGE_RING_CHUNKS: i32 = 8;
 
