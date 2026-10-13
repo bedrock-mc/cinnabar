@@ -18,8 +18,10 @@ pub use mesh::{
 pub use native::{DroppedItemShape, DroppedItemSpawnPose, native_dropped_item_transform};
 pub use rope::{rope_color, rope_point, rope_ribbon};
 
-/// Side length of every layer on the GPU; larger textures are rejected.
-pub const MAX_ITEM_SPRITE_SIDE: u32 = 32;
+/// Maximum source extent shared by item preparation and texture upload.
+pub const MAX_ITEM_SPRITE_SIDE: u32 = assets::texture::policy::MAX_TEXTURE_SIDE;
+/// Minimum physical layer size for the dropped-item array.
+pub const MIN_ITEM_ATLAS_SIDE: u32 = 32;
 /// Cap on GPU layers, including the reserved white layer.
 pub const MAX_ITEM_LAYERS: usize = 512;
 pub const MAX_DROPPED_ITEM_INSTANCES: usize = 1_024;

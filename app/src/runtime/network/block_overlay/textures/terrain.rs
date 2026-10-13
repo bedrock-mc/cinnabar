@@ -49,8 +49,11 @@ pub(in super::super) fn source_mip_chain(
     let admitted = dimensions.map(|size| (size >> bias).max(1) as u16);
     let mips = (0..=tile.ilog2())
         .map(|level| {
-            let (rgba8, [width, height]) =
-                assets::legacy_terrain_mip(&texture.rgba8, dimensions, level + bias).ok()?;
+            let (rgba8, [width, height]) = if level == 0 && bias == 0 {
+                (texture.rgba8.clone(), dimensions)
+            } else {
+                assets::legacy_terrain_mip(&texture.rgba8, dimensions, level + bias).ok()?
+            };
             let size = tile >> level;
             Some(assets::TextureMip {
                 size,

@@ -9,7 +9,8 @@ use crate::ActorRigVertex;
 
 /// Extrudes an RGBA8 sprite into a slab centred on the origin: the longer side spans one unit,
 /// the slab is one texel thick, and each edge quad samples its own texel. `uv_rect` is the
-/// sprite's `[u0, v0, u1, v1]` region of its texture layer. `None` for a malformed pixel buffer;
+/// sprite's `[u0, v0, u1, v1]` region of its texture layer. `None` for malformed pixels or
+/// geometry exceeding the shared retained-storage budget;
 /// a fully transparent sprite still gets its (discarded) faces.
 #[must_use]
 pub fn extruded_sprite_vertices(
@@ -21,6 +22,8 @@ pub fn extruded_sprite_vertices(
     if width == 0 || height == 0 || rgba8.len() != width.checked_mul(height)?.checked_mul(4)? {
         return None;
     }
+    let max_vertices = crate::MAX_ACTOR_RIG_VERTICES
+        .min(assets::texture::policy::MAX_SUBSCRIBER_BYTES / std::mem::size_of::<ActorRigVertex>());
     let opaque = |column: isize, row: isize| {
         column >= 0
             && row >= 0
@@ -98,6 +101,9 @@ pub fn extruded_sprite_vertices(
             for (neighbour_opaque, normal, xs, ys) in edges {
                 if neighbour_opaque {
                     continue;
+                }
+                if vertices.len() + 6 > max_vertices {
+                    return None;
                 }
                 let corners = [
                     [xs[0], ys[0], half_depth],
@@ -270,6 +276,28 @@ mod tests {
     use super::{extruded_sprite_vertices, held_sprite_vertices};
 
     const FULL: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
+
+    #[test]
+    fn dense_hd_transparency_cannot_expand_into_unbounded_geometry() {
+        let side = 512;
+        let pixels = (0..side * side)
+            .flat_map(|index| {
+                [
+                    255,
+                    73,
+                    91,
+                    if (index % side + index / side) % 2 == 0 {
+                        255
+                    } else {
+                        0
+                    },
+                ]
+            })
+            .collect::<Vec<_>>();
+        assert!(extruded_sprite_vertices(side, side, &pixels, FULL).is_none());
+        assert!(held_sprite_vertices(side, side, &pixels, FULL).is_none());
+        assert!(extruded_sprite_vertices(side, side, &opaque(side, side), FULL).is_some());
+    }
 
     fn opaque(width: usize, height: usize) -> Vec<u8> {
         vec![255; width * height * 4]

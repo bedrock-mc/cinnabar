@@ -109,6 +109,10 @@ fn block_cube(assets: &RuntimeAssets, mode: NetworkIdMode, id: u32) -> Option<Dr
             return None;
         }
         let bytes = (size * size * 4) as usize;
+        if bytes.checked_mul(BlockFace::ALL.len())? > assets::texture::policy::MAX_SUBSCRIBER_BYTES
+        {
+            return None;
+        }
         let start = material.texture.layer() as usize * bytes;
         faces.push(Arc::from(mip.rgba8.get(start..start + bytes)?));
         tints[index] = tint_rgba(material.flags);
@@ -175,6 +179,7 @@ fn template_model(
     let mut quads = Vec::new();
     let mut materials = Vec::new();
     let mut material_indices = HashMap::new();
+    let mut pixel_bytes = 0;
     loop {
         let template = assets.model_templates().get(template_id as usize)?;
         let first = template.quad_start as usize;
@@ -196,6 +201,10 @@ fn template_model(
                     return None;
                 }
                 let bytes = (size * size * 4) as usize;
+                pixel_bytes += bytes;
+                if pixel_bytes > assets::texture::policy::MAX_SUBSCRIBER_BYTES {
+                    return None;
+                }
                 let first = material.texture.layer() as usize * bytes;
                 let index = materials.len() as u32;
                 materials.push((
@@ -272,7 +281,13 @@ impl DroppedItemPublisher<'_, '_> {
             || Some(1),
             || {
                 // Icons that are not ready yet are retried on the next frame.
-                let pixels = icons.item_sprite(identifier, metadata, MAX_ITEM_SPRITE_SIDE)?;
+                let pixels = icons.item_sprite(
+                    identifier,
+                    metadata,
+                    assets::texture::policy::device_policy()
+                        .max_side()
+                        .min(MAX_ITEM_SPRITE_SIDE),
+                )?;
                 let sprite = DroppedItemSprite {
                     width: pixels.width,
                     height: pixels.height,

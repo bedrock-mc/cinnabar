@@ -8,12 +8,18 @@ use std::{
 
 use assets::RuntimeParticleAssets;
 
+/// Default atlas dimension; pack preparation may grow it within the device policy.
 pub const ATLAS_SIDE: u32 = 1024;
-/// Rows below this belong to the dynamic tile region.
-const STATIC_ROWS: u32 = 512;
+/// Dynamic terrain slots retain the same row budget when the static atlas grows.
+const DYNAMIC_ROWS: u32 = ATLAS_SIDE / 2;
+#[cfg(test)]
+const STATIC_ROWS: u32 = ATLAS_SIDE - DYNAMIC_ROWS;
 pub const TILE_SLOT: u32 = 16;
+#[cfg(test)]
 const SLOTS_PER_ROW: u32 = ATLAS_SIDE / TILE_SLOT;
+#[cfg(test)]
 const SLOT_ROWS: u32 = (ATLAS_SIDE - STATIC_ROWS) / TILE_SLOT;
+#[cfg(test)]
 pub(super) const MAX_SLOTS: usize = (SLOTS_PER_ROW * SLOT_ROWS) as usize;
 
 /// A texture's pixel rectangle in the atlas.
@@ -23,13 +29,14 @@ pub struct Placement {
     pub y: u32,
     pub width: u32,
     pub height: u32,
+    atlas_side: u32,
 }
 
 impl Placement {
     /// Normalized `(u, v, u_size, v_size)`.
     #[must_use]
     pub fn normalized(self) -> [f32; 4] {
-        let side = ATLAS_SIDE as f32;
+        let side = self.atlas_side as f32;
         [
             self.x as f32 / side,
             self.y as f32 / side,
@@ -51,6 +58,7 @@ pub struct AtlasPatch {
 }
 
 pub struct ParticleAtlas {
+    side: u32,
     pixels: Vec<u8>,
     base: Option<Arc<[u8]>>,
     patches: HashMap<usize, AtlasPatch>,
@@ -65,6 +73,7 @@ pub struct ParticleAtlas {
 impl Default for ParticleAtlas {
     fn default() -> Self {
         Self {
+            side: ATLAS_SIDE,
             pixels: vec![0; (ATLAS_SIDE * ATLAS_SIDE * 4) as usize],
             base: None,
             patches: HashMap::new(),
@@ -82,7 +91,22 @@ impl ParticleAtlas {
     /// Packs every texture in the carrier; oversized ones that no longer fit are skipped.
     #[must_use]
     pub fn from_assets(assets: &RuntimeParticleAssets) -> Self {
-        let mut atlas = Self::default();
+        let order = ordered_textures(assets.textures());
+        let policy = assets::texture::policy::device_policy();
+        let max_side = policy.max_side();
+        let mut side = ATLAS_SIDE;
+        while !static_textures_fit(&order, side) {
+            let next = side * 2;
+            if next > max_side || policy.page_bytes(next, next).is_none() {
+                break;
+            }
+            side = next;
+        }
+        let mut atlas = Self {
+            side,
+            pixels: vec![0; (side * side * 4) as usize],
+            ..Self::default()
+        };
         // A white texel at the origin backs untextured or missing-texture particles.
         atlas.blit(0, 0, 1, 1, &[255, 255, 255, 255]);
         atlas.placements.insert(
@@ -92,19 +116,18 @@ impl ParticleAtlas {
                 y: 0,
                 width: 1,
                 height: 1,
+                atlas_side: side,
             },
         );
-        let mut order: Vec<_> = assets.textures().iter().collect();
-        order.sort_by(|a, b| (b.height, b.width, &a.path).cmp(&(a.height, a.width, &b.path)));
         let (mut x, mut y, mut shelf) = (2u32, 0u32, 1u32);
         for texture in order {
             let (w, h) = (texture.width, texture.height);
-            if x + w + 1 > ATLAS_SIDE {
+            if x + w + 1 > side {
                 x = 0;
                 y += shelf + 1;
                 shelf = 0;
             }
-            if y + h > STATIC_ROWS || w > ATLAS_SIDE {
+            if y + h > atlas.static_rows() || w > side {
                 continue;
             }
             atlas.blit(x, y, w, h, &texture.rgba8);
@@ -115,6 +138,7 @@ impl ParticleAtlas {
                     y,
                     width: w,
                     height: h,
+                    atlas_side: side,
                 },
             );
             x += w + 1;
@@ -122,6 +146,22 @@ impl ParticleAtlas {
         }
         atlas.base = Some(Arc::from(atlas.pixels.as_slice()));
         atlas
+    }
+
+    /// Physical atlas dimension used by placements and the GPU upload.
+    #[must_use]
+    pub fn side(&self) -> u32 {
+        self.side
+    }
+
+    /// Static sources end before the reserved terrain tile rows.
+    fn static_rows(&self) -> u32 {
+        self.side - DYNAMIC_ROWS
+    }
+
+    /// Dynamic slot count derived from the current atlas width and reserved rows.
+    fn max_slots(&self) -> usize {
+        ((self.side / TILE_SLOT) * (DYNAMIC_ROWS / TILE_SLOT)) as usize
     }
 
     /// The static-region snapshot uploaded once; the dynamic region starts empty.
@@ -160,6 +200,7 @@ impl ParticleAtlas {
             y: 0,
             width: 1,
             height: 1,
+            atlas_side: self.side,
         }
     }
 
@@ -172,11 +213,12 @@ impl ParticleAtlas {
     pub(super) fn set_live_placements(&mut self, placements: impl Iterator<Item = Placement>) {
         self.pinned.clear();
         for placement in placements {
-            if placement.y >= STATIC_ROWS
+            if placement.y >= self.static_rows()
                 && placement.width == TILE_SLOT
                 && placement.height == TILE_SLOT
             {
-                let slot = ((placement.y - STATIC_ROWS) / TILE_SLOT * SLOTS_PER_ROW
+                let slot = ((placement.y - self.static_rows()) / TILE_SLOT
+                    * (self.side / TILE_SLOT)
                     + placement.x / TILE_SLOT) as usize;
                 self.pinned.insert(slot);
             }
@@ -196,7 +238,7 @@ impl ParticleAtlas {
             entry.1 = self.tick;
             entry.0
         } else {
-            let slot = if self.next_slot < MAX_SLOTS {
+            let slot = if self.next_slot < self.max_slots() {
                 self.next_slot += 1;
                 self.next_slot - 1
             } else {
@@ -240,17 +282,19 @@ impl ParticleAtlas {
 
     fn slot_placement(&self, slot: usize) -> Placement {
         let slot = slot as u32;
+        let slots_per_row = self.side / TILE_SLOT;
         Placement {
-            x: (slot % SLOTS_PER_ROW) * TILE_SLOT,
-            y: STATIC_ROWS + (slot / SLOTS_PER_ROW) * TILE_SLOT,
+            x: (slot % slots_per_row) * TILE_SLOT,
+            y: self.static_rows() + (slot / slots_per_row) * TILE_SLOT,
             width: TILE_SLOT,
             height: TILE_SLOT,
+            atlas_side: self.side,
         }
     }
 
     fn blit(&mut self, x: u32, y: u32, w: u32, h: u32, rgba: &[u8]) {
         for row in 0..h {
-            let dest = (((y + row) * ATLAS_SIDE + x) * 4) as usize;
+            let dest = (((y + row) * self.side + x) * 4) as usize;
             let src = (row * w * 4) as usize;
             self.pixels[dest..dest + (w * 4) as usize]
                 .copy_from_slice(&rgba[src..src + (w * 4) as usize]);
@@ -258,9 +302,75 @@ impl ParticleAtlas {
     }
 }
 
+/// Checks the complete static layout before optional artwork replaces retained sources.
+pub fn particle_textures_fit<'a>(
+    textures: impl IntoIterator<Item = &'a assets::ParticleTexture>,
+    policy: assets::texture::policy::TexturePolicy,
+) -> bool {
+    let Some(exponent) = policy.max_side().checked_ilog2() else {
+        return false;
+    };
+    let side = 1 << exponent;
+    side >= ATLAS_SIDE
+        && policy.page_bytes(side, side).is_some()
+        && static_textures_fit(&ordered_textures(textures), side)
+}
+
+/// Keeps planning and actual packing in the same deterministic shelf order.
+fn ordered_textures<'a>(
+    textures: impl IntoIterator<Item = &'a assets::ParticleTexture>,
+) -> Vec<&'a assets::ParticleTexture> {
+    let mut order: Vec<_> = textures.into_iter().collect();
+    order.sort_by(|a, b| (b.height, b.width, &a.path).cmp(&(a.height, a.width, &b.path)));
+    order
+}
+
+/// Checks a shelf layout without allocating a larger atlas or copying source pixels.
+fn static_textures_fit(textures: &[&assets::ParticleTexture], side: u32) -> bool {
+    let (mut x, mut y, mut shelf) = (2u32, 0u32, 1u32);
+    for texture in textures {
+        let (width, height) = (texture.width, texture.height);
+        if width == 0 || height == 0 || width > side || height > side - DYNAMIC_ROWS {
+            return false;
+        }
+        if x + width + 1 > side {
+            x = 0;
+            y += shelf + 1;
+            shelf = 0;
+        }
+        if y + height > side - DYNAMIC_ROWS {
+            return false;
+        }
+        x += width + 1;
+        shelf = shelf.max(height);
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn static_admission_accounts_for_reserved_rows_and_combined_shelves() {
+        let policy = assets::texture::policy::TexturePolicy::for_device(4096);
+        let pixels: Arc<[u8]> = vec![255; 2049 * 2000 * 4].into();
+        let textures = ["textures/a", "textures/b"].map(|path| assets::ParticleTexture {
+            path: path.into(),
+            width: 2049,
+            height: 2000,
+            rgba8: Arc::clone(&pixels),
+        });
+        assert!(particle_textures_fit(&textures[..1], policy));
+        assert!(!particle_textures_fit(&textures, policy));
+        let carrier = assets::encode_particle_catalog([1; 32], &textures[..1], &[]).unwrap();
+        let assets = RuntimeParticleAssets::decode(&carrier).unwrap();
+        assert!(
+            ParticleAtlas::from_assets(&assets)
+                .placement("textures/a")
+                .is_some()
+        );
+    }
 
     #[test]
     fn tiles_are_cached_by_key_and_recycled_when_full() {
@@ -308,5 +418,40 @@ mod tests {
     #[test]
     fn review_render_particle_tile_rejects_overflowing_dimensions() {
         assert!(ParticleAtlas::default().tile(1, 65536, &[]).is_none());
+    }
+
+    #[test]
+    fn hd_particle_source_reaches_the_atlas_with_original_pixels_and_uvs() {
+        let side = 2048;
+        let pixels: Arc<[u8]> = (0..side * side)
+            .flat_map(|i| [if i % 2 == 0 { 255 } else { 0 }, 73, 91, 255])
+            .collect::<Vec<_>>()
+            .into();
+        let texture = assets::ParticleTexture {
+            path: "textures/particle/particles".into(),
+            width: side,
+            height: side,
+            rgba8: Arc::clone(&pixels),
+        };
+        let carrier = assets::encode_particle_catalog([1; 32], &[texture], &[]).unwrap();
+        let assets = RuntimeParticleAssets::decode(&carrier).unwrap();
+        let mut atlas = ParticleAtlas::from_assets(&assets);
+        let placement = atlas.placement("textures/particle/particles").unwrap();
+        assert_eq!([placement.width, placement.height], [side; 2]);
+        assert_eq!(
+            placement.normalized()[2..],
+            [side as f32 / atlas.side() as f32; 2]
+        );
+        for row in [0, side - 1] {
+            let start = (((placement.y + row) * atlas.side() + placement.x) * 4) as usize;
+            let source = (row * side * 4) as usize;
+            assert_eq!(
+                &atlas.pixels()[start..start + (side * 4) as usize],
+                &pixels[source..source + (side * 4) as usize]
+            );
+        }
+        let tile = atlas.tile(1, 16, &[9; 16 * 16 * 4]).unwrap();
+        assert!(tile.y >= placement.y + placement.height);
+        assert!(atlas.base().len() <= assets::texture::policy::MAX_SUBSCRIBER_BYTES);
     }
 }

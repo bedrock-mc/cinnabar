@@ -163,8 +163,8 @@ pub use actor::{
     ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
     MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
 };
-pub use actor::{ActorGlint, GlintTexture, ITEM_GLINT_UV_SCALE};
 pub use actor::{ActorSkinResidency, ResidentSkin, pack_skin_slot};
+pub use actor::{GlintTexture, ITEM_GLINT_UV_SCALE};
 pub use block_entity::BeaconModel;
 pub use block_entity::ConduitModel;
 pub use block_entity::CrystalBeamModel;
@@ -207,8 +207,8 @@ pub use celestial::{
 pub use dropped_item::ItemMeshVertex;
 pub use dropped_item::{
     DroppedItemInstance, DroppedItemModel, MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES,
-    MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE, TerrainItemInstance, TerrainItemTransition, WHITE_LAYER,
-    dropped_item_transform,
+    MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE, MIN_ITEM_ATLAS_SIDE, TerrainItemInstance,
+    TerrainItemTransition, WHITE_LAYER, dropped_item_transform,
 };
 pub use dropped_item::{DroppedItemShape, DroppedItemSpawnPose, native_dropped_item_transform};
 pub use dropped_item::{rope_color, rope_point, rope_ribbon};
