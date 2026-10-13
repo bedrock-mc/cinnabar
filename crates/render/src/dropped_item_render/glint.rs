@@ -19,7 +19,7 @@ use super::{GpuItemInstance, ItemGpu};
 
 /// Uploaded foil artwork and its immutable pixel identity for retained reuse.
 pub(super) struct UploadedGlint {
-    pub(super) texture: Texture,
+    pub(super) _texture: Texture,
     pub(super) view: TextureView,
     pub(super) pixels: Option<Arc<[u8]>>,
     /// Original raster dimensions, before device fitting.
@@ -105,7 +105,7 @@ pub(super) fn upload(
     );
     let view = texture.create_view(&TextureViewDescriptor::default());
     gpu.glint = Some(UploadedGlint {
-        texture,
+        _texture: texture,
         view,
         pixels,
         source_size: size,

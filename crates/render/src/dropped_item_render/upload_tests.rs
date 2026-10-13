@@ -637,7 +637,7 @@ fn reshaped_dropped_glint_reuploads_shared_pixels_and_retains_unchanged_shapes()
             [0.0; 3],
         );
         glint::upload(&scene, &device, &queue, &mut gpu);
-        let texture = &gpu.glint.as_ref().unwrap().texture;
+        let texture = &gpu.glint.as_ref().unwrap()._texture;
         let size = [texture.width(), texture.height()];
         assert_eq!(size, [u32::from(width), u32::from(height)]);
         if let Some((previous_size, id)) = previous {
@@ -668,13 +668,13 @@ fn oversized_dropped_glint_is_fitted_and_unchanged_uploads_are_retained() {
     glint::upload(&scene, &device, &queue, &mut gpu);
     let uploaded = gpu.glint.as_ref().unwrap();
     assert_eq!(
-        [uploaded.texture.width(), uploaded.texture.height()],
+        [uploaded._texture.width(), uploaded._texture.height()],
         [limit, 1]
     );
     assert!(Arc::ptr_eq(uploaded.pixels.as_ref().unwrap(), &pixels));
-    let id = uploaded.texture.id();
+    let id = uploaded._texture.id();
     let allocations = test_alloc::thread_allocations();
     glint::upload(&scene, &device, &queue, &mut gpu);
     assert_eq!(test_alloc::thread_allocations() - allocations, 0);
-    assert_eq!(gpu.glint.as_ref().unwrap().texture.id(), id);
+    assert_eq!(gpu.glint.as_ref().unwrap()._texture.id(), id);
 }
