@@ -1,5 +1,5 @@
 use super::support::*;
-use pack_compiler::read_pack;
+use pack_compile_input::read_pack;
 
 #[test]
 fn exact_side_caps_and_static_terrain_accessors_fail_closed() {

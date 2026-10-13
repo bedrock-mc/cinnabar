@@ -57,6 +57,8 @@ mkdir -p "$protocol_fixture"
 cp "$project_root/Cargo.toml" "$protocol_fixture/Cargo.toml"
 cp "$project_root/Cargo.lock" "$protocol_fixture/Cargo.lock"
 cp -R "$project_root/app" "$project_root/crates" "$project_root/tools" "$project_root/examples" "$protocol_fixture/"
+mkdir -p "$protocol_fixture/packaging/android"
+cp -R "$project_root/packaging/android/client" "$protocol_fixture/packaging/android/"
 assert_protocol_dependency_provenance "$protocol_fixture"
 
 cp "$protocol_fixture/crates/protocol/Cargo.toml" "$protocol_fixture/protocol.Cargo.toml.clean"

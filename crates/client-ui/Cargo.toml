@@ -23,7 +23,6 @@ simulation-clock = { path = "../simulation-clock" }
 launcher-host = { path = "../launcher-host" }
 bridge = { path = "../bridge" }
 anyhow.workspace = true
-arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
 assets = { path = "../assets" }
 chunk-pipeline = { path = "../chunk-pipeline" }
 client-world = { path = "../client-world" }
@@ -57,6 +56,10 @@ rayon.workspace = true
 tokio.workspace = true
 resource-pack = { path = "../resource-pack" }
 
+# Android has no clipboard adapter yet; its chat copy and paste report unavailable.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
+
 [dev-dependencies]
 test-alloc = { path = "../test-alloc" }
 launcher = { path = "../launcher", features = ["test-support"] }
@@ -71,6 +74,7 @@ protocol = { path = "../protocol", features = ["test-support"] }
 resource-pack = { path = "../resource-pack", features = ["test-support"] }
 mod-host = { path = "../mod-host" }
 pack-compiler = { path = "../pack-compiler" }
+pack-entity-compiler = { path = "../pack-compiler/entity" }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [lints]

@@ -156,7 +156,7 @@ fn parse_choice(value: &Value) -> Option<Choice> {
         return None;
     }
     let tint = match value.get("tint_color") {
-        Some(tint) => Some(pack_compiler::parse_atlas_tint(tint.as_str()?)?),
+        Some(tint) => Some(pack_compile_input::parse_atlas_tint(tint.as_str()?)?),
         None => None,
     };
     Some(Choice {

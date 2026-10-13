@@ -24,7 +24,7 @@ use {
 };
 
 /// Builds a renderer-free world with gameplay overlays available.
-fn fixture_world() -> World {
+pub(super) fn fixture_world() -> World {
     let (_pack, _geometry, entities) = super::super::viewmodel_presentation::hand_fixture();
     let scene =
         render_scene::ActorRenderScene::with_runtime_entity_assets_and_equipment(&entities, &[])

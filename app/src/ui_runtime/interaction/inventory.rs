@@ -10,6 +10,7 @@ use client_shell::menu::settings_options::control_bindings::binding_keyboard_key
 use client_ui::ui_runtime::interaction::dispatch_inventory_key;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 use ui::UiPoint;
+use ui_screens::container_actions::{InventoryCellHit, Widget};
 use {
     client_ui::ui_runtime::{
         UiRuntime,
@@ -92,13 +93,16 @@ pub(super) fn apply_inventory_pointer(
     let screen = InventoryScreen::of_runtime(player_runtime, runtime);
     runtime.observe_inventory_search_focus(player_runtime);
     let Some(position) = window.cursor_position() else {
+        // A cancelled touch withdraws the pointer, so its release closes nothing.
         runtime.set_inventory_pointer_gui(None);
         runtime.screen_state_mut().hover = None;
+        runtime.screen_state_mut().container_close_armed = false;
         return;
     };
     let Ok(point) = UiPoint::new(position.x, position.y) else {
         runtime.set_inventory_pointer_gui(None);
         runtime.screen_state_mut().hover = None;
+        runtime.screen_state_mut().container_close_armed = false;
         return;
     };
     let physical_size = [window.physical_width(), window.physical_height()];
@@ -108,6 +112,30 @@ pub(super) fn apply_inventory_pointer(
     let mod_owned = presentation
         .mod_ui()
         .mod_screens_own([point.x(), point.y()]);
+    if mod_owned || screen == InventoryScreen::Book {
+        runtime.screen_state_mut().container_close_armed = false;
+    }
+    // The screen's close button closes it on a release over the button it was pressed on.
+    // A mod's view hides the container, so the hidden close button must not arm.
+    let on_close = gui
+        .filter(|_| !mod_owned)
+        .and_then(|gui| presentation.engine_container_hit(gui))
+        == Some(InventoryCellHit::Widget(Widget::Close));
+    if primary_pressed {
+        runtime.screen_state_mut().container_close_armed = on_close;
+    }
+    if runtime.screen_state().container_close_armed {
+        if primary_released {
+            runtime.screen_state_mut().container_close_armed = false;
+            if on_close {
+                let _ = runtime.close_inventory(player_runtime);
+                if let Some(focus) = focus.as_deref_mut() {
+                    focus.authorize_screen_return();
+                }
+            }
+        }
+        return;
+    }
     let book_open = runtime.screen_state().book_open;
     let reader_mode = runtime
         .screen_state()
@@ -196,6 +224,9 @@ pub(super) fn apply_inventory_pointer(
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 /// Wheel notches over an engine-drawn screen scroll the view under the pointer.
 pub(super) fn scroll_container(

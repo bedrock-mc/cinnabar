@@ -52,6 +52,7 @@ client-ui = { path = "../client-ui", features = ["test-support"] }
 ui-engine = { path = "../ui-engine", features = ["test-support"] }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 pack-compiler = { path = "../pack-compiler" }
+pack-entity-compiler = { path = "../pack-compiler/entity" }
 chunk-pipeline = { path = "../chunk-pipeline", features = ["publication-test-support"] }
 
 [lints]

@@ -582,10 +582,12 @@ mod tests {
     fn declared_readers_and_their_dependents_are_affected() {
         let mut packages = workspace();
         packages.push(
-            Package::new("pack-compiler", "crates/pack-compiler", &[]).with_reads(vec![
-                "crates/protocol/data/retail_items_1_26_50.tsv".into(),
-                "crates/meshing/fixtures/*".into(),
-            ]),
+            Package::new("pack-entity-compiler", "crates/pack-compiler/entity", &[]).with_reads(
+                vec![
+                    "crates/protocol/data/retail_items_1_26_50.tsv".into(),
+                    "crates/meshing/fixtures/*".into(),
+                ],
+            ),
         );
         packages.push(Package::new("protocol", "crates/protocol", &[]));
         assert_eq!(
@@ -593,7 +595,7 @@ mod tests {
                 &["crates/protocol/data/retail_items_1_26_50.tsv"],
                 &packages
             ),
-            Selection::Packages(vec!["pack-compiler".into(), "protocol".into()])
+            Selection::Packages(vec!["pack-entity-compiler".into(), "protocol".into()])
         );
         assert_eq!(
             select_packages(&["crates/protocol/data/other.tsv"], &packages),
@@ -617,7 +619,7 @@ mod tests {
             Selection::Packages(vec![
                 "cinnabar".into(),
                 "meshing".into(),
-                "pack-compiler".into(),
+                "pack-entity-compiler".into(),
                 "render".into(),
             ])
         );
@@ -629,6 +631,17 @@ mod tests {
             Package::new("outer", "tools", &[]),
             Package::new("inner", "tools/devtool", &[]),
         ];
+        let compilers = vec![
+            Package::new("pack-compiler", "crates/pack-compiler", &[]),
+            Package::new("pack-entity-compiler", "crates/pack-compiler/entity", &[]),
+        ];
+        assert_eq!(
+            select_packages(
+                &["crates/pack-compiler/entity/tests/it/actor.rs"],
+                &compilers
+            ),
+            Selection::Packages(vec!["pack-entity-compiler".into()])
+        );
         assert_eq!(
             select_packages(&["tools/devtool/src/main.rs"], &packages),
             Selection::Packages(vec!["inner".into()])

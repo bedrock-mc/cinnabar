@@ -19,6 +19,7 @@ use ui_engine::{
         pack_catalog::CarrierRestore,
         screen::{CustomRenderer, PaintError, PaintFrame, ScreenRegistry},
     },
+    frame::EngineFrame,
 };
 
 use crate::hud_renderers::{HudPaint, HudRenderer, HungerAnimation};
@@ -164,14 +165,14 @@ impl HudScreens {
         data
     }
 
-    /// Paints the HUD screen, or its crosshair overlay; `frame`'s renderers draw ahead of the
-    /// HUD's native and item renderers.
+    /// Paints the HUD screen, or its crosshair overlay, returning its laid-out frame; `frame`'s
+    /// renderers draw ahead of the HUD's native and item renderers.
     pub fn paint(
         &mut self,
         engine: &FormEngine,
         input: HudInput<'_>,
         frame: &mut PaintFrame<'_>,
-    ) -> Result<(), PaintError> {
+    ) -> Result<Option<EngineFrame>, PaintError> {
         let HudInput {
             crosshair,
             catalog,
@@ -219,7 +220,7 @@ impl HudScreens {
             })
         };
         frame.renderers = caller;
-        drawn.map(|_| ())
+        drawn
     }
 
     /// This frame's fade clocks.

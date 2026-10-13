@@ -11,7 +11,7 @@ pub(super) fn geometry_catalog(
     view: &LayeredPackView,
     wanted: &HashSet<&str>,
 ) -> HashMap<String, Geometry> {
-    geometry_catalog_with_budget(view, wanted, pack_compiler::MAX_PACK_ENTITY_BYTES)
+    geometry_catalog_with_budget(view, wanted, pack_entity_compiler::MAX_PACK_ENTITY_BYTES)
 }
 
 /// Compiles requested models within the caller's total read budget.

@@ -73,6 +73,26 @@ fn declined_consent_quits_without_running_anything() {
     assert!(!consent_marker(&layout).exists());
 }
 
+/// Headless setup asks once and quits on a decline without recording consent.
+#[test]
+fn headless_setup_quits_when_consent_is_declined() {
+    let data = Dir::new("headless-decline");
+    let layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/cinnabar");
+    let asked = Cell::new(0);
+    let outcome = prepare_headless(
+        &layout,
+        &AtomicBool::new(false),
+        |_, _| {
+            asked.set(asked.get() + 1);
+            false
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!((outcome, asked.get()), (Outcome::Quit, 1));
+    assert!(!consent_marker(&layout).exists());
+}
+
 #[test]
 fn recorded_consent_to_the_same_terms_is_not_asked_again() {
     let data = Dir::new("consent");
