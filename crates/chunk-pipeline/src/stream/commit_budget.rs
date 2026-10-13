@@ -85,6 +85,7 @@ impl WorldStream {
         let mut heavy_guaranteed =
             self.poll_deadline.is_none() || (self.polling && self.poll_heavy_guarantee);
         loop {
+            self.start_admitted_level_chunk_requests();
             // Without local physics the server position scopes retention; a committed
             // teleport, respawn or dimension change can hand it back mid-pass. An offloaded
             // frame poll leaves heavy chunk data to the service unless a ready mutation,
@@ -174,6 +175,7 @@ impl WorldStream {
     /// Releases a request reservation only when the lower owner finishes the whole event.
     fn finish_ordered_commit(&mut self, sequence: u64) {
         if self.order.finish_commit(sequence) {
+            self.cancel_admitted_level_chunk_request(sequence);
             self.cancel_request_reservation(sequence);
         }
     }

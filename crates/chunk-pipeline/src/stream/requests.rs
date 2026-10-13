@@ -4,6 +4,7 @@ use super::*;
 /// eviction reconcile against.
 #[derive(Default)]
 pub(super) struct SubChunkRequests {
+    pub(super) level_chunks: BTreeMap<u64, request_admission::AdmittedRequest>,
     pub(super) queue: RequestQueue,
     pub(super) requested: HashMap<ChunkKey, PendingSubChunkColumn>,
     pub(super) collision_failures: HashSet<ChunkKey>,

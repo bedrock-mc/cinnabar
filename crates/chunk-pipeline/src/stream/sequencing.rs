@@ -671,12 +671,21 @@ impl WorldStream {
             }
         };
         let (biomes, block_entities) = decoded;
+        let early = sequence
+            .and_then(|sequence| self.requests.level_chunks.get(&sequence))
+            .is_some_and(|request| request.started);
         if self.authority.terrain().biome_column_matches(key, &biomes) {
             self.loaded_columns.remove(&key);
             self.requests.collision_failures.remove(&key);
-            self.requests.purge_columns(&BTreeSet::from([key]));
+            if !early {
+                self.requests.purge_columns(&BTreeSet::from([key]));
+            }
         } else {
-            self.evict_column(key);
+            if early {
+                self.evict_column_data(BTreeSet::from([key]));
+            } else {
+                self.evict_column(key);
+            }
         }
         self.diagnose_request_column(&event);
         let biome_dirty = self.authority.commit_biome_column(key, biomes);
@@ -696,7 +705,12 @@ impl WorldStream {
             return;
         }
         self.refresh_block_entity_visuals_for_chunk(key);
-        self.enqueue_request(key, range.base_sub_chunk_y, count, sequence);
+        if !early {
+            self.enqueue_request(key, range.base_sub_chunk_y, count, sequence);
+        }
+        if let Some(sequence) = sequence {
+            self.requests.level_chunks.remove(&sequence);
+        }
         if has_authoritative_upper_air {
             let first_air_y = range
                 .base_sub_chunk_y

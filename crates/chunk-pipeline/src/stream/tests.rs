@@ -973,6 +973,7 @@ mod actor_light;
 mod audio_events;
 #[path = "tests/camera_events.rs"]
 mod camera_events;
+mod request_admission;
 mod cases_01;
 mod cases_02;
 mod cases_03;

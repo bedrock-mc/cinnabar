@@ -60,6 +60,12 @@ impl WorldStream {
     /// Retires authority in one pass, then releases packed column allocations off-thread.
     /// Work scales with the retired columns and their neighbours, not with the whole view.
     pub(super) fn evict_columns(&mut self, columns: BTreeSet<ChunkKey>) {
+        self.requests.purge_columns(&columns);
+        self.evict_column_data(columns);
+    }
+
+    /// Retires column data while retaining requests already issued for its replacement.
+    pub(super) fn evict_column_data(&mut self, columns: BTreeSet<ChunkKey>) {
         if columns.is_empty() {
             return;
         }
@@ -71,7 +77,6 @@ impl WorldStream {
             self.requests.collision_failures.remove(&column);
         }
         self.block_entity_visuals.remove_chunks(&columns);
-        self.requests.purge_columns(&columns);
         let mut changed = self.resident_keys_in_columns(&columns);
         let removing_all = changed.len() == self.resident.len();
         for &column in &columns {

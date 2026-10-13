@@ -491,7 +491,7 @@ fn inline_level_chunk_decodes_full_dimension_biomes_independent_of_block_count()
 }
 
 #[test]
-fn request_level_chunk_decodes_biomes_before_enqueuing_sub_chunk_requests() {
+fn request_level_chunk_requests_before_decode_then_commits_biomes_in_order() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -511,7 +511,7 @@ fn request_level_chunk_decodes_biomes_before_enqueuing_sub_chunk_requests() {
         .unwrap();
 
     assert_eq!(stream.pending_decode.len(), 1);
-    assert!(stream.take_requests().is_empty());
+    assert_eq!(stream.take_requests().len(), 1);
 
     complete_pending_decode_jobs(&mut stream);
 
@@ -529,7 +529,7 @@ fn request_level_chunk_decodes_biomes_before_enqueuing_sub_chunk_requests() {
             .biome_id(SubChunkKey::new(0, 0, 19, 0), 0, 0, 0),
         Some(9)
     );
-    assert_eq!(stream.take_requests().len(), 1);
+    assert!(stream.take_requests().is_empty());
 }
 
 #[test]

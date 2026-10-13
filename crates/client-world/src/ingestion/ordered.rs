@@ -221,6 +221,26 @@ impl OrderedCommitState {
         Ok(())
     }
 
+    /// Allows preparation side effects only after all earlier conflicting mutations finish.
+    /// Missing sequences and barriers fence preparation just as they fence commits.
+    #[must_use]
+    pub fn preparation_is_unblocked(&self, sequence: u64, couple_position: bool) -> bool {
+        let Some(target) = self.entries.get(&sequence) else {
+            return false;
+        };
+        let mut earlier = EarlierEvents::default();
+        let mut expected = self.frontier;
+        for (&prior, entry) in self.entries.range(self.frontier..sequence) {
+            if prior != self.finished_through(expected).saturating_add(1) {
+                earlier.add_unknown();
+            }
+            earlier.add(&entry.footprint, couple_position);
+            expected = prior.saturating_add(1);
+        }
+        sequence == self.finished_through(expected).saturating_add(1)
+            && !earlier.blocks(&target.footprint, couple_position)
+    }
+
     fn full(&self, sequence: u64) -> WorldStreamError {
         WorldStreamError::AdmissionFull {
             sequence,

@@ -695,7 +695,7 @@ fn deferred_request_events_reserve_outbound_capacity_at_admission() {
             .unwrap();
     }
 
-    // Reservations fill the outbound FIFO, so the next request-creating column defers.
+    // Ready requests fill the outbound FIFO, so the next request-creating column defers.
     stream
         .submit(
             66,
@@ -709,7 +709,10 @@ fn deferred_request_events_reserve_outbound_capacity_at_admission() {
         )
         .unwrap();
     assert_eq!(stream.order.deferred_count(), 1);
-    assert_eq!(stream.pending_request_count(), 62);
+    assert_eq!(
+        stream.pending_request_count(),
+        super::OUTBOUND_REQUEST_CAPACITY
+    );
 
     complete_pending_decode_jobs(&mut stream);
     assert_eq!(

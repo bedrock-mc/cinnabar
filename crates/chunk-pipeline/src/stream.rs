@@ -79,6 +79,7 @@ mod publication;
 mod publication_test_support;
 mod request_queue;
 mod requests;
+mod request_admission;
 mod residency;
 mod resource_reload;
 pub use resource_reload::ResourceMeshSnapshot;

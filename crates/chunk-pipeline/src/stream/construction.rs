@@ -379,6 +379,7 @@ impl WorldStream {
                     return Ok(());
                 };
                 let ids = self.decode_ids(event.dimension);
+                self.admit_level_chunk_request(sequence, &event, range);
                 self.enqueue_decode_job(DecodeJob::RequestLevelChunk {
                     sequence,
                     payload: level_chunk_payload
