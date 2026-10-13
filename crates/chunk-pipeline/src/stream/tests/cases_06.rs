@@ -7,7 +7,7 @@ fn riding_stream() -> WorldStream {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     })
 }
@@ -118,7 +118,7 @@ fn local_attributes_commit_without_requiring_a_local_actor_spawn() {
         local_player_runtime_id: 42,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let health = ActorAttribute {
@@ -161,7 +161,7 @@ fn stale_dimension_local_attributes_do_not_commit_to_the_hud() {
         local_player_runtime_id: 42,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
 
@@ -301,7 +301,7 @@ fn local_movement_authority_commits_in_fifo_order_and_accepts_zero_updates() {
         local_player_runtime_id: 42,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream
@@ -346,7 +346,7 @@ fn movement_authority_skips_wrong_actor_dimension_and_invalid_values_then_clears
         local_player_runtime_id: 42,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     for (sequence, dimension, runtime_id, current) in [
@@ -405,7 +405,7 @@ fn local_effect_commits_to_movement_control_and_ui_together() {
         local_player_runtime_id: 42,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let effect = protocol::ActorEffectEvent {
@@ -446,7 +446,7 @@ fn remote_or_wrong_dimension_effect_does_not_reach_local_movement() {
         local_player_runtime_id: 42,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     for (sequence, runtime_id, dimension) in [(1, 7, 0), (2, 42, 1)] {
@@ -480,7 +480,7 @@ fn stale_mesh_completion_cannot_replace_current_revision() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 0, -4, 0);
@@ -502,7 +502,7 @@ fn stale_mesh_completion_cannot_replace_current_revision() {
     let old_revision = stream.mark_dirty_exact(key, Instant::now());
     let current_revision = stream.mark_dirty_exact(key, Instant::now());
     stream.mesh_jobs.in_flight.insert(key, old_revision);
-    let classifier = BlockClassifier::new(12_530);
+    let classifier = BlockClassifier::new(protocol_ids::SEQUENTIAL_AIR_NETWORK_ID);
     let mesh = mesh_sub_chunk(
         &classifier,
         stream.runtime_assets(),
@@ -545,7 +545,7 @@ fn mesh_dispatch_never_exceeds_the_bounded_worker_window() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 0, -4, 0);
@@ -586,7 +586,7 @@ fn mesh_removals_are_not_blocked_by_a_full_worker_window() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let removed = SubChunkKey::new(0, 0, -4, 0);
@@ -613,7 +613,7 @@ fn removal_waits_for_source_authority_and_carries_its_zero_byte_permit() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let allowance = super::PublicationAllowance::new(super::PublicationServiceConfig::DEFAULT);
@@ -663,7 +663,7 @@ fn removal_heavy_mesh_work_prioritizes_real_meshes_and_respects_poll_budget() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let real = SubChunkKey::new(0, 100, -4, 0);
@@ -743,17 +743,25 @@ fn final_block_removal_latency_waits_for_exact_applied_acknowledgement() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 0, -4, 0);
     stream
         .authority
-        .update_block(key, BlockUpdate::new(0, 0, 0, 0, 99), 12_530)
+        .update_block(
+            key,
+            BlockUpdate::new(0, 0, 0, 0, 99),
+            protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+        )
         .unwrap();
     stream
         .authority
-        .update_block(key, BlockUpdate::new(0, 0, 0, 0, 12_530), 12_530)
+        .update_block(
+            key,
+            BlockUpdate::new(0, 0, 0, 0, protocol_ids::SEQUENTIAL_AIR_NETWORK_ID),
+            protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+        )
         .unwrap();
     let dirty_since = Instant::now();
     stream.mark_dirty_exact(key, dirty_since);
@@ -795,7 +803,7 @@ fn cave_bfs_traverses_a_known_all_air_node_between_rendered_chunks() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let left = SubChunkKey::new(0, -1, 0, 0);
@@ -891,7 +899,7 @@ fn inline_zero_storage_is_a_graph_node_until_column_eviction() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let chunk = ChunkKey::new(0, 2, -3);
@@ -939,7 +947,7 @@ fn explicit_all_air_result_is_counted_as_a_resident_graph_node() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(1, -8, 3, 12);
@@ -974,7 +982,7 @@ fn connectivity_generation_changes_only_when_the_graph_changes() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 2, -1, 4);
@@ -999,7 +1007,7 @@ fn surface_spawn_waits_for_level_chunk_commit_and_treats_omitted_top_as_air() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let chunk = ChunkKey::new(0, 2, -3);
@@ -1066,7 +1074,7 @@ fn actor_ingestion_is_fifo_visible_without_dirtying_chunk_meshes() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let before = stream.stats();
@@ -1114,7 +1122,7 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream

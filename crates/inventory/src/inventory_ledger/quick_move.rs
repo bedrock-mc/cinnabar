@@ -12,13 +12,13 @@ use super::item_roles;
 use super::registry::{OccupiedStackRelation, entry_capacity};
 use super::{InventoryGestureError, PlayerInventoryLedger};
 
-/// A furnace quick-move decision and the item facts it was made from.
+/// A quick-move input decision and the item facts it was made from.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct FurnaceRoute {
+pub(super) struct QuickMoveRoute {
     window: WindowKind,
     network_id: i32,
     metadata: u32,
-    /// The furnace slot chosen; `None` returned the stack within the player inventory.
+    /// The chosen input slot; `None` used the window's fallback destinations.
     slot: Option<u8>,
 }
 
@@ -107,9 +107,9 @@ impl PlayerInventoryLedger {
             || self.quick_move_candidates(source, &from, permits_storage),
             <[Cell]>::to_vec,
         );
-        let furnace_route = destinations
+        let quick_move_route = destinations
             .is_none()
-            .then(|| self.furnace_route(source, &from.stack))
+            .then(|| self.quick_move_route(source, &from.stack))
             .flatten();
         let item_capacity = self
             .negotiated_item_entry(from.stack.network_id)
@@ -197,7 +197,7 @@ impl PlayerInventoryLedger {
             .iter_mut()
             .find(|pending| pending.request_id == request_id)
         {
-            pending.furnace_route = furnace_route;
+            pending.quick_move_route = quick_move_route;
         }
         Ok(request_id)
     }
@@ -209,19 +209,41 @@ impl PlayerInventoryLedger {
         })
     }
 
-    /// The furnace routing a quick move of `stack` out of the player inventory reads.
-    fn furnace_route(&self, source: Cell, stack: &NetworkItemStack) -> Option<FurnaceRoute> {
+    /// Retains input routing facts for a quick move out of the player inventory.
+    fn quick_move_route(&self, source: Cell, stack: &NetworkItemStack) -> Option<QuickMoveRoute> {
         let Cell::Inventory(_) = source else {
             return None;
         };
-        let window = self
-            .quick_move_window()
-            .filter(|kind| crate::furnace_recipes::kind(*kind).is_some())?;
-        Some(FurnaceRoute {
+        self.quick_move_input_route(self.quick_move_window()?, stack.network_id, stack.metadata)
+    }
+
+    /// Resolves an input route, including fallback, or no route for other window kinds.
+    fn quick_move_input_route(
+        &self,
+        window: WindowKind,
+        network_id: i32,
+        metadata: u32,
+    ) -> Option<QuickMoveRoute> {
+        let slot = if crate::furnace_recipes::kind(window).is_some() {
+            self.furnace_slot(window, network_id, metadata)
+        } else {
+            let entry = self.negotiated_item_entry(network_id);
+            match window {
+                WindowKind::Horse => entry
+                    .and_then(|entry| item_roles::horse_slot(&entry.identifier, &entry.item_tags)),
+                WindowKind::Loom => entry
+                    .and_then(|entry| item_roles::loom_slot(&entry.identifier, &entry.item_tags)),
+                WindowKind::Smithing => entry.and_then(|entry| {
+                    item_roles::smithing_slot(&entry.identifier, &entry.item_tags)
+                }),
+                _ => return None,
+            }
+        };
+        Some(QuickMoveRoute {
             window,
-            network_id: stack.network_id,
-            metadata: stack.metadata,
-            slot: self.furnace_slot(window, stack.network_id, stack.metadata),
+            network_id,
+            metadata,
+            slot,
         })
     }
 
@@ -234,14 +256,15 @@ impl PlayerInventoryLedger {
         (fuel.eligible() == Some(true)).then(|| u8::from(fuel.ingredient_first() != Some(true)))
     }
 
-    /// Retires quick moves whose recipe or fuel facts now route them to another slot.
-    pub(super) fn retire_rerouted_furnace_moves(&mut self) {
+    /// Retires quick moves whose recipe, fuel or item tags now route them elsewhere.
+    pub(super) fn retire_rerouted_quick_moves(&mut self) {
         let rerouted: Vec<i32> = self
             .queue
             .iter()
             .filter(|pending| {
-                pending.furnace_route.is_some_and(|route| {
-                    self.furnace_slot(route.window, route.network_id, route.metadata) != route.slot
+                pending.quick_move_route.is_some_and(|route| {
+                    self.quick_move_input_route(route.window, route.network_id, route.metadata)
+                        != Some(route)
                 })
             })
             .map(|pending| pending.request_id)
@@ -333,6 +356,9 @@ impl PlayerInventoryLedger {
         network_id: i32,
         metadata: u32,
     ) -> Vec<Cell> {
+        let input_slot = self
+            .quick_move_input_route(kind, network_id, metadata)
+            .and_then(|route| route.slot);
         let storage = |range: std::ops::Range<u8>| -> Vec<Cell> {
             range
                 .map(Cell::Storage)
@@ -352,26 +378,27 @@ impl PlayerInventoryLedger {
             | WindowKind::Dropper
             | WindowKind::Hopper
             | WindowKind::Crafter => storage(0..u8::MAX),
-            WindowKind::Furnace | WindowKind::BlastFurnace | WindowKind::Smoker => self
-                .furnace_slot(kind, network_id, metadata)
-                .map_or_else(Vec::new, |slot| storage(slot..slot + 1)),
+            WindowKind::Furnace | WindowKind::BlastFurnace | WindowKind::Smoker => {
+                input_slot.map_or_else(Vec::new, |slot| storage(slot..slot + 1))
+            }
             WindowKind::Brewing => item_roles::brewing_slots(id)
                 .iter()
                 .map(|slot| Cell::Storage(*slot))
                 .filter(|cell| self.confirmed.contains(*cell))
                 .collect(),
-            WindowKind::Horse => match item_roles::horse_slot(id) {
+            WindowKind::Horse => match input_slot {
                 Some(slot) => storage(slot..slot + 1),
                 None => storage(2..u8::MAX),
             },
             WindowKind::Anvil => ui(&[1, 2]),
             WindowKind::Enchanting => ui(&[if item_roles::is_lapis(id) { 15 } else { 14 }]),
             WindowKind::Beacon if item_roles::is_beacon_payment(id) => ui(&[27]),
-            WindowKind::Loom => item_roles::loom_slot(id).map_or_else(Vec::new, |slot| ui(&[slot])),
             WindowKind::Grindstone => ui(&[16, 17]),
             WindowKind::Stonecutter => ui(&[3]),
             WindowKind::Cartography => ui(&[item_roles::cartography_slot(id)]),
-            WindowKind::Smithing => ui(&[item_roles::smithing_slot(id)]),
+            WindowKind::Loom | WindowKind::Smithing => {
+                input_slot.map_or_else(Vec::new, |slot| ui(&[slot]))
+            }
             WindowKind::Beacon | WindowKind::Workbench | WindowKind::Lectern => Vec::new(),
         }
     }

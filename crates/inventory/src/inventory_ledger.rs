@@ -48,6 +48,8 @@ mod overlay_tests;
 mod personal;
 mod queue;
 mod quick_move;
+#[cfg(test)]
+mod quick_move_role_tests;
 mod registry;
 #[cfg(test)]
 mod request_tests;
@@ -92,10 +94,10 @@ const MAX_PENDING_CLOSES: usize = 8;
 /// The decoded generic-storage container name
 /// (`protocol::CONTAINER_NAME_LEVEL_ENTITY`).
 pub const GENERIC_STORAGE_SLOT_TYPE: u8 = protocol::CONTAINER_NAME_LEVEL_ENTITY;
-pub const GENERIC_STORAGE_WINDOW_TYPE: i8 = 0;
+pub const GENERIC_STORAGE_WINDOW_TYPE: i8 = protocol_ids::WindowType::Container.wire_value();
 /// The crafting-table window; its 3x3 grid lives in UI slots 32..=40.
-pub const WORKBENCH_WINDOW_TYPE: i8 = 1;
-pub const PERSONAL_INVENTORY_WINDOW_TYPE: i8 = -1;
+pub const WORKBENCH_WINDOW_TYPE: i8 = protocol_ids::WindowType::Workbench.wire_value();
+pub const PERSONAL_INVENTORY_WINDOW_TYPE: i8 = protocol_ids::WindowType::Inventory.wire_value();
 pub const SMALL_STORAGE_SLOT_COUNT: usize = 27;
 pub const LARGE_STORAGE_SLOT_COUNT: usize = 54;
 /// Maximum opt-in storage-content identity diagnostics emitted per ledger

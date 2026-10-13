@@ -2,9 +2,12 @@
 
 use std::{collections::BTreeMap, fmt::Write as _, sync::Arc};
 
+use bedrock_protocol_1_26_51::enums::CommandPermissionLevel;
 use bedrock_protocol_1_26_51::packets::AvailableCommands;
 use bedrock_protocol_1_26_51::wire;
 use thiserror::Error;
+
+use protocol_ids::{CommandArgFlag, CommandArgType};
 
 use super::{
     ChatAutocompleteAction, ChatAutocompleteEvent, MAX_CHAT_AUTOCOMPLETE,
@@ -18,10 +21,10 @@ const SELECTORS: [&str; 6] = ["@a", "@e", "@n", "@p", "@r", "@s"];
 const ALL_PLAYERS_MENTION: &str = "@here";
 
 // Parameter type word layout: flag bits over a table index or basic type id.
-const ARG_ENUM: u32 = 0x20_0000;
-const ARG_SOFT_ENUM: u32 = 0x400_0000;
-const ARG_CHAINED: u32 = 0x800_0000;
-const ARG_ENUM_INDEX_MASK: u32 = 0xF_FFFF;
+const ARG_ENUM: u32 = CommandArgFlag::Enum.wire_value();
+const ARG_SOFT_ENUM: u32 = CommandArgFlag::SoftEnum.wire_value();
+const ARG_CHAINED: u32 = CommandArgType::ChainedCommand.wire_value();
+const ARG_ENUM_INDEX_MASK: u32 = CommandArgFlag::Valid.wire_value() - 1;
 const ARG_BASIC_MASK: u32 = 0xFFFF;
 const PARAM_OPTION_COLLAPSE_ENUM: u8 = 1;
 
@@ -69,17 +72,23 @@ pub struct CommandTreeEvent {
 
 type NamedValues = (Arc<str>, Arc<[Arc<str>]>);
 
+#[cfg(test)]
+mod id_tests;
+
+/// Resolves the permission name to the generated wire permission level.
 fn permission_level(name: &str) -> u8 {
     match name {
-        "gamedirectors" => 1,
-        "admin" => 2,
-        "host" => 3,
-        "owner" => 4,
-        "internal" => 5,
-        _ => 0,
+        "gamedirectors" => CommandPermissionLevel::Gamedirectors,
+        "admin" => CommandPermissionLevel::Admin,
+        "host" => CommandPermissionLevel::Host,
+        "owner" => CommandPermissionLevel::Owner,
+        "internal" => CommandPermissionLevel::Internal,
+        _ => CommandPermissionLevel::Any,
     }
+    .to_raw()
 }
 
+/// Reduces known wire parameter types to the shapes used by completion.
 fn param_kind(word: u32, enums: &[NamedValues], soft: &[NamedValues]) -> CommandParamKind {
     let index = (word & ARG_ENUM_INDEX_MASK) as usize;
     if word & ARG_ENUM != 0 {
@@ -100,13 +109,24 @@ fn param_kind(word: u32, enums: &[NamedValues], soft: &[NamedValues]) -> Command
     if word & ARG_CHAINED != 0 {
         return CommandParamKind::Rest;
     }
-    // Basic ids follow gophertunnel's argument-type table.
-    match word & ARG_BASIC_MASK {
-        1 | 5 => CommandParamKind::Int,
-        3 => CommandParamKind::Float,
-        8..=11 => CommandParamKind::Target,
-        64 | 65 => CommandParamKind::Position,
-        67 | 70 | 71 | 74 => CommandParamKind::Rest,
+    match CommandArgType::from_wire(word & ARG_BASIC_MASK) {
+        Some(CommandArgType::Int | CommandArgType::WildcardInt) => CommandParamKind::Int,
+        Some(CommandArgType::Float) => CommandParamKind::Float,
+        Some(
+            CommandArgType::Target
+            | CommandArgType::StandaloneTarget
+            | CommandArgType::WildcardTarget
+            | CommandArgType::NonIDTarget,
+        ) => CommandParamKind::Target,
+        Some(CommandArgType::BlockPosition | CommandArgType::Position) => {
+            CommandParamKind::Position
+        }
+        Some(
+            CommandArgType::Message
+            | CommandArgType::RawText
+            | CommandArgType::TextContinuation
+            | CommandArgType::JSON,
+        ) => CommandParamKind::Rest,
         _ => CommandParamKind::Word,
     }
 }
