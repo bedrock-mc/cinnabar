@@ -242,30 +242,34 @@ pub fn tile_box_faces([min, max]: [[f32; 3]; 2]) -> [[[f32; 3]; 4]; 6] {
     ]
 }
 
-/// The texture suffix for a shulker-box block name such as `minecraft:silver_shulker_box`.
+/// Every shulker box's texture suffix, which is also its block name's colour stem.
+pub const SHULKER_COLORS: [&str; 17] = [
+    "undyed",
+    "white",
+    "orange",
+    "magenta",
+    "light_blue",
+    "yellow",
+    "lime",
+    "pink",
+    "gray",
+    "silver",
+    "cyan",
+    "purple",
+    "blue",
+    "brown",
+    "green",
+    "red",
+    "black",
+];
+
+/// The texture suffix for a shulker-box block name such as `minecraft:silver_shulker_box`;
+/// `light_gray` names the `silver` texture.
 #[must_use]
 pub fn shulker_color_from_block_name(name: &str) -> Option<&'static str> {
     let stem = name
         .strip_prefix("minecraft:")?
         .strip_suffix("_shulker_box")?;
-    Some(match stem {
-        "undyed" => "undyed",
-        "white" => "white",
-        "orange" => "orange",
-        "magenta" => "magenta",
-        "light_blue" => "light_blue",
-        "yellow" => "yellow",
-        "lime" => "lime",
-        "pink" => "pink",
-        "gray" => "gray",
-        "silver" | "light_gray" => "silver",
-        "cyan" => "cyan",
-        "purple" => "purple",
-        "blue" => "blue",
-        "brown" => "brown",
-        "green" => "green",
-        "red" => "red",
-        "black" => "black",
-        _ => return None,
-    })
+    let stem = if stem == "light_gray" { "silver" } else { stem };
+    SHULKER_COLORS.iter().copied().find(|color| *color == stem)
 }

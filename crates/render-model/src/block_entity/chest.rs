@@ -28,7 +28,25 @@ pub enum ChestVariant {
 }
 
 impl ChestVariant {
-    fn texture(self, double: bool) -> String {
+    /// The variant a chest block draws as, waxed copper as its unwaxed age; `None` for other
+    /// blocks, including the ender chest, which its own block entity selects.
+    #[must_use]
+    pub fn from_block_name(block_name: &str) -> Option<Self> {
+        let name = block_name.strip_prefix("minecraft:")?;
+        let name = name.strip_prefix("waxed_").unwrap_or(name);
+        Some(match name {
+            "chest" => Self::Normal,
+            "trapped_chest" => Self::Trapped,
+            "copper_chest" => Self::Copper(CopperAge::Unaffected),
+            "exposed_copper_chest" => Self::Copper(CopperAge::Exposed),
+            "weathered_copper_chest" => Self::Copper(CopperAge::Weathered),
+            "oxidized_copper_chest" => Self::Copper(CopperAge::Oxidized),
+            _ => return None,
+        })
+    }
+
+    /// Returns the pack-relative texture path for this chest layout.
+    pub(super) fn texture(self, double: bool) -> String {
         let stem = match self {
             Self::Normal => "normal",
             Self::Trapped => "trapped",
@@ -97,7 +115,8 @@ pub(super) fn emit(
             [128.0, 64.0],
         ),
     };
-    let Some(texture) = atlas.texture(&model.variant.texture(double), logical) else {
+    let Some(texture) = builder.required_texture(atlas, &model.variant.texture(double), logical)
+    else {
         return;
     };
     let base = model_matrix(block, center, model.facing.yaw_degrees());

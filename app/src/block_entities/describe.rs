@@ -8,9 +8,9 @@ use std::sync::Arc;
 
 use render_model::{
     BannerLayer, BannerModel, BannerMount, BedModel, BellAttachment, BlockEntityKind, ChestModel,
-    ChestPair, ChestVariant, CopperAge, DecoratedPotModel, Facing,
-    ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel, Oxidation, ShulkerModel, SignMount,
-    SkullKind, SkullModel, SkullMount, StatueModel, StatuePose, bed_color, sherd_pattern,
+    ChestPair, ChestVariant, DecoratedPotModel, Facing, ITEM_FRAME_ROTATION_STEP_DEGREES,
+    ItemFrameModel, Oxidation, ShulkerModel, SignMount, SkullKind, SkullModel, SkullMount,
+    StatueModel, StatuePose, bed_color, sherd_pattern,
 };
 use world::NbtCompound;
 
@@ -136,20 +136,6 @@ fn held_item(stack: &NbtCompound) -> Option<HeldItem> {
             .integer("Damage")
             .and_then(|damage| u32::try_from(damage).ok())
             .unwrap_or(0),
-    })
-}
-
-fn chest_variant(block_name: &str) -> Option<ChestVariant> {
-    let name = block_name.strip_prefix("minecraft:")?;
-    let name = name.strip_prefix("waxed_").unwrap_or(name);
-    Some(match name {
-        "chest" => ChestVariant::Normal,
-        "trapped_chest" => ChestVariant::Trapped,
-        "copper_chest" => ChestVariant::Copper(CopperAge::Unaffected),
-        "exposed_copper_chest" => ChestVariant::Copper(CopperAge::Exposed),
-        "weathered_copper_chest" => ChestVariant::Copper(CopperAge::Weathered),
-        "oxidized_copper_chest" => ChestVariant::Copper(CopperAge::Oxidized),
-        _ => return None,
     })
 }
 
@@ -283,7 +269,7 @@ pub(super) fn describe(
     }
     match id {
         "Chest" => Some(Template::Chest(ChestModel {
-            variant: chest_variant(block_name)?,
+            variant: ChestVariant::from_block_name(block_name)?,
             facing: facing(state).unwrap_or(Facing::North),
             pair: chest_pair(position, nbt),
             lid: 0.0,
@@ -413,6 +399,7 @@ pub(super) fn describe(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use render_model::block_entity::CopperAge;
 
     /// A retained plant with typed NBT states, independent of inventory item metadata.
     fn potted_nbt(name: &str, states: NbtCompound) -> NbtCompound {

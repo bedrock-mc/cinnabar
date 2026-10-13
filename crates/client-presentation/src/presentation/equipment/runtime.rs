@@ -9,7 +9,8 @@ use assets::{
 use bevy::prelude::Resource;
 use render_model::{
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, BlockEntityAtlas, EquipmentRaster, SkullKind, skull_geometry,
+    ActorRigSubmission, BlockEntityAtlas, EquipmentRaster, SkullKind,
+    block_entity::HeldBlockEntity, skull_geometry,
 };
 use render_model::{
     ActorRigGeometry, EntityRigId, RenderBoneTransform, equipment_rig_id, find_geometry_index,
@@ -23,6 +24,7 @@ mod combat;
 mod diagnostics;
 mod dials;
 mod elytra;
+mod held_block_entities;
 mod java;
 mod modern;
 mod pack;
@@ -115,6 +117,9 @@ pub struct EquipmentRuntime {
     pending: Vec<ActorRigGeometry>,
     /// Worn head geometry and texture location per skull kind.
     skulls: BTreeMap<u8, (EntityRigId, ActorArtworkLocation)>,
+    /// Held model rigs, artwork locations and texture-local glint spans.
+    held_block_entities: crate::prepared_actor_artwork::PreparedHeldBlockEntities,
+    startup_held_block_entities: crate::prepared_actor_artwork::PreparedHeldBlockEntities,
     item_use: Arc<BTreeMap<Box<str>, u32>>,
     use_overlays: Arc<BTreeMap<Box<str>, assets::equipment::CompiledItemUseOverlay>>,
     /// The startup catalog's use durations, before session items join them.
@@ -167,7 +172,7 @@ impl EquipmentRuntime {
                 by_visual: BTreeMap::new(),
                 models: BTreeMap::new(),
             },
-            |world| render_model::equipment::blocks::collect(world, &assets),
+            |world| render_model::equipment::blocks::collect_held(world, &assets, &icons),
         );
         if let Some(world) = world.as_deref() {
             blocks.prefer_carried_faces(world, &icons);
@@ -255,6 +260,8 @@ impl EquipmentRuntime {
                 }
             }
         }
+        let held_block_entities = held_block_entities::build(skull_atlas.as_ref(), skull_location);
+        pending.extend(held_block_entities.geometries.iter().cloned());
         let mut geometries = catalog
             .iter()
             .flat_map(|catalog| catalog.bindings())
@@ -339,6 +346,8 @@ impl EquipmentRuntime {
             catalog,
             pending,
             skulls,
+            startup_held_block_entities: held_block_entities.clone(),
+            held_block_entities,
             pack: None,
             logged_misses: Default::default(),
             poses: PoseMemo::default(),

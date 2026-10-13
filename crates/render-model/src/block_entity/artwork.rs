@@ -26,9 +26,15 @@ pub struct BlockEntityArtworkPreparer {
 #[derive(Clone, Debug)]
 pub struct PreparedBlockEntityArtwork {
     pub(super) atlas: BlockEntityAtlas,
+    held: Arc<super::held::PreparedHeldBlockModels>,
 }
 
 impl PreparedBlockEntityArtwork {
+    /// Shares held geometry prepared from these exact static pixels and placements.
+    pub fn held_models(&self) -> &super::held::PreparedHeldBlockModels {
+        &self.held
+    }
+
     /// Returns the immutable atlas built on the preparation worker.
     pub fn atlas(&self) -> &BlockEntityAtlas {
         &self.atlas
@@ -65,7 +71,8 @@ impl BlockEntityArtworkPreparer {
         }
         let mut atlas = BlockEntityAtlas::from_assets(assets);
         atlas.append_textures(&self.textures);
-        Some(PreparedBlockEntityArtwork { atlas })
+        let held = Arc::new(super::held::PreparedHeldBlockModels::new(&atlas));
+        Some(PreparedBlockEntityArtwork { atlas, held })
     }
 }
 

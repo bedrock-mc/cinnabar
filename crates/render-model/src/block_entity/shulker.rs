@@ -43,7 +43,8 @@ pub(super) fn emit(
     block: [i32; 3],
     model: &ShulkerModel,
 ) {
-    let Some(texture) = atlas.texture(
+    let Some(texture) = builder.required_texture(
+        atlas,
         &geometry::shulker_texture(model.color),
         geometry::SHULKER_TEXTURE_SIZE,
     ) else {

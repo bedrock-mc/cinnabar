@@ -1364,7 +1364,16 @@ acceptance gate.
   custom cubes keep both sides until their alpha mode reaches the mesh build.
 - Regressions reproduce the previous gameplay-flag, alpha and missing-sheet failures.
 - Rebuilt macOS/Metal frames show cube geometry; the user confirmed the live fix.
-- Non-cube, animated and high-resolution carried geometry parity remains open.
+- Non-cube block items the inventory draws in 3D (slabs, stairs, fences, walls, anvils) hold
+  as the same template geometry, from the state their inventory model shows; items the
+  inventory draws flat (torches, plants, panes) keep their sprite.
+- Chests (normal, trapped, ender and copper), shulker boxes, decorated pots and conduits hold
+  as their placed block-entity models, closed and centred. Provisional: their held facing and
+  the native item renderer's pose for them are unmeasured. Banners still hold as sprites;
+  beds are sprites in vanilla too.
+- Held block-entity artwork follows the prepared resource-pack generation and restores startup
+  bindings after disconnect. Missing pot base or side artwork retains the sprite fallback.
+- Animated and high-resolution carried geometry parity remains open.
 - Vanilla rules: [held block items](docs/reference/held-block-items.md).
 
 ## Scaled name tags
