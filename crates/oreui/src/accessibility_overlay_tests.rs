@@ -29,6 +29,100 @@ fn with_frame<T>(
 }
 
 #[test]
+fn extra_large_death_keeps_both_actions_inside_small_windows() {
+    for size in [ui::MIN_WINDOW_LOGICAL_SIZE, [400.0, 250.0], [752.0, 500.0]] {
+        for dpi in [1.0, 2.0] {
+            for enabled in [0, 1] {
+                for hardcore in [false, true] {
+                    for reason in ["", "A long death reason that wraps across several lines. "] {
+                        let mut view = MenuView::new(true, "Fixture".into());
+                        view.screen = MenuScreen::Death;
+                        view.death_reason = reason.repeat(12);
+                        view.death_presentation.hardcore = hardcore;
+                        Arc::make_mut(&mut view.settings_options)
+                            .set(option_index(EXTRA_LARGE_UI), enabled);
+                        let metrics = TextMetrics::for_viewport(
+                            size.map(|value| (value * dpi) as u32),
+                            DpiScale::new(dpi).unwrap(),
+                            Some(2),
+                        );
+                        let output = paint(&mut OreUiScreen::default(), &view, metrics, size);
+                        let actions = if hardcore {
+                            [MenuAction::DeathExitWorld, MenuAction::Respawn]
+                        } else {
+                            [MenuAction::Respawn, MenuAction::OpenDeathGameMenu]
+                        };
+                        let mut bottom = 0.0;
+                        for action in actions {
+                            let bounds = output
+                                .hits
+                                .iter()
+                                .find_map(|(at, bounds)| (*at == action).then_some(*bounds))
+                                .expect("settled death actions remain interactive");
+                            assert!(bounds.width() > 0.0 && bounds.height() > 0.0);
+                            assert!(bounds.min().x() >= 0.0 && bounds.min().y() >= bottom);
+                            assert!(
+                                bounds.max().x() <= size[0] && bounds.max().y() <= size[1],
+                                "{action:?}: {bounds:?} at {size:?}, DPI {dpi}, enabled {enabled}"
+                            );
+                            assert_eq!(
+                                output.hits.iter().rev().find_map(|(at, target)| {
+                                    target
+                                        .contains(crate::test_support::centre(bounds))
+                                        .then_some(*at)
+                                }),
+                                Some(action)
+                            );
+                            bottom = bounds.max().y();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn extra_large_death_preserves_roomy_control_and_text_scaling() {
+    for (physical, gui) in [([1280, 720], 2), ([1920, 1080], 4)] {
+        for dpi in [1.0, 2.0] {
+            let size = physical.map(|value| value as f32 / dpi);
+            let metrics =
+                TextMetrics::for_viewport(physical, DpiScale::new(dpi).unwrap(), Some(gui));
+            let mut view = MenuView::new(true, "Fixture".into());
+            view.screen = MenuScreen::Death;
+            let mut screen = OreUiScreen::default();
+            let ordinary = paint(&mut screen, &view, metrics, size);
+            Arc::make_mut(&mut view.settings_options).set(option_index(EXTRA_LARGE_UI), 1);
+            let large = paint(&mut screen, &view, metrics, size);
+            let button = |output: &Painted| {
+                output
+                    .hits
+                    .iter()
+                    .find_map(|(action, bounds)| {
+                        (*action == MenuAction::Respawn).then_some(*bounds)
+                    })
+                    .unwrap()
+            };
+            let factor = (f32::from(gui) + 1.0) / f32::from(gui);
+            assert!((button(&large).height() / button(&ordinary).height() - factor).abs() < 0.001);
+            assert!(
+                (title_height(&large, "YOU DIED!") / title_height(&ordinary, "YOU DIED!") - factor)
+                    .abs()
+                    < 0.01
+            );
+            Arc::make_mut(&mut view.settings_options).set(option_index(EXTRA_LARGE_UI), 0);
+            let restored = paint(&mut screen, &view, metrics, size);
+            assert_eq!(restored.hits, ordinary.hits);
+            assert_eq!(
+                title_height(&restored, "YOU DIED!"),
+                title_height(&ordinary, "YOU DIED!")
+            );
+        }
+    }
+}
+
+#[test]
 fn extra_large_editor_keeps_rename_delete_and_cancel_reachable_in_short_windows() {
     use launcher::dressing_room::{Action, SkinEditor, SkinEditorMode, SkinEditorTarget};
     for size in [
