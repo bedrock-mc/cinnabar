@@ -66,6 +66,23 @@ fn shader_source(source: &str, multisampled: bool) -> String {
                 "var actor_velocity: texture_2d<f32>",
                 "var actor_velocity: texture_multisampled_2d<f32>",
             )
+            .replace(
+                "return textureLoad(actor_velocity, pixel, 0);",
+                r#"var velocity = vec2<f32>(0.0);
+    var covered = 0u;
+    let samples = textureNumSamples(actor_velocity);
+    for (var sample = 0u; sample < samples; sample++) {
+        let motion = textureLoad(actor_velocity, pixel, i32(sample));
+        if motion.z >= 0.5 {
+            velocity += motion.xy;
+            covered += 1u;
+        }
+    }
+    if covered == 0u {
+        return vec4<f32>(0.0);
+    }
+    return vec4<f32>(velocity / f32(covered), 1.0, f32(covered) / f32(samples));"#,
+            )
     } else {
         source.to_owned()
     }

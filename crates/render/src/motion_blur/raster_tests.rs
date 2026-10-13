@@ -100,10 +100,23 @@ impl Raster {
     fn draw_with_motion(
         &self,
         input: &[u8],
+        exposure: ExposureUniform,
+        samples: u32,
+        z: f32,
+        motion: Option<ActorMotion>,
+    ) -> Vec<u8> {
+        self.draw_with_motion_mask(input, exposure, samples, z, motion, !0)
+    }
+
+    /// Writes only selected coverage samples so sample-zero omissions exercise the real fragment.
+    fn draw_with_motion_mask(
+        &self,
+        input: &[u8],
         mut exposure: ExposureUniform,
         samples: u32,
         z: f32,
         motion: Option<ActorMotion>,
+        sample_mask: u64,
     ) -> Vec<u8> {
         exposure.strength.z = if motion.is_some() { 1.0 } else { 0.0 };
         let source = super::shader_source(include_str!("../motion_blur.wgsl"), samples > 1);
@@ -227,7 +240,7 @@ impl Raster {
                 ],
             });
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
-        self.draw_motion(&mut encoder, &actor_view, samples, motion);
+        self.draw_motion(&mut encoder, &actor_view, samples, motion, sample_mask);
         {
             let _clear = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("motion blur fixture depth clear"),
@@ -308,6 +321,7 @@ impl Raster {
         view: &wgpu::TextureView,
         samples: u32,
         motion: Option<ActorMotion>,
+        sample_mask: u64,
     ) {
         let resources = motion.map(|motion| {
             let source = format!(
@@ -353,6 +367,7 @@ impl Raster {
                         depth_stencil: None,
                         multisample: wgpu::MultisampleState {
                             count: samples,
+                            mask: sample_mask,
                             ..Default::default()
                         },
                         multiview_mask: None,
@@ -401,6 +416,33 @@ impl Raster {
             pass.set_scissor_rect(bounds.x, bounds.y, bounds.z, bounds.w);
             pass.draw(0..3, 0..1);
         }
+    }
+}
+
+#[test]
+fn actor_coverage_outside_msaa_sample_zero_does_not_receive_world_translation_blur() {
+    let Some(raster) = Raster::new("partial following actor coverage raster") else {
+        return;
+    };
+    let input = impulse();
+    let uniform = exposure(Mat4::from_translation(Vec3::new(0.5, 0.0, 0.0)));
+    let z = projection().project_point3(Vec3::new(0.0, 0.0, -4.0)).z;
+    for &samples in raster.depth_samples.iter().filter(|&&samples| samples > 1) {
+        let output = raster.draw_with_motion_mask(
+            &input,
+            uniform,
+            samples,
+            z,
+            Some(ActorMotion {
+                velocity: [0.0, 0.0, 1.0, 1.0],
+                bounds: UVec4::new(0, 0, SIDE, SIDE),
+            }),
+            1 << (samples - 1),
+        );
+        assert_eq!(
+            output, input,
+            "actor covered only by the last sample blurred at {samples}x MSAA"
+        );
     }
 }
 

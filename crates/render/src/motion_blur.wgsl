@@ -11,7 +11,8 @@ struct Exposure {
 
 const MIN_BLUR_SPEED: f32 = 0.5;
 
-// Both motion and depth read the same coverage sample on multisampled views.
+// Multisampled views resolve actor motion across covered samples, including silhouette cutouts.
+// Mixed actor/world pixels retain the covered actor's motion instead of smearing its silhouette.
 fn object_motion(pixel: vec2<i32>) -> vec4<f32> {
     if exposure.strength.z <= 0.0 {
         return vec4<f32>(0.0);
