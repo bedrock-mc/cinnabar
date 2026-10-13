@@ -1,6 +1,29 @@
 use ui::{DesktopGuiScale, gui_scale};
 
 #[test]
+fn desktop_defaults_and_percentage_choices_match_common_physical_windows() {
+    for (physical, optimal, choices) in [
+        ([1280, 720], 2, vec![(-1, 50), (0, 100)]),
+        ([1366, 768], 3, vec![(-1, 67), (0, 100)]),
+        ([1920, 1080], 4, vec![(-2, 50), (-1, 75), (0, 100)]),
+        ([2560, 1440], 5, vec![(-2, 60), (-1, 80), (0, 100)]),
+    ] {
+        let desktop = DesktopGuiScale::for_window(physical);
+        assert_eq!(gui_scale(physical, None), optimal, "{physical:?}");
+        assert_eq!(gui_scale(physical, Some(0)), optimal, "{physical:?}");
+        assert_eq!(desktop.scale_for_offset(0), optimal as u8, "{physical:?}");
+        assert_eq!(
+            desktop
+                .choices()
+                .map(|choice| (choice.offset, choice.percentage))
+                .collect::<Vec<_>>(),
+            choices,
+            "{physical:?}"
+        );
+    }
+}
+
+#[test]
 fn desktop_modifier_choices_match_viewport_thresholds() {
     for (physical, optimal, offsets) in [
         ([375, 249], 1, vec![0]),
@@ -35,6 +58,14 @@ fn desktop_modifier_is_relative_to_the_current_optimal_scale() {
     assert_eq!(
         DesktopGuiScale::for_window([1280, 720]).scale_for_offset(-2),
         1
+    );
+    assert_eq!(
+        DesktopGuiScale::for_window([1366, 768]).scale_for_offset(-2),
+        2
+    );
+    assert_eq!(
+        DesktopGuiScale::for_window([2560, 1440]).scale_for_offset(-2),
+        3
     );
 }
 
