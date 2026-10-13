@@ -54,6 +54,7 @@ fn merge_stack(network_id: i32, count: u16, stack_network_id: i32) -> NetworkIte
     }
 }
 
+/// Declares a component apple with the default stack capacity.
 fn apple_registry() -> ItemRegistryEvent {
     ItemRegistryEvent {
         entries: Arc::from([ItemRegistryEntry {
@@ -61,9 +62,13 @@ fn apple_registry() -> ItemRegistryEvent {
             network_id: 6,
             component_based: true,
             version: ItemRegistryVersion::DataDriven,
-            components: None,
+            components: Some(Arc::new(protocol::ItemComponents {
+                max_stack_size: Some(protocol::ITEM_DEFAULT_MAX_STACK_SIZE),
+                item_properties_declared: true,
+                ..protocol::ItemComponents::default()
+            })),
             component_digest: [6; 32],
-            negotiated_max_stack_size: Some(64),
+            negotiated_max_stack_size: Some(protocol::ITEM_DEFAULT_MAX_STACK_SIZE),
             canonical_empty_component_data: false,
             item_tags: std::sync::Arc::from([]),
         }]),

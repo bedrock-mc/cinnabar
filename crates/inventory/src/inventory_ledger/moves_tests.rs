@@ -35,6 +35,7 @@ fn open_ledger(slots: &[(usize, NetworkItemStack)]) -> PlayerInventoryLedger {
     ledger
 }
 
+/// Establishes server-backed player slots and a parsed apple capacity declaration.
 fn known_ledger(slots: &[(usize, NetworkItemStack)]) -> PlayerInventoryLedger {
     let mut ledger = PlayerInventoryLedger::default();
     ledger.begin_session(1);
@@ -45,9 +46,13 @@ fn known_ledger(slots: &[(usize, NetworkItemStack)]) -> PlayerInventoryLedger {
             network_id: 6,
             component_based: true,
             version: ItemRegistryVersion::DataDriven,
-            components: None,
+            components: Some(Arc::new(protocol::ItemComponents {
+                max_stack_size: Some(protocol::ITEM_DEFAULT_MAX_STACK_SIZE),
+                item_properties_declared: true,
+                ..protocol::ItemComponents::default()
+            })),
             component_digest: [6; 32],
-            negotiated_max_stack_size: Some(64),
+            negotiated_max_stack_size: Some(protocol::ITEM_DEFAULT_MAX_STACK_SIZE),
             canonical_empty_component_data: false,
             item_tags: std::sync::Arc::from([]),
         }]
