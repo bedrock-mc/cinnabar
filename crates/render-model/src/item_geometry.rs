@@ -1,11 +1,14 @@
-//! Item-space geometry shared by every item renderer: sprites extruded one texel deep and unit
-//! block cubes, with UVs mapped into a caller-chosen region of its texture layer.
+//! Item-space geometry: centered one-texel sprite slabs, fixed-depth held sprites and unit
+//! block cubes, with UVs mapped into a caller-chosen region of the texture layer.
 //!
 //! Each slab face shows the sprite unmirrored to a viewer on that face's side, so an item reads
 //! correctly from either side. Vertices sit on rig bone 0; `back_uv` is what a viewer behind the
 //! triangle sees.
 
 use crate::ActorRigVertex;
+
+/// Ordinary held-sprite depth after normalizing the longer side to one model unit.
+const HELD_SPRITE_DEPTH: f32 = 1.0 / 16.0;
 
 /// Extrudes an RGBA8 sprite into a slab centred on the origin: the longer side spans one unit,
 /// the slab is one texel thick, and each edge quad samples its own texel. `uv_rect` is the
@@ -126,8 +129,9 @@ pub fn extruded_sprite_vertices(
 }
 
 /// The slab in vanilla's held-item tessellation frame: column `c` at `X = -c`, row `r` at
-/// `Y = height - r` (texels of the longer side spanning one unit) and one texel deep towards
-/// `-Z`. Both faces sample the same texel at a point, so the back reads mirrored, as vanilla's.
+/// `Y = height - r`, divided by the longer side. Depth spans 1/16 model unit towards `-Z`,
+/// independent of sprite resolution. Both faces sample the same texel at a point, so the
+/// back reads mirrored, as vanilla's.
 #[must_use]
 pub fn held_sprite_vertices(
     width: usize,
@@ -136,15 +140,15 @@ pub fn held_sprite_vertices(
     uv_rect: [f32; 4],
 ) -> Option<Vec<ActorRigVertex>> {
     let texel = 1.0 / width.max(height) as f32;
-    let offset = [
-        width as f32 * texel * 0.5,
-        height as f32 * texel * 0.5,
-        -texel * 0.5,
-    ];
+    let offset = [width as f32 * texel * 0.5, height as f32 * texel * 0.5];
     let mut vertices = extruded_sprite_vertices(width, height, rgba8, uv_rect)?;
     for vertex in &mut vertices {
         let [x, y, z] = vertex.position;
-        vertex.position = [-(x + offset[0]), y + offset[1], z + offset[2]];
+        vertex.position = [
+            -(x + offset[0]),
+            y + offset[1],
+            if z > 0.0 { 0.0 } else { -HELD_SPRITE_DEPTH },
+        ];
         vertex.normal[0] = -vertex.normal[0];
         // The +Z face's front UVs and the -Z face's back UVs carry the unmirrored layout.
         if vertex.normal[2] < 0.0 {
@@ -308,7 +312,8 @@ mod tests {
         (0..height)
             .flat_map(|row| {
                 (0..width).flat_map(move |column| {
-                    let (x, y) = (column * 8 / width, row * 8 / width);
+                    let longer = width.max(height);
+                    let (x, y) = (column * 8 / longer, row * 8 / longer);
                     let solid = ((1..7).contains(&x)
                         && (1..7).contains(&y)
                         && !((3..5).contains(&x) && (3..5).contains(&y)))
@@ -341,12 +346,16 @@ mod tests {
     #[test]
     fn held_sprite_depth_and_contour_do_not_change_with_pack_resolution() {
         let region = [0.25, 0.5, 0.5, 0.75];
-        for rectangular in [false, true] {
+        for aspect in [0, 1, 2] {
             let mut reference_areas = None;
             for side in [8, 16, 32, 64] {
-                let height = if rectangular { side / 2 } else { side };
-                let pixels = resolution_fixture(side, height);
-                let vertices = held_sprite_vertices(side, height, &pixels, region).unwrap();
+                let (width, height) = match aspect {
+                    1 => (side, side / 2),
+                    2 => (side / 2, side),
+                    _ => (side, side),
+                };
+                let pixels = resolution_fixture(width, height);
+                let vertices = held_sprite_vertices(width, height, &pixels, region).unwrap();
                 let (mut min, mut max) = ([f32::MAX; 3], [f32::MIN; 3]);
                 for vertex in &vertices {
                     for axis in 0..3 {
@@ -357,24 +366,51 @@ mod tests {
                         let [u, v] = std::array::from_fn(|axis| {
                             (vertex.uv[axis] - region[axis]) / (region[axis + 2] - region[axis])
                         });
-                        let column = (u * side as f32).floor() as usize;
+                        let column = (u * width as f32).floor() as usize;
                         let row = (v * height as f32).floor() as usize;
-                        assert_eq!(pixels[(row * side + column) * 4 + 3], 255);
+                        assert_eq!(pixels[(row * width + column) * 4 + 3], 255);
                         assert_eq!(vertex.uv, vertex.back_uv);
                     }
                     assert_eq!(vertex.glint_origin, [region[0], region[1]]);
                 }
-                assert_eq!(min, [-1.0, 0.0, -1.0 / 16.0], "resolution {side}x{height}");
+                assert_eq!(
+                    min,
+                    [-((width as f32) / side as f32), 0.0, -1.0 / 16.0],
+                    "resolution {width}x{height}"
+                );
                 assert_eq!(max, [0.0, height as f32 / side as f32, 0.0]);
                 let areas = side_areas(&vertices);
                 let reference = *reference_areas.get_or_insert(areas);
                 for (actual, expected) in areas.into_iter().zip(reference) {
                     assert!(
                         (actual - expected).abs() < 1e-6,
-                        "resolution {side}x{height}"
+                        "resolution {width}x{height}"
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn centered_sprite_keeps_source_texel_depth_at_every_resolution() {
+        for side in [8, 16, 32, 64] {
+            let vertices = extruded_sprite_vertices(side, side, &opaque(side, side), FULL).unwrap();
+            let half_depth = 0.5 / side as f32;
+            assert!(
+                vertices
+                    .iter()
+                    .all(|vertex| vertex.position[2].abs() == half_depth)
+            );
+            assert!(
+                vertices
+                    .iter()
+                    .any(|vertex| vertex.position[2] == half_depth)
+            );
+            assert!(
+                vertices
+                    .iter()
+                    .any(|vertex| vertex.position[2] == -half_depth)
+            );
         }
     }
 
