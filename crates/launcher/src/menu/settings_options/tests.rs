@@ -773,21 +773,23 @@ fn native_skybox_offset_defaults_on_and_persists_both_states() {
     }
 }
 
-/// Far terrain defaults on, persists off, and comes back on with a Video reset.
+/// Far terrain takes the shared default, persists the opposite, and returns to the default
+/// with a Video reset.
 #[test]
-fn far_terrain_defaults_on_persists_and_resets() {
+fn far_terrain_takes_its_default_persists_and_resets() {
+    let default = render_api::far_terrain::DEFAULT_ENABLED;
     let mut settings = super::SettingsOptions::decode(b"{}").unwrap();
-    assert!(settings.user_settings().video.far_terrain);
+    assert_eq!(settings.user_settings().video.far_terrain, default);
     let index = super::SETTINGS_OPTIONS
         .iter()
         .position(|option| option.name == super::FAR_TERRAIN_OPTION.name)
         .unwrap();
-    settings.set(index, 0);
+    settings.set(index, i32::from(!default));
     let encoded = serde_json::to_vec(&settings).unwrap();
     let mut loaded = super::SettingsOptions::decode(&encoded).unwrap();
-    assert!(!loaded.user_settings().video.far_terrain);
+    assert_eq!(loaded.user_settings().video.far_terrain, !default);
     loaded.reset_group(super::SettingsGroup::Video);
-    assert!(loaded.user_settings().video.far_terrain);
+    assert_eq!(loaded.user_settings().video.far_terrain, default);
 }
 
 #[test]
