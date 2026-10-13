@@ -239,6 +239,17 @@ server. Acceptance uses externally compiled carriers with production terrain
 consumers; runtime server-pack compilation and reported server-version placement
 remain unverified. No broader parity gate closes.
 
+## Lever terrain geometry
+
+Levers compile separate mounting bases and power-selected pitched handles for
+wall, floor and ceiling states, retaining independent pack materials. Original
+16/32-pixel fixtures cover all registered mounts, power motion, sprite regions,
+face winding, network-ID resolution, malformed selectors and neighboring barrel/
+trapdoor controls. The base uses the cobblestone-wall top source independently of
+the handle sprite. Owning regressions and the focused crate check pass; the
+missing-part regression fails on the previous envelope model.
+Rendered/input acceptance, native-server placement and broader parity remain incomplete.
+
 ## Bubble column terrain geometry
 
 Bubble columns compile separate outer and inner side shells with directional
@@ -2804,6 +2815,14 @@ General actor material propagation and exact per-frame nonlinear Molang remain
 open. Non-glowstone fallback at an already-selected Nether spawn needs retained
 spawn-block authority. No complete visual or interaction parity gate is closed.
 See [vanilla rules](docs/reference/end-crystal-respawn-anchor.md).
+
+2026-10-13 painting rendering is in progress: dedicated painting spawn packets
+retain their motive and wall direction, and static front/border meshes use the
+accepted pack's atlas or individual images. Hanging-picture interaction boxes
+and painting pick requests are implemented. Native-server placement, break and
+pick acceptance, source-bound before/after frames, complete motif coverage and
+painting material/lighting parity remain incomplete. No actor live parity gate
+is closed by CPU tests or carrier preparation.
 
 2026-10-01 arrow entity rendering: native per-face UV defaults now use face
 dimensions, including fractional sizes, instead of a one-by-one texel region.
@@ -8499,9 +8518,10 @@ font alias behavior remain unchanged and need independent verification.
 
 Model texture-array selector coverage is incomplete. Compilation retains typed
 selectors and output ranges for the existing explicit model bindings. Unrecognized
-model arrays stay unresolved instead of guessing from growth or selecting index zero.
-The generic terrain accessor, complete native binding inventory and custom selector
-expressions still need their own admission and coverage work.
+model arrays draw their first entry, as vanilla draws legacy arrays no state selects
+from (stone brick stairs, firefly bushes, stone buttons). The generic terrain
+accessor, complete native binding inventory and custom selector expressions still
+need their own admission and coverage work.
 ## Overlay texture sharding across device-limited arrays
 
 The block overlay uses up to four texture-array pages after the base carrier.
@@ -8599,3 +8619,13 @@ natively too. Until that comparison exists, the counted fallback to the
 base visual is the intended semantic, locked by the connection permutation
 regression. Incomplete: mask compilation, neighbor rule, meshing selection,
 and the native comparison.
+
+## Outline label sizing and alignment
+
+Named outline labels normalize their ascent and descent independently of the bitmap
+font's ink grid. Measurement, painting, line capacity and edit metadata share the
+resolved geometry, while text starts one GUI pixel below the authored top. Distance-field
+labels retain fractional positions, including the origin read by caret metadata. Original
+cap fixtures cover centered titles across raster sizes, GUI scales and DPI.
+Incomplete: matched rendered title size and vertical alignment still require
+verification in the reported server form; these CPU fixtures do not close that gate.
