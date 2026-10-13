@@ -6,7 +6,7 @@ use resource_pack::{GlobalPackLibrary, LibraryError, ValidatedPackStack};
 use std::{path::PathBuf, sync::Arc};
 
 pub(super) enum Command {
-    MinecraftImport(launcher_host::minecraft_import::Request),
+    MinecraftImport(Box<launcher_host::minecraft_import::Request>),
     Action { action: Action, revision: u64 },
     Import(PathBuf),
     Commit(Vec<resource_pack::ActivePack>),
@@ -15,7 +15,7 @@ pub(super) enum Event {
     MinecraftImportStatus(String),
     MinecraftImport(
         launcher::minecraft_import::Snapshot,
-        Option<launcher_host::minecraft_import::UserState>,
+        Option<Box<launcher_host::minecraft_import::UserState>>,
     ),
     Snapshot(Snapshot),
     Apply(Arc<ValidatedPackStack>, Vec<resource_pack::ActivePack>),
@@ -28,6 +28,8 @@ pub(super) struct Worker {
     pub snapshot: Snapshot,
     pub awaiting: Option<(u64, Vec<resource_pack::ActivePack>)>,
     pub minecraft_import_pending: bool,
+    /// The menu admits one request until the worker publishes its result.
+    pub minecraft_import_request: Option<launcher::minecraft_import::Action>,
 }
 
 impl Worker {
@@ -42,6 +44,7 @@ impl Worker {
             snapshot: Snapshot::default(),
             awaiting: None,
             minecraft_import_pending: false,
+            minecraft_import_request: None,
         }
     }
 
@@ -55,9 +58,15 @@ impl Worker {
         &mut self,
         request: launcher_host::minecraft_import::Request,
     ) -> bool {
-        self.commands
-            .send(Command::MinecraftImport(request))
-            .is_ok()
+        let action = request.action;
+        let sent = self
+            .commands
+            .send(Command::MinecraftImport(Box::new(request)))
+            .is_ok();
+        if sent {
+            self.minecraft_import_request = Some(action);
+        }
+        sent
     }
 }
 
@@ -140,7 +149,7 @@ fn run(
             Command::MinecraftImport(request) => {
                 let (outcome, changed) = import_minecraft_data(
                     &mut minecraft_import,
-                    request,
+                    *request,
                     &mut library,
                     &mut snapshot,
                     refresh_icons,
@@ -150,7 +159,10 @@ fn run(
                     import_commit_pending = Some(library.active().to_vec());
                     let _ = outgoing.send(Event::Apply(stack, library.active().to_vec()));
                 }
-                let _ = outgoing.send(Event::MinecraftImport(outcome.snapshot, outcome.state));
+                let _ = outgoing.send(Event::MinecraftImport(
+                    outcome.snapshot,
+                    outcome.state.map(Box::new),
+                ));
                 snapshot.message.clear();
                 Ok(())
             }
@@ -424,3 +436,6 @@ fn act(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod disconnect_tests;

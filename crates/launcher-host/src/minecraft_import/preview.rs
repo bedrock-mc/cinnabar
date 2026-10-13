@@ -1,7 +1,7 @@
 //! Bounded user-data reads and preparation; these run only after explicit consent.
 
 use super::{UserState, locations::Source};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use launcher::minecraft_import::{options, servers};
 use resource_pack::{GlobalPackLibrary, ParsedGlobalSelection, PreparedImport};
 use std::{

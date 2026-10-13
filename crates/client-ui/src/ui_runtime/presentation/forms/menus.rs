@@ -23,6 +23,18 @@ use ui_screens::regions::{segments, window_rect};
 
 const MODAL_POPUP: &str = "popup_dialog.modal_dialog_popup";
 
+/// Keeps native modal ownership identical in the normal and fallback menu routes.
+fn has_native_dialog(dialog: Option<launcher::menu::MenuDialog>) -> bool {
+    matches!(
+        dialog,
+        Some(
+            launcher::menu::MenuDialog::Accounts
+                | launcher::menu::MenuDialog::Exit
+                | launcher::menu::MenuDialog::MinecraftImport
+        )
+    )
+}
+
 /// A menu frame's hit targets and, for hover next frame, their region keys.
 type MenuHits = (Vec<(MenuAction, UiRect)>, Vec<(MenuAction, String)>);
 
@@ -78,10 +90,7 @@ impl UiPresentationRuntime {
         let result = match drawn {
             Ok(Some(hits)) => Ok(hits),
             Ok(None) | Err(_) => {
-                let owned_dialog = matches!(
-                    shown.dialog,
-                    Some(launcher::menu::MenuDialog::Accounts | launcher::menu::MenuDialog::Exit)
-                );
+                let owned_dialog = has_native_dialog(shown.dialog);
                 let fallback = owned_dialog.then(|| {
                     let mut view = shown.clone();
                     view.dialog = None;
@@ -463,14 +472,7 @@ impl UiPresentationRuntime {
         } else {
             Some(view.dialog?)
         };
-        if matches!(
-            dialog,
-            Some(
-                launcher::menu::MenuDialog::Accounts
-                    | launcher::menu::MenuDialog::Exit
-                    | launcher::menu::MenuDialog::MinecraftImport
-            )
-        ) {
+        if has_native_dialog(dialog) {
             self.screens.menu_sounds = Vec::new();
             let rollback = (nodes.len(), *next);
             let drawn = if dialog == Some(launcher::menu::MenuDialog::MinecraftImport) {
