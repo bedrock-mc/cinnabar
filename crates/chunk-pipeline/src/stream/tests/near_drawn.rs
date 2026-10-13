@@ -19,6 +19,7 @@ fn columns_are_drawn_once_their_meshes_upload() {
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
     });
+    stream.set_far_terrain_enabled(true);
     stream
         .submit(1, inline_block_entity_event(1, 7, Vec::new()))
         .unwrap();
@@ -86,6 +87,7 @@ fn near_drawn_columns_always_have_published_meshes() {
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
     });
+    stream.set_far_terrain_enabled(true);
     let mut seed = 0x2545_f491_u64;
     let mut next = move |bound: u64| {
         seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
@@ -128,4 +130,39 @@ fn near_drawn_columns_always_have_published_meshes() {
         ever_drawn |= stream.near_drawn_columns().1.next().is_some();
     }
     assert!(ever_drawn, "uploads hand columns to near terrain");
+}
+
+/// With far terrain off nothing is tracked, and turning it on picks up what is on screen.
+#[test]
+fn near_drawn_columns_are_tracked_only_with_far_terrain_on() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 12_530,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .submit(1, inline_block_entity_event(1, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    let column = ChunkKey::new(0, 1, 0);
+    let keys: Vec<SubChunkKey> = stream.resident.column(column).copied().collect();
+    let now = Instant::now();
+    for key in keys {
+        if let Some((revision, since)) = stream
+            .revisions
+            .dirty(key)
+            .map(|dirty| (dirty.revision, dirty.since))
+        {
+            stream.acknowledge_mesh_upload(key, revision, since, now);
+        }
+    }
+    assert!(!drawn(&stream, column));
+    stream.set_far_terrain_enabled(true);
+    assert!(drawn(&stream, column));
+    stream.set_far_terrain_enabled(false);
+    assert!(!drawn(&stream, column));
 }

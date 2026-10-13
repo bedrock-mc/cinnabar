@@ -484,6 +484,15 @@ pub(super) fn prepare_far_terrain_views(
     mut gpu: ResMut<FarTerrainGpu>,
     mut views: FarViews,
 ) {
+    // With nothing to draw no pipeline is compiled and no bind group is made.
+    if gpu.draws.is_empty() {
+        for (.., state) in &mut views {
+            if let Some(mut state) = state {
+                state.visible.clear();
+            }
+        }
+        return;
+    }
     let (Some(uniforms), Some(binding)) = (
         view_uniforms.uniforms.buffer(),
         view_uniforms.uniforms.binding(),
