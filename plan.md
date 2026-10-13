@@ -391,6 +391,8 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - Home, Pause, Play, Inbox, world creation, Accounts and confirmation dialogs use shared OreUI
   panels and controls. Home keeps the shipped title above Play and character cards, with compact
   utility actions and versions from their canonical sources. Commerce actions remain quiet.
+  Home fits short windows without scrolling; Pause scales its controls when needed. Geometry
+  regressions are written; CI and owner visual acceptance of the sizing change remain pending.
 - Persistent Dark Mode defaults off, updates immediately and strengthens backdrop dimming.
   Optional Screen animations controls quick hover/press feedback, selection, glimmers, text edits,
   screen changes, modal exits, pack accordions, scrolling and interpolated loading progress. Selected
