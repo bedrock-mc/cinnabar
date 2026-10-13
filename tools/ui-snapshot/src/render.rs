@@ -30,6 +30,7 @@ pub const CAPTURE_SECONDS: f64 = 1.0;
 static REGISTRY: LazyLock<ScreenRegistry> = LazyLock::new(|| {
     let mut registry = ScreenRegistry::new(ui_screens::menu_screens::retail_context());
     registry.screen(ui_screens::chat_screen::CHAT_SCREEN);
+    ui_screens::hud::register(&mut registry);
     ui_screens::chat_screen::register(&mut registry);
     registry
 });
@@ -230,3 +231,6 @@ pub(crate) fn oreui_screen(first: u16, images: oreui::images::OreUiImages) -> or
     screen.originals = Some(Arc::new(oreui::Originals::new(first, images)));
     screen
 }
+
+#[cfg(test)]
+mod tests;
