@@ -834,6 +834,10 @@ acceptance gate.
   profile takes precedence for view bob, hurt/death motion and glint. Third person: Java's
   biped pose, body yaw, limb swing with the hurt flail, held-item grips, the cape's chasing
   swing and the sneak drops; armour flashes red, held items do not.
+- Local eating and bow draw pair gameplay use ticks with the physics frame fraction;
+  bow artwork reads the same counter. Regression coverage checks frames between ticks,
+  differing actor fractions, stopping use and retained items. Compilation, test execution
+  and rendered motion validation for this correction remain incomplete.
 - Every hurt event immediately resets the limb boost, including consecutive hits; movement
   still contributes to the phase, and death alone does not trigger a flail.
   Fourteen focused hurt tests pass. macOS/Metal captures at 1920×1080, DPI 1, GUI scale 2
@@ -8539,6 +8543,10 @@ Incomplete parity: recipe eligibility and exact pattern-choice styling remain op
 
 ## Entity terrain occlusion and retained block-entity view culling
 
+- Remote player bodies containing the camera are rejected using interpolated, server-scaled
+  body bounds before model sampling and skin, cape, armor or glint preparation. The local
+  avatar keeps its perspective-owned visibility. This guard does not use the larger authored
+  visibility box. Native overlap behavior, rendered-frame and FPS acceptance remain incomplete.
 - Actor bodies and their shadow bounds use bounded, current-terrain exposed-face proofs after
   ordinary view admission. Name tags retain their independent publication. Unknown,
   dirty, unpublished, clipped, transparent or budget-exhausted terrain always draws.

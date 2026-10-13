@@ -12,7 +12,7 @@ fn synced_block_update_is_admitted_from_the_raw_world_lane() {
             y: wire::ZigZag32(64),
             z: wire::ZigZag32(-3),
         },
-        block_runtime_id: wire::VarUInt(crate::SEQUENTIAL_AIR_NETWORK_ID),
+        block_runtime_id: wire::VarUInt(protocol_ids::SEQUENTIAL_AIR_NETWORK_ID),
         flags: wire::VarUInt(3),
         layer: wire::VarUInt(0),
         unique_actor_id: wire::VarULong(u64::MAX - 1),

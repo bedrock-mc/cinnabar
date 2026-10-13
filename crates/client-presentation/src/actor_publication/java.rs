@@ -85,20 +85,46 @@ pub(super) fn java_bow_frame(use_ticks: u32) -> u32 {
     }
 }
 
-/// Java's first-person hand at the frame.
+/// Java's first-person hand, using the physics clock for local item use and the actor clock
+/// for equip progress. Sword blocking keeps the actor's use flag.
 pub(super) fn first_person_hand(
     rig: &ActorRigSnapshot<'_>,
     main: Option<&str>,
     selected: Option<&str>,
     consume_ticks: Option<u32>,
     alpha: f32,
+    item_animation: Option<&actor_animation::AttachableAnimationInput<'_>>,
 ) -> JavaHand {
     let [previous, current] = rig.java.equip;
+    let (use_ticks, use_alpha) = use_clock(rig.hand[1].use_ticks, alpha, item_animation);
     JavaHand {
         swing: rig.java.swing_progress(alpha),
         equip: previous + (current - previous) * alpha,
-        using: main
-            .and_then(|item| java_use(item, selected, rig.hand[1].use_ticks, consume_ticks, alpha)),
+        using: main.and_then(|item| {
+            let ticks = if is_java_sword(item) {
+                rig.hand[1].use_ticks
+            } else {
+                use_ticks
+            };
+            java_use(item, selected, ticks, consume_ticks, use_alpha)
+        }),
+    }
+}
+
+/// Pairs a local use's elapsed ticks with its physics fraction; other uses keep the actor clock.
+fn use_clock(
+    ticks: u32,
+    alpha: f32,
+    input: Option<&actor_animation::AttachableAnimationInput<'_>>,
+) -> (u32, f32) {
+    match input.filter(|input| input.is_local_player) {
+        Some(input) => (
+            input
+                .use_elapsed_ticks
+                .map_or(0, |elapsed| elapsed.saturating_add(1)),
+            render_model::legacy_combat::partial_tick(input.frame_alpha),
+        ),
+        None => (ticks, alpha),
     }
 }
 
@@ -495,7 +521,14 @@ pub(super) fn hand_source(
         .filter(|item| rig.java_equipped.is_some_and(|held| is_held(item, held)))
         .map(|item| item.identifier.as_ref());
     let retained = main.as_ref().map(|item| item.identifier.as_ref());
-    let hand = first_person_hand(&rig, retained, selected, consume_ticks, alpha);
+    let hand = first_person_hand(
+        &rig,
+        retained,
+        selected,
+        consume_ticks,
+        alpha,
+        item_animation.as_ref(),
+    );
     if vanilla_draws(main.as_ref(), equipment_input.off.as_ref(), |identifier| {
         equipment.is_vanilla_attachable(identifier)
     }) {
@@ -534,8 +567,9 @@ pub(super) fn hand_source(
         let attachable =
             (retained == selected && java_draws_attachable(&item.identifier)).then(|| {
                 let mut input = item_animation?;
+                let (use_ticks, _) = use_clock(rig.hand[1].use_ticks, alpha, Some(&input));
                 input.frame_alpha = alpha;
-                input.animation_frame = java_bow_frame(rig.hand[1].use_ticks);
+                input.animation_frame = java_bow_frame(use_ticks);
                 let input = equipment_input.attachable_input(input.for_hand(false));
                 let actor = stream.authority().actor(runtime_id)?;
                 cache.native_pose.apply(&mut inputs);

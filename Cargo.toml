@@ -43,6 +43,7 @@ members = [
     "examples/mods/render-sample",
     "examples/mods/screen-probe",
     "crates/protocol",
+    "crates/protocol-ids",
     "crates/resource-pack",
     "crates/server-experience",
     "crates/render",
