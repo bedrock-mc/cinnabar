@@ -377,6 +377,7 @@ impl WorldStream {
                                 NormalizationErrorReason::BlockMutationFailure,
                             );
                         } else {
+                            self.reconcile_intermediate_block_cracks(&prepared.crack_intermediates);
                             self.queue_actor_block_syncs(events);
                         }
                     }
@@ -523,6 +524,7 @@ impl WorldStream {
                 self.clear_block_events();
                 self.evict_all_resident();
                 self.block_entity_visuals.clear();
+                self.biome_records = None;
                 self.authority.reset_dimension(sequence, change.dimension);
                 let resolved = self.authority.resolve_position(change.position);
                 self.local_player_chunk = None;

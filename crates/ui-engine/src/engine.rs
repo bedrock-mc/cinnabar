@@ -727,8 +727,14 @@ impl Canvas<'_> {
             Some(&self.textures),
         );
         let clip = self.logical(&drawn.clip);
-        let dest = if matches!(node.draw, Draw::Text { .. }) {
-            self.positioned(&drawn.dest)
+        let dest = if let Draw::Text { options, .. } = &node.draw {
+            text_paint::label_positioned(
+                [drawn.dest.x, drawn.dest.y, drawn.dest.w, drawn.dest.h],
+                self.font,
+                options,
+                self.metrics.gui_scale,
+                self.px,
+            )
         } else {
             self.snapped(&drawn.dest)
         };

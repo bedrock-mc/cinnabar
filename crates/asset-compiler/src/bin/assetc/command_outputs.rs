@@ -11,6 +11,15 @@ pub(super) fn validate_command_outputs(command: &Command) -> Result<(), AssetErr
     let mut outputs: Vec<&Path> = Vec::new();
     let sidecar;
     match command {
+        Vocabulary {
+            archive,
+            source_manifest,
+            out,
+            actors_out,
+        } => {
+            inputs.extend([archive.as_path(), source_manifest.as_path()]);
+            outputs.extend([out.as_path(), actors_out.as_path()]);
+        }
         BlockPhysics {
             registry,
             seed,
@@ -231,5 +240,20 @@ mod tests {
         };
         let error = crate::run(command).unwrap_err().to_string();
         assert!(error.contains("distinct files"), "{error}");
+    }
+
+    #[test]
+    fn vocabulary_outputs_cannot_alias_each_other_or_the_archive() {
+        let archive = PathBuf::from("/tmp/pack.zip");
+        for actors_out in [PathBuf::from("/tmp/vocabulary.tsv"), archive.clone()] {
+            let command = Command::Vocabulary {
+                archive: archive.clone(),
+                source_manifest: "/tmp/source.json".into(),
+                out: "/tmp/vocabulary.tsv".into(),
+                actors_out,
+            };
+            let error = crate::run(command).unwrap_err().to_string();
+            assert!(error.contains("distinct files"), "{error}");
+        }
     }
 }

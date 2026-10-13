@@ -2,11 +2,12 @@ package control
 
 import (
 	"context"
-	"encoding/json"
+
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 )
 
 // methodFriendsPeople lists the account's Xbox friends for the invite screen.
-const methodFriendsPeople = "friends_people.v1"
+const methodFriendsPeople = bridgecontract.MethodFriendsPeople
 
 // PeopleServices lists the account's Xbox friends, already ordered and bounded for the invite
 // screen; a Services value may implement it.
@@ -29,7 +30,7 @@ type peopleResultV1 struct {
 
 // peopleResult drops trailing friends until the reply fits one control frame.
 func peopleResult(people []Person) peopleResultV1 {
-	result := peopleResultV1{SchemaVersion: 1, Friends: people}
+	result := peopleResultV1{SchemaVersion: bridgecontract.ControlSchemaVersion, Friends: people}
 	if result.Friends == nil {
 		result.Friends = []Person{}
 	}
@@ -37,16 +38,4 @@ func peopleResult(people []Person) peopleResultV1 {
 		result.Friends = result.Friends[:len(result.Friends)-1]
 	}
 	return result
-}
-
-// frameBudget leaves headroom under MaxFrameLen for the response envelope.
-const frameBudget = MaxFrameLen - 2048
-
-// encodedLen returns the JSON size, or an over-budget size if encoding fails.
-func encodedLen(value any) int {
-	payload, err := json.Marshal(value)
-	if err != nil {
-		return frameBudget + 1
-	}
-	return len(payload)
 }

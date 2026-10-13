@@ -1,0 +1,164 @@
+//! Worker loss must finish queued menu requests even when the send succeeded.
+
+use super::*;
+use bevy::prelude::{App, Update};
+use client_shell::menu::MenuRuntime;
+use launcher::menu::{MenuAction, MenuDialog};
+use launcher::minecraft_import::{Action as ImportAction, Phase};
+
+/// Connects a real menu driver to channels whose worker lifetime the test controls.
+fn fixture() -> (
+    App,
+    crossbeam_channel::Receiver<Command>,
+    crossbeam_channel::Sender<Event>,
+) {
+    let (commands, incoming) = crossbeam_channel::unbounded();
+    let (outgoing, events) = crossbeam_channel::unbounded();
+    let worker = Worker {
+        commands,
+        events,
+        snapshot: Snapshot::default(),
+        awaiting: None,
+        minecraft_import_pending: false,
+        minecraft_import_request: None,
+    };
+    let mut app = App::new();
+    app.insert_resource(worker)
+        .insert_resource(MenuRuntime::new(true, 2, "Import fixture".into()))
+        .init_resource::<crate::runtime::network::PackReload>()
+        .add_message::<bevy::window::FileDragAndDrop>()
+        .add_systems(Update, crate::global_resources::drive);
+    (app, incoming, outgoing)
+}
+
+#[test]
+fn queued_import_requests_finish_when_library_initialization_fails() {
+    for action in [ImportAction::Begin, ImportAction::Close] {
+        let (mut app, incoming, outgoing) = fixture();
+        app.world_mut()
+            .resource_mut::<MenuRuntime>()
+            .activate(MenuAction::MinecraftImport(action));
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<MenuRuntime>()
+                .view()
+                .minecraft_import
+                .phase,
+            Phase::Busy
+        );
+        assert_eq!(
+            incoming.len(),
+            1,
+            "request was accepted before initialization finished"
+        );
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("global_packs.json"), b"malformed").unwrap();
+        run(
+            root.path().to_owned(),
+            root.path().join("config"),
+            Vec::new(),
+            incoming,
+            outgoing,
+        );
+        app.update();
+        let menu = app.world().resource::<MenuRuntime>();
+        assert_eq!(
+            menu.view().minecraft_import.phase,
+            if action == ImportAction::Close {
+                Phase::Idle
+            } else {
+                Phase::Result
+            }
+        );
+        assert!(!menu.global_resources.busy);
+        if action == ImportAction::Begin {
+            assert!(
+                menu.view()
+                    .minecraft_import
+                    .body
+                    .contains("worker is unavailable")
+            );
+            app.world_mut()
+                .resource_mut::<MenuRuntime>()
+                .activate(MenuAction::AddBack);
+            app.update();
+        }
+        assert_eq!(app.world().resource::<MenuRuntime>().view().dialog, None);
+    }
+}
+
+#[test]
+fn delivered_completion_is_published_before_worker_disconnection() {
+    let (mut app, incoming, outgoing) = fixture();
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .activate(MenuAction::MinecraftImport(ImportAction::Begin));
+    app.update();
+    assert!(incoming.try_recv().is_ok());
+    outgoing
+        .send(Event::MinecraftImport(
+            launcher::minecraft_import::Snapshot {
+                phase: Phase::Preview,
+                body: "Prepared fixture".into(),
+                ..Default::default()
+            },
+            None,
+        ))
+        .unwrap();
+    drop(outgoing);
+    drop(incoming);
+    app.update();
+    let view = app.world().resource::<MenuRuntime>().view();
+    assert_eq!(view.minecraft_import.phase, Phase::Preview);
+    assert_eq!(view.minecraft_import.body, "Prepared fixture");
+    assert_eq!(view.dialog, Some(MenuDialog::MinecraftImport));
+    assert!(
+        app.world()
+            .resource::<Worker>()
+            .minecraft_import_request
+            .is_none()
+    );
+}
+
+#[test]
+fn worker_loss_reports_pending_pack_save_failure_without_overwriting_preferences() {
+    let (mut app, incoming, outgoing) = fixture();
+    let state = launcher_host::minecraft_import::UserState {
+        settings: Default::default(),
+        servers: Vec::new(),
+        video: Default::default(),
+        active: Vec::new(),
+    };
+    outgoing
+        .send(Event::MinecraftImport(
+            launcher::minecraft_import::Snapshot {
+                phase: Phase::Result,
+                body: "Imported fixture".into(),
+                ..Default::default()
+            },
+            Some(Box::new(state)),
+        ))
+        .unwrap();
+    drop(outgoing);
+    drop(incoming);
+    app.update();
+    let view = app.world().resource::<MenuRuntime>().view();
+    assert_eq!(view.minecraft_import.phase, Phase::Result);
+    assert_eq!(view.minecraft_import.body, "Imported fixture");
+    assert!(
+        view.minecraft_import
+            .pack_status
+            .contains("worker is unavailable")
+    );
+    assert!(!app.world().resource::<Worker>().minecraft_import_pending);
+    app.update();
+    assert!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .view()
+            .minecraft_import
+            .pack_status
+            .contains("worker is unavailable")
+    );
+}

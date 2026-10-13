@@ -723,7 +723,7 @@ pub(crate) fn drive_chat_keyboard_input(
                 key if binding_key(menu.as_deref(), "key.chat", key) => {
                     runtime.open_chat(&mut player_runtime);
                 }
-                key if binding_key(menu.as_deref(), "key.command", key) => {
+                _ if chat_modifiers::command_key(menu.as_deref(), input) => {
                     runtime.open_chat(&mut player_runtime);
                     let _ = runtime.insert_chat_text("/");
                 }
@@ -756,7 +756,7 @@ pub(crate) fn drive_chat_keyboard_input(
                     runtime.open_chat(&mut player_runtime);
                     consumed_gameplay = true;
                 }
-                key if binding_key(menu.as_deref(), "key.command", key) => {
+                _ if chat_modifiers::command_key(menu.as_deref(), input) => {
                     runtime.open_chat(&mut player_runtime);
                     let _ = runtime.insert_chat_text("/");
                     consumed_gameplay = true;
@@ -821,6 +821,10 @@ pub(crate) fn drive_chat_keyboard_input(
                 if runtime.queue_chat_send(now_millis).is_ok() {
                     runtime.close_chat();
                 }
+            }
+            key if is_chat_edit_shortcut(&held) && chat_modifiers::is_word_edit(key) => {
+                runtime
+                    .mutate_chat_editor(|editor| chat_modifiers::word_edit(editor, key, selecting));
             }
             KeyCode::Backspace => runtime.backspace_chat_text(),
             KeyCode::Delete => runtime.delete_chat_text(),

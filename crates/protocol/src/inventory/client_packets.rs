@@ -25,7 +25,16 @@ pub fn block_pick_request_packet(position: [i32; 3], with_data: bool) -> crate::
     crate::Packet::new(BlockPickRequest {
         position: block_pos(position),
         with_data,
-        max_slots: wire::U8(9),
+        max_slots: wire::U8(crate::HOTBAR_SLOT_COUNT),
+    })
+}
+
+/// Requests the server's pick item for a retained actor, using its persistent unique ID.
+pub fn actor_pick_request_packet(unique_id: i64, with_data: bool) -> crate::Packet {
+    crate::Packet::new(bedrock_protocol_1_26_51::packets::ActorPickRequest {
+        actor_id: wire::I64LE(unique_id),
+        max_slots: wire::U8(crate::HOTBAR_SLOT_COUNT),
+        with_data,
     })
 }
 

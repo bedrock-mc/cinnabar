@@ -49,13 +49,9 @@ impl ModelTextureSelector {
             "torchflower_crop" => Self::Torchflower,
             _ => match Self::mushroom_block(key) {
                 Some(block) => Self::Mushroom { block },
-                None => {
-                    return if count == 1 {
-                        Self::Single
-                    } else {
-                        Self::Unresolved
-                    };
-                }
+                // A legacy array no state selects from draws its first entry, as vanilla
+                // draws stone brick stairs, firefly bushes and stone buttons.
+                None => return Self::Single,
             },
         };
         if count == selector.variant_count() {

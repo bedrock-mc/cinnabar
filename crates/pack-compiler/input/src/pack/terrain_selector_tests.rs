@@ -88,7 +88,7 @@ fn capture(root: &Path, unknown: Option<(&str, u32)>, wheat: Option<(&str, u32)>
 }
 
 #[test]
-fn unknown_model_arrays_keep_missing_selectors_explicit() {
+fn unknown_model_arrays_use_first_entry_ignoring_unrelated_properties() {
     let root = fixture();
     let terrain = read_terrain(&root.path().join("terrain.json")).unwrap();
     let unknown = terrain.get_for_model_record("test:array", &record("{}"));
@@ -103,7 +103,7 @@ fn unknown_model_arrays_keep_missing_selectors_explicit() {
     ] {
         assert_eq!(
             terrain.get_for_model_record("test:array", &record(properties)),
-            None
+            Some(("textures/first", 0))
         );
     }
     assert_eq!(

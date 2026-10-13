@@ -18,6 +18,9 @@ mod mining_tests;
 #[path = "settling_tests.rs"]
 mod settling_tests;
 
+#[path = "timeout_tests.rs"]
+mod timeout_tests;
+
 fn stack(stack_network_id: i32, count: u16) -> NetworkItemStack {
     NetworkItemStack {
         network_id: 6,
@@ -285,26 +288,121 @@ fn missing_open_and_close_acknowledgements_expire_without_reopening_late() {
     assert!(opening.mark_transport_enqueued(10));
     assert!(opening.poll_timeout(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS));
     assert!(!opening.personal_inventory_desired_open());
-    assert!(
-        !opening.request_personal_open(42),
-        "an uncorrelated late acknowledgement makes this session unavailable"
-    );
     opening.apply(&InventoryEvent::Open(personal_open(2)));
     assert!(!opening.personal_inventory_desired_open());
     assert_eq!(opening.pending_closes.front().unwrap().window_id, 2);
-    assert!(!opening.request_personal_open(42));
-    opening.begin_session(2);
-    opening.apply(&InventoryEvent::Authority(InventoryAuthority::Server));
-    assert!(opening.request_personal_open(42));
+    assert!(
+        opening.request_personal_open(42),
+        "a late acknowledgement leaves the next open available"
+    );
 
     let mut closing = ledger_with_slot_zero();
     acknowledge_personal_open(&mut closing, 2);
     closing.request_personal_close();
     assert!(closing.mark_transport_enqueued(20));
     assert!(closing.poll_timeout(20 + INVENTORY_REQUEST_TIMEOUT_MILLIS));
-    assert!(closing.personal.is_none());
     assert!(!closing.personal_inventory_desired_open());
-    assert!(!closing.request_personal_open(42));
+    assert!(closing.request_personal_open(42));
+    assert!(closing.pending_batch().unwrap().is_none());
+}
+
+#[test]
+fn retry_after_open_timeout_waits_for_late_open_cleanup_before_admission() {
+    for retry_window_id in [2, 3] {
+        let mut ledger = ledger_with_slot_zero();
+        assert!(ledger.request_personal_open(42));
+        assert!(ledger.mark_transport_enqueued(10));
+        let retry_time = 10 + INVENTORY_REQUEST_TIMEOUT_MILLIS;
+        assert!(ledger.poll_timeout(retry_time));
+        assert!(!ledger.poll_timeout(retry_time + 1));
+
+        assert!(ledger.request_personal_open(42));
+        assert!(ledger.personal_inventory_desired_open());
+        assert!(ledger.pending_batch().unwrap().is_none());
+        assert!(!ledger.mark_transport_enqueued(retry_time + 1));
+        assert_eq!(
+            ledger.begin_click(0),
+            Err(InventoryGestureError::PersonalInventoryUnavailable)
+        );
+
+        ledger.apply(&InventoryEvent::Open(personal_open(2)));
+        assert_eq!(
+            protocol::test_support::packets::container_close(
+                &ledger.pending_control_packet().unwrap().unwrap()
+            ),
+            Some(protocol::test_support::packets::ContainerCloseObservation {
+                container_id: 2,
+                server_initiated: false,
+            })
+        );
+        assert_eq!(
+            ledger.begin_click(0),
+            Err(InventoryGestureError::PersonalInventoryUnavailable)
+        );
+        ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+            container: ContainerIdentity::window(2),
+            window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
+            server_initiated: false,
+        }));
+        assert!(
+            ledger.pending_batch().unwrap().is_some(),
+            "a response before cleanup admission cannot release the retry"
+        );
+        assert!(ledger.mark_transport_enqueued(retry_time + 2));
+        assert!(ledger.personal_inventory_desired_open());
+        assert!(ledger.pending_batch().unwrap().is_none());
+        assert!(!ledger.mark_transport_enqueued(retry_time + 3));
+
+        ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+            container: ContainerIdentity::window(2),
+            window_type: NO_CONTAINER_WINDOW_TYPE,
+            server_initiated: false,
+        }));
+        assert!(ledger.pending_batch().unwrap().is_some());
+        assert!(ledger.mark_transport_enqueued(retry_time + 4));
+        ledger.apply(&InventoryEvent::Open(personal_open(retry_window_id)));
+        assert!(ledger.personal_inventory_desired_open());
+        assert!(ledger.pending_closes.is_empty());
+        assert_eq!(ledger.begin_click(0).unwrap(), -3);
+
+        ledger.request_personal_close();
+        let close = ledger.pending_closes.front().unwrap();
+        assert_eq!(close.window_id, retry_window_id);
+        assert_eq!(close.window_type, PERSONAL_INVENTORY_WINDOW_TYPE);
+    }
+}
+
+#[test]
+fn retry_after_close_timeout_waits_for_the_original_close_acknowledgement() {
+    for server_initiated in [false, true] {
+        let mut ledger = ledger_with_slot_zero();
+        acknowledge_personal_open(&mut ledger, 2);
+        ledger.request_personal_close();
+        assert!(ledger.mark_transport_enqueued(20));
+        let retry_time = 20 + INVENTORY_REQUEST_TIMEOUT_MILLIS;
+        assert!(ledger.poll_timeout(retry_time));
+        assert!(!ledger.poll_timeout(retry_time + 1));
+
+        assert!(ledger.request_personal_open(42));
+        assert!(ledger.pending_batch().unwrap().is_none());
+        assert!(!ledger.mark_transport_enqueued(retry_time + 1));
+        ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+            container: ContainerIdentity::window(2),
+            window_type: if server_initiated {
+                PERSONAL_INVENTORY_WINDOW_TYPE
+            } else {
+                NO_CONTAINER_WINDOW_TYPE
+            },
+            server_initiated,
+        }));
+
+        assert!(ledger.pending_batch().unwrap().is_some());
+        assert!(ledger.mark_transport_enqueued(retry_time + 2));
+        ledger.apply(&InventoryEvent::Open(personal_open(2)));
+        assert!(ledger.personal_inventory_desired_open());
+        assert!(ledger.pending_closes.is_empty());
+        assert_eq!(ledger.begin_click(0).unwrap(), -3);
+    }
 }
 
 #[test]

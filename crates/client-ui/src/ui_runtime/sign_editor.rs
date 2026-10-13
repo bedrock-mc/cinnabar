@@ -53,7 +53,7 @@ impl SignLook {
             (true, wood) => format!("hanging_sign_{wood}"),
             (false, "") => "sign".to_owned(),
             // Newer woods name the art wood-first.
-            (false, wood @ ("mangrove" | "bamboo" | "cherry" | "pale_oak")) => {
+            (false, wood @ ("mangrove" | "bamboo" | "cherry" | "pale_oak" | "poplar")) => {
                 format!("{wood}_sign")
             }
             (false, wood) => format!("sign_{wood}"),

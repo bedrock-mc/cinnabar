@@ -267,6 +267,6 @@ fn default_label_top_padding_does_not_scale_with_font_size() {
 fn bitmap_label_correction_preserves_attached_named_font_metrics() {
     let (background, ink, top) = paint([854, 459], 1.0, true);
     assert_eq!(background, [0, 2, 54, 13]);
-    assert_eq!(ink, [3, 3, 50, 11]);
-    assert_eq!(top, 3.0);
+    assert_eq!(ink, [3, 4, 50, 12]);
+    assert_eq!(top, 4.0);
 }

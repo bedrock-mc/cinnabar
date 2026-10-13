@@ -1,4 +1,4 @@
-//! Native macro fields retain mouse and touch caret behavior.
+//! Native macro fields retain mouse, touch and keyboard caret behavior.
 use super::*;
 use bevy::input::touch::{TouchInput, TouchPhase, touch_screen_input_system};
 
@@ -122,5 +122,30 @@ fn command_macro_touch_release_places_caret_at_the_tapped_character() {
             .resource::<MenuRuntime>()
             .field_text(MenuField::MacroCommand(0)),
         expected
+    );
+}
+
+#[test]
+fn command_macro_control_arrows_move_the_caret_by_word() {
+    let (mut app, window, _, _) = command_field();
+    press_key(&mut app, window, KeyCode::ControlLeft, None);
+    press_key(&mut app, window, KeyCode::ArrowLeft, None);
+    press_key(&mut app, window, KeyCode::ArrowLeft, None);
+    press_key(&mut app, window, KeyCode::ArrowRight, None);
+    assert_eq!(app.world().resource::<MenuRuntime>().view().caret.byte, 9);
+}
+
+#[test]
+fn command_macro_control_backspace_and_delete_remove_whole_words() {
+    let (mut app, window, _, _) = command_field();
+    press_key(&mut app, window, KeyCode::ControlLeft, None);
+    press_key(&mut app, window, KeyCode::Backspace, Some("\u{8}"));
+    press_key(&mut app, window, KeyCode::Home, None);
+    press_key(&mut app, window, KeyCode::Delete, Some("\u{7f}"));
+    assert_eq!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .field_text(MenuField::MacroCommand(0)),
+        "set "
     );
 }

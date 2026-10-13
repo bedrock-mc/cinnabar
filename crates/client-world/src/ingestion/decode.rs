@@ -104,10 +104,15 @@ impl DecodeJob {
                 sequence,
                 batches,
                 events,
+                crack_batches,
                 ids,
             } => {
-                let (result, events) =
-                    super::block_sync::prepare_synced_block_mutations(batches, events, &ids);
+                let (result, events) = super::block_sync::prepare_synced_block_mutations(
+                    batches,
+                    events,
+                    crack_batches,
+                    &ids,
+                );
                 DecodeCompletion {
                     sequence,
                     queue_wait,

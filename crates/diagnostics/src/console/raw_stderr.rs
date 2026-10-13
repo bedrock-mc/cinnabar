@@ -105,26 +105,31 @@ impl RawStderr {
 
 /// Keeps an owned copy of the launcher's stderr destination before redirecting fd 2.
 #[cfg(unix)]
-pub(super) fn original() -> io::Result<File> {
+pub(super) fn original() -> io::Result<Option<File>> {
     let fd = rustix::io::dup(rustix::stdio::stderr())?;
     rustix::io::fcntl_setfd(&fd, rustix::io::FdFlags::CLOEXEC)?;
-    Ok(fd.into())
+    Ok(Some(fd.into()))
 }
 
-/// Keeps an owned copy of the Windows stderr handle before installing the capture pipe.
+/// Copies the Windows stderr handle, or returns no destination for a launch without a console.
 #[cfg(windows)]
-pub(super) fn original() -> io::Result<File> {
+pub(super) fn original() -> io::Result<Option<File>> {
     use std::os::windows::io::BorrowedHandle;
     use windows_sys::Win32::System::Console::{GetStdHandle, STD_ERROR_HANDLE};
     // SAFETY: GetStdHandle returns the process-owned standard-error handle.
     let handle = unsafe { GetStdHandle(STD_ERROR_HANDLE) };
-    if handle.is_null() || handle as isize == -1 {
+    if handle.is_null() {
+        return Ok(None);
+    }
+    if handle as isize == -1 {
         return Err(io::Error::last_os_error());
     }
     // SAFETY: The validated process handle remains open while its owned copy is created.
-    Ok(unsafe { BorrowedHandle::borrow_raw(handle) }
-        .try_clone_to_owned()?
-        .into())
+    Ok(Some(
+        unsafe { BorrowedHandle::borrow_raw(handle) }
+            .try_clone_to_owned()?
+            .into(),
+    ))
 }
 
 /// Creates owned pipe ends; the read side never blocks when queried under the reader lock.

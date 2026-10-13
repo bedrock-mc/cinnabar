@@ -1,3 +1,5 @@
+//! Mention and quoted-target completion through the public chat API.
+
 use super::*;
 
 #[test]

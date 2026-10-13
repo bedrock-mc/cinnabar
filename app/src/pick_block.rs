@@ -1,4 +1,4 @@
-//! Middle-click pick block: asks the server to put the targeted block in hand.
+//! Middle-click picking asks the server for the selected block or hanging picture.
 
 use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
@@ -11,7 +11,7 @@ use protocol::PlayerGameMode;
 
 use client_shell::ui_resources::UiRuntimeResource;
 use {
-    crate::{interaction_authority::observe_block, runtime::world::ClientWorld},
+    crate::{interaction_authority::observe_block_ray, runtime::world::ClientWorld},
     client_interaction::{
         mining::hand_interaction_selection, movement::PhysicsCollisionRegistries,
     },
@@ -32,7 +32,7 @@ pub(crate) struct PickBlockContext<'w, 's> {
     network: Res<'w, NetworkHandle<PackApplication>>,
 }
 
-/// Sends one block-pick request per middle-click on a block in reach.
+/// Sends one server-authoritative pick request per middle-click on a reachable target.
 pub(crate) fn produce_pick_block(
     player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     context: PickBlockContext,
@@ -60,7 +60,7 @@ pub(crate) fn produce_pick_block(
     } else {
         survival_reach(input_mode)
     };
-    let Some(observed) = observe_block(
+    let Ok(observed) = observe_block_ray(
         &context.origin,
         &ui,
         &context.client_world,
@@ -74,6 +74,25 @@ pub(crate) fn produce_pick_block(
             simulation_clock::identity::PositionAuthorityGeneration::new(0),
         ),
     ) else {
+        return;
+    };
+    if let (Some(stream), Some(ray)) = (
+        context.client_world.stream.as_ref(),
+        context.origin.outbound_ray(),
+    ) && let Some(unique_id) = gameplay::melee::painting_pick_unique_id(
+        stream.authority(),
+        ray.origin().to_array(),
+        ray.direction().to_array(),
+        reach,
+        observed.as_ref().map(|observed| observed.hit_distance()),
+        ui.gameplay_hud().mount_unique_id(),
+    ) {
+        let _ = context
+            .network
+            .send_inventory_packet(protocol::actor_pick_request_packet(unique_id, false));
+        return;
+    }
+    let Some(observed) = observed else {
         return;
     };
     // A full queue drops the pick; the player simply clicks again.

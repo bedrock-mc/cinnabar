@@ -6,9 +6,9 @@ use json_ui::{Draw, DrawNode, FormRender, HitRegion, LayoutEnv};
 use ui::FONT_DESIGN_PIXEL_TEXELS;
 
 use super::{
-    Art, Canvas, FormEngine, ScreenArt, banner_renderer, host_edit, pixel_snap,
+    Art, Canvas, FormEngine, ScreenArt, banner_renderer, host_edit,
     screen::{PaintError, PaintFrame},
-    text_paint::{Measure, label_metrics},
+    text_paint::{Measure, label_metrics, label_positioned},
     tooltip,
 };
 use crate::{
@@ -211,8 +211,10 @@ fn edit_texts(
                     Some(EditText {
                         key: region.key.clone(),
                         left: left
-                            + pixel_snap::positioned(
+                            + label_positioned(
                                 [node.dest.x, node.dest.y, node.dest.w, node.dest.h],
+                                font,
+                                options,
                                 metrics.gui_scale,
                                 px,
                             )[0],
