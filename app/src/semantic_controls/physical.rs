@@ -49,8 +49,14 @@ pub(crate) struct SemanticPhysicalInputs<'w, 's> {
 pub(crate) fn collect_raw_input(
     inputs: SemanticPhysicalInputs,
     mut pending: ResMut<PendingDeviceFrame>,
+    mut input_gated: bevy::prelude::Local<bool>,
 ) {
     let translated = translate_device_frame(inputs);
+    let gated = translated.frame.window_focus_lost;
+    if gated && !*input_gated {
+        bevy::log::info!("held inputs released: window focus or input availability lost");
+    }
+    *input_gated = gated;
     pending.ignored_controllers = pending
         .ignored_controllers
         .saturating_add(translated.ignored_controllers as u64);

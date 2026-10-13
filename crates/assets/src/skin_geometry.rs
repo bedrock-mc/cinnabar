@@ -1,6 +1,7 @@
 //! Custom player-skin geometry: the geometry JSON a serialized skin carries, resolved through
 //! the skin's resource patch into one model. Parsing is lenient (remote data): unknown fields are
 //! ignored and malformed cubes are dropped; only an unusable model is rejected.
+use crate::entity::GEOMETRY_NO_HEAD_BOB_FIELD;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
@@ -35,6 +36,8 @@ pub struct SkinGeometry {
     pub poly_meshes: Box<[Option<SkinPolyMesh>]>,
     /// Authored visibility box in the actor coordinate frame, when supplied and finite.
     pub visible_bounds: Option<SkinGeometryBounds>,
+    /// The authored `animationNoHeadBob` flag suppresses movement bob only.
+    pub animation_no_head_bob: bool,
     /// Digest of the model inputs, for caching built meshes.
     pub digest: [u8; 32],
 }
@@ -67,6 +70,7 @@ impl SkinGeometry {
         )
         .ok()?;
         skin.visible_bounds = geometry.visible_bounds.map(|bounds| bounds.as_bounds());
+        skin.animation_no_head_bob = geometry.animation_no_head_bob;
         Some(skin)
     }
 }
@@ -140,6 +144,7 @@ pub fn parse_skin_geometry_layer(
     }
     let (mut texture_width, mut texture_height) = (None, None);
     let mut visible_bounds = None;
+    let mut animation_no_head_bob = false;
     let mut bones: Vec<EntityGeometryBone> = Vec::new();
     let mut poly_meshes = Vec::new();
     let mut cube_count = 0;
@@ -147,6 +152,7 @@ pub fn parse_skin_geometry_layer(
         texture_width = entry.texture_width.or(texture_width);
         texture_height = entry.texture_height.or(texture_height);
         visible_bounds = entry.visible_bounds.or(visible_bounds);
+        animation_no_head_bob = entry.animation_no_head_bob.unwrap_or(animation_no_head_bob);
         for (child, mesh) in entry.bones.iter().zip(&entry.poly_meshes) {
             match bones
                 .iter()
@@ -189,6 +195,7 @@ pub fn parse_skin_geometry_layer(
     )
     .map(|mut geometry| {
         geometry.visible_bounds = visible_bounds;
+        geometry.animation_no_head_bob = animation_no_head_bob;
         Some(geometry)
     })
 }
@@ -248,6 +255,7 @@ fn finish(
         bones: bones.into(),
         poly_meshes: poly_meshes.into(),
         visible_bounds: None,
+        animation_no_head_bob: false,
         digest: digest.finalize().into(),
     })
 }
@@ -260,6 +268,7 @@ struct ParsedGeometry {
     bones: Vec<EntityGeometryBone>,
     poly_meshes: Vec<Option<SkinPolyMesh>>,
     visible_bounds: Option<SkinGeometryBounds>,
+    animation_no_head_bob: Option<bool>,
 }
 
 fn parse_geometries(root: &Value) -> Option<Vec<ParsedGeometry>> {
@@ -285,6 +294,9 @@ fn parse_geometries(root: &Value) -> Option<Vec<ParsedGeometry>> {
                 bones: bones(geometry.get("bones")),
                 poly_meshes: poly_mesh::bone_meshes(geometry.get("bones")),
                 visible_bounds: bounds::parse(description),
+                animation_no_head_bob: geometry
+                    .get(GEOMETRY_NO_HEAD_BOB_FIELD)
+                    .and_then(Value::as_bool),
             });
         }
     }
@@ -304,6 +316,9 @@ fn parse_geometries(root: &Value) -> Option<Vec<ParsedGeometry>> {
             bones: bones(geometry.get("bones")),
             poly_meshes: poly_mesh::bone_meshes(geometry.get("bones")),
             visible_bounds: bounds::parse(geometry),
+            animation_no_head_bob: geometry
+                .get(GEOMETRY_NO_HEAD_BOB_FIELD)
+                .and_then(Value::as_bool),
         });
     }
     Some(parsed)

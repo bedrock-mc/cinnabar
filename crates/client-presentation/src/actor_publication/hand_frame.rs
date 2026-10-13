@@ -34,6 +34,7 @@ pub(super) fn prepare(
         partial_tick,
         first_person,
         java_mode,
+        combat_visuals: _,
         sampling_camera,
     } = view;
     let HandCaches {
@@ -61,7 +62,10 @@ pub(super) fn prepare(
             let key = hand::source_key(stream, consume_ticks, item_animation, partial_tick);
             if key == *ready_hand_key {
                 reused_hand = true;
-                return ready_hand_source.take();
+                return ready_hand_source.take().map(|mut source| {
+                    source.motion = motion;
+                    source
+                });
             }
             hand::source(
                 hand::HandInputs {

@@ -1,8 +1,12 @@
 # Java 1.7 animations
 
-Owner-mandated default, selected with Video › Animations: Java 1.7 or Bedrock (live, persisted). The selector uses the same dropdown and radio controls as Graphics mode, with pointer, keyboard and controller access. Selecting Bedrock keeps every vanilla path.
+Video › Animations selects Java 1.7 or Bedrock player poses and held-item animations.
+New installs and old files without a saved animation preference use Bedrock. Saved
+toggle values migrate: on selects Java 1.7; off selects Bedrock.
 
-New installs and existing installs with no saved animation preference default to Java 1.7. Saved toggle values migrate: on selects Java 1.7; off selects Bedrock.
+The shared combat profile takes precedence for view bobbing, hurt/death camera
+motion and glint. Bedrock 1.12 combat visuals are the deliberate default, with no
+user setting. Java keeps its poses, item animation, sneak eye height and arm sway.
 
 Code: `render-model::java_animation` (pose, cape and matrix stacks), `actor-animation` `java.rs` (tick motion, retargeting), `client-presentation` `actor_publication/java.rs`, `camera/java.rs` and `equipment/runtime/java.rs`.
 

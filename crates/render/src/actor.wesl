@@ -31,6 +31,9 @@ struct BoneMatrix {
 
 @group(0) @binding(12) var actor_glint: texture_2d<f32>;
 @group(0) @binding(13) var glint_sampler: sampler;
+@group(0) @binding(14) var item_glint: texture_2d<f32>;
+
+// LEGACY_GLINT_CONSTANTS
 
 struct VertexOutput {
     @builtin(position) @invariant position: vec4<f32>,
@@ -214,6 +217,9 @@ repeat_uv: bool) -> CutoutSample {
 @fragment
 fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     let material = input.material & ACTOR_MATERIAL_KIND_MASK;
+    let legacy = (input.material & ACTOR_MATERIAL_LEGACY112_FLAG) != 0u;
+    let color_mask_material = material_class.y != 0u || (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
+    let legacy_mask = legacy && (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
     let authored = (input.material & ACTOR_MATERIAL_AUTHORED_FLAG) != 0u;
     let emissive = material == ACTOR_MATERIAL_DRAGON || (input.material & ACTOR_MATERIAL_EMISSIVE_FLAG) != 0u;
     if (input.skin_info.y == 0u) {
@@ -253,13 +259,13 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     if (material == ACTOR_MATERIAL_DISSOLVE_COLOR && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
     if (material == ACTOR_MATERIAL_DRAGON && all(color == vec4(0.0))) { discard; }
     @if(!ALPHA_TO_COVERAGE)
-    if (material == ACTOR_MATERIAL_GLINT && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
-    let color_mask_material = material_class.y != 0u;
+    if (material == ACTOR_MATERIAL_GLINT && !legacy_mask && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
+    if (legacy_mask && color.a == 0.0) { discard; }
     let multitexture_material = material_class.z != 0u && all(input.multitexture_layers != vec2(0xffffffffu));
     if (authored && (input.material & ACTOR_MATERIAL_ALPHA_TEST_FLAG) != 0u) {
         if (emissive && all(color == vec4(0.0))) { discard; }
         @if(!ALPHA_TO_COVERAGE)
-        if (!emissive && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
+        if (!emissive && !legacy_mask && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
     }
     if (!authored && !color_mask_material && !multitexture_material && material == ACTOR_MATERIAL_DEFAULT && ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0))) {
         discard;
@@ -290,23 +296,43 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     let native_lighting = select(input.native_lighting, input.back_native_lighting, !front && input.surface != 0u);
     let lighting = select(native_lighting, mix(vec3(1.0), native_lighting, color.a), emissive);
     var lit_gamma = mix(color.rgb, overlay.rgb, overlay.a) * lighting;
+    var legacy_foil = vec3(0.0);
+    var legacy_alpha = color.a;
     if (material == ACTOR_MATERIAL_GLINT) {
         let base = input.multitexture_layers.x * ACTOR_GPU_INSTANCE_WORDS;
         let offsets = vec2(word_f32(base + 30u), word_f32(base + 31u));
         let strength = word_f32(base + 32u);
         let centered_uv = uv - vec2(0.5);
-        let first_uv = vec2(0.9396926 * centered_uv.x + 0.34202015 * centered_uv.y, -0.34202015 * centered_uv.x + 0.9396926 * centered_uv.y) + vec2(offsets.x + 0.5, 0.5);
-        let second_uv = vec2(0.17364818 * centered_uv.x - 0.9848077 * centered_uv.y, 0.9848077 * centered_uv.x + 0.17364818 * centered_uv.y) + vec2(offsets.y + 0.5, 0.5);
-        let first = tint_to_gamma(textureSampleLevel(actor_glint, glint_sampler, first_uv, 0.0)).rgb;
-        let second = tint_to_gamma(textureSampleLevel(actor_glint, glint_sampler, second_uv, 0.0)).rgb;
+        var first_uv = vec2(0.9396926 * centered_uv.x + 0.34202015 * centered_uv.y, -0.34202015 * centered_uv.x + 0.9396926 * centered_uv.y) + vec2(offsets.x + 0.5, 0.5);
+        var second_uv = vec2(0.17364818 * centered_uv.x - 0.9848077 * centered_uv.y, 0.9848077 * centered_uv.x + 0.17364818 * centered_uv.y) + vec2(offsets.y + 0.5, 0.5);
+        if (legacy) {
+            let r1 = LEGACY_GLINT_ROTATION_1;
+            let r2 = LEGACY_GLINT_ROTATION_2;
+            first_uv = vec2(r1.x * centered_uv.x + r1.y * centered_uv.y, -r1.y * centered_uv.x + r1.x * centered_uv.y) + vec2(offsets.x + 0.5, 0.5);
+            second_uv = vec2(r2.x * centered_uv.x + r2.y * centered_uv.y, -r2.y * centered_uv.x + r2.x * centered_uv.y) + vec2(offsets.y + 0.5, 0.5);
+        }
+        var first = vec3(0.0);
+        var second = vec3(0.0);
+        if (legacy) {
+            first = tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, first_uv, 0.0)).rgb;
+            second = tint_to_gamma(textureSampleLevel(item_glint, glint_sampler, second_uv, 0.0)).rgb;
+        } else {
+            first = tint_to_gamma(textureSampleLevel(actor_glint, glint_sampler, first_uv, 0.0)).rgb;
+            second = tint_to_gamma(textureSampleLevel(actor_glint, glint_sampler, second_uv, 0.0)).rgb;
+        }
         let foil_light = select(vec3(1.0), actor_light_colour(input.light), (input.light & ACTOR_LIGHT_WORLD_FLAG) != 0u);
         let foil = (first + second) * GLINT_TINT_RGB * strength * foil_light;
-        lit_gamma += foil * foil;
+        if (legacy) {
+            legacy_foil = foil * foil;
+            legacy_alpha = (first.r + second.r) * strength;
+        } else {
+            lit_gamma += foil * foil;
+        }
     }
     @if(ALPHA_TO_COVERAGE)
-    let fogged_gamma = vec4(actor_distance_fog(lit_gamma, input.world_position, view.world_position), coverage);
+    let fogged_gamma = vec4(actor_distance_fog(lit_gamma, input.world_position, view.world_position) + legacy_foil, coverage);
     @if(!ALPHA_TO_COVERAGE)
-    let fogged_gamma = vec4(actor_distance_fog(lit_gamma, input.world_position, view.world_position), color.a);
+    let fogged_gamma = vec4(actor_distance_fog(lit_gamma, input.world_position, view.world_position) + legacy_foil, legacy_alpha);
     @if(ACTOR_GAMMA_BLEND)
     return fogged_gamma;
     @if(!ACTOR_GAMMA_BLEND)

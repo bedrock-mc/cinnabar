@@ -35,6 +35,7 @@ pub struct ActorFrameState {
     pub(super) captured_sampling_camera: Option<([f32; 2], [f32; 3])>,
     pub(super) first_person: bool,
     pub(super) java_mode: bool,
+    pub(super) combat_visuals: render_api::CombatVisuals,
     pub(super) hand_use: (
         Option<u32>,
         Option<actor_animation::AttachableAnimationInput<'static>>,
@@ -119,6 +120,7 @@ pub fn advance_actor_frame(
         captured_sampling_camera,
         first_person: captured_first_person,
         java_mode: captured_java_mode,
+        combat_visuals: captured_combat_visuals,
         hand_use: captured_hand_use,
         ..
     } = &mut *state;
@@ -210,6 +212,8 @@ pub fn advance_actor_frame(
         camera.renders_first_person(first_person)
     });
     let java_mode = settings.feel().java_animations;
+    // Java selects poses and items; the shared combat profile always owns bob, hurt and glint.
+    let combat_visuals = render_api::DEFAULT_COMBAT_VISUALS;
     let mut local_feed = input.local_feed.take();
     if let Some(feed) = local_feed.as_mut() {
         feed.first_person = first_person;
@@ -324,6 +328,8 @@ pub fn advance_actor_frame(
                     step.partial_tick,
                     poses,
                 )?;
+                presentation.submission.overlay_rgba8 =
+                    crate::presentation::combat::overlay(actor, combat_visuals);
                 register_player_skin(
                     &mut presentation,
                     &rig,
@@ -395,6 +401,7 @@ pub fn advance_actor_frame(
     *captured_sampling_camera = sampling_camera;
     *captured_first_person = first_person;
     *captured_java_mode = java_mode;
+    *captured_combat_visuals = combat_visuals;
     *captured_step = Some(step);
     *captured_input = Some(input);
 }

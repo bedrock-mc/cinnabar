@@ -5,6 +5,8 @@ mod elytra_tests;
 #[path = "runtime/held_animation_tests.rs"]
 mod held_animation_tests;
 
+#[path = "runtime/legacy_combat_tests.rs"]
+mod legacy_combat_tests;
 #[path = "runtime/worn_texture_tests.rs"]
 mod worn_texture_tests;
 
@@ -877,7 +879,7 @@ fn java_grips_ride_the_arm_and_skip_the_hurt_flash() {
 }
 
 #[test]
-fn sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
+fn modern_sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
     use super::runtime::{ActorEquipmentInput, HeldKind, StagedSessionIcons, WornItem};
     let (mut runtime, pages) = pack_runtime(crown_pack());
     let mut body = player_body(&mut runtime);
@@ -924,7 +926,7 @@ fn sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
         ],
         ..Default::default()
     };
-    let layers = runtime.layers_for(&body, &input, None);
+    let layers = runtime.layers_for_profile(&body, &input, render_api::CombatVisuals::Modern, None);
     assert_eq!(layers.len(), 3);
     assert!(
         layers

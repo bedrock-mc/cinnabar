@@ -120,6 +120,7 @@ pub(super) fn inherited_geometry_fixture() -> CompiledEntityAssets {
     compiled.geometries = vec![
         compiled.geometries[0].clone(),
         EntityGeometry {
+            animation_no_head_bob: false,
             visible_bounds: None,
             identifier: "geometry.derived".into(),
             inherits: Some(EntityGeometryInheritance {
@@ -346,6 +347,7 @@ fn carrier_rejects_dependency_resolution_that_disagrees_with_catalog() {
     ]
     .into_boxed_slice();
     compiled.geometries = vec![EntityGeometry {
+        animation_no_head_bob: false,
         visible_bounds: None,
         identifier: "geometry.allay".into(),
         inherits: None,
@@ -473,6 +475,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         sources,
         symbols,
         geometries: vec![entity::EntityGeometry {
+            animation_no_head_bob: false,
             visible_bounds: None,
             identifier: "geometry.allay".into(),
             inherits: None,
