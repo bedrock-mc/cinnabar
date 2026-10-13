@@ -326,6 +326,8 @@ jobs:
     env:
       # Only test steps expose race flags to Go; cache planning uses the shared configuration.
       RACE_TEST_FLAGS: ${{ github.event_name != 'pull_request' && matrix.os == 'ubuntu-latest' && '-race' || '' }}
+      # Fixture preparation and the test helper share isolated guest intermediates.
+      EXPERIENCE_GUEST_BUILD_DIR: "{workspace-root}/target/experience-guests/build"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -353,6 +355,13 @@ jobs:
           go -C tools/registrygen test ./... -count=1
           unset GOFLAGS
           go -C tools/registrygen vet ./...
+      - name: Prepare local server Rust fixtures
+        # Keep cold fixture compilation outside Go's test-binary deadline.
+        # Separate native builds preserve the feature sets requested by the test helpers.
+        run: |
+          cargo build -p cinnabar-cxb --locked
+          cargo build -p experience-runtime --locked
+          CARGO_BUILD_BUILD_DIR="$EXPERIENCE_GUEST_BUILD_DIR" cargo build --locked --target wasm32-unknown-unknown -p experience-probe --target-dir target/experience-guests
       - name: Test and vet local server Experiences
         working-directory: tools/localserver
         env:
