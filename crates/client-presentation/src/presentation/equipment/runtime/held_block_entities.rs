@@ -63,7 +63,9 @@ impl EquipmentRuntime {
         let (extended, location) = if startup {
             (None, held.startup_location)
         } else if let Some(raster) = source.and_then(PreparedHeldBlockModels::raster) {
-            let (extended, locations) = pages.with_equipment_rasters(std::slice::from_ref(raster));
+            let (extended, locations) = pages
+                .clone()
+                .with_equipment_rasters(std::slice::from_ref(raster));
             (Some(extended), locations[0])
         } else {
             (None, None)
