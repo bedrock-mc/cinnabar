@@ -269,18 +269,6 @@ fn paint_edit_label(
     name: &str,
     text: &str,
 ) -> (EngineFrame, Vec<UiNode>) {
-    static REGISTRY: std::sync::OnceLock<ScreenRegistry> = std::sync::OnceLock::new();
-    let registry = REGISTRY.get_or_init(|| ScreenRegistry::new(Context::desktop()));
-    let bytes = encode_ui_catalog([1; 32], &[], &[], &[], &[]).unwrap();
-    let assets = Arc::new(RuntimeUiAssets::decode(&bytes).unwrap());
-    let engine = FormEngine::new(
-        assets,
-        Catalog::default(),
-        0,
-        registry,
-        Arc::new(NoImages),
-        ImageWork::inline(),
-    );
     let json = serde_json::json!({
         "namespace": "fixture",
         "screen": {
@@ -294,6 +282,27 @@ fn paint_edit_label(
         }
     })
     .to_string();
+    paint_fixture(font, metrics, &json)
+}
+
+/// Resolves, lays out and paints an original text-only screen through the owning engine.
+fn paint_fixture(
+    font: &RuntimeFontCatalog,
+    metrics: TextMetrics,
+    json: &str,
+) -> (EngineFrame, Vec<UiNode>) {
+    static REGISTRY: std::sync::OnceLock<ScreenRegistry> = std::sync::OnceLock::new();
+    let registry = REGISTRY.get_or_init(|| ScreenRegistry::new(Context::desktop()));
+    let bytes = encode_ui_catalog([1; 32], &[], &[], &[], &[]).unwrap();
+    let assets = Arc::new(RuntimeUiAssets::decode(&bytes).unwrap());
+    let engine = FormEngine::new(
+        assets,
+        Catalog::default(),
+        0,
+        registry,
+        Arc::new(NoImages),
+        ImageWork::inline(),
+    );
     let catalog = Catalog::from_files([
         ("ui/_global_variables.json", b"{}".as_slice()),
         (
@@ -567,46 +576,40 @@ fn centered_outline_title_retains_cap_size_and_gui_pixel_inset() {
                 let metrics =
                     TextMetrics::for_viewport([1280, 720], DpiScale::new(dpi).unwrap(), Some(gui));
                 let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
-                let mut layouts = TextLayoutCache::new(4, 1 << 20);
-                let options = TextOptions {
-                    font_type: face.json_ui_alias.map(str::to_owned),
-                    ..Default::default()
-                };
-                let height = Measure {
-                    layouts: &RefCell::new(&mut layouts),
-                    font: &font,
-                    metrics,
-                    px,
-                    translate: &|_| None,
-                }
-                .named_label(
-                    "0",
-                    face.name,
-                    None,
-                    LabelShape {
-                        scale: 1.3,
-                        line_padding: 0.0,
-                        hide_hyphen: false,
-                    },
-                )[1] as f32;
-                let top = (26.0 - height) * 0.5 - 2.5;
-                let dest = [0.0, top * px, 200.0 * px, (top + height) * px];
-                let request = painted_label_request(
-                    metrics,
-                    "0",
-                    dest,
-                    &font,
-                    1.3,
-                    &options,
-                    TextAlign::Left,
-                    px,
-                );
-                let layout = layouts.layout(request).unwrap();
-                let glyph = &layout.glyphs()[0];
-                let origin = label_origin(dest, &font, &options, px);
-                let ink_height = (glyph.bounds_64[3] - glyph.bounds_64[1]) as f32 / 64.0 / px;
-                let center =
-                    (origin[1] + (glyph.bounds_64[1] + glyph.bounds_64[3]) as f32 / 128.0) / px;
+                let json = serde_json::json!({
+                    "namespace": "fixture",
+                    "screen": { "type": "panel", "size": [200, 26],
+                        "anchor_from": "top_left", "anchor_to": "top_left",
+                        "controls": [{ "title": { "type": "label", "text": "0",
+                            "localize": false, "font_type": face.json_ui_alias.unwrap(),
+                            "anchor_from": "left_middle", "anchor_to": "left_middle",
+                            "max_size": ["100%", 20], "font_scale_factor": 1.3,
+                            "offset": [0, -2.5], "shadow": false } }]
+                    }
+                })
+                .to_string();
+                let (_, nodes) = paint_fixture(&font, metrics, &json);
+                let mut tree = UiTree::new(nodes).unwrap();
+                tree.layout(
+                    rect(0.0, 0.0, 1280.0 / dpi, 720.0 / dpi).unwrap(),
+                    UiScale::default(),
+                    SafeArea::ZERO,
+                )
+                .unwrap();
+                let draw = tree.build_draw_list().unwrap();
+                assert_eq!(draw.vertices.len(), 4, "one original cap quad");
+                let top = draw
+                    .vertices
+                    .iter()
+                    .map(|vertex| vertex.position[1])
+                    .fold(f32::INFINITY, f32::min);
+                let bottom = draw
+                    .vertices
+                    .iter()
+                    .map(|vertex| vertex.position[1])
+                    .fold(f32::NEG_INFINITY, f32::max);
+                let ink_height = (bottom - top) / px;
+                let center = (top + bottom) * 0.5 / px;
                 assert!(
                     (ink_height - 8.8).abs() < 0.15,
                     "em {em}, GUI {gui}, DPI {dpi}: cap height {ink_height}"
