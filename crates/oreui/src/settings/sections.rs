@@ -635,6 +635,29 @@ fn general(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "menu.general.tab.miscellaneous.description",
     )?;
     content.option("ecomode_toggle")?;
+    super::services::action_row(
+        content,
+        "Import from Minecraft",
+        "Preview settings, servers and user-installed resource packs from a Minecraft profile.",
+        "Import",
+        (!content.view.over_world
+            && !content.view.global_resources.busy
+            && !content.view.global_resources.has_pending_changes())
+        .then_some(MenuAction::MinecraftImport(
+            launcher::minecraft_import::Action::Begin,
+        )),
+    )?;
+    if content.view.minecraft_import.can_revert {
+        super::services::action_row(
+            content,
+            "Revert Minecraft import",
+            "Restore the settings, servers and pack order saved before the last import.",
+            "Revert",
+            (!content.view.over_world && !content.view.global_resources.busy).then_some(
+                MenuAction::MinecraftImport(launcher::minecraft_import::Action::Revert),
+            ),
+        )?;
+    }
     for (key, action) in [
         ("options.helpCenter", SupportAction::Open(SupportLink::Help)),
         (

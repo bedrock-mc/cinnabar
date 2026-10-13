@@ -9,8 +9,10 @@ use protocol::{
 use semantic_input::KeyboardKey;
 use ui::{ChatClipboard, PointerPhase, UiAction, UiPoint};
 
-use super::fixtures::envelope;
+use super::fixtures::{envelope, warp_tree};
 use super::support::text;
+
+mod mentions;
 
 #[test]
 fn accepted_chat_send_clears_editor_and_session_replacement_attributes_drops() {
@@ -506,32 +508,6 @@ fn provided_suggestion_hit_selects_the_matching_scrolled_row() {
         Some(4),
     ));
     assert_eq!(runtime.chat_editor().as_str(), "/s4");
-}
-
-/// Builds a command tree with enum and player-target parameters.
-fn warp_tree() -> protocol::CommandTreeEvent {
-    let param = |name: &str, kind| protocol::CommandParam {
-        name: Arc::from(name),
-        optional: false,
-        collapse_enum: false,
-        kind,
-    };
-    let mode = protocol::CommandParamKind::Enum {
-        name: Arc::from("Mode"),
-        values: Arc::from([Arc::from("fast"), Arc::from("far"), Arc::from("slow")]),
-    };
-    protocol::CommandTreeEvent {
-        commands: Arc::from([protocol::CommandSpec {
-            name: Arc::from("warp"),
-            aliases: Arc::from([]),
-            permission: 0,
-            overloads: Arc::from([Arc::from([
-                param("mode", mode),
-                param("who", protocol::CommandParamKind::Target),
-            ])]),
-        }]),
-        soft_enums: Arc::from([]),
-    }
 }
 
 #[test]

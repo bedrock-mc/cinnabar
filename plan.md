@@ -1320,6 +1320,10 @@ acceptance gate.
 - Criterion exercises production palette/column decode, light solves, cube/biome
   meshing, bounded ingress-to-CPU-publication bursts, idle polls and metadata scans.
 - Fixtures validate decoded cells, lighting, exposed faces and drained stream state.
+- Biome lattices pack u16 tint indices and integer sample counts into four words per
+  point, retaining full-width indices when needed. Record reuse is bounded and scoped
+  to immutable biome, tint, pack and dimension sources. CPU and shader oracles compare
+  decoded weights and colours with the original nine-word representation.
   Benchmark fixtures run on the pinned toolchain without local carriers.
 - The largest fixture stores 871 sections in 218 target columns, with preloaded
   implicit-air neighbours. It is synthetic, not a replay of the reported FPS drop.
@@ -2916,8 +2920,12 @@ Personal inventory quick move equips stock totems into an available offhand cell
 before moving them between the hotbar and main inventory. Explicit item offhand
 permissions override stock defaults; offhand wearable declarations admit that cell.
 Occupied equipment falls back to inventory, open storage keeps its own route, and
-rejected requests restore the authoritative source. Broader stock equipment defaults
-and unsupported custom wearable declarations remain incomplete.
+rejected requests restore the authoritative source. Clicks, counted places and
+hotbar keys refuse to move an item into an armor or offhand cell that does not admit
+it, and fill armor cells one item at a time; taking any item out stays allowed. The
+stock head-block and offhand tables (arrows, fireworks, maps, nautilus shells,
+shields, totems) are provisional and still need vanilla evidence; they and
+unsupported custom wearable declarations remain incomplete.
 
 2026-10-01 inventory reconciliation: the current native sparse-container audit
 replaces delta replay over mutable backing truth with absolute request-owned cell
@@ -8648,6 +8656,26 @@ natively too. Until that comparison exists, the counted fallback to the
 base visual is the intended semantic, locked by the connection permutation
 regression. Incomplete: mask compilation, neighbor rule, meshing selection,
 and the native comparison.
+
+
+## Import player data from Minecraft
+
+The launcher offers a one-time Import or Not now choice when a known user-data
+directory exists. File contents are read only after an explicit import action.
+General Settings retains Import from Minecraft and Revert actions. Import previews
+one selected profile with readable category counts in a bounded, scrolling modal.
+Import requires a separate confirmation; cancelling returns to the preview. It merges server endpoints, validates and copies installed
+resource packs, and preserves the chosen active order. A durable snapshot restores
+settings, servers and active pack order without removing copied packs.
+
+Supported preferences use a schema-checked mapping table. Primary desktop keyboard
+and mouse bindings use the existing binding validator. Unknown settings, secondary
+key assignments, controller and touch layouts, encrypted packs and invalid or
+over-limit entries are counted and skipped. Existing pack identities are retained.
+
+Incomplete: complete option and control-layout parity, Android scoped-storage
+imports, custom launcher data roots, and verification of every supported desktop
+location against a live install. This feature does not close a parity gate.
 
 ## Outline label sizing and alignment
 

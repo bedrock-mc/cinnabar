@@ -327,6 +327,12 @@ impl MenuRuntime {
         }
         if let Some(dialog) = self.dialog {
             return match dialog {
+                MenuDialog::MinecraftImport => self
+                    .minecraft_import
+                    .actions()
+                    .into_iter()
+                    .map(MenuAction::MinecraftImport)
+                    .collect(),
                 MenuDialog::Accounts => {
                     if let Some(actions) = self.sign_in_focus() {
                         return actions;

@@ -22,6 +22,7 @@ pub mod graphics_backend;
 pub mod install_layout;
 pub mod local_worlds;
 pub mod menu;
+pub mod minecraft_import;
 pub mod skin_import;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;

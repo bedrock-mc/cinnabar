@@ -65,5 +65,24 @@ pub(crate) fn command_key(
             && named_control(menu, "key.command") == named_control(None, "key.command"))
 }
 
+/// Whether `key` edits chat by whole words when the word-edit modifier is held.
+pub(crate) fn is_word_edit(key: KeyCode) -> bool {
+    matches!(
+        key,
+        KeyCode::Backspace | KeyCode::Delete | KeyCode::ArrowLeft | KeyCode::ArrowRight
+    )
+}
+
+/// Applies the word edit for `key`; `selecting` extends the selection instead of moving the caret.
+pub(crate) fn word_edit(editor: &mut ui::ChatEditor, key: KeyCode, selecting: bool) {
+    match key {
+        KeyCode::Backspace => editor.backspace_word(),
+        KeyCode::Delete => editor.delete_word(),
+        KeyCode::ArrowLeft => editor.move_word_left(selecting),
+        KeyCode::ArrowRight => editor.move_word_right(selecting),
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests;

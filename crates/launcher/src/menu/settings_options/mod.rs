@@ -48,6 +48,20 @@ pub use runtime::{frame_rate_label, frame_rate_limit};
 pub const SHOW_EXACT_SERVER_PING: &str = "show_exact_server_ping";
 pub const OREUI_DARK_MODE: &str = "oreui_dark_mode";
 
+/// One stored option, including whether the player has made an explicit choice.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct OptionPreference {
+    index: usize,
+    value: Option<i32>,
+}
+
+impl OptionPreference {
+    /// Returns the registry index of this stored option.
+    pub fn index(self) -> usize {
+        self.index
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SettingsOptions {
@@ -84,6 +98,24 @@ impl Default for SettingsOptions {
 }
 
 impl SettingsOptions {
+    /// Captures an option's stored choice without resolving runtime defaults or device limits.
+    pub fn option_preference(&self, index: usize) -> Option<OptionPreference> {
+        let option = SETTINGS_OPTIONS.get(index)?;
+        Some(OptionPreference {
+            index,
+            value: self.values.get(option.name).copied(),
+        })
+    }
+
+    /// Restores a captured option exactly, preserving an untouched or legacy preference.
+    pub fn restore_option_preference(&mut self, preference: OptionPreference) -> bool {
+        let option = SETTINGS_OPTIONS[preference.index];
+        match preference.value {
+            Some(value) => self.values.insert(option.name.to_owned(), value) != Some(value),
+            None => self.values.remove(option.name).is_some(),
+        }
+    }
+
     /// The saved check preference, quit-time opt-in and selected release channel.
     pub fn update_preferences(&self) -> super::updates::Preferences {
         super::updates::Preferences {

@@ -269,6 +269,17 @@ impl PlayerInventoryLedger {
         let cursor_stack = cursor_held.as_ref().map(|held| &held.stack);
         let plain_overlays =
             !has_meaningful_overlay(target_overlay) && !has_meaningful_overlay(cursor_overlay);
+        // Equipment cells refuse foreign items going in, never items coming out.
+        let equipment_limit = match gesture {
+            CellGesture::TakeCount(_) => None,
+            CellGesture::Click | CellGesture::PlaceCount(_) => {
+                cursor_stack.and_then(|cursor| self.equipment_capacity(target, cursor))
+            }
+        };
+        if equipment_limit == Some(0) {
+            return Err(InventoryGestureError::EquipmentRefused);
+        }
+        let limit = |capacity: u16| equipment_limit.map_or(capacity, |limit| limit.min(capacity));
         let built = match gesture {
             CellGesture::Click => match (target_stack, cursor_stack) {
                 (Some(stack), None) => counted_transfer(
@@ -285,11 +296,12 @@ impl PlayerInventoryLedger {
                     target,
                     stack,
                     storage_identity,
-                    None,
+                    equipment_limit.filter(|limit| *limit < stack.count),
                 )?,
                 (Some(inventory), Some(cursor)) => {
                     match self.occupied_stack_relation(cursor, inventory) {
                         OccupiedStackRelation::Compatible { capacity } if plain_overlays => {
+                            let capacity = limit(capacity);
                             let amount = cursor.count.min(capacity.saturating_sub(inventory.count));
                             counted_merge(
                                 StackRequestActionKind::Place,
@@ -302,8 +314,13 @@ impl PlayerInventoryLedger {
                                 capacity,
                             )?
                         }
-                        OccupiedStackRelation::Incompatible => {
+                        OccupiedStackRelation::Incompatible
+                            if equipment_limit.is_none_or(|limit| cursor.count <= limit) =>
+                        {
                             swap(Cell::Cursor, target, cursor, inventory, storage_identity)?
+                        }
+                        OccupiedStackRelation::Incompatible => {
+                            return Err(InventoryGestureError::EquipmentRefused);
                         }
                         OccupiedStackRelation::Compatible { .. }
                         | OccupiedStackRelation::Unsupported => {
@@ -366,7 +383,7 @@ impl PlayerInventoryLedger {
                             inventory,
                             storage_identity,
                             amount,
-                            capacity,
+                            limit(capacity),
                         )?
                     }
                     None => counted_transfer(
@@ -375,7 +392,7 @@ impl PlayerInventoryLedger {
                         target,
                         stack,
                         storage_identity,
-                        Some(amount),
+                        Some(limit(amount)),
                     )?,
                 }
             }

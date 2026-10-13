@@ -27,7 +27,7 @@ pub(super) fn brewing_slots(identifier: &str) -> &'static [u8] {
 #[must_use]
 pub(super) fn armor_row(identifier: &str) -> Option<u8> {
     let name = bare(identifier);
-    if ends_with(name, "_helmet") || name == "turtle_helmet" {
+    if ends_with(name, "_helmet") || is_head_block(name) {
         Some(0)
     } else if ends_with(name, "_chestplate") || name == "elytra" {
         Some(1)
@@ -38,6 +38,32 @@ pub(super) fn armor_row(identifier: &str) -> Option<u8> {
     } else {
         None
     }
+}
+
+/// Worn blocks the head cell accepts besides helmets.
+fn is_head_block(name: &str) -> bool {
+    matches!(
+        name,
+        "carved_pumpkin"
+            | "skull"
+            | "skeleton_skull"
+            | "wither_skeleton_skull"
+            | "zombie_head"
+            | "player_head"
+            | "creeper_head"
+            | "dragon_head"
+            | "piglin_head"
+    )
+}
+
+/// Whether a stock item without declared components may be held in the offhand.
+#[must_use]
+pub(super) fn stock_offhand(identifier: &str) -> bool {
+    identifier == super::TOTEM_IDENTIFIER
+        || matches!(
+            bare(identifier),
+            "shield" | "arrow" | "firework_rocket" | "empty_map" | "filled_map" | "nautilus_shell"
+        )
 }
 
 /// Whether the item is the enchanting table's lapis lazuli.
@@ -120,6 +146,10 @@ mod tests {
     fn equipment_and_loom_slots() {
         assert_eq!(armor_row("minecraft:iron_boots"), Some(3));
         assert_eq!(armor_row("minecraft:stick"), None);
+        assert_eq!(armor_row("minecraft:carved_pumpkin"), Some(0));
+        assert_eq!(armor_row("minecraft:elytra"), Some(1));
+        assert!(stock_offhand("minecraft:arrow"));
+        assert!(!stock_offhand("minecraft:dirt"));
         assert_eq!(loom_slot("minecraft:white_banner"), Some(9));
         assert_eq!(loom_slot("minecraft:creeper_banner_pattern"), Some(11));
         assert_eq!(smithing_slot("minecraft:netherite_ingot"), 52);

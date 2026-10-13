@@ -101,6 +101,7 @@ use client_world::ingestion::{
 use column_set::ColumnSubChunkSet;
 use helpers::*;
 use lighting::types::*;
+use meshing::biome_records::pack_biome_record;
 use meshing::types::*;
 use request_queue::RequestQueue;
 
@@ -358,6 +359,7 @@ pub struct WorldStream {
     predictions: prediction::DeferredPredictions,
     decode_tx: Sender<DecodeCompletion>,
     decode_rx: Receiver<DecodeCompletion>,
+    biome_records: Option<Arc<meshing::biome_records::BiomeRecordCache>>,
     mesh_tx: Sender<MeshCompletion>,
     mesh_rx: Receiver<MeshCompletion>,
     lighting: lighting::Lighting,
