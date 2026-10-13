@@ -23,6 +23,8 @@ pub mod hud;
 #[cfg(test)]
 pub mod inbox_tests;
 #[cfg(test)]
+mod item_renderer_tests;
+#[cfg(test)]
 mod join_request_tests;
 pub mod loading_screen;
 #[cfg(test)]
@@ -631,6 +633,7 @@ impl UiPresentationRuntime {
     pub(super) fn append_server_form(
         &mut self,
         runtime: &UiRuntime,
+        registry: Option<&std::collections::BTreeMap<i32, protocol::ItemRegistryEntry>>,
         nodes: &mut Vec<UiNode>,
         next: &mut u32,
         metrics: TextMetrics,
@@ -654,6 +657,20 @@ impl UiPresentationRuntime {
         {
             return Ok(());
         }
+        let session_icons = &self.session_icons;
+        let icon_catalog = self.icon_catalog.as_deref();
+        let icon_refs = self.icon_refs.as_deref();
+        let item_icon = |id, aux| {
+            let entry = registry?.get(&id)?;
+            super::session_icons::lookup_icon(
+                session_icons,
+                icon_catalog,
+                icon_refs,
+                &entry.identifier,
+                aux,
+            )
+        };
+        let mut items = ui_engine::engine::item_renderer::ItemIdAuxRenderer { icon: &item_icon };
         let reason = match self.engine.as_deref_mut() {
             None => "JSON-UI carrier not loaded".to_owned(),
             Some(renderer) => {
@@ -679,7 +696,7 @@ impl UiPresentationRuntime {
                             now: self.menu_seconds,
                             nodes: &mut *nodes,
                             next: &mut *next,
-                            renderers: &mut [],
+                            renderers: &mut [&mut items],
                         };
                         let catalog = renderer.catalog_label();
                         match renderer.render(&form, &state.view, &mut frame) {

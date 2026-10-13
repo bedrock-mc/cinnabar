@@ -2,6 +2,9 @@
 
 use semantic_input::{Action, AxisDirection, PhysicalControl};
 
+/// Persisted empty assignment; an absent entry instead selects the default binding.
+pub const UNBOUND_CONTROL: u16 = 0;
+
 pub const GAMEPAD_OFFSET: usize = 0x8000;
 pub const EXTRA_KEYS: &[(&str, PhysicalControl)] = &[
     ("key.inventory", PhysicalControl::KeyboardUsage(0x08)),

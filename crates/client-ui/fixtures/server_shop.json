@@ -1,0 +1,79 @@
+{
+  "namespace": "server_form",
+  "third_party_server_screen": {
+    "type": "screen",
+    "$screen_content": "server_form.content",
+    "button_mappings": [
+      {"from_button_id": "button.menu_cancel", "to_button_id": "button.menu_exit", "mapping_type": "global"}
+    ]
+  },
+  "content": {
+    "type": "panel",
+    "controls": [{"server_form_factory": {
+      "type": "factory",
+      "control_ids": {"long_form": "server_form.long_form"}
+    }}]
+  },
+  "long_form": {
+    "type": "panel", "size": [360, 160], "color": [0.12, 0.15, 0.18],
+    "controls": [
+      {"title": {
+        "type": "label", "size": [290, 24], "offset": [10, 4],
+        "anchor_from": "top_left", "anchor_to": "top_left",
+        "font_type": "MinecraftTen", "font_scale_factor": 1.3, "text": "#title_text",
+        "bindings": [{"binding_name": "#title_text"}]
+      }},
+      {"close": {
+        "type": "button", "size": [24, 24], "offset": [-4, 4],
+        "anchor_from": "top_right", "anchor_to": "top_right",
+        "button_mappings": [{"from_button_id": "button.menu_select", "to_button_id": "button.menu_exit", "mapping_type": "pressed"}],
+        "controls": [{"label": {"type": "label", "text": "X", "color": [1, 1, 1]}}]
+      }},
+      {"back": {
+        "type": "collection_panel", "size": [24, 24], "offset": [-32, 4],
+        "anchor_from": "top_right", "anchor_to": "top_right", "collection_name": "form_buttons",
+        "factory": {"name": "back", "control_name": "server_form.back_button", "max_children_size": 1},
+        "bindings": [{"binding_name": "#form_button_contents", "binding_name_override": "#collection_length"}]
+      }},
+      {"cells": {
+        "type": "grid", "size": [342, 76], "offset": [9, 48],
+        "anchor_from": "top_left", "anchor_to": "top_left",
+        "grid_dimensions": [9, 2],
+        "collection_name": "form_buttons", "grid_item_template": "server_form.cell",
+        "bindings": [
+          {"binding_name": "#form_button_length"},
+          {"binding_type": "view", "source_property_name": "(#form_button_length - 1)", "target_property_name": "#maximum_grid_items"}
+        ]
+      }}
+    ]
+  },
+  "back_button": {
+    "type": "button", "size": [24, 24],
+    "button_mappings": [{"from_button_id": "button.menu_select", "to_button_id": "button.form_button_click", "mapping_type": "pressed"}],
+    "bindings": [
+      {"binding_type": "collection_details", "binding_collection_name": "form_buttons"},
+      {"binding_type": "collection", "binding_collection_name": "form_buttons", "binding_name": "#form_button_text"},
+      {"binding_type": "view", "source_property_name": "(#form_button_text = 'Back')", "target_property_name": "#visible"}
+    ],
+    "controls": [{"label": {"type": "label", "text": "<", "color": [1, 1, 1]}}]
+  },
+  "cell": {
+    "type": "button", "size": [36, 36],
+    "button_mappings": [{"from_button_id": "button.menu_select", "to_button_id": "button.form_button_click", "mapping_type": "pressed"}],
+    "bindings": [{"binding_type": "collection_details", "binding_collection_name": "form_buttons"}],
+    "controls": [
+      {"background": {"type": "panel", "size": [34, 34], "color": [0.22, 0.27, 0.32]}},
+      {"item": {
+        "type": "custom", "renderer": "inventory_item_renderer", "size": [24, 24],
+        "bindings": [
+          {"binding_type": "collection", "binding_collection_name": "form_buttons", "binding_name": "#form_button_text", "binding_name_override": "#code"},
+          {"binding_type": "view", "source_property_name": "('%.12s' * #code)", "target_property_name": "#item_id_aux"}
+        ]
+      }},
+      {"count": {
+        "type": "label", "text": "1", "size": [8, 10],
+        "anchor_from": "bottom_right", "anchor_to": "bottom_right", "offset": [-2, -2], "color": [1, 1, 1]
+      }}
+    ]
+  }
+}
