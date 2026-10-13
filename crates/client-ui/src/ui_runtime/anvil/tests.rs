@@ -362,11 +362,38 @@ fn damage_corrections_do_not_overwrite_a_name_the_player_is_editing() {
                 runtime.sync_anvil_name(&player);
                 assert_eq!(runtime.screen_state().anvil_name, "Typed");
             }
-            let preview = runtime.anvil_preview(&player).unwrap();
-            assert_eq!(preview.outcome.custom_name, Some(Some("Typed".into())));
+            let with_material = runtime.anvil_preview(&player);
+            if damage == 0 {
+                assert!(
+                    with_material.is_none(),
+                    "the repair material changes nothing"
+                );
+            } else {
+                let repaired = with_material.unwrap();
+                assert_eq!(repaired.outcome.custom_name, Some(Some("Typed".into())));
+                assert_eq!(protocol::item_stack_damage(&repaired.stack), Some(0));
+                assert_eq!(repaired.outcome.cost, 4);
+            }
+            place(
+                &mut runtime,
+                &mut player,
+                u16::from(ANVIL_MATERIAL_SLOT),
+                NetworkItemStack::empty(),
+            );
+            runtime.sync_anvil_name(&player);
+            assert_eq!(runtime.screen_state().anvil_name, "Typed");
+            let renamed = runtime
+                .anvil_preview(&player)
+                .expect("the corrected target alone can be renamed");
+            assert_eq!(renamed.outcome.custom_name, Some(Some("Typed".into())));
             assert_eq!(runtime.anvil_rename(&player).as_deref(), Some("Typed"));
-            assert_eq!(protocol::item_stack_damage(&preview.stack), Some(0));
-            assert_eq!(preview.outcome.cost, if damage == 0 { 1 } else { 4 });
+            assert_eq!(renamed.outcome.damage, None);
+            assert_eq!(renamed.outcome.material_used, 0);
+            assert_eq!(
+                protocol::item_stack_damage(&renamed.stack),
+                Some(damage as u32)
+            );
+            assert_eq!(renamed.outcome.cost, 1);
         }
     }
 }

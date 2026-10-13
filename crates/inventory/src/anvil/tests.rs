@@ -44,6 +44,25 @@ fn materials_repair_a_quarter_each_and_cost_a_level_each() {
         None,
         "nothing to repair"
     );
+    for creative in [false, true] {
+        assert_eq!(
+            evaluate_anvil(
+                &sword(0, &[]),
+                Some(&diamonds),
+                "Blade",
+                "Diamond Sword",
+                creative
+            ),
+            None,
+            "a repair material that changes nothing also blocks renaming"
+        );
+        let renamed = evaluate_anvil(&sword(0, &[]), None, "Blade", "Diamond Sword", creative)
+            .expect("renaming alone needs no repair work");
+        assert_eq!(renamed.custom_name, Some(Some("Blade".into())));
+        assert_eq!(renamed.damage, None);
+        assert_eq!(renamed.material_used, 0);
+        assert_eq!(renamed.cost, 1);
+    }
 }
 
 #[test]
