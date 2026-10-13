@@ -27,6 +27,15 @@ far the player sees: far terrain fills the gap between what the server sends and
 distance, within a budget set by the device tier (`render_api::far_terrain`). Video › Far
 Terrain (LOD) turns it on or off (default on).
 
+With far terrain on, only columns within the full-detail radius are lit, meshed and uploaded;
+the rest of what the server sends keeps its block data and is drawn by far terrain from its
+summary. The radius is Auto by device tier (24, 32 or 48 chunks) or set under Video › Advanced
+(16–64), capped at the render distance, so large render distances cost far tiles rather than
+meshes. A column is promoted (relit and remeshed) inside the radius and demoted two chunks past
+it; far terrain hides only under full-detail columns whose meshes are all uploaded, so neither
+direction opens a hole. Entities keep their 12-chunk render distance, inside the smallest
+radius.
+
 Incomplete: the far-terrain look (cell colours, height aggregation and water blending) is held
 for owner review. Enhanced rendering lights far terrain with the vanilla path,
 and block light, clouds and weather do not reach it. No parity gate closes here.
