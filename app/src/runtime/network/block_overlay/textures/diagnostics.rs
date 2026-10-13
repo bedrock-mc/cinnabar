@@ -25,6 +25,8 @@ pub(super) enum FailureReason {
     TextureSetUnresolved,
     /// The overlay's texture array has no free layer left.
     TextureArrayFull,
+    /// Full-resolution pixels cannot fit the retained source or upload budget.
+    TextureBudgetExceeded,
 }
 
 impl FailureReason {
@@ -37,6 +39,7 @@ impl FailureReason {
             Self::ImageDecodeFailed => "image_decode_failed",
             Self::TextureSetUnresolved => "texture_set_unresolved",
             Self::TextureArrayFull => "texture_array_full",
+            Self::TextureBudgetExceeded => "texture_budget_exceeded",
         }
     }
 }
@@ -164,6 +167,7 @@ mod tests {
             FailureReason::ImageDecodeFailed,
             FailureReason::TextureSetUnresolved,
             FailureReason::TextureArrayFull,
+            FailureReason::TextureBudgetExceeded,
         ]
         .map(FailureReason::key);
         let mut unique = names.to_vec();

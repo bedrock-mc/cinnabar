@@ -1,5 +1,6 @@
 //! Bounded source image and texture catalog preparation for pack subscribers.
 
+use assets::texture::policy::{MAX_DECODE_BYTES, TexturePolicy};
 use image::{ImageFormat, ImageReader, Limits};
 use pack_json::normalize_jsonc;
 use resource_pack::LayeredPackView;
@@ -7,8 +8,7 @@ use serde_json::Value;
 use std::{collections::HashMap, io::Cursor};
 
 const MAX_TEXTURE_SOURCE_BYTES: usize = resource_pack::MAX_PACK_TEXTURE_BYTES as usize;
-const MAX_TEXTURE_SIDE: u32 = 1024;
-const MAX_DECODE_ALLOC: u64 = 16 * 1024 * 1024;
+const LEGACY_TEXTURE_SIDE: u32 = 1024;
 pub const MAX_CATALOG_ENTRIES: usize = 16_384;
 
 /// Straight-alpha RGBA8 pixels decoded from a pack image.
@@ -104,11 +104,32 @@ const MAX_TEXTURE_SET_BYTES: u64 = 64 * 1024;
 /// Decodes the winning image at `path`, trying `.png`, `.tga`, and `.jpg` as
 /// vanilla does, then the color layer of a `.texture_set.json`.
 pub fn decode_pack_texture(view: &LayeredPackView, path: &str) -> Option<DecodedTexture> {
-    decode_image_file(view, path).or_else(|| decode_texture_set(view, path))
+    decode_pack_texture_with_policy(
+        view,
+        path,
+        TexturePolicy::for_device(LEGACY_TEXTURE_SIDE),
+        false,
+    )
+}
+
+/// Resolves an image with caller-supplied device bounds; strips are cut before GPU upload.
+pub fn decode_pack_texture_with_policy(
+    view: &LayeredPackView,
+    path: &str,
+    policy: TexturePolicy,
+    vertical_strip: bool,
+) -> Option<DecodedTexture> {
+    decode_image_file(view, path, policy, vertical_strip)
+        .or_else(|| decode_texture_set(view, path, policy, vertical_strip))
 }
 
 /// Tries the literal image path, then the supported file extensions in precedence order.
-fn decode_image_file(view: &LayeredPackView, path: &str) -> Option<DecodedTexture> {
+fn decode_image_file(
+    view: &LayeredPackView,
+    path: &str,
+    policy: TexturePolicy,
+    vertical_strip: bool,
+) -> Option<DecodedTexture> {
     // Vanilla's loader also tries the literal path, so a pack path that already
     // names its image (`textures/items/gem.png`) resolves.
     let named = path.rsplit_once('.').and_then(|(_, extension)| {
@@ -119,7 +140,7 @@ fn decode_image_file(view: &LayeredPackView, path: &str) -> Option<DecodedTextur
     if let Some((_, format)) = named
         && let Some(texture) = view
             .read_capped(path, MAX_TEXTURE_SOURCE_BYTES as u64)
-            .and_then(|bytes| decode_image(&bytes, format))
+            .and_then(|bytes| decode_image_with_policy(&bytes, format, policy, vertical_strip))
     {
         return Some(texture);
     }
@@ -130,12 +151,17 @@ fn decode_image_file(view: &LayeredPackView, path: &str) -> Option<DecodedTextur
                 &format!("{path}.{extension}"),
                 MAX_TEXTURE_SOURCE_BYTES as u64,
             )?;
-            decode_image(&bytes, format)
+            decode_image_with_policy(&bytes, format, policy, vertical_strip)
         })
 }
 
 /// A texture set's `color` is a sibling image name or a solid `[r, g, b(, a)]`.
-fn decode_texture_set(view: &LayeredPackView, path: &str) -> Option<DecodedTexture> {
+fn decode_texture_set(
+    view: &LayeredPackView,
+    path: &str,
+    policy: TexturePolicy,
+    vertical_strip: bool,
+) -> Option<DecodedTexture> {
     let bytes = view.read_capped(&format!("{path}.texture_set.json"), MAX_TEXTURE_SET_BYTES)?;
     let root = parse_pack_json(&bytes)?;
     match root.get("minecraft:texture_set")?.get("color")? {
@@ -147,7 +173,7 @@ fn decode_texture_set(view: &LayeredPackView, path: &str) -> Option<DecodedTextu
             [sibling, name.to_owned()]
                 .into_iter()
                 .filter(|target| target != path)
-                .find_map(|target| decode_image_file(view, &target))
+                .find_map(|target| decode_image_file(view, &target, policy, vertical_strip))
         }
         Value::Array(channels) if matches!(channels.len(), 3 | 4) => {
             let mut pixel = [0, 0, 0, 255];
@@ -184,20 +210,37 @@ fn first_texture_path(value: &Value) -> Option<String> {
 
 /// Decodes only images whose source, dimensions, and allocation fit the established limits.
 pub(crate) fn decode_image(bytes: &[u8], format: ImageFormat) -> Option<DecodedTexture> {
+    decode_image_with_policy(
+        bytes,
+        format,
+        TexturePolicy::for_device(LEGACY_TEXTURE_SIDE),
+        false,
+    )
+}
+
+/// Rejects source area and decoder allocations before retaining the decoded RGBA8 pixels.
+fn decode_image_with_policy(
+    bytes: &[u8],
+    format: ImageFormat,
+    policy: TexturePolicy,
+    vertical_strip: bool,
+) -> Option<DecodedTexture> {
     if bytes.is_empty() || bytes.len() > MAX_TEXTURE_SOURCE_BYTES {
         return None;
     }
-    let (width, height) = ImageReader::with_format(Cursor::new(bytes), format)
-        .into_dimensions()
-        .ok()?;
-    if width == 0 || height == 0 || width > MAX_TEXTURE_SIDE || height > MAX_TEXTURE_SIDE {
-        return None;
-    }
-    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
     let mut limits = Limits::default();
-    limits.max_image_width = Some(MAX_TEXTURE_SIDE);
-    limits.max_image_height = Some(MAX_TEXTURE_SIDE);
-    limits.max_alloc = Some(MAX_DECODE_ALLOC);
+    limits.max_image_width = Some(policy.max_side());
+    limits.max_image_height = Some(if vertical_strip {
+        u32::from(u16::MAX)
+    } else {
+        policy.max_side()
+    });
+    limits.max_alloc = Some(MAX_DECODE_BYTES);
+    let mut header = ImageReader::with_format(Cursor::new(bytes), format);
+    header.limits(limits.clone());
+    let (width, height) = header.into_dimensions().ok()?;
+    let expected = policy.source_bytes(width, height, vertical_strip)?;
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
     reader.limits(limits);
     let rgba8 = reader
         .decode()
@@ -205,9 +248,15 @@ pub(crate) fn decode_image(bytes: &[u8], format: ImageFormat) -> Option<DecodedT
         .into_rgba8()
         .into_raw()
         .into_boxed_slice();
+    if rgba8.len() != expected {
+        return None;
+    }
     Some(DecodedTexture {
         width,
         height,
         rgba8,
     })
 }
+
+#[cfg(test)]
+mod tests;

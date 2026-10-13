@@ -52,6 +52,79 @@ fn atlas_reclaims_despawned_models_and_keeps_live_handles() {
 }
 
 #[test]
+fn inactive_hd_models_cannot_size_the_current_atlas() {
+    let mut cache = ModelCache::default();
+    frame(&mut cache, []);
+    let hd = cache
+        .model(
+            key(0),
+            || Some(1),
+            || {
+                Some(DroppedItemModel::Sprite(DroppedItemSprite {
+                    width: 2048,
+                    height: 2048,
+                    rgba8: vec![255; 2048 * 2048 * 4].into(),
+                }))
+            },
+        )
+        .unwrap();
+    cache.finish_frame();
+    let first_revision = cache.revision;
+    frame(&mut cache, 1..=8);
+    let ordinary = (1..=8)
+        .map(|id| {
+            cache
+                .model(
+                    key(id),
+                    || Some(1),
+                    || {
+                        Some(DroppedItemModel::Sprite(DroppedItemSprite {
+                            width: 16,
+                            height: 16,
+                            rgba8: vec![73; 16 * 16 * 4].into(),
+                        }))
+                    },
+                )
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    cache.finish_frame();
+    assert!(matches!(
+        cache.shared[hd as usize],
+        DroppedItemModel::Vacant
+    ));
+    assert!(
+        matches!(cache.models[hd as usize], DroppedItemModel::Sprite(_)),
+        "inactive source stays cached"
+    );
+    for slot in ordinary {
+        let DroppedItemModel::Sprite(sprite) = &cache.shared[slot as usize] else {
+            panic!("current item remains published");
+        };
+        assert_eq!([sprite.width, sprite.height], [16; 2]);
+    }
+    assert!(cache.revision > first_revision);
+    let shared = Arc::clone(&cache.shared);
+    frame(&mut cache, 1..=8);
+    cache.finish_frame();
+    assert!(Arc::ptr_eq(&shared, &cache.shared));
+    frame(&mut cache, [0, 1]);
+    assert_eq!(
+        cache.model(
+            key(0),
+            || panic!("reuse cached cost"),
+            || panic!("reuse cached model")
+        ),
+        Some(hd)
+    );
+    cache.finish_frame();
+    assert!(matches!(
+        cache.shared[hd as usize],
+        DroppedItemModel::Sprite(_)
+    ));
+}
+
+#[test]
 fn evicted_cpu_pixels_are_released_and_returning_models_are_rebuilt() {
     let mut cache = ModelCache::default();
     frame(&mut cache, []);
@@ -512,4 +585,94 @@ fn rejected_icons_retain_no_pixels_or_request_keys() {
             .keys()
             .all(|key| matches!(key, ModelKey::Block { .. }))
     );
+}
+
+#[test]
+fn hd_pixel_budget_reclaims_unused_models_and_preserves_current_consumers() {
+    let pixels: Arc<[u8]> = vec![255; assets::texture::policy::MAX_IMAGE_BYTES].into();
+    let build = || {
+        Some(DroppedItemModel::Sprite(DroppedItemSprite {
+            width: 2048,
+            height: 2048,
+            rgba8: Arc::clone(&pixels),
+        }))
+    };
+    let mut cache = ModelCache::default();
+    frame(&mut cache, []);
+    for id in 0..4 {
+        assert!(cache.model(key(id), || Some(1), build).is_some());
+    }
+    frame(&mut cache, [0, 1, 2, 3, 4]);
+    assert!(cache.model(key(4), || Some(1), build).is_none());
+    frame(&mut cache, [0, 4]);
+    assert!(cache.model(key(4), || Some(1), build).is_some());
+    assert!(cache.index.contains_key(&key(0)));
+    assert_eq!(
+        cache.models.iter().map(pixel_cost).sum::<usize>(),
+        assets::texture::policy::MAX_SUBSCRIBER_BYTES
+    );
+}
+
+#[test]
+fn byte_budget_rejections_skip_builds_until_capacity_changes() {
+    let face: Arc<[u8]> = vec![255; 1024 * 1024 * 4].into();
+    let cube = || {
+        Some(DroppedItemModel::Cube(DroppedItemCube {
+            tile: 1024,
+            faces: std::array::from_fn(|_| Arc::clone(&face)),
+            tints: [render_model::OPAQUE_WHITE; 6],
+        }))
+    };
+    let mut cache = ModelCache::default();
+    frame(&mut cache, []);
+    let first = cache.model(key(0), || Some(6), cube).unwrap();
+    let second = cache.model(key(1), || Some(6), cube).unwrap();
+    cache.finish_frame();
+    let shared = Arc::clone(&cache.shared);
+    let costs = std::cell::Cell::new(0);
+    let builds = std::cell::Cell::new(0);
+    for _ in 0..3 {
+        frame(&mut cache, [0, 1, 2]);
+        for _ in 0..100 {
+            assert_eq!(
+                cache.model(
+                    key(2),
+                    || {
+                        costs.set(costs.get() + 1);
+                        Some(6)
+                    },
+                    || {
+                        builds.set(builds.get() + 1);
+                        cube()
+                    },
+                ),
+                None
+            );
+        }
+        cache.finish_frame();
+        assert!(Arc::ptr_eq(&shared, &cache.shared));
+        assert_eq!(cache.index[&key(0)], first as usize);
+        assert_eq!(cache.index[&key(1)], second as usize);
+    }
+    assert_eq!(costs.get(), 1);
+    assert_eq!(builds.get(), 1);
+    frame(&mut cache, [1, 2]);
+    cache.request(&key(0));
+    assert!(
+        cache
+            .model(
+                key(2),
+                || panic!("cached cost"),
+                || panic!("late demand protects bytes")
+            )
+            .is_none()
+    );
+    frame(&mut cache, [0, 2]);
+    assert!(
+        cache
+            .model(key(2), || panic!("cached cost"), cube)
+            .is_some()
+    );
+    assert_eq!(cache.index[&key(0)], first as usize);
+    assert!(!cache.index.contains_key(&key(1)));
 }
