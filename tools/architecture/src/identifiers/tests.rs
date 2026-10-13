@@ -114,6 +114,30 @@ fn rejects_each_bare_identifier_selector_and_table_shape() {
 }
 
 #[test]
+fn repeated_vector_and_array_elements_keep_the_identity_table_context() {
+    let vocabulary = vocabulary();
+    let (_, bare) = identity(&vocabulary);
+    for expression in [
+        format!("vec![{bare:?}; 4]"),
+        format!("[{bare:?}; 4]"),
+        format!("vec![&({bare:?}); length]"),
+        format!("[{bare:?}; length]"),
+    ] {
+        let source = format!("fn f() {{ let _ = {expression}; }}");
+        assert_eq!(literals(&source, &vocabulary), [bare], "{expression}");
+        assert!(
+            gate(&[("src/lib.rs", &source)], |_| {})
+                .iter()
+                .any(|line| line.contains("count 1 exceeds budget 0")),
+            "{expression}"
+        );
+    }
+    let template =
+        format!("macro_rules! table {{ ($length:expr) => {{ vec![{bare:?}; $length] }} }}");
+    assert_eq!(literals(&template, &vocabulary), [bare]);
+}
+
+#[test]
 fn qualified_identifiers_are_rejected_outside_selector_contexts() {
     let vocabulary = vocabulary();
     let (name, _) = identity(&vocabulary);

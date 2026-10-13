@@ -110,7 +110,9 @@ impl<'a> RustScan<'a> {
             });
             return;
         }
-        self.fallback_tokens(tokens, name == "matches");
+        self.with_bare(name == "vec", |scan| {
+            scan.fallback_tokens(tokens, name == "matches");
+        });
     }
 
     /// Handles macro templates and other token grammars without expanding macro code.
