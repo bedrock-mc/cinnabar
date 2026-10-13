@@ -9,7 +9,7 @@ use protocol::{
 use semantic_input::KeyboardKey;
 use ui::{ChatClipboard, PointerPhase, UiAction, UiPoint};
 
-use super::fixtures::{envelope, warp_tree};
+use super::fixtures::envelope;
 use super::support::text;
 
 mod mentions;
