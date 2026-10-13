@@ -139,15 +139,13 @@ impl WorldStream {
                         .push(candidate);
                     continue;
                 }
-                if !self.revisions.is_current(key, pending.revision)
-                    || self.mesh_jobs.in_flight.contains_key(&key)
-                    || seen.contains(&key)
-                {
+                if !self.revisions.is_current(key, pending.revision) {
                     self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
                         .deferred
                         .push(candidate);
                     continue;
                 }
+                // Air needs no worker, so its removal never waits for an older build in flight.
                 if !requires_geometry(
                     &self.resident,
                     &self.known_air,
@@ -157,6 +155,12 @@ impl WorldStream {
                 ) {
                     self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
                         .ready
+                        .push(candidate);
+                    continue;
+                }
+                if self.mesh_jobs.in_flight.contains_key(&key) || seen.contains(&key) {
+                    self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+                        .deferred
                         .push(candidate);
                     continue;
                 }
