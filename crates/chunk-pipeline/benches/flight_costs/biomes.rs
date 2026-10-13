@@ -111,7 +111,7 @@ impl PayloadProbe {
             .map(PackedBiomeRecord::byte_len)
             .sum();
         eprintln!(
-            "BIOME_FLIGHT radius={radius} speed={speed} window_seconds=2 publications={} distinct_records={} remeshes={} unchanged_remeshes={} constructed_record_bytes={} biome_uploaded_bytes={} total_uploaded_bytes={} resident_sections={} resident_record_bytes={} builds={} cache_hits={} biome_cpu_us={} mesh_cpu_us={} biome_cpu_percent={:.2}",
+            "BIOME_FLIGHT radius={radius} speed={speed} window_seconds=2 publications={} distinct_records={} remeshes={} unchanged_remeshes={} published_record_bytes={} biome_uploaded_bytes={} total_uploaded_bytes={} resident_sections={} resident_record_bytes={} record_requests={} cache_hits={} biome_cpu_us={} mesh_cpu_us={} biome_cpu_percent={:.2}",
             self.publications,
             self.distinct.len(),
             self.remeshes,
@@ -121,7 +121,7 @@ impl PayloadProbe {
             self.total_uploaded_bytes,
             self.previous.len(),
             resident_bytes,
-            after.builds - before.builds,
+            after.requests - before.requests,
             after.cache_hits - before.cache_hits,
             biome_ns / 1000,
             mesh_ns / 1000,

@@ -147,7 +147,7 @@ impl BiomeRecordCache {
             }
         };
         #[cfg(feature = "benchmark-support")]
-        super::super::benchmark_support::biomes::observe_build(started.elapsed());
+        super::super::benchmark_support::biomes::observe_record(started.elapsed());
         record
     }
 }
@@ -189,7 +189,7 @@ pub(in crate::stream) fn pack_biome_record(
     let started = Instant::now();
     let record = build_record(sources, resolved);
     #[cfg(feature = "benchmark-support")]
-    super::super::benchmark_support::biomes::observe_build(started.elapsed());
+    super::super::benchmark_support::biomes::observe_record(started.elapsed());
     record
 }
 

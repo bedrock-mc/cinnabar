@@ -374,6 +374,14 @@ mod tests {
             &assets::grass_noise_permutation()[..],
             "permutation follows the weights"
         );
+        let fractions = permutation + GRASS_PERMUTATION_VEC4S * 4;
+        for count in 0..=LATTICE_STENCIL_SAMPLES {
+            assert_eq!(
+                words[fractions + count],
+                (count as f32 / LATTICE_STENCIL_SAMPLES as f32).to_bits(),
+                "stencil fraction {count}"
+            );
+        }
     }
 
     #[test]

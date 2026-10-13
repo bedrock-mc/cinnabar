@@ -1,4 +1,5 @@
 use super::*;
+use world::RawBiomeIds;
 
 /// One immutable uniform raw-biome storage.
 fn storage(id: u8) -> Arc<BiomeStorage> {
