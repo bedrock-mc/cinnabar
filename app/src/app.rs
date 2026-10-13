@@ -254,6 +254,12 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
+            crate::far_terrain::feed_far_terrain
+                .after(drive_world_stream)
+                .in_set(ClientFrameSet::WorldPublication),
+        )
+        .add_systems(
+            Update,
             crate::named_audio::drain_live_named_audio
                 .after(publish_local_player_frame)
                 .after(drive_world_stream)
@@ -401,6 +407,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let minecraft_import_config_root = layout.user_config_root.clone();
     pack_runtime::compile_cache::set_compile_cache_dir(layout.compiled_pack_cache_dir());
     pack_runtime::entity_pack::set_vanilla_pack_dir(layout.vanilla_pack_dir());
+    let far_terrain_dir = layout.far_terrain_cache_dir();
     // Reclaim leftovers of crashed earlier sessions before this process
     // binds anything new; failures are logged and never fatal.
     reclaim_stale_session_directories(&layout);
@@ -927,6 +934,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     if let Some(service) = client_runtime::world_service::WorldServiceSlot::from_environment()? {
         app.insert_resource(service);
     }
+    app.insert_resource(crate::far_terrain::FarTerrain::new(Some(far_terrain_dir)))
+        .add_systems(
+            Last,
+            crate::far_terrain::finish_far_terrain_on_exit.after(arm_shutdown_watchdog),
+        );
     crate::modding::configure_from_environment(&mut app);
     #[cfg(feature = "developer-control")]
     crate::developer_control::configure(&mut app);

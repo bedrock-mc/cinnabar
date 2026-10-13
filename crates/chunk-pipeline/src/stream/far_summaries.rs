@@ -111,6 +111,12 @@ impl FarSummaryInbox {
         }
     }
 
+    /// True when finished summaries wait to be drained.
+    #[must_use]
+    pub fn has_finished(&self) -> bool {
+        !self.rx.is_empty()
+    }
+
     /// True once every issued summary has been drained.
     #[must_use]
     pub fn is_idle(&self) -> bool {
@@ -161,6 +167,23 @@ impl WorldStream {
                 self.note_far_column_complete(column);
             }
         }
+    }
+
+    #[must_use]
+    pub const fn far_terrain_enabled(&self) -> bool {
+        self.far_terrain.enabled
+    }
+
+    /// The local player's column, which centres retention and far terrain.
+    #[must_use]
+    pub fn far_terrain_centre(&self) -> ChunkKey {
+        self.player_chunk()
+    }
+
+    /// True when finished summaries are waiting, so callers can borrow mutably only then.
+    #[must_use]
+    pub fn has_far_summaries(&self) -> bool {
+        self.far_terrain.inbox.has_finished()
     }
 
     /// Appends the newest summary of each column finished since the last call.

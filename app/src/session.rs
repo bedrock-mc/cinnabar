@@ -117,7 +117,6 @@ impl SessionController {
     }
 
     /// Stable selected destination, kept independent from invites and transient session ids.
-    #[cfg(feature = "local-mods")]
     pub(crate) fn destination_identity(&self) -> Option<&str> {
         self.destination_identity.as_deref()
     }
@@ -286,6 +285,7 @@ pub(crate) struct SessionResources<'w> {
     actor_artwork: Option<Res<'w, render_scene::ActorArtworkResource>>,
     ui_catalog: Option<Res<'w, crate::runtime::network::PackUiCatalog>>,
     input: Option<Res<'w, client_state::SemanticInputSnapshot>>,
+    far_terrain: Option<ResMut<'w, crate::far_terrain::FarTerrain>>,
 }
 
 impl SessionResources<'_> {
@@ -312,6 +312,11 @@ impl SessionResources<'_> {
         let generation = controller.next_generation();
         self.resource_packs.begin_generation(generation);
         begin_session(&mut self.runtime, &mut self.player_runtime, generation);
+        if let (Some(far), Some(stream)) =
+            (self.far_terrain.as_mut(), self.client_world.stream.as_mut())
+        {
+            far.retire_stream(stream);
+        }
         release_off_frame((
             self.client_world.stream.take(),
             self.client_world.pack_entities.take(),
