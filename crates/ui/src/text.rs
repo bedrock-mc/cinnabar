@@ -10,6 +10,7 @@ mod colors;
 mod colors_tests;
 mod invisible;
 mod layout;
+mod line_metrics;
 mod palette;
 mod parse;
 mod single_line;
@@ -592,7 +593,7 @@ fn layout_key(request: TextLayoutRequest<'_>) -> TextLayoutKey {
         width_64: request.width_64,
         line_height_64: request.line_height_64,
         baseline_64: request.baseline_64,
-        scale_1024: (request.scale.get() * UiScale::SCALE_DENOMINATOR as f32).round() as u16,
+        scale_1024: request.scale.fixed_1024(),
         font_identity: request.font.identity().carrier_sha256,
         wrap: request.wrap,
     }

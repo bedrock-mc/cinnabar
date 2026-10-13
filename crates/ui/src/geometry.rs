@@ -36,6 +36,16 @@ impl UiScale {
     pub const fn get(self) -> f32 {
         self.0
     }
+
+    /// Returns the scale rounded to the fixed-point precision used by text layout.
+    pub fn quantized(self) -> Self {
+        Self(f32::from(self.fixed_1024()) / Self::SCALE_DENOMINATOR as f32)
+    }
+
+    /// Encodes the scale at text layout's fixed-point precision.
+    pub(crate) fn fixed_1024(self) -> u16 {
+        (self.0 * Self::SCALE_DENOMINATOR as f32).round() as u16
+    }
 }
 
 impl Default for UiScale {

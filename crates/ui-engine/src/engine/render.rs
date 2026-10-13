@@ -8,11 +8,12 @@ use ui::FONT_DESIGN_PIXEL_TEXELS;
 use super::{
     Art, Canvas, FormEngine, ScreenArt, banner_renderer, host_edit, pixel_snap,
     screen::{PaintError, PaintFrame},
-    text_paint::Measure,
+    text_paint::{Measure, label_metrics},
     tooltip,
 };
 use crate::{
     frame::{EditText, EngineFrame},
+    text_metrics::TextMetrics,
     textures::Textures,
 };
 
@@ -180,20 +181,22 @@ pub(super) fn render_with<R: Borrow<FormRender>>(
             &render.hits,
             &render.nodes,
             origin[0],
-            [frame.metrics.gui_scale, px],
+            frame.metrics,
+            frame.font,
         ),
         top,
     }))
 }
 
-/// Each edit box's text label as painted: where it starts, its scale and font; `pixels` and
-/// `px` are the physical and logical pixels per GUI unit.
+/// Each edit box's text label as painted, including its effective scale and named face.
 fn edit_texts(
     hits: &[HitRegion],
     nodes: &[DrawNode],
     left: f32,
-    [pixels, px]: [f32; 2],
+    metrics: TextMetrics,
+    font: &assets::RuntimeFontCatalog,
 ) -> Vec<EditText> {
+    let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
     hits.iter()
         .filter_map(|region| {
             let (target, _) = region.widget.edit.as_ref()?.text_target.as_ref()?;
@@ -203,10 +206,16 @@ fn edit_texts(
                     left: left
                         + pixel_snap::positioned(
                             [node.dest.x, node.dest.y, node.dest.w, node.dest.h],
-                            pixels,
+                            metrics.gui_scale,
                             px,
                         )[0],
-                    scale: *scale,
+                    scale: label_metrics(
+                        metrics,
+                        font,
+                        font.font_named(options.font_type.as_deref().unwrap_or("default")),
+                        *scale,
+                    )
+                    .factor(),
                     font: options.font_type.clone(),
                 }),
                 _ => None,
