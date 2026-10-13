@@ -1,3 +1,4 @@
+use super::presentation::correct_target;
 use super::*;
 
 #[test]
@@ -67,6 +68,22 @@ fn echoing_an_nbt_name_and_restating_it_preserve_edits() {
     assert_eq!(preview.outcome.custom_name, Some(Some("Edited".into())));
     assert_eq!(preview.outcome.cost, 4);
     assert_eq!(runtime.anvil_rename(&player).as_deref(), Some("Edited"));
+    edit_input(
+        &mut runtime,
+        &mut player,
+        ANVIL_TARGET_SLOT,
+        protocol::ItemNbtEdit {
+            damage: Some(500),
+            ..Default::default()
+        },
+    );
+    runtime.sync_anvil_name(&player);
+    assert_eq!(
+        runtime.screen_state().anvil_name,
+        "Edited",
+        "a damage restatement keeps the name"
+    );
+    assert_eq!(runtime.anvil_preview(&player).unwrap().outcome.cost, 3);
 }
 
 #[test]
