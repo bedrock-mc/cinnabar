@@ -345,3 +345,45 @@ fn air_removal_routing_is_bounded_per_dispatch() {
     assert!(stream.air_removals.len() < 1_000);
     assert!(stream.air_removals.len() >= 1_000 - MAX_PENDING_SCHEDULER_SCANS_PER_POLL);
 }
+
+/// A section that flips between air and geometry while a nearer mesh holds the only dispatch
+/// slot keeps one returned ready record, however many flips there are.
+#[test]
+fn air_geometry_flips_without_worker_capacity_keep_one_returned_record() {
+    let mut stream = lit_stream(1);
+    let near = SubChunkKey::new(1, 0, 0, 0);
+    let flipping = SubChunkKey::new(1, 2, 0, 0);
+    for key in [near, flipping] {
+        resident(&mut stream, key, super::uniform_sub_chunk(2));
+        install_current_light(&mut stream, key, 0, 0, false);
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+    stream.set_publication_allowance(render_api::PublicationAllowance::new(
+        render_api::PublicationServiceConfig::DEFAULT,
+    ));
+    assert_eq!(stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, 1), 0);
+    let records = |stream: &WorldStream| {
+        let lane = &stream.mesh_jobs.lanes[RESIDENT_MESH_LANE];
+        lane.ready
+            .iter()
+            .chain(&lane.deferred)
+            .filter(|candidate| candidate.key == flipping)
+            .count()
+    };
+    let flip = |stream: &mut WorldStream| {
+        for block in [0, 2] {
+            resident(stream, flipping, super::uniform_sub_chunk(block));
+            stream.mark_changed(flipping, Instant::now());
+            assert_eq!(stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, 1), 0);
+        }
+    };
+    flip(&mut stream);
+    let after_one_flip = records(&stream);
+
+    for _ in 0..8 {
+        flip(&mut stream);
+    }
+
+    assert_eq!(records(&stream), after_one_flip);
+    assert!(after_one_flip <= 2);
+}

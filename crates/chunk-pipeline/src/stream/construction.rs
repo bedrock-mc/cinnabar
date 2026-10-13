@@ -120,6 +120,7 @@ impl WorldStream {
             mesh_cancellations: HashMap::new(),
             air_removals: BTreeMap::new(),
             air_removal_cursor: None,
+            air_requeued: HashMap::new(),
             urgent_mesh_in_flight: HashSet::new(),
             staged_mesh_completions: VecDeque::new(),
             staged_mesh_bytes: 0,

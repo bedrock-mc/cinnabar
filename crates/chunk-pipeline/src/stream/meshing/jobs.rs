@@ -122,6 +122,7 @@ impl WorldStream {
                     .pop()
                     .expect("a peeked ready candidate");
                 let key = candidate.key;
+                self.air_requeued.remove(&key);
                 let Some(pending) = self.mesh_jobs.pending.get(&key).copied() else {
                     continue;
                 };
@@ -450,6 +451,10 @@ impl WorldStream {
     /// stale entries are cleared and sections that need geometry again return to the worker queue
     /// whatever the removal credit.
     fn route_air_removals(&mut self, view: SchedulerView, removal_authority: usize) {
+        let pending = &self.mesh_jobs.pending;
+        // A newer revision has its own queue record, so older returns no longer stand for it.
+        self.air_requeued
+            .retain(|key, revision| pending.get(key).is_some_and(|p| p.revision == *revision));
         let mut due = Vec::new();
         let entry = |(key, revision): (&SubChunkKey, &u64)| (*key, *revision);
         let keys = match self.air_removal_cursor.take() {
@@ -483,9 +488,13 @@ impl WorldStream {
             let candidate = PendingSchedulerCandidate::new(key, revision, view, pending.urgent);
             if self.mesh_requires_geometry(key) {
                 self.air_removals.remove(&key);
-                self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
-                    .ready
-                    .push(candidate);
+                // One returned record per revision, however often the section flips while the
+                // worker queue is full.
+                if self.air_requeued.insert(key, revision) != Some(revision) {
+                    self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+                        .ready
+                        .push(candidate);
+                }
             } else {
                 due.push(candidate);
             }
