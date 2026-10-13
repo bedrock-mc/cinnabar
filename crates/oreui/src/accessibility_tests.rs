@@ -61,27 +61,132 @@ fn paint_with_scrolls(
         next: &mut next,
         renderers: &mut [],
     };
-    let output = screen
-        .paint(
-            MenuInput {
-                view,
-                size,
-                portrait: None,
-                translate: &|_| None,
-                artwork: &artwork,
-                title_artwork: None,
-                scrolls,
-                geometry: MenuGeometry::default(),
-            },
-            &mut frame,
-        )
-        .unwrap();
+    let hits = if view.dialog == Some(launcher::menu::MenuDialog::Accounts) {
+        screen
+            .paint_accounts(view, size, &artwork, scrolls, &mut frame)
+            .unwrap()
+    } else {
+        screen
+            .paint(
+                MenuInput {
+                    view,
+                    size,
+                    portrait: None,
+                    translate: &|_| None,
+                    artwork: &artwork,
+                    title_artwork: None,
+                    scrolls,
+                    geometry: MenuGeometry::default(),
+                },
+                &mut frame,
+            )
+            .unwrap()
+            .hits
+    };
     // The OreUI adjustment must never leak into gameplay's frame metrics.
     assert_eq!(frame.metrics.gui_scale, metrics.gui_scale);
     assert_eq!(frame.metrics.scale, metrics.scale);
-    Painted {
-        nodes,
-        hits: output.hits,
+    Painted { nodes, hits }
+}
+
+#[test]
+fn extra_large_progress_keeps_status_and_cancel_inside_small_windows() {
+    for enabled in [0, 1] {
+        for size in [ui::MIN_WINDOW_LOGICAL_SIZE, [400.0, 250.0], [752.0, 500.0]] {
+            for dpi in [1.0, 2.0] {
+                let mut view = MenuView::new(true, "Fixture".into());
+                Arc::make_mut(&mut view.settings_options)
+                    .set(option_index(EXTRA_LARGE_UI), enabled);
+                view.local.progress = Some(launcher::local_worlds::Progress {
+                    stage: launcher::local_worlds::Stage::DownloadingServer,
+                    fraction: Some(0.5),
+                    detail: "World download status ".repeat(40),
+                });
+                let metrics = TextMetrics::for_viewport(
+                    size.map(|value| (value * dpi) as u32),
+                    DpiScale::new(dpi).unwrap(),
+                    Some(2),
+                );
+                let mut screen = OreUiScreen::default();
+                let frame = paint(&mut screen, &view, metrics, size);
+                let cancel = frame
+                    .hits
+                    .iter()
+                    .find_map(|(action, bounds)| {
+                        (*action == MenuAction::LocalWorld(launcher::menu::LocalWorldAction::Back))
+                            .then_some(*bounds)
+                    })
+                    .expect("download progress keeps its Cancel target");
+                assert!(cancel.width() > 0.0 && cancel.height() > 0.0);
+                assert!(cancel.min().x() >= 0.0 && cancel.min().y() >= 0.0);
+                assert!(cancel.max().x() <= size[0] && cancel.max().y() <= size[1]);
+                let areas = screen.take_paint().unwrap().scrolls;
+                let status = areas
+                    .iter()
+                    .find(|area| area.key == "loading_status")
+                    .unwrap();
+                assert!(status.viewport.width() > 0.0 && status.viewport.height() > 0.0);
+                assert!(status.viewport.max().y() <= cancel.min().y());
+                assert!(status.max > 0.0, "long status remains scrollable");
+            }
+        }
+    }
+}
+
+#[test]
+fn extra_large_accounts_keeps_actions_and_focused_accounts_inside_small_windows() {
+    for enabled in [0, 1] {
+        for size in [ui::MIN_WINDOW_LOGICAL_SIZE, [400.0, 250.0], [752.0, 500.0]] {
+            for dpi in [1.0, 2.0] {
+                let mut view = crate::test_support::account_manager_view();
+                view.dialog = Some(launcher::menu::MenuDialog::Accounts);
+                view.feeds.accounts = (0..30)
+                    .map(|index| launcher::accounts::AccountProfile {
+                        id: index.to_string(),
+                        gamertag: format!("Fixture{index}"),
+                        picture_path: None,
+                    })
+                    .collect();
+                view.focused_action = Some(MenuAction::SwitchAccount(29));
+                Arc::make_mut(&mut view.settings_options)
+                    .set(option_index(EXTRA_LARGE_UI), enabled);
+                let metrics = TextMetrics::for_viewport(
+                    size.map(|value| (value * dpi) as u32),
+                    DpiScale::new(dpi).unwrap(),
+                    Some(2),
+                );
+                let mut screen = OreUiScreen::default();
+                let mut scrolls = MenuScrolls::default();
+                let frame = paint_with_scrolls(&mut screen, &view, metrics, size, &mut scrolls);
+                for action in [
+                    MenuAction::AddAccount,
+                    MenuAction::Navigate(MenuScreen::Profile),
+                    MenuAction::DismissDialog,
+                    MenuAction::SwitchAccount(29),
+                ] {
+                    let bounds = frame
+                        .hits
+                        .iter()
+                        .find_map(|(at, bounds)| (*at == action).then_some(*bounds))
+                        .expect("modal actions and the focused account stay reachable");
+                    assert!(bounds.width() > 0.0 && bounds.height() > 0.0);
+                    assert!(bounds.min().x() >= 0.0 && bounds.min().y() >= 0.0);
+                    assert!(
+                        bounds.max().x() <= size[0] && bounds.max().y() <= size[1],
+                        "{action:?}: {bounds:?} at {size:?}, DPI {dpi}, enabled {enabled}"
+                    );
+                }
+                assert!(
+                    scrolls
+                        .offsets()
+                        .get(crate::modal::SCROLL)
+                        .copied()
+                        .unwrap_or(0.0)
+                        > 0.0,
+                    "the last account is revealed through actual focus scrolling"
+                );
+            }
+        }
     }
 }
 
