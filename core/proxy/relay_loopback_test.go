@@ -209,10 +209,11 @@ func TestRelayLoopbackForwardsUntouchedPacketsByteForByte(t *testing.T) {
 	inbound := [][]byte{
 		chunkFrame(3, chunkPayload(16<<10)),
 		encodeTestPacket(&packet.Unknown{PacketID: 1000, Payload: []byte{0, 1, 2, 0xff}}),
-		withSubclients(encodeTestPacket(&packet.SetTime{Time: 6000}), 1, 2),
 		encodeTestPacket(&packet.Text{TextType: packet.TextTypeChat, SourceName: "Server", XUID: "9", Message: "kept"}),
 	}
-	sendRaw(t, loopback.server, inbound...)
+	// Data routed to another local player is dropped; everything else is unchanged.
+	routed := withSubclients(encodeTestPacket(&packet.SetTime{Time: 6000}), 1, 2)
+	sendRaw(t, loopback.server, inbound[0], inbound[1], routed, inbound[2])
 	assertFrames(t, readRawBatch(t, loopback.client), inbound)
 
 	outbound := [][]byte{
