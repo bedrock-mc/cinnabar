@@ -85,7 +85,7 @@ fn world_with_geometry_choice(
             br#"{"materials":{"version":"1.0.0","test_depth_marker:entity":{"depthFunc":"Always"}}}"#.to_vec(),
         ));
     }
-    let compiled = pack_compiler::compile_entity_pack(resources)
+    let compiled = pack_entity_compiler::compile_entity_pack(resources)
         .unwrap()
         .unwrap();
     let mut world = client_world::WorldAuthority::new(

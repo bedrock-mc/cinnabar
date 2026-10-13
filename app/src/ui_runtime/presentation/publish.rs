@@ -57,6 +57,7 @@ type PublishExtras<'w, 's> = (
     (
         Res<'w, client_presentation::actor_publication::ActorFramePartialTick>,
         Res<'w, client_presentation::local_player::LocalPlayerFrameCarrier>,
+        Res<'w, client_presentation::local_player::LocalAvatarVisibilityCarrier>,
         Res<'w, crate::environment::WorldClock>,
         Res<'w, crate::environment::WeatherState>,
         Res<'w, NetworkHandle<PackApplication>>,
@@ -98,6 +99,7 @@ pub(crate) fn prepare_ui_runtime(
         (
             actor_partial,
             local_frame,
+            local_visibility,
             clock,
             weather,
             network,
@@ -410,23 +412,29 @@ pub(crate) fn prepare_ui_runtime(
             }
             if show_self_tag && show_names {
                 let authority = stream.authority();
-                if let Some(actor) =
-                    authority
-                        .actor(authority.local_player_runtime_id())
-                        .filter(|actor| {
-                            !tag_style.is_some_and(|style| style.hide_passengers)
-                                || authority.ridden_unique_id(actor.unique_id).is_none()
-                        })
+                if let Some(visibility) = local_visibility.snapshot().filter(|visibility| {
+                    visibility.visible()
+                        && visibility.runtime_id() == authority.local_player_runtime_id()
+                        && visibility.session_generation().get() == clock.session_generation()
+                }) && let Some(actor) = authority
+                    .actor(authority.local_player_runtime_id())
+                    .filter(|actor| {
+                        !tag_style.is_some_and(|style| style.hide_passengers)
+                            || authority.ridden_unique_id(actor.unique_id).is_none()
+                    })
                     && let Some(name) = authority
                         .actor_name_tag(actor.unique_id)
                         .or_else(|| authority.actor_display_name(actor.unique_id))
-                    && let Some(tag) = nametags::extract_nametag(
+                    && let Some(tag) = nametags::extract_nametag_at_feet(
                         actor,
-                        nametag_view,
+                        nametags::NametagView {
+                            viewer_position: visibility.feet(),
+                            ..nametag_view
+                        },
                         None,
                         name,
                         runtime.scoreboards(),
-                        actor_partial.0,
+                        visibility.feet(),
                     )
                 {
                     tags.push(tag);

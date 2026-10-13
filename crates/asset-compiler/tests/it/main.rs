@@ -2,6 +2,7 @@ mod atmosphere;
 mod audio_pcm;
 mod block_icons;
 mod compiler;
+mod compiler_digest;
 mod entity;
 #[path = "support/fixture_input.rs"]
 mod fixture_input;

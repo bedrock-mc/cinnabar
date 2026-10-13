@@ -42,7 +42,7 @@ fn fixture_with_identifier(
     let mut entity: serde_json::Value = serde_json::from_slice(entity).unwrap();
     entity["minecraft:client_entity"]["description"]["identifier"] = serde_json::json!(identifier);
     entity["minecraft:client_entity"]["description"]["scripts"] = scripts;
-    let compiled = pack_compiler::compile_entity_pack(vec![
+    let compiled = pack_entity_compiler::compile_entity_pack(vec![
         (
             "entity/display.json".into(),
             serde_json::to_vec(&entity).unwrap(),

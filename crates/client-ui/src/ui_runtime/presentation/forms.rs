@@ -80,6 +80,7 @@ mod store_tests;
 pub mod tests;
 mod texture_sources;
 pub mod toast_screen;
+mod touch_controls;
 
 pub use containers::observe_station_block;
 
@@ -137,6 +138,7 @@ pub(super) struct ScreenStates {
     credits_hits: Vec<(ui_screens::credits_screen::CreditsAction, UiRect)>,
     /// OreUI's artwork, look and motion.
     oreui: oreui::OreUiScreen,
+    touch: touch_controls::TouchControls,
 }
 
 /// What the last build exposes to input and the next build; reset as each build starts.
@@ -598,6 +600,7 @@ impl UiPresentationRuntime {
             ..FrameProjections::default()
         };
         self.screens.mod_ui.begin_mod_screens_frame();
+        self.screens.touch.begin_frame();
     }
 
     /// Draws the open container's engine screen.

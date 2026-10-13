@@ -111,7 +111,7 @@ fn compile_encoded(
     if cancelled() {
         return None;
     }
-    let mut compiled = match pack_compiler::compile_actor_pack_unless(files, cancelled)? {
+    let mut compiled = match pack_entity_compiler::compile_actor_pack_unless(files, cancelled)? {
         Ok(Some(compiled)) => compiled,
         Ok(None) => return Some((None, None)),
         Err(error) => {
@@ -123,7 +123,8 @@ fn compile_encoded(
         return None;
     }
     let skipped = compiled.skipped;
-    if skipped != pack_compiler::EntityPackSkips::default() || !compiled.fallbacks.is_empty() {
+    if skipped != pack_entity_compiler::EntityPackSkips::default() || !compiled.fallbacks.is_empty()
+    {
         tracing::warn!(
             oversized = skipped.oversized,
             unparsable = skipped.unparsable,

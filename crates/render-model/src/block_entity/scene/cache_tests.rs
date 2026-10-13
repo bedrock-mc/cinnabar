@@ -662,12 +662,12 @@ fn live_chest_artwork_reload_keeps_every_cached_sign_visible() {
             .unwrap();
         let before = scene.update(SceneClock::default(), &[], &[]).clone();
         let pages = scene.atlas().unwrap().text_pages();
-        let replacement = pack_compiler::overlay_block_entity_assets(
+        let replacement = pack_entity_compiler::overlay_block_entity_assets(
             &assets_with_chest_offset(0),
             |_| true,
             |name| {
                 (name == "textures/entity/chest/normal").then(|| {
-                    pack_compiler::BlockEntityTexture {
+                    pack_entity_compiler::BlockEntityTexture {
                         width: 128,
                         height: 512,
                         rgba8: vec![64; 128 * 512 * 4].into_boxed_slice(),
@@ -789,7 +789,7 @@ fn replacement_admission_reserves_mobs_and_all_text_pages() {
     let limit = MAX_ATLAS_SIDE;
     let last_admitted = limit - dynamic_height(MAX_TEXT_PAGES as u32) - 64;
     for height in [last_admitted, last_admitted + 1, 4090] {
-        let replacement = pack_compiler::overlay_block_entity_assets(
+        let replacement = pack_entity_compiler::overlay_block_entity_assets(
             &base,
             |size| preparer.accepts_size(size),
             |name| {
@@ -799,7 +799,7 @@ fn replacement_admission_reserves_mobs_and_all_text_pages() {
                 } else {
                     1024
                 };
-                Some(pack_compiler::BlockEntityTexture {
+                Some(pack_entity_compiler::BlockEntityTexture {
                     width: 1024,
                     height,
                     rgba8: vec![64; (1024 * height * 4) as usize].into_boxed_slice(),

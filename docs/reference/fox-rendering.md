@@ -30,7 +30,7 @@ them. The baby model in `baby_fox.geo.json` has no inherited adult binds.
 
 The correction applies only in vanilla compilation to the exact adult sample
 path, identifier and source SHA-256. Its digest is declared once in
-`crates/pack-compiler/src/entity/native_bind_pose.rs`. Changed/custom sources,
+`crates/pack-compiler/entity/src/entity/native_bind_pose.rs`. Changed/custom sources,
 session packs and explicit bind overrides remain authoritative. No geometry or
 animation defaults other than the two absent cube binds change.
 

@@ -55,7 +55,8 @@ remain synchronous:
 currently name that dependency `client-world` to preserve their `WorldStream`
 callers. `player-state` depends directly on the smaller `client-world` crate for
 `LocalPlayerFacts`; it does not depend on the stream coordinator. UI compilation
-fixtures use `pack-compiler`, while `asset-compiler` remains the offline CLI.
+fixtures use `pack-compiler` for UI carriers and `pack-entity-compiler` for actor
+artwork, while `asset-compiler` remains the offline CLI.
 The gate keeps reusable compilation out of UI production and out of launcher
 models, including their test dependencies. The UI's extension chrome retains
 `mod-host` and `server-experience`. These are explicit temporary dependencies in

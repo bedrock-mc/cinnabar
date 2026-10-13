@@ -4,7 +4,7 @@ use assets::{
     BlockFlags, ContributorRole, ModelFamily, ModelState, RegistryProvenance, RegistryRecord,
 };
 
-use pack_compiler::TextureKey;
+use pack_compile_input::TextureKey;
 use tempfile::TempDir;
 
 pub const MINIMAL_BLOCKS: &str = r#"{

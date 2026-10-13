@@ -1,0 +1,61 @@
+name: Android
+
+# Builds the experimental arm64 APK for Android packaging changes, on CI's schedule and on
+# demand, so the Android target keeps compiling. The APK is signed with a throwaway key per run;
+# installing a later build means uninstalling first.
+on:
+  pull_request:
+    paths:
+      - packaging/android/**
+      - .github/workflows/android.yml
+  schedule:
+    - cron: "41 */6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    name: Build arm64 APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      # Parallel codegen without LTO keeps this build affordable; releases use `release`.
+      CINNABAR_ANDROID_PROFILE: play
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          targets: aarch64-linux-android
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          cache: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install the pinned Android SDK packages and cargo-ndk
+        run: |
+          pin() { python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' packaging/android/runtime.json "$1"; }
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            "platforms;android-$(pin target_sdk)" "build-tools;$(pin build_tools)" "ndk;$(pin ndk)" >/dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$(pin ndk)" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/$(pin ndk)" >> "$GITHUB_ENV"
+          cargo install cargo-ndk --version "$(pin cargo_ndk)" --locked
+      - name: Build the APK
+        run: bash packaging/android/build-apk.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cinnabar-android-arm64
+          path: target/android/*-arm64-v8a.apk
+          if-no-files-found: error
+          retention-days: 14

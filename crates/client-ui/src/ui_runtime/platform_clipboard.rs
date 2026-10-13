@@ -2,7 +2,14 @@
 
 use std::sync::{Arc, Mutex, PoisonError, TryLockError};
 
+#[cfg(not(target_os = "android"))]
+use arboard::{Clipboard as SystemClipboard, Error as SystemClipboardError};
 use ui::ChatClipboard;
+#[cfg(target_os = "android")]
+use unavailable::{Clipboard as SystemClipboard, Error as SystemClipboardError};
+
+#[cfg(target_os = "android")]
+mod unavailable;
 
 /// Handle to the process-wide platform clipboard.
 ///
@@ -16,14 +23,14 @@ pub struct PlatformClipboard;
 #[derive(Debug, thiserror::Error)]
 pub enum PlatformClipboardError {
     #[error("platform clipboard failed: {0}")]
-    Platform(#[from] arboard::Error),
+    Platform(#[from] SystemClipboardError),
     #[error("clipboard text exceeds the {maximum}-byte chat insertion bound")]
     TooLong { maximum: usize },
     #[error("platform clipboard is shutting down")]
     ShuttingDown,
 }
 
-static PLATFORM_CLIPBOARD: ClipboardOwner<arboard::Clipboard> = ClipboardOwner::new();
+static PLATFORM_CLIPBOARD: ClipboardOwner<SystemClipboard> = ClipboardOwner::new();
 
 impl ChatClipboard for PlatformClipboard {
     type Error = PlatformClipboardError;
@@ -56,25 +63,25 @@ impl PlatformClipboard {
 /// Text access to one platform clipboard connection.
 trait ClipboardBackend: Sized {
     /// Opens a connection to the platform clipboard.
-    fn open() -> Result<Self, arboard::Error>;
+    fn open() -> Result<Self, SystemClipboardError>;
     /// Returns the clipboard text. Platforms materialize the whole selection,
     /// so callers enforce their size bound on the returned text.
-    fn get_text(&mut self) -> Result<String, arboard::Error>;
+    fn get_text(&mut self) -> Result<String, SystemClipboardError>;
     /// Takes ownership of the clipboard selection with `text`.
-    fn set_text(&mut self, text: String) -> Result<(), arboard::Error>;
+    fn set_text(&mut self, text: String) -> Result<(), SystemClipboardError>;
 }
 
-impl ClipboardBackend for arboard::Clipboard {
-    fn open() -> Result<Self, arboard::Error> {
-        arboard::Clipboard::new()
+impl ClipboardBackend for SystemClipboard {
+    fn open() -> Result<Self, SystemClipboardError> {
+        SystemClipboard::new()
     }
 
-    fn get_text(&mut self) -> Result<String, arboard::Error> {
-        arboard::Clipboard::get_text(self)
+    fn get_text(&mut self) -> Result<String, SystemClipboardError> {
+        SystemClipboard::get_text(self)
     }
 
-    fn set_text(&mut self, text: String) -> Result<(), arboard::Error> {
-        arboard::Clipboard::set_text(self, text)
+    fn set_text(&mut self, text: String) -> Result<(), SystemClipboardError> {
+        SystemClipboard::set_text(self, text)
     }
 }
 
@@ -126,7 +133,7 @@ impl<B: ClipboardBackend> ClipboardOwner<B> {
     /// next call reconnects instead of reusing a broken one, and is logged.
     fn with_backend<R>(
         &self,
-        action: impl FnOnce(&mut B) -> Result<R, arboard::Error>,
+        action: impl FnOnce(&mut B) -> Result<R, SystemClipboardError>,
     ) -> Result<R, PlatformClipboardError> {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.shutting_down {
@@ -137,7 +144,7 @@ impl<B: ClipboardBackend> ClipboardOwner<B> {
             empty => B::open().and_then(|backend| action(empty.insert(backend))),
         };
         if let Err(error) = &result
-            && !matches!(error, arboard::Error::ContentNotAvailable)
+            && !matches!(error, SystemClipboardError::ContentNotAvailable)
         {
             state.backend = None;
             tracing::warn!(%error, "platform clipboard failed");
@@ -151,7 +158,7 @@ impl<B: ClipboardBackend> ClipboardOwner<B> {
         maximum_bytes: usize,
     ) -> Result<Option<Arc<str>>, PlatformClipboardError> {
         let text = match self.with_backend(B::get_text) {
-            Err(PlatformClipboardError::Platform(arboard::Error::ContentNotAvailable)) => {
+            Err(PlatformClipboardError::Platform(SystemClipboardError::ContentNotAvailable)) => {
                 return Ok(None);
             }
             result => result?,
@@ -170,7 +177,8 @@ impl<B: ClipboardBackend> ClipboardOwner<B> {
     }
 }
 
-#[cfg(test)]
+// The fakes report arboard's errors, which Android builds lack.
+#[cfg(all(test, not(target_os = "android")))]
 mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 

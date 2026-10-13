@@ -73,7 +73,7 @@ fn carrier_with_animation(
 /// Reads optional raster multipliers through the same public atlas operation as carrier creation.
 fn tinted(mut pixel: [u8; 4], tint: Option<[u8; 3]>) -> [u8; 4] {
     if let Some(tint) = tint {
-        pack_compiler::apply_atlas_tint(&mut pixel, tint);
+        pack_compile_input::apply_atlas_tint(&mut pixel, tint);
     }
     pixel
 }
@@ -415,7 +415,7 @@ fn carrier_and_pack_sources_share_grid_tint_and_carried_art_preparation() {
             .iter()
             .all(|pixel| *pixel == [200, 0, 0, 255])
     );
-    let icon = pack_compiler::overlay_cube_icon(&fallback.overlay, faces).unwrap();
+    let icon = pack_entity_compiler::overlay_cube_icon(&fallback.overlay, faces).unwrap();
     assert!(
         icon.rgba8
             .as_chunks::<4>()
@@ -667,7 +667,7 @@ fn raster_only_world_and_carried_routes_reuse_layers_at_the_device_limit() {
                 .iter()
                 .all(|pixel| *pixel == color)
         );
-        assert!(pack_compiler::overlay_cube_icon(&compiled.overlay, faces).is_some());
+        assert!(pack_entity_compiler::overlay_cube_icon(&compiled.overlay, faces).is_some());
     }
 }
 

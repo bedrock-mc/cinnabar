@@ -10,7 +10,7 @@ fn stream() -> WorldStream {
     let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.test","texture_width":64,"texture_height":64},"bones":[{"name":"body","pivot":[0,0,0]},{"name":"head","parent":"body","pivot":[0,24,0],"cubes":[{"origin":[-4,24,-4],"size":[8,8,8],"uv":[0,0]}]}]}]}"#;
     let animation = br#"{"format_version":"1.8.0","animations":{"animation.test.look":{"loop":true,"animation_length":1,"anim_time_update":"query.anim_time + query.delta_time","bones":{"body":{"rotation":["query.anim_time * 45",0,0]},"head":{"rotation":["query.head_x_rotation(0)","query.head_y_rotation(180)",0]}}}}}"#;
     let controller = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#;
-    let compiled = pack_compiler::compile_entity_pack(vec![
+    let compiled = pack_entity_compiler::compile_entity_pack(vec![
         ("entity/player.json".into(), entity.to_vec()),
         ("models/entity/test.geo.json".into(), geometry.to_vec()),
         ("animations/test.animation.json".into(), animation.to_vec()),
