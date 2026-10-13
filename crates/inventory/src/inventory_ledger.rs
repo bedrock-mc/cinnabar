@@ -195,6 +195,8 @@ pub enum InventoryGestureError {
     ResyncRequired,
     #[error("the retained inventory request is invalid")]
     InvalidRequest,
+    #[error("the equipment slot does not accept this item")]
+    EquipmentRefused,
 }
 
 #[derive(Debug, Clone)]

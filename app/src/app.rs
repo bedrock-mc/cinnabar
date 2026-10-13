@@ -398,6 +398,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     render_scene::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
     let global_pack_root = layout.global_resource_packs_dir();
+    let minecraft_import_config_root = layout.user_config_root.clone();
     pack_runtime::compile_cache::set_compile_cache_dir(layout.compiled_pack_cache_dir());
     pack_runtime::entity_pack::set_vanilla_pack_dir(layout.vanilla_pack_dir());
     // Reclaim leftovers of crashed earlier sessions before this process
@@ -610,12 +611,14 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let local_player_skin =
         client_shell::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
     let screenshots_dir = layout.screenshots_dir();
-    let menu = MenuRuntime::new_with_layout(
+    let minecraft_import = launcher_host::minecraft_import::startup(&layout.user_config_root);
+    let menu = MenuRuntime::new_with_import_snapshot(
         !connection_requested,
         args.gui_scale,
         args.display_name.clone(),
         layout,
         local_player_skin.clone(),
+        minecraft_import,
     )
     .with_language_assets(
         loaded_assets.selected_path.clone(),
@@ -913,7 +916,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     if let Some(identity) = movement_identity_source {
         app.insert_resource(identity);
     }
-    crate::global_resources::configure(&mut app, global_pack_root, args.import_packs);
+    crate::global_resources::configure(
+        &mut app,
+        global_pack_root,
+        minecraft_import_config_root,
+        args.import_packs,
+    );
     configure_client_production_frame_systems(&mut app);
     configure_client_runtime_frame_systems(&mut app);
     if let Some(service) = client_runtime::world_service::WorldServiceSlot::from_environment()? {
