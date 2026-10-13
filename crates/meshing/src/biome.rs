@@ -247,15 +247,18 @@ impl PackedBiomeRecord {
             i8::try_from(dy).ok()?,
             i8::try_from(dz).ok()?,
         )?;
-        let relative = self.words[2 + slot];
-        if relative == 0 {
-            return Some(0);
+        self.slot_tints(slot)
+            .tint_index(coordinate.map(|value| value.rem_euclid(16) as u8))
+    }
+
+    /// The tint lookup of one descriptor slot, for callers sampling a slot many times.
+    pub(crate) fn slot_tints(&self, slot: usize) -> SlotTints<'_> {
+        match self.words[2 + slot] {
+            0 => SlotTints::Zero,
+            relative => self
+                .payload_at(relative)
+                .map_or(SlotTints::Invalid, SlotTints::Packed),
         }
-        let payload = self.payload_at(relative)?;
-        let x = coordinate[0].rem_euclid(16) as u8;
-        let y = coordinate[1].rem_euclid(16) as u8;
-        let z = coordinate[2].rem_euclid(16) as u8;
-        packed_payload_tint_index(payload, x, y, z)
     }
 
     /// Center-local lookup retained for existing validation callers.
@@ -280,6 +283,27 @@ impl PackedBiomeRecord {
         let word_count = packed_word_count(bits)?;
         let end = start.checked_add(HEADER_WORDS + word_count + palette_len)?;
         self.words.get(start..end)
+    }
+}
+
+/// One descriptor slot's tints, resolved once.
+#[derive(Clone, Copy)]
+pub(crate) enum SlotTints<'a> {
+    /// An unset slot reads the zero-initialized vanilla biome sample.
+    Zero,
+    Packed(&'a [u32]),
+    /// A payload that does not parse answers no tint.
+    Invalid,
+}
+
+impl SlotTints<'_> {
+    /// The tint at a slot-local coordinate.
+    pub(crate) fn tint_index(self, [x, y, z]: [u8; 3]) -> Option<u32> {
+        match self {
+            Self::Zero => Some(0),
+            Self::Packed(payload) => packed_payload_tint_index(payload, x, y, z),
+            Self::Invalid => None,
+        }
     }
 }
 

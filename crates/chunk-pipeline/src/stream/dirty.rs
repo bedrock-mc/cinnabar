@@ -52,6 +52,25 @@ impl WorldStream {
     ) {
         self.mark_changed_sources_with_mesh_dirty(sources, std::iter::empty(), now);
     }
+    /// Remeshes `sources` and every neighbour reading them without relighting: their blocks
+    /// changed, but no cell's light inputs did.
+    pub(super) fn mark_light_neutral_sources(
+        &mut self,
+        sources: impl IntoIterator<Item = SubChunkKey>,
+        now: Instant,
+    ) {
+        self.mark_changed_sources_with_mesh_dirty_priority(
+            sources,
+            std::iter::empty(),
+            now,
+            ChangeScope {
+                urgent: false,
+                relight: false,
+                reach: NeighbourReach::ALL,
+                cells: None,
+            },
+        );
+    }
     pub(super) fn mark_changed_sources_with_mesh_dirty(
         &mut self,
         sources: impl IntoIterator<Item = SubChunkKey>,
