@@ -25,6 +25,139 @@ struct Painted {
     hits: Vec<(MenuAction, UiRect)>,
 }
 
+#[test]
+fn extra_large_play_keeps_loaded_worlds_and_navigation_reachable_in_small_windows() {
+    for enabled in [0, 1] {
+        for size in [ui::MIN_WINDOW_LOGICAL_SIZE, [400.0, 250.0], [752.0, 500.0]] {
+            for dpi in [1.0, 2.0] {
+                let mut view = MenuView::new(true, "Fixture".into());
+                view.screen = MenuScreen::Play;
+                view.local_worlds = (0..32)
+                    .map(|index| launcher::menu::LocalWorldCard {
+                        name: format!("Fixture {index}"),
+                        ..Default::default()
+                    })
+                    .collect();
+                Arc::make_mut(&mut view.settings_options)
+                    .set(option_index(EXTRA_LARGE_UI), enabled);
+                let metrics = TextMetrics::for_viewport(
+                    size.map(|value| (value * dpi) as u32),
+                    DpiScale::new(dpi).unwrap(),
+                    Some(2),
+                );
+                let mut screen = OreUiScreen::default();
+                let mut scrolls = MenuScrolls::default();
+                let frame = paint_with_scrolls(&mut screen, &view, metrics, size, &mut scrolls);
+                for action in [
+                    MenuAction::Navigate(MenuScreen::Home),
+                    MenuAction::Navigate(MenuScreen::Servers),
+                    MenuAction::LocalWorld(launcher::menu::LocalWorldAction::BeginCreate),
+                    MenuAction::PlayLocalWorld(0),
+                ] {
+                    let bounds = frame
+                        .hits
+                        .iter()
+                        .find_map(|(at, bounds)| (*at == action).then_some(*bounds))
+                        .expect("Play keeps navigation, creation and its first world reachable");
+                    assert!(bounds.width() > 0.0 && bounds.height() > 0.0);
+                    assert!(bounds.min().x() >= 0.0 && bounds.min().y() >= 0.0);
+                    assert!(bounds.max().x() <= size[0] && bounds.max().y() <= size[1]);
+                }
+                let areas = screen.take_paint().unwrap().scrolls;
+                let worlds = areas.iter().find(|area| area.key == "worlds_list").unwrap();
+                assert!(worlds.viewport.width() > 0.0 && worlds.viewport.height() > 0.0);
+                assert!(worlds.max > 0.0, "many worlds remain scrollable");
+                let point = crate::test_support::centre(worlds.viewport);
+                let delta = -worlds.max;
+                scrolls.set_areas(areas);
+                assert!(scrolls.wheel(point, delta, true));
+                let frame = paint_with_scrolls(&mut screen, &view, metrics, size, &mut scrolls);
+                assert!(
+                    frame.hits.iter().any(|(action, bounds)| {
+                        *action == MenuAction::PlayLocalWorld(view.local_worlds.len() - 1)
+                            && bounds.width() > 0.0
+                            && bounds.height() > 0.0
+                    }),
+                    "the last world is reachable through actual scrolling"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn extra_large_loaded_profile_keeps_tabs_and_scrolled_actions_reachable_in_small_windows() {
+    use launcher::menu::{ProfileTab, auth::AuthState};
+    for enabled in [0, 1] {
+        for size in [ui::MIN_WINDOW_LOGICAL_SIZE, [400.0, 250.0], [752.0, 500.0]] {
+            for dpi in [1.0, 2.0] {
+                for tab in [ProfileTab::Overview, ProfileTab::Stats] {
+                    let mut view = MenuView::new(true, "Fixture".into());
+                    view.screen = MenuScreen::Profile;
+                    view.auth_state = AuthState::Authenticated;
+                    view.profile_tab = tab;
+                    view.feeds.profile.loaded = true;
+                    view.feeds.profile.avatar_loaded = true;
+                    view.feeds.profile.featured_screenshot_loaded = true;
+                    view.feeds.profile.friends = Some(1);
+                    Arc::make_mut(&mut view.settings_options)
+                        .set(option_index(EXTRA_LARGE_UI), enabled);
+                    let metrics = TextMetrics::for_viewport(
+                        size.map(|value| (value * dpi) as u32),
+                        DpiScale::new(dpi).unwrap(),
+                        Some(2),
+                    );
+                    let mut screen = OreUiScreen::default();
+                    let mut scrolls = MenuScrolls::default();
+                    let mut dressing_room_reached = false;
+                    for _ in 0..32 {
+                        let frame =
+                            paint_with_scrolls(&mut screen, &view, metrics, size, &mut scrolls);
+                        for action in [
+                            MenuAction::AddBack,
+                            MenuAction::SelectProfileTab(ProfileTab::Overview),
+                            MenuAction::SelectProfileTab(ProfileTab::Stats),
+                        ] {
+                            let bounds = frame
+                                .hits
+                                .iter()
+                                .find_map(|(at, bounds)| (*at == action).then_some(*bounds))
+                                .expect("Profile keeps its fixed navigation reachable");
+                            assert!(bounds.min().x() >= 0.0 && bounds.min().y() >= 0.0);
+                            assert!(bounds.max().x() <= size[0] && bounds.max().y() <= size[1]);
+                        }
+                        dressing_room_reached |= frame.hits.iter().any(|(action, bounds)| {
+                            *action == MenuAction::Navigate(MenuScreen::DressingRoom)
+                                && bounds.width() > 0.0
+                                && bounds.height() > 0.0
+                        });
+                        let areas = screen.take_paint().unwrap().scrolls;
+                        let body = areas
+                            .iter()
+                            .find(|area| area.key == "profile_body")
+                            .unwrap();
+                        assert!(body.viewport.width() > 0.0 && body.viewport.height() > 0.0);
+                        if dressing_room_reached {
+                            break;
+                        }
+                        let point = crate::test_support::centre(body.viewport);
+                        let delta = -body.viewport.height() * 0.5;
+                        scrolls.set_areas(areas);
+                        assert!(
+                            scrolls.wheel(point, delta, true),
+                            "Profile action is reachable by scrolling"
+                        );
+                    }
+                    assert!(
+                        dressing_room_reached,
+                        "Profile keeps Dressing Room reachable"
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// Paints a real menu route with unchanged gameplay metrics and no installed assets.
 fn paint(
     screen: &mut OreUiScreen,
