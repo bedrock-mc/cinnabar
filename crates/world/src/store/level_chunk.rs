@@ -22,18 +22,46 @@ impl DimensionSlots {
     }
 }
 
+/// Work performed while decoding an inline column; cache hits do not resolve block palettes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct InlineDecodeWork {
+    pub decoded_sections: usize,
+    pub reused_sections: usize,
+}
+
 /// A full-column decode produced on a worker and ready for a cheap commit.
 ///
 /// Packed sub-chunks are wrapped in `Arc`s so the value moves to the main
 /// thread without copying chunk data.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct DecodedLevelChunk {
     pub(crate) sub_chunks: BTreeMap<i32, Arc<SubChunk>>,
     pub(crate) biomes: Option<DecodedBiomeColumn>,
     pub(crate) block_entities: Option<DecodedBlockEntities>,
     pub(crate) block_bytes_consumed: usize,
     pub(crate) bytes_consumed: usize,
+    pub(crate) work: InlineDecodeWork,
 }
+
+impl PartialEq for DecodedLevelChunk {
+    /// Decode work counters are diagnostics, not part of the decoded column value.
+    fn eq(&self, other: &Self) -> bool {
+        let Self {
+            sub_chunks,
+            biomes,
+            block_entities,
+            block_bytes_consumed,
+            bytes_consumed,
+            work: _,
+        } = self;
+        *sub_chunks == other.sub_chunks
+            && *biomes == other.biomes
+            && *block_entities == other.block_entities
+            && *block_bytes_consumed == other.block_bytes_consumed
+            && *bytes_consumed == other.bytes_consumed
+    }
+}
+impl Eq for DecodedLevelChunk {}
 
 impl DecodedLevelChunk {
     /// Decodes only the block sub-chunks of an inline payload into `count` slots.
@@ -48,13 +76,14 @@ impl DecodedLevelChunk {
             count: sub_chunk_count,
         };
         let mut reader = Reader::new(payload);
-        let sub_chunks = read_sub_chunks(&mut reader, slots, sub_chunk_count, ids);
+        let (sub_chunks, work) = read_sub_chunks(&mut reader, slots, sub_chunk_count, ids, None);
         Self {
             sub_chunks,
             biomes: None,
             block_entities: None,
             block_bytes_consumed: reader.position(),
             bytes_consumed: reader.position(),
+            work,
         }
     }
 
@@ -68,8 +97,23 @@ impl DecodedLevelChunk {
         blocks: &dyn BlockIds,
         biomes: &dyn BiomeIds,
     ) -> Self {
+        Self::decode_inline_reusing(chunk, slots, sub_chunk_count, payload, blocks, biomes, None)
+    }
+
+    /// Reuses byte-identical resident sections with the same immutable block-id registry.
+    /// Every changed section and the entire biome/actor tail still follow the ordinary decoder.
+    pub fn decode_inline_reusing(
+        chunk: ChunkKey,
+        slots: DimensionSlots,
+        sub_chunk_count: usize,
+        payload: &[u8],
+        blocks: &dyn BlockIds,
+        biomes: &dyn BiomeIds,
+        previous: Option<&BTreeMap<i32, Arc<SubChunk>>>,
+    ) -> Self {
         let mut reader = Reader::new(payload);
-        let sub_chunks = read_sub_chunks(&mut reader, slots, sub_chunk_count, blocks);
+        let (sub_chunks, work) =
+            read_sub_chunks(&mut reader, slots, sub_chunk_count, blocks, previous);
         let block_bytes_consumed = reader.position();
         let (biome_column, block_entities) =
             decode_column_tail(chunk, slots, reader.remaining(), biomes);
@@ -79,7 +123,14 @@ impl DecodedLevelChunk {
             block_entities: Some(block_entities),
             block_bytes_consumed,
             bytes_consumed: payload.len(),
+            work,
         }
+    }
+
+    /// Reports full decoder calls and payload hash hits for this column.
+    #[must_use]
+    pub const fn decode_work(&self) -> InlineDecodeWork {
+        self.work
     }
 
     #[must_use]
@@ -133,10 +184,13 @@ fn read_sub_chunks(
     slots: DimensionSlots,
     sub_chunk_count: usize,
     ids: &dyn BlockIds,
-) -> BTreeMap<i32, Arc<SubChunk>> {
+    previous: Option<&BTreeMap<i32, Arc<SubChunk>>>,
+) -> (BTreeMap<i32, Arc<SubChunk>>, InlineDecodeWork) {
     let mut sub_chunks = BTreeMap::new();
+    let mut work = InlineDecodeWork::default();
+    let context = std::cell::OnceCell::new();
     if slots.count == 0 {
-        return sub_chunks;
+        return (sub_chunks, work);
     }
     for index in 0..sub_chunk_count {
         if reader.is_at_end() {
@@ -154,7 +208,16 @@ fn read_sub_chunks(
             continue;
         }
         let y = slots.slot_y(slot);
-        let sub_chunk = SubChunk::read(reader, ids);
+        if let Some(resident) = previous.and_then(|previous| previous.get(&y))
+            && resident.reuse_inline(reader, ids, y)
+        {
+            sub_chunks.insert(y, Arc::clone(resident));
+            work.reused_sections += 1;
+            continue;
+        }
+        let context = context.get_or_init(|| ids.inline_cache_context());
+        let sub_chunk = SubChunk::read_inline(reader, ids, context.as_ref());
+        work.decoded_sections += 1;
         let misplaced = sub_chunk
             .y_index()
             .is_some_and(|actual| i32::from(actual) != y);
@@ -164,5 +227,8 @@ fn read_sub_chunks(
             sub_chunks.insert(y, Arc::new(sub_chunk));
         }
     }
-    sub_chunks
+    (sub_chunks, work)
 }
+
+#[cfg(test)]
+mod tests;

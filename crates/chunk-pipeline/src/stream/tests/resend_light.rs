@@ -79,3 +79,265 @@ fn light_neutral_summary_of_a_replaced_section_relights() {
 
     assert!(!stream.light_is_current(key));
 }
+
+/// Byte-identical resends reuse the worker snapshot without decoding or dirtying terrain.
+#[test]
+fn identical_resend_reuses_blocks_without_new_decode_work() {
+    let (mut stream, key) = settled_column(7);
+    let resident = stream.authority.terrain().sub_chunk(key).unwrap();
+    let before = stream.stats();
+    stream
+        .submit(2, inline_block_entity_event(1, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    let after = stream.stats();
+    assert_eq!(
+        after.publication_stages.inline_sections_decoded,
+        before.publication_stages.inline_sections_decoded
+    );
+    assert_eq!(
+        after.publication_stages.inline_sections_reused
+            - before.publication_stages.inline_sections_reused,
+        1
+    );
+    assert!(Arc::ptr_eq(
+        &resident,
+        &stream.authority.terrain().sub_chunk(key).unwrap()
+    ));
+    assert!(!stream.mesh_jobs.pending.contains_key(&key));
+    assert!(!stream.lighting.jobs.pending.contains_key(&key));
+}
+
+/// Four packed sections, with an optional light-neutral replacement of the top one.
+fn packed_column_payload(changed_top: bool) -> Vec<u8> {
+    let range = vanilla_dimension_range(0).unwrap();
+    let mut payload = Vec::new();
+    for offset in 0..4 {
+        let y = range.base_sub_chunk_y + offset;
+        payload.extend([9, 1, y as i8 as u8]);
+        if changed_top && offset == 3 {
+            payload.extend([1, 1 << 1]);
+        } else {
+            payload.push(5);
+            for _ in 0..world::BLOCKS_PER_SUB_CHUNK.div_ceil(16) {
+                payload.extend(0x4444_4444_u32.to_le_bytes());
+            }
+            payload.extend([4, 0, 1 << 1]);
+        }
+    }
+    payload.extend(biome_payload(0, 1));
+    payload
+}
+
+/// Builds queued meshes on the test thread using production snapshots and publication.
+fn build_pending_meshes(stream: &mut WorldStream) {
+    let pending = std::mem::take(&mut stream.mesh_jobs.pending);
+    stream.mesh_jobs.clear_queued();
+    for (key, pending) in pending {
+        let snapshot = stream.mesh_snapshot(
+            key,
+            stream
+                .authority
+                .terrain()
+                .sub_chunk(key)
+                .expect("resident geometry"),
+            stream.mesh_light_halo(key).expect("settled light"),
+        );
+        let assets = stream.authority.runtime_assets();
+        let mode = stream.authority.network_id_mode();
+        let biome = pack_biome_record(
+            &snapshot.biomes,
+            &stream.decode_ids(key.dimension).biome_tints,
+        );
+        let mesh = snapshot.mesh(stream.classifier, assets, mode, &biome);
+        let dependency_mask = snapshot.dependency_mask(stream.classifier, assets, mode);
+        stream.accept_mesh_completion(MeshCompletion {
+            output_permit: None,
+            _job_permit: None,
+            key,
+            revision: pending.revision,
+            source: snapshot.center,
+            biome_sources: snapshot.biomes,
+            biome,
+            tint_identity: stream.biome_tint_identity(),
+            mesh,
+            dependency_mask,
+            light_halo: snapshot.light_halo,
+            queue_wait: Duration::ZERO,
+            dispatch_wait: Duration::ZERO,
+            duration: Duration::ZERO,
+            urgent: pending.urgent,
+        });
+    }
+    let now = test_time::ManualClock::new().now();
+    for change in stream.take_mesh_changes() {
+        let WorldMeshChange::Upsert {
+            key,
+            generation,
+            dirty_since,
+            ..
+        } = change
+        else {
+            panic!("settled resends must not remove geometry");
+        };
+        stream.acknowledge_mesh_upload(key, generation, dirty_since, now);
+    }
+    assert_eq!(stream.stats().stale_mesh_jobs, 0);
+}
+
+/// Loads adjacent packed columns with current lighting and published dependency masks.
+fn settled_packed_columns() -> WorldStream {
+    let assets = Arc::new(non_default_air_runtime_assets());
+    let mut stream = WorldStream::new_with_assets(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: assets.air_network_id(NetworkIdMode::Sequential).unwrap(),
+            block_network_ids_are_hashes: false,
+        },
+        assets,
+        [0.0; 3],
+        None,
+    );
+    for x in 0..3 {
+        stream
+            .submit(
+                x as u64 + 1,
+                WorldEvent::LevelChunk(LevelChunkEvent {
+                    dimension: 0,
+                    x,
+                    z: 0,
+                    mode: LevelChunkMode::Inline { count: 4 },
+                    payload: packed_column_payload(false),
+                }),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+    }
+    for key in stream.resident.iter().copied().collect::<Vec<_>>() {
+        install_current_light(&mut stream, key, 0, 15, false);
+    }
+    stream.mesh_jobs.pending.clear();
+    stream.mesh_jobs.clear_queued();
+    let now = test_time::ManualClock::new().now();
+    for x in 0..3 {
+        for y in -4..0 {
+            stream.mark_dirty_exact(SubChunkKey::new(0, x, y, 0), now);
+        }
+    }
+    build_pending_meshes(&mut stream);
+    stream
+}
+
+/// Uses either resident hash reuse or the ordinary decoder used before inline caching.
+fn apply_packed_resend(stream: &mut WorldStream, x: i32, changed_top: bool, reuse: bool) {
+    let chunk = ChunkKey::new(0, x, 0);
+    let ids = stream.decode_ids(0);
+    let previous = stream
+        .authority
+        .terrain()
+        .chunk(chunk)
+        .unwrap()
+        .shared_sub_chunks();
+    let payload = packed_column_payload(changed_top);
+    let decoded = DecodedLevelChunk::decode_inline_reusing(
+        chunk,
+        client_world::ingestion::dimension_slots(vanilla_dimension_range(0).unwrap()),
+        4,
+        &payload,
+        &ids,
+        &ids,
+        reuse.then_some(previous.as_ref()),
+    );
+    let light_neutral = client_world::ingestion::light_neutral_sections(&previous, &decoded, &ids);
+    stream.apply_prepared(PreparedWorldEvent::InlineLevelChunk {
+        event: LevelChunkEvent {
+            dimension: 0,
+            x,
+            z: 0,
+            mode: LevelChunkMode::Inline { count: 4 },
+            payload,
+        },
+        decoded,
+        light_neutral,
+        duration: Duration::ZERO,
+    });
+}
+
+/// An identical source cannot dirty itself, adjacent columns, or publish new meshes.
+#[test]
+fn all_identical_packed_resends_build_zero_meshes() {
+    let mut stream = settled_packed_columns();
+    let before = stream.stats();
+    for x in 0..3 {
+        apply_packed_resend(&mut stream, x, false, true);
+        assert!(stream.mesh_jobs.pending.is_empty());
+        assert!(stream.lighting.jobs.pending.is_empty());
+        assert_eq!(stream.pending_mesh_change_count(), 0);
+        build_pending_meshes(&mut stream);
+    }
+    let after = stream.stats();
+    assert_eq!(
+        after.publication_stages.mesh_jobs_completed
+            - before.publication_stages.mesh_jobs_completed,
+        0
+    );
+    assert_eq!(
+        after.publication_stages.inline_sections_reused
+            - before.publication_stages.inline_sections_reused,
+        12
+    );
+}
+
+/// Hash reuse cannot add mesh builds, even when each column's meshes finish before the next commit.
+#[test]
+fn mostly_identical_packed_resends_do_not_exceed_ordinary_decode_mesh_builds() {
+    for finish_each_column in [false, true] {
+        let mut builds = Vec::new();
+        for reuse in [false, true] {
+            let mut stream = settled_packed_columns();
+            let before = stream.stats();
+            for x in 0..3 {
+                apply_packed_resend(&mut stream, x, true, reuse);
+                for unchanged_y in -4..-2 {
+                    for neighbour_x in 0..3 {
+                        assert!(
+                            stream.is_mesh_clean(SubChunkKey::new(0, neighbour_x, unchanged_y, 0)),
+                            "unchanged lower sections do not depend on the changed top section"
+                        );
+                    }
+                }
+                assert!(stream.lighting.jobs.pending.is_empty());
+                if finish_each_column {
+                    build_pending_meshes(&mut stream);
+                }
+            }
+            build_pending_meshes(&mut stream);
+            let after = stream.stats();
+            builds.push(
+                after.publication_stages.mesh_jobs_completed
+                    - before.publication_stages.mesh_jobs_completed,
+            );
+            if reuse {
+                assert_eq!(
+                    after.publication_stages.inline_sections_reused
+                        - before.publication_stages.inline_sections_reused,
+                    9
+                );
+            }
+        }
+        assert!(
+            builds[0] > 0,
+            "the ordinary decode control must build changed meshes"
+        );
+        assert!(
+            builds[1] <= builds[0],
+            "cached meshes={} ordinary decode meshes={}",
+            builds[1],
+            builds[0]
+        );
+    }
+}

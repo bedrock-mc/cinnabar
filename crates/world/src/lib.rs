@@ -52,7 +52,7 @@ pub use palette::{BLOCKS_PER_SUB_CHUNK, Palette, PalettedStorage, SUB_CHUNK_SIDE
 pub use section_snapshot::SectionSnapshot;
 pub use store::{
     ApplyLevelChunk, ChunkCollisionRevision, ChunkStore, DecodedLevelChunk, DimensionSlots,
-    PreparedSubChunkMutation, decode_column_tail,
+    InlineDecodeWork, PreparedSubChunkMutation, decode_column_tail,
 };
 pub use sub_chunk::{BlockIds, MAX_PALETTE_ENTRIES, MAX_STORAGE_COUNT, RawBlockIds, SubChunk};
 
