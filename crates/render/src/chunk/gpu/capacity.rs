@@ -4,6 +4,36 @@ use render_scene::ChunkRenderInstance;
 /// Bounds speculative preallocation; a known backlog can request more within adapter limits.
 const SPECULATIVE_STREAM_BYTES: u64 = ARENA_MIGRATION_FRAME_BYTES;
 
+/// Sizes one stream for the full backlog and the others for the next upload frame.
+pub(super) fn initial_capacity_target(
+    backlog: ArenaRequiredLengths,
+    mut next_frame: ArenaRequiredLengths,
+) -> ArenaRequiredLengths {
+    let ArenaRequiredLengths {
+        quads,
+        geometry_stream_words,
+        origins,
+        biome_words,
+    } = backlog;
+    let streams = [
+        (&mut next_frame.quads, quads, PACKED_QUAD_BYTES),
+        (
+            &mut next_frame.geometry_stream_words,
+            geometry_stream_words,
+            GEOMETRY_STREAM_WORD_BYTES,
+        ),
+        (&mut next_frame.origins, origins, CHUNK_ORIGIN_BYTES),
+        (&mut next_frame.biome_words, biome_words, BIOME_WORD_BYTES),
+    ];
+    if let Some((initial, wanted, _)) = streams
+        .into_iter()
+        .max_by_key(|(_, wanted, item_bytes)| buffer_byte_len(*wanted, *item_bytes))
+    {
+        *initial = wanted;
+    }
+    next_frame
+}
+
 /// Estimates full-view storage from the queued sample while always covering the known backlog.
 pub(super) fn backlog_capacity_target<'a>(
     arena: &ChunkGpuArena,

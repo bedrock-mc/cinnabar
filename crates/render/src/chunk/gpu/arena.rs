@@ -1,5 +1,7 @@
 use crate::chunk::*;
+use bevy::math::FloatOrd;
 use render_scene::{ChunkRenderInstance, ChunkUploadPriority};
+use std::cmp::Reverse;
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(in crate::chunk) struct ChunkGpuUploadStats {
@@ -391,35 +393,21 @@ pub(in crate::chunk) fn plan_gpu_chunk_updates(
                     || allocation.tint_identity != candidate.tint_identity
             })
     });
-    candidates.sort_by(|left, right| {
-        let left_age = fairness.wait_age(left.entity);
-        let right_age = fairness.wait_age(right.entity);
-        let left_overdue = left_age >= GPU_UPDATE_OVERDUE_FRAMES;
-        let right_overdue = right_age >= GPU_UPDATE_OVERDUE_FRAMES;
-        let left_starved = left_age >= GPU_UPDATE_STARVED_FRAMES;
-        let right_starved = right_age >= GPU_UPDATE_STARVED_FRAMES;
-        let left_urgent = left.priority.is_urgent() || fairness.is_urgent(left.entity);
-        let right_urgent = right.priority.is_urgent() || fairness.is_urgent(right.entity);
-        right_urgent
-            .cmp(&left_urgent)
-            .then_with(|| right_starved.cmp(&left_starved))
-            .then_with(|| {
-                if left_starved && right_starved {
-                    right_age.cmp(&left_age)
-                } else {
-                    std::cmp::Ordering::Equal
-                }
-            })
-            .then_with(|| right_overdue.cmp(&left_overdue))
-            .then_with(|| {
-                ChunkUploadPriority::from_camera(left.key, camera_position)
-                    .distance_squared()
-                    .total_cmp(
-                        &ChunkUploadPriority::from_camera(right.key, camera_position)
-                            .distance_squared(),
-                    )
-            })
-            .then_with(|| left.key.cmp(&right.key))
+    candidates.sort_by_cached_key(|candidate| {
+        let age = fairness.wait_age(candidate.entity);
+        (
+            Reverse(candidate.priority.is_urgent() || fairness.is_urgent(candidate.entity)),
+            Reverse(if age >= GPU_UPDATE_STARVED_FRAMES {
+                age
+            } else {
+                0
+            }),
+            Reverse(age >= GPU_UPDATE_OVERDUE_FRAMES),
+            FloatOrd(
+                ChunkUploadPriority::from_camera(candidate.key, camera_position).distance_squared(),
+            ),
+            candidate.key,
+        )
     });
     candidates
         .into_iter()

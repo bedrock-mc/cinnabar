@@ -40,6 +40,22 @@ fn instance() -> ChunkRenderInstance {
     query.single(world).unwrap().clone()
 }
 
+/// Returns storage buffer sizes so a frame's replacements can be measured without a clock.
+fn storage_buffer_bytes(arena: &ChunkGpuArena) -> [u64; 4] {
+    let ArenaRequiredLengths {
+        quads,
+        geometry_stream_words,
+        origins,
+        biome_words,
+    } = arena_capacities(arena);
+    [
+        buffer_byte_len(quads, PACKED_QUAD_BYTES),
+        buffer_byte_len(geometry_stream_words, GEOMETRY_STREAM_WORD_BYTES),
+        buffer_byte_len(origins, CHUNK_ORIGIN_BYTES),
+        buffer_byte_len(biome_words, BIOME_WORD_BYTES),
+    ]
+}
+
 /// A deterministic 12-chunk-radius, full-height join with a bounded upload allowance.
 #[test]
 fn join_sized_arena_uploads_avoid_repeated_migrations() {
@@ -75,6 +91,10 @@ fn join_sized_arena_uploads_avoid_repeated_migrations() {
     let mut frames = 0;
     let mut max_prepare = Duration::ZERO;
     let mut total_prepare = Duration::ZERO;
+    let mut prepare_samples = Vec::new();
+    let mut previous_buffers = storage_buffer_bytes(app.world().resource::<ChunkGpuArena>());
+    let mut largest_buffer = 0;
+    let mut max_allocation_bytes = 0;
     while app.world().resource::<ChunkGpuArena>().allocations.len() < sections as usize {
         frames += 1;
         assert!(frames < 100);
@@ -83,6 +103,16 @@ fn join_sized_arena_uploads_avoid_repeated_migrations() {
         let elapsed = started.elapsed();
         max_prepare = max_prepare.max(elapsed);
         total_prepare += elapsed;
+        prepare_samples.push(elapsed);
+        let buffers = storage_buffer_bytes(app.world().resource::<ChunkGpuArena>());
+        let allocated_bytes: u64 = buffers
+            .into_iter()
+            .zip(previous_buffers)
+            .filter_map(|(new, old)| (new != old).then_some(new))
+            .sum();
+        max_allocation_bytes = max_allocation_bytes.max(allocated_bytes);
+        largest_buffer = largest_buffer.max(buffers.into_iter().max().unwrap());
+        previous_buffers = buffers;
         let stats = *app.world().resource::<ChunkGpuUploadStats>();
         migrations += stats.migrations_started;
         copied += stats.gpu_copy_bytes;
@@ -90,13 +120,22 @@ fn join_sized_arena_uploads_avoid_repeated_migrations() {
         blocked += usize::from(stats.uploads_waiting_for_growth > 0 && stats.chunk_updates == 0);
         assert!(stats.total_bytes <= PublicationServiceConfig::DEFAULT.maximum_frame_bytes);
     }
+    prepare_samples.sort_unstable();
+    let median_prepare = (prepare_samples[(prepare_samples.len() - 1) / 2]
+        + prepare_samples[prepare_samples.len() / 2])
+        / 2;
     eprintln!(
-        "join sections={sections} frames={frames} migrations={migrations} copied_bytes={copied} blocked_frames={blocked} growth_wait_frames={growth_wait_frames} max_prepare_us={} total_prepare_us={}",
+        "join sections={sections} frames={frames} migrations={migrations} copied_bytes={copied} blocked_frames={blocked} growth_wait_frames={growth_wait_frames} max_allocation_bytes={max_allocation_bytes} max_prepare_us={} median_prepare_us={} total_prepare_us={}",
         max_prepare.as_micros(),
+        median_prepare.as_micros(),
         total_prepare.as_micros()
     );
-    assert!(migrations <= 3);
-    assert_eq!(copied, 0);
+    assert!(
+        max_allocation_bytes <= largest_buffer + ARENA_MIGRATION_FRAME_BYTES,
+        "backlog buffer allocation must be spread across upload frames"
+    );
+    assert!(migrations <= 5);
+    assert!(copied <= ARENA_MIGRATION_FRAME_BYTES);
     assert_eq!(blocked, 0);
     assert_eq!(growth_wait_frames, 0);
     assert_eq!(frames, (sections as usize).div_ceil(512));

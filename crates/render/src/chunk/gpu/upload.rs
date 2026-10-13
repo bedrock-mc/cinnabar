@@ -146,16 +146,32 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     );
     let mut migrations_started = 0;
     let mut uploads_waiting_for_growth = 0;
-    // Reserve every empty stream before the first upload can make its prefix non-empty.
+    let frame_items = budget
+        .max_per_frame
+        .max(PublicationServiceConfig::DEFAULT.maximum_frame_items);
+    // Spread large buffer allocations across frames while leaving room for uploads now.
     if arena.origin_len == 0
         && arena.quad_len == 0
         && arena.geometry_stream_len == 0
         && arena.migration.is_none()
     {
+        let initial_target = super::capacity::initial_capacity_target(
+            capacity_target,
+            super::capacity::backlog_capacity_target(
+                &arena,
+                selected.iter().take(frame_items).filter_map(|entity| {
+                    all_instances
+                        .get(*entity)
+                        .ok()
+                        .map(|(_, instance)| instance)
+                }),
+                0,
+            ),
+        );
         while let Ok(Some((stream, growth))) =
-            first_arena_growth(arena_capacities(&arena), capacity_target, arena.limits)
+            first_arena_growth(arena_capacities(&arena), initial_target, arena.limits)
         {
-            let growth = super::capacity::backlog_growth(&arena, stream, growth, capacity_target);
+            let growth = super::capacity::backlog_growth(&arena, stream, growth, initial_target);
             begin_arena_migration(&mut arena, uploads.device, stream, growth);
             migrations_started += 1;
             upload_reservation.growth_copy_bytes += advance_arena_migration(
@@ -169,11 +185,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         }
     }
     for &entity in &selected {
-        if upload_reservation.items
-            >= budget
-                .max_per_frame
-                .max(PublicationServiceConfig::DEFAULT.maximum_frame_items)
-        {
+        if upload_reservation.items >= frame_items {
             break;
         }
         let Ok((_, instance)) = all_instances.get(entity) else {
