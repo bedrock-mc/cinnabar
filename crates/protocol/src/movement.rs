@@ -372,6 +372,18 @@ mod locomotion_flag_tests {
     use super::*;
 
     #[test]
+    fn every_input_flag_row_encodes_its_generated_ordinal() {
+        for (row, (variant, _)) in INPUT_FLAG_ITEMS.iter().enumerate() {
+            assert_eq!(variant.to_raw(), row as i32);
+            assert_eq!(input_data_items(PlayerInputFlags(1u128 << row)), [*variant]);
+        }
+        for raw in 0..u128::BITS {
+            let named = !matches!(InputData::from(raw as i32), InputData::Unknown(_));
+            assert_eq!(named, (raw as usize) < INPUT_FLAG_ITEMS.len());
+        }
+    }
+
+    #[test]
     fn locomotion_constants_sit_on_their_named_table_rows() {
         for (flag, name) in [
             (PlayerInputFlags::PERSIST_SNEAK, "PersistSneak"),

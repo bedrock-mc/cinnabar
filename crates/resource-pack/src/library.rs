@@ -114,6 +114,8 @@ struct Catalog {
     #[serde(default)]
     retained: Vec<InstalledPack>,
     #[serde(default)]
+    restore: Vec<ActivePack>,
+    #[serde(default)]
     next_revision: u64,
 }
 
@@ -127,6 +129,10 @@ pub struct GlobalPackLibrary {
 }
 
 impl GlobalPackLibrary {
+    /// The installed engine version used for pack compatibility checks and import previews.
+    pub fn engine_version(&self) -> [u32; 3] {
+        self.engine_version
+    }
     /// Opens install-owned pack storage without touching the base carriers.
     pub fn open(root: impl Into<PathBuf>, engine_version: [u32; 3]) -> Result<Self, LibraryError> {
         let root = root.into();
@@ -184,7 +190,20 @@ impl GlobalPackLibrary {
             return Err(LibraryError::UnsupportedExtension);
         }
         let bytes = read_bounded(path, MAX_ARCHIVE_BYTES)?;
-        let (mut report, archives) = crate::import::read_import(bytes, path)?;
+        let (report, archives) = crate::import::read_import(bytes, path)?;
+        self.import_prepared(crate::PreparedImport { report, archives })
+    }
+
+    /// Installs exactly the bytes validated during preview, using ordinary catalog limits.
+    pub fn import_prepared(
+        &mut self,
+        prepared: crate::PreparedImport,
+    ) -> Result<ImportReport, LibraryError> {
+        let crate::PreparedImport {
+            mut report,
+            archives,
+        } = prepared;
+        report.imported.clear();
         let mut candidate = self.catalog.clone();
         let mut accepted = Vec::new();
         for (mut metadata, bytes) in archives {
@@ -229,6 +248,31 @@ impl GlobalPackLibrary {
             }
         }
         Ok(report)
+    }
+
+    /// Stages an installed selection and returns its validated stack without deleting archives.
+    pub fn stage_selection(
+        &mut self,
+        selection: &[ActivePack],
+    ) -> Result<Arc<ValidatedPackStack>, LibraryError> {
+        if selection.len() > MAX_PACKS {
+            return Err(AdmissionError::TooManyPacks.into());
+        }
+        let mut seen = std::collections::HashSet::new();
+        for active in selection {
+            if !seen.insert(active.id) {
+                return Err(AdmissionError::DuplicatePack.into());
+            }
+            self.metadata(active).ok_or(LibraryError::UnknownPack)?;
+        }
+        let old = std::mem::replace(&mut self.active, selection.to_vec());
+        match self.preview() {
+            Ok(stack) => Ok(stack),
+            Err(error) => {
+                self.active = old;
+                Err(error)
+            }
+        }
     }
 
     /// Reads one installed pack's own icon without activating it or consulting overlays.
@@ -316,19 +360,46 @@ impl GlobalPackLibrary {
 
     /// Validates staged archives on the caller's worker without persisting pending changes.
     pub fn preview(&mut self) -> Result<Arc<ValidatedPackStack>, LibraryError> {
+        self.preview_selection(&self.active, &[])
+    }
+
+    /// Validates installed and previewed archives together without changing storage or selection.
+    pub fn preview_selection(
+        &self,
+        selection: &[ActivePack],
+        imports: &[crate::PreparedImport],
+    ) -> Result<Arc<ValidatedPackStack>, LibraryError> {
+        if selection.len() > MAX_PACKS {
+            return Err(AdmissionError::TooManyPacks.into());
+        }
+        let mut seen = std::collections::HashSet::new();
         let mut stack = ValidatedPackStack {
             packs: Box::default(),
             rejections: Box::default(),
         };
-        for active in self.active.iter().rev() {
-            let metadata = self.metadata(active).ok_or(LibraryError::UnknownPack)?;
+        for active in selection.iter().rev() {
+            if !seen.insert(active.id) {
+                return Err(AdmissionError::DuplicatePack.into());
+            }
+            let prepared = imports
+                .iter()
+                .flat_map(|import| &import.archives)
+                .find(|(pack, _)| pack.id == active.id && pack.revision == active.revision);
+            let metadata = self
+                .metadata(active)
+                .or_else(|| prepared.map(|(pack, _)| pack))
+                .ok_or(LibraryError::UnknownPack)?;
             if metadata
                 .min_engine_version
                 .is_some_and(|minimum| minimum > self.engine_version)
             {
                 return Err(LibraryError::NewerEngine);
             }
-            let bytes = read_bounded(&self.root.join(metadata.filename()), MAX_ARCHIVE_BYTES)?;
+            let bytes = if let Some((_, bytes)) = prepared {
+                bytes.clone()
+            } else {
+                read_bounded(&self.root.join(metadata.filename()), MAX_ARCHIVE_BYTES)?
+            };
             let (pack, _) = validate_archive_parts(
                 active.id,
                 &metadata.version_text(),
@@ -397,7 +468,7 @@ fn encode_catalog(catalog: &Catalog) -> Result<Vec<u8>, LibraryError> {
 }
 
 /// Caps reads before allocating, including files that grow during the read.
-fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, LibraryError> {
+pub(crate) fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, LibraryError> {
     let file = fs::File::open(path)?;
     if file.metadata()?.len() > limit as u64 {
         return Err(AdmissionError::ArchiveTooLarge.into());

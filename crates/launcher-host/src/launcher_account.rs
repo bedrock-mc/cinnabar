@@ -426,7 +426,7 @@ fn settle<T, E: std::fmt::Display>(
 }
 
 /// Button-art surfaces the start screen shows, reported once per message instance.
-const SHOWN_SURFACES: [&str; 1] = ["PlayButton"];
+const SHOWN_SURFACES: [&str; 1] = [bridge::contract::MESSAGE_SURFACE_PLAY_BUTTON];
 
 fn report_impressions(
     runtime: &tokio::runtime::Runtime,
@@ -441,7 +441,7 @@ fn report_impressions(
             continue;
         }
         let event = MessageEvent {
-            event_type: "Impression".to_owned(),
+            event_type: bridge::contract::MESSAGE_EVENT_IMPRESSION.to_owned(),
             instance_id: message.instance_id.clone(),
             report_id: message.report_id.clone(),
             button_id: String::new(),
@@ -476,7 +476,7 @@ pub fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
             route_to_servers: event.route_to_servers,
         });
     MenuHome {
-        play_art: art("PlayButton"),
+        play_art: art(bridge::contract::MESSAGE_SURFACE_PLAY_BUTTON),
         inbox_unread: home
             .inbox
             .categories
@@ -503,7 +503,7 @@ pub fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
             .messages
             .iter()
             .filter(|message| {
-                message.surface == "InboxMessage"
+                message.surface == bridge::contract::MESSAGE_SURFACE_INBOX_MESSAGE
                     && launcher::menu::inbox::category_index(&message.category).is_some()
             })
             .map(|message| InboxItem {
@@ -514,7 +514,9 @@ pub fn menu_home(home: &Home, now_unix: i64) -> MenuHome {
                 header: message.header.clone(),
                 body: message.body.clone(),
                 category: message.category.clone(),
-                unread: !message.status.eq_ignore_ascii_case("read"),
+                unread: !message
+                    .status
+                    .eq_ignore_ascii_case(bridge::contract::MESSAGE_STATUS_READ),
             })
             .collect(),
     }
@@ -529,12 +531,13 @@ fn button_art(message: &Message) -> ButtonArt {
     };
     for image in message.images.iter().filter(|image| !image.path.is_empty()) {
         let id = image.id.to_ascii_lowercase();
-        if id.contains("banner") {
+        if id.contains(bridge::contract::MESSAGE_ART_BANNER) {
             art.banner_texture = image.path.clone();
             continue;
         }
-        let hover = id.contains("hover");
-        let foreground = id.contains("fore") || id.contains("fg");
+        let hover = id.contains(bridge::contract::MESSAGE_ART_HOVER);
+        let foreground = id.contains(bridge::contract::MESSAGE_ART_FORE)
+            || id.contains(bridge::contract::MESSAGE_ART_FG);
         let slot = match (hover, foreground) {
             (true, true) => &mut art.hover_foreground,
             (true, false) => &mut art.hover_background,

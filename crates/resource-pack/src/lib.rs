@@ -25,7 +25,10 @@ pub mod test_support;
 mod view;
 
 pub use dependencies::{PackDependencies, PackDependency};
-pub use import::{PACK_IMPORT_EXTENSIONS, is_pack_import_path};
+pub use import::{
+    GlobalSelectionEntry, PACK_IMPORT_EXTENSIONS, ParsedGlobalSelection, PreparedImport,
+    is_pack_import_path, merge_global_selection, parse_global_selection, prepare_import,
+};
 pub use library::{
     ActivePack, GlobalPackLibrary, ImportReport, InstalledPack, LibraryError, Subpack,
 };

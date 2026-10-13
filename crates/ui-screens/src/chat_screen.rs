@@ -3,6 +3,7 @@
 //! lines as the `auto_complete` collection, and the send and back buttons.
 //! Editing, completion and sending stay with the client's runtime.
 
+use launcher::menu::settings_options::SettingId;
 use std::{
     collections::{BTreeMap, VecDeque},
     sync::Arc,
@@ -480,7 +481,7 @@ fn chat_data(
     let items = messages
         .iter()
         .skip(messages.len().saturating_sub(MAX_MESSAGES))
-        .filter(|_| settings.value("hide_chat") == 0)
+        .filter(|_| settings.value(SettingId::HideChat) == 0)
         .map(|line| {
             let text = resolve_chat_line(line, translate);
             FactoryItem::new("chat_screen_messages", 0.0)
@@ -491,7 +492,8 @@ fn chat_data(
                 .var(
                     "chat_font_type",
                     Value::from(
-                        if !settings.chat_smooth_available() || settings.value("chat_typeface") == 0
+                        if !settings.chat_smooth_available()
+                            || settings.value(SettingId::ChatTypeface) == 0
                         {
                             "default"
                         } else {

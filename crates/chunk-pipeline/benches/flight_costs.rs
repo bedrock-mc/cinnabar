@@ -26,6 +26,8 @@ use world::{SubChunkKey, chunk_in_view};
 #[global_allocator]
 static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+#[path = "flight_costs/biomes.rs"]
+mod biomes;
 #[path = "flight_costs/camera.rs"]
 mod camera;
 
@@ -184,7 +186,8 @@ fn column_payload(cx: i32, cz: i32) -> (usize, Bytes) {
             block(wx, wy, wz, tops[x as usize][z as usize])
         });
     }
-    payload.extend([1, 0]); // Uniform biome zero followed by extruded upper slots.
+    payload.push(1);
+    push_var_i32(&mut payload, biomes::column_biome(cx, cz));
     payload.extend(std::iter::repeat_n(0xff, range.sub_chunk_count - 1));
     payload.push(0); // Border-block count; no block entities.
     (count, Bytes::from(payload))
@@ -196,6 +199,7 @@ enum Ingress {
     Position([f32; 3]),
     Publisher([i32; 3], u32),
     Column(i32, i32, usize, Bytes),
+    Biomes,
 }
 
 struct Flight {
@@ -210,6 +214,7 @@ struct Flight {
     sequence: u64,
     backlog: VecDeque<Ingress>,
     next_frame: Instant,
+    biome_probe: biomes::PayloadProbe,
 }
 
 impl Flight {
@@ -251,7 +256,9 @@ impl Flight {
             sequence: 0,
             backlog: VecDeque::new(),
             next_frame: Instant::now(),
+            biome_probe: biomes::PayloadProbe::warming_up(),
         };
+        flight.backlog.push_back(Ingress::Biomes);
         flight.backlog.push_back(Ingress::Radius(radius));
         flight
             .backlog
@@ -304,6 +311,7 @@ impl Flight {
         self.sequence += 1;
         let sequence = self.sequence;
         match ingress {
+            Ingress::Biomes => self.stream.submit(sequence, biomes::definitions()),
             Ingress::Radius(radius) => self
                 .stream
                 .submit(sequence, WorldEvent::ChunkRadiusUpdated(radius)),
@@ -394,8 +402,8 @@ impl Flight {
                     biome,
                     ..
                 } => {
-                    self.uploaded_bytes +=
-                        meshing::chunk_publication_byte_len(&mesh, &biome) as u64;
+                    self.uploaded_bytes += meshing::chunk_publication_byte_len(&mesh, &biome);
+                    self.biome_probe.observe(key, &mesh, &biome);
                     black_box((&mesh, &biome));
                     (key, generation, dirty_since)
                 }
@@ -404,7 +412,10 @@ impl Flight {
                     generation,
                     dirty_since,
                     ..
-                } => (key, generation, dirty_since),
+                } => {
+                    self.biome_probe.remove(key);
+                    (key, generation, dirty_since)
+                }
             };
             self.stream
                 .acknowledge_mesh_upload(key, generation, dirty_since, Instant::now());
@@ -471,6 +482,8 @@ fn flight_benches(c: &mut Criterion) {
                     .stats()
                     .publication_stages
                     .mesh_uploads_acknowledged;
+                flight.biome_probe.start();
+                let cpu_before = benchmark_support::biomes::cpu_counters();
                 // Two seconds of flight: per-frame distribution and work witnesses.
                 let mut frames: Vec<_> = (0..480).map(|_| flight.frame()).collect();
                 frames.sort_unstable();
@@ -486,6 +499,7 @@ fn flight_benches(c: &mut Criterion) {
                 if blocks_per_second > 0.0 {
                     assert!(published > 0, "flight published no meshes");
                 }
+                flight.biome_probe.report(radius, blocks_per_second, cpu_before);
                 let total: Duration = frames.iter().sum();
                 eprintln!(
                     "FLIGHT_PREFLIGHT radius={radius} blocks_per_second={blocks_per_second} resident_columns={resident_before}->{} meshes_published={published} backlog={} main_ms_per_frame_mean={:.3} p50_us={} p99_us={} max_us={}",

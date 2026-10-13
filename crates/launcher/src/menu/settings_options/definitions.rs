@@ -1,4 +1,7 @@
-//! Controller names and labels come from the pinned pack's settings_sections JSON.
+//! The single registry for persisted settings, reset membership and displayed rows.
+
+use super::{layout::SettingPanel, reset::SettingsGroup};
+use assets::audio_category::AudioCategory;
 
 #[derive(Clone, Copy, Debug)]
 pub struct SettingChoice {
@@ -11,10 +14,16 @@ pub enum SettingKind {
     Toggle,
     Slider,
     Dropdown(&'static [SettingChoice]),
+    Host,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct SettingDefinition {
+    pub id: SettingId,
+    pub section: &'static [(SettingPanel, u16)],
+    pub reset_group: &'static [SettingsGroup],
+    pub volume: Option<AudioCategory>,
+    pub oreui_label: Option<&'static str>,
     pub name: &'static str,
     pub label: &'static str,
     pub kind: SettingKind,
@@ -41,12 +50,7 @@ pub const VRR_CHOICES: &[SettingChoice] = &[
 ];
 
 /// Automatic uses reliable platform reports; On declares VRR enabled by the player.
-pub const VRR_OPTION: SettingDefinition = dropdown(
-    "vrr",
-    "Variable Refresh Rate",
-    VRR_CHOICES,
-    render_api::VrrPreference::Automatic as i32,
-);
+pub const VRR_OPTION: SettingDefinition = SettingId::Vrr.definition();
 
 /// Ordered animation choices shared by the registry and the Video selector.
 pub const ANIMATION_CHOICES: &[SettingChoice] = &[
@@ -61,34 +65,18 @@ pub const ANIMATION_CHOICES: &[SettingChoice] = &[
 ];
 
 /// Bedrock animation is the default; Java 1.7 stays selectable.
-pub const ANIMATIONS_OPTION: SettingDefinition =
-    dropdown("animations", "Animations", ANIMATION_CHOICES, 1);
+pub const ANIMATIONS_OPTION: SettingDefinition = SettingId::Animations.definition();
 
 /// Native placement is enabled; disabling it centers the authored cube.
-pub const NATIVE_SKYBOX_OFFSET_OPTION: SettingDefinition = toggle(
-    "native_skybox_offset",
-    "Bedrock Skybox Vertical Offset",
-    assets::DEFAULT_NATIVE_SKYBOX_OFFSET,
-);
+pub const NATIVE_SKYBOX_OFFSET_OPTION: SettingDefinition =
+    SettingId::NativeSkyboxOffset.definition();
 
 /// Far terrain draws cached terrain past the render distance.
-pub const FAR_TERRAIN_OPTION: SettingDefinition = toggle(
-    "far_terrain",
-    "Far Terrain (LOD)",
-    render_api::far_terrain::DEFAULT_ENABLED,
-);
+pub const FAR_TERRAIN_OPTION: SettingDefinition = SettingId::FarTerrain.definition();
 
 /// Advanced: chunks meshed in full detail around the player; 0 is Auto, by device tier.
-pub const FULL_DETAIL_DISTANCE_OPTION: SettingDefinition = SettingDefinition {
-    step: render_api::far_terrain::FULL_DETAIL_STEP_CHUNKS as i32,
-    ..slider(
-        "full_detail_distance",
-        "Full-Detail Distance",
-        render_api::far_terrain::FULL_DETAIL_AUTO as i32,
-        render_api::far_terrain::MAX_FULL_DETAIL_CHUNKS as i32,
-        render_api::far_terrain::FULL_DETAIL_AUTO as i32,
-    )
-};
+pub const FULL_DETAIL_DISTANCE_OPTION: SettingDefinition =
+    SettingId::FullDetailDistance.definition();
 
 /// The full-detail distance's label: Auto, or its chunks through `format`.
 pub fn full_detail_label(value: i32, chunks: &dyn Fn(i32) -> String) -> String {
@@ -118,12 +106,7 @@ pub const MOTION_BLUR_CHOICES: &[SettingChoice] = &[
     },
 ];
 
-pub const MOTION_BLUR_OPTION: SettingDefinition = dropdown(
-    "motion_blur",
-    "Motion Blur",
-    MOTION_BLUR_CHOICES,
-    ui::MotionBlurQuality::Off.index(),
-);
+pub const MOTION_BLUR_OPTION: SettingDefinition = SettingId::MotionBlur.definition();
 
 /// Spatial edge smoothing uses the same choices in JSON-UI and OreUI.
 pub const SMAA_CHOICES: &[SettingChoice] = &[
@@ -138,26 +121,13 @@ pub const SMAA_CHOICES: &[SettingChoice] = &[
 ];
 
 /// An extra silhouette filter independent of vanilla's coverage sample count.
-pub const SMAA_OPTION: SettingDefinition = dropdown(
-    "smaa",
-    "Spatial Anti-Aliasing",
-    SMAA_CHOICES,
-    ui::DEFAULT_SMAA_MODE as i32,
-);
+pub const SMAA_OPTION: SettingDefinition = SettingId::Smaa.definition();
 
 /// Controls background checks separately from the user's installation consent.
-pub const AUTO_UPDATE_OPTION: SettingDefinition = toggle(
-    "auto_update_enabled",
-    "Check for updates",
-    super::super::updates::Preferences::DEFAULT.checks,
-);
+pub const AUTO_UPDATE_OPTION: SettingDefinition = SettingId::AutoUpdateEnabled.definition();
 
 /// Applying on exit requires a separate opt-in and never overrides Later.
-pub const INSTALL_ON_QUIT_OPTION: SettingDefinition = toggle(
-    "install_updates_on_quit",
-    "Install updates when I quit",
-    super::super::updates::Preferences::DEFAULT.install_on_quit,
-);
+pub const INSTALL_ON_QUIT_OPTION: SettingDefinition = SettingId::InstallUpdatesOnQuit.definition();
 
 /// A channel choice reads its name and label from the signed manifest channel contract.
 const fn channel_choice(channel: update_manifest::channel::Channel) -> SettingChoice {
@@ -175,33 +145,21 @@ pub const UPDATE_CHANNEL_CHOICES: &[SettingChoice] = &[
 const _: () = assert!(UPDATE_CHANNEL_CHOICES.len() == update_manifest::channel::Channel::ALL.len());
 
 /// Stable is offered only after its signed release exists; beta is the initial channel.
-pub const UPDATE_CHANNEL_OPTION: SettingDefinition = dropdown(
-    "update_channel",
-    "Update channel",
-    UPDATE_CHANNEL_CHOICES,
-    0,
-);
+pub const UPDATE_CHANNEL_OPTION: SettingDefinition = SettingId::UpdateChannel.definition();
 
 /// Publishes the client's state to Discord Rich Presence.
-pub const DISCORD_PRESENCE_OPTION: SettingDefinition =
-    toggle("discord_presence", "Discord Rich Presence", true);
+pub const DISCORD_PRESENCE_OPTION: SettingDefinition = SettingId::DiscordPresence.definition();
 
 /// Optional crosshair visibility in both third-person camera views.
 pub const THIRD_PERSON_CROSSHAIR_OPTION: SettingDefinition =
-    toggle("third_person_crosshair", "Third Person Crosshair", false);
+    SettingId::ThirdPersonCrosshair.definition();
 
 /// Keeps the crosshair's background inversion enabled unless the player opts out.
-pub const INVERT_CROSSHAIR_OPTION: SettingDefinition =
-    toggle("invert_crosshair", "Invert Crosshair Colors", true);
+pub const INVERT_CROSSHAIR_OPTION: SettingDefinition = SettingId::InvertCrosshair.definition();
 
 /// Percent slider over vanilla's `0.0..=1.0` mouse sensitivity option.
-pub const MOUSE_SENSITIVITY_OPTION: SettingDefinition = slider(
-    "keyboard_mouse_sensitivity",
-    "options.sensitivity",
-    0,
-    100,
-    (semantic_input::DEFAULT_MOUSE_SENSITIVITY * 100.0) as i32,
-);
+pub const MOUSE_SENSITIVITY_OPTION: SettingDefinition =
+    SettingId::KeyboardMouseSensitivity.definition();
 
 /// Lowest selectable frame-rate cap, in frames per second.
 pub const MIN_FIXED_FRAME_RATE: i32 = 1;
@@ -210,54 +168,77 @@ pub const MAX_FIXED_FRAME_RATE: i32 = 240;
 /// Unlimited follows the numeric caps on the frame-rate slider.
 pub const FRAME_RATE_UNLIMITED: i32 = MAX_FIXED_FRAME_RATE + 1;
 
-/// Defines one boolean binding with an integral persisted value.
-const fn toggle(name: &'static str, label: &'static str, default: bool) -> SettingDefinition {
-    SettingDefinition {
-        name,
-        label,
-        kind: SettingKind::Toggle,
-        min: 0,
-        max: 1,
-        step: 1,
-        default: default as i32,
-    }
-}
-
-/// Defines an integral slider; the JSON-UI adapter converts to a normalized position.
-const fn slider(
-    name: &'static str,
+/// Supplies the common persisted fields; the registry adds section and reset membership.
+const fn option(
+    id: SettingId,
     label: &'static str,
+    kind: SettingKind,
     min: i32,
     max: i32,
     default: i32,
 ) -> SettingDefinition {
     SettingDefinition {
-        name,
+        id,
+        name: id.name(),
         label,
-        kind: SettingKind::Slider,
+        kind,
         min,
         max,
         step: 1,
         default,
+        section: &[],
+        reset_group: &[],
+        volume: None,
+        oreui_label: None,
     }
 }
 
-/// Defines a radio-backed dropdown in the pack's displayed choice order.
+/// Defines a boolean option with an integral saved value.
+const fn toggle(id: SettingId, label: &'static str, default: bool) -> SettingDefinition {
+    option(id, label, SettingKind::Toggle, 0, 1, default as i32)
+}
+
+/// Defines an integral slider, normalized by the JSON-UI adapter.
+const fn slider(
+    id: SettingId,
+    label: &'static str,
+    min: i32,
+    max: i32,
+    default: i32,
+) -> SettingDefinition {
+    option(id, label, SettingKind::Slider, min, max, default)
+}
+
+/// Defines a slider that moves in steps of `step`.
+const fn stepped_slider(
+    id: SettingId,
+    label: &'static str,
+    min: i32,
+    max: i32,
+    default: i32,
+    step: i32,
+) -> SettingDefinition {
+    SettingDefinition {
+        step,
+        ..slider(id, label, min, max, default)
+    }
+}
+
+/// Defines a dropdown in its displayed radio-choice order.
 const fn dropdown(
-    name: &'static str,
+    id: SettingId,
     label: &'static str,
     choices: &'static [SettingChoice],
     default: i32,
 ) -> SettingDefinition {
-    SettingDefinition {
-        name,
+    option(
+        id,
         label,
-        kind: SettingKind::Dropdown(choices),
-        min: 0,
-        max: choices.len() as i32 - 1,
-        step: 1,
+        SettingKind::Dropdown(choices),
+        0,
+        choices.len() as i32 - 1,
         default,
-    }
+    )
 }
 
 const PERSPECTIVES: &[SettingChoice] = &[
@@ -303,382 +284,306 @@ const CONTENT_LEVELS: &[SettingChoice] = &[
         label: "options.content_log_gui.level.error",
     },
 ];
-const TOAST_DURATIONS: &[SettingChoice] = &[
-    SettingChoice {
-        name: "notification_duration_radio_ThreeSec",
-        label: "options.notificationDuration.toast.ThreeSec",
-    },
-    SettingChoice {
-        name: "notification_duration_radio_TenSec",
-        label: "options.notificationDuration.toast.TenSec",
-    },
-    SettingChoice {
-        name: "notification_duration_radio_ThirtySec",
-        label: "options.notificationDuration.toast.ThirtySec",
-    },
-];
-const CHAT_DURATIONS: &[SettingChoice] = &[
-    SettingChoice {
-        name: "chat_message_duration_radio_ThreeSec",
-        label: "options.notificationDuration.chat.ThreeSec",
-    },
-    SettingChoice {
-        name: "chat_message_duration_radio_TenSec",
-        label: "options.notificationDuration.chat.TenSec",
-    },
-    SettingChoice {
-        name: "chat_message_duration_radio_ThirtySec",
-        label: "options.notificationDuration.chat.ThirtySec",
-    },
-];
+macro_rules! notification_choices {
+    ($($suffix:ident => $millis:expr;)+) => {
+        const TOAST_DURATIONS: &[SettingChoice] = &[$(
+            SettingChoice { name: concat!("notification_duration_radio_", stringify!($suffix)),
+                label: concat!("options.notificationDuration.toast.", stringify!($suffix)) },
+        )+];
+        const CHAT_DURATIONS: &[SettingChoice] = &[$(
+            SettingChoice { name: concat!("chat_message_duration_radio_", stringify!($suffix)),
+                label: concat!("options.notificationDuration.chat.", stringify!($suffix)) },
+        )+];
+        pub(super) const NOTIFICATION_MILLIS: &[u64] = &[$($millis,)+];
+    }
+}
 
-// Defaults retained from the existing desktop host are provisional until the
-// current vanilla option defaults are confirmed; see plan.md.
-pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
-    super::chat::CHAT_POSITION_OPTION,
-    dropdown(
-        "content_log_gui_level",
-        "options.content_log_gui.level",
-        CONTENT_LEVELS,
-        0,
-    ),
-    dropdown(
-        "toast_notification_duration",
-        "options.notificationDuration.Toast",
-        TOAST_DURATIONS,
-        0,
-    ),
-    dropdown(
-        "chat_message_duration",
-        "options.notificationDuration.Chat",
-        CHAT_DURATIONS,
-        1,
-    ),
-    slider("controller_sensitivity", "options.sensitivity", 0, 100, 50),
-    slider(
-        "spyglass_gamepad_dampening",
-        "options.spyglassdampen",
-        0,
-        100,
-        50,
-    ),
-    slider(
-        "gamepad_cursor_sensitivity",
-        "options.gamepadcursorsensitivity",
-        0,
-        100,
-        50,
-    ),
-    slider(
-        "hud_text_background_opacity",
-        "options.hudTextBackgroundOpacity",
-        0,
-        100,
-        50,
-    ),
-    slider(
-        "chat_background_opacity",
-        "options.chatBackgroundOpacity",
-        0,
-        100,
-        50,
-    ),
-    slider(
-        "actionbar_text_background_opacity",
-        "options.actionBarTextBackgroundOpacity",
-        0,
-        100,
-        50,
-    ),
-    slider("darkness", "options.darknessEffectModifier", 0, 100, 100),
-    slider("screen_distortion", "options.screenDistortion", 0, 100, 100),
-    slider("glint_strength", "options.glintStrength", 0, 100, 100),
-    slider("glint_speed", "options.glintSpeed", 0, 100, 100),
-    slider(
-        "render_distance",
-        "options.renderDistance",
-        ui::MIN_RENDER_DISTANCE_CHUNKS as i32,
-        render_api::MAX_VIEW_RADIUS_CHUNKS,
-        ui::MIN_RENDER_DISTANCE_CHUNKS as i32,
-    ),
-    slider(
-        "max_framerate",
-        "options.framerateLimit",
-        MIN_FIXED_FRAME_RATE,
-        FRAME_RATE_UNLIMITED,
-        FRAME_RATE_UNLIMITED,
-    ),
-    slider(
-        "msaa",
-        "options.msaa",
-        ui::ANTI_ALIASING_SAMPLE_COUNTS[0] as i32,
-        ui::ANTI_ALIASING_SAMPLE_COUNTS[ui::ANTI_ALIASING_SAMPLE_COUNTS.len() - 1] as i32,
-        ui::DEFAULT_ANTI_ALIASING_SAMPLES as i32,
-    ),
-    SMAA_OPTION,
-    MOTION_BLUR_OPTION,
-    // Vanilla keeps this out of retail menus (persisted `gfx_vsync`, on); see plan.md.
-    toggle("vsync", "options.vsync", true),
-    VRR_OPTION,
-    slider(
-        "field_of_view",
-        "options.fov",
-        ui::MIN_FOV_DEGREES,
-        ui::MAX_FOV_DEGREES,
-        ui::DEFAULT_FOV_DEGREES,
-    ),
-    slider("gamma", "options.gamma", 0, 100, 50),
-    slider("interface_opacity", "options.hudOpacity", 0, 100, 100),
-    slider("damage_bob", "options.damageBobbing", 0, 100, 100),
-    slider("panorama_speed", "options.panoramaSpeed", 0, 100, 100),
-    toggle("hide_hand", "options.hidehand", false),
-    toggle("hide_paperdoll", "options.hidepaperdoll", false),
-    toggle("hide_hud", "options.hidehud", false),
-    THIRD_PERSON_CROSSHAIR_OPTION,
-    INVERT_CROSSHAIR_OPTION,
-    toggle("screen_animations", "options.screenAnimations", true),
-    toggle("show_auto_save_icon", "options.showautosaveicon", true),
-    toggle(
-        "classic_box_selection",
-        "options.classic_box_selection",
-        ui::DEFAULT_OUTLINE_SELECTION,
-    ),
-    toggle("ingame_player_names", "options.ingamePlayerNames", true),
-    toggle("view_bobbing", "options.viewBobbing", true),
-    ANIMATIONS_OPTION,
-    toggle("camera_shake", "options.screenShake", true),
-    toggle("transparent_leaves", "options.transparentleaves", true),
-    toggle("bubble_particles", "options.bubbleparticles", true),
-    toggle("render_clouds", "options.renderclouds", true),
-    toggle("fancy_skies", "options.fancyskies", true),
-    toggle("smooth_lighting", "options.smooth_lighting", true),
-    toggle("field_of_view_toggle", "options.fov.toggle", true),
-    dropdown("third_person", "options.thirdperson", PERSPECTIVES, 0),
-    dropdown("graphics_mode", "options.graphicsMode", GRAPHICS, 1),
-    MOUSE_SENSITIVITY_OPTION,
-    slider(
-        "spyglass_mouse_dampening",
-        "options.spyglassdampen",
-        0,
-        100,
-        50,
-    ),
-    toggle("keyboard_mouse_invert_y_axis", "options.invertYAxis", false),
-    // Vanilla 1.26.50 ships auto-jump off for every input mode.
-    toggle("keyboard_mouse_autojump", "options.autojump", false),
-    toggle(
-        "keyboard_show_full_keyboard_options",
-        "options.fullKeyboardGameplay",
-        false,
-    ),
-    slider("main_volume", "soundCategory.main", 0, 100, 100),
-    slider("music_volume", "soundCategory.music", 0, 100, 100),
-    slider("sound_volume", "soundCategory.sound", 0, 100, 100),
-    slider("ambient_volume", "soundCategory.ambient", 0, 100, 100),
-    slider("block_volume", "soundCategory.block", 0, 100, 100),
-    slider("hostile_volume", "soundCategory.hostile", 0, 100, 100),
-    slider("neutral_volume", "soundCategory.neutral", 0, 100, 100),
-    slider("player_volume", "soundCategory.player", 0, 100, 100),
-    slider("record_volume", "soundCategory.record", 0, 100, 100),
-    slider("weather_volume", "soundCategory.weather", 0, 100, 100),
-    slider(
-        "texttospeech_volume",
-        "soundCategory.texttospeech",
-        0,
-        100,
-        100,
-    ),
-    // P:ui/settings_sections/controls_section.json:732; default is not yet recovered.
-    toggle("controller_invert_y_axis", "options.invertYAxis", false),
-    // P:ui/settings_sections/controls_section.json:741; vanilla 1.26.50 default is off.
-    toggle("controller_autojump", "options.autojump", false),
-    // P:ui/settings_sections/controls_section.json:750; default is not yet recovered.
-    toggle("hide_tooltips", "options.hidetooltips", false),
-    // P:ui/settings_sections/controls_section.json:759; default is not yet recovered.
-    toggle("hide_gamepad_cursor", "options.hidegamepadcursor", false),
-    // P:ui/settings_sections/controls_section.json:768; default is not yet recovered.
-    toggle("controller_clear_hotbar", "options.clearhotbar", false),
-    // P:ui/settings_sections/controls_section.json:777; default is not yet recovered.
-    toggle("swap_gamepad_ab_buttons", "options.swapGamepadAB", false),
-    // P:ui/settings_sections/controls_section.json:796; default is not yet recovered.
-    toggle("swap_gamepad_xy_buttons", "options.swapGamepadXY", false),
-    // P:ui/settings_sections/general_section.json:110; default is not yet recovered.
-    toggle("websockets_enabled", "options.websocketsEnabled", false),
-    // P:ui/settings_sections/general_section.json:119; default is not yet recovered.
-    toggle("websocket_encryption", "options.websocketEncryption", false),
-    AUTO_UPDATE_OPTION,
-    INSTALL_ON_QUIT_OPTION,
-    UPDATE_CHANNEL_OPTION,
-    // P:ui/settings_sections/general_section.json:246; default is not yet recovered.
-    toggle(
-        "only_trusted_skins_allowed",
-        "options.onlyTrustedSkinsAllowed",
-        false,
-    ),
-    // P:ui/settings_sections/general_section.json:269; default is not yet recovered.
-    toggle("filter_profanity", "options.filterProfanity", false),
-    // P:ui/settings_sections/general_section.json:318; default is not yet recovered.
-    toggle("pause_option_toggle", "options.pauseHint", false),
-    // P:ui/settings_sections/general_section.json:332; default is not yet recovered.
-    toggle(
-        "pause_menu_on_focus_lost",
-        "options.pauseMenuOnFocusLost",
-        false,
-    ),
-    // P:ui/settings_sections/general_section.json:388; default is not yet recovered.
-    toggle("ecomode_toggle", "options.enableEcoMode", false),
-    // P:ui/settings_sections/general_section.json:2046; default is not yet recovered.
-    toggle("copy_coordinate_ui", "options.copyCoordinateUI", false),
-    // P:ui/settings_sections/general_section.json:2104; default is not yet recovered.
-    toggle(
-        "script_debugger_passcode_required",
-        "options.creator.debuggerPasscodeRequired",
-        false,
-    ),
-    // P:ui/settings_sections/general_section.json:2127; default is not yet recovered.
-    toggle(
-        "script_debugger_auto_attach",
-        "options.creator.debuggerAutoAttach",
-        false,
-    ),
-    // P:ui/settings_sections/general_section.json:2269; default is not yet recovered.
-    toggle(
-        "editor_collect_network_metrics",
-        "options.creator.editor.collectNetworkMetrics",
-        false,
-    ),
-    // P:ui/settings_sections/general_section.json:2328; default is not yet recovered.
-    toggle(
-        "serverbound_client_diagnostics_enabled",
-        "options.creator.serverboundClientDiagnosticsEnabled",
-        false,
-    ),
-    // P:ui/settings_sections/general_section.json:2420; default is not yet recovered.
-    toggle(
-        "script_watchdog_spike_warning",
-        "options.creator.watchdogSpikeWarning",
-        false,
-    ),
-    // P:ui/settings_sections/general_section.json:2449; default is not yet recovered.
-    toggle(
-        "script_watchdog_slow_warning",
-        "options.creator.watchdogSlowWarning",
-        false,
-    ),
-    // P:ui/settings_sections/general_section.json:2529; default is not yet recovered.
-    toggle(
-        "device_info_use_memory_tier_override",
-        "options.creator.deviceInfoUseMemoryTierOverride",
-        false,
-    ),
-    // P:ui/settings_sections/general_section.json:2634; default is not yet recovered.
-    toggle(
-        "debug_text_filtering_use_delay_sec_override",
-        "options.creator.debugTextFilteringUseDelaySecOverride",
-        false,
-    ),
-    // P:ui/settings_sections/general_section.json:2734; default is not yet recovered.
-    toggle("content_log_file", "options.content_log_file", false),
-    // P:ui/settings_sections/general_section.json:2742; default is not yet recovered.
-    toggle("content_log_gui", "options.content_log_gui", false),
-    // P:ui/settings_sections/general_section.json:2750; default is not yet recovered.
-    toggle(
-        "content_log_gui_show_on_errors",
-        "options.content_log_gui_show_on_errors",
-        false,
-    ),
-    // P:ui/settings_sections/general_section.json:4753; default is not yet recovered.
-    toggle(
-        "enable_gameplay_subtitles",
-        "options.enableGameplaySubtitles",
-        false,
-    ),
-    // P:ui/settings_sections/general_section.json:4769; default is not yet recovered.
-    toggle(
-        "hide_own_gameplay_subtitles",
-        "options.hideOwnGameplaySubtitles",
-        false,
-    ),
-    // P:ui/settings_sections/general_section.json:4785; default is not yet recovered.
-    toggle(
-        "hide_ambient_gameplay_subtitles",
-        "options.hideAmbientGameplaySubtitles",
-        false,
-    ),
-    // P:ui/settings_sections/general_section.json:4838; default is not yet recovered.
-    toggle(
-        "enable_ui_text_to_speech",
-        "options.enableUITextToSpeech",
-        false,
-    ),
-    // P:ui/settings_sections/general_section.json:4847; default is not yet recovered.
-    toggle(
-        "enable_chat_text_to_speech",
-        "options.enableChatTextToSpeech",
-        false,
-    ),
-    // P:ui/settings_sections/general_section.json:4876; default is not yet recovered.
-    toggle(
-        "enable_open_chat_message",
-        "options.enableOpenChatMessage",
-        false,
-    ),
-    // P:ui/settings_sections/general_section.json:4941; default is not yet recovered.
-    toggle("hide_endflash", "options.hideEndFlash", false),
-    // P:ui/settings_sections/general_section.json:4949; default is not yet recovered.
-    toggle(
-        "enable_dithering_blocks",
-        "options.enableDitheringBlocks",
-        false,
-    ),
-    // P:ui/settings_sections/general_section.json:4957; default is not yet recovered.
-    toggle(
-        "enable_dithering_mobs",
-        "options.enableDitheringMobs",
-        false,
-    ),
-    // P:ui/settings_sections/general_section.json:5133; default is not yet recovered.
-    toggle(
-        "gui_accessibility_scaling",
-        "options.gui.accessibility.scaling",
-        false,
-    ),
-    // P:ui/chat_settings_menu_screen.json:16; default is not yet recovered.
-    toggle("hide_chat", "chat.settings.muteAll", false),
-    // P:ui/chat_settings_menu_screen.json:26; default is not yet recovered.
-    toggle("toggle_emote_chat", "chat.settings.muteEmotes", false),
-    // P:ui/chat_settings_menu_screen.json:35; default is not yet recovered.
-    toggle("toggle_tts", "chat.settings.tts", false),
-    // P:ui/chat_settings_menu_screen.json:68; defaults and numeric mappings remain provisional.
-    dropdown(
-        "chat_typeface",
-        "chat.settings.typeface",
-        super::chat::TYPEFACES,
-        0,
-    ),
-    dropdown(
-        "chat_color",
-        "chat.settings.chatColor",
-        super::chat::CHAT_COLORS,
-        0,
-    ),
-    dropdown(
-        "mentions_color",
-        "chat.settings.mentionsColor",
-        super::chat::MENTIONS_COLORS,
-        5,
-    ),
-    slider("chat_font_size", "chat.settings.fontSize", 5, 20, 10),
-    slider("chat_line_spacing", "chat.settings.lineSpacing", 0, 100, 0),
-    toggle("always_sprint", "Always Sprint", false),
-    toggle(
-        super::SHOW_EXACT_SERVER_PING,
-        "options.showExactServerPing",
-        false,
-    ),
-    toggle(super::OREUI_DARK_MODE, "options.oreuiDarkMode", false),
-    DISCORD_PRESENCE_OPTION,
-    NATIVE_SKYBOX_OFFSET_OPTION,
-    FAR_TERRAIN_OPTION,
-    FULL_DETAIL_DISTANCE_OPTION,
-];
+notification_choices! {
+    ThreeSec => ui::TOAST_DISPLAY_MILLIS;
+    TenSec => 10_000;
+    ThirtySec => 30_000;
+}
+
+/// Defines a host-owned control that does not store an option value.
+const fn host(id: SettingId, label: &'static str) -> SettingDefinition {
+    SettingDefinition {
+        kind: SettingKind::Host,
+        ..toggle(id, label, false)
+    }
+}
+
+// Defaults remain provisional where documented in plan.md.
+macro_rules! settings {
+    ($($id:ident => $name:literal, $kind:ident($($arg:expr),*),
+        [$($placement:expr),*], [$($reset:expr),*], $volume:expr, $label:expr;)+) => {
+        /// A registered setting; string names are confined to serialization and UI contracts.
+        #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+        pub enum SettingId { $($id,)+ }
+
+        impl SettingId {
+            /// Returns the stable saved key and JSON-UI controller name.
+            pub const fn name(self) -> &'static str {
+                match self { $(Self::$id => $name,)+ }
+            }
+
+            /// Resolves a name at a persisted-file or JSON-UI boundary.
+            pub fn from_name(name: &str) -> Option<Self> {
+                match name { $($name => Some(Self::$id),)+ _ => None }
+            }
+
+            /// Returns the row index used by menu actions.
+            pub const fn index(self) -> usize { self as usize }
+
+            /// Returns the definition generated with this id.
+            pub const fn definition(self) -> SettingDefinition { SETTINGS_OPTIONS[self.index()] }
+        }
+
+        /// Settings and their section, reset and mixer membership share this table.
+        pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[$(
+            SettingDefinition {
+                section: &[$($placement),*], reset_group: &[$($reset),*],
+                volume: $volume, oreui_label: $label,
+                ..$kind(SettingId::$id, $($arg),*)
+            },
+        )+];
+    }
+}
+
+settings! {
+    CinnabarChatPosition => "cinnabar_chat_position", dropdown("Chat Position", super::chat::CHAT_POSITIONS, 0),
+        [(SettingPanel::VideoGeneral, 2)], [SettingsGroup::Video], None, None;
+    ContentLogGuiLevel => "content_log_gui_level", dropdown("options.content_log_gui.level", CONTENT_LEVELS, 0),
+        [(SettingPanel::CreatorContentLog, 3)], [], None, None;
+    ToastNotificationDuration => "toast_notification_duration", dropdown("options.notificationDuration.Toast", TOAST_DURATIONS, 0),
+        [(SettingPanel::AccessibilityUi, 4)], [SettingsGroup::Accessibility], None, None;
+    ChatMessageDuration => "chat_message_duration", dropdown("options.notificationDuration.Chat", CHAT_DURATIONS, 1),
+        [(SettingPanel::AccessibilityUi, 3)], [SettingsGroup::Accessibility], None, None;
+    ControllerSensitivity => "controller_sensitivity", slider("options.sensitivity", 0, 100, 50),
+        [(SettingPanel::Controller, 0)], [], None, Some("options.controller.sensitivity.name");
+    SpyglassGamepadDampening => "spyglass_gamepad_dampening", slider("options.spyglassdampen", 0, 100, 50),
+        [(SettingPanel::Controller, 1)], [], None, Some("options.spyglassdampen.name");
+    GamepadCursorSensitivity => "gamepad_cursor_sensitivity", slider("options.gamepadcursorsensitivity", 0, 100, 50),
+        [], [], None, None;
+    HudTextBackgroundOpacity => "hud_text_background_opacity", slider("options.hudTextBackgroundOpacity", 0, 100, 50),
+        [(SettingPanel::AccessibilityUi, 2)], [SettingsGroup::Accessibility], None, None;
+    ChatBackgroundOpacity => "chat_background_opacity", slider("options.chatBackgroundOpacity", 0, 100, 50),
+        [(SettingPanel::AccessibilityUi, 1)], [SettingsGroup::Accessibility], None, None;
+    ActionbarTextBackgroundOpacity => "actionbar_text_background_opacity", slider("options.actionBarTextBackgroundOpacity", 0, 100, 50),
+        [(SettingPanel::AccessibilityUi, 0)], [SettingsGroup::Accessibility], None, None;
+    Darkness => "darkness", slider("options.darknessEffectModifier", 0, 100, 100),
+        [(SettingPanel::AccessibilityGameplay, 5)], [SettingsGroup::Accessibility], None, None;
+    ScreenDistortion => "screen_distortion", slider("options.screenDistortion", 0, 100, 100),
+        [(SettingPanel::AccessibilityGameplay, 6)], [SettingsGroup::Accessibility], None, None;
+    GlintStrength => "glint_strength", slider("options.glintStrength", 0, 100, 100),
+        [(SettingPanel::AccessibilityGameplay, 7)], [SettingsGroup::Accessibility], None, None;
+    GlintSpeed => "glint_speed", slider("options.glintSpeed", 0, 100, 100),
+        [(SettingPanel::AccessibilityGameplay, 8)], [SettingsGroup::Accessibility], None, None;
+    RenderDistance => "render_distance", slider("options.renderDistance", ui::MIN_RENDER_DISTANCE_CHUNKS as i32, render_api::MAX_VIEW_RADIUS_CHUNKS, ui::MIN_RENDER_DISTANCE_CHUNKS as i32),
+        [(SettingPanel::VideoGraphics, 10)], [SettingsGroup::Video], None, None;
+    MaxFramerate => "max_framerate", slider("options.framerateLimit", MIN_FIXED_FRAME_RATE, FRAME_RATE_UNLIMITED, FRAME_RATE_UNLIMITED),
+        [(SettingPanel::VideoGraphics, 1)], [SettingsGroup::Video], None, None;
+    Msaa => "msaa", slider("options.msaa", ui::ANTI_ALIASING_SAMPLE_COUNTS[0] as i32, ui::ANTI_ALIASING_SAMPLE_COUNTS[ui::ANTI_ALIASING_SAMPLE_COUNTS.len() - 1] as i32, ui::DEFAULT_ANTI_ALIASING_SAMPLES as i32),
+        [(SettingPanel::VideoGraphics, 4)], [SettingsGroup::Video], None, None;
+    Smaa => "smaa", dropdown("Spatial Anti-Aliasing", SMAA_CHOICES, ui::DEFAULT_SMAA_MODE as i32),
+        [(SettingPanel::VideoGraphics, 5)], [SettingsGroup::Video], None, None;
+    MotionBlur => "motion_blur", dropdown("Motion Blur", MOTION_BLUR_CHOICES, ui::MotionBlurQuality::Off.index()),
+        [(SettingPanel::VideoGraphics, 6)], [SettingsGroup::Video], None, None;
+    Vsync => "vsync", toggle("options.vsync", true),
+        [(SettingPanel::VideoGraphics, 2)], [SettingsGroup::Video], None, None;
+    Vrr => "vrr", dropdown("Variable Refresh Rate", VRR_CHOICES, render_api::VrrPreference::Automatic as i32),
+        [(SettingPanel::VideoGraphics, 3)], [SettingsGroup::Video], None, None;
+    FieldOfView => "field_of_view", slider("options.fov", ui::MIN_FOV_DEGREES, ui::MAX_FOV_DEGREES, ui::DEFAULT_FOV_DEGREES),
+        [(SettingPanel::VideoGeneral, 0)], [SettingsGroup::Video], None, Some("options.fov.name");
+    Gamma => "gamma", slider("options.gamma", 0, 100, 50),
+        [(SettingPanel::VideoGraphics, 0)], [SettingsGroup::Video], None, None;
+    InterfaceOpacity => "interface_opacity", slider("options.hudOpacity", 0, 100, 100),
+        [(SettingPanel::VideoCustomization, 8)], [SettingsGroup::Video], None, None;
+    DamageBob => "damage_bob", slider("options.damageBobbing", 0, 100, 100),
+        [(SettingPanel::VideoAccessibility, 6)], [SettingsGroup::Video], None, None;
+    PanoramaSpeed => "panorama_speed", slider("options.panoramaSpeed", 0, 100, 100),
+        [(SettingPanel::VideoAccessibility, 3)], [SettingsGroup::Video], None, None;
+    HideHand => "hide_hand", toggle("options.hidehand", false),
+        [(SettingPanel::VideoCustomization, 1)], [SettingsGroup::Video], None, None;
+    HidePaperdoll => "hide_paperdoll", toggle("options.hidepaperdoll", false),
+        [(SettingPanel::VideoCustomization, 2)], [SettingsGroup::Video], None, None;
+    HideHud => "hide_hud", toggle("options.hidehud", false),
+        [(SettingPanel::VideoCustomization, 3)], [SettingsGroup::Video], None, None;
+    ThirdPersonCrosshair => "third_person_crosshair", toggle("Third Person Crosshair", false),
+        [(SettingPanel::VideoCustomization, 4)], [SettingsGroup::Video], None, None;
+    InvertCrosshair => "invert_crosshair", toggle("Invert Crosshair Colors", true),
+        [(SettingPanel::VideoCustomization, 5)], [SettingsGroup::Video], None, None;
+    ScreenAnimations => "screen_animations", toggle("options.screenAnimations", true),
+        [(SettingPanel::VideoAccessibility, 2)], [SettingsGroup::Video], None, None;
+    ShowAutoSaveIcon => "show_auto_save_icon", toggle("options.showautosaveicon", true),
+        [(SettingPanel::VideoCustomization, 9)], [SettingsGroup::Video], None, Some("options.showautosaveicon.name");
+    ClassicBoxSelection => "classic_box_selection", toggle("options.classic_box_selection", ui::DEFAULT_OUTLINE_SELECTION),
+        [(SettingPanel::VideoCustomization, 6)], [SettingsGroup::Video], None, None;
+    IngamePlayerNames => "ingame_player_names", toggle("options.ingamePlayerNames", true),
+        [(SettingPanel::VideoCustomization, 7)], [SettingsGroup::Video], None, Some("options.ingamePlayerNames.name");
+    ViewBobbing => "view_bobbing", toggle("options.viewBobbing", true),
+        [(SettingPanel::VideoAccessibility, 4)], [SettingsGroup::Video], None, None;
+    Animations => "animations", dropdown("Animations", ANIMATION_CHOICES, 1),
+        [(SettingPanel::VideoAccessibility, 5)], [SettingsGroup::Video], None, None;
+    CameraShake => "camera_shake", toggle("options.screenShake", true),
+        [(SettingPanel::AccessibilityGameplay, 1), (SettingPanel::VideoAccessibility, 7)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
+    TransparentLeaves => "transparent_leaves", toggle("options.transparentleaves", true),
+        [(SettingPanel::VideoClouds, 1)], [SettingsGroup::Video], None, None;
+    BubbleParticles => "bubble_particles", toggle("options.bubbleparticles", true),
+        [(SettingPanel::VideoClouds, 2)], [SettingsGroup::Video], None, None;
+    RenderClouds => "render_clouds", toggle("options.renderclouds", true),
+        [(SettingPanel::VideoClouds, 0)], [SettingsGroup::Video], None, Some("options.renderClouds");
+    FancySkies => "fancy_skies", toggle("options.fancyskies", true),
+        [(SettingPanel::VideoGraphics, 8)], [SettingsGroup::Video], None, None;
+    SmoothLighting => "smooth_lighting", toggle("options.smooth_lighting", true),
+        [(SettingPanel::VideoGraphics, 7)], [SettingsGroup::Video], None, None;
+    FieldOfViewToggle => "field_of_view_toggle", toggle("options.fov.toggle", true),
+        [(SettingPanel::VideoAccessibility, 8)], [SettingsGroup::Video], None, Some("options.fov.toggle.name");
+    ThirdPerson => "third_person", dropdown("options.thirdperson", PERSPECTIVES, 0),
+        [(SettingPanel::VideoGeneral, 1)], [SettingsGroup::Video], None, None;
+    GraphicsMode => "graphics_mode", dropdown("options.graphicsMode", GRAPHICS, 1),
+        [(SettingPanel::VideoPerformance, 0)], [SettingsGroup::Video], None, Some("menu.video.mode");
+    KeyboardMouseSensitivity => "keyboard_mouse_sensitivity", slider("options.sensitivity", 0, 100, (semantic_input::DEFAULT_MOUSE_SENSITIVITY * 100.0) as i32),
+        [(SettingPanel::Keyboard, 0)], [], None, Some("options.sensitivity.Mouse.name");
+    SpyglassMouseDampening => "spyglass_mouse_dampening", slider("options.spyglassdampen", 0, 100, 50),
+        [(SettingPanel::Keyboard, 1)], [], None, Some("options.spyglassdampen.name");
+    KeyboardMouseInvertYAxis => "keyboard_mouse_invert_y_axis", toggle("options.invertYAxis", false),
+        [(SettingPanel::Keyboard, 2)], [], None, Some("options.invertYAxis.name");
+    KeyboardMouseAutojump => "keyboard_mouse_autojump", toggle("options.autojump", false),
+        [(SettingPanel::Keyboard, 3)], [], None, Some("options.autojump.name");
+    KeyboardShowFullKeyboardOptions => "keyboard_show_full_keyboard_options", toggle("options.fullKeyboardGameplay", false),
+        [(SettingPanel::Keyboard, 5)], [], None, Some("options.fullKeyboardGameplay.name");
+    MainVolume => "main_volume", slider("soundCategory.main", 0, 100, 100),
+        [(SettingPanel::Audio, 0)], [SettingsGroup::Audio], Some(AudioCategory::Master), None;
+    MusicVolume => "music_volume", slider("soundCategory.music", 0, 100, 100),
+        [(SettingPanel::Audio, 1)], [SettingsGroup::Audio], Some(AudioCategory::Music), None;
+    SoundVolume => "sound_volume", slider("soundCategory.sound", 0, 100, 100),
+        [(SettingPanel::Audio, 2)], [SettingsGroup::Audio], Some(AudioCategory::Sound), None;
+    AmbientVolume => "ambient_volume", slider("soundCategory.ambient", 0, 100, 100),
+        [(SettingPanel::Audio, 3)], [SettingsGroup::Audio], Some(AudioCategory::Ambient), None;
+    BlockVolume => "block_volume", slider("soundCategory.block", 0, 100, 100),
+        [(SettingPanel::Audio, 4)], [SettingsGroup::Audio], Some(AudioCategory::Blocks), None;
+    HostileVolume => "hostile_volume", slider("soundCategory.hostile", 0, 100, 100),
+        [(SettingPanel::Audio, 5)], [SettingsGroup::Audio], Some(AudioCategory::Hostile), None;
+    NeutralVolume => "neutral_volume", slider("soundCategory.neutral", 0, 100, 100),
+        [(SettingPanel::Audio, 6)], [SettingsGroup::Audio], Some(AudioCategory::Neutral), None;
+    PlayerVolume => "player_volume", slider("soundCategory.player", 0, 100, 100),
+        [(SettingPanel::Audio, 7)], [SettingsGroup::Audio], Some(AudioCategory::Players), None;
+    RecordVolume => "record_volume", slider("soundCategory.record", 0, 100, 100),
+        [(SettingPanel::Audio, 8)], [SettingsGroup::Audio], Some(AudioCategory::Records), None;
+    WeatherVolume => "weather_volume", slider("soundCategory.weather", 0, 100, 100),
+        [(SettingPanel::Audio, 9)], [SettingsGroup::Audio], Some(AudioCategory::Weather), None;
+    TexttospeechVolume => "texttospeech_volume", slider("soundCategory.texttospeech", 0, 100, 100),
+        [(SettingPanel::AccessibilityTts, 2), (SettingPanel::Audio, 10)], [SettingsGroup::Accessibility, SettingsGroup::Audio], Some(AudioCategory::TextToSpeech), None;
+    ControllerInvertYAxis => "controller_invert_y_axis", toggle("options.invertYAxis", false),
+        [(SettingPanel::Controller, 2)], [], None, Some("options.invertYAxis.name");
+    ControllerAutojump => "controller_autojump", toggle("options.autojump", false),
+        [(SettingPanel::Controller, 3)], [], None, Some("options.autojump.name");
+    HideTooltips => "hide_tooltips", toggle("options.hidetooltips", false),
+        [(SettingPanel::Controller, 4)], [], None, None;
+    HideGamepadCursor => "hide_gamepad_cursor", toggle("options.hidegamepadcursor", false),
+        [(SettingPanel::Controller, 5)], [], None, None;
+    ControllerClearHotbar => "controller_clear_hotbar", toggle("options.clearhotbar", false),
+        [(SettingPanel::Controller, 6)], [], None, None;
+    SwapGamepadAbButtons => "swap_gamepad_ab_buttons", toggle("options.swapGamepadAB", false),
+        [(SettingPanel::Controller, 7)], [], None, None;
+    SwapGamepadXyButtons => "swap_gamepad_xy_buttons", toggle("options.swapGamepadXY", false),
+        [(SettingPanel::Controller, 8)], [], None, None;
+    WebsocketsEnabled => "websockets_enabled", toggle("options.websocketsEnabled", false),
+        [(SettingPanel::GeneralNetwork, 0)], [], None, Some("options.websocketsEnabled.name");
+    WebsocketEncryption => "websocket_encryption", toggle("options.websocketEncryption", false),
+        [(SettingPanel::GeneralNetwork, 1)], [], None, None;
+    AutoUpdateEnabled => "auto_update_enabled", toggle("Check for updates", super::super::updates::Preferences::DEFAULT.checks),
+        [(SettingPanel::GeneralUpdates, 0)], [], None, None;
+    InstallUpdatesOnQuit => "install_updates_on_quit", toggle("Install updates when I quit", super::super::updates::Preferences::DEFAULT.install_on_quit),
+        [(SettingPanel::GeneralUpdates, 1)], [], None, None;
+    UpdateChannel => "update_channel", dropdown("Update channel", UPDATE_CHANNEL_CHOICES, 0),
+        [(SettingPanel::GeneralUpdates, 2)], [], None, None;
+    OnlyTrustedSkinsAllowed => "only_trusted_skins_allowed", toggle("options.onlyTrustedSkinsAllowed", false),
+        [(SettingPanel::General, 0)], [], None, Some("options.onlyTrustedSkinsAllowed.name");
+    FilterProfanity => "filter_profanity", toggle("options.filterProfanity", false),
+        [(SettingPanel::General, 1)], [], None, Some("options.filterProfanity.name");
+    PauseOptionToggle => "pause_option_toggle", toggle("options.pauseHint", false),
+        [(SettingPanel::GeneralPause, 0)], [], None, None;
+    PauseMenuOnFocusLost => "pause_menu_on_focus_lost", toggle("options.pauseMenuOnFocusLost", false),
+        [(SettingPanel::GeneralPause, 1)], [], None, None;
+    EcomodeToggle => "ecomode_toggle", toggle("options.enableEcoMode", false),
+        [(SettingPanel::GeneralMisc, 0)], [], None, Some("options.enableEcoMode.name");
+    CopyCoordinateUi => "copy_coordinate_ui", toggle("options.copyCoordinateUI", false),
+        [(SettingPanel::CreatorCoordinates, 0)], [], None, Some("options.copyCoordinateUI.name");
+    ScriptDebuggerPasscodeRequired => "script_debugger_passcode_required", toggle("options.creator.debuggerPasscodeRequired", false),
+        [(SettingPanel::CreatorDebugger, 0)], [], None, None;
+    ScriptDebuggerAutoAttach => "script_debugger_auto_attach", toggle("options.creator.debuggerAutoAttach", false),
+        [(SettingPanel::CreatorDebugger, 1)], [], None, None;
+    EditorCollectNetworkMetrics => "editor_collect_network_metrics", toggle("options.creator.editor.collectNetworkMetrics", false),
+        [(SettingPanel::CreatorEditor, 0)], [], None, None;
+    ServerboundClientDiagnosticsEnabled => "serverbound_client_diagnostics_enabled", toggle("options.creator.serverboundClientDiagnosticsEnabled", false),
+        [(SettingPanel::CreatorDiagnostic, 0)], [], None, None;
+    ScriptWatchdogSpikeWarning => "script_watchdog_spike_warning", toggle("options.creator.watchdogSpikeWarning", false),
+        [(SettingPanel::CreatorWatchdog, 0)], [], None, None;
+    ScriptWatchdogSlowWarning => "script_watchdog_slow_warning", toggle("options.creator.watchdogSlowWarning", false),
+        [(SettingPanel::CreatorWatchdog, 1)], [], None, None;
+    DeviceInfoUseMemoryTierOverride => "device_info_use_memory_tier_override", toggle("options.creator.deviceInfoUseMemoryTierOverride", false),
+        [(SettingPanel::CreatorDevice, 0)], [], None, None;
+    DebugTextFilteringUseDelaySecOverride => "debug_text_filtering_use_delay_sec_override", toggle("options.creator.debugTextFilteringUseDelaySecOverride", false),
+        [(SettingPanel::CreatorFiltering, 0)], [], None, None;
+    ContentLogFile => "content_log_file", toggle("options.content_log_file", false),
+        [(SettingPanel::CreatorContentLog, 0)], [], None, None;
+    ContentLogGui => "content_log_gui", toggle("options.content_log_gui", false),
+        [(SettingPanel::CreatorContentLog, 1)], [], None, None;
+    ContentLogGuiShowOnErrors => "content_log_gui_show_on_errors", toggle("options.content_log_gui_show_on_errors", false),
+        [(SettingPanel::CreatorContentLog, 2)], [], None, Some("options.content_log_gui_show_on_errors.name");
+    EnableGameplaySubtitles => "enable_gameplay_subtitles", toggle("options.enableGameplaySubtitles", false),
+        [(SettingPanel::AccessibilityGameplay, 0)], [SettingsGroup::Accessibility], None, None;
+    HideOwnGameplaySubtitles => "hide_own_gameplay_subtitles", toggle("options.hideOwnGameplaySubtitles", false),
+        [], [SettingsGroup::Accessibility], None, None;
+    HideAmbientGameplaySubtitles => "hide_ambient_gameplay_subtitles", toggle("options.hideAmbientGameplaySubtitles", false),
+        [], [SettingsGroup::Accessibility], None, None;
+    EnableUiTextToSpeech => "enable_ui_text_to_speech", toggle("options.enableUITextToSpeech", false),
+        [(SettingPanel::AccessibilityTts, 0)], [SettingsGroup::Accessibility], None, None;
+    EnableChatTextToSpeech => "enable_chat_text_to_speech", toggle("options.enableChatTextToSpeech", false),
+        [(SettingPanel::AccessibilityTts, 1)], [SettingsGroup::Accessibility], None, None;
+    EnableOpenChatMessage => "enable_open_chat_message", toggle("options.enableOpenChatMessage", false),
+        [(SettingPanel::AccessibilityTts, 3)], [SettingsGroup::Accessibility], None, None;
+    HideEndflash => "hide_endflash", toggle("options.hideEndFlash", false),
+        [(SettingPanel::AccessibilityGameplay, 2)], [SettingsGroup::Accessibility], None, None;
+    EnableDitheringBlocks => "enable_dithering_blocks", toggle("options.enableDitheringBlocks", false),
+        [(SettingPanel::AccessibilityGameplay, 3)], [SettingsGroup::Accessibility], None, None;
+    EnableDitheringMobs => "enable_dithering_mobs", toggle("options.enableDitheringMobs", false),
+        [(SettingPanel::AccessibilityGameplay, 4)], [SettingsGroup::Accessibility], None, None;
+    GuiAccessibilityScaling => "gui_accessibility_scaling", toggle("options.gui.accessibility.scaling", false),
+        [(SettingPanel::AccessibilityUi, 6), (SettingPanel::VideoAccessibility, 1)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, Some("options.guiAccessibilityScaling.name");
+    HideChat => "hide_chat", toggle("chat.settings.muteAll", false),
+        [(SettingPanel::Chat, 0)], [SettingsGroup::Chat], None, None;
+    ToggleEmoteChat => "toggle_emote_chat", toggle("chat.settings.muteEmotes", false),
+        [(SettingPanel::Chat, 1)], [SettingsGroup::Chat], None, None;
+    ToggleTts => "toggle_tts", toggle("chat.settings.tts", false),
+        [(SettingPanel::Chat, 2)], [SettingsGroup::Chat], None, None;
+    ChatTypeface => "chat_typeface", dropdown("chat.settings.typeface", super::chat::TYPEFACES, 0),
+        [(SettingPanel::Chat, 3)], [SettingsGroup::Chat], None, None;
+    ChatColor => "chat_color", dropdown("chat.settings.chatColor", super::chat::CHAT_COLORS, 0),
+        [(SettingPanel::Chat, 6)], [SettingsGroup::Chat], None, None;
+    MentionsColor => "mentions_color", dropdown("chat.settings.mentionsColor", super::chat::MENTIONS_COLORS, 5),
+        [(SettingPanel::Chat, 7)], [SettingsGroup::Chat], None, None;
+    ChatFontSize => "chat_font_size", slider("chat.settings.fontSize", 5, 20, 10),
+        [(SettingPanel::Chat, 4)], [SettingsGroup::Chat], None, None;
+    ChatLineSpacing => "chat_line_spacing", slider("chat.settings.lineSpacing", 0, 100, 0),
+        [(SettingPanel::Chat, 5)], [SettingsGroup::Chat], None, None;
+    AlwaysSprint => "always_sprint", toggle("Always Sprint", false),
+        [(SettingPanel::Keyboard, 4)], [], None, None;
+    ShowExactServerPing => "show_exact_server_ping", toggle("options.showExactServerPing", false),
+        [(SettingPanel::VideoCustomization, 10)], [SettingsGroup::Video], None, None;
+    OreuiDarkMode => "oreui_dark_mode", toggle("options.oreuiDarkMode", false),
+        [(SettingPanel::VideoCustomization, 11)], [SettingsGroup::Video], None, None;
+    DiscordPresence => "discord_presence", toggle("Discord Rich Presence", true),
+        [], [], None, None;
+    NativeSkyboxOffset => "native_skybox_offset", toggle("Bedrock Skybox Vertical Offset", assets::DEFAULT_NATIVE_SKYBOX_OFFSET),
+        [(SettingPanel::VideoGraphics, 9)], [SettingsGroup::Video], None, None;
+    FullScreen => "full_screen", host("options.fullscreen"),
+        [(SettingPanel::VideoCustomization, 0)], [SettingsGroup::Video], None, None;
+    GuiScale => "gui_scale", host("options.guiScale.optionName"),
+        [(SettingPanel::AccessibilityUi, 5), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
+    FarTerrain => "far_terrain", toggle("Far Terrain (LOD)", render_api::far_terrain::DEFAULT_ENABLED),
+        [(SettingPanel::VideoGraphics, 11)], [SettingsGroup::Video], None, None;
+    FullDetailDistance => "full_detail_distance", stepped_slider("Full-Detail Distance", render_api::far_terrain::FULL_DETAIL_AUTO as i32, render_api::far_terrain::MAX_FULL_DETAIL_CHUNKS as i32, render_api::far_terrain::FULL_DETAIL_AUTO as i32, render_api::far_terrain::FULL_DETAIL_STEP_CHUNKS as i32),
+        [(SettingPanel::VideoAdvanced, 0)], [SettingsGroup::Video], None, None;
+}

@@ -1,5 +1,6 @@
 //! Overlay bindings persist, reset and drive the production player-list action.
 
+use super::BindingId;
 use super::*;
 use semantic_input::{DeviceFrame, KeyboardMouseFrame, SemanticInputRouter};
 
@@ -46,34 +47,45 @@ fn overlay_bindings_keep_defaults_and_remap_reset_across_reload() {
         ),
     ] {
         assert_eq!(custom_key_label(name), Some(label));
-        assert_eq!(settings.named_key_control(name), Some(default));
+        assert_eq!(
+            settings.named_key_control(BindingId::from_name(name).expect("registered binding row")),
+            Some(default)
+        );
         for control in [
             PhysicalControl::KeyboardUsage(0x3d),
             PhysicalControl::MouseButton(4),
         ] {
             assert!(settings.remap(row(name), control));
             settings = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-            assert_eq!(settings.named_key_control(name), Some(control));
+            assert_eq!(
+                settings
+                    .named_key_control(BindingId::from_name(name).expect("registered binding row")),
+                Some(control)
+            );
         }
         assert!(settings.reset_key(row(name)));
-        assert_eq!(settings.named_key_control(name), Some(default));
+        assert_eq!(
+            settings.named_key_control(BindingId::from_name(name).expect("registered binding row")),
+            Some(default)
+        );
     }
     assert_eq!(
-        settings.named_key_control("key.drop"),
+        settings.named_key_control(BindingId::Drop),
         Some(PhysicalControl::KeyboardUsage(69))
     );
     assert!(settings.remap(row(DEBUG_OVERLAY_KEY), PhysicalControl::MouseButton(5)));
     assert!(settings.remap(row(PLAYER_LIST_KEY), PhysicalControl::KeyboardUsage(0x3d)));
     settings.reset_bindings(true);
     assert_eq!(
-        settings.named_key_control(DEBUG_OVERLAY_KEY),
+        settings.named_key_control(BindingId::DebugOverlay),
         Some(PhysicalControl::MouseButton(5))
     );
     settings.reset_bindings(false);
     for name in [DEBUG_OVERLAY_KEY, PLAYER_LIST_KEY] {
         assert_eq!(
-            settings.named_key_control(name),
-            SettingsOptions::default().named_key_control(name)
+            settings.named_key_control(BindingId::from_name(name).expect("registered binding row")),
+            SettingsOptions::default()
+                .named_key_control(BindingId::from_name(name).expect("registered binding row"))
         );
     }
 }

@@ -8,6 +8,16 @@ use bedrock_protocol_1_26_51::types::{SerializedSkinRef, SkinImage};
 use bedrock_protocol_1_26_51::wire;
 use sha2::{Digest, Sha256};
 
+/// Selects the classic model when no skin-authored resource patch is available.
+pub(crate) fn classic_skin_resource_patch(arm_size: &str) -> String {
+    let model = if arm_size == "slim" {
+        "geometry.humanoid.customSlim"
+    } else {
+        "geometry.humanoid.custom"
+    };
+    serde_json::json!({"geometry":{"default":model}}).to_string()
+}
+
 pub fn cape_content_id(cape: &render_api::CapeImage) -> String {
     let mut hash = Sha256::new();
     hash.update(cape.width.to_le_bytes());
@@ -57,10 +67,7 @@ pub fn player_skin_packet(
             cape_id: cape_id.into(),
             resource_patch: geometry
                 .map_or_else(
-                    || {
-                        serde_json::json!({"geometry":{"default":"geometry.humanoid.custom"}})
-                            .to_string()
-                    },
+                    || classic_skin_resource_patch(arm_size),
                     |source| source.resource_patch.to_string(),
                 )
                 .into(),

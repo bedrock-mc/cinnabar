@@ -103,6 +103,7 @@ impl WorldStream {
             predictions: prediction::DeferredPredictions::default(),
             decode_tx,
             decode_rx,
+            biome_records: None,
             mesh_tx,
             mesh_rx,
             lighting: lighting::Lighting::new(),

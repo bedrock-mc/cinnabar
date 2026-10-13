@@ -27,13 +27,16 @@ pub(super) fn ordinary(actor: &dyn AnimatedActor, context: &ActorTickContext, sw
         && !context.main_hand.as_deref().is_some_and(|item| {
             matches!(
                 item,
-                "minecraft:bow" | "minecraft:crossbow" | "minecraft:filled_map" | "minecraft:map"
+                "minecraft:bow"
+                    | "minecraft:crossbow"
+                    | "minecraft:filled_map"
+                    | "minecraft:empty_map"
             )
         })
         && !context
             .off_hand
             .as_deref()
-            .is_some_and(|item| matches!(item, "minecraft:filled_map" | "minecraft:map"))
+            .is_some_and(|item| matches!(item, "minecraft:filled_map" | "minecraft:empty_map"))
 }
 
 /// Attack changes retained by named drivers until their destination skeleton is composed.

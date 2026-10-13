@@ -276,6 +276,12 @@ argument completion, and live visual acceptance remain incomplete.
 
 ## P5.8-SETTINGS
 
+Minecraft import adds explicit consent, per-profile preview, schema-checked option
+mapping, server merging, validated pack copying and a restore snapshot. Full option
+and control-layout coverage, live checks of every supported data location and
+Android scoped-storage import remain incomplete. This leaves the settings parity
+and acceptance gates open.
+
 The global Subscriptions tab and marketplace UI/services are removed from the
 product. Settings retain the remaining category order and icon alignment;
 Realms, Dressing Room and server resource packs remain supported. Navigation

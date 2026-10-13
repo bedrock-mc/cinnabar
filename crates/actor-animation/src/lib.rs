@@ -105,6 +105,9 @@ use test_actor::TestActor;
 mod local_motion_tests;
 
 #[cfg(test)]
+mod remote_motion_tests;
+
+#[cfg(test)]
 mod tests;
 
 #[cfg(test)]
