@@ -249,7 +249,7 @@ pub fn section(block: impl Fn(u8, u8, u8) -> [u32; 2]) -> Arc<SubChunk> {
                 }) as u32;
         }
         bytes.push((8 << 1) | 1);
-        for word in indices.chunks_exact(4) {
+        for word in indices.as_chunks::<4>().0 {
             let packed = word
                 .iter()
                 .enumerate()
