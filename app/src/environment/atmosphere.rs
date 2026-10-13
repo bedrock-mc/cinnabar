@@ -143,6 +143,12 @@ pub(crate) fn derive_profiled_atmosphere_frame(
         // The separate native submerged distance admission remains incomplete.
         let render_distance =
             render_scene::adjusted_player_render_distance_blocks(context.render_distance_blocks?)?;
+        // Far terrain pushes only clear-air fog out to its reach.
+        let render_distance = if requested == FogMedium::Air {
+            render_distance + context.far_fog_blocks
+        } else {
+            render_distance
+        };
         let camera = [Some(camera_fog?)];
         let layer = samples.as_ref().map_or(&camera[..], |samples| &samples[..]);
         assets::resolve_fog_layers(

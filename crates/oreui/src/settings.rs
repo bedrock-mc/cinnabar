@@ -440,6 +440,12 @@ impl Content<'_, '_> {
                     "render_distance" => self
                         .word("options.renderDistanceFormat")
                         .replace("%s", &value.to_string()),
+                    name if name
+                        == launcher::menu::settings_options::FAR_TERRAIN_DISTANCE_OPTION.name =>
+                    {
+                        self.word("options.renderDistanceFormat")
+                            .replace("%s", &value.to_string())
+                    }
                     "max_framerate" => {
                         launcher::menu::settings_options::frame_rate_label(value, &|key: &str| {
                             self.word(key)

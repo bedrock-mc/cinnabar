@@ -773,6 +773,37 @@ fn native_skybox_offset_defaults_on_and_persists_both_states() {
     }
 }
 
+/// Far terrain defaults on at the configured reach, snaps the reach to whole steps, and resets.
+#[test]
+fn far_terrain_defaults_on_and_persists_its_reach() {
+    let settings = super::SettingsOptions::decode(b"{}").unwrap();
+    let video = settings.user_settings().video;
+    assert!(video.far_terrain);
+    assert_eq!(
+        video.far_terrain_distance_chunks,
+        far_terrain::config::DEFAULT_DISTANCE_CHUNKS
+    );
+    let index = |name| {
+        super::SETTINGS_OPTIONS
+            .iter()
+            .position(|option| option.name == name)
+            .unwrap()
+    };
+    let mut settings = settings;
+    settings.set(index(super::FAR_TERRAIN_OPTION.name), 0);
+    settings.set(index(super::FAR_TERRAIN_DISTANCE_OPTION.name), 37);
+    let encoded = serde_json::to_vec(&settings).unwrap();
+    let mut loaded = super::SettingsOptions::decode(&encoded).unwrap();
+    let video = loaded.user_settings().video;
+    assert!(!video.far_terrain);
+    assert_eq!(
+        video.far_terrain_distance_chunks % far_terrain::config::DISTANCE_STEP_CHUNKS,
+        0
+    );
+    loaded.reset_group(super::SettingsGroup::Video);
+    assert!(loaded.user_settings().video.far_terrain);
+}
+
 #[test]
 fn automatic_update_opt_out_survives_save_and_reload() {
     let mut settings = SettingsOptions::default();

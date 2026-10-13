@@ -462,3 +462,38 @@ fn native_skybox_offset_video_toggle_is_reachable_in_both_states() {
         );
     }
 }
+
+/// The far-terrain toggle is actionable in both persisted states through the real carrier.
+#[test]
+fn far_terrain_video_toggle_is_reachable_in_both_states() {
+    use launcher::menu::{
+        MenuAction,
+        settings_options::{FAR_TERRAIN_OPTION, SETTINGS_OPTIONS},
+    };
+    let Some(mut presentation) = super::pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping far_terrain_video_toggle_is_reachable_in_both_states: missing installed UI carrier; make assets"
+        );
+        return;
+    };
+    let index = SETTINGS_OPTIONS
+        .iter()
+        .position(|o| o.name == FAR_TERRAIN_OPTION.name)
+        .unwrap() as u16;
+    let mut view = crate::test_support::settings_view();
+    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
+        .iter()
+        .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
+        .unwrap();
+    let player = player_state::PlayerState::new(1);
+    for enabled in [true, false] {
+        std::sync::Arc::make_mut(&mut view.settings_options)
+            .set(index as usize, i32::from(enabled));
+        let action = MenuAction::SettingsOption(index, i32::from(!enabled));
+        view.focused_action = Some(action);
+        assert!(
+            crate::test_support::draw_menu_actions(&player, &mut presentation, &view)
+                .contains(&action)
+        );
+    }
+}

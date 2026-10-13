@@ -16,8 +16,20 @@ apart. Transfers and dimension changes switch namespace. An IO thread writes eac
 batches and evicts the least recently used regions past the per-server (64 MiB) and global
 (512 MiB) caps.
 
-Incomplete: summaries are not yet drawn, and nothing enables the cache until the Video setting
-lands. No parity gate closes here.
+The far pass draws the cached terrain beyond near terrain as blocky tiles of 64×64 cells,
+1 to 16 blocks wide, finer toward the near edge; only the finest level meets near terrain,
+and its quads hide over every column the chunk grid retains. Tile meshes merge equal-height
+tops and runs of walls on worker threads, rebuild at most every 250 ms when their columns
+change, and keep a replaced tile drawn until its replacements are ready. The GPU holds only
+the selected tiles; a still camera uploads and rebuilds nothing. Cells are lit as sky-lit
+terrain faces and fogged with the terrain fog. With far terrain on, clear-air fog moves out by
+the reach times the share of the ring just past near terrain that is cached, eased over about a
+second, so an uncached world keeps its usual fog. Video › Far Terrain (LOD) turns it on or off
+(default on) and sets its reach (16–128 chunks, default 64).
+
+Incomplete: the far-terrain look (cell colours, height aggregation, water blending and the fog
+reach) is held for owner review. Enhanced rendering lights far terrain with the vanilla path,
+and block light, clouds and weather do not reach it. No parity gate closes here.
 
 ## Experimental Android client
 

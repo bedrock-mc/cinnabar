@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 json-ui = { path = "../json-ui" }
 assets = { path = "../assets" }
+far-terrain = { path = "../far-terrain" }
 render-api = { path = "../render-api" }
 semantic-input = { path = "../input" }
 sha2.workspace = true

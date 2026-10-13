@@ -1,22 +1,33 @@
-//! Moves column summaries from the world stream into the far-terrain cache and keeps the
-//! cache on the server, world and dimension being played.
+//! Moves column summaries from the world stream into the far-terrain cache, keeps the cache
+//! on the server, world and dimension being played, and publishes the tiles to draw.
 
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
-use bevy::prelude::{Local, Res, ResMut, Resource};
+use bevy::prelude::{Local, Res, ResMut, Resource, Time};
 use chunk_pipeline::FarColumnSummary;
-use far_terrain::{ColumnPos, FarTerrainCache, FarTerrainConfig};
+use client_state::RuntimeSettings;
+use far_terrain::{
+    ColumnPos, FarTerrainCache, FarTerrainConfig, FarTiles, NearMask, TileView,
+    config::COVERAGE_RING_CHUNKS, ring_coverage,
+};
+use render_scene::FarTerrainScene;
 
 use crate::{runtime::world::ClientWorld, session::SessionController};
 
-/// The far-terrain cache and whether the feature runs.
+/// Seconds for the fog reach to close most of the gap to a new coverage.
+const FOG_SETTLE_SECONDS: f32 = 1.0;
+
+/// The far-terrain cache, the selected tiles and the view they were chosen for.
 #[derive(Resource)]
 pub(crate) struct FarTerrain {
-    pub(crate) cache: FarTerrainCache,
-    pub(crate) enabled: bool,
-    /// Columns beyond the render distance kept loaded around the player.
-    pub(crate) distance_chunks: i32,
+    cache: FarTerrainCache,
+    tiles: FarTiles,
     drained: Vec<FarColumnSummary>,
+    near: Arc<NearMask>,
+    near_view: Option<([i32; 2], i32)>,
+    published: Option<u64>,
+    /// Share of the ring just past near terrain that has cached columns.
+    coverage: f32,
 }
 
 impl FarTerrain {
@@ -24,10 +35,26 @@ impl FarTerrain {
     pub(crate) fn new(disk_root: Option<std::path::PathBuf>) -> Self {
         Self {
             cache: FarTerrainCache::new(FarTerrainConfig::default(), disk_root),
-            enabled: false,
-            distance_chunks: 0,
+            tiles: FarTiles::default(),
             drained: Vec::new(),
+            near: Arc::new(NearMask::default()),
+            near_view: None,
+            published: None,
+            coverage: 0.0,
         }
+    }
+}
+
+/// Blocks far terrain adds to the air-fog distance, eased toward its cached coverage so fog
+/// never jumps and an uncached world keeps today's fog.
+#[derive(Resource, Default)]
+pub(crate) struct FarTerrainFog {
+    blocks: f32,
+}
+
+impl FarTerrainFog {
+    pub(crate) const fn blocks(&self) -> f32 {
+        self.blocks
     }
 }
 
@@ -35,17 +62,23 @@ impl FarTerrain {
 #[derive(Default)]
 pub(crate) struct ActiveWorld(Option<(String, u64, i32)>);
 
-/// Keeps the stream's summary extraction, the cache's namespace and its loaded area current.
+/// Keeps extraction, the cache namespace, the loaded area, the tiles and the fog reach current.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn feed_far_terrain(
     far: Option<ResMut<FarTerrain>>,
     world: Option<ResMut<ClientWorld>>,
     session: Option<Res<SessionController>>,
+    settings: Res<RuntimeSettings>,
+    time: Res<Time>,
+    mut scene: ResMut<FarTerrainScene>,
+    mut fog: ResMut<FarTerrainFog>,
     mut active: Local<ActiveWorld>,
 ) {
     let (Some(mut far), Some(mut world)) = (far, world) else {
         return;
     };
     let far = &mut *far;
+    let video = settings.user_settings_update().1.video;
     let destination = session
         .as_deref()
         .and_then(SessionController::destination_identity);
@@ -53,7 +86,7 @@ pub(crate) fn feed_far_terrain(
         .stream
         .as_ref()
         .zip(destination)
-        .filter(|_| far.enabled)
+        .filter(|_| video.far_terrain)
         .map(|(stream, destination)| {
             (
                 destination,
@@ -82,10 +115,16 @@ pub(crate) fn feed_far_terrain(
             }
             None => far.cache.leave_world(),
         }
+        far.tiles.clear();
+        far.coverage = 0.0;
         active.0 = target
             .map(|(destination, level, dimension)| (destination.to_owned(), level, dimension));
     }
     let Some(stream) = world.stream.as_ref().filter(|_| enabled) else {
+        ease_fog(&mut fog, 0.0, time.delta_secs());
+        if far.published.take().is_some() {
+            *scene = FarTerrainScene::default();
+        }
         return;
     };
     let now = Instant::now();
@@ -99,8 +138,59 @@ pub(crate) fn feed_far_terrain(
         );
     }
     let centre = stream.player_column();
-    let radius = (stream.render_distance_blocks() / 16.0).ceil() as i32 + far.distance_chunks;
+    let radius = stream
+        .retained_view_radius()
+        .unwrap_or_else(|| (stream.render_distance_blocks() / 16.0).ceil() as i32);
+    let near_chunks = radius + ::world::CHUNK_VIEW_SLACK + 1;
+    let far_chunks = video.far_terrain_distance_chunks as i32;
     far.cache
-        .set_focus(ColumnPos::new(centre.x, centre.z), radius);
+        .set_focus(ColumnPos::new(centre.x, centre.z), near_chunks + far_chunks);
     far.cache.poll(now);
+    let changed = far.cache.store().take_changed();
+    far.tiles.mark_changed(&changed);
+    far.tiles.set_view(TileView {
+        centre: [centre.x as f32 * 16.0 + 8.0, centre.z as f32 * 16.0 + 8.0],
+        near_blocks: (near_chunks * 16) as f32,
+        far_blocks: (far_chunks * 16) as f32,
+    });
+    far.tiles.update(far.cache.store(), now);
+    let near_view = ([centre.x, centre.z], radius);
+    let near_changed = far.near_view != Some(near_view);
+    if near_changed {
+        far.near = Arc::new(NearMask::retained(near_view.0, radius));
+        far.near_view = Some(near_view);
+    }
+    if near_changed || !changed.is_empty() {
+        far.coverage = ring_coverage(
+            far.cache.store(),
+            ColumnPos::new(centre.x, centre.z),
+            near_chunks,
+            COVERAGE_RING_CHUNKS,
+        );
+    }
+    ease_fog(
+        &mut fog,
+        far.coverage * (far_chunks * 16) as f32,
+        time.delta_secs(),
+    );
+    let revision = far.tiles.revision();
+    if near_changed || far.published != Some(revision) {
+        *scene = FarTerrainScene {
+            tiles: far.tiles.drawn().into(),
+            near: Arc::clone(&far.near),
+        };
+        far.published = Some(revision);
+    }
+}
+
+/// Moves the fog reach toward `target` with a one-second exponential ease.
+fn ease_fog(fog: &mut FarTerrainFog, target: f32, seconds: f32) {
+    if fog.blocks == target {
+        return;
+    }
+    let blend = 1.0 - (-seconds / FOG_SETTLE_SECONDS).exp();
+    fog.blocks += (target - fog.blocks) * blend;
+    if (fog.blocks - target).abs() < 0.5 {
+        fog.blocks = target;
+    }
 }

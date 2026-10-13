@@ -45,6 +45,8 @@ pub(crate) struct EnvironmentContext {
     /// Known precipitation-admitting cells in the native weather/fog lattice.
     pub(crate) precipitation_sample_count: Option<usize>,
     pub(crate) render_distance_blocks: Option<f32>,
+    /// Blocks far terrain adds to the air-fog distance; zero leaves fog as it was.
+    pub(crate) far_fog_blocks: f32,
 }
 
 /// Active client profile identifiers. Lighting remains routed through the

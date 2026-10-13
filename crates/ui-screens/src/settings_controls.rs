@@ -144,6 +144,9 @@ fn display_value(
         "render_distance" => {
             translate("options.renderDistanceFormat").replace("%s", &value.to_string())
         }
+        name if name == launcher::menu::settings_options::FAR_TERRAIN_DISTANCE_OPTION.name => {
+            translate("options.renderDistanceFormat").replace("%s", &value.to_string())
+        }
         _ => format!("{value}%"),
     }
 }

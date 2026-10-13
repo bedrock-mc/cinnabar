@@ -63,6 +63,12 @@ impl WorldStream {
         self.far_terrain.enabled
     }
 
+    /// The radius the client's chunk grid retains, once the server has confirmed one.
+    #[must_use]
+    pub fn retained_view_radius(&self) -> Option<i32> {
+        self.retained_radius()
+    }
+
     /// The local player's column, which centres retention and far terrain.
     #[must_use]
     pub fn player_column(&self) -> ChunkKey {

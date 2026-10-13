@@ -106,7 +106,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "far-terrain"
 path = "crates/far-terrain"
-allowed_dependencies = ["assets", "world"]
+allowed_dependencies = ["assets", "world", "test-time"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-world", "chunk-pipeline", "meshing", "render", "bevy", "bevy_*", "wgpu*"]
 
@@ -202,7 +202,7 @@ test_support_features = ["test-support"]
 name = "launcher"
 path = "crates/launcher"
 test_support_features = ["test-support"]
-allowed_dependencies = ["assets", "bridge", "render-api", "resource-pack", "semantic-input", "ui", "update-manifest"]
+allowed_dependencies = ["assets", "bridge", "far-terrain", "render-api", "resource-pack", "semantic-input", "ui", "update-manifest"]
 forbidden_dependencies = ["protocol", "server-experience"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "player-state", "inventory", "client-world", "world", "sim", "render", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "bevy", "bevy_*", "wgpu*"]
 
@@ -344,7 +344,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "render", "protocol", "c
 [[crates]]
 name = "render-scene"
 path = "crates/render-scene"
-allowed_dependencies = ["env-compat", "simulation-clock", "assets", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "world", "tracy-client", "test-time"]
+allowed_dependencies = ["env-compat", "simulation-clock", "assets", "far-terrain", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "world", "tracy-client", "test-time"]
 forbidden_transitive_dependencies = ["render", "app", "cinnabar", "client-world", "chunk-pipeline", "client-presentation", "protocol"]
 test_support_features = ["publication-test-support"]
 
@@ -352,7 +352,7 @@ test_support_features = ["publication-test-support"]
 name = "render"
 path = "crates/render"
 test_support_features = ["publication-test-support"]
-allowed_dependencies = ["env-compat", "render-scene", "assets", "block-transform", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "tracy-client", "world", "test-time"]
+allowed_dependencies = ["env-compat", "render-scene", "assets", "block-transform", "far-terrain", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "tracy-client", "world", "test-time"]
 forbidden_dependencies = ["asset-compiler"]
 # Also reject game-state edges hidden behind another local crate or test dependency.
 forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol"]
@@ -453,7 +453,7 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "ui"
 path = "crates/ui"
-allowed_dependencies = ["json-ui", "assets", "render-api", "semantic-input"]
+allowed_dependencies = ["json-ui", "assets", "far-terrain", "render-api", "semantic-input"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 # The portable JSON-UI engine; hosts supply reads, the clock and worker threads through its sources.

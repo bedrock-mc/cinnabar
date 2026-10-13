@@ -71,6 +71,25 @@ pub const NATIVE_SKYBOX_OFFSET_OPTION: SettingDefinition = toggle(
     assets::DEFAULT_NATIVE_SKYBOX_OFFSET,
 );
 
+/// Far terrain draws cached terrain past the render distance.
+pub const FAR_TERRAIN_OPTION: SettingDefinition = toggle(
+    "far_terrain",
+    "Far Terrain (LOD)",
+    far_terrain::config::DEFAULT_ENABLED,
+);
+
+/// How far far terrain reaches past the render distance, in chunks.
+pub const FAR_TERRAIN_DISTANCE_OPTION: SettingDefinition = SettingDefinition {
+    step: far_terrain::config::DISTANCE_STEP_CHUNKS as i32,
+    ..slider(
+        "far_terrain_distance",
+        "Far Terrain Distance",
+        far_terrain::config::MIN_DISTANCE_CHUNKS as i32,
+        far_terrain::config::MAX_DISTANCE_CHUNKS as i32,
+        far_terrain::config::DEFAULT_DISTANCE_CHUNKS as i32,
+    )
+};
+
 pub const MOTION_BLUR_CHOICES: &[SettingChoice] = &[
     SettingChoice {
         name: "motion_blur_radio_off",
@@ -651,4 +670,6 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     toggle(super::OREUI_DARK_MODE, "options.oreuiDarkMode", false),
     DISCORD_PRESENCE_OPTION,
     NATIVE_SKYBOX_OFFSET_OPTION,
+    FAR_TERRAIN_OPTION,
+    FAR_TERRAIN_DISTANCE_OPTION,
 ];

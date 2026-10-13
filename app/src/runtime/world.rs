@@ -221,6 +221,7 @@ pub(crate) fn update_camera_medium(
     mut context: ResMut<environment::EnvironmentContext>,
     mut fog_bindings: ResMut<environment::FogBindings>,
     atmosphere: Res<render_scene::AtmosphereTextureAssets>,
+    far_fog: Option<Res<crate::far_terrain::FarTerrainFog>>,
 ) {
     let Some((stream, camera)) = client_world.stream.as_ref().zip(camera.single().ok()) else {
         medium.0 = CameraMedium::Air;
@@ -255,6 +256,7 @@ pub(crate) fn update_camera_medium(
         camera_biome_identifier: fog_bindings.identifier(raw_id),
         camera_biome_temperature: camera_biome.map(|biome| biome.temperature),
         render_distance_blocks: Some(stream.render_distance_blocks()),
+        far_fog_blocks: far_fog.map_or(0.0, |fog| fog.blocks()),
     };
 }
 

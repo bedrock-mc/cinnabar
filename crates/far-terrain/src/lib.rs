@@ -11,6 +11,9 @@ mod identity;
 mod region;
 mod store;
 mod summary;
+mod tile_mesh;
+mod tile_set;
+mod tiles;
 
 pub use cache::FarTerrainCache;
 pub use disk::{DiskBounds, DiskCache, DiskEvent};
@@ -26,3 +29,9 @@ pub use store::{Admission, ColumnPos, SummaryStore};
 pub use summary::{
     COLUMN_CELLS, COLUMN_SIDE, ColumnSummary, EncodedSummary, SummaryDecodeError, SurfaceCell,
 };
+pub use tile_mesh::{
+    FACE_NEGATIVE_X, FACE_NEGATIVE_Z, FACE_POSITIVE_X, FACE_POSITIVE_Z, FACE_UP, TileGrid,
+    TileMesh, mesh_tile,
+};
+pub use tile_set::FarTiles;
+pub use tiles::{NearMask, TileKey, TileView, ring_coverage, select_tiles};

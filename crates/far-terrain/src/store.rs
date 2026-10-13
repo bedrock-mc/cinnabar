@@ -100,6 +100,12 @@ impl SummaryStore {
         Some(ColumnSummary::decode(&self.entries[&pos].summary.bytes))
     }
 
+    /// The stored encoding, marked recently used.
+    pub fn touch_encoded(&mut self, pos: ColumnPos) -> Option<&EncodedSummary> {
+        self.touch(pos)?;
+        Some(&self.entries[&pos].summary)
+    }
+
     /// The stored encoding, without changing recency.
     #[must_use]
     pub fn encoded(&self, pos: ColumnPos) -> Option<&EncodedSummary> {

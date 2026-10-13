@@ -27,6 +27,39 @@ pub const WORLD_PROBE_EPOCHS: usize = 3;
 /// Columns held while the world's cache namespace is being resolved.
 pub const MAX_UNRESOLVED_COLUMNS: usize = 4096;
 
+/// Cells along one side of every far-terrain tile, at any level.
+pub const TILE_CELLS: usize = 64;
+
+/// Detail levels; level `l` has cells `2^l` blocks wide (1 to 16 blocks).
+pub const LEVEL_COUNT: u8 = 5;
+
+/// A tile splits into four finer ones while it is closer to the near-terrain edge than this
+/// many of its own widths.
+pub const LEVEL_SPLIT_DISTANCE: f32 = 1.0;
+
+/// Far terrain is on unless the player turns it off.
+pub const DEFAULT_ENABLED: bool = true;
+
+/// Default far-terrain reach beyond the near-terrain edge, in chunks.
+pub const DEFAULT_DISTANCE_CHUNKS: u32 = 64;
+
+/// The far-terrain reach the Video setting offers, in chunks.
+pub const MIN_DISTANCE_CHUNKS: u32 = 16;
+pub const MAX_DISTANCE_CHUNKS: u32 = 128;
+pub const DISTANCE_STEP_CHUNKS: u32 = 16;
+
+/// Blocks tile-edge skirts reach below a tile's lowest surface, hiding cracks between levels.
+pub const SKIRT_DEPTH_BLOCKS: i16 = 16;
+
+/// A tile whose columns changed is rebuilt at most this often.
+pub const TILE_REBUILD_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Tile meshes built concurrently on worker threads.
+pub const MAX_TILE_BUILDS: usize = 4;
+
+/// Chunks beyond the near edge sampled to decide how far fog may open up.
+pub const COVERAGE_RING_CHUNKS: i32 = 8;
+
 /// Water deeper than this many blocks is summarised as open water without a floor.
 pub const MAX_WATER_SCAN_DEPTH: u8 = 32;
 

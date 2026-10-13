@@ -21,6 +21,7 @@ test-support = []
 [dependencies]
 bridge = { path = "../bridge" }
 assets = { path = "../assets" }
+far-terrain = { path = "../far-terrain" }
 render-api = { path = "../render-api" }
 resource-pack = { path = "../resource-pack" }
 semantic-input = { path = "../input" }

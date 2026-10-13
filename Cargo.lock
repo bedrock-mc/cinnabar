@@ -3527,8 +3527,10 @@ dependencies = [
  "criterion",
  "crossbeam-channel",
  "flate2",
+ "rayon",
  "sha2",
  "tempfile",
+ "test-time",
  "thiserror 2.0.18",
  "tracing",
  "world",
@@ -4589,6 +4591,7 @@ version = "0.1.18"
 dependencies = [
  "assets",
  "bridge",
+ "far-terrain",
  "render-api",
  "resource-pack",
  "semantic-input",
@@ -6486,6 +6489,7 @@ dependencies = [
  "block-transform",
  "bytemuck",
  "env-compat",
+ "far-terrain",
  "glam",
  "image",
  "libc",
@@ -6554,6 +6558,7 @@ dependencies = [
  "bevy",
  "bytemuck",
  "env-compat",
+ "far-terrain",
  "glam",
  "meshing",
  "mod-api",
@@ -7789,6 +7794,7 @@ name = "ui"
 version = "0.1.18"
 dependencies = [
  "assets",
+ "far-terrain",
  "json-ui",
  "render-api",
  "semantic-input",
