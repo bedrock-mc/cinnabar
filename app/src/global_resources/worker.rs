@@ -70,7 +70,7 @@ fn run(
     outgoing: crossbeam_channel::Sender<Event>,
 ) {
     let mut minecraft_import = launcher_host::minecraft_import::Service::new(config_root);
-    let mut import_commit_pending = false;
+    let mut import_commit_pending = None;
     let mut snapshot = Snapshot::default();
     let icon_root = root.join("icons");
     let mut library = match GlobalPackLibrary::open(root, engine_version()) {
@@ -147,7 +147,7 @@ fn run(
                 );
                 changes_lists = changed;
                 if let Some(stack) = outcome.stack {
-                    import_commit_pending = true;
+                    import_commit_pending = Some(library.active().to_vec());
                     let _ = outgoing.send(Event::Apply(stack, library.active().to_vec()));
                 }
                 let _ = outgoing.send(Event::MinecraftImport(outcome.snapshot, outcome.state));
@@ -155,17 +155,12 @@ fn run(
                 Ok(())
             }
             Command::Commit(selection) => {
-                let result = library.commit_selection(&selection);
-                if import_commit_pending && selection == library.active() {
-                    import_commit_pending = false;
-                    let status = match &result {
-                        Ok(()) => "Resource packs applied and saved.".to_owned(),
-                        Err(error) => {
-                            format!("Resource pack preferences could not be saved: {error}")
-                        }
-                    };
-                    let _ = outgoing.send(Event::MinecraftImportStatus(status));
-                }
+                let result = commit_selection(
+                    &mut library,
+                    &selection,
+                    &mut import_commit_pending,
+                    &outgoing,
+                );
                 snapshot.message.clear();
                 result
             }
@@ -194,6 +189,25 @@ fn run(
         refresh(&library, &mut snapshot);
         let _ = outgoing.send(Event::Snapshot(snapshot.clone()));
     }
+}
+
+/// Reports an import acknowledgement against its submitted selection even after staging changes.
+fn commit_selection(
+    library: &mut GlobalPackLibrary,
+    selection: &[resource_pack::ActivePack],
+    pending: &mut Option<Vec<resource_pack::ActivePack>>,
+    outgoing: &crossbeam_channel::Sender<Event>,
+) -> Result<(), LibraryError> {
+    let result = library.commit_selection(selection);
+    if pending.as_deref() == Some(selection) {
+        *pending = None;
+        let status = match &result {
+            Ok(()) => "Resource packs applied and saved.".to_owned(),
+            Err(error) => format!("Resource pack preferences could not be saved: {error}"),
+        };
+        let _ = outgoing.send(Event::MinecraftImportStatus(status));
+    }
+    result
 }
 
 /// Returns the import result and whether the pack library changed, refreshing artwork only then.

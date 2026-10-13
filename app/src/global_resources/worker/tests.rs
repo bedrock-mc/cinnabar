@@ -803,3 +803,93 @@ fn review_commands_from_one_snapshot_keep_both_panel_toggles() {
     assert!(!last.active_expanded);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn minecraft_import_completion_tracks_submitted_revisions_after_replacement_and_save_failure() {
+    use launcher::minecraft_import::Action as ImportAction;
+    for (revert, fail_save) in [(false, false), (false, true), (true, false), (true, true)] {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().join("installed");
+        let data = minecraft_source(fixture.path(), 1);
+        let mut service = launcher_host::minecraft_import::Service::new_with_data_root(
+            fixture.path().join("config"),
+            data,
+        );
+        let mut library = GlobalPackLibrary::open(&root, engine_version()).unwrap();
+        let original = import_fixture(&mut library, fixture.path(), 2);
+        library.activate(original.id).unwrap();
+        library.apply().unwrap();
+        let mut snapshot = Snapshot::default();
+        import_request(
+            &mut service,
+            &mut library,
+            &mut snapshot,
+            ImportAction::Begin,
+            |_, _| {},
+        );
+        let mut outcome = import_request(
+            &mut service,
+            &mut library,
+            &mut snapshot,
+            ImportAction::Apply,
+            |_, _| {},
+        );
+        if revert {
+            library
+                .commit_selection(&outcome.state.as_ref().unwrap().active)
+                .unwrap();
+            import_request(
+                &mut service,
+                &mut library,
+                &mut snapshot,
+                ImportAction::Revert,
+                |_, _| {},
+            );
+            outcome = import_request(
+                &mut service,
+                &mut library,
+                &mut snapshot,
+                ImportAction::ConfirmRevert,
+                |_, _| {},
+            );
+        }
+        let submitted = outcome.state.unwrap().active;
+        assert!(outcome.stack.is_some());
+        let mut pending = Some(submitted.clone());
+        let replacement = import_fixture(&mut library, fixture.path(), if revert { 2 } else { 1 });
+        assert_ne!(replacement.revision, submitted[0].revision);
+        let staged = library.active().to_vec();
+        let (outgoing, events) = crossbeam_channel::unbounded();
+        commit_selection(&mut library, &[], &mut pending, &outgoing).unwrap();
+        assert_eq!(pending, Some(submitted.clone()));
+        assert!(
+            events.try_recv().is_err(),
+            "unrelated acknowledgements do not complete the import"
+        );
+        if fail_save {
+            std::fs::rename(&root, fixture.path().join("parked")).unwrap();
+            std::fs::write(&root, b"blocked storage").unwrap();
+        }
+        let result = commit_selection(&mut library, &submitted, &mut pending, &outgoing);
+        assert_eq!(result.is_err(), fail_save);
+        assert!(pending.is_none());
+        assert_eq!(
+            library.active(),
+            staged,
+            "completion preserves later staged edits"
+        );
+        let Event::MinecraftImportStatus(status) = events.try_recv().unwrap() else {
+            panic!("import completion must publish its save result");
+        };
+        assert!(status.contains(if fail_save {
+            "could not be saved"
+        } else {
+            "applied and saved"
+        }));
+        assert!(events.try_recv().is_err());
+        if !fail_save {
+            let reopened = GlobalPackLibrary::open(&root, engine_version()).unwrap();
+            assert_eq!(reopened.active(), submitted);
+        }
+    }
+}

@@ -11,7 +11,6 @@ use std::{
 };
 
 const MAX_TEXT_BYTES: u64 = 64 * 1024;
-const MAX_PACK_CANDIDATES: usize = 256;
 
 /// Exact, validated payloads kept on the worker until the user confirms.
 #[derive(Debug)]
@@ -41,53 +40,7 @@ pub(super) fn prepare(source: &Source, state: &UserState, library: &GlobalPackLi
         .map_or_else(ParsedGlobalSelection::default, |bytes| {
             resource_pack::parse_global_selection(&bytes)
         });
-    let mut packs = Vec::new();
-    let mut archive_bytes = 0usize;
-    let mut ids = library
-        .available()
-        .iter()
-        .map(|pack| pack.id)
-        .collect::<std::collections::HashSet<_>>();
-    for root in std::iter::once(&source.root).chain(source.shared.iter()) {
-        let paths = match pack_paths(root) {
-            Ok(paths) => paths,
-            Err(error) => {
-                tracing::warn!("Minecraft user packs skipped: {error}");
-                skipped += 1;
-                continue;
-            }
-        };
-        for path in paths {
-            match resource_pack::prepare_import(&path) {
-                Ok(pack) => {
-                    skipped += pack.report.skipped_behavior + pack.report.rejected.len();
-                    let count = pack.report.imported.len();
-                    if count == 0 {
-                        continue;
-                    }
-                    let mut candidate_ids = ids.clone();
-                    if pack
-                        .report
-                        .imported
-                        .iter()
-                        .any(|pack| !candidate_ids.insert(pack.id))
-                        || archive_bytes.saturating_add(pack.archive_bytes())
-                            > resource_pack::MAX_STACK_ARCHIVE_BYTES
-                    {
-                        skipped += count;
-                        continue;
-                    }
-                    ids.extend(pack.report.imported.iter().map(|pack| pack.id));
-                    archive_bytes += pack.archive_bytes();
-                    packs.push(pack);
-                }
-                Err(error) => {
-                    tracing::warn!("Minecraft user pack rejected: {error}");
-                    skipped += 1;
-                }
-            }
-        }
-    }
+    let packs = super::packs::prepare(source, &selection.entries, library, &mut skipped);
     let (merged, duplicates) = merge_servers(&state.servers, &servers.entries);
     skipped += options.skipped + servers.skipped + selection.skipped + duplicates;
     let mut checked = state.settings.clone();
@@ -231,7 +184,7 @@ fn read_optional(root: &Path, name: &str, skipped: &mut usize) -> Option<Vec<u8>
 }
 
 /// Rejects links in every component beneath the selected root before opening a file.
-fn safe_path(root: &Path, relative: &Path) -> Result<PathBuf> {
+pub(super) fn safe_path(root: &Path, relative: &Path) -> Result<PathBuf> {
     let mut path = root.to_owned();
     anyhow::ensure!(
         !fs::symlink_metadata(&path)?.file_type().is_symlink(),
@@ -267,33 +220,4 @@ fn read(root: &Path, relative: &Path) -> Result<Vec<u8>> {
         "User-data file exceeds its size limit"
     );
     Ok(bytes)
-}
-
-/// Lists ordinary children of resource_packs, never visiting cache or game asset roots.
-fn pack_paths(root: &Path) -> Result<Vec<PathBuf>> {
-    let directory = match safe_path(root, Path::new("resource_packs")) {
-        Ok(path) => path,
-        Err(error)
-            if error
-                .downcast_ref::<std::io::Error>()
-                .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
-        {
-            return Ok(Vec::new());
-        }
-        Err(error) => return Err(error),
-    };
-    let mut paths = Vec::new();
-    for entry in fs::read_dir(directory)
-        .context("List user-installed resource packs")?
-        .take(MAX_PACK_CANDIDATES + 1)
-    {
-        let entry = entry?;
-        paths.push(entry.path());
-    }
-    anyhow::ensure!(
-        paths.len() <= MAX_PACK_CANDIDATES,
-        "User pack folder exceeds the candidate limit"
-    );
-    paths.sort();
-    Ok(paths)
 }

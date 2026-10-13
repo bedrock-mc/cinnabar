@@ -539,3 +539,183 @@ fn links_cannot_redirect_options_to_private_files() {
     assert!(service.preview.as_ref().unwrap().options.values.is_empty());
     assert!(service.preview.as_ref().unwrap().skipped >= 1);
 }
+
+/// Rewrites a synthetic directory pack's version and identifiable payload.
+fn versioned_pack(root: &Path, name: &str, id: &str, version: u32) -> PathBuf {
+    let directory = pack(root, name, id);
+    let manifest_path = directory.join("manifest.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+    manifest["header"]["version"] = serde_json::json!([version, 0, 0]);
+    std::fs::write(manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    std::fs::write(directory.join("marker.txt"), name.as_bytes()).unwrap();
+    directory
+}
+
+#[test]
+fn requested_source_version_wins_in_either_order_without_replacing_installed_packs() {
+    let id = "55555555-5555-5555-5555-555555555555";
+    for versions in [[1, 2], [2, 1]] {
+        for installed in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let mut service = service(root.path());
+            let mut library = library(root.path());
+            if installed {
+                let original = versioned_pack(root.path(), "installed", id, 1);
+                let metadata = library
+                    .import_prepared(resource_pack::prepare_import(&original).unwrap())
+                    .unwrap()
+                    .imported
+                    .remove(0);
+                library.activate(metadata.id).unwrap();
+                library.apply().unwrap();
+            }
+            let original = library.active().to_vec();
+            let data = service.locations[0].path.clone();
+            let packs = data.join("resource_packs");
+            versioned_pack(&packs, "a", id, versions[0]);
+            versioned_pack(&packs, "b", id, versions[1]);
+            std::fs::write(
+                data.join("minecraftpe/global_resource_packs.json"),
+                format!(r#"[{{"pack_id":"{id}","version":[2,0,0]}}]"#),
+            )
+            .unwrap();
+            service.act(
+                Request {
+                    action: Action::Begin,
+                    state: state(),
+                },
+                &mut library,
+            );
+            assert_eq!(library.active(), original);
+            let preview = service.preview.as_ref().unwrap();
+            assert_eq!(preview.packs.len(), usize::from(!installed));
+            if !installed {
+                assert_eq!(preview.packs[0].report.imported[0].version, [2, 0, 0]);
+            }
+            let outcome = service.act(
+                Request {
+                    action: Action::Apply,
+                    state: state(),
+                },
+                &mut library,
+            );
+            let applied = outcome.state.unwrap();
+            assert_eq!(applied.active.len(), 1);
+            let metadata = library.metadata(&applied.active[0]).unwrap();
+            assert_eq!(metadata.version, [if installed { 1 } else { 2 }, 0, 0]);
+            if installed {
+                assert_eq!(applied.active, original);
+            }
+            let view = resource_pack::LayeredPackView::new(outcome.stack.unwrap());
+            let expected = if installed {
+                "installed"
+            } else if versions[0] == 2 {
+                "a"
+            } else {
+                "b"
+            };
+            assert_eq!(
+                view.read("marker.txt").unwrap().as_ref(),
+                expected.as_bytes()
+            );
+        }
+    }
+}
+
+#[test]
+fn bundle_duplicates_keep_requested_version_and_unrelated_resource_halves() {
+    let root = tempfile::tempdir().unwrap();
+    let mut service = service(root.path());
+    let mut library = library(root.path());
+    let data = service.locations[0].path.clone();
+    let packs = data.join("resource_packs");
+    let id = "55555555-5555-5555-5555-555555555555";
+    let other = "66666666-6666-6666-6666-666666666666";
+    versioned_pack(&packs.join("a_bundle"), "a_old", id, 1);
+    versioned_pack(&packs.join("a_bundle"), "b_selected", id, 2);
+    versioned_pack(&packs.join("a_bundle"), "c_other", other, 1);
+    versioned_pack(&packs, "b_duplicate", id, 2);
+    std::fs::write(
+        data.join("minecraftpe/global_resource_packs.json"),
+        format!(r#"[{{"pack_id":"{id}","version":[2,0,0]}}]"#),
+    )
+    .unwrap();
+    service.act(
+        Request {
+            action: Action::Begin,
+            state: state(),
+        },
+        &mut library,
+    );
+    let preview = service.preview.as_ref().unwrap();
+    assert_eq!(preview.packs.len(), 2);
+    assert_eq!(preview.packs[0].report.imported[0].version, [2, 0, 0]);
+    assert_eq!(preview.selection.len(), 1);
+    let applied = service.act(
+        Request {
+            action: Action::Apply,
+            state: state(),
+        },
+        &mut library,
+    );
+    assert_eq!(library.available().len(), 2);
+    let view = resource_pack::LayeredPackView::new(applied.stack.unwrap());
+    assert_eq!(view.read("marker.txt").unwrap().as_ref(), b"b_selected");
+}
+
+#[test]
+fn missing_requested_version_keeps_the_first_copy_available_but_inactive() {
+    let root = tempfile::tempdir().unwrap();
+    let mut service = service(root.path());
+    let mut library = library(root.path());
+    let data = service.locations[0].path.clone();
+    let id = "55555555-5555-5555-5555-555555555555";
+    versioned_pack(&data.join("resource_packs"), "a", id, 1);
+    std::fs::write(
+        data.join("minecraftpe/global_resource_packs.json"),
+        format!(r#"[{{"pack_id":"{id}","version":[2,0,0]}}]"#),
+    )
+    .unwrap();
+    service.act(
+        Request {
+            action: Action::Begin,
+            state: state(),
+        },
+        &mut library,
+    );
+    let preview = service.preview.as_ref().unwrap();
+    assert_eq!(preview.packs.len(), 1);
+    assert!(preview.selection.is_empty());
+    assert!(preview.skipped > 0);
+}
+
+#[test]
+fn selected_shared_version_replaces_a_profile_copy_without_reading_shared_settings() {
+    let root = tempfile::tempdir().unwrap();
+    let service = service(root.path());
+    let library = library(root.path());
+    let data = service.locations[0].path.clone();
+    let shared = root.path().join("shared");
+    let id = "55555555-5555-5555-5555-555555555555";
+    versioned_pack(&data.join("resource_packs"), "profile", id, 1);
+    versioned_pack(&shared.join("resource_packs"), "shared", id, 2);
+    std::fs::write(shared.join("options.txt"), b"gfx_field_of_view:100").unwrap();
+    std::fs::write(
+        data.join("minecraftpe/global_resource_packs.json"),
+        format!(r#"[{{"pack_id":"{id}","version":[2,0,0]}}]"#),
+    )
+    .unwrap();
+    let source = locations::Source {
+        root: data,
+        shared: Some(shared),
+        label: "Fixture".into(),
+    };
+    let preview = preview::prepare(&source, &state(), &library);
+    assert_eq!(preview.packs.len(), 1);
+    assert_eq!(preview.packs[0].report.imported[0].version, [2, 0, 0]);
+    assert_eq!(preview.selection.len(), 1);
+    let mut settings = SettingsOptions::default();
+    preview.options.apply(&mut settings);
+    assert_eq!(settings.value("field_of_view"), 80);
+}

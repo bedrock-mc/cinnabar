@@ -40,6 +40,17 @@ impl PreparedImport {
     pub fn archive_bytes(&self) -> usize {
         self.archives.iter().map(|(_, bytes)| bytes.len()).sum()
     }
+
+    /// Splits validated resource halves after the caller has recorded the bundle diagnostics.
+    pub fn into_resource_packs(self) -> impl Iterator<Item = Self> {
+        self.archives.into_iter().map(|(metadata, bytes)| Self {
+            report: ImportReport {
+                imported: vec![metadata.clone()],
+                ..Default::default()
+            },
+            archives: vec![(metadata, bytes)],
+        })
+    }
 }
 
 /// Reads an explicit user pack path and validates it through the ordinary import pipeline.

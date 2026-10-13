@@ -103,12 +103,15 @@ impl MenuRuntime {
                 .set_render_distance_defaults(self.settings_options.render_distance_defaults());
             for preference in &mut self.session_overrides {
                 let index = preference.index();
-                let temporary = self.settings_options.get(index);
+                let temporary = self
+                    .settings_options
+                    .option_preference(index)
+                    .expect("registered session option");
                 *preference = state
                     .settings
                     .option_preference(index)
                     .expect("registered session option");
-                state.settings.set(index, temporary);
+                state.settings.restore_option_preference(temporary);
             }
             self.language_pending = state.settings.language() != self.settings_options.language();
             self.settings_options = Arc::new(state.settings);
@@ -116,7 +119,6 @@ impl MenuRuntime {
             self.fullscreen = state.video.fullscreen;
             self.fullscreen_change = Some(self.fullscreen);
             self.gui_scale_offset = state.video.gui_scale_offset;
-            self.gui_scale_preference = None;
             self.settings_dirty = true;
             self.settings_apply = true;
             self.settings_retry_at = None;

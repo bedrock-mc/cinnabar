@@ -283,3 +283,85 @@ fn published_explicit_render_distance_keeps_its_choice_and_device_defaults() {
         assert_eq!(stored["values"]["render_distance"], distance);
     }
 }
+
+#[test]
+fn servers_only_import_and_revert_preserve_fixed_gui_scale_and_saved_offset() {
+    let mut menu = MenuRuntime::new(true, 2, "Import fixture".into());
+    menu.gui_scale_offset = -1;
+    menu.set_gui_scale_preference(Some(3));
+    let data = menu.layout.user_data_root.join("synthetic-minecraft");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::write(
+        data.join("external_servers.txt"),
+        b"1:Fixture:example.test:19132:0",
+    )
+    .unwrap();
+    let mut service = launcher_host::minecraft_import::Service::new_with_data_root(
+        menu.layout.user_config_root.clone(),
+        data,
+    );
+    let mut library =
+        resource_pack::GlobalPackLibrary::open(menu.layout.user_data_root.join("packs"), [0; 3])
+            .unwrap();
+    perform(&mut menu, &mut service, &mut library, Action::Begin);
+    let requested = perform(&mut menu, &mut service, &mut library, Action::Apply);
+    assert_eq!(requested.video.gui_scale_offset, -1);
+    assert_eq!(menu.servers.len(), 1);
+    assert_eq!(menu.gui_scale_preference(), Some(3));
+    assert_eq!(menu.gui_scale_offset(), -1);
+    menu.gui_scale_offset = 0;
+    perform(&mut menu, &mut service, &mut library, Action::Revert);
+    perform(&mut menu, &mut service, &mut library, Action::ConfirmRevert);
+    assert!(menu.servers.is_empty());
+    assert_eq!(menu.gui_scale_preference(), Some(3));
+    assert_eq!(menu.gui_scale_offset(), -1);
+}
+
+#[test]
+fn imported_preferences_preserve_uncapped_session_msaa_choice() {
+    let mut menu = MenuRuntime::new(true, 2, "Import fixture".into());
+    menu.sync_anti_aliasing_support(ui::AntiAliasingSupport::from_counts([1, 4, 8]));
+    menu.set_session_option("msaa", Some(8));
+    menu.sync_anti_aliasing_support(ui::AntiAliasingSupport::from_counts([1, 4]));
+    assert_eq!(menu.settings_options.value("msaa"), 4);
+    menu.publish_minecraft_import(
+        launcher::minecraft_import::Snapshot {
+            phase: Phase::Result,
+            ..Default::default()
+        },
+        Some(saved_state(&SettingsOptions::default())),
+    );
+    assert_eq!(menu.settings_options.value("msaa"), 4);
+    menu.sync_anti_aliasing_support(ui::AntiAliasingSupport::from_counts([1, 4, 8]));
+    assert_eq!(menu.settings_options.value("msaa"), 8);
+    assert!(
+        serde_json::to_value(menu.persistent_settings().as_ref()).unwrap()["values"]
+            .get("msaa")
+            .is_none()
+    );
+}
+
+#[test]
+fn saving_the_active_session_choice_after_import_replaces_its_underlying_preference() {
+    let mut menu = MenuRuntime::new(true, 2, "Import fixture".into());
+    menu.set_session_option("hide_hand", Some(1));
+    menu.publish_minecraft_import(
+        launcher::minecraft_import::Snapshot {
+            phase: Phase::Result,
+            ..Default::default()
+        },
+        Some(saved_state(&SettingsOptions::default())),
+    );
+    menu.sync_user_settings(None);
+    assert!(!menu.settings_dirty);
+    menu.set_named_option("hide_hand", 1);
+    menu.sync_user_settings(None);
+    let saved = SettingsOptions::load(
+        &menu
+            .config_path
+            .with_file_name(launcher::menu::settings_options::SETTINGS_FILE),
+    );
+    assert_eq!(saved.value("hide_hand"), 1);
+    menu.set_session_option("hide_hand", None);
+    assert_eq!(menu.settings_options.value("hide_hand"), 1);
+}

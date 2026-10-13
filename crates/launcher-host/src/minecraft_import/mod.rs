@@ -1,6 +1,7 @@
 //! Consent-gated import composition, called by the launcher's existing serial pack worker.
 
 mod locations;
+mod packs;
 mod preview;
 mod storage;
 #[cfg(test)]
