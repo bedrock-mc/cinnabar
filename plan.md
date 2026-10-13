@@ -385,6 +385,18 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   differing DPI. Native offscreen validation covers nonzero small attachments.
 - The reported unfocused macOS startup panic remains incomplete until a matching
   headless startup capture reproduces it. No native parity or frame-budget gate closes.
+
+## Windows renderer startup recovery
+
+- Renderer startup flushes backend, adapter and driver diagnostics before native GPU calls.
+  A local sentinel records adapter enumeration, device creation and first presentation.
+- Interrupted automatic attempts exclude their backend on the next launch. The bounded order
+  is Vulkan, DX12, then GL/ANGLE when supported; explicit `WGPU_BACKEND` takes precedence.
+  The first completed primary-window presentation clears the sentinel and saves the working GPU.
+- Windows native exception reports stay local and include the fault module and offset,
+  thread, best-effort backtrace and renderer state. Existing runtime exception handlers retain
+  their normal behavior. This recovery policy does not close a Bedrock parity gate.
+
 ## UI text and presentation failure recovery
 
 - Wrapped presentation text keeps an indivisible glyph wider than its control, with

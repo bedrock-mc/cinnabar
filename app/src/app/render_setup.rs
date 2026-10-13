@@ -4,7 +4,7 @@
 use std::ffi::OsStr;
 use std::num::NonZeroU32;
 
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 mod guarded;
 
 #[cfg(not(windows))]
@@ -41,7 +41,9 @@ pub(super) fn render_plugin(
     let mut settings = WgpuSettings::default();
     configure_render_settings(&mut settings);
     #[cfg(windows)]
-    return guarded::render_plugin(app, data_root, settings);
+    {
+        guarded::render_plugin(app, data_root, settings)
+    }
     #[cfg(not(windows))]
     {
         let _ = (app, data_root);

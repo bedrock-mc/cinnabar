@@ -13,17 +13,17 @@ fn attempt(backend: Backend, explicit: bool) -> Attempt {
 #[test]
 fn fresh_start_and_crashed_launch_use_a_bounded_backend_order() {
     let mut policy = Recovery::default();
-    assert_eq!(policy.candidates(&Backend::ORDER, None), Backend::ORDER);
+    assert_eq!(policy.candidates(Backend::ORDER, None), Backend::ORDER);
     policy.recover(&attempt(Backend::Vulkan, false));
     policy.recover(&attempt(Backend::Vulkan, false));
     assert_eq!(
-        policy.candidates(&Backend::ORDER, None),
+        policy.candidates(Backend::ORDER, None),
         [Backend::Dx12, Backend::Gl]
     );
     policy.recover(&attempt(Backend::Dx12, false));
-    assert_eq!(policy.candidates(&Backend::ORDER, None), [Backend::Gl]);
+    assert_eq!(policy.candidates(Backend::ORDER, None), [Backend::Gl]);
     policy.recover(&attempt(Backend::Gl, false));
-    assert!(policy.candidates(&Backend::ORDER, None).is_empty());
+    assert!(policy.candidates(Backend::ORDER, None).is_empty());
 }
 
 #[test]
@@ -31,12 +31,12 @@ fn working_dx12_failure_tries_vulkan_next() {
     let mut policy = Recovery::default();
     policy.succeeded(attempt(Backend::Dx12, false));
     assert_eq!(
-        policy.candidates(&Backend::ORDER, None),
+        policy.candidates(Backend::ORDER, None),
         [Backend::Dx12, Backend::Vulkan, Backend::Gl]
     );
     policy.recover(&attempt(Backend::Dx12, false));
     assert_eq!(
-        policy.candidates(&Backend::ORDER, None),
+        policy.candidates(Backend::ORDER, None),
         [Backend::Vulkan, Backend::Gl]
     );
 }
@@ -46,17 +46,17 @@ fn explicit_override_wins_without_poisoning_automatic_recovery() {
     let mut policy = Recovery::default();
     policy.recover(&attempt(Backend::Vulkan, false));
     assert_eq!(
-        policy.candidates(&Backend::ORDER, Some(&[Backend::Vulkan])),
+        policy.candidates(Backend::ORDER, Some(&[Backend::Vulkan])),
         [Backend::Vulkan]
     );
     policy.recover(&attempt(Backend::Dx12, true));
     assert_eq!(
-        policy.candidates(&Backend::ORDER, None),
+        policy.candidates(Backend::ORDER, None),
         [Backend::Dx12, Backend::Gl]
     );
     policy.succeeded(attempt(Backend::Dx12, true));
     assert_eq!(
-        policy.candidates(&Backend::ORDER, None),
+        policy.candidates(Backend::ORDER, None),
         [Backend::Dx12, Backend::Vulkan, Backend::Gl]
     );
     assert_eq!(
@@ -73,7 +73,7 @@ fn successful_fallback_clears_the_sentinel_and_survives_relaunch() {
     let mut second = StartupGuard::open(dir.path()).unwrap();
     assert_eq!(second.interrupted, Some(attempt(Backend::Vulkan, false)));
     assert_eq!(
-        second.recovery.candidates(&Backend::ORDER, None),
+        second.recovery.candidates(Backend::ORDER, None),
         [Backend::Dx12, Backend::Gl]
     );
     second.begin(attempt(Backend::Dx12, false)).unwrap();
@@ -83,7 +83,7 @@ fn successful_fallback_clears_the_sentinel_and_survives_relaunch() {
     assert!(third.interrupted.is_none());
     assert_eq!(third.recovery.working.as_ref().unwrap().stage, Stage::Ready);
     assert_eq!(
-        third.recovery.candidates(&Backend::ORDER, None),
+        third.recovery.candidates(Backend::ORDER, None),
         [Backend::Dx12, Backend::Vulkan, Backend::Gl]
     );
 }

@@ -4,7 +4,7 @@ use std::{io::Write, path::Path};
 
 use anyhow::{Context, Result, bail};
 use bevy::{
-    prelude::*,
+    prelude::{App, Local, Res, ResMut, Resource, Update},
     render::{
         RenderPlugin,
         renderer::{RenderAdapter, RenderAdapterInfo, RenderDevice, RenderInstance, RenderQueue},
@@ -127,7 +127,8 @@ async fn create_renderer(
         backends: flags(backend),
         flags: settings.instance_flags,
         memory_budget_thresholds: settings.instance_memory_budget_thresholds,
-        ..Default::default()
+        backend_options: Default::default(),
+        display: None,
     };
     descriptor.backend_options.dx12.shader_compiler = settings.dx12_shader_compiler.clone();
     descriptor.backend_options.dx12.presentation_system =

@@ -204,6 +204,31 @@ mod tests {
     }
 
     #[test]
+    fn panic_report_retains_the_pending_renderer_stage_and_gpu() {
+        use crate::renderer_startup::{Adapter, Backend, Stage};
+        let dir = tempfile::tempdir().unwrap();
+        let mut guard = StartupGuard::open(dir.path()).unwrap();
+        let attempt = Attempt {
+            backend: Backend::Dx12,
+            adapter: Some(Adapter {
+                name: "test GPU".into(),
+                vendor: 1,
+                device: 2,
+                driver: "driver".into(),
+                driver_info: "version".into(),
+            }),
+            stage: Stage::FirstPresentation,
+            explicit: false,
+        };
+        guard.begin(attempt.clone()).unwrap();
+        let crash_dir = dir.path().join("crashes");
+        write_report(&crash_dir, &dir.path().join("core.log"), dir.path(), "boom");
+        let value: serde_json::Value =
+            serde_json::from_slice(&fs::read(reports(&crash_dir).remove(0)).unwrap()).unwrap();
+        assert_eq!(value["renderer"], serde_json::to_value(attempt).unwrap());
+    }
+
+    #[test]
     fn prune_keeps_only_the_newest_json_reports() {
         let dir = scratch("prune");
         for name in ["crash-2.json", "crash-1.json", "crash-3.json", "note.txt"] {
