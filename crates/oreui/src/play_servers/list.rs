@@ -34,15 +34,20 @@ pub(super) fn draw(
     }
     for (group, entries) in &groups {
         let collapsed = view.settings_options.server_list().collapsed(*group);
-        let header_bounds = [span[0], y + canvas.r(1.6), span[1], y + canvas.r(4.8)];
+        let header_bounds = [
+            span[0],
+            y + canvas.r(GROUP_HEADER_INSET),
+            span[1],
+            y + canvas.r(GROUP_HEADER_HEIGHT),
+        ];
         let progress = header(
             canvas,
             view,
             *group,
             entries.len(),
-            [span[0], y, span[1], y + canvas.r(4.8)],
+            [span[0], y, span[1], y + canvas.r(GROUP_HEADER_HEIGHT)],
         )?;
-        y += canvas.r(4.8);
+        y += canvas.r(GROUP_HEADER_HEIGHT);
         let total: f32 = entries
             .iter()
             .map(|&index| row_height(canvas, view, *group, index, images))
@@ -234,7 +239,7 @@ fn header(
     let state = canvas.interaction(view, Some(action));
     let expanded = !view.settings_options.server_list().collapsed(group);
     let motion = canvas.feedback(state, true, expanded, Kind::Disclosure);
-    let row = [b[0], b[1] + canvas.r(1.6), b[2], b[3]];
+    let row = [b[0], b[1] + canvas.r(GROUP_HEADER_INSET), b[2], b[3]];
     let alpha = canvas.alpha;
     if canvas
         .transitions

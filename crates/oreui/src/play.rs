@@ -49,6 +49,8 @@ pub(super) fn draw_tab(
         CREATE_HEIGHT + SPACE[0] + WORLD_ROW_HEIGHT * 0.5
     } else if selected == 1 && !view.realms.is_empty() {
         play_realms::MIN_DETAILS_HEIGHT
+    } else if selected == 2 {
+        play_servers::GROUP_HEADER_HEIGHT
     } else {
         super::theme::BODY.line
     };
