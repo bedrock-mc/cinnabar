@@ -389,3 +389,59 @@ fn altgr_and_option_characters_type_but_control_and_command_text_does_not() {
     assert_eq!(h.text(), "@ą@{");
     assert_eq!(h.reads.load(Ordering::Relaxed), 0);
 }
+
+fn typed(key_code: KeyCode, text: &str) -> KeyboardInput {
+    KeyboardInput {
+        key_code,
+        logical_key: Key::Character(text.into()),
+        state: ButtonState::Pressed,
+        text: Some(text.into()),
+        repeat: false,
+        window: Entity::PLACEHOLDER,
+    }
+}
+
+/// Command chat opens from the bound key or a typed `/` on any layout, never inside a text field.
+#[test]
+fn bound_key_or_typed_slash_opens_command_chat_outside_text_fields() {
+    let none = ButtonInput::<KeyCode>::default();
+    let mut shift = ButtonInput::<KeyCode>::default();
+    shift.press(KeyCode::ShiftLeft);
+    let mut control = ButtonInput::<KeyCode>::default();
+    control.press(KeyCode::ControlLeft);
+    let us = typed(KeyCode::Slash, "/");
+    let azerty = typed(KeyCode::Period, "/");
+    let azerty_bound_key = typed(KeyCode::Slash, "!");
+
+    assert!(opens_command_chat(true, &us, &none, false));
+    assert!(opens_command_chat(false, &azerty, &shift, false));
+    assert!(opens_command_chat(true, &azerty_bound_key, &none, false));
+    assert!(!opens_command_chat(false, &azerty_bound_key, &none, false));
+    assert!(!opens_command_chat(false, &azerty, &control, false));
+    for (bound, input) in [(true, &us), (false, &azerty)] {
+        assert!(!opens_command_chat(bound, input, &shift, true));
+    }
+}
+
+/// The press that opens command chat is not typed into it a second time.
+#[test]
+fn slash_from_any_key_opens_command_chat_with_one_slash() {
+    let mut h = Harness::new();
+    h.press(KeyCode::Slash, Some("/"));
+    assert!(h.app.world().resource::<UiRuntimeResource>().chat_focused());
+    assert_eq!(h.text(), "/");
+
+    for key in [KeyCode::Period, KeyCode::Digit7] {
+        let mut h = Harness::new();
+        h.press(KeyCode::ShiftLeft, None);
+        h.press(key, Some("/"));
+        assert!(h.app.world().resource::<UiRuntimeResource>().chat_focused());
+        assert_eq!(h.text(), "/", "{key:?}");
+        h.press(key, Some("/"));
+        assert_eq!(h.text(), "//", "{key:?}");
+    }
+
+    let mut h = Harness::new();
+    h.press(KeyCode::Slash, Some("!"));
+    assert_eq!(h.text(), "/");
+}

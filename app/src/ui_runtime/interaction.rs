@@ -710,6 +710,12 @@ pub(crate) fn drive_chat_keyboard_input(
             dismissed |= !runtime.inventory_open();
             continue;
         }
+        let command = chat_modifiers::opens_command_chat(
+            binding_key(menu.as_deref(), "key.command", input.key_code),
+            input,
+            &modifiers,
+            runtime.chat_focused(),
+        );
         if runtime.local_sleeping() && !runtime.chat_focused() {
             // The bed screen: Escape leaves the bed, T opens chat over it. Key repeats do nothing.
             match input.key_code {
@@ -723,7 +729,7 @@ pub(crate) fn drive_chat_keyboard_input(
                 key if binding_key(menu.as_deref(), "key.chat", key) => {
                     runtime.open_chat(&mut player_runtime);
                 }
-                key if binding_key(menu.as_deref(), "key.command", key) => {
+                _ if command => {
                     runtime.open_chat(&mut player_runtime);
                     let _ = runtime.insert_chat_text("/");
                 }
@@ -756,7 +762,7 @@ pub(crate) fn drive_chat_keyboard_input(
                     runtime.open_chat(&mut player_runtime);
                     consumed_gameplay = true;
                 }
-                key if binding_key(menu.as_deref(), "key.command", key) => {
+                _ if command => {
                     runtime.open_chat(&mut player_runtime);
                     let _ = runtime.insert_chat_text("/");
                     consumed_gameplay = true;

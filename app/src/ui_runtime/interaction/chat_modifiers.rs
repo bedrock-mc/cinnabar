@@ -1,5 +1,6 @@
 //! Physical modifiers survive gameplay-button resets while chat or mod screens own input.
 use super::*;
+use bevy::input::keyboard::Key;
 
 const MODIFIERS: [KeyCode; 8] = [
     KeyCode::ControlLeft,
@@ -46,6 +47,19 @@ pub(super) fn text_modified(held: &ButtonInput<KeyCode>) -> bool {
         .map(|key| keyboard_key(*key))
         .collect::<Vec<_>>();
     is_chat_edit_shortcut(&held)
+}
+
+/// Whether a press opens chat with `/`: the bound `key.command` key, or any key that types `/`
+/// on the active layout. A focused text field keeps both as plain typing.
+pub(crate) fn opens_command_chat(
+    command_bound: bool,
+    input: &KeyboardInput,
+    held: &ButtonInput<KeyCode>,
+    text_focused: bool,
+) -> bool {
+    let types_slash = input.text.as_deref() == Some("/")
+        || matches!(&input.logical_key, Key::Character(text) if text == "/");
+    !text_focused && (command_bound || (types_slash && !text_modified(held)))
 }
 
 /// Whether either physical Alt key is held, for vanilla's Alt+key command macros.
