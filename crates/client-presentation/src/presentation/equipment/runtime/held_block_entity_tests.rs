@@ -141,7 +141,7 @@ fn startup_conduit_model_reaches_camera_hands_and_player_equipment() {
         assert_eq!(camera.presentation.submission.input.rig, rig);
         let location = camera.presentation.location;
         assert_ne!(location, original_location);
-        let page = &updated_pages.pages()[usize::from(location.page())];
+        let page = &updated_pages.pages()[usize::from(location.page()) - 1];
         let (width, height) = page.dimensions();
         let bytes = usize::from(width) * usize::from(height) * 4;
         let start = location.layer() as usize * bytes;
