@@ -70,12 +70,8 @@ pub(super) fn resolve_crosshair(
     let block_distance = observed.map(|observed| {
         let hit = observed.target.position;
         let offset = observed.target.relative_hit;
-        (0..3)
-            .map(|axis| {
-                (f64::from(hit[axis]) + f64::from(offset[axis]) - f64::from(origin[axis])).powi(2)
-            })
-            .sum::<f64>()
-            .sqrt()
+        let point = std::array::from_fn(|axis| hit[axis] as f32 + offset[axis]);
+        f64::from(gameplay::melee::pick_distance(origin, point))
     });
     let authority = stream.authority();
     let actor = gameplay::melee::pick_actor_by(

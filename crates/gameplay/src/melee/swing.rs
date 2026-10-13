@@ -9,6 +9,7 @@ pub struct SwingTracker {
     authority: Option<(SessionGeneration, PositionAuthorityGeneration)>,
     completed_tick: Option<u64>,
     attempted_tick: Option<u64>,
+    attempt_revision: u64,
     deferred_attempt: Option<(u64, [i32; 2])>,
     prior_tick_states: [Counter; 2],
     started: Option<i32>,
@@ -138,7 +139,12 @@ impl SwingTracker {
 
     /// Attempts both native animations independently; the result admits the Bedrock wire packet.
     pub fn try_swing(&mut self, tick: u64, duration: i32) -> bool {
-        self.try_swing_guarded(tick, duration, None)
+        self.try_swing_guarded(tick, duration, None, false)
+    }
+
+    /// A fresh attack press may restart a swing while its counter is still -1 before the tick.
+    pub fn try_attack_swing(&mut self, tick: u64, duration: i32) -> bool {
+        self.try_swing_guarded(tick, duration, None, true)
     }
 
     /// Attempts a swing for the tick about to simulate, which has no guard history yet: both
@@ -165,10 +171,18 @@ impl SwingTracker {
                 |ticks| i32::try_from(ticks).unwrap_or(i32::MAX).max(1),
             ),
             Some(java_swing_duration(effects)),
+            false,
         )
     }
 
-    fn try_swing_guarded(&mut self, tick: u64, duration: i32, java_guard: Option<i32>) -> bool {
+    /// Applies publication and animation guards, with fresh presses allowed before tick advancement.
+    fn try_swing_guarded(
+        &mut self,
+        tick: u64,
+        duration: i32,
+        java_guard: Option<i32>,
+        fresh_press: bool,
+    ) -> bool {
         if self.authority.is_none() && self.attempted_tick.is_some_and(|previous| tick < previous) {
             *self = Self::default();
         }
@@ -176,7 +190,7 @@ impl SwingTracker {
             .deferred_attempt
             .filter(|(attempt, _)| *attempt == tick);
         let replay = self.completed_tick == Some(tick) && deferred.is_some();
-        if self.attempted_tick == Some(tick)
+        if (!fresh_press && self.attempted_tick == Some(tick))
             || self
                 .completed_tick
                 .is_some_and(|completed| tick < completed || (tick == completed && !replay))
@@ -205,6 +219,7 @@ impl SwingTracker {
         self.states[0].duration = duration.max(1);
         self.states[1].duration = java_duration.max(1);
         self.attempted_tick = Some(tick);
+        self.attempt_revision = self.attempt_revision.wrapping_add(1);
         self.deferred_attempt = None;
         if replay {
             self.advance_states(1, published_durations);
@@ -219,7 +234,7 @@ impl SwingTracker {
     /// Retains only an attempted admission that was rolled back by a rejected packet batch.
     pub fn defer_unadmitted_attempt(&mut self, candidate: &Self) {
         if self.authority == candidate.authority
-            && candidate.attempted_tick != self.attempted_tick
+            && candidate.attempt_revision != self.attempt_revision
             && let Some(tick) = candidate.attempted_tick
         {
             let durations = self

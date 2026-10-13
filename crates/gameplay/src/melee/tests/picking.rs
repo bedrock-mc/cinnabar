@@ -213,3 +213,72 @@ fn survival_reach_and_block_occlusion_decide_the_press() {
         Crosshair::Actor(hit(5.0))
     );
 }
+
+#[test]
+fn rounded_attack_margin_rejects_the_boundary_in_every_attacking_mode() {
+    use client_world::game_mode_capabilities::GameModeCapabilities;
+
+    for mode in [
+        protocol::PlayerGameMode::Survival,
+        protocol::PlayerGameMode::Adventure,
+        protocol::PlayerGameMode::Creative,
+    ] {
+        let reach = GameModeCapabilities::for_mode(mode).attack_reach;
+        let hit = ActorHit {
+            runtime_id: 7,
+            distance: reach - 0.1 - 0.000_000_01,
+            point: [0.0; 3],
+        };
+        assert_eq!(classify(Some(hit), None, reach), Crosshair::Miss);
+        let near = ActorHit {
+            distance: hit.distance - 0.001,
+            ..hit
+        };
+        assert_eq!(classify(Some(near), None, reach), Crosshair::Actor(near));
+    }
+}
+
+#[test]
+fn rounded_occlusion_margin_keeps_a_nearly_tied_actor_behind_the_block() {
+    let hit = ActorHit {
+        runtime_id: 7,
+        distance: f64::from(1.9_f32),
+        point: [0.0; 3],
+    };
+    assert_eq!(classify(Some(hit), Some(2.0), 3.0), Crosshair::Block);
+}
+
+#[test]
+fn pick_box_inflation_rounds_before_intersection() {
+    let actor = actor(9, "minecraft:pig", [0.0; 3], None);
+    let min = [3.2_f32, 0.0, -0.5];
+    let max = [4.0, 3.0, 0.5];
+    let hit = pick_actor_by(
+        [&actor].into_iter(),
+        |_| [(min, max)],
+        None,
+        EYE,
+        [1.0, 0.0, 0.0],
+        5.0,
+    )
+    .unwrap();
+    assert_eq!(hit.distance, f64::from(min[0] - 0.1_f32));
+    assert_eq!(hit.point[0], min[0] - 0.1_f32);
+}
+
+#[test]
+fn pick_distance_uses_the_rounded_world_intercept() {
+    let origin = [8192.0, 65.62, -4096.0];
+    let point = [origin[0] + 1.3, origin[1] + 0.2, origin[2] + 2.4];
+    let [x, y, z] = std::array::from_fn(|axis| point[axis] - origin[axis]);
+    assert_eq!(pick_distance(origin, point), (z * z + y * y + x * x).sqrt());
+    assert_ne!(
+        f64::from(pick_distance(origin, point)),
+        point
+            .into_iter()
+            .zip(origin)
+            .map(|(point, origin)| (f64::from(point) - f64::from(origin)).powi(2))
+            .sum::<f64>()
+            .sqrt(),
+    );
+}

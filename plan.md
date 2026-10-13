@@ -6713,6 +6713,13 @@ visual authority from the merge fix alone.
 
 Entity combat is part of this tranche and is strictly vanilla:
 
+Pick ranges, box inflation and the strict attack/occlusion margin use the native
+float limits. Personal reach requests can only shorten those limits. Fresh attack
+presses may each swing before the next tick advances the animation counter.
+Incomplete: full pose-dependent reach, per-entity pick radii, catch-up-frame attack
+positions, and latency-reply ordering still need end-to-end verification. These
+changes do not close the combat parity gate.
+
 - sample one immutable local eye/look pose, selected stack, actor snapshot,
   and collision/world identity for each attack decision;
 - ray-test against reviewed combat bounding boxes, choose the nearest valid

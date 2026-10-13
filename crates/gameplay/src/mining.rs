@@ -12,11 +12,11 @@ use semantic_input::InputMode;
 use sim::WorldCollisionIdentity;
 
 /// Creative pick ranges observed for the three input modes the app exposes.
-const CREATIVE_MOUSE_REACH_BLOCKS: f64 = 5.7;
-const CREATIVE_GAMEPAD_REACH_BLOCKS: f64 = 5.6;
+const CREATIVE_MOUSE_REACH_BLOCKS: f64 = 5.7_f32 as f64;
+const CREATIVE_GAMEPAD_REACH_BLOCKS: f64 = 5.6_f32 as f64;
 const CREATIVE_TOUCH_REACH_BLOCKS: f64 = 12.0;
-/// Survival keeps the mouse and gamepad ranges; touch is shorter. Needs independent measurement.
-const SURVIVAL_TOUCH_REACH_BLOCKS: f64 = 6.7;
+/// Survival keeps the mouse and gamepad ranges; touch is shorter.
+const SURVIVAL_TOUCH_REACH_BLOCKS: f64 = 6.7_f32 as f64;
 
 /// The identities of one frozen interaction frame. Different domains cannot be substituted.
 ///
@@ -129,5 +129,22 @@ pub const fn creative_reach(input_mode: PlayerInputMode) -> f64 {
         PlayerInputMode::Mouse => CREATIVE_MOUSE_REACH_BLOCKS,
         PlayerInputMode::GamePad => CREATIVE_GAMEPAD_REACH_BLOCKS,
         PlayerInputMode::Touch => CREATIVE_TOUCH_REACH_BLOCKS,
+    }
+}
+
+#[cfg(test)]
+mod reach_tests {
+    use super::*;
+
+    #[test]
+    fn pick_ranges_preserve_single_precision_limits() {
+        for (input, creative, survival) in [
+            (PlayerInputMode::Mouse, 5.7_f32, 5.7_f32),
+            (PlayerInputMode::GamePad, 5.6_f32, 5.6_f32),
+            (PlayerInputMode::Touch, 12.0_f32, 6.7_f32),
+        ] {
+            assert_eq!(creative_reach(input), f64::from(creative));
+            assert_eq!(survival_reach(input), f64::from(survival));
+        }
     }
 }

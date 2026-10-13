@@ -250,7 +250,7 @@ argument completion, and live visual acceptance remain incomplete.
 | Review commit | Recorded by the placement follow-up PR. |
 | Live/native witness | Headless stair comparison and door pair before server confirmation; broader family visual parity remains open. |
 | Performance/resource witness | Paused-server stair recording: first visible/staged +3 frames, observed upload +5; bounded late worker service. Click-frame and full hardware budgets remain open. |
-| Final status | Open: remaining placement families and the wider interaction/inventory gate are incomplete. |
+| Final status | Open: remaining placement families and the wider interaction/inventory gate are incomplete. Combat reach boundaries and fresh-press swings have regression coverage pending CI; pose-dependent reach, per-entity pick radii, catch-up-frame attack positions and latency-reply ordering remain open. |
 
 ## P5.6-FORMS
 

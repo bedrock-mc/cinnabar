@@ -1,8 +1,8 @@
 //! Actor picking and attack-target classification.
 use client_world::ActorSnapshot;
 
-/// Pick-box inflation and actor-versus-block bias. Needs independent measurement.
-const ACTOR_PICK_RADIUS: f64 = 0.1;
+/// Default pick-box inflation and actor-versus-block bias, evaluated as native floats.
+const ACTOR_PICK_RADIUS: f32 = 0.1;
 /// The nearest pickable actor along the crosshair ray.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActorHit {
@@ -75,6 +75,7 @@ pub fn pick_actor_by<'a, Boxes>(
 where
     Boxes: IntoIterator<Item = ([f32; 3], [f32; 3])>,
 {
+    let pick_origin = origin;
     let origin = origin.map(f64::from);
     let length = direction
         .into_iter()
@@ -89,17 +90,24 @@ where
         .filter(|actor| Some(actor.unique_id) != excluded_unique_id && actor_is_pickable(actor))
         .filter_map(|actor| {
             let distance = hit_boxes(actor).into_iter().find_map(|(min, max)| {
-                let min = min.map(|axis| f64::from(axis) - ACTOR_PICK_RADIUS);
-                let max = max.map(|axis| f64::from(axis) + ACTOR_PICK_RADIUS);
+                let min = min.map(|axis| f64::from(axis - ACTOR_PICK_RADIUS));
+                let max = max.map(|axis| f64::from(axis + ACTOR_PICK_RADIUS));
                 ray_box_entry(origin, direction, min, max).filter(|distance| *distance <= reach)
             })?;
+            let point = [0, 1, 2].map(|axis| (origin[axis] + direction[axis] * distance) as f32);
             Some(ActorHit {
                 runtime_id: actor.runtime_id,
-                distance,
-                point: [0, 1, 2].map(|axis| (origin[axis] + direction[axis] * distance) as f32),
+                distance: f64::from(pick_distance(pick_origin, point)),
+                point,
             })
         })
         .min_by(|left, right| left.distance.total_cmp(&right.distance))
+}
+
+/// Measures a pick intercept using single-precision offsets, products and square root.
+pub fn pick_distance(origin: [f32; 3], point: [f32; 3]) -> f32 {
+    let [x, y, z] = std::array::from_fn(|axis| point[axis] - origin[axis]);
+    (z * z + y * y + x * x).sqrt()
 }
 
 /// Reads the admitted obstruction disposition independently from picking.
@@ -150,12 +158,12 @@ pub fn classify(
     block_distance: Option<f64>,
     attack_reach: f64,
 ) -> Crosshair {
-    let limit = block_distance.unwrap_or(f64::INFINITY);
+    let limit = block_distance.map_or(f32::INFINITY, |distance| distance as f32);
     match actor {
-        Some(hit) if hit.distance + ACTOR_PICK_RADIUS < limit.min(attack_reach) => {
+        Some(hit) if hit.distance as f32 + ACTOR_PICK_RADIUS < limit.min(attack_reach as f32) => {
             Crosshair::Actor(hit)
         }
-        Some(hit) if hit.distance + ACTOR_PICK_RADIUS < limit => Crosshair::Miss,
+        Some(hit) if hit.distance as f32 + ACTOR_PICK_RADIUS < limit => Crosshair::Miss,
         _ if block_distance.is_some() => Crosshair::Block,
         _ => Crosshair::Miss,
     }
