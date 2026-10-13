@@ -96,62 +96,6 @@ impl WorldStream {
         for (candidate, _, _) in truncated {
             self.mesh_jobs.refresh.requeue_woken(candidate.key);
         }
-        let mut removal_candidates = Vec::new();
-        let removal_authority = self
-            .publication_allowance
-            .as_ref()
-            .map_or(removal_budget, |allowance| {
-                allowance.zero_byte_admission_capacity_with_priority(true)
-            })
-            .min(removal_budget)
-            .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()));
-        if removal_authority != 0 {
-            for index in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
-                if index != 0 && self.poll_budget_exhausted() {
-                    break;
-                }
-                let Some(candidate) = self.mesh_jobs.lanes[MESH_REMOVAL_LANE].deferred.pop() else {
-                    break;
-                };
-                self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
-                    .ready
-                    .push(candidate);
-            }
-        }
-        for index in 0..MAX_PENDING_MESH_QUEUE_WORK_PER_POLL {
-            if self.poll_budget_exhausted()
-                && (!removal_candidates.is_empty() || index >= MAX_PENDING_SCHEDULER_SCANS_PER_POLL)
-            {
-                break;
-            }
-            let Some(candidate) = self.mesh_jobs.lanes[MESH_REMOVAL_LANE].ready.pop() else {
-                break;
-            };
-            let key = candidate.key;
-            let Some(pending) = self.mesh_jobs.pending.get(&key).copied() else {
-                continue;
-            };
-            if pending.revision != candidate.revision {
-                continue;
-            }
-            if !self.revisions.is_current(key, pending.revision) {
-                self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
-                    .deferred
-                    .push(candidate);
-            } else if needs_geometry(key) {
-                self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
-                    .ready
-                    .push(candidate);
-            } else if removal_candidates.len() >= removal_authority {
-                self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
-                    .deferred
-                    .push(candidate);
-                break;
-            } else {
-                removal_candidates.push((candidate, pending));
-            }
-        }
-
         let mut dispatch = workers::WORKERS.batch(workers::Lane::Mesh);
         let mut dispatched = 0;
         let mut examined = false;
@@ -176,11 +120,23 @@ impl WorldStream {
                     .pop()
                     .expect("a peeked ready candidate");
                 let key = candidate.key;
-                candidate.refresh_rank(view);
                 let Some(pending) = self.mesh_jobs.pending.get(&key).copied() else {
                     continue;
                 };
                 if pending.revision != candidate.revision {
+                    continue;
+                }
+                // A rank queued under an earlier view yields only if it still leads under this one.
+                candidate.refresh_rank(view);
+                if probed.peek().is_some_and(|(next, _, _)| *next > candidate)
+                    || self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+                        .ready
+                        .peek()
+                        .is_some_and(|next| *next > candidate)
+                {
+                    self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+                        .ready
+                        .push(candidate);
                     continue;
                 }
                 if !self.revisions.is_current(key, pending.revision)
@@ -352,6 +308,69 @@ impl WorldStream {
         }
 
         drop(dispatch);
+        // Collected after dispatch, so air the ready lane yielded is removed in the same call.
+        let mut removal_candidates = Vec::new();
+        let removal_authority = self
+            .publication_allowance
+            .as_ref()
+            .map_or(removal_budget, |allowance| {
+                allowance.zero_byte_admission_capacity_with_priority(true)
+            })
+            .min(removal_budget)
+            .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()));
+        if removal_authority != 0 {
+            for index in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL {
+                if index != 0 && self.poll_budget_exhausted() {
+                    break;
+                }
+                let Some(candidate) = self.mesh_jobs.lanes[MESH_REMOVAL_LANE].deferred.pop() else {
+                    break;
+                };
+                self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
+                    .ready
+                    .push(candidate);
+            }
+        }
+        for index in 0..MAX_PENDING_MESH_QUEUE_WORK_PER_POLL {
+            if self.poll_budget_exhausted()
+                && (!removal_candidates.is_empty() || index >= MAX_PENDING_SCHEDULER_SCANS_PER_POLL)
+            {
+                break;
+            }
+            let Some(candidate) = self.mesh_jobs.lanes[MESH_REMOVAL_LANE].ready.pop() else {
+                break;
+            };
+            let key = candidate.key;
+            let Some(pending) = self.mesh_jobs.pending.get(&key).copied() else {
+                continue;
+            };
+            if pending.revision != candidate.revision {
+                continue;
+            }
+            if !self.revisions.is_current(key, pending.revision) {
+                self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
+                    .deferred
+                    .push(candidate);
+            } else if requires_geometry(
+                &self.resident,
+                &self.known_air,
+                self.authority.terrain(),
+                self.classifier,
+                key,
+            ) {
+                self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
+                    .ready
+                    .push(candidate);
+            } else if removal_candidates.len() >= removal_authority {
+                self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
+                    .deferred
+                    .push(candidate);
+                break;
+            } else {
+                removal_candidates.push((candidate, pending));
+            }
+        }
+
         let mut removal_candidates = removal_candidates.into_iter();
         let mut removed = false;
         while let Some((candidate, pending)) = removal_candidates.next() {
