@@ -23,7 +23,7 @@ impl QuadRanges {
             let range = &mut self.free[index];
             let start = range.start;
             range.start += count;
-            if range.is_empty() {
+            if range.start == range.end {
                 self.free.remove(index);
             }
             return start..start + count;
@@ -53,6 +53,7 @@ impl QuadRanges {
     }
 
     /// One past the highest allocated quad.
+    #[cfg(test)]
     pub(super) const fn end(&self) -> u32 {
         self.end
     }
