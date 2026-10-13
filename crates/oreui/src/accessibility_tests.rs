@@ -113,11 +113,11 @@ fn extra_large_loaded_profile_keeps_tabs_and_scrolled_actions_reachable_in_small
                     for _ in 0..32 {
                         let frame =
                             paint_with_scrolls(&mut screen, &view, metrics, size, &mut scrolls);
-                        for action in [
-                            MenuAction::AddBack,
-                            MenuAction::SelectProfileTab(ProfileTab::Overview),
-                            MenuAction::SelectProfileTab(ProfileTab::Stats),
-                        ] {
+                        let (selected, other) = match tab {
+                            ProfileTab::Overview => ("Overview", ProfileTab::Stats),
+                            ProfileTab::Stats => ("Stats", ProfileTab::Overview),
+                        };
+                        for action in [MenuAction::AddBack, MenuAction::SelectProfileTab(other)] {
                             let bounds = frame
                                 .hits
                                 .iter()
@@ -126,6 +126,38 @@ fn extra_large_loaded_profile_keeps_tabs_and_scrolled_actions_reachable_in_small
                             assert!(bounds.min().x() >= 0.0 && bounds.min().y() >= 0.0);
                             assert!(bounds.max().x() <= size[0] && bounds.max().y() <= size[1]);
                         }
+                        let selected_bounds = frame
+                            .nodes
+                            .iter()
+                            .find_map(|node| {
+                                if let ui::UiVisual::Text { layout, .. } = node.visual()
+                                    && layout
+                                        .glyphs()
+                                        .iter()
+                                        .map(|glyph| glyph.codepoint)
+                                        .collect::<String>()
+                                        == selected
+                                {
+                                    Some(node.bounds())
+                                } else {
+                                    None
+                                }
+                            })
+                            .expect("the active tab remains visibly labeled");
+                        assert!(
+                            selected_bounds.min().x() >= 0.0 && selected_bounds.min().y() >= 0.0
+                        );
+                        assert!(
+                            selected_bounds.max().x() <= size[0]
+                                && selected_bounds.max().y() <= size[1]
+                        );
+                        assert!(
+                            !frame
+                                .hits
+                                .iter()
+                                .any(|(action, _)| *action == MenuAction::SelectProfileTab(tab)),
+                            "the active tab does not offer a redundant navigation action"
+                        );
                         dressing_room_reached |= frame.hits.iter().any(|(action, bounds)| {
                             *action == MenuAction::Navigate(MenuScreen::DressingRoom)
                                 && bounds.width() > 0.0
