@@ -294,6 +294,8 @@ subprocess.run([os.environ['RUSTC_WORKSPACE_WRAPPER'], sys.executable, '-c', "im
         let wrapper = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../cargo-free");
         let spawn = || {
             Command::new(&wrapper)
+                // The fake workspace root is the cwd; inheriting the crate dir would write into it.
+                .current_dir(temp.path())
                 .env("CARGO_FREE_BUILD_ROOT", temp.path().join("build"))
                 .env("CARGO_FREE_CARGO", &fake)
                 .stdin(Stdio::piped())
