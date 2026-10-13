@@ -1,6 +1,7 @@
 //! Offline settings gallery through the installed vanilla UI carrier.
 
 use launcher::menu::MenuScreen;
+use launcher::menu::settings_options::SettingId;
 
 struct Metrics;
 
@@ -106,7 +107,7 @@ fn settings_sections_gallery() {
 fn settings_video_graphics_mode_open() {
     let index = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "graphics_mode")
+        .position(|option| option.id == SettingId::GraphicsMode)
         .unwrap();
     section_with(
         "video_forced_index",
@@ -128,7 +129,7 @@ fn open_graphics_mode_rows_select_their_own_choice() {
     };
     let index = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "graphics_mode")
+        .position(|option| option.id == SettingId::GraphicsMode)
         .unwrap() as u16;
     let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
     view.screen = MenuScreen::Settings;
@@ -195,7 +196,7 @@ fn settings_video_graphics_options_expanded() {
 fn simple_graphics(view: &mut launcher::menu::MenuView) {
     let index = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "graphics_mode")
+        .position(|option| option.id == SettingId::GraphicsMode)
         .unwrap();
     std::sync::Arc::make_mut(&mut view.settings_options).set(index, 0);
 }
@@ -459,6 +460,41 @@ fn native_skybox_offset_video_toggle_is_reachable_in_both_states() {
             } else {
                 "settings-skybox-centered"
             },
+        );
+    }
+}
+
+/// The far-terrain toggle is actionable in both persisted states through the real carrier.
+#[test]
+fn far_terrain_video_toggle_is_reachable_in_both_states() {
+    use launcher::menu::{
+        MenuAction,
+        settings_options::{FAR_TERRAIN_OPTION, SETTINGS_OPTIONS},
+    };
+    let Some(mut presentation) = super::pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping far_terrain_video_toggle_is_reachable_in_both_states: missing installed UI carrier; make assets"
+        );
+        return;
+    };
+    let index = SETTINGS_OPTIONS
+        .iter()
+        .position(|o| o.name == FAR_TERRAIN_OPTION.name)
+        .unwrap() as u16;
+    let mut view = crate::test_support::settings_view();
+    view.settings_section = launcher::menu::settings_sections::SETTINGS_SECTIONS
+        .iter()
+        .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
+        .unwrap();
+    let player = player_state::PlayerState::new(1);
+    for enabled in [true, false] {
+        std::sync::Arc::make_mut(&mut view.settings_options)
+            .set(index as usize, i32::from(enabled));
+        let action = MenuAction::SettingsOption(index, i32::from(!enabled));
+        view.focused_action = Some(action);
+        assert!(
+            crate::test_support::draw_menu_actions(&player, &mut presentation, &view)
+                .contains(&action)
         );
     }
 }

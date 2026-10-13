@@ -1,5 +1,6 @@
 //! Voice management: definition resolution, randomization, attenuation, limits and managed loops.
 
+use assets::audio_category::AudioCategory;
 use std::{collections::HashMap, sync::Arc};
 
 use assets::FloatRange;
@@ -8,7 +9,7 @@ use bevy::prelude::Resource;
 use super::{
     bank::{PcmLookup, SoundBank},
     echo::{EchoLedger, EchoOrigin, EchoSubject},
-    settings::{AudioCategory, AudioSettings},
+    settings::AudioSettings,
     voice::{VoiceShared, VoiceSource, attenuation, pan_for},
 };
 

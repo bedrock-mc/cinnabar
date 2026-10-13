@@ -1,5 +1,6 @@
 //! Death-route state and respawn requests retained until authoritative recovery.
 
+use launcher::menu::settings_options::SettingId;
 use {super::MenuRuntime, launcher::menu::MenuScreen};
 
 /// Real-time delay before ordinary death controls become visible and accept input.
@@ -17,7 +18,10 @@ impl MenuRuntime {
         self.death_loading = false;
         self.death_retry_remaining = None;
         self.death_presentation = launcher::menu::death::DeathPresentation::new(
-            self.settings_snapshot().0.value("screen_animations") != 0,
+            self.settings_snapshot()
+                .0
+                .value(SettingId::ScreenAnimations)
+                != 0,
             false,
         );
         self.dialog = None;

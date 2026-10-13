@@ -4,6 +4,8 @@ use super::input::command_macros::macro_editors;
 use super::input::fields::field_editor;
 #[cfg(feature = "developer-control")]
 use launcher::menu::MenuDialog;
+#[cfg(test)]
+use launcher::menu::settings_options::SettingId;
 use launcher::menu::settings_options::{SETTINGS_FILE, SettingsOptions};
 use {
     super::*, launcher::install_layout::InstallLayout, launcher::menu::MenuField,
@@ -290,12 +292,15 @@ mod tests {
     #[test]
     fn test_menus_never_share_saved_settings() {
         let mut first = MenuRuntime::new(true, 2, "Steve".to_owned());
-        let default = first.settings_options.value("field_of_view");
-        first.set_named_option("field_of_view", default + 1);
+        let default = first.settings_options.value(SettingId::FieldOfView);
+        first.set_named_option(SettingId::FieldOfView, default + 1);
         first.sync_user_settings(None);
         assert!(!first.settings_dirty, "{:?}", first.message);
 
         let second = MenuRuntime::new(true, 2, "Steve".to_owned());
-        assert_eq!(second.settings_options.value("field_of_view"), default);
+        assert_eq!(
+            second.settings_options.value(SettingId::FieldOfView),
+            default
+        );
     }
 }

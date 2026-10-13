@@ -453,6 +453,7 @@ dependencies = [
  "flate2",
  "glam",
  "lewton",
+ "protocol-ids",
  "rayon",
  "rustix 1.1.4",
  "serde",
@@ -2042,11 +2043,13 @@ dependencies = [
  "client-world",
  "criterion",
  "crossbeam-channel",
+ "far-terrain",
  "hashbrown 0.16.1",
  "libc",
  "meshing",
  "mimalloc",
  "protocol",
+ "protocol-ids",
  "rayon",
  "render-api",
  "serde_json",
@@ -2115,6 +2118,7 @@ dependencies = [
  "diagnostics",
  "env-compat",
  "experience-sdk",
+ "far-terrain",
  "first-run",
  "fontdue",
  "gameplay",
@@ -2145,6 +2149,7 @@ dependencies = [
  "player-state",
  "profiling",
  "protocol",
+ "protocol-ids",
  "raw-window-handle",
  "rayon",
  "render",
@@ -2304,6 +2309,7 @@ dependencies = [
  "particles",
  "player-state",
  "protocol",
+ "protocol-ids",
  "resource-pack",
  "rodio",
  "serde_json",
@@ -2362,6 +2368,7 @@ dependencies = [
  "inventory 0.1.19",
  "player-state",
  "protocol",
+ "protocol-ids",
  "semantic-input",
  "sha2",
  "sim",
@@ -2391,6 +2398,7 @@ dependencies = [
  "pack-entity-compiler",
  "player-state",
  "protocol",
+ "protocol-ids",
  "render-api",
  "render-model",
  "render-scene",
@@ -2429,6 +2437,7 @@ dependencies = [
  "meshing",
  "pack-runtime",
  "protocol",
+ "protocol-ids",
  "render",
  "render-api",
  "render-scene",
@@ -2444,6 +2453,7 @@ dependencies = [
  "bytes",
  "crossbeam-channel",
  "protocol",
+ "protocol-ids",
  "serde_json",
  "server-experience",
  "simulation-clock",
@@ -2537,6 +2547,7 @@ dependencies = [
  "pack-json",
  "player-state",
  "protocol",
+ "protocol-ids",
  "rayon",
  "render-api",
  "render-model",
@@ -2571,6 +2582,7 @@ dependencies = [
  "bytes",
  "hashbrown 0.16.1",
  "protocol",
+ "protocol-ids",
  "render-api",
  "render-model",
  "sha2",
@@ -3518,6 +3530,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
 
 [[package]]
+name = "far-terrain"
+version = "0.1.19"
+dependencies = [
+ "assets",
+ "criterion",
+ "crossbeam-channel",
+ "flate2",
+ "rayon",
+ "render-api",
+ "sha2",
+ "tempfile",
+ "test-time",
+ "thiserror 2.0.18",
+ "tracing",
+ "world",
+ "xxhash-rust",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3779,6 +3810,7 @@ dependencies = [
  "inventory 0.1.19",
  "player-state",
  "protocol",
+ "protocol-ids",
  "render-api",
  "semantic-input",
  "serde",
@@ -4336,6 +4368,7 @@ dependencies = [
  "assets",
  "bytes",
  "protocol",
+ "protocol-ids",
  "serde",
  "serde_json",
  "sha2",
@@ -6137,6 +6170,7 @@ dependencies = [
  "cap-fs-ext",
  "cap-std",
  "futures",
+ "protocol-ids",
  "render-api",
  "serde",
  "serde_json",
@@ -6152,6 +6186,10 @@ dependencies = [
  "xxhash-rust",
  "zeroize",
 ]
+
+[[package]]
+name = "protocol-ids"
+version = "0.1.19"
 
 [[package]]
 name = "pulley-interpreter"
@@ -6471,6 +6509,7 @@ dependencies = [
  "block-transform",
  "bytemuck",
  "env-compat",
+ "far-terrain",
  "glam",
  "image",
  "libc",
@@ -6539,6 +6578,7 @@ dependencies = [
  "bevy",
  "bytemuck",
  "env-compat",
+ "far-terrain",
  "glam",
  "meshing",
  "mod-api",

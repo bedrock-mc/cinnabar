@@ -53,14 +53,15 @@ pub(super) fn configure_graph(world: &mut World, enabled: bool) {
                     (
                         crate::gpu_timing::profiled(motion_blur, None, "MotionBlurLabel")
                             .in_set(MotionBlurLabel)
-                            .after(crate::depth_smaa::DepthSmaaLabel),
+                            .before(crate::depth_smaa::DepthSmaaLabel),
                         crate::gpu_timing::profiled(
                             crate::chunk::transparent::gamma_pass::gamma_transparent::<true>,
                             None,
                             "SharpNametagsLabel",
                         )
                         .in_set(SharpNametagsLabel)
-                        .after(MotionBlurLabel),
+                        .after(MotionBlurLabel)
+                        .after(crate::depth_smaa::DepthSmaaLabel),
                     )
                         .after(crate::scene_target::ScenePass::Transparent)
                         .before(crate::ui_render::UiWorldLabel)
@@ -78,6 +79,7 @@ pub(super) fn configure_graph(world: &mut World, enabled: bool) {
 struct BlurPassesInstalled(bool);
 
 type MotionBlurQuery = (
+    Entity,
     &'static CameraMotionBlur,
     &'static BlurView,
     &'static ViewTarget,
@@ -91,7 +93,7 @@ pub(super) fn motion_blur(
     query: bevy::render::renderer::ViewQuery<MotionBlurQuery>,
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
-    let (_, state, target, scene, depth) = query.into_inner();
+    let (entity, _, state, target, scene, depth) = query.into_inner();
     let context = &mut context;
     if !state.active {
         return Ok(());
@@ -100,12 +102,55 @@ pub(super) fn motion_blur(
     let Some(pipeline) = cache.get_render_pipeline(state.pipeline) else {
         return Ok(());
     };
+    let Some(footprint_pipeline) = cache.get_render_pipeline(state.footprint_pipeline) else {
+        return Ok(());
+    };
+    let Some(footprint) = &state.footprint else {
+        return Ok(());
+    };
     let Some(binding) = state.binding(
         target.main_texture_view().id(),
         crate::scene_sampling::view_depth(depth).id(),
     ) else {
         return Ok(());
     };
+    if let Some(actors) = &state.actors
+        && !crate::actor_render::motion::draw(
+            world,
+            actors,
+            entity,
+            depth,
+            state.viewport(),
+            context,
+        )
+    {
+        return Ok(());
+    }
+    if state.actors.is_some() {
+        let attachments = [Some(RenderPassColorAttachment {
+            view: &footprint.view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                store: wgpu::StoreOp::Store,
+            },
+        })];
+        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+            label: Some("actor motion tile reduction"),
+            color_attachments: &attachments,
+            depth_stencil_attachment: None,
+            timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                world,
+                render_scene::RuntimeStage::GpuPost,
+            ),
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_render_pipeline(footprint_pipeline);
+        pass.set_bind_group(0, &footprint.binding, &[]);
+        pass.draw(0..3, 0..1);
+    }
     // Resolve only world colour, then write exposure back before sharp projected UI and hands.
     if scene.texture.sample_count() == 1 {
         context.command_encoder().copy_texture_to_texture(

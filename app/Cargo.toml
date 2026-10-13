@@ -97,6 +97,7 @@ glam.workspace = true
 crossbeam-channel = "0.5"
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 chunk-pipeline = { path = "../crates/chunk-pipeline" }
+far-terrain = { path = "../crates/far-terrain" }
 client-world = { path = "../crates/client-world" }
 actor-animation = { path = "../crates/actor-animation" }
 image.workspace = true
@@ -145,6 +146,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+protocol-ids = { path = "../crates/protocol-ids" }
 actor-animation = { path = "../crates/actor-animation", features = ["test-support"] }
 test-alloc = { path = "../crates/test-alloc" }
 client-shell = { path = "../crates/client-shell", features = ["test-support"] }

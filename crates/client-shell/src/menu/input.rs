@@ -1,3 +1,4 @@
+use launcher::menu::settings_options::SettingId;
 mod cancel;
 pub(super) mod command_macros;
 pub mod context;
@@ -34,8 +35,10 @@ use launcher::menu::view::MenuCaret;
 use {super::MenuRuntime, launcher::menu::MenuField};
 
 /// Vanilla's fixed desktop option hotkeys.
-pub const HOTKEY_OPTIONS: [(KeyCode, &str); 2] =
-    [(KeyCode::F1, "hide_hud"), (KeyCode::F8, "hide_paperdoll")];
+pub const HOTKEY_OPTIONS: [(KeyCode, SettingId); 2] = [
+    (KeyCode::F1, SettingId::HideHud),
+    (KeyCode::F8, SettingId::HidePaperdoll),
+];
 
 #[derive(Resource)]
 pub struct MenuClipboard(
@@ -483,7 +486,7 @@ pub fn drive_menu_input(
         gui_scale_drag.captured = false;
         gui_scale_drag.left_held = false;
         if !menu.is_visible()
-            && menu.settings_options.value("pause_menu_on_focus_lost") != 0
+            && menu.settings_options.value(SettingId::PauseMenuOnFocusLost) != 0
             && !crate::screen_policy::absorbs_input(
                 &player_runtime,
                 runtime.as_deref().map(|runtime| &runtime.0),

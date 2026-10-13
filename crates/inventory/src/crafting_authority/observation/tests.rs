@@ -503,7 +503,7 @@ fn observer_does_not_change_normal_open_close_bytes_or_allocate_craft_request() 
     assert_eq!(bytes(ledger.pending_batch().unwrap().unwrap().0), expected);
     let open = ContainerOpenEvent {
         container: ContainerIdentity::window(1),
-        window_type: 0,
+        window_type: crate::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
         position: [0, 64, 0],
         runtime_entity_id: -1,
     };

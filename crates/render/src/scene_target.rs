@@ -71,6 +71,11 @@ impl SceneTarget {
             && self.texture.sample_count() == samples
     }
 
+    /// The linear view's format, which pipelines writing `color_view(false)` target.
+    pub(crate) const fn format(&self) -> TextureFormat {
+        self.format
+    }
+
     /// Selects the material's blend colour space without changing the underlying samples.
     pub(crate) fn color_view(&self, encoded: bool) -> &TextureView {
         if encoded { &self.encoded } else { &self.linear }

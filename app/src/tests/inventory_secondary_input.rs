@@ -14,6 +14,7 @@ use bevy::{
     time::{Real, Time},
     window::{CursorOptions, PrimaryWindow, Window, WindowResolution},
 };
+use launcher::menu::settings_options::BindingId;
 use protocol::{
     CONTAINER_NAME_CURSOR, CONTAINER_NAME_LEVEL_ENTITY, ContainerIdentity, ContainerOpenEvent,
     InventoryAuthority, InventoryContentEvent, InventoryEvent, NetworkItemStack,
@@ -989,7 +990,9 @@ fn review_remapped_drop_does_not_keep_q_active_in_inventory() {
         app.update();
         let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
         assert_eq!(
-            menu.view().settings_options.named_key_control("key.drop"),
+            menu.view()
+                .settings_options
+                .named_key_control(BindingId::Drop),
             Some(semantic_input::PhysicalControl::KeyboardUsage(
                 client_shell::physical_input::keyboard_usage(KeyCode::KeyR).unwrap()
             ))

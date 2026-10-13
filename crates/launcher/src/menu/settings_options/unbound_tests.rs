@@ -1,5 +1,6 @@
 use super::*;
 
+use super::BindingId;
 #[test]
 fn explicit_unbound_survives_reload_and_preserves_other_device_and_actions() {
     let mut settings = SettingsOptions::default();
@@ -39,16 +40,16 @@ fn explicit_unbound_supplemental_key_removes_secondary_default() {
     let mut settings = SettingsOptions::default();
     settings.keys.insert("key.chat".into(), UNBOUND_CONTROL);
     let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-    assert_eq!(loaded.named_key_control("key.chat"), None);
-    assert_eq!(loaded.secondary_key_control("key.chat"), None);
+    assert_eq!(loaded.named_key_control(BindingId::Chat), None);
+    assert_eq!(loaded.secondary_key_control(BindingId::Chat), None);
     loaded.reset_bindings(false);
     assert_eq!(
-        loaded.named_key_control("key.chat"),
-        SettingsOptions::default().named_key_control("key.chat")
+        loaded.named_key_control(BindingId::Chat),
+        SettingsOptions::default().named_key_control(BindingId::Chat)
     );
     assert_eq!(
-        loaded.secondary_key_control("key.chat"),
-        SettingsOptions::default().secondary_key_control("key.chat")
+        loaded.secondary_key_control(BindingId::Chat),
+        SettingsOptions::default().secondary_key_control(BindingId::Chat)
     );
 }
 
@@ -93,10 +94,10 @@ fn explicit_empty_and_missing_bindings_are_distinct_but_invalid_codes_are_reject
     assert_eq!(
         SettingsOptions::decode(br#"{"keys":{"key.chat":0}}"#)
             .unwrap()
-            .named_key_control("key.chat"),
+            .named_key_control(BindingId::Chat),
         None
     );
-    let default = SettingsOptions::default().named_key_control("key.chat");
+    let default = SettingsOptions::default().named_key_control(BindingId::Chat);
     assert!(default.is_some());
     for bytes in [
         br#"{"keys":{}}"#.as_slice(),
@@ -105,7 +106,7 @@ fn explicit_empty_and_missing_bindings_are_distinct_but_invalid_codes_are_reject
         assert_eq!(
             SettingsOptions::decode(bytes)
                 .unwrap()
-                .named_key_control("key.chat"),
+                .named_key_control(BindingId::Chat),
             default
         );
     }
@@ -114,7 +115,10 @@ fn explicit_empty_and_missing_bindings_are_distinct_but_invalid_codes_are_reject
 #[test]
 fn unbinding_does_not_enable_an_unrelated_suppressed_default() {
     let mut settings = SettingsOptions::decode(br#"{"keys":{"key.drop":17}}"#).unwrap();
-    assert_eq!(settings.named_key_control(OPEN_NOTIFICATION_KEY), None);
+    assert_eq!(
+        settings.named_key_control(BindingId::InteractWithToast),
+        None
+    );
     let original = settings.controls().unwrap();
     let row = KEY_BINDINGS.len()
         + EXTRA_KEYS
@@ -123,8 +127,8 @@ fn unbinding_does_not_enable_an_unrelated_suppressed_default() {
             .unwrap();
     assert!(settings.unbind_key(row));
     let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-    assert_eq!(loaded.named_key_control("key.drop"), None);
-    assert_eq!(loaded.named_key_control(OPEN_NOTIFICATION_KEY), None);
+    assert_eq!(loaded.named_key_control(BindingId::Drop), None);
+    assert_eq!(loaded.named_key_control(BindingId::InteractWithToast), None);
     assert_eq!(loaded.controls().unwrap(), original);
 }
 

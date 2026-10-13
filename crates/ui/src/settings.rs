@@ -198,6 +198,8 @@ pub struct VideoSettings {
     pub java_animations: bool,
     /// Preserves Bedrock skybox placement; disabling it centers the cube.
     pub native_skybox_offset: bool,
+    /// Draw cached terrain past the render distance.
+    pub far_terrain: bool,
 }
 
 impl Default for VideoSettings {
@@ -224,6 +226,7 @@ impl Default for VideoSettings {
             damage_bob: 1.0,
             java_animations: false,
             native_skybox_offset: assets::DEFAULT_NATIVE_SKYBOX_OFFSET,
+            far_terrain: render_api::far_terrain::DEFAULT_ENABLED,
         }
     }
 }

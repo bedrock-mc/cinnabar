@@ -1,3 +1,39 @@
+## Far terrain (LOD)
+
+`far-terrain` summarises each column the server sent: the height of every cell's highest
+visible block, its average texture colour tinted by biome, and any water depth, with water
+blended over its floor. World workers summarise a column when all of its sections have arrived,
+including a resend, and again as it retires, so local edits are kept. Summaries hash their
+content, so an identical resend leaves the cache unchanged. The in-memory cache keeps them
+compressed under a byte budget and drops the least recently used first. All bounds live in
+`far_terrain::config`.
+
+Summaries persist under the user data root in 32×32-column region files, namespaced by a
+hashed server identity, the dimension and a hash of StartGame's seed, level ID and level name.
+Before reusing a namespace, the first non-empty columns received are compared with it (or
+whatever arrived within 10 s, for sparse worlds); a mismatch starts a new epoch, so servers that
+reuse coordinates for different maps keep them apart. Columns show from memory before that, a
+disk read never replaces a newer column, and a retired session's late summaries never replace
+a later visit's. Transfers and dimension changes switch namespace. An IO thread writes each region in
+batches and evicts the least recently used regions past the per-server (64 MiB) and global
+(512 MiB) caps.
+
+The far pass draws the cached terrain beyond near terrain as blocky tiles of 64×64 cells,
+1 to 16 blocks wide, finer toward the near edge; only the finest level meets near terrain.
+Its quads hide over exactly the columns near terrain has drawn, those loaded with every mesh
+uploaded, so each column has one drawer and loading or eviction opens no hole. Tile meshes merge equal-height
+tops and runs of walls on worker threads, rebuild at most every 250 ms when their columns
+change, and keep a replaced tile drawn until its replacements are ready. The GPU holds only
+the selected tiles; a still camera uploads and rebuilds nothing. Cells are lit as sky-lit
+terrain faces and fogged with the terrain fog, which is unchanged. The render distance is how
+far the player sees: far terrain fills the gap between what the server sends and the render
+distance, within a budget set by the device tier (`render_api::far_terrain`). Video › Far
+Terrain (LOD) turns it on or off (default off).
+
+Incomplete: the far-terrain look (cell colours, height aggregation and water blending) is held
+for owner review. Enhanced rendering lights far terrain with the vanilla path,
+and block light, clouds and weather do not reach it. No parity gate closes here.
+
 ## Experimental Android client
 
 `packaging/android/build-apk.sh` builds an arm64-v8a APK holding the client library, the Go
@@ -426,8 +462,16 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   visual extension; classic Bedrock has no motion blur. Gameplay and network state do not change.
 - Depth reprojection blurs camera rotation/translation before nametags, projected UI, hands and HUD.
   Exposure uses elapsed frame time; explicit reanchors suppress the discontinuity frame.
-- Per-object blur remains incomplete and needs motion vectors from every world renderer.
-  Hardware GPU cost and frame-budget acceptance remain unmeasured; no performance gate closes.
+  Spatial anti-aliasing follows exposure so filtered silhouette colour retains the actor's sharp edge.
+- Depth-writing actors retain their previous rendered root and interpolated bone pose for object
+  exposure. Actor texels establish visible motion footprints in the background while
+  retaining stationary actor edges and nearer occluders. The motion pass preserves camera depth ranges.
+  Mixed MSAA texels with nearer non-actor samples retain their resolved colour at the source;
+  separating the actor's colour for exposure remains incomplete.
+- Per-object blur remains incomplete for blended actors and other world renderers. Hidden background
+  reconstruction, competing object velocities in a search neighbourhood, and matched flight acceptance
+  remain open. Enabled views retain a reduced actor velocity target. Hardware GPU cost and frame-budget
+  acceptance remain unmeasured; no performance gate closes.
 
 ## Item frames
 
@@ -6945,7 +6989,7 @@ multiplicatively and are the required approach, not suggestions:
    minimum target adapter, otherwise at most two equal-format array pages in the same shared
    bind group. More pages, frame dropping, or silent animation degradation are forbidden.
 
-Explicitly deferred past v1: distant-chunk LODs (not needed at a 16-chunk radius), GPU
+Explicitly deferred past v1: GPU
 occlusion queries (cave culling suffices), and mesh shaders.
 
 Resource budget (tracked from Phase 2 onward; reference machine class = Ryzen 5 3600 / mid

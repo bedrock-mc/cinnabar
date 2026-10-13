@@ -1,3 +1,5 @@
+use launcher::menu::settings_options::BindingId;
+use launcher::menu::settings_options::SettingId;
 use semantic_input::{InputContext, PhysicalControl};
 use {
     crate::menu::settings_options::control_bindings::{
@@ -66,16 +68,34 @@ fn supplemental_bindings_drive_production_keyboard_and_mouse_helpers() {
     let mut keys = ButtonInput::default();
     let mut mouse = ButtonInput::default();
     keys.press(KeyCode::KeyI);
-    assert!(binding_key(Some(&menu), "key.inventory", KeyCode::KeyI));
-    assert!(!binding_key(Some(&menu), "key.inventory", KeyCode::KeyE));
-    assert!(binding_pressed(Some(&menu), "key.inventory", &keys, &mouse));
+    assert!(binding_key(
+        Some(&menu),
+        BindingId::Inventory,
+        KeyCode::KeyI
+    ));
+    assert!(!binding_key(
+        Some(&menu),
+        BindingId::Inventory,
+        KeyCode::KeyE
+    ));
+    assert!(binding_pressed(
+        Some(&menu),
+        BindingId::Inventory,
+        &keys,
+        &mouse
+    ));
     assert!(
         std::sync::Arc::make_mut(&mut menu.settings_options)
             .remap(index, PhysicalControl::MouseButton(4))
     );
     mouse.press(MouseButton::Back);
-    assert!(binding_mouse(Some(&menu), "key.inventory", &mouse));
-    assert!(binding_pressed(Some(&menu), "key.inventory", &keys, &mouse));
+    assert!(binding_mouse(Some(&menu), BindingId::Inventory, &mouse));
+    assert!(binding_pressed(
+        Some(&menu),
+        BindingId::Inventory,
+        &keys,
+        &mouse
+    ));
 }
 
 /// An Alt+key macro resolves its stored command, and only while it is armed.
@@ -131,10 +151,10 @@ fn chat_secondary_default_obeys_remapping_and_allows_a_shared_reset() {
     let enter = PhysicalControl::KeyboardUsage(0x28);
     let mut keys = ButtonInput::default();
     keys.press(KeyCode::Enter);
-    assert!(binding_key(Some(&menu), "key.chat", KeyCode::KeyT));
+    assert!(binding_key(Some(&menu), BindingId::Chat, KeyCode::KeyT));
     assert!(binding_pressed(
         Some(&menu),
-        "key.chat",
+        BindingId::Chat,
         &keys,
         &ButtonInput::default()
     ));
@@ -142,12 +162,16 @@ fn chat_secondary_default_obeys_remapping_and_allows_a_shared_reset() {
     assert!(settings.remap(inventory, enter));
     assert!(settings.remap(chat, PhysicalControl::KeyboardUsage(0x1c)));
     assert!(settings.remap(inventory, enter));
-    assert!(!binding_key(Some(&menu), "key.chat", KeyCode::Enter));
-    assert!(binding_key(Some(&menu), "key.chat", KeyCode::KeyY));
+    assert!(!binding_key(Some(&menu), BindingId::Chat, KeyCode::Enter));
+    assert!(binding_key(Some(&menu), BindingId::Chat, KeyCode::KeyY));
     let settings = std::sync::Arc::make_mut(&mut menu.settings_options);
     assert!(settings.reset_key(chat));
-    assert!(binding_key(Some(&menu), "key.chat", KeyCode::Enter));
-    assert!(binding_key(Some(&menu), "key.inventory", KeyCode::Enter));
+    assert!(binding_key(Some(&menu), BindingId::Chat, KeyCode::Enter));
+    assert!(binding_key(
+        Some(&menu),
+        BindingId::Inventory,
+        KeyCode::Enter
+    ));
     assert!(std::sync::Arc::make_mut(&mut menu.settings_options).reset_key(inventory));
 }
 
@@ -297,7 +321,7 @@ fn a_failed_settings_save_remains_pending_until_storage_recovers() {
     menu.sync_user_settings(None);
     assert!(!menu.settings_dirty);
     assert_eq!(
-        SettingsOptions::load(&blocked.join(SETTINGS_FILE)).value("gamma"),
+        SettingsOptions::load(&blocked.join(SETTINGS_FILE)).value(SettingId::Gamma),
         70
     );
     std::fs::remove_dir_all(root).unwrap();
@@ -335,7 +359,7 @@ fn review_ui_failed_settings_save_does_not_retry_on_the_next_frame() {
     menu.sync_user_settings(None);
     assert!(!menu.settings_dirty);
     assert!(menu.settings_retry_at.is_none());
-    assert_eq!(SettingsOptions::load(&path).value("gamma"), 80);
+    assert_eq!(SettingsOptions::load(&path).value(SettingId::Gamma), 80);
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -346,19 +370,19 @@ fn session_overrides_apply_in_memory_but_are_never_saved() {
     let skin = crate::player_skin::LocalPlayerSkin::generated_default("Overrides");
     let mut menu =
         crate::menu::MenuRuntime::new_with_layout(true, Some(2), "Overrides".into(), layout, skin);
-    menu.set_session_option("hide_hud", Some(1));
-    menu.set_session_option("hide_hand", Some(1));
-    assert_eq!(menu.settings_snapshot().0.value("hide_hud"), 1);
+    menu.set_session_option(SettingId::HideHud, Some(1));
+    menu.set_session_option(SettingId::HideHand, Some(1));
+    assert_eq!(menu.settings_snapshot().0.value(SettingId::HideHud), 1);
     // A real edit elsewhere saves the file without the overrides.
     menu.set_option(index("main_volume") as u16, 30);
     menu.sync_user_settings(None);
     let saved = SettingsOptions::load(&settings_path);
-    assert_eq!(saved.value("hide_hud"), 0);
-    assert_eq!(saved.value("hide_hand"), 0);
-    assert_eq!(saved.value("main_volume"), 30);
-    menu.set_session_option("hide_hud", None);
-    assert_eq!(menu.settings_snapshot().0.value("hide_hud"), 0);
-    assert_eq!(menu.settings_snapshot().0.value("hide_hand"), 1);
+    assert_eq!(saved.value(SettingId::HideHud), 0);
+    assert_eq!(saved.value(SettingId::HideHand), 0);
+    assert_eq!(saved.value(SettingId::MainVolume), 30);
+    menu.set_session_option(SettingId::HideHud, None);
+    assert_eq!(menu.settings_snapshot().0.value(SettingId::HideHud), 0);
+    assert_eq!(menu.settings_snapshot().0.value(SettingId::HideHand), 1);
 }
 
 #[test]

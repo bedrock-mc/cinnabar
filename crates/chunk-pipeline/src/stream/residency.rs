@@ -63,7 +63,9 @@ impl WorldStream {
         if columns.is_empty() {
             return;
         }
+        let far_retiring = self.far_retiring_snapshots(&columns);
         self.actor_block_syncs.remove_columns(&columns);
+        self.forget_near_drawn(&columns);
         for &column in &columns {
             self.light_diagnostics.remove_column(column);
             self.evict_block_crack_column(column);
@@ -140,6 +142,7 @@ impl WorldStream {
         if !retired.is_empty() || retired_indexes.is_some() {
             rayon::spawn(move || drop((retired, retired_indexes)));
         }
+        self.far_terrain.retiring.extend(far_retiring);
     }
 
     /// Resident keys outside the removed columns that sample a removed key: face neighbours
@@ -355,7 +358,7 @@ impl WorldStream {
     }
 
     /// Local physics advances the player grid between server corrections.
-    fn player_chunk(&self) -> ChunkKey {
+    pub(super) fn player_chunk(&self) -> ChunkKey {
         if let Some(chunk) = self.local_player_chunk {
             return chunk;
         }
