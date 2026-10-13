@@ -183,7 +183,7 @@ pub fn advance_actor_frame(
         items.as_ref().map(|items| Arc::as_ptr(items).cast()),
     );
     let held_source = session_id
-        .and_then(|_| block_entities.as_ref())
+        .and(block_entities.as_ref())
         .and_then(|scene| scene.held_models());
     let held_changed = equipment
         .as_deref()
