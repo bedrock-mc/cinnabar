@@ -67,8 +67,14 @@ pub(super) fn emit(
             (world, uv)
         };
         for (texels, y) in geometry::POT_PLANES {
-            let (corners, uv) = plane(texels, y);
-            builder.quad(Layer::Solid, corners, uv, WHITE);
+            let (mut corners, [u0, v0, u1, v1]) = plane(texels, y);
+            let mut uvs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+            if y == 0.0 {
+                // The bottom faces down; keep each texel on its original corner.
+                corners.reverse();
+                uvs.reverse();
+            }
+            builder.quad_uv(Layer::Solid, corners, uvs, WHITE);
         }
     }
     let Some(side) = atlas.texture(geometry::POT_SIDE_TEXTURE.0, geometry::POT_SIDE_TEXTURE.1)

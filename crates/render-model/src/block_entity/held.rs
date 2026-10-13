@@ -165,6 +165,8 @@ pub fn held_block_entity_geometry(
         return None;
     }
     let mut builder = MeshBuilder::new(atlas.size());
+    // The actor rig needs face normals; its submission supplies the actual light.
+    builder.actor_light = crate::pack_actor_light(0, 0);
     kind.emit(&mut builder, atlas);
     if builder.solid.is_empty() {
         return None;
@@ -204,6 +206,84 @@ pub fn held_block_entity_geometry(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn held_models_have_finite_unit_face_normals() {
+        use assets::block_entity_geometry as geometry;
+        use glam::Vec3;
+
+        let textures = [
+            "textures/entity/chest/normal".to_owned(),
+            geometry::POT_BASE_TEXTURE.0.to_owned(),
+            geometry::POT_SIDE_TEXTURE.0.to_owned(),
+            geometry::CONDUIT_TEXTURE.0.to_owned(),
+        ]
+        .into_iter()
+        .chain(geometry::SHULKER_COLORS.map(geometry::shulker_texture));
+        let side = 64;
+        let mut placements = textures
+            .enumerate()
+            .map(|(index, name)| assets::BlockEntityPlacement {
+                name: name.into(),
+                x: 0,
+                y: index as u32 * side,
+                width: side,
+                height: side,
+            })
+            .collect::<Vec<_>>();
+        placements.sort_by(|left, right| left.name.cmp(&right.name));
+        let height = side * placements.len() as u32;
+        let encoded = assets::encode_block_entity_catalog(
+            b"{}",
+            side,
+            height,
+            &vec![255; (side * height * 4) as usize],
+            &placements,
+        )
+        .unwrap();
+        let atlas = BlockEntityAtlas::from_assets(
+            &assets::RuntimeBlockEntityAssets::decode(&encoded).unwrap(),
+        );
+        let kinds = [
+            HeldBlockEntity::Chest(ChestVariantKey::Normal),
+            HeldBlockEntity::DecoratedPot,
+            HeldBlockEntity::Conduit,
+        ]
+        .into_iter()
+        .chain(geometry::SHULKER_COLORS.map(HeldBlockEntity::Shulker));
+        for kind in kinds {
+            let model = held_block_entity_geometry(EntityRigId(1), &atlas, kind).unwrap();
+            let (triangles, remainder) = model.vertices.as_chunks::<3>();
+            assert!(remainder.is_empty());
+            for triangle in triangles {
+                let [a, b, c] = triangle.map(|vertex| Vec3::from_array(vertex.position));
+                let face_normal = (c - a).cross(b - a).normalize();
+                for vertex in triangle {
+                    let normal = Vec3::from_array(vertex.normal);
+                    assert!(normal.is_finite(), "{kind:?}");
+                    assert!((normal.length_squared() - 1.0).abs() < 1.0e-5, "{kind:?}");
+                    assert!(normal.abs_diff_eq(face_normal, 1.0e-5), "{kind:?}");
+                }
+            }
+            if kind == HeldBlockEntity::DecoratedPot {
+                let bottom = model
+                    .vertices
+                    .iter()
+                    .map(|vertex| vertex.position[1])
+                    .fold(f32::INFINITY, f32::min);
+                let bottom_triangles = triangles
+                    .iter()
+                    .filter(|triangle| triangle.iter().all(|vertex| vertex.position[1] == bottom))
+                    .collect::<Vec<_>>();
+                assert!(!bottom_triangles.is_empty());
+                for triangle in bottom_triangles {
+                    assert!(triangle.iter().all(|vertex| {
+                        Vec3::from_array(vertex.normal).abs_diff_eq(Vec3::NEG_Y, 1.0e-5)
+                    }));
+                }
+            }
+        }
+    }
 
     #[test]
     fn items_resolve_their_held_models() {
