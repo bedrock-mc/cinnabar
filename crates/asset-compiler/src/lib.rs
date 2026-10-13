@@ -2,3 +2,4 @@
 
 pub mod block_shapes;
 pub mod registry_policy;
+pub mod vocabulary;
