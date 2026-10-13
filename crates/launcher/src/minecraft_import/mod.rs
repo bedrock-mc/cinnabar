@@ -3,6 +3,7 @@
 mod keyboard;
 pub mod options;
 pub mod servers;
+pub mod summary;
 
 /// Commands shared by the launcher controls and its serial import worker.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -10,6 +11,7 @@ pub enum Action {
     Begin,
     Select(usize),
     Apply,
+    ConfirmApply,
     NotNow,
     Close,
     Revert,
@@ -24,6 +26,7 @@ pub enum Phase {
     Offered,
     Profiles,
     Preview,
+    ConfirmImport,
     Busy,
     Result,
     Revert,
@@ -49,6 +52,7 @@ impl Snapshot {
                 .chain([Action::Close])
                 .collect(),
             Phase::Preview => vec![Action::Apply, Action::Begin, Action::Close],
+            Phase::ConfirmImport => vec![Action::ConfirmApply, Action::Close],
             Phase::Revert => vec![Action::ConfirmRevert, Action::Close],
             Phase::Busy => Vec::new(),
             Phase::Result if self.can_revert => vec![Action::Revert, Action::Close],
@@ -62,6 +66,7 @@ impl Snapshot {
             Phase::Offered => "Import from Minecraft?",
             Phase::Profiles => "Choose a Minecraft profile",
             Phase::Preview => "Review Minecraft import",
+            Phase::ConfirmImport => "Import these preferences?",
             Phase::Revert => "Revert Minecraft import?",
             _ => "Import from Minecraft",
         }
@@ -69,7 +74,9 @@ impl Snapshot {
 
     /// Explains the first offer's scope or returns the current operation's details.
     pub fn body(&self) -> &str {
-        if self.phase == Phase::Offered {
+        if self.phase == Phase::ConfirmImport {
+            "Import these settings, servers and packs? You can revert this later in Settings."
+        } else if self.phase == Phase::Offered {
             "Preview and import your Minecraft settings, saved servers and resource packs."
         } else {
             &self.body
@@ -80,11 +87,13 @@ impl Snapshot {
     pub fn label(&self, action: Action) -> &str {
         match action {
             Action::Begin if self.phase == Phase::Preview => "Choose another profile",
-            Action::Begin | Action::Apply => "Import",
+            Action::Begin | Action::Apply | Action::ConfirmApply => "Import",
             Action::Select(index) => self.profiles.get(index).map_or("Profile", String::as_str),
             Action::NotNow => "Not now",
             Action::Revert | Action::ConfirmRevert => "Revert",
-            Action::Close if self.phase == Phase::Preview => "Cancel",
+            Action::Close if matches!(self.phase, Phase::Preview | Phase::ConfirmImport) => {
+                "Cancel"
+            }
             Action::Close => "Close",
         }
     }

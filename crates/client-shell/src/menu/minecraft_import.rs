@@ -12,7 +12,11 @@ impl MenuRuntime {
         if self.minecraft_import.phase == Phase::Busy {
             return;
         }
-        if matches!(action, Action::Apply | Action::ConfirmRevert) && !self.saves.can_save() {
+        if matches!(
+            action,
+            Action::Apply | Action::ConfirmApply | Action::ConfirmRevert
+        ) && !self.saves.can_save()
+        {
             self.message = Some(
                 "Saved servers could not be recovered. Restore their file before importing."
                     .to_owned(),
@@ -21,10 +25,11 @@ impl MenuRuntime {
         }
         if matches!(
             action,
-            Action::Apply | Action::Revert | Action::ConfirmRevert
+            Action::Apply | Action::ConfirmApply | Action::Revert | Action::ConfirmRevert
         ) && (self.over_world()
             || self.global_resources.busy
-            || (action == Action::Apply && self.global_resources.has_pending_changes()))
+            || (matches!(action, Action::Apply | Action::ConfirmApply)
+                && self.global_resources.has_pending_changes()))
         {
             let message =
                 "Return to the launcher and finish resource pack changes before importing."
@@ -50,7 +55,8 @@ impl MenuRuntime {
         snapshot.body = match action {
             Action::NotNow => "Saving your choice…",
             Action::Close => "Closing preview…",
-            Action::Apply => "Importing the previewed data…",
+            Action::Apply => "Reviewing your import…",
+            Action::ConfirmApply => "Importing the previewed data…",
             Action::ConfirmRevert => "Restoring the previous preferences…",
             Action::Revert => "Reading the saved backup…",
             Action::Begin | Action::Select(_) => "Preparing the import preview…",

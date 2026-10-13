@@ -8634,7 +8634,8 @@ and the native comparison.
 The launcher offers a one-time Import or Not now choice when a known user-data
 directory exists. File contents are read only after an explicit import action.
 General Settings retains Import from Minecraft and Revert actions. Import previews
-one selected profile, merges server endpoints, validates and copies installed
+one selected profile with readable category counts in a bounded, scrolling modal.
+Import requires a separate confirmation; cancelling returns to the preview. It merges server endpoints, validates and copies installed
 resource packs, and preserves the chosen active order. A durable snapshot restores
 settings, servers and active pack order without removing copied packs.
 
