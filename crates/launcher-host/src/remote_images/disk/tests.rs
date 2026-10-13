@@ -5,8 +5,15 @@ use std::{
     time::Duration,
 };
 
-use super::super::{FORM_IMAGES, LAUNCHER_ART, STORE_ART, client_with};
+use super::super::{FORM_IMAGES, LAUNCHER_ART, client_with};
 use super::*;
+
+/// Exercises signature filenames and explicit URL bounds independently of launcher policy.
+const SIGNATURE_IMAGES: Surface = Surface {
+    extension: None,
+    max_url_bytes: 1024,
+    ..LAUNCHER_ART
+};
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\nrest";
 
@@ -108,7 +115,7 @@ fn signature_named_files_take_their_image_extension() {
     let server = serve(Duration::ZERO, |_| {
         ("200 OK", String::new(), b"GIF89a...".to_vec())
     });
-    let cache = ImageDirectory::new(dir.path().to_path_buf(), local(STORE_ART));
+    let cache = ImageDirectory::new(dir.path().to_path_buf(), local(SIGNATURE_IMAGES));
     let path = runtime()
         .block_on(cache.fetch(&format!("{}/a", server.base)))
         .unwrap();
@@ -126,7 +133,7 @@ fn refused_payloads_never_publish_files() {
     });
     let surface = Surface {
         max_bytes: 32,
-        ..local(STORE_ART)
+        ..local(SIGNATURE_IMAGES)
     };
     let cache = ImageDirectory::new(dir.path().to_path_buf(), surface);
     let runtime = runtime();
@@ -134,7 +141,11 @@ fn refused_payloads_never_publish_files() {
         let url = format!("{}{path}", server.base);
         assert_eq!(runtime.block_on(cache.fetch(&url)), None, "{path} cached");
     }
-    let long = format!("{}/{}", server.base, "a".repeat(STORE_ART.max_url_bytes));
+    let long = format!(
+        "{}/{}",
+        server.base,
+        "a".repeat(SIGNATURE_IMAGES.max_url_bytes)
+    );
     assert_eq!(runtime.block_on(cache.fetch(&long)), None);
     let left: Vec<_> = fs::read_dir(dir.path()).into_iter().flatten().collect();
     assert!(left.is_empty(), "left {left:?}");
@@ -155,7 +166,7 @@ fn redirects_beyond_the_surface_bound_are_refused() {
     let runtime = runtime();
     let within = Surface {
         max_redirects: 4,
-        ..local(STORE_ART)
+        ..local(SIGNATURE_IMAGES)
     };
     let cache = ImageDirectory::new(dir.path().join("within"), within);
     assert!(
@@ -165,7 +176,7 @@ fn redirects_beyond_the_surface_bound_are_refused() {
     );
     let beyond = Surface {
         max_redirects: 3,
-        ..local(STORE_ART)
+        ..local(SIGNATURE_IMAGES)
     };
     let cache = ImageDirectory::new(dir.path().join("beyond"), beyond);
     assert!(
@@ -262,7 +273,7 @@ fn directory_bytes_are_bounded_too() {
     let server = image_server();
     let surface = Surface {
         max_dir_bytes: PNG.len() as u64 * 2,
-        ..local(STORE_ART)
+        ..local(SIGNATURE_IMAGES)
     };
     let cache = ImageDirectory::new(dir.path().to_path_buf(), surface);
     let runtime = runtime();
@@ -515,5 +526,5 @@ fn public_surfaces_refuse_special_use_addresses() {
     }
     assert!(FORM_IMAGES.accepts("http://127.0.0.1/a.png"));
     assert!(!FORM_IMAGES.accepts("ftp://example.test/a.png"));
-    assert!(!STORE_ART.accepts(&format!("https://cdn.example.test/{}", "a".repeat(1024))));
+    assert!(!SIGNATURE_IMAGES.accepts(&format!("https://cdn.example.test/{}", "a".repeat(1024))));
 }

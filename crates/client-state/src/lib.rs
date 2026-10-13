@@ -118,7 +118,6 @@ pub enum ShellFrameSet {
     MenuInput,
     Session,
     WindowSettings,
-    Store,
     Focus,
     FinalFocus,
     GameplayControls,

@@ -91,7 +91,6 @@ impl MenuRuntime {
             key_remap: self.key_remap,
             settings_advanced_graphics: self.settings_advanced_graphics,
             feeds: self.presented_feeds(),
-            store: self.store_snapshot.clone(),
             hosting: self.hosting_world(),
             invite: self.invite_view(),
             realm_membership: self.realm_membership.state.clone(),

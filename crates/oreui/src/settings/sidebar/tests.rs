@@ -327,3 +327,35 @@ fn focused_category_outline_stays_clipped_to_its_sidebar_viewport() {
         "the focused row's vertical border remains inside its scroll clip"
     );
 }
+
+#[test]
+fn account_is_followed_by_resources_without_an_empty_category_row() {
+    use crate::review_tests::paint;
+    let view = MenuView::new(true, "Player".into());
+    let (_, hits, _) = paint(HashMap::new(), |canvas| {
+        draw(canvas, &view, [20.0, 20.0, 420.0, 1100.0], &|_| None, None).unwrap();
+    });
+    let row = |section| {
+        hits.iter()
+            .find(|(action, _)| *action == MenuAction::SettingsSection(section_index(section)))
+            .unwrap()
+            .1
+    };
+    let account = row("account_forced_index");
+    let resources = row("global_texture_pack_forced_index");
+    assert_eq!(account.max().y(), resources.min().y());
+    let actions: Vec<_> = hits
+        .iter()
+        .filter_map(|(action, _)| match action {
+            MenuAction::SettingsSection(index) => Some(*index),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(actions.len(), TABS.len());
+    assert_eq!(
+        actions,
+        TABS.iter()
+            .map(|tab| section_index(tab.section))
+            .collect::<Vec<_>>()
+    );
+}

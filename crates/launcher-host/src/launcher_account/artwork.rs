@@ -211,6 +211,11 @@ pub(super) fn home_slots(home: &mut Home) -> Vec<Slot<'_>> {
     } = home;
     messages
         .iter_mut()
+        .filter(|message| {
+            message.surface == "PlayButton"
+                || (message.surface == "InboxMessage"
+                    && launcher::menu::inbox::category_index(&message.category).is_some())
+        })
         .flat_map(|message| message.images.iter_mut())
         .map(|image| (image.url.as_str(), &mut image.path))
         .chain(std::iter::once(slot(persona_head)))
@@ -296,6 +301,38 @@ mod tests {
     }
 
     #[test]
+    fn home_artwork_uses_only_visible_message_surfaces_and_categories() {
+        let message = |surface: &str, category: &str, url: &str| bridge::Message {
+            surface: surface.into(),
+            category: category.into(),
+            images: vec![bridge::MessageImage {
+                url: url.into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut home = Home {
+            messages: vec![
+                message("PlayButton", "", "https://a.test/play"),
+                message("InboxMessage", "Feedback", "https://a.test/feedback"),
+                message("RemovedSurface", "", "https://a.test/hidden-surface"),
+                message(
+                    "InboxMessage",
+                    "RemovedCategory",
+                    "https://a.test/hidden-category",
+                ),
+            ],
+            ..Default::default()
+        };
+        let urls: Vec<_> = home_slots(&mut home)
+            .into_iter()
+            .map(|(url, _)| url.to_owned())
+            .filter(|url| !url.is_empty())
+            .collect();
+        assert_eq!(urls, ["https://a.test/play", "https://a.test/feedback"]);
+    }
+
+    #[test]
     fn profile_slots_cover_only_overview_achievements() {
         let entry = |id: &str, locked: bool, order: Option<u32>| bridge::ProfileAchievement {
             id: id.to_owned(),
@@ -329,6 +366,7 @@ mod tests {
         let mut home = Home {
             persona_head: art("", "/core/persona-head.img"),
             messages: vec![bridge::Message {
+                surface: "PlayButton".into(),
                 images: vec![bridge::MessageImage {
                     id: "tile".to_owned(),
                     url: "http://insecure.test/t.png".to_owned(),

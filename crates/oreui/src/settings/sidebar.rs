@@ -33,7 +33,6 @@ enum Glyph {
     Gamepad,
     Landscape,
     Face,
-    Banner,
     Chest,
     Shelves,
     Puzzle,
@@ -63,7 +62,7 @@ const fn grouped(group: &'static str, tab: Tab) -> Tab {
     }
 }
 
-const TABS: [Tab; 15] = [
+const TABS: [Tab; 14] = [
     tab(
         "accessibility_forced_index",
         "menu.accessibility.tab.title",
@@ -137,16 +136,9 @@ const TABS: [Tab; 15] = [
         Glyph::Face,
     ),
     tab(
-        "view_subscriptions_forced_index",
-        "options.viewSubscriptions",
-        Some(SETTINGS_ICONS[9]),
-        [151, 116, 27],
-        Glyph::Banner,
-    ),
-    tab(
         "global_texture_pack_forced_index",
         "menu.globalpacks",
-        Some(SETTINGS_ICONS[10]),
+        Some(SETTINGS_ICONS[9]),
         [159, 108, 44],
         Glyph::Chest,
     ),
@@ -160,21 +152,21 @@ const TABS: [Tab; 15] = [
     tab(
         "storage_management_forced_index",
         "menu.storage.tab.title",
-        Some(SETTINGS_ICONS[11]),
+        Some(SETTINGS_ICONS[10]),
         [141, 126, 73],
         Glyph::Shelves,
     ),
     tab(
         "language_forced_index",
         "menu.language.tab.title",
-        Some(SETTINGS_ICONS[12]),
+        Some(SETTINGS_ICONS[11]),
         [55, 110, 187],
         Glyph::Grid,
     ),
     tab(
         "creator_forced_index",
         "menu.creator.tab.title",
-        Some(SETTINGS_ICONS[13]),
+        Some(SETTINGS_ICONS[12]),
         [159, 105, 65],
         Glyph::Grid,
     ),
@@ -387,10 +379,6 @@ fn icon(canvas: &mut Canvas<'_>, tab: &Tab, at: [f32; 2]) -> Result<(), PaintErr
             block(5.0, 8.0, 1.0, 2.0, [63, 90, 174, 255])?;
             block(10.0, 8.0, 1.0, 2.0, [63, 90, 174, 255])?;
             block(5.0, 12.0, 6.0, 2.0, [74, 45, 30, 255])?;
-        }
-        Glyph::Banner => {
-            block(2.0, 4.0, 12.0, 3.0, [159, 46, 34, 255])?;
-            block(2.0, 9.0, 12.0, 2.0, [218, 182, 59, 255])?;
         }
         Glyph::Chest => {
             block(2.0, 7.0, 12.0, 2.0, theme::BORDER)?;

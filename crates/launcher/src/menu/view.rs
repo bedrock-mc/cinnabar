@@ -393,7 +393,6 @@ impl JoinProgress {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct MenuHome {
     pub play_art: Option<ButtonArt>,
-    pub store_art: Option<ButtonArt>,
     pub inbox_unread: u32,
     pub inbox_counts: std::collections::BTreeMap<usize, u32>,
     pub realm_invites: u32,
@@ -573,8 +572,6 @@ pub struct MenuView {
     pub settings_advanced_graphics: bool,
     pub language_choices: std::sync::Arc<[(String, String)]>,
     pub feeds: MenuFeeds,
-    /// The Marketplace's state while its screen is up.
-    pub store: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
     /// The open local world is hosted for Xbox friends, so the pause screen offers invites.
     pub hosting: bool,
     /// The code invitation flow covering the Realms tab.
@@ -818,7 +815,6 @@ impl MenuView {
             settings_advanced_graphics: false,
             language_choices: Default::default(),
             feeds: Default::default(),
-            store: None,
             hosting: false,
             realm_membership: None,
             invite: None,
