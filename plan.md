@@ -412,7 +412,8 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   the required vertex-stage storage buffers. Returned failures advance to the next candidate.
   Crash exclusions identify only the backend and survive successful fallback. Client version
   changes and Graphics API selections, including reselecting Auto, clear exclusions at startup.
-  If every allowed API is excluded, startup clears those exclusions for exactly one attempt pass.
+  If no non-excluded candidate succeeds, startup clears allowed exclusions for one more attempt pass.
+  Startup log boundaries flush the file directly without waiting for terminal output.
 - The driver blocklist has one data source and bounded numeric version rules. Native Windows
   exception capture and Unix fatal-signal capture retain local renderer context and normal OS
   crash handling.

@@ -264,3 +264,80 @@ fn low_power_prefers_integrated_hardware_over_discrete_hardware() {
         assert_eq!(adapters[0].backend, preferred);
     }
 }
+
+#[test]
+fn excluded_vulkan_retries_once_when_gl_has_no_usable_adapter_or_device() {
+    let allowed = [Backend::Vulkan, Backend::Gl];
+    for gl_has_adapter in [false, true] {
+        for vulkan_works in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let mut guard = StartupGuard::open(root.path()).unwrap();
+            guard.recovery.recover(
+                &candidate(Backend::Vulkan, wgpu::DeviceType::DiscreteGpu, 0)
+                    .attempt(Stage::CreatingDevice, false),
+            );
+            let mut passes = Vec::new();
+            let result = with_recovery(&mut guard, &allowed, false, |guard| {
+                let order = launcher::graphics_backend::candidates(
+                    &allowed,
+                    &allowed,
+                    None,
+                    None,
+                    guard.recovery.failed_backends(),
+                );
+                passes.push(order.clone());
+                let mut adapters = Vec::new();
+                for backend in order {
+                    adapters.extend(probe_backend(guard, backend, false, || {
+                        Ok(if backend == Backend::Gl && !gl_has_adapter {
+                            Vec::new()
+                        } else {
+                            vec![candidate(backend, wgpu::DeviceType::DiscreteGpu, 0)]
+                        })
+                    })?);
+                }
+                try_candidates(adapters, guard, false, |adapter| {
+                    if adapter.backend == Backend::Vulkan && vulkan_works {
+                        Ok(adapter.backend)
+                    } else {
+                        bail!("device rejected")
+                    }
+                })
+            });
+            assert_eq!(passes, [vec![Backend::Gl], allowed.to_vec()]);
+            if vulkan_works {
+                assert_eq!(result.unwrap(), Backend::Vulkan);
+            } else {
+                assert!(result.is_err());
+            }
+        }
+    }
+}
+
+#[test]
+fn working_fallback_and_explicit_selection_do_not_reset_exclusions() {
+    for explicit in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let mut guard = StartupGuard::open(root.path()).unwrap();
+        guard.recovery.recover(
+            &candidate(Backend::Vulkan, wgpu::DeviceType::DiscreteGpu, 0)
+                .attempt(Stage::CreatingDevice, false),
+        );
+        let mut calls = 0;
+        let result = with_recovery(
+            &mut guard,
+            &[Backend::Vulkan, Backend::Gl],
+            explicit,
+            |_| {
+                calls += 1;
+                if explicit {
+                    bail!("explicit API failed")
+                }
+                Ok(Backend::Gl)
+            },
+        );
+        assert_eq!(calls, 1);
+        assert_eq!(result.is_err(), explicit);
+        assert_eq!(guard.recovery.failed_backends(), [Backend::Vulkan]);
+    }
+}

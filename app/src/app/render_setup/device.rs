@@ -3,7 +3,6 @@
 use anyhow::{Context, Result};
 use bevy::render::settings::{WgpuSettings, WgpuSettingsPriority};
 use launcher::graphics_backend::{Adapter, Backend};
-use std::io::Write;
 
 /// Applies renderer limits and compiler policy to Bevy's defaults.
 pub(super) fn configure_render_settings(settings: &mut WgpuSettings) {
@@ -74,10 +73,12 @@ pub(super) fn identity(adapter: &wgpu::Adapter) -> Adapter {
     }
 }
 
-/// Flushes each startup boundary to client.log before executing the next native call.
+/// Flushes each startup boundary to the file without waiting for terminal output.
 pub(super) fn log(message: std::fmt::Arguments<'_>) {
-    let _ = writeln!(diagnostics::console::stderr(), "{message}");
-    diagnostics::console::flush();
+    diagnostics::console::console().write_synced(
+        diagnostics::console::Stream::Stderr,
+        format!("{message}\n").into_bytes(),
+    );
 }
 
 /// Applies the existing automatic feature selection and constrained device limits.

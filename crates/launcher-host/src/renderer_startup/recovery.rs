@@ -1,4 +1,4 @@
-//! Backend-only crash exclusions and one retry when every allowed API was excluded.
+//! Backend-only crash exclusions and one retry after usable candidates are exhausted.
 
 use super::*;
 
@@ -40,7 +40,7 @@ impl Recovery {
 }
 
 impl StartupGuard {
-    /// Clears exclusions once only when every allowed backend is excluded.
+    /// Clears allowed exclusions once after the caller exhausts all usable candidates.
     pub fn retry_exclusions(&mut self, allowed: &[Backend]) -> Result<bool> {
         let _active = termination::active()?;
         self.require_lease()?;
@@ -48,7 +48,7 @@ impl StartupGuard {
             || allowed.is_empty()
             || !allowed
                 .iter()
-                .all(|backend| self.recovery.failed.contains(backend))
+                .any(|backend| self.recovery.failed.contains(backend))
         {
             return Ok(false);
         }

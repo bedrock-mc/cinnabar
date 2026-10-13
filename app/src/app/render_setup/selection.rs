@@ -6,6 +6,25 @@ use launcher_host::renderer_startup::{Attempt, Stage, StartupGuard};
 
 use super::device::log;
 
+/// Retries exhausted automatic selection once with previously excluded APIs restored.
+pub(super) fn with_recovery<T>(
+    guard: &mut StartupGuard,
+    allowed: &[Backend],
+    explicit: bool,
+    mut attempt: impl FnMut(&mut StartupGuard) -> Result<T>,
+) -> Result<T> {
+    loop {
+        match attempt(guard) {
+            Ok(selected) => return Ok(selected),
+            Err(error) => {
+                if explicit || !guard.retry_exclusions(allowed)? {
+                    return Err(error);
+                }
+            }
+        }
+    }
+}
+
 /// An enumerated adapter and the native resources needed to try it.
 pub(super) struct Candidate<T> {
     pub backend: Backend,

@@ -391,8 +391,8 @@ are implemented. Each API is enumerated under its own sentinel before eligible a
 ranked by power preference, device type and vendor backend order, with unclassified hardware
 ahead of software. Device failures advance through all candidates;
 named GPU selection restricts every API. Exclusions are keyed only by backend and reset on a
-client version change or Graphics API selection, including choosing Auto again. All-excluded
-startup permits one retry pass. Every device requires base-vertex terrain draws and vertex
+client version change or Graphics API selection, including choosing Auto again. Exhausted candidates permit one retry
+pass with exclusions cleared. Startup log boundaries synchronize only the file sink. Every device requires base-vertex terrain draws and vertex
 storage support. Native crash
 reports retain the running process's renderer context independently of shared recovery files.
 Window closure and handled SIGINT/SIGTERM cancel unfinished startup and termination prevents

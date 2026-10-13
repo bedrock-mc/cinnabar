@@ -52,13 +52,11 @@ fn graphics_api_selection_resets_exclusions_and_persists_the_revision() {
 }
 
 #[test]
-fn all_excluded_retries_once_and_partial_exclusions_do_not_retry() {
+fn exhausted_candidates_can_clear_partial_exclusions_only_once() {
     let root = tempfile::tempdir().unwrap();
     let mut guard = StartupGuard::open(root.path()).unwrap();
     let allowed = [Backend::Vulkan, Backend::Dx12];
     guard.recovery.recover(&attempt(Backend::Vulkan));
-    assert!(!guard.retry_exclusions(&allowed).unwrap());
-    guard.recovery.recover(&attempt(Backend::Dx12));
     guard.recovery.recover(&attempt(Backend::Gl));
     assert!(guard.retry_exclusions(&allowed).unwrap());
     assert_eq!(guard.recovery.failed_backends(), [Backend::Gl]);
