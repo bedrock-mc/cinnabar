@@ -10,6 +10,7 @@ use std::collections::HashMap;
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct MotionInstance {
+    pub current_clip_from_actor: Mat4,
     pub previous_clip_from_actor: Mat4,
     /// Bone offset and history-valid flag, followed by uniform storage padding.
     pub pose: [u32; 4],
@@ -47,6 +48,7 @@ impl ActorHistory {
         &mut self,
         current: &ActorRigRenderFrame,
         previous_camera: CameraHistory,
+        current_camera: CameraHistory,
         continuous: bool,
     ) -> bool {
         self.instances.clear();
@@ -58,6 +60,7 @@ impl ActorHistory {
             return false;
         }
         let projection = previous_camera.actor_projection();
+        let current_projection = current_camera.actor_projection();
         let mut moved = false;
         for (instance, entry) in current.instances.iter().zip(current.manifest.iter()) {
             let old = continuous
@@ -71,6 +74,8 @@ impl ActorHistory {
                         && self.previous.geometry_revision == current.geometry_revision
                 });
             let mut motion = MotionInstance {
+                current_clip_from_actor: current_projection
+                    .clip_from_actor(instance.world_from_actor),
                 previous_clip_from_actor: Mat4::IDENTITY,
                 pose: [0; 4],
             };
@@ -116,7 +121,10 @@ impl ActorHistory {
                             projection.clip_from_actor(old.world_from_actor);
                         motion.pose = [
                             base,
-                            u32::from(motion.previous_clip_from_actor.is_finite()),
+                            u32::from(
+                                motion.current_clip_from_actor.is_finite()
+                                    && motion.previous_clip_from_actor.is_finite(),
+                            ),
                             0,
                             0,
                         ];
@@ -155,4 +163,4 @@ impl ActorHistory {
 }
 
 #[cfg(test)]
-pub(super) mod tests;
+pub(crate) mod tests;

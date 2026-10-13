@@ -5,7 +5,7 @@ use render_model::{ActorDrawManifestEntry, ActorGpuInstance, ActorRigRoute, DIAG
 use std::sync::Arc;
 
 /// A one-bone publication whose position, pose endpoints and interpolation come from the caller.
-pub(in crate::motion_blur) fn frame(position: Vec3, pose: [f32; 3]) -> ActorRigRenderFrame {
+pub(crate) fn frame(position: Vec3, pose: [f32; 3]) -> ActorRigRenderFrame {
     let rows = |x| {
         [
             [1.0, 0.0, 0.0, x],
@@ -76,18 +76,38 @@ fn camera() -> CameraHistory {
 #[test]
 fn previous_rendered_pose_is_distinct_from_the_previous_simulation_tick() {
     let mut history = ActorHistory::default();
-    history.advance(&frame(Vec3::ZERO, [0.0, 2.0, 0.25]), camera(), false);
-    assert!(history.advance(&frame(Vec3::ZERO, [0.0, 2.0, 0.75]), camera(), true));
+    history.advance(
+        &frame(Vec3::ZERO, [0.0, 2.0, 0.25]),
+        camera(),
+        camera(),
+        false,
+    );
+    assert!(history.advance(
+        &frame(Vec3::ZERO, [0.0, 2.0, 0.75]),
+        camera(),
+        camera(),
+        true
+    ));
     assert!(previous_point(&history, 0, Vec3::ZERO).abs_diff_eq(Vec3::new(0.5, 0.0, 0.0), 0.00001));
-    assert!(!history.advance(&frame(Vec3::ZERO, [0.0, 2.0, 0.75]), camera(), true));
+    assert!(!history.advance(
+        &frame(Vec3::ZERO, [0.0, 2.0, 0.75]),
+        camera(),
+        camera(),
+        true
+    ));
     assert!(previous_point(&history, 0, Vec3::ZERO).abs_diff_eq(Vec3::new(1.5, 0.0, 0.0), 0.00001));
 }
 
 #[test]
 fn moving_actor_under_a_stationary_camera_retains_real_object_exposure() {
     let mut history = ActorHistory::default();
-    history.advance(&frame(Vec3::ZERO, [0.0, 0.0, 1.0]), camera(), false);
-    let moved = history.advance(&frame(Vec3::X, [0.0, 0.0, 1.0]), camera(), true);
+    history.advance(
+        &frame(Vec3::ZERO, [0.0, 0.0, 1.0]),
+        camera(),
+        camera(),
+        false,
+    );
+    let moved = history.advance(&frame(Vec3::X, [0.0, 0.0, 1.0]), camera(), camera(), true);
     assert!(moved);
     assert_eq!(previous_point(&history, 0, Vec3::ZERO), Vec3::ZERO);
     let mut old_camera = camera();
@@ -105,7 +125,7 @@ fn cuts_resets_and_actor_lifetimes_do_not_inherit_previous_motion() {
     for change in 0..6 {
         let mut history = ActorHistory::default();
         let original = frame(Vec3::ZERO, [0.0, 0.0, 1.0]);
-        history.advance(&original, camera(), false);
+        history.advance(&original, camera(), camera(), false);
         let mut next = original.clone();
         let entry = &mut Arc::make_mut(&mut next.manifest)[0];
         match change {
@@ -114,11 +134,11 @@ fn cuts_resets_and_actor_lifetimes_do_not_inherit_previous_motion() {
             2 => entry.identity.dimension += 1,
             3 => entry.reset_generation += 1,
             4 => {
-                history.advance(&ActorRigRenderFrame::default(), camera(), true);
+                history.advance(&ActorRigRenderFrame::default(), camera(), camera(), true);
             }
             _ => (),
         }
-        assert!(!history.advance(&next, camera(), change != 5));
+        assert!(!history.advance(&next, camera(), camera(), change != 5));
         assert_eq!(history.instances[0].pose[1], 0);
     }
 }
@@ -163,6 +183,7 @@ fn reordered_actors_and_equipment_keep_their_own_root_and_pose_history() {
     history.advance(
         &combine(&[body.clone(), equipment.clone(), remote.clone()]),
         camera(),
+        camera(),
         false,
     );
     let mut next = combine(&[remote, equipment, body]);
@@ -171,7 +192,7 @@ fn reordered_actors_and_equipment_keep_their_own_root_and_pose_history() {
         entry.identity.pose_generation = PoseGeneration::new(2);
         entry.identity.ingress_sequence += 1;
     }
-    assert!(!history.advance(&next, camera(), true));
+    assert!(!history.advance(&next, camera(), camera(), true));
     for (index, expected_x) in [7.5, 4.5, 1.5].into_iter().enumerate() {
         assert!(
             previous_point(&history, index, Vec3::ZERO).abs_diff_eq(Vec3::X * expected_x, 0.00001)
@@ -188,8 +209,8 @@ fn repeated_material_layers_share_one_previous_rendered_bone_sample() {
     repeated.instances = Arc::from([original.instances[0], original.instances[0]]);
     repeated.manifest = Arc::from([original.manifest[0].clone(), second]);
     let mut history = ActorHistory::default();
-    history.advance(&repeated, camera(), false);
-    history.advance(&repeated, camera(), true);
+    history.advance(&repeated, camera(), camera(), false);
+    history.advance(&repeated, camera(), camera(), true);
     assert_eq!(history.bones.len(), 1);
     assert_eq!(history.instances[0].pose, history.instances[1].pose);
 }
@@ -210,9 +231,66 @@ fn actor_projection_subtracts_distant_camera_origins_without_cancellation() {
             0,
         );
         let mut history = ActorHistory::default();
-        history.advance(&frame, camera, false);
-        history.advance(&frame, camera, true);
+        history.advance(&frame, camera, camera, false);
+        history.advance(&frame, camera, camera, true);
         assert!(previous_point(&history, 0, Vec3::new(0.25, 1.0, 0.0)).abs_diff_eq(local, 0.00001));
+    }
+}
+
+#[test]
+fn camera_followed_actor_keeps_sub_block_detail_in_both_frame_projections() {
+    let viewport = UVec4::new(0, 0, 1920, 1080);
+    let projection = glam::camera::rh::proj::directx::perspective_infinite_reverse(
+        std::f32::consts::FRAC_PI_2,
+        viewport.z as f32 / viewport.w as f32,
+        0.1,
+    );
+    for origin in [
+        Vec3::ZERO,
+        Vec3::splat(1_000_000.0),
+        Vec3::splat(-1_000_000.0),
+    ] {
+        let old_camera =
+            CameraHistory::new(projection, Mat4::from_translation(origin), viewport, 0);
+        let next_origin = origin + Vec3::X;
+        let next_camera =
+            CameraHistory::new(projection, Mat4::from_translation(next_origin), viewport, 0);
+        let mut history = ActorHistory::default();
+        history.advance(
+            &frame(origin - Vec3::Z, [0.0, 0.0, 1.0]),
+            old_camera,
+            old_camera,
+            false,
+        );
+        let next = frame(next_origin - Vec3::Z, [0.0, 0.0, 1.0]);
+        history.advance(&next, old_camera, next_camera, true);
+        let local = Vec3::new(0.02, 0.02, 0.0);
+        let current = history.instances[0]
+            .current_clip_from_actor
+            .project_point3(local);
+        let previous = previous_point(&history, 0, local);
+        assert!(
+            current.x > 0.0 && current.y > 0.0,
+            "local offsets must survive projection"
+        );
+        assert!(
+            ((current - previous).truncate()
+                * bevy::math::Vec2::new(viewport.z as f32, viewport.w as f32))
+            .length()
+                < 0.001,
+            "camera-followed actor acquired screen motion at {origin:?}"
+        );
+        let mut moved = next;
+        Arc::make_mut(&mut moved.current_bones)[0][0][3] = 0.02;
+        history.advance(&moved, next_camera, next_camera, true);
+        let current = history.instances[0]
+            .current_clip_from_actor
+            .project_point3(local + Vec3::X * 0.02);
+        let previous = previous_point(&history, 0, local);
+        assert!(
+            (current.x - previous.x) * viewport.z as f32 > 1.0,
+            "real sub-block bone motion was lost at {origin:?}"
+        );
     }
 }
 
@@ -220,9 +298,9 @@ fn actor_projection_subtracts_distant_camera_origins_without_cancellation() {
 fn warm_actor_history_reuses_scratch_storage() {
     let frame = frame(Vec3::ZERO, [0.0, 2.0, 0.25]);
     let mut history = ActorHistory::default();
-    history.advance(&frame, camera(), false);
-    history.advance(&frame, camera(), true);
+    history.advance(&frame, camera(), camera(), false);
+    history.advance(&frame, camera(), camera(), true);
     let allocations = test_alloc::thread_allocations();
-    assert!(!history.advance(&frame, camera(), true));
+    assert!(!history.advance(&frame, camera(), camera(), true));
     assert_eq!(test_alloc::thread_allocations(), allocations);
 }

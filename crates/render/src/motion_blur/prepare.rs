@@ -184,6 +184,7 @@ fn update(
         actors.gpu.as_deref(),
         actors.pipeline.as_deref_mut(),
         state.history,
+        history,
         state.history.continuous(history, settings),
         depth,
         target.main_texture_format() == render_scene::SCENE_HDR_FORMAT,

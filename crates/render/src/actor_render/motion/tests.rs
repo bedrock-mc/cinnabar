@@ -1,7 +1,7 @@
 use super::*;
 
-#[test]
-fn actor_velocity_shaders_validate_with_and_without_multisample_cutout_coverage() {
+/// Composes the production velocity shader with its shared Rust storage strides.
+pub(super) fn shader_source(defines: &[&str]) -> String {
     let source = crate::material_shader::source(include_str!("../../actor.wesl"))
         .replace(
             "ACTOR_GPU_INSTANCE_WORDS",
@@ -11,11 +11,16 @@ fn actor_velocity_shaders_validate_with_and_without_multisample_cutout_coverage(
             "ACTOR_RIG_VERTEX_WORDS",
             &render_model::ACTOR_RIG_VERTEX_WORDS.to_string(),
         );
+    crate::shader_source::standalone_prepared(&source, defines)
+}
+
+#[test]
+fn actor_velocity_shaders_validate_with_and_without_multisample_cutout_coverage() {
     for defines in [
         &["ACTOR_MOTION"][..],
         &["ACTOR_MOTION", "ALPHA_TO_COVERAGE"][..],
     ] {
-        let wgsl = crate::shader_source::standalone_prepared(&source, defines);
+        let wgsl = shader_source(defines);
         let module = naga::front::wgsl::parse_str(&wgsl)
             .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&wgsl)));
         naga::valid::Validator::new(
