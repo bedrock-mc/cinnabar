@@ -309,10 +309,7 @@ impl MenuRuntime {
                 A::Difficulty(Difficulty::Hard),
                 A::Delete,
             ]),
-            Screen::Templates => Some(vec![
-                MenuAction::LocalWorld(A::BeginCreate),
-                MenuAction::Store(launcher::store::OPEN),
-            ]),
+            Screen::Templates => Some(vec![MenuAction::LocalWorld(A::BeginCreate)]),
             Screen::ConfirmDelete => local(&[A::Back, A::ConfirmDelete]),
             Screen::Eula => local(&[A::AcceptEula, A::ViewEula, A::Back]),
             Screen::Error => local(&[A::Back]),

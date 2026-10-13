@@ -319,15 +319,6 @@
       ]
     },
     {
-      "key": "assets/MarketplacePass-8eb08ee1dd714dd15307.png",
-      "frames": [
-        {
-          "file": "oreui-icons/inbox/MarketplacePass.png",
-          "sha256": "3f9cfef2b638d5ac0dfbc61df4fa7aa351b74341db4626605dd4bb23102a0c9e"
-        }
-      ]
-    },
-    {
       "key": "assets/Feedback-ecfce4d670046c25d3df.png",
       "frames": [
         {
@@ -360,15 +351,6 @@
         {
           "file": "oreui-icons/inbox_empty/Inbox_NoInvites.png",
           "sha256": "f9fab7b3364d27e5112ca40263140ead561b5f6543dda0d34c47afbcdc2d59c1"
-        }
-      ]
-    },
-    {
-      "key": "assets/Inbox_NoMarketplacePass-a2fc4019bcd55acf2183.png",
-      "frames": [
-        {
-          "file": "oreui-icons/inbox_empty/Inbox_NoMarketplacePass.png",
-          "sha256": "7b42515c924a74e4fcd48b2b33c29c1e21a2d00b67a511174f84b0dc6fce026c"
         }
       ]
     },
@@ -459,15 +441,6 @@
         {
           "file": "oreui-icons/settings/account.png",
           "sha256": "e7ef8c71051de606db5a6e38547ed9efaed4c8fa0aa22f5aa93e8016b85f0932"
-        }
-      ]
-    },
-    {
-      "key": "assets/subscriptions-ad5676c80eb176fff46a.png",
-      "frames": [
-        {
-          "file": "oreui-icons/settings/subscriptions.png",
-          "sha256": "4d300ef997bacefcf4599bcb476883d7916e6a5e2eb737c4f2a172e8fea83a5b"
         }
       ]
     },

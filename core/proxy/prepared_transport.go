@@ -141,7 +141,7 @@ func dialWithPreparedTransport(
 ) (connection *minecraft.Conn, err error) {
 	// NetherNet proves possession during transport setup and must authenticate first.
 	switch network.(type) {
-	case minecraft.RakNet, *minecraft.RakNet, addressedServerNetwork:
+	case minecraft.RakNet, *minecraft.RakNet, addressedServerNetwork, sessionRakNet:
 		prepared := newPreparedTransport(ctx, network, address)
 		defer func() { prepared.finish(connection != nil && err == nil) }()
 		connection, err = dial(ctx, prepared, address)

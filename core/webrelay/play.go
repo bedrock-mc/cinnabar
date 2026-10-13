@@ -1,0 +1,61 @@
+package webrelay
+
+import (
+	"context"
+	"net"
+
+	"github.com/hashimthearab/rust-mcbe/core/proxy"
+)
+
+// sessionPlay owns one handler run and signals when its teardown finishes.
+type sessionPlay struct {
+	controlCtx context.Context
+	done       chan struct{}
+}
+
+// beginPlay claims the sole play connection, waiting only for a cancelled controller's handler.
+// Both the caller and its controller may cancel the wait or prevent a late claim.
+func (session *webSession) beginPlay(ctx, controlCtx context.Context) (*proxy.SessionHandler, error) {
+	for {
+		session.mu.Lock()
+		if err := ctx.Err(); err != nil {
+			session.mu.Unlock()
+			return nil, err
+		}
+		if err := controlCtx.Err(); err != nil {
+			session.mu.Unlock()
+			return nil, err
+		}
+		if session.closed {
+			session.mu.Unlock()
+			return nil, net.ErrClosed
+		}
+		if session.cancelSignIn != nil || session.play != nil && session.play.controlCtx.Err() == nil {
+			session.mu.Unlock()
+			return nil, errSessionBusy
+		}
+		if session.play == nil {
+			session.play = &sessionPlay{controlCtx: controlCtx, done: make(chan struct{})}
+			handler := session.handler
+			session.mu.Unlock()
+			return handler, nil
+		}
+		done := session.play.done
+		session.mu.Unlock()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-controlCtx.Done():
+			return nil, controlCtx.Err()
+		}
+	}
+}
+
+// endPlay releases the sole play connection after its handler finishes and wakes resumed callers.
+func (session *webSession) endPlay() {
+	session.mu.Lock()
+	close(session.play.done)
+	session.play = nil
+	session.mu.Unlock()
+}

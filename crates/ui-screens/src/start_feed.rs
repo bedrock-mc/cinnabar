@@ -1,5 +1,5 @@
-//! The start screen's service-fed bindings: messaging art on the Play and
-//! Store buttons, the inbox badge, the Realms invite count and the live-event
+//! The start screen's service-fed bindings: messaging art on the Play
+//! button, the inbox badge, the Realms invite count and the live-event
 //! button with its countdown caption.
 
 use json_ui::{DataSource, Scalar};
@@ -14,7 +14,6 @@ fn text(value: impl Into<String>) -> Scalar {
 pub(super) fn bind(view: &MenuView, data: &mut DataSource, now_unix: i64) {
     let home = &view.feeds.home;
     button_art(data, "play", home.play_art.as_ref());
-    button_art(data, "store", home.store_art.as_ref());
     // The inbox and friends drawer need an Xbox Live session.
     let signed_in = view.auth_state == launcher::menu::auth::AuthState::Authenticated;
     data.set_global("#inbox_enabled", Scalar::Bool(signed_in));

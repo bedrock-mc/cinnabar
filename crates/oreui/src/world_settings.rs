@@ -379,7 +379,7 @@ fn edit_general(
     })
 }
 
-/// "Owned by me" with nothing owned: vanilla's no-content message and the Marketplace way out.
+/// Explains the empty template library and offers creation from scratch.
 fn templates_empty(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -396,7 +396,7 @@ fn templates_empty(
         TEXT,
         false,
     )?;
-    let body = "Explore thousands of original worlds, templates, and skins on Marketplace \u{2014} or import your own.";
+    let body = "Create a world from scratch or import your own template.";
     canvas.text(
         body,
         [inner[0], inner[1] + canvas.r(3.6)],
@@ -412,7 +412,7 @@ fn templates_empty(
         view,
         [left, inner[3] - canvas.r(CONTROL), left + width, inner[3]],
         Variant::Primary,
-        "Go to Marketplace",
-        Some(MenuAction::Store(launcher::store::StoreAction::Open)),
+        "Create New World",
+        Some(MenuAction::LocalWorld(A::BeginCreate)),
     )
 }
