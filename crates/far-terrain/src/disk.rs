@@ -65,6 +65,7 @@ enum Command {
     },
     ResolveWrite {
         world: WorldKey,
+        entry: u64,
         probes: Vec<(ColumnPos, ColumnSummary)>,
         columns: Vec<(ColumnPos, Versioned)>,
     },
@@ -93,6 +94,7 @@ impl DiskCache {
                     index: None,
                     events,
                     claimed: HashSet::new(),
+                    visits: HashMap::new(),
                 };
                 for command in commands {
                     worker.run(command);
@@ -133,16 +135,18 @@ impl DiskCache {
         });
     }
 
-    /// Writes `columns` to the epoch of `world` that `probes` resolve to, for a world left
-    /// before its namespace resolved.
+    /// Writes `columns` to the epoch of visit `entry` to `world`, resolving it from `probes`
+    /// first if no earlier request of that visit did, for a world left before it resolved.
     pub fn resolve_and_write(
         &self,
         world: WorldKey,
+        entry: u64,
         probes: Vec<(ColumnPos, ColumnSummary)>,
         columns: Vec<(ColumnPos, Versioned)>,
     ) {
         self.send(Command::ResolveWrite {
             world,
+            entry,
             probes,
             columns,
         });
@@ -199,6 +203,8 @@ struct Worker {
     /// Namespaces handed out by this run, so two worlds resolved before either writes
     /// never share one.
     claimed: HashSet<NamespaceKey>,
+    /// The epoch each world visit resolved to, so every later write of that visit lands in it.
+    visits: HashMap<(WorldKey, u64), u32>,
 }
 
 impl Worker {
@@ -232,7 +238,7 @@ impl Worker {
                 entry,
                 probes,
             } => {
-                let epoch = self.resolve(world, &probes);
+                let epoch = self.resolve_entry(world, entry, &probes);
                 let _ = self.events.send(DiskEvent::Resolved {
                     world,
                     entry,
@@ -241,10 +247,11 @@ impl Worker {
             }
             Command::ResolveWrite {
                 world,
+                entry,
                 probes,
                 columns,
             } => {
-                let namespace = world.namespace(self.resolve(world, &probes));
+                let namespace = world.namespace(self.resolve_entry(world, entry, &probes));
                 let mut regions = BTreeMap::<RegionPos, Vec<(u16, Versioned)>>::new();
                 for (pos, column) in columns {
                     regions
@@ -314,6 +321,21 @@ impl Worker {
                 Vec::new()
             }
         }
+    }
+
+    /// The epoch of visit `entry` to `world`, resolved by its first request and reused after.
+    fn resolve_entry(
+        &mut self,
+        world: WorldKey,
+        entry: u64,
+        probes: &[(ColumnPos, ColumnSummary)],
+    ) -> u32 {
+        if let Some(&epoch) = self.visits.get(&(world, entry)) {
+            return epoch;
+        }
+        let epoch = self.resolve(world, probes);
+        self.visits.insert((world, entry), epoch);
+        epoch
     }
 
     fn resolve(&mut self, world: WorldKey, probes: &[(ColumnPos, ColumnSummary)]) -> u32 {

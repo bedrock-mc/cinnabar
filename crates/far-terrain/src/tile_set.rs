@@ -80,14 +80,18 @@ impl FarTiles {
         self.revision += 1;
     }
 
-    /// Marks the selected tiles holding `columns` for a rebuild.
+    /// Marks the selected tiles holding `columns`, or holding them in the ring of neighbours
+    /// their skirts reach down to, for a rebuild.
     pub fn mark_changed(&mut self, columns: &[ColumnPos]) {
         for column in columns {
-            let (x, z) = (column.x * 16, column.z * 16);
-            for level in 0..LEVEL_COUNT {
-                if let Some(tile) = self.selected.get_mut(&TileKey::containing(level, x, z)) {
-                    tile.dirty = true;
-                    break;
+            for (dx, dz) in (-1..=1).flat_map(|dx| (-1..=1).map(move |dz| (dx, dz))) {
+                let x = (column.x + dx) * COLUMN_SIDE as i32;
+                let z = (column.z + dz) * COLUMN_SIDE as i32;
+                for level in 0..LEVEL_COUNT {
+                    if let Some(tile) = self.selected.get_mut(&TileKey::containing(level, x, z)) {
+                        tile.dirty = true;
+                        break;
+                    }
                 }
             }
         }
@@ -155,14 +159,19 @@ impl FarTiles {
         selected.chain(self.retired.iter().cloned()).collect()
     }
 
-    /// True when a selected tile over `column` has a mesh built from its current summary.
+    /// True when a selected tile over `column` is drawn from its current summary.
     #[must_use]
     pub fn ready(&self, column: ColumnPos) -> bool {
         let block = [column.x * COLUMN_SIDE as i32, column.z * COLUMN_SIDE as i32];
         (0..LEVEL_COUNT).any(|level| {
-            self.selected
-                .get(&TileKey::containing(level, block[0], block[1]))
-                .is_some_and(|tile| tile.mesh.is_some() && !tile.dirty && tile.building.is_none())
+            let key = TileKey::containing(level, block[0], block[1]);
+            self.selected.get(&key).is_some_and(|tile| {
+                tile.mesh.is_some()
+                    && !tile.dirty
+                    && tile.building.is_none()
+                    // Hidden behind a retained mesh, it is not drawn yet.
+                    && !self.retired.iter().any(|old| overlaps(old.key, key))
+            })
         })
     }
 

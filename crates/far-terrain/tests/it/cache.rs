@@ -20,6 +20,16 @@ fn flat(height: i16) -> ColumnSummary {
     summary
 }
 
+/// Region files in a namespace directory; resolving reserves the directory itself.
+fn region_files(dir: &std::path::Path) -> usize {
+    std::fs::read_dir(dir).map_or(0, |entries| {
+        entries
+            .flatten()
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "lod"))
+            .count()
+    })
+}
+
 /// Each cache made by a test starts its versions above every earlier one's, as a new run does.
 fn cache(root: &std::path::Path) -> FarTerrainCache {
     with_config(root, FarTerrainConfig::default())
@@ -111,13 +121,14 @@ fn writes_wait_for_a_batch_and_dimension_changes_switch_namespace() {
         .join(overworld.directory());
     cache.poll(now + Duration::from_millis(10));
     cache.sync();
-    assert!(
-        !region_dir.exists(),
+    assert_eq!(
+        region_files(&region_dir),
+        0,
         "nothing is written before the batch is due"
     );
     cache.poll(now + REGION_FLUSH_AFTER);
     cache.sync();
-    assert!(region_dir.exists());
+    assert!(region_files(&region_dir) > 0);
 
     cache.enter_world(SERVER, 42, -1);
     assert!(
@@ -333,7 +344,10 @@ fn a_sparse_world_resolves_after_the_probe_timeout() {
         .path()
         .join(namespace.server.to_string())
         .join(namespace.directory());
-    assert!(region_dir.exists(), "the sparse world was written");
+    assert!(
+        region_files(&region_dir) > 0,
+        "the sparse world was written"
+    );
 }
 
 /// A quick reconnect's columns are not overwritten by the previous session's late summaries.
@@ -435,4 +449,31 @@ fn evicted_columns_in_focus_are_read_again() {
         cache.store().summary(pos).map(Result::unwrap),
         Some(flat(90))
     );
+}
+
+/// Late batches of a world left before it resolved, even without probes, land in one epoch.
+#[test]
+fn late_batches_of_an_unresolved_world_share_one_epoch() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let mut cache = cache(root.path());
+    cache.enter_world(SERVER, 42, 0);
+    cache.enter_world(SERVER, 42, -1);
+    for x in [300, 400] {
+        cache.admit(0, ColumnPos::new(x, 0), flat(90).encode(), now);
+        cache.poll(now);
+    }
+    cache.sync();
+    let server = std::fs::read_dir(root.path())
+        .unwrap()
+        .flatten()
+        .next()
+        .expect("a server directory")
+        .path();
+    let overworld = std::fs::read_dir(server)
+        .unwrap()
+        .flatten()
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("0."))
+        .count();
+    assert_eq!(overworld, 1, "one overworld namespace");
 }

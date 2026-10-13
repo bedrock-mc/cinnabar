@@ -36,6 +36,8 @@ enum Retired {
     /// probes on the IO thread.
     Unresolved {
         world: WorldKey,
+        /// Its visit, so every late batch resolves to the same epoch.
+        entry: u64,
         probes: Vec<(ColumnPos, ColumnSummary)>,
         columns: Vec<(ColumnPos, Versioned)>,
     },
@@ -57,6 +59,8 @@ impl Retired {
 #[must_use]
 pub struct RetiringSession {
     world: WorldKey,
+    /// The visit retiring, whose namespace its summaries share once resolved.
+    entry: u64,
     namespace: Option<NamespaceKey>,
     probes: Vec<(ColumnPos, ColumnSummary)>,
     version: u64,
@@ -167,6 +171,7 @@ impl FarTerrainCache {
         {
             disk.resolve_and_write(
                 world,
+                self.entry,
                 self.probes.clone(),
                 std::mem::take(&mut self.unresolved),
             );
@@ -175,6 +180,7 @@ impl FarTerrainCache {
             (Some(namespace), _) => Some(Retired::Resolved(namespace)),
             (None, Some(world)) => Some(Retired::Unresolved {
                 world,
+                entry: self.entry,
                 probes: std::mem::take(&mut self.probes),
                 columns: Vec::new(),
             }),
@@ -195,6 +201,7 @@ impl FarTerrainCache {
         if let (
             Some(Retired::Unresolved {
                 world,
+                entry,
                 probes,
                 columns,
             }),
@@ -202,7 +209,7 @@ impl FarTerrainCache {
         ) = (&mut self.retired, &self.disk)
             && !columns.is_empty()
         {
-            disk.resolve_and_write(*world, probes.clone(), std::mem::take(columns));
+            disk.resolve_and_write(*world, *entry, probes.clone(), std::mem::take(columns));
         }
     }
 
@@ -344,6 +351,7 @@ impl FarTerrainCache {
         let world = self.world?;
         Some(RetiringSession {
             world,
+            entry: self.entry,
             namespace: self.namespace,
             probes: self.probes.clone(),
             version: self.stamp(),
@@ -360,6 +368,7 @@ impl FarTerrainCache {
     ) {
         let RetiringSession {
             world,
+            entry,
             namespace,
             mut probes,
             version,
@@ -391,7 +400,7 @@ impl FarTerrainCache {
                     probes.push((*pos, decoded));
                 }
             }
-            disk.resolve_and_write(world, probes, unresolved);
+            disk.resolve_and_write(world, entry, probes, unresolved);
         }
     }
 

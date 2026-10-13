@@ -411,3 +411,74 @@ fn skirts_reach_a_lower_neighbour() {
         "outside columns do not enter the cells"
     );
 }
+
+/// A column is reported ready only once its tile is drawn, not while a retained coarser
+/// mesh still hides it.
+#[test]
+fn hidden_replacements_are_not_ready() {
+    let mut store = SummaryStore::new(usize::MAX);
+    for x in -80..80 {
+        for z in -80..80 {
+            store.admit(ColumnPos::new(x, z), &flat(64));
+        }
+    }
+    let coarse = TileView {
+        centre: [8.0, 8.0],
+        near_blocks: 32.0,
+        skip_blocks: 32.0,
+        far_blocks: 1200.0,
+    };
+    let retained = |tiles: &FarTiles| {
+        tiles
+            .drawn()
+            .iter()
+            .any(|mesh| mesh.key.level == 2 && contains(mesh.key, 600, 300))
+    };
+    let mut tiles = FarTiles::default();
+    tiles.set_view(coarse);
+    let now = Instant::now();
+    test_time::eventually("the coarse tile builds", || {
+        tiles.update(&mut store, now);
+        retained(&tiles)
+    });
+    tiles.set_view(TileView {
+        near_blocks: 640.0,
+        ..coarse
+    });
+    let column = ColumnPos::new(600 / 16, 300 / 16);
+    test_time::eventually("the finer tiles take over", || {
+        tiles.update(&mut store, now);
+        assert!(
+            !(retained(&tiles) && tiles.ready(column)),
+            "ready while the coarse mesh still hides its tile"
+        );
+        tiles.ready(column)
+    });
+}
+
+/// A change just outside a tile rebuilds it too, as its skirts reach that column's surface.
+#[test]
+fn changes_in_the_skirt_ring_rebuild_the_neighbour() {
+    let mut store = SummaryStore::new(usize::MAX);
+    for x in -20..20 {
+        for z in -20..20 {
+            store.admit(ColumnPos::new(x, z), &flat(64));
+        }
+    }
+    let mut tiles = FarTiles::default();
+    tiles.set_view(TileView {
+        centre: [8.0, 8.0],
+        near_blocks: 160.0,
+        skip_blocks: 0.0,
+        far_blocks: 64.0,
+    });
+    let (inside, outside) = (ColumnPos::new(0, 0), ColumnPos::new(-1, 0));
+    let now = Instant::now();
+    test_time::eventually("both tiles build", || {
+        tiles.update(&mut store, now);
+        tiles.ready(inside) && tiles.ready(outside)
+    });
+    store.admit(outside, &flat(10));
+    tiles.mark_changed(&store.take_changed());
+    assert!(!tiles.ready(inside), "the tile beside the change rebuilds");
+}
