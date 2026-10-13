@@ -501,3 +501,97 @@ fn a_higher_mod_releasing_its_outputs_allows_the_next_mod_to_publish() {
     assert_eq!(merged.rig.unwrap().offset.x, -0.5);
     assert_eq!(runtime.host(1).refused_outputs(), 0);
 }
+
+/// Publishes a validated HUD through the real guest import used by component instances.
+fn hud_host(root: &Path, name: &str, json: &str) -> ModHost {
+    let package = include_str!("../../../mod-api/wit/extension.wit")
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("package ")
+        .trim_end_matches(';');
+    let (namespace, version) = package.split_once('@').unwrap();
+    let escaped = json
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("\\{byte:02x}"))
+        .collect::<String>();
+    let source = include_str!("../../../mod-host/src/tests/hud.wat")
+        .replace("$HUD", &format!("{namespace}/hud@{version}"))
+        .replace("$CONTENT_LENGTH", &json.len().to_string())
+        .replace("$CONTENT", &escaped)
+        .replace("$CROSSHAIR_LENGTH", "0")
+        .replace("$CROSSHAIR", "")
+        .replace("$INIT", "call $cards")
+        .replace("$FRAME", "")
+        .replace("$ERROR", "0");
+    let path = root.join(name);
+    std::fs::write(&path, source).unwrap();
+    ModHost::load_with_grants(
+        &path,
+        ModGrants {
+            hud: true,
+            ..Default::default()
+        },
+    )
+    .unwrap()
+}
+
+#[test]
+fn merged_huds_admit_whole_cards_within_aggregate_row_and_cell_limits() {
+    use ui::mod_hud::{MAX_CARD_CELLS, MAX_CARD_ROWS, MAX_HUD_CELLS, MAX_HUD_ROWS};
+    for cells in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let (per_card, total) = if cells {
+            (MAX_CARD_CELLS, MAX_HUD_CELLS)
+        } else {
+            (MAX_CARD_ROWS, MAX_HUD_ROWS)
+        };
+        let cards = |prefix: &str| {
+            (0..total / per_card)
+                .map(|index| {
+                    let id = format!("{prefix}_{index}");
+                    if cells {
+                        serde_json::json!({
+                            "id": id,
+                            "rows": [],
+                            "cells": vec![serde_json::json!({"label": "cell"}); per_card]
+                        })
+                    } else {
+                        serde_json::json!({
+                            "id": id,
+                            "rows": vec![serde_json::json!({"label": "row", "value": "value"}); per_card]
+                        })
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        let higher = serde_json::json!({"cards":cards("higher")}).to_string();
+        let mut lower_cards = cards("lower");
+        // A card using the other lane still fits after oversized lower-priority cards are skipped.
+        lower_cards.push(if cells {
+            serde_json::json!({"id":"small","rows":[{"label":"row","value":"v"}]})
+        } else {
+            serde_json::json!({"id":"small","rows":[],"cells":[{"label":"cell"}]})
+        });
+        let lower = serde_json::json!({"cards":lower_cards}).to_string();
+        let runtime = ModHosts::new(
+            hud_host(directory.path(), "a.wat", &higher),
+            vec![Companion {
+                host: hud_host(directory.path(), "b.wat", &lower),
+            }],
+        );
+        for index in 0..runtime.host_count() {
+            runtime.host(index).hud().unwrap().validate().unwrap();
+        }
+        let merged = runtime.merged_hud().unwrap();
+        merged.validate().unwrap();
+        assert!(
+            merged.cards[..total / per_card]
+                .iter()
+                .all(|card| card.id.starts_with("higher_"))
+        );
+        assert_eq!(merged.cards.last().unwrap().id, "small");
+        assert_eq!(merged.cards.len(), total / per_card + 1);
+    }
+}

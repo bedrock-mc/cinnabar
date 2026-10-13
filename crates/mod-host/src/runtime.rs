@@ -1,7 +1,7 @@
 use crate::{
-    CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob, GameplayMovementSnapshot,
-    GameplaySnapshot, MAX_LABEL_BYTES, MEMORY_BYTES, ModCue, ModEvent, ModGrants, ModScreens,
-    PlayerStateSnapshot,
+    CallbackOutcome, CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob,
+    GameplayMovementSnapshot, GameplaySnapshot, MAX_LABEL_BYTES, MEMORY_BYTES, ModCue, ModEvent,
+    ModGrants, ModScreens, PlayerStateSnapshot,
 };
 use anyhow::{Result, bail};
 use server_experience::{
@@ -283,39 +283,6 @@ impl Instance {
         settings: String,
         declared: Declared,
     ) -> Result<Self> {
-        Self::new_with_limit(engine, bytes, grants, settings, declared, None)
-    }
-
-    /// Initializes a replacement within the frame's remaining allowance when called on-frame.
-    pub(super) fn replacement(
-        &self,
-        engine: &Engine,
-        bytes: &[u8],
-        grants: ModGrants,
-        settings: String,
-        declared: Declared,
-    ) -> Result<Self> {
-        let budget = self.callback_budget.clone();
-        let allowance = budget.as_ref().map(|budget| budget.reserve(LOAD_FUEL));
-        let mut candidate =
-            Self::new_with_limit(engine, bytes, grants, settings, declared, allowance)?;
-        if let Some(budget) = &budget {
-            budget.refund(allowance.unwrap_or(0).saturating_sub(candidate.last_fuel));
-        }
-        candidate.callback_budget = budget;
-        candidate.store.data_mut().exclusive = self.store.data().exclusive.clone();
-        Ok(candidate)
-    }
-
-    /// Keeps construction and initialization within one supplied fuel limit, including starts.
-    fn new_with_limit(
-        engine: &Engine,
-        bytes: &[u8],
-        grants: ModGrants,
-        settings: String,
-        declared: Declared,
-        limit: Option<u64>,
-    ) -> Result<Self> {
         let component = Component::new(engine, bytes)?;
         let mut linker = Linker::new(engine);
         PlayerMod::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
@@ -324,16 +291,14 @@ impl Instance {
         exports::Exports::check(&pre)?;
         let mut store = Store::new(engine, state);
         store.limiter(|state| &mut state.limits);
-        let initial = limit.map_or(FRAME_FUEL, |limit| limit.min(FRAME_FUEL));
+        let initial = FRAME_FUEL;
         crate::execution::arm(&mut store, initial, true)?;
         let instance = pre.instantiate(&mut store)?;
         let (init, exports) = exports::Exports::find(&mut store, &instance)?;
         let instantiated = initial - store.get_fuel().unwrap_or(0).min(initial);
         let mut armed = initial;
         if exports.loads_session() {
-            armed = limit.map_or(LOAD_FUEL, |limit| {
-                LOAD_FUEL.min(limit.saturating_sub(instantiated))
-            });
+            armed = LOAD_FUEL;
             crate::execution::arm(&mut store, armed, true)?;
         }
         init.call(&mut store, ())?;
@@ -354,11 +319,33 @@ impl Instance {
         })
     }
 
+    /// Initializes a replacement through the bounded loading lane with its full guest limits.
+    pub(super) fn replacement(
+        &self,
+        engine: &Engine,
+        bytes: &[u8],
+        grants: ModGrants,
+        settings: String,
+        declared: Declared,
+    ) -> Result<Self> {
+        let budget = self.callback_budget.clone();
+        if let Some(budget) = &budget {
+            anyhow::ensure!(
+                budget.reserve(LOAD_FUEL).is_some(),
+                "loading callback deferred"
+            );
+        }
+        let mut candidate = Self::new(engine, bytes, grants, settings, declared)?;
+        candidate.callback_budget = budget;
+        candidate.store.data_mut().exclusive = self.store.data().exclusive.clone();
+        Ok(candidate)
+    }
+
     /// Defers an on-frame hot reload when earlier callbacks have consumed the allowance.
     pub(super) fn can_reload(&self) -> bool {
         self.callback_budget
             .as_ref()
-            .is_none_or(|budget| budget.remaining() > 0)
+            .is_none_or(|budget| budget.can_load())
     }
 
     /// Validates presentation observations before they enter the callback sandbox.
@@ -480,16 +467,19 @@ impl Instance {
         self.store.data_mut().world.mobs = Vec::new();
         self.store.data_mut().world.incoming = Vec::new();
         self.store.data_mut().controls.frame = crate::empty_controls();
-        result
+        result.map(|_| ())
     }
 
     /// Delivers one event callback, `data-changed` with `LOAD_FUEL` and every other event with
     /// `CALLBACK_FUEL`. An `extension` component has no event exports and receives nothing.
-    pub(super) fn dispatch(&mut self, event: &ModEvent) -> Result<()> {
+    pub(super) fn dispatch(&mut self, event: &ModEvent) -> Result<CallbackOutcome> {
         if !self.active {
-            return Ok(());
+            return Ok(CallbackOutcome::Executed);
         }
         self.store.data().check_event(event)?;
+        if !self.exports.handles_event(event) {
+            return Ok(CallbackOutcome::Executed);
+        }
         let fuel = match event {
             ModEvent::DataChanged(_) => LOAD_FUEL,
             _ => CALLBACK_FUEL,
@@ -506,15 +496,15 @@ impl Instance {
         fuel: u64,
         publish: fn(&mut Store<State>),
         call: impl FnOnce(&exports::Exports, &mut Store<State>) -> Result<()>,
-    ) -> Result<()> {
+    ) -> Result<CallbackOutcome> {
         let allowance = self
             .callback_budget
             .as_ref()
-            .map_or(fuel, |budget| budget.reserve(fuel));
-        if allowance == 0 {
+            .map_or(Some(fuel), |budget| budget.reserve(fuel));
+        let Some(allowance) = allowance else {
             self.last_fuel = 0;
-            return Ok(());
-        }
+            return Ok(CallbackOutcome::Deferred);
+        };
         let state = self.store.data_mut();
         state.writes = 0;
         state.environment_writes = 0;
@@ -529,7 +519,9 @@ impl Instance {
         crate::execution::arm(&mut self.store, allowance, fuel == LOAD_FUEL)?;
         let called = call(&self.exports, &mut self.store);
         self.last_fuel = allowance - self.store.get_fuel().unwrap_or(0).min(allowance);
-        if let Some(budget) = &self.callback_budget {
+        if fuel <= FRAME_FUEL
+            && let Some(budget) = &self.callback_budget
+        {
             budget.refund(allowance - self.last_fuel);
         }
         if let Err(error) = called {
@@ -537,7 +529,7 @@ impl Instance {
             bail!("mod quarantined after a guest trap: {error:#}");
         }
         publish(&mut self.store);
-        Ok(())
+        Ok(CallbackOutcome::Executed)
     }
 
     /// Attaches aggregate fuel and precedence for all callbacks until the next frame.

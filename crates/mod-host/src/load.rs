@@ -149,6 +149,7 @@ impl ModHost {
             grants,
             settings_writer,
             settings_seed,
+            pending_events: Vec::new(),
             package: None,
             layout: None,
             session: Arc::default(),
@@ -215,6 +216,7 @@ impl ModHost {
         }
         candidate.set_session(Arc::clone(&self.session));
         self.instance = candidate;
+        self.pending_events.clear();
         self.grants = grants;
         if let Some(package) = package {
             self.package = Some(loaded(package));

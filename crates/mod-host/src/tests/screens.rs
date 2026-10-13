@@ -634,3 +634,112 @@ fn package_reload_rechecks_manifest_permissions_and_preserves_loader_policy() {
         }
     }
 }
+
+#[test]
+fn frame_authority_preserves_the_full_session_loading_budget() {
+    let (_dir, mut host) = probe();
+    host.set_frame_authority(
+        crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
+        false,
+        false,
+        0,
+        crate::HudClaims::default(),
+    );
+    host.set_session(session_sized(4_000, 3_000, 1)).unwrap();
+    assert!(host.is_active());
+    assert_eq!(value(&host, "#items_read"), Some(&Value::Integer(4_000)));
+    assert_eq!(value(&host, "#recipes_read"), Some(&Value::Integer(3_000)));
+    assert!(host.last_fuel_used() > server_experience::runtime::CALLBACK_FUEL);
+}
+
+#[test]
+fn deferred_lifecycle_notifications_coalesce_and_run_after_the_lanes_reset() {
+    use crate::{CallbackBudget, CallbackOutcome, HudClaims};
+    use server_experience::runtime::{CALLBACK_FUEL, LOAD_FUEL};
+    let (_dir, mut host) = probe();
+    let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.set_frame_authority(budget.clone(), false, false, 0, HudClaims::default());
+    assert!(budget.reserve(CALLBACK_FUEL).is_some());
+    assert!(budget.reserve(LOAD_FUEL).is_some());
+    let mut first = layout();
+    first.screen = "chest.small_chest_screen".into();
+    let changed = host.update_session(session(2, 1)).unwrap();
+    assert_eq!(
+        host.dispatch(vec![ModEvent::ScreenChanged(Some(first)), changed])
+            .unwrap(),
+        CallbackOutcome::Deferred
+    );
+    let changed = host.update_session(session(7, 2)).unwrap();
+    assert_eq!(
+        host.dispatch(vec![ModEvent::ScreenChanged(Some(layout())), changed])
+            .unwrap(),
+        CallbackOutcome::Deferred
+    );
+    assert!(host.is_active());
+    assert_eq!(value(&host, "#items"), Some(&Value::Integer(0)));
+    budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.frame(false).unwrap();
+    assert_eq!(text(&host, "#screen"), "crafting.inventory_screen");
+    assert_eq!(value(&host, "#items"), Some(&Value::Integer(7)));
+    assert_eq!(value(&host, "#data_layout_open"), Some(&Value::Bool(true)));
+    let revision = host.screens().data.revision;
+    budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.frame(false).unwrap();
+    assert_eq!(host.screens().data.revision, revision);
+}
+
+#[test]
+fn view_closure_is_delivered_even_when_the_layout_callback_uses_the_event_lane() {
+    use crate::{CallbackBudget, CallbackOutcome, HudClaims};
+    let (_dir, mut host) = probe();
+    host.dispatch(vec![
+        ModEvent::ScreenChanged(Some(layout())),
+        action("probe.view"),
+    ])
+    .unwrap();
+    let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.set_frame_authority(budget.clone(), false, false, 0, HudClaims::default());
+    let before = value(&host, "#view_closed").cloned();
+    assert_eq!(
+        host.dispatch(vec![ModEvent::ScreenChanged(None)]).unwrap(),
+        CallbackOutcome::Deferred
+    );
+    assert!(host.screens().view.is_none());
+    assert_eq!(value(&host, "#view_closed"), before.as_ref());
+    budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.frame(false).unwrap();
+    assert_eq!(value(&host, "#view_closed"), Some(&Value::Integer(1)));
+}
+
+#[test]
+fn ordinary_events_keep_their_callback_allowance_under_frame_authority() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = partial_component(
+        directory.path(),
+        &[(
+            "view-closed",
+            "",
+            r#"(local $n i32)
+        (local.set $n (i32.const 100000))
+        (loop $work (local.set $n (i32.sub (local.get $n) (i32.const 1)))
+        (br_if $work (local.get $n)))"#,
+        )],
+    );
+    let mut host = ModHost::load(&path).unwrap();
+    host.set_frame_authority(
+        crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
+        false,
+        false,
+        0,
+        crate::HudClaims::default(),
+    );
+    host.dispatch(vec![
+        ModEvent::ScreenChanged(Some(layout())),
+        ModEvent::DataChanged(vec![DataSource::Items]),
+        ModEvent::ViewClosed,
+    ])
+    .unwrap();
+    assert!(host.is_active());
+    assert!(host.last_fuel_used() > mod_api::TOTAL_MOD_FRAME_FUEL);
+    assert!(host.last_fuel_used() < server_experience::runtime::CALLBACK_FUEL);
+}

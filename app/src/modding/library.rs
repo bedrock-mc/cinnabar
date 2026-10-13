@@ -175,10 +175,11 @@ fn perform(
                 return Err("That mod changed while removal was pending.".into());
             }
             let companion = settings_companion(&path);
-            let shared = registered(registration).iter().any(|current| {
-                !same_path(&current.entry.component, &path)
-                    && same_path(&settings_companion(&current.entry.component), &companion)
-            });
+            let shared = permit.shared_companion(&companion)
+                || registered(registration).iter().any(|current| {
+                    !same_path(&current.entry.component, &path)
+                        && same_path(&settings_companion(&current.entry.component), &companion)
+                });
             remove(
                 &path,
                 (!shared).then_some(companion.as_path()),

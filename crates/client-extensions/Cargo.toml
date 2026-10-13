@@ -8,6 +8,7 @@ publish = false
 [package.metadata.cinnabar]
 reads = [
     "crates/mod-api/wit/extension.wit",
+    "crates/mod-host/src/tests/hud.wat",
 ]
 
 [dependencies]

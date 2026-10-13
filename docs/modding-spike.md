@@ -494,8 +494,12 @@ identity. Move up/down changes precedence without restarting guests. Registered 
 run before environment-selected mods. Higher Active entries publishing camera or time output own that authority, and contested HUD card IDs refuse lower publications and count each
 refused import. Distinct HUD slots are merged within the shared presentation limit.
 Per-instance fuel, epoch deadlines, memory, host-copy and source limits remain in force.
-All input, event and frame callbacks also share `mod_api::TOTAL_MOD_FRAME_FUEL` per
-client frame; when exhausted, later callbacks skip that frame.
+Regular frame callbacks share `mod_api::TOTAL_MOD_FRAME_FUEL`. Events retain their
+existing `CALLBACK_FUEL` allowance, and session-loading callbacks retain `LOAD_FUEL`.
+Separate bounded lanes admit one event and one loading callback per frame across all mods.
+A callback needing an unavailable lane defers rather than receiving a smaller guest limit.
+Latest layout, changed session sources and view-closure notifications remain queued and
+coalesced until delivery; ephemeral input is not replayed against a later layout.
 
 Reload and Reload all work from Settings while in a world. Candidates re-read sources
 through the bounded admission path and initialize off-frame. An invalid reload keeps
@@ -516,7 +520,7 @@ components cannot gain unrestricted command authority through the toggle.
 for the list's request ID. Source polling, compilation, font rasterization, UI preparation,
 status writes and final settings retirement run off-frame. Remove first clears the entry's
 grants and metadata, waits for its detached host's final settings writes, then deletes its
-component and unshared companion. A changed list or watcher generation cancels deletion.
+component and unshared companion. Environment-loaded settings writers also protect their companions. A changed list or watcher generation cancels deletion.
 Resolved directory aliases agree on selection and companion ownership. The guest has
 no filesystem or process access.
 

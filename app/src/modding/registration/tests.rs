@@ -75,6 +75,7 @@ fn world() -> (World, Receiver<Message>, Receiver<ModHost>) {
         acknowledgments: Mutex::new(Vec::new()),
         fallback_retired: Mutex::new(Vec::new()),
         settings: Arc::new(Mutex::new(BTreeMap::new())),
+        companions: Arc::new(Mutex::new(Vec::new())),
     });
     (world, incoming, retiring)
 }
@@ -387,11 +388,13 @@ fn environment_hosts_keep_their_state_and_panel_identity_when_registered_mods_mo
     let environment = candidate(directory.path(), "environment.wasm", "Hello");
     let env = environment.registration.clone();
     apply(&mut world, vec![env], vec![change(environment)]);
-    let mut runtime = world.resource_mut::<ModRuntime>();
-    runtime.metadata[0].registration = None;
-    runtime.metadata[0].owner = mod_ui::PanelUiOwner::Environment(4);
-    runtime.hosts.host_mut(0).frame(true).unwrap();
-    drop(runtime);
+    {
+        let mut runtime = world.resource_mut::<ModRuntime>();
+        runtime.metadata[0].registration = None;
+        runtime.metadata[0].owner = mod_ui::PanelUiOwner::Environment(4);
+        runtime.hosts.host_mut(0).frame(true).unwrap();
+    }
+
     let registered = candidate(directory.path(), "registered.wasm", "World");
     let entry = registered.registration.clone();
     apply(&mut world, vec![entry], vec![change(registered)]);
@@ -412,4 +415,110 @@ fn environment_hosts_keep_their_state_and_panel_identity_when_registered_mods_mo
         world.resource::<ModRuntime>().metadata[0].owner,
         mod_ui::PanelUiOwner::Environment(4)
     );
+}
+
+#[test]
+fn restoring_grants_rebuilds_an_instance_revoked_during_pending_admission() {
+    let directory = tempfile::tempdir().unwrap();
+    let (mut world, messages, _retiring) = world();
+    let first = candidate(directory.path(), "a.wasm", "Hello");
+    let original = first.registration.clone();
+    apply(&mut world, vec![original.clone()], vec![change(first)]);
+    messages.try_iter().for_each(drop);
+    let mut revoked = original.clone();
+    revoked.grants.controls = false;
+    world
+        .resource::<Watcher>()
+        .desired
+        .lock()
+        .unwrap()
+        .registration = Some(Registration {
+        version: super::VERSION,
+        request_id: "revoke".into(),
+        mods: vec![revoked],
+    });
+    install::sync_authority(&mut world);
+    assert!(!world.resource::<ModRuntime>().hosts.host(0).is_active());
+    // The original bytes/grants match the coordinator cache, but its guest is no longer reusable.
+    apply(&mut world, vec![original.clone()], Vec::new());
+    let Message::Retry { inactive, .. } = messages.try_recv().unwrap() else {
+        panic!("inactive guest falsely acknowledged as running")
+    };
+    assert_eq!(inactive, [original.component.clone()]);
+    assert!(messages.try_recv().is_err());
+    let fresh =
+        Box::new(build_candidate(source::source_snapshot(original.clone()).unwrap()).unwrap());
+    apply(&mut world, vec![original], vec![change(fresh)]);
+    world
+        .resource_mut::<ModRuntime>()
+        .hosts
+        .host_mut(0)
+        .frame(true)
+        .unwrap();
+    assert_eq!(
+        world.resource::<ModRuntime>().hosts.host(0).label(),
+        Some("ello")
+    );
+}
+
+#[test]
+fn registered_prefix_changes_preserve_every_environment_hosts_relative_order() {
+    let directory = tempfile::tempdir().unwrap();
+    let (mut world, _messages, _retiring) = world();
+    let e0 = candidate(directory.path(), "e0.wasm", "First");
+    let e1 = candidate(directory.path(), "e1.wasm", "Other");
+    apply(
+        &mut world,
+        vec![e0.registration.clone(), e1.registration.clone()],
+        vec![change(e0), change(e1)],
+    );
+    for (index, metadata) in world
+        .resource_mut::<ModRuntime>()
+        .metadata
+        .iter_mut()
+        .enumerate()
+    {
+        metadata.registration = None;
+        metadata.owner = mod_ui::PanelUiOwner::Environment(index);
+    }
+    let r = candidate(directory.path(), "r.wasm", "Local");
+    let entry = r.registration.clone();
+    apply(&mut world, vec![entry], vec![change(r)]);
+    let labels = |world: &World| {
+        (0..world.resource::<ModRuntime>().hosts.host_count())
+            .map(|index| {
+                world
+                    .resource::<ModRuntime>()
+                    .hosts
+                    .host(index)
+                    .label()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(labels(&world), ["Local", "First", "Other"]);
+    apply(&mut world, Vec::new(), Vec::new());
+    assert_eq!(labels(&world), ["First", "Other"]);
+}
+
+#[test]
+fn settings_owner_publication_includes_environment_loaded_hosts() {
+    let directory = tempfile::tempdir().unwrap();
+    let (mut world, _messages, _retiring) = world();
+    let prepared = candidate(directory.path(), "environment.wasm", "Hello");
+    let mut entry = prepared.registration.clone();
+    entry.grants.settings = true;
+    let prepared =
+        Box::new(build_candidate(source::source_snapshot(entry.clone()).unwrap()).unwrap());
+    apply(&mut world, vec![entry.clone()], vec![change(prepared)]);
+    world.resource_mut::<ModRuntime>().metadata[0].registration = None;
+    let watcher = world.resource::<Watcher>();
+    watcher.remember_settings(world.resource::<ModRuntime>());
+    let permit = removal::Permit::new(
+        watcher.latest.load(Ordering::Acquire),
+        watcher.latest.clone(),
+        watcher.companions.clone(),
+    );
+    assert!(permit.shared_companion(&mod_host::settings_companion(&entry.component)));
 }

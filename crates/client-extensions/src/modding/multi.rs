@@ -137,7 +137,7 @@ impl ModHosts {
         }
     }
 
-    /// Resets the total callback allowance before input and event callbacks, and grants
+    /// Resets the shared frame, event and loading allowances, and grants
     /// exclusive camera and time output to the first active instance publishing that output.
     pub fn begin_frame(&mut self) {
         self.budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
@@ -192,20 +192,27 @@ impl ModHosts {
         }
     }
 
-    /// Combines distinct HUD slots in precedence order within the host's total card limit.
+    /// Combines distinct HUD slots in precedence order within all shared presentation limits.
     pub fn merged_hud(&self) -> Option<ui::mod_hud::Hud> {
         let owner = self.hud_owner()?;
         let mut hud = self.host(owner).hud()?.clone();
+        let mut rows = hud.cards.iter().map(|card| card.rows.len()).sum::<usize>();
+        let mut cells = hud.cards.iter().map(|card| card.cells.len()).sum::<usize>();
         for index in owner + 1..self.host_count() {
             if let Some(other) = self.host(index).hud() {
                 for card in &other.cards {
-                    if !hud.cards.iter().any(|existing| existing.id == card.id) {
+                    if !hud.cards.iter().any(|existing| existing.id == card.id)
+                        && hud.cards.len() < ui::mod_hud::MAX_HUD_CARDS
+                        && rows + card.rows.len() <= ui::mod_hud::MAX_HUD_ROWS
+                        && cells + card.cells.len() <= ui::mod_hud::MAX_HUD_CELLS
+                    {
+                        rows += card.rows.len();
+                        cells += card.cells.len();
                         hud.cards.push(card.clone());
                     }
                 }
             }
         }
-        hud.cards.truncate(ui::mod_hud::MAX_HUD_CARDS);
         Some(hud)
     }
 

@@ -114,7 +114,7 @@ fn a_dispatched_fence_rejects_a_newer_generation() {
 #[test]
 fn a_retirement_permit_rejects_a_generation_change_after_completion() {
     let latest = Arc::new(AtomicU64::new(1));
-    let permit = Permit::new(1, Arc::clone(&latest));
+    let permit = Permit::new(1, Arc::clone(&latest), Arc::new(Mutex::new(Vec::new())));
     permit.confirm().unwrap();
     latest.store(2, Ordering::Release);
     assert!(permit.confirm().is_err());

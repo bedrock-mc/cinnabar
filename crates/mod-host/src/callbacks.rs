@@ -84,6 +84,9 @@ impl ModHost {
         movement: Option<GameplayMovementSnapshot>,
         controls: ControlFrame,
     ) -> Result<()> {
+        if self.dispatch(Vec::new())? == CallbackOutcome::Deferred {
+            return Ok(());
+        }
         self.instance
             .frame(pressed, snapshot, mobs, player_state, movement, controls)?;
         self.queue_settings();

@@ -117,7 +117,8 @@ combined session, inventory and present-mode checks remain in `app`. These moves
 have not been compiled or executed and do not close this gate.
 
 Settings now manages ordered local components, independent reloads and per-mod permissions.
-The native mod host is always included; callback fuel is also bounded across the full frame.
+The native mod host is always included; regular callback fuel and separate event/loading
+lanes are bounded across the full frame. Deferred lifecycle state remains queued until delivery.
 These extension changes close no vanilla parity gate. Their native execution and visual
 acceptance remain incomplete until CI and owner review, as recorded in `plan.md`.
 

@@ -2,7 +2,11 @@ use super::*;
 
 /// Models a completed retirement whose watcher generation remains current.
 fn retirement_permit() -> removal::Permit {
-    removal::Permit::new(1, Arc::new(std::sync::atomic::AtomicU64::new(1)))
+    removal::Permit::new(
+        1,
+        Arc::new(std::sync::atomic::AtomicU64::new(1)),
+        Arc::new(std::sync::Mutex::new(Vec::new())),
+    )
 }
 
 /// Creates a directory alias, or reports the missing Windows symlink privilege fixture.
@@ -130,6 +134,7 @@ fn removal_rechecks_generation_after_retirement_returns() {
             Ok(removal::Permit::new(
                 1,
                 Arc::new(std::sync::atomic::AtomicU64::new(2)),
+                Arc::new(std::sync::Mutex::new(Vec::new())),
             ))
         },
     )
@@ -652,4 +657,55 @@ fn replacement_during_retirement_does_not_delete_the_new_component_or_its_prefer
     assert!(error.contains("changed while removal"));
     assert_eq!(fs::read(path).unwrap(), b"new replacement file");
     assert_eq!(fs::read(companion).unwrap(), b"preferences");
+}
+
+#[test]
+fn removing_an_import_preserves_a_live_environment_hosts_shared_companion() {
+    let directory = tempfile::tempdir().unwrap();
+    let mods = directory.path().join("mods");
+    let registration = directory.path().join("config");
+    fs::create_dir_all(&mods).unwrap();
+    let imported = mods.join("zoom.wasm");
+    let environment = mods.join("zoom.wat");
+    let companion = settings_companion(&imported);
+    fs::write(&imported, b"imported").unwrap();
+    fs::write(&environment, component("")).unwrap();
+    fs::write(&companion, b"{\"saved\":true}").unwrap();
+    let host = ModHost::load_with_grants(
+        &environment,
+        mod_host::ModGrants {
+            settings: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let owners = Arc::new(std::sync::Mutex::new(vec![
+        host.settings_path().unwrap().to_owned(),
+    ]));
+    let id = installed(&mods)
+        .into_iter()
+        .find(|(_, path)| path == &imported)
+        .unwrap()
+        .0
+        .id;
+    perform(
+        Action::Remove(id),
+        &mods,
+        &registration,
+        &mut 0,
+        &mut || Ok(None),
+        &mut |_| {
+            Ok(removal::Permit::new(
+                1,
+                Arc::new(std::sync::atomic::AtomicU64::new(1)),
+                owners.clone(),
+            ))
+        },
+    )
+    .unwrap();
+    assert!(!imported.exists());
+    assert!(host.is_active());
+    assert_eq!(fs::read(&companion).unwrap(), b"{\"saved\":true}");
+    drop(host);
+    assert!(companion.exists());
 }

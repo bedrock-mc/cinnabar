@@ -2,13 +2,13 @@
 
 use super::{
     Message, after_retirement,
-    selection::{Receipt, SELECTION_CHANGED},
+    selection::{Receipt, SELECTION_CHANGED, same_path},
 };
 use crossbeam_channel::{Receiver, Sender, bounded};
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
 };
@@ -16,20 +16,35 @@ use std::{
 pub(in crate::modding) struct Client {
     messages: Sender<Message>,
     latest: Arc<AtomicU64>,
+    companions: Arc<Mutex<Vec<PathBuf>>>,
 }
 
 /// Keeps the applied generation attached until the library finishes deleting files.
 pub(in crate::modding) struct Permit {
     generation: u64,
     latest: Arc<AtomicU64>,
+    companions: Arc<Mutex<Vec<PathBuf>>>,
 }
 
 impl Permit {
     /// Binds deletion to the watcher generation whose hosts have finished retiring.
-    pub(in crate::modding) fn new(generation: u64, latest: Arc<AtomicU64>) -> Self {
-        Self { generation, latest }
+    pub(in crate::modding) fn new(
+        generation: u64,
+        latest: Arc<AtomicU64>,
+        companions: Arc<Mutex<Vec<PathBuf>>>,
+    ) -> Self {
+        Self {
+            generation,
+            latest,
+            companions,
+        }
     }
 
+    /// Protects companions still owned by any surviving runtime settings writer.
+    pub(in crate::modding) fn shared_companion(&self, path: &Path) -> bool {
+        let owners = self.companions.lock().expect("mod settings owners").clone();
+        owners.iter().any(|owner| same_path(owner, path))
+    }
     /// Rejects supersession even when a later selection restores the same registration bytes.
     pub(in crate::modding) fn confirm(&self) -> Result<(), String> {
         if self.latest.load(Ordering::Acquire) == self.generation {
@@ -42,8 +57,16 @@ impl Permit {
 
 impl Client {
     /// Connects the library worker to the registration worker's retirement acknowledgments.
-    pub(super) fn new(messages: Sender<Message>, latest: Arc<AtomicU64>) -> Self {
-        Self { messages, latest }
+    pub(super) fn new(
+        messages: Sender<Message>,
+        latest: Arc<AtomicU64>,
+        companions: Arc<Mutex<Vec<PathBuf>>>,
+    ) -> Self {
+        Self {
+            messages,
+            latest,
+            companions,
+        }
     }
 
     /// Waits off-frame for this unchanged selection to apply and retired hosts to finish writing.
@@ -58,7 +81,11 @@ impl Client {
         let generation = completion
             .recv()
             .unwrap_or_else(|_| Err("The mod host stopped before removal finished.".to_owned()))?;
-        Ok(Permit::new(generation, Arc::clone(&self.latest)))
+        Ok(Permit::new(
+            generation,
+            Arc::clone(&self.latest),
+            self.companions.clone(),
+        ))
     }
 }
 

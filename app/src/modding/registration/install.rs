@@ -160,7 +160,9 @@ fn reorder(world: &mut World, entries: &[Entry]) {
                     })
                 })
                 .count();
-            runtime.swap_hosts(destination, index);
+            for next in (destination..index).rev() {
+                runtime.swap_hosts(next, next + 1);
+            }
         }
     }
     runtime.render_sources.clear();
@@ -196,6 +198,41 @@ pub(super) fn apply(world: &mut World, update: Update) {
         }
         return;
     }
+    let registration = &update.registration;
+    let changes = &update.changes;
+    let inactive: Vec<_> = world
+        .get_resource::<ModRuntime>()
+        .into_iter()
+        .flat_map(|runtime| {
+            runtime
+                .metadata
+                .iter()
+                .enumerate()
+                .filter_map(move |(index, metadata)| {
+                    let registered = metadata.registration.as_ref()?;
+                    (!runtime.hosts.host(index).is_active()
+                        && registration.mods.iter().any(|entry| {
+                            entry.enabled && entry.component == registered.entry.component
+                        })
+                        && !changes
+                            .iter()
+                            .any(|change| change.entry.component == registered.entry.component))
+                    .then(|| registered.entry.component.clone())
+                })
+        })
+        .collect();
+    if !inactive.is_empty() {
+        for change in update.changes {
+            if let Ok(candidate) = change.result {
+                watcher.retire(candidate.host);
+            }
+        }
+        watcher.send(Message::Retry {
+            generation: update.generation,
+            inactive,
+        });
+        return;
+    }
     let stale_settings = update
         .changes
         .iter()
@@ -217,7 +254,10 @@ pub(super) fn apply(world: &mut World, update: Update) {
                 watcher.retire(candidate.host);
             }
         }
-        watcher.send(Message::Retry);
+        watcher.send(Message::Retry {
+            generation: update.generation,
+            inactive: Vec::new(),
+        });
         return;
     }
     let removed: Vec<_> = world
@@ -269,10 +309,25 @@ pub(super) fn apply(world: &mut World, update: Update) {
     let installed = world
         .get_resource::<ModRuntime>()
         .into_iter()
-        .flat_map(|runtime| runtime.metadata.iter())
-        .filter_map(|metadata| metadata.registration.as_ref())
+        .flat_map(|runtime| {
+            runtime
+                .metadata
+                .iter()
+                .enumerate()
+                .filter_map(move |(index, metadata)| {
+                    runtime
+                        .hosts
+                        .host(index)
+                        .is_active()
+                        .then_some(metadata.registration.as_ref())
+                        .flatten()
+                })
+        })
         .map(|registered| (registered.entry.component.clone(), registered.identity))
         .collect();
+    world
+        .resource::<Watcher>()
+        .remember_companions(world.get_resource::<ModRuntime>());
     world.resource::<Watcher>().send(Message::Acknowledge {
         generation: update.generation,
         request_id: update.registration.request_id,

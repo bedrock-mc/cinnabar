@@ -20,7 +20,7 @@ const FRAME: &str = "frame";
 
 /// Defines the optional callback signatures once for admission and live instances.
 macro_rules! event_callbacks {
-    ($($field:ident: $params:ty = $name:literal),* $(,)?) => {
+    ($($field:ident: $params:ty = $name:literal => $event:pat),* $(,)?) => {
         #[derive(Default)]
         struct Events {
             $($field: Option<TypedFunc<$params, ()>>),*
@@ -38,6 +38,11 @@ macro_rules! event_callbacks {
                 Ok(())
             }
 
+            /// Whether the matching optional callback is present before reserving its lane.
+            fn handles(&self, event: &ModEvent) -> bool {
+                match event { $($event => self.$field.is_some()),* }
+            }
+
             /// Whether at least one optional event callback is present.
             fn has_events(&self) -> bool {
                 $(self.$field.is_some())||*
@@ -47,14 +52,14 @@ macro_rules! event_callbacks {
 }
 
 event_callbacks! {
-    screen_changed: (Option<player_mod::Layout>,) = "screen-changed",
-    action: (String, Index) = "action",
-    secondary: (String, Index) = "secondary-action",
-    scrolled: (f64, f64, f64, player_mod::Modifiers) = "scrolled",
-    text: (String, String) = "text-changed",
-    key: KeyParams = "key",
-    data_changed: (Vec<player_mod::DataSource>,) = "data-changed",
-    view_closed: () = "view-closed",
+    screen_changed: (Option<player_mod::Layout>,) = "screen-changed" => ModEvent::ScreenChanged(_),
+    action: (String, Index) = "action" => ModEvent::Action { .. },
+    secondary: (String, Index) = "secondary-action" => ModEvent::SecondaryAction { .. },
+    scrolled: (f64, f64, f64, player_mod::Modifiers) = "scrolled" => ModEvent::Scrolled { .. },
+    text: (String, String) = "text-changed" => ModEvent::TextChanged { .. },
+    key: KeyParams = "key" => ModEvent::Key { .. },
+    data_changed: (Vec<player_mod::DataSource>,) = "data-changed" => ModEvent::DataChanged(_),
+    view_closed: () = "view-closed" => ModEvent::ViewClosed,
 }
 
 pub(super) struct Exports {
@@ -94,6 +99,11 @@ impl Exports {
     /// Whether the component exports any event callback.
     pub(super) fn has_events(&self) -> bool {
         self.events.has_events()
+    }
+
+    /// Skips absent optional callbacks before consuming an event or loading allowance.
+    pub(super) fn handles_event(&self, event: &ModEvent) -> bool {
+        self.events.handles(event)
     }
 
     /// Whether the component reads the session in `data-changed`, which gives `init` the load

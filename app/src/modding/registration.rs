@@ -146,7 +146,10 @@ enum Message {
         component: PathBuf,
         error: String,
     },
-    Retry,
+    Retry {
+        generation: u64,
+        inactive: Vec<PathBuf>,
+    },
     Stop,
 }
 
@@ -163,11 +166,16 @@ pub(super) struct Watcher {
     acknowledgments: Mutex<Vec<Message>>,
     fallback_retired: Mutex<Vec<ModHost>>,
     settings: Arc<Mutex<BTreeMap<PathBuf, SettingsSnapshot>>>,
+    companions: Arc<Mutex<Vec<PathBuf>>>,
 }
 impl Watcher {
     /// Gives the library a fence that waits off-frame for final settings writes.
     pub(super) fn removal_client(&self) -> removal::Client {
-        removal::Client::new(self.messages.clone(), self.latest.clone())
+        removal::Client::new(
+            self.messages.clone(),
+            self.latest.clone(),
+            self.companions.clone(),
+        )
     }
     /// Starts bounded list observation and a separate admission/retirement worker.
     pub(super) fn start(directory: PathBuf) -> Result<Self, String> {
@@ -210,11 +218,24 @@ impl Watcher {
             pending: Mutex::new(None),
             acknowledgments: Mutex::new(Vec::new()),
             fallback_retired: Mutex::new(Vec::new()),
+            companions: Arc::new(Mutex::new(Vec::new())),
             settings,
         })
     }
+    /// Publishes every surviving settings writer, including environment-loaded instances.
+    fn remember_companions(&self, runtime: Option<&ModRuntime>) {
+        *self.companions.lock().expect("mod settings owners") = runtime
+            .into_iter()
+            .flat_map(|runtime| {
+                (0..runtime.hosts.host_count()).filter_map(|index| {
+                    runtime.hosts.host(index).settings_path().map(PathBuf::from)
+                })
+            })
+            .collect();
+    }
     /// Captures each mod's latest in-memory preferences before preparing replacements.
     pub(super) fn remember_settings(&self, runtime: &ModRuntime) {
+        self.remember_companions(Some(runtime));
         let mut current = self.settings.lock().expect("mod settings snapshots");
         current.clear();
         for (index, metadata) in runtime.metadata.iter().enumerate() {

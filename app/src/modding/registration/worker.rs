@@ -130,7 +130,16 @@ pub(super) fn run(
                     continue;
                 }
                 installed = accepted;
-                statuses.retain(|status| installed.contains_key(&status.component));
+                let current = desired.lock().expect("mod desired list");
+                statuses.retain(|status| {
+                    current.registration.as_ref().is_some_and(|registration| {
+                        registration
+                            .mods
+                            .iter()
+                            .any(|entry| entry.enabled && entry.component == status.component)
+                    })
+                });
+                drop(current);
                 for status in changed {
                     statuses.retain(|old| old.component != status.component);
                     statuses.push(status);
@@ -149,7 +158,16 @@ pub(super) fn run(
                     &StatusList::new(request_id.clone(), statuses.clone()),
                 );
             }
-            Ok(Message::Retry) => {
+            Ok(Message::Retry {
+                generation,
+                inactive,
+            }) => {
+                if generation != latest.load(Ordering::Acquire) {
+                    continue;
+                }
+                for component in inactive {
+                    installed.remove(&component);
+                }
                 fingerprint = None;
                 next_poll = Instant::now();
             }

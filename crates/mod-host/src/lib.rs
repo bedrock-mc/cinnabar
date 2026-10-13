@@ -7,7 +7,7 @@ pub mod helper;
 pub use grants::{Capability, ModGrants};
 mod callback_budget;
 mod callbacks;
-pub use callback_budget::CallbackBudget;
+pub use callback_budget::{CallbackBudget, CallbackOutcome};
 mod exclusive;
 pub use exclusive::HudClaims;
 mod execution;
@@ -84,6 +84,7 @@ pub struct ModHost {
     authorized_grants: ModGrants,
     settings_writer: Option<settings::SettingsWriter>,
     settings_seed: Option<String>,
+    pending_events: Vec<ModEvent>,
     package: Option<LoadedPackage>,
     layout: Option<ScreenLayout>,
     session: Arc<SessionData>,
