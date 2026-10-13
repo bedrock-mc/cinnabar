@@ -26,6 +26,140 @@ struct Painted {
 }
 
 #[test]
+fn extra_large_friends_keeps_close_and_scrolled_friends_reachable_in_small_windows() {
+    for size in [ui::MIN_WINDOW_LOGICAL_SIZE, [400.0, 250.0], [752.0, 500.0]] {
+        for dpi in [1.0, 2.0] {
+            for enabled in [0, 1] {
+                let mut view = MenuView::new(true, "Fixture".into());
+                view.screen = MenuScreen::Friends;
+                view.friends = (0..32)
+                    .map(|index| launcher::menu::MenuFriendCard {
+                        gamertag: format!("Fixture {index}"),
+                        world_name: "World".into(),
+                        members: String::new(),
+                        xuid: format!("fixture-{index}"),
+                        max_members: 0,
+                    })
+                    .collect();
+                Arc::make_mut(&mut view.settings_options)
+                    .set(option_index(EXTRA_LARGE_UI), enabled);
+                let metrics = TextMetrics::for_viewport(
+                    size.map(|value| (value * dpi) as u32),
+                    DpiScale::new(dpi).unwrap(),
+                    Some(2),
+                );
+                let mut screen = OreUiScreen::default();
+                let mut scrolls = MenuScrolls::default();
+                let frame = paint_with_scrolls(&mut screen, &view, metrics, size, &mut scrolls);
+                for action in [
+                    MenuAction::Navigate(MenuScreen::Home),
+                    MenuAction::PlayFriend(0),
+                ] {
+                    let bounds = frame
+                        .hits
+                        .iter()
+                        .find_map(|(at, bounds)| (*at == action).then_some(*bounds))
+                        .expect("Friends keeps its Close and first friend targets reachable");
+                    assert!(bounds.width() > 0.0 && bounds.height() > 0.0);
+                    assert!(bounds.min().x() >= 0.0 && bounds.min().y() >= 0.0);
+                    assert!(bounds.max().x() <= size[0] && bounds.max().y() <= size[1]);
+                }
+                let areas = screen.take_paint().unwrap().scrolls;
+                let list = areas
+                    .iter()
+                    .find(|area| area.key == "friends_list")
+                    .unwrap();
+                assert!(list.viewport.width() > 0.0 && list.viewport.height() > 0.0);
+                assert!(list.max > 0.0);
+                let point = crate::test_support::centre(list.viewport);
+                let delta = -list.max;
+                scrolls.set_areas(areas);
+                assert!(scrolls.wheel(point, delta, true));
+                let frame = paint_with_scrolls(&mut screen, &view, metrics, size, &mut scrolls);
+                assert!(
+                    frame.hits.iter().any(|(action, bounds)| {
+                        *action == MenuAction::PlayFriend(view.friends.len() - 1)
+                            && bounds.width() > 0.0
+                            && bounds.height() > 0.0
+                    }),
+                    "the last friend is reachable through real scrolling"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn extra_large_realms_keeps_selected_play_reachable_by_scrolling() {
+    for size in [
+        [1280.0, 500.0],
+        ui::MIN_WINDOW_LOGICAL_SIZE,
+        [400.0, 250.0],
+        [752.0, 500.0],
+    ] {
+        for dpi in [1.0, 2.0] {
+            for enabled in [0, 1] {
+                let mut view = MenuView::new(true, "Fixture".into());
+                view.screen = MenuScreen::Social;
+                view.auth_state = launcher::menu::auth::AuthState::Authenticated;
+                view.realms = vec![launcher::menu::MenuRealmCard {
+                    name: "Realm".into(),
+                    state: "open".into(),
+                    target: String::new(),
+                    address: String::new(),
+                    owner: "Fixture".into(),
+                    online_players: 0,
+                    max_players: 0,
+                    days_left: 0,
+                    expired: false,
+                    member: false,
+                }];
+                view.feeds.selected_realm = Some(0);
+                Arc::make_mut(&mut view.settings_options)
+                    .set(option_index(EXTRA_LARGE_UI), enabled);
+                let metrics = TextMetrics::for_viewport(
+                    size.map(|value| (value * dpi) as u32),
+                    DpiScale::new(dpi).unwrap(),
+                    Some(2),
+                );
+                let mut screen = OreUiScreen::default();
+                let mut scrolls = MenuScrolls::default();
+                let mut reached = false;
+                for _ in 0..32 {
+                    let frame = paint_with_scrolls(&mut screen, &view, metrics, size, &mut scrolls);
+                    reached = frame.hits.iter().any(|(action, bounds)| {
+                        *action == MenuAction::PlayRealm(0)
+                            && bounds.width() > 0.0
+                            && bounds.height() > 0.0
+                            && bounds.min().x() >= 0.0
+                            && bounds.min().y() >= 0.0
+                            && bounds.max().x() <= size[0]
+                            && bounds.max().y() <= size[1]
+                    });
+                    if reached {
+                        break;
+                    }
+                    let areas = screen.take_paint().unwrap().scrolls;
+                    let details = areas
+                        .iter()
+                        .find(|area| area.key == "realm_details")
+                        .expect("overflowing Realm details must let the pointer reach Play");
+                    assert!(details.viewport.width() > 0.0 && details.viewport.height() > 0.0);
+                    let point = crate::test_support::centre(details.viewport);
+                    let delta = -details.max;
+                    scrolls.set_areas(areas);
+                    assert!(scrolls.wheel(point, delta, true));
+                }
+                assert!(
+                    reached,
+                    "selected Realm's Play target is reachable: {size:?}, DPI {dpi}, enabled {enabled}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn extra_large_play_keeps_loaded_worlds_and_navigation_reachable_in_small_windows() {
     for enabled in [0, 1] {
         for size in [ui::MIN_WINDOW_LOGICAL_SIZE, [400.0, 250.0], [752.0, 500.0]] {
