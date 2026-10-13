@@ -105,10 +105,11 @@ pub enum RuntimeStage {
     GpuModPass6,
     GpuModPass7,
     GpuModPrimitives,
+    GpuFarTerrain,
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 76] = [
+    pub const ALL: [Self; 77] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -185,10 +186,11 @@ impl RuntimeStage {
         Self::GpuModPass6,
         Self::GpuModPass7,
         Self::GpuModPrimitives,
+        Self::GpuFarTerrain,
     ];
 
     /// GPU-timed stages, the contiguous tail of [`Self::ALL`].
-    pub const GPU: [Self; 34] = [
+    pub const GPU: [Self; 35] = [
         Self::GpuFrame,
         Self::GpuShadows,
         Self::GpuOpaque,
@@ -223,6 +225,7 @@ impl RuntimeStage {
         Self::GpuModPass6,
         Self::GpuModPass7,
         Self::GpuModPrimitives,
+        Self::GpuFarTerrain,
     ];
 
     /// Owned UI passes separated from the enclosing UI node when explicitly requested.
@@ -336,6 +339,7 @@ impl RuntimeStage {
             Self::GpuModPass6 => "gpu_mod_pass_6",
             Self::GpuModPass7 => "gpu_mod_pass_7",
             Self::GpuModPrimitives => "gpu_mod_primitives",
+            Self::GpuFarTerrain => "gpu_far_terrain",
         }
     }
 }

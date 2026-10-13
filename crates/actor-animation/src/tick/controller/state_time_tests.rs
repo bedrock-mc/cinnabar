@@ -94,6 +94,7 @@ fn playback(blending: bool) -> (Vec<WeightedClip>, f32) {
     let context = ActorTickContext::default();
     let evaluator = Evaluator {
         assets: &assets,
+        pack: false,
         layout: &layout,
         program: None,
         actor: &actor,

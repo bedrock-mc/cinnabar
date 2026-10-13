@@ -793,3 +793,59 @@ fn sampled_light_shell_covers_only_cells_beside_the_centre() {
     assert_eq!(cells([0, -1, 1]), (0..16).map(|x| [x, 0, 15]).collect());
     assert_eq!(cells([-1, 1, -1]), BTreeSet::from([[0, 15, 0]]));
 }
+
+/// A queued section that turns to air without a new revision is published as a removal by a
+/// later dispatch that reaches it, never meshed on a worker.
+#[test]
+fn queued_section_that_turns_to_air_is_removed_once_a_dispatch_reaches_it() {
+    let mut stream = lit_stream(1);
+    let key = SubChunkKey::new(1, 0, 0, 0);
+    stream
+        .authority
+        .commit_sub_chunk(key, super::uniform_sub_chunk(2))
+        .unwrap();
+    stream.resident.insert(key);
+    install_current_light(&mut stream, key, 0, 0, false);
+    stream.mark_dirty_exact(key, Instant::now());
+    assert_eq!(stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, 1), 0);
+    stream
+        .authority
+        .commit_sub_chunk(key, super::uniform_sub_chunk(0))
+        .unwrap();
+
+    for _ in 0..2 {
+        assert_eq!(stream.dispatch_mesh_jobs_with_limits([8.0; 3], 1, 1), 0);
+    }
+
+    assert!(stream.mesh_jobs.in_flight.is_empty());
+    assert!(stream.take_mesh_changes().iter().any(
+        |change| matches!(change, WorldMeshChange::Remove { key: removed, .. } if *removed == key)
+    ));
+}
+
+/// A light-blocked section that is both probed near the camera and queued is deferred exactly
+/// once, and neither dispatched nor left in the ready lane.
+#[test]
+fn light_blocked_near_section_is_deferred_once() {
+    let mut stream = lit_stream(1);
+    let key = SubChunkKey::new(1, 0, 0, 0);
+    stream
+        .authority
+        .commit_sub_chunk(key, super::uniform_sub_chunk(2))
+        .unwrap();
+    stream.resident.insert(key);
+    stream.mark_dirty_exact(key, Instant::now());
+
+    assert_eq!(stream.dispatch_mesh_jobs([8.0; 3], 4), 0);
+
+    let lane = &stream.mesh_jobs.lanes[RESIDENT_MESH_LANE];
+    assert!(stream.mesh_jobs.in_flight.is_empty());
+    assert!(lane.ready.iter().all(|candidate| candidate.key != key));
+    assert_eq!(
+        lane.deferred
+            .iter()
+            .filter(|candidate| candidate.key == key)
+            .count(),
+        1
+    );
+}

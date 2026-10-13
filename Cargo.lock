@@ -2043,6 +2043,7 @@ dependencies = [
  "client-world",
  "criterion",
  "crossbeam-channel",
+ "far-terrain",
  "hashbrown 0.16.1",
  "libc",
  "meshing",
@@ -2117,6 +2118,7 @@ dependencies = [
  "diagnostics",
  "env-compat",
  "experience-sdk",
+ "far-terrain",
  "first-run",
  "fontdue",
  "gameplay",
@@ -3526,6 +3528,25 @@ name = "fallible-iterator"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
+
+[[package]]
+name = "far-terrain"
+version = "0.1.19"
+dependencies = [
+ "assets",
+ "criterion",
+ "crossbeam-channel",
+ "flate2",
+ "rayon",
+ "render-api",
+ "sha2",
+ "tempfile",
+ "test-time",
+ "thiserror 2.0.18",
+ "tracing",
+ "world",
+ "xxhash-rust",
+]
 
 [[package]]
 name = "fastrand"
@@ -6488,6 +6509,7 @@ dependencies = [
  "block-transform",
  "bytemuck",
  "env-compat",
+ "far-terrain",
  "glam",
  "image",
  "libc",
@@ -6556,6 +6578,7 @@ dependencies = [
  "bevy",
  "bytemuck",
  "env-compat",
+ "far-terrain",
  "glam",
  "meshing",
  "mod-api",
