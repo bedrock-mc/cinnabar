@@ -426,6 +426,7 @@ fn player_list_with(skin: u8, cape: Option<u8>, geometry: Option<(&str, &str)>) 
             unique_id: -42,
             username: "remote".into(),
             verified: true,
+            xuid: "".into(),
             skin: PlayerSkin::Standard(StandardSkin {
                 geometry: geometry.map(|(resource_patch, geometry_data)| {
                     Arc::new(SkinGeometrySource {

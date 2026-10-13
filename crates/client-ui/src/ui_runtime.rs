@@ -6,6 +6,7 @@ pub mod book_screen;
 mod boss;
 pub mod chat_completion;
 pub mod chat_send;
+pub mod cinnabar_roster;
 pub mod crafting_observation;
 pub mod credits;
 mod death;
@@ -132,6 +133,7 @@ impl UiAuthorityTransition {
 #[derive(Clone, Debug)]
 pub struct UiRuntime {
     pub experiences: crate::experience_session::ExperienceSession,
+    pub cinnabar_roster: cinnabar_roster::CinnabarRoster,
     session_id: u64,
     item_fuel_catalog: Option<Arc<assets::RuntimeEntityAssets>>,
     last_fifo_sequence: Option<u64>,
@@ -228,6 +230,7 @@ impl UiRuntime {
             item_fuel_catalog: None,
             session_id,
             experiences: Default::default(),
+            cinnabar_roster: Default::default(),
             last_fifo_sequence: None,
             last_block_crack_sequence: None,
             last_local_millis: None,
@@ -643,6 +646,7 @@ impl UiRuntime {
         self.inventory_open = false;
         self.score_owner_names.clear();
         self.known_player_names.clear();
+        self.cinnabar_roster = Default::default();
         self.player_list_held = false;
         self.hud.clear();
         self.death_reason = Arc::from("");

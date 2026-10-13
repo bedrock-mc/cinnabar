@@ -48,7 +48,12 @@ impl UiPresentationRuntime {
             next,
             renderers: &mut [],
         };
-        list.paint(renderer, runtime.known_player_names(), &mut paint_frame)?;
+        list.paint(
+            renderer,
+            runtime.known_player_names(),
+            runtime.cinnabar_roster.badged(),
+            &mut paint_frame,
+        )?;
         Ok(())
     }
 }

@@ -85,6 +85,7 @@ mod tests {
                 unique_id: 1,
                 username: "player".into(),
                 verified: true,
+                xuid: "".into(),
                 skin: PlayerSkin::Standard(StandardSkin {
                     width: CLASSIC_SKIN_SIDE as u32,
                     height: CLASSIC_SKIN_SIDE as u32,
@@ -114,6 +115,7 @@ mod tests {
                     uuid,
                     username,
                     verified,
+                    xuid,
                     skin,
                     ..
                 } => PlayerListEntry::Add {
@@ -121,6 +123,7 @@ mod tests {
                     unique_id,
                     username,
                     verified,
+                    xuid,
                     skin,
                 },
                 other => other,

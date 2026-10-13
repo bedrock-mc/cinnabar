@@ -188,6 +188,7 @@ fn profile(shade: u8) -> WorldEvent {
             unique_id: PLAYER as i64,
             username: "cached".into(),
             verified: true,
+            xuid: "".into(),
             skin: PlayerSkin::Standard(StandardSkin {
                 width: render_model::STANDARD_SKIN_SIDE as u32,
                 height: render_model::STANDARD_SKIN_SIDE as u32,

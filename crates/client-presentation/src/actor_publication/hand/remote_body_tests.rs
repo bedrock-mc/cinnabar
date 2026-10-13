@@ -22,6 +22,7 @@ fn spawn_remotes(stream: &mut WorldStream) {
                             unique_id: id as i64,
                             username: "Remote".into(),
                             verified: true,
+                            xuid: "".into(),
                             skin: skin.clone(),
                         }]),
                     },

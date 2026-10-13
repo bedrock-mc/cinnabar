@@ -398,6 +398,8 @@ impl Content<'_, '_> {
             (self.translate)(&description_key).map_or_else(String::new, |text| text.to_string());
         let description = if name == launcher::menu::settings_options::VRR_OPTION.name {
             "Automatic uses display detection. Choose On if variable refresh is enabled in your display and system settings, or Off to disable the VRR frame cap.".to_owned()
+        } else if name == launcher::menu::settings_options::CINNABAR_VISIBILITY_OPTION.name {
+            "Let other Cinnabar players see a Cinnabar badge next to your name.".to_owned()
         } else if name == launcher::menu::settings_options::AUTO_UPDATE_OPTION.name {
             "Check the selected channel and download verified updates in the background.".to_owned()
         } else if name == launcher::menu::settings_options::INSTALL_ON_QUIT_OPTION.name {

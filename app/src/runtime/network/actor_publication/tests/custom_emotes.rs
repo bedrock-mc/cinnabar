@@ -95,6 +95,7 @@ fn fixture_with_skin(with_skin: bool) -> World {
                         unique_id: 1,
                         username: "fixture".into(),
                         verified: true,
+                        xuid: "".into(),
                         skin: protocol::PlayerSkin::Standard(render_api::StandardSkin {
                             width: 64,
                             height: 64,

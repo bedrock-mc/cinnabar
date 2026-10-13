@@ -136,6 +136,7 @@ fn launcher_command(
         .arg(socket_dir)
         .arg("-control-status")
         .arg("-xbox-presence")
+        .arg("-cinnabar-api")
         .arg("-server-trust-file")
         .arg(layout.server_trust_file())
         .arg("-device-file")
@@ -332,6 +333,7 @@ mod tests {
         let offline = args(None);
         assert!(offline.iter().any(|arg| arg == "-control-status"));
         assert!(offline.iter().any(|arg| arg == "-xbox-presence"));
+        assert!(offline.iter().any(|arg| arg == "-cinnabar-api"));
         assert!(
             offline
                 .windows(2)

@@ -1,6 +1,6 @@
 //! Momentary Java-style roster, rendered independently of server HUD replacements.
 
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use json_ui::{Catalog, CollectionItem, Context, DataSource, Scalar, ViewState};
 use ui::FONT_DESIGN_PIXEL_TEXELS;
@@ -16,16 +16,21 @@ const MAX_PLAYERS: usize = 80;
 const MAX_ROWS: usize = 20;
 const ROW_HEIGHT: f64 = 9.0;
 const SCREEN: &str = "cinnabar_tab.screen";
+/// The roster badge's built-in texture path.
+pub const CINNABAR_BADGE: &str = "textures/ui/cinnabar_badge";
+/// Width a badged cell reserves beside its name.
+const BADGE_WIDTH: f64 = 9.0;
 
 /// The roster screen over its own bundled catalog, rebound only when the names change.
 pub struct PlayerList {
     catalog: Arc<Catalog>,
     screen: CachedScreen,
     names: Vec<Arc<str>>,
+    badges: Vec<bool>,
     total: usize,
     data: Arc<DataSource>,
     dimensions: [usize; 2],
-    geometry: Option<([f64; 2], f32, [usize; 3])>,
+    geometry: Option<([f64; 2], f32, [usize; 3], bool)>,
     context: Context,
 }
 
@@ -48,6 +53,7 @@ impl PlayerList {
             ),
             screen: CachedScreen::default(),
             names: Vec::new(),
+            badges: Vec::new(),
             total: 0,
             data: Arc::default(),
             dimensions: [0, 0],
@@ -56,11 +62,21 @@ impl PlayerList {
         }
     }
 
-    fn refresh(&mut self, names: &[Arc<str>], rows: usize) -> [usize; 2] {
+    fn refresh(
+        &mut self,
+        names: &[Arc<str>],
+        badged: &HashSet<Arc<str>>,
+        rows: usize,
+    ) -> [usize; 2] {
         let shown = &names[..names.len().min(MAX_PLAYERS)];
         let columns = shown.len().div_ceil(rows).max(1);
         let rows = shown.len().div_ceil(columns).max(1);
-        if self.names != shown || self.total != names.len() || self.dimensions != [columns, rows] {
+        let badges: Vec<bool> = shown.iter().map(|name| badged.contains(name)).collect();
+        if self.names != shown
+            || self.badges != badges
+            || self.total != names.len()
+            || self.dimensions != [columns, rows]
+        {
             // Grids consume row-major collections; Java presents names down each column.
             let cells = (0..rows).flat_map(|row| (0..columns).map(move |col| col * rows + row));
             let entries = cells
@@ -72,9 +88,14 @@ impl PlayerList {
                             Scalar::Text(name.map_or_else(String::new, |name| name.to_string())),
                         )
                         .with("#row_visible", Scalar::Bool(name.is_some()))
+                        .with(
+                            "#cinnabar_badge",
+                            Scalar::Bool(badges.get(index).copied().unwrap_or(false)),
+                        )
                 })
                 .collect();
             self.names = shown.to_vec();
+            self.badges = badges;
             self.total = names.len();
             self.dimensions = [columns, rows];
             self.geometry = None;
@@ -100,11 +121,12 @@ impl Default for PlayerList {
 }
 
 impl PlayerList {
-    /// Paints the roster of `names` over the frame.
+    /// Paints the roster of `names` over the frame, badging the `badged` Cinnabar players.
     pub fn paint(
         &mut self,
         engine: &FormEngine,
         names: &[Arc<str>],
+        badged: &HashSet<Arc<str>>,
         frame: &mut PaintFrame<'_>,
     ) -> Result<(), PaintError> {
         let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
@@ -113,15 +135,18 @@ impl PlayerList {
             let max_rows = ((root[1] - 40.0) / ROW_HEIGHT)
                 .floor()
                 .clamp(1.0, MAX_ROWS as f64) as usize;
-            let [columns, rows] = self.refresh(names, max_rows);
-            let geometry = (root, px, language);
+            let [columns, rows] = self.refresh(names, badged, max_rows);
+            let badge = self.badges.contains(&true);
+            let geometry = (root, px, language, badge);
             if self.geometry != Some(geometry) {
                 let widest = self
                     .names
                     .iter()
                     .map(|name| env.text.extent(name)[0])
                     .fold(60.0, f64::max);
-                let width = (widest + 8.0).min((root[0] - 8.0).max(1.0) / columns as f64);
+                let badge_width = if badge { BADGE_WIDTH } else { 0.0 };
+                let width =
+                    (widest + 8.0 + badge_width).min((root[0] - 8.0).max(1.0) / columns as f64);
                 let title = format!("Online players: {}", self.total);
                 let panel_width = (width * columns as f64 + 4.0)
                     .max(env.text.extent(&title)[0] + 4.0)
@@ -131,6 +156,7 @@ impl PlayerList {
                     .with_var("row_background_height", serde_json::json!(ROW_HEIGHT - 1.0))
                     .with_var("grid_top", serde_json::json!(ROW_HEIGHT + 3.0))
                     .with_var("cell_width", serde_json::json!(width))
+                    .with_var("cinnabar_badge_texture", serde_json::json!(CINNABAR_BADGE))
                     .with_var("panel_width", serde_json::json!(panel_width))
                     .with_var(
                         "panel_height",

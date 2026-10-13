@@ -602,7 +602,14 @@ fn general(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "menu.general.tab.network.title",
         "menu.general.tab.network.description",
     )?;
-    options(content, &["websockets_enabled", "websocket_encryption"])?;
+    options(
+        content,
+        &[
+            "websockets_enabled",
+            "websocket_encryption",
+            launcher::menu::settings_options::CINNABAR_VISIBILITY_OPTION.name,
+        ],
+    )?;
     if content.view.updates.active {
         options(
             content,

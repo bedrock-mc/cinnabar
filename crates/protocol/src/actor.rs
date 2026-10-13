@@ -271,6 +271,8 @@ pub enum PlayerListEntry {
         unique_id: i64,
         username: Arc<str>,
         verified: bool,
+        /// Decimal Xbox user ID, empty when the server sent none or a malformed one.
+        xuid: Arc<str>,
         skin: PlayerSkin,
     },
     Remove {
@@ -695,6 +697,7 @@ pub(crate) fn normalize_player_list(
                 uuid,
                 actor_unique_id,
                 player_name,
+                xbl_xuid,
                 serialized_skin,
                 ..
             } => {
@@ -714,6 +717,7 @@ pub(crate) fn normalize_player_list(
                     unique_id: actor_unique_id.0,
                     username: Arc::from(player_name.to_string_lossy()),
                     verified,
+                    xuid: player_list_xuid(&xbl_xuid),
                     skin,
                 });
             }
@@ -727,6 +731,19 @@ pub(crate) fn normalize_player_list(
     Ok(ActorEvent::PlayerList(PlayerListUpdateEvent {
         entries: Arc::from(entries),
     }))
+}
+
+/// Most decimal digits an Xbox user ID carries.
+const MAX_XUID_DIGITS: usize = 20;
+
+/// Keeps a well-formed decimal XUID and drops anything else without rejecting the entry.
+fn player_list_xuid(xuid: &wire::Str) -> Arc<str> {
+    let bytes = xuid.as_bytes();
+    if !bytes.is_empty() && bytes.len() <= MAX_XUID_DIGITS && bytes.iter().all(u8::is_ascii_digit) {
+        Arc::from(xuid.to_string_lossy())
+    } else {
+        Arc::from("")
+    }
 }
 
 /// Normalizes the four-field spawn attribute list AddActor carries.

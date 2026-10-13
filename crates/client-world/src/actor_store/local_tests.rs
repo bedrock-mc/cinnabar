@@ -26,6 +26,7 @@ fn list_add(uuid: [u8; 16], unique_id: i64, skin: PlayerSkin) -> ActorEvent {
             unique_id,
             username: "local".into(),
             verified: true,
+            xuid: "".into(),
             skin,
         }]),
     })

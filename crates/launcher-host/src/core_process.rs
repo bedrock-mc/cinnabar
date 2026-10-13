@@ -291,7 +291,7 @@ mod tests {
             assert!(
                 command
                     .get_args()
-                    .all(|argument| argument != "-xbox-presence")
+                    .all(|argument| argument != "-xbox-presence" && argument != "-cinnabar-api")
             );
         }
     }

@@ -322,6 +322,7 @@ impl ActorStore {
                     unique_id,
                     username: std::sync::Arc::clone(&feed.username),
                     verified: false,
+                    xuid: "".into(),
                     skin: feed.skin.clone(),
                 },
             );
@@ -622,6 +623,7 @@ impl ActorStore {
                             unique_id,
                             username,
                             verified,
+                            xuid,
                             skin,
                         } => {
                             let admitted = self.upsert_profile(
@@ -630,6 +632,7 @@ impl ActorStore {
                                     unique_id: *unique_id,
                                     username: username.clone(),
                                     verified: *verified,
+                                    xuid: xuid.clone(),
                                     skin: skin.clone(),
                                 },
                             );

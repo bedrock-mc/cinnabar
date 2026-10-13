@@ -154,6 +154,10 @@ pub const UPDATE_CHANNEL_OPTION: SettingDefinition = dropdown(
     0,
 );
 
+/// Lets other Cinnabar players see this player as one through the Cinnabar API.
+pub const CINNABAR_VISIBILITY_OPTION: SettingDefinition =
+    toggle("cinnabar_visible", "Show me as a Cinnabar player", true);
+
 /// Publishes the client's state to Discord Rich Presence.
 pub const DISCORD_PRESENCE_OPTION: SettingDefinition =
     toggle("discord_presence", "Discord Rich Presence", true);
@@ -481,6 +485,7 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     AUTO_UPDATE_OPTION,
     INSTALL_ON_QUIT_OPTION,
     UPDATE_CHANNEL_OPTION,
+    CINNABAR_VISIBILITY_OPTION,
     // P:ui/settings_sections/general_section.json:246; default is not yet recovered.
     toggle(
         "only_trusted_skins_allowed",

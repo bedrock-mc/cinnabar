@@ -556,6 +556,8 @@ pub struct PlayerProfile {
     pub unique_id: i64,
     pub username: std::sync::Arc<str>,
     pub verified: bool,
+    /// Decimal Xbox user ID, empty when the server sent none.
+    pub xuid: std::sync::Arc<str>,
     pub skin: PlayerSkin,
 }
 

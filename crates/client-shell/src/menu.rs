@@ -34,6 +34,7 @@ pub mod screen_focus;
 #[cfg(test)]
 mod server_input_tests;
 mod services;
+pub use services::sync_cinnabar_players;
 pub mod settings_options;
 mod settings_paths;
 pub mod settings_storage;

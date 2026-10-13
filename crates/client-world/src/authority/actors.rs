@@ -43,6 +43,10 @@ impl WorldAuthority {
     pub fn player_list_usernames(&self) -> Vec<std::sync::Arc<str>> {
         self.actors.player_list_usernames()
     }
+    /// Named player-list entries as `(username, xuid)`, sorted by username.
+    pub fn player_list_roster(&self) -> Vec<(std::sync::Arc<str>, std::sync::Arc<str>)> {
+        self.actors.player_list_roster()
+    }
     /// How many players are on the player list, without allocating.
     pub fn player_count(&self) -> usize {
         self.actors.player_list_count()

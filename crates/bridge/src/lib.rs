@@ -1,6 +1,11 @@
 //! Local stream bridge between the Rust client and Go core.
 
 mod account;
+mod cinnabar_api;
+pub use cinnabar_api::{
+    CinnabarApiConfig, CinnabarRelease, RATE_LIMITED as CINNABAR_LOOKUP_RATE_LIMITED,
+    configure_cinnabar_api, lookup_cinnabar_players,
+};
 /// Shared frame limits and session message kinds for the Rust and Go bridge.
 pub mod contract;
 pub use contract::MAX_FRAME_LEN;

@@ -72,6 +72,23 @@ impl ActorStore {
         names
     }
 
+    /// Named player-list entries as `(username, xuid)`, sorted by username; the XUID may be empty.
+    pub(crate) fn player_list_roster(&self) -> Vec<(std::sync::Arc<str>, std::sync::Arc<str>)> {
+        let mut roster = self
+            .players
+            .values()
+            .filter(|profile| !profile.username.is_empty())
+            .map(|profile| {
+                (
+                    std::sync::Arc::clone(&profile.username),
+                    std::sync::Arc::clone(&profile.xuid),
+                )
+            })
+            .collect::<Vec<_>>();
+        roster.sort_unstable();
+        roster
+    }
+
     /// How many players [`Self::player_list_usernames`] would list, without allocating.
     pub(crate) fn player_list_count(&self) -> usize {
         self.players
