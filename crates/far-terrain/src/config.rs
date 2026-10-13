@@ -3,6 +3,56 @@
 /// Compressed column summaries kept in memory before the least recently used are dropped.
 pub const DEFAULT_MEMORY_BUDGET_BYTES: usize = 32 << 20;
 
+/// Disk cache cap for one server.
+pub const DEFAULT_SERVER_DISK_CAP_BYTES: u64 = 64 << 20;
+
+/// Disk cache cap across every server.
+pub const DEFAULT_GLOBAL_DISK_CAP_BYTES: u64 = 512 << 20;
+
+/// A region's waiting changes are written once this many columns wait.
+pub const REGION_FLUSH_COLUMNS: usize = 128;
+
+/// A region's waiting changes are written once the oldest is this old.
+pub const REGION_FLUSH_AFTER: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Non-empty columns compared against a cached world before reusing it.
+pub const WORLD_PROBE_COLUMNS: usize = 4;
+
+/// Share of a probe column's cells that must match the cache for the world to be the same.
+pub const WORLD_PROBE_SIMILARITY: f32 = 0.9;
+
+/// Most recent epochs of one world identity compared against the probes.
+pub const WORLD_PROBE_EPOCHS: usize = 3;
+
+/// Columns held while the world's cache namespace is being resolved.
+pub const MAX_UNRESOLVED_COLUMNS: usize = 4096;
+
+/// A world that has not shown enough non-empty columns to probe by now resolves with the
+/// probes it has, so sparse worlds are still persisted.
+pub const WORLD_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Cells along one side of every far-terrain tile, at any level.
+pub const TILE_CELLS: usize = 64;
+
+/// Detail levels; level `l` has cells `2^l` blocks wide (1 to 16 blocks).
+pub const LEVEL_COUNT: u8 = 5;
+
+/// A tile splits into four finer ones while it is closer to the near-terrain edge than this
+/// many of its own widths.
+pub const LEVEL_SPLIT_DISTANCE: f32 = 1.0;
+
+/// Blocks tile-edge skirts reach below a tile's lowest surface, hiding cracks between levels.
+pub const SKIRT_DEPTH_BLOCKS: i16 = 16;
+
+/// A tile whose columns changed is rebuilt at most this often.
+pub const TILE_REBUILD_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Tile meshes built concurrently on worker threads.
+pub const MAX_TILE_BUILDS: usize = 4;
+
+/// Columns gathered for new tile builds per update, bounding the owner thread's share.
+pub const TILE_BUILD_COLUMNS_PER_UPDATE: usize = 1024;
+
 /// Water deeper than this many blocks is summarised as open water without a floor.
 pub const MAX_WATER_SCAN_DEPTH: u8 = 32;
 
@@ -19,12 +69,16 @@ pub const UNKNOWN_SURFACE_RGB: [u8; 3] = [128, 128, 128];
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FarTerrainConfig {
     pub memory_budget_bytes: usize,
+    pub server_disk_cap_bytes: u64,
+    pub global_disk_cap_bytes: u64,
 }
 
 impl Default for FarTerrainConfig {
     fn default() -> Self {
         Self {
             memory_budget_bytes: DEFAULT_MEMORY_BUDGET_BYTES,
+            server_disk_cap_bytes: DEFAULT_SERVER_DISK_CAP_BYTES,
+            global_disk_cap_bytes: DEFAULT_GLOBAL_DISK_CAP_BYTES,
         }
     }
 }

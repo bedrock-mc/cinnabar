@@ -360,6 +360,8 @@ impl MotionPoses {
             .zip(&self.mask)
             .zip(&self.previous_mask)
         {
+            // Both endpoints compose their newly sampled attack delta.
+            previous.legacy_swing = sampled_previous.legacy_swing;
             for (axis, bits) in sampled_mask.iter().enumerate() {
                 let bits = bits | current_mask[axis] | previous_mask[axis];
                 if bits & motion_sampling::TRANSLATION != 0 {
@@ -455,7 +457,10 @@ impl ActorAnimationStore {
             .local_swing
             .map(|progress| progress.bedrock_progress(partial_tick));
         let swing_changed = state.samples_swing_poses
-            && swing.is_some_and(|value| value != frame.motion.input.attack_time);
+            && state.local_swing.is_some_and(|progress| {
+                progress.bedrock[0] != progress.bedrock[1]
+                    || progress.bedrock_progress(partial_tick) != frame.motion.input.attack_time
+            });
         let swell_changed = frame.needs_swell_sampling(actor);
         let rotation_changed = frame.needs_rotation_sampling();
         let motion_changed = swell_changed || rotation_changed;
@@ -545,9 +550,9 @@ impl ActorAnimationStore {
         }
         tick::set_item_rotation_factor(&layout.engine, &mut variables);
         let body_swing_changed = frame.samples_swing_poses && swing_changed;
-        let isolated_motion = motion_changed
-            && !(frame.samples_camera_poses && camera_inputs_changed)
-            && !body_swing_changed;
+        let isolated_motion = frame.motion_poses.is_some()
+            && (motion_changed || body_swing_changed)
+            && !(frame.samples_camera_poses && camera_inputs_changed);
         let mut endpoints: Option<(MotionEndpoint<'_>, MotionEndpoint<'_>)> = if isolated_motion {
             let amount = actor.creeper_swell_amount(partial_tick);
             let Ok(previous) = previous_motion.sample(
@@ -557,14 +562,16 @@ impl ActorAnimationStore {
                 },
                 state,
                 amount,
+                swing,
                 false,
                 &mut budget,
             ) else {
                 return Some(completed());
             };
-            let Ok(current) = frame
-                .motion
-                .sample(evaluator, state, amount, true, &mut budget)
+            let Ok(current) =
+                frame
+                    .motion
+                    .sample(evaluator, state, amount, swing, true, &mut budget)
             else {
                 return Some(completed());
             };
@@ -811,7 +818,6 @@ impl ActorAnimationStore {
                                 clips,
                                 geometry,
                                 camera_inputs_changed,
-                                swing_changed,
                                 &mut budget,
                             ) {
                                 Ok(isolated) => isolated,

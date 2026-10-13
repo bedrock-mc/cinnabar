@@ -21,11 +21,23 @@ fn paint_at(
     scrolls: &mut MenuScrolls<MenuAction>,
     size: [f32; 2],
 ) -> (Vec<(MenuAction, UiRect)>, Vec<UiNode>) {
+    paint_with_metrics(screen, view, scrolls, size, 1.0, 2)
+}
+
+/// Paints with physical viewport and DPI controls while retaining the gameplay metrics.
+fn paint_with_metrics(
+    screen: &mut OreUiScreen,
+    view: &MenuView,
+    scrolls: &mut MenuScrolls<MenuAction>,
+    size: [f32; 2],
+    dpi: f32,
+    gui: u8,
+) -> (Vec<(MenuAction, UiRect)>, Vec<UiNode>) {
     let font = fixture_font();
     let metrics = TextMetrics::for_viewport(
-        size.map(|value| value as u32),
-        DpiScale::new(1.0).unwrap(),
-        Some(2),
+        size.map(|value| (value * dpi) as u32),
+        DpiScale::new(dpi).unwrap(),
+        Some(gui),
     );
     let (mut nodes, mut next, mut layouts) =
         (Vec::new(), 1, TextLayoutCache::new(128, 1024 * 1024));
@@ -46,7 +58,71 @@ fn paint_at(
     let hits = screen
         .paint_minecraft_import(view, size, scrolls, &mut frame)
         .unwrap();
+    assert_eq!(frame.metrics.gui_scale, metrics.gui_scale);
+    assert_eq!(frame.metrics.scale, metrics.scale);
     (hits, nodes)
+}
+
+#[test]
+fn saved_extra_large_import_scales_text_and_controls_once_and_restores_ordinary_size() {
+    use crate::test_support::option_index;
+    use launcher::menu::settings_options::{EXTRA_LARGE_UI, SettingsOptions};
+
+    for (physical, gui) in [([1280, 720], 2), ([1920, 1080], 4)] {
+        for dpi in [1.0, 2.0] {
+            let size = physical.map(|value| value as f32 / dpi);
+            for phase in [
+                Phase::Offered,
+                Phase::Profiles,
+                Phase::Preview,
+                Phase::Revert,
+            ] {
+                let mut view = profiles();
+                Arc::make_mut(&mut view.minecraft_import).phase = phase;
+                let mut screen = OreUiScreen::default();
+                let mut scrolls = MenuScrolls::default();
+                let ordinary = paint_with_metrics(&mut screen, &view, &mut scrolls, size, dpi, gui);
+                let index = option_index(EXTRA_LARGE_UI);
+                assert!(Arc::make_mut(&mut view.settings_options).set(index, 1));
+                view.settings_options = Arc::new(
+                    SettingsOptions::decode(&serde_json::to_vec(&view.settings_options).unwrap())
+                        .unwrap(),
+                );
+                let large = paint_with_metrics(&mut screen, &view, &mut scrolls, size, dpi, gui);
+                let action = MenuAction::MinecraftImport(
+                    view.minecraft_import
+                        .actions()
+                        .into_iter()
+                        .find(|action| !matches!(action, Action::Select(_)))
+                        .unwrap(),
+                );
+                let button = |hits: &[(MenuAction, UiRect)]| {
+                    hits.iter()
+                        .rev()
+                        .find_map(|(at, bounds)| (*at == action).then_some(*bounds))
+                        .unwrap()
+                };
+                let title = |nodes: &[UiNode]| {
+                    nodes
+                        .iter()
+                        .find(|node| matches!(node.visual(), UiVisual::Text { .. }))
+                        .expect("the modal title is painted")
+                        .bounds()
+                        .height()
+                };
+                let factor = (f32::from(gui) + 1.0) / f32::from(gui);
+                assert!(
+                    (button(&large.0).height() / button(&ordinary.0).height() - factor).abs()
+                        < 0.001
+                );
+                assert!((title(&large.1) / title(&ordinary.1) - factor).abs() < 0.01);
+                assert!(Arc::make_mut(&mut view.settings_options).set(index, 0));
+                let restored = paint_with_metrics(&mut screen, &view, &mut scrolls, size, dpi, gui);
+                assert_eq!(restored.0, ordinary.0);
+                assert_eq!(title(&restored.1), title(&ordinary.1));
+            }
+        }
+    }
 }
 
 /// Provides an overflowing list with no initial focused profile to trigger a reveal.

@@ -8,8 +8,42 @@ content, so an identical resend leaves the cache unchanged. The in-memory cache 
 compressed under a byte budget and drops the least recently used first. All bounds live in
 `far_terrain::config`.
 
-Incomplete: summaries are not yet persisted, namespaced per server and world, or drawn. No
-parity gate closes here.
+Summaries persist under the user data root in 32×32-column region files, namespaced by a
+hashed server identity, the dimension and a hash of StartGame's seed, level ID and level name.
+Before reusing a namespace, the first non-empty columns received are compared with it (or
+whatever arrived within 10 s, for sparse worlds); a mismatch starts a new epoch, so servers that
+reuse coordinates for different maps keep them apart. Columns show from memory before that, a
+disk read never replaces a newer column, and a retired session's late summaries never replace
+a later visit's. Transfers and dimension changes switch namespace. An IO thread writes each region in
+batches and evicts the least recently used regions past the per-server (64 MiB) and global
+(512 MiB) caps.
+
+The far pass draws the cached terrain beyond near terrain as blocky tiles of 64×64 cells,
+1 to 16 blocks wide, finer toward the near edge; only the finest level meets near terrain.
+Its quads hide over exactly the columns near terrain has drawn, those loaded with every mesh
+uploaded, so each column has one drawer and loading or eviction opens no hole. Tile meshes merge equal-height
+tops and runs of walls on worker threads, rebuild at most every 250 ms when their columns
+change, and keep a replaced tile drawn until its replacements are ready. The GPU holds only
+the selected tiles; a still camera uploads and rebuilds nothing. Cells are lit as sky-lit
+terrain faces and fogged with the terrain fog, which is unchanged. The render distance is how
+far the player sees: far terrain fills the gap between what the server sends and the render
+distance, within a budget set by the device tier (`render_api::far_terrain`). Video › Far
+Terrain (LOD) turns it on or off (default off).
+
+With far terrain on, only columns within the full-detail radius are lit, meshed and uploaded;
+the rest of what the server sends keeps its block data and is drawn by far terrain from its
+summary. The radius is Auto by device tier (24, 32 or 48 chunks) or set under Video › Advanced
+(16–64), capped at the render distance, so large render distances cost far tiles rather than
+meshes. A column is promoted (relit and remeshed) inside the radius and demoted two chunks past
+it. Both hand-overs are two-phase: a promoted column passes to near terrain only once its
+meshes are published, and a demoted one keeps its meshes until its fresh summary is delivered
+and its far tile is built. Block changes re-summarise their column, and turning far terrain off
+keeps it shown until near terrain draws every loaded column, so no change opens a hole. Entities keep their 12-chunk render distance, inside the smallest
+radius.
+
+Incomplete: the far-terrain look (cell colours, height aggregation and water blending) is held
+for owner review. Enhanced rendering lights far terrain with the vanilla path,
+and block light, clouds and weather do not reach it. No parity gate closes here.
 
 ## Experimental Android client
 
@@ -499,6 +533,9 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   Home fits short windows without scrolling; Pause scales its controls when needed. Geometry
   regressions are written; CI and owner visual acceptance of the sizing change remain pending.
 - Persistent Dark Mode defaults off, updates immediately and strengthens backdrop dimming.
+  Extra large new UI applies an additional scale step to menu geometry, text and hit targets,
+  independently of the ordinary GUI preference. Incomplete: exact-target sizing parity and
+  rendered/input acceptance remain unverified.
   Optional Screen animations controls quick hover/press feedback, selection, glimmers, text edits,
   screen changes, modal exits, pack accordions, scrolling and interpolated loading progress. Selected
   segmented choices remain lowered; hit targets remain stable and input applies immediately.

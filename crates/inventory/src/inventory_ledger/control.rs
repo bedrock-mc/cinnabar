@@ -53,9 +53,19 @@ impl ControlRequest {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct SentControl {
     pub request: ControlRequest,
-    /// The exact personal window whose cleanup this storage close also covers.
-    pub covered_personal: Option<ControlWindow>,
+    /// The personal generation this storage close may cover, even before its ID arrives.
+    pub covered_personal_generation: Option<u64>,
     deadline_millis: u64,
+}
+
+impl SentControl {
+    /// Matches the captured personal generation once its reply supplies the wire ID.
+    pub fn covers_personal(self, personal: ControlWindow) -> bool {
+        self.covered_personal_generation == Some(personal.generation)
+            && matches!(self.request, ControlRequest::Close(storage)
+                if storage.kind() == ControlKind::Storage
+                    && storage.window_id == personal.window_id)
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -94,22 +104,38 @@ impl WindowControls {
     /// Records transport admission only when this kind has no outstanding request.
     pub fn sent(&mut self, request: ControlRequest, now_millis: u64) {
         assert!(self.state(request.kind()).sent.is_none());
-        let covered_personal = match request {
+        let covered_personal_generation = match request {
             ControlRequest::Close(window) => {
                 assert!(!self.close_outstanding(window.window_id));
-                self.personal.confirmed.filter(|personal| {
-                    window.kind() == ControlKind::Storage
-                        && personal.window_id == window.window_id
-                        && (!self.personal.desired_open || self.personal.reset_required)
-                })
+                if window.kind() == ControlKind::Storage {
+                    self.personal
+                        .confirmed
+                        .filter(|personal| personal.window_id == window.window_id)
+                        .map(|personal| personal.generation)
+                        .or_else(|| match self.personal.sent?.request {
+                            ControlRequest::Open { generation, .. } => Some(generation),
+                            ControlRequest::Close(_) => None,
+                        })
+                } else {
+                    None
+                }
             }
             ControlRequest::Open { .. } => None,
         };
         self.state_mut(request.kind()).sent = Some(SentControl {
             request,
-            covered_personal,
+            covered_personal_generation,
             deadline_millis: now_millis.saturating_add(INVENTORY_REQUEST_TIMEOUT_MILLIS),
         });
+    }
+
+    /// Keeps the captured personal generation unusable until its covering storage close resolves.
+    pub fn personal_covered_by_storage_close(&self) -> bool {
+        self.personal.confirmed.is_some_and(|personal| {
+            self.storage
+                .sent
+                .is_some_and(|sent| sent.covers_personal(personal))
+        })
     }
 
     /// Prevents two kinds from sending closes for the same wire ID concurrently.

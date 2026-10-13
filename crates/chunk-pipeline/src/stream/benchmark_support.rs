@@ -23,6 +23,27 @@ pub fn cohort_fixture(mut stream: WorldStream, radius: i32) -> WorldStream {
     stream
 }
 
+/// Bytes of block storage the stream keeps for its loaded columns: palettes and packed words.
+pub fn terrain_block_bytes(stream: &WorldStream) -> usize {
+    stream
+        .loaded_columns
+        .iter()
+        .filter_map(|column| stream.authority.terrain().chunk(*column))
+        .flat_map(|chunk| chunk.sub_chunks().map(|(_, section)| section))
+        .map(|section| {
+            std::mem::size_of::<SubChunk>()
+                + section
+                    .storages()
+                    .iter()
+                    .map(|storage| {
+                        std::mem::size_of_val(storage)
+                            + 4 * (storage.packed_words().len() + storage.palette().values().len())
+                    })
+                    .sum::<usize>()
+        })
+        .sum()
+}
+
 /// Checks completion without performing the diagnostic population scans being benchmarked.
 pub fn work_is_idle(stream: &WorldStream) -> bool {
     stream.pending_decode.is_empty()

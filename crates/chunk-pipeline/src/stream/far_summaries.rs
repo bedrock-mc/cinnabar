@@ -25,6 +25,11 @@ const MAX_JOBS_IN_FLIGHT: usize = 4;
 pub struct FarColumnSummary {
     pub column: ChunkKey,
     pub summary: EncodedSummary,
+    /// Issue order of the job that took it; later issues saw later blocks.
+    pub generation: u64,
+    /// The column was loaded when its summary was delivered; far terrain keeps such
+    /// summaries whatever its memory budget, as nothing else may draw the column.
+    pub resident: bool,
 }
 
 type SharedColours = Arc<OnceLock<Arc<SurfaceColours>>>;
@@ -75,6 +80,11 @@ impl FarSummaryInbox {
         self.next_generation
     }
 
+    /// The generation of the latest job issued; any issued later saw later blocks.
+    pub(super) const fn issued_generation(&self) -> u64 {
+        self.next_generation
+    }
+
     /// Appends the newest summary of each column finished since the last call.
     pub fn drain(&mut self, out: &mut Vec<FarColumnSummary>) {
         while let Ok(finished) = self.rx.try_recv() {
@@ -107,8 +117,16 @@ impl FarSummaryInbox {
             out.push(FarColumnSummary {
                 column: finished.column,
                 summary: finished.summary,
+                generation: finished.generation,
+                resident: false,
             });
         }
+    }
+
+    /// True when finished summaries wait to be drained.
+    #[must_use]
+    pub fn has_finished(&self) -> bool {
+        !self.rx.is_empty()
     }
 
     /// True once every issued summary has been drained.
@@ -154,8 +172,9 @@ impl WorldStream {
             feed.pending.clear();
             feed.queued.clear();
             feed.retiring.clear();
+            self.clear_near_drawn();
         } else if !was_enabled {
-            // Columns already resident were never summarised while off.
+            // Columns already resident were never summarised or tracked as drawn while off.
             let columns: Vec<ChunkKey> = self.loaded_columns.iter().copied().collect();
             for column in columns {
                 self.note_far_column_complete(column);
@@ -163,9 +182,48 @@ impl WorldStream {
         }
     }
 
+    #[must_use]
+    pub const fn far_terrain_enabled(&self) -> bool {
+        self.far_terrain.enabled
+    }
+
+    /// The radius the server last said it sends, in chunks.
+    #[must_use]
+    pub const fn server_view_radius(&self) -> Option<i32> {
+        self.chunk_radius
+    }
+
+    /// The radius the client's chunk grid retains, once the server has confirmed one.
+    #[must_use]
+    pub fn retained_view_radius(&self) -> Option<i32> {
+        self.retained_radius()
+    }
+
+    /// The local player's column, which centres retention and far terrain.
+    #[must_use]
+    pub fn far_terrain_centre(&self) -> ChunkKey {
+        self.player_chunk()
+    }
+
+    /// True when finished summaries are waiting, so callers can borrow mutably only then.
+    #[must_use]
+    pub fn has_far_summaries(&self) -> bool {
+        self.far_terrain.inbox.has_finished()
+    }
+
+    /// The generation of the latest summary job issued.
+    pub(super) const fn far_terrain_issued_generation(&self) -> u64 {
+        self.far_terrain.inbox.issued_generation()
+    }
+
     /// Appends the newest summary of each column finished since the last call.
     pub fn drain_far_summaries(&mut self, out: &mut Vec<FarColumnSummary>) {
+        let start = out.len();
         self.far_terrain.inbox.drain(out);
+        for summary in &mut out[start..] {
+            summary.resident = self.loaded_columns.contains(&summary.column);
+        }
+        self.note_far_summaries_delivered(&out[start..]);
     }
 
     /// Summarises every complete column before the stream is dropped, and hands over the
@@ -186,6 +244,7 @@ impl WorldStream {
 
     /// Queues a column whose every section has arrived, including a resend.
     pub(super) fn note_far_column_complete(&mut self, column: ChunkKey) {
+        self.note_near_drawn(column);
         let feed = &mut self.far_terrain;
         if feed.enabled && feed.queued.insert(column) {
             feed.pending.push_back(column);

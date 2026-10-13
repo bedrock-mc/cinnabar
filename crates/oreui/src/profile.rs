@@ -7,8 +7,10 @@ mod rows;
 
 use super::grid::{Grid, space};
 use super::paint::{Bounds, Canvas};
-use super::theme::{CAPTION, NEUTRAL80, SECONDARY_BUTTON, TEXT, TEXT_DIMMEST};
-use super::widgets::{Variant, button, header, screen_overlay, tabs};
+use super::theme::{
+    BODY, CAPTION, EDGE, HEADER_HEIGHT, NEUTRAL80, SECONDARY_BUTTON, SPACE, TEXT, TEXT_DIMMEST,
+};
+use super::widgets::{TAB_HEIGHT, Variant, button, header, screen_overlay, tabs};
 use launcher::menu::ProfileTab;
 use launcher::menu::{MenuAction, MenuView, auth::AuthState};
 use ui::IconRef;
@@ -16,6 +18,25 @@ use ui_engine::engine::screen::PaintError;
 
 /// Draws fixed navigation above independently scrolling card and active tab content.
 pub(super) fn draw(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    size: [f32; 2],
+    portrait: Option<IconRef>,
+    artwork: &std::collections::HashMap<String, IconRef>,
+) -> Result<(), PaintError> {
+    let loaded = view.auth_state == AuthState::Authenticated
+        && view.feeds.profile.loaded
+        && !view.feeds.profile.unavailable;
+    let chrome =
+        HEADER_HEIGHT + EDGE + SPACE[1] * 2.0 + if loaded { TAB_HEIGHT + SPACE[1] } else { 0.0 };
+    let scale = (size[1] / canvas.r(chrome + BODY.line)).min(1.0);
+    canvas.with_scale(scale, |canvas| {
+        draw_fitted(canvas, view, size, portrait, artwork)
+    })
+}
+
+/// Fits navigation before laying out the independently scrolling card and selected tab.
+fn draw_fitted(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
@@ -81,7 +102,7 @@ pub(super) fn draw(
             canvas.end_scroll(scroll, end - top + offset)?;
         }
     }
-    let tab_bottom = top + canvas.r(4.8);
+    let tab_bottom = top + canvas.r(TAB_HEIGHT);
     tabs(
         canvas,
         view,

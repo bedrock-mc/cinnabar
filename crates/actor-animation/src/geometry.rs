@@ -128,12 +128,14 @@ pub(super) fn resolve_binding(
     motion.horse = super::horse::AnimationState::new(random_seed);
     let samples_camera_poses = super::render_frame::camera::needs_camera_sampling(
         assets,
+        layout,
         rig_binding,
         geometry_binding,
         &controllers,
     );
     let samples_swing_poses = super::render_frame::camera::needs_swing_sampling(
         assets,
+        layout,
         rig_binding,
         geometry_binding,
         &controllers,
@@ -142,6 +144,7 @@ pub(super) fn resolve_binding(
         .then(|| {
             super::render_frame::motion_sampling::MotionSampling::new(
                 assets,
+                layout,
                 rig_binding,
                 geometry_binding,
                 &controllers,
@@ -202,6 +205,7 @@ pub(super) fn resolve_binding(
         samples_camera_poses,
         presentation_expressions: super::render_frame::camera::presentation_expressions(
             assets,
+            layout,
             rig_binding,
             geometry_binding,
         ),
@@ -550,14 +554,20 @@ fn reselect_geometry_with_checkpoint(
     state.rig = EntityRigId(rig_id);
     state.samples_camera_poses = super::render_frame::camera::needs_camera_sampling(
         assets,
+        layout,
         state.rig_binding,
         selected,
         &controllers,
     );
-    state.presentation_expressions =
-        super::render_frame::camera::presentation_expressions(assets, state.rig_binding, selected);
+    state.presentation_expressions = super::render_frame::camera::presentation_expressions(
+        assets,
+        layout,
+        state.rig_binding,
+        selected,
+    );
     state.samples_swing_poses = super::render_frame::camera::needs_swing_sampling(
         assets,
+        layout,
         state.rig_binding,
         selected,
         &controllers,
@@ -567,6 +577,7 @@ fn reselect_geometry_with_checkpoint(
     .then(|| {
         super::render_frame::motion_sampling::MotionSampling::new(
             assets,
+            layout,
             state.rig_binding,
             selected,
             &controllers,

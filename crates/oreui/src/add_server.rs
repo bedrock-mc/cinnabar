@@ -7,34 +7,114 @@ use super::{
 use launcher::menu::{MenuAction, MenuView};
 use ui_engine::engine::screen::PaintError;
 
+const DESCRIPTION: &str = "Give this server a name and address.";
+const FIELD_FOOTER_GAP: f32 = 2.4;
+
+struct Layout {
+    margin: f32,
+    width: f32,
+    pad: f32,
+    inner: f32,
+    stacked: bool,
+    button_height: f32,
+    gap: f32,
+    footer_height: f32,
+    heading_width: f32,
+    title_height: f32,
+    header_height: f32,
+    field_height: f32,
+}
+
+impl Layout {
+    /// Measures the fixed chrome and a complete field using the canvas's current text scale.
+    fn new(canvas: &mut Canvas<'_>, size: [f32; 2]) -> Result<Self, PaintError> {
+        let margin = canvas.r(1.6).min(size[0] * 0.05).min(size[1] * 0.05);
+        let width = canvas.r(56.0).min(size[0] - margin * 2.0);
+        let pad = canvas.r(2.4).min(width * 0.06);
+        let inner = width - pad * 2.0;
+        let stacked = inner < canvas.r(36.0);
+        let button_height = canvas.r(4.4);
+        let gap = canvas.r(1.2);
+        let footer_height = if stacked {
+            button_height * 2.0 + gap
+        } else {
+            button_height
+        };
+        let heading_width = inner - canvas.r(4.8);
+        let caption_height = canvas.measure_height(DESCRIPTION, heading_width, CAPTION)?;
+        let title_height = canvas.r(HEADER5.line);
+        let header_height = pad + title_height + canvas.r(0.8) + caption_height + canvas.r(2.0);
+        let field_height = canvas.r(CAPTION.line + 0.8 + 4.8);
+        Ok(Self {
+            margin,
+            width,
+            pad,
+            inner,
+            stacked,
+            button_height,
+            gap,
+            footer_height,
+            heading_width,
+            title_height,
+            header_height,
+            field_height,
+        })
+    }
+
+    /// Keeps the requested size when one complete field fits above the pinned actions.
+    fn fitting_scale(&self, canvas: &Canvas<'_>, height: f32) -> f32 {
+        let minimum = self.header_height
+            + self.field_height
+            + canvas.r(FIELD_FOOTER_GAP)
+            + self.footer_height
+            + self.pad;
+        ((height - self.margin * 2.0) / minimum).min(1.0)
+    }
+}
+
 /// A server draft keeps its fields scrollable while the actions remain visible.
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
 ) -> Result<(), PaintError> {
+    let layout = Layout::new(canvas, size)?;
+    let scale = layout.fitting_scale(canvas, size[1]);
+    canvas.with_scale(scale, |canvas| {
+        let layout = if scale < 1.0 {
+            Layout::new(canvas, size)?
+        } else {
+            layout
+        };
+        draw_layout(canvas, view, size, layout)
+    })
+}
+
+/// Draws the fitted dialog with one shared geometry, text and pointer scale.
+fn draw_layout(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    size: [f32; 2],
+    layout: Layout,
+) -> Result<(), PaintError> {
+    let Layout {
+        margin,
+        width,
+        pad,
+        inner,
+        stacked,
+        button_height,
+        gap,
+        footer_height,
+        heading_width,
+        title_height,
+        header_height,
+        field_height,
+    } = layout;
     canvas.overlay(size, theme::OVERLAY_MODAL)?;
     let entrance = canvas.begin_entrance(super::motion::Surface::Dialog(modal::dialog_id(
         "server draft",
     )));
-    let margin = canvas.r(1.6).min(size[0] * 0.05).min(size[1] * 0.05);
-    let width = canvas.r(56.0).min(size[0] - margin * 2.0);
-    let pad = canvas.r(2.4).min(width * 0.06);
-    let inner = width - pad * 2.0;
-    let stacked = inner < canvas.r(36.0);
-    let button_height = canvas.r(4.4);
-    let gap = canvas.r(1.2);
-    let footer_height = if stacked {
-        button_height * 2.0 + gap
-    } else {
-        button_height
-    };
-    let caption = "Give this server a name and address.";
-    let heading_width = inner - canvas.r(4.8);
-    let caption_height = canvas.measure_height(caption, heading_width, CAPTION)?;
-    let title_height = canvas.r(HEADER5.line);
-    let header_height = pad + title_height + canvas.r(0.8) + caption_height + canvas.r(2.0);
-    let field_height = canvas.r(CAPTION.line + 0.8 + 4.8);
     let hint = "Use a hostname or IP address.";
     let hint_height = canvas.measure_height(hint, inner, CAPTION)?;
     let mut content_height = field_height * if stacked { 3.0 } else { 2.0 }
@@ -50,8 +130,9 @@ pub(super) fn draw(
     if error_height > 0.0 {
         content_height += canvas.r(2.0) + error_height + canvas.r(2.4);
     }
-    let height = (header_height + content_height + canvas.r(2.4) + footer_height + pad)
-        .min(size[1] - margin * 2.0);
+    let height =
+        (header_height + content_height + canvas.r(FIELD_FOOTER_GAP) + footer_height + pad)
+            .min(size[1] - margin * 2.0);
     let x = (size[0] - width) * 0.5;
     let y = (size[1] - height) * 0.5;
     let bounds = [x, y, x + width, y + height];
@@ -69,7 +150,7 @@ pub(super) fn draw(
         TEXT,
     )?;
     canvas.text(
-        caption,
+        DESCRIPTION,
         [span[0], y + pad + title_height + canvas.r(0.8)],
         heading_width,
         CAPTION,
@@ -94,7 +175,7 @@ pub(super) fn draw(
         span[0],
         y + header_height,
         span[1],
-        footer_top - canvas.r(2.4),
+        footer_top - canvas.r(FIELD_FOOTER_GAP),
     ];
     let max = (content_height - (viewport[3] - viewport[1])).max(0.0);
     if let Some(offset) = canvas.offsets.get_mut("add_server_fields") {

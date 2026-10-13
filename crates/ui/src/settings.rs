@@ -198,6 +198,10 @@ pub struct VideoSettings {
     pub java_animations: bool,
     /// Preserves Bedrock skybox placement; disabling it centers the cube.
     pub native_skybox_offset: bool,
+    /// Draw cached terrain past the render distance.
+    pub far_terrain: bool,
+    /// Chunks meshed in full detail, or `render_api::far_terrain::FULL_DETAIL_AUTO`.
+    pub full_detail_distance_chunks: u32,
 }
 
 impl Default for VideoSettings {
@@ -224,6 +228,8 @@ impl Default for VideoSettings {
             damage_bob: 1.0,
             java_animations: false,
             native_skybox_offset: assets::DEFAULT_NATIVE_SKYBOX_OFFSET,
+            far_terrain: render_api::far_terrain::DEFAULT_ENABLED,
+            full_detail_distance_chunks: render_api::far_terrain::FULL_DETAIL_AUTO,
         }
     }
 }
