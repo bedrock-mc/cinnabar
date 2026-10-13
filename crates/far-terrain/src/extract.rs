@@ -97,8 +97,10 @@ impl SurfaceContext {
             VisualKind::Invisible | VisualKind::Cross => Class::Through,
             VisualKind::Liquid if self.colours.is_water(top) => Class::Water(top),
             VisualKind::Model
-                if block.light_properties().filter() == 0
-                    && variant & BLOCK_VISUAL_VARIANT_TOP_SNOW == 0 =>
+                if variant & BLOCK_VISUAL_VARIANT_TOP_SNOW == 0
+                    && !block
+                        .model_template()
+                        .is_some_and(|template| self.colours.model_covers_top(template)) =>
             {
                 Class::Through
             }

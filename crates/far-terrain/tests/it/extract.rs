@@ -1,8 +1,8 @@
 use far_terrain::{SurfaceCell, summarise_column};
 
 use crate::fixture::{
-    AIR, FLOWER, FOLIAGE_TINT, GRASS, GRASS_TINT, LEAF_RGB, LEAVES, SAND, SAND_RGB, WATER, column,
-    context, section,
+    AIR, FLOWER, FOLIAGE_TINT, GRASS, GRASS_TINT, LEAF_RGB, LEAVES, SAND, SAND_RGB, SLAB, TORCH,
+    WATER, column, context, section,
 };
 
 fn srgb(linear: f32) -> f32 {
@@ -86,4 +86,18 @@ fn highest_section_wins_and_empty_columns_stay_empty() {
     let empty = summarise_column(&context(), &column([(0, air)]));
     assert!(empty.is_empty());
     assert_eq!(empty.cell(0, 0), SurfaceCell::EMPTY);
+}
+
+/// Slabs and stairs are floors seen from above; torches are looked through.
+#[test]
+fn models_count_as_surface_only_when_their_tops_cover_the_block() {
+    let floor = section(|x, y, _| match (x, y) {
+        (_, 0) => [GRASS, AIR],
+        (0, 1) => [SLAB, AIR],
+        (1, 1) => [TORCH, AIR],
+        _ => [AIR, AIR],
+    });
+    let summary = summarise_column(&context(), &column([(0, floor)]));
+    assert_eq!(summary.cell(0, 0).height, 2, "the slab is the surface");
+    assert_eq!(summary.cell(1, 0).height, 1, "the torch is looked through");
 }

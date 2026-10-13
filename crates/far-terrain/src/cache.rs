@@ -1,14 +1,14 @@
 //! One client's far-terrain cache: the active namespace in memory, persisted per region.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, HashSet},
     path::PathBuf,
     time::Instant,
 };
 
 use crate::{
-    Admission, ColumnPos, ColumnSummary, FarTerrainConfig, NamespaceKey, ServerKey, SummaryStore,
-    WorldKey,
+    Admission, ColumnPos, ColumnSummary, EncodedSummary, FarTerrainConfig, NamespaceKey, ServerKey,
+    SummaryStore, WorldKey,
     config::{
         MAX_UNRESOLVED_COLUMNS, REGION_FLUSH_AFTER, REGION_FLUSH_COLUMNS, WORLD_PROBE_COLUMNS,
     },
@@ -19,7 +19,8 @@ use crate::{
 #[derive(Debug)]
 struct DirtyRegion {
     since: Instant,
-    columns: BTreeSet<ColumnPos>,
+    /// Payloads are kept here, not looked up at flush, so memory eviction cannot lose them.
+    columns: BTreeMap<ColumnPos, EncodedSummary>,
 }
 
 /// Summaries of the world the client is in, with reads and batched writes on an IO thread.
@@ -36,9 +37,12 @@ pub struct FarTerrainCache {
     unresolved: Vec<(ColumnPos, EncodedSummary)>,
     probes: Vec<(ColumnPos, ColumnSummary)>,
     resolving: bool,
-    dirty: BTreeMap<RegionPos, DirtyRegion>,
+    /// Changes waiting to be written, per namespace and region.
+    dirty: BTreeMap<(NamespaceKey, RegionPos), DirtyRegion>,
     requested: HashSet<RegionPos>,
     focus: Option<(ColumnPos, i32)>,
+    /// Bumped on every world change, so a resolution for an earlier visit is ignored.
+    entry: u64,
 }
 
 impl FarTerrainCache {
@@ -61,6 +65,7 @@ impl FarTerrainCache {
             dirty: BTreeMap::new(),
             requested: HashSet::new(),
             focus: None,
+            entry: 0,
         }
     }
 
@@ -76,6 +81,7 @@ impl FarTerrainCache {
             return;
         }
         self.flush_all();
+        self.entry += 1;
         self.retired = self.namespace.take();
         self.world = Some(world);
         self.store.clear();
@@ -88,6 +94,7 @@ impl FarTerrainCache {
     /// Leaves the current world, as on disconnect, after writing what is waiting.
     pub fn leave_world(&mut self) {
         self.flush_all();
+        self.entry += 1;
         self.retired = self.namespace.take();
         self.world = None;
         self.store.clear();
@@ -104,13 +111,7 @@ impl FarTerrainCache {
             .filter(|retired| retired.dimension == dimension)
             && self.world.is_none_or(|world| world.dimension != dimension)
         {
-            if let Some(disk) = &self.disk {
-                disk.write(
-                    retired,
-                    RegionPos::of(pos),
-                    vec![(region_index(pos), summary)],
-                );
-            }
+            self.queue_write(retired, pos, summary, now);
             return;
         }
         if self.world.is_none_or(|world| world.dimension != dimension) {
@@ -134,7 +135,7 @@ impl FarTerrainCache {
             self.resolving = true;
             let world = self.world.expect("checked above");
             match &self.disk {
-                Some(disk) => disk.resolve(world, std::mem::take(&mut self.probes)),
+                Some(disk) => disk.resolve(world, self.entry, std::mem::take(&mut self.probes)),
                 None => self.resolved(world, 0, now),
             }
         }
@@ -158,7 +159,15 @@ impl FarTerrainCache {
             .unwrap_or_default();
         for event in events {
             match event {
-                DiskEvent::Resolved { world, epoch } => self.resolved(world, epoch, now),
+                DiskEvent::Resolved {
+                    world,
+                    entry,
+                    epoch,
+                } => {
+                    if entry == self.entry {
+                        self.resolved(world, epoch, now);
+                    }
+                }
                 DiskEvent::Loaded {
                     namespace, columns, ..
                 } => {
@@ -173,7 +182,7 @@ impl FarTerrainCache {
                 }
             }
         }
-        let due: Vec<RegionPos> = self
+        let due: Vec<(NamespaceKey, RegionPos)> = self
             .dirty
             .iter()
             .filter(|(_, dirty)| {
@@ -189,9 +198,22 @@ impl FarTerrainCache {
 
     /// Writes every waiting change now.
     pub fn flush_all(&mut self) {
-        let regions: Vec<RegionPos> = self.dirty.keys().copied().collect();
+        let regions: Vec<(NamespaceKey, RegionPos)> = self.dirty.keys().copied().collect();
         for region in regions {
             self.flush(region);
+        }
+    }
+
+    /// Queues summaries of a world already left for its own namespace, as a retiring session's
+    /// final columns arrive after the cache has moved on.
+    pub fn persist(
+        &mut self,
+        namespace: NamespaceKey,
+        columns: impl IntoIterator<Item = (ColumnPos, EncodedSummary)>,
+        now: Instant,
+    ) {
+        for (pos, summary) in columns {
+            self.queue_write(namespace, pos, summary, now);
         }
     }
 
@@ -225,34 +247,45 @@ impl FarTerrainCache {
     }
 
     fn admit_resolved(&mut self, pos: ColumnPos, summary: EncodedSummary, now: Instant) {
-        if self.store.admit_encoded(pos, summary) == Admission::Unchanged || self.disk.is_none() {
+        let pending = self.disk.is_some().then(|| summary.clone());
+        if self.store.admit_encoded(pos, summary) == Admission::Unchanged {
+            return;
+        }
+        if let (Some(pending), Some(namespace)) = (pending, self.namespace) {
+            self.queue_write(namespace, pos, pending, now);
+        }
+    }
+
+    fn queue_write(
+        &mut self,
+        namespace: NamespaceKey,
+        pos: ColumnPos,
+        summary: EncodedSummary,
+        now: Instant,
+    ) {
+        if self.disk.is_none() {
             return;
         }
         self.dirty
-            .entry(RegionPos::of(pos))
+            .entry((namespace, RegionPos::of(pos)))
             .or_insert_with(|| DirtyRegion {
                 since: now,
-                columns: BTreeSet::new(),
+                columns: BTreeMap::new(),
             })
             .columns
-            .insert(pos);
+            .insert(pos, summary);
     }
 
-    fn flush(&mut self, region: RegionPos) {
-        let Some(dirty) = self.dirty.remove(&region) else {
-            return;
-        };
-        let (Some(disk), Some(namespace)) = (&self.disk, self.namespace) else {
+    fn flush(&mut self, key: (NamespaceKey, RegionPos)) {
+        let (Some(dirty), Some(disk)) = (self.dirty.remove(&key), &self.disk) else {
             return;
         };
         let columns: Vec<_> = dirty
             .columns
             .into_iter()
-            .filter_map(|pos| Some((region_index(pos), self.store.encoded(pos)?.clone())))
+            .map(|(pos, summary)| (region_index(pos), summary))
             .collect();
-        if !columns.is_empty() {
-            disk.write(namespace, region, columns);
-        }
+        disk.write(key.0, key.1, columns);
     }
 
     fn request_focus(&mut self) {

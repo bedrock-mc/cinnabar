@@ -24,26 +24,102 @@ pub struct FarColumnSummary {
 
 type SharedColours = Arc<OnceLock<Arc<SurfaceColours>>>;
 
+/// One summary job's result, tagged with the generation it was issued under.
+struct Finished {
+    column: ChunkKey,
+    generation: u64,
+    summary: EncodedSummary,
+}
+
+#[derive(Clone, Copy)]
+struct Issued {
+    latest: u64,
+    in_flight: u32,
+}
+
+/// Receives finished summaries and drops any older than the newest issued for its column,
+/// since workers may finish a column's jobs out of order.
+pub struct FarSummaryInbox {
+    tx: Sender<Finished>,
+    rx: Receiver<Finished>,
+    issued: HashMap<ChunkKey, Issued>,
+    next_generation: u64,
+}
+
+impl Default for FarSummaryInbox {
+    fn default() -> Self {
+        let (tx, rx) = unbounded();
+        Self {
+            tx,
+            rx,
+            issued: HashMap::new(),
+            next_generation: 0,
+        }
+    }
+}
+
+impl FarSummaryInbox {
+    fn issue(&mut self, column: ChunkKey) -> u64 {
+        self.next_generation += 1;
+        let issued = self.issued.entry(column).or_insert(Issued {
+            latest: 0,
+            in_flight: 0,
+        });
+        issued.latest = self.next_generation;
+        issued.in_flight += 1;
+        self.next_generation
+    }
+
+    /// Appends the newest summary of each column finished since the last call.
+    pub fn drain(&mut self, out: &mut Vec<FarColumnSummary>) {
+        for finished in self.rx.try_iter() {
+            let Some(issued) = self.issued.get_mut(&finished.column) else {
+                continue;
+            };
+            issued.in_flight -= 1;
+            let current = issued.latest == finished.generation;
+            if issued.in_flight == 0 {
+                self.issued.remove(&finished.column);
+            }
+            if current {
+                out.push(FarColumnSummary {
+                    column: finished.column,
+                    summary: finished.summary,
+                });
+            }
+        }
+    }
+
+    /// True when finished summaries wait to be drained.
+    #[must_use]
+    pub fn has_finished(&self) -> bool {
+        !self.rx.is_empty()
+    }
+
+    /// True once every issued summary has been drained.
+    #[must_use]
+    pub fn is_idle(&self) -> bool {
+        self.issued.is_empty()
+    }
+}
+
 pub(super) struct FarTerrainFeed {
     enabled: bool,
     /// Material colours of one asset set, computed by the first job that needs them.
     colours: Option<(Arc<RuntimeAssets>, SharedColours)>,
     pub(super) pending: VecDeque<ChunkKey>,
     queued: HashSet<ChunkKey>,
-    tx: Sender<FarColumnSummary>,
-    rx: Receiver<FarColumnSummary>,
+    inbox: FarSummaryInbox,
 }
 
 impl Default for FarTerrainFeed {
     fn default() -> Self {
-        let (tx, rx) = unbounded();
         Self {
             enabled: false,
             colours: None,
             pending: VecDeque::new(),
             queued: HashSet::new(),
-            tx,
-            rx,
+            inbox: FarSummaryInbox::default(),
         }
     }
 }
@@ -70,9 +146,29 @@ impl WorldStream {
         self.player_chunk()
     }
 
-    /// Appends summaries finished since the last call.
-    pub fn drain_far_summaries(&self, out: &mut Vec<FarColumnSummary>) {
-        out.extend(self.far_terrain.rx.try_iter());
+    /// True when finished summaries are waiting, so callers can borrow mutably only then.
+    #[must_use]
+    pub fn has_far_summaries(&self) -> bool {
+        self.far_terrain.inbox.has_finished()
+    }
+
+    /// Appends the newest summary of each column finished since the last call.
+    pub fn drain_far_summaries(&mut self, out: &mut Vec<FarColumnSummary>) {
+        self.far_terrain.inbox.drain(out);
+    }
+
+    /// Summarises every complete column before the stream is dropped, and hands over the
+    /// inbox their summaries arrive in, so edits made this session are not lost.
+    pub fn retire_far_terrain(&mut self) -> FarSummaryInbox {
+        if self.far_terrain.enabled {
+            let columns = self.loaded_columns.clone();
+            let snapshots = self.far_retiring_snapshots(&columns);
+            self.spawn_far_summaries(snapshots);
+        }
+        self.far_terrain.enabled = false;
+        self.far_terrain.pending.clear();
+        self.far_terrain.queued.clear();
+        std::mem::take(&mut self.far_terrain.inbox)
     }
 
     /// Queues a column whose every section has arrived, including a resend.
@@ -92,8 +188,9 @@ impl WorldStream {
                     break;
                 };
                 self.far_terrain.queued.remove(&column);
-                if let Some(chunk) = self.authority.terrain().chunk(column) {
-                    batch.push((column, ColumnSnapshot::of(chunk)));
+                // A column evicted since it completed was summarised as it retired.
+                if self.loaded_columns.contains(&column) {
+                    batch.push((column, self.far_snapshot(column)));
                 }
             }
             if batch.is_empty() {
@@ -114,13 +211,16 @@ impl WorldStream {
         columns
             .iter()
             .filter(|column| self.loaded_columns.contains(column))
-            .filter_map(|&column| {
-                Some((
-                    column,
-                    ColumnSnapshot::of(self.authority.terrain().chunk(column)?),
-                ))
-            })
+            .map(|&column| (column, self.far_snapshot(column)))
             .collect()
+    }
+
+    /// The column's sections, or none for a complete column the server sent as all air.
+    fn far_snapshot(&self, column: ChunkKey) -> ColumnSnapshot {
+        self.authority.terrain().chunk(column).map_or_else(
+            || ColumnSnapshot::new(Arc::default(), Vec::new()),
+            ColumnSnapshot::of,
+        )
     }
 
     pub(super) fn spawn_far_summaries(&mut self, columns: Vec<(ChunkKey, ColumnSnapshot)>) {
@@ -128,13 +228,24 @@ impl WorldStream {
         while columns.peek().is_some() {
             let batch: Vec<_> = columns.by_ref().take(COLUMNS_PER_JOB).collect();
             let contexts = self.far_contexts(&batch);
-            let tx = self.far_terrain.tx.clone();
+            let generations: Vec<u64> = batch
+                .iter()
+                .map(|(column, _)| self.far_terrain.inbox.issue(*column))
+                .collect();
+            let tx = self.far_terrain.inbox.tx.clone();
             workers::WORKERS.spawn(workers::Lane::Decode, move || {
                 #[cfg(feature = "tracy")]
                 let _zone = tracing::info_span!("far_terrain.summarise").entered();
-                for ((column, snapshot), context) in batch.into_iter().zip(contexts) {
+                for (((column, snapshot), context), generation) in
+                    batch.into_iter().zip(contexts).zip(generations)
+                {
                     let summary = summarise_column(&context.resolve(), &snapshot).encode();
-                    if tx.send(FarColumnSummary { column, summary }).is_err() {
+                    let finished = Finished {
+                        column,
+                        generation,
+                        summary,
+                    };
+                    if tx.send(finished).is_err() {
                         return;
                     }
                 }
