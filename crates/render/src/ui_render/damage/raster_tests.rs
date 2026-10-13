@@ -364,6 +364,129 @@ fn retained_damage_replay_matches_full_ui_raster_byte_for_byte() {
     }
 }
 
+/// The production shader combines border coverage without leaking invisible fill RGB.
+#[test]
+fn coverage_paint_keeps_invisible_fill_rgb_out_of_the_border() {
+    let mut input = scene();
+    input.vertices = Arc::from([]);
+    input.indices = Arc::from([]);
+    input.batches = Arc::from([]);
+    quad(
+        &mut input,
+        [0.0, 0.0, SIDE as f32, SIDE as f32],
+        [255, 0, 0, 64],
+        0,
+        None,
+    );
+    let paint = render_api::UiCoveragePaint {
+        fill: [[0, 0, 255, 0]; 2],
+        border: [255, 0, 0, 255],
+    };
+    let (tint, overlay) = paint.vertex_colors();
+    for vertex in Arc::make_mut(&mut input.vertices) {
+        vertex.color = tint;
+        vertex.overlay_color = overlay;
+        vertex.uv = [0.0; 2];
+        vertex.style_flags = u32::from(render_api::UI_STYLE_COVERAGE_PAINT);
+        vertex.model_light = 64.0 / 255.0 * (1.0 - vertex.position[0] / SIDE as f32);
+    }
+    let Some(raster) = Raster::new(&input) else {
+        return;
+    };
+    let output = target(&raster.gpu, false);
+    raster.draw(&input, &output, None);
+    let pixels = raster.pixels(&output);
+    for x in [8, 24, 40, 56] {
+        let offset = ((32 * SIDE + x) * 4) as usize;
+        let color = &pixels[offset..offset + 4];
+        let expected = 64.0 * (1.0 - (x as f32 + 0.5) / SIDE as f32);
+        assert!(color[3] > 0);
+        assert_eq!(
+            color[0], color[3],
+            "red contribution must equal alpha: {color:?}"
+        );
+        assert_eq!(color[1], 0);
+        assert_eq!(
+            color[2], 0,
+            "transparent blue must not contribute: {color:?}"
+        );
+        assert!((f32::from(color[3]) - expected).abs() <= 1.0);
+    }
+}
+
+/// Constant paint colors and an affine gradient coordinate agree with the CPU across both diagonals.
+#[test]
+fn coverage_paint_gradient_matches_the_cpu_contract_across_triangulations() {
+    for (paint, coverage) in [
+        (
+            render_api::UiCoveragePaint {
+                fill: [[255, 0, 0, 255], [0, 0, 255, 0]],
+                border: [0, 255, 0, 128],
+            },
+            [1.0, 0.0],
+        ),
+        (
+            render_api::UiCoveragePaint {
+                fill: [[17, 73, 201, 160], [199, 31, 113, 47]],
+                border: [91, 209, 33, 83],
+            },
+            [0.625, 0.375],
+        ),
+    ] {
+        let (tint, overlay) = paint.vertex_colors();
+        for horizontal in [false, true] {
+            let mut input = scene();
+            input.vertices = Arc::from([]);
+            input.indices = Arc::from([]);
+            input.batches = Arc::from([]);
+            quad(
+                &mut input,
+                [0.0, 0.0, SIDE as f32, SIDE as f32],
+                tint,
+                0,
+                None,
+            );
+            for vertex in Arc::make_mut(&mut input.vertices) {
+                vertex.uv = [
+                    vertex.position[usize::from(!horizontal)] / SIDE as f32,
+                    coverage[0],
+                ];
+                vertex.overlay_color = overlay;
+                vertex.style_flags = u32::from(render_api::UI_STYLE_COVERAGE_PAINT);
+                vertex.model_light = coverage[1];
+            }
+            let Some(raster) = Raster::new(&input) else {
+                return;
+            };
+            let output = target(&raster.gpu, false);
+            for indices in [[0, 1, 2, 0, 2, 3], [0, 1, 3, 1, 2, 3]] {
+                input.indices = Arc::from(indices);
+                raster.draw(&input, &output, None);
+                let pixels = raster.pixels(&output);
+                let expected = paint.sample(48.5 / SIDE as f32, coverage);
+                let mut first = None;
+                for across in [5, 32, 58] {
+                    let [x, y] = if horizontal {
+                        [48, across]
+                    } else {
+                        [across, 48]
+                    };
+                    let offset = ((y * SIDE + x) * 4) as usize;
+                    let color = &pixels[offset..offset + 4];
+                    for (actual, expected) in color.iter().zip(expected) {
+                        assert!((f32::from(*actual) - expected * 255.0).abs() <= 1.0);
+                    }
+                    assert_eq!(
+                        *first.get_or_insert(color),
+                        color,
+                        "tint must be constant across the gradient axis"
+                    );
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn analytic_radial_gradient_interpolates_premultiplied_stops_and_extent() {
     let mut input = scene();

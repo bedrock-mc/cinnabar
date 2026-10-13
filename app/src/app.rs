@@ -10,7 +10,7 @@ use crate::runtime::shutdown::finish_acceptance_run;
 #[cfg(feature = "acceptance")]
 use acceptance::model_witness::poll_model_witness_request;
 use anyhow::{Context, Result, bail};
-use assets::carriers::startup::{LoadedAssetKind, select_asset_path_from_environment};
+use assets::carriers::startup::select_asset_path_from_environment;
 use bevy::{
     anti_alias::AntiAliasPlugin,
     app::TerminalCtrlCHandlerPlugin,
@@ -411,29 +411,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         actor: actor_catalog,
         equipment: equipment_catalog,
     } = carriers.core.context("load startup block assets")?;
-    if let Some(notice) = &loaded_assets.notice {
-        diagnostics::log_stderr!("{notice}");
-    } else if loaded_assets.kind == LoadedAssetKind::CompiledBlob {
-        diagnostics::log_stderr!(
-            "loaded compiled block assets from {} (sha256 {})",
-            loaded_assets.selected_path.display(),
-            loaded_assets.metrics.blob_sha256
-        );
-    }
-    diagnostics::log_stderr!(
-        "loaded required atmosphere assets from {}",
-        loaded_assets.atmosphere.selected_path().display()
-    );
-    diagnostics::log_stderr!(
-        "{}",
-        crate::asset_bindings::AtmosphereEvidence::startup_summary(&loaded_assets.atmosphere)
-    );
-    diagnostics::log_stderr!(
-        "loaded required entity assets from {}",
-        loaded_assets.entities.selected_path().display()
-    );
-    diagnostics::log_stderr!("{}", loaded_assets.entities.startup_summary());
-    diagnostics::log_stderr!("{}", loaded_assets.fonts.startup_summary());
+    logging::loaded_assets(&loaded_assets);
     let entity_runtime = Arc::clone(loaded_assets.entities.runtime());
     crate::runtime::network::set_vanilla_item_paths(&entity_runtime);
     let actor_catalog = actor_catalog.context("load exact entity-linked neutral actor artwork")?;

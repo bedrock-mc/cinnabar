@@ -21,7 +21,7 @@ pub struct ActorPackCompilation {
 }
 
 /// Compiles `(pack-relative path, bytes)` files; `Ok(None)` when the pack has no
-/// usable entity source. Bad files are skipped and counted in `skipped`.
+/// usable actor or artwork source. Bad files are skipped and counted in `skipped`.
 pub fn compile_actor_pack(
     files: Vec<(Box<str>, Vec<u8>)>,
 ) -> Result<Option<ActorPackCompilation>, AssetError> {
@@ -111,12 +111,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_pack_without_entity_sources_compiles_to_nothing() {
-        assert!(
-            compile_actor_pack(vec![("textures/blocks/a.png".into(), vec![1])])
-                .unwrap()
-                .is_none()
-        );
+    fn a_pack_without_actor_or_artwork_sources_compiles_to_nothing() {
+        assert!(compile_actor_pack(Vec::new()).unwrap().is_none());
     }
 
     // A tall flipbook (as display packs animate with `uv_anim`) keeps its artwork whole.

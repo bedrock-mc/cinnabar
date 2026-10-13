@@ -68,7 +68,7 @@ fn mesh_modulation_preserves_geometry_and_adds_glint_without_baking() {
     for (original, result) in mesh.vertices().iter().zip(faded.vertices()) {
         assert_eq!(original.position, result.position);
         assert_eq!(result.color[3], 127);
-        assert_ne!(result.style_flags & ui::UI_STYLE_GLINT, 0);
+        assert_ne!(result.style_flags & u16::from(ui::UI_STYLE_GLINT), 0);
     }
 }
 

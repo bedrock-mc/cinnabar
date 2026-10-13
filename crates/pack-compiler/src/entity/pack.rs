@@ -263,23 +263,15 @@ fn compile_selected(
         });
         payloads.insert(path, bytes.into());
     }
-    // Attachables and shared glint raster overrides work without a client entity definition.
+    // Authored attachables and texture-only artwork each make a pack worth retaining.
     let has_attachables = sources
         .iter()
         .any(|source| source.path.starts_with("attachables/"));
-    let has_glint = sources.iter().any(|source| {
-        assets::entity::GLINT_TEXTURE_IDENTIFIERS
-            .iter()
-            .any(|identifier| {
-                source
-                    .path
-                    .strip_suffix(".png")
-                    .or_else(|| source.path.strip_suffix(".tga"))
-                    == Some(*identifier)
-            })
-    });
+    let has_artwork = sources
+        .iter()
+        .any(|source| source.path.ends_with(".png") || source.path.ends_with(".tga"));
     if !has_attachables
-        && !has_glint
+        && !has_artwork
         && !symbols
             .keys()
             .any(|(kind, ..)| *kind == EntityAssetKind::Entity)

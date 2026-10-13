@@ -8,6 +8,56 @@ use render_scene::PrimitiveShapesScene;
 use std::sync::{Arc, Mutex};
 
 #[test]
+fn exact_nametag_angles_keep_cubic_endpoints_and_remove_approximation_error() {
+    use bevy::math::Vec3;
+    use render_model::{NAMETAG_BLOCKS_PER_FONT_PIXEL, NametagRecord};
+    let record = NametagRecord {
+        rect: [0.0, 0.0, 1.0, 1.0],
+        ..Default::default()
+    };
+    let cubic =
+        |t: f32| (TEXT_ACOS_CUBIC * t * t * t - TEXT_ACOS_LINEAR * t) + std::f32::consts::FRAC_PI_2;
+    for t in [-1.0_f32, -0.75, -0.5, 0.0, 0.5, 0.75, 1.0] {
+        let expected_error = (cubic(t) - t.acos()).abs();
+        if t == 0.0 || t.abs() == 1.0 {
+            assert!(expected_error < 1e-6, "cubic endpoint {t}");
+        }
+        for sign in [-1.0, 1.0] {
+            let direction = [sign * (1.0 - t * t).sqrt(), 0.0, -t];
+            let corners = record
+                .world_corners(direction)
+                .unwrap()
+                .map(Vec3::from_array);
+            let right = (corners[1] - corners[0]) / NAMETAG_BLOCKS_PER_FONT_PIXEL;
+            let old_yaw = -sign * cubic(t);
+            let old_right = Vec3::new(-old_yaw.cos(), 0.0, old_yaw.sin());
+            let error = right.cross(old_right).length().atan2(right.dot(old_right));
+            assert!(
+                (error - expected_error).abs() < 1e-6,
+                "yaw cosine {t}, sign {sign}"
+            );
+
+            if t < 0.0 {
+                continue;
+            }
+            let direction = [0.0, sign * (1.0 - t * t).sqrt(), -t];
+            let corners = record
+                .world_corners(direction)
+                .unwrap()
+                .map(Vec3::from_array);
+            let down = (corners[3] - corners[0]) / NAMETAG_BLOCKS_PER_FONT_PIXEL;
+            let old_pitch = sign * cubic(t);
+            let old_down = Vec3::new(0.0, -old_pitch.cos(), -old_pitch.sin());
+            let error = down.cross(old_down).length().atan2(down.dot(old_down));
+            assert!(
+                (error - expected_error).abs() < 1e-6,
+                "pitch cosine {t}, sign {sign}"
+            );
+        }
+    }
+}
+
+#[test]
 fn vanilla_mesh_counts_and_unit_geometry() {
     for (kind, segments, count) in [
         (PrimitiveShapeKind::Line, 0, 2),
