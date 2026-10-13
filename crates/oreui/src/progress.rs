@@ -24,6 +24,26 @@ pub(super) struct Progress<'a> {
     pub(super) destination: Option<i32>,
 }
 
+impl Progress<'_> {
+    /// Reserves a pinned track only when the displayed progress is determinate.
+    fn track_area(&self) -> f32 {
+        if self.indicator && self.fraction.is_some_and(f32::is_finite) {
+            theme::LOADING_PROGRESS_AREA
+        } else {
+            0.0
+        }
+    }
+
+    /// Reserves the pinned Cancel control and its separation from the status text.
+    fn footer_area(&self) -> f32 {
+        if self.cancel.is_some() {
+            theme::LOADING_FOOTER_AREA
+        } else {
+            0.0
+        }
+    }
+}
+
 pub(super) fn join(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -78,6 +98,23 @@ pub(super) fn draw(
     size: [f32; 2],
     progress: &Progress<'_>,
 ) -> Result<(), PaintError> {
+    let margin = canvas.r(2.0).min(size[0] * 0.05).min(size[1] * 0.05);
+    let width = canvas.r(theme::LOADING_WIDTH).min(size[0] - margin * 2.0);
+    let pad = canvas.r(theme::LOADING_PAD).min(width * 0.07);
+    // Status text can scroll; the pinned track, Cancel and one text line must fit.
+    let minimum =
+        pad * 2.0 + canvas.r(HEADER5.line + progress.track_area() + progress.footer_area());
+    let scale = ((size[1] - margin * 2.0) / minimum).min(1.0);
+    canvas.with_scale(scale, |canvas| draw_fitted(canvas, view, size, progress))
+}
+
+/// Draws loading status after fitting its fixed chrome to the available height.
+fn draw_fitted(
+    canvas: &mut Canvas<'_>,
+    view: Option<&MenuView>,
+    size: [f32; 2],
+    progress: &Progress<'_>,
+) -> Result<(), PaintError> {
     world::backdrop(canvas, size, progress.stage, progress.destination)?;
     let entrance = canvas.begin_entrance(super::motion::Surface::Loading);
     let margin = canvas.r(2.0).min(size[0] * 0.05).min(size[1] * 0.05);
@@ -101,16 +138,8 @@ pub(super) fn draw(
         0.0
     };
     let mut body_height = loader_height + title_height + detail_height;
-    let progress_height = if progress.indicator && fraction.is_some() {
-        canvas.r(theme::LOADING_PROGRESS_AREA)
-    } else {
-        0.0
-    };
-    let footer_height = if progress.cancel.is_some() {
-        canvas.r(theme::LOADING_FOOTER_AREA)
-    } else {
-        0.0
-    };
+    let progress_height = canvas.r(progress.track_area());
+    let footer_height = canvas.r(progress.footer_area());
     let logo = canvas.title_artwork.filter(|_| size[1] >= canvas.r(32.0));
     let logo_size = logo
         .map(|icon| {
