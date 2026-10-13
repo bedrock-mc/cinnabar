@@ -513,6 +513,10 @@ pub(crate) fn await_overlay_texture_device() {
 pub(crate) fn initialize_overlay_texture_limit(
     device: Option<bevy::prelude::Res<bevy::render::renderer::RenderDevice>>,
 ) {
+    assets::texture::policy::set_device_policy(device.as_ref().map_or_else(
+        || wgpu::Limits::default().max_texture_dimension_2d,
+        |device| device.limits().max_texture_dimension_2d,
+    ));
     let limit = device.map_or_else(
         || wgpu::Limits::default().max_texture_array_layers,
         |device| device.limits().max_texture_array_layers,

@@ -15,7 +15,7 @@ pub const PARTICLE_CARRIER_VERSION: u32 = 1;
 pub const MAX_PARTICLE_TEXTURES: usize = 512;
 pub const MAX_PARTICLE_EFFECTS: usize = 4096;
 pub const MAX_PARTICLE_KEY_BYTES: usize = 256;
-pub const MAX_PARTICLE_TEXTURE_SIDE: u32 = 1024;
+pub const MAX_PARTICLE_TEXTURE_SIDE: u32 = crate::texture::policy::MAX_TEXTURE_SIDE;
 pub const MAX_PARTICLE_EFFECT_BYTES: usize = 512 * 1024;
 pub const MAX_PARTICLE_CARRIER_BYTES: usize = 32 * 1024 * 1024;
 /// Native actor flame rendering samples this vertically stacked square-frame texture.

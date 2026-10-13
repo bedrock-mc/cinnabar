@@ -15,6 +15,8 @@ pub struct ParticleSimulation(pub ParticleSystem);
 #[extract_app(bevy::render::RenderApp)]
 pub struct ParticleGpuFrame {
     pub base: Option<Arc<[u8]>>,
+    /// Physical dimension of the current atlas, including its dynamic tile rows.
+    pub atlas_side: u32,
     pub patch_seq: u64,
     pub patches: Arc<[AtlasPatch]>,
     pub opaque: Arc<[ParticleInstance]>,
@@ -99,6 +101,7 @@ pub fn update_particle_frame(
         .is_none_or(|old| !Arc::ptr_eq(old, &base))
     {
         frame.base = Some(base);
+        frame.atlas_side = system.atlas().side();
         frame.patch_seq = 0;
         frame.patches = Arc::default();
     }
