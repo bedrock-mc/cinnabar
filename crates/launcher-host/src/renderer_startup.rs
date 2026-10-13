@@ -185,6 +185,15 @@ impl StartupGuard {
         Ok(())
     }
 
+    /// Cancels a controlled exit without marking an unfinished backend as working or failed.
+    pub fn cancel(&mut self) -> Result<()> {
+        if self.lock.is_some() {
+            self.failed()?;
+            self.lock = None;
+        }
+        Ok(())
+    }
+
     /// Saves the successful choice before removing the first-frame sentinel.
     pub fn presented(&mut self) -> Result<()> {
         let Some(attempt) = self.pending.clone() else {

@@ -402,8 +402,9 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - A shared policy selects Windows Vulkan/DX12, Linux Vulkan/GL, Android Vulkan/GLES,
   and macOS Metal. Windows Intel integrated GPUs prefer DX12; other multi-API defaults
   prefer Vulkan. Adapter selection requests high performance on hybrid systems.
-- Precedence is `WGPU_BACKEND`, the restart-only Video override, a cached probe verdict,
-  the platform/vendor default, then the startup sentinel as a final fallback filter.
+- Precedence is `WGPU_BACKEND`, the restart-only Video override, a cached probe verdict or
+  saved direct-startup choice, the platform/vendor default, then the startup sentinel as a
+  final fallback filter.
   Explicit overrides bypass automatic exclusions. The Video control is hidden on macOS.
 - Isolated desktop inventory and presentation helpers do not load assets or start a Bevy app.
   Presentation probes have a five-second deadline. Only completed presentations and native
@@ -415,8 +416,9 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   Intel integrated Vulkan drivers prefer DX12. Native Windows exception capture and Unix
   fatal-signal capture retain local renderer context and normal OS crash handling.
 - Startup recovery files have an exclusive OS lease through the first completed frame;
-  sentinels include PID and process start time. Saved Unix handlers receive the original
-  signal information and machine context. Default hardware faults repeat their original
+  sentinels include PID and process start time. Controlled exits before presentation cancel
+  the pending attempt without changing its working or failed status. Saved Unix handlers receive
+  the original signal information and machine context. Default hardware faults repeat their original
   instruction after restoring the default action.
 - Target-device crash reproduction, Android service runtime acceptance, GL/GLES presentation
   and Video screenshots remain incomplete. This work closes no parity or performance gate.

@@ -140,7 +140,28 @@ fn a_completed_guard_cannot_overwrite_the_next_startup() {
     assert!(first.reset_recovery().is_err());
     assert!(first.failed().is_err());
     first.presented().unwrap();
+    first.cancel().unwrap();
     assert_eq!(StartupGuard::pending(dir.path()).unwrap(), Some(pending));
+}
+
+#[test]
+fn cancelling_releases_the_lease_without_changing_the_saved_choice() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut first = StartupGuard::open(dir.path()).unwrap();
+    first.begin(attempt(Backend::Gl, false)).unwrap();
+    first.presented().unwrap();
+    let mut cancelled = StartupGuard::open(dir.path()).unwrap();
+    cancelled.begin(attempt(Backend::Vulkan, false)).unwrap();
+    cancelled.cancel().unwrap();
+    let mut next = StartupGuard::open(dir.path()).unwrap();
+    assert!(next.interrupted.is_none());
+    assert!(next.recovery.failed_backends().is_empty());
+    assert_eq!(next.recovery.working.as_ref().unwrap().backend, Backend::Gl);
+    let pending = attempt(Backend::Gl, false);
+    next.begin(pending.clone()).unwrap();
+    cancelled.cancel().unwrap();
+    assert_eq!(StartupGuard::pending(dir.path()).unwrap(), Some(pending));
+    assert!(cancelled.begin(attempt(Backend::Vulkan, false)).is_err());
 }
 
 #[test]

@@ -214,3 +214,22 @@ pub(crate) async fn request_device(
         .await
         .context("create renderer device")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn configured_storage_limits_cover_the_renderer_without_lowering_existing_limits() {
+        let required = render::required_vertex_storage_buffers();
+        for initial in [0, required, required + 1] {
+            let mut settings = WgpuSettings::default();
+            settings.limits.max_storage_buffers_per_shader_stage = initial;
+            configure_render_settings(&mut settings);
+            assert_eq!(
+                settings.limits.max_storage_buffers_per_shader_stage,
+                initial.max(required)
+            );
+        }
+    }
+}

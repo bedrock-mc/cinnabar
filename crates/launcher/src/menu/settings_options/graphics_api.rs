@@ -1,6 +1,6 @@
 //! Graphics API choices persist through the existing settings registry and apply at startup.
 
-use super::{SettingChoice, SettingDefinition, SettingKind, SettingsOptions};
+use super::{SettingDefinition, SettingKind, SettingsOptions, definitions::SettingChoice};
 use crate::graphics_backend::{Backend, Platform};
 
 /// Returns the backend represented by a stable saved choice; zero is Auto.

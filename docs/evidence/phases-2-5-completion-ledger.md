@@ -383,6 +383,7 @@ executed locally. No existing completion entry is advanced.
 The shared backend policy, isolated desktop presentation probe, driver verdict cache and
 restart-only Video override are implemented. Native startup capture covers Windows exceptions and Unix
 fatal signals. Single-API startup and Android use direct startup with a crash guard; Android
-also retains blocklist and sentinel fallback. Hardware crash reproduction, GL/GLES presentation,
-and rendered Video acceptance remain incomplete as recorded in `plan.md`. No parity or performance
-completion entry advances.
+also retains blocklist and sentinel fallback, preferring the last working API on later launches.
+Controlled pre-frame exits cancel the pending startup attempt. Hardware crash reproduction,
+GL/GLES presentation and rendered Video acceptance remain incomplete as recorded in `plan.md`.
+No parity or performance completion entry advances.

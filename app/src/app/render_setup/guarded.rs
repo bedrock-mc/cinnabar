@@ -5,7 +5,11 @@ use std::path::Path;
 use crate::gpu_probe::device::{backends, identity, instance, log, request_device, select_adapter};
 use anyhow::{Result, bail};
 use bevy::{
-    prelude::{App, Local, Res, ResMut, Resource, Update},
+    app::OnAppExitSystems,
+    prelude::{
+        App, AppExit, IntoScheduleConfigs, Last, Local, MessageReader, Res, ResMut, Resource,
+        Update,
+    },
     render::{
         RenderPlugin,
         renderer::{RenderAdapter, RenderAdapterInfo, RenderDevice, RenderInstance, RenderQueue},
@@ -17,7 +21,7 @@ use launcher::graphics_backend::{
     candidates, default_order,
 };
 use launcher_host::renderer_startup::{
-    Attempt, Stage, StartupGuard, load_probe_cache, probe, save_probe_cache,
+    Attempt, Recovery, Stage, StartupGuard, load_probe_cache, probe, save_probe_cache,
 };
 
 #[derive(Resource)]
@@ -54,18 +58,12 @@ pub(super) fn render_plugin(
         inventory(platform, &supported)?
     };
     let mut order = if !isolated {
-        candidates(
-            platform.backends(),
+        direct_candidates(
+            platform,
             &supported,
             environment.as_deref(),
             video,
-            &[],
-            &[],
-            if supported.len() == 1 {
-                &[]
-            } else {
-                guard.recovery.failed_backends()
-            },
+            &guard.recovery,
         )
     } else {
         let selected = &inventories
@@ -175,8 +173,7 @@ pub(super) fn render_plugin(
             &mut guard,
         )) {
             Ok(creation) => {
-                app.insert_resource(RendererGuard(guard))
-                    .add_systems(Update, mark_presented);
+                install_guard(app, guard);
                 return Ok(RenderPlugin {
                     render_creation: creation,
                     ..Default::default()
@@ -193,6 +190,54 @@ pub(super) fn render_plugin(
     bail!(
         "No safe supported graphics API remains. See client.log and crashes; update GPU drivers or choose an explicit Graphics API to retry."
     );
+}
+
+/// Keeps a proven direct-startup fallback first while preserving overrides and crash exclusions.
+fn direct_candidates(
+    platform: Platform,
+    supported: &[Backend],
+    environment: Option<&[Backend]>,
+    video: Option<Backend>,
+    recovery: &Recovery,
+) -> Vec<Backend> {
+    let mut order = candidates(
+        platform.backends(),
+        supported,
+        environment,
+        video,
+        &[],
+        &[],
+        if supported.len() == 1 {
+            &[]
+        } else {
+            recovery.failed_backends()
+        },
+    );
+    if environment.is_none()
+        && video.is_none()
+        && let Some(working) = &recovery.working
+    {
+        order.sort_by_key(|backend| *backend != working.backend);
+    }
+    order
+}
+
+/// Tracks presentation and cancels startup on a controlled exit before window teardown.
+fn install_guard(app: &mut App, guard: StartupGuard) {
+    app.insert_resource(RendererGuard(guard))
+        .add_systems(Update, mark_presented)
+        .add_systems(Last, cancel_on_exit.in_set(OnAppExitSystems));
+}
+
+/// Leaves crash recovery untouched when the application requests an orderly shutdown.
+fn cancel_on_exit(mut exits: MessageReader<AppExit>, mut guard: ResMut<RendererGuard>) {
+    if exits.read().next().is_some()
+        && let Err(error) = guard.0.cancel()
+    {
+        log(format_args!(
+            "Renderer could not cancel startup sentinel: {error:#}"
+        ));
+    }
 }
 
 /// Probes only automatic multi-API desktop startup, where native lifecycle events can run.
@@ -304,6 +349,117 @@ fn mark_presented(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::{
+        prelude::{Entity, With},
+        window::{PrimaryWindow, WindowCloseRequested, WindowPlugin},
+    };
+    use render_scene::startup_presentation::StartupPresentation;
+
+    /// Builds an unfinished first frame without loading a graphics driver.
+    fn pending_attempt(backend: Backend) -> Attempt {
+        Attempt {
+            backend,
+            adapter: None,
+            stage: Stage::FirstPresentation,
+            explicit: false,
+        }
+    }
+
+    #[test]
+    fn android_keeps_a_successful_fallback_on_subsequent_launches() {
+        let dir = tempfile::tempdir().unwrap();
+        let select = |recovery: &Recovery, environment: Option<&[Backend]>, video| {
+            direct_candidates(
+                Platform::Android,
+                Platform::Android.backends(),
+                environment,
+                video,
+                recovery,
+            )
+        };
+        let mut first = StartupGuard::open(dir.path()).unwrap();
+        assert_eq!(select(&first.recovery, None, None)[0], Backend::Vulkan);
+        first.begin(pending_attempt(Backend::Vulkan)).unwrap();
+        drop(first);
+
+        let mut fallback = StartupGuard::open(dir.path()).unwrap();
+        assert_eq!(select(&fallback.recovery, None, None), [Backend::Gl]);
+        fallback.begin(pending_attempt(Backend::Gl)).unwrap();
+        fallback.presented().unwrap();
+        let mut next = StartupGuard::open(dir.path()).unwrap();
+        assert_eq!(select(&next.recovery, None, None)[0], Backend::Gl);
+        assert_eq!(
+            select(&next.recovery, None, Some(Backend::Vulkan)),
+            [Backend::Vulkan]
+        );
+        assert_eq!(
+            select(
+                &next.recovery,
+                Some(&[Backend::Vulkan, Backend::Gl]),
+                Some(Backend::Gl)
+            ),
+            [Backend::Vulkan, Backend::Gl]
+        );
+        assert_eq!(
+            direct_candidates(
+                Platform::Android,
+                &[Backend::Vulkan],
+                None,
+                None,
+                &next.recovery
+            ),
+            [Backend::Vulkan]
+        );
+        next.begin(pending_attempt(Backend::Gl)).unwrap();
+        drop(next);
+        let interrupted = StartupGuard::open(dir.path()).unwrap();
+        assert_eq!(select(&interrupted.recovery, None, None), [Backend::Vulkan]);
+    }
+
+    #[test]
+    fn closing_the_window_before_presentation_does_not_poison_recovery() {
+        let dir = tempfile::tempdir().unwrap();
+        for _ in 0..2 {
+            let mut guard = StartupGuard::open(dir.path()).unwrap();
+            assert!(guard.interrupted.is_none());
+            assert!(guard.recovery.failed_backends().is_empty());
+            assert!(guard.recovery.working.is_none());
+            guard.begin(pending_attempt(Backend::Vulkan)).unwrap();
+            let mut app = App::new();
+            app.add_plugins(WindowPlugin::default())
+                .init_resource::<StartupPresentation>();
+            install_guard(&mut app, guard);
+            let mut windows = app
+                .world_mut()
+                .query_filtered::<Entity, With<PrimaryWindow>>();
+            let window = windows.single(app.world()).unwrap();
+            app.world_mut()
+                .write_message(WindowCloseRequested { window });
+            app.update();
+            assert_eq!(app.should_exit(), Some(AppExit::Success));
+            assert!(StartupGuard::pending(dir.path()).unwrap().is_none());
+        }
+        let next = StartupGuard::open(dir.path()).unwrap();
+        assert!(next.interrupted.is_none());
+        assert!(next.recovery.failed_backends().is_empty());
+        assert!(next.recovery.working.is_none());
+    }
+
+    #[test]
+    fn unfinished_startup_without_an_exit_message_remains_recoverable() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut guard = StartupGuard::open(dir.path()).unwrap();
+        let pending = pending_attempt(Backend::Vulkan);
+        guard.begin(pending.clone()).unwrap();
+        let mut app = App::new();
+        app.init_resource::<StartupPresentation>();
+        install_guard(&mut app, guard);
+        app.update();
+        assert_eq!(StartupGuard::pending(dir.path()).unwrap(), Some(pending));
+        drop(app);
+        let next = StartupGuard::open(dir.path()).unwrap();
+        assert_eq!(next.recovery.failed_backends(), [Backend::Vulkan]);
+    }
 
     #[test]
     fn lone_backend_and_android_never_start_synchronous_helpers() {

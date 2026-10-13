@@ -406,10 +406,6 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
     assert!(plugin.contains("model_descriptor.primitive.cull_mode = None"));
     assert!(plugin.contains("resource: arena.geometry_stream_buffer.as_entire_binding()"));
     assert!(plugin.contains("resource: texture_assets.model_template_buffer.as_entire_binding()"));
-    assert!(
-        include_str!("../../../../../app/src/app/render_setup.rs")
-            .contains(".max(render::required_vertex_storage_buffers())")
-    );
     let shader_storage_bindings = shader.matches("var<storage, read>").count() as u32;
     assert!(shader_storage_bindings <= render::required_vertex_storage_buffers());
     assert!(shader.contains("visible_quad_mask"));
