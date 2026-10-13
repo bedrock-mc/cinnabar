@@ -36,7 +36,8 @@ fn complete_resent_and_retiring_columns_are_summarised() {
     complete_pending_decode_jobs(&mut stream);
     let first = drain_until(&mut stream, 1);
     assert_eq!(first[0].column, ChunkKey::new(0, 1, 0));
-    assert_eq!(first[0].summary.cell(3, 9).height, -4 * 16 + 16);
+    let decoded = far_terrain::ColumnSummary::decode(&first[0].summary.bytes).unwrap();
+    assert_eq!(decoded.cell(3, 9).height, -4 * 16 + 16);
 
     stream.submit(2, inline_air_event(1)).unwrap();
     complete_pending_decode_jobs(&mut stream);
