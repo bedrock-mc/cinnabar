@@ -142,7 +142,8 @@ fn draw_fitted(
     let left = (width - column) * 0.5;
     canvas.alpha = fade(elapsed, STATUS_DELAY_MILLIS);
     let top = height * STATUS_TOP;
-    if fitted {
+    // Full-width columns cannot accommodate the centered line's extra pixel allowance.
+    if fitted || column >= width {
         canvas.centered_wrapped_text(status, [left, top], column, HEADER5, TEXT)?;
     } else {
         canvas.text_centred(
