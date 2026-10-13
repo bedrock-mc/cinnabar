@@ -153,8 +153,10 @@ impl UiPresentationRuntime {
         let mut held_sources = BTreeMap::new();
         let mut see_through = BTreeSet::new();
         for (visual, sprite) in &sources {
-            // Cut-out cubes (glass, leaves) draw as cubes; translucent sheets only for blocks the
-            // world draws as exact cubes (stained glass), never special tessellators (beacon).
+            // Every source is a cube's six faces: world cube sheets, or carried sheets the icon
+            // compiler composes only for carried cubes and chests. Cut-out ones (glass, leaves)
+            // draw as cubes; translucent ones only when the world draws the block as an exact
+            // cube (stained glass), which keeps special tessellators (beacon) on thumbnails.
             let coverage = sheet_coverage(&sprite.rgba8);
             let admitted = match coverage {
                 SheetCoverage::Opaque | SheetCoverage::Cutout => true,
