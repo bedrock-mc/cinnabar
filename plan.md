@@ -6111,6 +6111,8 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   seat offsets follow the mount's actor origin and yaw for local and remote riders without
   multiplying the offset by entity scale. Boat jump and other vehicle sneak presses send a
   vehicle-targeted dismount request; the server's removal link releases the rider.
+  Mounted prediction retains the seated posture while an exit request is pending, including
+  during correction replay; the held sneak input resumes crouching after the server unlinks.
   Incomplete: authored seat fallbacks and special horse/camel/parrot placement, predictive
   dismount exit placement, client-predicted vehicles (`IsInClientPredictedVehicle`) and
   horse jump wire signalling remain open. Sweet berry bush slowdown is written in `tools/registrygen`

@@ -610,6 +610,9 @@ impl LocalPhysicsController {
                 }
                 Err(error) => mode_error = Some(error),
             }
+            if input.mode == sim::MovementMode::Riding {
+                input.sneaking = false;
+            }
             self.modes.record_controls(input, context.input.sneak_down);
             // A rider's position is its seat on the mount, not a simulated result.
             let mut ride_delta = None;

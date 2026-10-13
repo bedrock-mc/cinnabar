@@ -216,7 +216,7 @@ impl ModeTracker {
             self.last_server_flying = intent.server_flying;
             self.mode = MovementMode::Riding;
             self.sprinting = false;
-            self.sneaking = observed.sneaking;
+            self.sneaking = false;
             self.previous_feet = Some(observed.feet);
             self.fall_fly_ticks = 0;
             return Ok(ModeChoice {
