@@ -358,3 +358,44 @@ fn captured_partial_repair_retains_result_durability() {
         Some((maximum - 610) as f32 / maximum as f32)
     );
 }
+
+#[test]
+fn replacing_the_target_through_hotbar_swap_prefills_the_new_stack() {
+    let (mut runtime, mut player) = anvil();
+    let mut replacement = runtime
+        .inventory_ledger(&player)
+        .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
+        .unwrap()
+        .clone();
+    replacement.stack_network_id = 32;
+    runtime
+        .inventory_ledger_mut(&mut player)
+        .apply(&InventoryEvent::Slot(InventorySlotEvent {
+            identity: SlotIdentity {
+                container: ContainerIdentity::window(0),
+                slot: 0,
+            },
+            stack: replacement,
+            storage_item: None,
+        }));
+    runtime.sync_anvil_name(&player);
+    let prefilled = runtime.screen_state().anvil_name.clone();
+    runtime.screen_state_mut().anvil_name = "Blade".into();
+    runtime
+        .inventory_ledger_mut(&mut player)
+        .begin_hotbar_swap(InventoryTarget::Craft(ANVIL_TARGET_SLOT), 0)
+        .unwrap();
+    runtime.sync_anvil_name(&player);
+    assert_eq!(
+        runtime
+            .inventory_ledger(&player)
+            .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
+            .unwrap()
+            .stack_network_id,
+        32
+    );
+    assert_eq!(runtime.screen_state().anvil_name, prefilled);
+    let preview = runtime.anvil_preview(&player).unwrap();
+    assert_eq!(preview.outcome.custom_name, None);
+    assert_eq!(preview.outcome.cost, 3);
+}

@@ -27,6 +27,7 @@ pub struct AnvilNameState {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct AnvilTargetIdentity {
     network_id: i32,
+    stack_network_id: i32,
     metadata: u32,
     nbt_digest: [u8; 32],
     identifier: Option<std::sync::Arc<str>>,
@@ -37,6 +38,7 @@ impl AnvilTargetIdentity {
     /// The item kind remains the same when a server update only changes mutable NBT.
     fn same_item(&self, other: &Self) -> bool {
         self.network_id == other.network_id
+            && self.stack_network_id == other.stack_network_id
             && self.metadata == other.metadata
             && self.identifier == other.identifier
     }
@@ -163,6 +165,7 @@ impl UiRuntime {
             .filter(|stack| stack.count > 0)
             .map(|stack| AnvilTargetIdentity {
                 network_id: stack.network_id,
+                stack_network_id: stack.stack_network_id,
                 metadata: stack.metadata,
                 nbt_digest: stack.nbt_digest,
                 identifier: ledger

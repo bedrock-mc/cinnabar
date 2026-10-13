@@ -187,6 +187,9 @@ pub fn compatible(a: i16, b: i16) -> bool {
 /// registration.
 #[must_use]
 pub fn item_slot(identifier: &str) -> u32 {
+    if assets::vanilla_skull_type(identifier).is_some() {
+        return slot::COSMETIC_HEAD;
+    }
     let name = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
     let suffix = |end: &str| name.ends_with(end);
     match name {
@@ -215,7 +218,7 @@ pub fn item_slot(identifier: &str) -> u32 {
         _ if suffix("_axe") => AXE,
         _ if suffix("_shovel") => SHOVEL,
         _ if suffix("_hoe") => HOE,
-        _ if suffix("_head") || suffix("_skull") => COSMETIC_HEAD,
+        _ if suffix("_head") => COSMETIC_HEAD,
         _ => 0,
     }
 }
@@ -253,7 +256,7 @@ mod tests {
         let mut skulls = 0;
         for entry in registry
             .iter()
-            .filter(|entry| entry.identifier.ends_with("_skull"))
+            .filter(|entry| assets::vanilla_skull_type(&entry.identifier).is_some())
         {
             skulls += 1;
             let slot = item_slot(&entry.identifier);
