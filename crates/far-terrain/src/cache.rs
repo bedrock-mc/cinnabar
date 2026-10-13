@@ -53,7 +53,10 @@ impl RetiringSession {
 /// A world's namespace is resolved from its first non-empty columns, so a server that reuses
 /// one level identity for different maps gets a fresh namespace instead of mixed terrain.
 pub struct FarTerrainCache {
+    /// Started on the first world entered, so a client that never uses far terrain runs no
+    /// IO thread.
     disk: Option<DiskCache>,
+    disk_root: Option<(PathBuf, DiskBounds)>,
     store: SummaryStore,
     world: Option<WorldKey>,
     namespace: Option<NamespaceKey>,
@@ -86,7 +89,8 @@ impl FarTerrainCache {
             global_cap_bytes: config.global_disk_cap_bytes,
         };
         Self {
-            disk: disk_root.and_then(|root| DiskCache::spawn(root, bounds)),
+            disk: None,
+            disk_root: disk_root.map(|root| (root, bounds)),
             store: SummaryStore::new(config.memory_budget_bytes),
             world: None,
             namespace: None,
@@ -116,6 +120,9 @@ impl FarTerrainCache {
             return;
         }
         self.end_entry();
+        if let Some((root, bounds)) = self.disk_root.take() {
+            self.disk = DiskCache::spawn(root, bounds);
+        }
         self.world = Some(world);
     }
 

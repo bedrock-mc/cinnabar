@@ -168,8 +168,9 @@ impl WorldStream {
             feed.pending.clear();
             feed.queued.clear();
             feed.retiring.clear();
+            self.clear_near_drawn();
         } else if !was_enabled {
-            // Columns already resident were never summarised while off.
+            // Columns already resident were never summarised or tracked as drawn while off.
             let columns: Vec<ChunkKey> = self.loaded_columns.iter().copied().collect();
             for column in columns {
                 self.note_far_column_complete(column);

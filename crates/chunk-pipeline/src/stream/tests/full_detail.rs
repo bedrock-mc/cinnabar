@@ -212,9 +212,12 @@ fn covered_columns_always_keep_a_drawer() {
                 stream.set_full_detail_radius(radius.filter(|_| far_on));
             }
             1 => {
+                // As the app does: turning off lifts the limit at once, but summaries and the
+                // far scene stay until near terrain draws every loaded column.
                 far_on = !far_on;
-                stream.set_far_terrain_enabled(far_on);
-                if !far_on {
+                if far_on {
+                    stream.set_far_terrain_enabled(true);
+                } else {
                     stream.set_full_detail_radius(None);
                 }
             }
@@ -244,9 +247,10 @@ fn covered_columns_always_keep_a_drawer() {
                 covered.remove(&column);
             }
         }
-        // As the app does: far terrain stays shown after being turned off until near terrain
-        // draws every loaded column.
-        let far_shown = far_on || !stream.all_loaded_near_drawn();
+        if !far_on && stream.far_terrain_enabled() && stream.all_loaded_near_drawn() {
+            stream.set_far_terrain_enabled(false);
+        }
+        let far_shown = stream.far_terrain_enabled();
         if !far_shown {
             far_summaries.clear();
         }

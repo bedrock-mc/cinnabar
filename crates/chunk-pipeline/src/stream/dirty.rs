@@ -104,12 +104,14 @@ impl WorldStream {
         } = scope;
         let sources = sources.into_iter().collect::<BTreeSet<_>>();
         // A far summary reads only its own column's blocks, so only sources refresh one.
-        for column in sources
-            .iter()
-            .map(|key| key.chunk())
-            .collect::<BTreeSet<_>>()
-        {
-            self.note_far_change(column);
+        if self.far_terrain_enabled() {
+            for column in sources
+                .iter()
+                .map(|key| key.chunk())
+                .collect::<BTreeSet<_>>()
+            {
+                self.note_far_change(column);
+            }
         }
         if relight {
             self.mark_light_changed_sources_reaching(sources.iter().copied(), urgent, reach, cells);

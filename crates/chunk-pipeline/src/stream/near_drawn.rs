@@ -23,7 +23,9 @@ impl WorldStream {
     /// mesh with no newer one pending. A column without sections stays with far terrain, whose
     /// summary of it is empty. A drawn column keeps its meshes on screen while they are redone.
     pub(super) fn note_near_drawn(&mut self, column: ChunkKey) {
-        if self.near_drawn.columns.contains(&column)
+        // Only far terrain reads the set; with it off nothing is tracked.
+        if !self.far_terrain_enabled()
+            || self.near_drawn.columns.contains(&column)
             || !self.loaded_columns.contains(&column)
             || !self.wants_mesh(column)
         {
@@ -47,6 +49,14 @@ impl WorldStream {
 
     pub(super) fn near_drawn_contains(&self, column: ChunkKey) -> bool {
         self.near_drawn.columns.contains(&column)
+    }
+
+    /// Forgets every drawn column, as when far terrain turns off.
+    pub(super) fn clear_near_drawn(&mut self) {
+        if !self.near_drawn.columns.is_empty() {
+            self.near_drawn.columns = HashSet::new();
+            self.near_drawn.revision += 1;
+        }
     }
 
     /// Hands `columns` back to far terrain, as when they leave residency.
