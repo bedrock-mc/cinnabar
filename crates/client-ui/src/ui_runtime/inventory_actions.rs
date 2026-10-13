@@ -535,7 +535,7 @@ impl UiRuntime {
                     .created_output_stack()
                     .is_some()
                 {
-                    let name = self.screen_state().anvil_name.trim();
+                    let name = self.screen_state().anvil_name.as_str();
                     (
                         (!name.is_empty()).then(|| std::sync::Arc::from(name)),
                         None,

@@ -13,11 +13,21 @@ pub struct AnvilPreview {
     pub outcome: inventory::AnvilOutcome,
 }
 
+/// The target facts whose replacement should prefill the anvil name field again.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AnvilTargetIdentity {
+    network_id: i32,
+    metadata: u32,
+    nbt_digest: [u8; 32],
+    custom_name: Option<std::sync::Arc<str>>,
+}
+
 /// One occupied anvil input with data that can be edited without losing item properties.
 struct AnvilInput {
     stack: NetworkItemStack,
     entry: ItemRegistryEntry,
     data: protocol::ItemAnvilData,
+    damage: Option<u32>,
 }
 
 impl AnvilInput {
@@ -32,7 +42,7 @@ impl AnvilInput {
         inventory::AnvilItem {
             identifier: &self.entry.identifier,
             count: self.stack.count,
-            damage: protocol::item_stack_damage(&self.stack).unwrap_or(0),
+            damage: self.damage.unwrap_or(0),
             max_damage: self.max_damage(),
             enchantments: &self.data.enchantments,
             repair_cost: protocol::item_repair_cost(&self.stack.extra_data),
@@ -54,14 +64,33 @@ impl UiRuntime {
             .filter(|stack| stack.count > 0)?
             .clone();
         let entry = ledger.negotiated_item_entry(stack.network_id)?.clone();
-        let data = protocol::item_anvil_data(&stack.extra_data)?;
-        Some(AnvilInput { stack, entry, data })
+        let mut data = protocol::item_anvil_data(&stack.extra_data)?;
+        let overlay = ledger.presented_target_overlay(InventoryTarget::Craft(slot));
+        if let Some(name) = overlay.and_then(|overlay| overlay.custom_name.clone()) {
+            data.custom_name = Some(name);
+        }
+        let damage = overlay
+            .and_then(|overlay| overlay.durability_correction)
+            .and_then(|damage| u32::try_from(damage).ok())
+            .or_else(|| protocol::item_stack_damage(&stack));
+        Some(AnvilInput {
+            stack,
+            entry,
+            data,
+            damage,
+        })
     }
 
     /// The name the target item shows: its custom name, else its localized name.
     fn anvil_target_name(&self, input: &AnvilInput) -> String {
         input.data.custom_name.as_deref().map_or_else(
-            || self.localized_item_name(&input.entry.identifier),
+            || {
+                super::presentation::inventory_tooltip::default_name(
+                    self,
+                    &input.entry.identifier,
+                    input.stack.metadata,
+                )
+            },
             str::to_owned,
         )
     }
@@ -73,9 +102,12 @@ impl UiRuntime {
             return;
         }
         let target = self.anvil_input(player_runtime, ANVIL_TARGET_SLOT);
-        let identity = target
-            .as_ref()
-            .map(|input| (input.stack.network_id, input.stack.nbt_digest));
+        let identity = target.as_ref().map(|input| AnvilTargetIdentity {
+            network_id: input.stack.network_id,
+            metadata: input.stack.metadata,
+            nbt_digest: input.stack.nbt_digest,
+            custom_name: input.data.custom_name.clone(),
+        });
         if self.screen_state().anvil_target == identity {
             return;
         }
@@ -113,7 +145,7 @@ impl UiRuntime {
         let outcome = inventory::evaluate_anvil(
             &left.item(),
             right_item.as_ref(),
-            self.screen_state().anvil_name.trim(),
+            &self.screen_state().anvil_name,
             &self.anvil_target_name(&left),
             creative,
         )?;
@@ -122,10 +154,16 @@ impl UiRuntime {
             &protocol::ItemNbtEdit {
                 damage: outcome
                     .damage
+                    .or(left.damage)
                     .map(|damage| i32::try_from(damage).unwrap_or(i32::MAX)),
                 repair_cost: Some(outcome.repair_cost),
                 enchantments: outcome.enchantments.clone(),
-                custom_name: outcome.custom_name.clone(),
+                custom_name: outcome.custom_name.clone().or_else(|| {
+                    left.data
+                        .custom_name
+                        .as_ref()
+                        .map(|name| Some(name.to_string()))
+                }),
             },
         )?;
         let mut stack = left.stack;

@@ -422,7 +422,7 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 
 ## Anvil screen
 
-- The anvil predicts its result and cost as the 1.26.10 client does: repair materials restore a
+- The anvil predicts its result and cost: repair materials restore a
   quarter of the durability each for a level each, a second damaged copy adds its remaining
   durability plus 12% for two levels, and enchantments merge by the native registry's slots,
   caps, rarity multipliers and exclusivity. A second item that changes nothing clears the
@@ -436,6 +436,7 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   complete enchantment levels and lists and decline unsupported enchantment fields.
 - Provisional: repair materials and item enchantment slots follow vanilla item names rather
   than each item's native registration, and data-driven anvil recipes are not predicted.
+  Current-version visual and behavior parity remains incomplete; no anvil parity gate closes.
 
 ## OreUI menus, appearance and motion
 

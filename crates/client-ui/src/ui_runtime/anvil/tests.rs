@@ -565,3 +565,192 @@ fn full_custom_names_are_kept_when_repairing_without_a_rename() {
         Some(name.as_str())
     );
 }
+
+/// Accepts a take and place so a server correction travels back into the target cell.
+fn correct_target(
+    runtime: &mut UiRuntime,
+    player: &mut player_state::PlayerState,
+    damage: i32,
+    name: &str,
+) {
+    use inventory::inventory_ledger::CellGesture;
+    use protocol::{
+        ItemStackResponseEvent, StackResponse, StackResponseContainer, StackResponseSlot,
+        StackResponseStatus,
+    };
+    let target = ANVIL_TARGET_SLOT;
+    let target_name = protocol::ui_slot_container_name(target).unwrap();
+    for taking in [true, false] {
+        let request_id = runtime
+            .inventory_ledger_mut(player)
+            .begin_target_gesture(InventoryTarget::Craft(target), CellGesture::Click)
+            .unwrap();
+        let containers = [
+            (target_name, target, !taking),
+            (protocol::CONTAINER_NAME_CURSOR, 0, taking),
+        ]
+        .map(|(slot_type, slot, occupied)| StackResponseContainer {
+            container: ContainerIdentity {
+                window_id: None,
+                slot_type: Some(slot_type),
+                dynamic_id: None,
+            },
+            slots: Arc::from([StackResponseSlot {
+                slot,
+                hotbar_slot: slot,
+                count: u8::from(occupied),
+                item_stack_id: if occupied { 30 } else { 0 },
+                custom_name: Arc::from(if occupied { name } else { "" }),
+                filtered_custom_name: Arc::from(""),
+                durability_correction: if occupied { damage } else { 0 },
+            }]),
+        });
+        runtime
+            .inventory_ledger_mut(player)
+            .apply(&InventoryEvent::Response(ItemStackResponseEvent {
+                responses: Arc::from([StackResponse {
+                    status: StackResponseStatus::Accepted,
+                    request_id,
+                    containers: Arc::from(containers),
+                }]),
+            }));
+    }
+}
+
+#[test]
+fn response_corrections_drive_repair_cost_and_name_without_replacing_nbt() {
+    for (damage, material_used) in [(-1, 3), (0, 0), (100, 1), (800, 3)] {
+        let (mut runtime, mut player) = anvil();
+        runtime.sync_anvil_name(&player);
+        correct_target(&mut runtime, &mut player, damage, "Server blade");
+        runtime.sync_anvil_name(&player);
+        assert_eq!(runtime.screen_state().anvil_name, "Server blade");
+        let target = runtime
+            .inventory_ledger(&player)
+            .target_stack(InventoryTarget::Craft(ANVIL_TARGET_SLOT))
+            .unwrap();
+        assert_eq!(
+            protocol::item_stack_damage(target),
+            Some(1000),
+            "NBT remains stale"
+        );
+        let preview = runtime.anvil_preview(&player);
+        if material_used == 0 {
+            assert!(
+                preview.is_none(),
+                "a pristine correction needs no repair or rename"
+            );
+        } else {
+            let preview = preview.unwrap();
+            assert_eq!(preview.outcome.material_used, material_used);
+            assert_eq!(preview.outcome.cost, i32::from(material_used));
+            assert_eq!(
+                preview.outcome.custom_name, None,
+                "the corrected name is unchanged"
+            );
+            assert_eq!(
+                protocol::item_display(&preview.stack.extra_data)
+                    .name
+                    .as_deref(),
+                Some("Server blade")
+            );
+        }
+    }
+}
+
+#[test]
+fn enchantment_only_outputs_keep_corrected_damage() {
+    let (mut runtime, mut player) = anvil();
+    correct_target(&mut runtime, &mut player, 100, "Server blade");
+    place_book(&mut runtime, &mut player, vec![(17, 1)]);
+    runtime.sync_anvil_name(&player);
+    let preview = runtime.anvil_preview(&player).unwrap();
+    assert_eq!(preview.outcome.damage, None, "enchanting does not repair");
+    assert_eq!(protocol::item_stack_damage(&preview.stack), Some(100));
+}
+
+#[test]
+fn unedited_custom_names_with_outer_whitespace_do_not_add_rename_work() {
+    let (mut runtime, mut player) = anvil();
+    edit_input(
+        &mut runtime,
+        &mut player,
+        ANVIL_TARGET_SLOT,
+        protocol::ItemNbtEdit {
+            custom_name: Some(Some(" Blade ".into())),
+            ..Default::default()
+        },
+    );
+    runtime.sync_anvil_name(&player);
+    assert_eq!(runtime.screen_state().anvil_name, " Blade ");
+    let preview = runtime.anvil_preview(&player).unwrap();
+    assert_eq!(preview.outcome.cost, 3);
+    assert_eq!(preview.outcome.custom_name, None);
+    assert_eq!(
+        protocol::item_display(&preview.stack.extra_data)
+            .name
+            .as_deref(),
+        Some(" Blade ")
+    );
+    place(
+        &mut runtime,
+        &mut player,
+        u16::from(ANVIL_MATERIAL_SLOT),
+        NetworkItemStack::empty(),
+    );
+    assert!(
+        runtime.anvil_preview(&player).is_none(),
+        "placing the named item alone makes no rename"
+    );
+}
+
+#[test]
+fn potion_name_prefill_tracks_the_metadata_and_the_displayed_name() {
+    let (mut runtime, mut player) = anvil();
+    let input = b"potion.heal.name=Healing\npotion.moveSpeed.name=Swiftness\n";
+    runtime.set_server_lang(assets::ServerLangOverlay::read(input.len(), |target| {
+        target.copy_from_slice(input);
+        true
+    }));
+    runtime
+        .inventory_ledger_mut(&mut player)
+        .apply_registry(&ItemRegistryEvent {
+            entries: Arc::from([entry("minecraft:potion", SWORD)]),
+        });
+    place(
+        &mut runtime,
+        &mut player,
+        u16::from(ANVIL_MATERIAL_SLOT),
+        NetworkItemStack::empty(),
+    );
+    for (identifier, name) in [
+        ("minecraft:healing", "Healing"),
+        ("minecraft:swiftness", "Swiftness"),
+    ] {
+        let metadata = u32::try_from(
+            assets::POTION_DESCRIPTORS
+                .iter()
+                .position(|potion| potion.identifier == identifier)
+                .unwrap(),
+        )
+        .unwrap();
+        place(
+            &mut runtime,
+            &mut player,
+            u16::from(ANVIL_TARGET_SLOT),
+            NetworkItemStack {
+                network_id: SWORD,
+                stack_network_id: 30,
+                count: 1,
+                metadata,
+                ..NetworkItemStack::empty()
+            },
+        );
+        runtime.sync_anvil_name(&player);
+        assert_eq!(runtime.screen_state().anvil_name, name);
+        assert!(
+            runtime.anvil_preview(&player).is_none(),
+            "the displayed name is not a rename"
+        );
+    }
+}
