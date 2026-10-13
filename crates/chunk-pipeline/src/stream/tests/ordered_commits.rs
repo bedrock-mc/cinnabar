@@ -40,6 +40,7 @@ fn newer_update_waits_for_older_decode_and_wins() {
                     payload: Vec::new(),
                 },
                 decoded,
+                light_neutral: Vec::new(),
                 duration: Duration::ZERO,
             },
         )
@@ -173,6 +174,7 @@ fn control_effects_are_exposed_only_after_older_heavy_sequence_commits_in_fifo_o
             super::PreparedWorldEvent::InlineLevelChunk {
                 event,
                 decoded,
+                light_neutral: Vec::new(),
                 duration: std::time::Duration::ZERO,
             },
         )
@@ -256,6 +258,7 @@ fn movement_correction_commits_in_fifo_without_move_player_capture_metadata() {
             super::PreparedWorldEvent::InlineLevelChunk {
                 event,
                 decoded,
+                light_neutral: Vec::new(),
                 duration: std::time::Duration::ZERO,
             },
         )

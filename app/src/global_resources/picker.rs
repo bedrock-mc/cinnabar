@@ -1,4 +1,4 @@
-//! Import buttons open the platform file picker on their import worker.
+//! The import button opens the platform file picker on the import worker.
 use resource_pack::PACK_IMPORT_EXTENSIONS;
 use std::path::PathBuf;
 #[cfg(any(not(windows), test))]
@@ -20,27 +20,56 @@ pub(super) const PACKS: Filter = Filter {
     unavailable_hint: "Drop a pack onto the window to import it.",
 };
 
-/// Returns a selected filename, cancellation, or a visible picker error.
+/// Returns one selected filename, cancellation, or a visible picker error.
 pub(crate) fn pick(filter: &Filter) -> Result<Option<PathBuf>, String> {
+    choose(filter, false).map(|paths| paths.into_iter().next())
+}
+
+/// Returns all selected files, an empty list on cancellation, or a visible picker error.
+pub(super) fn pick_files(filter: &Filter) -> Result<Vec<PathBuf>, String> {
+    choose(filter, true)
+}
+
+/// Shares filters and fallback tools while preserving each caller's selection mode.
+fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
     #[cfg(windows)]
-    return launcher_host::desktop::windows::pick_file(filter.title, &windows_filter(filter))
-        .map_err(|code| {
+    {
+        let result = if multiple {
+            launcher_host::desktop::windows::pick_files(filter.title, &windows_filter(filter))
+        } else {
+            launcher_host::desktop::windows::pick_file(filter.title, &windows_filter(filter))
+                .map(|path| path.into_iter().collect())
+        };
+        return result.map_err(|code| {
             format!(
                 "File picker failed (error {code:#x}). {}",
                 filter.unavailable_hint
             )
         });
+    }
     #[cfg(target_os = "linux")]
-    match launcher_host::desktop::dbus::pick_file(filter.title, filter.name, &patterns(filter)) {
-        Ok(choice) => return Ok(choice),
-        Err(error) => {
-            bevy::log::debug!("portal file chooser unavailable ({error}); trying dialog tools")
+    {
+        let result = if multiple {
+            launcher_host::desktop::dbus::pick_files(filter.title, filter.name, &patterns(filter))
+        } else {
+            launcher_host::desktop::dbus::pick_file(filter.title, filter.name, &patterns(filter))
+                .map(|path| path.into_iter().collect())
+        };
+        match result {
+            Ok(paths) => return Ok(paths),
+            Err(error) => {
+                bevy::log::debug!("portal file chooser unavailable ({error}); trying dialog tools")
+            }
         }
     }
     #[cfg(not(windows))]
-    run_tools(tool_commands(std::env::consts::OS, filter), filter)
+    run_tools(
+        tool_commands(std::env::consts::OS, filter, multiple),
+        filter,
+    )
 }
 
+/// Derives every platform's filter from the selected import extensions.
 fn patterns(filter: &Filter) -> Vec<String> {
     filter
         .extensions
@@ -57,15 +86,14 @@ fn windows_filter(filter: &Filter) -> String {
 
 /// Runs the first picker tool that launches; a launched tool's failure counts as cancellation.
 #[cfg(not(windows))]
-fn run_tools(commands: Vec<Command>, filter: &Filter) -> Result<Option<PathBuf>, String> {
+fn run_tools(commands: Vec<Command>, filter: &Filter) -> Result<Vec<PathBuf>, String> {
     let mut launch_error = None;
     for mut command in commands {
         match command.output() {
             Ok(output) if output.status.success() => {
-                let path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-                return Ok((!path.is_empty()).then(|| PathBuf::from(path)));
+                return Ok(output_paths(&output.stdout));
             }
-            Ok(_) => return Ok(None),
+            Ok(_) => return Ok(Vec::new()),
             Err(error) => launch_error = Some(error),
         }
     }
@@ -76,10 +104,20 @@ fn run_tools(commands: Vec<Command>, filter: &Filter) -> Result<Option<PathBuf>,
     ))
 }
 
+/// Reads one selected path per line, preserving spaces and ignoring empty output lines.
+#[cfg(any(not(windows), test))]
+fn output_paths(output: &[u8]) -> Vec<PathBuf> {
+    String::from_utf8_lossy(output)
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
 /// Picker tools in fallback order; Linux reaches these only when the portal is unavailable.
 #[cfg(any(not(windows), test))]
-fn tool_commands(platform: &str, filter: &Filter) -> Vec<Command> {
-    let title = filter.title;
+fn tool_commands(platform: &str, filter: &Filter, multiple: bool) -> Vec<Command> {
+    let (title, name) = (filter.title, filter.name);
     if platform == "macos" {
         let types = filter
             .extensions
@@ -87,13 +125,23 @@ fn tool_commands(platform: &str, filter: &Filter) -> Vec<Command> {
             .map(|extension| format!("\"{extension}\""))
             .collect::<Vec<_>>()
             .join(", ");
-        let script =
-            format!("POSIX path of (choose file with prompt \"{title}\" of type {{{types}}})");
+        let script = if multiple {
+            format!(
+                "set selectedFiles to choose file with prompt \"{title}\" of type {{{types}}} with multiple selections allowed\n\
+             set selectedPaths to \"\"\n\
+             repeat with selectedFile in selectedFiles\n\
+             set selectedPaths to selectedPaths & (POSIX path of selectedFile) & linefeed\n\
+             end repeat\n\
+             return selectedPaths"
+            )
+        } else {
+            format!("POSIX path of (choose file with prompt \"{title}\" of type {{{types}}})")
+        };
         let mut command = Command::new("osascript");
         command.args(["-e", &script]);
         return vec![command];
     }
-    let (name, patterns) = (filter.name, patterns(filter).join(" "));
+    let patterns = patterns(filter).join(" ");
     let mut zenity = Command::new("zenity");
     zenity.args([
         "--file-selection".to_owned(),
@@ -108,6 +156,10 @@ fn tool_commands(platform: &str, filter: &Filter) -> Vec<Command> {
         ".".to_owned(),
         format!("{patterns}|{name}"),
     ]);
+    if multiple {
+        zenity.args(["--multiple", "--separator=\n"]);
+        kdialog.args(["--multiple", "--separate-output"]);
+    }
     vec![zenity, kdialog]
 }
 
@@ -115,6 +167,7 @@ fn tool_commands(platform: &str, filter: &Filter) -> Vec<Command> {
 mod tests {
     use super::*;
 
+    /// Returns a tool's arguments as strings for inspecting its dialog configuration.
     fn args(command: &Command) -> Vec<&str> {
         command
             .get_args()
@@ -124,7 +177,7 @@ mod tests {
 
     #[test]
     fn macos_picker_filters_pack_archives() {
-        let commands = tool_commands("macos", &PACKS);
+        let commands = tool_commands("macos", &PACKS, true);
         let args = args(&commands[0]);
         let script = args[1];
         let (_, types) = script
@@ -143,17 +196,35 @@ mod tests {
 
     #[test]
     fn linux_fallbacks_try_zenity_then_kdialog_with_the_pack_filter() {
-        let commands = tool_commands("linux", &PACKS);
+        let commands = tool_commands("linux", &PACKS, true);
         let programs = commands
             .iter()
             .map(|command| command.get_program().to_str().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(programs, ["zenity", "kdialog"]);
         for command in &commands {
-            let filter = *args(command).last().unwrap();
+            let arguments = args(command);
+            let filter = arguments
+                .iter()
+                .find(|argument| argument.contains("*."))
+                .unwrap();
             for extension in PACK_IMPORT_EXTENSIONS {
                 assert!(filter.contains(&format!("*.{extension}")), "{filter}");
             }
+        }
+    }
+
+    #[test]
+    fn fallback_selection_mode_preserves_single_and_multiple_imports() {
+        for multiple in [false, true] {
+            for command in tool_commands("linux", &PACKS, multiple) {
+                assert_eq!(args(&command).contains(&"--multiple"), multiple);
+            }
+            let commands = tool_commands("macos", &PACKS, multiple);
+            assert_eq!(
+                args(&commands[0])[1].contains("multiple selections allowed"),
+                multiple
+            );
         }
     }
 
@@ -168,6 +239,23 @@ mod tests {
         assert_eq!(parts.next(), None);
     }
 
+    #[test]
+    fn tool_output_returns_each_path_without_splitting_spaces_or_pipes() {
+        assert_eq!(
+            output_paths(b"/packs/First Pack.mcpack\n/packs/Second|Pack.mcaddon\n\n"),
+            [
+                PathBuf::from("/packs/First Pack.mcpack"),
+                PathBuf::from("/packs/Second|Pack.mcaddon"),
+            ]
+        );
+        assert_eq!(
+            output_paths(b"/packs/a.mcpack\n"),
+            [PathBuf::from("/packs/a.mcpack")]
+        );
+        assert!(output_paths(b"\n").is_empty());
+        assert!(output_paths(b"").is_empty());
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_missing_tool_falls_through_and_a_cancelled_one_stops() {
@@ -178,12 +266,21 @@ mod tests {
         };
         let missing = || Command::new("cinnabar-no-such-picker");
         assert_eq!(
-            run_tools(vec![missing(), shell("echo /packs/a.mcpack")], &PACKS),
-            Ok(Some(PathBuf::from("/packs/a.mcpack")))
+            run_tools(
+                vec![
+                    missing(),
+                    shell("printf '/packs/a.mcpack\\n/packs/b.mcpack\\n'")
+                ],
+                &PACKS
+            ),
+            Ok(vec![
+                PathBuf::from("/packs/a.mcpack"),
+                PathBuf::from("/packs/b.mcpack")
+            ])
         );
         assert_eq!(
             run_tools(vec![shell("exit 1"), shell("echo /packs/b.mcpack")], &PACKS),
-            Ok(None)
+            Ok(Vec::new())
         );
         let error = run_tools(vec![missing()], &PACKS).unwrap_err();
         assert!(error.contains(PACKS.unavailable_hint), "{error}");

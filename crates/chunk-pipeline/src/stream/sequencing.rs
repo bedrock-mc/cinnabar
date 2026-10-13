@@ -77,6 +77,7 @@ impl WorldStream {
             PreparedWorldEvent::InlineLevelChunk {
                 event,
                 decoded,
+                light_neutral,
                 duration,
             } => {
                 self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
@@ -111,6 +112,26 @@ impl WorldStream {
                     .collect::<BTreeSet<_>>();
                 let old_keys = self.resident.column(key).copied().collect::<BTreeSet<_>>();
                 let old_air = self.known_air.column(key).copied().collect::<BTreeSet<_>>();
+                // A summary holds only while the section it compared is still the resident one.
+                let light_neutral = if light_neutral.is_empty() {
+                    BTreeSet::new()
+                } else {
+                    let before = self
+                        .authority
+                        .terrain()
+                        .chunk(key)
+                        .map(world::Chunk::shared_sub_chunks);
+                    light_neutral
+                        .into_iter()
+                        .filter(|(y, compared)| {
+                            before
+                                .as_ref()
+                                .and_then(|before| before.get(y))
+                                .is_some_and(|resident| Arc::ptr_eq(resident, compared))
+                        })
+                        .map(|(y, _)| SubChunkKey::from_chunk(key, y))
+                        .collect::<BTreeSet<_>>()
+                };
                 let Ok(applied) = self.authority.commit_level_chunk(key, decoded) else {
                     self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
                     return;
@@ -141,7 +162,19 @@ impl WorldStream {
                 let mut changed_sources = applied.changed.into_iter().collect::<BTreeSet<_>>();
                 changed_sources.extend(new_keys.difference(&old_keys).copied());
                 changed_sources.extend(old_keys.difference(&new_keys).copied());
-                self.mark_changed_sources_with_mesh_dirty(changed_sources, preexpanded_dirty, now);
+                if light_neutral.is_empty() {
+                    self.mark_changed_sources_with_mesh_dirty(
+                        changed_sources,
+                        preexpanded_dirty,
+                        now,
+                    );
+                } else {
+                    let (unlit, relit) = changed_sources
+                        .into_iter()
+                        .partition::<BTreeSet<_>, _>(|key| light_neutral.contains(key));
+                    self.mark_changed_sources_with_mesh_dirty(relit, preexpanded_dirty, now);
+                    self.mark_light_neutral_sources(unlit, now);
+                }
                 self.stats.last_chunk_commit_at = Some(now);
             }
             PreparedWorldEvent::RequestLevelChunk {
