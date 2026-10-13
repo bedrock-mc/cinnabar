@@ -382,6 +382,9 @@ impl Builder<'_> {
         hidden_bones: &[Arc<str>],
     ) -> BlockVisual {
         self.gaps.skipped_cubes += geometry.skipped_cubes;
+        if geometry.cubes.is_empty() && geometry.skipped_cubes > 0 {
+            return diagnostic_visual();
+        }
         let mut quads = Vec::new();
         let mut first_material = None;
         let shown = geometry
@@ -389,7 +392,9 @@ impl Builder<'_> {
             .iter()
             .filter(|cube| !hidden_bones.iter().any(|bone| **bone == *cube.bone))
             .collect::<Vec<_>>();
-        if shown.is_empty() && !geometry.cubes.is_empty() {
+        // A geometry with no cubes draws nothing: pack-authored null markers
+        // pair cubeless geometry with a null texture to hide a state.
+        if shown.is_empty() {
             return invisible_visual();
         }
         for cube in shown {
@@ -747,7 +752,7 @@ fn diagnostic_visual() -> BlockVisual {
     BlockVisual::diagnostic(BlockFlags::empty(), ContributorRole::Primary)
 }
 
-/// A model whose bone visibility hides every cube draws nothing.
+/// A cubeless model or one whose bone visibility hides every cube draws nothing.
 fn invisible_visual() -> BlockVisual {
     BlockVisual {
         kind: VisualKind::Invisible,

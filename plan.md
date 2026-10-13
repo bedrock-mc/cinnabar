@@ -8425,3 +8425,31 @@ server-raster precedence, diagnostic fallback, and admission refusals. Live
 visual verification remains pending. Block-item sheets and inventory icons
 still use placeholders for borrowed faces, and animated vanilla art remains
 limited to base blocks.
+
+## Cubeless server geometry draws nothing
+
+Server packs pair a cubeless geometry with a null texture to hide a block
+state (furniture anchors, empty vessels). The overlay compiler renders
+cubeless geometry invisible with no gap counted. Geometry emptied by
+rejected cubes keeps the diagnostic visual and its skipped-cube count.
+Fully hidden valid cubes still return invisible, even if another cube was
+rejected. Regressions cover all three cases in hashed and palette sessions,
+including visual support, gap counts, and session application.
+
+## Custom fence connections need mesh-time neighbor evaluation
+
+Custom fences gate permutation arms on neighbor queries such as
+`q.block_state('minecraft:connection_north')`. Those names are never block
+state axes, so no static state can satisfy them: every evaluation stays
+unevaluated and counted, and every state keeps the base (unconnected) post.
+Vanilla fences instead connect at mesh time through fence template flags
+and neighbor facts, which custom visuals cannot carry today.
+
+A parity fix must compile each connection combination, record a
+mask-to-visual mapping the mesher can read, and select it per placed block
+using a documented neighbor-connection rule. Native behavior for these
+packs is unverified: unknown `block_state` names may render unconnected
+natively too. Until that comparison exists, the counted fallback to the
+base visual is the intended semantic, locked by the connection permutation
+regression. Incomplete: mask compilation, neighbor rule, meshing selection,
+and the native comparison.

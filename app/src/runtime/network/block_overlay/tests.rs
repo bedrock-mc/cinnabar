@@ -29,6 +29,7 @@ fn compile_block_overlay(
 mod budget;
 mod builtins;
 mod capacity;
+mod empty_geometry;
 mod flipbooks;
 mod hd_textures;
 mod legacy;
@@ -485,6 +486,46 @@ fn permutation_conditions_evaluate_as_block_molang() {
     assert_eq!(
         gaps.unevaluated_permutations, 3,
         "the missing state when closed, and the random roll in both states"
+    );
+}
+
+// Neighbor-dependent connection queries cannot resolve at compile time:
+// every state keeps the base visual and each evaluation is counted.
+#[test]
+fn connection_permutations_fall_back_to_the_base_visual() {
+    let arm = |direction| CustomPermutation {
+        physical: Default::default(),
+        condition: format!("q.block_state('minecraft:connection_{direction}')").into(),
+        components: turn(1),
+    };
+    let fence = block(
+        "test:fence",
+        1,
+        CustomBlockVisuals {
+            base: CustomVisualComponents {
+                geometry: Some("minecraft:geometry.full_block".into()),
+                materials: materials("lucky"),
+                ..CustomVisualComponents::default()
+            },
+            permutations: ["north", "south", "east", "west"].map(arm).into(),
+            ..CustomBlockVisuals::default()
+        },
+    );
+    let blocks = CustomBlocks {
+        blocks: vec![fence].into(),
+        vanilla_blocks: Default::default(),
+        skipped: 0,
+    };
+    let compiled = compile_block_overlay(&view(), &blocks, false, None).expect("overlay");
+    assert_eq!(
+        compiled.gaps.unevaluated_permutations, 4,
+        "one unevaluated connection per permutation"
+    );
+    assert_eq!(compiled.overlay.visuals.len(), 1);
+    assert_eq!(
+        compiled.overlay.visuals[0].kind,
+        VisualKind::Cube,
+        "unconnected states keep the base post"
     );
 }
 
