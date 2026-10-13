@@ -210,3 +210,144 @@ fn rejected_candidates_do_not_starve_a_valid_upload_beyond_the_item_ceiling() {
         1
     );
 }
+
+/// Repeated allocation failures cannot hide smaller uploads that fit fragmented free space.
+#[test]
+fn fragmented_arena_admits_fitting_uploads_beyond_a_repeatedly_failing_prefix() {
+    let mut app = super::gpu_publication::noop_gpu_publication_app(
+        ChunkUploadAcknowledgements::default(),
+        ChunkGpuRemovalQueue::default(),
+    );
+    let config = PublicationServiceConfig::DEFAULT;
+    app.insert_resource(ChunkUploadBudget::new(1, config.maximum_frame_bytes));
+    let template = instance();
+    let quads = template.cube_quads.len();
+    let capacity = quads * 3;
+    let device = app.world().resource::<RenderDevice>().clone();
+    {
+        let mut arena = app.world_mut().resource_mut::<ChunkGpuArena>();
+        arena.quad_buffer = create_storage_buffer(
+            &device,
+            "fragmented test quads",
+            buffer_byte_len(capacity, PACKED_QUAD_BYTES),
+        );
+        arena.quad_capacity = capacity;
+        arena.quad_len = capacity;
+        arena.limits.max_quad_items = capacity;
+        // Enough free space in total for a large upload, but neither hole can hold it.
+        arena.free_quads = vec![0..quads as u32, (2 * quads) as u32..capacity as u32];
+        let lighting_bytes = buffer_byte_len(2 * quads, PACKED_QUAD_LIGHTING_BYTES);
+        arena.geometry_stream_buffer =
+            create_storage_buffer(&device, "test lighting holes", lighting_bytes);
+        arena.geometry_stream_capacity = (lighting_bytes / GEOMETRY_STREAM_WORD_BYTES) as usize;
+        arena.origin_buffer =
+            create_storage_buffer(&device, "test fitting origins", 2 * CHUNK_ORIGIN_BYTES);
+        arena.origin_capacity = 2;
+    }
+    let mut blocked = template.clone();
+    blocked.cube_quads = template.cube_quads.repeat(2).into();
+    blocked.cube_lighting = template.cube_lighting.repeat(2).into();
+    for index in 0..config.maximum_frame_items + 1 {
+        blocked.key = SubChunkKey::new(0, index as i32, 0, 0);
+        blocked.origin = chunk_origin(blocked.key);
+        app.world_mut().spawn(blocked.clone());
+    }
+    for _ in 0..GPU_UPDATE_OVERDUE_FRAMES {
+        app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
+        assert_eq!(
+            app.world().resource::<ChunkGpuUploadStats>().chunk_updates,
+            0
+        );
+    }
+    let fitting = (0..2)
+        .map(|index| {
+            let mut fitting = template.clone();
+            fitting.key = SubChunkKey::new(0, 10_000 + index, 0, 0);
+            fitting.origin = chunk_origin(fitting.key);
+            app.world_mut().spawn(fitting).id()
+        })
+        .collect::<Vec<_>>();
+    for (index, &entity) in fitting.iter().enumerate() {
+        app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
+        assert_eq!(
+            app.world().resource::<ChunkGpuUploadStats>().chunk_updates,
+            1
+        );
+        let arena = app.world().resource::<ChunkGpuArena>();
+        assert_eq!(arena.allocations.len(), index + 1);
+        assert!(arena.allocations.contains_key(&entity));
+        assert_eq!(arena.quad_len, capacity);
+    }
+    assert!(
+        app.world()
+            .resource::<ChunkGpuArena>()
+            .free_quads
+            .is_empty()
+    );
+}
+
+/// Starting growth after a nearly full payload keeps actual transfers within the frame ceiling.
+#[test]
+fn migration_started_after_pending_uploads_respects_the_actual_frame_byte_ceiling() {
+    use crate::upload_staging::TerrainUploadStaging;
+
+    let mut app = super::gpu_publication::noop_gpu_publication_app(
+        ChunkUploadAcknowledgements::default(),
+        ChunkGpuRemovalQueue::default(),
+    );
+    let config = PublicationServiceConfig::DEFAULT;
+    app.insert_resource(ChunkUploadBudget::new(2, config.maximum_frame_bytes));
+    let mut first = instance();
+    let mut next = first.clone();
+    next.key = SubChunkKey::new(0, 1, 0, 0);
+    next.origin = chunk_origin(next.key);
+    let record_bytes = PACKED_QUAD_BYTES + PACKED_QUAD_LIGHTING_BYTES;
+    let fixed_bytes = chunk_instance_upload_byte_len(&first)
+        - buffer_byte_len(first.cube_quads.len(), record_bytes);
+    let quads = ((config.maximum_frame_bytes - ARENA_MIGRATION_FRAME_BYTES - fixed_bytes)
+        / record_bytes) as usize;
+    first.cube_quads = vec![first.cube_quads[0]; quads].into();
+    first.cube_lighting = vec![first.cube_lighting[0]; quads].into();
+    let payload_bytes = chunk_instance_upload_byte_len(&first);
+    let capacity_bytes = 2 * ARENA_MIGRATION_FRAME_BYTES;
+    let capacity = (capacity_bytes / PACKED_QUAD_BYTES) as usize;
+    let device = app.world().resource::<RenderDevice>().clone();
+    app.insert_resource(TerrainUploadStaging::new(&device));
+    {
+        let mut arena = app.world_mut().resource_mut::<ChunkGpuArena>();
+        arena.quad_buffer = create_storage_buffer(&device, "test quad prefix", capacity_bytes);
+        arena.quad_capacity = capacity;
+        arena.quad_len = capacity - quads;
+        arena.geometry_stream_buffer =
+            create_storage_buffer(&device, "test lighting space", capacity_bytes);
+        arena.geometry_stream_capacity = (capacity_bytes / GEOMETRY_STREAM_WORD_BYTES) as usize;
+        arena.origin_buffer =
+            create_storage_buffer(&device, "test origins", 2 * CHUNK_ORIGIN_BYTES);
+        arena.origin_capacity = 2;
+    }
+    let first_entity = app.world_mut().spawn(first).id();
+    let next_entity = app.world_mut().spawn(next).id();
+    app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
+
+    let arena = app.world().resource::<ChunkGpuArena>();
+    let migration = arena
+        .migration
+        .as_ref()
+        .expect("the second upload needs growth");
+    assert_eq!(migration.stream, ArenaStream::Quads);
+    assert_eq!(migration.copied_bytes, ARENA_MIGRATION_FRAME_BYTES);
+    assert!(arena.allocations.contains_key(&first_entity));
+    assert!(!arena.allocations.contains_key(&next_entity));
+    let stats = *app.world().resource::<ChunkGpuUploadStats>();
+    assert_eq!(stats.chunk_updates, 1);
+    assert_eq!(stats.migrations_started, 1);
+    assert_eq!(stats.incremental_bytes, payload_bytes);
+    assert_eq!(stats.gpu_copy_bytes, ARENA_MIGRATION_FRAME_BYTES);
+    let staging = app.world().resource::<TerrainUploadStaging>().stats();
+    assert!(staging.staged_bytes > 0);
+    assert!(staging.fallback_bytes > 0);
+    let transferred_bytes = staging.staged_bytes + staging.fallback_bytes + stats.gpu_copy_bytes;
+    assert_eq!(transferred_bytes, stats.total_bytes);
+    assert!(transferred_bytes <= config.maximum_frame_bytes);
+    assert!(config.maximum_frame_bytes - transferred_bytes < record_bytes);
+}
