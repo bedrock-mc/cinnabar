@@ -4527,6 +4527,8 @@ dependencies = [
  "assets",
  "image",
  "json-ui",
+ "render-api",
+ "render-model",
  "serde",
  "serde_json",
  "ui",
@@ -7821,6 +7823,23 @@ dependencies = [
  "ui",
  "ui-engine",
  "url",
+]
+
+[[package]]
+name = "ui-snapshot"
+version = "0.1.17"
+dependencies = [
+ "assets",
+ "image",
+ "json-ui",
+ "jsonui-editor",
+ "launcher",
+ "oreui",
+ "serde_json",
+ "tempfile",
+ "ui",
+ "ui-engine",
+ "ui-screens",
 ]
 
 [[package]]
