@@ -1,3 +1,8 @@
+use crate::ui_runtime::interaction::dispatch_chat_ui_action;
+use protocol::chat_text_packet;
+use ui::{PointerPhase, UiPoint};
+
+use super::fixtures::warp_tree;
 use super::*;
 
 #[test]
