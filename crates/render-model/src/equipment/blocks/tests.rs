@@ -583,15 +583,7 @@ fn pinned_non_cube_items_hold_their_inventory_model_and_flat_items_stay_sprites(
     let Some((world, entities, icons)) = pinned_carriers() else {
         return;
     };
-    let display = |key: &assets::ItemVisualKey| {
-        let sprite = u32::try_from(icons.lookup_index(&key.identifier, key.metadata)?).ok()?;
-        icons
-            .block_models()
-            .iter()
-            .find(|model| model.sprite == sprite)
-            .map(|model| model.visual.0)
-    };
-    let held = collect_held(&world, &entities, &display);
+    let held = collect_held(&world, &entities, &icons);
     let slots = collect(&world, &entities);
     let visual = |name: &str| {
         let definition = entities

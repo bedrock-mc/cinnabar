@@ -224,6 +224,32 @@ mod tests {
             Some(HeldBlockEntity::Shulker("red"))
         );
         assert_eq!(HeldBlockEntity::from_item("minecraft:stone"), None);
+        let items = [
+            "minecraft:chest",
+            "minecraft:trapped_chest",
+            "minecraft:ender_chest",
+            "minecraft:copper_chest",
+            "minecraft:exposed_copper_chest",
+            "minecraft:weathered_copper_chest",
+            "minecraft:oxidized_copper_chest",
+            "minecraft:decorated_pot",
+            "minecraft:conduit",
+        ]
+        .into_iter()
+        .map(String::from)
+        .chain(
+            assets::block_entity_geometry::SHULKER_COLORS
+                .iter()
+                .map(|color| format!("minecraft:{color}_shulker_box")),
+        );
+        let reached: std::collections::BTreeSet<_> = items
+            .filter_map(|identifier| HeldBlockEntity::from_item(&identifier))
+            .collect();
+        assert_eq!(
+            reached,
+            HeldBlockEntity::all().into_iter().collect(),
+            "every held model is reached by its item"
+        );
         for kind in HeldBlockEntity::all() {
             if let HeldBlockEntity::Chest(key) = kind {
                 assert_eq!(ChestVariantKey::of(key.variant()), key);

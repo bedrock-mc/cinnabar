@@ -172,19 +172,7 @@ impl EquipmentRuntime {
                 by_visual: BTreeMap::new(),
                 models: BTreeMap::new(),
             },
-            |world| {
-                // Non-cube items hold as the state their inventory model is drawn from.
-                let display = |key: &assets::ItemVisualKey| {
-                    let sprite =
-                        u32::try_from(icons.lookup_index(&key.identifier, key.metadata)?).ok()?;
-                    icons
-                        .block_models()
-                        .iter()
-                        .find(|model| model.sprite == sprite)
-                        .map(|model| model.visual.0)
-                };
-                render_model::equipment::blocks::collect_held(world, &assets, &display)
-            },
+            |world| render_model::equipment::blocks::collect_held(world, &assets, &icons),
         );
         if let Some(world) = world.as_deref() {
             blocks.prefer_carried_faces(world, &icons);

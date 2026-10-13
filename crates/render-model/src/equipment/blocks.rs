@@ -48,15 +48,24 @@ pub fn collect(world: &RuntimeAssets, entities: &RuntimeEntityAssets) -> BlockSh
     collect_shapes(world, entities, None)
 }
 
-/// Like [`collect`], adding the template geometry non-cube items hold as. `display` names the
-/// state an item's inventory model is drawn from (a wall's post with arms); items without one
-/// are drawn flat in the inventory and keep their sprite in hand.
+/// Like [`collect`], adding the template geometry non-cube items hold as: the state the icon
+/// carrier draws each item's inventory model from (a wall's post with arms). Items without a
+/// model are drawn flat in the inventory and keep their sprite in hand.
 pub fn collect_held(
     world: &RuntimeAssets,
     entities: &RuntimeEntityAssets,
-    display: &dyn Fn(&assets::ItemVisualKey) -> Option<u32>,
+    icons: &assets::RuntimeIconCatalog,
 ) -> BlockSheets {
-    collect_shapes(world, entities, Some(display))
+    let states: BTreeMap<u32, u32> = icons
+        .block_models()
+        .iter()
+        .map(|model| (model.sprite, model.visual.0))
+        .collect();
+    let display = |key: &assets::ItemVisualKey| {
+        let sprite = u32::try_from(icons.lookup_index(&key.identifier, key.metadata)?).ok()?;
+        states.get(&sprite).copied()
+    };
+    collect_shapes(world, entities, Some(&display))
 }
 
 /// Collects cube sheets, and template models when `display` is given.
@@ -208,7 +217,8 @@ fn sheet_model(quads: &[assets::ModelQuad]) -> Option<([u32; 6], Vec<crate::Acto
 
 /// The geometry a non-cube block item (slab, stairs, fence, anvil) holds as: its template's
 /// quads, as the inventory model draws them, with up to six distinct face materials composed
-/// into one sheet, in centred block coordinates.
+/// into one sheet, in centred block coordinates. `None` keeps the sprite: a refused state, more
+/// than six materials, or a UV wrapping past its tile, which one sheet tile cannot hold.
 fn template_model(
     world: &RuntimeAssets,
     visual: u32,

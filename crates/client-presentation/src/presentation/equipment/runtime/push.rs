@@ -112,11 +112,12 @@ impl EquipmentRuntime {
         true
     }
 
-    /// The held item's generated mesh and artwork, whether the mesh is a block cube, and the
-    /// UV span of its atlas region that the item glint covers. A
-    /// server pack's icon replaces the vanilla one, as it does in the inventory, and a custom
-    /// block item with a cube sheet is held as that cube. With `icon_fallback`, a block with no
-    /// plain cube sheet takes its icon sprite instead.
+    /// The held item's generated mesh and artwork, whether it holds like a block (a cube, a
+    /// block's template or a block-entity model, placed by the held-block display), and the UV
+    /// span of its atlas region that the item glint covers. A server pack's icon replaces the
+    /// vanilla one, as it does in the inventory, and a custom block item with a cube sheet is
+    /// held as that cube. With `icon_fallback`, a block with no plain cube sheet takes its icon
+    /// sprite instead.
     pub(super) fn held_mesh(
         &mut self,
         item: &WornItem,
