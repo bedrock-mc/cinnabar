@@ -4,7 +4,7 @@
 
 use std::{borrow::Cow, cell::RefCell, sync::Arc};
 
-use assets::RuntimeFontCatalog;
+use assets::{FontRendering, RuntimeFontCatalog};
 use json_ui::{LabelShape, TextAlign, TextMeasure, TextOptions};
 use ui::{
     FONT_DESIGN_PIXEL_TEXELS, TextLayoutCache, TextLayoutRequest, TextLineAlign, TextShadow,
@@ -74,6 +74,23 @@ pub fn label_origin(
     px: f32,
 ) -> [f32; 2] {
     [dest[0], dest[1] + px]
+}
+
+/// Distance-field labels retain fractional placement; pixel faces use the physical grid.
+pub(super) fn label_positioned(
+    dest: [f64; 4],
+    font: &RuntimeFontCatalog,
+    options: &TextOptions,
+    gui_scale: f32,
+    px: f32,
+) -> [f32; 4] {
+    let selected = font.font_named(options.font_type.as_deref().unwrap_or("default"));
+    if !std::ptr::eq(font, selected) && selected.rendering() == FontRendering::NativeSdf {
+        let [x, y, w, h] = dest.map(|value| value as f32 * px);
+        [x, y, x + w, y + h]
+    } else {
+        super::pixel_snap::positioned(dest, gui_scale, px)
+    }
 }
 
 #[derive(Clone)]

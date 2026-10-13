@@ -277,7 +277,7 @@ fn paint_edit_label(
             "controls": [{"value": {
                 "type": "label", "text": text, "localize": false,
                 "size": [300, 100], "anchor_from": "top_left", "anchor_to": "top_left",
-                "offset": [8, 8], "font_scale_factor": factor, "font_type": name, "shadow": true
+                "offset": [8.25, 8.25], "font_scale_factor": factor, "font_type": name, "shadow": true
             }}]
         }
     })
@@ -395,6 +395,11 @@ fn named_edit_metadata_places_caret_at_the_painted_character_boundary() {
                             _ => None,
                         })
                         .expect("painted label");
+                    assert_eq!(
+                        edit.left,
+                        node.bounds().left(),
+                        "caret and painted text use the same fractional origin"
+                    );
                     let spot = TextSpot {
                         field: (),
                         bounds: node.bounds(),
@@ -633,7 +638,7 @@ fn centered_outline_title_retains_cap_size_and_gui_pixel_inset() {
                     "em {em}, GUI {gui}, DPI {dpi}: cap height {ink_height}"
                 );
                 assert!(
-                    center >= 11.75 - 1.0 / metrics.gui_scale - 0.03 && center <= 11.75 + 0.03,
+                    (center - 11.75).abs() < 0.15,
                     "em {em}, GUI {gui}, DPI {dpi}: title center {center}"
                 );
             }
