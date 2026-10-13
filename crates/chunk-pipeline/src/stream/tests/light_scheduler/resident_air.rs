@@ -387,3 +387,27 @@ fn air_geometry_flips_without_worker_capacity_keep_one_returned_record() {
     assert_eq!(records(&stream), after_one_flip);
     assert!(after_one_flip <= 2);
 }
+
+/// Stale returned-section records are pruned a bounded slice per dispatch, and all of them
+/// over enough dispatches.
+#[test]
+fn stale_air_returns_are_pruned_a_bounded_slice_per_dispatch() {
+    let mut stream = lit_stream(1);
+    let queued = SubChunkKey::new(1, -8, 0, 0);
+    resident(&mut stream, queued, super::uniform_sub_chunk(2));
+    stream.mark_dirty_exact(queued, Instant::now());
+    for x in 0..200 {
+        stream.air_requeued.insert(SubChunkKey::new(1, x, 0, 0), 1);
+    }
+
+    stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, 1);
+    assert_eq!(
+        stream.air_requeued.len(),
+        200 - AIR_REQUEUE_PRUNES_PER_DISPATCH
+    );
+
+    for _ in 0..200 {
+        stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, 1);
+    }
+    assert!(stream.air_requeued.is_empty());
+}

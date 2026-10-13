@@ -451,10 +451,7 @@ impl WorldStream {
     /// stale entries are cleared and sections that need geometry again return to the worker queue
     /// whatever the removal credit.
     fn route_air_removals(&mut self, view: SchedulerView, removal_authority: usize) {
-        let pending = &self.mesh_jobs.pending;
-        // A newer revision has its own queue record, so older returns no longer stand for it.
-        self.air_requeued
-            .retain(|key, revision| pending.get(key).is_some_and(|p| p.revision == *revision));
+        self.prune_air_requeued();
         let mut due = Vec::new();
         let entry = |(key, revision): (&SubChunkKey, &u64)| (*key, *revision);
         let keys = match self.air_removal_cursor.take() {
@@ -506,6 +503,40 @@ impl WorldStream {
             self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
                 .ready
                 .push(candidate);
+        }
+    }
+    /// Drops a bounded, rotating slice of returned-section records whose pending revision moved
+    /// on: a newer revision has its own queue record, so the older return no longer stands for it.
+    fn prune_air_requeued(&mut self) {
+        if self.air_requeued.is_empty() || self.poll_budget_exhausted() {
+            return;
+        }
+        let entry = |(key, revision): (&SubChunkKey, &u64)| (*key, *revision);
+        let entries = match self.air_requeue_cursor.take() {
+            Some(start) => self
+                .air_requeued
+                .range((std::ops::Bound::Excluded(start), std::ops::Bound::Unbounded))
+                .chain(self.air_requeued.range(..=start))
+                .map(entry)
+                .take(AIR_REQUEUE_PRUNES_PER_DISPATCH)
+                .collect::<Vec<_>>(),
+            None => self
+                .air_requeued
+                .iter()
+                .map(entry)
+                .take(AIR_REQUEUE_PRUNES_PER_DISPATCH)
+                .collect(),
+        };
+        for (key, revision) in entries {
+            self.air_requeue_cursor = Some(key);
+            if self
+                .mesh_jobs
+                .pending
+                .get(&key)
+                .is_none_or(|pending| pending.revision != revision)
+            {
+                self.air_requeued.remove(&key);
+            }
         }
     }
     /// Whether `key` still needs a worker-built mesh rather than a removal.
