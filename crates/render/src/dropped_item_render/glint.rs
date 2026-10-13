@@ -22,6 +22,8 @@ pub(super) struct UploadedGlint {
     pub(super) texture: Texture,
     pub(super) view: TextureView,
     pub(super) pixels: Option<Arc<[u8]>>,
+    /// Original raster dimensions, before device fitting.
+    pub(super) source_size: [u32; 2],
 }
 
 /// Packs one drawn copy, marking whether its per-vertex item glint scale applies.
@@ -58,15 +60,13 @@ pub(super) fn upload(
     queue: &RenderQueue,
     gpu: &mut ItemGpu,
 ) {
-    let raster = scene.glint.as_ref().filter(|raster| {
-        u32::from(raster.width.max(raster.height)) <= device.limits().max_texture_dimension_2d
-    });
+    let raster = scene.glint.as_ref();
     let size = raster.map_or([1, 1], |raster| {
         [u32::from(raster.width), u32::from(raster.height)]
     });
     let pixels = raster.map(|raster| Arc::clone(&raster.rgba8));
     if let Some(current) = &gpu.glint
-        && [current.texture.width(), current.texture.height()] == size
+        && current.source_size == size
         && match (&current.pixels, &pixels) {
             (Some(current), Some(pixels)) => Arc::ptr_eq(current, pixels),
             (None, None) => true,
@@ -75,7 +75,8 @@ pub(super) fn upload(
     {
         return;
     }
-    let (width, height, data): (u32, u32, &[u8]) = match raster {
+    let fitted = raster.map(|raster| raster.fit_within(device.limits().max_texture_dimension_2d));
+    let (width, height, data): (u32, u32, &[u8]) = match fitted.as_deref() {
         Some(raster) => (
             u32::from(raster.width),
             u32::from(raster.height),
@@ -107,6 +108,7 @@ pub(super) fn upload(
         texture,
         view,
         pixels,
+        source_size: size,
     });
     gpu.bind_group = None;
 }

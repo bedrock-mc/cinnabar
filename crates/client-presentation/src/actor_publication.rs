@@ -278,7 +278,7 @@ pub fn prepare_actor_render_frame(
         }),
         step.partial_tick,
         (
-            artwork.item_glint().cloned(),
+            artwork.item_glint.clone(),
             render_model::ActorGlint {
                 profile: render_api::CombatVisuals::Modern,
                 time_seconds: params.time.elapsed_secs(),

@@ -645,3 +645,35 @@ fn reshaped_dropped_glint_reuploads_shared_pixels_and_retains_unchanged_shapes()
         previous = Some((size, texture.id()));
     }
 }
+
+#[test]
+fn oversized_dropped_glint_is_fitted_and_unchanged_uploads_are_retained() {
+    let mut world = item_world();
+    let device = world.resource::<RenderDevice>().clone();
+    let queue = world.resource::<RenderQueue>().clone();
+    let mut gpu = world.remove_resource::<ItemGpu>().unwrap();
+    let mut scene = DroppedItemScene::default();
+    let limit = device.limits().max_texture_dimension_2d;
+    let width = u16::try_from(limit * 2).expect("the noop device admits oversized pack artwork");
+    let pixels: Arc<[u8]> = vec![255; usize::from(width) * 4].into();
+    scene.set_glint(
+        Some(render_model::EquipmentRaster {
+            width,
+            height: 1,
+            rgba8: Arc::clone(&pixels),
+        }),
+        [0.0; 3],
+    );
+    glint::upload(&scene, &device, &queue, &mut gpu);
+    let uploaded = gpu.glint.as_ref().unwrap();
+    assert_eq!(
+        [uploaded.texture.width(), uploaded.texture.height()],
+        [limit, 1]
+    );
+    assert!(Arc::ptr_eq(uploaded.pixels.as_ref().unwrap(), &pixels));
+    let id = uploaded.texture.id();
+    let allocations = test_alloc::thread_allocations();
+    glint::upload(&scene, &device, &queue, &mut gpu);
+    assert_eq!(test_alloc::thread_allocations() - allocations, 0);
+    assert_eq!(gpu.glint.as_ref().unwrap().texture.id(), id);
+}
