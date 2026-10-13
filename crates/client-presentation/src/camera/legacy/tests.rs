@@ -11,6 +11,8 @@ use protocol::ActorStatusKind;
 
 const WALK_BLOCKS_PER_TICK: f32 = 0.2;
 
+mod sleep_tests;
+
 #[derive(Resource)]
 struct TestWorld(chunk_pipeline::WorldStream);
 #[derive(Resource)]

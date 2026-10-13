@@ -126,23 +126,24 @@ pub fn advance_presentation_state(
     let (yaw, pitch, _) = view.rotation().to_euler(EulerRot::YXZ);
     hand.eye_height_adjustment = 0.0;
     let look = [-pitch.to_degrees(), -yaw.to_degrees()];
-    let alive = client_world
+    let local_actor = client_world
         .as_ref()
         .and_then(|world| world.stream)
-        .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
-        .map_or_else(
-            || {
-                ui.and_then(|ui| ui.hud().health())
-                    .is_none_or(|health| health.current() > 0)
-            },
-            |actor| {
-                !actor.status.dead
-                    && actor
-                        .attributes
-                        .get("minecraft:health")
-                        .is_none_or(|health| health.current > 0.0)
-            },
-        );
+        .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()));
+    let sleeping = local_actor.is_some_and(|actor| actor.is_sleeping());
+    let alive = local_actor.map_or_else(
+        || {
+            ui.and_then(|ui| ui.hud().health())
+                .is_none_or(|health| health.current() > 0)
+        },
+        |actor| {
+            !actor.status.dead
+                && actor
+                    .attributes
+                    .get("minecraft:health")
+                    .is_none_or(|health| health.current > 0.0)
+        },
+    );
     bob.advance(view.eye_translation(), on_ground, alive, dt);
     hand.legacy_effect = None;
     let subject = client_world
@@ -224,15 +225,17 @@ pub fn advance_presentation_state(
         };
     if settings.feel().java_animations {
         let alpha = physics.map_or(1.0, |physics| physics.tick_alpha());
-        if physics.is_some_and(|physics| {
-            physics.state().is_some()
-                && !matches!(
-                    physics.mode(),
-                    sim::MovementMode::Swimming
-                        | sim::MovementMode::Crawling
-                        | sim::MovementMode::Gliding
-                )
-        }) {
+        if !sleeping
+            && physics.is_some_and(|physics| {
+                physics.state().is_some()
+                    && !matches!(
+                        physics.mode(),
+                        sim::MovementMode::Swimming
+                            | sim::MovementMode::Crawling
+                            | sim::MovementMode::Gliding
+                    )
+            })
+        {
             let eye_height = view.eye_translation().y - view.feet_translation().y;
             hand.eye_height_adjustment =
                 protocol::STANDING_PLAYER_EYE_HEIGHT - java.sneak_drop(alpha) - eye_height;

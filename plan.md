@@ -1469,10 +1469,11 @@ frame-budget or identical-version pixel gates.
 - Beds compile the pinned authored model and render once from the head block with
   both halves' light. Six bed tests passed. Fresh Metal red/white galleries and the
   actual BDS platform show a mattress, pillow, blanket and wooden legs.
-- Sleepers turn by the native sleep rotation (`0x145F80E30`): the bed at the streamed bed
+- Sleepers turn by the bed's sleep rotation: the bed at the streamed bed
   position faces south 90, west 0, north 270 and east 180 degrees, and a sleeper without a
   bed position reads 0. The local sleeper presents lying on the bed top at the block centre,
-  with its eye at the sleeping offset, while its physics stays where it stood. Provisional:
+  with its eye at the sleeping offset, while its physics stays where it stood. Java animations
+  retain that sleeping eye height. Provisional:
   the first-person view looks level from the pillow toward the foot, and third person keeps
   its ordinary orbit around the body; the native sleeping camera is unmeasured.
 - Falling blocks retain variant metadata, full block geometry and packet-centred

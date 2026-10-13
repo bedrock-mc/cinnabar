@@ -207,8 +207,7 @@ impl ActorStore {
             .collect()
     }
 
-    /// The streamed bed block of every sleeping actor. Like the native sleep rotation
-    /// (`0x145F80E30`), a sleeper without a bed position has no bed to read.
+    /// The streamed bed block of every sleeping actor; sleepers without a bed position are skipped.
     pub(crate) fn bed_sample_points(&self) -> Vec<(u64, [i32; 3])> {
         self.actors
             .values()

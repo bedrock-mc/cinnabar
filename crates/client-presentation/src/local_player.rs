@@ -645,8 +645,7 @@ pub struct CameraPublicationContext<'a, 'w> {
     pub receipt: ResMut<'w, crate::local_player_camera_receipt::CameraPublicationAttempt>,
 }
 
-/// Height of a bed's top above its block, where a sleeper lies (as `startSleepInBed` places it,
-/// which Dragonfly mirrors).
+/// Height of a bed's top above its block, where a sleeper lies.
 pub const BED_TOP_HEIGHT: f32 = 0.5625;
 
 /// The eye and feet a player sleeping in `bed` presents: lying on the bed top at the block's

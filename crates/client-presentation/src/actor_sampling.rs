@@ -57,8 +57,7 @@ fn breathing_point(probe: &client_world::ActorFluidProbe) -> [f32; 3] {
     ]
 }
 
-/// The native sleep rotation for a bed's `direction` state (`0x145F80E30`): south 90, west 0,
-/// north 270 and east 180 degrees.
+/// Sleep rotation for a bed's `direction` state: south 90, west 0, north 270 and east 180 degrees.
 fn bed_rotation_degrees(canonical_state: &str) -> Option<f32> {
     let serde_json::Value::Object(map) = serde_json::from_str(canonical_state).ok()? else {
         return None;
