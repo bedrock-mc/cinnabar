@@ -109,6 +109,8 @@ pub fn runtime_assets() -> RuntimeAssets {
             assets::BLOCK_VISUAL_VARIANT_NONSEASONAL_LEAF | LEAF_MATERIAL_BASE,
         ),
     ];
+    let mut visuals = visuals;
+    visuals[FLOWER as usize].model_template = 0;
     let mut materials = vec![
         Material::unvaried(),
         material(0, MATERIAL_FLAG_GRASS_TINT),
@@ -124,8 +126,17 @@ pub fn runtime_assets() -> RuntimeAssets {
             .collect(),
         visuals: visuals.into_boxed_slice(),
         materials: materials.into_boxed_slice(),
-        model_templates: Box::new([]),
-        model_quads: Box::new([]),
+        model_templates: Box::new([assets::ModelTemplate {
+            quad_start: 0,
+            quad_count: 1,
+            flags: 0,
+        }]),
+        model_quads: Box::new([assets::ModelQuad {
+            positions: [[0, 0, 0], [256, 0, 256], [256, 256, 256], [0, 256, 0]],
+            uvs: [[0; 2]; 4],
+            material: 2,
+            flags: 0,
+        }]),
         animations: Box::new([]),
         animation_frames: Box::new([]),
         texture_pages: vec![TexturePage::new(textures())].into_boxed_slice(),

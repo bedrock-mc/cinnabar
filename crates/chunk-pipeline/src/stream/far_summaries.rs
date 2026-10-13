@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 
 use crossbeam_channel::unbounded;
 use far_terrain::{
-    ColumnSnapshot, ColumnSummary, SurfaceColours, SurfaceContext, summarise_column,
+    ColumnSnapshot, EncodedSummary, SurfaceColours, SurfaceContext, summarise_column,
 };
 
 use super::*;
@@ -14,11 +14,12 @@ const COLUMNS_PER_JOB: usize = 8;
 /// Summary jobs started per poll, so summaries never crowd out terrain decode.
 const JOBS_PER_POLL: usize = 2;
 
-/// The surface summary of one column, keyed with its dimension.
+/// The encoded surface summary of one column, keyed with its dimension; workers encode it
+/// so the owner thread only compares hashes.
 #[derive(Debug)]
 pub struct FarColumnSummary {
     pub column: ChunkKey,
-    pub summary: ColumnSummary,
+    pub summary: EncodedSummary,
 }
 
 type SharedColours = Arc<OnceLock<Arc<SurfaceColours>>>;
@@ -27,7 +28,7 @@ pub(super) struct FarTerrainFeed {
     enabled: bool,
     /// Material colours of one asset set, computed by the first job that needs them.
     colours: Option<(Arc<RuntimeAssets>, SharedColours)>,
-    pending: VecDeque<ChunkKey>,
+    pub(super) pending: VecDeque<ChunkKey>,
     queued: HashSet<ChunkKey>,
     tx: Sender<FarColumnSummary>,
     rx: Receiver<FarColumnSummary>,
@@ -138,7 +139,7 @@ impl WorldStream {
                 #[cfg(feature = "tracy")]
                 let _zone = tracing::info_span!("far_terrain.summarise").entered();
                 for ((column, snapshot), context) in batch.into_iter().zip(contexts) {
-                    let summary = summarise_column(&context.resolve(), &snapshot);
+                    let summary = summarise_column(&context.resolve(), &snapshot).encode();
                     if tx.send(FarColumnSummary { column, summary }).is_err() {
                         return;
                     }

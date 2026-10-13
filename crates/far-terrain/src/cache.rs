@@ -33,7 +33,7 @@ pub struct FarTerrainCache {
     namespace: Option<NamespaceKey>,
     /// The namespace left by the last world change; late summaries for it go straight to disk.
     retired: Option<NamespaceKey>,
-    unresolved: Vec<(ColumnPos, ColumnSummary)>,
+    unresolved: Vec<(ColumnPos, EncodedSummary)>,
     probes: Vec<(ColumnPos, ColumnSummary)>,
     resolving: bool,
     dirty: BTreeMap<RegionPos, DirtyRegion>,
@@ -97,16 +97,19 @@ impl FarTerrainCache {
         self.requested.clear();
     }
 
-    /// Records a column's summary; equal content changes nothing.
-    pub fn admit(&mut self, dimension: i32, pos: ColumnPos, summary: ColumnSummary, now: Instant) {
+    /// Records a column's encoded summary; equal content changes nothing.
+    pub fn admit(&mut self, dimension: i32, pos: ColumnPos, summary: EncodedSummary, now: Instant) {
         if let Some(retired) = self
             .retired
             .filter(|retired| retired.dimension == dimension)
             && self.world.is_none_or(|world| world.dimension != dimension)
         {
             if let Some(disk) = &self.disk {
-                let region = RegionPos::of(pos);
-                disk.write(retired, region, vec![(region_index(pos), summary.encode())]);
+                disk.write(
+                    retired,
+                    RegionPos::of(pos),
+                    vec![(region_index(pos), summary)],
+                );
             }
             return;
         }
@@ -114,11 +117,15 @@ impl FarTerrainCache {
             return;
         }
         if self.namespace.is_some() {
-            self.admit_resolved(pos, &summary, now);
+            self.admit_resolved(pos, summary, now);
             return;
         }
-        if !self.resolving && !summary.is_empty() && self.probes.len() < WORLD_PROBE_COLUMNS {
-            self.probes.push((pos, summary.clone()));
+        if !self.resolving
+            && self.probes.len() < WORLD_PROBE_COLUMNS
+            && let Ok(decoded) = ColumnSummary::decode(&summary.bytes)
+            && !decoded.is_empty()
+        {
+            self.probes.push((pos, decoded));
         }
         if self.unresolved.len() < MAX_UNRESOLVED_COLUMNS {
             self.unresolved.push((pos, summary));
@@ -212,13 +219,13 @@ impl FarTerrainCache {
         }
         self.namespace = Some(world.namespace(epoch));
         for (pos, summary) in std::mem::take(&mut self.unresolved) {
-            self.admit_resolved(pos, &summary, now);
+            self.admit_resolved(pos, summary, now);
         }
         self.request_focus();
     }
 
-    fn admit_resolved(&mut self, pos: ColumnPos, summary: &ColumnSummary, now: Instant) {
-        if self.store.admit(pos, summary) == Admission::Unchanged || self.disk.is_none() {
+    fn admit_resolved(&mut self, pos: ColumnPos, summary: EncodedSummary, now: Instant) {
+        if self.store.admit_encoded(pos, summary) == Admission::Unchanged || self.disk.is_none() {
             return;
         }
         self.dirty

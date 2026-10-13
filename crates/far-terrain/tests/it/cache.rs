@@ -25,7 +25,7 @@ fn cache(root: &std::path::Path) -> FarTerrainCache {
 fn join(cache: &mut FarTerrainCache, height: i16, now: Instant) {
     cache.enter_world(SERVER, 42, 0);
     for x in 0..=WORLD_PROBE_COLUMNS as i32 {
-        cache.admit(0, ColumnPos::new(x, 0), flat(height), now);
+        cache.admit(0, ColumnPos::new(x, 0), flat(height).encode(), now);
     }
     cache.sync();
     cache.poll(now);
@@ -50,7 +50,7 @@ fn rejoining_the_same_world_reuses_its_cache() {
     let now = Instant::now();
     let mut first = cache(root.path());
     join(&mut first, 64, now);
-    first.admit(0, ColumnPos::new(100, 100), flat(80), now);
+    first.admit(0, ColumnPos::new(100, 100), flat(80).encode(), now);
     let namespace = first.namespace();
     leave(&mut first);
     drop(first);
@@ -71,7 +71,7 @@ fn a_different_map_under_the_same_identity_starts_a_fresh_namespace() {
     let mut cache = cache(root.path());
     join(&mut cache, 64, now);
     let first = cache.namespace().unwrap();
-    cache.admit(0, ColumnPos::new(100, 100), flat(80), now);
+    cache.admit(0, ColumnPos::new(100, 100), flat(80).encode(), now);
     leave(&mut cache);
 
     join(&mut cache, 20, now);
@@ -115,7 +115,7 @@ fn writes_wait_for_a_batch_and_dimension_changes_switch_namespace() {
         "nothing from the overworld stays visible"
     );
     // A column retiring from the old dimension still reaches its own namespace.
-    cache.admit(0, ColumnPos::new(500, 0), flat(70), now);
+    cache.admit(0, ColumnPos::new(500, 0), flat(70).encode(), now);
     cache.sync();
     assert!(cache.store().is_empty());
     leave(&mut cache);
