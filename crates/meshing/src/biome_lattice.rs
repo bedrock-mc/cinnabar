@@ -207,15 +207,21 @@ impl PackedBiomeRecord {
                     counts[..count_len].sort_by_key(|&(_, count)| std::cmp::Reverse(count));
                     let start = lattice_index(position) * point_words;
                     cache[start] = count_len.min(LATTICE_BIOME_LIMIT) as u32;
-                    for (i, &(tint, count)) in counts[..count_len]
-                        .iter()
-                        .take(LATTICE_BIOME_LIMIT)
-                        .enumerate()
-                    {
-                        if point_words == LATTICE_POINT_WORDS {
-                            cache[start + 1 + i / 2] |= tint << (i % 2 * 16);
-                            cache[start + LATTICE_POINT_WORDS - 1] |= count << (i * 8);
-                        } else {
+                    if point_words == LATTICE_POINT_WORDS {
+                        let selected: [(u32, u32); LATTICE_BIOME_LIMIT] =
+                            std::array::from_fn(|i| if i < count_len { counts[i] } else { (0, 0) });
+                        cache[start + 1] = selected[0].0 | (selected[1].0 << 16);
+                        cache[start + 2] = selected[2].0 | (selected[3].0 << 16);
+                        cache[start + 3] = selected[0].1
+                            | (selected[1].1 << 8)
+                            | (selected[2].1 << 16)
+                            | (selected[3].1 << 24);
+                    } else {
+                        for (i, &(tint, count)) in counts[..count_len]
+                            .iter()
+                            .take(LATTICE_BIOME_LIMIT)
+                            .enumerate()
+                        {
                             cache[start + 1 + i] = tint;
                             cache[start + 1 + LATTICE_BIOME_LIMIT + i] =
                                 (count as f32 / LATTICE_STENCIL_SAMPLES as f32).to_bits();

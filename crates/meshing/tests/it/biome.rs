@@ -492,8 +492,15 @@ fn compact_lattice_preserves_all_stencil_fraction_bits_and_full_width_indices() 
         );
     }
     // The largest compact index must fit both halves of each tint word.
-    let edge = PackedBiomeRecord::from_neighbourhood(&halo, |id| u32::from(u16::MAX) - id);
+    let edge = PackedBiomeRecord::from_neighbourhood(&halo, |id| u32::from(u16::MAX) + 1 - id);
     assert_eq!(edge.lattice_point_words(), LATTICE_POINT_WORDS);
+    assert_eq!(edge.tint_index_at([-1, 8, -1]), Some(u32::from(u16::MAX)));
+    assert!(
+        edge.blend_samples([0, 8, 0])
+            .unwrap()
+            .iter()
+            .any(|sample| sample.tint_index == u32::from(u16::MAX) && sample.weight > 0.0)
+    );
     for sample in edge
         .blend_samples([15, 15, 15])
         .unwrap()

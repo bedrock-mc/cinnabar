@@ -142,3 +142,49 @@ fn cache_eviction_is_bounded_and_live_records_survive_it() {
     assert_eq!(first, rebuilt);
     assert_ne!(first.words().as_ptr(), rebuilt.words().as_ptr());
 }
+
+/// A legal full-size palette makes retained source bytes dominate cache entries.
+fn large_storage() -> Arc<BiomeStorage> {
+    let mut bytes = vec![(16 << 1) | 1];
+    bytes.extend(std::iter::repeat_n(
+        0_u8,
+        world::BLOCKS_PER_SUB_CHUNK.div_ceil(u32::BITS as usize / 16) * size_of::<u32>(),
+    ));
+    let mut append = |value: u32| {
+        let mut encoded = value << 1;
+        while encoded >= 128 {
+            bytes.push((encoded as u8 & 127) | 128);
+            encoded >>= 7;
+        }
+        bytes.push(encoded as u8);
+    };
+    append(world::BLOCKS_PER_SUB_CHUNK as u32);
+    for id in 32..32 + world::BLOCKS_PER_SUB_CHUNK as u32 {
+        append(id);
+    }
+    let storage = DecodedBiomeColumn::decode(0, 1, &bytes, &RawBiomeIds { default_biome: 0 })
+        .storage(0)
+        .unwrap();
+    assert_eq!(storage.palette().len(), world::BLOCKS_PER_SUB_CHUNK);
+    storage
+}
+
+#[test]
+fn retained_source_byte_budget_evicts_before_the_entry_limit() {
+    let mut stream = stream();
+    let cache = stream.biome_record_cache(0);
+    let large = large_storage();
+    let sources = std::array::from_fn(|_| Some(large.clone()));
+    let first = cache.record(&sources);
+    for _ in 0..20 {
+        let source = Arc::new((*large).clone());
+        cache.record(&std::array::from_fn(|_| Some(source.clone())));
+    }
+    let entries = cache.entries.lock().unwrap();
+    assert!(entries.bytes <= CACHE_BYTES);
+    assert!(entries.records.len() < 20);
+    drop(entries);
+    let rebuilt = cache.record(&sources);
+    assert_eq!(first, rebuilt);
+    assert_ne!(first.words().as_ptr(), rebuilt.words().as_ptr());
+}

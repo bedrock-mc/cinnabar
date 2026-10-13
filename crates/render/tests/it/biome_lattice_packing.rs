@@ -255,6 +255,13 @@ fn packed_lattice_tints_are_byte_identical_on_bench_terrains_and_biome_seams() {
         .unwrap();
     let mapped = readback.slice(..).get_mapped_range().unwrap();
     let colours: &[[u32; 4]] = bytemuck::cast_slice(&mapped);
+    assert!(
+        colours
+            .iter()
+            .flatten()
+            .all(|&bits| f32::from_bits(bits).is_finite()),
+        "oracle must produce finite colours"
+    );
     assert!(colours.iter().any(|colour| colour[0] != 0));
     for (query, pair) in colours.as_chunks::<2>().0.iter().enumerate() {
         assert_eq!(

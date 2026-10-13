@@ -138,10 +138,7 @@ impl PackedBiomeRecord {
             let Some(storage) = storage else {
                 continue;
             };
-            let payload = packed_storage_words(storage, &mut resolve_tint_index);
-            compact &= payload[HEADER_WORDS + storage.packed_words().len()..]
-                .iter()
-                .all(|&tint| tint <= u32::from(u16::MAX));
+            let payload = packed_storage_words(storage, &mut resolve_tint_index, &mut compact);
             let payload_uniform = packed_payload_uniform_tint(&payload);
             match (uniform_tint, payload_uniform) {
                 (None, Some(value)) => uniform_tint = Some(value),
@@ -318,9 +315,11 @@ impl SlotTints<'_> {
     }
 }
 
+/// Copies one storage while checking whether its resolved palette fits u16 indices.
 fn packed_storage_words(
     storage: &BiomeStorage,
     resolve_tint_index: &mut impl FnMut(u32) -> u32,
+    compact: &mut bool,
 ) -> Vec<u32> {
     let palette_len = storage.palette().len();
     debug_assert!((1..=BLOCKS_PER_SUB_CHUNK).contains(&palette_len));
@@ -330,14 +329,11 @@ fn packed_storage_words(
         Vec::with_capacity(HEADER_WORDS + storage.packed_words().len() + storage.palette().len());
     words.push(header);
     words.extend_from_slice(storage.packed_words());
-    words.extend(
-        storage
-            .palette()
-            .values()
-            .iter()
-            .copied()
-            .map(resolve_tint_index),
-    );
+    words.extend(storage.palette().values().iter().copied().map(|id| {
+        let index = resolve_tint_index(id);
+        *compact &= index <= u32::from(u16::MAX);
+        index
+    }));
     words
 }
 
