@@ -1,6 +1,40 @@
 use super::*;
 
 #[test]
+fn terrain_storage_grows_with_memory_tiers_and_preserves_device_bounds() {
+    for tier in 0..=8 {
+        let policy = TexturePolicy::for_terrain(2048, tier);
+        assert_eq!(
+            policy.storage_bytes(),
+            (MIN_TERRAIN_BYTES << tier.min(MAX_TERRAIN_MEMORY_TIER)).min(MAX_TERRAIN_BYTES)
+        );
+        assert_eq!(policy.max_side(), 2048);
+        assert_eq!(policy.terrain_bytes(4096, 1), None);
+    }
+    assert_eq!(
+        TexturePolicy::for_terrain(MAX_TEXTURE_SIDE, 0).storage_bytes(),
+        MIN_TERRAIN_BYTES
+    );
+    assert_eq!(
+        TexturePolicy::for_device(MAX_TEXTURE_SIDE).storage_bytes(),
+        MAX_SUBSCRIBER_BYTES
+    );
+}
+
+#[test]
+fn terrain_can_decode_a_512px_thirty_two_frame_strip_before_resizing() {
+    let policy = TexturePolicy::for_terrain(MAX_TEXTURE_SIDE, 0);
+    let bytes = 512 * 512 * 4 * 32;
+    assert_eq!(policy.source_bytes(512, 512 * 32, true), Some(bytes));
+    assert_eq!(policy.source_bytes(512 * 32, 512, true), Some(bytes));
+    assert_eq!(
+        TexturePolicy::for_device(MAX_TEXTURE_SIDE).source_bytes(512, 512 * 32, true),
+        None
+    );
+    assert!(policy.decode_bytes() >= bytes as u64);
+}
+
+#[test]
 fn strips_are_bounded_by_frame_dimensions_and_checked_area() {
     let policy = TexturePolicy::for_device(2048);
     assert_eq!(policy.source_bytes(64, 8384, true), Some(64 * 8384 * 4));

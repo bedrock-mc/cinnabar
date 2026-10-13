@@ -19,7 +19,7 @@ mod manifest;
 mod merge;
 mod pack;
 mod parser;
-mod subpacks;
+pub mod subpacks;
 #[cfg(all(feature = "handoff", any(test, feature = "test-support")))]
 pub mod test_support;
 mod view;

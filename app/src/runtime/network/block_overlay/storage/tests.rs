@@ -2,6 +2,8 @@ use super::super::{MIN_TILE, textures::TextureCatalog};
 use super::*;
 use resource_pack::LayeredPackView;
 
+mod capacity;
+
 /// Admits a resource pack containing only the original synthetic files supplied by a test.
 fn view(files: &[(&str, &[u8])]) -> LayeredPackView {
     use std::io::Write;
@@ -30,7 +32,7 @@ fn view(files: &[(&str, &[u8])]) -> LayeredPackView {
     ))
 }
 
-/// Occupies every shard so growing any one to 2048px exceeds the upload budget.
+/// Occupies every shard with small layers for decode, rollback and resizing fixtures.
 fn builder<'a>(
     view: &'a LayeredPackView,
     keys: &assets::material_keys::MaterialKeys,
@@ -69,10 +71,9 @@ fn png(width: u32, height: u32) -> Vec<u8> {
 }
 
 #[test]
-fn static_decode_and_budget_failures_are_shared_across_selectors_and_aliases() {
-    let large = png(2048, 2048);
+fn static_decode_failures_are_shared_across_selectors_and_aliases() {
     let small = png(16, 16);
-    for rejected in [large.as_slice(), b"invalid PNG".as_slice(), b"".as_slice()] {
+    for rejected in [b"invalid PNG".as_slice(), b"".as_slice()] {
         let view = view(&[
             ("textures/rejected.png", rejected),
             ("textures/small.png", &small),
@@ -106,10 +107,10 @@ fn static_decode_and_budget_failures_are_shared_across_selectors_and_aliases() {
 
 #[test]
 fn failed_static_storage_does_not_hide_an_independent_animation() {
-    let large = png(2048, 2048);
+    let invalid = b"invalid PNG".as_slice();
     let small = png(16, 32);
     let view = view(&[
-        ("textures/rejected.png", &large),
+        ("textures/rejected.png", invalid),
         ("textures/frame.png", &small),
         (
             "textures/flipbook_textures.json",
@@ -155,11 +156,9 @@ fn failed_grid_admission_does_not_poison_another_grid_of_the_same_image() {
 
 #[test]
 fn animation_source_failures_decode_once_across_wildcard_variants() {
-    let large = png(2048, 2048);
     let malformed_strip = png(48, 32);
     let fallback = png(16, 16);
     for rejected in [
-        large.as_slice(),
         malformed_strip.as_slice(),
         b"invalid PNG".as_slice(),
         b"".as_slice(),
@@ -342,14 +341,12 @@ fn custom_fallback_answers_decode_misses_but_keeps_admission_refusals() {
     let materials = [assets::Material::unvaried(); 2];
     let keys = assets::material_keys::MaterialKeys::from_entries([(1, "tile")])
         .with_aliases([("tile", "textures/rejected")]);
-    let large = png(2048, 2048);
     for (bytes, max_layers, expected_page) in [
         (
             b"invalid PNG".as_slice(),
             assets::MAX_TEXTURE_LAYERS,
             Some(0),
         ),
-        (large.as_slice(), assets::MAX_TEXTURE_LAYERS, None),
         (b"invalid PNG".as_slice(), 3, None),
     ] {
         let view = view(&[("textures/rejected.png", bytes)]);
@@ -429,6 +426,7 @@ fn animation_source() -> FlipbookSource {
 /// Checks timeline texels, page bounds, and exact upload accounting after placement.
 fn assert_animation(builder: Builder<'_>, slot: TextureSlot, expected: usize) {
     let upload_bytes = builder.upload_bytes;
+    let byte_budget = builder.texture_policy.storage_bytes();
     let compiled = builder.finish().unwrap();
     let animation = &compiled.overlay.animations[slot.animation as usize];
     assert_eq!(animation.frame_count as usize, expected);
@@ -455,7 +453,7 @@ fn assert_animation(builder: Builder<'_>, slot: TextureSlot, expected: usize) {
             .map(|mip| mip.rgba8.len())
             .sum::<usize>()
     );
-    assert!(upload_bytes <= MAX_SUBSCRIBER_BYTES);
+    assert!(upload_bytes <= byte_budget);
 }
 
 #[test]
