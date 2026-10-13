@@ -92,7 +92,10 @@ fn actor_reaches(source: vec2<i32>, destination: vec2<f32>, z: f32) -> bool {
     let motion = object_motion(source);
     let velocity = actor_velocity_pixels(motion);
     let speed_squared = dot(velocity, velocity);
-    if motion.z < 0.5 || speed_squared < MIN_BLUR_SPEED * MIN_BLUR_SPEED || actor_depth(source) < z {
+    let covered_depth = actor_depth(source);
+    // Resolved colour can contain nearer non-actor samples that must stay at their source.
+    if motion.z < 0.5 || speed_squared < MIN_BLUR_SPEED * MIN_BLUR_SPEED
+        || covered_depth < z || scene_depth(source) > covered_depth {
         return false;
     }
     let offset = destination - (vec2<f32>(source) + vec2<f32>(0.5));
@@ -173,7 +176,7 @@ fn surface_gather(position: vec2<f32>, velocity: vec2<f32>, base: vec4<f32>) -> 
         if stationary_actor_in_footprint(sample_position) {
             continue;
         }
-        if exposure.strength.z > 0.0 && object_motion(vec2<i32>(position)).z < 0.5 {
+        if object_motion(vec2<i32>(position)).z < 0.5 {
             // Keep the world's camera blur while actor exposure follows its own motion and depth.
             let texel = sample_position - vec2<f32>(0.5);
             let corner = vec2<i32>(floor(texel));

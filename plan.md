@@ -429,6 +429,8 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - Depth-writing actors retain their previous rendered root and interpolated bone pose for object
   exposure. Actor texels establish visible motion footprints in the background while
   retaining stationary actor edges and nearer occluders. The motion pass preserves camera depth ranges.
+  Mixed MSAA texels with nearer non-actor samples retain their resolved colour at the source;
+  separating the actor's colour for exposure remains incomplete.
 - Per-object blur remains incomplete for blended actors and other world renderers. Hidden background
   reconstruction, competing object velocities in a search neighbourhood, and matched flight acceptance
   remain open. Enabled views retain a reduced actor velocity target. Hardware GPU cost and frame-budget
