@@ -252,3 +252,51 @@ fn a_full_required_atlas_keeps_cutout_cube_thumbnails() {
         assert_eq!(nodes[0], original, "a full atlas retains the icon sprite");
     }
 }
+
+/// Uses original unit-cube faces with a shortened vertical extent, like a portal frame.
+fn carried_geometry(height: f32) -> Vec<render_model::ActorRigVertex> {
+    assets::BlockFace::ALL
+        .into_iter()
+        .flat_map(|face| {
+            let (positions, _) = assets::gui_item::cube_face(face);
+            positions.map(|position| render_model::ActorRigVertex {
+                position: [
+                    position[0] - 0.5,
+                    position[1] * height - height * 0.5,
+                    position[2] - 0.5,
+                ],
+                normal: [0.0, 1.0, 0.0],
+                uv: [0.0; 2],
+                back_uv: [0.0; 2],
+                bone_index: 0,
+                surface: render_model::ActorRigSurface::SINGLE_FACE,
+                glint_origin: [0.0; 2],
+            })
+        })
+        .collect()
+}
+
+#[test]
+fn transparent_carried_sheets_preserve_shortened_models() {
+    let mut ordinary = render_model::equipment::blocks::BlockSheets {
+        sheets: Vec::new(),
+        by_visual: std::collections::BTreeMap::from([(VISUAL.0, 0)]),
+        models: std::collections::BTreeMap::from([(VISUAL.0, carried_geometry(13.0 / 16.0))]),
+    };
+    for pixels in [
+        [30, 60, 90, 0, 30, 60, 90, 255],
+        [30, 60, 90, 127, 30, 60, 90, 255],
+    ] {
+        assert!(
+            !cube_sheet_admitted(&ordinary, VISUAL.0, &pixels),
+            "short models must reach the shaped fallback"
+        );
+        let short = ordinary.models.remove(&VISUAL.0).unwrap();
+        ordinary.models.insert(VISUAL.0, carried_geometry(1.0));
+        assert!(
+            cube_sheet_admitted(&ordinary, VISUAL.0, &pixels),
+            "full-height cubes retain transparent faces"
+        );
+        ordinary.models.insert(VISUAL.0, short);
+    }
+}

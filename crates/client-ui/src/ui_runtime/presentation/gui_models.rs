@@ -122,6 +122,30 @@ impl GuiModels {
     }
 }
 
+/// A sheet can become a cube only when an existing carried model spans the full cube.
+/// Shortened models keep the shaped-model path even when their source texels are transparent.
+fn cube_sheet_admitted(
+    ordinary: &render_model::equipment::blocks::BlockSheets,
+    visual: u32,
+    pixels: &[u8],
+) -> bool {
+    if ordinary.models.get(&visual).is_some_and(|vertices| {
+        vertices.iter().any(|vertex| {
+            vertex
+                .position
+                .iter()
+                .any(|coordinate| coordinate.abs() != 0.5)
+        })
+    }) {
+        return false;
+    }
+    match sheet_coverage(pixels) {
+        SheetCoverage::Cutout => true,
+        SheetCoverage::Translucent => ordinary.by_visual.contains_key(&visual),
+        SheetCoverage::Opaque => false,
+    }
+}
+
 impl UiPresentationRuntime {
     /// Retains the original face and equipment texels; the GPU projects them at each control's
     /// physical size. Unsupported GUI tessellators retain their explicitly provisional thumbnail.
@@ -225,11 +249,7 @@ impl UiPresentationRuntime {
                 };
                 // Carried sheets only describe cubes and chests. Translucent special shapes
                 // keep their thumbnail unless the world also supplies a cube sheet.
-                let admitted = match sheet_coverage(&sprite.rgba8) {
-                    SheetCoverage::Cutout => true,
-                    SheetCoverage::Translucent => ordinary.by_visual.contains_key(&block_visual.0),
-                    SheetCoverage::Opaque => false,
-                };
+                let admitted = cube_sheet_admitted(&ordinary, block_visual.0, &sprite.rgba8);
                 if !admitted {
                     continue;
                 }
