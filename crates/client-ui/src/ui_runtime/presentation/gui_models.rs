@@ -23,6 +23,8 @@ mod pack_equipment;
 mod sources;
 use sources::modulated;
 pub(super) use sources::{SheetCoverage, ordinary_cube_sheet, sheet_coverage, sheet_faces};
+#[cfg(test)]
+mod cube_budget;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 #[cfg(test)]
