@@ -260,3 +260,54 @@ fn installed_gui_carriers_reuse_sprite_pages_within_the_model_atlas_budget() {
         "installed items exercise the resident sprite path"
     );
 }
+
+// Local-only: chests, leaves, glass, stained glass and anvils draw as GUI geometry, not their
+// pixelated thumbnails.
+#[test]
+fn installed_see_through_and_chest_blocks_draw_as_gui_geometry() {
+    use crate::test_support::fixture_hud;
+    use crate::ui_runtime::presentation::UiPresentationRuntime;
+    use assets::carriers;
+    use ui_engine::test_support::fixture_font;
+    let compiled = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(carriers::COMPILED_DIR);
+    let read = |carrier: &carriers::Carrier| {
+        let path = compiled.join(carrier.output);
+        std::fs::read(&path).map_err(|_| {
+            eprintln!(
+                "skipping installed_see_through_and_chest_blocks_draw_as_gui_geometry: missing {}; run make assets",
+                path.display()
+            );
+        })
+    };
+    let (Ok(world), Ok(entities), Ok(icons)) = (
+        read(&carriers::WORLD),
+        read(&carriers::ENTITY),
+        read(&carriers::ICON),
+    ) else {
+        return;
+    };
+    let world = assets::RuntimeAssets::decode(&world).unwrap();
+    let entities = RuntimeEntityAssets::decode(&entities).unwrap();
+    let icons = Arc::new(RuntimeIconCatalog::decode(&icons).unwrap());
+    let mut presentation =
+        UiPresentationRuntime::with_hud_and_icons(fixture_font(), fixture_hud(), icons).unwrap();
+    presentation.set_gui_models(&world, &entities).unwrap();
+    for identifier in [
+        "minecraft:chest",
+        "minecraft:oak_leaves",
+        "minecraft:glass",
+        "minecraft:white_stained_glass",
+        "minecraft:anvil",
+    ] {
+        let icon = presentation.item_icon(identifier, 0).unwrap();
+        assert!(
+            presentation
+                .gui_models
+                .models
+                .contains_key(&super::super::icon_key(icon)),
+            "{identifier} draws as GUI geometry"
+        );
+    }
+}

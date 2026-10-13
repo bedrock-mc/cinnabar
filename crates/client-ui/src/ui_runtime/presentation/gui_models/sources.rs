@@ -6,9 +6,30 @@ use ui::UiMesh;
 
 use ui::IconRef;
 
+/// How a cube sheet's texels cover: fully, with cut-out holes, or partly see-through.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::ui_runtime::presentation) enum SheetCoverage {
+    Opaque,
+    Cutout,
+    Translucent,
+}
+
+/// The coverage of a sheet's texels.
+pub(in crate::ui_runtime::presentation) fn sheet_coverage(rgba8: &[u8]) -> SheetCoverage {
+    let mut coverage = SheetCoverage::Opaque;
+    for pixel in rgba8.as_chunks::<4>().0 {
+        match pixel[3] {
+            255 => {}
+            0 => coverage = SheetCoverage::Cutout,
+            _ => return SheetCoverage::Translucent,
+        }
+    }
+    coverage
+}
+
 /// Special translucent GUI tessellators (for example beacon) are not ordinary cubes.
 pub(in crate::ui_runtime::presentation) fn ordinary_cube_sheet(rgba8: &[u8]) -> bool {
-    rgba8.as_chunks::<4>().0.iter().all(|pixel| pixel[3] == 255)
+    sheet_coverage(rgba8) == SheetCoverage::Opaque
 }
 
 pub(in crate::ui_runtime::presentation) fn sheet_faces(icon: IconRef) -> [IconRef; 6] {
@@ -44,4 +65,25 @@ pub(super) fn modulated(mesh: &Arc<UiMesh>, color: [u8; 4], glint: bool) -> Opti
     )
     .ok()
     .map(Arc::new)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SheetCoverage, sheet_coverage};
+
+    #[test]
+    fn coverage_separates_opaque_cut_out_and_translucent_sheets() {
+        assert_eq!(
+            sheet_coverage(&[9, 9, 9, 255, 1, 1, 1, 255]),
+            SheetCoverage::Opaque
+        );
+        assert_eq!(
+            sheet_coverage(&[9, 9, 9, 255, 0, 0, 0, 0]),
+            SheetCoverage::Cutout
+        );
+        assert_eq!(
+            sheet_coverage(&[9, 9, 9, 0, 1, 1, 1, 128]),
+            SheetCoverage::Translucent
+        );
+    }
 }

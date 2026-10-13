@@ -22,7 +22,7 @@ mod live_player;
 mod pack_equipment;
 mod sources;
 use sources::modulated;
-pub(super) use sources::{ordinary_cube_sheet, sheet_faces};
+pub(super) use sources::{SheetCoverage, ordinary_cube_sheet, sheet_coverage, sheet_faces};
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 #[cfg(test)]
@@ -139,7 +139,7 @@ impl UiPresentationRuntime {
         let mut atlas = atlas::Atlas::new(first, MODEL_PAGES);
         let mut sources = BTreeMap::new();
         let ordinary = render_model::equipment::blocks::collect(world, entities);
-        for (visual, index) in ordinary.by_visual {
+        for (&visual, &index) in &ordinary.by_visual {
             sources.insert(visual, ordinary.sheets[index].clone());
         }
         // Native carried masks/colors (not the biome-tinted world faces) override ordinary cubes.
@@ -151,17 +151,31 @@ impl UiPresentationRuntime {
         }
         let mut meshes = BTreeMap::new();
         let mut held_sources = BTreeMap::new();
+        let mut see_through = BTreeSet::new();
         for (visual, sprite) in &sources {
-            if !ordinary_cube_sheet(&sprite.rgba8) {
+            // Cut-out cubes (glass, leaves) draw as cubes; translucent sheets only for blocks the
+            // world draws as exact cubes (stained glass), never special tessellators (beacon).
+            let coverage = sheet_coverage(&sprite.rgba8);
+            let admitted = match coverage {
+                SheetCoverage::Opaque | SheetCoverage::Cutout => true,
+                SheetCoverage::Translucent => ordinary.by_visual.contains_key(visual),
+            };
+            if !admitted {
                 continue;
             }
             let icon = atlas.insert([sprite.width, sprite.height], &sprite.rgba8)?;
-            held_sources.insert(*visual, icon);
+            if coverage == SheetCoverage::Opaque {
+                held_sources.insert(*visual, icon);
+            } else {
+                see_through.insert(*visual);
+            }
             if let Some(mesh) = item_gui::cube(sheet_faces(icon)) {
                 meshes.insert(*visual, mesh);
             }
         }
         let mut models = BTreeMap::new();
+        // See-through meshes keep their thumbnail in faded controls, which draw one layer.
+        let mut optional_models = BTreeSet::new();
         for entry in icons.entries() {
             let Some(definition) = entities.item_visuals().iter().find(|visual| {
                 visual.key.identifier == entry.identifier && visual.key.metadata == entry.metadata
@@ -184,6 +198,9 @@ impl UiPresentationRuntime {
             models
                 .entry(icon_key(*icon))
                 .or_insert_with(|| Arc::clone(mesh));
+            if see_through.contains(&block_visual.0) {
+                optional_models.insert(icon_key(*icon));
+            }
         }
         if let Some(equipment) = self.equipment_catalog.as_deref() {
             for texture in equipment.textures() {
@@ -214,7 +231,6 @@ impl UiPresentationRuntime {
             &held_sources,
         )?;
         let required_pages = atlas.page_count();
-        let mut optional_models = BTreeSet::new();
         if let Some(refs) = self.icon_refs.as_deref() {
             for thumbnail in icons.block_models() {
                 if let Some(icon) = refs.get(thumbnail.sprite as usize)
