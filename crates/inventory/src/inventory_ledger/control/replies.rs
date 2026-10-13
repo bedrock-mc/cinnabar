@@ -1,107 +1,128 @@
-//! Close acknowledgements consume one sent control, never a newer screen with the same ID.
+//! Replies update confirmed state before reconciling the latest desired state.
 
-use protocol::ContainerCloseEvent;
+use protocol::{ContainerCloseEvent, ContainerOpenEvent};
 
-use super::{
-    ControlKind, ControlRequest, PendingCloseOwner, PersonalWindow, PlayerInventoryLedger,
-};
+use super::{ControlKind, ControlRequest, ControlWindow};
+use crate::inventory_ledger::PlayerInventoryLedger;
 
 impl PlayerInventoryLedger {
-    /// Routes client acknowledgements through the FIFO and server commands by their window identity.
-    pub(in crate::inventory_ledger) fn apply_close(&mut self, close: ContainerCloseEvent) {
-        if !close.server_initiated {
-            self.answer_control_close();
+    /// Accepts the sole outstanding open, including one whose screen was superseded.
+    pub(in crate::inventory_ledger) fn apply_personal_open(&mut self, open: ContainerOpenEvent) {
+        let Some(window_id) = open.container.window_id else {
+            self.note_unrouted_container();
+            return;
+        };
+        let generation = if let Some(super::SentControl {
+            request: ControlRequest::Open { generation, .. },
+            ..
+        }) = self.controls.personal.sent
+        {
+            self.controls.personal.sent = None;
+            generation
+        } else if let Some(window) = self.controls.personal.confirmed {
+            window.generation
+        } else {
+            self.note_unrouted_container();
+            // With no outstanding open or confirmed window, this may predate a completed reset.
+            self.controls.personal.reset_required = true;
+            let generation = self.next_open_generation;
+            self.next_open_generation = generation.wrapping_add(1).max(1);
+            generation
+        };
+        if !super::super::helpers::valid_raw_window_id(window_id) {
+            self.controls.personal.desired_open = false;
+            self.personal = None;
+            self.note_unrouted_container();
             return;
         }
+        self.controls.personal.confirmed = Some(ControlWindow {
+            generation,
+            window_id,
+            window_type: open.window_type,
+        });
+        // A late open during timeout recovery supplies the actual ID for the required close.
+        self.reconcile_personal();
+    }
 
-        let storage = self
-            .storage
-            .as_ref()
-            .filter(|storage| {
-                close.container.window_id == Some(storage.window_id)
-                    && close.window_type == storage.window_type
-            })
-            .map(|storage| (storage.window_id, storage.generation));
-        // A server command ends screen ownership, but the separately sent close still needs a reply.
-        let personal = self
-            .personal_lifecycle()
-            .copied()
-            .filter(|personal| match personal {
-                PersonalWindow::Open {
-                    window_id,
-                    window_type,
-                    ..
-                }
-                | PersonalWindow::Closing {
-                    window_id,
-                    window_type,
-                    ..
-                } => {
-                    close.container.window_id == Some(*window_id)
-                        && close.window_type == *window_type
-                }
-                PersonalWindow::Opening { .. } => false,
-            });
-        if let Some(personal) = personal {
-            let generation = personal.generation();
-            self.pending_closes
-                .retain(|pending| pending.owner.personal_generation() != Some(generation));
-            self.sent_controls.supersede(generation);
-            if self
-                .expired_personal
-                .is_some_and(|expired| expired.generation() == generation)
-            {
-                self.expired_personal = None;
-            } else {
-                self.finish_personal_close(false);
+    /// Keeps authoritative server commands separate from outstanding client acknowledgements.
+    pub(in crate::inventory_ledger) fn apply_close(&mut self, close: ContainerCloseEvent) {
+        if !close.server_initiated {
+            if let Some(window) = self.controls.answer_close(close.container.window_id) {
+                self.complete_control_close(window, true);
             }
+            return;
         }
-        if let Some((window_id, generation)) = storage {
-            self.sent_controls.supersede(generation);
-            self.remove_pending_close(window_id, close.window_type);
-            if self
-                .storage
-                .as_ref()
-                .is_some_and(|storage| storage.generation == generation)
+        for kind in [ControlKind::Personal, ControlKind::Storage] {
+            let Some(window) = self.controls.state(kind).confirmed.filter(|window| {
+                close.container.window_id == Some(window.window_id)
+                    && close.window_type == window.window_type
+            }) else {
+                continue;
+            };
+            let state = self.controls.state_mut(kind);
+            state.desired_open = false;
+            state.reset_required = false;
+            // Storage requires confirmation unless our close is already on the wire.
+            if kind == ControlKind::Personal
+                || state
+                    .sent
+                    .is_some_and(|sent| sent.request == ControlRequest::Close(window))
             {
-                self.acknowledge_storage_close(true);
+                state.confirmed = None;
             }
-            self.queue_close(window_id, close.window_type, PendingCloseOwner::Cleanup);
+            match kind {
+                ControlKind::Personal => self.finish_personal_close(false),
+                ControlKind::Storage => {
+                    if self
+                        .storage
+                        .as_ref()
+                        .is_some_and(|storage| storage.generation == window.generation)
+                    {
+                        self.acknowledge_storage_close(true);
+                    }
+                }
+            }
         }
     }
 
-    /// Consumes one close reply using its retained owner, ignoring uncorrelated payload IDs and types.
-    fn answer_control_close(&mut self) {
-        let Some(sent) = self.sent_controls.answer(ControlKind::Close) else {
-            return;
-        };
-        let ControlRequest::Close(close) = sent.request else {
-            unreachable!("the close FIFO returns only closes");
-        };
-        match close.owner {
-            PendingCloseOwner::Personal(generation) => {
+    /// Resolves only the confirmed generation targeted by this completed close.
+    pub(in crate::inventory_ledger) fn complete_control_close(
+        &mut self,
+        window: ControlWindow,
+        acknowledged: bool,
+    ) {
+        let kind = window.kind();
+        let state = self.controls.state_mut(kind);
+        if state.confirmed == Some(window) {
+            state.confirmed = None;
+            state.reset_required = false;
+        }
+        match kind {
+            ControlKind::Personal => {
                 if self
-                    .expired_personal
-                    .is_some_and(|personal| personal.generation() == generation)
+                    .personal
+                    .is_some_and(|personal| personal.generation() == window.generation)
                 {
-                    self.expired_personal = None;
-                } else if !sent.superseded
-                    && matches!(self.personal, Some(PersonalWindow::Closing { generation: active, .. }) if active == generation)
-                {
-                    self.finish_personal_close(true);
+                    self.finish_personal_close(acknowledged);
                 }
             }
-            PendingCloseOwner::Storage(generation) => {
-                if !sent.superseded
-                    && self
-                        .storage
-                        .as_ref()
-                        .is_some_and(|storage| storage.generation == generation && storage.closing)
+            ControlKind::Storage => {
+                if self.storage.as_ref().is_some_and(|storage| {
+                    storage.generation == window.generation && storage.closing
+                }) {
+                    self.acknowledge_storage_close(!acknowledged);
+                }
+                // The wire close has also removed a personal window that shared this ID.
+                if self
+                    .controls
+                    .personal
+                    .confirmed
+                    .is_some_and(|personal| personal.window_id == window.window_id)
                 {
-                    self.acknowledge_storage_close(false);
+                    self.controls.personal.confirmed = None;
+                    self.controls.personal.reset_required = false;
                 }
             }
-            PendingCloseOwner::Cleanup => {}
         }
     }
 }

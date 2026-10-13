@@ -1,16 +1,14 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::VecDeque;
+
+use protocol::{ContainerCloseEvent, ContainerIdentity, ContainerOpenEvent, InventoryEvent};
 
 use super::*;
+use crate::inventory_ledger::{
+    GENERIC_STORAGE_WINDOW_TYPE, PlayerInventoryLedger,
+    lifecycle_tests::{ledger_with_slot_zero, personal_open},
+};
 
-mod interleavings;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Completion {
-    Answered,
-    TimedOut,
-}
-
-/// Produces reproducible interleavings without a clock or an additional test dependency.
+/// Produces reproducible scheduling and intent changes without a clock or a new dependency.
 fn random_word(state: &mut u64) -> u64 {
     *state ^= *state << 13;
     *state ^= *state >> 7;
@@ -18,175 +16,273 @@ fn random_word(state: &mut u64) -> u64 {
     *state
 }
 
-/// Tracks sent requests by their position in an independent wire transcript.
+/// A server that suppresses duplicate personal opens instead of replying to each request.
 #[derive(Default)]
-struct Transcript {
-    requests: Vec<(ControlRequest, u64)>,
-    replies: [VecDeque<usize>; 2],
-    completed: BTreeMap<usize, Completion>,
-    superseded: BTreeSet<usize>,
+struct Server {
+    personal_open: bool,
+    storage: Option<i32>,
+    replies: VecDeque<InventoryEvent>,
+    duplicate_opens: usize,
 }
 
-impl Transcript {
-    /// Assigns a separate wire receipt to each send, including repeated IDs and ownerless cleanup.
-    fn send(&mut self, queue: &mut SentControls, request: ControlRequest, now: u64, stream: usize) {
-        let receipt = self.requests.len();
-        self.requests.push((request, now));
-        self.replies[stream].push_back(receipt);
-        queue.sent(request, now);
-    }
-
-    /// Requires each reply to consume the oldest receipt of its kind and complete it at most once.
-    fn reply(&mut self, queue: &mut SentControls, stream: usize) {
-        let kind = if stream == 0 {
-            ControlKind::PersonalOpen
-        } else {
-            ControlKind::Close
-        };
-        let actual = queue.answer(kind);
-        let Some(receipt) = self.replies[stream].pop_front() else {
-            assert!(actual.is_none());
+impl Server {
+    /// Processes one admitted control immediately while allowing its reply to be delayed or lost.
+    fn send(&mut self, ledger: &mut PlayerInventoryLedger, now: u64, lose_reply: bool) {
+        let Some(request) = ledger.pending_control() else {
+            // Non-control traffic, including a world drop, may unblock a close.
+            ledger.mark_transport_enqueued(now);
             return;
         };
-        let actual = actual.expect("every sent receipt keeps its correlation slot");
-        let expected = self.requests[receipt].0;
-        assert_eq!(
-            actual.request, expected,
-            "a reply must never acknowledge a newer request"
+        let kind = request.kind();
+        assert!(
+            ledger.controls.state(kind).sent.is_none(),
+            "never two outstanding requests of one kind"
         );
-        assert_eq!(actual.superseded, self.superseded.contains(&receipt));
-        if let Some(completion) = self.completed.get(&receipt) {
-            assert_eq!(*completion, Completion::TimedOut);
-            assert!(
-                actual.deadline_millis.is_none(),
-                "a late reply cannot complete the request twice"
-            );
-        } else {
-            assert!(actual.deadline_millis.is_some());
-            self.completed.insert(receipt, Completion::Answered);
+        let other = match kind {
+            ControlKind::Personal => ControlKind::Storage,
+            ControlKind::Storage => ControlKind::Personal,
+        };
+        let other_sent = ledger.controls.state(other).sent.map(|sent| sent.request);
+        assert!(ledger.mark_transport_enqueued(now));
+        assert_eq!(ledger.controls.state(kind).sent.unwrap().request, request);
+        assert_eq!(
+            ledger.controls.state(other).sent.map(|sent| sent.request),
+            other_sent
+        );
+        assert!(
+            ledger
+                .pending_control()
+                .is_none_or(|next| next.kind() != kind)
+        );
+        let reply = match request {
+            ControlRequest::Open { .. } => {
+                if self.personal_open {
+                    self.duplicate_opens += 1;
+                    return;
+                }
+                self.personal_open = true;
+                InventoryEvent::Open(personal_open(protocol::PLAYER_INVENTORY_WINDOW_ID))
+            }
+            ControlRequest::Close(window) => {
+                if window.kind() == ControlKind::Personal {
+                    self.personal_open = false;
+                } else if self.storage == Some(window.window_id) {
+                    self.storage = None;
+                }
+                InventoryEvent::Close(ContainerCloseEvent {
+                    container: ContainerIdentity::window(window.window_id),
+                    window_type: window.window_type,
+                    server_initiated: false,
+                })
+            }
+        };
+        if !lose_reply {
+            self.replies.push_back(reply);
         }
     }
 
-    /// Completes overdue receipts once while leaving their wire reply positions intact.
-    fn timeout(&mut self, queue: &mut SentControls, now: u64) {
-        let mut expected = 0;
-        for (receipt, (_, sent_at)) in self.requests.iter().enumerate() {
-            if now.saturating_sub(*sent_at) >= INVENTORY_REQUEST_TIMEOUT_MILLIS
-                && !self.completed.contains_key(&receipt)
-            {
-                self.completed.insert(receipt, Completion::TimedOut);
-                expected += 1;
-            }
+    /// Delivers replies in wire order, including replies delayed beyond a local timeout.
+    fn deliver(&mut self, ledger: &mut PlayerInventoryLedger) {
+        if let Some(reply) = self.replies.pop_front() {
+            ledger.apply(&reply);
         }
-        assert_eq!(queue.expire(now), expected);
-        assert_eq!(
-            queue.expire(now),
-            0,
-            "timeouts complete each request only once"
-        );
+    }
+
+    /// Opens storage independently of an outstanding personal request.
+    fn open_storage(&mut self, ledger: &mut PlayerInventoryLedger, window_id: i32) {
+        self.storage = Some(window_id);
+        ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+            container: ContainerIdentity::window(window_id),
+            window_type: GENERIC_STORAGE_WINDOW_TYPE,
+            position: [0, 64, 0],
+            runtime_entity_id: -1,
+        }));
+    }
+
+    /// Queues an authoritative close without consuming any separately outstanding reply.
+    fn server_close(&mut self) {
+        if self.personal_open {
+            self.personal_open = false;
+            self.replies
+                .push_back(InventoryEvent::Close(ContainerCloseEvent {
+                    container: ContainerIdentity::window(protocol::PLAYER_INVENTORY_WINDOW_ID),
+                    window_type: PERSONAL_INVENTORY_WINDOW_TYPE,
+                    server_initiated: true,
+                }));
+        }
+    }
+
+    /// Gives the protocol fair delivery and deadlines until every remaining transition settles.
+    fn settle(&mut self, ledger: &mut PlayerInventoryLedger, now: &mut u64) {
+        for _ in 0..64 {
+            while !self.replies.is_empty() {
+                self.deliver(ledger);
+            }
+            self.send(ledger, *now, false);
+            while !self.replies.is_empty() {
+                self.deliver(ledger);
+            }
+            if self.replies.is_empty()
+                && ledger.pending_batch().unwrap().is_none()
+                && ledger.controls.personal.sent.is_none()
+                && ledger.controls.storage.sent.is_none()
+                && !ledger.controls.personal.reset_required
+            {
+                return;
+            }
+            *now += INVENTORY_REQUEST_TIMEOUT_MILLIS;
+            ledger.poll_timeout(*now);
+        }
+        panic!("the latest intent must converge without reconnecting");
     }
 }
 
 #[test]
-fn random_control_interleavings_complete_each_send_once_without_reassigning_replies() {
+fn randomized_server_interleavings_converge_and_always_allow_reopening() {
     for seed in 1..=64 {
         let mut random = seed;
-        let mut now = 0_u64;
-        let mut queue = SentControls::default();
-        let mut transcript = Transcript::default();
-        for _ in 0..1024 {
+        let mut now = 0;
+        let mut ledger = ledger_with_slot_zero();
+        let mut server = Server::default();
+        for _ in 0..512 {
             let word = random_word(&mut random);
-            match word % 9 {
-                stream @ (0 | 1) if queue.has_capacity() => {
-                    let generation = u64::try_from(transcript.requests.len()).unwrap() + 1;
-                    let request = if stream == 0 {
-                        ControlRequest::PersonalOpen(generation)
-                    } else {
-                        ControlRequest::Close(PendingClose {
-                            window_id: i32::try_from((word >> 8) % 4).unwrap() + 1,
-                            window_type: super::super::GENERIC_STORAGE_WINDOW_TYPE,
-                            owner: match (word >> 16) % 3 {
-                                0 => PendingCloseOwner::Personal(generation),
-                                1 => PendingCloseOwner::Storage(generation),
-                                _ => PendingCloseOwner::Cleanup,
-                            },
-                        })
-                    };
-                    transcript.send(&mut queue, request, now, usize::try_from(stream).unwrap());
+            match word % 10 {
+                0 => {
+                    ledger.request_personal_open(42);
                 }
-                2 => transcript.reply(&mut queue, 0),
-                3 => transcript.reply(&mut queue, 1),
-                4 => {
-                    now += (word >> 8) % INVENTORY_REQUEST_TIMEOUT_MILLIS;
-                    transcript.timeout(&mut queue, now);
+                1 => ledger.request_personal_close(),
+                2 => server.open_storage(&mut ledger, i32::try_from((word >> 8) % 3).unwrap() + 3),
+                3 => ledger.request_storage_close(),
+                4 => server.send(&mut ledger, now, word & 0x100 != 0),
+                5 | 6 => server.deliver(&mut ledger),
+                7 => {
+                    now += INVENTORY_REQUEST_TIMEOUT_MILLIS;
+                    ledger.poll_timeout(now);
                 }
-                5 if !transcript.requests.is_empty() => {
-                    let generation =
-                        (word >> 8) % u64::try_from(transcript.requests.len()).unwrap() + 1;
-                    queue.supersede(generation);
-                    transcript.superseded.extend(
-                        transcript.requests.iter().enumerate().filter_map(
-                            |(receipt, (request, _))| {
-                                (request.generation() == Some(generation)).then_some(receipt)
-                            },
-                        ),
-                    );
-                }
-                6 => {
-                    queue.supersede_all();
-                    transcript.superseded.extend(0..transcript.requests.len());
-                }
-                7 => interleavings::server_close(&mut queue, word),
-                8 => {
-                    // Finish the synthetic traffic before exercising a complete screen lifecycle.
-                    while transcript.replies.iter().any(|replies| !replies.is_empty()) {
-                        transcript.reply(&mut queue, 0);
-                        transcript.reply(&mut queue, 1);
+                8 => server.server_close(),
+                9 => {
+                    if ledger.storage.is_none()
+                        && !ledger.personal_inventory_desired_open()
+                        && ledger
+                            .displayed_stack(0)
+                            .is_some_and(|stack| stack.count > 1)
+                    {
+                        let _ = ledger.begin_world_drop(0, Some(1));
                     }
-                    interleavings::world_drop_blocked_close(&mut queue, &mut transcript, now, word);
                 }
-                _ => {}
+                _ => unreachable!(),
             }
-            assert_eq!(
-                queue.entries.len(),
-                transcript.replies.iter().map(VecDeque::len).sum::<usize>()
-            );
         }
-        transcript.timeout(&mut queue, now + INVENTORY_REQUEST_TIMEOUT_MILLIS);
-        while transcript.replies.iter().any(|replies| !replies.is_empty()) {
-            transcript.reply(&mut queue, 0);
-            transcript.reply(&mut queue, 1);
+        // Stop external commands and preserve the last desires while the server catches up.
+        while !server.replies.is_empty() {
+            server.deliver(&mut ledger);
         }
+        let desired_personal = ledger.controls.personal.desired_open;
+        let desired_storage = ledger.controls.storage.desired_open;
+        server.settle(&mut ledger, &mut now);
         assert_eq!(
-            transcript.completed.len(),
-            transcript.requests.len(),
-            "every sent request is answered or timed out exactly once"
+            ledger.controls.personal.confirmed.is_some(),
+            desired_personal
         );
-        assert!(queue.entries.is_empty());
+        assert_eq!(ledger.controls.storage.confirmed.is_some(), desired_storage);
+        assert_eq!(server.personal_open, desired_personal);
+        assert_eq!(server.storage.is_some(), desired_storage);
+
+        ledger.request_personal_close();
+        ledger.request_storage_close();
+        server.settle(&mut ledger, &mut now);
+        assert!(!server.personal_open);
+        assert!(server.storage.is_none());
+        assert!(ledger.controls.personal.confirmed.is_none());
+        assert!(ledger.controls.storage.confirmed.is_none());
+        for _ in 0..3 {
+            assert!(ledger.request_personal_open(42));
+            server.settle(&mut ledger, &mut now);
+            assert!(server.personal_open);
+            assert!(ledger.controls.personal.confirmed.is_some());
+            assert!(ledger.personal_inventory_desired_open());
+            ledger.request_personal_close();
+            server.settle(&mut ledger, &mut now);
+            assert!(!server.personal_open);
+            assert!(ledger.controls.personal.confirmed.is_none());
+        }
+        assert_eq!(server.duplicate_opens, 0);
     }
 }
 
 #[test]
-fn full_fifo_keeps_timed_out_and_superseded_requests_until_their_replies_arrive() {
-    let mut queue = SentControls::default();
-    for generation in 1..=MAX_SENT_CONTROLS as u64 {
-        queue.sent(ControlRequest::PersonalOpen(generation), 0);
-        queue.supersede(generation);
-    }
-    assert!(!queue.has_capacity());
-    assert_eq!(
-        queue.expire(INVENTORY_REQUEST_TIMEOUT_MILLIS),
-        MAX_SENT_CONTROLS
-    );
-    assert!(
-        !queue.has_capacity(),
-        "timeout must not discard reply correlation"
-    );
-    for generation in 1..=MAX_SENT_CONTROLS as u64 {
-        let reply = queue.answer(ControlKind::PersonalOpen).unwrap();
-        assert_eq!(reply.request, ControlRequest::PersonalOpen(generation));
-        assert!(reply.superseded);
-        assert!(reply.deadline_millis.is_none());
-    }
-    assert!(queue.has_capacity());
+fn a_superseded_open_is_not_repeated_when_the_server_suppresses_duplicates() {
+    let mut ledger = ledger_with_slot_zero();
+    let mut server = Server::default();
+    assert!(ledger.request_personal_open(42));
+    server.send(&mut ledger, 0, false);
+    server.open_storage(&mut ledger, 3);
+    ledger.request_storage_close();
+    server.send(&mut ledger, 0, false);
+    // The chest close can be observed before the delayed personal-open reply.
+    let chest_reply = server.replies.pop_back().unwrap();
+    ledger.apply(&chest_reply);
+    assert!(ledger.request_personal_open(42));
+    server.send(&mut ledger, 0, false);
+    assert_eq!(server.duplicate_opens, 0);
+    server.deliver(&mut ledger);
+    assert!(ledger.personal_inventory_desired_open());
+    assert!(ledger.controls.personal.confirmed.is_some());
+    assert!(ledger.pending_control().is_none());
+    ledger.request_personal_close();
+    let mut now = 0;
+    server.settle(&mut ledger, &mut now);
+    assert!(ledger.request_personal_open(42));
+    server.settle(&mut ledger, &mut now);
+    assert!(server.personal_open);
+    assert_eq!(server.duplicate_opens, 0);
+}
+
+#[test]
+fn an_open_reply_after_a_lost_reset_reply_cannot_confirm_a_closed_server() {
+    let mut ledger = ledger_with_slot_zero();
+    let mut server = Server::default();
+    let mut now = 0;
+    assert!(ledger.request_personal_open(42));
+    server.send(&mut ledger, now, false);
+    now += INVENTORY_REQUEST_TIMEOUT_MILLIS;
+    ledger.poll_timeout(now);
+    server.send(&mut ledger, now, true);
+    assert!(!server.personal_open);
+    now += INVENTORY_REQUEST_TIMEOUT_MILLIS;
+    ledger.poll_timeout(now);
+    server.deliver(&mut ledger);
+    server.settle(&mut ledger, &mut now);
+    assert!(server.personal_open);
+    assert!(ledger.controls.personal.confirmed.is_some());
+    assert!(ledger.personal_inventory_desired_open());
+    assert_eq!(server.duplicate_opens, 0);
+}
+
+#[test]
+fn a_timed_out_storage_reply_cannot_release_the_personal_slot() {
+    let mut ledger = ledger_with_slot_zero();
+    let mut server = Server::default();
+    let mut now = 0;
+    server.open_storage(&mut ledger, 3);
+    ledger.request_storage_close();
+    server.send(&mut ledger, now, false);
+    now += INVENTORY_REQUEST_TIMEOUT_MILLIS;
+    ledger.poll_timeout(now);
+    assert!(ledger.request_personal_open(42));
+    server.send(&mut ledger, now, false);
+    let open_reply = server.replies.pop_back().unwrap();
+    ledger.apply(&open_reply);
+    ledger.request_personal_close();
+    server.send(&mut ledger, now, false);
+    assert!(ledger.request_personal_open(42));
+    server.deliver(&mut ledger);
+    assert!(matches!(
+        ledger.controls.personal.sent.unwrap().request,
+        ControlRequest::Close(_)
+    ));
+    assert!(ledger.pending_control().is_none());
+    server.settle(&mut ledger, &mut now);
+    assert!(server.personal_open);
+    assert_eq!(server.duplicate_opens, 0);
 }

@@ -16,11 +16,11 @@ use protocol::{
 };
 
 use super::cells::{ARMOR_CELLS, CellSurface, FIRST_CRAFT_SLOT, Held};
-use super::control::{ControlKind, ControlRequest};
-use super::helpers::{bare_storage_window_matches, valid_raw_window_id, valid_storage_window_id};
+use super::control::ControlWindow;
+use super::helpers::{bare_storage_window_matches, valid_storage_window_id};
 use super::{
-    Cell, LARGE_STORAGE_SLOT_COUNT, PLAYER_INVENTORY_SLOT_COUNT, PendingCloseOwner,
-    PlayerInventoryLedger, SMALL_STORAGE_SLOT_COUNT, StorageWindow,
+    Cell, LARGE_STORAGE_SLOT_COUNT, PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryLedger,
+    SMALL_STORAGE_SLOT_COUNT, StorageWindow,
 };
 
 impl PlayerInventoryLedger {
@@ -42,7 +42,7 @@ impl PlayerInventoryLedger {
         self.admit(event);
         self.refold();
         self.finish_settled_closes();
-        self.resume_held_open();
+        self.reconcile_personal();
     }
 
     fn admit(&mut self, event: &InventoryEvent) {
@@ -57,15 +57,13 @@ impl PlayerInventoryLedger {
                 {
                     self.queue.clear();
                     self.personal = None;
-                    self.expired_personal = None;
-                    self.held_open = None;
                     self.settling.clear();
                     self.confirmed.set(Cell::Cursor, None);
                     self.player_resync_required = false;
                     self.cursor_resync_required = false;
                     self.storage = None;
-                    self.pending_closes.clear();
-                    self.sent_controls.supersede_all();
+                    self.controls.personal.desired_open = false;
+                    self.controls.storage.desired_open = false;
                     self.abandoned.clear();
                 }
             }
@@ -395,7 +393,7 @@ impl PlayerInventoryLedger {
             Some(super::PersonalWindow::Open { .. } | super::PersonalWindow::Closing { .. })
         ) {
             if let Some(window_id) = open.container.window_id {
-                self.queue_close(window_id, open.window_type, PendingCloseOwner::Cleanup);
+                self.reject_window(window_id, open.window_type);
             }
             return;
         }
@@ -412,23 +410,22 @@ impl PlayerInventoryLedger {
         let Some(kind) = protocol::WindowKind::from_window_type(open.window_type)
             .filter(|_| valid_storage_window_id(window_id))
         else {
-            self.queue_close(window_id, open.window_type, PendingCloseOwner::Cleanup);
+            self.reject_window(window_id, open.window_type);
             self.storage = None;
             self.confirmed.clear_storage();
             return;
         };
-        // Storage opens are server events; no inventory Open packet was sent for them.
-        if let Some(storage) = self.storage.as_ref() {
-            self.sent_controls.supersede(storage.generation);
-        }
+        // Storage opens are authoritative events, not client inventory control requests.
         self.supersede_pending_personal_open();
         self.enchant_options = None;
-        self.supersede_expired_personal_close(window_id);
-        // Close packets carry only an ID, so none may target the newly accepted window.
-        self.pending_closes
-            .retain(|close| close.window_id != window_id);
         let generation = self.next_open_generation;
         self.next_open_generation = self.next_open_generation.wrapping_add(1).max(1);
+        self.controls.storage.confirmed = Some(ControlWindow {
+            generation,
+            window_id,
+            window_type: open.window_type,
+        });
+        self.controls.storage.desired_open = true;
         self.storage = Some(StorageWindow {
             window_id,
             window_type: open.window_type,
@@ -449,78 +446,11 @@ impl PlayerInventoryLedger {
         }
     }
 
-    fn apply_personal_open(&mut self, open: protocol::ContainerOpenEvent) {
-        let Some(window_id) = open.container.window_id else {
-            self.note_unrouted_container();
-            return;
-        };
-        let Some(sent) = self.sent_controls.answer(ControlKind::PersonalOpen) else {
-            self.queue_late_personal_cleanup(window_id, None);
-            self.note_unrouted_container();
-            return;
-        };
-        let ControlRequest::PersonalOpen(generation) = sent.request else {
-            unreachable!("the personal-open FIFO returns only personal opens");
-        };
-        let lifecycle = self
-            .personal_lifecycle()
-            .copied()
-            .filter(|personal| personal.generation() == generation && !sent.superseded);
-        let Some(super::PersonalWindow::Opening {
-            admitted: true,
-            desired_open,
-            ..
-        }) = lifecycle
-        else {
-            self.queue_late_personal_cleanup(window_id, Some(generation));
-            return;
-        };
-        if !valid_raw_window_id(window_id) {
-            self.queue_close(window_id, open.window_type, PendingCloseOwner::Cleanup);
-            self.personal = None;
-            self.expired_personal = None;
-            self.personal_lifecycle_failed = true;
-            self.note_unrouted_container();
-            return;
-        }
-        let personal = if desired_open {
-            // A queued cleanup from an older reply must not close this newly accepted window.
-            self.pending_closes
-                .retain(|close| close.window_id != window_id);
-            super::PersonalWindow::Open {
-                generation,
-                window_id,
-                window_type: open.window_type,
-            }
-        } else {
-            self.queue_close(
-                window_id,
-                open.window_type,
-                PendingCloseOwner::Personal(generation),
-            );
-            super::PersonalWindow::Closing {
-                generation,
-                window_id,
-                window_type: open.window_type,
-                admitted: false,
-            }
-        };
-        if self.expired_personal.is_some() {
-            self.expired_personal = Some(personal);
-            if let Some(storage) = self.storage.as_ref() {
-                self.supersede_expired_personal_close(storage.window_id);
-            }
-        } else {
-            self.personal = Some(personal);
-        }
-    }
-
     fn apply_storage_content(&mut self, identity: ContainerIdentity, slots: &[NetworkItemStack]) {
         let Some(storage) = self.storage.as_ref() else {
             return;
         };
         let window_id = storage.window_id;
-        let window_type = storage.window_type;
         // Screens that keep their cells in the UI inventory never land here.
         let lengths = match storage.kind.open_cells() {
             Some(protocol::OpenCells::Generic(lengths)) => lengths,
@@ -539,11 +469,7 @@ impl PlayerInventoryLedger {
             return;
         }
         if !valid_len {
-            self.queue_close(
-                window_id,
-                window_type,
-                PendingCloseOwner::Storage(storage.generation),
-            );
+            self.controls.storage.desired_open = false;
             self.close_storage();
             return;
         }

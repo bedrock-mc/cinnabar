@@ -76,8 +76,6 @@ pub use response::StackResponseOverlay;
 pub use screen_actions::{ANVIL_MATERIAL_SLOT, ANVIL_TARGET_SLOT, ScreenCraft};
 use settling::SettlingWindow;
 
-use helpers::valid_raw_window_id;
-
 #[cfg(test)]
 use protocol::NO_CONTAINER_WINDOW_TYPE;
 use protocol::{
@@ -89,9 +87,6 @@ use thiserror::Error;
 /// Player slots share the protocol request boundary.
 pub const PLAYER_INVENTORY_SLOT_COUNT: usize = protocol::PLAYER_INVENTORY_SLOTS as usize;
 pub const INVENTORY_REQUEST_TIMEOUT_MILLIS: u64 = 1_500;
-/// Remote window churn is retained only far enough to close the newest
-/// observed surface, while the current personal close can never be evicted.
-const MAX_PENDING_CLOSES: usize = 8;
 /// The decoded generic-storage container name
 /// (`protocol::CONTAINER_NAME_LEVEL_ENTITY`).
 pub const GENERIC_STORAGE_SLOT_TYPE: u8 = protocol::CONTAINER_NAME_LEVEL_ENTITY;
@@ -141,37 +136,6 @@ struct StorageWindow {
     /// Set by a local close while admitted predictions still await their
     /// responses, retaining the generation they reconcile against.
     closing: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct PendingClose {
-    window_id: i32,
-    window_type: i8,
-    owner: PendingCloseOwner,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-enum PendingCloseOwner {
-    Cleanup,
-    Storage(u64),
-    Personal(u64),
-}
-
-impl PendingCloseOwner {
-    const fn priority(self) -> u8 {
-        match self {
-            Self::Cleanup => 0,
-            Self::Storage(_) => 1,
-            Self::Personal(_) => 2,
-        }
-    }
-
-    const fn personal_generation(self) -> Option<u64> {
-        match self {
-            Self::Personal(generation) => Some(generation),
-            Self::Cleanup | Self::Storage(_) => None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Error)]
@@ -229,18 +193,12 @@ pub struct PlayerInventoryLedger {
     session_generation: u64,
     next_open_generation: u64,
     personal: Option<PersonalWindow>,
-    /// Timed-out personal screen state retained until its cleanup finishes.
-    expired_personal: Option<PersonalWindow>,
-    personal_lifecycle_failed: bool,
-    /// An open press made while a close is unsent or unacknowledged; opens once it settles.
-    held_open: Option<u64>,
     /// Acknowledged closes whose requests still await answers; they stay current.
     settling: VecDeque<SettlingWindow>,
     storage: Option<StorageWindow>,
     pub(crate) furnace_selection: Option<crate::furnace_recipes::Selection>,
-    pending_closes: VecDeque<PendingClose>,
-    /// Transport order survives screen replacement and timeout until each late reply is drained.
-    sent_controls: control::SentControls,
+    /// Each window kind retains one desired state and at most one outstanding request.
+    controls: control::WindowControls,
     /// Admitted requests abandoned unanswered and the surfaces each put into
     /// recovery, oldest first: a late rejection lifts that recovery.
     abandoned: VecDeque<queue::AbandonedRequest>,
@@ -279,14 +237,10 @@ impl Default for PlayerInventoryLedger {
             session_generation: 0,
             next_open_generation: 1,
             personal: None,
-            expired_personal: None,
-            personal_lifecycle_failed: false,
-            held_open: None,
             settling: VecDeque::new(),
             storage: None,
             furnace_selection: None,
-            pending_closes: VecDeque::new(),
-            sent_controls: control::SentControls::default(),
+            controls: control::WindowControls::default(),
             abandoned: VecDeque::new(),
             player_resync_required: false,
             cursor_resync_required: false,
@@ -589,31 +543,6 @@ impl PlayerInventoryLedger {
             .map_err(|_| InventoryGestureError::InvalidRequest)
     }
 
-    /// Returns the next window lifecycle packet before inventory mutations.
-    fn pending_control_packet(&self) -> Result<Option<Packet>, InventoryGestureError> {
-        if !self.sent_controls.has_capacity() {
-            return Ok(None);
-        }
-        if let Some(close) = self.pending_closes.front().copied()
-            && self.close_ready()
-        {
-            return container_close_packet(close.window_id)
-                .map(Some)
-                .map_err(|_| InventoryGestureError::InvalidRequest);
-        }
-        if let Some(PersonalWindow::Opening {
-            target_runtime_id,
-            admitted: false,
-            ..
-        }) = self.personal
-        {
-            return open_inventory_packet(target_runtime_id)
-                .map(Some)
-                .map_err(|_| InventoryGestureError::InvalidRequest);
-        }
-        Ok(None)
-    }
-
     pub fn mark_transport_enqueued(&mut self, now_millis: u64) -> bool {
         if self.mark_control_enqueued(now_millis) {
             return true;
@@ -643,7 +572,7 @@ impl PlayerInventoryLedger {
     /// Unsent requests never reached the server, so sustained queue pressure
     /// rolls every one of them back.
     pub fn note_transport_pressure(&mut self, now_millis: u64) {
-        if !self.pending_closes.is_empty()
+        if self.pending_control().is_some()
             || matches!(
                 self.personal,
                 Some(PersonalWindow::Opening {
@@ -676,8 +605,7 @@ impl PlayerInventoryLedger {
     /// response: they keep their prediction and require a full refresh.
     /// Returns `true` only when the personal Open/Close lifecycle expired.
     pub fn poll_timeout(&mut self, now_millis: u64) -> bool {
-        let personal_expired = self.poll_personal_timeout(now_millis);
-        self.sent_controls.expire(now_millis);
+        let personal_expired = self.poll_control_timeout(now_millis);
         self.expire_overdue_requests(now_millis);
         self.finish_settled_closes();
         personal_expired
@@ -685,18 +613,14 @@ impl PlayerInventoryLedger {
 
     /// Whether polling can change a deadline, request, or deferred close.
     pub(crate) fn timeout_work_due(&self, now_millis: u64) -> bool {
-        self.personal_timeout_due(now_millis)
-            || self.sent_controls.timeout_due(now_millis)
+        self.controls.timeout_due(now_millis)
             || self.request_timeout_work_due(now_millis)
             || self.settled_close_index().is_some()
     }
 
     pub fn transport_closed(&mut self) {
-        self.pending_closes.clear();
-        self.sent_controls = control::SentControls::default();
+        self.controls = control::WindowControls::default();
         self.personal = None;
-        self.expired_personal = None;
-        self.held_open = None;
         self.settling.clear();
         self.abandon_requests(|_| true);
         self.finish_closing();
@@ -726,8 +650,7 @@ impl PlayerInventoryLedger {
             // predictions; further close gestures stay blocked.
             return;
         }
-        let (window_id, window_type, generation) =
-            (storage.window_id, storage.window_type, storage.generation);
+        let (window_type, generation) = (storage.window_type, storage.generation);
         let returning = if window_type == WORKBENCH_WINDOW_TYPE
             || self.authority == Some(InventoryAuthority::Client)
         {
@@ -739,11 +662,7 @@ impl PlayerInventoryLedger {
         } else {
             false
         };
-        self.queue_close(
-            window_id,
-            window_type,
-            PendingCloseOwner::Storage(generation),
-        );
+        self.controls.storage.desired_open = false;
         if !returning {
             self.abandon_requests(|pending| {
                 pending.storage_generation == Some(generation)
@@ -770,11 +689,7 @@ impl PlayerInventoryLedger {
         };
         if storage.closing
             && !self.storage_request_bound(storage.generation)
-            && (self.close_ready()
-                || !self
-                    .pending_closes
-                    .iter()
-                    .any(|close| matches!(close.owner, PendingCloseOwner::Storage(_))))
+            && (self.close_ready() || self.controls.storage.sent.is_some())
         {
             self.discard_storage();
         }
@@ -876,48 +791,6 @@ impl PlayerInventoryLedger {
         self.confirmed.clear_ui();
         self.crafting_resync_required = false;
         self.surface_refreshed(CellSurface::Crafting);
-    }
-
-    /// Merges unsent closes while preserving ownership of the current personal lifecycle.
-    fn queue_close(&mut self, window_id: i32, window_type: i8, owner: PendingCloseOwner) {
-        if !valid_raw_window_id(window_id) {
-            return;
-        }
-        let current_personal = self.personal_lifecycle().map(PersonalWindow::generation);
-        if let Some(existing) = self
-            .pending_closes
-            .iter_mut()
-            .find(|close| close.window_id == window_id && close.window_type == window_type)
-        {
-            if owner.priority() > existing.owner.priority()
-                || matches!(owner, PendingCloseOwner::Personal(generation) if Some(generation) == current_personal)
-            {
-                existing.owner = owner;
-            }
-            return;
-        }
-        if self.pending_closes.len() >= MAX_PENDING_CLOSES {
-            // Old cleanup and storage closes describe superseded server
-            // windows. Evict the oldest such control, but preserve the close
-            // that owns the still-current personal generation.
-            let Some(eviction) = self.pending_closes.iter().position(|close| {
-                current_personal
-                    .is_none_or(|generation| close.owner.personal_generation() != Some(generation))
-            }) else {
-                return;
-            };
-            self.pending_closes.remove(eviction);
-        }
-        self.pending_closes.push_back(PendingClose {
-            window_id,
-            window_type,
-            owner,
-        });
-    }
-
-    fn remove_pending_close(&mut self, window_id: i32, window_type: i8) {
-        self.pending_closes
-            .retain(|close| close.window_id != window_id || close.window_type != window_type);
     }
 
     /// Requires a refresh independently of any abandoned request's eventual answer.

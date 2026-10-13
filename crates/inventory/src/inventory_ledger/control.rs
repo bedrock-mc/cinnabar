@@ -1,49 +1,51 @@
-//! Sent window controls retain their reply order independently of screen ownership.
+//! One outstanding control and one desired state per window kind.
 
-use std::collections::VecDeque;
+use super::{INVENTORY_REQUEST_TIMEOUT_MILLIS, PERSONAL_INVENTORY_WINDOW_TYPE};
 
-use super::{
-    INVENTORY_REQUEST_TIMEOUT_MILLIS, PendingClose, PendingCloseOwner, PersonalWindow,
-    PlayerInventoryLedger,
-};
-
+mod reconcile;
 mod replies;
 #[cfg(test)]
 mod tests;
 
-/// Stop admitting controls rather than evicting an unanswered correlation record.
-const MAX_SENT_CONTROLS: usize = 128;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ControlKind {
-    PersonalOpen,
-    Close,
+    Personal,
+    Storage,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ControlWindow {
+    pub generation: u64,
+    pub window_id: i32,
+    pub window_type: i8,
+}
+
+impl ControlWindow {
+    /// Personal and storage windows have independent outstanding requests.
+    pub fn kind(self) -> ControlKind {
+        if self.window_type == PERSONAL_INVENTORY_WINDOW_TYPE {
+            ControlKind::Personal
+        } else {
+            ControlKind::Storage
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ControlRequest {
-    PersonalOpen(u64),
-    Close(PendingClose),
+    Open {
+        generation: u64,
+        target_runtime_id: u64,
+    },
+    Close(ControlWindow),
 }
 
 impl ControlRequest {
-    /// Replies distinguish personal opens from closes, but not the owner of a close.
-    pub(super) const fn kind(self) -> ControlKind {
+    /// Returns the window kind whose admission slot this request occupies.
+    pub fn kind(self) -> ControlKind {
         match self {
-            Self::PersonalOpen(_) => ControlKind::PersonalOpen,
-            Self::Close(_) => ControlKind::Close,
-        }
-    }
-
-    /// Identifies the window that sent this control; unsolicited cleanup owns no screen.
-    const fn generation(self) -> Option<u64> {
-        match self {
-            Self::PersonalOpen(generation) => Some(generation),
-            Self::Close(close) => match close.owner {
-                PendingCloseOwner::Personal(generation)
-                | PendingCloseOwner::Storage(generation) => Some(generation),
-                PendingCloseOwner::Cleanup => None,
-            },
+            Self::Open { .. } => ControlKind::Personal,
+            Self::Close(window) => window.kind(),
         }
     }
 }
@@ -51,157 +53,92 @@ impl ControlRequest {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct SentControl {
     pub request: ControlRequest,
-    pub superseded: bool,
-    /// None means this request timed out once; its late reply still occupies this FIFO slot.
-    deadline_millis: Option<u64>,
+    sequence: u64,
+    deadline_millis: u64,
 }
 
 #[derive(Debug, Clone, Default)]
-pub(super) struct SentControls {
-    entries: VecDeque<SentControl>,
+pub(super) struct WindowControl {
+    pub desired_open: bool,
+    pub confirmed: Option<ControlWindow>,
+    pub sent: Option<SentControl>,
+    /// An unanswered open needs a close before it is safe to try opening again.
+    pub reset_required: bool,
 }
 
-impl SentControls {
-    /// Keeps the FIFO bounded without forgetting any request already sent.
-    pub fn has_capacity(&self) -> bool {
-        self.entries.len() < MAX_SENT_CONTROLS
+#[derive(Debug, Clone, Default)]
+pub(super) struct WindowControls {
+    pub personal: WindowControl,
+    pub storage: WindowControl,
+    pub personal_target: u64,
+    sequence: u64,
+}
+
+impl WindowControls {
+    /// Borrows the state that owns this kind's desired state and outstanding request.
+    pub fn state(&self, kind: ControlKind) -> &WindowControl {
+        match kind {
+            ControlKind::Personal => &self.personal,
+            ControlKind::Storage => &self.storage,
+        }
     }
 
-    /// Records one successful transport admission, including its window generation.
+    /// Mutably borrows one admission slot without changing the other kind.
+    pub fn state_mut(&mut self, kind: ControlKind) -> &mut WindowControl {
+        match kind {
+            ControlKind::Personal => &mut self.personal,
+            ControlKind::Storage => &mut self.storage,
+        }
+    }
+
+    /// Records transport admission only when this kind has no outstanding request.
     pub fn sent(&mut self, request: ControlRequest, now_millis: u64) {
-        assert!(
-            self.has_capacity(),
-            "control admission requires FIFO capacity"
-        );
-        self.entries.push_back(SentControl {
+        assert!(self.state(request.kind()).sent.is_none());
+        self.sequence = self.sequence.wrapping_add(1);
+        self.state_mut(request.kind()).sent = Some(SentControl {
             request,
-            superseded: false,
-            deadline_millis: Some(now_millis.saturating_add(INVENTORY_REQUEST_TIMEOUT_MILLIS)),
+            sequence: self.sequence,
+            deadline_millis: now_millis.saturating_add(INVENTORY_REQUEST_TIMEOUT_MILLIS),
         });
     }
 
-    /// Removes only the oldest request of this reply kind, including a timed-out tombstone.
-    pub fn answer(&mut self, kind: ControlKind) -> Option<SentControl> {
-        let index = self
-            .entries
-            .iter()
-            .position(|sent| sent.request.kind() == kind)?;
-        self.entries.remove(index)
+    /// Matches the wire ID, using send order only when both kinds share that ID.
+    pub fn answer_close(&mut self, window_id: Option<i32>) -> Option<ControlWindow> {
+        let kind = [ControlKind::Personal, ControlKind::Storage]
+            .into_iter()
+            .filter_map(|kind| {
+                let sent = self.state(kind).sent?;
+                matches!(sent.request, ControlRequest::Close(window) if Some(window.window_id) == window_id)
+                    .then_some((kind, sent.sequence))
+            })
+            .min_by_key(|(_, sequence)| *sequence)?
+            .0;
+        let sent = self.state_mut(kind).sent.take()?;
+        let ControlRequest::Close(window) = sent.request else {
+            unreachable!()
+        };
+        Some(window)
     }
 
-    /// Releases a window's ownership without changing the order of its unanswered controls.
-    pub fn supersede(&mut self, generation: u64) {
-        for sent in &mut self.entries {
-            if sent.request.generation() == Some(generation) {
-                sent.superseded = true;
-            }
-        }
-    }
-
-    /// Retires all screen ownership when authority changes on the same transport.
-    pub fn supersede_all(&mut self) {
-        for sent in &mut self.entries {
-            sent.superseded = true;
-        }
-    }
-
-    /// Finds the active screen's deadline in the same FIFO that owns its reply correlation.
-    pub fn generation_timeout_due(&self, generation: u64, now_millis: u64) -> bool {
-        self.entries.iter().any(|sent| {
-            sent.request.generation() == Some(generation)
-                && sent
-                    .deadline_millis
-                    .is_some_and(|deadline| now_millis >= deadline)
-        })
-    }
-
-    /// Reports whether polling can time out a sent request for the first time.
+    /// Reports whether an outstanding control can resolve through its deadline.
     pub fn timeout_due(&self, now_millis: u64) -> bool {
-        self.entries.iter().any(|sent| {
-            sent.deadline_millis
-                .is_some_and(|deadline| now_millis >= deadline)
+        [&self.personal, &self.storage].into_iter().any(|state| {
+            state
+                .sent
+                .is_some_and(|sent| now_millis >= sent.deadline_millis)
         })
     }
 
-    /// Completes each overdue wait once, retaining its slot to drain a possible late reply.
-    pub fn expire(&mut self, now_millis: u64) -> usize {
-        let mut expired = 0;
-        for sent in &mut self.entries {
-            if sent
-                .deadline_millis
-                .is_some_and(|deadline| now_millis >= deadline)
-            {
-                sent.deadline_millis = None;
-                expired += 1;
-            }
-        }
-        expired
-    }
-}
-
-impl PlayerInventoryLedger {
-    /// Records a ready control only after transport accepts it, before releasing its UI owner.
-    pub(super) fn mark_control_enqueued(&mut self, now_millis: u64) -> bool {
-        if !self.sent_controls.has_capacity() {
-            return false;
-        }
-        if self.close_ready()
-            && let Some(close) = self.pending_closes.pop_front()
+    /// Releases this kind's slot exactly once when its reply deadline expires.
+    pub fn expire(&mut self, kind: ControlKind, now_millis: u64) -> Option<ControlRequest> {
+        let state = self.state_mut(kind);
+        if state
+            .sent
+            .is_some_and(|sent| now_millis >= sent.deadline_millis)
         {
-            self.sent_controls
-                .sent(ControlRequest::Close(close), now_millis);
-            if let Some(generation) = close.owner.personal_generation()
-                && let Some(PersonalWindow::Closing {
-                    generation: current,
-                    admitted,
-                    ..
-                }) = self.personal_lifecycle_mut()
-                && *current == generation
-            {
-                *admitted = true;
-            }
-            self.resume_held_open();
-            return true;
+            state.sent.take().map(|sent| sent.request)
+        } else {
+            None
         }
-        if let Some(PersonalWindow::Opening {
-            generation,
-            admitted,
-            ..
-        }) = self.personal.as_mut()
-            && !*admitted
-        {
-            *admitted = true;
-            self.sent_controls
-                .sent(ControlRequest::PersonalOpen(*generation), now_millis);
-            return true;
-        }
-        false
-    }
-
-    /// Cleans up an old personal reply only when no newer screen could own its wire ID.
-    pub(super) fn queue_late_personal_cleanup(&mut self, window_id: i32, generation: Option<u64>) {
-        let personal_owns_id = self.personal.is_some_and(|personal| match personal {
-            // Its server-assigned ID is still unknown, so a cleanup could close the newer window.
-            PersonalWindow::Opening { admitted, .. } => admitted,
-            PersonalWindow::Open {
-                window_id: active, ..
-            }
-            | PersonalWindow::Closing {
-                window_id: active, ..
-            } => active == window_id,
-        });
-        if personal_owns_id
-            || self
-                .storage
-                .as_ref()
-                .is_some_and(|storage| storage.window_id == window_id)
-        {
-            return;
-        }
-        self.queue_close(
-            window_id,
-            super::PERSONAL_INVENTORY_WINDOW_TYPE,
-            generation.map_or(PendingCloseOwner::Cleanup, PendingCloseOwner::Personal),
-        );
     }
 }
