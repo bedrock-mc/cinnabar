@@ -101,6 +101,12 @@ pub(super) fn motion_blur(
     let Some(pipeline) = cache.get_render_pipeline(state.pipeline) else {
         return Ok(());
     };
+    let Some(footprint_pipeline) = cache.get_render_pipeline(state.footprint_pipeline) else {
+        return Ok(());
+    };
+    let Some(footprint) = &state.footprint else {
+        return Ok(());
+    };
     let Some(binding) = state.binding(
         target.main_texture_view().id(),
         crate::scene_sampling::view_depth(depth).id(),
@@ -118,6 +124,31 @@ pub(super) fn motion_blur(
         )
     {
         return Ok(());
+    }
+    if state.actors.is_some() {
+        let attachments = [Some(RenderPassColorAttachment {
+            view: &footprint.view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                store: wgpu::StoreOp::Store,
+            },
+        })];
+        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+            label: Some("actor motion tile reduction"),
+            color_attachments: &attachments,
+            depth_stencil_attachment: None,
+            timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                world,
+                render_scene::RuntimeStage::GpuPost,
+            ),
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_render_pipeline(footprint_pipeline);
+        pass.set_bind_group(0, &footprint.binding, &[]);
+        pass.draw(0..3, 0..1);
     }
     // Resolve only world colour, then write exposure back before sharp projected UI and hands.
     if scene.texture.sample_count() == 1 {

@@ -8,12 +8,27 @@ use std::{collections::HashMap, mem::size_of};
 #[derive(Resource)]
 pub(super) struct BlurPipeline {
     layouts: [BindGroupLayoutDescriptor; 2],
+    footprint_layouts: [BindGroupLayoutDescriptor; 2],
     pub sampler: Sampler,
     variants: HashMap<(TextureFormat, u32), CachedRenderPipelineId>,
+    footprint_variants: HashMap<u32, CachedRenderPipelineId>,
     neutral_motion: HashMap<u32, (Texture, TextureView)>,
 }
 
 impl BlurPipeline {
+    /// Retains tile binding layouts so warm preparation does not allocate descriptors.
+    pub fn footprint_layout(&self, samples: u32) -> &BindGroupLayoutDescriptor {
+        &self.footprint_layouts[usize::from(samples > 1)]
+    }
+
+    /// Returns the tile reduction variant requested during loading for this sample count.
+    pub fn footprint(&mut self, cache: &PipelineCache, samples: u32) -> CachedRenderPipelineId {
+        *self
+            .footprint_variants
+            .entry(samples)
+            .or_insert_with(|| super::footprint::queue(cache, samples))
+    }
+
     /// Actorless views bind a tiny texture and skip reading it in the exposure shader.
     pub fn neutral_motion(&mut self, device: &RenderDevice, samples: u32) -> TextureView {
         self.neutral_motion
@@ -134,11 +149,22 @@ pub(super) fn init(mut commands: Commands, device: Res<RenderDevice>) {
                     },
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: false },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         )
     });
     commands.insert_resource(BlurPipeline {
         layouts,
+        footprint_layouts: [false, true].map(super::footprint::layout),
         sampler: device.create_sampler(&SamplerDescriptor {
             label: Some("camera exposure linear clamp"),
             mag_filter: FilterMode::Linear,
@@ -146,6 +172,7 @@ pub(super) fn init(mut commands: Commands, device: Res<RenderDevice>) {
             ..default()
         }),
         variants: HashMap::default(),
+        footprint_variants: HashMap::default(),
         neutral_motion: HashMap::default(),
     });
 }
@@ -163,6 +190,7 @@ impl crate::pipeline_warmup::PrewarmPipelines for BlurPipeline {
             render_scene::SCENE_COLOR_FORMAT
         };
         ids.push(self.specialize(cache, format, view.msaa.samples()));
+        ids.push(self.footprint(cache, view.msaa.samples()));
         Ok(())
     }
 }

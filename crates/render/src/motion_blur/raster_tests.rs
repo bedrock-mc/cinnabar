@@ -22,6 +22,7 @@ struct Raster {
 struct ActorMotion {
     velocity: [f32; 4],
     bounds: UVec4,
+    depth: Option<f32>,
 }
 
 impl Raster {
@@ -210,6 +211,8 @@ impl Raster {
                 contents: bytemuck::bytes_of(&exposure),
                 usage: wgpu::BufferUsages::UNIFORM,
             });
+        let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
+        let tiles = self.tile_target();
         let group = self
             .gpu
             .device
@@ -237,10 +240,12 @@ impl Raster {
                         binding: 4,
                         resource: wgpu::BindingResource::TextureView(&actor_view),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::TextureView(&tiles),
+                    },
                 ],
             });
-        let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
-        self.draw_motion(&mut encoder, &actor_view, samples, motion, sample_mask);
         {
             let _clear = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("motion blur fixture depth clear"),
@@ -258,6 +263,16 @@ impl Raster {
                 multiview_mask: None,
             });
         }
+        self.draw_motion(
+            &mut encoder,
+            &actor_view,
+            &depth_view,
+            samples,
+            motion,
+            sample_mask,
+            z,
+        );
+        self.draw_tiles(&mut encoder, &shader, &uniform, &actor_view, &tiles);
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("motion blur production fragment"),
@@ -314,25 +329,132 @@ impl Raster {
             .to_vec()
     }
 
+    /// Creates a target with the same tile dimensions and format as the production pass.
+    fn tile_target(&self) -> wgpu::TextureView {
+        self.gpu
+            .device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("actor tile fixture"),
+                size: wgpu::Extent3d {
+                    width: SIDE.div_ceil(super::footprint::TILE_SIZE),
+                    height: SIDE.div_ceil(super::footprint::TILE_SIZE),
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: super::footprint::FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&Default::default())
+    }
+
+    /// Runs the production tile reduction before the final exposure gather.
+    fn draw_tiles(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        shader: &wgpu::ShaderModule,
+        uniform: &wgpu::Buffer,
+        actors: &wgpu::TextureView,
+        target: &wgpu::TextureView,
+    ) {
+        let pipeline = self
+            .gpu
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("production actor tile reduction"),
+                layout: None,
+                vertex: wgpu::VertexState {
+                    module: shader,
+                    entry_point: Some("vertex"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: shader,
+                    entry_point: Some("tile_fragment"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: super::footprint::FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: Default::default(),
+                depth_stencil: None,
+                multisample: Default::default(),
+                multiview_mask: None,
+                cache: None,
+            });
+        let binding = self
+            .gpu
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &pipeline.get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: uniform.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(actors),
+                    },
+                ],
+            });
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("actor tile fixture"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &binding, &[]);
+        pass.draw(0..3, 0..1);
+    }
+
     /// Clears world coverage and rasterizes the actor rectangle at every supported sample count.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "fixture controls the actor coverage and depth attachments"
+    )]
     fn draw_motion(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
+        depth_view: &wgpu::TextureView,
         samples: u32,
         motion: Option<ActorMotion>,
         sample_mask: u64,
+        z: f32,
     ) {
         let resources = motion.map(|motion| {
             let source = format!(
-                "{}\n{}",
-                include_str!("../motion_blur.wgsl"),
                 r#"
-@group(0) @binding(5) var<uniform> velocity: vec4<f32>;
-@fragment fn motion_fragment() -> @location(0) vec4<f32> {
-    return velocity;
-}
-"#
+@vertex fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {{
+    let uv = vec2<f32>(f32((index << 1u) & 2u), f32(index & 2u));
+    return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
+}}
+@group(0) @binding(0) var<uniform> velocity: vec4<f32>;
+struct Motion {{ @location(0) velocity: vec4<f32>, @builtin(frag_depth) depth: f32 }}
+@fragment fn motion_fragment() -> Motion {{
+    return Motion(velocity, {depth});
+}}
+"#,
+                depth = motion.depth.unwrap_or(z)
             );
             let shader = self
                 .gpu
@@ -364,7 +486,13 @@ impl Raster {
                             })],
                         }),
                         primitive: Default::default(),
-                        depth_stencil: None,
+                        depth_stencil: Some(wgpu::DepthStencilState {
+                            format: DEPTH,
+                            depth_write_enabled: Some(true),
+                            depth_compare: Some(wgpu::CompareFunction::Always),
+                            stencil: Default::default(),
+                            bias: Default::default(),
+                        }),
                         multisample: wgpu::MultisampleState {
                             count: samples,
                             mask: sample_mask,
@@ -388,7 +516,7 @@ impl Raster {
                     label: None,
                     layout: &pipeline.get_bind_group_layout(0),
                     entries: &[wgpu::BindGroupEntry {
-                        binding: 5,
+                        binding: 0,
                         resource: uniform.as_entire_binding(),
                     }],
                 });
@@ -405,7 +533,14 @@ impl Raster {
                     store: wgpu::StoreOp::Store,
                 },
             })],
-            depth_stencil_attachment: None,
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: depth_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
             timestamp_writes: None,
             occlusion_query_set: None,
             multiview_mask: None,
@@ -434,6 +569,7 @@ fn actor_coverage_outside_msaa_sample_zero_does_not_receive_world_translation_bl
             samples,
             z,
             Some(ActorMotion {
+                depth: None,
                 velocity: [0.0, 0.0, 1.0, 1.0],
                 bounds: UVec4::new(0, 0, SIDE, SIDE),
             }),
@@ -463,6 +599,7 @@ fn actor_velocity_keeps_camera_followed_pixels_sharp_without_erasing_object_moti
             samples,
             z,
             Some(ActorMotion {
+                depth: None,
                 velocity: [0.0, 0.0, 1.0, 1.0],
                 bounds: UVec4::new(0, 0, SIDE, SIDE),
             }),
@@ -479,6 +616,7 @@ fn actor_velocity_keeps_camera_followed_pixels_sharp_without_erasing_object_moti
             samples,
             z,
             Some(ActorMotion {
+                depth: None,
                 velocity: [0.125, 0.0, 1.0, 1.0],
                 bounds: UVec4::new(0, 0, SIDE, SIDE),
             }),
@@ -527,6 +665,7 @@ fn moving_actor_silhouettes_blur_against_world_pixels() {
                 samples,
                 z,
                 Some(ActorMotion {
+                    depth: None,
                     velocity: [-0.125, 0.0, 1.0, 1.0],
                     bounds,
                 }),
@@ -535,10 +674,10 @@ fn moving_actor_silhouettes_blur_against_world_pixels() {
                 pixel(&moving, bounds.x) < 240,
                 "moving silhouette kept its sharp edge at {samples}x MSAA"
             );
-            if camera != Mat4::IDENTITY {
+            for x in [bounds.x - 3, bounds.x + bounds.z + 2] {
                 assert!(
-                    pixel(&moving, bounds.x - 3) > 8,
-                    "camera pan must gather across a moving actor boundary at {samples}x MSAA"
+                    pixel(&moving, x) > 8,
+                    "moving silhouette must extend beyond both edges at {samples}x MSAA/{camera:?}"
                 );
             }
             let followed = raster.draw_with_motion(
@@ -547,6 +686,7 @@ fn moving_actor_silhouettes_blur_against_world_pixels() {
                 samples,
                 z,
                 Some(ActorMotion {
+                    depth: None,
                     velocity: [0.0, 0.0, 1.0, 1.0],
                     bounds,
                 }),
@@ -561,6 +701,71 @@ fn moving_actor_silhouettes_blur_against_world_pixels() {
                 0,
                 "world blur must reject screen-stationary actors"
             );
+        }
+    }
+}
+
+#[test]
+fn actor_streaks_respect_foreground_depth_and_diagonal_reach() {
+    let Some(raster) = Raster::new("actor footprint depth raster") else {
+        return;
+    };
+    // The rectangle crosses a tile boundary so both neighbour lookup and source reduction matter.
+    let edge = super::footprint::TILE_SIZE;
+    let bounds = UVec4::new(edge - 4, edge - 4, 8, 8);
+    let input = image(|x, y| {
+        if x >= bounds.x && x < bounds.x + bounds.z && y >= bounds.y && y < bounds.y + bounds.w {
+            [255, 0, 0, 255]
+        } else {
+            [0, 128, 0, 255]
+        }
+    });
+    let pixel = |pixels: &[u8], x: u32, y: u32| pixels[((y * SIDE + x) * 4) as usize];
+    for &samples in &raster.depth_samples {
+        for sample_mask in [!0, 1 << (samples - 1)] {
+            for (background_depth, spreads) in [(0.0, true), (0.0125, true), (0.05, false)] {
+                let mut uniform = exposure(Mat4::IDENTITY);
+                uniform.strength.x = 1.0;
+                let output = raster.draw_with_motion_mask(
+                    &input,
+                    uniform,
+                    samples,
+                    background_depth,
+                    Some(ActorMotion {
+                        velocity: [0.125, 0.125, 1.0, 1.0],
+                        bounds,
+                        depth: Some(0.025),
+                    }),
+                    sample_mask,
+                );
+                for (x, y) in [
+                    (bounds.x - 3, bounds.y - 3),
+                    (bounds.x + bounds.z + 2, bounds.y + bounds.w + 2),
+                ] {
+                    if spreads {
+                        assert!(
+                            pixel(&output, x, y) > 8,
+                            "actor streak failed to reach background at {samples}x MSAA/mask {sample_mask}"
+                        );
+                    } else {
+                        assert_eq!(
+                            pixel(&output, x, y),
+                            0,
+                            "actor streak leaked onto closer foreground at {samples}x MSAA/mask {sample_mask}"
+                        );
+                    }
+                }
+                assert_eq!(
+                    pixel(&output, bounds.x - 3, bounds.y + bounds.w + 2),
+                    0,
+                    "tile propagation must not spread perpendicular to actual actor motion"
+                );
+                assert_eq!(
+                    pixel(&output, bounds.x - 12, bounds.y - 12),
+                    0,
+                    "tile propagation must not extend beyond the actor's exposure"
+                );
+            }
         }
     }
 }
@@ -591,6 +796,7 @@ fn bilinear_world_gathers_do_not_leak_stationary_actor_colour() {
                 samples,
                 z,
                 Some(ActorMotion {
+                    depth: None,
                     velocity: [0.0, 0.0, 1.0, 1.0],
                     bounds,
                 }),

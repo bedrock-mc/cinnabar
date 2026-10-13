@@ -5,6 +5,7 @@ use render_scene::CameraMotionBlur;
 pub(crate) mod actor_history;
 #[cfg(test)]
 mod extraction_tests;
+mod footprint;
 pub(crate) mod graph;
 pub(crate) mod history;
 mod pipeline;
@@ -59,9 +60,27 @@ impl Plugin for CameraMotionBlurPlugin {
 }
 
 fn shader_source(source: &str, multisampled: bool) -> String {
+    let source = source.replace("MOTION_TILE_SIZE", &footprint::TILE_SIZE.to_string());
     if multisampled {
         source
             .replace("texture_depth_2d", "texture_depth_multisampled_2d")
+            .replace(
+                "let covered_depth = textureLoad(depth, pixel, 0);",
+                r#"var covered_depth = 0.0;
+    for (var sample = 0u; sample < textureNumSamples(depth); sample++) {
+        if textureLoad(actor_velocity, pixel, i32(sample)).z >= 0.5 {
+            covered_depth = max(covered_depth, textureLoad(depth, pixel, i32(sample)));
+        }
+    }"#,
+            )
+            .replace(
+                "return textureLoad(depth, pixel, 0);",
+                r#"var nearest = 0.0;
+    for (var sample = 0u; sample < textureNumSamples(depth); sample++) {
+        nearest = max(nearest, textureLoad(depth, pixel, i32(sample)));
+    }
+    return nearest;"#,
+            )
             .replace(
                 "var actor_velocity: texture_2d<f32>",
                 "var actor_velocity: texture_multisampled_2d<f32>",
@@ -84,7 +103,7 @@ fn shader_source(source: &str, multisampled: bool) -> String {
     return vec4<f32>(velocity / f32(covered), 1.0, f32(covered) / f32(samples));"#,
             )
     } else {
-        source.to_owned()
+        source
     }
 }
 
@@ -104,6 +123,9 @@ pub(crate) fn applies(world: &World, entity: Entity) -> bool {
     };
     state.active
         && cache.get_render_pipeline(state.pipeline).is_some()
+        && cache
+            .get_render_pipeline(state.footprint_pipeline)
+            .is_some()
         && state
             .binding(
                 target.main_texture_view().id(),
