@@ -152,9 +152,9 @@ fn synced_packet_burst_shares_one_worker_and_one_mesh_fence() {
                     dimension: 0,
                     position: [(cell >> 8), cell & 15, (cell >> 4) & 15],
                     layer: 0,
-                    network_id: 4,
+                    network_id: if sequence % 2 == 1 { 4 } else { 2 },
                 },
-                flags: 0,
+                flags: 2,
                 sync: ActorBlockSyncMessage {
                     actor_unique_id: sequence as i64,
                     message: 1,

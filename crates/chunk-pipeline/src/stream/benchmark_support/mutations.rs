@@ -21,6 +21,18 @@ impl MutationBurstFixture {
                 .commit_sub_chunk(key, section.clone())
                 .unwrap();
             stream.resident.insert(key);
+            stream.lighting.block_generations.insert(key, 1);
+            stream
+                .lighting
+                .store
+                .insert_resident(key, SubChunkLight::uniform(0, 0, 1).unwrap());
+            stream.lighting.ownership.insert(
+                key,
+                LightOwnership {
+                    block_generation: 1,
+                    light_revision: 1,
+                },
+            );
         }
         stream.polling = true;
         stream.poll_heavy_guarantee = false;
