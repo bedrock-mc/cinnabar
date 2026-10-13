@@ -753,6 +753,47 @@ mod tests {
         }
     }
 
+    #[test]
+    fn rocket_launch_audio_pairs_client_and_packet_without_suppressing_packet_repeats() {
+        let mut engine = AudioEngine::default();
+        let mut launch = protocol::LevelAudioEvent {
+            sound_event: "launch".into(),
+            position: [1.0, 2.0, 3.0],
+            data: -1,
+            actor_identifier: "minecraft:fireworks_rocket".into(),
+            is_baby: false,
+            is_global: false,
+            actor_unique_id: 17,
+            fire_at_position: None,
+        };
+        assert!(engine.admit_echo(
+            EchoOrigin::Client,
+            "launch",
+            EchoSubject::Actor(17),
+            ACTOR_ECHO_SECONDS
+        ));
+        assert!(
+            !admit_level_echo(&mut engine, &launch),
+            "the packet copy must not replay the actor cue"
+        );
+        assert!(
+            admit_level_echo(&mut engine, &launch),
+            "the consumed echo must preserve packet repeats"
+        );
+        assert!(
+            !engine.admit_echo(
+                EchoOrigin::Client,
+                "launch",
+                EchoSubject::Actor(17),
+                ACTOR_ECHO_SECONDS
+            ),
+            "packet-first delivery also pairs"
+        );
+        launch.actor_unique_id = 18;
+        assert!(admit_level_echo(&mut engine, &launch));
+        assert!(admit_level_echo(&mut engine, &launch));
+    }
+
     // Record starts that never become (or stop being) voices must not stay tracked.
     #[test]
     fn review_destroy_block_packet_suppresses_the_predicted_break_echo() {

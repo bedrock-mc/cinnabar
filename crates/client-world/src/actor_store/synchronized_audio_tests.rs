@@ -1,6 +1,77 @@
 use super::*;
 use protocol::{ActorEvent, ActorMoveEvent, ActorPositionOrigin, ActorRemoveEvent};
 
+/// Spawns an original rocket fixture with the requested silent flag.
+fn rocket(silent: bool) -> ActorEvent {
+    let ActorEvent::Spawn(mut spawn) = crate::actor_store::tests::spawn(7, 17) else {
+        unreachable!()
+    };
+    spawn.kind = protocol::ActorKind::Entity {
+        identifier: "minecraft:fireworks_rocket".into(),
+    };
+    spawn.metadata = std::sync::Arc::from([protocol::ActorMetadata {
+        key: protocol_ids::ActorDataKey::Flags.wire_value(),
+        value: protocol::ActorMetadataValue::Flags(
+            u64::from(silent) << protocol_ids::ActorFlag::Silent.wire_value(),
+        ),
+    }]);
+    ActorEvent::Spawn(spawn)
+}
+
+#[test]
+fn rocket_launch_audio_waits_for_first_tick_and_emits_once_per_lifetime() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, rocket(false));
+    assert!(store.take_synchronized_audio().is_empty());
+    store.advance_interpolation_frame(0);
+    assert!(store.take_synchronized_audio().is_empty());
+    store.advance_interpolation_frame(4);
+    let events = store.take_synchronized_audio();
+    assert_eq!(
+        events.len(),
+        1,
+        "the first rocket tick must request launch audio"
+    );
+    let protocol::AudioEvent::Level(level) = &events[0].event else {
+        panic!("expected a level sound route")
+    };
+    assert_eq!(level.sound_event.as_ref(), "launch");
+    assert_eq!(level.position, [1.0, 2.0, 3.0]);
+    assert_eq!(level.actor_unique_id, 17);
+    assert_eq!(events[0].actor_synchronization.unwrap().spawn_revision, 1);
+    store.advance_interpolation_frame(4);
+    assert!(store.take_synchronized_audio().is_empty());
+    store.apply(1, 2, rocket(false));
+    store.advance_interpolation_ticks(1);
+    let events = store.take_synchronized_audio();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].actor_synchronization.unwrap().spawn_revision, 2);
+}
+
+#[test]
+fn rocket_launch_audio_honors_silent_at_first_tick_and_discards_ended_lifetimes() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, rocket(false));
+    store.apply(1, 2, rocket(true));
+    store.advance_interpolation_ticks(1);
+    assert!(store.take_synchronized_audio().is_empty());
+    store.apply(1, 3, rocket(false));
+    store.apply(
+        1,
+        4,
+        ActorEvent::Remove(ActorRemoveEvent {
+            dimension: 0,
+            unique_id: 17,
+        }),
+    );
+    store.advance_interpolation_ticks(1);
+    assert!(store.take_synchronized_audio().is_empty());
+    store.apply(1, 5, rocket(false));
+    store.reset_dimension(1, 6, 1);
+    store.advance_interpolation_ticks(1);
+    assert!(store.take_synchronized_audio().is_empty());
+}
+
 fn store() -> ActorStore {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, crate::actor_store::tests::spawn(7, 17));
