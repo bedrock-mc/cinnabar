@@ -92,6 +92,9 @@ pub(crate) fn source(source: &str) -> String {
         .replace("GPU_TEXTURE_WIDTH_SHIFT", &format!("{TEXTURE_WIDTH_SHIFT}u"))
         .replace("GPU_TEXTURE_HEIGHT_SHIFT", &format!("{TEXTURE_HEIGHT_SHIFT}u"))
         .replace("BLOCK_OVERLAY_FACE_OFFSET", &format!("{:?}", render_api::BLOCK_OVERLAY_FACE_OFFSET))
+        .replace("ACTOR_COLOR_MASK_MATERIAL_FLAG", &format!("{}u", render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG))
+        .replace("ACTOR_MATERIAL_LEGACY112_FLAG", &format!("{}u", render_model::LEGACY_COMBAT_MATERIAL_FLAG))
+        .replace("// LEGACY_GLINT_CONSTANTS", &legacy_glint_constants())
         .replace("ACTOR_MATERIAL_GLINT", &format!("{}u", assets::EntityRenderMaterial::Glint as u32))
         .replace("ACTOR_MATERIAL_DEFAULT", &format!("{}u", assets::EntityRenderMaterial::Default as u32))
         .replace("ACTOR_MATERIAL_DRAGON", &format!("{}u", assets::EntityRenderMaterial::Dragon as u32))
@@ -185,4 +188,18 @@ pub(crate) fn source(source: &str) -> String {
             "NATIVE_LEAF_SAMPLER_BINDING",
             &NATIVE_LEAF_SAMPLER_BINDING.to_string(),
         )
+}
+
+/// Generates the legacy shader's UV rules from the shared rendering contract.
+fn legacy_glint_constants() -> String {
+    let rules = render_api::BEDROCK_112;
+    let rotation = |angle: f32| {
+        let (sin, cos) = angle.sin_cos();
+        format!("vec2<f32>({cos:?}, {sin:?})")
+    };
+    format!(
+        "const LEGACY_GLINT_ROTATION_1: vec2<f32> = {};\nconst LEGACY_GLINT_ROTATION_2: vec2<f32> = {};",
+        rotation(rules.glint_rotation_radians[0]),
+        rotation(rules.glint_rotation_radians[1]),
+    )
 }

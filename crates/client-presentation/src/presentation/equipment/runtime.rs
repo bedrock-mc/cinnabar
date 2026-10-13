@@ -19,6 +19,7 @@ use render_model::{
 
 mod alpha;
 mod attack;
+mod combat;
 mod diagnostics;
 mod elytra;
 mod java;
@@ -230,6 +231,10 @@ impl EquipmentRuntime {
             Some(glint) => artwork.with_actor_glint(glint),
             None => artwork,
         };
+        let artwork = match catalog.as_deref().and_then(Self::item_glint) {
+            Some(glint) => artwork.with_item_glint(glint),
+            None => artwork,
+        };
         let (artwork, locations) = artwork.with_equipment_rasters(&rasters);
         let texture_locations = textures
             .iter()
@@ -369,17 +374,21 @@ impl EquipmentRuntime {
         input: &ActorEquipmentInput,
         animation: Option<EquipmentAnimation<'_>>,
     ) -> &mut [EquipmentPresentation] {
+        self.layers_for_profile(body, input, render_api::DEFAULT_COMBAT_VISUALS, animation)
+    }
+
+    /// Selects combat visuals for worn slots without changing held items or Java poses.
+    pub fn layers_for_profile(
+        &mut self,
+        body: &ActorRigSubmission,
+        input: &ActorEquipmentInput,
+        profile: render_api::CombatVisuals,
+        animation: Option<EquipmentAnimation<'_>>,
+    ) -> &mut [EquipmentPresentation] {
         let mut layers = std::mem::take(&mut self.layers);
         layers.clear();
-        self.fill_layers(body, input, animation, &mut layers);
-        if input.java.is_some() {
-            // The Java animation option includes worn equipment in the body's hurt flash.
-            for layer in &mut layers {
-                if layer.submission.input.identity.layer >= LAYER_HELMET {
-                    layer.submission.overlay_rgba8 = body.overlay_rgba8;
-                }
-            }
-        }
+        self.fill_layers(body, input, profile, animation, &mut layers);
+        combat::apply(&mut layers, body, input, profile, animation);
         self.layers = layers;
         &mut self.layers
     }
@@ -389,6 +398,7 @@ impl EquipmentRuntime {
         &mut self,
         body: &ActorRigSubmission,
         input: &ActorEquipmentInput,
+        profile: render_api::CombatVisuals,
         animation: Option<EquipmentAnimation<'_>>,
         layers: &mut Vec<EquipmentPresentation>,
     ) {
@@ -523,7 +533,7 @@ impl EquipmentRuntime {
                     geometry,
                     (slot, layer),
                     item,
-                    (input, animation),
+                    (input, animation, profile),
                     layers,
                 );
                 if layers.len() == before {

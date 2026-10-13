@@ -436,7 +436,6 @@ fn rig_vertex_shader_stride_includes_both_uvs_without_changing_player_alpha() {
 
 #[test]
 fn native_color_mask_alpha_controls_dye_not_opacity() {
-    assert!(ACTOR_SHADER_SOURCE.contains("let color_mask_material = material_class.y != 0u;"));
     assert!(ACTOR_SHADER_SOURCE.contains("!color_mask_material && !multitexture_material &&"));
     assert!(ACTOR_SHADER_SOURCE.contains("mix(color.rgb, color.rgb * dye, color.a)"));
     assert!(ACTOR_SHADER_SOURCE.contains("color.a * change_color.a"));

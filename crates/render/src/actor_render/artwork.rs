@@ -27,6 +27,8 @@ pub(super) struct GpuArtwork {
     identity: Option<([u8; 32], [u8; 32])>,
     pub pages: Vec<GpuArtworkPage>,
     pub glint: Option<(Texture, TextureView)>,
+    pub item_glint: Option<(Texture, TextureView)>,
+    item_glint_source: Option<TextureKey>,
     glint_source: Option<TextureKey>,
     glint_bytes: usize,
     source_hasher: RandomState,
@@ -53,30 +55,43 @@ impl GpuArtwork {
             height: 1,
             rgba8: Arc::from([0u8; 4]),
         };
-        let source = pages.actor_glint.as_ref().unwrap_or(&fallback);
-        let glint_page = render_model::ActorTexturePage {
-            width: source.width,
-            height: source.height,
-            layers: 1,
-            rgba8: Arc::clone(&source.rgba8),
-            color_mask: false,
-            multitexture: false,
-        };
-        let glint_key = self
-            .glint_source
-            .as_ref()
-            .filter(|key| key.shares_pixels_with(&glint_page))
-            .cloned()
-            .unwrap_or_else(|| TextureKey::new(&glint_page, &self.source_hasher));
-        if self.glint_source.as_ref() != Some(&glint_key) {
-            let glint = glint_page.fit_within(limits.max_texture_dimension_2d);
-            let texture = upload_page(device, queue, &glint, "immutable actor glint");
-            let view = texture.create_view(&TextureViewDescriptor::default());
-            self.glint = Some((texture, view));
-            self.glint_bytes = glint.rgba8.len();
+        let mut bindings_changed = false;
+        self.glint_bytes = 0;
+        for (source, key, slot) in [
+            (&pages.actor_glint, &mut self.glint_source, &mut self.glint),
+            (
+                &pages.item_glint,
+                &mut self.item_glint_source,
+                &mut self.item_glint,
+            ),
+        ] {
+            let source = source.as_ref().unwrap_or(&fallback);
+            let page = render_model::ActorTexturePage {
+                width: source.width,
+                height: source.height,
+                layers: 1,
+                rgba8: Arc::clone(&source.rgba8),
+                color_mask: false,
+                multitexture: false,
+            };
+            let next_key = key
+                .as_ref()
+                .filter(|key| key.shares_pixels_with(&page))
+                .cloned()
+                .unwrap_or_else(|| TextureKey::new(&page, &self.source_hasher));
+            let bounded = page.fit_within(limits.max_texture_dimension_2d);
+            self.glint_bytes += bounded.rgba8.len();
+            if key.as_ref() != Some(&next_key) {
+                let texture = upload_page(device, queue, &bounded, "immutable enchantment glint");
+                let view = texture.create_view(&TextureViewDescriptor::default());
+                *slot = Some((texture, view));
+                bindings_changed = true;
+            }
+            *key = Some(next_key);
+        }
+        if bindings_changed {
             self.invalidate_bindings();
         }
-        self.glint_source = Some(glint_key);
         let bytes = pages.pages.iter().try_fold(
             render_model::PLAYER_SKIN_BUDGET_BYTES + self.glint_bytes,
             |total, page| total.checked_add(page.rgba8.len()),
