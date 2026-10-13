@@ -244,16 +244,20 @@ pub(crate) fn feed_far_terrain(
         }
         return;
     };
+    let dimension = stream.current_dimension();
     for FarColumnSummary {
-        column, summary, ..
+        column,
+        summary,
+        resident,
+        ..
     } in far.drained.drain(..)
     {
-        far.cache.admit(
-            column.dimension,
-            ColumnPos::new(column.x, column.z),
-            summary,
-            now,
-        );
+        let pos = ColumnPos::new(column.x, column.z);
+        // Loaded columns may have no other drawer, so their summaries outlive the budget.
+        if column.dimension == dimension {
+            far.cache.store().set_pinned(pos, resident);
+        }
+        far.cache.admit(column.dimension, pos, summary, now);
     }
     let centre = stream.far_terrain_centre();
     let loaded = loaded_radius(stream, &video);
@@ -272,7 +276,7 @@ pub(crate) fn feed_far_terrain(
             .1
             .filter(|column| column.dimension == centre.dimension)
             .map(|column| ColumnPos::new(column.x, column.z));
-        far.near = Arc::new(NearMask::from_columns(near_view.0, drawn));
+        far.near = Arc::new(NearMask::from_columns(near_view.0, loaded + reach, drawn));
         far.near_view = Some(near_view);
     }
     let horizon_blocks = ((loaded + reach) * 16) as f32;

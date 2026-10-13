@@ -68,7 +68,9 @@ impl WorldStream {
             let left_out: Vec<ChunkKey> = self
                 .resident
                 .columns()
-                .filter(|column| !self.wants_mesh(*column))
+                .filter(|column| {
+                    !self.wants_mesh(*column) || self.full_detail.handoffs.contains_key(column)
+                })
                 .collect();
             self.full_detail = FullDetail::default();
             for column in left_out {

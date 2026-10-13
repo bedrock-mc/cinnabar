@@ -27,6 +27,9 @@ pub struct FarColumnSummary {
     pub summary: EncodedSummary,
     /// Issue order of the job that took it; later issues saw later blocks.
     pub generation: u64,
+    /// The column was loaded when its summary was delivered; far terrain keeps such
+    /// summaries whatever its memory budget, as nothing else may draw the column.
+    pub resident: bool,
 }
 
 type SharedColours = Arc<OnceLock<Arc<SurfaceColours>>>;
@@ -115,6 +118,7 @@ impl FarSummaryInbox {
                 column: finished.column,
                 summary: finished.summary,
                 generation: finished.generation,
+                resident: false,
             });
         }
     }
@@ -216,6 +220,9 @@ impl WorldStream {
     pub fn drain_far_summaries(&mut self, out: &mut Vec<FarColumnSummary>) {
         let start = out.len();
         self.far_terrain.inbox.drain(out);
+        for summary in &mut out[start..] {
+            summary.resident = self.loaded_columns.contains(&summary.column);
+        }
         self.note_far_summaries_delivered(&out[start..]);
     }
 

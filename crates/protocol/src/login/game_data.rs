@@ -102,7 +102,7 @@ impl GameData {
 fn level_identity(start_game: &StartGame) -> u64 {
     let mut bytes = start_game.settings.seed.0.to_le_bytes().to_vec();
     for text in [&start_game.level_id, &start_game.level_name] {
-        bytes.extend_from_slice(&(text.as_bytes().len() as u64).to_le_bytes());
+        bytes.extend_from_slice(&(text.len() as u64).to_le_bytes());
         bytes.extend_from_slice(text.as_bytes());
     }
     xxhash_rust::xxh64::xxh64(&bytes, 0)
