@@ -28,6 +28,7 @@ pub fn legacy_resource_pack_block_alias(identifier: &str) -> Option<&'static str
         "grass_block" => Some("grass"),
         "iron_chain" => Some("chain"),
         "sea_lantern" => Some("seaLantern"),
+        "trip_wire" => Some("tripWire"),
         "dandelion" => Some("yellow_flower"),
         "poppy" | "blue_orchid" | "allium" | "azure_bluet" | "red_tulip" | "orange_tulip"
         | "white_tulip" | "pink_tulip" | "oxeye_daisy" | "cornflower" | "lily_of_the_valley" => {
@@ -42,6 +43,33 @@ pub fn legacy_resource_pack_block_alias(identifier: &str) -> Option<&'static str
 #[cfg(test)]
 mod tests {
     use super::legacy_resource_pack_block_alias as alias;
+
+    #[test]
+    fn registered_trip_wire_resolves_the_legacy_pack_entry() {
+        let registry = crate::read_registry_for_protocol(
+            crate::pinned_block_registry_bytes(),
+            crate::active_content_registry_protocol(),
+        )
+        .unwrap();
+        let record = registry
+            .iter()
+            .find(|record| record.name.as_ref() == "minecraft:trip_wire")
+            .unwrap();
+        let key = alias(&record.name).unwrap();
+        assert_eq!(key, "tripWire");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let path = root
+            .join(crate::vanilla_source().resource_pack_dir())
+            .join("blocks.json");
+        if !path.is_file() {
+            eprintln!("skipping trip-wire pack-entry check: missing pinned blocks.json");
+            return;
+        }
+        let blocks: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(blocks[key]["textures"], "trip_wire");
+        assert_eq!(alias("example:trip_wire"), None);
+    }
 
     #[test]
     fn resource_pack_aliases_only_apply_to_known_vanilla_names() {

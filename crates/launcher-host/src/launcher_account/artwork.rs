@@ -212,8 +212,8 @@ pub(super) fn home_slots(home: &mut Home) -> Vec<Slot<'_>> {
     messages
         .iter_mut()
         .filter(|message| {
-            message.surface == "PlayButton"
-                || (message.surface == "InboxMessage"
+            message.surface == bridge::contract::MESSAGE_SURFACE_PLAY_BUTTON
+                || (message.surface == bridge::contract::MESSAGE_SURFACE_INBOX_MESSAGE
                     && launcher::menu::inbox::category_index(&message.category).is_some())
         })
         .flat_map(|message| message.images.iter_mut())
@@ -313,11 +313,19 @@ mod tests {
         };
         let mut home = Home {
             messages: vec![
-                message("PlayButton", "", "https://a.test/play"),
-                message("InboxMessage", "Feedback", "https://a.test/feedback"),
+                message(
+                    bridge::contract::MESSAGE_SURFACE_PLAY_BUTTON,
+                    "",
+                    "https://a.test/play",
+                ),
+                message(
+                    bridge::contract::MESSAGE_SURFACE_INBOX_MESSAGE,
+                    "Feedback",
+                    "https://a.test/feedback",
+                ),
                 message("RemovedSurface", "", "https://a.test/hidden-surface"),
                 message(
-                    "InboxMessage",
+                    bridge::contract::MESSAGE_SURFACE_INBOX_MESSAGE,
                     "RemovedCategory",
                     "https://a.test/hidden-category",
                 ),
@@ -366,7 +374,7 @@ mod tests {
         let mut home = Home {
             persona_head: art("", "/core/persona-head.img"),
             messages: vec![bridge::Message {
-                surface: "PlayButton".into(),
+                surface: bridge::contract::MESSAGE_SURFACE_PLAY_BUTTON.into(),
                 images: vec![bridge::MessageImage {
                     id: "tile".to_owned(),
                     url: "http://insecure.test/t.png".to_owned(),

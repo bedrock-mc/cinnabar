@@ -15,10 +15,11 @@ pub enum ContainerWindow {
     Ui,
 }
 
-pub const CONTAINER_NAME_HOTBAR: u8 = 28;
-pub const CONTAINER_NAME_CREATED_OUTPUT: u8 = 60;
+pub const CONTAINER_NAME_HOTBAR: u8 = protocol_ids::ContainerName::HotBar.wire_value();
+pub const CONTAINER_NAME_CREATED_OUTPUT: u8 =
+    protocol_ids::ContainerName::CreatedOutput.wire_value();
 /// The last container name the pinned protocol enumerates.
-pub const LAST_CONTAINER_NAME: u8 = 66;
+pub const LAST_CONTAINER_NAME: u8 = protocol_ids::ContainerName::RecipeFurnaceItems.wire_value();
 
 /// Classifies one decoded container name; `None` for codes this protocol
 /// version does not enumerate.

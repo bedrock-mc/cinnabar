@@ -1,4 +1,7 @@
 //! Authoritative session data and synchronous committed-event application.
+#[cfg(test)]
+use protocol_ids::{HASHED_AIR_NETWORK_ID, SEQUENTIAL_AIR_NETWORK_ID};
+
 use crate::ingestion::MAX_ADMITTED_WORLD_EVENTS;
 use crate::{
     ActorArmorSnapshot, ActorEquipmentSnapshot, ActorSnapshot, LocalPlayerFeed, PlayerProfile,
@@ -18,8 +21,7 @@ use protocol::{
 use protocol::{
     ActorAttributesUpdateEvent, ActorKind, ActorMetadata, ActorMetadataUpdateEvent,
     ActorMetadataValue, ActorSpawnEvent, CustomBlock, CustomBlockVisuals, CustomSelection,
-    CustomStateAxis, CustomStateValue, HASHED_AIR_NETWORK_ID, PrimitiveShapeChange,
-    SEQUENTIAL_AIR_NETWORK_ID,
+    CustomStateAxis, CustomStateValue, PrimitiveShapeChange,
 };
 use std::{
     collections::BTreeSet,

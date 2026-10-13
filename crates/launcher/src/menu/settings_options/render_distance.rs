@@ -1,11 +1,16 @@
 //! Device recommendations supply defaults without replacing saved choices.
 
+use super::SettingId;
 use super::{SettingDefinition, SettingsOptions};
 
 impl SettingsOptions {
     /// Updates the runtime recommendation without persisting a guessed user preference.
     pub fn set_render_distance_device(&mut self, device: ui::RenderDistanceDevice) -> bool {
-        let defaults = device.defaults();
+        self.set_render_distance_defaults(device.defaults())
+    }
+
+    /// Replaces runtime recommendations without changing saved render-distance choices.
+    pub fn set_render_distance_defaults(&mut self, defaults: ui::RenderDistanceDefaults) -> bool {
         if self.render_distance_defaults == defaults {
             return false;
         }
@@ -20,7 +25,7 @@ impl SettingsOptions {
 
     /// Resolves device-sensitive defaults for untouched options and resets.
     pub(super) fn option_default(&self, option: &SettingDefinition) -> i32 {
-        if option.name == "render_distance" {
+        if option.id == SettingId::RenderDistance {
             self.render_distance_defaults.recommended as i32
         } else {
             option.default
@@ -37,7 +42,7 @@ mod tests {
     fn index() -> usize {
         SETTINGS_OPTIONS
             .iter()
-            .position(|option| option.name == "render_distance")
+            .position(|option| option.id == SettingId::RenderDistance)
             .unwrap()
     }
 
@@ -65,12 +70,12 @@ mod tests {
     fn explicit_choice_equal_to_the_guess_survives_device_changes_and_video_reset() {
         let mut options = SettingsOptions::default();
         options.set_render_distance_device(device(8, 4));
-        assert!(options.set(index(), options.value("render_distance")));
+        assert!(options.set(index(), options.value(SettingId::RenderDistance)));
         let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
         loaded.set_render_distance_device(device(16, 4));
-        assert_eq!(loaded.value("render_distance"), 28);
+        assert_eq!(loaded.value(SettingId::RenderDistance), 28);
         assert!(loaded.reset_group(SettingsGroup::Video));
-        assert_eq!(loaded.value("render_distance"), 35);
+        assert_eq!(loaded.value(SettingId::RenderDistance), 35);
     }
 
     #[test]
@@ -79,7 +84,7 @@ mod tests {
             let bytes = format!(r#"{{"schema":1,"values":{{"render_distance":{value}}}}}"#);
             let mut loaded = SettingsOptions::decode(bytes.as_bytes()).unwrap();
             loaded.set_render_distance_device(device(2, 0));
-            assert_eq!(loaded.value("render_distance"), value);
+            assert_eq!(loaded.value(SettingId::RenderDistance), value);
         }
         let option = SETTINGS_OPTIONS[index()];
         assert_eq!(option.min, ui::MIN_RENDER_DISTANCE_CHUNKS as i32);

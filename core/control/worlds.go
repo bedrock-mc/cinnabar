@@ -8,14 +8,16 @@ import (
 	"io"
 	"net"
 	"time"
+
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 )
 
 const (
-	methodLocalWorld  = "local_world.v1"
-	methodWorldInvite = "world_invite.v1"
+	methodLocalWorld  = bridgecontract.MethodLocalWorld
+	methodWorldInvite = bridgecontract.MethodWorldInvite
 
-	codeWorldFailed = -32000
-	codeWorldBusy   = -32011
+	codeWorldFailed = bridgecontract.RPCWorldFailed
+	codeWorldBusy   = bridgecontract.RPCWorldBusy
 )
 
 // Local-world failures the world methods report by code; a sentinel's message is safe to show.
@@ -109,7 +111,7 @@ func (server *Server) serveWorld(conn net.Conn, id uint64, method string, raw js
 	if err != nil {
 		return reply.fail(worldErrorCode(err), worldErrorMessage(err))
 	}
-	return reply.ok(&WorldResultV1{SchemaVersion: 1})
+	return reply.ok(&WorldResultV1{SchemaVersion: bridgecontract.ControlSchemaVersion})
 }
 
 // validXUID accepts the decimal Xbox user IDs invites address.
@@ -130,7 +132,7 @@ func worldErrorCode(err error) int {
 	case errors.Is(err, ErrWorldNotOpen):
 		return codeWorldBusy
 	case errors.Is(err, ErrWorldInvalid):
-		return -32602
+		return bridgecontract.RPCInvalidParams
 	}
 	return codeWorldFailed
 }

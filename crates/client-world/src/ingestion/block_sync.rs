@@ -1,16 +1,18 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use protocol::SyncedBlockUpdateEvent;
-use world::{MutationError, SUB_CHUNK_SIDE, SubChunkKey};
+use world::{ChunkStore, MutationError, SUB_CHUNK_SIDE, SubChunkKey};
 
 use super::{
     BlockMutationBatch, DecodeIds, PreparedBlockMutations,
     prepare::{prepare_resolved_block_mutations, resolve_block_mutations},
 };
 
+/// Prepares the final terrain and retains earlier cracked-section states and actor transitions.
 pub(super) fn prepare_synced_block_mutations(
     mut batches: Vec<BlockMutationBatch>,
     mut events: Vec<SyncedBlockUpdateEvent>,
+    mut crack_batches: Vec<BlockMutationBatch>,
     ids: &DecodeIds,
 ) -> (
     Result<PreparedBlockMutations, MutationError>,
@@ -53,5 +55,21 @@ pub(super) fn prepare_synced_block_mutations(
             && event.flags & 6 == 2
             && (event.flags & 0x10 != 0 || previous != update.runtime_id)
     });
-    (prepare_resolved_block_mutations(batches, ids), events)
+    let result = prepare_resolved_block_mutations(batches, ids).and_then(|mut prepared| {
+        resolve_block_mutations(&mut crack_batches, ids);
+        let mut previous = BTreeMap::new();
+        for batch in crack_batches {
+            let section = previous.entry(batch.key).or_insert(batch.previous);
+            let mutation = ChunkStore::prepare_sub_chunk_blocks(
+                batch.key,
+                section.as_deref(),
+                &batch.updates,
+                ids.air,
+            )?;
+            *section = mutation.replacement().cloned().map(Arc::new);
+            prepared.crack_intermediates.push(mutation);
+        }
+        Ok(prepared)
+    });
+    (result, events)
 }

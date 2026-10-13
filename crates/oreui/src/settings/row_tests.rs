@@ -44,7 +44,11 @@ fn keyboard_overlay_rows_show_readable_bindings_and_reset_controls() {
                 translate: &|_| None,
                 nested: false,
             };
-            sections::draw(&mut content, "keyboard_and_mouse_forced_index").unwrap();
+            sections::draw(
+                &mut content,
+                launcher::menu::settings_sections::SettingSection::KeyboardAndMouse,
+            )
+            .unwrap();
         });
         let labels: Vec<_> = nodes
             .iter()
@@ -101,7 +105,11 @@ fn passive_clients_have_no_update_settings_actions() {
             translate: &|_| None,
             nested: false,
         };
-        sections::draw(&mut content, "general_forced_index").unwrap();
+        sections::draw(
+            &mut content,
+            launcher::menu::settings_sections::SettingSection::General,
+        )
+        .unwrap();
     });
     let update_options = [
         AUTO_UPDATE_OPTION,
@@ -144,7 +152,11 @@ fn graphics_group_rows_keep_the_same_horizontal_gutters_as_regular_rows() {
                     translate: &|_| None,
                     nested: false,
                 };
-                sections::draw(&mut content, "video_forced_index").unwrap();
+                sections::draw(
+                    &mut content,
+                    launcher::menu::settings_sections::SettingSection::Video,
+                )
+                .unwrap();
                 assert_eq!(content.span, [100.0, 100.0 + width]);
                 assert!(!content.nested);
                 tracks.extend(
@@ -287,7 +299,9 @@ fn cloud_option_has_a_readable_title_and_description_without_locale_data() {
             translate: &|_| None,
             nested: false,
         };
-        content.option("render_clouds").unwrap();
+        content
+            .option(launcher::menu::settings_options::SettingId::RenderClouds)
+            .unwrap();
         let texts: Vec<_> = content
             .canvas
             .nodes
@@ -324,7 +338,7 @@ fn exact_server_ping_setting_has_a_title_description_and_toggle() {
             nested: false,
         };
         content
-            .option(launcher::menu::settings_options::SHOW_EXACT_SERVER_PING)
+            .option(launcher::menu::settings_options::SettingId::ShowExactServerPing)
             .unwrap();
     });
     let labels: String = nodes
@@ -374,7 +388,11 @@ fn command_macro_invalid_draft_shows_a_chat_limit_error() {
             translate: &|_| None,
             nested: false,
         };
-        sections::draw(&mut content, "keyboard_and_mouse_forced_index").unwrap();
+        sections::draw(
+            &mut content,
+            launcher::menu::settings_sections::SettingSection::KeyboardAndMouse,
+        )
+        .unwrap();
     });
     let labels: String = nodes
         .iter()

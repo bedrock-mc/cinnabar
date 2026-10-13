@@ -1,9 +1,13 @@
 package control
 
-import "context"
+import (
+	"context"
+
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+)
 
 // methodFriendsPeople lists the account's Xbox friends for the invite screen.
-const methodFriendsPeople = "friends_people.v1"
+const methodFriendsPeople = bridgecontract.MethodFriendsPeople
 
 // PeopleServices lists the account's Xbox friends, already ordered and bounded for the invite
 // screen; a Services value may implement it.
@@ -26,7 +30,7 @@ type peopleResultV1 struct {
 
 // peopleResult drops trailing friends until the reply fits one control frame.
 func peopleResult(people []Person) peopleResultV1 {
-	result := peopleResultV1{SchemaVersion: 1, Friends: people}
+	result := peopleResultV1{SchemaVersion: bridgecontract.ControlSchemaVersion, Friends: people}
 	if result.Friends == nil {
 		result.Friends = []Person{}
 	}

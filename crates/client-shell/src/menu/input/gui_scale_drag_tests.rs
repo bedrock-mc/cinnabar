@@ -1,4 +1,5 @@
 use bevy::{prelude::*, window::WindowResolution};
+use launcher::menu::settings_options::SettingId;
 use ui::{DpiScale, UiRect};
 
 use super::*;
@@ -38,7 +39,7 @@ fn check_option_slider_drag(presentation: UiPresentationRuntime) {
     ));
     let index = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "main_volume")
+        .position(|option| option.id == SettingId::MainVolume)
         .unwrap() as u16;
     menu.set_option(index, 50);
     let mut app = App::new();
@@ -91,7 +92,7 @@ fn check_option_slider_drag(presentation: UiPresentationRuntime) {
         .expect("rendered volume slider midpoint");
     let music_index = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "music_volume")
+        .position(|option| option.id == SettingId::MusicVolume)
         .unwrap() as u16;
     let music_point = menu_hit_targets(presentation)
         .iter()
@@ -106,26 +107,29 @@ fn check_option_slider_drag(presentation: UiPresentationRuntime) {
         .world()
         .resource::<MenuRuntime>()
         .settings_options
-        .value("music_volume");
+        .value(SettingId::MusicVolume);
     let initial = app
         .world()
         .resource::<MenuRuntime>()
         .settings_options
-        .value("main_volume");
+        .value(SettingId::MainVolume);
     pointer(&mut app, window, Vec2::ZERO, Some(ButtonState::Pressed));
     pointer(&mut app, window, middle, None);
     assert_eq!(
         app.world()
             .resource::<MenuRuntime>()
             .settings_options
-            .value("main_volume"),
+            .value(SettingId::MainVolume),
         initial,
         "pressing outside the slider cannot capture it by moving over it"
     );
     pointer(&mut app, window, music_point, None);
     let options = &app.world().resource::<MenuRuntime>().settings_options;
     assert_eq!(
-        (options.value("main_volume"), options.value("music_volume")),
+        (
+            options.value(SettingId::MainVolume),
+            options.value(SettingId::MusicVolume)
+        ),
         (initial, music),
         "a held outside press stays uncaptured over values that differ from the current ones"
     );
@@ -135,7 +139,7 @@ fn check_option_slider_drag(presentation: UiPresentationRuntime) {
         app.world()
             .resource::<MenuRuntime>()
             .settings_options
-            .value("main_volume"),
+            .value(SettingId::MainVolume),
         50
     );
     pointer(&mut app, window, music_point, None);
@@ -143,7 +147,7 @@ fn check_option_slider_drag(presentation: UiPresentationRuntime) {
         app.world()
             .resource::<MenuRuntime>()
             .settings_options
-            .value("main_volume"),
+            .value(SettingId::MainVolume),
         25,
         "dragging over another slider keeps updating the captured slider"
     );
@@ -151,7 +155,7 @@ fn check_option_slider_drag(presentation: UiPresentationRuntime) {
         app.world()
             .resource::<MenuRuntime>()
             .settings_options
-            .value("music_volume"),
+            .value(SettingId::MusicVolume),
         music
     );
     pointer(&mut app, window, Vec2::ZERO, None);
@@ -159,7 +163,7 @@ fn check_option_slider_drag(presentation: UiPresentationRuntime) {
         app.world()
             .resource::<MenuRuntime>()
             .settings_options
-            .value("main_volume"),
+            .value(SettingId::MainVolume),
         0,
         "held drag leaves the track vertically and clamps to its left end"
     );
@@ -173,14 +177,14 @@ fn check_option_slider_drag(presentation: UiPresentationRuntime) {
         app.world()
             .resource::<MenuRuntime>()
             .settings_options
-            .value("main_volume"),
+            .value(SettingId::MainVolume),
         100
     );
     assert_eq!(
         app.world()
             .resource::<MenuRuntime>()
             .settings_options
-            .value("music_volume"),
+            .value(SettingId::MusicVolume),
         music
     );
     pointer(&mut app, window, middle, Some(ButtonState::Released));
@@ -189,7 +193,7 @@ fn check_option_slider_drag(presentation: UiPresentationRuntime) {
         app.world()
             .resource::<MenuRuntime>()
             .settings_options
-            .value("main_volume"),
+            .value(SettingId::MainVolume),
         100,
         "release prevents subsequent pointer movement from changing volume"
     );
@@ -270,7 +274,7 @@ fn settings_slider_drag_keeps_tracking_outside_hover_until_released() {
     let index = u16::try_from(
         launcher::menu::settings_options::SETTINGS_OPTIONS
             .iter()
-            .position(|option| option.name == "field_of_view")
+            .position(|option| option.id == SettingId::FieldOfView)
             .unwrap(),
     )
     .unwrap();

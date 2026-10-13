@@ -2,44 +2,7 @@
 
 use bevy::prelude::Resource;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum AudioCategory {
-    Master,
-    Music,
-    Sound,
-    Ambient,
-    Players,
-    Blocks,
-    Hostile,
-    Neutral,
-    Records,
-    Weather,
-    Ui,
-}
-
-impl AudioCategory {
-    const COUNT: usize = 11;
-
-    /// Slider bucket of a sound definition's `category`; unknown names use the generic sound bucket.
-    pub fn from_definition(category: Option<&str>) -> Self {
-        match category {
-            Some("music") => Self::Music,
-            Some("ambient") => Self::Ambient,
-            Some("player") => Self::Players,
-            Some("block") => Self::Blocks,
-            Some("hostile") => Self::Hostile,
-            Some("neutral") => Self::Neutral,
-            Some("record") => Self::Records,
-            Some("weather") => Self::Weather,
-            Some("ui") => Self::Ui,
-            _ => Self::Sound,
-        }
-    }
-
-    const fn slot(self) -> usize {
-        self as usize
-    }
-}
+use assets::audio_category::AudioCategory;
 
 /// Volume sliders in `[0, 1]`; the master slider scales every other category.
 #[derive(Resource, Clone, Debug, PartialEq)]

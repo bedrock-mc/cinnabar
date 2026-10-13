@@ -1,6 +1,7 @@
 //! Frame capture: one shared readback per frame, F2 screenshots encoded off-thread and
 //! reported in chat.
 
+use launcher::menu::settings_options::BindingId;
 use std::{
     fs::{self, File},
     io::{self, BufWriter, Write},
@@ -167,7 +168,7 @@ fn capture_on_key(
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
         || !client_shell::menu::settings_options::control_bindings::binding_pressed(
             menu.as_deref(),
-            "key.screenshot",
+            BindingId::Screenshot,
             &keys,
             &mouse,
         )
