@@ -7,6 +7,9 @@ use {
     ui::IconRef,
 };
 
+mod fit;
+
+/// A signed-in home view with a stable identity and no downloaded artwork.
 fn view() -> MenuView {
     let mut view = MenuView::new(true, "Fallback".into());
     view.auth_state = launcher::menu::auth::AuthState::Authenticated;
@@ -101,10 +104,7 @@ fn compact_and_short_home_keep_all_actions_reachable() {
             targets = c.focus_hits.clone();
         });
         assert!(preview.is_none(), "short screens prioritize usable actions");
-        let scroll = scrolls.first().unwrap();
-        if size[1] < 500.0 {
-            assert!(scroll.max > 0.0);
-        }
+        assert!(scrolls.is_empty(), "home actions fit without scrolling");
         for action in [
             MenuAction::Navigate(MenuScreen::Play),
             MenuAction::Navigate(MenuScreen::Servers),
@@ -122,8 +122,7 @@ fn compact_and_short_home_keep_all_actions_reachable() {
                 .find(|(found, _)| *found == action)
                 .unwrap()
                 .1;
-            let offset = (target.max().y() - scroll.viewport.max().y()).clamp(0.0, scroll.max);
-            let (_, hits, _) = paint(HashMap::from([(scroll.key.clone(), offset)]), |c| {
+            let (_, hits, _) = paint(HashMap::new(), |c| {
                 draw(c, &view, size, None, &|_| None).unwrap();
             });
             let bounds = hits
@@ -131,6 +130,7 @@ fn compact_and_short_home_keep_all_actions_reachable() {
                 .find(|(found, _)| *found == action)
                 .unwrap_or_else(|| panic!("missing {action:?} at {size:?}; hits: {hits:?}"))
                 .1;
+            assert_eq!(bounds, target, "{action:?} must be fully visible");
             assert!(bounds.min().y() >= 0.0 && bounds.max().y() <= size[1]);
             assert!(bounds.min().x() >= 0.0 && bounds.max().x() <= size[0]);
             for (i, (_, a)) in hits.iter().enumerate() {

@@ -12,6 +12,7 @@ pub mod persistence;
 pub mod render_distance;
 pub mod reset;
 pub mod runtime;
+pub mod video_presets;
 pub use chat::CHAT_POSITION_OPTION;
 pub use reset::SettingsGroup;
 #[cfg(test)]
